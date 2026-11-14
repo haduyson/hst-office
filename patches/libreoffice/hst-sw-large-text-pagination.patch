@@ -3,19 +3,89 @@ Writer: a large plain text file is laid out page by page instead of moving every
 Text files have no layout cache, and upstream removed the paragraphs-per-page guess in SwLayHelper
 (tdf#166871), so all paragraphs of a newly opened .txt are created on the first page. Each page break
 then moves the whole rest of the document to the next page: SwFrame::GetNextLeaf() walks all following
-frames and SwFlowFrame::PasteTree() reparents them (CheckDirChange for each), and SwLayAction visits
-them again. That is O(paragraphs x pages): a 50 MB file of short lines took about 20 minutes of full
-layout, 93 % of the samples in those loops.
+frames, SwFlowFrame::PasteTree() reparents them (CheckDirChange for each) and SwLayAction visits them
+again. That is O(paragraphs x pages): a 50 MB file of short lines took about 20 minutes of full layout,
+93 % of the samples in those loops, and the window stopped answering for the whole time.
 
 For documents opened by the plain text filters (TEXT, TEXT_DLG) with at least 3000 paragraphs, no
 header, footer or columns, SwLayHelper now inserts a page when the paragraphs on the current page are
-estimated to fill 90 % of the body. The estimate deliberately overstates each paragraph (1.5 x font
-height per line, 0.6 em per Latin character, 1 em per wide character, 3 em per tab, line spacing and
-paragraph spacing included), so pages start underfilled and the normal layout pulls the following
-paragraphs back; every move is bounded by one page. The final pagination is the same as before; the
-new test compares every page start with the old start-to-end layout (HST_SW_TEXT_PAGINATION=0 turns
-the estimate off for that comparison). Other formats and small text files are unchanged.
+estimated to fill 90 % of the body. The estimate overstates each paragraph (2 x font height per line,
+0.7 em per Latin character, 1 em per wide character, 3 em per tab, line and paragraph spacing
+included), so pages start underfilled and the normal layout pulls the following paragraphs back; every
+move is bounded by one page. The final pagination is the same as before; the new test compares every
+page start with the start-to-end layout (HST_SW_TEXT_PAGINATION=0 turns the estimate off for that).
 
+Pulling paragraphs back briefly empties pages in the middle, and removing such a page (or creating the
+pre-estimated pages) recomputed the position of every page and moved all their frames each time
+(SwRootFrame::CheckViewLayout), and changed the left/right format of every following page, each again
+with CheckViewLayout. For such documents only (SwRootFrame::IsLargeTextPagination), CheckPageDescs,
+RemoveSuperfluous and the frame creation now compute the page positions once at the end of their run
+(SwViewLayoutDeferGuard), and SwLayAction's outer loop limit, one run per page, grows with the page
+count instead of interrupting every layout pass of a text over 10000 pages. Other documents are
+unchanged.
+
+--- a/sw/source/core/inc/rootfrm.hxx
++++ b/sw/source/core/inc/rootfrm.hxx
+@@ -100,6 +100,12 @@
+     sal_uInt16  mnColumns;          // the current page layout bases on this number of columns
+     bool    mbBookMode;             // the current page layout is in book view
+     bool    mbSidebarChanged;       // the notes sidebar state has changed
++    /// A large plain text was put on estimated pages while its frames were created (laycache.cxx):
++    /// page positions are computed once per batch of page changes, and the layout loop limit grows
++    /// with the page count.
++    bool    mbLargeTextPagination = false;
++    sal_uInt16 mnViewLayoutLock = 0; // >0: CheckViewLayout(nullptr, nullptr) only marks mbViewLayoutDirty
++    bool    mbViewLayoutDirty = false;
+ 
+     bool    mbNeedGrammarCheck;     // true when sth needs to be checked (not necessarily started yet!)
+ 
+@@ -421,6 +427,17 @@
+     bool IsLeftToRightViewLayout() const;
+     const SwRect& GetPagesArea() const { return maPagesArea; }
+     void SetSidebarChanged() { mbSidebarChanged = true; }
++    bool IsLargeTextPagination() const { return mbLargeTextPagination; }
++    void SetLargeTextPagination() { mbLargeTextPagination = true; }
++    void LockViewLayout() { ++mnViewLayoutLock; }
++    void UnlockViewLayout()
++    {
++        if (--mnViewLayoutLock == 0 && mbViewLayoutDirty)
++        {
++            mbViewLayoutDirty = false;
++            CheckViewLayout(nullptr, nullptr);
++        }
++    }
+ 
+     bool IsLayoutFreezed() const { return mbLayoutFreezed; }
+     void FreezeLayout( bool freeze ) { mbLayoutFreezed = freeze; }
+@@ -481,6 +498,28 @@
+         }
+ };
+ 
++/// For a large plain text (SwRootFrame::IsLargeTextPagination): page positions are computed once
++/// when the scope ends instead of after every inserted, removed or reformatted page.
++class SwViewLayoutDeferGuard
++{
++    SwRootFrame* m_pRoot;
++
++public:
++    explicit SwViewLayoutDeferGuard(SwRootFrame* pRoot)
++        : m_pRoot(pRoot && pRoot->IsLargeTextPagination() ? pRoot : nullptr)
++    {
++        if (m_pRoot)
++            m_pRoot->LockViewLayout();
++    }
++    ~SwViewLayoutDeferGuard()
++    {
++        if (m_pRoot)
++            m_pRoot->UnlockViewLayout();
++    }
++    SwViewLayoutDeferGuard(const SwViewLayoutDeferGuard&) = delete;
++    SwViewLayoutDeferGuard& operator=(const SwViewLayoutDeferGuard&) = delete;
++};
++
+ #endif // INCLUDED_SW_SOURCE_CORE_INC_ROOTFRM_HXX
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sw/source/core/layout/laycache.cxx
 +++ b/sw/source/core/layout/laycache.cxx
 @@ -47,6 +47,22 @@
@@ -41,17 +111,18 @@ the estimate off for that comparison). Other formats and small text files are un
  
  #include <limits>
  
-@@ -529,6 +545,9 @@
+@@ -529,6 +545,10 @@
      , mbBreakAfter(false)
      , mrDoc(rDoc)
      , mnFlyIdx( 0 )
 +    , mnTextPageBudget( 0 )
 +    , mnTextPageUsed( 0 )
 +    , mnTextBodyWidth( 0 )
++    , mpTextRoot( nullptr )
      , mbFirst( bCache )
  {
      mpImpl = mrDoc.GetLayoutCache() ? mrDoc.GetLayoutCache()->LockImpl() : nullptr;
-@@ -552,9 +571,98 @@
+@@ -552,11 +572,107 @@
      {
          mnIndex = std::numeric_limits<size_t>::max();
          mnStartOfContent = NODE_OFFSET_MAX;
@@ -110,6 +181,10 @@ the estimate off for that comparison). Other formats and small text files are un
 +        return;
 +    mnTextBodyWidth = nWidth;
 +    mnTextPageBudget = nHeight * 9 / 10;
++    // Every inserted page would compute the positions of all pages: do it once at the end.
++    mpTextRoot = mrpPage->getRootFrame();
++    mpTextRoot->SetLargeTextPagination();
++    mpTextRoot->LockViewLayout();
 +}
 +
 +/// Generous height estimate of the paragraph mrpFrame, which is about to be inserted (0: estimate off).
@@ -125,10 +200,11 @@ the estimate off for that comparison). Other formats and small text files are un
 +    const tools::Long nFont = std::max({ tools::Long(rSet.GetSize().GetHeight()),
 +                                         tools::Long(rSet.GetCJKSize().GetHeight()),
 +                                         tools::Long(rSet.GetCTLSize().GetHeight()), tools::Long(1) });
-+    // Guess the paragraph taller than it is: 1.5 x font height per line, Latin characters 0.6 em
-+    // wide, wide (CJK) characters 1 em and tabs 3 em.
++    // Guess the paragraph taller than it is: 2 x font height per line, Latin characters 0.7 em
++    // wide, wide (CJK) characters 1 em and tabs 3 em. Too tall only costs pulling paragraphs back
++    // (O(paragraphs)); too short would push a growing rest from page to page.
 +    const SvxLineSpacingItem& rSpacing = rSet.GetLineSpacing();
-+    tools::Long nLine = nFont * 3 / 2;
++    tools::Long nLine = nFont * 2;
 +    if (rSpacing.GetInterLineSpaceRule() == SvxInterLineSpaceRule::Prop)
 +        nLine = nLine * std::max<tools::Long>(100, rSpacing.GetPropLineSpace()) / 100;
 +    else if (rSpacing.GetInterLineSpaceRule() == SvxInterLineSpaceRule::Fix)
@@ -140,7 +216,7 @@ the estimate off for that comparison). Other formats and small text files are un
 +    for (sal_Int32 i = 0; i < rText.getLength(); ++i)
 +    {
 +        const sal_Unicode c = rText[i];
-+        nWidth10 += c == '\t' ? 30 : (c >= 0x1100 ? 10 : 6);
++        nWidth10 += c == '\t' ? 30 : (c >= 0x1100 ? 10 : 7);
 +    }
 +    const sal_Int64 nLines = 1 + nWidth10 * nFont / 10 / mnTextBodyWidth;
 +    const SvxULSpaceItem& rUL = rSet.GetULSpace();
@@ -149,8 +225,12 @@ the estimate off for that comparison). Other formats and small text files are un
 +
  SwLayHelper::~SwLayHelper()
  {
++    if (mpTextRoot)
++        mpTextRoot->UnlockViewLayout();
      if( mpImpl )
-@@ -822,7 +930,12 @@
+     {
+         assert(mrDoc.GetLayoutCache() && "Missing layoutcache");
+@@ -822,7 +938,12 @@
              }
  
              SwPageFrame* pLastPage = mrpPage;
@@ -166,7 +246,7 @@ the estimate off for that comparison). Other formats and small text files are un
                  if( mrpPrv && mrpPrv->IsTextFrame() && !mrpPrv->isFrameAreaSizeValid() )
 --- a/sw/source/core/layout/layhelp.hxx
 +++ b/sw/source/core/layout/layhelp.hxx
-@@ -117,8 +117,15 @@
+@@ -117,8 +117,16 @@
      SwNodeOffset mnStartOfContent;
      size_t mnIndex;                          ///< the index in the page break array
      size_t mnFlyIdx;                         ///< the index in the fly cache array
@@ -175,6 +255,7 @@ the estimate off for that comparison). Other formats and small text files are un
 +    tools::Long mnTextPageBudget;
 +    tools::Long mnTextPageUsed;
 +    tools::Long mnTextBodyWidth;
++    SwRootFrame* mpTextRoot; ///< the root whose page positions are deferred while frames are created
      bool mbFirst : 1;
      void CheckFlyCache_( SwPageFrame* pPage );
 +    void InitTextPagination( SwNodeOffset nNodeIndex );
@@ -182,6 +263,74 @@ the estimate off for that comparison). Other formats and small text files are un
  public:
      SwLayHelper( SwDoc& rDoc, SwFrame* &rpF, SwFrame* &rpP, SwPageFrame* &rpPg,
              SwLayoutFrame* &rpL, std::unique_ptr<SwActualSection> &rpA,
+--- a/sw/source/core/layout/layact.cxx
++++ b/sw/source/core/layout/layact.cxx
+@@ -524,7 +524,10 @@
+     };
+ 
+     int nOuterLoopControlRuns = 0;
+-    const int nOuterLoopControlMax = 10000;
++    // one run per page: a large plain text (laycache.cxx) may have more than 10000 pages
++    const int nOuterLoopControlMax = m_pRoot->IsLargeTextPagination()
++                                         ? std::max(10000, 4 * int(m_pRoot->GetPageNum()))
++                                         : 10000;
+     while ( (pPage && !IsInterrupt()) || m_nCheckPageNum != USHRT_MAX )
+     {
+         // Fix infinite loop in sw_ooxmlexport17 unit test
+--- a/sw/source/core/layout/pagechg.cxx
++++ b/sw/source/core/layout/pagechg.cxx
+@@ -22,6 +22,7 @@
+ #include <comphelper/lok.hxx>
+ #include <ndole.hxx>
+ #include <sal/log.hxx>
++#include <optional>
+ #include <osl/diagnose.h>
+ #include <svl/itemiter.hxx>
+ #include <fmtfsize.hxx>
+@@ -1298,6 +1299,7 @@
+     SwPageFrame *pPage = pStart;
+     if( pPage->GetPrev() && static_cast<SwPageFrame*>(pPage->GetPrev())->IsEmptyPage() )
+         pPage = static_cast<SwPageFrame*>(pPage->GetPrev());
++    std::optional<SwViewLayoutDeferGuard> oDeferViewLayout(std::in_place, pRoot);
+     while ( pPage )
+     {
+         SwPageFrame *pPrevPage = static_cast<SwPageFrame*>(pPage->GetPrev());
+@@ -1480,6 +1482,7 @@
+         }
+         pPage = static_cast<SwPageFrame*>(pPage->GetNext());
+     }
++    oDeferViewLayout.reset();
+ 
+     pRoot->SetAssertFlyPages();
+     SwRootFrame::AssertPageFlys( pStart );
+@@ -1725,6 +1728,7 @@
+     tools::Long nDocPos = LONG_MAX;
+ 
+     // Check the corresponding last page if it is empty and stop loop at the last non-empty page.
++    std::optional<SwViewLayoutDeferGuard> oDeferViewLayout(std::in_place, this);
+     do
+     {
+         if (!sw::IsPageFrameEmpty(*pPage))
+@@ -1749,6 +1753,7 @@
+             nDocPos = pPage ? pPage->getFrameArea().Top() : 0;
+         }
+     } while ( pPage );
++    oDeferViewLayout.reset();
+ 
+     SwViewShell *pSh = getRootFrame()->GetCurrShell();
+     if ( nDocPos != LONG_MAX &&
+@@ -2337,6 +2342,11 @@
+ 
+     if ( !pVisArea )
+     {
++        if (mnViewLayoutLock) // SwViewLayoutDeferGuard: once at the end of its scope
++        {
++            mbViewLayoutDirty = true;
++            return;
++        }
+         // no early return for bNewPage
+         if ( mnViewWidth < 0 )
+             mnViewWidth = 0;
 --- a/sw/CppunitTest_sw_core_layout.mk
 +++ b/sw/CppunitTest_sw_core_layout.mk
 @@ -21,6 +21,7 @@
