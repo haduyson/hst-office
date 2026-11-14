@@ -153,7 +153,7 @@ test also saves the large text as .odt and .docx and checks that reloading them 
      , mbFirst( bCache )
  {
      mpImpl = mrDoc.GetLayoutCache() ? mrDoc.GetLayoutCache()->LockImpl() : nullptr;
-@@ -552,11 +591,158 @@
+@@ -552,11 +591,166 @@
      {
          mnIndex = std::numeric_limits<size_t>::max();
          mnStartOfContent = NODE_OFFSET_MAX;
@@ -264,6 +264,14 @@ test also saves the large text as .odt and .docx and checks that reloading them 
 +        rM.mnLine = pOut->GetTextHeight() + pOut->GetFontMetric().GetExternalLeading();
 +        pOut->Pop();
 +    }
++    // A device that measures lines far below the font size (seen in a disconnected Windows
++    // session) lays out far shorter paragraphs than estimated: every page would be pulled back to
++    // the first one, O(paragraphs * pages). Leave such a text to the normal layout.
++    if (rM.mnLine < nHeight / 2)
++    {
++        mnTextPageBudget = 0;
++        return 0;
++    }
 +    const OUString& rText = rFrame.GetText();
 +    tools::Long nWidth = 0;
 +    bool bPushed = false;
@@ -312,7 +320,7 @@ test also saves the large text as .odt and .docx and checks that reloading them 
      if( mpImpl )
      {
          assert(mrDoc.GetLayoutCache() && "Missing layoutcache");
-@@ -822,7 +1008,12 @@
+@@ -822,7 +1016,12 @@
              }
  
              SwPageFrame* pLastPage = mrpPage;
