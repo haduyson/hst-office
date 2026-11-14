@@ -75,7 +75,7 @@ def command_letters(office, args, app, doc, label):
         key(args, "Alt_L")
         letters(args, "RC")
         time.sleep(1.5)
-        key(args, "Escape")
+        key(args, "x", "Escape")  # an empty comment is removed when it loses the focus
         record(label("Alt, R, C adds a comment (New Comment)"), count() == before + 1, f"{before} -> {count()}")
     elif app == "calc":
         sheet = doc.Sheets.getByIndex(0)
@@ -91,13 +91,23 @@ def command_letters(office, args, app, doc, label):
         pages = doc.DrawPages
         before = pages.Count
         key(args, "Alt_L")
-        letters(args, "NSI")
+        letters(args, "NS")
+        if args.shots:
+            office.screenshot(os.path.join(args.shots, "impress-insert-S.png"))
+        letters(args, "I")
         time.sleep(1.5)
-        record(label("Alt, N, SI adds a slide (Insert tab)"), pages.Count == before + 1, f"{before} -> {pages.Count}")
+        if args.shots:
+            office.screenshot(os.path.join(args.shots, "impress-after-NSI.png"))
+        # as in the suite, SI opens the New Slide layouts; Enter takes the highlighted one
+        key(args, "Return")
+        time.sleep(1.5)
+        record(label("Alt, N, SI, Enter adds a slide (Insert tab)"), pages.Count == before + 1, f"{before} -> {pages.Count}")
         key(args, "Alt_L")
         letters(args, "HI")
         time.sleep(1.5)
-        record(label("Alt, H, I adds a slide (Home tab)"), pages.Count == before + 2, f"{before} -> {pages.Count}")
+        key(args, "Return")
+        time.sleep(1.5)
+        record(label("Alt, H, I, Enter adds a slide (Home tab)"), pages.Count == before + 2, f"{before} -> {pages.Count}")
 
 
 def iter_enum(access):
@@ -138,7 +148,9 @@ def shortcut_matrix(office, args, app, doc, label):
         before = {w for w, _ in hst_gui.toplevels(office.display, office.pid)}
         key(args, "ctrl+F2")
         time.sleep(2)
-        name = office.desktop().getCurrentFrame().getController().getImplementationName()
-        record(label("Ctrl+F2 opens Print Preview"), "Preview" in name or "PagePreview" in name, name)
+        # the print preview's controller has no view cursor (Writer) or active sheet (Sheets)
+        controller = doc.getCurrentController()
+        normal = hasattr(controller, "getViewCursor") if app == "writer" else hasattr(controller, "getActiveSheet")
+        record(label("Ctrl+F2 opens Print Preview"), not normal, type(controller))
         key(args, "Escape")
         new_window(office, before, timeout=1)

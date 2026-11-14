@@ -71,6 +71,8 @@ def writer(office, doc, hwnd, res, out):
     before = annotations(doc)
     alt_tip(hwnd, "RC")
     time.sleep(1.5)
+    wg.chord(ord("X"), target=hwnd, front=False)  # an empty comment is removed when it loses the focus
+    time.sleep(0.5)
     esc(hwnd)
     res("[writer] Alt, R, C adds a comment", annotations(doc) == before + 1, f"{before} -> {annotations(doc)}")
     wg.chord(VK_CTRL, VK_ALT, ord("F"), target=hwnd)
@@ -111,8 +113,13 @@ def impress(office, doc, hwnd, res, out):
     before = pages.Count
     alt_tip(hwnd, "NSI")
     time.sleep(1.5)
+    wg.screenshot(os.path.join(out, "impress-3-new-slide-layouts.png"))
+    wg.chord(0x0D, target=hwnd, front=False)  # as in the suite, SI opens the layouts; Enter takes the highlighted one
+    time.sleep(1.5)
     res("[impress] Alt, N, SI adds a slide", pages.Count == before + 1, f"{before} -> {pages.Count}")
     alt_tip(hwnd, "HI")
+    time.sleep(1.5)
+    wg.chord(0x0D, target=hwnd, front=False)
     time.sleep(1.5)
     res("[impress] Alt, H, I adds a slide", pages.Count == before + 2, f"{before} -> {pages.Count}")
     before_dialogs = len(wg.dialogs(office))
