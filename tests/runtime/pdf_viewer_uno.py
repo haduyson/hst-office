@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """HST PDF over UNO for the runtime checks: open a PDF in the viewer, .uno:HSTPdfInfo, sign a
-copy, and the handover to HST Draw (hidden loads, "Edit in HST Draw", the option off)."""
+copy, and the handover to HST Draw (hidden loads, "Edit PDF File" (Sửa tệp PDF), the option off)."""
 import threading
 import time
 
@@ -88,7 +88,7 @@ def check_draw_handover(office, samples, checks):
     frames = office.desktop().getFrames()
     viewers = [frames.getByIndex(i) for i in range(frames.getCount())
                if getattr(frames.getByIndex(i).getController(), "ImplementationName", "") == VIEWER]
-    assert not viewers, "the viewer window stays open after Edit in HST Draw"
+    assert not viewers, "the viewer window stays open after Edit PDF File"
     draw.close(True)
     checks["edit_in_draw_replaces_viewer"] = True
 
