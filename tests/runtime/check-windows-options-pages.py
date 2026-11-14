@@ -133,11 +133,8 @@ def main():
                   ink > INK, {"window": rect, "screenshot": shot})
             wg.close_dialog(dialog)
             thread.join(20)
-            if thread.is_alive():  # endExecute is not offered by the Options dialog: Escape it with real keys
-                hwnd = wg.hwnd_of(title)
-                if hwnd:
-                    wg.foreground(hwnd)
-                wg.keys("escape")
+            if thread.is_alive():  # still open: WM_CLOSE to its own window (never a key to the foreground window)
+                wg.close_hwnd(wg.hwnd_of(title))
                 thread.join(20)
             check.note("%s: dialog closed" % label, not thread.is_alive())
         doc.close(True)
