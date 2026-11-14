@@ -1,0 +1,463 @@
+HST Office: rich ribbon tooltips. Hovering a ribbon button shows its name and shortcut in bold and, below, one
+plain sentence saying what the command does (owner decision for 1.0.2).
+
+- QuickHelpFlags::RichTitle marks such a tip: its first line ("Name (Shortcut)") is drawn bold, the rest is the
+  description, wrapped to about two lines (at least the title's width, at most the sentence's own width, otherwise
+  3/5 of it). HelpTextWindow draws it on Windows, macOS and the gen back end with the theme's tooltip colours;
+  GTK shows it natively as markup (SalFrame::ShowRichTooltip, which falls back to the plain ShowTooltip on back
+  ends without rich tips). The tip delay, position and hide timer are unchanged.
+- NotebookbarToolBox (every ribbon toolbox built from a notebookbar .ui) answers quick help requests itself
+  (hst::ribbon::RequestRichHelp): it takes the item's quick help text, adds the sentence of the item's command for
+  the frame's module from HstRibbonTooltipTable.hrc (hst-ribbon-tooltip-descriptions.patch, generated from
+  data/ribbon/tooltip-descriptions.json) unless the .ui already gave a second line (hst-ribbon-description), and
+  shows it as a RichTitle tip. A command without a sentence shows its name only. Extended tips (Shift+F1) and
+  item windows (font name box...) keep their own help.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/include/vcl/help.hxx
++++ b/include/vcl/help.hxx
+@@ -44,10 +44,12 @@
+     TipStyleBalloon   = 0x0100,
+     NoEvadePointer    = 0x0200,
+     BiDiRtl           = 0x0400,
++/// HST Office: ribbon tooltip; the first line (name and shortcut) is bold, the rest is a wrapped description
++    RichTitle         = 0x0800,
+ };
+ namespace o3tl
+ {
+-    template<> struct typed_flags<QuickHelpFlags> : is_typed_flags<QuickHelpFlags, 0x77f> {};
++    template<> struct typed_flags<QuickHelpFlags> : is_typed_flags<QuickHelpFlags, 0xf7f> {};
+ }
+ 
+ #define OOO_HELP_INDEX          ".help:index"
+--- a/vcl/inc/helpwin.hxx
++++ b/vcl/inc/helpwin.hxx
+@@ -38,6 +38,7 @@
+     tools::Rectangle           maHelpArea; // If next Help for the same rectangle w/ same text, then keep window
+ 
+     tools::Rectangle           maTextRect; // For wrapped text in QuickHelp
++    tools::Long                mnRichTitleHeight = 0; // HST: bold first line of a RichTitle tip, gap included
+ 
+     OUString            maHelpText;
+ 
+@@ -56,6 +57,9 @@
+ 
+     virtual OUString GetText() const override;
+     void ImplShow();
++    // HST: lays out a RichTitle tip: the bold title line over the description wrapped to about two lines
++    void ImplLayoutRich();
++    void ImplPaintRich(vcl::RenderContext& rRenderContext);
+ 
+     virtual void        dispose() override;
+ public:
+--- a/vcl/source/app/help.cxx
++++ b/vcl/source/app/help.cxx
+@@ -32,6 +32,9 @@
+ #include <vcl/settings.hxx>
+ 
+ #include <helpwin.hxx>
++
++#include <algorithm>
++#include <utility>
+ #include <salframe.hxx>
+ #include <svdata.hxx>
+ 
+@@ -323,7 +326,9 @@
+ {
+     maHelpText = rHelpText;
+     ApplySettings(*GetOutDev());
+-    if ( meHelpWinStyle == HelpWinStyle::Quick && maHelpText.getLength() < HELPTEXTMAXLEN && maHelpText.indexOf('\n') < 0)
++    if (mnStyle & QuickHelpFlags::RichTitle)
++        ImplLayoutRich();
++    else if ( meHelpWinStyle == HelpWinStyle::Quick && maHelpText.getLength() < HELPTEXTMAXLEN && maHelpText.indexOf('\n') < 0)
+     {
+         Size aSize;
+         aSize.setHeight( GetTextHeight() );
+@@ -364,6 +369,71 @@
+         PaintImmediately();
+ }
+ 
++namespace
++{
++constexpr DrawTextFlags RICH_BODY_FLAGS
++    = DrawTextFlags::MultiLine | DrawTextFlags::WordBreak | DrawTextFlags::Left | DrawTextFlags::Top;
++
++// HST Office: a RichTitle tip is "title\ndescription"; the title is the command name and its shortcut
++std::pair<OUString, OUString> SplitRichText(const OUString& rText)
++{
++    const sal_Int32 nBreak = rText.indexOf('\n');
++    if (nBreak < 0)
++        return { rText, OUString() };
++    return { rText.copy(0, nBreak), rText.copy(nBreak + 1) };
++}
++
++void SetBoldFont(vcl::RenderContext& rRenderContext)
++{
++    vcl::Font aBold(rRenderContext.GetFont());
++    aBold.SetWeight(WEIGHT_BOLD);
++    rRenderContext.SetFont(aBold);
++}
++}
++
++void HelpTextWindow::ImplLayoutRich()
++{
++    // HST Office: the bold title on its own line, then the description wrapped to about two lines: at least
++    // the title's width, at most the description's own width, otherwise 3/5 of it (36 average characters
++    // at least), so a sentence of up to 90 characters takes two lines
++    const auto [aTitle, aBody] = SplitRichText(maHelpText);
++    OutputDevice& rDev = *GetOutDev();
++    rDev.Push(vcl::PushFlags::FONT);
++    SetBoldFont(rDev);
++    const tools::Long nTitleWidth = rDev.GetTextWidth(aTitle);
++    const tools::Long nTitleHeight = rDev.GetTextHeight();
++    rDev.Pop();
++    Size aSize(nTitleWidth, nTitleHeight);
++    mnRichTitleHeight = nTitleHeight;
++    if (!aBody.isEmpty())
++    {
++        const tools::Long nBodyWidth = rDev.GetTextWidth(aBody);
++        const tools::Long nMinWrap = rDev.GetTextWidth(OUString::Concat(RepeatedUChar('x', 36)));
++        const tools::Long nWrap
++            = std::max(nTitleWidth, std::min(nBodyWidth, std::max(nMinWrap, nBodyWidth * 3 / 5)));
++        const tools::Rectangle aBodyRect = rDev.GetTextRect(
++            tools::Rectangle(Point(), Size(nWrap, 0x7FFFFFFF)), aBody, RICH_BODY_FLAGS);
++        mnRichTitleHeight = nTitleHeight + nTitleHeight / 3;
++        aSize = Size(std::max(nTitleWidth, aBodyRect.GetWidth()), mnRichTitleHeight + aBodyRect.GetHeight());
++    }
++    maTextRect = tools::Rectangle(Point(HELPTEXTMARGIN_BALLOON, HELPTEXTMARGIN_BALLOON), aSize);
++}
++
++void HelpTextWindow::ImplPaintRich(vcl::RenderContext& rRenderContext)
++{
++    const auto [aTitle, aBody] = SplitRichText(maHelpText);
++    rRenderContext.Push(vcl::PushFlags::FONT | vcl::PushFlags::TEXTCOLOR);
++    const Color aTextColor(rRenderContext.GetTextColor());
++    SetBoldFont(rRenderContext);
++    rRenderContext.SetTextColor(aTextColor);
++    rRenderContext.DrawText(maTextRect.TopLeft(), aTitle);
++    rRenderContext.Pop();
++    if (!aBody.isEmpty())
++        rRenderContext.DrawText(tools::Rectangle(Point(maTextRect.Left(), maTextRect.Top() + mnRichTitleHeight),
++                                                 maTextRect.BottomRight()),
++                                aBody, RICH_BODY_FLAGS);
++}
++
+ void HelpTextWindow::ImplShow()
+ {
+     VclPtr<HelpTextWindow> xWindow( this );
+@@ -385,7 +455,9 @@
+     }
+ 
+     // paint text
+-    if (meHelpWinStyle == HelpWinStyle::Quick && maHelpText.getLength() < HELPTEXTMAXLEN && maHelpText.indexOf('\n') < 0)
++    if (mnStyle & QuickHelpFlags::RichTitle)
++        ImplPaintRich(rRenderContext);
++    else if (meHelpWinStyle == HelpWinStyle::Quick && maHelpText.getLength() < HELPTEXTMAXLEN && maHelpText.indexOf('\n') < 0)
+     {
+         if ( mnStyle & QuickHelpFlags::CtrlText )
+             rRenderContext.DrawCtrlText(maTextRect.TopLeft(), maHelpText);
+@@ -486,7 +558,11 @@
+                                QuickHelpFlags nStyle, const OUString& rHelpText,
+                                const Point& rScreenPos, const tools::Rectangle& rHelpArea)
+ {
+-    if (pParent->ImplGetFrame()->ShowTooltip(rHelpText, rHelpArea))
++    // HST Office: a ribbon tooltip (RichTitle) has its first line in bold, natively where the back end can
++    const bool bNative = (nStyle & QuickHelpFlags::RichTitle)
++                             ? pParent->ImplGetFrame()->ShowRichTooltip(rHelpText, rHelpArea)
++                             : pParent->ImplGetFrame()->ShowTooltip(rHelpText, rHelpArea);
++    if (bNative)
+     {
+         //tooltips are handled natively, return early
+         return;
+@@ -502,7 +578,8 @@
+     {
+         SAL_WARN_IF( pHelpWin == pParent, "vcl", "HelpInHelp ?!" );
+ 
+-        bool bRemoveHelp = (rHelpText.isEmpty() || (pHelpWin->GetWinStyle() != eHelpWinStyle))
++        bool bRemoveHelp = (rHelpText.isEmpty() || (pHelpWin->GetWinStyle() != eHelpWinStyle)
++                            || ((pHelpWin->GetStyle() ^ nStyle) & QuickHelpFlags::RichTitle))
+                             && aHelpData.mbRequestingHelp;
+ 
+         if (!bRemoveHelp && pHelpWin->GetParent() == pParent)
+--- a/vcl/inc/salframe.hxx
++++ b/vcl/inc/salframe.hxx
+@@ -276,6 +276,13 @@
+         return false;
+     }
+ 
++    // HST Office: a ribbon tooltip whose first line (name and shortcut) is shown in bold above the description;
++    // return true when shown natively. Back ends without rich tips show the plain text.
++    virtual bool            ShowRichTooltip(const OUString& rHelpText, const tools::Rectangle& rHelpArea)
++    {
++        return ShowTooltip(rHelpText, rHelpArea);
++    }
++
+     // return !0 to indicate popovers are shown natively, 0 otherwise
+     virtual void*           ShowPopover(const OUString& /*rHelpText*/, vcl::Window* /*pParent*/, const tools::Rectangle& /*rHelpArea*/, QuickHelpFlags /*nFlags*/)
+     {
+--- a/vcl/inc/unx/gtk/gtkframe.hxx
++++ b/vcl/inc/unx/gtk/gtkframe.hxx
+@@ -210,6 +210,7 @@
+     bool                            m_bDefaultPos;
+     bool                            m_bDefaultSize;
+     bool                            m_bTooltipBlocked;
++    bool                            m_bTooltipRich = false; // HST: bold first line (ShowRichTooltip)
+     OUString                        m_sWMClass;
+ 
+     std::unique_ptr<IMHandler>      m_pIMHandler;
+@@ -612,6 +613,7 @@
+     void                        BlockTooltip();
+     void                        UnblockTooltip();
+     virtual bool                ShowTooltip(const OUString& rHelpText, const tools::Rectangle& rHelpArea) override;
++    virtual bool                ShowRichTooltip(const OUString& rHelpText, const tools::Rectangle& rHelpArea) override;
+     virtual void*               ShowPopover(const OUString& rHelpText, vcl::Window* pParent, const tools::Rectangle& rHelpArea, QuickHelpFlags nFlags) override;
+     virtual bool                UpdatePopover(void* nId, const OUString& rHelpText, vcl::Window* pParent, const tools::Rectangle& rHelpArea) override;
+     virtual bool                HidePopover(void* nId) override;
+--- a/vcl/unx/gtk3/gtkframe.cxx
++++ b/vcl/unx/gtk3/gtkframe.cxx
+@@ -3138,8 +3138,28 @@
+     GtkSalFrame* pThis = static_cast<GtkSalFrame*>(frame);
+     if (pThis->m_aTooltip.isEmpty() || pThis->m_bTooltipBlocked)
+         return false;
+-    gtk_tooltip_set_text(tooltip,
+-        OUStringToOString(pThis->m_aTooltip, RTL_TEXTENCODING_UTF8).getStr());
++    if (pThis->m_bTooltipRich)
++    {
++        // HST Office: ribbon tooltip, the first line (name and shortcut) in bold above the description;
++        // the tooltip label wraps the description and takes the theme's tooltip colours
++        const sal_Int32 nBreak = pThis->m_aTooltip.indexOf('\n');
++        const OString aTitle(OUStringToOString(nBreak < 0 ? pThis->m_aTooltip : pThis->m_aTooltip.copy(0, nBreak),
++                                               RTL_TEXTENCODING_UTF8));
++        gchar* pTitle = g_markup_escape_text(aTitle.getStr(), aTitle.getLength());
++        OString aMarkup = OString::Concat("<b>") + pTitle + "</b>";
++        g_free(pTitle);
++        if (nBreak >= 0)
++        {
++            const OString aBody(OUStringToOString(pThis->m_aTooltip.copy(nBreak + 1), RTL_TEXTENCODING_UTF8));
++            gchar* pBody = g_markup_escape_text(aBody.getStr(), aBody.getLength());
++            aMarkup += OString::Concat("\n") + pBody;
++            g_free(pBody);
++        }
++        gtk_tooltip_set_markup(tooltip, aMarkup.getStr());
++    }
++    else
++        gtk_tooltip_set_text(tooltip,
++            OUStringToOString(pThis->m_aTooltip, RTL_TEXTENCODING_UTF8).getStr());
+     GdkRectangle aHelpArea;
+     aHelpArea.x = pThis->m_aHelpArea.Left();
+     aHelpArea.y = pThis->m_aHelpArea.Top();
+@@ -3151,8 +3171,18 @@
+     return true;
+ }
+ 
++bool GtkSalFrame::ShowRichTooltip(const OUString& rHelpText, const tools::Rectangle& rHelpArea)
++{
++    m_bTooltipRich = true;
++    m_aTooltip = rHelpText;
++    m_aHelpArea = rHelpArea;
++    gtk_widget_trigger_tooltip_query(getMouseEventWidget());
++    return true;
++}
++
+ bool GtkSalFrame::ShowTooltip(const OUString& rHelpText, const tools::Rectangle& rHelpArea)
+ {
++    m_bTooltipRich = false;
+     m_aTooltip = rHelpText;
+     m_aHelpArea = rHelpArea;
+     gtk_widget_trigger_tooltip_query(getMouseEventWidget());
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -267,6 +267,7 @@
+     sfx2/source/notebookbar/NotebookbarTabControl \
+     sfx2/source/notebookbar/HstRibbonKeyTips \
+     sfx2/source/notebookbar/HstChartCommands \
++    sfx2/source/notebookbar/HstRibbonTooltip \
+     sfx2/source/notify/eventsupplier \
+     sfx2/source/notify/globalevents \
+     sfx2/source/notify/hintpost \
+--- a/sfx2/source/sidebar/SidebarToolBox.cxx
++++ b/sfx2/source/sidebar/SidebarToolBox.cxx
+@@ -34,6 +34,8 @@
+ #include <com/sun/star/lang/XComponent.hpp>
+ #include <com/sun/star/frame/XFrame.hpp>
+ #include <com/sun/star/frame/XToolbarController.hpp>
++#include <cppuhelper/weakref.hxx>
++#include "../notebookbar/HstRibbonTooltip.hxx"
+ 
+ using namespace css;
+ using namespace css::uno;
+@@ -369,6 +371,27 @@
+     {
+         return static_cast<ToolBoxButtonSize>(officecfg::Office::Common::Misc::NotebookbarIconSize::get());
+     }
++
++    using SidebarToolBox::InsertItem;
++    // HST Office: remember the frame of the items: the rich tooltip picks its sentences by the frame's module
++    virtual void InsertItem(const OUString& rCommand, const css::uno::Reference<css::frame::XFrame>& rFrame,
++                            ToolBoxItemBits nBits, const Size& rRequestedSize,
++                            ImplToolItems::size_type nPos = APPEND) override
++    {
++        if (rFrame.is())
++            m_xHstFrame = rFrame;
++        SidebarToolBox::InsertItem(rCommand, rFrame, nBits, rRequestedSize, nPos);
++    }
++
++    // HST Office: ribbon tooltips have the name and shortcut in bold and a sentence saying what the command does
++    virtual void RequestHelp(const HelpEvent& rHEvt) override
++    {
++        if (!hst::ribbon::RequestRichHelp(*this, rHEvt, css::uno::Reference<css::frame::XFrame>(m_xHstFrame)))
++            SidebarToolBox::RequestHelp(rHEvt);
++    }
++
++private:
++    css::uno::WeakReference<css::frame::XFrame> m_xHstFrame;
+ };
+ 
+ }
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstRibbonTooltip.hxx
+@@ -0,0 +1,36 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: rich ribbon tooltips. Hovering a ribbon button shows its name and shortcut in bold and, below, one
++// sentence saying what the command does. The sentences come from data/ribbon/tooltip-descriptions.json
++// (HstRibbonTooltipTable.hrc, generated by scripts/patches/generate-ribbon-tooltips.py); a button whose .ui already
++// has an "hst-ribbon-description" line keeps it, a command without a sentence shows its name only.
++
++#pragma once
++
++#include <com/sun/star/frame/XFrame.hpp>
++#include <rtl/ustring.hxx>
++
++#include <string_view>
++
++class HelpEvent;
++class ToolBox;
++
++namespace hst::ribbon
++{
++/// The sentence describing rCommand (".uno:Bold", arguments allowed) in the ribbon of the module rModule
++/// ("com.sun.star.text.TextDocument"...): the module's own sentence first, then the common one; empty if none.
++OUString GetTooltipDescription(std::u16string_view rModule, std::u16string_view rCommand);
++
++/// Shows the rich quick help of the ribbon item under the mouse (or the highlighted item for a keyboard request).
++/// Returns false when this is not a quick help request for an item, so the caller falls back to
++/// ToolBox::RequestHelp (extended tips, separators, empty space).
++bool RequestRichHelp(ToolBox& rToolBox, const HelpEvent& rHEvt,
++                     const css::uno::Reference<css::frame::XFrame>& rxFrame);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstRibbonTooltip.cxx
+@@ -0,0 +1,104 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include "HstRibbonTooltip.hxx"
++#include "HstRibbonTooltipTable.hrc"
++
++#include <sfx2/sfxresid.hxx>
++#include <vcl/commandinfoprovider.hxx>
++#include <vcl/event.hxx>
++#include <vcl/help.hxx>
++#include <vcl/mnemonic.hxx>
++#include <vcl/toolbox.hxx>
++
++namespace hst::ribbon
++{
++namespace
++{
++// the app bit of a module (HstRibbonTip::nApps); 0 for a module without a ribbon of its own
++sal_uInt8 AppBit(std::u16string_view rModule)
++{
++    if (rModule.starts_with(u"com.sun.star.text."))  // Text, Global and Web documents
++        return TIP_WRITER;
++    if (rModule == u"com.sun.star.sheet.SpreadsheetDocument")
++        return TIP_CALC;
++    if (rModule == u"com.sun.star.presentation.PresentationDocument")
++        return TIP_IMPRESS;
++    if (rModule == u"com.sun.star.drawing.DrawingDocument")
++        return TIP_DRAW;
++    return 0;
++}
++
++const HstRibbonTip* Find(std::u16string_view rCommand, sal_uInt8 nApp)
++{
++    const HstRibbonTip* pCommon = nullptr;
++    for (const HstRibbonTip& rTip : aHstRibbonTips)
++    {
++        if (rCommand != rTip.pCommand)
++            continue;
++        if (rTip.nApps == 0)
++            pCommon = &rTip;
++        else if (rTip.nApps & nApp)
++            return &rTip;
++    }
++    return pCommon;
++}
++}
++
++OUString GetTooltipDescription(std::u16string_view rModule, std::u16string_view rCommand)
++{
++    const sal_uInt8 nApp = AppBit(rModule);
++    const HstRibbonTip* pTip = Find(rCommand, nApp);
++    // ".uno:StyleApply?Style:string=..." etc.: a sentence for the exact call first, then for the command
++    const size_t nArgs = rCommand.find(u'?');
++    if (pTip == nullptr && nArgs != std::u16string_view::npos)
++        pTip = Find(rCommand.substr(0, nArgs), nApp);
++    return pTip ? SfxResId(pTip->aText) : OUString();
++}
++
++bool RequestRichHelp(ToolBox& rToolBox, const HelpEvent& rHEvt,
++                     const css::uno::Reference<css::frame::XFrame>& rxFrame)
++{
++    if (!(rHEvt.GetMode() & HelpEventMode::QUICK) || (rHEvt.GetMode() & HelpEventMode::BALLOON))
++        return false;
++    ToolBoxItemId nItemId;
++    if (rHEvt.KeyboardActivated())
++        nItemId = rToolBox.GetHighlightItemId();
++    else
++    {
++        const auto nPos = rToolBox.GetItemPos(rToolBox.ScreenToOutputPixel(rHEvt.GetMousePosPixel()));
++        if (nPos != ToolBox::ITEM_NOTFOUND)
++            nItemId = rToolBox.GetItemId(nPos);
++    }
++    if (!nItemId)
++        return false;
++    const tools::Rectangle aItemRect = rToolBox.GetItemRect(nItemId);
++    if (aItemRect.IsEmpty())
++        return false;
++
++    // first line: "Name (Shortcut)" as the toolbox has it (the label when there is no quick help)
++    OUString aText = rToolBox.GetQuickHelpText(nItemId);
++    if (aText.isEmpty())
++        aText = MnemonicGenerator::EraseAllMnemonicChars(rToolBox.GetItemText(nItemId)).replace('\n', ' ');
++    if (aText.isEmpty())
++        return false;
++    // a second line already set by the .ui (hst-ribbon-description) wins over the table
++    if (aText.indexOf('\n') < 0 && rxFrame.is())
++    {
++        const OUString aDescription = GetTooltipDescription(
++            vcl::CommandInfoProvider::GetModuleIdentifier(rxFrame), rToolBox.GetItemCommand(nItemId));
++        if (!aDescription.isEmpty())
++            aText += "\n" + aDescription;
++    }
++    const tools::Rectangle aScreenRect(rToolBox.OutputToScreenPixel(aItemRect.TopLeft()),
++                                       rToolBox.OutputToScreenPixel(aItemRect.BottomRight()));
++    Help::ShowQuickHelp(&rToolBox, aScreenRect, aText, QuickHelpFlags::RichTitle);
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
