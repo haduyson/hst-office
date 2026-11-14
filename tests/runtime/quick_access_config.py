@@ -9,11 +9,16 @@ MANY = [".uno:Paste", ".uno:Cut", ".uno:Copy", ".uno:Bold", ".uno:Italic", ".uno
         ".uno:PrintPreview"]
 
 
+def _manager(office):
+    """The module UI configuration manager supplier (hst_gui.Office has smgr, windows_gui.WinOffice only ctx)."""
+    smgr = getattr(office, "smgr", None) or office.ctx.ServiceManager
+    return smgr.createInstanceWithContext("com.sun.star.ui.ModuleUIConfigurationManagerSupplier", office.ctx)
+
+
 def shown(office, module):
     """Commands shown in the module's quick access toolbar (its notebookbarshortcuts settings). The toolbox sits in
     the ribbon's tab control, whose accessible children are only the tabs, so the list is read over UNO."""
-    supplier = office.smgr.createInstanceWithContext(
-        "com.sun.star.ui.ModuleUIConfigurationManagerSupplier", office.ctx)
+    supplier = _manager(office)
     items = supplier.getUIConfigurationManager(module).getSettings(
         "private:resource/toolbar/notebookbarshortcuts", False)
     result = []
@@ -27,8 +32,7 @@ def shown(office, module):
 def set_commands(office, module, commands):
     """Shows `commands` (and keeps the defaults) in the module's quick access toolbar through the UI configuration."""
     import uno
-    supplier = office.smgr.createInstanceWithContext(
-        "com.sun.star.ui.ModuleUIConfigurationManagerSupplier", office.ctx)
+    supplier = _manager(office)
     config = supplier.getUIConfigurationManager(module)
     items = config.getSettings("private:resource/toolbar/notebookbarshortcuts", True)
     for command in commands:

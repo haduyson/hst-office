@@ -66,7 +66,7 @@ def ribbon_boxes(office):
     tabs, banner = {}, None
     page_tab, link = _role("PAGE_TAB"), _role("HYPER_LINK")
     for window in office.top_windows():
-        for context, _depth in walk(window, limit=10):
+        for context, _depth in walk(window, limit=20):
             try:
                 role, name = context.getAccessibleRole(), context.getAccessibleName()
                 where, size = context.getLocationOnScreen(), context.getSize()
