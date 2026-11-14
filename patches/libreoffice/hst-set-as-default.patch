@@ -226,7 +226,7 @@ tests/runtime/check-set-as-default.py.
  	CppunitTest_sc_filter_html \
 --- /dev/null
 +++ b/sc/qa/unit/uicalc/hstsetasdefault.cxx
-@@ -0,0 +1,109 @@
+@@ -0,0 +1,105 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +
 +// HST Office: "Set As Default" in Format Cells and Page Setup of Sheets (sc/source/ui/docshell/hstsetasdefault.cxx)
@@ -234,7 +234,6 @@ tests/runtime/check-set-as-default.py.
 +#include "../helper/qahelper.hxx"
 +
 +#include <comphelper/propertyvalue.hxx>
-+#include <iostream>
 +#include <comphelper/scopeguard.hxx>
 +#include <editeng/brushitem.hxx>
 +#include <editeng/fhgtitem.hxx>
@@ -289,6 +288,9 @@ tests/runtime/check-set-as-default.py.
 +    CPPUNIT_ASSERT(COL_YELLOW != rDoc.GetAttr(0, 0, 0, ATTR_BACKGROUND).GetColor());
 +    pDocSh->GetUndoManager()->Undo();
 +    CPPUNIT_ASSERT(SvxCellHorJustify::Center != rDoc.GetAttr(0, 0, 0, ATTR_HOR_JUSTIFY).GetValue());
++    // again after the undo (the redo action is dropped)
++    sc::hst::ApplyDefaults(*pDocSh, sc::hst::DefaultKind::Cells, CellValues(rDoc), true);
++    CPPUNIT_ASSERT(SvxCellHorJustify::Center == rDoc.GetAttr(0, 0, 0, ATTR_HOR_JUSTIFY).GetValue());
 +}
 +
 +// ... and for all new spreadsheets through the per-user default template (the file is checked here,
@@ -298,24 +300,18 @@ tests/runtime/check-set-as-default.py.
 +    const OUString aService = u"com.sun.star.sheet.SpreadsheetDocument"_ustr;
 +    comphelper::ScopeGuard aReset([&aService] { SfxObjectFactory::SetStandardTemplate(aService, OUString()); });
 +    SfxObjectFactory::SetStandardTemplate(aService, OUString());
-+    std::cerr << "hst-step c1" << std::endl;
 +    createScDoc();
-+    std::cerr << "hst-step c2" << std::endl;
 +    ScDocShell* pDocSh = getScDocShell();
 +    sc::hst::SetAsDefault(nullptr, *pDocSh, sc::hst::DefaultKind::Cells, CellValues(pDocSh->GetDocument()), true);
-+    std::cerr << "hst-step c3" << std::endl;
 +    CPPUNIT_ASSERT_EQUAL(sfx2::hst::DefaultTemplateURL(ScDocShell::Factory()),
 +                         SfxObjectFactory::GetStandardTemplate(aService));
 +    dispose();
-+    std::cerr << "hst-step c4" << std::endl;
 +    loadFromURL(sfx2::hst::DefaultTemplateURL(ScDocShell::Factory()),
 +                { comphelper::makePropertyValue(u"AsTemplate"_ustr, false) });
-+    std::cerr << "hst-step c5" << std::endl;
 +    ScDocument& rNew = *getScDoc();
 +    CPPUNIT_ASSERT(SvxCellHorJustify::Center == rNew.GetAttr(0, 0, 0, ATTR_HOR_JUSTIFY).GetValue());
 +    CPPUNIT_ASSERT_EQUAL(sal_uInt32(280), rNew.GetAttr(0, 0, 0, ATTR_FONT_HEIGHT).GetHeight());
 +    CPPUNIT_ASSERT(COL_YELLOW != rNew.GetAttr(0, 0, 0, ATTR_BACKGROUND).GetColor());
-+    std::cerr << "hst-step c6" << std::endl;
 +}
 +
 +// HST Office "Set As Default" in Page Setup of Sheets: the Default page style
@@ -1082,12 +1078,11 @@ tests/runtime/check-set-as-default.py.
      sw/source/uibase/app/swmodul1 \
 --- a/sw/qa/extras/uiwriter/uiwriter9.cxx
 +++ b/sw/qa/extras/uiwriter/uiwriter9.cxx
-@@ -55,6 +55,21 @@
+@@ -55,6 +55,20 @@
  #include <txtfrm.hxx>
  #include <edtwin.hxx>
  #include <view.hxx>
 +#include <hstsetasdefault.hxx>
-+#include <iostream>
 +#include <svl/itemset.hxx>
 +#include <fmtcol.hxx>
 +#include <poolfmt.hxx>
@@ -1104,7 +1099,7 @@ tests/runtime/check-set-as-default.py.
  #include <wrtsh.hxx>
  #include <unotxdoc.hxx>
  #include <itabenum.hxx>
-@@ -1978,6 +1993,115 @@
+@@ -1978,6 +1992,90 @@
      CPPUNIT_ASSERT_EQUAL(u"foo"_ustr, (*(rIDMA.getAllMarksBegin()))->GetName().toString());
  }
  
@@ -1151,69 +1146,44 @@ tests/runtime/check-set-as-default.py.
 +    // New documents from the registered template are covered by tests/runtime/check-set-as-default.py; this
 +    // checks the template file itself, opened for editing, and that a later default updates it.
 +    const OUString aService = u"com.sun.star.text.TextDocument"_ustr;
-+    std::cerr << "hst-step w1" << std::endl;
 +    comphelper::ScopeGuard aReset([&aService] { SfxObjectFactory::SetStandardTemplate(aService, OUString()); });
-+    std::cerr << "hst-step w2" << std::endl;
 +    SfxObjectFactory::SetStandardTemplate(aService, OUString());
-+    std::cerr << "hst-step w3" << std::endl;
 +    const OUString aTemplate = sfx2::hst::DefaultTemplateURL(SwDocShell::Factory());
-+    std::cerr << "hst-step w4" << std::endl;
 +    auto aStandard = [this, &aTemplate, &aService](sal_Int16 nAdjust, float fHeight) {
 +        dispose();
-+    std::cerr << "hst-step w5" << std::endl;
 +        loadFromURL(aTemplate, { comphelper::makePropertyValue(u"AsTemplate"_ustr, false) });
-+    std::cerr << "hst-step w6" << std::endl;
 +        uno::Reference<beans::XPropertySet> xStyle(
 +            getStyles(u"ParagraphStyles"_ustr)->getByName(u"Standard"_ustr), uno::UNO_QUERY_THROW);
-+    std::cerr << "hst-step w7" << std::endl;
 +        CPPUNIT_ASSERT_EQUAL(nAdjust, getProperty<sal_Int16>(xStyle, u"ParaAdjust"_ustr));
-+    std::cerr << "hst-step w8" << std::endl;
-+        std::cerr << "hst-step a3" << std::endl;
 +        CPPUNIT_ASSERT_EQUAL(fHeight, getProperty<float>(xStyle, u"CharHeight"_ustr));
-+    std::cerr << "hst-step w9" << std::endl;
-+        // a document to change next, not made from the template (unit tests do not load templates as such)
++        // a plain new document to change next
 +        dispose();
-+    std::cerr << "hst-step w10" << std::endl;
 +        SfxObjectFactory::SetStandardTemplate(aService, OUString());
-+    std::cerr << "hst-step w11" << std::endl;
 +        createSwDoc();
-+    std::cerr << "hst-step w12" << std::endl;
 +        SfxObjectFactory::SetStandardTemplate(aService, aTemplate);
-+    std::cerr << "hst-step w13" << std::endl;
++    };
++
++    // each item set is made on the pool of the document it changes and ends before that document
++    auto aSetAsDefault = [this](const SfxPoolItem& rItem, sw::hst::DefaultKind eKind, bool bNewDocuments) {
++        SwDoc* pDoc = getSwDoc();
++        SfxItemSet aValues(SfxItemSet::makeFixedSfxItemSet<RES_CHRATR_BEGIN, RES_CHRATR_END - 1, RES_PARATR_BEGIN,
++                                                           RES_PARATR_END - 1>(pDoc->GetAttrPool()));
++        aValues.Put(rItem);
++        sw::hst::SetAsDefault(nullptr, *pDoc->GetDocShell(), eKind, aValues, bNewDocuments);
 +    };
 +
 +    createSwDoc();
-+    std::cerr << "hst-step w14" << std::endl;
-+    SwDoc* pDoc = getSwDoc();
-+    std::cerr << "hst-step w15" << std::endl;
-+    SfxItemSet aValues(SfxItemSet::makeFixedSfxItemSet<RES_PARATR_BEGIN, RES_PARATR_END - 1>(pDoc->GetAttrPool()));
-+    std::cerr << "hst-step w16" << std::endl;
-+    aValues.Put(SvxAdjustItem(SvxAdjust::Block, RES_PARATR_ADJUST));
-+    std::cerr << "hst-step w17" << std::endl;
-+    sw::hst::SetAsDefault(nullptr, *pDoc->GetDocShell(), sw::hst::DefaultKind::Paragraph, aValues, true);
-+    std::cerr << "hst-step w18" << std::endl;
-+    CPPUNIT_ASSERT_EQUAL(aTemplate, SfxObjectFactory::GetStandardTemplate(aService));
-+    std::cerr << "hst-step w19" << std::endl;
 +    const float fDefaultHeight = getProperty<float>(getParagraph(1), u"CharHeight"_ustr);
-+    std::cerr << "hst-step w20" << std::endl;
++    aSetAsDefault(SvxAdjustItem(SvxAdjust::Block, RES_PARATR_ADJUST), sw::hst::DefaultKind::Paragraph, true);
++    CPPUNIT_ASSERT_EQUAL(aTemplate, SfxObjectFactory::GetStandardTemplate(aService));
 +    aStandard(sal_Int16(css::style::ParagraphAdjust_BLOCK), fDefaultHeight);
 +
 +    // a second default updates the same template and keeps the first one
-+    pDoc = getSwDoc();
-+    std::cerr << "hst-step w21" << std::endl;
-+    SfxItemSet aFont(SfxItemSet::makeFixedSfxItemSet<RES_CHRATR_BEGIN, RES_CHRATR_END - 1>(pDoc->GetAttrPool()));
-+    std::cerr << "hst-step w22" << std::endl;
-+    aFont.Put(SvxFontHeightItem(260, 100, RES_CHRATR_FONTSIZE));
-+    std::cerr << "hst-step w23" << std::endl;
-+    sw::hst::SetAsDefault(nullptr, *pDoc->GetDocShell(), sw::hst::DefaultKind::Character, aFont, true);
-+    std::cerr << "hst-step w24" << std::endl;
++    aSetAsDefault(SvxFontHeightItem(260, 100, RES_CHRATR_FONTSIZE), sw::hst::DefaultKind::Character, true);
 +    aStandard(sal_Int16(css::style::ParagraphAdjust_BLOCK), 13.f);
 +
 +    // "this document only" leaves the template alone
-+    aFont.Put(SvxFontHeightItem(320, 100, RES_CHRATR_FONTSIZE));
-+    std::cerr << "hst-step w25" << std::endl;
-+    sw::hst::SetAsDefault(nullptr, *getSwDoc()->GetDocShell(), sw::hst::DefaultKind::Character, aFont, false);
-+    std::cerr << "hst-step w26" << std::endl;
++    aSetAsDefault(SvxFontHeightItem(320, 100, RES_CHRATR_FONTSIZE), sw::hst::DefaultKind::Character, false);
 +    aStandard(sal_Int16(css::style::ParagraphAdjust_BLOCK), 13.f);
 +}
 +
