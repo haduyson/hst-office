@@ -28,6 +28,7 @@ sys.path.insert(0, HERE)
 import windows_gui as wg  # noqa: E402
 
 import screen_grab_gdi as grab  # noqa: E402
+import uno_main_thread_load  # noqa: E402
 
 MODULES = {  # module -> (factory, extension, filter)
     "calc": ("scalc", "xlsx", "Calc MS Excel 2007 XML"),
@@ -53,7 +54,7 @@ def make_documents(office, module, folder, count=3):
     os.makedirs(folder, exist_ok=True)
     urls = []
     for n in range(count):
-        doc = office.desktop.loadComponentFromURL("private:factory/" + factory, "_blank", 0, (prop("Hidden", True),))
+        doc = uno_main_thread_load.load(office.desktop, "private:factory/" + factory, Hidden=True)
         if factory == "scalc":
             sheet = doc.Sheets.getByIndex(0)
             for r in range(40):
@@ -94,7 +95,7 @@ def close_all(office):
 def check_module(office, check, screen, desktop, module, out, switches):
     urls = make_documents(office, module, os.path.join(out, "docs", module))
     for url in urls:
-        office.desktop.loadComponentFromURL(url, "_blank", 0, ())
+        uno_main_thread_load.load(office.desktop, url)
         time.sleep(1.5)
     time.sleep(3)
     for window, _title in wg.dialogs(office):  # tip of the day and the like

@@ -88,18 +88,9 @@ class WinOffice:
         return [toolkit.getTopWindow(i) for i in range(toolkit.getTopWindowCount())]
 
     def load(self, url, hidden=False, **props):
-        """Load on the office's main thread, as a user's open does. Loaded from the UNO bridge thread, the frame,
-        sidebar and toolbars are built there; on Windows each drop-down's frame is then created by the main thread
-        with the SolarMutex released (SendWndMessage_impl), and the main thread's own sidebar update ran into the
-        half-built boxes: an access violation at Sheets start (3 of 20 fresh starts on HST4, 0 of 20 on the main
-        thread). Pass OnMainThread=False to test a bridge-thread load on purpose."""
-        from com.sun.star.beans import PropertyValue
-        args = []
-        for name, value in dict({"OnMainThread": True}, **props, Hidden=hidden).items():
-            prop = PropertyValue()
-            prop.Name, prop.Value = name, value
-            args.append(prop)
-        return self.desktop.loadComponentFromURL(url, "_blank", 0, tuple(args))
+        """Load on the office's main thread, as a user's open does (see uno_main_thread_load)."""
+        import uno_main_thread_load
+        return uno_main_thread_load.load(self.desktop, url, "_blank", 0, **dict(props, Hidden=hidden))
 
     def dispatch_async(self, frame, command, **props):
         """Dispatch `command` from a thread (a modal dialog blocks the call until it closes); returns the thread."""

@@ -23,6 +23,7 @@ import time
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import uno_main_thread_load  # noqa: E402
 from recovery_windows import RESULTS, Office, append, kill_profile, record, wait  # noqa: E402
 
 def scenario(office, name, body):
@@ -68,7 +69,7 @@ def bigsave(o):
     path = os.path.join(folder, "lon.docx")
     import shutil
     shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), "lon.docx"), path)  # ~19 MB fixture
-    doc = o.desktop().loadComponentFromURL(uno.systemPathToFileUrl(path), "_default", 0, ())
+    doc = uno_main_thread_load.load(o.desktop(), uno.systemPathToFileUrl(path), "_default")
     append(doc, "LON-MOI")
     import threading
     threading.Timer(2.0, kill_profile, (o.work,)).start()

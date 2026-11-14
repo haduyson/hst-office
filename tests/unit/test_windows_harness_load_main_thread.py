@@ -5,6 +5,9 @@ Loaded from the UNO bridge thread, the frame, sidebar and toolbars were built in
 drop-down box's frame is then created by the main thread with the SolarMutex released, and the main thread's own
 sidebar update ran into the half-built boxes: an access violation at Sheets start in 3 of 20 fresh starts on
 HST4 (DataChanged on a ComboBox without its list, or a FloatingWindow built on a ComboBox disposed meanwhile)."""
+import glob
+import os
+import re
 import sys
 import tempfile
 import types
@@ -75,6 +78,29 @@ class HstGuiWindowsLoadTests(unittest.TestCase):
                                                        harness.load("private:factory/scalc")))
         self.assertEqual(target, "_blank")
         self.assertEqual(args, {"Hidden": False, "OnMainThread": True})
+
+
+class HelperTests(unittest.TestCase):
+    def test_load_passes_target_flags_and_main_thread(self):
+        install_uno_stub()
+        import uno_main_thread_load
+        url, target, args = loaded_args(lambda desktop: uno_main_thread_load.load(desktop, "private:factory/swriter",
+                                                                                 "_default", Hidden=True))
+        self.assertEqual((url, target), ("private:factory/swriter", "_default"))
+        self.assertEqual(args, {"OnMainThread": True, "Hidden": True})
+
+
+class NoDirectWindowsLoadTests(unittest.TestCase):
+    """Windows checks load only through uno_main_thread_load (a direct call would load in the bridge thread)."""
+
+    def test_windows_runtime_scripts_use_the_helper(self):
+        runtime = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "runtime")
+        names = {os.path.basename(p) for p in glob.glob(os.path.join(runtime, "*.py"))
+                 if re.search(r"windows|recovery_windows", os.path.basename(p))}
+        names -= {"uno_main_thread_load.py"}
+        direct = [n for n in sorted(names)
+                  if "loadComponentFromURL(" in open(os.path.join(runtime, n), encoding="utf-8").read()]
+        self.assertEqual(direct, [])
 
 
 if __name__ == "__main__":
