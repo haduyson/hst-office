@@ -56,6 +56,17 @@ def right_click_add(display, label):
     return ""
 
 
+def search_width():
+    """Width of the tab row's feature search box (0 when it is not shown)."""
+    for node in gui.walk(gui.office_app()):
+        try:
+            if node.name.startswith("Tìm tính năng") and gui.showing(node):
+                return gui.extents(node)[2]
+        except Exception:  # noqa: BLE001 - a node may go away while the tree is walked
+            pass
+    return 0
+
+
 def set_commands(office, module, commands):
     """Shows `commands` (and keeps the defaults) in the module's quick access toolbar through the UI configuration."""
     import uno
@@ -130,9 +141,10 @@ def main():
         # the banner keep their place (the tabs may move right only by the room the toolbar takes)
         # the toolbar grew by less than the 12 buttons added (about 26 px each): the rest is in its » menu
         grown = tabs_after[0][0] - tabs_before[0][0] if tabs_after and tabs_before else 10 ** 6
-        ok = grown < 12 * 22 and gui.geometry()[2] == banner
+        search = search_width()  # the search box keeps its text: at least 120 px at 100 %
+        ok = grown < 12 * 22 and search >= 120 and gui.geometry()[2] == banner
         record("overflow", ok, {"commands": len(shown(office, WRITER)), "tabs_before": tabs_before[:2],
-                                "tabs_after": tabs_after[:2], "grown": grown, "last_tab": tabs_after[-1:] ,
+                                "tabs_after": tabs_after[:2], "grown": grown, "search": search, "last_tab": tabs_after[-1:] ,
                                 "banner_before": banner, "banner_after": gui.geometry()[2]})
     finally:
         office.stop()

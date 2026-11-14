@@ -749,7 +749,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
  
      // HST Office: the feature search box (child "hst-tab-search") follows the last tab and takes
      // the rest of the row up to the menu button; when the row is short the box shrinks, then it
-@@ -2587,6 +2596,29 @@
+@@ -2587,6 +2596,35 @@
      const double fHstDpi = GetDPIScaleFactor();
      const tools::Long nHstGap = pHstSearch ? std::lround(8 * fHstDpi) : 0;
  
@@ -761,10 +761,16 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
 +    {
 +        tools::Long nTabs = 0;
 +        for (auto & item : mpTabCtrlData->maItemList)
-+            if (item.m_bVisible)
-+                nTabs += ImplGetItemSize(&item, nMaxWidth).getWidth();
-+        // the search box keeps the width at which it shows its text (below that it is only a magnifier)
-+        const tools::Long nSearch = pHstSearch ? nHstGap + std::lround(120 * fHstDpi) : 0;
++        {
++            if (!item.m_bVisible)
++                continue;
++            nTabs += ImplGetItemSize(&item, nMaxWidth).getWidth();
++            if (item.maTabName == hst::ribbon::FILE_TAB_NAME && hst::ribbon::ownerDrawEnabled())
++                nTabs += hst::ribbon::FileTabExtraWidth(*GetOutDev()); // as the tabs are placed below
++        }
++        // the search box keeps the width at which it shows its text (below that it is only a magnifier), with
++        // its gaps before and after it; the row's start offset (2 px) and the toolbox's 1 px follow below
++        const tools::Long nSearch = pHstSearch ? 2 * nHstGap + std::lround(120 * fHstDpi) : 0;
 +        // its items and the ▾/» menu button at the end (the toolbox's size request leaves that button out)
 +        const Size aWant(m_pShortcuts->GetOptimalSize().Width() + std::lround(16 * fHstDpi),
 +                         m_pShortcuts->GetOptimalSize().Height());
@@ -779,7 +785,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
      const tools::Long nOffsetX = 2 + nShortcutsWidth;
      const tools::Long nOffsetY = 2;
  
-@@ -2648,8 +2680,8 @@
+@@ -2648,8 +2686,8 @@
      if (!pHstSearch) // with the search box the tabs stay left-aligned, the box fills the row
          lcl_AdjustSingleLineTabs(nMaxWidth - nShortcutsWidth, mpTabCtrlData.get());
  
