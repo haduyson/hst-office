@@ -530,7 +530,43 @@ License: these upstream files remain under their original license (MPL-2.0); the
          // the tips go on the ribbon, or on the popup whose commands they show
          vcl::Window& rHost = m_xPopup ? *m_xPopup : *m_xBar;
          const Size aBar = rHost.GetOutputSizePixel();
-@@ -288,11 +291,11 @@
+@@ -224,8 +227,10 @@
+         if (m_xQuick && m_xQuick->IsReallyVisible())
+         {
+             int nDigit = 1;
++            // HST Office: 1, 2, 3... without gaps; separators and buttons folded into the » menu get no digit
+             for (ToolBox::ImplToolItems::size_type i = 0; i < m_xQuick->GetItemCount() && nDigit < 10; ++i)
+-                AddToolBoxItem(*m_xQuick, m_xQuick->GetItemId(i), aTargets, aPreferred, std::to_string(nDigit++));
++                if (AddToolBoxItem(*m_xQuick, m_xQuick->GetItemId(i), aTargets, aPreferred, std::to_string(nDigit)))
++                    ++nDigit;
+         }
+         // the feature search box of the tab row: Q, as Office's Search box
+         for (vcl::Window* pChild = m_xTabs->GetWindow(GetWindowType::FirstChild); pChild;
+@@ -250,13 +255,13 @@
+         Show(std::move(aTargets), aPreferred);
+     }
+ 
+-    void AddToolBoxItem(ToolBox& rBox, ToolBoxItemId nId, std::vector<Target>& rTargets,
++    bool AddToolBoxItem(ToolBox& rBox, ToolBoxItemId nId, std::vector<Target>& rTargets,
+                         std::vector<std::string>& rPreferred, const std::string& rTip)
+     {
+         const tools::Rectangle aRect = rBox.GetItemRect(nId);
+         if (rBox.GetItemType(rBox.GetItemPos(nId)) != ToolBoxItemType::BUTTON || !rBox.IsItemVisible(nId)
+             || rBox.IsItemClipped(nId) || aRect.IsEmpty())
+-            return;
++            return false;
+         Target aTarget;
+         aTarget.pAnchor = &rBox;
+         aTarget.aRect = aRect;
+@@ -273,6 +278,7 @@
+         };
+         rPreferred.push_back(rTip);
+         rTargets.push_back(std::move(aTarget));
++        return true;
+     }
+ 
+     void CollectCommands(vcl::Window& rWindow, std::vector<Target>& rTargets, std::vector<std::string>& rPreferred)
+@@ -288,11 +294,11 @@
                  {
                      const ToolBoxItemId nId = pBox->GetItemId(i);
                      OUString aCommand = pBox->GetItemCommand(nId);
@@ -545,7 +581,7 @@ License: these upstream files remain under their original license (MPL-2.0); the
                  }
              }
              else if (pChild->GetType() == WindowType::PUSHBUTTON || pChild->GetType() == WindowType::MENUBUTTON)
-@@ -306,8 +309,7 @@
+@@ -306,8 +312,7 @@
                  aTarget.bEnabled = pChild->IsEnabled();
                  // HST Office: a ribbon menu button ("Chèn ▾") may have a letter of its own, by widget id
                  const OString aId = pChild->get_id().getToken(0, ':').toUtf8();
@@ -555,7 +591,7 @@ License: these upstream files remain under their original license (MPL-2.0); the
                  VclPtr<vcl::Window> xButton(pChild);
                  aTarget.aRun = [this, xButton] {
                      const Point aCentre(xButton->GetOutputSizePixel().Width() / 2, xButton->GetOutputSizePixel().Height() / 2);
-@@ -333,6 +335,8 @@
+@@ -333,6 +338,8 @@
      {
          std::vector<Target> aTargets;
          std::vector<std::string> aPreferred;
@@ -564,7 +600,7 @@ License: these upstream files remain under their original license (MPL-2.0); the
          if (TabPage* pPage = m_xTabs->GetTabPage(m_xTabs->GetCurPageId()))
              CollectCommands(*pPage, aTargets, aPreferred);
          m_eLevel = Level::Commands;
-@@ -403,6 +407,9 @@
+@@ -403,6 +410,9 @@
      OUString m_aTyped;
      Level m_eLevel = Level::None;
      bool m_bAltArmed = false;
