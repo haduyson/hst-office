@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Bring HST Office to the front on Windows from the tooling process (tooling Python only).
 
-Windows grants the foreground only to the process that produced the last input, so this process presses Alt and
-then calls SetForegroundWindow itself (windows_gui.foreground does the same); soffice's own toFront() was refused
-(real keys reached the desktop: r1-auto Windows run 42744370109, W5/W7)."""
+Windows grants the foreground only to the process that produced the last input; windows_gui_guard.bring_to_front
+asks for it without a key, and presses Alt only when an HST Office window is already in front (soffice's own toFront()
+was refused and real keys reached the desktop: r1-auto Windows run 42744370109, W5/W7)."""
 import ctypes
 from ctypes import wintypes
 import time
@@ -32,7 +32,7 @@ def office_windows():
 
 
 def foreground(title=""):
-    from native import keyboard
+    from native import guard, keyboard
     user32 = ctypes.windll.user32
     notice = user32.FindWindowW("#32770", "System Properties")  # the runner's paging-file notice pops up mid-run
     if notice:
@@ -43,8 +43,5 @@ def foreground(title=""):
     if target is None:
         return dict(ok=False, windows=[])
     if user32.GetForegroundWindow() != target[0]:
-        keyboard(["alt"])
-        user32.ShowWindow(target[0], 5)
-        user32.SetForegroundWindow(target[0])
-        time.sleep(0.5)
+        guard.bring_to_front(target[0], lambda: keyboard(["alt"]))
     return dict(ok=user32.GetForegroundWindow() == target[0], title=target[1], windows=[t for _, t in windows])

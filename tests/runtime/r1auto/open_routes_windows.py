@@ -87,18 +87,10 @@ def office_processes():
     return found
 
 
-def press_alt():
-    from native import keyboard
-    keyboard(["alt"])
-
-
 def bring_to_front(hwnd):
-    """Windows gives the foreground to the process with the last input: press Alt here, then ask for it."""
-    press_alt()
-    user32.ShowWindow(hwnd, 5)
-    user32.SetForegroundWindow(hwnd)
-    time.sleep(0.5)
-    return user32.GetForegroundWindow() == hwnd
+    """Ask for the foreground without a key; Alt (the unlock) only while an HST Office window is in front."""
+    from native import guard, keyboard
+    return guard.bring_to_front(hwnd, lambda: keyboard(["alt"]))
 
 
 def close_windows(hwnds):
