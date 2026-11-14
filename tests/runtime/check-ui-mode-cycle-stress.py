@@ -57,12 +57,25 @@ def close_all_but_one(office):
     time.sleep(3)
 
 
+def load(office, url):
+    """Open the document as a new tab. Type detection of a just-written file failed once in about 130 loads (the file was
+    complete and valid): retry that once, it is not what this check is about."""
+    try:
+        office.desktop.loadComponentFromURL(url, "_blank", 0, ())
+    except Exception as error:  # noqa: BLE001 - only the type detection error is retried
+        if "type detection failed" not in str(error):
+            raise
+        print("retry load after: %s" % error, flush=True)
+        time.sleep(3)
+        office.desktop.loadComponentFromURL(url, "_blank", 0, ())
+
+
 def run_round(office, folder, number, progress):
     for app, factory, ext, filter_name in DOCS * 2:
         path = os.path.join(folder, "%s%d-%d.%s" % (app, number, int(time.time() * 1000) % 100000, ext))
         url = scenario.make_document(office, factory, path, filter_name)
         progress("load %s round %d" % (app, number))
-        office.desktop.loadComponentFromURL(url, "_blank", 0, ())
+        load(office, url)
         time.sleep(3)
         for mode in MODES:
             progress("%s %s round %d" % (app, mode, number))
@@ -123,8 +136,9 @@ def main():
             run_round(adapter, folder, number, progress)
             print("round %d ok" % number, flush=True)
     except Exception as error:  # noqa: BLE001 - a dead bridge is the crash this check is for
-        alive = office.pid is not None
-        result.update(status="FAIL", detail="%s at %s: %r" % ("error" if alive else "office crashed",
+        time.sleep(5)  # the crash handler of a dying office still runs for a moment
+        crashed = office.pid is None or "disposed" in str(error)
+        result.update(status="FAIL", detail="%s at %s: %r" % ("office crashed" if crashed else "error",
                                                              state["step"], error))
     finally:
         office.stop()
