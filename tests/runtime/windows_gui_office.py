@@ -1,10 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """One installed HST Office started with its own profile for the Windows GUI checks (the office's python.exe, so
-`import uno` works). Nothing here starts or stops anything but the office it started itself."""
+`import uno` works). Nothing here starts or stops anything but the office it started itself: its soffice.bin
+processes are the ones whose -env:UserInstallation is this office's private profile (windows_gui_processes); while
+it runs, the input gate lets keys and clicks reach only their windows."""
 import os
 import subprocess
 import threading
 import time
+
+import windows_gui_guard as guard
+import windows_gui_processes as processes
 
 
 class WinOffice:
@@ -22,6 +27,7 @@ class WinOffice:
         self.proc = None
         self.ctx = None
         self.starts = 0
+        self.owner, self.leftover = None, []
 
     @property
     def url(self):
@@ -38,6 +44,8 @@ class WinOffice:
                "--accept=socket,host=127.0.0.1,port=%d;urp;" % self.port] + (["--nodefault"] if self.nodefault else [])
         log = os.path.join(self.log_dir, "soffice-%d" % self.starts)
         self.proc = subprocess.Popen(cmd, stdout=open(log + ".out", "w"), stderr=open(log + ".err", "w"))
+        self.owner = processes.ProfileOwner(self.url)
+        guard.register_owner(self.owner)
         self.ctx = self._connect()
         return self
 
@@ -109,10 +117,17 @@ class WinOffice:
             "com.sun.star.configuration.ConfigurationAccess", (arg,))
         return access.getPropertyValue(name) if name else access
 
+    def bin_pids_of_profile(self):
+        """PIDs of this office's own soffice.bin (its profile URL in the command line), also after a restart."""
+        return processes.profile_bin_pids(self.url)
+
     def stop(self, timeout=60):
-        """Quit through Desktop.terminate (the caller closes its modal dialogs first); kill only our own process."""
+        """Quit through Desktop.terminate (the caller closes its modal dialogs first), then end what is left of our
+        own processes: the soffice.exe started here and the soffice.bin of our profile, never another soffice."""
         if self.proc is None:
             return None
+        guard.unregister_owner(self.owner)
+        self.owner = None
         try:
             self.desktop.terminate()
         except Exception:  # noqa: BLE001 - the bridge goes away while the office quits
@@ -123,6 +138,7 @@ class WinOffice:
             self.proc.kill()
             self.proc.wait(10)
         code, self.proc, self.ctx = self.proc.returncode, None, None
+        self.leftover = processes.terminate(self.url)  # a soffice.bin of a first-start restart outlives soffice.exe
         # soffice.exe returns when soffice.bin ended; wait until our profile's lock file is gone too
         lock = os.path.join(self.profile, ".lock")
         for _ in range(30):
