@@ -59,6 +59,16 @@ def check_page_setup(h, c):
     h.wait_idle()
     c.equal("page setup: the office survives XDialog.endExecute",
             end_execute_survives(h, ".uno:PageFormatDialog", "PageTemplateDialog"), True)
+
+    # The ribbon's Sheet Options launcher opens Page Setup on the Sheet tab.
+    ui_file = os.path.join(h.office.program, "..", "share/config/soffice.cfg/modules/scalc/ui/notebookbar.ui")
+    with open(ui_file, encoding="utf-8") as handle:
+        launcher = handle.read().split('id="btnHstLaunchLayoutSheetOptions"', 1)[1].split("</object>", 1)[0]
+    c.equal("sheet options launcher: asks for the Sheet tab", ".uno:PageFormatDialog?Page:string=sheet" in launcher, True)
+    dlg = h.open_dialog(".uno:PageFormatDialog?Page:string=sheet", "PageTemplateDialog")
+    c.equal("sheet options launcher: opens on the Sheet tab",
+            state(dlg.getChild("tabcontrol")).get("CurrPageTitle"), "Trang tính")
+    click(dlg, "cancel")
     doc.close(True)
 
 

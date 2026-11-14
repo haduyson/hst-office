@@ -1,0 +1,56 @@
+HST Office: the Sheets ribbon's "Sheet Options" launcher (Bố trí trang > Tùy chọn trang tính ↘) opens Page Setup on
+the Sheet tab ("Trang tính"), as the spreadsheet market leader's does; it used to open on the Page tab.
+
+- PageFormatDialog gets an optional Page argument (as ParagraphDialog and BorderDialog have); the launcher sends
+  .uno:PageFormatDialog?Page:string=sheet. Without the argument the dialog still opens on the page tab, and a call
+  with any other argument keeps its old meaning (no dialog).
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-sheets.py page-setup
+---
+--- a/sc/sdi/scalc.sdi
++++ b/sc/sdi/scalc.sdi
+@@ -4304,7 +4304,7 @@
+ 
+ 
+ SfxVoidItem PageFormatDialog SID_FORMATPAGE
+-()
++(SfxStringItem Page SID_FORMATPAGE)
+ [
+     AutoUpdate = FALSE,
+     FastCall = FALSE,
+--- a/sc/source/ui/docshell/docsh4.cxx
++++ b/sc/source/ui/docshell/docsh4.cxx
+@@ -2166,7 +2166,11 @@
+         case SID_FORMATPAGE:
+         case SID_PRINTSCALE_OPTIONS: // HST Office: the page style dialog on the Page tab, which has the scaling
+             {
+-                if ( pReqArgs == nullptr )
++                // HST: .uno:PageFormatDialog?Page:string=sheet opens the dialog on that tab (the ribbon's
++                // Sheet Options launcher); any other argument keeps the old meaning (no dialog).
++                const SfxStringItem* pHstPage = rReq.GetSlot() == SID_FORMATPAGE
++                                                    ? rReq.GetArg<SfxStringItem>(SID_FORMATPAGE) : nullptr;
++                if ( pReqArgs == nullptr || (pHstPage && pReqArgs->Count() == 1) )
+                 {
+                     OUString aOldName = m_pDocument->GetPageStyle( nCurTab );
+                     ScStyleSheetPool* pStylePool = m_pDocument->GetStyleSheetPool();
+@@ -2190,6 +2194,8 @@
+                         VclPtr<SfxAbstractTabDialog> pDlg(pFact->CreateScStyleDlg(GetActiveDialogParent(), *pStyleSheet, true));
+                         if ( rReq.GetSlot() == SID_PRINTSCALE_OPTIONS )
+                             pDlg->SetCurPageId(u"page"_ustr);
++                        else if ( pHstPage && !pHstPage->GetValue().isEmpty() )
++                            pDlg->SetCurPageId(pHstPage->GetValue());
+ 
+                         auto xRequest = std::make_shared<SfxRequest>(rReq);
+                         rReq.Ignore(); // the 'old' request is not relevant any more
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -7482,7 +7482,7 @@
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:PageFormatDialog</property>
++                                    <property name="action-name">.uno:PageFormatDialog?Page:string=sheet</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
