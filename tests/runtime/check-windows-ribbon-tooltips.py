@@ -55,26 +55,26 @@ def visible_windows(pid):
 
 def buttons(office, names):
     """{name: (x, y, w, h)} of the visible ribbon buttons with these accessible names."""
-    roles, boxes = {_role("PUSH_BUTTON"), _role("TOGGLE_BUTTON")}, {}
+    roles, boxes, seen = {_role(r) for r in ("PUSH_BUTTON", "TOGGLE_BUTTON", "BUTTON_DROPDOWN", "BUTTON_MENU")}, {}, set()
     for window in office.top_windows():
-        for context, _depth in walk(window, limit=14):
+        for context, _depth in walk(window, limit=20):
             try:
                 role, name = context.getAccessibleRole(), context.getAccessibleName()
                 where, size = context.getLocationOnScreen(), context.getSize()
             except Exception:  # noqa: BLE001 - widgets come and go
                 continue
-            if role in roles and name in names and name not in boxes and size.Width > 0 and where.Y < 300:
-                boxes[name] = (where.X, where.Y, size.Width, size.Height)
-    return boxes
+            if role in roles and where.Y < 300 and size.Width > 0:
+                seen.add(name)
+                if name in names and name not in boxes:
+                    boxes[name] = (where.X, where.Y, size.Width, size.Height)
+    return boxes, sorted(seen)
 
 
 def set_dark(office):
-    import uno
     from com.sun.star.beans import PropertyValue
     provider = office.service("com.sun.star.configuration.ConfigurationProvider")
-    arg = PropertyValue(Name="nodepath", Value="/org.openoffice.Office.Common/Misc")
-    access = provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationUpdateAccess",
-                                                  uno.Any("[]com.sun.star.beans.PropertyValue", (arg,)))
+    arg = PropertyValue(Name="nodepath", Value="/org.openoffice.Office.Common/Appearance")
+    access = provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationUpdateAccess", (arg,))
     access.setPropertyValue("ApplicationAppearance", 2)
     access.commitChanges()
 
@@ -87,10 +87,19 @@ def check_app(office, res, args, app):
     office.desktop.getCurrentFrame().getContainerWindow().IsMaximized = True
     time.sleep(3)
     window = wg.find_window(lambda name: title in name, timeout=30)
-    boxes = buttons(office, {name for name, _ in wanted})
-    if not res(f"[{app}] ribbon buttons found", bool(window) and len(boxes) == len(wanted), sorted(boxes)):
+    if window:
+        wg.foreground(window[0])
+        time.sleep(2)
+    wg.screenshot(os.path.join(args.out, f"{app}-ribbon.png"), cursor=False)
+    if args.points:  # "name=x,y;..." read from <app>-ribbon.png when the accessibility tree has no ribbon items
+        pairs = [item.split("=") for item in args.points.split(";") if item]
+        wanted = [(name, True) for name, _xy in pairs]
+        boxes = {name: tuple(map(int, xy.split(","))) + (2, 2) for name, xy in pairs}
+        seen = []
+    else:
+        boxes, seen = buttons(office, {name for name, _ in wanted})
+    if not res(f"[{app}] ribbon buttons found", bool(window) and len(boxes) == len(wanted), (sorted(boxes), seen)):
         return
-    wg.foreground(window[0])
     pid = office.bin_pids_of_profile()[0]
     scale = user32.GetDpiForWindow(window[0]) / 96.0 if hasattr(user32, "GetDpiForWindow") else 1.0
     for n, (name, described) in enumerate(wanted):
@@ -100,7 +109,9 @@ def check_app(office, res, args, app):
         before = visible_windows(pid)
         wg.mouse_move(x + w // 2, y + h // 2)
         time.sleep(2.5)
-        tips = {k: r for k, r in visible_windows(pid).items() if k not in before and r[3] - r[1] < 200}
+        # the tip window: small, just under the button (VCL may reuse the previous tip's window)
+        tips = {k: r for k, r in visible_windows(pid).items()
+                if r[3] - r[1] < 200 and r[2] - r[0] < 1200 and y <= r[1] <= y + h + 120 and r[0] <= x + w}
         wg.screenshot(os.path.join(args.out, f"{app}-{n}.png"))
         rect = next(iter(tips.values()), None)
         width = rect[2] - rect[0] if rect else 0
@@ -117,6 +128,7 @@ def main():
     parser.add_argument("--port", type=int, default=2381)
     parser.add_argument("--dark", action="store_true")
     parser.add_argument("--apps", default="writer,impress")
+    parser.add_argument("--points", default="", help="name=x,y;... screen points to hover (one app)")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
     profile = os.path.join(args.out, "profile")
@@ -128,7 +140,11 @@ def main():
         office.ctx = office._connect()
         wg.dismiss_startup(office, os.path.join(args.out, "startup.png"))
         if args.dark:
-            set_dark(office)
+            try:
+                set_dark(office)
+            except Exception as error:  # noqa: BLE001
+                res("dark appearance set", False, repr(error))
+                raise
             office.stop()
             office.start(fresh=False)
             time.sleep(15)

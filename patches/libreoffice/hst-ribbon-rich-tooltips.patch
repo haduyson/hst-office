@@ -3,7 +3,9 @@ plain sentence saying what the command does (owner decision for 1.0.2).
 
 - QuickHelpFlags::RichTitle marks such a tip: its first line ("Name (Shortcut)") is drawn bold, the rest is the
   description: one line when it fits in about 60 average characters, else two lines of about the same length
-  (never narrower than the title; a little wider if a long word would push a third line). HelpTextWindow draws it on Windows, macOS and the gen back end with the theme's tooltip colours;
+  (never narrower than the title, one line too when the title is nearly as wide; a little wider if a long word
+  would push a third line). In a dark theme the tip takes the theme's menu colours instead of the system tooltip
+  look, which stays light on Windows. HelpTextWindow draws it on Windows, macOS and the gen back end with the theme's tooltip colours;
   GTK shows it natively as markup (SalFrame::ShowRichTooltip, which falls back to the plain ShowTooltip on back
   ends without rich tips). The tip delay, position and hide timer are unchanged.
 - NotebookbarToolBox (every ribbon toolbox built from a notebookbar .ui) answers quick help requests itself
@@ -53,7 +55,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  public:
 --- a/vcl/source/app/help.cxx
 +++ b/vcl/source/app/help.cxx
-@@ -32,6 +32,9 @@
+@@ -32,9 +32,19 @@
  #include <vcl/settings.hxx>
  
  #include <helpwin.hxx>
@@ -63,7 +65,33 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <salframe.hxx>
  #include <svdata.hxx>
  
-@@ -323,7 +326,9 @@
++// HST Office: a ribbon tip (RichTitle) in a dark theme takes the theme's menu colours instead of the system tooltip
++// look, which stays light on Windows
++static bool ImplIsRichDark(QuickHelpFlags nStyle, const StyleSettings& rStyleSettings)
++{
++    return (nStyle & QuickHelpFlags::RichTitle) && rStyleSettings.GetFaceColor().IsDark();
++}
++
+ #define HELPTEXTMARGIN_QUICK    3
+ #define HELPTEXTMARGIN_BALLOON  6
+ 
+@@ -287,6 +297,15 @@
+     rRenderContext.SetTextColor(rStyleSettings.GetHelpTextColor());
+     rRenderContext.SetTextAlign(ALIGN_TOP);
+ 
++    if (ImplIsRichDark(mnStyle, rStyleSettings))
++    {
++        rRenderContext.SetTextColor(rStyleSettings.GetMenuTextColor());
++        rRenderContext.SetBackground(Wallpaper(rStyleSettings.GetMenuColor()));
++        rRenderContext.SetLineColor(rStyleSettings.GetShadowColor());
++        rRenderContext.SetFillColor();
++        return;
++    }
++
+     if (rRenderContext.IsNativeControlSupported(ControlType::Tooltip, ControlPart::Entire))
+     {
+         EnableChildTransparentMode();
+@@ -323,7 +342,9 @@
  {
      maHelpText = rHelpText;
      ApplySettings(*GetOutDev());
@@ -74,7 +102,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      {
          Size aSize;
          aSize.setHeight( GetTextHeight() );
-@@ -364,6 +369,75 @@
+@@ -364,6 +385,77 @@
          PaintImmediately();
  }
  
@@ -118,7 +146,9 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    {
 +        const tools::Long nBodyWidth = rDev.GetTextWidth(aBody);
 +        const tools::Long nOneLine = rDev.GetTextWidth(OUString::Concat(RepeatedUChar('x', 60)));
-+        tools::Long nWrap = std::max(nTitleWidth, nBodyWidth <= nOneLine ? nBodyWidth : nBodyWidth * 11 / 20);
++        // one line when short, or when the title is nearly as wide (two lines would leave an orphan word)
++        const bool bOneLine = nBodyWidth <= nOneLine || nBodyWidth <= nTitleWidth * 5 / 4;
++        tools::Long nWrap = std::max(nTitleWidth, bOneLine ? nBodyWidth : nBodyWidth * 11 / 20);
 +        tools::Rectangle aBodyRect;
 +        for (int nTry = 0; nTry < 4; ++nTry, nWrap += nWrap / 10)
 +        {
@@ -150,7 +180,17 @@ License: these upstream files remain under their original license (MPL-2.0).
  void HelpTextWindow::ImplShow()
  {
      VclPtr<HelpTextWindow> xWindow( this );
-@@ -385,7 +459,9 @@
+@@ -376,7 +468,8 @@
+ {
+     // paint native background
+     bool bNativeOK = false;
+-    if (rRenderContext.IsNativeControlSupported(ControlType::Tooltip, ControlPart::Entire))
++    if (rRenderContext.IsNativeControlSupported(ControlType::Tooltip, ControlPart::Entire)
++        && !ImplIsRichDark(mnStyle, rRenderContext.GetSettings().GetStyleSettings()))
+     {
+         tools::Rectangle aCtrlRegion(Point(0, 0), GetOutputSizePixel());
+         ImplControlValue aControlValue;
+@@ -385,7 +478,9 @@
      }
  
      // paint text
@@ -161,7 +201,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      {
          if ( mnStyle & QuickHelpFlags::CtrlText )
              rRenderContext.DrawCtrlText(maTextRect.TopLeft(), maHelpText);
-@@ -486,7 +562,11 @@
+@@ -486,7 +581,11 @@
                                 QuickHelpFlags nStyle, const OUString& rHelpText,
                                 const Point& rScreenPos, const tools::Rectangle& rHelpArea)
  {
@@ -174,7 +214,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      {
          //tooltips are handled natively, return early
          return;
-@@ -502,7 +582,8 @@
+@@ -502,7 +601,8 @@
      {
          SAL_WARN_IF( pHelpWin == pParent, "vcl", "HelpInHelp ?!" );
  
