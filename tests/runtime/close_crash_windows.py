@@ -108,7 +108,7 @@ class Office:
                                       "--nologo", "--nodefault", "--accept=socket,host=127.0.0.1,port=%d;urp;" % self.port])
         local = uno.getComponentContext()
         resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
-        end = time.time() + 180
+        end = time.time() + 300  # a busy test PC (a build running) starts slowly
         while self.ctx is None:
             try:
                 self.ctx = resolver.resolve("uno:socket,host=127.0.0.1,port=%d;urp;StarOffice.ComponentContext" % self.port)
