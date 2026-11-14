@@ -7,6 +7,10 @@ Chạy từ thư mục gốc website:  python3 scripts/build-install-guide.py
 - Ảnh: đặt ảnh gốc ở scripts/install-guide/images/<tên>.png và viết <img src="images/<tên>.png" alt="…"> trong nội
   dung. Script thu nhỏ (tối đa 1200 px), ghi cai-dat/images/<tên>.png + .webp, gắn ?v=<sha256[:8]> vì ảnh được cache
   một năm, thêm width/height chống xô lệch trang. Thiếu ảnh gốc thì dừng với lỗi (không để khung ảnh trống).
+- {CARD_WINDOWS}, {CARD_MACOS}, {CARD_LINUX}: ô tải về lấy nguyên từ mục Tải về của index.html (bỏ dòng đếm lượt tải),
+  nên nút và trạng thái do config.js + main.js điều khiển giống trang chủ.
+- {ERROR_INDEX}: ô tìm nhanh + mục lục dựng từ các <section class="err-group"> (h2 có id) và
+  <section class="err-item" id=… data-keywords=…> (h3). main.js lọc các mục theo từ khóa, không phân biệt dấu.
 - Trang nằm ngoài /huong-dan/ vì scripts/sync-help.py xóa và dựng lại toàn bộ thư mục đó.
 Menu đầu trang và chân trang lấy từ site_chrome.py (mục đang mở: "install").
 """
@@ -92,7 +96,7 @@ HEAD = """<!doctype html>
   </script>
 </head>
 <body>
-  <svg class="svg-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false"><symbol id="i-download" viewBox="0 0 24 24"><path d="M12 3v12m-5-5 5 5 5-5M4 15v5h16v-5"/></symbol><symbol id="i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M15 8V3H3v13h5"/></symbol></svg>
+  <svg class="svg-library" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">{symbols}</svg>
   <a href="#noi-dung" class="skip-link">Đến nội dung chính</a>
   <!-- site-header -->
   <!-- /site-header -->
@@ -176,6 +180,50 @@ def picture(tag):
     return f'<picture><source type="image/webp" srcset="/cai-dat/images/{name}.webp?v={v}">{tag}</picture>'
 
 
+def home_snippets():
+    """Ô tải về và biểu tượng SVG lấy từ index.html để trang cài đặt luôn giống mục Tải về của trang chủ."""
+    home = read(os.path.join(SITE, "index.html"))
+    symbols = "".join(re.search(r'<symbol id="%s"[\s\S]*?</symbol>' % name, home).group(0)
+                      for name in ("i-download", "i-copy", "i-windows", "i-apple", "i-linux"))
+    cards = {}
+    for key in ("windows", "macos", "linux"):
+        card = re.search(r'<article class="download-card[^"]*" data-platform-card="%s"[\s\S]*?</article>' % key, home).group(0)
+        card = card.replace(" data-reveal", "")
+        start = card.find('<span class="download-count')
+        if start >= 0:  # bỏ dòng đếm lượt tải (span lồng nhau): trang này không tải /thong-ke.json
+            depth, end = 0, start
+            for m in re.finditer(r"<span\b|</span>", card[start:]):
+                depth += 1 if m.group(0) == "<span" else -1
+                if depth == 0:
+                    end = start + m.end()
+                    break
+            card = card[:start] + card[end:]
+        cards["CARD_" + key.upper()] = f'<div class="install-download">{card}</div>'
+    return symbols, cards
+
+
+def strip_tags(text):
+    return html.unescape(re.sub(r"<[^>]+>", "", text)).strip()
+
+
+def error_index(content):
+    """Ô tìm nhanh + mục lục cho trang gỡ lỗi, dựng từ các nhóm (h2) và mục lỗi (h3) trong nội dung."""
+    groups = []
+    for group in content.split('<section class="err-group">')[1:]:
+        h2 = re.search(r'<h2 id="([^"]+)">([\s\S]*?)</h2>', group)
+        items = re.findall(r'<section class="err-item" id="([^"]+)"[^>]*>\s*<h3>([\s\S]*?)</h3>', group)
+        links = "".join(f'<li data-target="{i}"><a href="#{i}">{html.escape(strip_tags(t))}</a></li>' for i, t in items)
+        groups.append(f'<div class="error-index-group" data-group="{h2.group(1)}"><p class="error-index-title">'
+                      f'<a href="#{h2.group(1)}">{strip_tags(h2.group(2))}</a></p><ul>{links}</ul></div>')
+    return ('<div class="error-finder" data-error-finder hidden>'
+            '<label for="error-search">Tìm nhanh lỗi bạn gặp</label>'
+            '<input id="error-search" type="search" placeholder="Gõ mã lỗi hoặc nội dung thông báo, ví dụ: 1603, SmartScreen, glibc" autocomplete="off" enterkeyhint="search">'
+            '<p class="error-finder-status" role="status" aria-live="polite"></p>'
+            '<p class="error-empty" hidden>Không thấy lỗi phù hợp. Hãy thử từ khóa khác hoặc xem <a href="#van-chua-duoc">Vẫn chưa cài được</a>.</p></div>\n'
+            '<nav class="error-index" aria-label="Mục lục các lỗi"><p class="error-index-heading">Mục lục</p>'
+            f'<div class="error-index-groups">{"".join(groups)}</div></nav>')
+
+
 def jsonld(page, version):
     import json
     url = BASE + page["url"]
@@ -192,13 +240,18 @@ def jsonld(page, version):
     return json.dumps({"@context": "https://schema.org", "@graph": graph}, ensure_ascii=False, indent=1)
 
 
-def build(page, version, versions):
+def build(page, version, versions, snippets):
     names = {"VERSION": version, "MSI": f"HSTOffice_{version}_Win_x86-64_en-US_vi.msi",
              "DMG_ARM": f"HSTOffice_{version}_macOS_arm64.dmg", "DMG_INTEL": f"HSTOffice_{version}_macOS_x86_64.dmg",
              "DEB": f"HSTOffice_{version}_Linux_x86-64.deb"}
     content = read(os.path.join(SRC, page["src"]))
     for key, value in names.items():
         content = content.replace("{" + key + "}", value)
+    symbols, cards = snippets
+    for key, card in cards.items():
+        content = content.replace("{" + key + "}", card)
+    if "{ERROR_INDEX}" in content:
+        content = content.replace("{ERROR_INDEX}", error_index(content))
     content = re.sub(r"<img\s[^>]*>", lambda m: picture(m.group(0)), content)
     crumb = '<a href="/">Trang chủ</a><span aria-hidden="true">›</span>'
     if page["url"] == "/cai-dat/":
@@ -212,7 +265,7 @@ def build(page, version, versions):
         nav += f'<a href="{page["next"][1]}" rel="next"><strong>Trang sau →</strong><span>{page["next"][0]}</span></a>'
     out = HEAD.format(title=html.escape(page["title"]), description=html.escape(page["description"]), url=BASE + page["url"],
                       crumb=page["crumb"], jsonld=jsonld(page, version), breadcrumb=crumb, version=version,
-                      sidebar=sidebar(page["url"]), content=content.rstrip(), page_nav=nav, **versions)
+                      sidebar=sidebar(page["url"]), content=content.rstrip(), page_nav=nav, symbols=symbols, **versions)
     out = apply_chrome(out, "install")
     path = os.path.join(OUT, page["out"])
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -224,5 +277,6 @@ def build(page, version, versions):
 if __name__ == "__main__":
     version = release_version()
     versions = {"css_v": asset_version("style.css"), "js_v": asset_version("main.js"), "config_v": asset_version("config.js")}
+    snippets = home_snippets()
     for page in PAGES:
-        build(page, version, versions)
+        build(page, version, versions, snippets)

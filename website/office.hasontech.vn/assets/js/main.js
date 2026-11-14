@@ -101,6 +101,38 @@
   openVersion();
   window.addEventListener('hashchange', openVersion);
 
+  // Gỡ lỗi khi cài đặt: ô tìm nhanh lọc các mục lỗi theo từ khóa (không phân biệt dấu, hoa thường).
+  const finder = document.querySelector('[data-error-finder]');
+  if (finder) {
+    const fold = (text) => text.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
+    const input = finder.querySelector('input');
+    const status = finder.querySelector('.error-finder-status');
+    const empty = finder.querySelector('.error-empty');
+    const items = [...document.querySelectorAll('.err-item')].map((item) => ({
+      item, text: fold(`${item.textContent} ${item.dataset.keywords || ''}`)
+    }));
+    const groups = [...document.querySelectorAll('.err-group')];
+    const filter = () => {
+      const terms = fold(input.value).split(/\s+/).filter(Boolean);
+      let shown = 0;
+      items.forEach(({ item, text }) => {
+        const match = terms.every((term) => text.includes(term));
+        item.hidden = !match;
+        const entry = document.querySelector(`.error-index li[data-target="${item.id}"]`);
+        if (entry) entry.hidden = !match;
+        if (match) shown += 1;
+      });
+      groups.forEach((group) => { group.hidden = !group.querySelector('.err-item:not([hidden])'); });
+      document.querySelectorAll('.error-index-group').forEach((group) => {
+        group.hidden = !group.querySelector('li:not([hidden])');
+      });
+      empty.hidden = shown > 0;
+      status.textContent = terms.length ? (shown ? `Có ${shown} lỗi phù hợp.` : '') : '';
+    };
+    finder.hidden = false;
+    input.addEventListener('input', filter);
+  }
+
   // All-time visit/download totals; the server rewrites /thong-ke.json every 15 minutes.
   // Numbers stay hidden (space reserved, no layout shift) until valid data arrives.
   const statsBox = document.querySelector('[data-office-stats]');
