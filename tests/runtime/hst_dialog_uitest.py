@@ -84,6 +84,23 @@ class DialogHarness:
         raise AssertionError(f"{command}: dialog {dialog_id} did not open (focus: {state(top).get('ID')!r} {state(top).get('Text')!r} {state(top).get('WindowType')})")
 
 
+def end_execute_survives(h, command, dialog_id):
+    """Open a dialog, close it with XDialog.endExecute() as a macro would, and report whether the office survived
+    (Page Setup crashed the office on Windows: hst-tabcontrol-disposed-pages.patch)."""
+    h.open_dialog(command, dialog_id)
+    toolkit = h.office.service("com.sun.star.awt.Toolkit")
+    frames = h.office.desktop().getFrames()
+    containers = [frames.getByIndex(i).getContainerWindow() for i in range(frames.getCount())]
+    windows = [toolkit.getTopWindow(i) for i in range(toolkit.getTopWindowCount())]
+    dialogs = [w for w in windows if w.isVisible() and not any(w == c for c in containers)]
+    dialogs[0].endExecute()
+    h.wait_idle(3)
+    try:
+        return h.office.desktop().getFrames().getCount() > 0
+    except Exception:  # noqa: BLE001 - the bridge is gone when the office died
+        return False
+
+
 def writer_edit(ui):
     """The document window, for typing. The first-run welcome is modal and can take the focus first."""
     deadline = time.time() + 30
