@@ -11,8 +11,10 @@ question.
   (SessionListener): doSessionSave writes every document to its recovery file, doSessionQuietQuit
   closes the documents keeping their entries (modified state included) and marks the session
   (RecoveryInfo/SessionData). The next start restores the session without a dialog, the documents
-  carry their changes and are still marked modified. Once per session end (every frame gets the
-  signal). Without AutoRecovery (--norestore) nothing changes.
+  carry their changes and are still marked modified. Every frame gets the signal: the first one
+  stores and ends the office; one arriving while the documents are stored (the main loop runs) only
+  answers, a nested terminate left the office running. Without AutoRecovery (--norestore) nothing
+  changes.
 License: these upstream files remain under their original license (MPL-2.0).
 Test: tests/runtime/check-session-end-gnome.py (with tests/runtime/fake_gnome_session.py).
 ---
@@ -29,7 +31,7 @@ Test: tests/runtime/check-session-end-gnome.py (with tests/runtime/fake_gnome_se
  
  #if !GTK_CHECK_VERSION(4, 0, 0)
  #   define GDK_ALT_MASK GDK_MOD1_MASK
-@@ -1483,6 +1486,37 @@
+@@ -1483,6 +1486,45 @@
                        nullptr, nullptr, nullptr);
  }
  
@@ -37,14 +39,10 @@ Test: tests/runtime/check-session-end-gnome.py (with tests/runtime/fake_gnome_se
 +// session management does (SessionListener: doSessionSave, then doSessionQuietQuit). Every
 +// document is written to its recovery file and closed with its entry kept (modified state
 +// included), and the session is marked (RecoveryInfo/SessionData): the next start reopens the
-+// documents with their changes. Runs once per desktop session end (every frame gets the signal);
-+// without AutoRecovery (--norestore) both jobs do nothing and the documents are dropped as before.
++// documents with their changes. Without AutoRecovery (--norestore) both jobs do nothing and the
++// documents are dropped as before.
 +static void store_session()
 +{
-+    static bool bStored = false;
-+    if (bStored)
-+        return;
-+    bStored = true;
 +    try
 +    {
 +        const css::uno::Reference<css::uno::XComponentContext>& xContext = ::comphelper::getProcessComponentContext();
@@ -64,13 +62,30 @@ Test: tests/runtime/check-session-end-gnome.py (with tests/runtime/fake_gnome_se
 +    }
 +}
 +
++// HST Office: every frame gets EndSession/Stop; the first one stores the session and ends the
++// office. Storing runs the main loop, so the signal for another frame can arrive meanwhile: that
++// one only answers, a nested terminate would leave the office running.
++static bool first_session_end()
++{
++    static bool bEnding = false;
++    if (bEnding)
++        return false;
++    bEnding = true;
++    return true;
++}
++
  // unset documents "modify" flag so they won't veto closing
  static void clear_modify_and_terminate()
  {
-@@ -1552,11 +1586,14 @@
+@@ -1552,11 +1594,21 @@
      }
      else if (g_str_equal (signal_name, "EndSession"))
      {
++        if (!first_session_end())
++        {
++            session_client_response(client_proxy);
++            return;
++        }
 +        // HST Office: store before answering, the session manager may end the session at once
 +        store_session();
          session_client_response(client_proxy);
@@ -78,6 +93,8 @@ Test: tests/runtime/check-session-end-gnome.py (with tests/runtime/fake_gnome_se
      }
      else if (g_str_equal (signal_name, "Stop"))
      {
++        if (!first_session_end())
++            return;
 +        store_session();
          clear_modify_and_terminate();
      }
