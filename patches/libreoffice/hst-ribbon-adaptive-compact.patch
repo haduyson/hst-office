@@ -1,0 +1,1173 @@
+HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab strip is 32 px high.
+
+1.0.2 ribbon (owner decisions 14/11/2026, gap list G07 and G13, mockup v2):
+- Ctrl+F1, a double-click on a tab or the chevron at the lower right end of the ribbon (˄) collapse the
+  Tabbed ribbon of Writer, Sheets, Slides and Draw to 80 logical px: the tab row and a row of the current
+  tab's main commands with their own toolbar controllers (data/ribbon/quick-rows.json, generated into
+  sfx2/source/notebookbar/HstRibbonQuickRows.hxx by scripts/patches/generate-ribbon-quick-rows.py; each
+  app's rows hold only commands of that app's own ribbon). The banner (260 x 75) stands across both rows;
+  the tab row's search box and menu button stop before it (NotebookbarTabControlBase::HstSetRowReserve).
+- Choosing a tab of the compact ribbon (click, access key) drops its full page over the document, below
+  the tab row and left of the banner (vcl/source/control/HstRibbonDrop.cxx); Esc, a click outside or a
+  command run from it closes it. Ctrl+F1, the quick row's ˅ chevron or a double-click on a tab restore
+  the full ribbon. Each app remembers its state (HSTRibbon/CompactApps).
+- framework DocumentTabBar: 32 px high (G13), at least the text height and its padding.
+- Strings: STR_HST_RIBBON_COLLAPSE / STR_HST_RIBBON_EXPAND with their Vietnamese translation.
+
+--- a/framework/source/uielement/documenttabbar.cxx
++++ b/framework/source/uielement/documenttabbar.cxx
+@@ -39,6 +39,7 @@
+ constexpr tools::Long CLOSE_SIZE = 16;
+ constexpr tools::Long PLUS_WIDTH = 30;
+ constexpr tools::Long ACCENT = 2;
++constexpr tools::Long BAR_HEIGHT = 32;
+ 
+ constexpr sal_uInt16 MENU_WRITER = 1;
+ constexpr sal_uInt16 MENU_CALC = 2;
+@@ -74,7 +75,9 @@
+ 
+ tools::Long DocumentTabBar::GetOptimalHeight() const
+ {
+-    return GetTextHeight() + 2 * Px(*this, TAB_PAD - 2) + ACCENT;
++    // HST Office (1.0.2 ribbon, gap list G06): 32 logical px, the room the taller ribbon chrome needs back;
++    // more only when the UI font needs it
++    return std::max<tools::Long>(Px(*this, BAR_HEIGHT), GetTextHeight() + 2 * Px(*this, 4) + ACCENT);
+ }
+ 
+ void DocumentTabBar::ImplLayout()
+--- a/include/sfx2/strings.hrc
++++ b/include/sfx2/strings.hrc
+@@ -197,6 +197,9 @@
+ #define STR_PASSWD_MIN_LEN1                     NC_("STR_PASSWD_MIN_LEN1", "(Minimum 1 character)")
+ #define STR_PASSWD_EMPTY                        NC_("STR_PASSWD_EMPTY", "(The password can be empty)")
+ #define STR_MODULENOTINSTALLED                  NC_("STR_MODULENOTINSTALLED", "The action could not be executed. The %PRODUCTNAME program module needed for this action is currently not installed.")
++// HST Office: chevron buttons of the ribbon (compact ribbon: tab row and quick command row)
++#define STR_HST_RIBBON_COLLAPSE                 NC_("STR_HST_RIBBON_COLLAPSE", "Collapse the Ribbon (Ctrl+F1)")
++#define STR_HST_RIBBON_EXPAND                   NC_("STR_HST_RIBBON_EXPAND", "Show the Full Ribbon (Ctrl+F1)")
+ 
+ #define STR_FILTER_NOT_INSTALLED                NC_("STR_FILTER_NOT_INSTALLED", "The selected filter $(FILTER) has not been installed.\nWould you like to do this now?")
+ #define STR_FILTER_CONSULT_SERVICE              NC_("STR_FILTER_CONSULT_SERVICE", "The selected filter $(FILTER) is not included in your edition.\nYou can find information about orders on our homepage.")
+--- a/include/vcl/tabctrl.hxx
++++ b/include/vcl/tabctrl.hxx
+@@ -189,6 +189,18 @@
+     void SetToolBox( ToolBox* pToolBox );
+     ToolBox* GetToolBox() { return m_pShortcuts; }
+     Control* GetOpenMenu();
++    /// HST Office (1.0.2 ribbon): keep nWidth px free at the right end of the tab row (the banner standing
++    /// across the tab row and the quick command row of the compact ribbon); the search box and the menu
++    /// button stop before it
++    void HstSetRowReserve( tools::Long nWidth );
++    /// HST Office: height of the tab row in px
++    static sal_uInt16 HstHeaderHeight() { return m_nHeaderHeight; }
++    /// HST Office (compact ribbon): show the current page in a popup below the tab row, nWidth px wide and as
++    /// high as the full ribbon's pages, over the document; Esc, a click outside or a command closes it and the
++    /// page returns, hidden, to the tab control. False when there is no page to show.
++    bool HstDropPage( tools::Long nWidth );
++    void HstCloseDrop();
++    bool HstIsDropped() const;
+ 
+     virtual Size        calculateRequisition() const override;
+ 
+@@ -204,6 +216,8 @@
+     static sal_uInt16 m_nHeaderHeight;
+     VclPtr<ToolBox> m_pShortcuts;
+     VclPtr<PushButton> m_pOpenMenu;
++    tools::Long m_nHstRowReserve = 0;
++    VclPtr<vcl::Window> m_xHstDrop; // the popup of HstDropPage (vcl/source/control/HstRibbonDrop.cxx)
+     DECL_DLLPRIVATE_LINK(OpenMenu, Button*, void);
+ };
+ 
+--- a/officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs
+@@ -43,6 +43,14 @@
+       </info>
+       <value>true</value>
+     </prop>
++    <prop oor:name="CompactApps" oor:type="oor:string-list" oor:nillable="false">
++      <info>
++        <desc>Apps (writer, calc, impress, draw) whose ribbon was left compact (Ctrl+F1): only the tab row and a
++          row of the current tab's main commands; a click on a tab shows the full tab over the document.
++          Each app opens in the state it was left in.</desc>
++      </info>
++      <value/>
++    </prop>
+     <prop oor:name="SlidesSidebarFirstStartDone" oor:type="xs:boolean" oor:nillable="false">
+       <info>
+         <desc>Set once HST Slides has started: on its first start the sidebar is folded to its tab bar
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -259,6 +259,8 @@
+     sfx2/source/explorer/nochaos \
+     sfx2/source/inet/inettbc \
+     sfx2/source/notebookbar/SfxNotebookBar \
++    sfx2/source/notebookbar/HstRibbonCompact \
++    sfx2/source/notebookbar/HstRibbonCompactWidgets \
+     sfx2/source/notebookbar/NotebookbarTabControl \
+     sfx2/source/notebookbar/HstRibbonKeyTips \
+     sfx2/source/notebookbar/HstChartCommands \
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -11,6 +11,7 @@
+ 
+ #include <chrono>
+ #include <map>
++#include <memory>
+ #include <vcl/tabctrl.hxx>
+ 
+ #include <com/sun/star/frame/XFrame.hpp>
+@@ -18,6 +19,7 @@
+ namespace com::sun::star::uno { class XComponentContext; }
+ class ChangedUIEventListener;
+ class HstRibbonBanner;
++class HstRibbonCompact;
+ class HstTabSearchBox;
+ class VclWindowEvent;
+ struct ImplSVEvent;
+@@ -37,6 +39,7 @@
+     virtual Size calculateRequisition() const override;
+     virtual void Resize() override;
+     virtual void dispose() override;
++    virtual void MouseButtonDown( const MouseEvent& rMEvt ) override;
+ 
+ private:
+     // HST Office: HASON TECH solution banner beside the groups (Writer, Calc, Impress, Draw Tabbed UI)
+@@ -49,6 +52,16 @@
+     // HST Office: feature search box in the tab row, after the last tab (placed by the vcl base)
+     VclPtr<HstTabSearchBox> m_pHstSearch;
+     bool m_bHstLayout = false;
++    // HST Office (1.0.2 ribbon): the compact ribbon (Ctrl+F1); see HstRibbonCompact.hxx
++    void HstSetCompact( bool bCompact );
++    void HstDrop();
++    tools::Long HstCompactReserve() const;
++    DECL_LINK(HstToggleHdl, LinkParamNone*, void);
++    DECL_LINK(HstKeyHdl, VclWindowEvent&, bool);
++    DECL_LINK(HstTabEventHdl, VclWindowEvent&, void);
++    DECL_LINK(HstStoredStateHdl, void*, void);
++    std::unique_ptr<HstRibbonCompact> m_pHstCompact;
++    ImplSVEvent* m_pHstStateEvent = nullptr;
+ 
+     // time-based debounce: track when the last tab switch via scroll happened
+     std::chrono::steady_clock::time_point m_lastTabSwitch{};
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstRibbonCompact.cxx
+@@ -0,0 +1,155 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include "HstRibbonCompact.hxx"
++#include "HstRibbonQuickRows.hxx"
++
++#include <comphelper/configuration.hxx>
++#include <comphelper/sequence.hxx>
++#include <officecfg/Office/HSTRibbon.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <sfx2/strings.hrc>
++#include <vcl/ctrl.hxx>
++#include <vcl/tabpage.hxx>
++#include <vcl/toolbox.hxx>
++
++#include <algorithm>
++#include <cmath>
++
++using namespace hst::ribbon::compact;
++
++
++HstRibbonCompact::HstRibbonCompact(vcl::Window& rTabs, OUString aApp, const Link<LinkParamNone*, void>& rToggle)
++    : m_rTabs(rTabs)
++    , m_aApp(std::move(aApp))
++    , m_aToggle(rToggle)
++{
++    m_xQuick = CreateQuickRow(&m_rTabs);
++    m_xCollapse = CreateChevron(&m_rTabs, true, SfxResId(STR_HST_RIBBON_COLLAPSE),
++                                             LINK(this, HstRibbonCompact, ChevronHdl));
++    m_xExpand = CreateChevron(&m_rTabs, false, SfxResId(STR_HST_RIBBON_EXPAND),
++                                           LINK(this, HstRibbonCompact, ChevronHdl));
++}
++
++HstRibbonCompact::~HstRibbonCompact() { dispose(); }
++
++void HstRibbonCompact::dispose()
++{
++    m_xQuick.disposeAndClear();
++    m_xCollapse.disposeAndClear();
++    m_xExpand.disposeAndClear();
++}
++
++IMPL_LINK_NOARG(HstRibbonCompact, ChevronHdl, LinkParamNone*, void) { m_aToggle.Call(nullptr); }
++
++tools::Long HstRibbonCompact::BandHeight(double fDpi) { return px(80, fDpi); }
++
++tools::Long HstRibbonCompact::QuickHeight(tools::Long nHeaderHeight, double fDpi)
++{
++    return std::max(BandHeight(fDpi) - nHeaderHeight, px(32, fDpi));
++}
++
++bool HstRibbonCompact::Stored(std::u16string_view rApp)
++{
++    try
++    {
++        const auto aApps = officecfg::Office::HSTRibbon::CompactApps::get();
++        return std::find(aApps.begin(), aApps.end(), rApp) != aApps.end();
++    }
++    catch (const css::uno::Exception&)
++    {
++        return false; // no configuration (LibreOfficeKit, broken profile): the full ribbon
++    }
++}
++
++void HstRibbonCompact::SetCompact(bool bCompact)
++{
++    m_bCompact = bCompact;
++    if (!bCompact)
++    {
++        m_xQuick->Hide();
++        m_xExpand->Hide();
++    }
++    else
++        m_xCollapse->Hide();
++    if (Stored(m_aApp) == bCompact)
++        return;
++    try
++    {
++        auto aApps = comphelper::sequenceToContainer<std::vector<OUString>>(
++            officecfg::Office::HSTRibbon::CompactApps::get());
++        std::erase(aApps, m_aApp);
++        if (bCompact)
++            aApps.push_back(m_aApp);
++        auto xChanges = comphelper::ConfigurationChanges::create();
++        officecfg::Office::HSTRibbon::CompactApps::set(comphelper::containerToSequence(aApps), xChanges);
++        xChanges->commit();
++    }
++    catch (const css::uno::Exception&)
++    {
++        // read-only configuration: the state holds for this session only
++    }
++}
++
++void HstRibbonCompact::Fill(const TabPage* pPage, const css::uno::Reference<css::frame::XFrame>& xFrame)
++{
++    const OUString aBox = pPage ? boxOf(*pPage) : OUString();
++    if (aBox == m_aFilledBox || !xFrame.is())
++        return;
++    m_aFilledBox = aBox;
++    m_xQuick->Clear();
++    for (const hst::ribbon::quick::Row& rRow : hst::ribbon::quick::all)
++    {
++        if (rRow.app != m_aApp || rRow.box != aBox)
++            continue;
++        for (std::size_t i = 0; i < rRow.count; ++i)
++        {
++            const OUString aCommand(rRow.commands[i]);
++            if (aCommand == "|")
++            {
++                m_xQuick->InsertSeparator();
++                continue;
++            }
++            m_xQuick->InsertItem(aCommand, xFrame, ToolBoxItemBits::NONE, Size());
++            if (OUString aLabel = ribbonLabel(*pPage, aCommand); !aLabel.isEmpty())
++                m_xQuick->SetItemText(m_xQuick->GetItemId(aCommand), aLabel);
++        }
++    }
++}
++
++void HstRibbonCompact::Place(const tools::Rectangle& rQuick, const tools::Rectangle& rPage)
++{
++    const double fDpi = m_rTabs.GetDPIScaleFactor();
++    const Size aChevron(px(18, fDpi), px(16, fDpi));
++    const long nInset = px(4, fDpi);
++    if (m_bCompact && !rQuick.IsEmpty())
++    {
++        const long nRoom = rQuick.GetWidth() - aChevron.Width() - 2 * nInset;
++        const Size aWant = m_xQuick->CalcWindowSizePixel();
++        const long nHeight = std::min<long>(aWant.Height(), rQuick.GetHeight());
++        m_xQuick->SetPosSizePixel(Point(rQuick.Left(), rQuick.Top() + (rQuick.GetHeight() - nHeight) / 2),
++                                  Size(std::max(0L, std::min<long>(aWant.Width(), nRoom)), nHeight));
++        m_xQuick->Show(m_xQuick->GetItemCount() > 0);
++        m_xExpand->SetPosSizePixel(Point(rQuick.Right() - nInset - aChevron.Width(),
++                                         rQuick.Bottom() - nInset - aChevron.Height()), aChevron);
++        m_xExpand->Show();
++        m_xExpand->SetZOrder(nullptr, ZOrderFlags::First);
++    }
++    else if (!m_bCompact && !rPage.IsEmpty())
++    {
++        m_xCollapse->SetPosSizePixel(Point(rPage.Right() - nInset - aChevron.Width(),
++                                           rPage.Bottom() - px(3, fDpi) - aChevron.Height()), aChevron);
++        m_xCollapse->Show();
++        m_xCollapse->SetZOrder(nullptr, ZOrderFlags::First); // over the page's last group
++    }
++    else
++        m_xCollapse->Hide();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstRibbonCompact.hxx
+@@ -0,0 +1,83 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <com/sun/star/frame/XFrame.hpp>
++#include <rtl/ustring.hxx>
++#include <tools/gen.hxx>
++#include <tools/link.hxx>
++#include <vcl/vclptr.hxx>
++
++#include <cmath>
++
++class Control;
++class TabPage;
++class ToolBox;
++namespace vcl { class Window; }
++
++namespace hst::ribbon::compact
++{
++inline long px(long nLogical, double fDpi) { return std::lround(nLogical * fDpi); }
++/// a flat chevron button (˄ when bUp, else ˅) with the tooltip and accessible name rTip
++VclPtr<Control> CreateChevron(vcl::Window* pParent, bool bUp, const OUString& rTip,
++                              const Link<LinkParamNone*, void>& rClick);
++/// the quick row: commands with their toolbar controllers, icon and label
++VclPtr<ToolBox> CreateQuickRow(vcl::Window* pParent);
++/// the id of the merged group box ("pmhb...") of a tab page, or empty
++OUString boxOf(const vcl::Window& rWindow);
++/// the label the ribbon shows for rCommand below rWindow (its lines joined), or empty
++OUString ribbonLabel(const vcl::Window& rWindow, const OUString& rCommand);
++}
++
++/** HST Office (1.0.2 ribbon, owner decision 14/11/2026): the compact ribbon of the Tabbed notebookbar.
++
++    Ctrl+F1, a double-click on a tab or the small chevron buttons switch between the full ribbon and the
++    compact one: the tab row and, below it, a row of the current tab's main commands (data/ribbon/
++    quick-rows.json, generated into HstRibbonQuickRows.hxx), 80 logical px together, the banner standing
++    across both rows. NotebookbarTabControl owns this helper; it keeps the widgets of both states (the
++    quick row with real toolbar controllers, the chevrons) and remembers the state per app in
++    HSTRibbon/CompactApps. */
++class HstRibbonCompact
++{
++public:
++    /// rApp: writer, calc, impress or draw; rToggle runs when a chevron is clicked
++    HstRibbonCompact(vcl::Window& rTabs, OUString aApp, const Link<LinkParamNone*, void>& rToggle);
++    ~HstRibbonCompact();
++    void dispose();
++
++    bool IsCompact() const { return m_bCompact; }
++    /// shows the quick row (compact) or the collapse chevron (full) and remembers the state for the app
++    void SetCompact(bool bCompact);
++    /// whether the app was left compact
++    static bool Stored(std::u16string_view rApp);
++
++    /// height in px of the compact ribbon (tab row and quick row) and of its quick row alone
++    static tools::Long BandHeight(double fDpi);
++    static tools::Long QuickHeight(tools::Long nHeaderHeight, double fDpi);
++
++    /// fills the quick row with the commands of the tab whose page is pPage (no-op for the same tab)
++    void Fill(const TabPage* pPage, const css::uno::Reference<css::frame::XFrame>& xFrame);
++    /// rQuick: the quick row's rectangle (compact); rPage: the page's rectangle beside the banner (full)
++    void Place(const tools::Rectangle& rQuick, const tools::Rectangle& rPage);
++
++private:
++    DECL_LINK(ChevronHdl, LinkParamNone*, void);
++
++    vcl::Window& m_rTabs;
++    OUString m_aApp;
++    Link<LinkParamNone*, void> m_aToggle;
++    bool m_bCompact = false;
++    OUString m_aFilledBox; // the merged group box whose commands the quick row shows
++    VclPtr<ToolBox> m_xQuick;
++    VclPtr<Control> m_xCollapse; // ˄ at the lower right end of the full page
++    VclPtr<Control> m_xExpand; // ˅ at the right end of the quick row
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstRibbonCompactWidgets.cxx
+@@ -0,0 +1,144 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the widgets of the compact ribbon (HstRibbonCompact.hxx): the chevron buttons and the quick row.
++
++#include "HstRibbonCompact.hxx"
++
++#include <com/sun/star/accessibility/AccessibleRole.hpp>
++#include <sidebar/SidebarToolBox.hxx>
++#include <tools/poly.hxx>
++#include <vcl/ctrl.hxx>
++#include <vcl/event.hxx>
++#include <vcl/HstRibbonPaint.hxx>
++#include <vcl/lineinfo.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/tabpage.hxx>
++
++#include <algorithm>
++
++namespace hst::ribbon::compact
++{
++
++namespace
++{
++/** A flat chevron button (˄ or ˅), as the ribbon's own corner buttons in Office. */
++class HstChevron final : public Control
++{
++public:
++    HstChevron(vcl::Window* pParent, bool bUp, const OUString& rTip, const Link<LinkParamNone*, void>& rClick)
++        : Control(pParent, WB_NOPOINTERFOCUS)
++        , m_bUp(bUp)
++        , m_aClick(rClick)
++    {
++        SetQuickHelpText(rTip);
++        SetAccessibleName(rTip);
++        SetAccessibleRole(css::accessibility::AccessibleRole::PUSH_BUTTON);
++        SetPaintTransparent(true);
++    }
++
++    void Paint(vcl::RenderContext& rDev, const tools::Rectangle&) override
++    {
++        const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++        const Size aSize = GetOutputSizePixel();
++        if (m_bHover)
++        {
++            rDev.SetLineColor();
++            rDev.SetFillColor(hst::ribbon::paletteFor(rStyle).aHover);
++            rDev.DrawRect(tools::Rectangle(Point(), aSize));
++        }
++        const double fDpi = GetDPIScaleFactor();
++        const long nHalf = px(4, fDpi), nRise = px(2, fDpi);
++        const Point aMid(aSize.Width() / 2, aSize.Height() / 2);
++        const long nTip = m_bUp ? -nRise : nRise;
++        tools::Polygon aChevron(3);
++        aChevron.SetPoint(Point(aMid.X() - nHalf, aMid.Y() - nTip), 0);
++        aChevron.SetPoint(Point(aMid.X(), aMid.Y() + nTip), 1);
++        aChevron.SetPoint(Point(aMid.X() + nHalf, aMid.Y() - nTip), 2);
++        rDev.SetLineColor(rStyle.GetButtonTextColor());
++        rDev.DrawPolyLine(aChevron, LineInfo(LineStyle::Solid, std::max<long>(1, px(1, fDpi))));
++    }
++
++    void MouseMove(const MouseEvent& rEvent) override
++    {
++        if (m_bHover != !rEvent.IsLeaveWindow())
++        {
++            m_bHover = !rEvent.IsLeaveWindow();
++            Invalidate();
++        }
++    }
++
++    void MouseButtonUp(const MouseEvent& rEvent) override
++    {
++        if (rEvent.IsLeft() && tools::Rectangle(Point(), GetOutputSizePixel()).Contains(rEvent.GetPosPixel()))
++            m_aClick.Call(nullptr);
++    }
++
++private:
++    bool m_bUp;
++    bool m_bHover = false;
++    Link<LinkParamNone*, void> m_aClick;
++};
++
++/** The quick row: the tab's commands with their own controllers, icon and label, as the ribbon shows them. */
++class HstQuickToolBox final : public sfx2::sidebar::SidebarToolBox
++{
++public:
++    explicit HstQuickToolBox(vcl::Window* pParent)
++        : sfx2::sidebar::SidebarToolBox(pParent)
++    {
++        mbUseDefaultButtonSize = false;
++        mbSideBar = false;
++        SetToolboxButtonSize(ToolBoxButtonSize::Small);
++        SetButtonType(ButtonType::SYMBOLTEXT);
++        hst::ribbon::SetOwnerDraw(*this, true);
++    }
++};
++}
++
++/** The id of the merged group box (PriorityMergedHBox "pmhb...") of a tab page, or empty. */
++OUString boxOf(const vcl::Window& rWindow)
++{
++    for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (pChild->get_id().startsWith("pmhb"))
++            return pChild->get_id();
++        if (OUString aBox = boxOf(*pChild); !aBox.isEmpty())
++            return aBox;
++    }
++    return OUString();
++}
++
++/** The label the ribbon gives rCommand on the page (its two lines joined), or empty. */
++OUString ribbonLabel(const vcl::Window& rWindow, const OUString& rCommand)
++{
++    for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (const ToolBox* pBox = dynamic_cast<const ToolBox*>(pChild))
++            for (ToolBox::ImplToolItems::size_type i = 0; i < pBox->GetItemCount(); ++i)
++                if (pBox->GetItemCommand(pBox->GetItemId(i)) == rCommand)
++                    return pBox->GetItemText(pBox->GetItemId(i)).replace('\n', ' ');
++        if (OUString aLabel = ribbonLabel(*pChild, rCommand); !aLabel.isEmpty())
++            return aLabel;
++    }
++    return OUString();
++}
++
++VclPtr<Control> CreateChevron(vcl::Window* pParent, bool bUp, const OUString& rTip,
++                              const Link<LinkParamNone*, void>& rClick)
++{
++    return VclPtr<HstChevron>::Create(pParent, bUp, rTip, rClick);
++}
++
++VclPtr<ToolBox> CreateQuickRow(vcl::Window* pParent) { return VclPtr<HstQuickToolBox>::Create(pParent); }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstRibbonQuickRows.hxx
+@@ -0,0 +1,198 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: quick command rows of the compact ribbon. GENERATED by
++// scripts/patches/generate-ribbon-quick-rows.py from data/ribbon/quick-rows.json; do not edit.
++
++#include <cstddef>
++#include <iterator>
++#include <string_view>
++
++namespace hst::ribbon::quick
++{
++struct Row
++{
++    std::u16string_view app;
++    std::u16string_view box; // the tab's merged group box
++    const std::u16string_view* commands; // u"|": a separator
++    std::size_t count;
++};
++
++inline constexpr std::u16string_view row0[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u".uno:DefaultBullet", u"|", u".uno:SearchDialog", u"org.hst.office.vi:Nd30Wizard" }; // writer pmhbHome
++inline constexpr std::u16string_view row1[] = { u".uno:TitlePageDialog", u".uno:InsertPagebreak", u"|", u".uno:InsertTable", u".uno:InsertGraphic", u".uno:BasicShapes", u".uno:InsertObjectChart", u"|", u".uno:HyperlinkDialog", u".uno:InsertAnnotation", u"|", u".uno:InsertPageHeader", u".uno:PageNumberWizard", u"|", u".uno:DrawText", u".uno:CharmapControl" }; // writer pmhbInsert
++inline constexpr std::u16string_view row2[] = { u".uno:ThemeDialog", u".uno:Watermark", u".uno:FillPageColor" }; // writer pmhbDesign Tab
++inline constexpr std::u16string_view row3[] = { u".uno:PageMargin", u".uno:LeftParaMargin", u".uno:ObjectAlign", u".uno:Orientation", u".uno:RightParaMargin", u".uno:TransformDialog" }; // writer pmhbLayout
++inline constexpr std::u16string_view row4[] = { u".uno:InsertMultiIndex", u".uno:InsertFootnote", u"org.hst.office.vi:CitationInsert", u".uno:InsertCaptionDialog", u".uno:UpdateCurIndex", u".uno:InsertEndnote", u"org.hst.office.vi:CitationReinsert" }; // writer pmhbReferences
++inline constexpr std::u16string_view row5[] = { u".uno:InsertEnvelope", u"org.hst.office.mailmerge:Start", u"org.hst.office.mailmerge:InsertField", u"org.hst.office.mailmerge:Preview", u"org.hst.office.mailmerge:Finish", u".uno:InsertLabels", u"org.hst.office.mailmerge:Recipients", u"org.hst.office.mailmerge:AddressBlock", u"org.hst.office.mailmerge:First" }; // writer pmhbMailings Tab
++inline constexpr std::u16string_view row6[] = { u".uno:SpellingAndGrammarDialog", u".uno:SidebarDeck.A11yCheckDeck", u".uno:ShowAnnotations", u".uno:TrackChanges", u".uno:NextTrackedChange", u".uno:CompareDocuments", u".uno:ProtectTraceChangeMode", u".uno:ThesaurusDialog", u".uno:InsertAnnotation", u".uno:ShowTrackedChanges" }; // writer pmhbReview
++inline constexpr std::u16string_view row7[] = { u".uno:PrintLayout", u".uno:Sidebar", u".uno:Zoom", u".uno:NewWindow", u".uno:RunMacro", u".uno:BrowseView", u".uno:Ruler", u".uno:ZoomOptimal" }; // writer pmhbView
++inline constexpr std::u16string_view row8[] = { u".uno:HelpIndex", u"org.hst.office.vi:WhereIsCommand" }; // writer pmhbHelp
++inline constexpr std::u16string_view row9[] = { u"org.hst.office.vi:Nd30Wizard", u"org.hst.office.vi:ShowSolutions", u".uno:ExtensionManager", u"org.hst.office.vi:EditVba", u"org.hst.office.vi:ConvertEncoding", u".uno:OptionsTreeDialog", u".uno:RunMacro" }; // writer pmhbExtension
++inline constexpr std::u16string_view row10[] = { u".uno:AutoFormat", u".uno:TableCellBackgroundColor" }; // writer pmhbTable Design Tab
++inline constexpr std::u16string_view row11[] = { u".uno:InsertRowsBefore", u".uno:MergeCells", u".uno:TableDialog", u".uno:SetRowHeight", u".uno:HeadingRowsRepeat", u".uno:TableNumberFormatDialog", u".uno:InsertRowsAfter", u".uno:SplitCell", u".uno:SetColumnWidth", u".uno:ConvertTableToText" }; // writer pmhbTable
++inline constexpr std::u16string_view row12[] = { u".uno:InsertCaptionDialog", u".uno:BorderDialog", u".uno:ObjectTitleDescription", u".uno:TransformDialog", u".uno:GraphicFilterToolbox", u".uno:Crop", u".uno:FormatArea", u".uno:FormatGroup", u".uno:GrafLuminance" }; // writer pmhbImage
++inline constexpr std::u16string_view row13[] = { u".uno:DataRanges", u".uno:DiagramType", u".uno:InsertMenuTitles", u".uno:DiagramData", u".uno:InsertMenuLegend" }; // writer pmhbChart Design Tab
++inline constexpr std::u16string_view row14[] = { u".uno:FormatSelection", u".uno:BringToFront", u".uno:DiagramArea", u".uno:SendToBack" }; // writer pmhbChart Format Tab
++inline constexpr std::u16string_view row15[] = { u".uno:BasicShapes", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:ObjectAlignLeft", u".uno:FormatGroup", u".uno:ExtrusionToggle", u".uno:DrawText", u".uno:FillStyle", u".uno:AlignCenter", u".uno:EnterGroup" }; // writer pmhbDraw
++inline constexpr std::u16string_view row16[] = { u".uno:InsertCaptionDialog", u".uno:BorderDialog", u".uno:AnchorMenu", u".uno:ObjectAlignLeft", u".uno:ChainFrames", u".uno:FormatArea", u".uno:WrapOff", u".uno:AlignCenter" }; // writer pmhbObject
++inline constexpr std::u16string_view row17[] = { u".uno:InsertCaptionDialog", u".uno:AnchorMenu", u".uno:ObjectAlignLeft", u".uno:AVMediaToolBox", u".uno:ToggleObjectRotateMode", u".uno:WrapOff", u".uno:AlignCenter", u".uno:AVMediaPlayer" }; // writer pmhbMedia
++inline constexpr std::u16string_view row18[] = { u".uno:ShowSinglePage", u".uno:GoToStartOfDoc", u".uno:Print", u".uno:ShowMultiplePages", u".uno:PageUp", u".uno:ClosePreview" }; // writer pmhbPrint
++inline constexpr std::u16string_view row19[] = { u".uno:SwitchControlDesignMode", u".uno:FormProperties", u".uno:Label", u".uno:UseWizards", u".uno:ShowFmExplorer", u".uno:Edit" }; // writer pmhbForm
++inline constexpr std::u16string_view row20[] = { u".uno:InsertPageHeader", u".uno:InsertGraphic", u".uno:JumpToHeader", u".uno:PageDialog", u".uno:GoToStartOfPage", u".uno:InsertPageFooter", u".uno:InsertDateField", u".uno:JumpToFooter", u".uno:HstDifferentFirstPage" }; // writer pmhbphbHeaderFooter
++inline constexpr std::u16string_view row21[] = { u".uno:Paste", u".uno:FormatPaintbrush", u".uno:AlignTop", u".uno:NumberFormatType", u".uno:ConditionalFormatMenu", u".uno:AutoSum", u".uno:Cut", u".uno:ResetAttributes", u".uno:AlignVCenter", u"org.hst.office.vi:FormatVnd" }; // calc pmhbHome
++inline constexpr std::u16string_view row22[] = { u".uno:DataDataPilotRun", u".uno:InsertGraphic", u".uno:InsertObjectChart", u".uno:HyperlinkDialog", u".uno:InsertAnnotation", u".uno:FontworkGalleryFloater", u".uno:InsertObjectStarMath", u".uno:InsertCalcTable", u".uno:Gallery", u".uno:InsertObjectChart?ChartType:string=Column" }; // calc pmhbInsert
++inline constexpr std::u16string_view row23[] = { u".uno:ChooseDesign", u".uno:EditHeaderAndFooter", u".uno:ToggleSheetGrid", u".uno:Navigator", u".uno:PrintScaleMenu", u".uno:ViewRowColumnHeaders", u".uno:BringToFront" }; // calc pmhbLayout
++inline constexpr std::u16string_view row24[] = { u".uno:FunctionDialog", u".uno:DefineName", u".uno:ShowPrecedents", u".uno:Calculate", u".uno:AutoSum", u".uno:AddName", u".uno:ShowDependents", u".uno:AutomaticCalculation" }; // calc pmhbFunctions
++inline constexpr std::u16string_view row25[] = { u"org.hst.office.vi:ImportCsv", u".uno:DataSort", u".uno:TextToColumns", u".uno:GoalSeekDialog", u".uno:DataSubTotals", u".uno:ChiSquareTestDialog", u".uno:EditLinks", u".uno:SortAscending", u".uno:HstConvertTextToNumber", u".uno:SolverDialog" }; // calc pmhbData
++inline constexpr std::u16string_view row26[] = { u".uno:SpellDialog", u".uno:InsertAnnotation", u".uno:TraceChangeMode", u".uno:Protect", u".uno:ThesaurusDialog", u".uno:EditAnnotation", u".uno:AcceptChanges", u".uno:ToolProtectionDocument" }; // calc pmhbReview
++inline constexpr std::u16string_view row27[] = { u".uno:NormalViewMode", u".uno:Sidebar", u".uno:ZoomOptimal", u".uno:FreezePanes", u".uno:PagebreakMode", u".uno:InputLineVisible", u".uno:Zoom100Percent", u".uno:SplitWindow" }; // calc pmhbView
++inline constexpr std::u16string_view row28[] = { u".uno:HelpIndex", u"org.hst.office.vi:ReportError" }; // calc pmhbHelp
++inline constexpr std::u16string_view row29[] = { u"org.hst.office.vi:Nd30Wizard", u"org.hst.office.vi:FormatDate", u"org.hst.office.vi:ImportCsv", u"org.hst.office.vi:NumberToWords", u"org.hst.office.vi:ShowSolutions", u".uno:ExtensionManager", u"org.hst.office.vi:EditVba", u"org.hst.office.vi:FormatVnd", u"org.hst.office.vi:RemoveDiacritics", u".uno:OptionsTreeDialog" }; // calc pmhbExtension
++inline constexpr std::u16string_view row30[] = { u".uno:RemoveCalcTable", u".uno:DataSort" }; // calc pmhbphbTableDesign
++inline constexpr std::u16string_view row31[] = { u".uno:DataDataPilotRun", u".uno:Group", u".uno:RecalcPivotTable", u".uno:DataPilotFilter", u".uno:CalculatedFieldRun", u".uno:InsertObjectChart", u".uno:Ungroup", u".uno:DeletePivotTable" }; // calc pmhbphbPivot
++inline constexpr std::u16string_view row32[] = { u".uno:Crop", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:AnchorMenu", u".uno:GraphicFilterToolbox", u".uno:AssignMacro", u".uno:CompressGraphic", u".uno:FillStyle", u".uno:ObjectAlignLeft", u".uno:GrafLuminance" }; // calc pmbhImage
++inline constexpr std::u16string_view row33[] = { u".uno:DataRanges", u".uno:DiagramType", u".uno:InsertMenuTitles", u".uno:DiagramData", u".uno:InsertMenuLegend" }; // calc pmhbphbChartDesign
++inline constexpr std::u16string_view row34[] = { u".uno:FormatSelection", u".uno:BringToFront", u".uno:DiagramArea", u".uno:SendToBack" }; // calc pmhbphbChartFormat
++inline constexpr std::u16string_view row35[] = { u".uno:ToggleObjectBezierMode", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:AnchorMenu", u".uno:FormatGroup", u".uno:ExtrusionToggle", u".uno:AssignMacro", u".uno:ToggleObjectRotateMode", u".uno:FillStyle", u".uno:ObjectAlignLeft" }; // calc pmhbDraw
++inline constexpr std::u16string_view row36[] = { u".uno:OriginalSize", u".uno:FormatArea", u".uno:AnchorMenu", u".uno:AssignMacro", u".uno:ToggleObjectRotateMode", u".uno:FillStyle", u".uno:ObjectAlignLeft" }; // calc pmhbObject
++inline constexpr std::u16string_view row37[] = { u".uno:AnchorMenu", u".uno:AVMediaToolBox", u".uno:AssignMacro", u".uno:ObjectAlignLeft", u".uno:AVMediaPlayer" }; // calc pmhbMedia
++inline constexpr std::u16string_view row38[] = { u".uno:PageFormatDialog", u".uno:ZoomMinus", u".uno:Print", u".uno:Margins", u".uno:ZoomPlus", u".uno:ClosePreview" }; // calc pmhbPrint
++inline constexpr std::u16string_view row39[] = { u".uno:SwitchControlDesignMode", u".uno:FormProperties", u".uno:Label", u".uno:UseWizards", u".uno:ShowFmExplorer", u".uno:Edit" }; // calc pmhbForm
++inline constexpr std::u16string_view row40[] = { u".uno:Paste", u".uno:InsertPage", u".uno:FormatPaintbrush", u".uno:TextdirectionTopToBottom", u".uno:ObjectPosition", u"vnd.sun.star.findbar:FocusToFindbar", u".uno:Cut", u".uno:AssignLayout", u".uno:SetDefault", u".uno:CellVertTop" }; // impress pmhbHome
++inline constexpr std::u16string_view row41[] = { u".uno:InsertPage", u".uno:InsertTable", u".uno:PhotoAlbumDialog", u".uno:InsertObjectChart", u".uno:HyperlinkDialog", u".uno:InsertAnnotation", u".uno:Text", u".uno:CharmapControl", u".uno:InsertAVMedia", u".uno:ImportSlideFromFile" }; // impress pmhbInsert
++inline constexpr std::u16string_view row42[] = { u".uno:ThemeSelectorPanel", u".uno:SlideSetup", u".uno:SidebarDeck.PropertyDeck" }; // impress pmhbDesign
++inline constexpr std::u16string_view row43[] = { u".uno:HstPreviewTransition", u".uno:HstSetTransitionDuration", u".uno:HstApplyTransition", u".uno:HstSetTransitionAdvance" }; // impress pmhbTransitions
++inline constexpr std::u16string_view row44[] = { u".uno:HstPreviewAnimation", u".uno:HstApplyAnimation" }; // impress pmhbAnimations
++inline constexpr std::u16string_view row45[] = { u".uno:Presentation", u".uno:PresentationDialog", u".uno:PresentationCurrentSlide", u".uno:RehearseTimings" }; // impress pmhbSlideShow
++inline constexpr std::u16string_view row46[] = { u".uno:SpellDialog", u".uno:SidebarDeck.A11yCheckDeck", u".uno:InsertAnnotation", u".uno:RedactDoc", u".uno:ThesaurusDialog", u".uno:NextAnnotation", u".uno:EditDoc" }; // impress pmhbReview
++inline constexpr std::u16string_view row47[] = { u".uno:NormalMultiPaneGUI", u".uno:SlideMasterPage", u".uno:Sidebar", u".uno:CapturePoint", u".uno:ZoomMode", u".uno:OutputQualityColor", u".uno:NewWindow", u".uno:DiaMode", u".uno:NotesMasterPage", u".uno:ShowRuler" }; // impress pmhbView
++inline constexpr std::u16string_view row48[] = { u".uno:HelpIndex", u"org.hst.office.vi:ReportError" }; // impress pmhbHelp
++inline constexpr std::u16string_view row49[] = { u"org.hst.office.vi:Nd30Wizard", u"org.hst.office.vi:ShowSolutions", u".uno:ExtensionManager", u".uno:RunMacro", u".uno:OptionsTreeDialog", u".uno:MacroDialog" }; // impress pmhbExtension
++inline constexpr std::u16string_view row50[] = { u".uno:TableDesign", u".uno:FormatArea" }; // impress pmhbTableDesign
++inline constexpr std::u16string_view row51[] = { u".uno:TransformDialog", u".uno:MergeCells", u".uno:CellVertTop", u".uno:ObjectForwardOne", u".uno:SelectTable", u".uno:SplitCell", u".uno:CellVertCenter", u".uno:ObjectBackOne" }; // impress pmhbTable
++inline constexpr std::u16string_view row52[] = { u".uno:ChangePicture", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:ObjectAlignLeft", u".uno:GraphicFilterToolbox", u".uno:CompressGraphic", u".uno:FillStyle", u".uno:AlignCenter", u".uno:GrafLuminance" }; // impress pmhbImage
++inline constexpr std::u16string_view row53[] = { u".uno:DataRanges", u".uno:DiagramType", u".uno:InsertMenuTitles", u".uno:DiagramData", u".uno:InsertMenuLegend" }; // impress pmhbChartDesign
++inline constexpr std::u16string_view row54[] = { u".uno:FormatSelection", u".uno:BringToFront", u".uno:DiagramArea", u".uno:SendToBack" }; // impress pmhbChartFormat
++inline constexpr std::u16string_view row55[] = { u".uno:TransformDialog", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:FontworkGalleryFloater", u".uno:Combine", u".uno:FormatGroup", u".uno:ExtrusionToggle", u".uno:AdvancedMode", u".uno:FillStyle", u".uno:ObjectAlignLeft" }; // impress pmhbDraw
++inline constexpr std::u16string_view row56[] = { u".uno:ToggleObjectRotateMode", u".uno:FormatArea", u".uno:ObjectAlignLeft", u".uno:FlipVertical", u".uno:FillStyle", u".uno:AlignCenter" }; // impress pmhbObject
++inline constexpr std::u16string_view row57[] = { u".uno:TransformDialog", u".uno:ObjectAlignLeft", u".uno:AVMediaToolBox", u".uno:AlignCenter", u".uno:AVMediaPlayer" }; // impress pmhbMedia
++inline constexpr std::u16string_view row58[] = { u".uno:TransformDialog", u".uno:FormProperties", u".uno:Label", u".uno:UseWizards", u".uno:ShowFmExplorer", u".uno:Edit" }; // impress pmhbForm
++inline constexpr std::u16string_view row59[] = { u".uno:RenameMasterPage", u".uno:SlideSetup", u".uno:CloseMasterView", u".uno:DeleteMasterPage", u".uno:SelectBackground" }; // impress pmhbMaster
++inline constexpr std::u16string_view row60[] = { u".uno:NormalMultiPaneGUI", u".uno:OutlineFormat", u".uno:OutlineCollapseAll", u".uno:DiaMode", u".uno:OutlineRight", u".uno:OutlineExpandAll" }; // impress pmhbOutline
++inline constexpr std::u16string_view row61[] = { u".uno:TransformDialog", u".uno:FormatArea", u".uno:ObjectAlignLeft", u".uno:Window3D", u".uno:AdvancedMode", u".uno:FillStyle", u".uno:AlignCenter" }; // impress pmhb3D
++inline constexpr std::u16string_view row62[] = { u".uno:Text", u".uno:Paste", u".uno:FormatPaintbrush", u".uno:TextdirectionTopToBottom", u".uno:ObjectPosition", u"vnd.sun.star.findbar:FocusToFindbar", u".uno:InsertGraphic", u".uno:Cut", u".uno:SetDefault", u".uno:CellVertTop" }; // draw pmhbHome
++inline constexpr std::u16string_view row63[] = { u".uno:InsertTable", u".uno:InsertGraphic", u".uno:InsertObjectChart", u".uno:HyperlinkDialog", u".uno:InsertAnnotation", u".uno:InsertObject", u".uno:InsertPageField", u".uno:FontworkGalleryFloater", u".uno:CharmapControl", u".uno:InsertAVMedia" }; // draw pmhbInsert
++inline constexpr std::u16string_view row64[] = { u".uno:ObjectAlign", u".uno:FormatGroup", u".uno:TransformDialog", u".uno:Combine", u".uno:BringToFront", u".uno:FormatUngroup", u".uno:AdvancedMode", u".uno:Intersect" }; // draw pmhbArrange
++inline constexpr std::u16string_view row65[] = { u".uno:InsertPage", u".uno:PageSetup", u".uno:HstRotatePageLeft", u".uno:MovePageUp", u".uno:DuplicatePage", u".uno:SelectBackground", u".uno:HstRotatePageRight", u".uno:MovePageDown" }; // draw pmhbPage
++inline constexpr std::u16string_view row66[] = { u".uno:ExportDirectToPDF", u".uno:SignPDF", u"org.hst.office.vi:OpenInHstPdf", u".uno:ExportToPDF", u".uno:Signature" }; // draw pmhbExport
++inline constexpr std::u16string_view row67[] = { u".uno:SpellDialog", u".uno:SidebarDeck.A11yCheckDeck", u".uno:InsertAnnotation", u".uno:RedactDoc", u".uno:ThesaurusDialog", u".uno:NextAnnotation", u".uno:EditDoc" }; // draw pmhbReview
++inline constexpr std::u16string_view row68[] = { u".uno:PageMode", u".uno:Sidebar", u".uno:ZoomMode", u".uno:OutputQualityColor", u".uno:NewWindow", u".uno:MasterPage", u".uno:ShowRuler", u".uno:ZoomPageWidth", u".uno:OutputQualityGrayscale" }; // draw pmhbView
++inline constexpr std::u16string_view row69[] = { u".uno:HelpIndex", u"org.hst.office.vi:ReportError" }; // draw pmhbHelp
++inline constexpr std::u16string_view row70[] = { u"org.hst.office.vi:Nd30Wizard", u"org.hst.office.vi:ShowSolutions", u".uno:ExtensionManager", u".uno:RunMacro", u".uno:OptionsTreeDialog", u".uno:MacroDialog" }; // draw pmhbExtension
++inline constexpr std::u16string_view row71[] = { u".uno:TableDesign", u".uno:FormatArea" }; // draw pmhbTableDesign
++inline constexpr std::u16string_view row72[] = { u".uno:TransformDialog", u".uno:MergeCells", u".uno:CellVertTop", u".uno:ObjectForwardOne", u".uno:SelectTable", u".uno:SplitCell", u".uno:CellVertCenter", u".uno:ObjectBackOne" }; // draw pmhbTable
++inline constexpr std::u16string_view row73[] = { u".uno:ChangePicture", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:ObjectAlignLeft", u".uno:GraphicFilterToolbox", u".uno:CompressGraphic", u".uno:FillStyle", u".uno:AlignCenter", u".uno:GrafLuminance" }; // draw pmhbImage
++inline constexpr std::u16string_view row74[] = { u".uno:DataRanges", u".uno:DiagramType", u".uno:InsertMenuTitles", u".uno:DiagramData", u".uno:InsertMenuLegend" }; // draw pmhbChartDesign
++inline constexpr std::u16string_view row75[] = { u".uno:FormatSelection", u".uno:BringToFront", u".uno:DiagramArea", u".uno:SendToBack" }; // draw pmhbChartFormat
++inline constexpr std::u16string_view row76[] = { u".uno:TransformDialog", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:FontworkGalleryFloater", u".uno:Combine", u".uno:FormatGroup", u".uno:ExtrusionToggle", u".uno:AdvancedMode", u".uno:FillStyle", u".uno:ObjectAlignLeft" }; // draw pmhbDraw
++inline constexpr std::u16string_view row77[] = { u".uno:ToggleObjectRotateMode", u".uno:FormatArea", u".uno:ObjectAlignLeft", u".uno:FlipVertical", u".uno:FillStyle", u".uno:AlignCenter" }; // draw pmhbObject
++inline constexpr std::u16string_view row78[] = { u".uno:TransformDialog", u".uno:ObjectAlignLeft", u".uno:AVMediaToolBox", u".uno:AlignCenter", u".uno:AVMediaPlayer" }; // draw pmhbMedia
++inline constexpr std::u16string_view row79[] = { u".uno:TransformDialog", u".uno:FormProperties", u".uno:Label", u".uno:UseWizards", u".uno:ShowFmExplorer", u".uno:Edit" }; // draw pmhbForm
++inline constexpr std::u16string_view row80[] = { u".uno:RenameMasterPage", u".uno:PageSetup", u".uno:CloseMasterView", u".uno:DeleteMasterPage", u".uno:SelectBackground" }; // draw pmhbMaster
++inline constexpr std::u16string_view row81[] = { u".uno:TransformDialog", u".uno:FormatArea", u".uno:ObjectAlignLeft", u".uno:Window3D", u".uno:AdvancedMode", u".uno:FillStyle", u".uno:AlignCenter" }; // draw pmhb3D
++
++inline constexpr Row all[] = {
++    { u"writer", u"pmhbHome", row0, std::size(row0) },
++    { u"writer", u"pmhbInsert", row1, std::size(row1) },
++    { u"writer", u"pmhbDesign Tab", row2, std::size(row2) },
++    { u"writer", u"pmhbLayout", row3, std::size(row3) },
++    { u"writer", u"pmhbReferences", row4, std::size(row4) },
++    { u"writer", u"pmhbMailings Tab", row5, std::size(row5) },
++    { u"writer", u"pmhbReview", row6, std::size(row6) },
++    { u"writer", u"pmhbView", row7, std::size(row7) },
++    { u"writer", u"pmhbHelp", row8, std::size(row8) },
++    { u"writer", u"pmhbExtension", row9, std::size(row9) },
++    { u"writer", u"pmhbTable Design Tab", row10, std::size(row10) },
++    { u"writer", u"pmhbTable", row11, std::size(row11) },
++    { u"writer", u"pmhbImage", row12, std::size(row12) },
++    { u"writer", u"pmhbChart Design Tab", row13, std::size(row13) },
++    { u"writer", u"pmhbChart Format Tab", row14, std::size(row14) },
++    { u"writer", u"pmhbDraw", row15, std::size(row15) },
++    { u"writer", u"pmhbObject", row16, std::size(row16) },
++    { u"writer", u"pmhbMedia", row17, std::size(row17) },
++    { u"writer", u"pmhbPrint", row18, std::size(row18) },
++    { u"writer", u"pmhbForm", row19, std::size(row19) },
++    { u"writer", u"pmhbphbHeaderFooter", row20, std::size(row20) },
++    { u"calc", u"pmhbHome", row21, std::size(row21) },
++    { u"calc", u"pmhbInsert", row22, std::size(row22) },
++    { u"calc", u"pmhbLayout", row23, std::size(row23) },
++    { u"calc", u"pmhbFunctions", row24, std::size(row24) },
++    { u"calc", u"pmhbData", row25, std::size(row25) },
++    { u"calc", u"pmhbReview", row26, std::size(row26) },
++    { u"calc", u"pmhbView", row27, std::size(row27) },
++    { u"calc", u"pmhbHelp", row28, std::size(row28) },
++    { u"calc", u"pmhbExtension", row29, std::size(row29) },
++    { u"calc", u"pmhbphbTableDesign", row30, std::size(row30) },
++    { u"calc", u"pmhbphbPivot", row31, std::size(row31) },
++    { u"calc", u"pmbhImage", row32, std::size(row32) },
++    { u"calc", u"pmhbphbChartDesign", row33, std::size(row33) },
++    { u"calc", u"pmhbphbChartFormat", row34, std::size(row34) },
++    { u"calc", u"pmhbDraw", row35, std::size(row35) },
++    { u"calc", u"pmhbObject", row36, std::size(row36) },
++    { u"calc", u"pmhbMedia", row37, std::size(row37) },
++    { u"calc", u"pmhbPrint", row38, std::size(row38) },
++    { u"calc", u"pmhbForm", row39, std::size(row39) },
++    { u"impress", u"pmhbHome", row40, std::size(row40) },
++    { u"impress", u"pmhbInsert", row41, std::size(row41) },
++    { u"impress", u"pmhbDesign", row42, std::size(row42) },
++    { u"impress", u"pmhbTransitions", row43, std::size(row43) },
++    { u"impress", u"pmhbAnimations", row44, std::size(row44) },
++    { u"impress", u"pmhbSlideShow", row45, std::size(row45) },
++    { u"impress", u"pmhbReview", row46, std::size(row46) },
++    { u"impress", u"pmhbView", row47, std::size(row47) },
++    { u"impress", u"pmhbHelp", row48, std::size(row48) },
++    { u"impress", u"pmhbExtension", row49, std::size(row49) },
++    { u"impress", u"pmhbTableDesign", row50, std::size(row50) },
++    { u"impress", u"pmhbTable", row51, std::size(row51) },
++    { u"impress", u"pmhbImage", row52, std::size(row52) },
++    { u"impress", u"pmhbChartDesign", row53, std::size(row53) },
++    { u"impress", u"pmhbChartFormat", row54, std::size(row54) },
++    { u"impress", u"pmhbDraw", row55, std::size(row55) },
++    { u"impress", u"pmhbObject", row56, std::size(row56) },
++    { u"impress", u"pmhbMedia", row57, std::size(row57) },
++    { u"impress", u"pmhbForm", row58, std::size(row58) },
++    { u"impress", u"pmhbMaster", row59, std::size(row59) },
++    { u"impress", u"pmhbOutline", row60, std::size(row60) },
++    { u"impress", u"pmhb3D", row61, std::size(row61) },
++    { u"draw", u"pmhbHome", row62, std::size(row62) },
++    { u"draw", u"pmhbInsert", row63, std::size(row63) },
++    { u"draw", u"pmhbArrange", row64, std::size(row64) },
++    { u"draw", u"pmhbPage", row65, std::size(row65) },
++    { u"draw", u"pmhbExport", row66, std::size(row66) },
++    { u"draw", u"pmhbReview", row67, std::size(row67) },
++    { u"draw", u"pmhbView", row68, std::size(row68) },
++    { u"draw", u"pmhbHelp", row69, std::size(row69) },
++    { u"draw", u"pmhbExtension", row70, std::size(row70) },
++    { u"draw", u"pmhbTableDesign", row71, std::size(row71) },
++    { u"draw", u"pmhbTable", row72, std::size(row72) },
++    { u"draw", u"pmhbImage", row73, std::size(row73) },
++    { u"draw", u"pmhbChartDesign", row74, std::size(row74) },
++    { u"draw", u"pmhbChartFormat", row75, std::size(row75) },
++    { u"draw", u"pmhbDraw", row76, std::size(row76) },
++    { u"draw", u"pmhbObject", row77, std::size(row77) },
++    { u"draw", u"pmhbMedia", row78, std::size(row78) },
++    { u"draw", u"pmhbForm", row79, std::size(row79) },
++    { u"draw", u"pmhbMaster", row80, std::size(row80) },
++    { u"draw", u"pmhb3D", row81, std::size(row81) },
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -26,6 +26,7 @@
+ #include <sfx2/viewfrm.hxx>
+ #include <notebookbar/NotebookbarTabControl.hxx>
+ #include "HstRibbonKeyTips.hxx"
++#include "HstRibbonCompact.hxx"
+ #include <com/sun/star/accessibility/AccessibleRole.hpp>
+ #include <com/sun/star/accessibility/XAccessibleAction.hpp>
+ #include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
+@@ -478,6 +479,19 @@
+         Application::RemoveUserEvent(m_pHstLayoutEvent);
+         m_pHstLayoutEvent = nullptr;
+     }
++    if (m_pHstStateEvent)
++    {
++        Application::RemoveUserEvent(m_pHstStateEvent);
++        m_pHstStateEvent = nullptr;
++    }
++    if (m_pHstCompact)
++    {
++        Application::RemoveKeyListener(LINK(this, NotebookbarTabControl, HstKeyHdl));
++        RemoveEventListener(LINK(this, NotebookbarTabControl, HstTabEventHdl));
++        HstCloseDrop();
++        m_pHstCompact->dispose();
++        m_pHstCompact.reset();
++    }
+     if (m_pHstBanner)
+     {
+         RemoveChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
+@@ -508,6 +522,15 @@
+             pBar->HstSetOwnBanner(true); // the window shows no second banner beside the bar
+             hst::keytips::Attach(*this, *pBar, GetToolBox(), m_pHstBanner.get());
+             AddChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
++            const OUString aApp = rFile.indexOf("/swriter/") >= 0  ? u"writer"_ustr
++                                  : rFile.indexOf("/scalc/") >= 0  ? u"calc"_ustr
++                                  : rFile.indexOf("/simpress/") >= 0 ? u"impress"_ustr
++                                                                     : u"draw"_ustr;
++            m_pHstCompact.reset(new HstRibbonCompact(*this, aApp, LINK(this, NotebookbarTabControl, HstToggleHdl)));
++            Application::AddKeyListener(LINK(this, NotebookbarTabControl, HstKeyHdl));
++            AddEventListener(LINK(this, NotebookbarTabControl, HstTabEventHdl));
++            if (HstRibbonCompact::Stored(aApp)) // the app opens as it was left, once the bar is laid out
++                m_pHstStateEvent = Application::PostUserEvent(LINK(this, NotebookbarTabControl, HstStoredStateHdl));
+             HstLayoutBanner();
+             return;
+         }
+@@ -525,7 +548,26 @@
+         return;
+     m_bHstLayout = true;
+     TabPage* pPage = GetTabPage(GetCurPageId());
+-    if (pPage && pPage->IsVisible())
++    if (m_pHstCompact && m_pHstCompact->IsCompact())
++    {
++        // the compact ribbon: the banner (260 x 75) stands across the tab row and the quick row, the
++        // tab row's search box and menu button stop before it and so does the quick row
++        const double fDpi = GetDPIScaleFactor();
++        const tools::Long nHeader = HstHeaderHeight();
++        const tools::Long nBand = nHeader + HstRibbonCompact::QuickHeight(nHeader, fDpi);
++        const hst::banner::StripSlot aSlot = hst::banner::stripSlot(HstRibbonCompact::BandHeight(fDpi), fDpi);
++        const tools::Long nWidth = GetOutputSizePixel().Width();
++        const tools::Long nReserve = HstCompactReserve();
++        m_pHstBanner->Place(tools::Rectangle(
++            Point(nWidth - hst::banner::scaled(4, fDpi) - aSlot.w, (nBand - aSlot.h) / 2), Size(aSlot.w, aSlot.h)));
++        HstSetRowReserve(nReserve);
++        const tools::Long nLeft = hst::banner::scaled(4, fDpi);
++        m_pHstCompact->Place(tools::Rectangle(Point(nLeft, nHeader),
++                                              Size(std::max<tools::Long>(1, nWidth - nReserve - nLeft),
++                                                   HstRibbonCompact::QuickHeight(nHeader, fDpi))),
++                             tools::Rectangle());
++    }
++    else if (pPage && pPage->IsVisible())
+     {
+         const double fDpi = GetDPIScaleFactor();
+         const Point aPos = pPage->GetPosPixel();
+@@ -557,6 +599,9 @@
+             m_pHstBanner->Place(tools::Rectangle());
+         if (nPageWidth > 0 && pPage->GetSizePixel().Width() != nPageWidth)
+             pPage->SetPosSizePixel(aPos, Size(nPageWidth, aPage.h));
++        HstSetRowReserve(0);
++        if (m_pHstCompact)
++            m_pHstCompact->Place(tools::Rectangle(), tools::Rectangle(aPos, Size(nPageWidth, aPage.h)));
+     }
+     else
+         m_pHstBanner->Place(tools::Rectangle());
+@@ -570,6 +615,15 @@
+     // the page only after it has finished.
+     const VclEventId nId = rEvent.GetId();
+     vcl::Window* pWindow = rEvent.GetWindow();
++    // the compact ribbon shows no page in place: a tab switch or a context opening its tab only changes
++    // the quick row (a click on a tab drops the page over the document, HstTabEventHdl)
++    if (nId == VclEventId::WindowShow && m_pHstCompact && m_pHstCompact->IsCompact() && pWindow
++        && pWindow->GetParent() == this && dynamic_cast<TabPage*>(pWindow))
++    {
++        pWindow->Hide();
++        m_pHstCompact->Fill(GetTabPage(GetCurPageId()), m_xFrame);
++        return;
++    }
+     if ((nId == VclEventId::WindowResize || nId == VclEventId::WindowShow) && pWindow
+         && pWindow->GetParent() == this && dynamic_cast<TabPage*>(pWindow) && !m_pHstLayoutEvent)
+         m_pHstLayoutEvent = Application::PostUserEvent(LINK(this, NotebookbarTabControl, HstDeferredLayoutHdl));
+@@ -587,6 +641,111 @@
+     HstLayoutBanner();
+ }
+ 
++tools::Long NotebookbarTabControl::HstCompactReserve() const
++{
++    // the banner of the compact ribbon, its 4 px right margin and an 8 px gap before it
++    const double fDpi = GetDPIScaleFactor();
++    return hst::banner::stripSlot(HstRibbonCompact::BandHeight(fDpi), fDpi).w + hst::banner::scaled(12, fDpi);
++}
++
++void NotebookbarTabControl::HstSetCompact( bool bCompact )
++{
++    if (!m_pHstCompact || bCompact == m_pHstCompact->IsCompact())
++        return;
++    HstCloseDrop();
++    m_pHstCompact->SetCompact(bCompact);
++    TabPage* pPage = GetTabPage(GetCurPageId());
++    if (bCompact)
++    {
++        if (pPage)
++            pPage->Hide();
++        m_pHstCompact->Fill(pPage, m_xFrame);
++    }
++    else
++    {
++        HstSetRowReserve(0);
++        if (pPage)
++            pPage->Show();
++    }
++    // the notebookbar takes its new height (its height never drops below its content's request) and the
++    // window gives the document the difference
++    queue_resize();
++    for (vcl::Window* pParent = GetParent(); pParent; pParent = pParent->GetParent())
++    {
++        if (NotebookBar* pBar = dynamic_cast<NotebookBar*>(pParent))
++        {
++            pBar->SetSizePixel(Size(pBar->GetSizePixel().Width(), 0));
++            if (vcl::Window* pFrame = pBar->GetParent())
++                pFrame->Resize();
++            break;
++        }
++    }
++    HstLayoutBanner();
++}
++
++void NotebookbarTabControl::HstDrop()
++{
++    if (m_pHstCompact && m_pHstCompact->IsCompact())
++        HstDropPage(GetOutputSizePixel().Width() - HstCompactReserve());
++}
++
++IMPL_LINK_NOARG(NotebookbarTabControl, HstToggleHdl, LinkParamNone*, void)
++{
++    HstSetCompact(!m_pHstCompact->IsCompact());
++}
++
++IMPL_LINK_NOARG(NotebookbarTabControl, HstStoredStateHdl, void*, void)
++{
++    m_pHstStateEvent = nullptr;
++    HstSetCompact(true);
++}
++
++// Ctrl+F1 anywhere in this document window (its dropped page included) switches the ribbon's state
++IMPL_LINK(NotebookbarTabControl, HstKeyHdl, VclWindowEvent&, rEvent, bool)
++{
++    if (rEvent.GetId() != VclEventId::WindowKeyInput || !m_pHstCompact || !IsReallyVisible())
++        return false;
++    const KeyEvent* pKey = static_cast<const KeyEvent*>(rEvent.GetData());
++    const vcl::Window* pWindow = rEvent.GetWindow();
++    SystemWindow* pOwn = GetSystemWindow();
++    if (!pKey || pKey->GetKeyCode().GetFullCode() != (KEY_F1 | KEY_MOD1) || !pWindow || !pOwn
++        || !pOwn->IsWindowOrChild(pWindow, true))
++        return false;
++    HstSetCompact(!m_pHstCompact->IsCompact());
++    return true;
++}
++
++// a tab chosen in the compact ribbon (click, access key, Ctrl+arrows) drops its page over the document;
++// the File tab opens the File page as always
++IMPL_LINK(NotebookbarTabControl, HstTabEventHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() != VclEventId::TabpageActivate || !m_pHstCompact || !m_pHstCompact->IsCompact())
++        return;
++    const sal_uInt16 nPageId = GetCurPageId();
++    m_pHstCompact->Fill(GetTabPage(nPageId), m_xFrame);
++    if (GetPageName(nPageId) != hst::ribbon::FILE_TAB_NAME)
++        HstDrop();
++}
++
++void NotebookbarTabControl::MouseButtonDown( const MouseEvent& rMEvt )
++{
++    const sal_uInt16 nPageId = rMEvt.IsLeft() ? GetPageId(rMEvt.GetPosPixel()) : 0;
++    if (m_pHstCompact && nPageId && GetPageName(nPageId) != hst::ribbon::FILE_TAB_NAME)
++    {
++        if (rMEvt.GetClicks() == 2) // a double-click on a tab switches the state, as in Office
++        {
++            HstSetCompact(!m_pHstCompact->IsCompact());
++            return;
++        }
++        if (m_pHstCompact->IsCompact() && nPageId == GetCurPageId())
++        {
++            HstDrop(); // the current tab: no tab switch, the page drops again
++            return;
++        }
++    }
++    NotebookbarTabControlBase::MouseButtonDown(rMEvt);
++}
++
+ void NotebookbarTabControl::ArrowStops( sal_uInt16 nCode )
+ {
+     ToolBox* pToolBox( GetToolBox() );
+@@ -833,6 +992,8 @@
+ 
+     if (aSize.Width() < 400)
+         aSize.setWidth( 400 );
++    if (m_pHstCompact && m_pHstCompact->IsCompact()) // the tab row and the quick row
++        aSize.setHeight(HstHeaderHeight() + HstRibbonCompact::QuickHeight(HstHeaderHeight(), GetDPIScaleFactor()));
+ 
+     return aSize;
+ }
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -3004,6 +3004,18 @@
+ msgid "Match case"
+ msgstr "Phân biệt HOA/thường"
+ 
++#. hstRibbonCollapse
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_RIBBON_COLLAPSE"
++msgid "Collapse the Ribbon (Ctrl+F1)"
++msgstr "Thu gọn ribbon (Ctrl+F1)"
++
++#. hstRibbonExpand
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_RIBBON_EXPAND"
++msgid "Show the Full Ribbon (Ctrl+F1)"
++msgstr "Hiện đầy đủ ribbon (Ctrl+F1)"
++
+ #. obHtC
+ #: sfx2/uiconfig/ui/autoredactdialog.ui:174
+ msgctxt "autoredactdialog|target"
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -260,6 +260,7 @@
+     vcl/source/control/HstBanner \
+     vcl/source/control/HstBannerCore \
+     vcl/source/control/HstBannerWidget \
++    vcl/source/control/HstRibbonDrop \
+     vcl/source/control/HstRibbonLadder \
+     vcl/source/control/HstRibbonPaint \
+     vcl/source/control/NotebookbarPopup \
+--- /dev/null
++++ b/vcl/source/control/HstRibbonDrop.cxx
+@@ -0,0 +1,147 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office (1.0.2 ribbon, compact state): a click on a tab of the compact ribbon drops that tab's full
++// page over the document, below the tab row and left of the banner, as Office does with a collapsed ribbon.
++// The page itself moves into the popup (as the folded groups' popup, NotebookbarPopup, moves its content)
++// and returns, hidden, to the tab control when the popup ends: Esc, a click outside, a command run from it,
++// or the control going away.
++
++#include <vcl/event.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/tabctrl.hxx>
++#include <vcl/tabpage.hxx>
++#include <vcl/toolkit/floatwin.hxx>
++#include <vcl/vclevent.hxx>
++
++#include <algorithm>
++#include <cmath>
++
++namespace
++{
++class HstRibbonDrop final : public FloatingWindow
++{
++public:
++    HstRibbonDrop(vcl::Window* pTabs, TabPage* pPage)
++        : FloatingWindow(pTabs, WB_BORDER | WB_SYSTEMWINDOW)
++        , m_xTabs(pTabs)
++        , m_xPage(pPage)
++    {
++        // the ribbon's own background (theme or persona of the notebookbar), else the dialog colour
++        vcl::Window* pPainted = pTabs;
++        while (pPainted && !pPainted->IsBackground())
++            pPainted = pPainted->GetParent();
++        SetBackground(pPainted ? pPainted->GetBackground()
++                               : Wallpaper(GetSettings().GetStyleSettings().GetDialogColor()));
++        Application::AddEventListener(LINK(this, HstRibbonDrop, EventHdl));
++    }
++    ~HstRibbonDrop() override { disposeOnce(); }
++
++    void dispose() override
++    {
++        Application::RemoveEventListener(LINK(this, HstRibbonDrop, EventHdl));
++        if (m_pCloseEvent)
++        {
++            Application::RemoveUserEvent(m_pCloseEvent);
++            m_pCloseEvent = nullptr;
++        }
++        GiveBack();
++        m_xTabs.reset();
++        FloatingWindow::dispose();
++    }
++
++    void PopupModeEnd() override
++    {
++        GiveBack();
++        FloatingWindow::PopupModeEnd();
++    }
++
++    bool HasPage() const { return m_xPage && m_xPage->GetParent() == this; }
++
++private:
++    void GiveBack()
++    {
++        if (HasPage())
++        {
++            m_xPage->Hide();
++            m_xPage->SetParent(m_xTabs);
++        }
++        m_xPage.reset();
++    }
++
++    // a command run from the dropped page (a toolbox item's own command, not its menu) closes the popup,
++    // after the command has been dispatched
++    DECL_LINK(EventHdl, VclSimpleEvent&, void);
++    DECL_LINK(CloseHdl, void*, void);
++
++    VclPtr<vcl::Window> m_xTabs;
++    VclPtr<TabPage> m_xPage;
++    ImplSVEvent* m_pCloseEvent = nullptr;
++};
++
++IMPL_LINK(HstRibbonDrop, EventHdl, VclSimpleEvent&, rEvent, void)
++{
++    if (rEvent.GetId() != VclEventId::ToolboxSelect || m_pCloseEvent || !HasPage())
++        return;
++    const vcl::Window* pWindow = static_cast<VclWindowEvent&>(rEvent).GetWindow();
++    if (pWindow && IsWindowOrChild(pWindow, true))
++        m_pCloseEvent = Application::PostUserEvent(LINK(this, HstRibbonDrop, CloseHdl));
++}
++
++IMPL_LINK_NOARG(HstRibbonDrop, CloseHdl, void*, void)
++{
++    m_pCloseEvent = nullptr;
++    if (IsInPopupMode())
++        EndPopupMode();
++}
++}
++
++bool NotebookbarTabControlBase::HstDropPage(tools::Long nWidth)
++{
++    HstCloseDrop();
++    TabPage* pPage = GetTabPage(GetCurPageId());
++    if (!pPage || nWidth <= 0 || !IsReallyVisible())
++        return false;
++    // as high as the pages of the full ribbon (the tallest page's request; the tab row aside)
++    sal_uInt16 nHeader = m_nHeaderHeight;
++    const tools::Long nHeight = std::max<tools::Long>(
++        ImplCalculateRequisition(nHeader).Height() - m_nHeaderHeight, std::lround(60 * GetDPIScaleFactor()));
++    VclPtr<HstRibbonDrop> xDrop = VclPtr<HstRibbonDrop>::Create(this, pPage);
++    m_xHstDrop = xDrop;
++    xDrop->SetOutputSizePixel(Size(nWidth, nHeight));
++    pPage->SetParent(xDrop);
++    pPage->SetPosSizePixel(Point(0, 0), Size(nWidth, nHeight));
++    pPage->Show();
++    // below the tab row, from the control's left edge
++    xDrop->StartPopupMode(tools::Rectangle(Point(0, 0), Size(1, m_nHeaderHeight)),
++                          FloatWinPopupFlags::Down | FloatWinPopupFlags::GrabFocus
++                              | FloatWinPopupFlags::AllMouseButtonClose
++                              | FloatWinPopupFlags::NoHorzPlacement);
++    return true;
++}
++
++void NotebookbarTabControlBase::HstCloseDrop()
++{
++    if (!m_xHstDrop)
++        return;
++    VclPtr<vcl::Window> xDrop = m_xHstDrop;
++    m_xHstDrop.reset();
++    if (auto* pDrop = dynamic_cast<HstRibbonDrop*>(xDrop.get()); pDrop && pDrop->IsInPopupMode())
++        pDrop->EndPopupMode(); // gives the page back
++    xDrop.disposeAndClear();
++}
++
++bool NotebookbarTabControlBase::HstIsDropped() const
++{
++    const auto* pDrop = dynamic_cast<const HstRibbonDrop*>(m_xHstDrop.get());
++    return pDrop && pDrop->IsInPopupMode() && pDrop->HasPage();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -2488,6 +2488,7 @@
+ 
+ void NotebookbarTabControlBase::dispose()
+ {
++    HstCloseDrop(); // the dropped page returns to this control before it goes
+     m_pShortcuts.disposeAndClear();
+     m_pOpenMenu.disposeAndClear();
+     TabControl::dispose();
+@@ -2534,8 +2535,18 @@
+     SelectTabPage( TabControl::GetPageId( nCurPos ) );
+ }
+ 
++void NotebookbarTabControlBase::HstSetRowReserve( tools::Long nWidth )
++{
++    if (nWidth == m_nHstRowReserve)
++        return;
++    m_nHstRowReserve = nWidth;
++    mbFormat = true;
++    Invalidate();
++}
++
+ bool NotebookbarTabControlBase::ImplPlaceTabs( tools::Long nWidth )
+ {
++    nWidth -= m_nHstRowReserve; // HST Office: the compact ribbon's banner stands at the right end of the row
+     if ( nWidth <= 0 )
+         return false;
+     if ( mpTabCtrlData->maItemList.empty() )
