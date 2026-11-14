@@ -115,14 +115,17 @@ scripts/build-queue.sh train start --integrator          # integrator: dựng tr
   3. train một nhánh → nhánh đó;
   4. còn lại: chia đôi, build lại từng nửa (chỉ nền tảng hỏng), tối đa `train_bisect_rounds` (2) vòng; sau vòng cuối
      còn nhiều nhánh thì loại cả nhóm.
-  Nhánh bị loại có một **build riêng để xác nhận** (priority 40, cùng commit; job id trong `train status`). Các nhánh
-  còn lại sang train kế tiếp ngay. Nửa bisect đạt thì nhánh trong nửa đó đạt (bản Windows lấy từ train gốc nếu bản
-  đó đạt). Hai nửa cùng đạt mà train gốc hỏng: nhánh đạt kèm cảnh báo "tương tác giữa các nhánh". Job bị huỷ hoặc
-  lỗi hạ tầng: nhánh được thử lại, không bị quy lỗi; batch5 tự build hỏng ở cùng commit: không quy lỗi ai. Sau
-  `train_max_attempts` (3) train mà vẫn chưa có kết quả thì nhánh chuyển `failed`.
+  Nhánh bị loại có một **build riêng để xác nhận** (priority 40, cùng commit; job id trong `train status`; submit
+  sau của agent không huỷ build này). Các nhánh còn lại sang train kế tiếp ngay. Nửa bisect đạt thì nhánh trong nửa
+  đó đạt (bản Windows lấy từ train gốc nếu bản đó đạt). Hai nửa cùng đạt mà train gốc hỏng: các nhánh bị đánh dấu
+  `ejected` với lý do "tương tác giữa các nhánh" (không nhánh nào báo đạt), báo integrator. Job bị huỷ hoặc lỗi hạ
+  tầng: nhánh được thử lại, không bị quy lỗi; sau `train_max_attempts` (3) lần như vậy thì nhánh chuyển `failed`.
+  Batch5 tự build hỏng ở cùng commit: không quy lỗi ai, và không train nào chạy tới khi batch5 có commit mới.
 - **Kết quả:** `train status <nhánh>` cho biết train chứa nhánh, job và đầu ra từng nền tảng, đạt/bị loại kèm lý
   do; `train status <train>` cho thành viên, sha, job, xung đột, nhánh chờ, quy lỗi và nhật ký sự kiện. Trạng thái nằm
-  ở `/data/hst-build-queue/train/` (`branches.json`, `trains/NNN.json`, clone riêng `repo/`); log dispatcher có dòng
+  ở `/data/hst-build-queue/train/` (`branches.json`, `trains/NNN.json`, clone riêng `repo/`). Đầu ra của kết quả train và
+  của build xác nhận không bị retention xoá khi nhánh còn trong danh sách. `train add|remove` có thể phải chờ vài chục
+  giây khi dispatcher đang merge/push một train. Log dispatcher có dòng
   `train train/1.0.2-NNN: …`. Integrator có thể fast-forward batch tiếp theo tới đúng commit của một train xanh: cùng
   sha nên hàng đợi dùng lại build đó.
 - **Tắt train:** `"train_enabled": false` trong `config.json` (agent quay lại submit theo nhánh). Base là

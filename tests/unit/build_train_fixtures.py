@@ -68,6 +68,16 @@ class GitWorld:
         files = {f"patches/libreoffice/{patch_name}": patch_text(lo_file), **(extra or {})}
         return self.branch(name, files, append={"patches/libreoffice/series": patch_name})
 
+    def orphan(self, name):
+        """A branch with no history in common with the integration branch."""
+        git(self.work, "checkout", "-q", "--orphan", name)
+        git(self.work, "rm", "-rqf", ".")
+        self.write({"other.txt": "o\n"})
+        git(self.work, "add", "-A")
+        git(self.work, "commit", "-qm", "orphan")
+        git(self.work, "push", "-q", "-f", "origin", f"HEAD:refs/heads/{name}")
+        git(self.clone, "fetch", "-q", "origin")
+
     def remote_heads(self):
         out = git(self.origin, "for-each-ref", "--format=%(refname:short)", "refs/heads")
         return set(out.split())

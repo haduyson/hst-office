@@ -101,11 +101,12 @@ def retention_victims(jobs, cfg, now, merged=None, protected=()):
 
 def superseded(jobs, platform, label, kind, sha):
     """Queued (never running) jobs of the same branch, platform and kind at another commit: a newer submit of the
-    branch replaces them. Bare-sha submits (label 'commit') and train builds are never superseded."""
+    branch replaces them. Bare-sha submits (label 'commit'), train builds and train confirmation builds are never
+    superseded."""
     if label == "commit":
         return []
     return [j for j in jobs if j["state"] == "queued" and j["platform"] == platform and j["label"] == label
-            and job_kind(j) == kind and j["sha"] != sha and not j.get("train")]
+            and job_kind(j) == kind and j["sha"] != sha and not j.get("train") and not j.get("confirm_for")]
 
 
 def last_built(jobs, platform, label, kind, sha):

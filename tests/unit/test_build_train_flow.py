@@ -143,10 +143,79 @@ class TrainFlowTest(QueueTestCase):
         # fix/a and fix/c were carried: the next train starts at once with them.
         self.assertEqual(self.train(2)["state"], "building")
         self.assertEqual(self.members(2), ["fix/a", "fix/c"])
-        self.assertEqual(self.cand("fix/a")["attempts"], 1)
+        self.assertEqual(self.cand("fix/a")["attempts"], 0)   # carried, not blamed: no attempt used up
         out = io.StringIO()
         self.assertEqual(ops.wait(self.store, "fix/b", out=out), 1)
         self.assertIn("ejected from train/1.0.2-001", out.getvalue())
+
+    def test_halves_that_pass_alone_report_an_interaction_not_a_pass(self):
+        for name in "ab":
+            self.world.member(f"fix/{name}", f"hst-{name}.patch", f"sw/{name}.cxx")
+        self.add("fix/a", "fix/b", platform="linux")
+        ops.start(self.store)
+        self.step()
+        self.finish(self.train(1)["jobs"]["linux"], "failed", "make: *** [Makefile:312: build] Error 2\n")
+        self.step()
+        self.finish(self.train(2)["jobs"]["linux"])
+        self.finish(self.train(3)["jobs"]["linux"])
+        self.step()
+        for name in ("fix/a", "fix/b"):
+            self.assertEqual(self.cand(name)["state"], "ejected")
+            self.assertIn("interaction", self.cand(name)["note"])
+        self.assertEqual(self.train(1)["attribution"]["blamed"], [])
+
+    def test_crash_recovery_never_double_counts_and_frees_stuck_candidates(self):
+        self.world.member("fix/a", "hst-a.patch", "sw/a.cxx")
+        self.world.member("fix/b", "hst-b.patch", "sw/b.cxx")
+        self.add("fix/a", "fix/b", platform="linux")
+        ops.start(self.store)
+        self.step()
+        rec = self.train(1)
+        self.finish(rec["jobs"]["linux"], "cancelled")
+        self.step()
+        self.assertEqual(self.cand("fix/a")["attempts"], 1)
+        # The record is evaluated again (as if the tick had died before saving it): nothing is counted twice.
+        rec = self.train(1)
+        rec["state"] = "building"
+        self.ts.save(rec)
+        self.step()
+        self.assertEqual([c["attempts"] for c in self.ts.branches().values()], [1, 1])
+        # A candidate left in-train by a crash, with its train already over, goes back to ready.
+        branches = self.ts.branches()
+        branches["fix/a"].update(state="in-train", train="train/1.0.2-001")
+        self.ts.save_branches(branches)
+        self.step()   # train 2 (the carry-overs) is still building: fix/a waits as a carry-over, nothing counted
+        cand = self.cand("fix/a")
+        self.assertEqual((cand["state"], cand["carry"], cand["attempts"]), ("ready", True, 1))
+        self.assertIn("ended without a result", cand["note"])
+
+    def test_confirmation_build_survives_the_agents_next_submit_and_results_are_protected(self):
+        self.world.member("fix/a", "hst-a.patch", "sw/a.cxx")
+        self.add("fix/a", platform="linux")
+        ops.start(self.store)
+        self.step()
+        rec = self.train(1)
+        self.finish(rec["jobs"]["linux"], "failed", "does not apply: hst-a.patch\n")
+        self.step()
+        confirm = self.cand("fix/a")["confirm"]["linux"]
+        self.assertEqual(self.store.load(confirm)["confirm_for"], "train/1.0.2-001")
+        self.shas["fix/a"] = "c" * 40
+        bq.submit(self.store, "linux", "fix/a", resolver=lambda r: "c" * 40, git=self.git, submitter="t",
+                  err=io.StringIO())
+        self.assertEqual(self.store.load(confirm)["state"], "queued")
+        self.assertTrue({confirm, rec["jobs"]["linux"]} <= self.ts.protected_jobs())
+
+    def test_a_branch_git_cannot_compare_fails_alone(self):
+        self.world.member("fix/a", "hst-a.patch", "sw/a.cxx")
+        self.world.orphan("fix/orphan")
+        self.add("fix/a", platform="linux")
+        self.qgit.run("fetch", "-q", "origin")
+        ops.add(self.store, "fix/orphan", "linux", resolver=self.qgit.rev, git=self.qgit, now=self.now)
+        ops.start(self.store)
+        self.step()
+        self.assertEqual(self.members(1), ["fix/a"])
+        self.assertEqual(self.cand("fix/orphan")["state"], "failed")
+        self.assertIn("git cannot compare", self.cand("fix/orphan")["note"])
 
     def test_two_round_bisect_finds_the_branch(self):
         for name in "abcd":
@@ -224,8 +293,14 @@ class TrainFlowTest(QueueTestCase):
         self.finish(rec["jobs"]["linux"], "failed", "make: *** [Makefile:312: build] Error 2\n")
         self.step()
         self.assertEqual(self.train(1)["state"], "error")
-        self.assertEqual(self.cand("fix/a")["state"], "ready")
+        self.assertEqual((self.cand("fix/a")["state"], self.cand("fix/a")["attempts"]), ("ready", 0))
         self.assertIn("fails to build", self.cand("fix/a")["note"])
+        ops.start(self.store)
+        self.step(100)
+        self.assertEqual(len(self.ts.trains()), 1)          # held: the base has not moved
+        self.world.branch(BASE, {"scripts/fix.py": "ok\n"}, base=BASE)
+        self.step()
+        self.assertEqual(self.train(2)["state"], "building")   # a new base commit: trains resume
 
     def test_remove_and_old_train_branches_are_deleted(self):
         self.world.member("fix/a", "hst-a.patch", "sw/a.cxx")

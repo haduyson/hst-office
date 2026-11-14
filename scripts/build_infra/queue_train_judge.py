@@ -8,10 +8,10 @@ branches, now and the helpers event/release/decide/new_record/next_number/build)
 import os
 import re
 
-from .queue_store import QueueError
+from .queue_store import QueueError, now_iso
 from .queue_train import decide_failure, job_outcome, split_halves
 from .queue_train_ops import note
-from .queue_train_store import TRAIN_FINAL
+from .queue_train_store import TRAIN_FINAL, write_json
 
 
 class TrainJudge:
@@ -59,19 +59,23 @@ class TrainJudge:
                 jobs = {**{p: parent["jobs"][p] for p, o in parent.get("results", {}).items() if o == "pass"}, **jobs}
             for m in members:
                 self.decide(m["branch"], "passed", f"passed in {rec['name']}{where} at {rec['sha'][:10]}",
-                            train=rec["name"], result={"train": rec["name"], "sha": rec["sha"], "jobs": jobs})
+                            owner=rec["name"], result={"train": rec["name"], "sha": rec["sha"], "jobs": jobs})
             return
         if not fails:
             rec["state"] = "error"
             self.event(rec, f"builds did not finish ({outcomes}); members retried without blame")
             for m in members:
-                self.release(m["branch"], f"{rec['name']} was cancelled or hit an infrastructure failure")
+                self.release(m["branch"], f"{rec['name']} was cancelled or hit an infrastructure failure",
+                             owner=rec["name"], count=True)
             return
         if self.base_broken(rec, fails):
             rec["state"] = "error"
-            self.event(rec, f"{rec['base_ref']}@{rec['base_sha'][:10]} itself fails on {','.join(fails)}; no blame")
+            self.event(rec, f"{rec['base_ref']}@{rec['base_sha'][:10]} itself fails on {','.join(fails)}; no blame; "
+                       "no train starts until it moves")
+            write_json(self.ts.flag("base-hold.json"), {"sha": rec["base_sha"], "since": now_iso(self.now)})
             for m in members:
-                self.release(m["branch"], f"{rec['base_ref']} fails to build at {rec['base_sha'][:10]}", carry=False)
+                self.release(m["branch"], f"{rec['base_ref']} fails to build at {rec['base_sha'][:10]}; the next "
+                             "train waits for a new commit there", carry=False, owner=rec["name"])
             return
         action, method, blamed, detail = decide_failure(members, "\n".join(texts.values()), rec["round"],
                                                         self.cfg["train_bisect_rounds"])
@@ -85,17 +89,19 @@ class TrainJudge:
             if m["branch"] in blamed:
                 self.eject(rec, m, fails, f"{method}: {detail}")
             else:
-                self.release(m["branch"], f"{rec['name']} failed because of {', '.join(blamed)}")
+                self.release(m["branch"], f"{rec['name']} failed because of {', '.join(blamed)}", owner=rec["name"])
 
     def eject(self, rec, member, platforms, why):
+        if self.owned(member["branch"], rec["name"]) is None:
+            return   # already decided (a redo after a restart)
         confirm = {}
         for platform in platforms:
             job, _dup = self.core.submit(self.store, platform, member["branch"], self.cfg["train_confirm_priority"],
                                          resolver=lambda _ref, s=member["sha"]: s, submitter="build-train",
-                                         internal=True)
+                                         internal=True, confirm_for=rec["name"])
             confirm[platform] = job["id"]
         self.decide(member["branch"], "ejected", f"ejected from {rec['name']} ({why}); confirmation build "
-                    + ", ".join(f"{p} {j}" for p, j in sorted(confirm.items())), train=rec["name"], confirm=confirm,
+                    + ", ".join(f"{p} {j}" for p, j in sorted(confirm.items())), owner=rec["name"], confirm=confirm,
                     result={"train": rec["name"], "sha": rec.get("sha"), "jobs": rec["jobs"]})
 
     def bisect(self, rec, platforms, detail):
@@ -125,12 +131,16 @@ class TrainJudge:
             return
         blamed = sorted({b for c in children for b in (c.get("attribution") or {}).get("blamed", [])})
         if all(c["state"] == "passed" for c in children):
+            # Each half builds, the whole does not: the branches only fail together. None of them is reported as
+            # passed (the integrator would merge a set known to fail); the half builds act as their confirmation.
             detail = "each half passes alone: the failure needs branches from both halves (an interaction)"
             for c in children:
                 for m in c["members"]:
                     cand = self.branches.get(m["branch"])
-                    if cand and cand["state"] == "passed":
-                        note(cand, f"{cand['note']}; WARNING: the full {rec['name']} failed, {detail}", self.now)
+                    if cand and cand["state"] == "passed" and cand.get("train") == c["name"]:
+                        cand["state"] = "ejected"
+                        note(cand, f"ejected: {cand['note']}, but the full {rec['name']} failed: {detail}; "
+                                   "tell the integrator", self.now)
         else:
             detail = "bisect: " + ", ".join(f"{c['name']} {c['state']}" for c in children)
         rec.update(state="failed", attribution={"method": "bisect", "blamed": blamed, "detail": detail})

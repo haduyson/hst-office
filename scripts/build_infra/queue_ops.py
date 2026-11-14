@@ -13,7 +13,7 @@ from .queue_store import PLATFORMS, QueueError, now_iso
 
 # ---------------------------------------------------------------- commands
 def submit(store, platform, ref, priority=0, package=True, modules=(), resolver=resolve_ref, submitter=None, tests=(),
-           force=False, integrator=False, git=None, err=None, internal=False, train=None):
+           force=False, integrator=False, git=None, err=None, internal=False, train=None, confirm_for=None):
     """Queue a build; returns (job, deduplicated). Rules for agents (internal=False):
       - priority above agent_max_priority is capped unless the submit comes from the integrator;
       - a commit whose diff against the branch's last build (or, without one, its merge base with the integration
@@ -72,6 +72,8 @@ def submit(store, platform, ref, priority=0, package=True, modules=(), resolver=
             job["forced"] = True
         if train:
             job["train"] = train
+        if confirm_for:
+            job["confirm_for"] = confirm_for   # confirmation build of a branch ejected from that train
         job["log"] = store.log_path(job["id"])
         store.save(job)
         return job, False

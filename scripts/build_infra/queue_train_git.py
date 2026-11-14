@@ -83,23 +83,21 @@ class TrainRepo:
         try:
             done = subprocess.run(cmd, capture_output=True, text=True, check=False, timeout=timeout,
                                   env={**git_env(), **(env or {})})
-        except (OSError, subprocess.SubprocessError) as exc:
-            raise TrainGitError(f"git {args[0]}: {exc}") from exc
+        except (OSError, subprocess.SubprocessError) as exc:   # str(exc) holds the command line: scrub URLs
+            raise TrainGitError(scrub(f"git {args[0]}: {exc}")) from exc
         if check and done.returncode != 0:
             raise TrainGitError(f"git {' '.join(args[:3])}: rc={done.returncode}: {scrub(done.stderr + done.stdout)}")
         return done
 
     def ensure(self):
         if not os.path.isdir(os.path.join(self.path, ".git")):
-            url = self.remote_url or subprocess.run(
-                ["git", "-C", self.source, "remote", "get-url", "origin"], capture_output=True, text=True,
-                check=True, env=git_env()).stdout.strip()
+            url = self.remote_url or self.git("-C", self.source, "remote", "get-url", "origin",
+                                              cwd_repo=False).stdout.strip()
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             # Objects are borrowed from the local repository, then copied (--dissociate): the clone never depends
             # on a deploy worktree that build-infra-deploy.sh may prune later.
-            common = subprocess.run(["git", "-C", self.source, "rev-parse", "--path-format=absolute",
-                                     "--git-common-dir"], capture_output=True, text=True, check=True,
-                                    env=git_env()).stdout.strip()
+            common = self.git("-C", self.source, "rev-parse", "--path-format=absolute", "--git-common-dir",
+                              cwd_repo=False).stdout.strip()
             self.git("clone", "-q", "--no-checkout", "--reference", common, "--dissociate", url, self.path,
                      cwd_repo=False, timeout=1800)
         attrs = os.path.join(self.path, ".git", "info", "attributes")

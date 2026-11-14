@@ -72,7 +72,7 @@ class TrainStore:
                     rec = read_json(os.path.join(self.trains_dir, name), None)
                 except (OSError, ValueError):
                     continue
-                if isinstance(rec, dict):
+                if isinstance(rec, dict) and isinstance(rec.get("number"), int) and rec.get("name"):
                     records.append(rec)
         return sorted(records, key=lambda r: r["number"])
 
@@ -94,5 +94,9 @@ class TrainStore:
         return os.path.join(self.root, name)
 
     def protected_jobs(self):
-        """Job ids an active train still evaluates: retention never deletes their outputs."""
-        return {jid for rec in self.trains() if rec["state"] in TRAIN_ACTIVE for jid in rec.get("jobs", {}).values()}
+        """Job ids retention never deletes: builds an active train still evaluates, the train result of every
+        candidate (passed or ejected) and confirmation builds of ejected branches."""
+        jobs = {jid for rec in self.trains() if rec["state"] in TRAIN_ACTIVE for jid in rec.get("jobs", {}).values()}
+        for cand in self.branches().values():
+            jobs |= set((cand.get("result") or {}).get("jobs", {}).values()) | set(cand.get("confirm", {}).values())
+        return jobs
