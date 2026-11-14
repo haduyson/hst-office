@@ -1116,7 +1116,7 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/svx/source/tbxctrls/HstStyleGalleryWindow.cxx
-@@ -0,0 +1,212 @@
+@@ -0,0 +1,216 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -1214,8 +1214,10 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +    if (rKey != "hst-gallery-state")
 +        return InterimItemWindow::set_property(rKey, rValue);
 +    const int nState = std::clamp<int>(rValue.toInt32(), 0, std::size(COLUMNS) - 1);
-+    if (nState == m_nState)
-+        return false; // nothing changed: the ladder need not lay the toolbox out again
++    // nothing changed (the ladder need not lay the toolbox out again), or the window is disposed already: the
++    // ladder may still ask while the toolbox disposes its items
++    if (nState == m_nState || !m_xView)
++        return false;
 +    m_nState = nState;
 +    ApplyColumns();
 +    return true;
@@ -1223,6 +1225,8 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +
 +void StyleGalleryWindow::ApplyColumns()
 +{
++    if (!m_xView)
++        return;
 +    const float fScale = GetDPIScaleFactor();
 +    // on the icon view itself: the VCL builder folds a GtkScrolledWindow into the icon view (it scrolls itself)
 +    m_xView->set_size_request((COLUMNS[m_nState] * ITEM_STEP + FRAME_WIDTH) * fScale, VIEW_HEIGHT * fScale);

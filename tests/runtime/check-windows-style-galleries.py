@@ -60,7 +60,7 @@ def set_ui_vietnamese(office):
 def shot(hwnd, path):
     """The screen in a console session (what the user sees), else the window through PrintWindow."""
     if REAL_CLICKS:
-        wg.screenshot(path, cursor=False)
+        wg.screenshot(path, cursor=True)
     elif hwnd:
         Win32Driver().screenshot(hwnd, path)
 
@@ -97,7 +97,8 @@ def check_app(office, app, check, out, png):
             tab, name, tile_name = GALLERIES[kind]
             doc.CurrentController.select(target)
             time.sleep(2)
-            check("[%s] %s: tab '%s' found and clicked" % (app, kind, tab), click_contextual_tab(hwnd, real=REAL_CLICKS))
+            where = click_contextual_tab(hwnd, real=REAL_CLICKS)
+            check("[%s] %s: tab '%s' found and clicked" % (app, kind, tab), bool(where), where)
             time.sleep(3)
             shot(hwnd, os.path.join(out, "%s-%s.png" % (app, kind)))
             check.note("[%s] %s: '%s' with the gallery '%s' (see %s-%s.png)" % (app, kind, tab, name, app, kind), "")

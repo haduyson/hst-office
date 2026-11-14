@@ -61,14 +61,17 @@ def contextual_tab_point(hwnd, band=(40, 70), skip_left=290):
                 ys.append(y)
     if len(xs) < 20:
         return None
-    # the rightmost cluster: contextual tabs come last (a pair of them: the first one is wanted)
+    # label clusters (words inside a label are a few pixels apart); the current tab is blue too, but contextual
+    # tabs come last: take the last label, or the first of a last pair (Table Design, Table Layout)
     xs_sorted = sorted(set(xs))
     clusters, start = [], xs_sorted[0]
     for a, b in zip(xs_sorted, xs_sorted[1:] + [10 ** 6]):
-        if b - a > 18:
+        if b - a > 12:
             clusters.append((start, a))
             start = b
-    first = clusters[0] if len(clusters) else (min(xs), max(xs))
+    first = clusters[-1]
+    if len(clusters) >= 3 and clusters[-1][0] - clusters[-2][1] < 40:
+        first = clusters[-2]
     return (first[0] + first[1]) // 2, (min(ys) + max(ys)) // 2
 
 
@@ -85,11 +88,11 @@ def click_contextual_tab(hwnd, real=False):
         import windows_gui_input as wgi
         wgi.activate(hwnd)
         wgi.click(left + point[0], top + point[1])
-        return True
+        return (left + point[0], top + point[1])
     cx, cy = client_origin(hwnd)
     x, y = point[0] + left - cx, point[1] + top - cy
     lparam = (y << 16) | (x & 0xFFFF)
     user32.PostMessageW(wintypes.HWND(hwnd), WM_MOUSEMOVE, 0, lparam)
     user32.PostMessageW(wintypes.HWND(hwnd), WM_LBUTTONDOWN, MK_LBUTTON, lparam)
     user32.PostMessageW(wintypes.HWND(hwnd), WM_LBUTTONUP, 0, lparam)
-    return True
+    return (x, y)
