@@ -25,7 +25,7 @@ scripts/build-linux.sh --package          # .deb (EPM)
 
 ## Hàng đợi build cục bộ (agent tự dùng)
 
-Agent tự build `.deb` (máy dev) hoặc `.msi` (HST4/HST5) qua hàng đợi
+Agent tự build `.deb` (trên **VM103**, xem mục dưới) hoặc `.msi` (HST4/HST5) qua hàng đợi
 [`scripts/build-queue.sh`](../scripts/build-queue.sh), không cần qua S0. Bản phát hành chính thức vẫn lấy từ CI.
 
 ```bash
@@ -143,9 +143,15 @@ dưới `windows_warn_free_gib` (25 GiB) dispatcher ghi cảnh báo (journal, `/
 nhất, chủ). Hàng đợi **không bao giờ xoá** thư mục test của agent. Agent ghi tên mình/nhánh vào
 `D:\hst-test\<thư mục>\.hst-owner` (dòng đầu) để báo cáo biết ai sở hữu.
 
-### Máy build Linux từ xa (VM103)
+### Máy build Linux: VM103
 
-Dispatcher dùng slot của máy dev trước, hết chỗ thì dùng các máy trong `linux_remote_hosts` của `config.json`
+**Từ 14/11/2026 mọi build Linux chạy trên VM103** (quyết định của chủ dự án): job gói, chân Linux của build train,
+overlay `--modules` và `--test`. Máy dev không nhận job Linux mới (`"linux_local_enabled": false` trong
+`config.json`; job đang chạy trên máy dev vẫn chạy xong). Job Linux đang chờ hiện `waiting for vm103 (vm103 N/2 slots
+busy)` hoặc `(vm103 OFFLINE)` trong `build-queue.sh list`; khi VM103 offline, job chờ nó trả lời lại. Windows vẫn ở
+HST4/HST5.
+
+Khi `linux_local_enabled` bật, dispatcher dùng slot của máy dev trước, hết chỗ thì dùng các máy trong `linux_remote_hosts` của `config.json`
 (mỗi máy: `name`, `address` (một giá trị duy nhất; đổi IP chỉ cần sửa ở đây), `key`, `known_hosts`, `slots`,
 `total_jobs`, `max_jobs`, `min_free_gib`, `ccache_max`, `enabled`). Máy từ xa chạy đúng `local-build.sh` và
 `build-slots.py` của bản triển khai, với bản sao chroot (cùng digest image và cùng dấu deps), external tarballs và
@@ -164,6 +170,8 @@ tarball đã ghim của máy dev, nên đầu ra giống hệt. Dựng máy: `ss
   dev. Khi máy trả lời lại, các unit `hstq-*` còn sót được dừng. Job chạy quá `remote_job_timeout_hours` (6 giờ) bị
   dừng và đưa lại hàng đợi theo cùng cách.
 - **Đầu ra:** chép về `out/<id>/` (kiểm `SHA256SUMS`), rồi xoá trên máy từ xa; log đổ dần về `logs/<id>.log`.
+  Sau mỗi job, log chạy của slot cũ hơn 2 ngày và tệp hàng đợi sót lại quá 1 ngày bị xoá, để đĩa (96 GB) luôn đủ cho
+  2 slot (~13–21 GB mỗi slot), chroot, tarball và ccache 10 GB, cộng ngưỡng trống 15 GB.
   `status` cho biết `host`/`slot` (ví dụ `vm103:1`). Tắt máy: `"enabled": false`.
 
 ### `--test`: chạy test LibreOffice trong slot (không cần cây riêng)

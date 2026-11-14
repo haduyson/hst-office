@@ -278,11 +278,17 @@ class RemoteLinuxRunner:
         return "done", fields
 
     def cleanup(self, jid):
-        """The host keeps no output: the copy under out/<id> is the only one (and its log is already here)."""
+        """The host keeps no output: the copy under out/<id> is the only one (and its log is already here). Its disk
+        stays free for the slot trees: slot run logs older than 2 days and queue files of jobs gone for a day (a
+        lost host's leftovers) are pruned too."""
         try:
             self.host.run(["sh", "-c", f"rm -rf {self.qpath('out', jid)} {self.qpath('rc', jid, '.rc')} "
                            f"{self.qpath('logs', jid, '.log')}; git -C {self.root}/repo.git update-ref -d "
-                           f"refs/q/{jid} 2>/dev/null; true"], check=False)
+                           f"refs/q/{jid} 2>/dev/null; "
+                           f"find {self.root}/slots/*/logs -mindepth 1 -maxdepth 1 -name '20*' -mtime +2 "
+                           f"-exec rm -rf {{}} + 2>/dev/null; "
+                           f"find {self.root}/queue/out {self.root}/queue/logs {self.root}/queue/rc -mindepth 1 "
+                           f"-maxdepth 1 -mtime +1 -exec rm -rf {{}} + 2>/dev/null; true"], check=False)
         except RemoteError as exc:
             log(f"{self.name}: cleanup of {jid} failed: {exc}")
 

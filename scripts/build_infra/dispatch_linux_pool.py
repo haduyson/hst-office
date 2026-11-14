@@ -45,11 +45,17 @@ class LinuxPool:
     def want(self, job):
         return self.local.want(job)
 
+    def local_enabled(self):
+        """linux_local_enabled=false: the dev server admits no new Linux job (its running jobs finish normally)."""
+        return self._cfg.get("linux_local_enabled", True)
+
     def free_slot(self, jobs, want, job=None):
-        if not (job and "local" in job.get("avoid_hosts", [])):
+        if self.local_enabled() and not (job and "local" in job.get("avoid_hosts", [])):
             slot = self.local.free_slot(jobs, want)
             if slot is not None:
                 return slot
+        if job and not self.local_enabled() and len(self.remotes) == 1:
+            job = dict(job, avoid_hosts=[])   # the only Linux host: a job never avoids it (it would wait forever)
         for r in self.remotes:
             slot = r.free_slot(jobs, want, job)
             if slot is not None:

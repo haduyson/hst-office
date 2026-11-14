@@ -182,3 +182,59 @@ class SliceCgroupTest(RemoteTestCase):
         out = subprocess.run(["bash", "-c", fn + "\nslice_cg hst-build.slice; slice_cg system.slice"],
                              capture_output=True, text=True, check=True).stdout.split()
         self.assertEqual(out, ["/sys/fs/cgroup/hst.slice/hst-build.slice", "/sys/fs/cgroup/system.slice"])
+
+
+class RemoteOnlyLinuxTest(RemoteTestCase):
+    """linux_local_enabled=false: every Linux build (package, train leg, --modules, --test) goes to the remote host;
+    jobs already running on the dev server still finish; queued jobs show what they wait for."""
+
+    def pool(self, local):
+        cfg = dict(self.cfg, linux_local_enabled=False)
+        with open(os.path.join(self.store.root, "config.json"), "w") as f:
+            import json
+            json.dump({"linux_local_enabled": False, "linux_remote_hosts": [HOST]}, f)
+        p = LinuxPool(self.store, cfg, local=local, remotes=[self.remote])
+        p._cfg = cfg
+        return p
+
+    def test_no_local_admission_and_every_kind_goes_remote(self):
+        local = FakeRunner(["1", "2"])
+        pool = self.pool(local)
+        for kw in ({}, {"modules": ["sc"]}, {"tests": ["CppunitTest_sc_ucalc"]},
+                   {"ref": "train/1.0.2-009", "internal": True, "train": "train/1.0.2-009"}):
+            self.shas.setdefault("train/1.0.2-009", "9" * 40)
+            job, _ = self.submit(**kw)
+            self.remote.slot_cache = (0.0, None)
+            self.assertEqual(pool.free_slot([], 20, job), "vm103:1", kw)
+        avoided, _ = self.submit(ref="feat/x")
+        self.remote.slot_cache = (0.0, None)
+        self.assertEqual(pool.free_slot([], 20, dict(avoided, avoid_hosts=["vm103"])), "vm103:1")   # only host
+        self.host.slot = ""                                    # vm103 full: nothing goes to the dev server
+        self.remote.slot_cache = (0.0, None)
+        self.assertIsNone(pool.free_slot([], 20, avoided))
+        self.assertEqual(local.started, [])
+
+    def test_a_local_job_already_running_finishes_normally(self):
+        local = FakeRunner([])
+        pool = self.pool(local)
+        job, _ = self.submit()
+        job = self.store.update(job["id"], state="running", host="local", slot="1")
+        local.results[job["id"]] = ("done", {"output": []})
+        self.assertEqual(pool.check(job), ("done", {"output": []}))
+
+    def test_list_says_what_queued_linux_jobs_wait_for(self):
+        self.pool(FakeRunner([]))
+        running = self.running_job()
+        queued, _ = self.submit(ref="feat/x")
+        notes = __import__("build_infra.queue_cli", fromlist=["x"]).linux_waits(self.store, self.store.all())
+        self.assertEqual(notes[queued["id"]], "  waiting for vm103 (vm103 1/2 slots busy)")
+        self.assertNotIn(running["id"], notes)
+        HostStates(self.store).offline("vm103", "test")
+        notes = __import__("build_infra.queue_cli", fromlist=["x"]).linux_waits(self.store, self.store.all())
+        self.assertEqual(notes[queued["id"]], "  waiting for vm103 (vm103 OFFLINE)")
+
+    def test_cleanup_prunes_old_logs_and_stale_queue_files_on_the_host(self):
+        self.remote.cleanup("q261114-000000-abcd")
+        cmd = self.host.calls[-1][2]
+        self.assertIn("slots/*/logs -mindepth 1 -maxdepth 1 -name '20*' -mtime +2", cmd)
+        self.assertIn("-mtime +1 -exec rm -rf", cmd)

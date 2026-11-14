@@ -59,6 +59,8 @@ DEFAULT_CONFIG = {
     #    "known_hosts": "/data/hst-build-queue/known_hosts-vm103", "slots": 2, "total_jobs": 12, "max_jobs": 12,
     #    "min_free_gib": 15, "ccache_max": "10G", "enabled": true}
     "linux_remote_hosts": [],
+    # false: no new Linux job is admitted on the dev server's slots; Linux builds run on linux_remote_hosts only.
+    "linux_local_enabled": True,
     "remote_poll_seconds": 30,
     "remote_offline_seconds": 300,
     "remote_job_timeout_hours": 6,

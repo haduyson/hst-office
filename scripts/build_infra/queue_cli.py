@@ -132,8 +132,9 @@ def main(argv=None):
             else:
                 for line in disk_warnings(store):
                     print(line, file=sys.stderr)
+                notes = linux_waits(store, jobs)
                 for job in jobs:
-                    print(describe(job))
+                    print(describe(job) + notes.get(job["id"], ""))
             return 0
         if args.cmd == "cancel":
             job = cancel(store, args.id)
@@ -213,4 +214,24 @@ def disk_report(store, host=None, refresh=False, out=sys.stdout):
             print(f"  {d['gib']:8.2f} GiB  {d['newest'][:16]}  {d.get('owner') or '-':<20} D:\\hst-test\\{d['name']}",
                   file=out)
     return 0
+
+
+def linux_waits(store, jobs):
+    """{job id: note} for queued Linux jobs when only remote hosts build Linux: "waiting for vm103 (...)"."""
+    cfg = store.config()
+    if cfg.get("linux_local_enabled", True):
+        return {}
+    from .remote_host import HostStates
+    hosts = [h for h in cfg.get("linux_remote_hosts", []) if h.get("enabled", True)]
+    if not hosts:
+        return {j["id"]: "  waiting: no Linux build host enabled" for j in jobs
+                if j["platform"] == "linux" and j["state"] == "queued"}
+    parts = []
+    for h in hosts:
+        busy = sum(1 for j in jobs if j["state"] == "running" and j.get("host") == h["name"])
+        state = HostStates(store).get(h["name"]).get("state", "online")
+        slots = h.get("slots", 2)
+        parts.append(f"{h['name']} OFFLINE" if state == "offline" else f"{h['name']} {busy}/{slots} slots busy")
+    note = f"  waiting for {' / '.join(h['name'] for h in hosts)} ({', '.join(parts)})"
+    return {j["id"]: note for j in jobs if j["platform"] == "linux" and j["state"] == "queued"}
 
