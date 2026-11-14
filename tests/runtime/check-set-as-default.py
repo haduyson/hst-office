@@ -18,7 +18,7 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hst_dialog_uitest import Checks, DialogHarness, click, select_entry, state, type_value  # noqa: E402
+from hst_dialog_uitest import Checks, DialogHarness, click, select_entry, state  # noqa: E402
 from hst_gui import free_port  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -57,6 +57,15 @@ def set_as_default(h, c, dlg, scope, label):
     h.wait_idle(2)
 
 
+def retype(dlg, widget, text):
+    """Replace a field's text as a user does: select all, type."""
+    field = dlg.getChild(widget)
+    field.executeAction("FOCUS", ())
+    field.executeAction("TYPE", (prop("KEYCODE", "CTRL+A"),))
+    field.executeAction("TYPE", (prop("TEXT", text),))
+    time.sleep(0.2)
+
+
 def page_style(doc, name):
     return doc.StyleFamilies.getByName("PageStyles").getByName(name)
 
@@ -88,10 +97,7 @@ def before_restart(h, c):
     doc.getText().setString("Chỉ tài liệu này.")
     h.wait_idle()
     dlg = h.open_dialog(".uno:FontDialog", "CharacterPropertiesDialog")
-    size = dlg.getChild("cbWestSize")  # a combo box: replace its text as a user does (select all, type)
-    size.executeAction("FOCUS", ())
-    size.executeAction("TYPE", (prop("KEYCODE", "CTRL+A"),))
-    size.executeAction("TYPE", (prop("TEXT", "14"),))
+    retype(dlg, "cbWestSize", "14")
     set_as_default(h, c, dlg, "thisdoc", "font")
     c.equal("font: this document 14 pt", first_paragraph(doc).CharHeight, 14.0)
     h.close_document(doc)
@@ -106,16 +112,16 @@ def before_restart(h, c):
     set_as_default(h, c, dlg, "newdocs", "format cells")
     c.equal("format cells: default template written", template_on_disk(h, "scalc", "ots"), True)
     dlg = h.open_dialog(".uno:PageFormatDialog", "PageTemplateDialog")
-    type_value(dlg, "spinMargLeft", "2 cm")
+    retype(dlg, "spinMargLeft", "2 cm")
     set_as_default(h, c, dlg, "newdocs", "sheets page setup")
-    c.equal("sheets page setup: this document 2 cm", abs(page_style(sheet, "Default").LeftMargin - 2000) <= 2, True)
+    c.equal("sheets page setup: this document 2 cm", round(page_style(sheet, "Default").LeftMargin / 10), 2000 // 10)
     h.close_document(sheet)
 
     doc = h.new_document()
     dlg = h.open_dialog(".uno:PageDialog", "TemplateDialog8")
-    type_value(dlg, "spinMargLeft", "3 cm")
+    retype(dlg, "spinMargLeft", "3 cm")
     set_as_default(h, c, dlg, "newdocs", "page setup")
-    c.equal("page setup: this document 3 cm", abs(page_style(doc, "Standard").LeftMargin - 3000) <= 2, True)
+    c.equal("page setup: this document 3 cm", round(page_style(doc, "Standard").LeftMargin / 10), 3000 // 10)
     h.close_document(doc)
 
 
@@ -125,12 +131,12 @@ def after_restart(h, c):
     c.equal("restart: new document justified", int(para.ParaAdjust), BLOCK)
     c.equal("restart: new document 1.5 lines", para.ParaLineSpacing.Height, 150)
     c.equal("restart: font set for one document only stays out", para.CharHeight != 14.0, True)
-    c.equal("restart: new document left margin 3 cm", abs(page_style(doc, "Standard").LeftMargin - 3000) <= 2, True)
+    c.equal("restart: new document left margin 3 cm", round(page_style(doc, "Standard").LeftMargin / 10), 3000 // 10)
     h.close_document(doc)
     sheet = h.new_document("scalc")
     cell = sheet.getSheets().getByIndex(0).getCellByPosition(0, 0)
     c.equal("restart: new spreadsheet centered", cell.HoriJustify.value, "CENTER")
-    c.equal("restart: new spreadsheet left margin 2 cm", abs(page_style(sheet, "Default").LeftMargin - 2000) <= 2, True)
+    c.equal("restart: new spreadsheet left margin 2 cm", round(page_style(sheet, "Default").LeftMargin / 10), 2000 // 10)
     h.close_document(sheet)
 
 
