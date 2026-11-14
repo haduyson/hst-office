@@ -8,7 +8,11 @@ is staggered. A large button's label wider than 62 logical px wraps at its most 
 lines), and a large menu button is split as in Office: the image runs the command, the label below it opens
 the menu, with ▾ after the label's last line instead of a column of its own on the right.
 
-- vcl/inc/HstRibbonGrid.hxx: the grid geometry (plain arithmetic, unit tested); LABEL_WRAP.
+- vcl/inc/HstRibbonGrid.hxx: the grid geometry and stackGroup (plain arithmetic, unit tested); LABEL_WRAP.
+- HstRibbonLadder.cxx stackLargeButtons: the ribbon's large buttons are one toolbox each, so at the medium and
+  small size consecutive ones are re-attached in their group's grid in columns of three (the caption moves
+  below the third row; separators and buttons that stay large span the extra row); the large size restores
+  the authored attachments. A toolbox of several buttons uses ToolBox::HstSetGridRows instead.
 - ToolBox::HstSetGridRows (opt-in, ribbon ladder only); ImplCalcSize and ImplFormat lay out the grid.
 - toolbox.cxx: balanced label wrap for ribbon toolboxes, split large menu buttons (ImplToolItem::GetDropDownRect
   returns the label part); HstRibbonLadder.cxx: grid rows 3 at the medium and small size of large toolboxes.
@@ -27,7 +31,7 @@ the menu, with ▾ after the label's last line instead of a column of its own on
      ImplToolItems::size_type GetItemCount() const;
 --- /dev/null
 +++ b/vcl/inc/HstRibbonGrid.hxx
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,210 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -81,6 +85,99 @@ the menu, with ▾ after the label's last line instead of a column of its own on
 +
 +/** Lay out rItems in an even grid of nRows rows nRowHeight high (at least the tallest item), nRowGap
 +    between rows, nColumnGap between columns and nSeparator wide separators. */
++/** One child of a ribbon group's grid (GtkGrid attachments). The authored groups put their content in rows 0
++    and 1 (a large button spans both) and the caption in row 2. */
++struct GroupCell
++{
++    int left = 0;
++    int top = 0;
++    int width = 1;
++    int height = 1;
++    bool stackable = false; // a large button alone in its column (top 0, two rows high) that may become small
++    bool caption = false;
++};
++
++/** At the medium and small size, consecutive stackable large buttons of a group stand in columns of nRows
++    small buttons, top to bottom then left to right (Office's 3-row columns); the following columns move left,
++    the caption moves below the third row over the columns it spanned, and what stood across both content rows (the
++    large buttons that stay large) or across the content and the caption (separators) grows by a row.
++    Returns false (rCells unchanged) when no two stackable buttons stand next to each other. */
++inline bool stackGroup(std::vector<GroupCell>& rCells, int nRows = 3)
++{
++    constexpr int CONTENT_ROWS = 2;
++    const std::vector<GroupCell> aAuthored = rCells;
++    int nMaxColumn = -1;
++    for (const GroupCell& rCell : aAuthored)
++        if (!rCell.caption)
++            nMaxColumn = std::max(nMaxColumn, rCell.left + rCell.width - 1);
++    if (nMaxColumn < 0)
++        return false;
++    // a column is a slot when its only child is a stackable large button; slots next to slots are stacked
++    std::vector<int> aCount(nMaxColumn + 1, 0), aButton(nMaxColumn + 1, -1);
++    for (std::size_t i = 0; i < aAuthored.size(); ++i)
++    {
++        const GroupCell& rCell = aAuthored[i];
++        if (rCell.caption)
++            continue;
++        for (int c = rCell.left; c < rCell.left + rCell.width; ++c)
++            ++aCount[c];
++        if (rCell.stackable && rCell.width == 1)
++            aButton[rCell.left] = static_cast<int>(i);
++    }
++    auto slot = [&](int c) { return c >= 0 && c <= nMaxColumn && aCount[c] == 1 && aButton[c] >= 0; };
++    auto stacked = [&](int c) { return slot(c) && (slot(c - 1) || slot(c + 1)); };
++    bool bAny = false;
++    for (int c = 0; c <= nMaxColumn; ++c)
++        bAny = bAny || stacked(c);
++    if (!bAny)
++        return false;
++
++    std::vector<int> aMap(nMaxColumn + 1, 0), aRow(nMaxColumn + 1, 0);
++    int nNext = 0; // next free column
++    int nInStack = 0; // buttons in the open stack column; 0 when none is open
++    int nStackColumn = 0;
++    for (int c = 0; c <= nMaxColumn; ++c)
++    {
++        if (!stacked(c))
++        {
++            nInStack = 0;
++            aMap[c] = nNext++;
++            continue;
++        }
++        if (nInStack == 0 || nInStack == nRows)
++        {
++            nStackColumn = nNext++;
++            nInStack = 0;
++        }
++        aMap[c] = nStackColumn;
++        aRow[c] = nInStack++;
++    }
++    for (std::size_t i = 0; i < aAuthored.size(); ++i)
++    {
++        const GroupCell& rOld = aAuthored[i];
++        GroupCell& rCell = rCells[i];
++        if (rOld.caption)
++        {
++            // the caption keeps the columns it spanned, now fewer, below the third row
++            const int nLast = std::min(rOld.left + rOld.width - 1, nMaxColumn);
++            const int nFirst = std::min(rOld.left, nMaxColumn);
++            rCell = GroupCell{ aMap[nFirst], nRows, aMap[nLast] - aMap[nFirst] + 1, rOld.height, false, true };
++        }
++        else if (stacked(rOld.left) && aButton[rOld.left] == static_cast<int>(i))
++            rCell = GroupCell{ aMap[rOld.left], aRow[rOld.left], 1, 1, true, false };
++        else
++        {
++            rCell.left = aMap[rOld.left];
++            rCell.width = aMap[rOld.left + rOld.width - 1] - aMap[rOld.left] + 1;
++            if (rOld.top == 0 && rOld.height == CONTENT_ROWS)
++                rCell.height = nRows; // a large button that stays large spans the three rows
++            else if (rOld.top == 0 && rOld.height == CONTENT_ROWS + 1)
++                rCell.height = nRows + 1; // a separator spans the rows and the caption
++        }
++    }
++    return true;
++}
++
 +inline GridLayout gridLayout(const std::vector<GridItem>& rItems, int nRows, long nRowHeight, long nRowGap,
 +                             long nColumnGap, long nSeparator)
 +{
@@ -170,12 +267,28 @@ the menu, with ▾ after the label's last line instead of a column of its own on
      VclPtr<PopupMenu>   mpMenu;
 --- a/vcl/source/control/HstRibbonLadder.cxx
 +++ b/vcl/source/control/HstRibbonLadder.cxx
-@@ -106,6 +106,13 @@
+@@ -8,11 +8,13 @@
+  */
+ 
+ #include <HstRibbonLadder.hxx>
++#include <HstRibbonGrid.hxx>
+ 
+ #include <comphelper/lok.hxx>
+ #include <officecfg/Office/HSTRibbon.hxx>
+ #include <vcl/event.hxx>
+ #include <vcl/image.hxx>
++#include <vcl/layout.hxx>
+ #include <vcl/toolbox.hxx>
+ #include <vcl/toolkit/fixed.hxx>
+ #include <vcl/toolkit/MenuButton.hxx>
+@@ -106,6 +108,15 @@
          rToolBox.SetToolBoxTextPosition(ePosition);
          bChanged = true;
      }
 +    // a large toolbox at the medium or small size: its buttons in Office's even 3-row columns (HstRibbonGrid.hxx)
-+    const int nGridRows = !bKeep && rData.meHstAuthoredSize == ToolBoxButtonSize::Large ? 3 : 0;
++    // (a toolbox of one button stands in its group's grid instead: stackLargeButtons)
++    const int nGridRows
++        = !bKeep && rData.meHstAuthoredSize == ToolBoxButtonSize::Large && commandCount(rToolBox) >= 2 ? 3 : 0;
 +    if (rData.mnHstGridRows != nGridRows)
 +    {
 +        rToolBox.HstSetGridRows(nGridRows);
@@ -184,6 +297,98 @@ the menu, with ▾ after the label's last line instead of a column of its own on
      // HST Office: a gallery in the toolbox (Slides' themes) shows fewer columns at the smaller states, so the
      // group narrows before it folds; a window that does not know the property ignores it
      const OUString aGalleryState = OUString::number(std::min(nState, int(GroupSmall)));
+@@ -176,6 +187,83 @@
+     }
+ }
+ 
++/// Grid attachments of a group's children as authored, kept while the window lives.
++struct AuthoredCells
++{
++    static std::map<const vcl::Window*, GroupCell>& cells()
++    {
++        static std::map<const vcl::Window*, GroupCell> aCells;
++        return aCells;
++    }
++    DECL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, void);
++};
++
++IMPL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        AuthoredCells::cells().erase(rEvent.GetWindow());
++}
++
++GroupCell authoredCell(vcl::Window& rChild)
++{
++    auto& rCells = AuthoredCells::cells();
++    auto it = rCells.find(&rChild);
++    if (it == rCells.end())
++    {
++        GroupCell aCell{ rChild.get_grid_left_attach(), rChild.get_grid_top_attach(), rChild.get_grid_width(),
++                         rChild.get_grid_height(), false, false };
++        aCell.caption = dynamic_cast<FixedText*>(&rChild) && aCell.top == 2;
++        it = rCells.emplace(&rChild, aCell).first;
++        rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
++    }
++    return it->second;
++}
++
++void attach(vcl::Window& rChild, const GroupCell& rCell)
++{
++    if (rChild.get_grid_left_attach() != rCell.left)
++        rChild.set_grid_left_attach(rCell.left);
++    if (rChild.get_grid_top_attach() != rCell.top)
++        rChild.set_grid_top_attach(rCell.top);
++    if (rChild.get_grid_width() != rCell.width)
++        rChild.set_grid_width(rCell.width);
++    if (rChild.get_grid_height() != rCell.height)
++        rChild.set_grid_height(rCell.height);
++}
++
++/** The large buttons of a group that stand alone in their columns (one toolbox each) form Office's 3-row
++    columns at the medium and small size (HstRibbonGrid.hxx stackGroup); the large size restores the authored
++    grid. Paste and the buttons of a group of few commands stay large. */
++void stackLargeButtons(vcl::Window& rGroup, int nState, bool bFewCommands)
++{
++    VclGrid* pGrid = dynamic_cast<VclGrid*>(&rGroup);
++    for (vcl::Window* pChild = rGroup.GetWindow(GetWindowType::FirstChild); !pGrid && pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++        pGrid = dynamic_cast<VclGrid*>(pChild);
++    if (!pGrid)
++        return;
++    std::vector<vcl::Window*> aChildren;
++    std::vector<GroupCell> aCells;
++    for (vcl::Window* pChild = pGrid->GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        GroupCell aCell = authoredCell(*pChild);
++        if (ToolBox* pToolBox = dynamic_cast<ToolBox*>(pChild))
++        {
++            const ImplToolBoxPrivateData& rData = *pToolBox->ImplGetToolBoxPrivateData();
++            aCell.stackable = !bFewCommands && rData.mbHstAuthored && !rData.mbHstKeepLarge
++                              && rData.meHstAuthoredSize == ToolBoxButtonSize::Large && commandCount(*pToolBox) == 1
++                              && aCell.top == 0 && aCell.height == 2;
++        }
++        aChildren.push_back(pChild);
++        aCells.push_back(aCell);
++    }
++    if (nState == GroupMedium || nState == GroupSmall)
++        stackGroup(aCells);
++    for (std::size_t i = 0; i < aChildren.size(); ++i)
++        attach(*aChildren[i], aCells[i]);
++}
++
+ template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
+ {
+     for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
+@@ -240,6 +328,7 @@
+     const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
+     for (ToolBox* pToolBox : aToolBoxes)
+         applyToToolBox(*pToolBox, nState, bFewCommands);
++    stackLargeButtons(rGroup, nState, bFewCommands);
+     // the menu buttons of every group drop their labels at the small state only (their image stays where it
+     // is: above the label in a group of few commands)
+     forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
 --- a/vcl/source/window/toolbox.cxx
 +++ b/vcl/source/window/toolbox.cxx
 @@ -44,6 +44,7 @@
