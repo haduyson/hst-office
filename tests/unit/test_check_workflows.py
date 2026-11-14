@@ -144,6 +144,8 @@ class WorkflowTests(unittest.TestCase):
         def gate(w):
             return next(s for s in w["jobs"]["sign"]["steps"] if s.get("id") == "gate")
 
+        VERIFY = "Verify dmg (app name, bundle id, architecture, icons, layout, Vietnamese resources)"
+
         def secret_in_build(w):
             named(w, "build", "Configure")["env"] = {"TOKEN": "${{ secrets.APPLE_API_KEY_ID }}"}
 
@@ -159,8 +161,7 @@ class WorkflowTests(unittest.TestCase):
             "build in preflight": lambda w: named(w, "build", "Build within time budget").pop("if"),
             "no budget": lambda w: named(w, "build", "Build within time budget").update(
                 {"run": named(w, "build", "Build within time budget")["run"].replace("HST_BUILD_DEADLINE", "X")}),
-            "no verify": lambda w: w["jobs"]["build"]["steps"].remove(
-                named(w, "build", "Verify dmg (app name, bundle id, architecture, icons, layout, Vietnamese resources)")),
+            "no verify": lambda w: w["jobs"]["build"]["steps"].remove(named(w, "build", VERIFY)),
             "evidence not always": lambda w: named(w, "build", "Upload build evidence").pop("if"),
             "dmg unconditional": lambda w: named(w, "build", "Upload unsigned dmg").update({"if": "${{ always() }}"}),
             "dmg renamed": lambda w: named(w, "build", "Upload unsigned dmg")["with"].update({"name": "dmg"}),
@@ -174,6 +175,9 @@ class WorkflowTests(unittest.TestCase):
             "ungated secret": ungated_secret,
             "no environment": lambda w: w["jobs"]["sign"].pop("environment"),
             "other environment": lambda w: w["jobs"]["build"].update({"environment": "macos-signing"}),
+            "sign on every ref": lambda w: w["jobs"]["sign"].update({"if": "${{ inputs.mode == 'full' }}"}),
+            "no skipped-signing notice": lambda w: named(w, "build", VERIFY).update(
+                {"run": named(w, "build", VERIFY)["run"].replace("Signing skipped", "x")}),
             "conditional build job": lambda w: w["jobs"]["build"].update({"if": "false"}),
             "gate skipped": lambda w: gate(w).update({"if": "false"}),
             "keychain kept on failure": lambda w: named(w, "sign", "Delete temporary keychain").pop("if"),

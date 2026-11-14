@@ -206,6 +206,7 @@ jobs:
           gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "$RUNNER_TEMP/dmg"
           python tests/runtime/r1auto/select-package.py "$RUNNER_TEMP/dmg" .dmg >> "$GITHUB_ENV"
       - name: Cài beta.5, mở một lần, gỡ; cài bản mới trên hồ sơ cũ
+        id: old_profile
         timeout-minutes: 40
         shell: bash
         run: |
@@ -217,7 +218,8 @@ jobs:
         shell: bash
         run: pkill -f "/Applications/HST Office.app/Contents/MacOS/soffice" || echo "không còn tiến trình HST"
       - name: Lưu kết quả và ảnh
-        if: ${{ always() }}
+        # Only when the check ran: a failed download step already explains the run, and an empty upload would hide it.
+        if: ${{ always() && steps.old_profile.outcome != 'skipped' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: r1-macos-old-profile-${{ inputs.run_id }}-${{ github.run_id }}
