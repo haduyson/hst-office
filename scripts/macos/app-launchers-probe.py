@@ -8,7 +8,6 @@
   app-launchers-probe.py frames                          (bundled python, uno) list frames and top windows (quit diagnostics)
   app-launchers-probe.py template true|false            (bundled python, uno) Impress's template dialog on or off
   app-launchers-probe.py window-gone <title>             (bundled python, uno) no visible top window of that title
-  app-launchers-probe.py make-odb <file.odb>             (bundled python, uno) store a small dBase-backed database
   app-launchers-probe.py no-base-menu                    (bundled python, uno) File ▸ New (and the Dock menu built
                                                           from it) offers no database
 
@@ -164,21 +163,6 @@ def window_gone(title):
     return 0
 
 
-def make_odb(path):
-    import os
-    import uno
-    ctx = context(30)
-    folder = os.path.splitext(path)[0] + "-tables"
-    os.makedirs(folder, exist_ok=True)
-    source = ctx.ServiceManager.createInstanceWithContext("com.sun.star.sdb.DatabaseContext", ctx).createInstance()
-    source.URL = "sdbc:dbase:" + uno.systemPathToFileUrl(folder)
-    document = source.DatabaseDocument
-    document.storeAsURL(uno.systemPathToFileUrl(os.path.abspath(path)), ())
-    document.close(True)
-    print("stored %s" % path)
-    return 0
-
-
 def no_base_menu():
     import uno
     ctx = context(30)
@@ -204,8 +188,6 @@ def main(argv):
         return template(argv[1] == "true")
     if len(argv) >= 2 and argv[0] == "window-gone":
         return window_gone(argv[1])
-    if len(argv) >= 2 and argv[0] == "make-odb":
-        return make_odb(argv[1])
     if argv[:1] == ["no-base-menu"]:
         return no_base_menu()
     print(__doc__, file=sys.stderr)
