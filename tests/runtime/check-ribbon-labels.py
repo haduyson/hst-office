@@ -26,9 +26,13 @@ FORMATTING = {"Phông chữ", "Đoạn văn", "Căn chỉnh", "Số"}  # bare fo
 # bare by design in the reference suite too (coordinator 15/11/2026): whole groups, and single commands
 BARE_GROUPS = {"Nhà phát triển", "Lưới", "Gộp hình"}  # Developer controls, grid/snap toggles, shape combine
 BARE_COMMANDS = {"Bản ghi đầu", "Bản ghi trước", "Bản ghi sau", "Bản ghi cuối",  # record navigation ◀ ▶
-                 "Sắp xếp tăng dần", "Sắp xếp giảm dần"}  # Sheets' A→Z, Z→A beside the labelled Sort
+                 "Sắp xếp tăng dần", "Sắp xếp giảm dần",  # Sheets' A→Z, Z→A beside the labelled Sort
+                 # Fontwork's format toggles beside its labelled gallery: formatting commands (G10)
+                 "Dạng chữ nghệ thuật", "Chữ nghệ thuật cùng độ cao chữ", "Căn lề chữ nghệ thuật",
+                 "Giãn cách ký tự trong chữ nghệ thuật"}
 WIDTHS = (1920, 1485)
 ICON_MAX = 40  # an icon with its button padding; with its label a button is wider
+SMALL_MAX = 45  # a small button is one row of a group; a large one (icon over label) is taller
 BAND = (44, 135)  # the buttons of a tab page, above the caption row
 ROLES = ("push button", "toggle button", "push button menu", "menu button")
 SKIP_TABS = ("Tệp tin",)
@@ -46,7 +50,10 @@ def scan():
     for name, role, box, _node in gui.ribbon_nodes(ROLES + ("label",), band=200):
         if role == "label" and name and 120 < box[1] < 175 and box[3] < 30:
             captions.append((name, box))
-        elif role != "label" and name and BAND[0] < box[1] < BAND[1] and 20 <= box[2] <= ICON_MAX and box[3] >= 20:
+        # a small button (one row of the group) as narrow as its icon: a large button's label is below its icon,
+        # so a short label ("Ảnh") leaves it narrow too
+        elif role != "label" and name and BAND[0] < box[1] < BAND[1] and 20 <= box[2] <= ICON_MAX \
+                and 20 <= box[3] < SMALL_MAX:
             icons.append((name.replace("\n", " "), box))
     return captions, icons
 
@@ -58,7 +65,10 @@ def check_tab(app, width, tab):
     ranges = {caption: group_range(captions, caption) for caption, _box in captions}
     bare = {}
     for name, box in icons:
-        group = next((c for c, (left, right) in ranges.items() if left <= box[0] < right), "?")
+        # a caption spans its group's width: the button's group is the caption above which it stands; between two
+        # captions, the nearer half
+        group = next((c for c, b in captions if b[0] <= box[0] + box[2] // 2 < b[0] + b[2]), None) \
+            or next((c for c, (left, right) in ranges.items() if left <= box[0] < right), "?")
         if group not in FORMATTING | BARE_GROUPS and name not in BARE_COMMANDS:
             bare.setdefault(group, []).append(name)
     record(f"[{app} {width}] {tab}: commands outside formatting groups are labelled", not bare, bare)
