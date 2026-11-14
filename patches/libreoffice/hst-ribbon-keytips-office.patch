@@ -520,7 +520,21 @@ License: these upstream files remain under their original license (MPL-2.0); the
      {
          Application::AddKeyListener(LINK(this, KeyTips, KeyHdl));
          Application::AddEventListener(LINK(this, KeyTips, AppEventHdl));
-@@ -160,7 +162,8 @@
+@@ -122,7 +124,12 @@
+     /// the "≡" menu). Its Alt+letter mnemonics and F10 then belong to it; the ribbon keeps Alt alone.
+     bool MenubarShown() const
+     {
+-        const SystemWindow* pSystem = m_xTabs ? m_xTabs->GetSystemWindow() : nullptr;
++        // HST Office: the ribbon sits in the border window of the document window, beside it, so walking up from
++        // the tabs never reaches the window that owns the menu bar: it is the border window's client.
++        vcl::Window* pBorder = m_xBar ? m_xBar->GetParent() : nullptr;
++        vcl::Window* pClient = pBorder ? pBorder->GetWindow(GetWindowType::Client) : nullptr;
++        const SystemWindow* pSystem = pClient && pClient->IsSystemWindow() ? static_cast<SystemWindow*>(pClient)
++                                                                           : nullptr;
+         const MenuBar* pMenuBar = pSystem ? pSystem->GetMenuBar() : nullptr;
+         return pMenuBar && pMenuBar->IsDisplayable();
+     }
+@@ -160,7 +167,8 @@
      {
          Clear();
          m_aTargets = std::move(rTargets);
@@ -530,7 +544,7 @@ License: these upstream files remain under their original license (MPL-2.0); the
          // the tips go on the ribbon, or on the popup whose commands they show
          vcl::Window& rHost = m_xPopup ? *m_xPopup : *m_xBar;
          const Size aBar = rHost.GetOutputSizePixel();
-@@ -224,8 +227,10 @@
+@@ -224,8 +232,10 @@
          if (m_xQuick && m_xQuick->IsReallyVisible())
          {
              int nDigit = 1;
@@ -542,7 +556,7 @@ License: these upstream files remain under their original license (MPL-2.0); the
          }
          // the feature search box of the tab row: Q, as Office's Search box
          for (vcl::Window* pChild = m_xTabs->GetWindow(GetWindowType::FirstChild); pChild;
-@@ -250,13 +255,13 @@
+@@ -250,13 +260,13 @@
          Show(std::move(aTargets), aPreferred);
      }
  
@@ -558,7 +572,7 @@ License: these upstream files remain under their original license (MPL-2.0); the
          Target aTarget;
          aTarget.pAnchor = &rBox;
          aTarget.aRect = aRect;
-@@ -273,6 +278,7 @@
+@@ -273,6 +283,7 @@
          };
          rPreferred.push_back(rTip);
          rTargets.push_back(std::move(aTarget));
@@ -566,7 +580,7 @@ License: these upstream files remain under their original license (MPL-2.0); the
      }
  
      void CollectCommands(vcl::Window& rWindow, std::vector<Target>& rTargets, std::vector<std::string>& rPreferred)
-@@ -288,11 +294,11 @@
+@@ -288,11 +299,11 @@
                  {
                      const ToolBoxItemId nId = pBox->GetItemId(i);
                      OUString aCommand = pBox->GetItemCommand(nId);
@@ -581,7 +595,7 @@ License: these upstream files remain under their original license (MPL-2.0); the
                  }
              }
              else if (pChild->GetType() == WindowType::PUSHBUTTON || pChild->GetType() == WindowType::MENUBUTTON)
-@@ -306,8 +312,7 @@
+@@ -306,8 +317,7 @@
                  aTarget.bEnabled = pChild->IsEnabled();
                  // HST Office: a ribbon menu button ("Chèn ▾") may have a letter of its own, by widget id
                  const OString aId = pChild->get_id().getToken(0, ':').toUtf8();
@@ -591,7 +605,7 @@ License: these upstream files remain under their original license (MPL-2.0); the
                  VclPtr<vcl::Window> xButton(pChild);
                  aTarget.aRun = [this, xButton] {
                      const Point aCentre(xButton->GetOutputSizePixel().Width() / 2, xButton->GetOutputSizePixel().Height() / 2);
-@@ -333,6 +338,8 @@
+@@ -333,6 +343,8 @@
      {
          std::vector<Target> aTargets;
          std::vector<std::string> aPreferred;
@@ -600,7 +614,7 @@ License: these upstream files remain under their original license (MPL-2.0); the
          if (TabPage* pPage = m_xTabs->GetTabPage(m_xTabs->GetCurPageId()))
              CollectCommands(*pPage, aTargets, aPreferred);
          m_eLevel = Level::Commands;
-@@ -403,6 +410,17 @@
+@@ -403,6 +415,17 @@
      OUString m_aTyped;
      Level m_eLevel = Level::None;
      bool m_bAltArmed = false;
@@ -618,18 +632,19 @@ License: these upstream files remain under their original license (MPL-2.0); the
  };
  
  IMPL_LINK(KeyTips, ModKeyHdl, const CommandModKeyData&, rData, void)
-@@ -417,6 +435,10 @@
+@@ -417,6 +440,11 @@
      // Alt released with no key in between
      if (std::exchange(m_bAltArmed, false))
      {
-+        // Windows: with the classic menu bar shown, Alt alone activates the menu bar (its KEY_MENU goes on to it)
-+        if (MENU_ECHO && m_eLevel == Level::None && MenubarShown())
++        // with the classic menu bar shown, Alt alone belongs to the menu bar, as F10 and Alt+letter do (owner
++        // 2026-11-14); on Windows its KEY_MENU goes on to the menu bar
++        if (m_eLevel == Level::None && MenubarShown())
 +            return;
 +        m_bMenuEcho = MENU_ECHO;
          if (m_eLevel == Level::None)
          {
              if (!m_xBar->IsInModalMode() && !vcl::IsInPopupMenuExecute())
-@@ -443,6 +465,9 @@
+@@ -443,6 +471,9 @@
      if (rEvent.GetId() != VclEventId::WindowKeyInput)
          return false;
      m_bAltArmed = false;
@@ -639,7 +654,7 @@ License: these upstream files remain under their original license (MPL-2.0); the
  
      if (m_eLevel == Level::None)
      {
-@@ -454,6 +479,7 @@
+@@ -454,6 +485,7 @@
              if (bMenubar)
                  return false;
              ShowTabs();
@@ -647,7 +662,7 @@ License: these upstream files remain under their original license (MPL-2.0); the
              return true;
          }
          // Alt+letter: the tab with that letter, then its commands. Other Alt keys are shortcuts. A shown
-@@ -494,6 +520,7 @@
+@@ -494,6 +526,7 @@
      if (IsF10(rCode)) // F10 again closes the tips, as Alt does
      {
          Close();

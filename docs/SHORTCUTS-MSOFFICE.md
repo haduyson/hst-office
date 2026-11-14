@@ -31,6 +31,7 @@ Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh;
 Từ 1.0.2 (chủ dự án 14/11/2026: "Phím Alt của thẻ hiệu ứng nên để giống như MS Office"):
 
 - Chữ của lệnh theo từng ứng dụng và từng thẻ, lấy từ Office 2021 cài trên máy HST4 (`data/ribbon/office-keytips-reference.json`, ghi bằng UI Automation; máy chỉ có giao diện tiếng Anh nên dùng chữ tiếng Anh). Ví dụ Alt, R, C là Chú thích mới ở thẻ Xem lại của mọi ứng dụng; Alt, N, SI là Trang chiếu mới ở thẻ Chèn của Slides. Bảng `data/ribbon/keytips-office-parity.json` sinh ra `hst-ribbon-keytips-office.patch`.
+- Khi đang hiện thanh trình đơn cổ điển, Alt (nhấn rồi thả), F10 và Alt+chữ thuộc về thanh trình đơn, trên mọi hệ điều hành (chủ dự án 14/11); khi thanh ẩn, Alt và F10 hiện mẹo phím.
 - Tên thẻ ribbon trong giao diện tiếng Việt không còn chữ gạch dưới (Office cũng không có). Trước đây "~Hiệu ứng" gạch chữ H, trong khi Alt+H mở Trang đầu.
 - `scripts/check-keytips-parity.py` (chạy trong CI) báo lỗi khi chữ của thẻ, chữ của lệnh, chữ gạch dưới của thẻ hoặc một phím tắt trong `data/ribbon/shortcuts-office-parity.json` lệch khỏi Office. Nút » (các nhóm không đủ chỗ trên ribbon) và khối bên phải đã thu gọn cũng có chữ; mở chúng bằng chữ thì các lệnh trong khung hiện ra cũng có chữ, Esc đóng khung (`hst-ribbon-chevron.patch`).
 
@@ -126,6 +127,9 @@ Từ 1.0.2 (chủ dự án 14/11/2026: "Phím Alt của thẻ hiệu ứng nên 
 | Writer | Ctrl+Shift+8 (Ctrl+*) | Hiện dấu định dạng | không có (Ctrl+F10 vẫn dùng được) |
 | Writer, Sheets, Slides, PDF | Shift+F7 | Từ điển đồng nghĩa | Tự động kiểm tra chính tả |
 | Writer | Ctrl+Alt+F / Ctrl+Alt+D | Chú thích cuối trang / cuối văn bản | không có |
+| Writer | Ctrl+Shift+C / Ctrl+Shift+V | Sao chép / dán định dạng (chủ dự án 14/11, như Office 2021) | không có / Dán văn bản không định dạng |
+| Writer | Ctrl+Alt+V | Dán đặc biệt | Dán định dạng |
+| Writer | Ctrl+Alt+Shift+V | Dán văn bản không định dạng | Dán đặc biệt |
 | Sheets | Ctrl+F2 | Xem trước khi in | Hàm (hộp thoại) |
 | Sheets | Shift+F3 | Chèn hàm | Xoay vòng kiểu chữ |
 | Sheets | Shift+F9 | Tính lại | Theo dấu ô tham chiếu |
@@ -135,8 +139,10 @@ Từ 1.0.2 (chủ dự án 14/11/2026: "Phím Alt của thẻ hiệu ứng nên 
 | Slides | Alt+F8, Ctrl+Shift+> / <, Shift+F9, Alt+Shift+F9, Ctrl+T, Ctrl+Alt+V | Macro, cỡ chữ, lưới, thước, Phông chữ, Dán đặc biệt | không có |
 | PDF | F12 | Lưu thành | không có |
 
-Còn khác Office (có lý do trong bảng): F1 (Trợ giúp do hệ điều hành mở), Ctrl+F1 (chưa có thu gọn ribbon), Ctrl+Shift+C/V
-và Ctrl+Alt+V của Word (HST theo Office bản mới 2024+, máy HST4 là Office 2021), Ctrl+Shift+A (chưa có lệnh Chữ hoa),
+Các dòng "Sao chép / dán định dạng" ở bảng Writer phía trên (Ctrl+Alt+C/V, Ctrl+Shift+V dán chữ) đã được thay bằng các phím
+này trên Windows/Linux; macOS giữ phím cũ. Ctrl+Alt+C vẫn sao chép định dạng.
+
+Còn khác Office (có lý do trong bảng): F1 (Trợ giúp do hệ điều hành mở), Ctrl+F1 (chưa có thu gọn ribbon), Ctrl+Shift+A (chưa có lệnh Chữ hoa),
 Shift+F12 / Ctrl+F12 / Ctrl+Shift+F12 của Word (giữ Dấu đầu dòng, Chèn bảng như cũ), Ctrl+E và Ctrl+Alt+L của Excel
 (chưa có Flash Fill, Áp dụng lại bộ lọc), Ctrl+F2 của Slides (không có xem trước khi in).
 
