@@ -84,7 +84,7 @@ License: modified upstream files keep their license (MPL-2.0).
      OUString sRet = rStr.replaceAll( "%PRODUCTNAME", sProductName );
 --- a/readlicense_oo/CustomTarget_readme.mk
 +++ b/readlicense_oo/CustomTarget_readme.mk
-@@ -43,18 +43,27 @@
+@@ -43,18 +43,34 @@
  
  endif
  
@@ -92,7 +92,14 @@ License: modified upstream files keep their license (MPL-2.0).
 +# from /VERSION by scripts/write-hst-version.py), never the engine version. This makefile is a
 +# prerequisite too: an incremental build regenerates ReadMes made with the engine version.
 +readlicense_oo_HST_VERSION_H := $(SRCDIR)/include/hst_version.h
-+readlicense_oo_HST_VERSION := $(shell $(gb_AWK) '$$2 == "HST_VERSION_MAJOR" { a = $$3 } $$2 == "HST_VERSION_MINOR" { b = $$3 } END { if (a != "" && b != "") print a "." b }' $(readlicense_oo_HST_VERSION_H))
++# $(file <) and make text functions instead of $(shell awk ...): the native Windows make starts $(shell)
++# commands with CreateProcess, which cannot run cygwin's awk (a symbolic link).
++readlicense_oo_HST_VERSION_WORDS := $(subst HST_VERSION_MAJOR ,HSTMAJOR=,$(subst HST_VERSION_MINOR ,HSTMINOR=,$(if \
++	$(wildcard $(readlicense_oo_HST_VERSION_H)),$(file <$(readlicense_oo_HST_VERSION_H)))))
++readlicense_oo_HST_VERSION_MAJOR := $(patsubst HSTMAJOR=%,%,$(filter HSTMAJOR=%,$(readlicense_oo_HST_VERSION_WORDS)))
++readlicense_oo_HST_VERSION_MINOR := $(patsubst HSTMINOR=%,%,$(filter HSTMINOR=%,$(readlicense_oo_HST_VERSION_WORDS)))
++readlicense_oo_HST_VERSION := $(if $(readlicense_oo_HST_VERSION_MAJOR),$(if $(readlicense_oo_HST_VERSION_MINOR),$(strip \
++	$(readlicense_oo_HST_VERSION_MAJOR)).$(strip $(readlicense_oo_HST_VERSION_MINOR))))
 +
  readlicense_oo_README_SED := \
  	-e 's,$${PRODUCTNAME},$(PRODUCTNAME),g' \
