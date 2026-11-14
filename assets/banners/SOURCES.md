@@ -74,7 +74,7 @@ quantization. Only the illustration asset is converted; banner PNG regeneration 
 with the coordinator.
 
 The optional `illustration` filename in `brands.json` resolves under `logos/` and is used
-only by the wide template. eChatbot is the sole brand that sets it. Its 104×104px contain
+only by the wide template. eChatbot was the first brand to set it; the other cards followed on 2026-11-14 (below). Its 104×104px contain
 box sits at the right edge, 2px below the inner bottom edge, clipped by the card. The
 header, description and footer reserve 114px at the right: a 230px text column, separated
 from the illustration by 10px. Existing font sizes, copy and colours are preserved.
@@ -88,7 +88,7 @@ the coordinator's render. The catalogue's longer `description` field is not bann
 The 160×104 compact card keeps its logo, title and HASON TECH unchanged. A full-height
 104px mascot would leave at most 28px for text after borders, insets and the clear gap;
 even the endorsement needs about 86px. Shrinking the existing type would impair readability,
-so the compact template ignores `illustration`. Other brands keep their original layout.
+so the compact template ignores `illustration`.
 
 ## HST Post derivative (owner request, 2026-11-04)
 
@@ -184,6 +184,92 @@ three company PNGs and publish the seven-card feed with a fresh UTC generation a
 detached signature atomically, after owner review. Only the unsigned publishing
 example is regenerated here; no deployed feed or signing key is changed.
 
+## Generated product illustrations (owner request, 2026-11-14)
+
+The owner asked for every default card to carry a striking right-hand illustration like the eChatbot
+mascot. Six original illustrations were generated for HST SEO, AIOS, Zalo Mini App, HST Post, AI Dễ Lắm
+and the HASON TECH card; eChatbot keeps its official mascot unchanged. They are not product marks and
+contain no text, logos or third-party designs. No stock imagery or external image input was used; the
+eChatbot banner served only as a visual style reference for the designer.
+
+**Tool:** OpenAI Codex CLI 0.166 (`codex exec -m gpt-6-astra`), built-in image generation tool
+(`image_gen.imagegen`, `transparent_background: true`); the tool does not report its image model.
+Each source was a 1254×1254 RGBA PNG with real alpha, kept outside the repository. Round 1 generated one
+image per card; after art-director review, AIOS, Zalo Mini App and HASON TECH were regenerated as two
+candidates each and the clearer one at 104 px and 75 px was kept.
+
+**Post-processing** (Pillow 10.4.0, OptiPNG 0.7.8): low-opacity haze removed by remapping alpha
+`max(0, round((alpha - c) × 255 / (255 - c)))` with cut-off c = 32 (128 for HASON TECH), no colour
+keying or recolouring; crop to the alpha bounds; premultiplied LANCZOS fit into 302×302; centred on a
+transparent 312×312 canvas with a 3 px bottom margin; `optipng -o3 -strip all`. Each asset is a
+312×312 RGBA PNG under 110 KB, shown in a 104 px box at the right of the wide card only.
+The 160×104 compact cards are unchanged.
+
+Each prompt is a shared preamble followed by the card's own `Subject:` line, quoted verbatim.
+
+Preamble 1 (HST SEO, HST Post, AI Dễ Lắm):
+
+```text
+Use case: stylized-concept.
+Asset type: isolated square illustration for a Vietnamese office software product banner, displayed at just 75 to 104 pixels tall.
+Style: premium glossy soft 3D toy-like product render in the same visual family as a friendly white-and-blue chibi robot mascot: rounded chunky forms, white ceramic/plastic, saturated coloured enamel accents, soft ambient occlusion, broad controlled specular highlights, gentle studio light from upper left, slight three-quarter perspective. Not a flat icon, not line art.
+Composition: one bold main object with at most two simple supporting elements. Tight coherent silhouette, large readable forms, no tiny decoration. Fill a square well, about 90 percent of its height and width, centred horizontally with the subject resting near the bottom edge, fully visible with a slim transparent margin. The art alone; no banner.
+Background: true transparent alpha, clean antialiased cutout edges. No floor, no backdrop, no cast shadow outside the subject, no white box, no checkerboard, no glowing fringe.
+Strict constraints: absolutely no text, letters, digits, words, pseudo-text, watermark, logos, brand marks, app brands, or recognisable third-party product designs. Do not put text-like dashes on cards. No people, characters, faces or robots. Generic geometric pictograms only.
+```
+
+Preamble 2 (AIOS, Zalo Mini App, HASON TECH):
+
+```text
+Use case: stylized-concept.
+Asset type: isolated square product illustration for an office-software banner, viewed at only 104 px and 75 px. Generate the illustration only, no banner.
+Style: premium glossy soft 3D toy-like render matching a friendly white-and-blue chibi mascot's materials, but no character. Chunky rounded forms, porcelain-white plastic, saturated blue enamel, broad soft specular highlights, gentle upper-left studio lighting, clean ambient occlusion, slight three-quarter perspective. Simple iconic silhouette, bold forms, controlled highlights, no thin outlines or flat vector aesthetic.
+Background: genuinely transparent RGBA with clean antialiased edges. No backdrop, floor, checkerboard, external cast shadow, halo, or white box. Keep the complete subject visible, tightly framed in the square with a slim transparent margin and bottom aligned.
+Strict constraints: no text, letters, digits, words, pseudo-text, watermarks, logos, brand marks or recognizable third-party designs. No people, faces, limbs or robot. Generic pictograms only. Avoid micro-detail, decorative sparkles and extra floating objects.
+```
+
+**`logos/hst-seo-illustration.png`**: magnifier over a rising bar chart with an upward arrow and a sparkle. Preamble 1, round 1;
+generated source SHA-256 `7dcfe0700e25d53efc808460583c98062b20a4c4a036d08901ae22a9e62e463a`.
+
+```text
+Subject: a large glossy blue magnifying glass, its circular lens framing three chunky rising blue chart bars on a small white rounded chart pedestal. The magnifying-glass handle extends diagonally down to the right. One bold rising blue arrow curls just behind the chart, plus one small white-and-blue four-point sparkle near the lens. The lens is clear enough to keep the bars readable. Integrate chart, lens and arrow into a single compact composition. No axes, labels, ticks or grid. Palette: white, brand blue #0874c9, deep blue #005a9f, pale icy blue #edf7fb. Blue must be substantial enough to silhouette clearly against a pale banner.
+```
+
+**`logos/aios-illustration.png`**: glowing assistant orb on a dock beside a to-do card with checks and a small calendar. Preamble 2, round 2;
+generated source SHA-256 `a40c6c9a38b8fe8e31c1a1dcdc3e325e1f2b182bc336a1e5b3d7e1c78963e5e9`.
+
+```text
+Subject: a personal AI companion taking care of daily tasks. A glossy luminous blue orb sits in a very low white-and-blue saucer dock at the LOWER LEFT foreground. ONE large upright rounded white to-do card with thick blue depth is BEHIND and to the RIGHT, tilted subtly clockwise in three-quarter perspective. The card is the tallest element and takes 65 percent of the total width: two large blue checkmarks inside separate rounded square recesses, stacked vertically, with one large empty square below. No lines, words or writing. The orb overlaps the lower left corner of the card and is roughly half the card height. ONE tiny calendar chip tucked off the card's upper LEFT edge, well above the orb: simple blue top binding and four large blue square day cells, no numbers. Hierarchy is an asymmetric diagonal from the low orb toward the tall task list; never two similarly sized tiles flanking a central orb, never mouse ears. Large easily read checks make work completion obvious at 75 px. Palette: white, #0072bb blue, #005a94 deep blue, #eef7fc light blue. No face, no robot, no external glow. Exactly the orb/dock, one checklist card, one small calendar.
+```
+
+**`logos/zalo-mini-app-illustration.png`**: smartphone with four generic mini-app pictograms, a civic building and a shop awning. Preamble 2, round 2;
+generated source SHA-256 `39aef1819c0ec2cc877b70b05e0223f53949ca97fe759cc84db6bf20d98786b9`.
+
+```text
+Subject: one chunky glossy blue-and-white generic smartphone containing mini-app services, with a small government building and a small business storefront emerging at its base. Broad almost-front-facing screen, subtle three-quarter turn, tilted only slightly right. The upper two-thirds of the screen show a clean 2-by-2 grid of FOUR LARGE separated rounded blue/light-blue tiles. Each tile carries ONE BOLD WHITE PICTOGRAM: folded-corner document with no writing, calendar with two binding tabs and one solid square day, shopping bag with a thick handle, map pin with circular hole. Icons are large, high contrast, inset flat relief on the glossy tiles and still recognizable at 75 px; never plain unmarked blue squares. No text-like lines. At the lower foreground, a small white civic building with triangular blue roof and exactly three thick white columns sits LEFT; a separate small white shop with a chunky blue-and-white scalloped awning and one broad dark-blue shop opening sits RIGHT. Both buildings are secondary, together covering only the lower quarter of the phone so all four app tiles stay visible. Exactly phone plus two buildings, no extra badges or platform. Compact full square silhouette. Palette white, saturated #0068ff, deep #0052c7, pale #eff6ff. No Z, no letter, no logo, no hardware-brand details or notch.
+```
+
+**`logos/hst-post-illustration.png`**: green megaphone sending a heart card and a share card. Preamble 1, round 1;
+generated source SHA-256 `774910ccc6ad46449be4c0a1f841ac4f5902ccb8c54472ca43312e2c9e1c4996`.
+
+```text
+Subject: one bold friendly megaphone with a glossy white horn, thick forest-green rounded rim and a chunky green handle angled downward. It broadcasts toward two overlapping rounded social-post cards floating to its upper right. The front white card contains only one large forest-green heart pictogram. The back green card contains only one large white generic share arrow pictogram. No text-like bars, no social network logos, no tiny UI. Exactly the main megaphone and two cards, compact and legible. Green-dominant palette: rich forest green #245c2a, white, soft light green #e4edcf, warm pale green #f2f7e8, restrained muted green #7d9e55. No blue, no red, no gold.
+```
+
+**`logos/ai-de-lam-illustration.png`**: open toolbox with a lightbulb and a sparkle star. Preamble 1, round 1;
+generated source SHA-256 `e4ee4b57a4bb357283a4780b0b34ffeddfd1beb5cd46b623607089b105c68716`.
+
+```text
+Subject: one open chunky white-and-blue 3D toolbox, friendly rounded corners, vivid blue bottom half and thick blue handle on its open back lid. Emerging from inside are just two bold learning tools: a plump white lightbulb with a pale-blue luminous glass head on the left, and a large glossy blue four-point magic sparkle star on a short white wand on the right. A practical approachable AI-learning kit. Keep these two objects large, separated and readable, no extra tools and no floating dust or tiny sparkles. Palette: white, brand blue #2570e6, deep blue #0f3ea0, pale blue #f0f4fd. No letters or emblems on the box.
+```
+
+**`logos/hasontech-illustration.png`**: isometric platform with three connected cubes and a rising arrow. Preamble 2, round 2;
+generated source SHA-256 `b761d08b0be553d251d0e9cefbd6f367d31a69379a2622e41f9c490cae667546`.
+
+```text
+Subject: digital ecosystem growth distilled to one white isometric rounded platform, THREE chunky connected blue cube nodes, and one large upward arrow. Platform is a soft thick square seen from above at three-quarter angle with a vivid blue rim. One cube at front LEFT, one at front RIGHT, one at back CENTRE, all similarly large. Wide blue Y-shaped tracks join them, conspicuous against the white platform. ONE very broad glossy blue arrow starts low behind the rear cube and rises diagonally toward the UPPER RIGHT, with a big simple triangular arrowhead and only one gentle bend. Leave clean transparent negative space beside the arrow; omit the cloud entirely. No tiny cables, floating chips, sparkle or extra ornament. Broad highlights, rounded toy-like surfaces, each cube a large readable volume, thick compact platform. Network and growth arrow should be immediately clear as a unified icon at 104 and 75 px. Palette white with brand #0072bc blue, #004f8b shadow blue, #eef7ff highlights. Exactly platform, three connected cubes, arrow.
+```
+
 ## Font
 
 Be Vietnam Pro Regular, SemiBold and Bold, unmodified Google Fonts TTFs:
@@ -209,6 +295,12 @@ contrast measurement; all added text, including CTA and company endorsement, pas
 | `logos/aios.png` | `b759611d6d6f8ed42709fb8a9c9a75548f1b4c3aa8d64d87cb3df529af912fd1` |
 | `logos/echatbot.png` | `4ffc1c87a8f463e219cfb9c6a9c824830ec031606cdf63ccb9c97db1a2dc4fa9` |
 | `logos/echatbot-chibi.png` | `faa6273a437123903e27853604abe601f10fd9acb5ae0512d4a20983f1b4c05f` |
+| `logos/ai-de-lam-illustration.png` | `5448851141f387fadc73d2c1a28f3b7b05493a90f6b36aaf1660999e8f55d89a` |
+| `logos/aios-illustration.png` | `43a95a7015f01f8fa8cb52d808d0a9db0e0b7049865131468b2b49cee4de29e7` |
+| `logos/hasontech-illustration.png` | `db1857c1d67fbc801b395520efd0eadbaf8a1fdc8b629bcbf544dd48f9a5a121` |
+| `logos/hst-post-illustration.png` | `7243bd5ce81fc9e65ddbaec31a9686e75ac1b8dc00eadf73b327933237812850` |
+| `logos/hst-seo-illustration.png` | `159bc5d1723773a20f794788398682bdd187313aa6fad457b5f09c99b06bd583` |
+| `logos/zalo-mini-app-illustration.png` | `d977953c6854b2f0bc25c1d9dfbb1c5e68aa67eb5ba883140fa416c02835b640` |
 | `logos/espace.png` | `bc390a069546d13784ddc6a8ae36c9cf877d7fc4ea3ce5472e036b4b529ba0ae` |
 | `logos/hasontech.png` | `2f77a5fce52a515d52333cca3879a0aec18e582628a7111c00a05714b1c4d2ef` |
 | `logos/hst-seo.png` | `8099441e2e8fedf9f0f2b97fb58c4ed7db866d1b2512b22a5f8aada990ee8822` |
