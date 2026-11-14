@@ -62,6 +62,10 @@ class Box(unittest.TestCase):
         show = job[job.index("void PrintJobPanel::Show"):job.index("void PrintJobPanel::Print")]
         self.assertIn("ShowMargins();", show)
         self.assertIn("m_xSettings->updatePreviewFromDocument();", job)
+        # Writer formats for printing only when a job property changes: the document's change is one
+        update = code[code.index("void PrintDialog::updatePreviewFromDocument()"):]
+        self.assertIn('maPController->setValue(u"HstLayoutRevision"_ustr, css::uno::Any(++mnLayoutRevision));', update)
+        self.assertIn("schedulePreviewUpdate(false);", update[:update.index("IMPL_LINK")])
 
 
 class Presets(unittest.TestCase):

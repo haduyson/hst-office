@@ -1451,7 +1451,7 @@ index d849754..5cc2348 100644
  	vcl/uiconfig/ui/printerpaperpage \
  	vcl/uiconfig/ui/printerpropertiesdialog \
 diff --git a/vcl/inc/printdlg.hxx b/vcl/inc/printdlg.hxx
-index 121a773..2474f2b 100644
+index 121a773..f2c20fb 100644
 --- a/vcl/inc/printdlg.hxx
 +++ b/vcl/inc/printdlg.hxx
 @@ -26,6 +26,8 @@
@@ -1530,7 +1530,7 @@ index 121a773..2474f2b 100644
 +                             const Link<PrintDialog&, void>& rChanged);
 +        OUString getPanelMargins() const;
 +        /// Panel: the document changed (its margins): ask the job for its pages again.
-+        void updatePreviewFromDocument() { schedulePreviewUpdate(false); }
++        void updatePreviewFromDocument();
 +        /// Panel: show the zoom of the preview (also when the fitted page changed size).
 +        void updateZoomText();
 +
@@ -1551,7 +1551,7 @@ index 121a773..2474f2b 100644
          std::unique_ptr<weld::Builder>          mxCustomOptionsUIBuilder;
  
          std::shared_ptr<PrinterController>      maPController;
-@@ -182,6 +226,22 @@ namespace vcl
+@@ -182,6 +226,23 @@ namespace vcl
          std::unique_ptr<weld::Expander>         mxRangeExpander;
          std::unique_ptr<weld::Expander>         mxLayoutExpander;
          std::unique_ptr<weld::Widget>           mxCustom;
@@ -1567,6 +1567,7 @@ index 121a773..2474f2b 100644
 +        std::unique_ptr<weld::Label>            mxMarginsLabel;
 +        std::unique_ptr<weld::ComboBox>         mxMarginsBox;
 +        Link<PrintDialog&, void>                maPanelMarginsHdl;
++        sal_Int32                               mnLayoutRevision = 0;
 +        int                                     mnZoom = 0; // 0: the page fits the preview
 +        Link<PrintDialog&, void>                maPanelPrintHdl;
 +        Link<PrintDialog&, void>                maPanelMoreOptionsHdl;
@@ -1574,7 +1575,7 @@ index 121a773..2474f2b 100644
  
          OUString                                maPrintToFileText;
          OUString                                maPrintText;
-@@ -222,6 +282,10 @@ namespace vcl
+@@ -222,6 +283,10 @@ namespace vcl
  
          Idle maUpdatePreviewIdle;
          DECL_LINK(updatePreviewIdle, Timer*, void);
@@ -2150,7 +2151,7 @@ index 0000000..1c0432d
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/vcl/source/window/printdlg.cxx b/vcl/source/window/printdlg.cxx
-index a1062e8..817a7e6 100644
+index a1062e8..2ea48e5 100644
 --- a/vcl/source/window/printdlg.cxx
 +++ b/vcl/source/window/printdlg.cxx
 @@ -26,6 +26,7 @@
@@ -2317,7 +2318,7 @@ index a1062e8..817a7e6 100644
      // lock the dialog height, regardless of later expander state
      mxScrolledWindow->set_size_request(
          mxScrolledWindow->get_preferred_size().Width() + mxScrolledWindow->get_scroll_thickness(),
-@@ -720,8 +815,128 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
+@@ -720,8 +815,137 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
      m_xDialog->set_centered_on_parent(true);
  }
  
@@ -2347,6 +2348,15 @@ index a1062e8..817a7e6 100644
 +OUString PrintDialog::getPanelMargins() const
 +{
 +    return mxMarginsBox ? mxMarginsBox->get_active_id() : OUString();
++}
++
++void PrintDialog::updatePreviewFromDocument()
++{
++    // a renderer keeps the pages it laid out until a property of the job changes (Writer formats
++    // only then), so the document's change is one: the job's layout revision
++    maPController->setValue(u"HstLayoutRevision"_ustr, css::uno::Any(++mnLayoutRevision));
++    maPController->invalidatePageCache();
++    schedulePreviewUpdate(false);
 +}
 +
 +IMPL_LINK_NOARG(PrintDialog, SelectMarginsHdl, weld::ComboBox&, void)
@@ -2446,7 +2456,7 @@ index a1062e8..817a7e6 100644
      std::shared_ptr<comphelper::ConfigurationChanges> batch(comphelper::ConfigurationChanges::create());
      officecfg::Office::Common::Print::Dialog::RangeSectionExpanded::set(mxRangeExpander->get_expanded(), batch);
      officecfg::Office::Common::Print::Dialog::LayoutSectionExpanded::set(mxLayoutExpander->get_expanded(), batch);
-@@ -760,7 +975,8 @@ void PrintDialog::storeToSettings()
+@@ -760,7 +984,8 @@ void PrintDialog::storeToSettings()
      officecfg::VCL::VCLSettings::PrintDialog::LastPage::set(
                       mxTabCtrl->get_tab_label_text(mxTabCtrl->get_current_page_ident()), batch);
  
@@ -2456,7 +2466,7 @@ index a1062e8..817a7e6 100644
                       m_xDialog->get_window_state(vcl::WindowDataMask::All), batch );
  
      officecfg::VCL::VCLSettings::PrintDialog::Collate::set( mxCollateBox->get_active(), batch );
-@@ -768,7 +984,8 @@ void PrintDialog::storeToSettings()
+@@ -768,7 +993,8 @@ void PrintDialog::storeToSettings()
      officecfg::VCL::VCLSettings::PrintDialog::CollateSingleJobs::set(
                       mxSingleJobsBox->get_active(), batch );
  
@@ -2466,7 +2476,7 @@ index a1062e8..817a7e6 100644
  
      batch->commit();
  }
-@@ -790,7 +1007,7 @@ void PrintDialog::readFromSettings()
+@@ -790,7 +1016,7 @@ void PrintDialog::readFromSettings()
  
      // persistent window state
      aValue = officecfg::VCL::VCLSettings::PrintDialog::WindowState::get();
@@ -2475,7 +2485,7 @@ index a1062e8..817a7e6 100644
          m_xDialog->set_window_state(aValue);
  
      // collate
-@@ -2072,6 +2289,12 @@ IMPL_LINK_NOARG(PrintDialog, ToggleBrochureHdl, weld::Toggleable&, void)
+@@ -2072,6 +2298,12 @@ IMPL_LINK_NOARG(PrintDialog, ToggleBrochureHdl, weld::Toggleable&, void)
  IMPL_LINK(PrintDialog, ClickOKCancelHdl, weld::Button&, rButton, void)
  {
      storeToSettings();
@@ -2488,7 +2498,7 @@ index a1062e8..817a7e6 100644
      m_xDialog->response(&rButton == mxOKButton.get() ? RET_OK : RET_CANCEL);
  }
  
-@@ -2102,7 +2325,7 @@ IMPL_LINK_NOARG(PrintDialog, ClickSetupHdl, weld::Button&, void)
+@@ -2102,7 +2334,7 @@ IMPL_LINK_NOARG(PrintDialog, ClickSetupHdl, weld::Button&, void)
      // Save orientation dropdown — Properties dialog can clobber it.
      const int nSavedOrient = mxOrientationBox->get_active();
  

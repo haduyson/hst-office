@@ -6,6 +6,7 @@ Branch base: `feat/ribbon-adaptive` (a513bc57), on top of `rc/1.0.2-batch5`. Pat
 ## Outcome
 File ("Tệp tin") ▸ In, Ctrl+P, and every Print command with a dialog (ribbon, menu) open a Print page inside the File panel. As in the reference suite (`plans/reports/backstage-print-shots/reference/`):
 - **Settings on the left:** a big "In" button with the copies, the printer and its properties, the range/pages, the application's options (Sheets "Thu phóng", print area; Slides slides/handouts/notes), sides, collate, orientation, paper size and pages per sheet.
+- **Margins box (owner, 14/11):** Writer and Sheets get "Lề trang:" under the orientation, with the presets of each application's Layout ▸ Margins. Writer: Bình thường 2 cm / Hẹp / Vừa / Rộng. Sheets: its ribbon values (Bình thường 1,9/1,8 cm / Hẹp / Rộng; no Vừa). "Lề tùy chỉnh" opens Page Setup. A preset changes the document's page style in one undo step ("Đổi lề trang"), and the preview updates. Slides and Draw have no box.
 - **Links:** "Thiết lập trang" and "Thêm tùy chọn" (the classic dialog for the same job).
 - **Preview on the right:** a live preview with page navigation and zoom.
 - **Window frame:** the banner and the document tab strip stay visible. The panel's placement is `GetPlacement` from the ribbon work.
@@ -19,14 +20,14 @@ File ("Tệp tin") ▸ In, Ctrl+P, and every Print command with a dialog (ribbon
 ## Non-goals
 - macOS native print dialog (unchanged).
 - Mail merge printing (keeps the classic dialog).
-- Margin presets on the page itself. Margins are document page style, not a print setting; "Thiết lập trang" opens the page style dialog.
 
 ## Design
 1. **vcl `PrintDialog` panel form.** The same class gets a second form, loaded from `vcl/ui/hstprintpanel.ui`. That file is generated from `printdialog.ui` and keeps the same ids, plus the zoom controls and the two links.
 2. **`vcl::PrintJobPanel` hand-over.**
    - `Printer::PreparePrintJob` offers each interactive job to a host at the point where it would run the dialog.
    - `ResumePrintJob` is the dialog-OK path. `CancelPrintJob` is the Cancel path.
-3. **sfx2 `BackstagePrintPage`.** The File panel is the host.
+3. **Margins box.** `PrintJobPanel::SetMargins(active id, removed ids, link)`, `GetMargins()`, `UpdatePreview()`. `sfx2/source/backstage/hstbackstageprintmargins.cxx` holds the preset tables and applies a preset with .uno:PageLRMargin/.uno:PageULMargin (Writer) or .uno:CalcPageMargin (Sheets) inside an `XUndoManager` context. sc: CalcPageMargin records `ScUndoModifyStyle`.
+4. **sfx2 `BackstagePrintPage`.** The File panel is the host.
    - Showing the page runs `.uno:Print`, so the job comes back through the hand-over.
    - Leaving the page or closing the panel cancels the job.
 
@@ -34,7 +35,8 @@ File ("Tệp tin") ▸ In, Ctrl+P, and every Print command with a dialog (ribbon
 - Ctrl+P shows the page, and the preview renders in Writer, Sheets, Slides and Draw.
 - "In" to a PDF/file printer gives the same output as the classic dialog with the same options.
 - The classic dialog is reachable, and its Cancel returns to the page.
-- `CppunitTest_vcl_hst_print_panel` passes, and so does `tests/unit/test_backstage_print.py`.
+- `CppunitTest_vcl_hst_print_panel` passes, and so do `tests/unit/test_backstage_print.py` and `test_backstage_print_margins.py`.
+- `tests/runtime/check-backstage-print-margins.py`: a preset changes the margins, makes one undo step, recounts the preview, and prints the new pages; one undo restores; "Lề tùy chỉnh" opens Page Setup.
 - gla11y is clean, and the series applies fresh.
 - Linux and Windows screenshots are captured.
 
