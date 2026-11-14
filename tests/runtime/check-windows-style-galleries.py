@@ -39,6 +39,16 @@ class Shim:
         return uno.systemPathToFileUrl(os.path.abspath(path))
 
 
+def set_ui_vietnamese(office):
+    import uno
+    provider = office.service("com.sun.star.configuration.ConfigurationProvider")
+    arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
+    arg.Name, arg.Value = "nodepath", "/org.openoffice.Setup/L10N"
+    access = provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationUpdateAccess", (arg,))
+    access.setPropertyValue("ooLocale", "vi")
+    access.commitChanges()
+
+
 def make(app, doc, shim, png):
     if app == "writer":
         picture = sg.writer_picture(shim, doc, png)
@@ -128,7 +138,19 @@ def main():
     office = wg.WinOffice(args.install, os.path.join(out, "profile"), args.port, os.path.join(out, "log"))
     try:
         office.start(fresh=True)
-        check.note("start-up dialogs", wg.dismiss_startup(office, os.path.join(out, "startup.png"), timeout=30, settle=5))
+        seen = wg.dismiss_startup(office, os.path.join(out, "startup.png"), timeout=30, settle=5)
+        check.note("start-up dialogs", seen)
+        set_ui_vietnamese(office)  # a fresh profile follows the Windows language; the names checked are Vietnamese
+        seen = seen or ["restart for the UI language"]
+        # a document loaded right after a start-up question was ended over UNO has crashed the office on this
+        # harness (check-windows-ui-mode-tabs.py): start again until a start shows no question
+        for start in range(2, 5):
+            if not seen:
+                break
+            office.stop()
+            office.start()
+            seen = wg.dismiss_startup(office, os.path.join(out, "startup-%d.png" % start), timeout=15, settle=3)
+            check.note("start-up dialogs, start %d" % start, seen)
         for app in APPS:
             try:
                 check_app(office, app, check, out, png)

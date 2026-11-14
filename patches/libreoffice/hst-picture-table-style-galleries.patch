@@ -1116,7 +1116,7 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/svx/source/tbxctrls/HstStyleGalleryWindow.cxx
-@@ -0,0 +1,214 @@
+@@ -0,0 +1,212 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -1139,7 +1139,6 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +#include <vcl/weld/Builder.hxx>
 +#include <vcl/weld/Button.hxx>
 +#include <vcl/weld/IconView.hxx>
-+#include <vcl/weld/ScrolledWindow.hxx>
 +
 +#include <algorithm>
 +
@@ -1168,7 +1167,6 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +    : InterimItemWindow(pParent, u"svx/ui/hststylegallery.ui"_ustr, u"StyleGalleryBox"_ustr, true)
 +    , m_xFrame(std::move(xFrame))
 +    , m_eKind(eKind)
-+    , m_xScroll(m_xBuilder->weld_scrolled_window(u"stylesscroll"_ustr))
 +    , m_xView(m_xBuilder->weld_icon_view(u"styles"_ustr))
 +    , m_xPrev(m_xBuilder->weld_button(u"prev"_ustr))
 +    , m_xNext(m_xBuilder->weld_button(u"next"_ustr))
@@ -1205,7 +1203,6 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +void StyleGalleryWindow::dispose()
 +{
 +    m_xView.reset();
-+    m_xScroll.reset();
 +    m_xPrev.reset();
 +    m_xNext.reset();
 +    m_xMore.reset();
@@ -1227,7 +1224,8 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +void StyleGalleryWindow::ApplyColumns()
 +{
 +    const float fScale = GetDPIScaleFactor();
-+    m_xScroll->set_size_request((COLUMNS[m_nState] * ITEM_STEP + FRAME_WIDTH) * fScale, VIEW_HEIGHT * fScale);
++    // on the icon view itself: the VCL builder folds a GtkScrolledWindow into the icon view (it scrolls itself)
++    m_xView->set_size_request((COLUMNS[m_nState] * ITEM_STEP + FRAME_WIDTH) * fScale, VIEW_HEIGHT * fScale);
 +    ShowPage();
 +    Size aSize = get_preferred_size();
 +    aSize.setHeight(std::min<tools::Long>(aSize.Height(), (VIEW_HEIGHT + 6) * fScale));
@@ -1333,7 +1331,7 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/svx/source/tbxctrls/HstStyleGalleryWindow.hxx
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,78 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -1360,7 +1358,6 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +{
 +class Button;
 +class IconView;
-+class ScrolledWindow;
 +class ItemView;
 +class TreeIter;
 +}
@@ -1401,7 +1398,6 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +
 +    css::uno::Reference<css::frame::XFrame> m_xFrame;
 +    GalleryKind m_eKind;
-+    std::unique_ptr<weld::ScrolledWindow> m_xScroll;
 +    std::unique_ptr<weld::IconView> m_xView;
 +    std::unique_ptr<weld::Button> m_xPrev;
 +    std::unique_ptr<weld::Button> m_xNext;
