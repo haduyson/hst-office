@@ -161,15 +161,17 @@ License: modified upstream files keep their license (MPL-2.0).
  
  class VclGtkClipboard
      : public cppu::ImplInheritanceHelper<ClipboardBase,
-@@ -1119,6 +1218,7 @@
-     void handle_owner_change(GdkClipboard *clipboard, GdkEvent* /*event*/, gpointer user_data)
-     {
-         VclGtkClipboard* pThis = static_cast<VclGtkClipboard*>(user_data);
-+        hstRequestTargets(pThis->GetSelectionType()); // HST: the targets callers off the main thread get
-         pThis->OwnerPossiblyChanged(clipboard);
-     }
- #endif
-@@ -1407,6 +1507,12 @@
+@@ -1127,6 +1226,9 @@
+ void VclGtkClipboard::OwnerPossiblyChanged(GdkClipboard* clipboard)
+ {
+     SyncGtkClipboard(); // tdf#138183 do any pending SetGtkClipboard calls
++#if !GTK_CHECK_VERSION(4, 0, 0)
++    hstRequestTargets(GetSelectionType()); // HST: the targets callers off the main thread get
++#endif
+     if (!m_aContents.is())
+         return;
+ 
+@@ -1407,6 +1509,12 @@
  #else
      m_nOwnerChangedSignalId = g_signal_connect(clipboard, "owner-change",
                                                 G_CALLBACK(handle_owner_change), this);

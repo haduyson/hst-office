@@ -28,7 +28,7 @@ class GtkClipboardMainThread(unittest.TestCase):
         self.assertIn("gtk_clipboard_request_targets(", added)
         self.assertIn("g_idle_add_full(", added)
         self.assertNotIn("gtk_clipboard_wait_for_targets(", added)
-        self.assertIn("hstRequestTargets(pThis->GetSelectionType());", added)
+        self.assertIn("hstRequestTargets(GetSelectionType());", added)
         self.assertIn("hstStoreTargets(m_eSelection, aVector, m_aMimeTypeToGtkType);", added)
 
 
