@@ -122,6 +122,17 @@ class Accelerators(unittest.TestCase):
 
 
 class Simulation(unittest.TestCase):
+    def test_a_launcher_with_arguments_keeps_its_letter(self):
+        # ".uno:PageFormatDialog?Page:string=sheet": the letters are looked up without the arguments
+        ident = model.command_name(".uno:PageFormatDialog?Page:string=sheet")
+        self.assertEqual(ident, "PageFormatDialog")
+        office = {f"{m}/{t}/{i}": letter for m, tabs in CHECK.read_json(CHECK.KEYTIPS)["commands"].items()
+                  for t, cs in tabs.items() for i, (letter, _c) in cs.items()}
+        self.assertEqual(model.preferred(office, {}, "scalc", "LayoutLabel", ident), "!SP")
+        with open(os.path.join(CHECK.PATCHES, "hst-ribbon-keytips-office.patch"), encoding="utf-8") as handle:
+            patch = handle.read()
+        self.assertIn('+                    aCommand = aCommand.replaceFirst(".uno:", "").getToken(0, \'?\');', patch)
+
     def test_python_twin(self):
         self.assertEqual(model.prioritise(["!C", "C", "L", "!AL", "A", ""]), ["C", "", "L", "AL", "", ""])
         tips = model.assign(model.prioritise(["!C", "C", "", "!AL"]))

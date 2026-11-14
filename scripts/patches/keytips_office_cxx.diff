@@ -26,8 +26,13 @@
          // the tips go on the ribbon, or on the popup whose commands they show
          vcl::Window& rHost = m_xPopup ? *m_xPopup : *m_xBar;
          const Size aBar = rHost.GetOutputSizePixel();
-@@ -291,8 +294,7 @@
-                     aCommand = aCommand.replaceFirst(".uno:", "");
+@@ -288,11 +291,11 @@
+                 {
+                     const ToolBoxItemId nId = pBox->GetItemId(i);
+                     OUString aCommand = pBox->GetItemCommand(nId);
+-                    aCommand = aCommand.replaceFirst(".uno:", "");
++                    // HST Office: without arguments (".uno:PageFormatDialog?Page:string=sheet" -> "PageFormatDialog")
++                    aCommand = aCommand.replaceFirst(".uno:", "").getToken(0, '?');
                      const OString aUtf8 = aCommand.toUtf8();
                      AddToolBoxItem(*pBox, nId, rTargets, rPreferred,
 -                                   std::string(lookup(std::begin(COMMAND_KEYS), std::end(COMMAND_KEYS),
@@ -36,7 +41,7 @@
                  }
              }
              else if (pChild->GetType() == WindowType::PUSHBUTTON || pChild->GetType() == WindowType::MENUBUTTON)
-@@ -306,8 +308,7 @@
+@@ -306,8 +309,7 @@
                  aTarget.bEnabled = pChild->IsEnabled();
                  // HST Office: a ribbon menu button ("Chèn ▾") may have a letter of its own, by widget id
                  const OString aId = pChild->get_id().getToken(0, ':').toUtf8();
@@ -46,7 +51,7 @@
                  VclPtr<vcl::Window> xButton(pChild);
                  aTarget.aRun = [this, xButton] {
                      const Point aCentre(xButton->GetOutputSizePixel().Width() / 2, xButton->GetOutputSizePixel().Height() / 2);
-@@ -333,6 +334,8 @@
+@@ -333,6 +335,8 @@
      {
          std::vector<Target> aTargets;
          std::vector<std::string> aPreferred;
@@ -55,7 +60,7 @@
          if (TabPage* pPage = m_xTabs->GetTabPage(m_xTabs->GetCurPageId()))
              CollectCommands(*pPage, aTargets, aPreferred);
          m_eLevel = Level::Commands;
-@@ -403,6 +406,9 @@
+@@ -403,6 +407,9 @@
      OUString m_aTyped;
      Level m_eLevel = Level::None;
      bool m_bAltArmed = false;
