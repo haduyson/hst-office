@@ -42,7 +42,7 @@ def run_app(args, app, catalogue, results):
     work = os.path.join(args.out, app)
     office = hst_gui.Office(args.instdir, work, hst_gui.free_port(), display=args.display,
                             extra_args=[f"--{app}"], nodefault=False,
-                            config=[("/org.openoffice.Office.Impress/Misc/NewDoc", "AutoPilot", "false")])
+                            config=[("/org.openoffice.Office.Impress/Misc/NewDoc", "AutoPilot", "false"), appearance(args)])
     office.start()
     try:
         time.sleep(8)
@@ -57,14 +57,22 @@ def run_app(args, app, catalogue, results):
                 xdo(args.display, "windowsize", wid, str(width), str(height))
                 time.sleep(4)
                 box = geometry(args.display, wid)
-                case = f"{app}-{mode_label(mode)}-{width}x{height}"
+                case = f"{app}-{mode_label(mode)}-{width}x{height}" + ("-dark" if args.appearance == "dark" else "")
                 path = os.path.join(work, f"{case}.png")
-                office.screenshot(path)
-                ok, detail = judge(visible_boxes(box), box, path, catalogue)
+                for attempt in range(2):  # a shot taken during the 300 ms cross-fade shows two cards
+                    office.screenshot(path)
+                    ok, detail = judge(visible_boxes(box), box, path, catalogue)
+                    if ok or "artwork" not in detail:
+                        break
+                    time.sleep(1.5)
                 record(results, args.shots, case, path, ok, detail)
         office.dispatch(frame, ".uno:ToolbarMode", (prop("Mode", "notebookbar.ui"),))  # back to the default
     finally:
         office.stop()
+
+
+def appearance(args):
+    return ("/org.openoffice.Office.Common/Appearance", "ApplicationAppearance", {"light": "1", "dark": "2"}[args.appearance])
 
 
 def run_pdf(args, catalogue, results):
@@ -73,7 +81,8 @@ def run_pdf(args, catalogue, results):
     work = os.path.join(args.out, "pdf")
     os.makedirs(work, exist_ok=True)
     pdf = selection.write(os.path.join(work, "banner.pdf"))
-    office = hst_gui.Office(args.instdir, os.path.join(work, "office"), hst_gui.free_port(), display=args.display)
+    office = hst_gui.Office(args.instdir, os.path.join(work, "office"), hst_gui.free_port(), display=args.display,
+                            config=[appearance(args)])
     office.start()
     try:
         frame, _ = open_viewer(office, pdf)
@@ -85,12 +94,15 @@ def run_pdf(args, catalogue, results):
             xdo(args.display, "windowsize", wid, str(width), str(height))
             time.sleep(4)
             box = geometry(args.display, wid)
-            case = f"pdf-toolbar-{width}x{height}"
+            case = f"pdf-toolbar-{width}x{height}" + ("-dark" if args.appearance == "dark" else "")
             path = os.path.join(work, f"{case}.png")
-            hst_gui.screenshot(path, args.display)
-            banner = info(office, frame).get("BannerScreen")
-            boxes = [list(banner)] if banner else []
-            ok, detail = judge(boxes, box, path, catalogue)
+            for attempt in range(2):
+                hst_gui.screenshot(path, args.display)
+                banner = info(office, frame).get("BannerScreen")
+                ok, detail = judge([list(banner)] if banner else [], box, path, catalogue)
+                if ok or "artwork" not in detail:
+                    break
+                time.sleep(1.5)
             record(results, args.shots, case, path, ok, detail)
         frame.close(True)
     finally:
@@ -105,6 +117,7 @@ def main():
     parser.add_argument("--apps", default="writer,calc,impress,draw,pdf")
     parser.add_argument("--sizes", default="1366x768,1920x1080")
     parser.add_argument("--shots", default=None)
+    parser.add_argument("--appearance", choices=("light", "dark"), default="light")
     args = parser.parse_args()
     if os.geteuid() == 0:  # as the build user under a session bus of its own (AT-SPI needs one)
         for path in filter(None, (args.out, args.shots)):
