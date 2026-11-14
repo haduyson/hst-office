@@ -45,7 +45,7 @@ class PreviousSessionTests(unittest.TestCase):
         self.folder = tempfile.TemporaryDirectory()
         diag_log.configure(self.folder.name, ())
         self.reader = sig.from_windows_events
-        sig.from_windows_events = lambda since, run=None: ""  # Windows recorded nothing
+        sig.from_windows_events = lambda since, run=None, pid=None: ""  # Windows recorded nothing
 
     def tearDown(self):
         sig.from_windows_events = self.reader

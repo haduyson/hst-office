@@ -112,8 +112,8 @@ class SessionTests(unittest.TestCase):
         self.marker()
         snap = {"apps": ["calc", "calc", "calc"], "active": "calc", "modified": 0, "loading": 1}
         self.assertTrue(diag_crash.update_marker(dict(snap, beat=HANG_TIME - 300)))
-        sig.from_windows_events = lambda since: ""
-        sig.windows_hang = lambda since: {"time": HANG_TIME, "text": sig.from_hang_xml(HANG_1002)}
+        sig.from_windows_events = lambda since, pid=None: ""
+        sig.windows_hang = lambda since, pid=None: {"time": HANG_TIME, "text": sig.from_hang_xml(HANG_1002)}
         found = diag_crash.previous_session("Windows")
         self.assertEqual(found["ended"], "hang")
         facts = "\n".join(diag_crash.facts(found))
@@ -126,8 +126,8 @@ class SessionTests(unittest.TestCase):
 
     def test_a_crash_signature_wins_over_a_hang(self):
         self.marker()
-        sig.from_windows_events = lambda since: "Exception c0000005 in mergedlo.dll"
-        sig.windows_hang = lambda since: self.fail("hang events are read only without a crash")
+        sig.from_windows_events = lambda since, pid=None: "Exception c0000005 in mergedlo.dll"
+        sig.windows_hang = lambda since, pid=None: self.fail("hang events are read only without a crash")
         self.assertEqual(diag_crash.previous_session("Windows")["ended"], "crash")
 
     def test_markers_of_older_versions_have_no_heartbeat(self):
