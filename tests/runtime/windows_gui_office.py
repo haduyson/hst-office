@@ -88,13 +88,9 @@ class WinOffice:
         return [toolkit.getTopWindow(i) for i in range(toolkit.getTopWindowCount())]
 
     def load(self, url, hidden=False, **props):
-        from com.sun.star.beans import PropertyValue
-        args = []
-        for name, value in dict(props, Hidden=hidden).items():
-            prop = PropertyValue()
-            prop.Name, prop.Value = name, value
-            args.append(prop)
-        return self.desktop.loadComponentFromURL(url, "_blank", 0, tuple(args))
+        """Load on the office's main thread, as a user's open does (see uno_main_thread_load)."""
+        import uno_main_thread_load
+        return uno_main_thread_load.load(self.desktop, url, "_blank", 0, **dict(props, Hidden=hidden))
 
     def dispatch_async(self, frame, command, **props):
         """Dispatch `command` from a thread (a modal dialog blocks the call until it closes); returns the thread."""
