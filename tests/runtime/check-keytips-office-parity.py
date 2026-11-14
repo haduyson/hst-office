@@ -17,7 +17,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
-from keytips_parity_matrix import ROWS, command_letters, focus, key, letters, record, shortcut_matrix, tips  # noqa: E402,E501
+from keytips_parity_matrix import ROWS, command_letters, focus, key, letters, menu_bar_mode, record, shortcut_matrix, tips  # noqa: E402,E501
 
 TABLE = os.path.join(hst_gui.ROOT, "data", "ribbon", "keytips-office-parity.json")
 
@@ -51,6 +51,8 @@ def check_app(app, args, port, table):
         tab_matrix(office, args, app, table, label)
         command_letters(office, args, app, doc, label)
         shortcut_matrix(office, args, app, doc, label)
+        if app == "writer":
+            menu_bar_mode(office, args, doc, label)
         doc.setModified(False)
     finally:
         office.stop()

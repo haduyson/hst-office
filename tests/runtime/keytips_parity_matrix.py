@@ -154,3 +154,25 @@ def shortcut_matrix(office, args, app, doc, label):
         record(label("Ctrl+F2 opens Print Preview"), not normal, type(controller))
         key(args, "Escape")
         new_window(office, before, timeout=1)
+
+
+def menu_bar_mode(office, args, doc, label):
+    """Classic menu bar shown: Alt alone and F10 do not show the KeyTips (the menu bar takes them); hidden: they do."""
+    frame = doc.CurrentController.Frame
+    helper = office.service("com.sun.star.frame.DispatchHelper")
+    helper.executeDispatch(frame, ".uno:Menubar", "", 0, ())
+    time.sleep(2)
+    for keys in (("Alt_L",), ("F10",)):
+        focus(args)
+        key(args, *keys)
+        shown = tips()
+        record(label(f"menu bar shown: {keys[0]} leaves the KeyTips closed"), not shown, sorted(shown))
+        if args.shots:
+            office.screenshot(os.path.join(args.shots, f"menubar-{keys[0]}.png"))
+        key(args, "Escape", "Escape")
+    helper.executeDispatch(frame, ".uno:Menubar", "", 0, ())
+    time.sleep(2)
+    focus(args)
+    key(args, "Alt_L")
+    record(label("menu bar hidden again: Alt shows the KeyTips"), "H" in tips(), sorted(tips()))
+    key(args, "Escape", "Escape")
