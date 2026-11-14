@@ -114,7 +114,7 @@ class ToolbarTwoRowsTest(unittest.TestCase):
     def test_vcl_opt_in_only(self):
         header = added(PATCH, "include/vcl/toolbox.hxx")
         self.assertIn("void                HstSetBalancedLines( sal_uInt16 nLines );", header)
-        self.assertIn("mnHstBalancedLines = 0", header)
+        self.assertIn("mnHstBalancedLines = 0", added(PATCH, "vcl/inc/toolbox.h"))  # vcl only: no ABI change
         code = added(PATCH, "vcl/source/window/toolbox.cxx")
         # docked, horizontal, with the menu, and only when asked for
         self.assertIn("mnHstBalancedLines >= 2 && mbHorz && !ImplIsFloatingMode() && IsMenuEnabled()", code)

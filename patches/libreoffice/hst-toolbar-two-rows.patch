@@ -12,7 +12,8 @@ docked toolbar, so it breaks into two rows of about equal width.
   breaks the one with the longer top row. ImplCalcSize reports both rows and ImplFormat no longer stretches
   the one line to the window height. Items keep their size; the rows start at the same left edge. The menu
   (right click: visible buttons, customize, undock, lock, close; clipped items) stays. Floating, vertical
-  and all other toolboxes are unchanged.
+  and all other toolboxes are unchanged. The state lives in vcl's private ImplToolBoxPrivateData, so the ToolBox
+  class layout (include/vcl/toolbox.hxx gets two member functions only) stays the same for other modules.
 - framework's ToolbarLayoutManager::doLayout opts in only for the one docked toolbar of the top docking area
   when the banner is shown there (hst-banner-always-visible.patch) and both rows fit the banner strip's
   height and the width left of the banner; otherwise, or as soon as another toolbar joins the area, the
@@ -25,15 +26,7 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
 ---
 --- a/include/vcl/toolbox.hxx
 +++ b/include/vcl/toolbox.hxx
-@@ -126,6 +126,7 @@
-     ImplToolItems::size_type mnFloatLines; // number of lines during floating mode
-     ImplToolItems::size_type mnDockLines;
-     sal_uInt16          mnMouseModifier;
-+    sal_uInt16          mnHstBalancedLines = 0; // HST Office: see HstSetBalancedLines
-     bool                mbDrag:1,
-                         mbUpper:1,
-                         mbLower:1,
-@@ -471,6 +472,13 @@
+@@ -471,6 +471,13 @@
      // to allow for customization of the menu the corresponding handler is called
      // when the menu button was clicked and before the menu is executed
      void                SetMenuType( ToolBoxMenuType aType = ToolBoxMenuType::Customize );
@@ -63,7 +56,7 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
          {
 +            // HST Office: two rows beside the window banner (HstSetBalancedLines)
 +            if ( ImplHstBalanced() )
-+                nCalcLines = std::max< ImplToolItems::size_type >( nCalcLines, mnHstBalancedLines );
++                nCalcLines = std::max< ImplToolItems::size_type >( nCalcLines, mpData->mnHstBalancedLines );
              if ( mnWinHeight > mnMaxItemHeight )
                  aSize.setHeight( nCalcLines * mnWinHeight );
              else
@@ -133,9 +126,9 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
 +void ToolBox::HstSetBalancedLines( sal_uInt16 nLines )
 +{
 +    nLines = nLines >= 2 ? 2 : 0; // one break: two rows
-+    if ( mnHstBalancedLines == nLines )
++    if ( mpData->mnHstBalancedLines == nLines )
 +        return;
-+    mnHstBalancedLines = nLines;
++    mpData->mnHstBalancedLines = nLines;
 +    mbFormat = true;
 +    if ( IsReallyVisible() && IsUpdateMode() )
 +        Invalidate();
@@ -144,7 +137,7 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
 +bool ToolBox::ImplHstBalanced() const
 +{
 +    // docked, horizontal and with the menu (the menu keeps the line breaking of the docked case)
-+    return mnHstBalancedLines >= 2 && mbHorz && !ImplIsFloatingMode() && IsMenuEnabled();
++    return mpData->mnHstBalancedLines >= 2 && mbHorz && !ImplIsFloatingMode() && IsMenuEnabled();
 +}
 +
  Size ToolBox::CalcWindowSizePixel( ImplToolItems::size_type nCalcLines )
@@ -387,3 +380,15 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
          VclPtr<HstRibbonBanner>                                              m_pHstBanner;
          bool                                                                 m_bHstVisible = true;
          bool                                                                 m_bHstDocumentModule = false;
+--- a/vcl/inc/toolbox.h
++++ b/vcl/inc/toolbox.h
+@@ -152,6 +152,9 @@
+ 
+     Wallpaper   maDisplayBackground;
+ 
++    // HST Office: two balanced rows beside the window banner (ToolBox::HstSetBalancedLines), 0 = one row
++    sal_uInt16 mnHstBalancedLines = 0;
++
+     bool    mbIsLocked:1,           // keeps last lock state from ImplDockingWindowWrapper
+             mbAssumeDocked:1,       // only used during calculations to override current floating/popup mode
+             mbAssumeFloating:1,

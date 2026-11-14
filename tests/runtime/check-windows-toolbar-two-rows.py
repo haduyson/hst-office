@@ -3,9 +3,11 @@
 """Two even toolbar rows beside the window banner, on an INSTALLED HST Office (Windows).
 
 The Windows counterpart of check-toolbar-two-rows.py (cases and judgement: toolbar_two_rows_steps.py and
-toolbar_two_rows_probe.py), at the display scaling the session has. Usage:
+toolbar_two_rows_probe.py). --scale sets the display's scale first (r1auto/windows_dpi.py, applied at once, 100% again
+at the end); without it the session's scale is used. Usage:
 "<install>\\program\\python.exe" tests/runtime/check-windows-toolbar-two-rows.py --install DIR --out DIR
-[--apps writer,calc,impress,draw] [--sizes 1366x768,1920x1080] [--appearance light|dark] [--port 2171]
+[--apps writer,calc,impress,draw] [--sizes 1366x768,1920x1080] [--appearance light|dark] [--scale 150]
+[--port 2171]
 Run it in an interactive session (the console one only with C:\\hst-test\\console-lock.txt held). Evidence:
 <out>/results.json and one full-screen PNG per case. Exit 1 on any FAIL.
 """
@@ -19,6 +21,7 @@ import time
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(1, os.path.join(os.path.dirname(os.path.abspath(__file__)), "r1auto"))
 import toolbar_two_rows_steps as steps  # noqa: E402
 import windows_gui as wg  # noqa: E402
 
@@ -56,12 +59,25 @@ def main():
     parser.add_argument("--apps", default="writer,calc,impress,draw")
     parser.add_argument("--sizes", default="1366x768,1920x1080")
     parser.add_argument("--appearance", choices=("light", "dark"), default="light")
+    parser.add_argument("--scale", type=int, default=0)
     parser.add_argument("--port", type=int, default=2171)
     args = parser.parse_args()
     args.out = os.path.abspath(args.out)
     args.shots = None
     args.sizes = [tuple(int(v) for v in s.split("x")) for s in args.sizes.split(",")]
     os.makedirs(args.out, exist_ok=True)
+    if args.scale:
+        from windows_dpi import set_scale
+        set_scale(args.scale)
+        time.sleep(5)
+    try:
+        return run(args)
+    finally:
+        if args.scale:
+            set_scale(100)
+
+
+def run(args):
     scale = ctypes.windll.shcore.GetScaleFactorForDevice(0) if hasattr(ctypes, "windll") else 100
     tag = f"-{scale}pct" + ("-dark" if args.appearance == "dark" else "")
     results = []
