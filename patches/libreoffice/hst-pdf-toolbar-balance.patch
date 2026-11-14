@@ -1,0 +1,590 @@
+HST Office: HST PDF's two toolbar rows have the same width and their group separators line up.
+
+Owner request 14/11/2026: the two rows of controls beside the banner were uneven (row 1 ended about 115 px
+before row 2) and the group separators did not line up. The controls now stand in one grid: both rows share
+the group columns (file | page, zoom | search, edit | sign), the separators run across both rows, the menu
+button is centred across both rows, and in each column the shorter row's widest control (page number, search)
+takes the rest of the column, so both rows end at the separators. Sign, a custom-painted button that would repeat
+its image when stretched, is painted as wide as Edit above it. The block stays centred vertically beside the
+banner.
+
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
+@@ -115,6 +115,15 @@
+     rButton.set_accessible_name(aText);
+ }
+ 
++/// Width of the Sign button's image that makes the button as wide as Edit above it in the toolbar grid
++/// (the button's own padding aside), so both toolbar rows end together.
++tools::Long signImageWidth(weld::Widget& rEdit, weld::Widget& rSign)
++{
++    const tools::Long nPadding
++        = std::max<tools::Long>(0, rSign.get_preferred_size().Width() - rSign.get_size_request().Width());
++    return rEdit.get_preferred_size().Width() - nPadding;
++}
++
+ /// Largest side of a Start Center thumbnail, as for the documents HST Office opens itself.
+ constexpr int THUMBNAIL_EXTENT = 512;
+ 
+@@ -307,7 +316,7 @@
+     m_xPages->setPlacementChangedHdl(LINK(this, PdfViewerWindow, PlacementHdl));
+     m_xThumbs->setPageActivatedHdl(LINK(this, PdfViewerWindow, ThumbActivatedHdl));
+ 
+-    paintPrimaryButton(*m_xSign, XsResId(STR_HSTPDF_SIGN), false, true);
++    paintPrimaryButton(*m_xSign, XsResId(STR_HSTPDF_SIGN), false, true, signImageWidth(*m_xEdit, *m_xSign));
+     m_xSign->set_accessible_name(XsResId(STR_HSTPDF_SIGN));
+ 
+     // Paint our own background, as the Start Center does: InterimItemWindow leaves the window
+@@ -337,6 +346,9 @@
+     for (const auto& [pButton, rLabel] : m_aCompactButtons)
+         pButton->set_label(bIcons ? OUString() : rLabel);
+     m_xPageLabel->set_visible(nLevel < TOOLBAR_LEVEL_NO_PAGE_LABEL);
++    // Sign stands under Edit in the toolbar grid: as wide as Edit, so both rows end at the menu button
++    paintPrimaryButton(*m_xSign, XsResId(STR_HSTPDF_SIGN), m_xSign->get_active(), true,
++                       signImageWidth(*m_xEdit, *m_xSign));
+ }
+ 
+ void PdfViewerWindow::fitToolbar()
+@@ -783,7 +795,7 @@
+ {
+     if (m_xSign->get_active() != bShow)
+         m_xSign->set_active(bShow);
+-    paintPrimaryButton(*m_xSign, XsResId(STR_HSTPDF_SIGN), bShow, true);
++    paintPrimaryButton(*m_xSign, XsResId(STR_HSTPDF_SIGN), bShow, true, signImageWidth(*m_xEdit, *m_xSign));
+     m_xSignSeparator->set_visible(bShow);
+     m_xSignPanel->set_visible(bShow);
+     if (bShow && !m_bCertificateLookedUp)
+--- a/xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++++ b/xmlsecurity/uiconfig/ui/hstpdfviewer.ui
+@@ -117,15 +117,16 @@
+         <property name="margin-top">6</property>
+         <property name="margin-bottom">6</property>
+         <child>
+-          <!-- HST Office: the controls in two even rows on the left, the HASON TECH banner at the right (docs/BANNERS.md) -->
+-          <object class="GtkBox" id="toolbar">
++          <!-- HST Office: the controls in two rows of equal width beside the HASON TECH banner: both rows share the
++               group columns and the separators run across both rows (docs/BANNERS.md) -->
++          <object class="GtkGrid" id="toolbar">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+             <property name="valign">center</property>
+-            <property name="orientation">vertical</property>
+-            <property name="spacing">6</property>
++            <property name="row-spacing">6</property>
++            <property name="column-spacing">8</property>
+             <child>
+-              <object class="GtkBox" id="toolrow1">
++              <object class="GtkBox" id="toolfile">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="spacing">6</property>
+@@ -142,7 +143,7 @@
+                     <property name="always-show-image">True</property>
+                   </object>
+                   <packing>
+-                    <property name="expand">False</property>
++                    <property name="expand">True</property>
+                     <property name="fill">True</property>
+                     <property name="position">0</property>
+                   </packing>
+@@ -160,7 +161,7 @@
+                     <property name="always-show-image">True</property>
+                   </object>
+                   <packing>
+-                    <property name="expand">False</property>
++                    <property name="expand">True</property>
+                     <property name="fill">True</property>
+                     <property name="position">1</property>
+                   </packing>
+@@ -178,143 +179,126 @@
+                     <property name="always-show-image">True</property>
+                   </object>
+                   <packing>
+-                    <property name="expand">False</property>
++                    <property name="expand">True</property>
+                     <property name="fill">True</property>
+                     <property name="position">2</property>
+                   </packing>
+                 </child>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="toolpages">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="spacing">6</property>
+                 <child>
+-                  <object class="GtkSeparator" id="sep1">
+-                    <property name="visible">True</property>
+-                    <property name="can-focus">False</property>
+-                    <property name="orientation">vertical</property>
+-                    <property name="margin-start">2</property>
+-                    <property name="margin-end">2</property>
+-                  </object>
+-                  <packing>
+-                    <property name="expand">False</property>
+-                    <property name="fill">True</property>
+-                    <property name="position">3</property>
+-                  </packing>
+-                </child>
+-                <child>
+-                  <object class="GtkButton" id="zoomout">
++                  <object class="GtkButton" id="prevpage">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">False</property>
+                     <property name="focus-on-click">False</property>
+-                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|zoomout|tooltip_text">Zoom Out (Ctrl+-)</property>
+-                    <property name="image">zoomoutimg</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|prevpage|tooltip_text">Previous page (Ctrl+Page Up)</property>
++                    <property name="image">prevpageimg</property>
+                     <property name="always-show-image">True</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">4</property>
+-                  </packing>
+-                </child>
+-                <child>
+-                  <object class="GtkComboBoxText" id="zoom">
+-                    <property name="visible">True</property>
+-                    <property name="can-focus">True</property>
+-                    <property name="has-entry">True</property>
+-                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|zoom|tooltip_text">Zoom</property>
+-                    <child internal-child="entry"><object class="GtkEntry" id="zoomentry"><property name="can-focus">True</property><property name="width-chars">6</property><property name="truncate-multiline">True</property></object></child><items><item id="width" translatable="yes" context="hstpdfviewer|zoomwidth">Fit Width</item><item id="50">50%</item><item id="75">75%</item><item id="100">100%</item><item id="125">125%</item><item id="150">150%</item><item id="200">200%</item><item id="300">300%</item></items>
+-                  </object>
+-                  <packing>
+-                    <property name="expand">False</property>
+-                    <property name="fill">True</property>
+-                    <property name="position">5</property>
++                    <property name="position">0</property>
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkButton" id="zoomin">
++                  <object class="GtkLabel" id="pagelabel">
++                    <property name="label" translatable="yes" context="hstpdfviewer|pagelabel">Page</property>
+                     <property name="visible">True</property>
+-                    <property name="can-focus">True</property>
+-                    <property name="receives-default">False</property>
+-                    <property name="focus-on-click">False</property>
+-                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|zoomin|tooltip_text">Zoom In (Ctrl++)</property>
+-                    <property name="image">zoominimg</property>
+-                    <property name="always-show-image">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">6</property>
++                    <property name="position">1</property>
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkButton" id="fitpage">
+-                    <property name="label" translatable="yes" context="hstpdfviewer|fitpage">Fit Page</property>
++                  <object class="GtkEntry" id="page">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+-                    <property name="receives-default">False</property>
+-                    <property name="focus-on-click">False</property>
+-                    <property name="use-underline">True</property>
+-                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|fitpage|tooltip_text">Show the whole page</property>
+-                    <property name="image">fitpageimg</property>
+-                    <property name="always-show-image">True</property>
++                    <property name="width-chars">4</property>
++                    <property name="xalign">1</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|page|tooltip_text">Go to page</property>
++                    <property name="truncate-multiline">True</property>
+                   </object>
+                   <packing>
+-                    <property name="expand">False</property>
++                    <property name="expand">True</property>
+                     <property name="fill">True</property>
+-                    <property name="position">7</property>
++                    <property name="position">2</property>
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkButton" id="fitwidth">
+-                    <property name="label" translatable="yes" context="hstpdfviewer|fitwidth">Fit Width</property>
++                  <object class="GtkLabel" id="pagecount">
++                    <property name="label">/ 1</property>
+                     <property name="visible">True</property>
+-                    <property name="can-focus">True</property>
+-                    <property name="receives-default">False</property>
+-                    <property name="focus-on-click">False</property>
+-                    <property name="use-underline">True</property>
+-                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|fitwidth|tooltip_text">Fit the page width to the window (Ctrl+2)</property>
+-                    <property name="image">fitwidthimg</property>
+-                    <property name="always-show-image">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">8</property>
++                    <property name="position">3</property>
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkButton" id="rotate">
++                  <object class="GtkButton" id="nextpage">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">False</property>
+                     <property name="focus-on-click">False</property>
+-                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|rotate|tooltip_text">Rotate the pages 90° clockwise (Ctrl+R)</property>
+-                    <property name="image">rotateimg</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|nextpage|tooltip_text">Next page (Ctrl+Page Down)</property>
++                    <property name="image">nextpageimg</property>
+                     <property name="always-show-image">True</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">9</property>
++                    <property name="position">4</property>
+                   </packing>
+                 </child>
+               </object>
+               <packing>
+-                <property name="expand">False</property>
+-                <property name="fill">True</property>
+-                <property name="position">0</property>
++                <property name="left-attach">0</property>
++                <property name="top-attach">1</property>
+               </packing>
+             </child>
+             <child>
+-              <object class="GtkBox" id="toolrow2">
++              <object class="GtkSeparator" id="sep1">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="orientation">vertical</property>
++              </object>
++              <packing>
++                <property name="left-attach">1</property>
++                <property name="top-attach">0</property>
++                <property name="height">2</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="toolzoom">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="spacing">6</property>
+                 <child>
+-                  <object class="GtkButton" id="prevpage">
++                  <object class="GtkButton" id="zoomout">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">False</property>
+                     <property name="focus-on-click">False</property>
+-                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|prevpage|tooltip_text">Previous page (Ctrl+Page Up)</property>
+-                    <property name="image">prevpageimg</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|zoomout|tooltip_text">Zoom Out (Ctrl+-)</property>
++                    <property name="image">zoomoutimg</property>
+                     <property name="always-show-image">True</property>
+                   </object>
+                   <packing>
+@@ -324,11 +308,12 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkLabel" id="pagelabel">
+-                    <property name="label" translatable="yes" context="hstpdfviewer|pagelabel">Page</property>
++                  <object class="GtkComboBoxText" id="zoom">
+                     <property name="visible">True</property>
+-                    <property name="can-focus">False</property>
+-                    <property name="xalign">0</property>
++                    <property name="can-focus">True</property>
++                    <property name="has-entry">True</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|zoom|tooltip_text">Zoom</property>
++                    <child internal-child="entry"><object class="GtkEntry" id="zoomentry"><property name="can-focus">True</property><property name="width-chars">6</property><property name="truncate-multiline">True</property></object></child><items><item id="width" translatable="yes" context="hstpdfviewer|zoomwidth">Fit Width</item><item id="50">50%</item><item id="75">75%</item><item id="100">100%</item><item id="125">125%</item><item id="150">150%</item><item id="200">200%</item><item id="300">300%</item></items>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -337,13 +322,14 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkEntry" id="page">
++                  <object class="GtkButton" id="zoomin">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+-                    <property name="width-chars">4</property>
+-                    <property name="xalign">1</property>
+-                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|page|tooltip_text">Go to page</property>
+-                    <property name="truncate-multiline">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|zoomin|tooltip_text">Zoom In (Ctrl++)</property>
++                    <property name="image">zoominimg</property>
++                    <property name="always-show-image">True</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -352,41 +338,50 @@
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkLabel" id="pagecount">
+-                    <property name="label">/ 1</property>
++                  <object class="GtkButton" id="fitpage">
++                    <property name="label" translatable="yes" context="hstpdfviewer|fitpage">Fit Page</property>
+                     <property name="visible">True</property>
+-                    <property name="can-focus">False</property>
+-                    <property name="xalign">0</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|fitpage|tooltip_text">Show the whole page</property>
++                    <property name="image">fitpageimg</property>
++                    <property name="always-show-image">True</property>
+                   </object>
+                   <packing>
+-                    <property name="expand">False</property>
++                    <property name="expand">True</property>
+                     <property name="fill">True</property>
+                     <property name="position">3</property>
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkButton" id="nextpage">
++                  <object class="GtkButton" id="fitwidth">
++                    <property name="label" translatable="yes" context="hstpdfviewer|fitwidth">Fit Width</property>
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="receives-default">False</property>
+                     <property name="focus-on-click">False</property>
+-                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|nextpage|tooltip_text">Next page (Ctrl+Page Down)</property>
+-                    <property name="image">nextpageimg</property>
++                    <property name="use-underline">True</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|fitwidth|tooltip_text">Fit the page width to the window (Ctrl+2)</property>
++                    <property name="image">fitwidthimg</property>
+                     <property name="always-show-image">True</property>
+                   </object>
+                   <packing>
+-                    <property name="expand">False</property>
++                    <property name="expand">True</property>
+                     <property name="fill">True</property>
+                     <property name="position">4</property>
+                   </packing>
+                 </child>
+                 <child>
+-                  <object class="GtkSeparator" id="sep2">
++                  <object class="GtkButton" id="rotate">
+                     <property name="visible">True</property>
+-                    <property name="can-focus">False</property>
+-                    <property name="orientation">vertical</property>
+-                    <property name="margin-start">2</property>
+-                    <property name="margin-end">2</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|rotate|tooltip_text">Rotate the pages 90° clockwise (Ctrl+R)</property>
++                    <property name="image">rotateimg</property>
++                    <property name="always-show-image">True</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -394,6 +389,17 @@
+                     <property name="position">5</property>
+                   </packing>
+                 </child>
++              </object>
++              <packing>
++                <property name="left-attach">2</property>
++                <property name="top-attach">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="toolfind">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkEntry" id="search">
+                     <property name="visible">True</property>
+@@ -404,9 +410,9 @@
+                     <property name="truncate-multiline">True</property>
+                   </object>
+                   <packing>
+-                    <property name="expand">False</property>
++                    <property name="expand">True</property>
+                     <property name="fill">True</property>
+-                    <property name="position">6</property>
++                    <property name="position">0</property>
+                   </packing>
+                 </child>
+                 <child>
+@@ -422,7 +428,7 @@
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">7</property>
++                    <property name="position">1</property>
+                   </packing>
+                 </child>
+                 <child>
+@@ -438,23 +444,32 @@
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">8</property>
+-                  </packing>
+-                </child>
+-                <child>
+-                  <object class="GtkSeparator" id="sep3">
+-                    <property name="visible">True</property>
+-                    <property name="can-focus">False</property>
+-                    <property name="orientation">vertical</property>
+-                    <property name="margin-start">2</property>
+-                    <property name="margin-end">2</property>
+-                  </object>
+-                  <packing>
+-                    <property name="expand">False</property>
+-                    <property name="fill">True</property>
+-                    <property name="position">9</property>
++                    <property name="position">2</property>
+                   </packing>
+                 </child>
++              </object>
++              <packing>
++                <property name="left-attach">2</property>
++                <property name="top-attach">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkSeparator" id="sep2">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="orientation">vertical</property>
++              </object>
++              <packing>
++                <property name="left-attach">3</property>
++                <property name="top-attach">0</property>
++                <property name="height">2</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="tooledit">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkButton" id="edit">
+                     <property name="label" translatable="yes" context="hstpdfviewer|edit">Edit in HST Draw</property>
+@@ -468,11 +483,22 @@
+                     <property name="always-show-image">True</property>
+                   </object>
+                   <packing>
+-                    <property name="expand">False</property>
++                    <property name="expand">True</property>
+                     <property name="fill">True</property>
+-                    <property name="position">10</property>
++                    <property name="position">0</property>
+                   </packing>
+                 </child>
++              </object>
++              <packing>
++                <property name="left-attach">4</property>
++                <property name="top-attach">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="toolsign">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkToggleButton" id="sign">
+                     <property name="label" translatable="yes" context="hstpdfviewer|sign">Sign</property>
+@@ -485,45 +511,43 @@
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="position">11</property>
+-                  </packing>
+-                </child>
+-                <child>
+-                  <object class="GtkSeparator" id="sep4">
+-                    <property name="visible">True</property>
+-                    <property name="can-focus">False</property>
+-                    <property name="orientation">vertical</property>
+-                    <property name="margin-start">2</property>
+-                    <property name="margin-end">2</property>
+-                  </object>
+-                  <packing>
+-                    <property name="expand">False</property>
+-                    <property name="fill">True</property>
+-                    <property name="position">12</property>
+-                  </packing>
+-                </child>
+-                <child>
+-                  <object class="GtkMenuButton" id="menu">
+-                    <property name="visible">True</property>
+-                    <property name="can-focus">True</property>
+-                    <property name="receives-default">False</property>
+-                    <property name="focus-on-click">False</property>
+-                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|menu|tooltip_text">Help, report a problem, about HST Office</property>
+-                    <property name="image">menuimg</property>
+-                    <property name="always-show-image">True</property>
+-                    <property name="popup">hstmenu</property>
+-                  </object>
+-                  <packing>
+-                    <property name="expand">False</property>
+-                    <property name="fill">True</property>
+-                    <property name="position">13</property>
++                    <property name="position">0</property>
+                   </packing>
+                 </child>
+               </object>
+               <packing>
+-                <property name="expand">False</property>
+-                <property name="fill">True</property>
+-                <property name="position">1</property>
++                <property name="left-attach">4</property>
++                <property name="top-attach">1</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkSeparator" id="sep3">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="orientation">vertical</property>
++              </object>
++              <packing>
++                <property name="left-attach">5</property>
++                <property name="top-attach">0</property>
++                <property name="height">2</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkMenuButton" id="menu">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="valign">center</property>
++                <property name="receives-default">False</property>
++                <property name="focus-on-click">False</property>
++                <property name="tooltip-text" translatable="yes" context="hstpdfviewer|menu|tooltip_text">Help, report a problem, about HST Office</property>
++                <property name="image">menuimg</property>
++                <property name="always-show-image">True</property>
++                <property name="popup">hstmenu</property>
++              </object>
++              <packing>
++                <property name="left-attach">6</property>
++                <property name="top-attach">0</property>
++                <property name="height">2</property>
+               </packing>
+             </child>
+           </object>
