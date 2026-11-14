@@ -18,6 +18,7 @@ import time
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # helpers kept importable from here: the checks use hst_gui.toplevels, hst_gui.screenshot, ...
 from hst_gui_profile import BUILD_USER, _as_user_prefix, ensure_locale, seed_profile, settle_extensions  # noqa: E402,F401
+from hst_gui_own_office import ForeignOfficeError, ensure_own_office  # noqa: E402,F401
 from hst_gui_x11 import (WindowMixin, classic_menubar_visible, mapped_toplevels, ribbon_accent,  # noqa: E402,F401
                          screenshot, send_close_request, tab_accent_colour, toplevels, window_pid)
 
@@ -79,8 +80,15 @@ class Office(WindowMixin):
         self._stop_watch = threading.Event()
         if not self.welcome:
             threading.Thread(target=self._dismiss_welcome, daemon=True).start()
-        self.ctx = self._connect()
+        self.ctx = self._connect_own()
         return self
+
+    def _connect_own(self):
+        try:
+            return self._connect()
+        except ForeignOfficeError:
+            self.stop()  # without a bridge stop() ends only our own process, never the other office
+            raise
 
     @property
     def pid(self):
@@ -99,12 +107,14 @@ class Office(WindowMixin):
             try:
                 resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
                 ctx = resolver.resolve(f"uno:socket,host=127.0.0.1,port={self.port};urp;StarOffice.ComponentContext")
-                time.sleep(3)  # let startup settle before the first calls
-                return ctx
             except Exception:
                 if time.time() > deadline:
                     raise
                 time.sleep(1)
+                continue
+            ensure_own_office(ctx, self.workdir, self.port)  # never drive a parallel run's office
+            time.sleep(3)  # let startup settle before the first calls
+            return ctx
 
     @property
     def smgr(self):
