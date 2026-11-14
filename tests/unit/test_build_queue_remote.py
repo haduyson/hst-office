@@ -168,3 +168,17 @@ class PoolTest(RemoteTestCase):
         self.assertEqual(pool.remotes[0].host.address, "192.0.2.99")
         pool.cfg = dict(self.cfg, linux_remote_hosts=[dict(HOST, enabled=False)])
         self.assertEqual(pool.remotes, [])
+
+
+class SliceCgroupTest(RemoteTestCase):
+    def test_a_dash_nests_slices(self):
+        from build_infra.slots_host import slice_cgroup
+        self.assertEqual(slice_cgroup("hst-build.slice"), "/sys/fs/cgroup/hst.slice/hst-build.slice")
+        self.assertEqual(slice_cgroup("system.slice"), "/sys/fs/cgroup/system.slice")
+        import subprocess
+        from build_queue_fixtures import ROOT
+        fn = subprocess.run(["sed", "-n", "/^slice_cg()/,/^}/p", str(ROOT / "scripts/linux/local-build.sh")],
+                            capture_output=True, text=True, check=True).stdout
+        out = subprocess.run(["bash", "-c", fn + "\nslice_cg hst-build.slice; slice_cg system.slice"],
+                             capture_output=True, text=True, check=True).stdout.split()
+        self.assertEqual(out, ["/sys/fs/cgroup/hst.slice/hst-build.slice", "/sys/fs/cgroup/system.slice"])
