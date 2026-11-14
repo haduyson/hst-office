@@ -3,7 +3,13 @@
 
   build-queue.sh submit --platform linux|windows --ref <branch|sha> [--priority N] [--no-package] [--modules a,b]
                         [--test "CppunitTest_sc_ucalc ..."]   (Linux) build, then run the test targets
-                                                  prints the job id (an existing identical job's id when deduplicated)
+                        [--integrator] [--force]
+                                                  prints the job id (an existing identical job's id when deduplicated);
+                                                  priority > 50 only for the integrator; a commit that only changes
+                                                  tests/ docs/ plans/ *.md since the branch's last build is refused
+                                                  (--force: integrator); a newer commit cancels the branch's queued job
+  build-queue.sh pin <id> --reason TEXT | unpin <id>   keep a done job's output out of retention (or release it)
+  build-queue.sh retention [--dry-run]            apply output retention now; prints what is deleted and the space freed
   build-queue.sh status <id> [--json]             state, slot/host, output, log
   build-queue.sh wait <id> [--timeout S]          blocks; prints the output path(s) (exit 0) or the log tail (exit 1);
                                                   test jobs: PASS/FAIL per target (exit 3 when a test failed)
@@ -19,8 +25,9 @@
 State lives under HST_QUEUE_ROOT (default /data/hst-build-queue): jobs/<id>.json, logs/<id>.log, out/<id>/,
 config.json (optional overrides of DEFAULT_CONFIG). Jobs run by priority (higher first), then FIFO.
 Dedupe: a job with the same platform + commit + options that is queued, running, or done with its output still
-on disk is returned instead of a new one. Retention: the newest `retention_per_branch` finished outputs per
-platform and branch are kept; older outputs are deleted (their job records stay, marked output_deleted).
+on disk is returned instead of a new one. Retention (queue_rules.retention_victims): the newest
+`retention_per_branch` outputs per platform + branch + kind are kept, failed/cancelled/invalidated outputs and builds
+of commits merged into the integration branch go after a grace period; job records stay, marked output_deleted.
 
 """
 import argparse
@@ -29,6 +36,7 @@ import sys
 
 from .queue_ops import cancel, drain, invalidate, submit
 from .queue_report import compare, describe, print_tests, wait
+from .queue_retention import apply_retention, pin
 from .queue_rules import order_key, parse_modules, parse_tests
 from .queue_store import ACTIVE, PLATFORMS, TERMINAL, QueueError, Store
 
@@ -42,6 +50,15 @@ def main(argv=None):
     s.add_argument("--no-package", action="store_true")
     s.add_argument("--modules", default="")
     s.add_argument("--test", default="", help="Linux: test targets to run after the build (space/comma separated)")
+    s.add_argument("--integrator", action="store_true", help="the integrator's submit (priority above 50, --force)")
+    s.add_argument("--force", action="store_true", help="integrator: build even a tests/docs-only commit")
+    pn = sub.add_parser("pin")
+    pn.add_argument("id")
+    pn.add_argument("--reason", required=True)
+    up = sub.add_parser("unpin")
+    up.add_argument("id")
+    rt = sub.add_parser("retention")
+    rt.add_argument("--dry-run", action="store_true")
     st = sub.add_parser("status")
     st.add_argument("id")
     st.add_argument("--json", action="store_true")
@@ -72,7 +89,8 @@ def main(argv=None):
     try:
         if args.cmd == "submit":
             job, dup = submit(store, args.platform, args.ref, args.priority, not args.no_package,
-                              parse_modules(args.modules), tests=parse_tests(args.test))
+                              parse_modules(args.modules), tests=parse_tests(args.test), force=args.force,
+                              integrator=args.integrator)
             if dup:
                 print(f"deduplicated: identical job {job['id']} is {job['state']}", file=sys.stderr)
             print(job["id"])
@@ -83,7 +101,8 @@ def main(argv=None):
                 print(json.dumps(job, indent=1, sort_keys=True))
             else:
                 print(describe(job))
-                for k in ("submitted_at", "started_at", "finished_at", "host", "error"):
+                for k in ("submitted_at", "started_at", "finished_at", "host", "error", "pinned", "train",
+                          "output_deleted_reason"):
                     if job.get(k):
                         print(f"  {k}: {job[k]}")
                 for p in job.get("output", []):
@@ -112,6 +131,17 @@ def main(argv=None):
         if args.cmd == "invalidate":
             job = invalidate(store, args.id, args.reason)
             print(f"{job['id']}: {job['error']}")
+            return 0
+        if args.cmd in ("pin", "unpin"):
+            job = pin(store, args.id, args.reason if args.cmd == "pin" else None)
+            print(f"{job['id']}: {'pinned: ' + job['pinned'] if job.get('pinned') else 'unpinned'}")
+            return 0
+        if args.cmd == "retention":
+            freed = apply_retention(store, dry_run=args.dry_run)
+            for job_id, reason, size in freed:
+                print(f"{job_id}  {size / 2**30:6.2f} GiB  {reason}")
+            verb = "would free" if args.dry_run else "freed"
+            print(f"{len(freed)} outputs, {verb} {sum(f[2] for f in freed) / 2**30:.2f} GiB")
             return 0
         if args.cmd == "compare":
             return compare(store, args.base, args.id)

@@ -23,14 +23,41 @@ SHA_A = "a" * 40
 SHA_B = "b" * 40
 
 
+class FakeGit:
+    """queue_git.Git stand-in: changed paths per (base, sha), merge bases and ancestry from dicts."""
+    def __init__(self):
+        self.changes = {}
+        self.bases = {}
+        self.ancestors = set()
+        self.tips = {}
+
+    def rev(self, ref):
+        return self.tips.get(ref)
+
+    def out(self, *args):
+        ref = args[-1].replace("^{commit}", "")
+        return self.tips.get(ref[len("origin/"):] if ref.startswith("origin/") else ref)
+
+    def merge_base(self, a, b):
+        return self.bases.get((a, b))
+
+    def is_ancestor(self, a, b):
+        return (a, b) in self.ancestors
+
+    def changed(self, a, b):
+        return self.changes.get((a, b))
+
+
 class QueueTestCase(unittest.TestCase):
     def setUp(self):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.store = bq.Store(tmp.name)
         self.shas = {"rc/1.0.2-batch4": SHA_A, "feat/x": SHA_B}
+        self.git = FakeGit()
 
     def submit(self, platform="linux", ref="rc/1.0.2-batch4", **kw):
+        kw.setdefault("git", self.git)
         return bq.submit(self.store, platform, ref, resolver=lambda r: self.shas.get(r, r), submitter="t", **kw)
 
     def finish(self, job, files=("HSTOffice.deb",), finished=None):

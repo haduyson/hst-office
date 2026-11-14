@@ -2,6 +2,7 @@
 """Pure rules of the build queue: job keys and kinds, input validation, dedupe, dispatch order, retention
 and the classification of infrastructure failures.
 """
+import fnmatch
 import os
 import re
 import secrets
@@ -55,17 +56,66 @@ def find_duplicate(jobs, key):
     return None
 
 
-def retention_victims(jobs, keep):
-    """Done jobs whose outputs fall outside the newest `keep` per (platform, label)."""
-    groups = {}
+def retention_group(job):
+    """Retention group (platform, branch, kind); the builds of all trains share one group."""
+    return job["platform"], ("train/*" if job.get("train") else job["label"]), job_kind(job)
+
+
+def is_integrator(ref, flag, cfg):
+    """The integrator: `--integrator`, or a ref matching one of the config's integrator_refs (rc/1.0.2-batch*)."""
+    return bool(flag) or any(fnmatch.fnmatchcase(ref, pat) for pat in cfg["integrator_refs"])
+
+
+def retention_victims(jobs, cfg, now, merged=None, protected=()):
+    """[(job, reason)] whose outputs retention deletes:
+      - failed, cancelled or invalidated jobs, retention_failed_hours after they finished;
+      - done jobs beyond the newest retention_per_branch of their group (retention_trains for train builds);
+      - done builds of a branch commit already merged into the integration branch (`merged(job)` is True),
+        retention_merged_hours after they finished; rc/* and train builds are kept by the count rule only.
+    Never: pinned jobs, jobs in `protected` (an active train still needs them), active jobs."""
+    failed_age = cfg["retention_failed_hours"] * 3600
+    merged_age = cfg["retention_merged_hours"] * 3600
+    groups, victims = {}, []
     for job in jobs:
-        if job["state"] == "done" and not job.get("output_deleted") and not job.get("dedupe_of"):
-            groups.setdefault((job["platform"], job["label"], job_kind(job)), []).append(job)
-    victims = []
-    for group in groups.values():
-        group.sort(key=lambda j: j.get("finished") or j["submitted"], reverse=True)
-        victims.extend(group[keep:])
+        if job.get("output_deleted") or job.get("dedupe_of") or job.get("pinned") or job["id"] in protected:
+            continue
+        age = now - (job.get("finished") or job["submitted"])
+        if job["state"] in ("failed", "cancelled"):
+            if age >= failed_age:
+                invalid = str(job.get("error") or "").startswith("invalidated")
+                victims.append((job, "invalidated" if invalid else job["state"]))
+        elif job["state"] == "done":
+            groups.setdefault(retention_group(job), []).append(job)
+    for (_platform, label, _kind), group in sorted(groups.items()):
+        group.sort(key=lambda j: (j.get("finished") or j["submitted"], j["id"]), reverse=True)
+        keep = cfg["retention_trains"] if label == "train/*" else cfg["retention_per_branch"]
+        victims.extend((j, f"older than the newest {keep} of {label}") for j in group[keep:])
+        if merged is None or label == "train/*" or group[0]["ref"].startswith("rc/") \
+                or is_integrator(group[0]["ref"], False, cfg):
+            continue
+        for j in group[:keep]:
+            if now - (j.get("finished") or j["submitted"]) >= merged_age and merged(j):
+                victims.append((j, f"merged into {cfg['integration_branch']}"))
     return victims
+
+
+def superseded(jobs, platform, label, kind, sha):
+    """Queued (never running) jobs of the same branch, platform and kind at another commit: a newer submit of the
+    branch replaces them. Bare-sha submits (label 'commit') and train builds are never superseded."""
+    if label == "commit":
+        return []
+    return [j for j in jobs if j["state"] == "queued" and j["platform"] == platform and j["label"] == label
+            and job_kind(j) == kind and j["sha"] != sha and not j.get("train")]
+
+
+def last_built(jobs, platform, label, kind, sha):
+    """Newest done job of the branch (same platform and kind, another commit) whose output is still on disk."""
+    for job in sorted(jobs, key=lambda j: (j.get("finished") or j["submitted"], j["id"]), reverse=True):
+        if (job["state"] == "done" and job["platform"] == platform and job["label"] == label and job_kind(job) == kind
+                and job["sha"] != sha and not job.get("output_deleted") and job.get("output")
+                and all(os.path.exists(p) for p in job["output"])):
+            return job
+    return None
 
 
 # Failures of the build infrastructure, not of the commit: the job goes back to the queue (MAX_INFRA_RETRIES).

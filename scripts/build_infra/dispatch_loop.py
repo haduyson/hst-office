@@ -3,7 +3,7 @@
 hst-build-queue.service, scripts/linux/hst-build-queue.service).
 
 Every poll_seconds it reaps finished jobs, stops jobs whose cancel was requested, starts queued jobs by
-priority/FIFO on free slots, and applies output retention:
+priority/FIFO on free slots, and applies output retention (after a job finished, else every RETENTION_SECONDS):
   - linux:   scripts/linux/local-build.sh --slot N on a slot that build-slots.py free-slot reports idle and
              admissible (the admission controller still decides -j and may hold the job until memory allows);
   - windows: the config's windows_slots pool (host + root). The tools are deployed to each host
@@ -22,7 +22,23 @@ from .dispatch_linux import LinuxRunner
 from .dispatch_paths import log
 from .dispatch_windows import WindowsRunner
 
+RETENTION_SECONDS = 600
+_last_retention = [0.0]
+
+
 # ---------------------------------------------------------------- loop
+def run_retention(store, core, cfg):
+    _last_retention[0] = time.time()
+    freed = core.apply_retention(store, cfg)
+    if freed:
+        reasons = {}
+        for _jid, reason, _size in freed:
+            kind = reason.split(" of ")[0] if reason.startswith("older") else reason
+            reasons[kind] = reasons.get(kind, 0) + 1
+        log(f"retention: deleted {len(freed)} outputs, freed {sum(f[2] for f in freed) / 2**30:.2f} GiB "
+            f"({', '.join(f'{n} {k}' for k, n in sorted(reasons.items()))})")
+
+
 def requeue_if_infra(store, core, job, error):
     """Put a job that failed because of the infrastructure back in the queue (at most MAX_INFRA_RETRIES times)."""
     retries = job.get("infra_retries", 0)
@@ -93,8 +109,11 @@ def tick(store, runners, core):
         job = store.update(job["id"], state="running", started=t, started_at=core.now_iso(t), **fields)
         log(f"{job['id']}: started {platform} {job['label']}@{job['sha'][:10]} on {fields['slot']}")
         jobs = store.all()
-    if finished:
-        core.apply_retention(store, cfg["retention_per_branch"])
+    if finished or time.time() - _last_retention[0] >= RETENTION_SECONDS:
+        try:
+            run_retention(store, core, cfg)
+        except Exception as exc:  # noqa: BLE001 - retention problems are logged, dispatching goes on
+            log(f"retention failed: {exc!r}")
 
 
 def run(store, once=False):

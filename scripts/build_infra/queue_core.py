@@ -3,6 +3,7 @@
 """
 from .queue_ops import *  # noqa: F401,F403
 from .queue_report import *  # noqa: F401,F403
+from .queue_retention import *  # noqa: F401,F403
 from .queue_rules import *  # noqa: F401,F403
 from .queue_store import *  # noqa: F401,F403
 

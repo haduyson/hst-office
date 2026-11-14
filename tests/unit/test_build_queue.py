@@ -123,7 +123,7 @@ class RetentionTest(QueueTestCase):
         self.shas["feat/x"] = "f" * 40
         other, _ = self.submit(ref="feat/x")
         self.finish(other, finished=1)
-        bq.apply_retention(self.store, 3)
+        bq.apply_retention(self.store, dict(bq.DEFAULT_CONFIG, retention_per_branch=3), git=self.git, protected=set())
         deleted = {j["id"] for j in self.store.all() if j.get("output_deleted")}
         self.assertEqual(deleted, set(ids[:2]))
         for jid in ids[:2]:

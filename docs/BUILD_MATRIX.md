@@ -55,8 +55,22 @@ các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u
 - Dữ liệu dưới `/data/hst-build-queue/`: `jobs/<id>.json`, `logs/<id>.log`, `out/<id>/` (`.deb`/`.msi`/overlay +
   `SHA256SUMS`; với nhánh có `ci-build.sh --rpm-appimage`, tức từ 1.0.2, job Linux có thêm `.rpm` và `.AppImage`
   đóng lại từ chính `.deb`, nhánh cũ chỉ có `.deb`), `config.json` (ghi đè mặc định trong `build-queue.py`: số đầu ra giữ lại, danh sách slot Windows).
-  Giữ `retention_per_branch` (3) đầu ra mới nhất cho mỗi nền tảng + nhánh + loại job (gói, overlay, test); đầu ra cũ hơn bị xoá (job vẫn còn,
-  đánh dấu `output_deleted`). Job Windows ghi máy đã build (`host`, `slot`).
+  Giữ/xoá đầu ra (dispatcher chạy sau mỗi job xong và mỗi 10 phút; `build-queue.sh retention [--dry-run]` chạy
+  ngay và in dung lượng giải phóng): giữ `retention_per_branch` (2) đầu ra mới nhất cho mỗi nền tảng + nhánh + loại
+  job (gói, overlay, test), `retention_trains` (3) cho mọi build train gộp chung; xoá đầu ra của job `failed`,
+  `cancelled` hoặc bị invalidate sau `retention_failed_hours` (6 giờ); xoá build của nhánh mà commit đã nằm trong
+  `integration_branch` (`rc/1.0.2-batch5`) sau `retention_merged_hours` (12 giờ; build `rc/*` và train chỉ theo luật
+  số lượng). Không bao giờ xoá: job đã `pin` (`build-queue.sh pin <id> --reason …`, bỏ bằng `unpin <id>`), job một
+  train đang dùng, job đang chờ/chạy. Job vẫn còn, đánh dấu `output_deleted` + `output_deleted_reason`. Job Windows
+  ghi máy đã build (`host`, `slot`).
+- **Luật submit cho agent:**
+  - `--priority` tối đa 50; cao hơn bị hạ về 50 (có thông báo). Chỉ integrator (ref khớp `integrator_refs`, tức
+    `rc/1.0.2-batch*`, hoặc thêm `--integrator`) được dùng tới 100.
+  - Commit mà so với build gần nhất còn đầu ra của nhánh (cùng nền tảng + loại job), hoặc, khi chưa có build nào,
+    so với merge-base với `rc/1.0.2-batch5`, chỉ đổi `tests/`, `docs/`, `plans/` hay `*.md` thì bị từ chối (thoát 2,
+    thông báo chỉ build nên dùng). Integrator ép bằng `--force --integrator`.
+  - Submit commit mới của một nhánh tự huỷ job **đang chờ** (không bao giờ job đang chạy) của commit cũ cùng nhánh +
+    nền tảng + loại job; job cũ ghi `superseded_by`. Submit bằng sha trần (nhãn `commit`) không huỷ gì.
 - Dispatcher là dịch vụ systemd `hst-build-queue` ([unit](../scripts/linux/hst-build-queue.service), `Restart=on-failure`,
   `Nice=10`, I/O idle; `journalctl -u hst-build-queue`), chạy từ bản triển khai `/data/hst-build/infra-current`
   (symlink tới `infra-<sha>`, không bao giờ từ worktree đang sửa). Cập nhật bằng

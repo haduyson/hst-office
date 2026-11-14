@@ -9,7 +9,8 @@ import re
 import time
 
 QUEUE_ROOT = os.environ.get("HST_QUEUE_ROOT", "/data/hst-build-queue")
-REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Git repository used to resolve refs and diffs (HST_QUEUE_REPO: tests point it at a scratch repository).
+REPO = os.environ.get("HST_QUEUE_REPO") or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PLATFORMS = ("linux", "windows")
 ACTIVE = ("queued", "running")
 TERMINAL = ("done", "failed", "cancelled")
@@ -19,7 +20,29 @@ MODULE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,79}$")
 TEST_RE = re.compile(r"^((CppunitTest|PythonTest)_[A-Za-z0-9_]{1,100}|[a-z0-9_]{1,40}\.(check|unitcheck|slowcheck|subsequentcheck))$")
 ID_RE = re.compile(r"^q\d{6}-\d{6}-[0-9a-f]{4}$")
 DEFAULT_CONFIG = {
-    "retention_per_branch": 3,
+    # Retention (queue_rules.retention_victims): newest outputs kept per platform + branch + job kind; train builds
+    # are one group; failed/cancelled/invalidated outputs and builds of commits already merged into the integration
+    # branch go after a grace period. Pinned jobs and jobs an active train still uses are never deleted.
+    "retention_per_branch": 2,
+    "retention_trains": 3,
+    "retention_failed_hours": 6,
+    "retention_merged_hours": 12,
+    # The integration branch (trains are built on it; merged = an ancestor of it) and who counts as the integrator:
+    # refs matching integrator_refs or `submit --integrator`. Everyone else is capped at agent_max_priority.
+    "integration_branch": "rc/1.0.2-batch5",
+    "integrator_refs": ["rc/1.0.2-batch*"],
+    "agent_max_priority": 50,
+    # Build train (queue_train*.py): batch5 + ready branches merged into train/<prefix>NNN, one build per platform.
+    "train_enabled": True,
+    "train_prefix": "train/1.0.2-",
+    "train_interval_minutes": 90,
+    "train_min_branches": 4,
+    "train_max_branches": 8,
+    "train_priority": 70,
+    "train_confirm_priority": 40,
+    "train_bisect_rounds": 2,
+    "train_max_attempts": 3,
+    "train_keep_days": 2,
     "linux_max_jobs": 20,
     # Module builds are small and mostly link-bound: a lower cap gives a smaller memory budget (6.4 GiB at -j6),
     # so three fit beside each other under the admission rule (MemAvailable >= budgets + 8 GiB) on ~28 GiB free.
