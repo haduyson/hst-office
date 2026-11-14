@@ -5,6 +5,7 @@ Used by check-sheets-excel-formula-conventions.py: the profile stores UILocale a
 first start, and again after it in case the first start rewrote registrymodifications.xcu.
 """
 import os
+from pathlib import Path
 import subprocess
 import time
 
@@ -45,7 +46,7 @@ def start(program, profile, ui, loc, env):
         handle.write(PROFILE_XCU.format(ui=ui, loc=loc))
     for _ in range(3):  # exit code 81 = restart requested while the profile is created
         warm = subprocess.run([os.path.join(program, "soffice.bin"), "--headless", "--norestore", "--terminate_after_init",
-                               f"-env:UserInstallation=file://{profile}"], env=env, timeout=180, check=False)
+                               "-env:UserInstallation=" + Path(profile).absolute().as_uri()], env=env, timeout=180, check=False)
         if warm.returncode == 0:
             break
     with open(reg, encoding="utf-8") as handle:
@@ -56,5 +57,5 @@ def start(program, profile, ui, loc, env):
             handle.write(text.replace("</oor:items>", items + "</oor:items>"))
     pipe = f"hstxlformula{os.getpid()}{ui}{loc}".replace("-", "")
     proc = subprocess.Popen([os.path.join(program, "soffice"), "--headless", "--norestore", "--nologo",
-                             f"-env:UserInstallation=file://{profile}", f"--accept=pipe,name={pipe};urp;"], env=env)
+                             "-env:UserInstallation=" + Path(profile).absolute().as_uri(), f"--accept=pipe,name={pipe};urp;"], env=env)
     return proc, pipe

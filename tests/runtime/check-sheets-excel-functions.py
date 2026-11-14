@@ -18,6 +18,7 @@ import re
 import shutil
 import sys
 import zipfile
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from sheets_excel_functions_cases import CASES, CODEPAGE, DATA, NEW, ONLINE, build_online_xlsx  # noqa: E402
@@ -38,6 +39,18 @@ def localize(formula, sep, dec):
     out = '"'.join(parts)
     # keep dotted function names (BINOM.DIST.RANGE) intact
     return out.replace("BINOM" + dec + "DIST" + dec + "RANGE", "BINOM.DIST.RANGE")
+
+
+def url(path):
+    return Path(path).absolute().as_uri()
+
+
+def codepage_cases(loc):
+    """CODE/CHAR use the ANSI code page: on Windows the system's (GetACP), elsewhere the locale's."""
+    if os.name == "nt":
+        import ctypes
+        return CODEPAGE["vi-VN" if ctypes.windll.kernel32.GetACP() == 1258 else "en-US"]
+    return CODEPAGE[loc]
 
 
 def sheet_xml(path):
@@ -65,7 +78,7 @@ def run_phase(program, out, ui, loc, results):
             for c, v in enumerate(row):
                 cell = sh.getCellByPosition(7 + c, r)
                 cell.setString(v) if isinstance(v, str) else cell.setValue(v)
-        cases = [(f, e.format(sep=sep, dec=dec), x) for f, e, x in CASES + LAMBDA_CASES] + [(f, e, None) for f, e in CODEPAGE[loc]]
+        cases = [(f, e.format(sep=sep, dec=dec), x) for f, e, x in CASES + LAMBDA_CASES] + [(f, e, None) for f, e in codepage_cases(loc)]
         for i, (f, _, _) in enumerate(cases):
             sh.getCellByPosition(0, i).setPropertyValue("FormulaLocal", localize(f, sep, dec))
         sh.getCellByPosition(1, 0).setPropertyValue("FormulaLocal", '=CELL("filename"' + sep + 'B2)')
@@ -74,8 +87,8 @@ def run_phase(program, out, ui, loc, results):
             got = sh.getCellByPosition(0, i).getString()
             check(f"value {f}", got == want, f"got {got!r} want {want!r}")
         xlsx, ods = os.path.join(out, "functions.xlsx"), os.path.join(out, "functions.ods")
-        doc.storeToURL("file://" + ods, (prop("FilterName", "calc8"),))
-        doc.storeAsURL("file://" + xlsx, (prop("FilterName", "Calc Office Open XML"),))
+        doc.storeToURL(url(ods), (prop("FilterName", "calc8"),))
+        doc.storeAsURL(url(xlsx), (prop("FilterName", "Calc Office Open XML"),))
         doc.calculateAll()
         tab = sh.getName()
         want_cell = os.path.dirname(xlsx) + os.sep + "[functions.xlsx]" + tab
@@ -87,7 +100,7 @@ def run_phase(program, out, ui, loc, results):
             if needle:
                 check(f"xlsx text {needle}", needle in xml.replace("&quot;", '"'))
         for path in (xlsx, ods):
-            again = desk.loadComponentFromURL("file://" + path, "_blank", 0, (prop("Hidden", True),))
+            again = desk.loadComponentFromURL(url(path), "_blank", 0, (prop("Hidden", True),))
             again.calculateAll()
             s2 = again.Sheets.getByIndex(0)
             for i, (f, want, _) in enumerate(cases):
@@ -105,13 +118,13 @@ def run_phase(program, out, ui, loc, results):
             check(f"wizard {name}", vi_ok, (desc or "missing")[:60])
         src = os.path.join(out, "online.xlsx")
         build_online_xlsx(src)
-        odoc = desk.loadComponentFromURL("file://" + src, "_blank", 0, (prop("Hidden", True),))
+        odoc = desk.loadComponentFromURL(url(src), "_blank", 0, (prop("Hidden", True),))
         osh = odoc.Sheets.getByIndex(0)
         for i, (f, v, _) in enumerate(ONLINE):
             got = osh.getCellByPosition(0, i).getString()
             check(f"online cached {f.split('(')[0]}", got == v.replace(".", dec), f"got {got!r}")
         resaved = os.path.join(out, "online-resaved.xlsx")
-        odoc.storeToURL("file://" + resaved, (prop("FilterName", "Calc Office Open XML"),))
+        odoc.storeToURL(url(resaved), (prop("FilterName", "Calc Office Open XML"),))
         odoc.close(True)
         xml = sheet_xml(resaved).replace("&quot;", '"')
         for f, v, _ in ONLINE:
@@ -132,7 +145,7 @@ def main():
     program, out = sys.argv[1], sys.argv[2]
     phases = sys.argv[3:] or ["vi:vi-VN", "en-US:en-US"]
     sys.path.insert(0, program)
-    os.environ["URE_BOOTSTRAP"] = "vnd.sun.star.pathname:" + os.path.join(program, "fundamentalrc")
+    os.environ["URE_BOOTSTRAP"] = "vnd.sun.star.pathname:" + os.path.join(program, "fundamental.ini" if os.name == "nt" else "fundamentalrc")
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
     results = []
