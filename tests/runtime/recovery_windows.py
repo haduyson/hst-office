@@ -8,6 +8,7 @@ import re
 import subprocess
 import time
 
+import uno_main_thread_load
 from recovery_windows_ui import find_window, press_enter, shot
 
 RESULTS = []
@@ -85,7 +86,7 @@ class Office:
         access.commitChanges()
 
     def new(self, kind, marker):
-        doc = self.desktop().loadComponentFromURL(KINDS[kind], "_default", 0, ())
+        doc = uno_main_thread_load.load(self.desktop(), KINDS[kind], "_default")
         append(doc, marker)
         return doc
 

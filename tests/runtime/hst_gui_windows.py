@@ -90,10 +90,9 @@ class Office:
         return self.office.desktop
 
     def load(self, url, target="_blank", hidden=False):
-        from com.sun.star.beans import PropertyValue
-        prop = PropertyValue()
-        prop.Name, prop.Value = "Hidden", hidden
-        return self.desktop().loadComponentFromURL(url, target, 0, (prop,))
+        """On the office's main thread, like a user's open (see uno_main_thread_load)."""
+        import uno_main_thread_load
+        return uno_main_thread_load.load(self.desktop(), url, target, Hidden=hidden)
 
     def dispatch(self, frame, command, args=()):
         return self.service("com.sun.star.frame.DispatchHelper").executeDispatch(frame, command, "", 0, tuple(args))

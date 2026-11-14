@@ -27,7 +27,8 @@ TOOLBOX = "sfxlo-NotebookbarToolBox"
 CONTROL_COMMANDS = {".uno:CharFontName", ".uno:FontHeight", ".uno:NumberFormatType", ".uno:StylesPreview",
                     ".uno:FillStyle", ".uno:HstSetTransitionAdvance", ".uno:HstSetTransitionDuration",
                     "vnd.sun.star.findbar:FocusToFindbar", ".uno:Zoom", ".uno:ZoomSlider", ".uno:LineStyle",
-                    ".uno:ThemeSelectorPanel", ".uno:FontworkGalleryFloater:gallery"}
+                    ".uno:ThemeSelectorPanel", ".uno:FontworkGalleryFloater:gallery", ".uno:HstPictureStyles",
+                    ".uno:HstTableStyles"}
 
 
 def prop(obj, name):

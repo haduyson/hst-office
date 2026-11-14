@@ -1,0 +1,111 @@
+HST Office: Segoe UI and Aptos resolve to width-matched bundled fonts when they are not installed.
+
+Neither font has a metric-compatible open replacement, and neither is ever bundled. Both are added to
+aMetricCompatibleMap (used on every platform, before the system's own substitution), commented as width
+matches rather than metric-compatible ones. Advance widths were measured on English and Vietnamese text; Aptos
+from the reference app's own cloud-font cache on the test PC, read in place.
+
+- Segoe UI -> Liberation Sans: 1.003 (English) and 1.014 (Vietnamese) of its width. Noto Sans, the previous
+  fallback on Linux, was 1.061 and 1.055.
+- Aptos, Aptos Display, Aptos Narrow -> Calibri, which resolves to Carlito where Calibri is missing.
+  Carlito is 0.959/0.958 of Aptos (Aptos Display 1.028/1.031, Aptos Narrow 1.044/1.043) with the same line
+  height (1.221 em) and x-height (0.478 vs 0.476 em). Liberation Sans is 1.043/1.057 with 8.5 percent lower
+  lines; Linux Biolinum G is 0.975/0.982 but has 6.6 percent lower lines and a 9 percent smaller x-height.
+- vcl/qa: FindFontFamily(FontSelectPattern&) is exported so the lookup can be unit-tested.
+
+--- a/vcl/inc/font/PhysicalFontCollection.hxx
++++ b/vcl/inc/font/PhysicalFontCollection.hxx
+@@ -60,7 +60,8 @@ public:
+     // find the device font family
+     vcl::font::PhysicalFontFamily* FindFontFamily( std::u16string_view rFontName ) const;
+     std::tuple<vcl::font::PhysicalFontFamily*, bool> FindOrCreateFontFamily( const OUString &rFamilyName );
+-    SAL_DLLPRIVATE vcl::font::PhysicalFontFamily* FindFontFamily( vcl::font::FontSelectPattern& ) const;
++    // exported for vcl/qa/cppunit/physicalfontcollection.cxx
++    vcl::font::PhysicalFontFamily* FindFontFamily( vcl::font::FontSelectPattern& ) const;
+     vcl::font::PhysicalFontFamily* FindFontFamilyByTokenNames(std::u16string_view rTokenStr) const;
+     vcl::font::PhysicalFontFamily* FindFontFamilyByAttributes(ImplFontAttrs nSearchType, FontWeight, FontWidth,
+                                              FontItalic, std::u16string_view rSearchFamily) const;
+--- a/vcl/qa/cppunit/physicalfontcollection.cxx
++++ b/vcl/qa/cppunit/physicalfontcollection.cxx
+@@ -15,6 +15,8 @@
+ 
+ #include <font/PhysicalFontCollection.hxx>
+ #include <font/PhysicalFontFamily.hxx>
++#include <font/FontSelectPattern.hxx>
++#include <vcl/font.hxx>
+ 
+ #include "fontmocks.hxx"
+ 
+@@ -58,6 +60,7 @@ public:
+     void testShouldNotFindOtherStyleFamily();
+     void testShouldFindSchoolbookFamily();
+     void testFontFamilyAliases();
++    void testWidthMatchedFallbacks();
+ 
+     CPPUNIT_TEST_SUITE(VclPhysicalFontCollectionTest);
+     CPPUNIT_TEST(testShouldCreateAndAddFontFamilyToCollection);
+@@ -90,6 +93,7 @@ public:
+     CPPUNIT_TEST(testShouldNotFindOtherStyleFamily);
+     CPPUNIT_TEST(testShouldFindSchoolbookFamily);
+     CPPUNIT_TEST(testFontFamilyAliases);
++    CPPUNIT_TEST(testWidthMatchedFallbacks);
+     CPPUNIT_TEST_SUITE_END();
+ };
+ 
+@@ -564,6 +568,36 @@ void VclPhysicalFontCollectionTest::testFontFamilyAliases()
+     }
+ }
+ 
++static OUString findFallback(const vcl::font::PhysicalFontCollection& rCollection, const OUString& rName)
++{
++    vcl::Font aFont(rName, Size(0, 12));
++    vcl::font::FontSelectPattern aPattern(aFont, rName, Size(0, 12), 12, false);
++    vcl::font::PhysicalFontFamily* pFamily = rCollection.FindFontFamily(aPattern);
++    return pFamily ? pFamily->GetSearchName() : OUString();
++}
++
++void VclPhysicalFontCollectionTest::testWidthMatchedFallbacks()
++{
++    // Without Segoe UI, Aptos and Calibri (e.g. on Linux): the bundled width-matched fonts.
++    vcl::font::PhysicalFontCollection aBundled;
++    aBundled.FindOrCreateFontFamily(GetEnglishSearchFontName(u"Liberation Sans"));
++    aBundled.FindOrCreateFontFamily(GetEnglishSearchFontName(u"Carlito"));
++    CPPUNIT_ASSERT_EQUAL(u"liberationsans"_ustr, findFallback(aBundled, u"Segoe UI"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"carlito"_ustr, findFallback(aBundled, u"Aptos"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"carlito"_ustr, findFallback(aBundled, u"Aptos Display"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"carlito"_ustr, findFallback(aBundled, u"Aptos Narrow"_ustr));
++
++    // Calibri is preferred for Aptos where it is installed (e.g. on Windows).
++    vcl::font::PhysicalFontCollection aWithCalibri;
++    aWithCalibri.FindOrCreateFontFamily(GetEnglishSearchFontName(u"Carlito"));
++    aWithCalibri.FindOrCreateFontFamily(GetEnglishSearchFontName(u"Calibri"));
++    CPPUNIT_ASSERT_EQUAL(u"calibri"_ustr, findFallback(aWithCalibri, u"Aptos"_ustr));
++
++    // An installed Aptos is used as is.
++    aWithCalibri.FindOrCreateFontFamily(GetEnglishSearchFontName(u"Aptos"));
++    CPPUNIT_ASSERT_EQUAL(u"aptos"_ustr, findFallback(aWithCalibri, u"Aptos"_ustr));
++}
++
+ CPPUNIT_TEST_SUITE_REGISTRATION(VclPhysicalFontCollectionTest);
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/font/PhysicalFontCollection.cxx
++++ b/vcl/source/font/PhysicalFontCollection.cxx
+@@ -990,6 +990,17 @@ constexpr std::pair<std::u16string_view, std::u16string_view> aMetricCompatibleM
+     { u"BundesSerif",         u"Cambria" },
+     { u"BundesSerif Office",  u"Cambria" },
+     { u"BundesSerif Regular", u"Cambria" },
++
++    // Width-matched, not metric-compatible: no open font shares these metrics, so they map to the bundled font
++    // with the closest advance widths (measured on English and Vietnamese text), used only when they are missing.
++    // Segoe UI: Liberation Sans is 1.003 (English) and 1.014 (Vietnamese) of its width; Noto Sans was 1.061/1.055.
++    { u"Segoe UI",        u"Liberation Sans" },
++    // Aptos (default font of current presentation templates): Calibri/Carlito is 0.959/0.958 of its width
++    // (Aptos Display: 1.028/1.031, Aptos Narrow: 1.044/1.043) with the same line height and x-height;
++    // Liberation Sans is 1.043/1.057 with 8.5 percent lower lines. Calibri resolves to Carlito where it is missing.
++    { u"Aptos",           u"Calibri" },
++    { u"Aptos Display",   u"Calibri" },
++    { u"Aptos Narrow",    u"Calibri" },
+ };
+ 
+ static bool FindMetricCompatibleFont_impl(FontSelectPattern& rFontSelData)

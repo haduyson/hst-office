@@ -133,7 +133,8 @@ def run_phase(uno, program, out, reg, phase):
         result["locale_data"] = actual
         check("locale data separators (decimal, thousands, list)", data is None or actual == data, actual)
         desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-        doc = desktop.loadComponentFromURL("private:factory/scalc", "_blank", 0, (prop("Hidden", True),))
+        import uno_main_thread_load
+        doc = uno_main_thread_load.load(desktop, "private:factory/scalc", Hidden=True)
         seps = native_separators(doc)
         result["formula_separators"] = seps
         check("formula separators (argument, array column, array row)", formula is None or seps == formula, seps)
