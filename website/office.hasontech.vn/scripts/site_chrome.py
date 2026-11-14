@@ -20,7 +20,8 @@ CTA = ("Tải miễn phí", "/#tai-ve")
 SUPPORT_BAR = '<a class="support-bar" href="https://www.facebook.com/share/g/1TvVaU6q4V/" target="_blank" rel="noopener nofollow"><svg class="fb-icon" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M24 12a12 12 0 1 0-13.9 11.9v-8.400H7.100V12h3V9.400c0-3 1.800-4.700 4.500-4.700 1.300 0 2.700.2 2.700.2v3h-1.500c-1.500 0-2 .9-2 1.900V12h3.400l-.5 3.500h-2.900v8.400A12 12 0 0 0 24 12Z"/></svg><span>Cần hỗ trợ khi dùng HST Office? <strong>Tham gia nhóm Facebook</strong></span> <span aria-hidden="true">→</span></a>'
 NAV_SUPPORT = '<a class="nav-support" href="https://www.facebook.com/share/g/1TvVaU6q4V/" target="_blank" rel="noopener nofollow">Nhóm hỗ trợ</a>'
 FOOTER_NAV = [("Trang chủ", "/", "home"), ("Tính năng", "/#tinh-nang", None), ("Tải về", "/#tai-ve", None),
-              ("Hướng dẫn", "/huong-dan/", "guide"), ("Điểm mới", "/diem-moi/", "whats-new")]
+              ("Hướng dẫn", "/huong-dan/", "guide"), ("Điểm mới", "/diem-moi/", "whats-new"),
+              ("Quyền riêng tư", "/quyen-rieng-tu/", "privacy")]
 
 LOGO = ('<picture><source srcset="/assets/img/hst-office-logo-400.webp?v=1" type="image/webp">'
         '<img src="/assets/img/hst-office-logo-400.png?v=1" width="400" height="105" alt="HST Office" decoding="async"></picture>')

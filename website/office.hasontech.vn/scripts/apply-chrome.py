@@ -2,15 +2,16 @@
 """Gắn menu đầu trang + chân trang dùng chung (scripts/site_chrome.py) vào các trang tĩnh.
 
 Chạy từ thư mục gốc website:  python3 scripts/apply-chrome.py
-Trang hướng dẫn /huong-dan/ do scripts/sync-help.py dựng và cũng dùng site_chrome.
+Trang hướng dẫn /huong-dan/ do scripts/sync-help.py dựng và cũng dùng site_chrome; script này
+làm mới khung của các trang hướng dẫn đang có để đổi menu/chân trang không cần đồng bộ lại nội dung.
 Lần đầu, header/footer cũ được bao bằng vùng đánh dấu; các lần sau chỉ thay trong vùng đó.
 """
-import os, re, sys
+import glob, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from site_chrome import apply_chrome
 
 # trang -> mục menu đang mở
-PAGES = {"index.html": "home", "diem-moi/index.html": "whats-new", "404.html": None}
+PAGES = {"index.html": "home", "diem-moi/index.html": "whats-new", "quyen-rieng-tu/index.html": "privacy", "404.html": None}
 
 
 def ensure_markers(html):
@@ -22,6 +23,8 @@ def ensure_markers(html):
 
 
 root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for path in sorted(glob.glob(os.path.join(root, "huong-dan", "**", "index.html"), recursive=True)):
+    PAGES[os.path.relpath(path, root)] = "guide"
 for rel, active in PAGES.items():
     path = os.path.join(root, rel)
     with open(path, encoding="utf-8") as fh:
