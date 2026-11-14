@@ -60,6 +60,15 @@ def annotations(doc):
 
 
 def writer(office, doc, hwnd, res, out):
+    # Alt+N straight to Chèn (no Alt release in between), then Esc twice
+    front(hwnd)
+    wg.chord(VK_ALT, ord("N"), target=hwnd, front=False)
+    time.sleep(1.0)
+    frame = doc.CurrentController.Frame
+    wg.screenshot(os.path.join(out, "writer-3-alt-n.png"))
+    esc(hwnd)
+    res("[writer] Alt+N leaves the document text alone", doc.Text.getString() == "", repr(doc.Text.getString()))
+    del frame
     doc.Text.setString("parity")
     before = annotations(doc)
     alt_tip(hwnd, "RC")

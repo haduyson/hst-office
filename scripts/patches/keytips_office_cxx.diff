@@ -96,13 +96,55 @@
          if (TabPage* pPage = m_xTabs->GetTabPage(m_xTabs->GetCurPageId()))
              CollectCommands(*pPage, aTargets, aPreferred);
          m_eLevel = Level::Commands;
-@@ -403,6 +410,9 @@
+@@ -403,6 +410,17 @@
      OUString m_aTyped;
      Level m_eLevel = Level::None;
      bool m_bAltArmed = false;
++    // HST Office: Windows follows the release of Alt, and F10, with a KEY_MENU key (SC_KEYMENU, see vcl/win
++    // salframe.cxx). That echo belongs to the key that already showed or closed the tips: it must not toggle them back.
++    bool m_bMenuEcho = false;
++#ifdef _WIN32
++    static constexpr bool MENU_ECHO = true;
++#else
++    static constexpr bool MENU_ECHO = false;
++#endif
 +    // HST Office: module of the ribbon ("swriter") and id of the tab whose commands are shown, for HstKeyTipOffice.hxx
 +    std::string m_aModule;
 +    std::string m_aTab;
  };
  
  IMPL_LINK(KeyTips, ModKeyHdl, const CommandModKeyData&, rData, void)
+@@ -417,6 +435,7 @@
+     // Alt released with no key in between
+     if (std::exchange(m_bAltArmed, false))
+     {
++        m_bMenuEcho = MENU_ECHO;
+         if (m_eLevel == Level::None)
+         {
+             if (!m_xBar->IsInModalMode() && !vcl::IsInPopupMenuExecute())
+@@ -443,6 +462,9 @@
+     if (rEvent.GetId() != VclEventId::WindowKeyInput)
+         return false;
+     m_bAltArmed = false;
++    // the KEY_MENU echo of the Alt or F10 just handled (Windows) is swallowed; any other key ends the wait for it
++    if (std::exchange(m_bMenuEcho, false) && rCode.GetCode() == KEY_MENU && !rCode.GetModifier())
++        return true;
+ 
+     if (m_eLevel == Level::None)
+     {
+@@ -454,6 +476,7 @@
+             if (bMenubar)
+                 return false;
+             ShowTabs();
++            m_bMenuEcho = MENU_ECHO && rCode.GetCode() == KEY_F10;
+             return true;
+         }
+         // Alt+letter: the tab with that letter, then its commands. Other Alt keys are shortcuts. A shown
+@@ -494,6 +517,7 @@
+     if (IsF10(rCode)) // F10 again closes the tips, as Alt does
+     {
+         Close();
++        m_bMenuEcho = MENU_ECHO && rCode.GetCode() == KEY_F10;
+         return true;
+     }
+     if (rCode.IsMod1())
