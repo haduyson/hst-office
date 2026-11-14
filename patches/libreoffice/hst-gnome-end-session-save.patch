@@ -1,0 +1,84 @@
+HST Office: a GNOME/Cinnamon log out keeps the open documents and their changes.
+
+The gtk3 plugin follows the GNOME session protocol (org.gnome.SessionManager). On EndSession (and
+Stop) it cleared the modified flag of every document and terminated: AutoRecovery then took the
+documents for unchanged and deleted their recovery copies, the unsaved-documents store kept nothing,
+and the next start showed nothing. Measured on 1.0.1 and rc/1.0.2-batch5 with a session manager on a
+private bus: a document changed before and after its last recovery copy was lost completely, without a
+question.
+- vcl gtkframe.cxx: before the flags are cleared (and before EndSession is answered), AutoRecovery
+  stores the session synchronously, as the X11 session management of the gen plugin does
+  (SessionListener): doSessionSave writes every document to its recovery file, doSessionQuietQuit
+  closes the documents keeping their entries (modified state included) and marks the session
+  (RecoveryInfo/SessionData). The next start restores the session without a dialog, the documents
+  carry their changes and are still marked modified. Once per session end (every frame gets the
+  signal). Without AutoRecovery (--norestore) nothing changes.
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-session-end-gnome.py (with tests/runtime/fake_gnome_session.py).
+---
+--- a/vcl/unx/gtk3/gtkframe.cxx
++++ b/vcl/unx/gtk3/gtkframe.cxx
+@@ -68,7 +68,10 @@
+ #include <com/sun/star/awt/MouseButton.hpp>
+ #include <com/sun/star/datatransfer/dnd/DNDConstants.hpp>
+ #include <com/sun/star/frame/Desktop.hpp>
++#include <com/sun/star/frame/theAutoRecovery.hpp>
++#include <com/sun/star/util/URLTransformer.hpp>
+ #include <com/sun/star/util/XModifiable.hpp>
++#include <comphelper/propertyvalue.hxx>
+ 
+ #if !GTK_CHECK_VERSION(4, 0, 0)
+ #   define GDK_ALT_MASK GDK_MOD1_MASK
+@@ -1483,6 +1486,37 @@
+                       nullptr, nullptr, nullptr);
+ }
+ 
++// HST Office: store the open documents as a session before anything is dropped, as the X11
++// session management does (SessionListener: doSessionSave, then doSessionQuietQuit). Every
++// document is written to its recovery file and closed with its entry kept (modified state
++// included), and the session is marked (RecoveryInfo/SessionData): the next start reopens the
++// documents with their changes. Runs once per desktop session end (every frame gets the signal);
++// without AutoRecovery (--norestore) both jobs do nothing and the documents are dropped as before.
++static void store_session()
++{
++    static bool bStored = false;
++    if (bStored)
++        return;
++    bStored = true;
++    try
++    {
++        const css::uno::Reference<css::uno::XComponentContext>& xContext = ::comphelper::getProcessComponentContext();
++        css::uno::Reference<css::frame::XDispatch> xRecovery = css::frame::theAutoRecovery::get(xContext);
++        css::uno::Reference<css::util::XURLTransformer> xParser = css::util::URLTransformer::create(xContext);
++        for (const OUString& rJob : { u"doSessionSave"_ustr, u"doSessionQuietQuit"_ustr })
++        {
++            css::util::URL aURL;
++            aURL.Complete = "vnd.sun.star.autorecovery:/" + rJob;
++            xParser->parseStrict(aURL);
++            xRecovery->dispatch(aURL, { comphelper::makePropertyValue(u"DispatchAsynchron"_ustr, false) });
++        }
++    }
++    catch (const css::uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("vcl.gtk", "session save at the end of the desktop session failed");
++    }
++}
++
+ // unset documents "modify" flag so they won't veto closing
+ static void clear_modify_and_terminate()
+ {
+@@ -1552,11 +1586,14 @@
+     }
+     else if (g_str_equal (signal_name, "EndSession"))
+     {
++        // HST Office: store before answering, the session manager may end the session at once
++        store_session();
+         session_client_response(client_proxy);
+         clear_modify_and_terminate();
+     }
+     else if (g_str_equal (signal_name, "Stop"))
+     {
++        store_session();
+         clear_modify_and_terminate();
+     }
+ }
