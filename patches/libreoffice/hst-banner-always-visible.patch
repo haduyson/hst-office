@@ -1,0 +1,4021 @@
+HST Office: the HASON TECH banner is shown in every user interface of every document window and in HST PDF.
+
+Owner decision 14/11/2026: the banner can no longer be hidden by choosing another user interface, hiding or
+customizing toolbars, or locking them. It always shows its artwork (never a text card), at least 260 x 75
+logical px (the artwork's 360:104 ratio), in a strip at least that high.
+
+- vcl: the banner moves from sfx2 to vcl so that framework and xmlsecurity can host it too. One engine,
+  hst::banner::Core (vcl/source/control/HstBannerCore.*: content from org.hst.office.BannerFeed on worker
+  threads, rotation, the one-second display count, click, painting), and two views (include/vcl/HstBanner.hxx):
+  HstRibbonBanner, a VCL control, and HstBannerWidget, a weld drawing area. The compact artwork, unused since
+  13/11, is gone. Worker results reach the main loop through user events that keep the core alive, so they
+  never touch a view that went away. HstBannerGeometry.hxx moves to include/vcl, with the strip size helpers.
+- Tabbed ribbon (notebookbar.ui of Writer, Calc, Impress and Draw): unchanged, beside the groups.
+- Other notebookbars (tabbed compact, grouped compact, single and contextual single): NotebookBar tells
+  whether its content shows a banner itself (NotebookbarTabControl claims it); otherwise the window border
+  shows one at the right end of the bar's strip, which is at least 79 logical px high, with the bar to the
+  left of it, centred vertically.
+- Toolbar user interfaces (Standard, Single, Sidebar): framework's ToolbarLayoutManager keeps the banner at
+  the right end of the top docking area of the windows of text documents, spreadsheets, presentations and
+  drawings without a visible notebookbar. The top docking area is at least as high as the banner needs, also
+  without any toolbar, and its rows take the width left of the banner, centred vertically beside it. Hiding,
+  customizing or locking toolbars does not reach it; full screen hides it with the toolbars.
+- HST PDF: the toolbar is two even rows of controls on the left and the banner at the right of the strip.
+  HSTPdfInfo reports BannerScreen.
+
+--- a/framework/source/layoutmanager/toolbarlayoutmanager.cxx
++++ b/framework/source/layoutmanager/toolbarlayoutmanager.cxx
+@@ -26,6 +26,7 @@
+ 
+ #include <com/sun/star/awt/PosSize.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/frame/ModuleManager.hpp>
+ #include <com/sun/star/ui/UIElementType.hpp>
+ #include <com/sun/star/container/XNameReplace.hpp>
+ #include <com/sun/star/container/XNameContainer.hpp>
+@@ -41,6 +42,10 @@
+ #include <utility>
+ #include <vcl/i18nhelp.hxx>
+ #include <vcl/dockingarea.hxx>
++#include <vcl/HstBanner.hxx>
++#include <vcl/HstBannerGeometry.hxx>
++#include <vcl/notebookbar/notebookbar.hxx>
++#include <vcl/syswin.hxx>
+ #include <vcl/settings.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/unohelp.hxx>
+@@ -76,6 +81,7 @@
+ 
+ ToolbarLayoutManager::~ToolbarLayoutManager()
+ {
++    m_pHstBanner.disposeAndClear();
+     m_pGlobalSettings.reset();
+     m_pAddonOptions.reset();
+ }
+@@ -121,7 +127,8 @@
+     tools::Rectangle aNewDockingArea( m_aDockingArea );
+     aWriteLock.clear();
+ 
+-    if ( isLayoutDirty() )
++    // HST Office: also when a notebookbar came or went (it takes the banner over, or gives it back)
++    if ( isLayoutDirty() || implts_hstBannerWanted() != m_bHstFloored )
+         aNewDockingArea = implts_calcDockingArea();
+ 
+     aWriteLock.reset();
+@@ -213,6 +220,11 @@
+     if ( bLayoutInProgress )
+         return;
+ 
++    // HST Office: with the banner at the right end of the top docking area, the top rows take the width
++    // left of it and sit centred vertically beside it (docs/BANNERS.md)
++    const bool bHstBanner = implts_hstBannerWanted();
++    const sal_Int32 nHstReserved = bHstBanner ? implts_hstReservedWidth( aDockingArea.Y ) : 0;
++
+     // Retrieve row/column dependent data from all docked user-interface elements
+     for ( sal_Int32 i = 0; i < DOCKINGAREAS_COUNT; i++ )
+     {
+@@ -222,16 +234,26 @@
+         implts_getDockingAreaElementInfos( static_cast<ui::DockingArea>(i), aRowColumnsWindowData );
+ 
+         sal_Int32 nOffset( 0 );
++        ::Size aRowContainerSize( aContainerSize );
++        if ( bHstBanner && i == sal_Int32( ui::DockingArea_DOCKINGAREA_TOP ) )
++        {
++            aRowContainerSize.setWidth( std::max< tools::Long >( 0, aContainerSize.Width() - nHstReserved ) );
++            sal_Int32 nRows( 0 );
++            for ( const auto& rRow : aRowColumnsWindowData )
++                nRows += rRow.nStaticSize;
++            nOffset = std::max< sal_Int32 >( 0, ( aDockingArea.Y - nRows ) / 2 );
++        }
+         const sal_uInt32 nCount = aRowColumnsWindowData.size();
+         for ( sal_uInt32 j = 0; j < nCount; ++j )
+         {
+             sal_uInt32 nIndex = bReverse ? nCount-j-1 : j;
+-            implts_calcWindowPosSizeOnSingleRowColumn( i, nOffset, aRowColumnsWindowData[nIndex], aContainerSize );
++            implts_calcWindowPosSizeOnSingleRowColumn( i, nOffset, aRowColumnsWindowData[nIndex], aRowContainerSize );
+             nOffset += aRowColumnsWindowData[j].nStaticSize;
+         }
+     }
+ 
+     implts_setDockingAreaWindowSizes( aDockingArea );
++    implts_hstPlaceBanner( bHstBanner );
+ 
+     aWriteLock.reset();
+     m_bLayoutDirty      = false;
+@@ -344,6 +366,11 @@
+         }
+     }
+ 
++    // HST Office: the top docking area is at least as high as the banner needs, also without toolbars
++    m_bHstFloored = implts_hstBannerWanted();
++    if ( m_bHstFloored )
++        aBorderSpace.SetTop( std::max< tools::Long >( aBorderSpace.Top(), hst::banner::minStripHeight( implts_hstDpi() ) ) );
++
+     return aBorderSpace;
+ }
+ 
+@@ -377,6 +404,74 @@
+     m_xDocCfgMgr             = xDocCfgMgr;
+     m_xPersistentWindowState = xPersistentWindowState;
+     m_bComponentAttached     = true;
++
++    // HST Office: the banner belongs to the windows of text documents, spreadsheets, presentations and
++    // drawings (docs/BANNERS.md); not the Start Center, which has its own, nor Base, formulas or macros
++    m_bHstDocumentModule = false;
++    try
++    {
++        const OUString aModule = frame::ModuleManager::create( m_xContext )->identify( xFrame );
++        m_bHstDocumentModule = aModule == "com.sun.star.text.TextDocument"
++                               || aModule == "com.sun.star.text.GlobalDocument"
++                               || aModule == "com.sun.star.sheet.SpreadsheetDocument"
++                               || aModule == "com.sun.star.presentation.PresentationDocument"
++                               || aModule == "com.sun.star.drawing.DrawingDocument";
++    }
++    catch ( const uno::Exception& )
++    {
++        // no module (a frame without a component yet): no banner
++    }
++}
++
++bool ToolbarLayoutManager::implts_hstBannerWanted()
++{
++    SolarMutexGuard aGuard;
++    if ( !m_bHstVisible || !m_bHstDocumentModule || !m_bComponentAttached || !m_xFrame.is()
++         || !m_xFrame->isTop() || !m_xDockAreaWindows[int(ui::DockingArea_DOCKINGAREA_TOP)].is() )
++        return false;
++    VclPtr<vcl::Window> pContainer = VCLUnoHelper::GetWindow( m_xContainerWindow );
++    if ( !pContainer )
++        return false;
++    // a notebookbar shows the banner itself or has the window's border show it beside the bar
++    const SystemWindow* pSystemWindow = pContainer->GetSystemWindow();
++    const VclPtr<NotebookBar>& pNotebookBar = pSystemWindow ? pSystemWindow->GetNotebookBar() : VclPtr<NotebookBar>();
++    return !pNotebookBar || !pNotebookBar->IsVisible();
++}
++
++double ToolbarLayoutManager::implts_hstDpi()
++{
++    SolarMutexGuard aGuard;
++    VclPtr<vcl::Window> pTop = VCLUnoHelper::GetWindow( m_xDockAreaWindows[int(ui::DockingArea_DOCKINGAREA_TOP)] );
++    return pTop ? pTop->GetDPIScaleFactor() : 1.0;
++}
++
++sal_Int32 ToolbarLayoutManager::implts_hstReservedWidth( sal_Int32 nTopHeight )
++{
++    const double fDpi = implts_hstDpi();
++    // the banner, its right margin and the gap to the last toolbar
++    return hst::banner::stripSlot( nTopHeight, fDpi ).w + hst::banner::scaled( 4, fDpi ) + hst::banner::scaled( 8, fDpi );
++}
++
++void ToolbarLayoutManager::implts_hstPlaceBanner( bool bWanted )
++{
++    SolarMutexGuard aGuard;
++    VclPtr<vcl::Window> pTop = VCLUnoHelper::GetWindow( m_xDockAreaWindows[int(ui::DockingArea_DOCKINGAREA_TOP)] );
++    if ( m_pHstBanner && ( !pTop || m_pHstBanner->GetParent() != pTop.get() ) )
++        m_pHstBanner.disposeAndClear(); // the docking areas were created again
++    const ::Size aArea = pTop ? pTop->GetOutputSizePixel() : ::Size();
++    if ( !bWanted || !pTop || aArea.IsEmpty() )
++    {
++        if ( m_pHstBanner )
++            m_pHstBanner->Place( tools::Rectangle() );
++        return;
++    }
++    if ( !m_pHstBanner )
++        m_pHstBanner = VclPtr<HstRibbonBanner>::Create( pTop.get() );
++    const double fDpi = pTop->GetDPIScaleFactor();
++    const hst::banner::StripSlot aSlot = hst::banner::stripSlot( aArea.Height(), fDpi );
++    m_pHstBanner->Place( tools::Rectangle(
++        ::Point( aArea.Width() - hst::banner::scaled( 4, fDpi ) - aSlot.w, ( aArea.Height() - aSlot.h ) / 2 ),
++        ::Size( aSlot.w, aSlot.h ) ) );
+ }
+ 
+ bool ToolbarLayoutManager::isPreviewFrame()
+@@ -762,6 +857,7 @@
+ 
+ void ToolbarLayoutManager::setVisible( bool bVisible )
+ {
++    m_bHstVisible = bVisible; // full screen: the banner goes with the toolbars
+     UIElementVector aUIElementVector;
+     implts_getUIElementVectorCopy( aUIElementVector );
+ 
+@@ -1522,6 +1618,8 @@
+     m_xDockAreaWindows[int(ui::DockingArea_DOCKINGAREA_BOTTOM)].clear();
+     aWriteLock.clear();
+ 
++    m_pHstBanner.disposeAndClear(); // a child of the top docking area
++
+     // destroy windows
+     xTopDockingWindow->dispose();
+     xLeftDockingWindow->dispose();
+--- a/framework/source/layoutmanager/toolbarlayoutmanager.hxx
++++ b/framework/source/layoutmanager/toolbarlayoutmanager.hxx
+@@ -38,6 +38,9 @@
+ #include <com/sun/star/awt/XDockableWindowListener.hpp>
+ 
+ #include <cppuhelper/implbase.hxx>
++#include <vcl/vclptr.hxx>
++
++class HstRibbonBanner;
+ 
+ class VclSimpleEvent;
+ 
+@@ -281,6 +284,20 @@
+         bool                                                                 m_bDockingInProgress;
+         bool                                                                 m_bLayoutInProgress;
+         bool                                                                 m_bToolbarCreation;
++
++        // HST Office: the HASON TECH banner at the right end of the top docking area (docs/BANNERS.md)
++        /// The frame shows the banner here: a top-level document window without a notebookbar.
++        bool implts_hstBannerWanted();
++        /// Logical-to-pixel factor of the top docking area.
++        double implts_hstDpi();
++        /// Width (px) the banner takes from the top docking area's rows, 0 without a banner.
++        sal_Int32 implts_hstReservedWidth( sal_Int32 nTopHeight );
++        /// Show the banner at the right end of the top docking area, or hide it.
++        void implts_hstPlaceBanner( bool bWanted );
++        VclPtr<HstRibbonBanner>                                              m_pHstBanner;
++        bool                                                                 m_bHstVisible = true;
++        bool                                                                 m_bHstDocumentModule = false;
++        bool                                                                 m_bHstFloored = false; // the last docking area has the banner's height
+ };
+ 
+ } // namespace framework
+--- /dev/null
++++ b/include/vcl/HstBanner.hxx
+@@ -0,0 +1,104 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: the rotating HASON TECH solution banner (docs/BANNERS.md). Every document window shows
++// it, in every user interface, and HST PDF shows it in its toolbar row; there is no option to hide or
++// disable it. Two views share one engine (content from org.hst.office.BannerFeed, rotation, display
++// counting, click, painting):
++//   HstRibbonBanner  a VCL control: the Tabbed ribbon (placed by sfx2's NotebookbarTabControl), the
++//                    other notebookbars (placed beside them by the window border) and the toolbar
++//                    user interfaces (placed in the top docking area by framework's toolbar layout);
++//   HstBannerWidget  a weld drawing area (HST PDF's toolbar row).
++// It lives in vcl so that sfx2, framework and xmlsecurity can all host it.
++
++#include <rtl/ref.hxx>
++#include <vcl/ctrl.hxx>
++#include <vcl/dllapi.h>
++#include <vcl/weld/customweld.hxx>
++
++#include <memory>
++
++namespace hst::banner
++{
++class Core;
++class View;
++}
++
++class VCL_DLLPUBLIC HstRibbonBanner final : public Control
++{
++public:
++    explicit HstRibbonBanner(vcl::Window* pParent);
++    virtual ~HstRibbonBanner() override;
++    virtual void dispose() override;
++
++    /** Place the banner in the device-pixel rectangle rSlot of the parent (empty: hide). */
++    void Place(const tools::Rectangle& rSlot);
++    /** The width (px) the ribbon's wide slot had at the last layout, 0 before; it is kept while the
++        room changes by less than the hysteresis (hst::banner::wideSlotWidth). */
++    tools::Long WideSlotWidth() const { return mnWideSlotWidth; }
++    void SetWideSlotWidth(tools::Long nWidth) { mnWideSlotWidth = nWidth; }
++
++    virtual void Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect) override;
++    virtual void Resize() override;
++    virtual void StateChanged(StateChangedType nType) override;
++    virtual void MouseMove(const MouseEvent& rMEvt) override;
++    virtual void MouseButtonDown(const MouseEvent& rMEvt) override;
++    virtual void MouseButtonUp(const MouseEvent& rMEvt) override;
++    virtual void KeyInput(const KeyEvent& rKEvt) override;
++    virtual void GetFocus() override;
++    virtual void LoseFocus() override;
++    virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
++
++private:
++    class ViewImpl;
++    friend class ViewImpl;
++
++    std::unique_ptr<ViewImpl> mpView;
++    rtl::Reference<hst::banner::Core> mxCore;
++    bool mbHover = false;
++    bool mbPressed = false;
++    tools::Long mnWideSlotWidth = 0;
++};
++
++class VCL_DLLPUBLIC HstBannerWidget final : public weld::CustomWidgetController
++{
++public:
++    /** pHost: the VCL window that holds the welded content (when its top-level window is minimized the
++        banner is not in view). */
++    explicit HstBannerWidget(vcl::Window* pHost);
++    virtual ~HstBannerWidget() override;
++
++    /** Smallest slot: 260 x 75 logical px, the size at which every artwork stays legible. */
++    static Size MinimumSize(double fDpi);
++
++    virtual void SetDrawingArea(weld::DrawingArea* pDrawingArea) override;
++    virtual void Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect) override;
++    virtual void Resize() override;
++    virtual bool MouseButtonDown(const MouseEvent& rMEvt) override;
++    virtual bool MouseMove(const MouseEvent& rMEvt) override;
++    virtual bool MouseButtonUp(const MouseEvent& rMEvt) override;
++    virtual bool KeyInput(const KeyEvent& rKEvt) override;
++    virtual void GetFocus() override;
++    virtual void LoseFocus() override;
++    virtual void StyleUpdated() override;
++
++private:
++    class ViewImpl;
++    friend class ViewImpl;
++
++    VclPtr<vcl::Window> mpHost;
++    std::unique_ptr<ViewImpl> mpView;
++    rtl::Reference<hst::banner::Core> mxCore;
++    bool mbHover = false;
++    bool mbPressed = false;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/include/vcl/HstBannerGeometry.hxx
+@@ -0,0 +1,181 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: geometry of the HASON TECH solution banner (Tabbed notebookbar, window strip, HST PDF).
++// Plain integer arithmetic without LibreOffice types, so it can be unit tested on its own
++// (tests/unit/test_ribbon_banner_geometry.py compiles it from the patch with a test driver).
++//
++// The slot adapts to the ribbon, never the other way round: it fits inside the tab page that
++// already holds the 2-row groups, keeps the exact ratio of the artwork (360:104 wide, 160:104
++// compact) and is capped at the artwork's logical size. Images of any pixel size are
++// aspect-fitted into the slot. Windows narrower than 1280 logical px show the compact artwork,
++// so the banner always keeps a slot while the groups get most of the width.
++
++#include <algorithm>
++#include <cmath>
++#include <cstdlib>
++
++namespace hst::banner
++{
++struct Rect
++{
++    long x = 0;
++    long y = 0;
++    long w = 0;
++    long h = 0;
++};
++
++constexpr long ART_WIDTH = 360; // logical px of the @1x artwork
++constexpr long COMPACT_ART_WIDTH = 160; // logical px of the @1x compact artwork (same height)
++constexpr long ART_HEIGHT = 104;
++// The slot is centred vertically on the tab page (the per-app position the hstsystem admin preview
++// uses); false anchors it at the top of every page. Owner question pending: one line to switch.
++constexpr bool SLOT_CENTRED = true;
++constexpr long MIN_WINDOW_WIDTH = 1280; // narrower windows keep the whole width for the groups
++// The wide slot narrows down to this many logical px (keeping the artwork's ratio) when the current tab's
++// groups do not fit beside the full 360 px: the bundled artwork's text stays readable at 1x down to here.
++constexpr long MIN_WIDE_ART_WIDTH = 260;
++// A new width of the narrowed wide slot replaces the last one only when it differs by this many logical
++// px, so small changes of the room do not move the banner.
++constexpr long WIDE_HYSTERESIS = 12;
++constexpr long MIN_PAGE_HEIGHT = 60; // compact ribbons (one row) never show the banner
++
++inline long scaled(long nLogical, double fDpi) { return std::lround(nLogical * fDpi); }
++
++// HST Office (owner decision 14/11/2026): wherever the banner is not inside a two-row ribbon (the
++// document window's banner slot, HST PDF's toolbar row) it sits in a strip at least this many logical px
++// high, which holds the artwork at MIN_WIDE_ART_WIDTH (260 x 75 has the artwork's 360:104 ratio).
++constexpr long MIN_STRIP_HEIGHT = 75;
++
++/** Size {w, h} in px of the banner in a strip nStripHeight px high (margins included in the strip):
++    the artwork's ratio, from MIN_WIDE_ART_WIDTH x MIN_STRIP_HEIGHT up to the artwork's logical size. */
++struct StripSlot
++{
++    long w = 0;
++    long h = 0;
++};
++inline StripSlot stripSlot(long nStripHeight, double fDpi)
++{
++    const long nMinW = std::lround(MIN_WIDE_ART_WIDTH * fDpi);
++    const long nMaxW = std::lround(ART_WIDTH * fDpi);
++    const long nRoom = std::max(0L, nStripHeight - 2 * std::lround(2 * fDpi));
++    const long nW = std::clamp(nRoom * ART_WIDTH / ART_HEIGHT, nMinW, nMaxW);
++    return StripSlot{ nW, nW * ART_HEIGHT / ART_WIDTH };
++}
++
++/** Height in px of the strip that holds the banner at its minimum (75 logical px plus margins). */
++inline long minStripHeight(double fDpi)
++{
++    return std::lround(MIN_STRIP_HEIGHT * fDpi) + 2 * std::lround(2 * fDpi);
++}
++
++/** Whether the banner is shown for a top-level window of nWindowWidth pixels at fDpi. */
++inline bool visibleFor(long nWindowWidth, long nPageHeight, double fDpi)
++{
++    return nWindowWidth >= scaled(MIN_WINDOW_WIDTH, fDpi)
++           && nPageHeight >= scaled(MIN_PAGE_HEIGHT, fDpi);
++}
++
++enum class Mode
++{
++    Hidden, // one-row (compact) ribbons
++    Wide, // windows of at least MIN_WINDOW_WIDTH: the 360x104 artwork
++    Compact // narrower windows: the 160x104 artwork
++};
++
++/** Which banner a top-level window of nWindowWidth pixels with a page nPageHeight high shows. */
++inline Mode modeFor(long nWindowWidth, long nPageHeight, double fDpi)
++{
++    if (nPageHeight < scaled(MIN_PAGE_HEIGHT, fDpi))
++        return Mode::Hidden;
++    return visibleFor(nWindowWidth, nPageHeight, fDpi) ? Mode::Wide : Mode::Compact;
++}
++
++/** Logical width of the @1x artwork for a mode (0 when hidden). */
++inline long artWidth(Mode eMode)
++{
++    return eMode == Mode::Wide ? ART_WIDTH : eMode == Mode::Compact ? COMPACT_ART_WIDTH : 0;
++}
++
++/** Banner slot at the right end of the full tab page rectangle rPage (pixels), for artwork
++    nArtWidth logical px wide: the largest rectangle with the artwork's ratio that fits the page
++    height (minus margins) and the artwork's logical size, centred vertically on the page. */
++inline Rect slotFor(const Rect& rPage, double fDpi, long nArtWidth = ART_WIDTH, long nMaxWidth = 0)
++{
++    const long nVMargin = scaled(2, fDpi);
++    const long nRightMargin = scaled(4, fDpi);
++    const long nRoom = std::max(0L, rPage.h - 2 * nVMargin);
++    Rect aSlot;
++    if (nArtWidth <= 0)
++        return Rect{ rPage.x + rPage.w - nRightMargin, rPage.y + nVMargin, 0, 0 };
++    aSlot.w = std::min(scaled(nArtWidth, fDpi), nRoom * nArtWidth / ART_HEIGHT);
++    if (nMaxWidth > 0)
++        aSlot.w = std::min(aSlot.w, nMaxWidth); // a narrowed wide slot (wideSlotWidth)
++    aSlot.h = std::min(nRoom, aSlot.w * ART_HEIGHT / nArtWidth);
++    aSlot.x = rPage.x + rPage.w - nRightMargin - aSlot.w;
++    aSlot.y = rPage.y + nVMargin + (SLOT_CENTRED ? (nRoom - aSlot.h) / 2 : 0);
++    return aSlot;
++}
++
++/** Width left to the groups of the page when the banner occupies rSlot. */
++inline long pageWidthBeside(const Rect& rPage, const Rect& rSlot, double fDpi)
++{
++    return std::max(0L, rSlot.x - scaled(8, fDpi) - rPage.x);
++}
++
++/** HST Office: the width in px of the wide slot (windows of at least MIN_WINDOW_WIDTH) on the tab page
++    rPage whose groups need nFullWidth px at their largest: the full artwork width when they fit beside it,
++    else the room they leave (the 8 px gap and the 4 px right margin aside), down to MIN_WIDE_ART_WIDTH.
++    nFullWidth < 0 (not measured yet): the full width. nPrevious (the last width, 0 for none) stays while
++    the new width is within WIDE_HYSTERESIS of it. The slot keeps the artwork's ratio (slotFor), so the
++    drawn artwork and the click target narrow together and stay centred vertically on the page. */
++inline long wideSlotWidth(const Rect& rPage, long nFullWidth, long nPrevious, double fDpi)
++{
++    const long nMax = scaled(ART_WIDTH, fDpi);
++    const long nMin = scaled(MIN_WIDE_ART_WIDTH, fDpi);
++    const long nWant = nFullWidth < 0
++                           ? nMax
++                           : std::clamp(rPage.w - nFullWidth - scaled(8, fDpi) - scaled(4, fDpi), nMin, nMax);
++    if (nPrevious >= nMin && nPrevious <= nMax && nWant != nMax && nWant != nMin
++        && std::abs(nWant - nPrevious) < scaled(WIDE_HYSTERESIS, fDpi))
++        return nPrevious;
++    return nWant;
++}
++
++/** Aspect-fit an image of nImageW x nImageH into rBox, centred; never larger than rBox. */
++inline Rect fit(const Rect& rBox, long nImageW, long nImageH)
++{
++    Rect aResult = rBox;
++    if (nImageW <= 0 || nImageH <= 0 || rBox.w <= 0 || rBox.h <= 0)
++        return Rect{ rBox.x, rBox.y, 0, 0 };
++    // compare rBox.w / rBox.h with nImageW / nImageH without rounding
++    if (rBox.w * nImageH > nImageW * rBox.h)
++        aResult.w = std::max(1L, rBox.h * nImageW / nImageH); // box wider: full height
++    else
++        aResult.h = std::max(1L, rBox.w * nImageH / nImageW); // box taller: full width
++    aResult.x = rBox.x + (rBox.w - aResult.w) / 2;
++    aResult.y = rBox.y + (rBox.h - aResult.h) / 2;
++    return aResult;
++}
++
++/** Artwork variant (1, 2 or 3) for an image drawn nDeviceHeight device pixels high: the exact
++    variant when the size matches one, else the next larger one so that it is only ever
++    downscaled (high quality) and never upscaled. */
++inline int sourceScale(long nDeviceHeight)
++{
++    long nLevel = (nDeviceHeight + ART_HEIGHT - 1) / ART_HEIGHT;
++    if (nDeviceHeight % ART_HEIGHT != 0)
++        ++nLevel;
++    return static_cast<int>(std::clamp(nLevel, 1L, 3L));
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/include/vcl/notebookbar/notebookbar.hxx
++++ b/include/vcl/notebookbar/notebookbar.hxx
+@@ -50,9 +50,17 @@
+     void SetModKeyHdl(const Link<const CommandModKeyData&, void>& rLink) { m_aModKeyHdl = rLink; }
+     void NotifyModKey(const CommandModKeyData& rData) { m_aModKeyHdl.Call(rData); }
+ 
++    /// HST Office: the content shows the HASON TECH banner itself (the Tabbed ribbon); otherwise the
++    /// window shows one beside the bar (docs/BANNERS.md). Changing it lays the window out again.
++    void HstSetOwnBanner(bool bOwn);
++    bool HstHasOwnBanner() const { return m_bHstOwnBanner; }
++
+ private:
+     VclPtr<SystemWindow> m_pSystemWindow;
+     Link<const CommandModKeyData&, void> m_aModKeyHdl;
++    bool m_bHstOwnBanner = false;
++    ImplSVEvent* m_pHstLayoutEvent = nullptr;
++    DECL_LINK(HstLayoutHdl, void*, void);
+     rtl::Reference<NotebookBarContextChangeEventListener> m_pEventListener;
+     std::vector<NotebookbarContextControl*> m_pContextContainers;
+     const SfxViewShell* m_pViewShell;
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -260,7 +260,6 @@
+     sfx2/source/inet/inettbc \
+     sfx2/source/notebookbar/SfxNotebookBar \
+     sfx2/source/notebookbar/NotebookbarTabControl \
+-    sfx2/source/notebookbar/HstRibbonBanner \
+     sfx2/source/notebookbar/HstRibbonKeyTips \
+     sfx2/source/notebookbar/HstChartCommands \
+     sfx2/source/notify/eventsupplier \
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -39,12 +39,11 @@
+     virtual void dispose() override;
+ 
+ private:
+-    // HST Office: HASON TECH solution banner beside the groups (Writer, Calc, Impress Tabbed UI)
++    // HST Office: HASON TECH solution banner beside the groups (Writer, Calc, Impress, Draw Tabbed UI)
+     void HstCreateBanner();
+     void HstLayoutBanner();
+     DECL_LINK(HstChildEventHdl, VclWindowEvent&, void);
+     DECL_LINK(HstDeferredLayoutHdl, void*, void);
+-    DECL_LINK(HstBannerLayoutHdl, HstRibbonBanner&, void);
+     ImplSVEvent* m_pHstLayoutEvent = nullptr;
+     VclPtr<HstRibbonBanner> m_pHstBanner;
+     // HST Office: feature search box in the tab row, after the last tab (placed by the vcl base)
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -25,8 +25,6 @@
+ #include <vcl/tabpage.hxx>
+ #include <sfx2/viewfrm.hxx>
+ #include <notebookbar/NotebookbarTabControl.hxx>
+-#include "HstBannerGeometry.hxx"
+-#include "HstRibbonBanner.hxx"
+ #include "HstRibbonKeyTips.hxx"
+ #include <com/sun/star/accessibility/AccessibleRole.hpp>
+ #include <com/sun/star/accessibility/XAccessibleAction.hpp>
+@@ -34,6 +32,8 @@
+ #include <vcl/accessibility/strings.hxx>
+ #include <vcl/accessibility/vclxaccessiblecomponent.hxx>
+ #include <comphelper/dispatchcommand.hxx>
++#include <vcl/HstBanner.hxx>
++#include <vcl/HstBannerGeometry.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
+ #include <vcl/HstRibbonWidth.hxx>
+ #include <vcl/lineinfo.hxx>
+@@ -488,8 +488,8 @@
+     NotebookbarTabControlBase::dispose();
+ }
+ 
+-// HST Office: the banner belongs to the Tabbed notebookbar (notebookbar.ui) of Writer, Calc, Impress
+-// and Draw only; the compact and the other variants keep the upstream layout.
++// HST Office: the Tabbed notebookbar (notebookbar.ui) of Writer, Calc, Impress and Draw shows the banner
++// beside its groups; with the other notebookbars the window's border shows it beside the bar.
+ void NotebookbarTabControl::HstCreateBanner()
+ {
+     if (m_pHstBanner)
+@@ -506,7 +506,7 @@
+             m_pHstSearch = VclPtr<HstTabSearchBox>::Create(this);
+             m_pHstSearch->Show();
+             m_pHstBanner = VclPtr<HstRibbonBanner>::Create(this);
+-            m_pHstBanner->SetLayoutHdl(LINK(this, NotebookbarTabControl, HstBannerLayoutHdl));
++            pBar->HstSetOwnBanner(true); // the window shows no second banner beside the bar
+             hst::keytips::Attach(*this, *pBar, GetToolBox(), m_pHstBanner.get());
+             AddChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
+             HstLayoutBanner();
+@@ -541,8 +541,6 @@
+         const hst::banner::Mode eMode = aPage.h >= hst::banner::scaled(hst::banner::MIN_PAGE_HEIGHT, fDpi)
+                                             ? hst::banner::Mode::Wide
+                                             : hst::banner::Mode::Hidden;
+-        if (eMode != hst::banner::Mode::Hidden)
+-            m_pHstBanner->SetCompact(false);
+         if (eMode == hst::banner::Mode::Wide)
+         {
+             // HST Office: the wide banner narrows (ratio kept) when the page's groups do not fit beside it
+@@ -585,12 +583,6 @@
+         m_pHstLayoutEvent = Application::PostUserEvent(LINK(this, NotebookbarTabControl, HstDeferredLayoutHdl));
+ }
+ 
+-IMPL_LINK_NOARG(NotebookbarTabControl, HstBannerLayoutHdl, HstRibbonBanner&, void)
+-{
+-    if (!m_pHstLayoutEvent)
+-        m_pHstLayoutEvent = Application::PostUserEvent(LINK(this, NotebookbarTabControl, HstDeferredLayoutHdl));
+-}
+-
+ IMPL_LINK_NOARG(NotebookbarTabControl, HstDeferredLayoutHdl, void*, void)
+ {
+     m_pHstLayoutEvent = nullptr;
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -257,6 +257,9 @@
+     vcl/source/control/listbox \
+     vcl/source/control/managedmenubutton \
+     vcl/source/control/MenuButton \
++    vcl/source/control/HstBanner \
++    vcl/source/control/HstBannerCore \
++    vcl/source/control/HstBannerWidget \
+     vcl/source/control/HstRibbonLadder \
+     vcl/source/control/HstRibbonPaint \
+     vcl/source/control/NotebookbarPopup \
+--- a/vcl/inc/brdwin.hxx
++++ b/vcl/inc/brdwin.hxx
+@@ -25,6 +25,7 @@
+ 
+ #include <com/sun/star/frame/XFrame.hpp>
+ 
++class HstRibbonBanner;
+ class ImplBorderWindowView;
+ struct NotebookBarAddonsItem;
+ enum class DrawButtonFlags;
+@@ -84,6 +85,8 @@
+     std::unique_ptr<ImplBorderWindowView> mpBorderView;
+     VclPtr<vcl::Window>     mpMenuBarWindow;
+     VclPtr<NotebookBar>     mpNotebookBar;
++    // HST Office: the HASON TECH banner beside a notebookbar whose content has none (docs/BANNERS.md)
++    VclPtr<HstRibbonBanner> mpHstBanner;
+     tools::Long                    mnMinWidth;
+     tools::Long                    mnMinHeight;
+     tools::Long                    mnMaxWidth;
+@@ -155,6 +158,10 @@
+                         std::unique_ptr<NotebookBarAddonsItem> pNotebookBarAddonsItem);
+     void CloseNotebookBar();
+     const VclPtr<NotebookBar>& GetNotebookBar() const { return mpNotebookBar; }
++    /// HST Office: the notebookbar is shown with the window's banner beside it.
++    bool HstBannerBesideNotebookBar() const;
++    /// HST Office: height of the notebookbar's strip: the bar, at least as high as the banner needs.
++    tools::Long HstNotebookBarStripHeight() const;
+ 
+     void                    SetMinOutputSize( tools::Long nWidth, tools::Long nHeight )
+                                 { mnMinWidth = nWidth; mnMinHeight = nHeight; }
+--- /dev/null
++++ b/vcl/source/control/HstBanner.cxx
+@@ -0,0 +1,182 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the HASON TECH solution banner as a VCL control (docs/BANNERS.md).
++
++#include <vcl/HstBanner.hxx>
++
++#include "HstBannerCore.hxx"
++
++#include <com/sun/star/accessibility/AccessibleRole.hpp>
++#include <vcl/event.hxx>
++#include <vcl/ptrstyle.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/wrkwin.hxx>
++
++using namespace css;
++
++class HstRibbonBanner::ViewImpl final : public hst::banner::View
++{
++public:
++    explicit ViewImpl(HstRibbonBanner& rBanner)
++        : mrBanner(rBanner)
++    {
++    }
++
++    Size BannerSize() const override { return mrBanner.GetOutputSizePixel(); }
++    double BannerDpi() const override { return mrBanner.GetDPIScaleFactor(); }
++    double BannerSurfaceScale() const override
++    {
++        return hst::banner::Core::SurfaceScale(*mrBanner.GetOutDev());
++    }
++    bool BannerInView() const override
++    {
++        if (!mrBanner.IsReallyVisible() || mrBanner.GetOutputSizePixel().IsEmpty())
++            return false;
++        const WorkWindow* pWork = dynamic_cast<const WorkWindow*>(mrBanner.GetSystemWindow());
++        return !pWork || !pWork->IsMinimized();
++    }
++    bool BannerPaused() const override { return mrBanner.mbHover || mrBanner.HasFocus(); }
++    void BannerInvalidate() override { mrBanner.Invalidate(); }
++    void BannerSetName(const OUString& rName) override
++    {
++        mrBanner.SetAccessibleName(rName);
++        mrBanner.SetQuickHelpText(rName);
++    }
++
++private:
++    HstRibbonBanner& mrBanner;
++};
++
++HstRibbonBanner::HstRibbonBanner(vcl::Window* pParent)
++    : Control(pParent, WB_TABSTOP)
++    , mpView(std::make_unique<ViewImpl>(*this))
++    , mxCore(new hst::banner::Core(*mpView))
++{
++    SetPaintTransparent(true);
++    SetAccessibleRole(accessibility::AccessibleRole::HYPER_LINK);
++    SetPointer(PointerStyle::RefHand);
++}
++
++HstRibbonBanner::~HstRibbonBanner() { disposeOnce(); }
++
++void HstRibbonBanner::dispose()
++{
++    if (mxCore.is())
++    {
++        mxCore->Detach();
++        mxCore.clear();
++    }
++    Control::dispose();
++}
++
++void HstRibbonBanner::Place(const tools::Rectangle& rSlot)
++{
++    if (rSlot.IsEmpty())
++    {
++        if (IsVisible())
++            Hide(); // StateChanged tells the core
++        else if (mxCore.is())
++            mxCore->Hidden();
++        return;
++    }
++    if (GetPosPixel() != rSlot.TopLeft() || GetSizePixel() != rSlot.GetSize())
++        SetPosSizePixel(rSlot.TopLeft(), rSlot.GetSize()); // Resize tells the core
++    if (!IsVisible())
++        Show();
++    else if (mxCore.is())
++        mxCore->Shown(false);
++}
++
++void HstRibbonBanner::Resize()
++{
++    Control::Resize();
++    // the frame's slot is sized by the window's border directly, not through Place
++    if (mxCore.is() && IsVisible() && !GetOutputSizePixel().IsEmpty())
++        mxCore->Shown(true);
++}
++
++void HstRibbonBanner::StateChanged(StateChangedType nType)
++{
++    Control::StateChanged(nType);
++    if (nType != StateChangedType::Visible || !mxCore.is())
++        return;
++    if (IsVisible() && !GetOutputSizePixel().IsEmpty())
++        mxCore->Shown(false);
++    else
++        mxCore->Hidden();
++}
++
++void HstRibbonBanner::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle&)
++{
++    if (mxCore.is())
++        mxCore->Paint(rRenderContext, rRenderContext.GetSettings().GetStyleSettings(), HasFocus());
++}
++
++void HstRibbonBanner::MouseMove(const MouseEvent& rMEvt)
++{
++    mbHover = !rMEvt.IsLeaveWindow(); // hover pauses the rotation
++    Control::MouseMove(rMEvt);
++}
++
++void HstRibbonBanner::MouseButtonDown(const MouseEvent& rMEvt)
++{
++    if (rMEvt.IsLeft())
++    {
++        mbPressed = true;
++        GrabFocus();
++        return;
++    }
++    Control::MouseButtonDown(rMEvt);
++}
++
++void HstRibbonBanner::MouseButtonUp(const MouseEvent& rMEvt)
++{
++    if (rMEvt.IsLeft() && mbPressed)
++    {
++        mbPressed = false;
++        if (mxCore.is() && tools::Rectangle(Point(), GetOutputSizePixel()).Contains(rMEvt.GetPosPixel()))
++            mxCore->Activate();
++        return;
++    }
++    Control::MouseButtonUp(rMEvt);
++}
++
++void HstRibbonBanner::KeyInput(const KeyEvent& rKEvt)
++{
++    const vcl::KeyCode& rKey = rKEvt.GetKeyCode();
++    if (mxCore.is() && !rKey.GetModifier()
++        && (rKey.GetCode() == KEY_RETURN || rKey.GetCode() == KEY_SPACE))
++    {
++        mxCore->Activate();
++        return;
++    }
++    Control::KeyInput(rKEvt);
++}
++
++void HstRibbonBanner::GetFocus()
++{
++    Control::GetFocus();
++    Invalidate(); // focus ring; focus pauses the rotation
++}
++
++void HstRibbonBanner::LoseFocus()
++{
++    Control::LoseFocus();
++    Invalidate();
++}
++
++void HstRibbonBanner::DataChanged(const DataChangedEvent& rDCEvt)
++{
++    Control::DataChanged(rDCEvt);
++    if (rDCEvt.GetType() == DataChangedEventType::SETTINGS && mxCore.is())
++        mxCore->SettingsChanged();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/control/HstBannerCore.cxx
+@@ -0,0 +1,693 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the HASON TECH solution banner's content, rotation, display count, click and painting
++// (docs/BANNERS.md), shared by every view of it.
++
++#include "HstBannerCore.hxx"
++#include <vcl/HstBannerGeometry.hxx>
++
++#include <basegfx/matrix/b2dhommatrixtools.hxx>
++#include <boost/property_tree/json_parser.hpp>
++#include <com/sun/star/beans/NamedValue.hpp>
++#include <com/sun/star/system/SystemShellExecute.hpp>
++#include <com/sun/star/system/SystemShellExecuteFlags.hpp>
++#include <com/sun/star/task/XJob.hpp>
++#include <com/sun/star/uno/XComponentContext.hpp>
++#include <comphelper/base64.hxx>
++#include <comphelper/processfactory.hxx>
++#include <config_folders.h>
++#include <config_vclplug.h>
++#include <osl/file.hxx>
++#include <rtl/bootstrap.hxx>
++#include <salhelper/thread.hxx>
++#include <tools/stream.hxx>
++#include <vcl/graph.hxx>
++#include <vcl/graphicfilter.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/sysdata.hxx>
++
++#include <algorithm>
++#include <cassert>
++#include <cmath>
++#include <sstream>
++#include <vector>
++
++#if USE_HEADLESS_CODE && !defined(MACOSX) && !defined(_WIN32)
++#include <dlfcn.h>
++#endif
++
++using namespace css;
++
++namespace hst::banner
++{
++namespace
++{
++constexpr sal_Int32 MAX_IMAGE_BYTES = 300 * 1024; // data-layer limit per image
++constexpr sal_Int32 MAX_MANIFEST_BYTES = 512 * 1024;
++constexpr int FADE_STEPS = 10;
++constexpr sal_uInt64 SHOWN_MS = 1000; // a card counts once it stood this long in view
++constexpr OUString EXTENSION_DIR
++    = u"$BRAND_BASE_DIR/" LIBO_SHARE_FOLDER "/extensions/hst-vietnamese-tools/"_ustr;
++}
++
++/** One rotation slot as delivered to the main thread. */
++struct Data
++{
++    OUString aId, aName, aTagline, aUrl;
++    std::vector<sal_uInt8> aImage;
++    sal_Int32 nRotateSeconds = 10;
++    sal_Int32 nSlot = 0;
++    int nScale = 1;
++    bool bOk = false;
++    bool bLast = true; // the worker posts nothing after this result
++};
++
++namespace
++{
++OUString fromUtf8(const std::string& rText) { return OStringToOUString(rText, RTL_TEXTENCODING_UTF8); }
++
++bool readFile(const OUString& rUrl, std::string& rOut, sal_Int32 nLimit)
++{
++    osl::File aFile(rUrl);
++    if (aFile.open(osl_File_OpenFlag_Read) != osl::FileBase::E_None)
++        return false;
++    sal_uInt64 nSize = 0;
++    if (aFile.getSize(nSize) != osl::FileBase::E_None || nSize == 0
++        || nSize > static_cast<sal_uInt64>(nLimit))
++        return false;
++    rOut.resize(nSize);
++    sal_uInt64 nRead = 0;
++    return aFile.read(rOut.data(), nSize, nRead) == osl::FileBase::E_None && nRead == nSize;
++}
++
++/** Click targets the data layer may deliver: HTTPS, or the local test server, which the data layer
++    only accepts in test-stamped packages (release packages are HTTPS-only before this point). */
++bool allowedClick(const OUString& rUrl)
++{
++    return rUrl.startsWith("https://") || rUrl.startsWith("http://127.0.0.1:")
++           || rUrl.startsWith("http://127.0.0.1/");
++}
++
++/** The selected slot from the JSON of org.hst.office.BannerFeed (docs/BANNERS.md). */
++bool parseService(const OUString& rJson, Data& rData)
++{
++    std::stringstream aStream(std::string(OUStringToOString(rJson, RTL_TEXTENCODING_UTF8)));
++    boost::property_tree::ptree aTree;
++    boost::property_tree::read_json(aStream, aTree);
++    rData.nRotateSeconds = aTree.get<sal_Int32>("rotateSeconds", 10);
++    rData.nSlot = aTree.get<sal_Int32>("slot", 0);
++    const auto& rItems = aTree.get_child("items");
++    if (rItems.empty())
++        return false;
++    const auto& rItem = rItems.front().second;
++    rData.aId = fromUtf8(rItem.get<std::string>("id"));
++    rData.aName = fromUtf8(rItem.get<std::string>("name"));
++    rData.aTagline = fromUtf8(rItem.get<std::string>("tagline"));
++    rData.aUrl = fromUtf8(rItem.get<std::string>("click_url_with_utm"));
++    uno::Sequence<sal_Int8> aBytes;
++    comphelper::Base64::decode(aBytes, fromUtf8(rItem.get<std::string>("image_base64")));
++    if (aBytes.getLength() == 0 || aBytes.getLength() > MAX_IMAGE_BYTES)
++        return false;
++    rData.aImage.assign(aBytes.begin(), aBytes.end());
++    return allowedClick(rData.aUrl);
++}
++
++uno::Reference<task::XJob> feed()
++{
++    const uno::Reference<uno::XComponentContext>& xContext = comphelper::getProcessComponentContext();
++    return uno::Reference<task::XJob>(
++        xContext->getServiceManager()->createInstanceWithContext(u"org.hst.office.BannerFeed"_ustr, xContext),
++        uno::UNO_QUERY);
++}
++
++bool fromService(sal_Int32 nSlot, int nScale, Data& rData)
++{
++    try
++    {
++        uno::Reference<task::XJob> xFeed(feed());
++        if (!xFeed.is())
++            return false;
++        OUString aJson;
++        if (!(xFeed->execute({ { u"Scale"_ustr, uno::Any(static_cast<double>(nScale)) },
++                               { u"Slot"_ustr, uno::Any(nSlot) } })
++              >>= aJson)
++            || aJson.isEmpty())
++            return false;
++        return parseService(aJson, rData);
++    }
++    catch (...)
++    {
++        return false; // service missing or failing: installed defaults
++    }
++}
++
++/** Click URL as the data layer builds it: the query is replaced by the shared UTM block. */
++OUString clickUrl(std::u16string_view aUrl, const OUString& rSource, const OUString& rCampaign)
++{
++    const size_t nCut = aUrl.find_first_of(u"?#");
++    return OUString::Concat(aUrl.substr(0, nCut)) + "?utm_source=" + rSource
++           + "&utm_medium=banner&utm_campaign=" + rCampaign;
++}
++
++/** Installed defaults straight from the bundled extension (service unavailable). */
++bool fromBundled(sal_Int32 nSlot, int nScale, Data& rData)
++{
++    try
++    {
++        OUString aDir(EXTENSION_DIR);
++        rtl::Bootstrap::expandMacros(aDir);
++        std::string aManifest, aSolutions;
++        if (!readFile(aDir + "data/banners.json", aManifest, MAX_MANIFEST_BYTES)
++            || !readFile(aDir + "data/solutions.json", aSolutions, MAX_MANIFEST_BYTES))
++            return false;
++        boost::property_tree::ptree aTree, aUtm;
++        std::stringstream aManifestStream(aManifest), aSolutionsStream(aSolutions);
++        boost::property_tree::read_json(aManifestStream, aTree);
++        boost::property_tree::read_json(aSolutionsStream, aUtm);
++        std::vector<const boost::property_tree::ptree*> aItems;
++        for (const auto& rChild : aTree.get_child("items"))
++            if (rChild.second.get_child_optional("image"))
++                aItems.push_back(&rChild.second);
++        if (aItems.empty())
++            return false;
++        std::stable_sort(aItems.begin(), aItems.end(), [](const auto* a, const auto* b) {
++            const int nA = a->template get<int>("order", 0), nB = b->template get<int>("order", 0);
++            return nA != nB ? nA < nB
++                            : a->template get<std::string>("id") < b->template get<std::string>("id");
++        });
++        rData.nSlot = nSlot >= 0 ? nSlot % static_cast<sal_Int32>(aItems.size()) : 0;
++        const auto& rItem = *aItems[rData.nSlot];
++        const std::string aPath = rItem.get<std::string>("image." + std::to_string(nScale) + "x.url");
++        if (aPath.rfind("banners/", 0) != 0 || aPath.find("..") != std::string::npos)
++            return false;
++        std::string aImage;
++        if (!readFile(aDir + fromUtf8(aPath), aImage, MAX_IMAGE_BYTES))
++            return false;
++        rData.aImage.assign(aImage.begin(), aImage.end());
++        rData.nRotateSeconds = aTree.get<sal_Int32>("rotateSeconds", 10);
++        rData.aId = fromUtf8(rItem.get<std::string>("id"));
++        rData.aName = fromUtf8(rItem.get<std::string>("name"));
++        rData.aTagline = fromUtf8(rItem.get<std::string>("tagline"));
++        rData.aUrl = clickUrl(fromUtf8(rItem.get<std::string>("url")),
++                              fromUtf8(aUtm.get<std::string>("utm.source")),
++                              fromUtf8(aUtm.get<std::string>("utm.campaign")));
++        return true;
++    }
++    catch (...)
++    {
++        return false;
++    }
++}
++}
++
++class FetchThread final : public salhelper::Thread
++{
++public:
++    FetchThread(Core* pCore, sal_Int32 nSlot, int nScale, bool bBundledFirst)
++        : salhelper::Thread("HstBanner")
++        , mxCore(pCore)
++        , mnSlot(nSlot)
++        , mnScale(nScale)
++        , mbBundledFirst(bBundledFirst)
++    {
++    }
++
++private:
++    void execute() override
++    {
++        if (mbBundledFirst)
++        {
++            // first paint: installed defaults at once, then whatever the feed selects
++            auto pFirst = std::make_unique<Data>();
++            pFirst->nScale = mnScale;
++            pFirst->bLast = false;
++            pFirst->bOk = fromBundled(mnSlot, mnScale, *pFirst);
++            if (pFirst->bOk)
++                post(std::move(pFirst));
++        }
++        auto pData = std::make_unique<Data>();
++        pData->nScale = mnScale;
++        pData->bOk = fromService(mnSlot, mnScale, *pData);
++        if (!pData->bOk && !mbBundledFirst)
++        {
++            // service unavailable: the installed defaults decide
++            pData = std::make_unique<Data>();
++            pData->nScale = mnScale;
++            pData->bOk = fromBundled(mnSlot, mnScale, *pData);
++        }
++        post(std::move(pData));
++        SolarMutexGuard aGuard;
++        mxCore.clear();
++    }
++
++    void post(std::unique_ptr<Data> pData)
++    {
++        SolarMutexGuard aGuard; // the view cannot go away meanwhile
++        if (!mxCore->Detached())
++            mxCore->Deliver(std::move(pData));
++    }
++
++    rtl::Reference<Core> mxCore;
++    sal_Int32 mnSlot;
++    int mnScale;
++    bool mbBundledFirst;
++};
++
++/** Where a click goes: the service probes the click counter off the UI thread (at most 1.5 s) and
++    answers with the home page when it is down. Without the service the URL is opened as it is. */
++class ClickThread final : public salhelper::Thread
++{
++public:
++    ClickThread(Core* pCore, OUString aUrl)
++        : salhelper::Thread("HstBannerClick")
++        , mxCore(pCore)
++        , maUrl(std::move(aUrl))
++    {
++    }
++
++private:
++    void execute() override
++    {
++        OUString aTarget;
++        try
++        {
++            uno::Reference<task::XJob> xFeed(feed());
++            if (xFeed.is())
++                xFeed->execute({ { u"ClickUrl"_ustr, uno::Any(maUrl) } }) >>= aTarget;
++        }
++        catch (...)
++        {
++        }
++        if (!allowedClick(aTarget))
++            aTarget = maUrl;
++        SolarMutexGuard aGuard;
++        if (!mxCore->Detached())
++            mxCore->DeliverClick(aTarget);
++        mxCore.clear();
++    }
++
++    rtl::Reference<Core> mxCore;
++    OUString maUrl;
++};
++
++/** Tells the data layer that a card was displayed (it counts per day and id, and sends the counts at
++    most once a day). The UI thread never calls Python; nothing is posted back. */
++class ShownThread final : public salhelper::Thread
++{
++public:
++    explicit ShownThread(OUString aId)
++        : salhelper::Thread("HstBannerShown")
++        , maId(std::move(aId))
++    {
++    }
++
++private:
++    void execute() override
++    {
++        try
++        {
++            uno::Reference<task::XJob> xFeed(feed());
++            if (xFeed.is()) // older data layers ignore the argument and answer with a slot
++                xFeed->execute({ { u"Shown"_ustr, uno::Any(maId) } });
++        }
++        catch (...)
++        {
++            // service missing or failing: the display is not counted
++        }
++    }
++
++    OUString maId;
++};
++
++Core::Core(View& rView)
++    : mpView(&rView)
++    , maRotateTimer("sfx2 HstBanner rotate")
++    , maFadeTimer("sfx2 HstBanner fade")
++    , maShownTimer("sfx2 HstBanner shown")
++{
++    maRotateTimer.SetInvokeHandler(LINK(this, Core, RotateHdl));
++    maRotateTimer.SetTimeout(mnRotateSeconds * 1000);
++    maFadeTimer.SetInvokeHandler(LINK(this, Core, FadeHdl));
++    maFadeTimer.SetTimeout(30);
++    maShownTimer.SetInvokeHandler(LINK(this, Core, ShownHdl));
++    maShownTimer.SetTimeout(SHOWN_MS);
++}
++
++Core::~Core() { assert(!mpView); }
++
++void Core::Detach()
++{
++    maRotateTimer.Stop();
++    maFadeTimer.Stop();
++    maShownTimer.Stop();
++    mpView = nullptr;
++    // the workers take the SolarMutex to post their results: let them finish
++    for (salhelper::Thread* pThread : { static_cast<salhelper::Thread*>(mxThread.get()),
++                                        static_cast<salhelper::Thread*>(mxClickThread.get()),
++                                        static_cast<salhelper::Thread*>(mxShownThread.get()) })
++        if (pThread)
++        {
++            SolarMutexReleaser aReleaser;
++            pThread->join();
++        }
++    mxThread.clear();
++    mxClickThread.clear();
++    mxShownThread.clear();
++}
++
++int Core::ScaleForSize() const
++{
++    // the variant that matches the fitted image height in device pixels
++    const Size aSize = mpView->BannerSize();
++    // Size is tools::Long (64-bit on Windows), Rect holds long: MSVC rejects the implicit narrowing.
++    const Rect aImage = fit(Rect{ 0, 0, static_cast<long>(aSize.Width()), static_cast<long>(aSize.Height()) },
++                            ART_WIDTH, ART_HEIGHT);
++    return sourceScale(std::lround(aImage.h * mpView->BannerSurfaceScale()));
++}
++
++void Core::Request(sal_Int32 nSlot)
++{
++    if (mbRequested || !mpView)
++        return;
++    mbRequested = true; // the previous worker has posted its last result
++    try
++    {
++        mxThread = new FetchThread(this, nSlot, ScaleForSize(), maId.isEmpty());
++        mxThread->launch();
++    }
++    catch (const std::exception&)
++    {
++        // no thread available: never disturb editing, try again at the next interval
++        mxThread.clear();
++        mbRequested = false;
++        maRotateTimer.Start();
++    }
++}
++
++void Core::Deliver(std::unique_ptr<Data> pData)
++{
++    // may run on the worker thread (SolarMutex held): hand over to the main loop, keeping the core alive
++    acquire();
++    Application::PostUserEvent(LINK(this, Core, DeliverHdl), pData.release(), false);
++}
++
++IMPL_LINK(Core, DeliverHdl, void*, p, void)
++{
++    std::unique_ptr<Data> pData(static_cast<Data*>(p));
++    rtl::Reference<Core> xThis(this); // drops the reference taken in Deliver at the end
++    release();
++    if (!mpView)
++        return;
++    if (pData->bLast)
++        mbRequested = false;
++    if (!pData->bOk)
++    {
++        // nothing new (service and installed defaults unavailable): keep the current item
++        if (pData->bLast)
++            maRotateTimer.Start();
++        return;
++    }
++    Bitmap aBitmap;
++    {
++        // PNG, JPEG or WebP as verified by the data layer; decoder errors leave the banner as is
++        SvMemoryStream aStream(pData->aImage.data(), pData->aImage.size(), StreamMode::READ);
++        Graphic aGraphic;
++        if (GraphicFilter::GetGraphicFilter().ImportGraphic(aGraphic, u"", aStream) == ERRCODE_NONE)
++            aBitmap = aGraphic.GetBitmap();
++    }
++    if (aBitmap.IsEmpty())
++    {
++        // decoder error: try the next entry, without disturbing editing
++        if (pData->bLast && ++mnFailures < 3)
++            Request(pData->nSlot + 1);
++        else if (pData->bLast)
++            maRotateTimer.Start();
++        return;
++    }
++    mnFailures = 0;
++    mnSlot = pData->nSlot;
++    mnRotateSeconds = std::clamp<sal_Int32>(pData->nRotateSeconds, 5, 60);
++    if (pData->aId != maId && !maImage.IsEmpty() && MiscSettings::IsAnimatedOthersAllowed())
++    {
++        maOld = maImage;
++        maOldScaled = maImageScaled;
++        mnFadeStep = 1;
++        maFadeTimer.Start();
++    }
++    maImage = aBitmap;
++    maImageScaled = Bitmap();
++    mnSourceScale = pData->nScale;
++    maId = pData->aId;
++    maUrl = pData->aUrl;
++    if (maId != maShownId)
++        StartShown();
++    mpView->BannerSetName(pData->aName + u" — " + pData->aTagline);
++    mpView->BannerInvalidate();
++    if (pData->bLast)
++    {
++        maRotateTimer.SetTimeout(mnRotateSeconds * 1000);
++        maRotateTimer.Start();
++    }
++}
++
++IMPL_LINK_NOARG(Core, RotateHdl, Timer*, void)
++{
++    if (!mpView || !mpView->BannerInView() || mpView->BannerPaused())
++    {
++        maRotateTimer.Start(); // try again after a full interval
++        return;
++    }
++    Request(mnSlot + 1);
++}
++
++double Core::SurfaceScale(const OutputDevice& rDevice)
++{
++#if defined(MACOSX)
++    (void)rDevice;
++    return 2.0; // Retina is the norm; Quartz downsamples the @2x art on other displays
++#elif USE_HEADLESS_CODE && !defined(_WIN32)
++    using GetScale = void (*)(void*, double*, double*);
++    static GetScale pGetScale
++        = reinterpret_cast<GetScale>(dlsym(RTLD_DEFAULT, "cairo_surface_get_device_scale"));
++    const SystemGraphicsData aData = rDevice.GetSystemGfxData();
++    double fX = 1.0, fY = 1.0;
++    if (pGetScale && aData.pSurface)
++        pGetScale(aData.pSurface, &fX, &fY);
++    return std::clamp(fY, 1.0, 3.0);
++#else
++    (void)rDevice;
++    return 1.0; // Windows: VCL pixels are device pixels (GetDPIScaleFactor)
++#endif
++}
++
++bool Core::InView() const { return mpView && !maImage.IsEmpty() && mpView->BannerInView(); }
++
++void Core::StartShown()
++{
++    // a new card (another id than the last one): the previous one, if it stood less than a second, is not counted
++    maShownId = maId;
++    mbShownPending = true;
++    mbShownInView = InView();
++    maShownTimer.Start();
++}
++
++IMPL_LINK_NOARG(Core, ShownHdl, Timer*, void)
++{
++    if (!mbShownPending || !mpView)
++        return;
++    const bool bInView = InView();
++    if (!bInView || !mbShownInView)
++    {
++        // not in view for the whole second (hidden slot, minimized window): check again
++        mbShownInView = bInView;
++        maShownTimer.Start();
++        return;
++    }
++    mbShownPending = false;
++    ReportShown();
++}
++
++void Core::ReportShown()
++{
++    // one count per card change; the previous report (one call into Python) finished long ago,
++    // because a card stands at least five seconds
++    try
++    {
++        mxShownThread = new ShownThread(maShownId);
++        mxShownThread->launch();
++    }
++    catch (const std::exception&)
++    {
++        mxShownThread.clear(); // no thread available: this display is not counted
++    }
++}
++
++IMPL_LINK_NOARG(Core, FadeHdl, Timer*, void)
++{
++    if (++mnFadeStep >= FADE_STEPS)
++    {
++        mnFadeStep = 0;
++        maOld = Bitmap();
++        maOldScaled = Bitmap();
++    }
++    else
++        maFadeTimer.Start();
++    if (mpView)
++        mpView->BannerInvalidate();
++}
++
++void Core::Shown(bool bResized)
++{
++    if (!mpView)
++        return;
++    if (mbShownPending && !maShownTimer.IsActive())
++    {
++        mbShownInView = false; // the full second starts at the next check
++        maShownTimer.Start();
++    }
++    if (maId.isEmpty() || (bResized && ScaleForSize() != mnSourceScale))
++        Request(mnSlot); // first content, or the same slot again for the new scale
++    else if (!maRotateTimer.IsActive() && !mbRequested)
++        maRotateTimer.Start();
++}
++
++void Core::Hidden()
++{
++    maRotateTimer.Stop();
++    maShownTimer.Stop(); // a hidden slot shows nothing: start the second again when it is back
++}
++
++const Bitmap& Core::Prepared(const Bitmap& rSource, Bitmap& rCache, const Size& rDevice)
++{
++    if (rCache.IsEmpty() || rCache.GetSizePixel() != rDevice)
++    {
++        rCache = rSource;
++        if (rCache.GetSizePixel() != rDevice)
++            rCache.Scale(rDevice, BmpScaleFlag::BestQuality);
++    }
++    return rCache;
++}
++
++void Core::DrawArt(vcl::RenderContext& rRenderContext, const Bitmap& rSource, Bitmap& rCache, double fAlpha)
++{
++    const Size aOut = mpView->BannerSize();
++    const long nInset = scaled(3, mpView->BannerDpi());
++    const Size aSourceSize = rSource.GetSizePixel();
++    // the image's own pixel size never changes the slot: aspect-fit, centred
++    const Rect aBox{ nInset, nInset, static_cast<long>(aOut.Width()) - 2 * nInset,
++                     static_cast<long>(aOut.Height()) - 2 * nInset };
++    const Rect aFit = fit(aBox, aSourceSize.Width(), aSourceSize.Height());
++    if (aFit.w <= 0 || aFit.h <= 0)
++        return;
++    const double fScale = SurfaceScale(rRenderContext);
++    const Size aDevice(std::lround(aFit.w * fScale), std::lround(aFit.h * fScale));
++    const Bitmap& rDraw = Prepared(rSource, rCache, aDevice);
++    if (fAlpha >= 1.0)
++        rRenderContext.DrawBitmap(Point(aFit.x, aFit.y), Size(aFit.w, aFit.h), rDraw);
++    else
++        rRenderContext.DrawTransformedBitmapEx(
++            basegfx::utils::createScaleTranslateB2DHomMatrix(aFit.w, aFit.h, aFit.x, aFit.y), rDraw, fAlpha);
++}
++
++void Core::Paint(vcl::RenderContext& rRenderContext, const StyleSettings& rStyle, bool bFocused)
++{
++    if (!mpView)
++        return;
++    const tools::Rectangle aAll(Point(), mpView->BannerSize());
++    const long nRadius = scaled(8, mpView->BannerDpi());
++    rRenderContext.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    if (rStyle.GetWindowColor().IsDark() || rStyle.GetDialogColor().IsDark())
++    {
++        // the artwork is designed for light backgrounds: a light rounded card in dark mode
++        rRenderContext.SetLineColor();
++        rRenderContext.SetFillColor(Color(0xF4, 0xF6, 0xF9));
++        rRenderContext.DrawRect(aAll, nRadius, nRadius);
++    }
++    if (!maOld.IsEmpty() && mnFadeStep > 0)
++    {
++        DrawArt(rRenderContext, maOld, maOldScaled, 1.0);
++        if (!maImage.IsEmpty())
++            DrawArt(rRenderContext, maImage, maImageScaled, static_cast<double>(mnFadeStep) / FADE_STEPS);
++    }
++    else if (!maImage.IsEmpty())
++        DrawArt(rRenderContext, maImage, maImageScaled, 1.0);
++    if (bFocused)
++    {
++        rRenderContext.SetFillColor();
++        rRenderContext.SetLineColor(rStyle.GetHighlightColor());
++        tools::Rectangle aRing(aAll);
++        aRing.AdjustRight(-1);
++        aRing.AdjustBottom(-1);
++        rRenderContext.DrawRect(aRing, nRadius, nRadius);
++        aRing.AdjustLeft(1);
++        aRing.AdjustTop(1);
++        aRing.AdjustRight(-1);
++        aRing.AdjustBottom(-1);
++        rRenderContext.DrawRect(aRing, nRadius, nRadius);
++    }
++    rRenderContext.Pop();
++}
++
++void Core::SettingsChanged()
++{
++    maImageScaled = Bitmap();
++    maOldScaled = Bitmap();
++    if (mpView)
++        mpView->BannerInvalidate(); // light/dark card follows the theme
++}
++
++void Core::Activate()
++{
++    using namespace std::chrono_literals;
++    if (!mpView || maUrl.isEmpty() || mbClickPending || std::chrono::steady_clock::now() - maLastOpen < 1s)
++        return;
++    mbClickPending = true;
++    try
++    {
++        mxClickThread = new ClickThread(this, maUrl);
++        mxClickThread->launch();
++    }
++    catch (const std::exception&)
++    {
++        mxClickThread.clear();
++        DeliverClick(maUrl);
++    }
++}
++
++void Core::DeliverClick(const OUString& rUrl)
++{
++    acquire();
++    Application::PostUserEvent(LINK(this, Core, OpenHdl), new OUString(rUrl), false);
++}
++
++IMPL_LINK(Core, OpenHdl, void*, p, void)
++{
++    std::unique_ptr<OUString> pUrl(static_cast<OUString*>(p));
++    rtl::Reference<Core> xThis(this);
++    release();
++    mbClickPending = false;
++    maLastOpen = std::chrono::steady_clock::now();
++    if (!mpView)
++        return;
++    try
++    {
++        system::SystemShellExecute::create(comphelper::getProcessComponentContext())
++            ->execute(*pUrl, OUString(), system::SystemShellExecuteFlags::URIS_ONLY);
++    }
++    catch (const uno::Exception&)
++    {
++        // no dialog: a banner must never interrupt editing
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/control/HstBannerCore.hxx
+@@ -0,0 +1,132 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: what every HASON TECH banner does, whatever window shows it (docs/BANNERS.md): content from
++// org.hst.office.BannerFeed on worker threads (installed defaults when it is unavailable), rotation, the
++// one-second display count, the click and the painting of the artwork. Two views show it (vcl/HstBanner.hxx):
++// HstRibbonBanner, a VCL control, and HstBannerWidget, a weld drawing area. A view lives on the main
++// thread and tells the core what it needs through View.
++
++#include <rtl/ref.hxx>
++#include <rtl/ustring.hxx>
++#include <salhelper/simplereferenceobject.hxx>
++#include <tools/gen.hxx>
++#include <tools/link.hxx>
++#include <vcl/bitmap.hxx>
++#include <vcl/timer.hxx>
++
++#include <chrono>
++#include <memory>
++
++class OutputDevice;
++namespace vcl
++{
++typedef OutputDevice RenderContext;
++}
++class StyleSettings;
++
++namespace hst::banner
++{
++class ClickThread;
++class FetchThread;
++class ShownThread;
++struct Data;
++
++/** The window that shows a banner core. */
++class View
++{
++public:
++    virtual ~View() = default;
++    /** Output size of the slot in device-independent VCL pixels. */
++    virtual Size BannerSize() const = 0;
++    /** VCL DPI factor of the view. */
++    virtual double BannerDpi() const = 0;
++    /** Backing scale of the view's surface (gtk HiDPI, Retina), on top of the DPI factor. */
++    virtual double BannerSurfaceScale() const = 0;
++    /** The slot is drawn in a visible, not minimized window. */
++    virtual bool BannerInView() const = 0;
++    /** Hovered or focused: the rotation waits. */
++    virtual bool BannerPaused() const = 0;
++    virtual void BannerInvalidate() = 0;
++    /** Accessible name and tooltip: "<name> — <tagline>". */
++    virtual void BannerSetName(const OUString& rName) = 0;
++};
++
++class Core final : public salhelper::SimpleReferenceObject
++{
++public:
++    explicit Core(View& rView);
++    virtual ~Core() override;
++
++    /** The view goes away: stop the timers and wait for the workers (they need the SolarMutex). */
++    void Detach();
++    bool Detached() const { return mpView == nullptr; }
++
++    /** The slot was shown, resized or moved; bResized: its size changed. */
++    void Shown(bool bResized);
++    /** The slot was hidden: nothing rotates and the display second starts again when it is back. */
++    void Hidden();
++    /** Click, Enter or Space: open the item's destination (counted by the data layer). */
++    void Activate();
++    void Paint(vcl::RenderContext& rRenderContext, const StyleSettings& rStyle, bool bFocused);
++    /** Theme or scale changed: drop the cached downscales. */
++    void SettingsChanged();
++
++    /** Backing scale of rDevice's surface (gtk HiDPI, macOS Retina), on top of the VCL DPI factor. */
++    static double SurfaceScale(const OutputDevice& rDevice);
++
++    /** Worker results (any thread, SolarMutex held); handed over to the main loop. */
++    void Deliver(std::unique_ptr<Data> pData);
++    void DeliverClick(const OUString& rUrl);
++
++private:
++    void Request(sal_Int32 nSlot);
++    int ScaleForSize() const;
++    const Bitmap& Prepared(const Bitmap& rSource, Bitmap& rCache, const Size& rDevice);
++    void DrawArt(vcl::RenderContext& rRenderContext, const Bitmap& rSource, Bitmap& rCache, double fAlpha);
++    bool InView() const;
++    void StartShown();
++    void ReportShown();
++
++    DECL_LINK(RotateHdl, Timer*, void);
++    DECL_LINK(FadeHdl, Timer*, void);
++    DECL_LINK(DeliverHdl, void*, void);
++    DECL_LINK(OpenHdl, void*, void);
++    DECL_LINK(ShownHdl, Timer*, void);
++
++    View* mpView;
++    rtl::Reference<FetchThread> mxThread;
++    rtl::Reference<ClickThread> mxClickThread;
++    rtl::Reference<ShownThread> mxShownThread;
++    std::chrono::steady_clock::time_point maLastOpen; // double clicks open one browser tab
++    bool mbClickPending = false;
++    Timer maRotateTimer;
++    Timer maFadeTimer;
++    Timer maShownTimer; // one-second check of a new card
++    OUString maShownId; // last card change; the same card is not counted again
++    bool mbShownPending = false; // maShownId is not counted yet
++    bool mbShownInView = false; // it was in view at the previous check
++    OUString maId;
++    OUString maUrl;
++    Bitmap maImage; // decoded source variant of the current item
++    Bitmap maOld; // previous item while fading
++    Bitmap maImageScaled; // high-quality downscale of maImage for the current device size
++    Bitmap maOldScaled;
++    sal_Int32 mnSlot = 0;
++    sal_Int32 mnRotateSeconds = 10;
++    sal_Int32 mnFailures = 0;
++    int mnSourceScale = 0;
++    int mnFadeStep = 0;
++    bool mbRequested = false;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/control/HstBannerWidget.cxx
+@@ -0,0 +1,162 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the HASON TECH solution banner in a weld drawing area (docs/BANNERS.md).
++
++#include <vcl/HstBanner.hxx>
++#include <vcl/HstBannerGeometry.hxx>
++
++#include "HstBannerCore.hxx"
++
++#include <vcl/event.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/ptrstyle.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/window.hxx>
++#include <vcl/wrkwin.hxx>
++
++class HstBannerWidget::ViewImpl final : public hst::banner::View
++{
++public:
++    explicit ViewImpl(HstBannerWidget& rWidget)
++        : mrWidget(rWidget)
++    {
++    }
++
++    Size BannerSize() const override { return mrWidget.GetOutputSizePixel(); }
++
++    double BannerDpi() const override
++    {
++        return mrWidget.mpHost ? mrWidget.mpHost->GetDPIScaleFactor()
++                               : Application::GetDefaultDevice()->GetDPIScaleFactor();
++    }
++
++    double BannerSurfaceScale() const override
++    {
++        weld::DrawingArea* pArea = mrWidget.GetDrawingArea();
++        return pArea ? hst::banner::Core::SurfaceScale(pArea->get_ref_device()) : 1.0;
++    }
++
++    bool BannerInView() const override
++    {
++        if (!mrWidget.GetDrawingArea() || !mrWidget.IsReallyVisible()
++            || mrWidget.GetOutputSizePixel().IsEmpty())
++            return false;
++        if (!mrWidget.mpHost || mrWidget.mpHost->isDisposed() || !mrWidget.mpHost->IsReallyVisible())
++            return false;
++        const WorkWindow* pWork = dynamic_cast<const WorkWindow*>(mrWidget.mpHost->GetSystemWindow());
++        return !pWork || !pWork->IsMinimized();
++    }
++
++    bool BannerPaused() const override
++    {
++        return mrWidget.mbHover || (mrWidget.GetDrawingArea() && mrWidget.HasFocus());
++    }
++
++    void BannerInvalidate() override { mrWidget.Invalidate(); }
++
++    void BannerSetName(const OUString& rName) override
++    {
++        if (weld::DrawingArea* pArea = mrWidget.GetDrawingArea())
++        {
++            pArea->set_accessible_name(rName);
++            pArea->set_tooltip_text(rName);
++        }
++    }
++
++private:
++    HstBannerWidget& mrWidget;
++};
++
++HstBannerWidget::HstBannerWidget(vcl::Window* pHost)
++    : mpHost(pHost)
++    , mpView(std::make_unique<ViewImpl>(*this))
++    , mxCore(new hst::banner::Core(*mpView))
++{
++}
++
++HstBannerWidget::~HstBannerWidget()
++{
++    mxCore->Detach();
++    mxCore.clear();
++}
++
++Size HstBannerWidget::MinimumSize(double fDpi)
++{
++    const hst::banner::StripSlot aSlot = hst::banner::stripSlot(hst::banner::minStripHeight(fDpi), fDpi);
++    return Size(aSlot.w, aSlot.h);
++}
++
++void HstBannerWidget::SetDrawingArea(weld::DrawingArea* pDrawingArea)
++{
++    weld::CustomWidgetController::SetDrawingArea(pDrawingArea);
++    const Size aMin = MinimumSize(mpView->BannerDpi());
++    pDrawingArea->set_size_request(aMin.Width(), aMin.Height());
++    pDrawingArea->set_can_focus(true);
++    SetPointer(PointerStyle::RefHand);
++}
++
++void HstBannerWidget::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle&)
++{
++    mxCore->Paint(rRenderContext, rRenderContext.GetSettings().GetStyleSettings(), HasFocus());
++}
++
++void HstBannerWidget::Resize()
++{
++    weld::CustomWidgetController::Resize();
++    if (!GetOutputSizePixel().IsEmpty())
++        mxCore->Shown(true);
++}
++
++bool HstBannerWidget::MouseMove(const MouseEvent& rMEvt)
++{
++    mbHover = !rMEvt.IsLeaveWindow(); // hover pauses the rotation
++    return false;
++}
++
++bool HstBannerWidget::MouseButtonDown(const MouseEvent& rMEvt)
++{
++    if (!rMEvt.IsLeft())
++        return false;
++    mbPressed = true;
++    GrabFocus();
++    return true;
++}
++
++bool HstBannerWidget::MouseButtonUp(const MouseEvent& rMEvt)
++{
++    if (!rMEvt.IsLeft() || !mbPressed)
++        return false;
++    mbPressed = false;
++    if (tools::Rectangle(Point(), GetOutputSizePixel()).Contains(rMEvt.GetPosPixel()))
++        mxCore->Activate();
++    return true;
++}
++
++bool HstBannerWidget::KeyInput(const KeyEvent& rKEvt)
++{
++    const vcl::KeyCode& rKey = rKEvt.GetKeyCode();
++    if (rKey.GetModifier() || (rKey.GetCode() != KEY_RETURN && rKey.GetCode() != KEY_SPACE))
++        return false;
++    mxCore->Activate();
++    return true;
++}
++
++void HstBannerWidget::GetFocus() { Invalidate(); } // focus ring; focus pauses the rotation
++
++void HstBannerWidget::LoseFocus() { Invalidate(); }
++
++void HstBannerWidget::StyleUpdated()
++{
++    mxCore->SettingsChanged();
++    weld::CustomWidgetController::StyleUpdated();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/control/notebookbar.cxx
++++ b/vcl/source/control/notebookbar.cxx
+@@ -17,6 +17,7 @@
+ #include <vcl/layout.hxx>
+ #include <vcl/notebookbar/notebookbar.hxx>
+ #include <vcl/notebookbar/NotebookBarAddonsItem.hxx>
++#include <vcl/svapp.hxx>
+ #include <vcl/syswin.hxx>
+ #include <vcl/taskpanelist.hxx>
+ #include <vcl/themecolors.hxx>
+@@ -132,6 +133,12 @@
+     m_pEventListener->setupListener(false);
+     m_pEventListener.clear();
+ 
++    if (m_pHstLayoutEvent) // after the content, which may have changed the banner flag while going away
++    {
++        Application::RemoveUserEvent(m_pHstLayoutEvent);
++        m_pHstLayoutEvent = nullptr;
++    }
++
+     Control::dispose();
+ }
+ 
+@@ -205,6 +212,23 @@
+     Control::Resize();
+ }
+ 
++void NotebookBar::HstSetOwnBanner(bool bOwn)
++{
++    if (bOwn == m_bHstOwnBanner)
++        return;
++    m_bHstOwnBanner = bOwn;
++    // the window's border shows or drops its banner; not while the content is being laid out
++    if (!m_pHstLayoutEvent && !isDisposed())
++        m_pHstLayoutEvent = Application::PostUserEvent(LINK(this, NotebookBar, HstLayoutHdl));
++}
++
++IMPL_LINK_NOARG(NotebookBar, HstLayoutHdl, void*, void)
++{
++    m_pHstLayoutEvent = nullptr;
++    if (vcl::Window* pParent = GetParent())
++        pParent->Resize();
++}
++
+ void NotebookBar::SetSystemWindow(SystemWindow* pSystemWindow)
+ {
+     m_pSystemWindow = pSystemWindow;
+--- a/vcl/source/window/brdwin.cxx
++++ b/vcl/source/window/brdwin.cxx
+@@ -36,6 +36,8 @@
+ #include <vcl/settings.hxx>
+ #include <vcl/toolbox.hxx>
+ #include <vcl/ptrstyle.hxx>
++#include <vcl/HstBanner.hxx>
++#include <vcl/HstBannerGeometry.hxx>
+ 
+ using namespace ::com::sun::star::uno;
+ 
+@@ -1613,6 +1615,7 @@
+ {
+     mpBorderView.reset();
+     mpMenuBarWindow.reset();
++    mpHstBanner.disposeAndClear();
+     mpNotebookBar.disposeAndClear();
+     vcl::Window::dispose();
+ }
+@@ -1724,11 +1727,36 @@
+     if (mpNotebookBar)
+     {
+         tools::Long nNotebookBarHeight = mpNotebookBar->GetSizePixel().Height();
+-        mpNotebookBar->setPosSizePixel(
+-                nLeftBorder, nTopBorder,
+-                aSize.Width() - nLeftBorder - nRightBorder,
+-                nNotebookBarHeight);
++        const tools::Long nWidth = aSize.Width() - nLeftBorder - nRightBorder;
++        if (HstBannerBesideNotebookBar())
++        {
++            // HST Office (docs/BANNERS.md): the notebookbar's content has no banner of its own, so the
++            // window shows one at the right end of the bar's strip, which is at least as high as the
++            // banner needs; the bar takes the width left of it and is centred vertically in the strip.
++            const double fDpi = GetDPIScaleFactor();
++            const tools::Long nStrip = HstNotebookBarStripHeight();
++            const hst::banner::StripSlot aSlot = hst::banner::stripSlot(nStrip, fDpi);
++            const tools::Long nRightMargin = hst::banner::scaled(4, fDpi);
++            const tools::Long nGap = hst::banner::scaled(8, fDpi);
++            if (!mpHstBanner)
++                mpHstBanner = VclPtr<HstRibbonBanner>::Create(this);
++            mpNotebookBar->setPosSizePixel(
++                    nLeftBorder, nTopBorder + (nStrip - nNotebookBarHeight) / 2,
++                    std::max<tools::Long>(0, nWidth - aSlot.w - nRightMargin - nGap),
++                    nNotebookBarHeight);
++            mpHstBanner->Place(tools::Rectangle(
++                Point(nLeftBorder + nWidth - nRightMargin - aSlot.w, nTopBorder + (nStrip - aSlot.h) / 2),
++                Size(aSlot.w, aSlot.h)));
++        }
++        else
++        {
++            if (mpHstBanner)
++                mpHstBanner->Place(tools::Rectangle());
++            mpNotebookBar->setPosSizePixel(nLeftBorder, nTopBorder, nWidth, nNotebookBarHeight);
++        }
+     }
++    else if (mpHstBanner)
++        mpHstBanner->Place(tools::Rectangle());
+ 
+     GetBorder( pClientWindow->mpWindowImpl->mnLeftBorder, pClientWindow->mpWindowImpl->mnTopBorder,
+                pClientWindow->mpWindowImpl->mnRightBorder, pClientWindow->mpWindowImpl->mnBottomBorder );
+@@ -1967,7 +1995,20 @@
+         rTopBorder += mpMenuBarWindow->GetSizePixel().Height();
+ 
+     if (mpNotebookBar && mpNotebookBar->IsVisible())
+-        rTopBorder += mpNotebookBar->GetSizePixel().Height();
++        rTopBorder += HstNotebookBarStripHeight();
++}
++
++bool ImplBorderWindow::HstBannerBesideNotebookBar() const
++{
++    return mpNotebookBar && mpNotebookBar->IsVisible() && !mpNotebookBar->HstHasOwnBanner();
++}
++
++tools::Long ImplBorderWindow::HstNotebookBarStripHeight() const
++{
++    const tools::Long nHeight = mpNotebookBar ? mpNotebookBar->GetSizePixel().Height() : 0;
++    if (!HstBannerBesideNotebookBar())
++        return nHeight;
++    return std::max(nHeight, hst::banner::minStripHeight(GetDPIScaleFactor()));
+ }
+ 
+ tools::Long ImplBorderWindow::CalcTitleWidth() const
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
+@@ -316,6 +316,9 @@
+     // is the one the frame showed through before (the dialog colour on Windows).
+     SetPaintTransparent(false);
+     applyBackground();
++
++    m_xBanner.reset(new HstBannerWidget(this));
++    m_xBannerWeld.reset(new weld::CustomWeld(*m_xBuilder, u"banner"_ustr, *m_xBanner));
+ }
+ 
+ void PdfViewerWindow::Resize()
+@@ -338,7 +341,9 @@
+ 
+ void PdfViewerWindow::fitToolbar()
+ {
+-    const tools::Long nAvailable = GetSizePixel().Width();
++    // the banner keeps its slot at the right end of the strip (and the strip's 12 px gap)
++    const tools::Long nAvailable = GetSizePixel().Width()
++                                   - HstBannerWidget::MinimumSize(GetDPIScaleFactor()).Width() - 12;
+     if (nAvailable <= 0 || !m_xToolbar || !m_xMenu) // not built yet, or disposed
+         return;
+     // the widest toolbar that fits; the last level when none does (the window has a minimum)
+@@ -375,6 +380,8 @@
+         Application::RemoveUserEvent(m_pSignatureCheckEvent);
+         m_pSignatureCheckEvent = nullptr;
+     }
++    m_xBannerWeld.reset(); // before the builder's widgets go
++    m_xBanner.reset();
+     m_xAccExec.reset();
+     m_xFrame.clear();
+     m_xStatusInfo.reset();
+@@ -1468,6 +1475,14 @@
+             aInfo.emplace_back(u"ToolbarScreen"_ustr,
+                                uno::Any(uno::Sequence<sal_Int32>{ sal_Int32(aOrigin.X()), sal_Int32(aOrigin.Y()),
+                                                                   sal_Int32(nWidth), sal_Int32(nHeight) }));
++            if (m_xBannerWeld && m_xBanner && m_xBanner->GetDrawingArea()
++                && m_xBanner->GetDrawingArea()->get_extents_relative_to(*m_xContainer, nX, nY, nWidth, nHeight))
++            {
++                const AbsoluteScreenPixelPoint aBanner = OutputToAbsoluteScreenPixel(Point(nX, nY));
++                aInfo.emplace_back(u"BannerScreen"_ustr,
++                                   uno::Any(uno::Sequence<sal_Int32>{ sal_Int32(aBanner.X()), sal_Int32(aBanner.Y()),
++                                                                      sal_Int32(nWidth), sal_Int32(nHeight) }));
++            }
+         }
+         if (m_xDocument && rArgs.getUnpackedValueOrDefault(u"RenderPage"_ustr, sal_Int32(0)) > 0)
+         {
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.hxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.hxx
+@@ -19,6 +19,7 @@
+ #include <com/sun/star/security/XCertificate.hpp>
+ #include <comphelper/sequenceashashmap.hxx>
+ #include <svtools/acceleratorexecute.hxx>
++#include <vcl/HstBanner.hxx>
+ #include <vcl/InterimItemWindow.hxx>
+ #include <vcl/weld/Button.hxx>
+ #include <vcl/weld/CheckButton.hxx>
+@@ -167,6 +168,10 @@
+     std::vector<std::pair<weld::Button*, OUString>> m_aCompactButtons;
+     int m_nToolbarLevel = 0;
+ 
++    // HST Office: the HASON TECH banner at the right end of the toolbar strip (docs/BANNERS.md)
++    std::unique_ptr<HstBannerWidget> m_xBanner;
++    std::unique_ptr<weld::CustomWeld> m_xBannerWeld;
++
+     std::unique_ptr<PdfPageView> m_xThumbs;
+     std::unique_ptr<weld::CustomWeld> m_xThumbsWeld;
+     std::unique_ptr<PdfPageView> m_xPages;
+--- a/xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++++ b/xmlsecurity/uiconfig/ui/hstpdfviewer.ui
+@@ -108,265 +108,429 @@
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+     <child>
+-      <object class="GtkBox" id="toolbar">
++      <object class="GtkBox" id="toolbarstrip">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+-        <property name="spacing">6</property>
++        <property name="spacing">12</property>
+         <property name="margin-start">10</property>
+         <property name="margin-end">10</property>
+         <property name="margin-top">6</property>
+         <property name="margin-bottom">6</property>
+         <child>
+-          <object class="GtkButton" id="open">
+-            <property name="label" translatable="yes" context="hstpdfviewer|open">Open…</property>
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="use-underline">True</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|open|tooltip_text">Open a file (Ctrl+O)</property>
+-            <property name="image">openimg</property>
+-            <property name="always-show-image">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">0</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkButton" id="print">
+-            <property name="label" translatable="yes" context="hstpdfviewer|print">Print…</property>
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="use-underline">True</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|print|tooltip_text">Print the document (Ctrl+P)</property>
+-            <property name="image">printimg</property>
+-            <property name="always-show-image">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">1</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkButton" id="savecopy">
+-            <property name="label" translatable="yes" context="hstpdfviewer|savecopy">Save a Copy…</property>
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="use-underline">True</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|savecopy|tooltip_text">Save a copy of this PDF (Ctrl+Shift+S)</property>
+-            <property name="image">savecopyimg</property>
+-            <property name="always-show-image">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">2</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkSeparator" id="sep1">
+-            <property name="visible">True</property>
+-            <property name="can-focus">False</property>
+-            <property name="orientation">vertical</property>
+-            <property name="margin-start">2</property>
+-            <property name="margin-end">2</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">3</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkButton" id="zoomout">
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|zoomout|tooltip_text">Zoom Out (Ctrl+-)</property>
+-            <property name="image">zoomoutimg</property>
+-            <property name="always-show-image">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">4</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkComboBoxText" id="zoom">
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="has-entry">True</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|zoom|tooltip_text">Zoom</property>
+-            <child internal-child="entry"><object class="GtkEntry" id="zoomentry"><property name="can-focus">True</property><property name="width-chars">6</property><property name="truncate-multiline">True</property></object></child><items><item id="width" translatable="yes" context="hstpdfviewer|zoomwidth">Fit Width</item><item id="50">50%</item><item id="75">75%</item><item id="100">100%</item><item id="125">125%</item><item id="150">150%</item><item id="200">200%</item><item id="300">300%</item></items>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">5</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkButton" id="zoomin">
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|zoomin|tooltip_text">Zoom In (Ctrl++)</property>
+-            <property name="image">zoominimg</property>
+-            <property name="always-show-image">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">6</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkButton" id="fitpage">
+-            <property name="label" translatable="yes" context="hstpdfviewer|fitpage">Fit Page</property>
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="use-underline">True</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|fitpage|tooltip_text">Show the whole page</property>
+-            <property name="image">fitpageimg</property>
+-            <property name="always-show-image">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">7</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkButton" id="fitwidth">
+-            <property name="label" translatable="yes" context="hstpdfviewer|fitwidth">Fit Width</property>
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="use-underline">True</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|fitwidth|tooltip_text">Fit the page width to the window (Ctrl+2)</property>
+-            <property name="image">fitwidthimg</property>
+-            <property name="always-show-image">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">8</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkButton" id="rotate">
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|rotate|tooltip_text">Rotate the pages 90° clockwise (Ctrl+R)</property>
+-            <property name="image">rotateimg</property>
+-            <property name="always-show-image">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">9</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkSeparator" id="sep2">
++          <!-- HST Office: the controls in two even rows on the left, the HASON TECH banner at the right (docs/BANNERS.md) -->
++          <object class="GtkBox" id="toolbar">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
++            <property name="valign">center</property>
+             <property name="orientation">vertical</property>
+-            <property name="margin-start">2</property>
+-            <property name="margin-end">2</property>
++            <property name="spacing">6</property>
++            <child>
++              <object class="GtkBox" id="toolrow1">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="spacing">6</property>
++                <child>
++                  <object class="GtkButton" id="open">
++                    <property name="label" translatable="yes" context="hstpdfviewer|open">Open…</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|open|tooltip_text">Open a file (Ctrl+O)</property>
++                    <property name="image">openimg</property>
++                    <property name="always-show-image">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="print">
++                    <property name="label" translatable="yes" context="hstpdfviewer|print">Print…</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|print|tooltip_text">Print the document (Ctrl+P)</property>
++                    <property name="image">printimg</property>
++                    <property name="always-show-image">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="savecopy">
++                    <property name="label" translatable="yes" context="hstpdfviewer|savecopy">Save a Copy…</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|savecopy|tooltip_text">Save a copy of this PDF (Ctrl+Shift+S)</property>
++                    <property name="image">savecopyimg</property>
++                    <property name="always-show-image">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkSeparator" id="sep1">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="orientation">vertical</property>
++                    <property name="margin-start">2</property>
++                    <property name="margin-end">2</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">3</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="zoomout">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|zoomout|tooltip_text">Zoom Out (Ctrl+-)</property>
++                    <property name="image">zoomoutimg</property>
++                    <property name="always-show-image">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkComboBoxText" id="zoom">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="has-entry">True</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|zoom|tooltip_text">Zoom</property>
++                    <child internal-child="entry"><object class="GtkEntry" id="zoomentry"><property name="can-focus">True</property><property name="width-chars">6</property><property name="truncate-multiline">True</property></object></child><items><item id="width" translatable="yes" context="hstpdfviewer|zoomwidth">Fit Width</item><item id="50">50%</item><item id="75">75%</item><item id="100">100%</item><item id="125">125%</item><item id="150">150%</item><item id="200">200%</item><item id="300">300%</item></items>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">5</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="zoomin">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|zoomin|tooltip_text">Zoom In (Ctrl++)</property>
++                    <property name="image">zoominimg</property>
++                    <property name="always-show-image">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">6</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="fitpage">
++                    <property name="label" translatable="yes" context="hstpdfviewer|fitpage">Fit Page</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|fitpage|tooltip_text">Show the whole page</property>
++                    <property name="image">fitpageimg</property>
++                    <property name="always-show-image">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">7</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="fitwidth">
++                    <property name="label" translatable="yes" context="hstpdfviewer|fitwidth">Fit Width</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|fitwidth|tooltip_text">Fit the page width to the window (Ctrl+2)</property>
++                    <property name="image">fitwidthimg</property>
++                    <property name="always-show-image">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">8</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="rotate">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|rotate|tooltip_text">Rotate the pages 90° clockwise (Ctrl+R)</property>
++                    <property name="image">rotateimg</property>
++                    <property name="always-show-image">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">9</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="toolrow2">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="spacing">6</property>
++                <child>
++                  <object class="GtkButton" id="prevpage">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|prevpage|tooltip_text">Previous page (Ctrl+Page Up)</property>
++                    <property name="image">prevpageimg</property>
++                    <property name="always-show-image">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="pagelabel">
++                    <property name="label" translatable="yes" context="hstpdfviewer|pagelabel">Page</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkEntry" id="page">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="width-chars">4</property>
++                    <property name="xalign">1</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|page|tooltip_text">Go to page</property>
++                    <property name="truncate-multiline">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">2</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="pagecount">
++                    <property name="label">/ 1</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">3</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="nextpage">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|nextpage|tooltip_text">Next page (Ctrl+Page Down)</property>
++                    <property name="image">nextpageimg</property>
++                    <property name="always-show-image">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkSeparator" id="sep2">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="orientation">vertical</property>
++                    <property name="margin-start">2</property>
++                    <property name="margin-end">2</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">5</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkEntry" id="search">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="width-chars">24</property>
++                    <property name="placeholder-text" translatable="yes" context="hstpdfviewer|search">Search in document</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|search|tooltip_text">Search in document (Ctrl+F). Enter: next match</property>
++                    <property name="truncate-multiline">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">6</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="findprev">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|findprev|tooltip_text">Previous match (Shift+Enter)</property>
++                    <property name="image">findprevimg</property>
++                    <property name="always-show-image">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">7</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="findnext">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|findnext|tooltip_text">Next match (Enter)</property>
++                    <property name="image">findnextimg</property>
++                    <property name="always-show-image">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">8</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkSeparator" id="sep3">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="orientation">vertical</property>
++                    <property name="margin-start">2</property>
++                    <property name="margin-end">2</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">9</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="edit">
++                    <property name="label" translatable="yes" context="hstpdfviewer|edit">Edit in HST Draw</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|edit|tooltip_text">Open this PDF in HST Draw to edit it</property>
++                    <property name="image">editimg</property>
++                    <property name="always-show-image">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">10</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkToggleButton" id="sign">
++                    <property name="label" translatable="yes" context="hstpdfviewer|sign">Sign</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|sign|tooltip_text">Sign this PDF with your digital certificate (USB token)</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">11</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkSeparator" id="sep4">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="orientation">vertical</property>
++                    <property name="margin-start">2</property>
++                    <property name="margin-end">2</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">12</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkMenuButton" id="menu">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="tooltip-text" translatable="yes" context="hstpdfviewer|menu|tooltip_text">Help, report a problem, about HST Office</property>
++                    <property name="image">menuimg</property>
++                    <property name="always-show-image">True</property>
++                    <property name="popup">hstmenu</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">13</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">1</property>
++              </packing>
++            </child>
+           </object>
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">10</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkButton" id="prevpage">
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|prevpage|tooltip_text">Previous page (Ctrl+Page Up)</property>
+-            <property name="image">prevpageimg</property>
+-            <property name="always-show-image">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">11</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkLabel" id="pagelabel">
+-            <property name="label" translatable="yes" context="hstpdfviewer|pagelabel">Page</property>
+-            <property name="visible">True</property>
+-            <property name="can-focus">False</property>
+-            <property name="xalign">0</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">12</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkEntry" id="page">
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="width-chars">4</property>
+-            <property name="xalign">1</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|page|tooltip_text">Go to page</property>
+-            <property name="truncate-multiline">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">13</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkLabel" id="pagecount">
+-            <property name="label">/ 1</property>
+-            <property name="visible">True</property>
+-            <property name="can-focus">False</property>
+-            <property name="xalign">0</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">14</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkButton" id="nextpage">
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|nextpage|tooltip_text">Next page (Ctrl+Page Down)</property>
+-            <property name="image">nextpageimg</property>
+-            <property name="always-show-image">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">15</property>
++            <property name="position">0</property>
+           </packing>
+         </child>
+         <child>
+@@ -377,132 +541,25 @@
+           <packing>
+             <property name="expand">True</property>
+             <property name="fill">True</property>
+-            <property name="position">16</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkEntry" id="search">
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="width-chars">24</property>
+-            <property name="placeholder-text" translatable="yes" context="hstpdfviewer|search">Search in document</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|search|tooltip_text">Search in document (Ctrl+F). Enter: next match</property>
+-            <property name="truncate-multiline">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">17</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkButton" id="findprev">
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|findprev|tooltip_text">Previous match (Shift+Enter)</property>
+-            <property name="image">findprevimg</property>
+-            <property name="always-show-image">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">18</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkButton" id="findnext">
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|findnext|tooltip_text">Next match (Enter)</property>
+-            <property name="image">findnextimg</property>
+-            <property name="always-show-image">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">19</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkSeparator" id="sep3">
+-            <property name="visible">True</property>
+-            <property name="can-focus">False</property>
+-            <property name="orientation">vertical</property>
+-            <property name="margin-start">2</property>
+-            <property name="margin-end">2</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">20</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkButton" id="edit">
+-            <property name="label" translatable="yes" context="hstpdfviewer|edit">Edit in HST Draw</property>
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="use-underline">True</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|edit|tooltip_text">Open this PDF in HST Draw to edit it</property>
+-            <property name="image">editimg</property>
+-            <property name="always-show-image">True</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">21</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkToggleButton" id="sign">
+-            <property name="label" translatable="yes" context="hstpdfviewer|sign">Sign</property>
+-            <property name="visible">True</property>
+-            <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|sign|tooltip_text">Sign this PDF with your digital certificate (USB token)</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">22</property>
+-          </packing>
+-        </child>
+-        <child>
+-          <object class="GtkSeparator" id="sep4">
+-            <property name="visible">True</property>
+-            <property name="can-focus">False</property>
+-            <property name="orientation">vertical</property>
+-            <property name="margin-start">2</property>
+-            <property name="margin-end">2</property>
+-          </object>
+-          <packing>
+-            <property name="expand">False</property>
+-            <property name="fill">True</property>
+-            <property name="position">23</property>
++            <property name="position">1</property>
+           </packing>
+         </child>
+         <child>
+-          <object class="GtkMenuButton" id="menu">
++          <object class="GtkDrawingArea" id="banner">
+             <property name="visible">True</property>
+             <property name="can-focus">True</property>
+-            <property name="receives-default">False</property>
+-            <property name="focus-on-click">False</property>
+-            <property name="tooltip-text" translatable="yes" context="hstpdfviewer|menu|tooltip_text">Help, report a problem, about HST Office</property>
+-            <property name="image">menuimg</property>
+-            <property name="always-show-image">True</property>
+-            <property name="popup">hstmenu</property>
++            <property name="halign">end</property>
++            <property name="valign">center</property>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="banner-atkobject">
++                <property name="AtkObject::accessible-name">HASON TECH</property>
++              </object>
++            </child>
+           </object>
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">24</property>
++            <property name="position">2</property>
+           </packing>
+         </child>
+       </object>
+--- a/sfx2/source/notebookbar/HstBannerGeometry.hxx
++++ /dev/null
+@@ -1,154 +0,0 @@
+-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+-/*
+- * This file is part of the LibreOffice project.
+- *
+- * This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+- */
+-
+-#pragma once
+-
+-// HST Office: geometry of the HASON TECH solution banner in the Tabbed notebookbar.
+-// Plain integer arithmetic without LibreOffice types, so it can be unit tested on its own
+-// (tests/unit/test_ribbon_banner_geometry.py compiles it from the patch with a test driver).
+-//
+-// The slot adapts to the ribbon, never the other way round: it fits inside the tab page that
+-// already holds the 2-row groups, keeps the exact ratio of the artwork (360:104 wide, 160:104
+-// compact) and is capped at the artwork's logical size. Images of any pixel size are
+-// aspect-fitted into the slot. Windows narrower than 1280 logical px show the compact artwork,
+-// so the banner always keeps a slot while the groups get most of the width.
+-
+-#include <algorithm>
+-#include <cmath>
+-#include <cstdlib>
+-
+-namespace hst::banner
+-{
+-struct Rect
+-{
+-    long x = 0;
+-    long y = 0;
+-    long w = 0;
+-    long h = 0;
+-};
+-
+-constexpr long ART_WIDTH = 360; // logical px of the @1x artwork
+-constexpr long COMPACT_ART_WIDTH = 160; // logical px of the @1x compact artwork (same height)
+-constexpr long ART_HEIGHT = 104;
+-// The slot is centred vertically on the tab page (the per-app position the hstsystem admin preview
+-// uses); false anchors it at the top of every page. Owner question pending: one line to switch.
+-constexpr bool SLOT_CENTRED = true;
+-constexpr long MIN_WINDOW_WIDTH = 1280; // narrower windows keep the whole width for the groups
+-// The wide slot narrows down to this many logical px (keeping the artwork's ratio) when the current tab's
+-// groups do not fit beside the full 360 px: the bundled artwork's text stays readable at 1x down to here.
+-constexpr long MIN_WIDE_ART_WIDTH = 260;
+-// A new width of the narrowed wide slot replaces the last one only when it differs by this many logical
+-// px, so small changes of the room do not move the banner.
+-constexpr long WIDE_HYSTERESIS = 12;
+-constexpr long MIN_PAGE_HEIGHT = 60; // compact ribbons (one row) never show the banner
+-
+-inline long scaled(long nLogical, double fDpi) { return std::lround(nLogical * fDpi); }
+-
+-/** Whether the banner is shown for a top-level window of nWindowWidth pixels at fDpi. */
+-inline bool visibleFor(long nWindowWidth, long nPageHeight, double fDpi)
+-{
+-    return nWindowWidth >= scaled(MIN_WINDOW_WIDTH, fDpi)
+-           && nPageHeight >= scaled(MIN_PAGE_HEIGHT, fDpi);
+-}
+-
+-enum class Mode
+-{
+-    Hidden, // one-row (compact) ribbons
+-    Wide, // windows of at least MIN_WINDOW_WIDTH: the 360x104 artwork
+-    Compact // narrower windows: the 160x104 artwork
+-};
+-
+-/** Which banner a top-level window of nWindowWidth pixels with a page nPageHeight high shows. */
+-inline Mode modeFor(long nWindowWidth, long nPageHeight, double fDpi)
+-{
+-    if (nPageHeight < scaled(MIN_PAGE_HEIGHT, fDpi))
+-        return Mode::Hidden;
+-    return visibleFor(nWindowWidth, nPageHeight, fDpi) ? Mode::Wide : Mode::Compact;
+-}
+-
+-/** Logical width of the @1x artwork for a mode (0 when hidden). */
+-inline long artWidth(Mode eMode)
+-{
+-    return eMode == Mode::Wide ? ART_WIDTH : eMode == Mode::Compact ? COMPACT_ART_WIDTH : 0;
+-}
+-
+-/** Banner slot at the right end of the full tab page rectangle rPage (pixels), for artwork
+-    nArtWidth logical px wide: the largest rectangle with the artwork's ratio that fits the page
+-    height (minus margins) and the artwork's logical size, centred vertically on the page. */
+-inline Rect slotFor(const Rect& rPage, double fDpi, long nArtWidth = ART_WIDTH, long nMaxWidth = 0)
+-{
+-    const long nVMargin = scaled(2, fDpi);
+-    const long nRightMargin = scaled(4, fDpi);
+-    const long nRoom = std::max(0L, rPage.h - 2 * nVMargin);
+-    Rect aSlot;
+-    if (nArtWidth <= 0)
+-        return Rect{ rPage.x + rPage.w - nRightMargin, rPage.y + nVMargin, 0, 0 };
+-    aSlot.w = std::min(scaled(nArtWidth, fDpi), nRoom * nArtWidth / ART_HEIGHT);
+-    if (nMaxWidth > 0)
+-        aSlot.w = std::min(aSlot.w, nMaxWidth); // a narrowed wide slot (wideSlotWidth)
+-    aSlot.h = std::min(nRoom, aSlot.w * ART_HEIGHT / nArtWidth);
+-    aSlot.x = rPage.x + rPage.w - nRightMargin - aSlot.w;
+-    aSlot.y = rPage.y + nVMargin + (SLOT_CENTRED ? (nRoom - aSlot.h) / 2 : 0);
+-    return aSlot;
+-}
+-
+-/** Width left to the groups of the page when the banner occupies rSlot. */
+-inline long pageWidthBeside(const Rect& rPage, const Rect& rSlot, double fDpi)
+-{
+-    return std::max(0L, rSlot.x - scaled(8, fDpi) - rPage.x);
+-}
+-
+-/** HST Office: the width in px of the wide slot (windows of at least MIN_WINDOW_WIDTH) on the tab page
+-    rPage whose groups need nFullWidth px at their largest: the full artwork width when they fit beside it,
+-    else the room they leave (the 8 px gap and the 4 px right margin aside), down to MIN_WIDE_ART_WIDTH.
+-    nFullWidth < 0 (not measured yet): the full width. nPrevious (the last width, 0 for none) stays while
+-    the new width is within WIDE_HYSTERESIS of it. The slot keeps the artwork's ratio (slotFor), so the
+-    drawn artwork and the click target narrow together and stay centred vertically on the page. */
+-inline long wideSlotWidth(const Rect& rPage, long nFullWidth, long nPrevious, double fDpi)
+-{
+-    const long nMax = scaled(ART_WIDTH, fDpi);
+-    const long nMin = scaled(MIN_WIDE_ART_WIDTH, fDpi);
+-    const long nWant = nFullWidth < 0
+-                           ? nMax
+-                           : std::clamp(rPage.w - nFullWidth - scaled(8, fDpi) - scaled(4, fDpi), nMin, nMax);
+-    if (nPrevious >= nMin && nPrevious <= nMax && nWant != nMax && nWant != nMin
+-        && std::abs(nWant - nPrevious) < scaled(WIDE_HYSTERESIS, fDpi))
+-        return nPrevious;
+-    return nWant;
+-}
+-
+-/** Aspect-fit an image of nImageW x nImageH into rBox, centred; never larger than rBox. */
+-inline Rect fit(const Rect& rBox, long nImageW, long nImageH)
+-{
+-    Rect aResult = rBox;
+-    if (nImageW <= 0 || nImageH <= 0 || rBox.w <= 0 || rBox.h <= 0)
+-        return Rect{ rBox.x, rBox.y, 0, 0 };
+-    // compare rBox.w / rBox.h with nImageW / nImageH without rounding
+-    if (rBox.w * nImageH > nImageW * rBox.h)
+-        aResult.w = std::max(1L, rBox.h * nImageW / nImageH); // box wider: full height
+-    else
+-        aResult.h = std::max(1L, rBox.w * nImageH / nImageW); // box taller: full width
+-    aResult.x = rBox.x + (rBox.w - aResult.w) / 2;
+-    aResult.y = rBox.y + (rBox.h - aResult.h) / 2;
+-    return aResult;
+-}
+-
+-/** Artwork variant (1, 2 or 3) for an image drawn nDeviceHeight device pixels high: the exact
+-    variant when the size matches one, else the next larger one so that it is only ever
+-    downscaled (high quality) and never upscaled. */
+-inline int sourceScale(long nDeviceHeight)
+-{
+-    long nLevel = (nDeviceHeight + ART_HEIGHT - 1) / ART_HEIGHT;
+-    if (nDeviceHeight % ART_HEIGHT != 0)
+-        ++nLevel;
+-    return static_cast<int>(std::clamp(nLevel, 1L, 3L));
+-}
+-}
+-
+-/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/notebookbar/HstRibbonBanner.cxx
++++ /dev/null
+@@ -1,852 +0,0 @@
+-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+-/*
+- * This file is part of the LibreOffice project.
+- *
+- * This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+- */
+-
+-// HST Office: rotating HASON TECH solution banner in the Tabbed notebookbar (docs/BANNERS.md).
+-
+-#include "HstRibbonBanner.hxx"
+-#include "HstBannerGeometry.hxx"
+-
+-#include <basegfx/matrix/b2dhommatrixtools.hxx>
+-#include <boost/property_tree/json_parser.hpp>
+-#include <com/sun/star/accessibility/AccessibleRole.hpp>
+-#include <com/sun/star/beans/NamedValue.hpp>
+-#include <com/sun/star/system/SystemShellExecute.hpp>
+-#include <com/sun/star/system/SystemShellExecuteFlags.hpp>
+-#include <com/sun/star/task/XJob.hpp>
+-#include <com/sun/star/uno/XComponentContext.hpp>
+-#include <comphelper/base64.hxx>
+-#include <comphelper/processfactory.hxx>
+-#include <config_folders.h>
+-#include <config_vclplug.h>
+-#include <osl/file.hxx>
+-#include <rtl/bootstrap.hxx>
+-#include <salhelper/thread.hxx>
+-#include <tools/stream.hxx>
+-#include <vcl/event.hxx>
+-#include <vcl/graph.hxx>
+-#include <vcl/graphicfilter.hxx>
+-#include <vcl/ptrstyle.hxx>
+-#include <vcl/settings.hxx>
+-#include <vcl/svapp.hxx>
+-#include <vcl/sysdata.hxx>
+-#include <vcl/wrkwin.hxx>
+-
+-#include <algorithm>
+-#include <sstream>
+-#include <vector>
+-
+-#if USE_HEADLESS_CODE && !defined(MACOSX) && !defined(_WIN32)
+-#include <dlfcn.h>
+-#endif
+-
+-using namespace css;
+-
+-namespace hst::banner
+-{
+-namespace
+-{
+-constexpr sal_Int32 MAX_IMAGE_BYTES = 300 * 1024; // data-layer limit per image
+-constexpr sal_Int32 MAX_MANIFEST_BYTES = 512 * 1024;
+-constexpr int FADE_STEPS = 10;
+-constexpr sal_uInt64 SHOWN_MS = 1000; // a card counts once it stood this long in view
+-constexpr OUString EXTENSION_DIR
+-    = u"$BRAND_BASE_DIR/" LIBO_SHARE_FOLDER "/extensions/hst-vietnamese-tools/"_ustr;
+-}
+-
+-/** One rotation slot as delivered to the main thread. */
+-struct Data
+-{
+-    OUString aId, aName, aTagline, aUrl;
+-    std::vector<sal_uInt8> aImage;
+-    sal_Int32 nRotateSeconds = 10;
+-    sal_Int32 nSlot = 0;
+-    int nScale = 1;
+-    bool bCompact = false;
+-    bool bOk = false;
+-    bool bNoItems = false; // the source answered, but has no item for this mode (compact art)
+-    bool bLast = true; // the worker posts nothing after this result
+-};
+-
+-namespace
+-{
+-OUString fromUtf8(const std::string& rText)
+-{
+-    return OStringToOUString(rText, RTL_TEXTENCODING_UTF8);
+-}
+-
+-bool readFile(const OUString& rUrl, std::string& rOut, sal_Int32 nLimit)
+-{
+-    osl::File aFile(rUrl);
+-    if (aFile.open(osl_File_OpenFlag_Read) != osl::FileBase::E_None)
+-        return false;
+-    sal_uInt64 nSize = 0;
+-    if (aFile.getSize(nSize) != osl::FileBase::E_None || nSize == 0
+-        || nSize > static_cast<sal_uInt64>(nLimit))
+-        return false;
+-    rOut.resize(nSize);
+-    sal_uInt64 nRead = 0;
+-    return aFile.read(rOut.data(), nSize, nRead) == osl::FileBase::E_None && nRead == nSize;
+-}
+-
+-/** Click targets the data layer may deliver: HTTPS, or the local test server, which the data layer
+-    only accepts in test-stamped packages (release packages are HTTPS-only before this point). */
+-bool allowedClick(const OUString& rUrl)
+-{
+-    return rUrl.startsWith("https://") || rUrl.startsWith("http://127.0.0.1:")
+-           || rUrl.startsWith("http://127.0.0.1/");
+-}
+-
+-/** The selected slot from the JSON of org.hst.office.BannerFeed (docs/BANNERS.md). */
+-bool parseService(const OUString& rJson, Data& rData)
+-{
+-    std::stringstream aStream(std::string(OUStringToOString(rJson, RTL_TEXTENCODING_UTF8)));
+-    boost::property_tree::ptree aTree;
+-    boost::property_tree::read_json(aStream, aTree);
+-    rData.nRotateSeconds = aTree.get<sal_Int32>("rotateSeconds", 10);
+-    rData.nSlot = aTree.get<sal_Int32>("slot", 0);
+-    const auto& rItems = aTree.get_child("items");
+-    if (rItems.empty())
+-    {
+-        rData.bNoItems = aTree.get<sal_Int32>("slotCount", 0) == 0;
+-        return false;
+-    }
+-    const auto& rItem = rItems.front().second;
+-    rData.aId = fromUtf8(rItem.get<std::string>("id"));
+-    rData.aName = fromUtf8(rItem.get<std::string>("name"));
+-    rData.aTagline = fromUtf8(rItem.get<std::string>("tagline"));
+-    rData.aUrl = fromUtf8(rItem.get<std::string>("click_url_with_utm"));
+-    uno::Sequence<sal_Int8> aBytes;
+-    comphelper::Base64::decode(aBytes, fromUtf8(rItem.get<std::string>("image_base64")));
+-    if (aBytes.getLength() == 0 || aBytes.getLength() > MAX_IMAGE_BYTES)
+-        return false;
+-    rData.aImage.assign(aBytes.begin(), aBytes.end());
+-    return allowedClick(rData.aUrl);
+-}
+-
+-bool fromService(sal_Int32 nSlot, int nScale, Data& rData)
+-{
+-    try
+-    {
+-        const uno::Reference<uno::XComponentContext>& xContext
+-            = comphelper::getProcessComponentContext();
+-        uno::Reference<task::XJob> xFeed(xContext->getServiceManager()->createInstanceWithContext(
+-                                             u"org.hst.office.BannerFeed"_ustr, xContext),
+-                                         uno::UNO_QUERY);
+-        if (!xFeed.is())
+-            return false;
+-        // Compact is only sent for the compact slot, so older data layers answer as before
+-        uno::Sequence<beans::NamedValue> aArgs{
+-            { u"Scale"_ustr, uno::Any(static_cast<double>(nScale)) },
+-            { u"Slot"_ustr, uno::Any(nSlot) } };
+-        if (rData.bCompact)
+-            aArgs = { { u"Scale"_ustr, uno::Any(static_cast<double>(nScale)) },
+-                      { u"Slot"_ustr, uno::Any(nSlot) },
+-                      { u"Compact"_ustr, uno::Any(true) } };
+-        OUString aJson;
+-        if (!(xFeed->execute(aArgs) >>= aJson) || aJson.isEmpty())
+-            return false;
+-        return parseService(aJson, rData);
+-    }
+-    catch (...)
+-    {
+-        return false; // service missing or failing: installed defaults
+-    }
+-}
+-
+-/** Click URL as the data layer builds it: the query is replaced by the shared UTM block. */
+-OUString clickUrl(std::u16string_view aUrl, const OUString& rSource, const OUString& rCampaign)
+-{
+-    const size_t nCut = aUrl.find_first_of(u"?#");
+-    return OUString::Concat(aUrl.substr(0, nCut)) + "?utm_source=" + rSource
+-           + "&utm_medium=banner&utm_campaign=" + rCampaign;
+-}
+-
+-/** Installed defaults straight from the bundled extension (service unavailable). */
+-bool fromBundled(sal_Int32 nSlot, int nScale, Data& rData)
+-{
+-    try
+-    {
+-        OUString aDir(EXTENSION_DIR);
+-        rtl::Bootstrap::expandMacros(aDir);
+-        std::string aManifest, aSolutions;
+-        if (!readFile(aDir + "data/banners.json", aManifest, MAX_MANIFEST_BYTES)
+-            || !readFile(aDir + "data/solutions.json", aSolutions, MAX_MANIFEST_BYTES))
+-            return false;
+-        boost::property_tree::ptree aTree, aUtm;
+-        std::stringstream aManifestStream(aManifest), aSolutionsStream(aSolutions);
+-        boost::property_tree::read_json(aManifestStream, aTree);
+-        boost::property_tree::read_json(aSolutionsStream, aUtm);
+-        // the compact slot rotates through the items with compact art only (never cropped)
+-        const std::string aImageKey = rData.bCompact ? "imageCompact" : "image";
+-        std::vector<const boost::property_tree::ptree*> aItems;
+-        for (const auto& rChild : aTree.get_child("items"))
+-            if (rChild.second.get_child_optional(aImageKey))
+-                aItems.push_back(&rChild.second);
+-        if (aItems.empty())
+-        {
+-            rData.bNoItems = true;
+-            return false;
+-        }
+-        std::stable_sort(aItems.begin(), aItems.end(), [](const auto* a, const auto* b) {
+-            const int nA = a->template get<int>("order", 0), nB = b->template get<int>("order", 0);
+-            return nA != nB ? nA < nB
+-                            : a->template get<std::string>("id") < b->template get<std::string>("id");
+-        });
+-        rData.nSlot = nSlot >= 0 ? nSlot % static_cast<sal_Int32>(aItems.size()) : 0;
+-        const auto& rItem = *aItems[rData.nSlot];
+-        const std::string aPath
+-            = rItem.get<std::string>(aImageKey + "." + std::to_string(nScale) + "x.url");
+-        if (aPath.rfind("banners/", 0) != 0 || aPath.find("..") != std::string::npos)
+-            return false;
+-        std::string aImage;
+-        if (!readFile(aDir + fromUtf8(aPath), aImage, MAX_IMAGE_BYTES))
+-            return false;
+-        rData.aImage.assign(aImage.begin(), aImage.end());
+-        rData.nRotateSeconds = aTree.get<sal_Int32>("rotateSeconds", 10);
+-        rData.aId = fromUtf8(rItem.get<std::string>("id"));
+-        rData.aName = fromUtf8(rItem.get<std::string>("name"));
+-        rData.aTagline = fromUtf8(rItem.get<std::string>("tagline"));
+-        rData.aUrl = clickUrl(fromUtf8(rItem.get<std::string>("url")),
+-                              fromUtf8(aUtm.get<std::string>("utm.source")),
+-                              fromUtf8(aUtm.get<std::string>("utm.campaign")));
+-        return true;
+-    }
+-    catch (...)
+-    {
+-        return false;
+-    }
+-}
+-
+-/** Backing scale of the surface (gtk HiDPI, macOS Retina), on top of the VCL DPI factor. */
+-double surfaceScale(const OutputDevice& rDevice)
+-{
+-#if defined(MACOSX)
+-    (void)rDevice;
+-    return 2.0; // Retina is the norm; Quartz downsamples the @2x art on other displays
+-#elif USE_HEADLESS_CODE && !defined(_WIN32)
+-    using GetScale = void (*)(void*, double*, double*);
+-    static GetScale pGetScale
+-        = reinterpret_cast<GetScale>(dlsym(RTLD_DEFAULT, "cairo_surface_get_device_scale"));
+-    const SystemGraphicsData aData = rDevice.GetSystemGfxData();
+-    double fX = 1.0, fY = 1.0;
+-    if (pGetScale && aData.pSurface)
+-        pGetScale(aData.pSurface, &fX, &fY);
+-    return std::clamp(fY, 1.0, 3.0);
+-#else
+-    (void)rDevice;
+-    return 1.0; // Windows: VCL pixels are device pixels (GetDPIScaleFactor)
+-#endif
+-}
+-}
+-
+-class FetchThread final : public salhelper::Thread
+-{
+-public:
+-    FetchThread(HstRibbonBanner* pBanner, sal_Int32 nSlot, int nScale, bool bBundledFirst,
+-                bool bCompact)
+-        : salhelper::Thread("HstRibbonBanner")
+-        , mpBanner(pBanner)
+-        , mnSlot(nSlot)
+-        , mnScale(nScale)
+-        , mbBundledFirst(bBundledFirst)
+-        , mbCompact(bCompact)
+-    {
+-    }
+-
+-private:
+-    void execute() override
+-    {
+-        if (mbBundledFirst)
+-        {
+-            // first paint: installed defaults at once, then whatever the feed selects
+-            auto pFirst = std::make_unique<Data>();
+-            pFirst->nScale = mnScale;
+-            pFirst->bCompact = mbCompact;
+-            pFirst->bLast = false;
+-            pFirst->bOk = fromBundled(mnSlot, mnScale, *pFirst);
+-            if (pFirst->bOk)
+-                post(std::move(pFirst));
+-        }
+-        auto pData = std::make_unique<Data>();
+-        pData->nScale = mnScale;
+-        pData->bCompact = mbCompact;
+-        pData->bOk = fromService(mnSlot, mnScale, *pData);
+-        if (!pData->bOk && (!mbBundledFirst || pData->bNoItems))
+-        {
+-            // service unavailable, or without compact art: the installed defaults decide
+-            pData = std::make_unique<Data>();
+-            pData->nScale = mnScale;
+-            pData->bCompact = mbCompact;
+-            pData->bOk = fromBundled(mnSlot, mnScale, *pData);
+-        }
+-        post(std::move(pData));
+-        SolarMutexGuard aGuard;
+-        mpBanner.reset();
+-    }
+-
+-    void post(std::unique_ptr<Data> pData)
+-    {
+-        SolarMutexGuard aGuard; // the banner cannot be disposed meanwhile
+-        if (mpBanner && !mpBanner->isDisposed())
+-            mpBanner->Deliver(std::move(pData));
+-    }
+-
+-    VclPtr<HstRibbonBanner> mpBanner;
+-    sal_Int32 mnSlot;
+-    int mnScale;
+-    bool mbBundledFirst;
+-    bool mbCompact;
+-};
+-
+-/** Where a click goes: the service probes the click counter off the UI thread (at most 1.5 s) and
+-    answers with the home page when it is down. Without the service the URL is opened as it is. */
+-class ClickThread final : public salhelper::Thread
+-{
+-public:
+-    ClickThread(HstRibbonBanner* pBanner, OUString aUrl)
+-        : salhelper::Thread("HstRibbonBannerClick")
+-        , mpBanner(pBanner)
+-        , maUrl(std::move(aUrl))
+-    {
+-    }
+-
+-private:
+-    void execute() override
+-    {
+-        OUString aTarget;
+-        try
+-        {
+-            const uno::Reference<uno::XComponentContext>& xContext
+-                = comphelper::getProcessComponentContext();
+-            uno::Reference<task::XJob> xFeed(
+-                xContext->getServiceManager()->createInstanceWithContext(
+-                    u"org.hst.office.BannerFeed"_ustr, xContext),
+-                uno::UNO_QUERY);
+-            if (xFeed.is())
+-                xFeed->execute({ { u"ClickUrl"_ustr, uno::Any(maUrl) } }) >>= aTarget;
+-        }
+-        catch (...)
+-        {
+-        }
+-        if (!allowedClick(aTarget))
+-            aTarget = maUrl;
+-        SolarMutexGuard aGuard;
+-        if (!mpBanner->isDisposed())
+-            mpBanner->DeliverClick(aTarget);
+-        mpBanner.reset();
+-    }
+-
+-    VclPtr<HstRibbonBanner> mpBanner;
+-    OUString maUrl;
+-};
+-
+-/** Tells the data layer that a card was displayed (it counts per day and id, and sends the counts at
+-    most once a day). The UI thread never calls Python; nothing is posted back. */
+-class ShownThread final : public salhelper::Thread
+-{
+-public:
+-    explicit ShownThread(OUString aId)
+-        : salhelper::Thread("HstRibbonBannerShown")
+-        , maId(std::move(aId))
+-    {
+-    }
+-
+-private:
+-    void execute() override
+-    {
+-        try
+-        {
+-            const uno::Reference<uno::XComponentContext>& xContext
+-                = comphelper::getProcessComponentContext();
+-            uno::Reference<task::XJob> xFeed(
+-                xContext->getServiceManager()->createInstanceWithContext(
+-                    u"org.hst.office.BannerFeed"_ustr, xContext),
+-                uno::UNO_QUERY);
+-            if (xFeed.is()) // older data layers ignore the argument and answer with a slot
+-                xFeed->execute({ { u"Shown"_ustr, uno::Any(maId) } });
+-        }
+-        catch (...)
+-        {
+-            // service missing or failing: the display is not counted
+-        }
+-    }
+-
+-    OUString maId;
+-};
+-}
+-
+-using namespace hst::banner;
+-
+-HstRibbonBanner::HstRibbonBanner(vcl::Window* pParent)
+-    : Control(pParent, WB_TABSTOP)
+-    , maRotateTimer("sfx2 HstRibbonBanner rotate")
+-    , maFadeTimer("sfx2 HstRibbonBanner fade")
+-    , maShownTimer("sfx2 HstRibbonBanner shown")
+-{
+-    SetPaintTransparent(true);
+-    SetAccessibleRole(accessibility::AccessibleRole::HYPER_LINK);
+-    SetPointer(PointerStyle::RefHand);
+-    maRotateTimer.SetInvokeHandler(LINK(this, HstRibbonBanner, RotateHdl));
+-    maRotateTimer.SetTimeout(mnRotateSeconds * 1000);
+-    maFadeTimer.SetInvokeHandler(LINK(this, HstRibbonBanner, FadeHdl));
+-    maFadeTimer.SetTimeout(30);
+-    maShownTimer.SetInvokeHandler(LINK(this, HstRibbonBanner, ShownHdl));
+-    maShownTimer.SetTimeout(SHOWN_MS);
+-}
+-
+-HstRibbonBanner::~HstRibbonBanner() { disposeOnce(); }
+-
+-void HstRibbonBanner::dispose()
+-{
+-    maRotateTimer.Stop();
+-    maFadeTimer.Stop();
+-    maShownTimer.Stop();
+-    if (mxThread.is())
+-    {
+-        SolarMutexReleaser aReleaser; // the worker takes the SolarMutex to post its result
+-        mxThread->join();
+-    }
+-    if (mxClickThread.is())
+-    {
+-        SolarMutexReleaser aReleaser;
+-        mxClickThread->join();
+-    }
+-    if (mxShownThread.is())
+-    {
+-        SolarMutexReleaser aReleaser;
+-        mxShownThread->join();
+-    }
+-    mxThread.clear();
+-    mxClickThread.clear();
+-    mxShownThread.clear();
+-    Control::dispose();
+-}
+-
+-double HstRibbonBanner::DeviceScale() { return GetDPIScaleFactor() * surfaceScale(*GetOutDev()); }
+-
+-long HstRibbonBanner::ArtWidth() const { return mbCompact ? COMPACT_ART_WIDTH : ART_WIDTH; }
+-
+-void HstRibbonBanner::Reset()
+-{
+-    maRotateTimer.Stop();
+-    maFadeTimer.Stop();
+-    mnFadeStep = 0;
+-    maId.clear();
+-    maUrl.clear();
+-    maImage = Bitmap();
+-    maImageScaled = Bitmap();
+-    maOld = Bitmap();
+-    maOldScaled = Bitmap();
+-    mnSourceScale = 0;
+-    mnFailures = 0;
+-}
+-
+-void HstRibbonBanner::SetCompact(bool bCompact)
+-{
+-    if (bCompact == mbCompact)
+-        return;
+-    // the other artwork has another ratio: start again with the same rotation slot
+-    mbCompact = bCompact;
+-    Reset();
+-    Invalidate();
+-}
+-
+-bool HstRibbonBanner::CompactUnavailable()
+-{
+-    using namespace std::chrono_literals;
+-    if (mbCompactUnavailable && std::chrono::steady_clock::now() - maCompactUnavailableSince > 10min)
+-        mbCompactUnavailable = false; // ask again: a new feed may carry compact art
+-    return mbCompactUnavailable;
+-}
+-
+-void HstRibbonBanner::Request(sal_Int32 nSlot)
+-{
+-    if (mbRequested || isDisposed())
+-        return;
+-    // the variant that matches the fitted image height in device pixels
+-    const Size aSize = GetOutputSizePixel();
+-    // Size is tools::Long (64-bit on Windows), Rect holds long: MSVC rejects the implicit narrowing.
+-    const Rect aImage = fit(Rect{ 0, 0, static_cast<long>(aSize.Width()), static_cast<long>(aSize.Height()) },
+-                            ArtWidth(), ART_HEIGHT);
+-    const int nScale = sourceScale(std::lround(aImage.h * surfaceScale(*GetOutDev())));
+-    mbRequested = true; // the previous worker has posted its last result
+-    try
+-    {
+-        mxThread = new FetchThread(this, nSlot, nScale, maId.isEmpty(), mbCompact);
+-        mxThread->launch();
+-    }
+-    catch (const std::exception&)
+-    {
+-        // no thread available: never disturb editing, try again at the next interval
+-        mxThread.clear();
+-        mbRequested = false;
+-        maRotateTimer.Start();
+-    }
+-}
+-
+-void HstRibbonBanner::Deliver(std::unique_ptr<Data> pData)
+-{
+-    // may run on the worker thread (SolarMutex held): hand over to the main loop
+-    Application::PostUserEvent(LINK(this, HstRibbonBanner, DeliverHdl), pData.release(), true);
+-}
+-
+-IMPL_LINK(HstRibbonBanner, DeliverHdl, void*, p, void)
+-{
+-    std::unique_ptr<Data> pData(static_cast<Data*>(p));
+-    if (isDisposed())
+-        return;
+-    if (pData->bLast)
+-        mbRequested = false;
+-    if (pData->bCompact != mbCompact)
+-    {
+-        // answer for the other mode, which was left meanwhile: ask again for this one
+-        if (pData->bLast && IsVisible())
+-            Request(mnSlot);
+-        return;
+-    }
+-    if (!pData->bOk && pData->bLast && pData->bNoItems && mbCompact && maId.isEmpty())
+-    {
+-        // no compact art anywhere: the parent hides the slot and gives the groups the width
+-        mbCompactUnavailable = true;
+-        maCompactUnavailableSince = std::chrono::steady_clock::now();
+-        maLayoutHdl.Call(*this);
+-        return;
+-    }
+-    if (!pData->bOk)
+-    {
+-        // nothing new (service and installed defaults unavailable): keep the current item
+-        if (pData->bLast)
+-            maRotateTimer.Start();
+-        return;
+-    }
+-    Bitmap aBitmap;
+-    {
+-        // PNG, JPEG or WebP as verified by the data layer; decoder errors leave the banner as is
+-        SvMemoryStream aStream(pData->aImage.data(), pData->aImage.size(), StreamMode::READ);
+-        Graphic aGraphic;
+-        if (GraphicFilter::GetGraphicFilter().ImportGraphic(aGraphic, u"", aStream) == ERRCODE_NONE)
+-            aBitmap = aGraphic.GetBitmap();
+-    }
+-    if (aBitmap.IsEmpty())
+-    {
+-        // decoder error: try the next entry, without disturbing editing
+-        if (pData->bLast && ++mnFailures < 3)
+-            Request(pData->nSlot + 1); // try the next entry
+-        else if (pData->bLast)
+-            maRotateTimer.Start();
+-        return;
+-    }
+-    mnFailures = 0;
+-    mnSlot = pData->nSlot;
+-    mnRotateSeconds = std::clamp<sal_Int32>(pData->nRotateSeconds, 5, 60);
+-    if (pData->aId != maId && !maImage.IsEmpty() && MiscSettings::IsAnimatedOthersAllowed())
+-    {
+-        maOld = maImage;
+-        maOldScaled = maImageScaled;
+-        mnFadeStep = 1;
+-        maFadeTimer.Start();
+-    }
+-    maImage = aBitmap;
+-    maImageScaled = Bitmap();
+-    mnSourceScale = pData->nScale;
+-    maId = pData->aId;
+-    maUrl = pData->aUrl;
+-    if (maId != maShownId)
+-        StartShown();
+-    const OUString aName = pData->aName + u" — " + pData->aTagline;
+-    SetAccessibleName(aName);
+-    SetQuickHelpText(aName);
+-    Invalidate();
+-    if (pData->bLast)
+-    {
+-        maRotateTimer.SetTimeout(mnRotateSeconds * 1000);
+-        maRotateTimer.Start();
+-    }
+-}
+-
+-IMPL_LINK_NOARG(HstRibbonBanner, RotateHdl, Timer*, void)
+-{
+-    if (!IsReallyVisible() || Paused())
+-    {
+-        maRotateTimer.Start(); // try again after a full interval
+-        return;
+-    }
+-    Request(mnSlot + 1);
+-}
+-
+-bool HstRibbonBanner::InView() const
+-{
+-    if (maImage.IsEmpty() || !IsReallyVisible())
+-        return false;
+-    const WorkWindow* pWork = dynamic_cast<const WorkWindow*>(GetSystemWindow());
+-    return !pWork || !pWork->IsMinimized();
+-}
+-
+-void HstRibbonBanner::StartShown()
+-{
+-    // a new card (another id than the last one): the previous one, if it stood less than a second, is not counted
+-    maShownId = maId;
+-    mbShownPending = true;
+-    mbShownInView = InView();
+-    maShownTimer.Start();
+-}
+-
+-IMPL_LINK_NOARG(HstRibbonBanner, ShownHdl, Timer*, void)
+-{
+-    if (!mbShownPending)
+-        return;
+-    const bool bInView = InView();
+-    if (!bInView || !mbShownInView)
+-    {
+-        // not in view for the whole second (hidden slot, minimized window): check again
+-        mbShownInView = bInView;
+-        if (IsVisible())
+-            maShownTimer.Start();
+-        return;
+-    }
+-    mbShownPending = false;
+-    ReportShown();
+-}
+-
+-void HstRibbonBanner::ReportShown()
+-{
+-    // one count per card change; the previous report (one call into Python) finished long ago,
+-    // because a card stands at least five seconds
+-    try
+-    {
+-        mxShownThread = new ShownThread(maShownId);
+-        mxShownThread->launch();
+-    }
+-    catch (const std::exception&)
+-    {
+-        mxShownThread.clear(); // no thread available: this display is not counted
+-    }
+-}
+-
+-IMPL_LINK_NOARG(HstRibbonBanner, FadeHdl, Timer*, void)
+-{
+-    if (++mnFadeStep >= FADE_STEPS)
+-    {
+-        mnFadeStep = 0;
+-        maOld = Bitmap();
+-        maOldScaled = Bitmap();
+-    }
+-    else
+-        maFadeTimer.Start();
+-    Invalidate();
+-}
+-
+-void HstRibbonBanner::Place(const tools::Rectangle& rSlot)
+-{
+-    if (rSlot.IsEmpty())
+-    {
+-        if (IsVisible())
+-            Hide();
+-        maRotateTimer.Stop();
+-        maShownTimer.Stop(); // a hidden slot shows nothing: start the second again when it is back
+-        return;
+-    }
+-    const bool bResized = GetSizePixel() != rSlot.GetSize();
+-    if (GetPosPixel() != rSlot.TopLeft() || bResized)
+-        SetPosSizePixel(rSlot.TopLeft(), rSlot.GetSize());
+-    if (!IsVisible())
+-        Show();
+-    if (mbShownPending && !maShownTimer.IsActive())
+-    {
+-        mbShownInView = false; // the full second starts at the next check
+-        maShownTimer.Start();
+-    }
+-    const Size aSize = rSlot.GetSize();
+-    const Rect aImage = fit(Rect{ 0, 0, static_cast<long>(aSize.Width()), static_cast<long>(aSize.Height()) },
+-                            ArtWidth(), ART_HEIGHT);
+-    const int nScale = sourceScale(std::lround(aImage.h * surfaceScale(*GetOutDev())));
+-    if (maId.isEmpty() || (bResized && nScale != mnSourceScale))
+-        Request(mnSlot); // first content, or the same slot again for the new scale
+-    else if (!maRotateTimer.IsActive() && !mbRequested)
+-        maRotateTimer.Start();
+-}
+-
+-const Bitmap& HstRibbonBanner::Prepared(const Bitmap& rSource, Bitmap& rCache, const Size& rDevice)
+-{
+-    if (rCache.IsEmpty() || rCache.GetSizePixel() != rDevice)
+-    {
+-        rCache = rSource;
+-        if (rCache.GetSizePixel() != rDevice)
+-            rCache.Scale(rDevice, BmpScaleFlag::BestQuality);
+-    }
+-    return rCache;
+-}
+-
+-void HstRibbonBanner::DrawArt(vcl::RenderContext& rRenderContext, const Bitmap& rSource,
+-                              Bitmap& rCache, double fAlpha)
+-{
+-    const Size aOut = GetOutputSizePixel();
+-    const long nInset = scaled(3, GetDPIScaleFactor());
+-    const Size aSourceSize = rSource.GetSizePixel();
+-    // the image's own pixel size never changes the slot: aspect-fit, centred
+-    const Rect aBox{ nInset, nInset, aOut.Width() - 2 * nInset, aOut.Height() - 2 * nInset };
+-    const Rect aFit = fit(aBox, aSourceSize.Width(), aSourceSize.Height());
+-    if (aFit.w <= 0 || aFit.h <= 0)
+-        return;
+-    const double fScale = surfaceScale(rRenderContext);
+-    const Size aDevice(std::lround(aFit.w * fScale), std::lround(aFit.h * fScale));
+-    const Bitmap& rDraw = Prepared(rSource, rCache, aDevice);
+-    if (fAlpha >= 1.0)
+-        rRenderContext.DrawBitmap(Point(aFit.x, aFit.y), Size(aFit.w, aFit.h), rDraw);
+-    else
+-        rRenderContext.DrawTransformedBitmapEx(
+-            basegfx::utils::createScaleTranslateB2DHomMatrix(aFit.w, aFit.h, aFit.x, aFit.y),
+-            rDraw, fAlpha);
+-}
+-
+-void HstRibbonBanner::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle&)
+-{
+-    const StyleSettings& rStyle = rRenderContext.GetSettings().GetStyleSettings();
+-    const tools::Rectangle aAll(Point(), GetOutputSizePixel());
+-    const long nRadius = scaled(8, GetDPIScaleFactor());
+-    rRenderContext.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
+-    if (rStyle.GetWindowColor().IsDark() || rStyle.GetDialogColor().IsDark())
+-    {
+-        // the artwork is designed for light backgrounds: a light rounded card in dark mode
+-        rRenderContext.SetLineColor();
+-        rRenderContext.SetFillColor(Color(0xF4, 0xF6, 0xF9));
+-        rRenderContext.DrawRect(aAll, nRadius, nRadius);
+-    }
+-    if (!maOld.IsEmpty() && mnFadeStep > 0)
+-    {
+-        DrawArt(rRenderContext, maOld, maOldScaled, 1.0);
+-        if (!maImage.IsEmpty())
+-            DrawArt(rRenderContext, maImage, maImageScaled,
+-                    static_cast<double>(mnFadeStep) / FADE_STEPS);
+-    }
+-    else if (!maImage.IsEmpty())
+-        DrawArt(rRenderContext, maImage, maImageScaled, 1.0);
+-    if (HasFocus())
+-    {
+-        rRenderContext.SetFillColor();
+-        rRenderContext.SetLineColor(rStyle.GetHighlightColor());
+-        tools::Rectangle aRing(aAll);
+-        aRing.AdjustRight(-1);
+-        aRing.AdjustBottom(-1);
+-        rRenderContext.DrawRect(aRing, nRadius, nRadius);
+-        aRing.AdjustLeft(1);
+-        aRing.AdjustTop(1);
+-        aRing.AdjustRight(-1);
+-        aRing.AdjustBottom(-1);
+-        rRenderContext.DrawRect(aRing, nRadius, nRadius);
+-    }
+-    rRenderContext.Pop();
+-}
+-
+-void HstRibbonBanner::Activate()
+-{
+-    using namespace std::chrono_literals;
+-    if (maUrl.isEmpty() || mbClickPending || std::chrono::steady_clock::now() - maLastOpen < 1s)
+-        return;
+-    mbClickPending = true;
+-    try
+-    {
+-        mxClickThread = new ClickThread(this, maUrl);
+-        mxClickThread->launch();
+-    }
+-    catch (const std::exception&)
+-    {
+-        mxClickThread.clear();
+-        DeliverClick(maUrl);
+-    }
+-}
+-
+-void HstRibbonBanner::DeliverClick(const OUString& rUrl)
+-{
+-    Application::PostUserEvent(LINK(this, HstRibbonBanner, OpenHdl), new OUString(rUrl), true);
+-}
+-
+-IMPL_LINK(HstRibbonBanner, OpenHdl, void*, p, void)
+-{
+-    std::unique_ptr<OUString> pUrl(static_cast<OUString*>(p));
+-    mbClickPending = false;
+-    maLastOpen = std::chrono::steady_clock::now();
+-    if (isDisposed())
+-        return;
+-    try
+-    {
+-        system::SystemShellExecute::create(comphelper::getProcessComponentContext())
+-            ->execute(*pUrl, OUString(), system::SystemShellExecuteFlags::URIS_ONLY);
+-    }
+-    catch (const uno::Exception&)
+-    {
+-        // no dialog: a banner must never interrupt editing
+-    }
+-}
+-
+-void HstRibbonBanner::MouseMove(const MouseEvent& rMEvt)
+-{
+-    mbHover = !rMEvt.IsLeaveWindow(); // hover pauses the rotation
+-    Control::MouseMove(rMEvt);
+-}
+-
+-void HstRibbonBanner::MouseButtonDown(const MouseEvent& rMEvt)
+-{
+-    if (rMEvt.IsLeft())
+-    {
+-        mbPressed = true;
+-        GrabFocus();
+-        return;
+-    }
+-    Control::MouseButtonDown(rMEvt);
+-}
+-
+-void HstRibbonBanner::MouseButtonUp(const MouseEvent& rMEvt)
+-{
+-    if (rMEvt.IsLeft() && mbPressed)
+-    {
+-        mbPressed = false;
+-        if (tools::Rectangle(Point(), GetOutputSizePixel()).Contains(rMEvt.GetPosPixel()))
+-            Activate();
+-        return;
+-    }
+-    Control::MouseButtonUp(rMEvt);
+-}
+-
+-void HstRibbonBanner::KeyInput(const KeyEvent& rKEvt)
+-{
+-    const vcl::KeyCode& rKey = rKEvt.GetKeyCode();
+-    if (!rKey.GetModifier()
+-        && (rKey.GetCode() == KEY_RETURN || rKey.GetCode() == KEY_SPACE))
+-    {
+-        Activate();
+-        return;
+-    }
+-    Control::KeyInput(rKEvt);
+-}
+-
+-void HstRibbonBanner::GetFocus()
+-{
+-    Control::GetFocus();
+-    Invalidate(); // focus ring; focus pauses the rotation
+-}
+-
+-void HstRibbonBanner::LoseFocus()
+-{
+-    Control::LoseFocus();
+-    Invalidate();
+-}
+-
+-void HstRibbonBanner::DataChanged(const DataChangedEvent& rDCEvt)
+-{
+-    Control::DataChanged(rDCEvt);
+-    if (rDCEvt.GetType() == DataChangedEventType::SETTINGS)
+-    {
+-        maImageScaled = Bitmap();
+-        maOldScaled = Bitmap();
+-        Invalidate(); // light/dark card follows the theme
+-    }
+-}
+-
+-/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/notebookbar/HstRibbonBanner.hxx
++++ /dev/null
+@@ -1,126 +0,0 @@
+-/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
+-/*
+- * This file is part of the LibreOffice project.
+- *
+- * This Source Code Form is subject to the terms of the Mozilla Public
+- * License, v. 2.0. If a copy of the MPL was not distributed with this
+- * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+- */
+-
+-#pragma once
+-
+-#include <rtl/ref.hxx>
+-#include <tools/link.hxx>
+-#include <vcl/bitmap.hxx>
+-#include <vcl/ctrl.hxx>
+-#include <vcl/timer.hxx>
+-
+-#include <chrono>
+-#include <memory>
+-
+-namespace hst::banner
+-{
+-class ClickThread;
+-class FetchThread;
+-class ShownThread;
+-struct Data;
+-}
+-
+-/** HST Office: rotating HASON TECH solution banner at the right end of the Tabbed notebookbar
+-    of Writer, Calc and Impress (see docs/BANNERS.md, "Ribbon widget").
+-
+-    A plain VCL control owned by NotebookbarTabControl, which positions it beside the 2-row
+-    groups and gives the groups the remaining width. Content comes from the UNO service
+-    org.hst.office.BannerFeed on a worker thread (installed defaults when it is unavailable);
+-    results are posted to the main thread. There is no option to hide or disable it. */
+-class HstRibbonBanner final : public Control
+-{
+-public:
+-    explicit HstRibbonBanner(vcl::Window* pParent);
+-    virtual ~HstRibbonBanner() override;
+-    virtual void dispose() override;
+-
+-    /** Place the banner in the device-pixel rectangle rSlot of the parent (empty: hide). */
+-    void Place(const tools::Rectangle& rSlot);
+-    /** Compact artwork (windows narrower than 1280 px) or the wide artwork; call before Place. */
+-    void SetCompact(bool bCompact);
+-    bool IsCompact() const { return mbCompact; }
+-    /** HST Office: the width (px) the wide slot had at the last layout, 0 before; it is kept while the
+-        room changes by less than the hysteresis (hst::banner::wideSlotWidth). */
+-    long WideSlotWidth() const { return mnWideSlotWidth; }
+-    void SetWideSlotWidth(long nWidth) { mnWideSlotWidth = nWidth; }
+-    /** True after the data layer and the installed defaults had no compact artwork; the parent
+-        then hides the slot. It is asked again 10 minutes later. */
+-    bool CompactUnavailable();
+-    /** Called (main thread) when CompactUnavailable() changes, so the parent lays out again. */
+-    void SetLayoutHdl(const Link<HstRibbonBanner&, void>& rLink) { maLayoutHdl = rLink; }
+-
+-    virtual void Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect) override;
+-    virtual void MouseMove(const MouseEvent& rMEvt) override;
+-    virtual void MouseButtonDown(const MouseEvent& rMEvt) override;
+-    virtual void MouseButtonUp(const MouseEvent& rMEvt) override;
+-    virtual void KeyInput(const KeyEvent& rKEvt) override;
+-    virtual void GetFocus() override;
+-    virtual void LoseFocus() override;
+-    virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
+-
+-    /** Called on the main thread with a result of the worker (takes ownership). */
+-    void Deliver(std::unique_ptr<hst::banner::Data> pData);
+-    /** Called with the SolarMutex held by the click worker: open the resolved destination. */
+-    void DeliverClick(const OUString& rUrl);
+-
+-private:
+-    void Request(sal_Int32 nSlot);
+-    void Reset();
+-    long ArtWidth() const;
+-    void Activate();
+-    double DeviceScale();
+-    const Bitmap& Prepared(const Bitmap& rSource, Bitmap& rCache, const Size& rDevice);
+-    void DrawArt(vcl::RenderContext& rRenderContext, const Bitmap& rSource, Bitmap& rCache,
+-                 double fAlpha);
+-    bool Paused() const { return mbHover || HasFocus(); }
+-    /** The card is drawn in a visible, not minimized window (the slot of the ribbon is shown). */
+-    bool InView() const;
+-    /** A card change: count maId once it stood one second in view (docs/BANNERS.md, display counting). */
+-    void StartShown();
+-    void ReportShown();
+-
+-    DECL_LINK(RotateHdl, Timer*, void);
+-    DECL_LINK(FadeHdl, Timer*, void);
+-    DECL_LINK(DeliverHdl, void*, void);
+-    DECL_LINK(OpenHdl, void*, void);
+-    DECL_LINK(ShownHdl, Timer*, void);
+-
+-    rtl::Reference<hst::banner::FetchThread> mxThread;
+-    rtl::Reference<hst::banner::ClickThread> mxClickThread;
+-    rtl::Reference<hst::banner::ShownThread> mxShownThread;
+-    std::chrono::steady_clock::time_point maLastOpen; // double clicks open one browser tab
+-    bool mbClickPending = false;
+-    Timer maRotateTimer;
+-    Timer maFadeTimer;
+-    Timer maShownTimer; // one-second check of a new card
+-    OUString maShownId; // last card change; kept across Reset(), so the same card is not counted again
+-    bool mbShownPending = false; // maShownId is not counted yet
+-    bool mbShownInView = false; // it was in view at the previous check
+-    OUString maId;
+-    OUString maUrl;
+-    Bitmap maImage; // decoded source variant of the current item
+-    Bitmap maOld; // previous item while fading
+-    Bitmap maImageScaled; // high-quality downscale of maImage for the current device size
+-    Bitmap maOldScaled;
+-    sal_Int32 mnSlot = 0;
+-    sal_Int32 mnRotateSeconds = 10;
+-    sal_Int32 mnFailures = 0;
+-    int mnSourceScale = 0;
+-    int mnFadeStep = 0;
+-    bool mbHover = false;
+-    bool mbPressed = false;
+-    bool mbRequested = false;
+-    bool mbCompact = false;
+-    long mnWideSlotWidth = 0;
+-    bool mbCompactUnavailable = false;
+-    std::chrono::steady_clock::time_point maCompactUnavailableSince;
+-    Link<HstRibbonBanner&, void> maLayoutHdl;
+-};
+-
+-/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
