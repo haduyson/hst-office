@@ -36,18 +36,30 @@ def esc(hwnd, times=2):
         time.sleep(0.3)
 
 
-def menu_bar_focused(hwnd):
-    """(has a native menu bar, its bar has the keyboard focus) of a window, from GetMenu and GetMenuBarInfo."""
+def popups(hwnd):
+    """Visible SAL top-level windows of the process of `hwnd` (a VCL menu that opens is one more)."""
     import ctypes
-    from ctypes import wintypes
+    pid = ctypes.c_ulong()
+    wg.user32.GetWindowThreadProcessId(ctypes.c_void_p(hwnd), ctypes.byref(pid))
+    mine = []
+    for window in wg.office_windows():
+        other = ctypes.c_ulong()
+        wg.user32.GetWindowThreadProcessId(ctypes.c_void_p(window[0]), ctypes.byref(other))
+        if other.value == pid.value:
+            mine.append(window[0])
+    return set(mine)
 
-    class MenuBarInfo(ctypes.Structure):
-        _fields_ = [("cbSize", wintypes.DWORD), ("rcBar", wintypes.RECT), ("hMenu", wintypes.HANDLE),
-                    ("hwndMenu", wintypes.HWND), ("flags", wintypes.DWORD)]
-    user32 = ctypes.windll.user32
-    info = MenuBarInfo(cbSize=ctypes.sizeof(MenuBarInfo))
-    ok = user32.GetMenuBarInfo(wintypes.HWND(hwnd), ctypes.c_long(-3), 0, ctypes.byref(info))  # OBJID_MENU
-    return bool(user32.GetMenu(wintypes.HWND(hwnd))), bool(ok) and bool(info.flags & 1)  # fBarFocused
+
+def opens_menu(hwnd, first_vk):
+    """Press `first_vk` (Alt alone or F10), then Down: True when a menu of the menu bar opened (a new SAL window)."""
+    before = popups(hwnd)
+    front(hwnd)
+    wg.chord(first_vk, target=hwnd, front=False)
+    time.sleep(0.8)
+    wg.chord(0x28, target=hwnd, front=False)  # Down opens the highlighted menu
+    time.sleep(1.0)
+    opened = popups(hwnd) - before
+    return opened
 
 
 def menu_bar_mode(office, doc, hwnd, res, out):
@@ -56,20 +68,11 @@ def menu_bar_mode(office, doc, hwnd, res, out):
     helper = office.service("com.sun.star.frame.DispatchHelper")
     helper.executeDispatch(frame, ".uno:Menubar", "", 0, ())
     time.sleep(2.0)
-    front(hwnd)
-    wg.chord(VK_ALT, target=hwnd, front=False)
-    time.sleep(1.0)
-    wg.screenshot(os.path.join(out, "menubar-1-alt.png"))
-    shown, focused = menu_bar_focused(hwnd)
-    res("[menu bar] Alt alone activates the shown menu bar", shown and focused, (shown, focused))
-    esc(hwnd)
-    front(hwnd)
-    wg.chord(0x79, target=hwnd, front=False)  # F10
-    time.sleep(1.0)
-    wg.screenshot(os.path.join(out, "menubar-2-f10.png"))
-    shown, focused = menu_bar_focused(hwnd)
-    res("[menu bar] F10 activates the shown menu bar", shown and focused, (shown, focused))
-    esc(hwnd)
+    for name, vk in (("Alt alone", VK_ALT), ("F10", 0x79)):
+        opened = opens_menu(hwnd, vk)
+        wg.screenshot(os.path.join(out, f"menubar-{vk:x}.png"))
+        res(f"[menu bar] {name}, Down opens a menu of the shown menu bar", bool(opened), sorted(opened))
+        esc(hwnd, 3)
     helper.executeDispatch(frame, ".uno:Menubar", "", 0, ())
     time.sleep(2.0)
     front(hwnd)
