@@ -55,10 +55,13 @@ jobs:
           for w in list {
             let b = (w[kCGWindowBounds as String] as? [String: Any]) ?? [:]
             let f = { (k: String) -> Int in Int((b[k] as? Double) ?? 0) }
-            print([w[kCGWindowNumber as String] as? Int ?? 0, w[kCGWindowOwnerPID as String] as? Int ?? 0,
-                   w[kCGWindowOwnerName as String] as? String ?? "", w[kCGWindowName as String] as? String ?? "",
-                   f("Width"), f("Height"), w[kCGWindowLayer as String] as? Int ?? 0]
-                  .map { "\($0)" }.joined(separator: "\t"))
+            let id: Int = w[kCGWindowNumber as String] as? Int ?? 0
+            let pid: Int = w[kCGWindowOwnerPID as String] as? Int ?? 0
+            let owner: String = w[kCGWindowOwnerName as String] as? String ?? ""
+            let title: String = w[kCGWindowName as String] as? String ?? ""
+            let layer: Int = w[kCGWindowLayer as String] as? Int ?? 0
+            let cols: [String] = ["\(id)", "\(pid)", owner, title, "\(f("Width"))", "\(f("Height"))", "\(layer)"]
+            print(cols.joined(separator: "\t"))
           }
           SWIFT
           swiftc -O -o "$RUNNER_TEMP/winlist" "$RUNNER_TEMP/winlist.swift"
