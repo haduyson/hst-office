@@ -69,9 +69,18 @@ def snapshot_uno(top_windows):
         loc, size = context.getLocationOnScreen(), context.getSize()
         return [loc.X, loc.Y, size.Width, size.Height]
 
+    def accessible(window):  # a toolkit top window does not list XAccessible to pyuno (r1auto/access.py)
+        return window if hasattr(window, "getAccessibleContext") else window.queryInterface(
+            uno.getTypeByName("com.sun.star.accessibility.XAccessible"))
+
     out = {"bars": [], "banners": []}
     for window in top_windows:
-        for context, _depth in wg.walk(window, limit=16):
+        root = accessible(window)
+        out["roots"] = out.get("roots", 0) + (root is not None)  # evidence when nothing is found
+        if root is None:
+            continue
+        for context, _depth in wg.walk(root, limit=16):
+            out["nodes"] = out.get("nodes", 0) + 1
             try:
                 if not wg.showing(context):
                     continue

@@ -39,6 +39,8 @@ def run_app(args, app, results):
                             config=[("/org.openoffice.Office.Impress/Misc/NewDoc", "AutoPilot", "false"),
                                     ("/org.openoffice.Office.Common/Appearance", "ApplicationAppearance",
                                      {"light": "1", "dark": "2"}[args.appearance])])
+    # a stale AT-SPI bus address on the display root (left by an earlier office) hides the new one's tree
+    subprocess.run(["xprop", "-display", args.display, "-root", "-remove", "AT_SPI_BUS"], check=False)
     office.start()
     try:
         time.sleep(8)

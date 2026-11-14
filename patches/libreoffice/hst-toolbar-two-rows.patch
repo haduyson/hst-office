@@ -9,15 +9,16 @@ docked toolbar, so it breaks into two rows of about equal width.
   ImplCalcBreaks breaks once, at the most even place (vcl/inc/HstToolbarRows.hxx, plain arithmetic, unit
   tested): after a separator when the rows then stay within one button of each other (VCL draws no
   separator before a break, so the groups stay whole), otherwise between two buttons; of equally even
-  breaks the one with the longer top row. ImplCalcSize reports both rows and ImplFormat no longer stretches
+  breaks the one with the longer top row; rows are weighed as drawn. When the toolbox is narrower than the
+  first row (a narrow window), the items flow on from the first row into the second and the rest goes into the
+  menu, as in one row. ImplCalcSize reports both rows and ImplFormat no longer stretches
   the one line to the window height. Items keep their size; the rows start at the same left edge. The menu
   (right click: visible buttons, customize, undock, lock, close; clipped items) stays. Floating, vertical
   and all other toolboxes are unchanged. The state lives in vcl's private ImplToolBoxPrivateData, so the ToolBox
   class layout (include/vcl/toolbox.hxx gets two member functions only) stays the same for other modules.
 - framework's ToolbarLayoutManager::doLayout opts in only for the one docked toolbar of the top docking area
   when the banner is shown there (hst-banner-always-visible.patch) and both rows fit the banner strip's
-  height and the width left of the banner; otherwise, or as soon as another toolbar joins the area, the
-  toolbar has one row as before. Docking (drag) and undocking start with the one-row toolbar; the next
+  height; otherwise, or as soon as another toolbar joins the area, the toolbar has one row as before. Docking (drag) and undocking start with the one-row toolbar; the next
   layout gives the two rows back. Nothing is persisted: the docking positions, Visible state, locking and
   customized toolbars in the user profile are those of the one-row toolbar.
 
@@ -42,14 +43,14 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
      PopupMenu*          GetMenu() const;
 --- a/vcl/source/window/toolbox.cxx
 +++ b/vcl/source/window/toolbox.cxx
-@@ -45,6 +45,7 @@
- #include <window.h>
- #include <toolbox.h>
- #include <vcl/HstRibbonPaint.hxx>
+@@ -58,6 +58,7 @@
+ #include <math.h>
+ 
+ #include "impldockingwrapper.hxx"
 +#include <HstToolbarRows.hxx>
- #include <spin.hxx>
- #if defined(_WIN32)
- #include <win/svsys.h>
+ 
+ #define SMALLBUTTON_HSIZE           7
+ #define SMALLBUTTON_VSIZE           7
 @@ -718,6 +719,9 @@
      {
          if ( mbHorz )
@@ -60,13 +61,15 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
              if ( mnWinHeight > mnMaxItemHeight )
                  aSize.setHeight( nCalcLines * mnWinHeight );
              else
-@@ -1694,6 +1698,28 @@
+@@ -1694,6 +1698,32 @@
      if( IsMenuEnabled() && !ImplIsFloatingMode() )
          nMenuWidth = mpData->maMenubuttonItem.maItemSize.Width();
  
-+    // HST Office: two rows beside the window banner break at the most even place; every item fits then,
-+    // so no room is kept for the menu button (it only shows when the rows get too narrow)
++    // HST Office: two rows beside the window banner break at the most even place. The first row ends there
++    // as a toolbar line ends (no room kept for the menu button after its last item). When the first row does
++    // not fit the width, the items flow on into the second row and those left over go into the menu.
 +    ImplToolItems::size_type nHstBreak = 0;
++    ImplToolItems::size_type nHstLineEnd = 0; // the last button of the first row
 +    if ( bCalcHorz && ImplHstBalanced() )
 +    {
 +        std::vector< hst::toolbar::RowItem > aRow;
@@ -83,18 +86,22 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
 +            aRow.push_back( aItem );
 +        }
 +        nHstBreak = hst::toolbar::balancedBreak( aRow );
-+        nMenuWidth = 0;
++        for ( ImplToolItems::size_type i = 0; i < nHstBreak; ++i )
++            if ( aRow[i].bVisible && !aRow[i].bSeparator )
++                nHstLineEnd = i;
 +    }
 +
      // we need to know which item is the last visible one to be able to add
      // the menu width in case we are unable to show all the items
      ImplToolItems::iterator it, lastVisible;
-@@ -1709,6 +1735,19 @@
+@@ -1709,6 +1739,21 @@
          it->mbBreak = bBreak;
          bBreak = false;
  
-+        if ( nHstBreak && sal::static_int_cast< ImplToolItems::size_type >( it - mpData->m_aItems.begin() ) == nHstBreak
-+             && nLineWidth > 0 )
++        const auto nHstIndex = static_cast< ImplToolItems::size_type >( it - mpData->m_aItems.begin() );
++        // HST Office: the end of the first balanced row, from its last button to the break
++        const bool bHstLineEnd = nHstBreak && nLines == 1 && nHstIndex >= nHstLineEnd && nHstIndex < nHstBreak;
++        if ( nHstBreak && nHstIndex == nHstBreak && nLines == 1 && nLineWidth > 0 )
 +        {
 +            // HST Office: the second of the two balanced rows starts here
 +            ++nLines;
@@ -109,7 +116,25 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
          if ( it->mbVisible )
          {
              bWindow     = false;
-@@ -1994,7 +2033,8 @@
+@@ -1741,14 +1786,14 @@
+ 
+                 // in case we are able to show all the items, we do not want
+                 // to show the toolbar's menu; otherwise yes
+-                if ( ( ( it == lastVisible ) && (nLineWidth+nCurWidth > nWidthTotal) && mbScroll ) ||
+-                     ( ( it != lastVisible ) && (nLineWidth+nCurWidth+nMenuWidth > nWidthTotal) && mbScroll ) )
++                if ( ( ( it == lastVisible || bHstLineEnd ) && (nLineWidth+nCurWidth > nWidthTotal) && mbScroll ) ||
++                     ( ( it != lastVisible && !bHstLineEnd ) && (nLineWidth+nCurWidth+nMenuWidth > nWidthTotal) && mbScroll ) )
+                     bBreak = true;
+             }
+             else if ( it->meType == ToolBoxItemType::SEPARATOR )
+             {
+                 nCurWidth = it->mnSepSize;
+-                if ( !ImplIsFloatingMode() && ( it != lastVisible ) && (nLineWidth+nCurWidth+nMenuWidth > nWidthTotal) )
++                if ( !ImplIsFloatingMode() && ( it != lastVisible ) && !bHstLineEnd && (nLineWidth+nCurWidth+nMenuWidth > nWidthTotal) )
+                     bBreak = true;
+             }
+             // treat breaks as separators, except when using old style toolbars (ie. no menu button)
+@@ -1994,7 +2039,8 @@
  
          // adjust linesize if docked in single-line mode (i.e. when using a clipped item menu)
          // we have to center all items in the window height
@@ -119,7 +144,7 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
          {
              tools::Long  nWinHeight = mnDY - nTop - nBottom;
              if( nWinHeight > nLineSize )
-@@ -4037,6 +4077,23 @@
+@@ -4037,6 +4083,23 @@
      return aSize;
  }
  
@@ -277,19 +302,19 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
              aRowContainerSize.setWidth( std::max< tools::Long >( 0, aContainerSize.Width() - nHstReserved ) );
 +        // HST Office: a lone toolbar beside the banner (Single toolbar, Sidebar) takes two even rows
 +        if ( i == sal_Int32( ui::DockingArea_DOCKINGAREA_TOP )
-+             && implts_hstTwoRows( bHstBanner, aRowColumnsWindowData, aDockingArea.Y, aRowContainerSize.Width() ) )
++             && implts_hstTwoRows( bHstBanner, aRowColumnsWindowData, aDockingArea.Y ) )
 +            implts_getDockingAreaElementInfos( ui::DockingArea_DOCKINGAREA_TOP, aRowColumnsWindowData );
 +        if ( bHstBanner && i == sal_Int32( ui::DockingArea_DOCKINGAREA_TOP ) )
 +        {
              sal_Int32 nRows( 0 );
              for ( const auto& rRow : aRowColumnsWindowData )
                  nRows += rRow.nStaticSize;
-@@ -474,6 +479,58 @@
+@@ -474,6 +479,57 @@
          ::Size( aSlot.w, aSlot.h ) ) );
  }
  
 +bool ToolbarLayoutManager::implts_hstTwoRows( bool bBanner, const std::vector< SingleRowColumnWindowData >& rRows,
-+                                               sal_Int32 nTopHeight, sal_Int32 nRowWidth )
++                                               sal_Int32 nTopHeight )
 +{
 +    SolarMutexGuard aGuard;
 +    // the only docked toolbar of the top docking area, alone in its row, horizontal and with its menu
@@ -310,11 +335,10 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
 +    if ( !pLone )
 +        return bChanged;
 +
-+    // two rows only when they fit beside the banner in its strip; otherwise one row, as without the banner
++    // two rows only when they fit the banner strip's height; narrower than the two rows the items flow on from
++    // the first row into the second and the rest goes into the toolbar's menu (vcl)
 +    pLone->HstSetBalancedLines( 2 );
-+    const ::Size aTwoRows = pLone->CalcWindowSizePixel( 1, WindowAlign::Top );
-+    const bool bFits = aTwoRows.Height() <= nTopHeight && aTwoRows.Width() <= nRowWidth;
-+    if ( !bFits )
++    if ( pLone->CalcWindowSizePixel( 1, WindowAlign::Top ).Height() > nTopHeight )
 +    {
 +        pLone->HstSetBalancedLines( 0 );
 +        m_pHstTwoRows.reset();
@@ -343,7 +367,7 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
  bool ToolbarLayoutManager::isPreviewFrame()
  {
      SolarMutexGuard g;
-@@ -3339,6 +3396,9 @@
+@@ -3339,6 +3395,9 @@
  {
      bool bWinFound( false );
  
@@ -353,7 +377,7 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
      SolarMutexClearableGuard aReadGuard;
      uno::Reference< awt::XWindow2 > xWindow( e.Source, uno::UNO_QUERY );
      aReadGuard.clear();
-@@ -3650,6 +3710,7 @@
+@@ -3650,6 +3709,7 @@
  
  sal_Bool SAL_CALL ToolbarLayoutManager::prepareToggleFloatingMode( const lang::EventObject& e )
  {
@@ -375,10 +399,10 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
          sal_Int32 implts_hstReservedWidth( sal_Int32 nTopHeight );
          /// Show the banner at the right end of the top docking area, or hide it.
          void implts_hstPlaceBanner( bool bWanted );
-+        /// Give the lone toolbar of the top docking area two even rows beside the banner when they fit, or take
-+        /// them back (any other toolbar layout, no banner). True when the rows must be measured again.
++        /// Give the lone toolbar of the top docking area two even rows beside the banner when they fit the strip
++        /// height, or take them back (any other toolbar layout, no banner). True when the rows must be measured again.
 +        bool implts_hstTwoRows( bool bBanner, const std::vector< SingleRowColumnWindowData >& rRows,
-+                                sal_Int32 nTopHeight, sal_Int32 nRowWidth );
++                                sal_Int32 nTopHeight );
 +        /// One row again for the toolbar that has two (all of them, or only the toolbar xSource).
 +        void implts_hstTwoRowsOff();
 +        void implts_hstTwoRowsOff( const css::uno::Reference< css::uno::XInterface >& xSource );

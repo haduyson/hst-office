@@ -101,7 +101,11 @@ def run(args):
                     window.setPosSize(0, 0, width, height, 15)  # PosSize.POSSIZE, physical px
 
                 steps.run_modes(args, adapter, frame, app, results, tag, resize)
-                document.close(True)
+                try:
+                    document.setModified(False)
+                    document.close(True)
+                except Exception:  # noqa: BLE001 - a CloseVetoException: the frame goes anyway
+                    frame.dispose()
             except Exception as error:  # noqa: BLE001 - one app failing must not hide the others
                 results.append({"case": app + tag, "status": "FAIL", "detail": repr(error)[:400]})
                 print(f"FAIL  {app}{tag}  {error!r}", flush=True)

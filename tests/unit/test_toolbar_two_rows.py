@@ -140,7 +140,7 @@ class ToolbarTwoRowsTest(unittest.TestCase):
     def test_framework_opts_in_for_lone_toolbar_beside_banner(self):
         code = added(PATCH, "framework/source/layoutmanager/toolbarlayoutmanager.cxx")
         self.assertIn("bBanner && rRows.size() == 1 && rRows[0].aRowColumnWindows.size() == 1", code)
-        self.assertIn("aTwoRows.Height() <= nTopHeight && aTwoRows.Width() <= nRowWidth", code)
+        self.assertIn("CalcWindowSizePixel( 1, WindowAlign::Top ).Height() > nTopHeight", code)  # the strip height
         self.assertIn("implts_hstTwoRowsOff( e.Source )", code)
         # nothing of the two rows reaches the persisted window state
         self.assertNotIn("implts_writeWindowStateData", code)

@@ -36,6 +36,11 @@ def check(args, office, frame, results, app, mode, case, bars=1):
     path = os.path.join(args.out, f"{case}.png")
     office.screenshot(path)
     data = args.snapshot()
+    for _retry in range(3):  # the accessibility tree can lag behind a mode switch or a resize
+        if data["banners"] and data["bars"]:
+            break
+        time.sleep(2)
+        data = args.snapshot()
     ok, detail = probe.judge(app, mode if bars == 1 else "Default", data)
     if ok and bars > 1 and len(probe.strip(data)[1]) != bars:
         ok, detail = False, f"{len(probe.strip(data)[1])} toolbars beside the banner, {bars} expected"
