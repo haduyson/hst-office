@@ -37,9 +37,10 @@ def shot(label):
 
 
 def close_dialog(window):
-    """End a dialog with WM_CLOSE to its own HWND (endExecute as the fallback); never a key to the foreground window."""
-    from windows_gui_dialogs import close_dialog as close_without_keys
-    return close_without_keys(window)
+    """End a dialog without keystrokes: WM_CLOSE to its own window (twice), then endExecute (windows_gui_dialogs).
+    A key sent to the foreground could reach a desktop or another session's window."""
+    from windows_gui_dialogs import close_dialog as close  # Windows only (ctypes user32)
+    return close(window)
 
 
 def is_new(window, known):
