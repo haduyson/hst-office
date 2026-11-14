@@ -72,8 +72,11 @@ class StoreTests(unittest.TestCase):
     def test_all_three_system_ends_run_it(self):
         self.assertEqual(self.code.count('vnd.sun.star.autorecovery:/doSessionEnd"_ustr'), 2)  # Windows, SIGTERM
         self.assertIn('dispatch_recovery_job(xContext, u"doSessionEnd"_ustr);', self.code)  # GNOME
-        self.assertRegex(self.code, r"ImplHstStoreSession\( hWnd \);\s*if \( !ImplHstAnyDocumentModified\(\) \)\s*"
-                                    r"ReplyMessage\( TRUE \);")
+        self.assertRegex(self.code, r"ImplHstStoreSession\( hWnd \);\s*bStored = true;\s*\}\s*"
+                                    r"if \( !ImplHstAnyDocumentModified\(\) \)\s*ReplyMessage\( TRUE \);")
+        # the store closes this window's document: the quit goes through a frame still there
+        self.assertIn("pFrame = GetWindowPtr( hWnd );", self.code)
+        self.assertIn("else if ( GetpApp() && GetpApp()->QueryExit() )", self.code)
         self.assertIn("ShutdownBlockReasonCreate", self.code)
         self.assertIn("ShutdownBlockReasonDestroy( hWnd );", self.code)
 
