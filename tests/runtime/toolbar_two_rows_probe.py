@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Measure and judge the toolbars beside the window banner (Linux AT-SPI, Windows UNO accessibility).
+"""Measure and judge the toolbars beside the window banner (Linux AT-SPI, Windows MSAA).
 
 hst-toolbar-two-rows.patch: in the toolbar user interfaces with one docked toolbar (Single toolbar, Sidebar, and
 Draw's Standard one) that toolbar takes two rows of about equal width beside the banner, the block centred
@@ -57,43 +57,18 @@ def snapshot_atspi():
     return out
 
 
-def snapshot_uno(top_windows):
-    """Windows: the snapshot of the toolkit top windows over UNO accessibility (windows_gui.walk)."""
-    import uno
-    import windows_gui as wg
-
-    def role(name):
-        return uno.getConstantByName("com.sun.star.accessibility.AccessibleRole." + name)
-
-    def box(context):
-        loc, size = context.getLocationOnScreen(), context.getSize()
-        return [loc.X, loc.Y, size.Width, size.Height]
-
-    def accessible(window):  # a toolkit top window does not list XAccessible to pyuno (r1auto/access.py)
-        return window if hasattr(window, "getAccessibleContext") else window.queryInterface(
-            uno.getTypeByName("com.sun.star.accessibility.XAccessible"))
-
-    out = {"bars": [], "banners": []}
-    for window in top_windows:
-        root = accessible(window)
-        out["roots"] = out.get("roots", 0) + (root is not None)  # evidence when nothing is found
-        if root is None:
-            continue
-        for context, _depth in wg.walk(root, limit=16):
-            out["nodes"] = out.get("nodes", 0) + 1
-            try:
-                if not wg.showing(context):
-                    continue
-                if context.getAccessibleRole() == role("TOOL_BAR"):
-                    kids = [context.getAccessibleChild(i).getAccessibleContext()
-                            for i in range(context.getAccessibleChildCount())]
-                    out["bars"].append({"box": box(context), "items": [
-                        box(k) for k in kids if wg.showing(k) and k.getAccessibleRole() != role("SEPARATOR")]})
-                elif " — " in (context.getAccessibleName() or ""):
-                    out["banners"].append(box(context))
-            except Exception:  # noqa: BLE001 - a disposed node
-                continue
-    return out
+def snapshot_msaa(install):
+    """Windows: the snapshot through MSAA (toolbar-two-rows-msaa.ps1) of the offices started from `install`."""
+    import json
+    import os
+    import subprocess
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "toolbar-two-rows-msaa.ps1")
+    run = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Install", install],
+                         capture_output=True, text=True, encoding="utf-8", timeout=180, check=False)
+    try:
+        return json.loads(run.stdout)
+    except ValueError:
+        return {"bars": [], "banners": [], "error": (run.stderr or run.stdout)[-600:]}
 
 
 def strip(snapshot):

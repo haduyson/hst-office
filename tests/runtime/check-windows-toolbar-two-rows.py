@@ -45,11 +45,11 @@ class Adapter:
         return helper.executeDispatch(frame, command, "", 0, tuple(args))
 
 
-def set_appearance(office, value):
+def set_config(office, node, name, value):
     provider = office.service("com.sun.star.configuration.ConfigurationProvider")
     access = provider.createInstanceWithArguments("com.sun.star.configuration.ConfigurationUpdateAccess",
-                                                  (steps.prop("nodepath", "/org.openoffice.Office.Common/Appearance"),))
-    access.setPropertyValue("ApplicationAppearance", value)
+                                                  (steps.prop("nodepath", node),))
+    access.setPropertyValue(name, value)
     access.commitChanges()
 
 
@@ -87,9 +87,11 @@ def run(args):
     try:
         office.start(fresh=True)
         wg.dismiss_startup(office, os.path.join(args.out, "startup.png"), timeout=30, settle=5)
-        set_appearance(office, {"light": 1, "dark": 2}[args.appearance])
+        set_config(office, "/org.openoffice.Office.Common/Appearance", "ApplicationAppearance",
+                   {"light": 1, "dark": 2}[args.appearance])
+        set_config(office, "/org.openoffice.Office.Impress/Misc/NewDoc", "AutoPilot", False)  # no template dialog
         adapter = Adapter(office)
-        args.snapshot = lambda: probe.snapshot_uno(office.top_windows())
+        args.snapshot = lambda: probe.snapshot_msaa(os.path.abspath(args.install))
         for app in args.apps.split(","):
             try:
                 document = office.load(FACTORY[app])
@@ -98,6 +100,11 @@ def run(args):
                 time.sleep(4)
 
                 def resize(width, height, window=window):
+                    import uno
+                    top = window.queryInterface(uno.getTypeByName("com.sun.star.awt.XTopWindow2"))
+                    if top is not None:
+                        top.IsMaximized = False  # a maximized window keeps the screen's size
+                    time.sleep(1)
                     window.setPosSize(0, 0, width, height, 15)  # PosSize.POSSIZE, physical px
 
                 steps.run_modes(args, adapter, frame, app, results, tag, resize)

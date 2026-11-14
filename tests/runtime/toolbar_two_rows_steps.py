@@ -2,7 +2,7 @@
 """The steps of check-toolbar-two-rows.py and check-windows-toolbar-two-rows.py (same cases on Linux and Windows).
 
 `office` is any object with ctx, screenshot(path) and dispatch(frame, command, args); `args` has out, shots and
-snapshot() (toolbar_two_rows_probe.snapshot_atspi on Linux, snapshot_uno on Windows).
+snapshot() (toolbar_two_rows_probe.snapshot_atspi on Linux, snapshot_msaa on Windows).
 """
 import os
 import shutil
