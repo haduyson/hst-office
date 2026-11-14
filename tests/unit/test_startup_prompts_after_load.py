@@ -68,9 +68,12 @@ class Loading(unittest.TestCase):
     def test_a_shown_frame_without_controller_is_loading(self):
         self.assertTrue(wj.loading(_ctx([_Frame(object()), _Frame(None)])))
 
-    def test_loaded_frames_and_hidden_loads_do_not_hold_the_prompts(self):
-        self.assertFalse(wj.loading(_ctx([_Frame(object()), _Frame(None, visible=False)])))
+    def test_loaded_frames_do_not_hold_the_prompts(self):
+        self.assertFalse(wj.loading(_ctx([_Frame(object()), _Frame(object(), visible=False)])))
         self.assertFalse(wj.loading(_ctx([])))
+
+    def test_an_api_load_whose_window_is_shown_only_at_the_end_holds_the_prompts(self):
+        self.assertTrue(wj.loading(_ctx([_Frame(object()), _Frame(None, visible=False)])))
 
 
 class Later(unittest.TestCase):

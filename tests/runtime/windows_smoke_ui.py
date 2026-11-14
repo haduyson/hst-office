@@ -68,21 +68,26 @@ def pump(toolkit, work, wait_for_window):
     thread.start()
     found, deadline = [], time.time() + 40
     area = toolkit.getWorkArea()
-    while time.time() < deadline and (thread.is_alive() or (wait_for_window and not found)):
-        for window in top_windows(toolkit):
-            if is_new(window, known):
-                known.append(window)
-                time.sleep(4)  # let the dialog lay out (peer size settles), paint and get its title
-                try:
-                    size = window.getPosSize()
-                except Exception:  # noqa: BLE001
-                    size = area.__class__(0, 0, 0, 0)
-                label = "%s %dx%d" % (window_title(window), size.Width, size.Height)
-                if size.Width > area.Width or size.Height > area.Height:
-                    label += " OVERSIZE(work area %dx%d)" % (area.Width, area.Height)
-                found.append(label)
-                shot(label)
-                close_dialog(window)
+    while time.time() < deadline:
+        busy = thread.is_alive() or (wait_for_window and not found)
+        new = [window for window in top_windows(toolkit) if is_new(window, known)]
+        # one more pass once the work has ended: a dialog that opened during the last 4 s settle (the first-start
+        # welcome during the first load) would otherwise stay up unseen and hold later closes and the terminate
+        if not busy and not new:
+            break
+        for window in new:
+            known.append(window)
+            time.sleep(4)  # let the dialog lay out (peer size settles), paint and get its title
+            try:
+                size = window.getPosSize()
+            except Exception:  # noqa: BLE001
+                size = area.__class__(0, 0, 0, 0)
+            label = "%s %dx%d" % (window_title(window), size.Width, size.Height)
+            if size.Width > area.Width or size.Height > area.Height:
+                label += " OVERSIZE(work area %dx%d)" % (area.Width, area.Height)
+            found.append(label)
+            shot(label)
+            close_dialog(window)
         time.sleep(0.3)
     thread.join(10)
     if thread.is_alive():
