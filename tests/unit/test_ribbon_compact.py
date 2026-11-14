@@ -123,6 +123,14 @@ class CompactWiring(unittest.TestCase):
         self.assertIn("sfx2/source/notebookbar/HstRibbonCompact \\", sfx)
         self.assertIn("sfx2/source/notebookbar/HstRibbonCompactWidgets \\", sfx)
 
+    def test_page_never_laid_out_at_full_width_first(self):
+        tabctrl = added(PATCH, "vcl/source/control/tabctrl.cxx")
+        self.assertIn("tools::Long nW = nWidth-TAB_OFFSET*2 - ImplHstPageReserve();", tabctrl)
+        self.assertIn("pItem->mpTabPage->GetParent() != this", tabctrl)  # the dropped page is the popup's
+        tabs = added(PATCH, "sfx2/source/notebookbar/NotebookbarTabControl.cxx")
+        self.assertIn("HstSetPageReserve(nPageWidth > 0 ? aPage.w - nPageWidth : 0);", tabs)
+        self.assertNotIn("pPage->SetPosSizePixel(aPos, Size(nPageWidth, aPage.h));", tabs)
+
     def test_document_tab_strip_is_32_px(self):
         self.assertIn("BAR_HEIGHT = 32", added(PATCH, "framework/source/uielement/documenttabbar.cxx"))
 
