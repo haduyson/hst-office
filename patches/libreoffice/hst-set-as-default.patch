@@ -226,13 +226,14 @@ tests/runtime/check-set-as-default.py.
  	CppunitTest_sc_filter_html \
 --- /dev/null
 +++ b/sc/qa/unit/uicalc/hstsetasdefault.cxx
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,90 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +
 +// HST Office: "Set As Default" in Format Cells and Page Setup of Sheets (sc/source/ui/docshell/hstsetasdefault.cxx)
 +
 +#include "../helper/qahelper.hxx"
 +
++#include <comphelper/propertyvalue.hxx>
 +#include <comphelper/scopeguard.hxx>
 +#include <editeng/brushitem.hxx>
 +#include <editeng/fhgtitem.hxx>
@@ -288,8 +289,10 @@ tests/runtime/check-set-as-default.py.
 +    sc::hst::SetAsDefault(nullptr, *pDocSh, sc::hst::DefaultKind::Cells, aValues, true);
 +    CPPUNIT_ASSERT_EQUAL(sfx2::hst::DefaultTemplateURL(ScDocShell::Factory()),
 +                         SfxObjectFactory::GetStandardTemplate(aService));
++    // the template file itself, opened for editing (new spreadsheets made from it: tests/runtime)
 +    dispose();
-+    createScDoc();
++    loadFromURL(sfx2::hst::DefaultTemplateURL(ScDocShell::Factory()),
++                { comphelper::makePropertyValue(u"AsTemplate"_ustr, false) });
 +    ScDocument& rNew = *getScDoc();
 +    CPPUNIT_ASSERT(SvxCellHorJustify::Center == rNew.GetAttr(0, 0, 0, ATTR_HOR_JUSTIFY).GetValue());
 +    CPPUNIT_ASSERT_EQUAL(sal_uInt32(280), rNew.GetAttr(0, 0, 0, ATTR_FONT_HEIGHT).GetHeight());
@@ -1083,7 +1086,7 @@ tests/runtime/check-set-as-default.py.
  #include <wrtsh.hxx>
  #include <unotxdoc.hxx>
  #include <itabenum.hxx>
-@@ -1978,6 +1992,83 @@
+@@ -1978,6 +1992,88 @@
      CPPUNIT_ASSERT_EQUAL(u"foo"_ustr, (*(rIDMA.getAllMarksBegin()))->GetName().toString());
  }
  
@@ -1127,41 +1130,46 @@ tests/runtime/check-set-as-default.py.
 +// HST Office "Set As Default" for all new documents: a per-user default template, updated by later changes
 +CPPUNIT_TEST_FIXTURE(SwUiWriterTest9, testHstSetAsDefaultNewDocuments)
 +{
++    // New documents from the registered template are covered by tests/runtime/check-set-as-default.py; this
++    // checks the template file itself, opened for editing, and that a later default updates it.
 +    const OUString aService = u"com.sun.star.text.TextDocument"_ustr;
 +    comphelper::ScopeGuard aReset([&aService] { SfxObjectFactory::SetStandardTemplate(aService, OUString()); });
 +    SfxObjectFactory::SetStandardTemplate(aService, OUString());
++    const OUString aTemplate = sfx2::hst::DefaultTemplateURL(SwDocShell::Factory());
++    auto aStandard = [this, &aTemplate, &aService](sal_Int16 nAdjust, float fHeight) {
++        dispose();
++        loadFromURL(aTemplate, { comphelper::makePropertyValue(u"AsTemplate"_ustr, false) });
++        uno::Reference<beans::XPropertySet> xStyle(
++            getStyles(u"ParagraphStyles"_ustr)->getByName(u"Standard"_ustr), uno::UNO_QUERY_THROW);
++        CPPUNIT_ASSERT_EQUAL(nAdjust, getProperty<sal_Int16>(xStyle, u"ParaAdjust"_ustr));
++        CPPUNIT_ASSERT_EQUAL(fHeight, getProperty<float>(xStyle, u"CharHeight"_ustr));
++        // a document to change next, not made from the template (unit tests do not load templates as such)
++        dispose();
++        SfxObjectFactory::SetStandardTemplate(aService, OUString());
++        createSwDoc();
++        SfxObjectFactory::SetStandardTemplate(aService, aTemplate);
++    };
 +
 +    createSwDoc();
 +    SwDoc* pDoc = getSwDoc();
-+    SfxItemSet aValues(SfxItemSet::makeFixedSfxItemSet<RES_CHRATR_BEGIN, RES_CHRATR_END - 1, RES_PARATR_BEGIN, RES_PARATR_END - 1>(pDoc->GetAttrPool()));
++    SfxItemSet aValues(SfxItemSet::makeFixedSfxItemSet<RES_PARATR_BEGIN, RES_PARATR_END - 1>(pDoc->GetAttrPool()));
 +    aValues.Put(SvxAdjustItem(SvxAdjust::Block, RES_PARATR_ADJUST));
 +    sw::hst::SetAsDefault(nullptr, *pDoc->GetDocShell(), sw::hst::DefaultKind::Paragraph, aValues, true);
-+    CPPUNIT_ASSERT_EQUAL(sfx2::hst::DefaultTemplateURL(SwDocShell::Factory()),
-+                         SfxObjectFactory::GetStandardTemplate(aService));
++    CPPUNIT_ASSERT_EQUAL(aTemplate, SfxObjectFactory::GetStandardTemplate(aService));
++    const float fDefaultHeight = getProperty<float>(getParagraph(1), u"CharHeight"_ustr);
++    aStandard(sal_Int16(css::style::ParagraphAdjust_BLOCK), fDefaultHeight);
 +
-+    // a new document starts with it; a second default keeps the first one
-+    dispose();
-+    createSwDoc();
-+    CPPUNIT_ASSERT_EQUAL(sal_Int16(css::style::ParagraphAdjust_BLOCK),
-+                         getProperty<sal_Int16>(getParagraph(1), u"ParaAdjust"_ustr));
++    // a second default updates the same template and keeps the first one
 +    pDoc = getSwDoc();
 +    SfxItemSet aFont(SfxItemSet::makeFixedSfxItemSet<RES_CHRATR_BEGIN, RES_CHRATR_END - 1>(pDoc->GetAttrPool()));
 +    aFont.Put(SvxFontHeightItem(260, 100, RES_CHRATR_FONTSIZE));
 +    sw::hst::SetAsDefault(nullptr, *pDoc->GetDocShell(), sw::hst::DefaultKind::Character, aFont, true);
++    aStandard(sal_Int16(css::style::ParagraphAdjust_BLOCK), 13.f);
 +
-+    dispose();
-+    createSwDoc();
-+    CPPUNIT_ASSERT_EQUAL(sal_Int16(css::style::ParagraphAdjust_BLOCK),
-+                         getProperty<sal_Int16>(getParagraph(1), u"ParaAdjust"_ustr));
-+    CPPUNIT_ASSERT_EQUAL(13.f, getProperty<float>(getParagraph(1), u"CharHeight"_ustr));
-+
-+    // "this document only" leaves new documents alone
++    // "this document only" leaves the template alone
 +    aFont.Put(SvxFontHeightItem(320, 100, RES_CHRATR_FONTSIZE));
-+    sw::hst::SetAsDefault(nullptr, *getSwDoc()->GetDocShell(), sw::hst::DefaultKind::Character, aFont,
-+                          false);
-+    dispose();
-+    createSwDoc();
-+    CPPUNIT_ASSERT_EQUAL(13.f, getProperty<float>(getParagraph(1), u"CharHeight"_ustr));
++    sw::hst::SetAsDefault(nullptr, *getSwDoc()->GetDocShell(), sw::hst::DefaultKind::Character, aFont, false);
++    aStandard(sal_Int16(css::style::ParagraphAdjust_BLOCK), 13.f);
 +}
 +
  } // end of anonymous namespace
