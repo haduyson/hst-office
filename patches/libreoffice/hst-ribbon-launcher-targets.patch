@@ -1,0 +1,842 @@
+HST Office: every ribbon group launcher (↘) opens its own group's dialog on the group's tab, as in the reference
+suite, instead of the tab used last.
+
+- Writer: Phông chữ opens Character on Phông chữ; Đoạn văn (Trang đầu and Bố cục) opens Paragraph on Thụt lề và
+  giãn cách; the table's Kiểu bảng opens Borders on Viền, its Căn chỉnh opens Table Properties on Ô; the picture's
+  Ảnh opens Picture on Kích thước, its Tô & viền on the fill tab; the shape's Tô & viền opens Area on Vùng, its
+  Định vị opens Position and Size on Vị trí và kích thước. Footnote/Endnote Settings (the Cước chú launcher)
+  always opens on footnotes.
+- Sheets: Phông chữ, Căn chỉnh and Số open Format Cells on Phông chữ, Căn chỉnh and Số.
+- Slides and Draw: Phông chữ opens Character on Phông chữ, Đoạn văn opens Paragraph on Thụt lề và giãn cách, Bản vẽ
+  and Tô & viền open Area on Vùng, Đối tượng vẽ opens Position and Size on Vị trí và kích thước; Draw's Xoay và
+  lật opens it on Xoay.
+- The launchers send .uno:Command?Page:string=<tab id>. FormatArea, TransformDialog (svx), GraphicDialog,
+  TableDialog (Writer) and FormatCellDialog (Sheets) get an optional Page argument. Where a handler reads any
+  argument as "apply without a dialog", a Page argument that is the only one is taken out of the request first
+  (sfx2/hstdialogpage.hxx), so every other call keeps its meaning. A launcher with a Page argument has no
+  command label, so its .ui label is the group caption (same msgctxt, same translation).
+
+License: these upstream files remain under their original license (MPL-2.0); include/sfx2/hstdialogpage.hxx is
+new HST code under MPL-2.0 like the files around it.
+Test: tests/unit/test_ribbon_launcher_targets.py, tests/runtime/check-ribbon-launchers.py
+---
+--- /dev/null
++++ b/include/sfx2/hstdialogpage.hxx
+@@ -0,0 +1,30 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <sfx2/request.hxx>
++#include <svl/itemset.hxx>
++#include <svl/stritem.hxx>
++
++/// HST Office: the ribbon's group launchers (↘) send ".uno:Command?Page:string=<tab id>" so that a
++/// tab dialog opens on the tab of its group instead of the tab used last. When that string is the
++/// request's only argument, it is taken out of the request and returned: the handler then sees a
++/// plain "open the dialog" request (handlers treat any argument as "apply without a dialog") and
++/// selects the returned tab. Any other set of arguments keeps its old meaning; returns "" then.
++inline OUString hstTakeDialogPage(SfxRequest& rReq, sal_uInt16 nSlotId)
++{
++    const SfxItemSet* pArgs = rReq.GetArgs();
++    const SfxStringItem* pPage = rReq.GetArg<SfxStringItem>(nSlotId);
++    if (!pArgs || !pPage || pArgs->Count() != 1)
++        return OUString();
++    const OUString aPage = pPage->GetValue();
++    rReq.RemoveItem(pPage->Which());
++    return aPage;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/sdi/scalc.sdi
++++ b/sc/sdi/scalc.sdi
+@@ -1954,11 +1954,11 @@
+     GroupId = SfxGroupId::Application;
+ ]
+ 
+ 
+ SfxVoidItem FormatCellDialog FID_CELL_FORMAT
+-()
++(SfxStringItem Page FN_PARAM_1)
+ [
+     AutoUpdate = FALSE,
+     FastCall = FALSE,
+     ReadOnlyDoc = TRUE,
+     Toggle = FALSE,
+--- a/sc/source/ui/view/cellsh3.cxx
++++ b/sc/source/ui/view/cellsh3.cxx
+@@ -24,10 +24,11 @@
+ #include <editeng/editeng.hxx>
+ #include <formula/formulahelper.hxx>
+ #include <sfx2/viewfrm.hxx>
+ #include <sfx2/bindings.hxx>
+ #include <sfx2/dispatch.hxx>
++#include <sfx2/hstdialogpage.hxx>
+ #include <sfx2/request.hxx>
+ #include <svl/stritem.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/weld/MessageDialog.hxx>
+ #include <globstr.hrc>
+@@ -423,11 +424,16 @@
+             }
+             break;
+ 
+         case FID_CELL_FORMAT:
+             {
+-                if ( pReqArgs != nullptr )
++                // HST: .uno:FormatCellDialog?Page:string=numbers (the ribbon's Font, Alignment and Number
++                // launchers) opens Format Cells on that tab; the request then has no arguments left.
++                const OUString aHstPage = hstTakeDialogPage(rReq, FN_PARAM_1);
++                if (!aHstPage.isEmpty())
++                    pTabViewShell->ExecuteCellFormatDlg(rReq, aHstPage);
++                else if ( pReqArgs != nullptr )
+                 {
+                     // set cell attribute without dialog:
+                     SfxItemSet aEmptySet(SfxItemSet::makeFixedSfxItemSet<ATTR_PATTERN_START, ATTR_PATTERN_END>(*pReqArgs->GetPool()));
+ 
+                     SfxItemSet aNewSet(SfxItemSet::makeFixedSfxItemSet<ATTR_PATTERN_START, ATTR_PATTERN_END>(*pReqArgs->GetPool()));
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -4773,11 +4773,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchHomeFont">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:FormatCellDialog</property>
++                                    <property name="action-name">.uno:FormatCellDialog?Page:string=font</property>
++                                    <property name="label" translatable="yes" context="TabbedCalc|labelHomeFont">Font</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -5156,11 +5157,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchHomeAlignment">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:FormatCellDialog</property>
++                                    <property name="action-name">.uno:FormatCellDialog?Page:string=alignment</property>
++                                    <property name="label" translatable="yes" context="TabbedCalc|labelHomeAlignment">Alignment</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -5508,11 +5510,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchHomeNumber">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:FormatCellDialog</property>
++                                    <property name="action-name">.uno:FormatCellDialog?Page:string=numbers</property>
++                                    <property name="label" translatable="yes" context="TabbedCalc|labelHomeNumber">Number</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+--- a/sd/source/ui/func/fuarea.cxx
++++ b/sd/source/ui/func/fuarea.cxx
+@@ -18,11 +18,13 @@
+  */
+ 
+ #include <fuarea.hxx>
+ 
+ #include <svx/svxids.hrc>
++#include <sfx2/hstdialogpage.hxx>
+ #include <sfx2/request.hxx>
++#include <sfx2/sfxsids.hrc>
+ #include <sfx2/viewfrm.hxx>
+ #include <sfx2/bindings.hxx>
+ #include <ViewShell.hxx>
+ 
+ #include <drawdoc.hxx>
+@@ -43,10 +45,13 @@
+     return xFunc;
+ }
+ 
+ void FuArea::DoExecute( SfxRequest& rReq )
+ {
++    // HST: .uno:FormatArea?Page:string=RID_SVXPAGE_AREA (the ribbon's Drawing and shape style
++    // launchers) opens the dialog on that tab
++    const OUString aHstPage = hstTakeDialogPage(rReq, FN_PARAM_1);
+     rReq.Ignore ();
+ 
+     const SfxItemSet* pArgs = rReq.GetArgs();
+     if (pArgs)
+         return;
+@@ -56,10 +61,12 @@
+ 
+     SvxAbstractDialogFactory* pFact = SvxAbstractDialogFactory::Create();
+     bool bHasSlideBackground = mrViewShell.GetDoc()->GetDocumentType() == DocumentType::Impress;
+     VclPtr<AbstractSvxAreaTabDialog> pDlg(
+         pFact->CreateSvxAreaTabDialog(mrViewShell.GetFrameWeld(), &aNewAttr, &mrDoc, true, bHasSlideBackground));
++    if (!aHstPage.isEmpty())
++        pDlg->SetCurPageId(aHstPage);
+ 
+     pDlg->StartExecuteAsync([pDlg, pView = this->mpView, pViewShell = &this->mrViewShell](sal_Int32 nResult){
+         if (nResult == RET_OK)
+         {
+             pView->SetAttributes (*(pDlg->GetOutputItemSet ()));
+--- a/sd/source/ui/func/fuchar.cxx
++++ b/sd/source/ui/func/fuchar.cxx
+@@ -24,11 +24,13 @@
+ #include <svx/svxids.hrc>
+ #include <editeng/eeitem.hxx>
+ #include <editeng/colritem.hxx>
+ #include <editeng/brushitem.hxx>
+ #include <sfx2/bindings.hxx>
++#include <sfx2/hstdialogpage.hxx>
+ #include <sfx2/request.hxx>
++#include <sfx2/sfxsids.hrc>
+ #include <View.hxx>
+ #include <drawdoc.hxx>
+ #include <ViewShell.hxx>
+ #include <DrawDocShell.hxx>
+ #include <sdabstdlg.hxx>
+@@ -53,10 +55,12 @@
+     return xFunc;
+ }
+ 
+ void FuChar::DoExecute( SfxRequest& rReq )
+ {
++    // HST: .uno:FontDialog?Page:string=font (the ribbon's Font launcher) opens the dialog on that tab
++    const OUString aHstPage = hstTakeDialogPage(rReq, FN_PARAM_1);
+     const SfxItemSet* pArgs = rReq.GetArgs();
+ 
+     if( !pArgs )
+     {
+         SfxItemSet aEditAttr( mrDoc.GetPool() );
+@@ -69,10 +73,12 @@
+         ScopedVclPtr<SfxAbstractTabDialog> pDlg( pFact->CreateSdTabCharDialog(mrViewShell.GetFrameWeld(), &aNewAttr, mrDoc.GetDocSh() ) );
+         if (rReq.GetSlot() == SID_CHAR_DLG_EFFECT)
+         {
+             pDlg->SetCurPageId(u"fonteffects"_ustr);
+         }
++        else if (!aHstPage.isEmpty())
++            pDlg->SetCurPageId(aHstPage);
+ 
+         sal_uInt16 nResult = pDlg->Execute();
+ 
+         if( nResult != RET_OK )
+             return;
+--- a/sd/source/ui/func/fuparagr.cxx
++++ b/sd/source/ui/func/fuparagr.cxx
+@@ -18,10 +18,11 @@
+  */
+ 
+ #include <fuparagr.hxx>
+ #include <editeng/eeitem.hxx>
+ #include <sfx2/bindings.hxx>
++#include <sfx2/hstdialogpage.hxx>
+ #include <sfx2/request.hxx>
+ #include <sfx2/viewfrm.hxx>
+ #include <sfx2/sfxdlg.hxx>
+ #include <svx/svxids.hrc>
+ #include <editeng/editdata.hxx>
+@@ -55,10 +56,12 @@
+     return xFunc;
+ }
+ 
+ void FuParagraph::DoExecute( SfxRequest& rReq )
+ {
++    // HST: .uno:ParagraphDialog?Page:string=indents (the ribbon's Paragraph launcher) opens that tab
++    const OUString aHstPage = hstTakeDialogPage(rReq, SID_PARA_DLG);
+     const SfxItemSet* pArgs = rReq.GetArgs();
+ 
+     OutlinerView* pOutlView = mpView->GetTextEditOutlinerView();
+     ::Outliner* pOutliner = mpView->GetTextEditOutliner();
+ 
+@@ -87,10 +90,12 @@
+             aNewAttr.Put( SfxBoolItem( ATTR_NUMBER_NEWSTART, pOutliner->IsParaIsNumberingRestart( eSelection.start.nPara ) ) );
+         }
+ 
+         SdAbstractDialogFactory* pFact = SdAbstractDialogFactory::Create();
+         ScopedVclPtr<SfxAbstractTabDialog> pDlg(pFact->CreateSdParagraphTabDlg(mrViewShell.GetFrameWeld(), &aNewAttr));
++        if (!aHstPage.isEmpty())
++            pDlg->SetCurPageId(aHstPage);
+ 
+         sal_uInt16 nResult = pDlg->Execute();
+ 
+         switch( nResult )
+         {
+--- a/sd/source/ui/func/futransf.cxx
++++ b/sd/source/ui/func/futransf.cxx
+@@ -18,11 +18,13 @@
+  */
+ 
+ #include <futransf.hxx>
+ 
+ #include <svx/svxids.hrc>
++#include <sfx2/hstdialogpage.hxx>
+ #include <sfx2/request.hxx>
++#include <sfx2/sfxsids.hrc>
+ 
+ #include <strings.hrc>
+ #include <ViewShell.hxx>
+ #include <View.hxx>
+ #include <sdresid.hxx>
+@@ -67,10 +69,13 @@
+ {
+     const SdrMarkList& rMarkList = mpView->GetMarkedObjectList();
+     if (rMarkList.GetMarkCount() == 0)
+         return;
+ 
++    // HST: .uno:TransformDialog?Page:string=RID_SVXPAGE_ANGLE (the ribbon's size and rotate launchers)
++    // opens Position and Size on that tab
++    const OUString aHstPage = hstTakeDialogPage(rReq, FN_PARAM_1);
+     const SfxItemSet* pArgs = rReq.GetArgs();
+ 
+     if (pArgs)
+     {
+         // If this comes from LOK, that means the shape is moved by mouse
+@@ -104,10 +109,12 @@
+     else
+     {
+         SvxAbstractDialogFactory* pFact = SvxAbstractDialogFactory::Create();
+         pDlg.reset(pFact->CreateSvxTransformTabDialog(mrViewShell.GetFrameWeld(), &aSet, mpView));
+         bWelded = true;
++        if (!aHstPage.isEmpty())
++            pDlg->SetCurPageId(aHstPage);
+     }
+ 
+     assert(pDlg && "there must be a dialog at this point");
+ 
+     auto xRequest = std::make_shared<SfxRequest>(rReq);
+--- a/sd/uiconfig/sdraw/ui/notebookbar.ui
++++ b/sd/uiconfig/sdraw/ui/notebookbar.ui
+@@ -1440,11 +1440,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchHomeFont">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:FontDialog</property>
++                                    <property name="action-name">.uno:FontDialog?Page:string=font</property>
++                                    <property name="label" translatable="yes" context="TabbedImpress|labelHomeFont">Font</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -1848,11 +1849,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchHomeParagraph">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:ParagraphDialog</property>
++                                    <property name="action-name">.uno:ParagraphDialog?Page:string=indents</property>
++                                    <property name="label" translatable="yes" context="TabbedImpress|labelHomeParagraph">Paragraph</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -2377,11 +2379,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchHomeDrawing">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:FormatArea</property>
++                                    <property name="action-name">.uno:FormatArea?Page:string=RID_SVXPAGE_AREA</property>
++                                    <property name="label" translatable="yes" context="TabbedImpress|hstUXlabelHomeDrawing">Drawing</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -4216,11 +4219,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchCtxShapeSizeArrange">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:TransformDialog</property>
++                                    <property name="action-name">.uno:TransformDialog?Page:string=RID_SVXPAGE_ANGLE</property>
++                                    <property name="label" translatable="yes" context="TabbedDraw|labelArrangeRotate">Rotate and Flip</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -10432,11 +10436,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchCtxShapeSize">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:TransformDialog</property>
++                                    <property name="action-name">.uno:TransformDialog?Page:string=RID_SVXPAGE_POSITION_SIZE</property>
++                                    <property name="label" translatable="yes" context="TabbedImpress|labelDraw">Drawing Object</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -10666,11 +10671,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchCtxShapeStyles">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:FormatArea</property>
++                                    <property name="action-name">.uno:FormatArea?Page:string=RID_SVXPAGE_AREA</property>
++                                    <property name="label" translatable="yes" context="TabbedImpress|labelDrawFillBorder">Fill &amp; Border</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+--- a/sd/uiconfig/simpress/ui/notebookbar.ui
++++ b/sd/uiconfig/simpress/ui/notebookbar.ui
+@@ -3625,11 +3625,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchHomeFont">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:FontDialog</property>
++                                    <property name="action-name">.uno:FontDialog?Page:string=font</property>
++                                    <property name="label" translatable="yes" context="TabbedImpress|labelHomeFont">Font</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -4033,11 +4034,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchHomeParagraph">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:ParagraphDialog</property>
++                                    <property name="action-name">.uno:ParagraphDialog?Page:string=indents</property>
++                                    <property name="label" translatable="yes" context="TabbedImpress|labelHomeParagraph">Paragraph</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -4581,11 +4583,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchHomeDrawing">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:FormatArea</property>
++                                    <property name="action-name">.uno:FormatArea?Page:string=RID_SVXPAGE_AREA</property>
++                                    <property name="label" translatable="yes" context="TabbedImpress|hstUXlabelHomeDrawing">Drawing</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -12319,11 +12322,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchCtxShapeSize">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:TransformDialog</property>
++                                    <property name="action-name">.uno:TransformDialog?Page:string=RID_SVXPAGE_POSITION_SIZE</property>
++                                    <property name="label" translatable="yes" context="TabbedImpress|labelDraw">Drawing Object</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -12553,11 +12557,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchCtxShapeStyles">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:FormatArea</property>
++                                    <property name="action-name">.uno:FormatArea?Page:string=RID_SVXPAGE_AREA</property>
++                                    <property name="label" translatable="yes" context="TabbedImpress|labelDrawFillBorder">Fill &amp; Border</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+--- a/svx/sdi/svx.sdi
++++ b/svx/sdi/svx.sdi
+@@ -3408,11 +3408,11 @@
+     GroupId = SfxGroupId::Special;
+ ]
+ 
+ 
+ SfxVoidItem FormatArea SID_ATTRIBUTES_AREA
+-()
++(SfxStringItem Page FN_PARAM_1)
+ [
+     AutoUpdate = FALSE,
+     FastCall = TRUE,
+     ReadOnlyDoc = FALSE,
+     Toggle = FALSE,
+@@ -8972,11 +8972,11 @@
+     GroupId = SfxGroupId::Format;
+ ]
+ 
+ 
+ SfxVoidItem TransformDialog SID_ATTR_TRANSFORM
+-(SfxInt32Item TransformPosX SID_ATTR_TRANSFORM_POS_X, SfxInt32Item TransformPosY SID_ATTR_TRANSFORM_POS_Y, SfxUInt32Item TransformWidth SID_ATTR_TRANSFORM_WIDTH, SfxUInt32Item TransformHeight SID_ATTR_TRANSFORM_HEIGHT, SdrAngleItem TransformRotationDeltaAngle SID_ATTR_TRANSFORM_DELTA_ANGLE, SdrAngleItem TransformRotationAngle SID_ATTR_TRANSFORM_ANGLE, SfxInt32Item TransformRotationX SID_ATTR_TRANSFORM_ROT_X, SfxInt32Item TransformRotationY SID_ATTR_TRANSFORM_ROT_Y)
++(SfxInt32Item TransformPosX SID_ATTR_TRANSFORM_POS_X, SfxInt32Item TransformPosY SID_ATTR_TRANSFORM_POS_Y, SfxUInt32Item TransformWidth SID_ATTR_TRANSFORM_WIDTH, SfxUInt32Item TransformHeight SID_ATTR_TRANSFORM_HEIGHT, SdrAngleItem TransformRotationDeltaAngle SID_ATTR_TRANSFORM_DELTA_ANGLE, SdrAngleItem TransformRotationAngle SID_ATTR_TRANSFORM_ANGLE, SfxInt32Item TransformRotationX SID_ATTR_TRANSFORM_ROT_X, SfxInt32Item TransformRotationY SID_ATTR_TRANSFORM_ROT_Y, SfxStringItem Page FN_PARAM_1)
+ [
+     AutoUpdate = FALSE,
+     FastCall = TRUE,
+     ReadOnlyDoc = FALSE,
+     Toggle = FALSE,
+--- a/sw/sdi/swriter.sdi
++++ b/sw/sdi/swriter.sdi
+@@ -2345,11 +2345,11 @@
+     ToolBoxConfig = TRUE,
+     GroupId = SfxGroupId::View;
+ ]
+ 
+ SfxVoidItem GraphicDialog FN_FORMAT_GRAFIC_DLG
+-()
++(SfxStringItem Page FN_PARAM_1)
+ [
+     AutoUpdate = FALSE,
+     FastCall = FALSE,
+     ReadOnlyDoc = FALSE,
+     Toggle = FALSE,
+@@ -6574,11 +6574,11 @@
+     ToolBoxConfig = TRUE,
+     GroupId = SfxGroupId::View;
+ ]
+ 
+ SfxVoidItem TableDialog FN_FORMAT_TABLE_DLG
+-()
++(SfxStringItem Page FN_FORMAT_TABLE_DLG)
+ [
+     AutoUpdate = FALSE,
+     FastCall = TRUE,
+     ReadOnlyDoc = FALSE,
+     Toggle = FALSE,
+--- a/sw/source/ui/misc/docfnote.cxx
++++ b/sw/source/ui/misc/docfnote.cxx
+@@ -49,10 +49,13 @@
+ 
+     AddTabPage(u"footnotes"_ustr, TabResId(RID_TAB_FOOTNOTES.aLabel), SwFootNoteOptionPage::Create,
+                RID_L + RID_TAB_FOOTNOTES.sIconName);
+     AddTabPage(u"endnotes"_ustr, TabResId(RID_TAB_ENDNOTES.aLabel), SwEndNoteOptionPage::Create,
+                RID_L + RID_TAB_ENDNOTES.sIconName);
++    // HST: like the reference suite's Footnote and Endnote dialog (the ribbon's Footnotes launcher), it
++    // always opens on footnotes, not on the tab used last
++    SetCurPageId(u"footnotes"_ustr);
+ }
+ 
+ void SwFootNoteOptionDlg::PageCreated(const OUString& /*rId*/, SfxTabPage &rPage)
+ {
+     static_cast<SwEndNoteOptionPage&>(rPage).SetShell(m_rSh);
+--- a/sw/source/uibase/shells/annotsh.cxx
++++ b/sw/source/uibase/shells/annotsh.cxx
+@@ -32,10 +32,11 @@
+ #include <sfx2/toolbarids.hxx>
+ #include <sfx2/objface.hxx>
+ #include <sfx2/viewfrm.hxx>
+ #include <sfx2/bindings.hxx>
+ #include <sfx2/dispatch.hxx>
++#include <sfx2/hstdialogpage.hxx>
+ #include <sfx2/request.hxx>
+ #include <editeng/colritem.hxx>
+ #include <editeng/editund2.hxx>
+ #include <editeng/eeitem.hxx>
+ #include <editeng/flstitem.hxx>
+@@ -551,10 +552,12 @@
+                 aNewAttr.Put(*pArgs);
+             break;
+         }
+         case SID_PARA_DLG:
+         {
++            // HST: .uno:ParagraphDialog?Page:string=indents (the ribbon's Paragraph launchers)
++            const OUString aHstPage = hstTakeDialogPage(rReq, SID_PARA_DLG);
+             const SfxItemSet* pArgs = rReq.GetArgs();
+ 
+             if (!pArgs)
+             {
+                 /* mod todo ???
+@@ -573,11 +576,11 @@
+                 aDlgAttr.Put( SvxFormatSplitItem( true, RES_PARATR_SPLIT ) );
+                 aDlgAttr.Put( SvxWidowsItem( 0, RES_PARATR_WIDOWS ) );
+                 aDlgAttr.Put( SvxOrphansItem( 0, RES_PARATR_ORPHANS ) );
+ 
+                 SwAbstractDialogFactory* pFact = SwAbstractDialogFactory::Create();
+-                ScopedVclPtr<SfxAbstractTabDialog> pDlg(pFact->CreateSwParaDlg(m_rView.GetFrameWeld(), m_rView, aDlgAttr, true));
++                ScopedVclPtr<SfxAbstractTabDialog> pDlg(pFact->CreateSwParaDlg(m_rView.GetFrameWeld(), m_rView, aDlgAttr, true, aHstPage));
+                 sal_uInt16 nRet = pDlg->Execute();
+                 if(RET_OK == nRet)
+                 {
+                     rReq.Done( *( pDlg->GetOutputItemSet() ) );
+                     aNewAttr.Put(*pDlg->GetOutputItemSet());
+--- a/sw/source/uibase/shells/drawdlg.cxx
++++ b/sw/source/uibase/shells/drawdlg.cxx
+@@ -15,10 +15,11 @@
+  *   License, Version 2.0 (the "License"); you may not use this file
+  *   except in compliance with the License. You may obtain a copy of
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <sfx2/hstdialogpage.hxx>
+ #include <sfx2/request.hxx>
+ #include <sfx2/dispatch.hxx>
+ #include <sfx2/viewfrm.hxx>
+ #include <svx/svdview.hxx>
+ 
+@@ -115,10 +116,13 @@
+             VclPtr<AbstractSvxAreaTabDialog> pDlg(pFact->CreateSvxAreaTabDialog(rReq.GetFrameWeld(),
+                                                                             &aNewAttr,
+                                                                             &rModel,
+                                                                             true,
+                                                                             false));
++            // HST: .uno:FormatArea?Page:string=RID_SVXPAGE_AREA (the ribbon's shape style launcher)
++            if (const OUString aHstPage = hstTakeDialogPage(rReq, FN_PARAM_1); !aHstPage.isEmpty())
++                pDlg->SetCurPageId(aHstPage);
+ 
+             pDlg->StartExecuteAsync([bChanged, bHasMarked, &rModel, pDlg, pSh, pView, this](
+                                         sal_Int32 nResult){
+                 rModel.SetChanged(false);
+ 
+--- a/sw/source/uibase/shells/drwbassh.cxx
++++ b/sw/source/uibase/shells/drwbassh.cxx
+@@ -18,10 +18,11 @@
+  */
+ 
+ #include <hintids.hxx>
+ #include <swtypes.hxx>
+ #include <sfx2/objface.hxx>
++#include <sfx2/hstdialogpage.hxx>
+ #include <sfx2/request.hxx>
+ #include <sfx2/bindings.hxx>
+ #include <sfx2/viewfrm.hxx>
+ #include <svx/svdview.hxx>
+ #include <svl/whiter.hxx>
+@@ -171,10 +172,18 @@
+         }
+         break;
+ 
+         case SID_ATTR_TRANSFORM:
+         {
++            // HST: .uno:TransformDialog?Page:string=RID_SVXPAGE_SWPOSSIZE (the ribbon's shape launcher)
++            // opens Position and Size on that tab
++            const OUString aHstPage = hstTakeDialogPage(rReq, FN_PARAM_1);
++            if (!aHstPage.isEmpty())
++            {
++                pArgs = rReq.GetArgs();
++                pItem = nullptr;
++            }
+             if(pSdrView->GetMarkedObjectList().GetMarkCount() != 0)
+             {
+                 if(!pArgs)
+                 {
+                     const SdrMarkList& rMarkList = pSdrView->GetMarkedObjectList();
+@@ -208,10 +217,12 @@
+                             SvxAbstractDialogFactory* pFact = SvxAbstractDialogFactory::Create();
+                             VclPtr<AbstractSvxTransformTabDialog> pTransform =
+                                         pFact->CreateSvxTransformTabDialog(rReq.GetFrameWeld(), nullptr, pSdrView, nAllowedAnchors);
+                             pDlg.reset(pTransform);
+                             pTransform->SetValidateFramePosLink( LINK(this, SwDrawBaseShell, ValidatePosition) );
++                            if (!aHstPage.isEmpty())
++                                pTransform->SetCurPageId(aHstPage);
+                         }
+                         SfxItemSet aNewAttr(pSdrView->GetGeoAttrFromMarked());
+ 
+                         SfxItemSet aSet(*aNewAttr.GetPool(), pDlg->GetInputRanges(*aNewAttr.GetPool()));
+                         FieldUnit eMetric = ::GetDfltMetric( dynamic_cast<SwWebView*>(&GetView()) != nullptr );
+--- a/sw/source/uibase/shells/drwtxtex.cxx
++++ b/sw/source/uibase/shells/drwtxtex.cxx
+@@ -22,10 +22,11 @@
+ 
+ #include <comphelper/string.hxx>
+ #include <sfx2/bindings.hxx>
+ #include <sfx2/dispatch.hxx>
+ #include <sfx2/namedcolor.hxx>
++#include <sfx2/hstdialogpage.hxx>
+ #include <sfx2/request.hxx>
+ #include <svx/svdview.hxx>
+ #include <editeng/spltitem.hxx>
+ #include <editeng/lrspitem.hxx>
+ #include <editeng/ulspitem.hxx>
+@@ -459,10 +460,12 @@
+             GetView().UpdateWordCount(this, nSlot);
+         }
+         break;
+         case SID_PARA_DLG:
+         {
++            // HST: .uno:ParagraphDialog?Page:string=indents (the ribbon's Paragraph launchers)
++            const OUString aHstPage = hstTakeDialogPage(rReq, SID_PARA_DLG);
+             const SfxItemSet* pArgs = rReq.GetArgs();
+ 
+             if (!pArgs)
+             {
+                 SwView& rView = GetView();
+@@ -479,11 +482,11 @@
+                 aDlgAttr.Put( SvxFormatSplitItem( true, RES_PARATR_SPLIT ) );
+                 aDlgAttr.Put( SvxWidowsItem( 0, RES_PARATR_WIDOWS ) );
+                 aDlgAttr.Put( SvxOrphansItem( 0, RES_PARATR_ORPHANS ) );
+ 
+                 SwAbstractDialogFactory* pFact = SwAbstractDialogFactory::Create();
+-                ScopedVclPtr<SfxAbstractTabDialog> pDlg(pFact->CreateSwParaDlg(GetView().GetFrameWeld(), GetView(), aDlgAttr, true));
++                ScopedVclPtr<SfxAbstractTabDialog> pDlg(pFact->CreateSwParaDlg(GetView().GetFrameWeld(), GetView(), aDlgAttr, true, aHstPage));
+                 sal_uInt16 nRet = pDlg->Execute();
+                 if(RET_OK == nRet)
+                 {
+                     rReq.Done( *( pDlg->GetOutputItemSet() ) );
+                     aNewAttr.Put(*pDlg->GetOutputItemSet());
+--- a/sw/source/uibase/shells/grfsh.cxx
++++ b/sw/source/uibase/shells/grfsh.cxx
+@@ -415,10 +415,13 @@
+                                                     GetView().GetViewFrame(),
+                                                     GetView().GetFrameWeld(),
+                                                     aSet, false));
+             if (nSlot == FN_DRAW_WRAP_DLG)
+                 pDlg->SetCurPageId(u"wrap"_ustr);
++            // HST: .uno:GraphicDialog?Page:string=hstsize (the ribbon's picture launchers) opens that tab
++            else if (const SfxStringItem* pHstPage = rReq.GetArg<SfxStringItem>(FN_PARAM_1))
++                pDlg->SetCurPageId(pHstPage->GetValue());
+ 
+             if (pDlg->Execute() == RET_OK)
+             {
+                 rSh.StartAllAction();
+                 rSh.StartUndo(SwUndoId::START);
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -2447,11 +2447,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchHomeFont">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:FontDialog</property>
++                                    <property name="action-name">.uno:FontDialog?Page:string=font</property>
++                                    <property name="label" translatable="yes" context="TabbedWriter|labelHomeFont">Font</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -2815,11 +2816,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchHomeParagraph">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:ParagraphDialog</property>
++                                    <property name="action-name">.uno:ParagraphDialog?Page:string=indents</property>
++                                    <property name="label" translatable="yes" context="TabbedWriter|labelHomeParagraph">Paragraph</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -5352,11 +5354,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchLayoutParagraph">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:ParagraphDialog</property>
++                                    <property name="action-name">.uno:ParagraphDialog?Page:string=indents</property>
++                                    <property name="label" translatable="yes" context="TabbedWriter|labelLayoutParagraphLayout">Paragraph</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -10430,11 +10433,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchCtxTableBorders">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:BorderDialog</property>
++                                    <property name="action-name">.uno:BorderDialog?Page:string=borders</property>
++                                    <property name="label" translatable="yes" context="TabbedWriter|labelTableStyle">Table Styles</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -11167,11 +11171,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchCtxTableCells">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:TableDialog</property>
++                                    <property name="action-name">.uno:TableDialog?Page:string=hstcell</property>
++                                    <property name="label" translatable="yes" context="TabbedWriter|labelTableAlignment">Alignment</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -11896,11 +11901,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchCtxPictureSize">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:GraphicDialog</property>
++                                    <property name="action-name">.uno:GraphicDialog?Page:string=hstsize</property>
++                                    <property name="label" translatable="yes" context="TabbedWriter|labelImage">Image</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -12217,11 +12223,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchCtxPictureStyles">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:GraphicDialog</property>
++                                    <property name="action-name">.uno:GraphicDialog?Page:string=area</property>
++                                    <property name="label" translatable="yes" context="TabbedWriter|hstUxGroup">Fill and Border</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -14215,11 +14222,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchCtxShapeStyles">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:FormatArea</property>
++                                    <property name="action-name">.uno:FormatArea?Page:string=RID_SVXPAGE_AREA</property>
++                                    <property name="label" translatable="yes" context="TabbedWriter|hstUxGroup">Fill and Border</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -14547,11 +14555,12 @@
+                                 <child>
+                                   <object class="GtkToolButton" id="btnHstLaunchCtxShapeSize">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+-                                    <property name="action-name">.uno:TransformDialog</property>
++                                    <property name="action-name">.uno:TransformDialog?Page:string=RID_SVXPAGE_SWPOSSIZE</property>
++                                    <property name="label" translatable="yes" context="TabbedWriter|hstUxGroup">Arrange</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
