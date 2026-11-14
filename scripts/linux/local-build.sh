@@ -408,7 +408,9 @@ invalidate_stale_translations() { # also catches a .po synced by a run that neve
 }
 
 check_translations() { # the built catalogues must match this ref's .po (scripts/l10n/check-mo-fresh.py)
-  python3 -I "$SELF_REPO/scripts/l10n/check-mo-fresh.py" --tree "$SRC" --lang vi \
+  # The deployed checker (older refs predate it) runs in the slot chroot with the image's gettext, not the host's.
+  mkdir -p "$WORK/sync"; cp "$SELF_REPO/scripts/l10n/check-mo-fresh.py" "$WORK/sync/check-mo-fresh.py"
+  in_chroot / python3 -I "$C_WORK/sync/check-mo-fresh.py" --tree "$C_SRC" --lang vi \
     || die "stale translation catalogues in instdir (see above); the package would ship old Vietnamese strings"
 }
 
@@ -666,8 +668,11 @@ total_start=$(date +%s)
 timed toolchain ensure_toolchain
 mount_chroot
 in_chroot / ccache --max-size="$CCACHE_MAX" >/dev/null
-timed branding /usr/bin/python3 -I "$CHECKOUT/scripts/stage-branding.py" --out "$ROOT/branding-stage"
-rsync -rlpc --delete "$ROOT/branding-stage/" "$WORK/branding/"; rm -rf "$ROOT/branding-stage"
+# Branding assets are rendered in the slot chroot (the CI image's Python and Pillow, like CI), never with the host's
+# Python: a build host must not need (or silently use a different) Pillow.
+rm -rf "$WORK/branding-stage"
+timed branding in_chroot "$C_CHECKOUT" python3 -I "$C_CHECKOUT/scripts/stage-branding.py" --out "$C_WORK/branding-stage"
+rsync -rlpc --delete "$WORK/branding-stage/" "$WORK/branding/"; rm -rf "$WORK/branding-stage"
 timed extract ensure_pristine
 timed patch sync_patches
 invalidate_translations
