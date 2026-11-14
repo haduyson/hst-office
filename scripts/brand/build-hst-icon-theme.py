@@ -20,18 +20,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hst_classic_icons as classic  # noqa: E402  (sibling modules, standard library only)
 import hst_modern_icons as modern  # noqa: E402
 from hst_icon_pack import COPYING, archive, sync  # noqa: E402,F401  (sync: also used by the tests)
-from hst_icon_snap import snap_svg  # noqa: E402
+from hst_icon_glyph import MISSING_MODERN, SOURCE, glyph_files, glyph_svg  # noqa: E402,F401
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "icon-themes-src/hst"
-# Ink per theme. hst_modern* is the colourful style: modern masters where drawn (missing ones are
-# listed and substituted by the classic glyph until --require-modern gates the release).
-# The colourful style takes its darker ink (and heavier 16 px pen) from hst-modern/metadata/ink.json.
-PALETTES = {"hst": "#294159", "hst_dark": "#DBE7F1", "hst_modern": modern.ink()["light"],
+# Ink per theme: Colibre's, from hst-modern/metadata/ink.json, for every style. All themes draw the
+# colourful masters in Colibre's colours; a missing one is listed and replaced by the classic glyph
+# until --require-modern gates the release.
+PALETTES = {"hst": modern.ink()["light"], "hst_dark": modern.ink()["dark"], "hst_modern": modern.ink()["light"],
             "hst_modern_dark": modern.ink()["dark"]}
 PALETTES.update({theme: ink for theme, (_, _, ink) in classic.CLASSIC.items()})
 FULL_THEMES = [theme for theme in PALETTES if theme not in classic.CLASSIC]  # self-contained archives
-MISSING_MODERN = set()
 # Families with a "trademark" master show the HASON TECH mark in its brand blue: #0072BB is the
 # official colour, #1A91CF the light end of the same app-icon gradient, legible on the dark ribbon.
 MARK_COLOURS = {"hst": "#0072BB", "hst_dark": "#1A91CF", "hst_modern": "#0072BB", "hst_modern_dark": "#1A91CF",
@@ -46,36 +44,6 @@ def sized(key, size):
 
 def svg_key(key):
     return str(PurePosixPath(key).with_suffix(".svg"))
-
-
-def glyph_svg(master, size, colour, theme="hst"):
-    """Shipped SVG of one glyph: pixel-snapped strokes painted as filled outlines.
-
-    Hand-tuned masters drawn in target pixels (glyphs/stage-1-16, glyphs/stage-1-24) replace the
-    snapped 24-unit master for that size."""
-    root, colours = SOURCE, None
-    if theme.startswith("hst_modern"):
-        drawn = modern.master(master)
-        if drawn is None:
-            MISSING_MODERN.add(master.stem)
-        else:
-            root, master, colours = modern.MODERN, drawn, modern.palette()
-            problems = modern.violations(drawn.read_text(encoding="utf-8"), colours)
-            if problems:
-                raise ValueError(f"{drawn}: " + "; ".join(problems))
-    tuned = root / f"glyphs/stage-1-{size}" / master.name
-    if colours is not None and not tuned.is_file() and not modern.HEX.search(master.read_text(encoding="utf-8")):
-        tuned = SOURCE / f"glyphs/stage-1-{size}" / master.name  # ink-only: the classic tuning is the same art
-    native = size in (16, 24) and tuned.is_file()
-    if native and colours is not None and tuned.is_relative_to(modern.MODERN):
-        problems = modern.violations(tuned.read_text(encoding="utf-8"), colours, size, tuned=True)
-        if problems:
-            raise ValueError(f"{tuned}: " + "; ".join(problems))
-    heavy = theme.startswith("hst_modern") and modern.ink()["heavy16"]
-    svg = snap_svg((tuned if native else master).read_text(encoding="utf-8"), size, native=native, heavy=heavy)
-    if colours is not None:
-        svg = modern.recolour(svg, colours, theme.endswith("_dark"))
-    return svg.replace("currentColor", colour).encode("utf-8")
 
 
 def resources(theme, icon_themes=None):
@@ -113,7 +81,7 @@ def _resources(theme):
                 files[target] = source.replace("currentColor", colour).replace(
                     'width="24" height="24"', f'width="{size}" height="{size}"', 1).encode("utf-8")
             else:
-                files[target] = glyph_svg(master, size, colour, theme)
+                files.update(glyph_files(target, master, size, colour, theme))
             keys = [sized(key, size) for key in family["keys"]]
             keys += [key for key, native in family.get("fixed_aliases", {}).items() if int(native) == size]
             # VCL tries PNG first, then SVG. Keep both request spellings, with
@@ -129,7 +97,7 @@ def _resources(theme):
     for glyph in integration["command_glyphs"]:
         for size in SIZES:
             key = sized("cmd/" + glyph + ".svg", size)
-            files[key] = glyph_svg(SOURCE / "glyphs/integration" / (glyph + ".svg"), size, PALETTES[theme], theme)
+            files.update(glyph_files(key, SOURCE / "glyphs/integration" / (glyph + ".svg"), size, PALETTES[theme], theme))
     for alias, target in integration["command_aliases"].items():
         for size in SIZES:
             for ext in ("png", "svg"):

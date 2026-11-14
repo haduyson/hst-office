@@ -127,7 +127,7 @@ class HstThemeTest(unittest.TestCase):
                 self.assertIn(prefix + glyph + ".svg", files)
         overflow = ET.fromstring(files["sfx2/res/chevron.svg"])
         self.assertEqual((overflow.get("width"), overflow.get("height")), ("14", "16"))
-        self.assertIn(b"#DBE7F1", files["sfx2/res/chevron.svg"])
+        self.assertIn(builder.PALETTES["hst_dark"].encode(), files["sfx2/res/chevron.svg"])
         menu = ET.fromstring(files["res/notebookbar.svg"])
         self.assertEqual((menu.get("width"), menu.get("height")), ("16", "16"))
         self.assertNotEqual(files["res/notebookbar.svg"], files["cmd/sc_menubar.svg"])
