@@ -41,6 +41,25 @@ int main()
     g = gridLayout(items, 3, 24, 2, 6, 1);
     CHECK(g.height == 3 * 30 + 4 && g.width == 40);
     CHECK(LABEL_WRAP == 62);
+    // a group's large buttons, one toolbox each: three of them make one column of three; the separator after
+    // them moves left and spans the extra row and the caption; the caption keeps its columns, below row 3
+    std::vector<GroupCell> links{ { 0, 2, 3, 1, false, true }, { 0, 0, 1, 2, true }, { 1, 0, 1, 2, true },
+                                  { 2, 0, 1, 2, true }, { 3, 0, 1, 3 } };
+    CHECK(stackGroup(links));
+    CHECK(links[1].left == 0 && links[1].top == 0 && links[2].top == 1 && links[3].top == 2 && links[3].left == 0);
+    CHECK(links[4].left == 1 && links[4].height == 4);
+    CHECK(links[0].top == 3 && links[0].left == 0 && links[0].width == 1);
+    // four buttons: a column of three and one more; a 2-row small column after them keeps its rows
+    std::vector<GroupCell> four{ { 0, 2, 6, 1, false, true }, { 0, 0, 1, 2, true }, { 1, 0, 1, 2, true },
+                                 { 2, 0, 1, 2, true }, { 3, 0, 1, 2, true }, { 4, 0, 1, 1 }, { 4, 1, 1, 1 },
+                                 { 5, 0, 1, 2, false } };
+    CHECK(stackGroup(four));
+    CHECK(four[4].left == 1 && four[4].top == 0 && four[5].left == 2 && four[6].left == 2 && four[6].top == 1);
+    CHECK(four[7].left == 3 && four[7].height == 3 && four[0].width == 4);
+    // a single large button (or Paste beside small rows) is left as authored
+    std::vector<GroupCell> paste{ { 0, 2, 2, 1, false, true }, { 0, 0, 1, 2, false }, { 1, 0, 1, 1 }, { 1, 1, 1, 1 } };
+    const std::vector<GroupCell> before = paste;
+    CHECK(!stackGroup(paste) && paste[1].left == before[1].left && paste[0].width == 2);
     std::printf("checks done, %d failure(s)\n", failures);
     return failures ? 1 : 0;
 }
@@ -69,7 +88,8 @@ class RibbonGrid(unittest.TestCase):
         self.assertIn("if (mpData->mnHstGridRows > 0 && mbHorz && !ImplIsFloatingMode())", toolbox)
         self.assertIn("void ToolBox::HstSetGridRows( int nRows )", toolbox)
         ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
-        self.assertIn("!bKeep && rData.meHstAuthoredSize == ToolBoxButtonSize::Large ? 3 : 0", ladder)
+        self.assertIn("rData.meHstAuthoredSize == ToolBoxButtonSize::Large && commandCount(rToolBox) >= 2 ? 3 : 0", ladder)
+        self.assertIn("stackLargeButtons(rGroup, nState, bFewCommands);", ladder)
 
     def test_labels_wrap_and_menu_buttons_split(self):
         toolbox = added(PATCH, "vcl/source/window/toolbox.cxx")
