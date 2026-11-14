@@ -1,0 +1,2146 @@
+HST Office: HST Sheets has the worksheet functions of the leading spreadsheet application that the engine lacked,
+and CHAR, CODE, CELL("filename") and INFO give that application's results (owner request 2026-11-14).
+
+New functions (UI, .xlsx and ODF names; Function Wizard text in English and Vietnamese):
+- ARRAYTOTEXT, VALUETOTEXT: a range/array or a value as text, format 0 concise or 1 strict (quoted text).
+  ARRAYTOTEXT is the upstream implementation (LibreOffice master 21b9909af + a8e87aba0, MPL-2.0). An error
+  argument becomes its text (both are error-evaluating functions).
+- DBCS: half-width to full-width letters and katakana, the JIS conversion under its own name.
+- PHONETIC: no phonetic guide is stored, so it returns the text of the referenced cell (upper-left cell of a
+  range), as the reference application does for text without furigana; a number gives "".
+- PERCENTOF(subset; all): SUM(subset)/SUM(all), text ignored, errors propagate, #DIV/0! for a zero total.
+- REGEXTEST, REGEXEXTRACT (mode 0 first match, 1 all matches as a row, 2 groups of the first match as a row;
+  #N/A when nothing matches), REGEXREPLACE (occurrence 0 all, n-th, -n from the end), on the ICU engine of
+  REGEX(); case_sensitivity 0/1; an invalid pattern or option is #VALUE!.
+- TRIMRANGE(range; rows; cols): the range without its blank edge rows/columns (0 none, 1 leading, 2 trailing,
+  3 both, default 3); returns a reference for a reference, an array for an array, #REF! when all is blank.
+- BINOM.DIST.RANGE is the UI and .xlsx name of the existing B function (same arguments and results). Upstream
+  wrote it to .xlsx as B(), which the reference application does not know; B stays accepted as input and in
+  older .xlsx files, ODF keeps BINOM.DIST.RANGE.
+Files: .xlsx _xlfn.<NAME> (PHONETIC has no prefix, it is a BIFF8 function), ODF COM.MICROSOFT.<NAME>, the
+binary .xls tables too. New code: sc/source/core/tool/interpr_excelcompat.cxx and interpr_excelregex.cxx.
+
+Semantics:
+- CHAR/CODE use the system ANSI code page like the reference application: on Windows the thread encoding
+  (GetACP: 1258 Vietnamese, 1252 English, as before); on Linux/macOS, which have no ANSI code page and gave the
+  first UTF-8 byte (CODE("Đ") = 196), the Windows code page of the locale setting (vi-VN 1258, en-US 1252).
+  OpenFormula leaves the code page to the implementation, so ODF documents need no special case.
+- CELL("filename"): C:\dir\[file.xlsx]Sheet with the native path of the OS (/home/u/[file.xlsx]Sheet on Linux)
+  and "" for a document never saved. OpenDocument files keep 'file:///dir/file.ods'#$Sheet, which existing ODF
+  formulas parse (MID/FIND on "#$"), unless the string reference syntax is explicitly an Excel one.
+- INFO("system") is "pcdos" ("mac" on macOS) instead of LINUX/WNT/MACOSX; INFO("osversion") is
+  "Windows (64-bit) NT 10.00" on Windows 10/11 (was "Windows (32-bit) NT 5.01"), "Macintosh (Intel|ARM)
+  Version x.y" on macOS; Linux keeps its real version, the reference application has no Linux value.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: CppunitTest_sc_excelcompat_functions_test (sc/qa/unit/functions_excelcompat.cxx),
+tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-functions.py.
+---
+--- a/formula/inc/core_resource.hrc
++++ b/formula/inc/core_resource.hrc
+@@ -298,6 +298,15 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_ODFF[] =
+     { "COM.MICROSOFT.LET" , ocLet },
+     { "COM.MICROSOFT.WRAPCOLS" , ocWrapCols },
+     { "COM.MICROSOFT.WRAPROWS" , ocWrapRows },
++    { "COM.MICROSOFT.ARRAYTOTEXT" , ocArrayToText },
++    { "COM.MICROSOFT.VALUETOTEXT" , ocValueToText },
++    { "COM.MICROSOFT.DBCS" , ocDbcs },
++    { "COM.MICROSOFT.PHONETIC" , ocPhonetic },
++    { "COM.MICROSOFT.PERCENTOF" , ocPercentOf },
++    { "COM.MICROSOFT.REGEXTEST" , ocRegexTest },
++    { "COM.MICROSOFT.REGEXEXTRACT" , ocRegexExtract },
++    { "COM.MICROSOFT.REGEXREPLACE" , ocRegexReplace },
++    { "COM.MICROSOFT.TRIMRANGE" , ocTrimRange },
+     { "_xlpm." , ocStringName },
+     { "ORG.OPENOFFICE.MULTIRANGE" , ocMultiArea }, // legacy for range list (union)
+     { "OFFSET" , ocOffset },
+@@ -687,7 +696,8 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_OOXML[] =
+     { "STDEVPA" , ocStDevPA },
+     { "_xlfn.STDEV.P" , ocStDevP_MS },
+     { "_xlfn.STDEV.S" , ocStDevS },
+-    { "B" , ocB },
++    { "_xlfn.BINOM.DIST.RANGE" , ocB },
++    { "B" , ocB },  // HST: files written before, alias
+     { "NORMDIST" , ocNormDist },
+     { "_xlfn.NORM.DIST" , ocNormDist_MS },
+     { "EXPONDIST" , ocExpDist },
+@@ -771,6 +781,15 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_OOXML[] =
+     { "_xlfn.LET" , ocLet },
+     { "_xlfn.WRAPCOLS" , ocWrapCols },
+     { "_xlfn.WRAPROWS" , ocWrapRows },
++    { "_xlfn.ARRAYTOTEXT" , ocArrayToText },
++    { "_xlfn.VALUETOTEXT" , ocValueToText },
++    { "_xlfn.DBCS" , ocDbcs },
++    { "PHONETIC" , ocPhonetic },
++    { "_xlfn.PERCENTOF" , ocPercentOf },
++    { "_xlfn.REGEXTEST" , ocRegexTest },
++    { "_xlfn.REGEXEXTRACT" , ocRegexExtract },
++    { "_xlfn.REGEXREPLACE" , ocRegexReplace },
++    { "_xlfn.TRIMRANGE" , ocTrimRange },
+     { "_xlpm." , ocStringName },
+     { "_xlfn.ORG.OPENOFFICE.MULTIRANGE" , ocMultiArea }, // legacy for range list (union)
+     { "OFFSET" , ocOffset },
+@@ -1249,6 +1268,15 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_PODF[] =
+     { "LET" , ocLet },
+     { "WRAPCOLS" , ocWrapCols },
+     { "WRAPROWS" , ocWrapRows },
++    { "ARRAYTOTEXT" , ocArrayToText },
++    { "VALUETOTEXT" , ocValueToText },
++    { "DBCS" , ocDbcs },
++    { "PHONETIC" , ocPhonetic },
++    { "PERCENTOF" , ocPercentOf },
++    { "REGEXTEST" , ocRegexTest },
++    { "REGEXEXTRACT" , ocRegexExtract },
++    { "REGEXREPLACE" , ocRegexReplace },
++    { "TRIMRANGE" , ocTrimRange },
+     { "MULTIRANGE" , ocMultiArea },    // legacy for range list (union)
+     { "OFFSET" , ocOffset },
+     { "INDEX" , ocIndex },
+@@ -1725,6 +1753,15 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_API[] =
+     { "LET" , ocLet },
+     { "WRAPCOLS" , ocWrapCols },
+     { "WRAPROWS" , ocWrapRows },
++    { "ARRAYTOTEXT" , ocArrayToText },
++    { "VALUETOTEXT" , ocValueToText },
++    { "DBCS" , ocDbcs },
++    { "PHONETIC" , ocPhonetic },
++    { "PERCENTOF" , ocPercentOf },
++    { "REGEXTEST" , ocRegexTest },
++    { "REGEXEXTRACT" , ocRegexExtract },
++    { "REGEXREPLACE" , ocRegexReplace },
++    { "TRIMRANGE" , ocTrimRange },
+     { "MULTIRANGE" , ocMultiArea },    // legacy for range list (union)
+     { "OFFSET" , ocOffset },
+     { "INDEX" , ocIndex },  // ?? first character = I ??
+@@ -2115,7 +2152,8 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH[] =
+     { "STDEVPA" , ocStDevPA },
+     { "STDEV.P" , ocStDevP_MS },
+     { "STDEV.S" , ocStDevS },
+-    { "B" , ocB },
++    { "BINOM.DIST.RANGE" , ocB },
++    { "B" , ocB },  // HST: input alias
+     { "NORMDIST" , ocNormDist },
+     { "NORM.DIST" , ocNormDist_MS },
+     { "EXPONDIST" , ocExpDist },
+@@ -2199,6 +2237,15 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH[] =
+     { "LET" , ocLet },
+     { "WRAPCOLS" , ocWrapCols },
+     { "WRAPROWS" , ocWrapRows },
++    { "ARRAYTOTEXT" , ocArrayToText },
++    { "VALUETOTEXT" , ocValueToText },
++    { "DBCS" , ocDbcs },
++    { "PHONETIC" , ocPhonetic },
++    { "PERCENTOF" , ocPercentOf },
++    { "REGEXTEST" , ocRegexTest },
++    { "REGEXEXTRACT" , ocRegexExtract },
++    { "REGEXREPLACE" , ocRegexReplace },
++    { "TRIMRANGE" , ocTrimRange },
+     { "MULTIRANGE" , ocMultiArea },
+     { "OFFSET" , ocOffset },
+     { "INDEX" , ocIndex },
+@@ -2569,7 +2616,8 @@ const std::pair<TranslateId, int> RID_STRLIST_FUNCTION_NAMES[] =
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "STDEVPA") , ocStDevPA },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "STDEV.P") , ocStDevP_MS },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "STDEV.S") , ocStDevS },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "B") , ocB },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "BINOM.DIST.RANGE") , ocB },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "B") , ocB }, // HST: input alias
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "NORMDIST") , ocNormDist },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "NORM.DIST") , ocNormDist_MS },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "EXPONDIST") , ocExpDist },
+@@ -2653,6 +2701,15 @@ const std::pair<TranslateId, int> RID_STRLIST_FUNCTION_NAMES[] =
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "LET") , ocLet },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "WRAPCOLS") , ocWrapCols },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "WRAPROWS") , ocWrapRows },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "ARRAYTOTEXT") , ocArrayToText },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "VALUETOTEXT") , ocValueToText },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "DBCS") , ocDbcs },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "PHONETIC") , ocPhonetic },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "PERCENTOF") , ocPercentOf },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "REGEXTEST") , ocRegexTest },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "REGEXEXTRACT") , ocRegexExtract },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "REGEXREPLACE") , ocRegexReplace },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "TRIMRANGE") , ocTrimRange },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "MULTIRANGE") , ocMultiArea }, // legacy for range list (union)
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "OFFSET") , ocOffset },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "INDEX") , ocIndex }, // ?? first character = I ??
+--- a/formula/source/core/api/FormulaCompiler.cxx
++++ b/formula/source/core/api/FormulaCompiler.cxx
+@@ -338,6 +338,7 @@ bool isRangeResultFunction( OpCode eOp )
+     {
+         case ocIndirect:
+         case ocOffset:
++        case ocTrimRange:
+             return true;
+         default:
+             return false;
+@@ -353,6 +354,7 @@ bool isRangeResultOpCode( OpCode eOp )
+         case ocIntersect:
+         case ocIndirect:
+         case ocOffset:
++        case ocTrimRange:
+             return true;
+         default:
+             return false;
+--- a/include/formula/opcode.hxx
++++ b/include/formula/opcode.hxx
+@@ -556,7 +556,16 @@ enum OpCode : sal_uInt16
+         ocWrapCols          = 518,
+         ocWrapRows          = 519,
+         ocUDExternal        = 520, /* User-defined external function */
+-        ocStopTwoParameters = 521, /* last function with two or more parameters' OpCode + 1 */
++        ocArrayToText       = 521,
++        ocValueToText       = 522,
++        ocDbcs              = 523,
++        ocPhonetic          = 524,
++        ocPercentOf         = 525,
++        ocRegexTest         = 526,
++        ocRegexExtract      = 527,
++        ocRegexReplace      = 528,
++        ocTrimRange         = 529,
++        ocStopTwoParameters = 530, /* last function with two or more parameters' OpCode + 1 */
+ 
+         ocStopFunction      = ocStopTwoParameters,  /* last function's OpCode + 1 */
+         ocLastOpcodeId      = ocStopFunction - 1, /* last OpCode */
+@@ -1064,6 +1073,15 @@ inline std::string OpCodeEnumToString(OpCode eCode)
+     case ocLet: return "Let";
+     case ocWrapCols: return "WrapCols";
+     case ocWrapRows: return "WrapRows";
++    case ocArrayToText: return "ArrayToText";
++    case ocValueToText: return "ValueToText";
++    case ocDbcs: return "Dbcs";
++    case ocPhonetic: return "Phonetic";
++    case ocPercentOf: return "PercentOf";
++    case ocRegexTest: return "RegexTest";
++    case ocRegexExtract: return "RegexExtract";
++    case ocRegexReplace: return "RegexReplace";
++    case ocTrimRange: return "TrimRange";
+     case ocTTT: return "TTT";
+     case ocDebugVar: return "DebugVar";
+     case ocDataToken1: return "DataToken1";
+--- /dev/null
++++ b/sc/CppunitTest_sc_excelcompat_functions_test.mk
+@@ -0,0 +1,12 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# This file is part of the LibreOffice project.
++#
++# This Source Code Form is subject to the terms of the Mozilla Public
++# License, v. 2.0. If a copy of the MPL was not distributed with this
++# file, You can obtain one at http://mozilla.org/MPL/2.0/.
++#
++
++$(eval $(call sc_functions_test,excelcompat))
++
++# vim: set noet sw=4 ts=4:
+--- a/sc/Library_sc.mk
++++ b/sc/Library_sc.mk
+@@ -264,6 +264,8 @@ $(eval $(call gb_Library_add_exception_objects,sc,\
+     sc/source/core/tool/interpr6 \
+     sc/source/core/tool/interpr7 \
+     sc/source/core/tool/interpr8 \
++    sc/source/core/tool/interpr_excelcompat \
++    sc/source/core/tool/interpr_excelregex \
+     sc/source/core/tool/interpretercontext \
+     sc/source/core/tool/jumpmatrix \
+     sc/source/core/tool/listenerquery \
+--- a/sc/Module_sc.mk
++++ b/sc/Module_sc.mk
+@@ -138,6 +138,7 @@ $(eval $(call gb_Module_add_slowcheck_targets,sc, \
+ 	CppunitTest_sc_spreadsheet_functions_test \
+ 	CppunitTest_sc_statistical_functions_test \
+ 	CppunitTest_sc_text_functions_test \
++	CppunitTest_sc_excelcompat_functions_test \
+ 	CppunitTest_sc_annotationobj \
+ 	CppunitTest_sc_annotationshapeobj \
+ 	CppunitTest_sc_annotationsobj \
+--- a/sc/inc/helpids.h
++++ b/sc/inc/helpids.h
+@@ -616,5 +616,14 @@ inline constexpr OUString HID_FUNC_UNIQUE_MS = u"SC_HID_FUNC_UNIQUE_MS"_ustr;
+ inline constexpr OUString HID_FUNC_LET_MS = u"SC_HID_FUNC_LET_MS"_ustr;
+ inline constexpr OUString HID_FUNC_WRAPCOLS_MS = u"SC_HID_FUNC_WRAPCOLS_MS"_ustr;
+ inline constexpr OUString HID_FUNC_WRAPROWS_MS = u"SC_HID_FUNC_WRAPROWS_MS"_ustr;
++inline constexpr OUString HID_FUNC_ARRAYTOTEXT_MS = u"SC_HID_FUNC_ARRAYTOTEXT_MS"_ustr;
++inline constexpr OUString HID_FUNC_VALUETOTEXT_MS = u"SC_HID_FUNC_VALUETOTEXT_MS"_ustr;
++inline constexpr OUString HID_FUNC_DBCS_MS = u"SC_HID_FUNC_DBCS_MS"_ustr;
++inline constexpr OUString HID_FUNC_PHONETIC_MS = u"SC_HID_FUNC_PHONETIC_MS"_ustr;
++inline constexpr OUString HID_FUNC_PERCENTOF_MS = u"SC_HID_FUNC_PERCENTOF_MS"_ustr;
++inline constexpr OUString HID_FUNC_REGEXTEST_MS = u"SC_HID_FUNC_REGEXTEST_MS"_ustr;
++inline constexpr OUString HID_FUNC_REGEXEXTRACT_MS = u"SC_HID_FUNC_REGEXEXTRACT_MS"_ustr;
++inline constexpr OUString HID_FUNC_REGEXREPLACE_MS = u"SC_HID_FUNC_REGEXREPLACE_MS"_ustr;
++inline constexpr OUString HID_FUNC_TRIMRANGE_MS = u"SC_HID_FUNC_TRIMRANGE_MS"_ustr;
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/inc/scfuncs.hrc
++++ b/sc/inc/scfuncs.hrc
+@@ -4455,4 +4455,104 @@ const TranslateId ocWRAPROWS_ARY[] =
+     NC_("ocWRAPROWS", "The value with which to pad. The default is #N/A.")
+ };
+ 
++// -=*# Resource for function ARRAYTOTEXT #*=-
++const TranslateId ocARRAYTOTEXT_ARY[] =
++{
++    NC_("ocARRAYTOTEXT", "Returns the values of a range or array as one text string."),
++    NC_("ocARRAYTOTEXT", "Array"),
++    NC_("ocARRAYTOTEXT", "The range or array to return as text."),
++    NC_("ocARRAYTOTEXT", "Format"),
++    NC_("ocARRAYTOTEXT", "The format of the returned text. 0 or omitted - concise format, the values separated by commas (default). 1 - strict format, an array constant in braces with quoted text, comma column separators and semicolon row separators.")
++};
++
++// -=*# Resource for function VALUETOTEXT #*=-
++const TranslateId ocVALUETOTEXT_ARY[] =
++{
++    NC_("ocVALUETOTEXT", "Returns text from any value: text stays as it is, numbers, logical values and errors become their text."),
++    NC_("ocVALUETOTEXT", "Value"),
++    NC_("ocVALUETOTEXT", "The value to return as text."),
++    NC_("ocVALUETOTEXT", "Format"),
++    NC_("ocVALUETOTEXT", "0 or omitted - concise format, as the cell shows it with the general format (default). 1 - strict format, text is enclosed in quotes.")
++};
++
++// -=*# Resource for function DBCS #*=-
++const TranslateId ocDBCS_ARY[] =
++{
++    NC_("ocDBCS", "Converts half-width (single-byte) letters and katakana within a text to full-width (double-byte) characters."),
++    NC_("ocDBCS", "Text"),
++    NC_("ocDBCS", "The text or a reference to a cell that contains the text to convert.")
++};
++
++// -=*# Resource for function PHONETIC #*=-
++const TranslateId ocPHONETIC_ARY[] =
++{
++    NC_("ocPHONETIC", "Returns the phonetic guide (furigana) text of a cell. When the cell has no phonetic guide, its text is returned."),
++    NC_("ocPHONETIC", "Reference"),
++    NC_("ocPHONETIC", "The cell that contains the text. For a range, its upper-left cell is used.")
++};
++
++// -=*# Resource for function PERCENTOF #*=-
++const TranslateId ocPERCENTOF_ARY[] =
++{
++    NC_("ocPERCENTOF", "Returns the sum of a subset of values divided by the sum of all the values."),
++    NC_("ocPERCENTOF", "Data subset"),
++    NC_("ocPERCENTOF", "The values that are part of the whole."),
++    NC_("ocPERCENTOF", "Data all"),
++    NC_("ocPERCENTOF", "All the values; their sum is the whole.")
++};
++
++// -=*# Resource for function REGEXTEST #*=-
++const TranslateId ocREGEXTEST_ARY[] =
++{
++    NC_("ocREGEXTEST", "Checks whether any part of a text matches a regular expression. Returns TRUE or FALSE."),
++    NC_("ocREGEXTEST", "Text"),
++    NC_("ocREGEXTEST", "The text or a reference to a cell that contains the text to check."),
++    NC_("ocREGEXTEST", "Pattern"),
++    NC_("ocREGEXTEST", "The regular expression that describes the text to find."),
++    NC_("ocREGEXTEST", "Case sensitivity"),
++    NC_("ocREGEXTEST", "0 or omitted - case-sensitive. 1 - case-insensitive.")
++};
++
++// -=*# Resource for function REGEXEXTRACT #*=-
++const TranslateId ocREGEXEXTRACT_ARY[] =
++{
++    NC_("ocREGEXEXTRACT", "Extracts the parts of a text that match a regular expression."),
++    NC_("ocREGEXEXTRACT", "Text"),
++    NC_("ocREGEXEXTRACT", "The text or a reference to a cell that contains the text to extract from."),
++    NC_("ocREGEXEXTRACT", "Pattern"),
++    NC_("ocREGEXEXTRACT", "The regular expression that describes the text to extract."),
++    NC_("ocREGEXEXTRACT", "Return mode"),
++    NC_("ocREGEXEXTRACT", "0 or omitted - the first match. 1 - all matches as an array. 2 - the capturing groups of the first match as an array."),
++    NC_("ocREGEXEXTRACT", "Case sensitivity"),
++    NC_("ocREGEXEXTRACT", "0 or omitted - case-sensitive. 1 - case-insensitive.")
++};
++
++// -=*# Resource for function REGEXREPLACE #*=-
++const TranslateId ocREGEXREPLACE_ARY[] =
++{
++    NC_("ocREGEXREPLACE", "Replaces the parts of a text that match a regular expression."),
++    NC_("ocREGEXREPLACE", "Text"),
++    NC_("ocREGEXREPLACE", "The text or a reference to a cell that contains the text to change."),
++    NC_("ocREGEXREPLACE", "Pattern"),
++    NC_("ocREGEXREPLACE", "The regular expression that describes the text to replace."),
++    NC_("ocREGEXREPLACE", "Replacement"),
++    NC_("ocREGEXREPLACE", "The replacement text. $1, $2... insert the capturing groups."),
++    NC_("ocREGEXREPLACE", "Occurrence"),
++    NC_("ocREGEXREPLACE", "0 or omitted - replace every match. A positive number replaces that match, a negative number counts from the end."),
++    NC_("ocREGEXREPLACE", "Case sensitivity"),
++    NC_("ocREGEXREPLACE", "0 or omitted - case-sensitive. 1 - case-insensitive.")
++};
++
++// -=*# Resource for function TRIMRANGE #*=-
++const TranslateId ocTRIMRANGE_ARY[] =
++{
++    NC_("ocTRIMRANGE", "Removes the blank rows and columns at the edges of a range or array."),
++    NC_("ocTRIMRANGE", "Range"),
++    NC_("ocTRIMRANGE", "The range or array to trim."),
++    NC_("ocTRIMRANGE", "Trim rows"),
++    NC_("ocTRIMRANGE", "0 - none. 1 - leading blank rows. 2 - trailing blank rows. 3 or omitted - both."),
++    NC_("ocTRIMRANGE", "Trim columns"),
++    NC_("ocTRIMRANGE", "0 - none. 1 - leading blank columns. 2 - trailing blank columns. 3 or omitted - both.")
++};
++
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/qa/extras/scfunctionlistobj.cxx
++++ b/sc/qa/extras/scfunctionlistobj.cxx
+@@ -77,7 +77,7 @@ public:
+ ScFunctionListObj::ScFunctionListObj()
+     : UnoApiTest(u"/sc/qa/extras/testdocuments"_ustr)
+     , XElementAccess(cppu::UnoType<uno::Sequence<beans::PropertyValue>>::get())
+-    , XIndexAccess(418)
++    , XIndexAccess(427)
+     , XNameAccess(u"IF"_ustr)
+     , XServiceInfo(u"stardiv.StarCalc.ScFunctionListObj"_ustr,
+                    u"com.sun.star.sheet.FunctionDescriptions"_ustr)
+--- /dev/null
++++ b/sc/qa/unit/functions_excelcompat.cxx
+@@ -0,0 +1,212 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; fill-column: 100 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * SPDX-License-Identifier: MPL-2.0
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// Functions of the leading spreadsheet application: results, error values,
++// and their names across an XLSX and an ODS round trip.
++
++#include "helper/qahelper.hxx"
++
++#include <address.hxx>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <osl/file.hxx>
++#include <sfx2/docfile.hxx>
++#include <tools/urlobj.hxx>
++
++namespace
++{
++struct Check
++{
++    const char* pFormula;
++    const char* pResult;
++};
++
++// Data: H1:H5 = apple, pear, apple, plum, pear; I1:I5 = 3, 5, 2, 7, 1;
++// J2 = TRUE; K1 = "a ""b"""; rows 20-22 of columns L:N are blank except M21.
++const Check aChecks[] = {
++    { "=ARRAYTOTEXT(I1:I3)", "3, 5, 2" },
++    { "=ARRAYTOTEXT(H1:I2;1)", "{\"apple\",3;\"pear\",5}" },
++    { "=ARRAYTOTEXT(I1:I3;2)", "#VALUE!" },
++    { "=VALUETOTEXT(I1)", "3" },
++    { "=VALUETOTEXT(H1;1)", "\"apple\"" },
++    { "=VALUETOTEXT(K1;1)", "\"a \"\"b\"\"\"" },
++    { "=VALUETOTEXT(TRUE())", "TRUE" },
++    { "=VALUETOTEXT(J2)", "TRUE" },
++    { "=VALUETOTEXT(1/0)", "#DIV/0!" },
++    { "=VALUETOTEXT(1;5)", "#VALUE!" },
++    { "=DBCS(\"AB1\")", "\xEF\xBC\xA1\xEF\xBC\xA2\xEF\xBC\x91" },
++    { "=PHONETIC(H1)", "apple" },
++    { "=PHONETIC(H2:H3)", "pear" },
++    { "=PHONETIC(I1)", "" },
++    { "=PERCENTOF(I1:I2;I1:I5)", "0.444444444444444" },
++    { "=PERCENTOF(I1;L20:L22)", "#DIV/0!" },
++    { "=REGEXTEST(\"Apple\";\"^a\")", "FALSE" },
++    { "=REGEXTEST(\"Apple\";\"^a\";1)", "TRUE" },
++    { "=REGEXTEST(\"x\";\"(\")", "#VALUE!" },
++    { "=REGEXTEST(\"x\";\"x\";2)", "#VALUE!" },
++    { "=REGEXEXTRACT(\"tel 123-456\";\"[0-9]+\")", "123" },
++    { "=REGEXEXTRACT(\"abc\";\"[0-9]+\")", "#N/A" },
++    { "=COLUMNS(REGEXEXTRACT(\"1a22b333\";\"[0-9]+\";1))", "3" },
++    { "=INDEX(REGEXEXTRACT(\"1a22b333\";\"[0-9]+\";1);1;3)", "333" },
++    { "=INDEX(REGEXEXTRACT(\"Nguyen Van An\";\"(\\w+) (\\w+) (\\w+)\";2);1;2)", "Van" },
++    { "=REGEXEXTRACT(\"x\";\"x\";3)", "#VALUE!" },
++    { "=REGEXREPLACE(\"a1b2c3\";\"[0-9]\";\"#\")", "a#b#c#" },
++    { "=REGEXREPLACE(\"a1b2c3\";\"[0-9]\";\"#\";2)", "a1b#c3" },
++    { "=REGEXREPLACE(\"a1b2c3\";\"[0-9]\";\"#\";-1)", "a1b2c#" },
++    { "=REGEXREPLACE(\"a1b2c3\";\"[0-9]\";\"#\";9)", "a1b2c3" },
++    { "=REGEXREPLACE(\"Le Thi\";\"(\\w+) (\\w+)\";\"$2 $1\")", "Thi Le" },
++    { "=ROWS(TRIMRANGE(H1:H30))", "5" },
++    { "=ROWS(TRIMRANGE(L19:N23))", "1" },
++    { "=COLUMNS(TRIMRANGE(L19:N23))", "1" },
++    { "=ROWS(TRIMRANGE(L19:N23;0))", "5" },
++    { "=ROWS(TRIMRANGE(L19:N23;2))", "3" },
++    { "=SUM(TRIMRANGE(I1:I40))", "18" },
++    { "=TRIMRANGE(L20:L22)", "#REF!" },
++    { "=TRIMRANGE(L20:L22;4)", "#VALUE!" },
++    { "=BINOM.DIST.RANGE(10;0.5;2;4)", "0.3662109375" },
++    { "=B(10;0.5;2;4)", "0.3662109375" },
++    { "=BINOM.DIST.RANGE(10;0.5;5;4)", "#NUM!" },
++    { "=CODE(\"\xC3\xA9\")", "233" },
++    { "=CHAR(233)", "\xC3\xA9" },
++    { "=CODE(\"\xC4\x90\")", "63" },
++    { "=INFO(\"system\")", "pcdos" },
++};
++
++void fillData(ScDocument& rDoc)
++{
++    const char* aFruit[] = { "apple", "pear", "apple", "plum", "pear" };
++    const double aQty[] = { 3, 5, 2, 7, 1 };
++    for (SCROW i = 0; i < 5; ++i)
++    {
++        rDoc.SetString(ScAddress(7, i, 0), OUString::createFromAscii(aFruit[i]));
++        rDoc.SetValue(ScAddress(8, i, 0), aQty[i]);
++    }
++    rDoc.SetString(ScAddress(9, 1, 0), u"=TRUE()"_ustr);
++    rDoc.SetString(ScAddress(10, 0, 0), u"a \"b\""_ustr);
++    rDoc.SetValue(ScAddress(12, 20, 0), 1.0);
++}
++}
++
++class ExcelCompatFunctionsTest : public ScModelTestBase
++{
++public:
++    ExcelCompatFunctionsTest()
++        : ScModelTestBase(u"sc/qa/unit/data"_ustr)
++    {
++    }
++
++    void checkResults(const char* pStage)
++    {
++        ScDocument* pDoc = getScDoc();
++        pDoc->CalcAll();
++        for (size_t i = 0; i < SAL_N_ELEMENTS(aChecks); ++i)
++        {
++            OString aMsg = OString::Concat(pStage) + ": " + aChecks[i].pFormula;
++            CPPUNIT_ASSERT_EQUAL_MESSAGE(aMsg.getStr(), OUString::fromUtf8(aChecks[i].pResult),
++                                         pDoc->GetString(ScAddress(0, i, 0)));
++        }
++    }
++
++    void setUpDocument()
++    {
++        createScDoc();
++        ScDocument* pDoc = getScDoc();
++        fillData(*pDoc);
++        for (size_t i = 0; i < SAL_N_ELEMENTS(aChecks); ++i)
++            pDoc->SetString(ScAddress(0, i, 0), OUString::fromUtf8(aChecks[i].pFormula));
++    }
++};
++
++CPPUNIT_TEST_FIXTURE(ExcelCompatFunctionsTest, testResultsAndXlsxRoundTrip)
++{
++    setUpDocument();
++    checkResults("new document");
++
++    saveAndReload(TestFilter::XLSX);
++    checkResults("after XLSX round trip");
++
++    xmlDocUniquePtr pSheet = parseExport(u"xl/worksheets/sheet1.xml"_ustr);
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='1']/x:c[@r='A1']/x:f",
++                       u"_xlfn.ARRAYTOTEXT(I1:I3)");
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='4']/x:c[@r='A4']/x:f",
++                       u"_xlfn.VALUETOTEXT(I1)");
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='11']/x:c[@r='A11']/x:f",
++                       u"_xlfn.DBCS(\"AB1\")");
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='12']/x:c[@r='A12']/x:f",
++                       u"PHONETIC(H1)");
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='15']/x:c[@r='A15']/x:f",
++                       u"_xlfn.PERCENTOF(I1:I2,I1:I5)");
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='17']/x:c[@r='A17']/x:f",
++                       u"_xlfn.REGEXTEST(\"Apple\",\"^a\")");
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='21']/x:c[@r='A21']/x:f",
++                       u"_xlfn.REGEXEXTRACT(\"tel 123-456\",\"[0-9]+\")");
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='27']/x:c[@r='A27']/x:f",
++                       u"_xlfn.REGEXREPLACE(\"a1b2c3\",\"[0-9]\",\"#\")");
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='32']/x:c[@r='A32']/x:f",
++                       u"ROWS(_xlfn.TRIMRANGE(H1:H30))");
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='40']/x:c[@r='A40']/x:f",
++                       u"_xlfn.BINOM.DIST.RANGE(10,0.5,2,4)");
++    // B() typed by a user of the old name is saved under the reference name too.
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='41']/x:c[@r='A41']/x:f",
++                       u"_xlfn.BINOM.DIST.RANGE(10,0.5,2,4)");
++}
++
++CPPUNIT_TEST_FIXTURE(ExcelCompatFunctionsTest, testOdsRoundTrip)
++{
++    setUpDocument();
++    saveAndReload(TestFilter::ODS);
++    checkResults("after ODS round trip");
++
++    xmlDocUniquePtr pContent = parseExport(u"content.xml"_ustr);
++    assertXPath(pContent, "(//table:table-cell[contains(@table:formula, 'REGEXTEST')])[1]",
++                "formula", u"of:=COM.MICROSOFT.REGEXTEST(\"Apple\";\"^a\")");
++    assertXPath(pContent, "(//table:table-cell[contains(@table:formula, 'TRIMRANGE')])[1]",
++                "formula", u"of:=ROWS(COM.MICROSOFT.TRIMRANGE([.H1:.H30]))");
++    // OpenDocument keeps its own name of the binomial range function.
++    assertXPath(pContent, "(//table:table-cell[contains(@table:formula, 'BINOM')])[1]",
++                "formula", u"of:=BINOM.DIST.RANGE(10;0.5;2;4)");
++}
++
++CPPUNIT_TEST_FIXTURE(ExcelCompatFunctionsTest, testCellFilename)
++{
++    createScDoc();
++    ScDocument* pDoc = getScDoc();
++    pDoc->SetString(ScAddress(0, 0, 0), u"=CELL(\"filename\";B1)"_ustr);
++    pDoc->CalcAll();
++    // Never saved: empty, as in the leading application.
++    CPPUNIT_ASSERT_EQUAL(OUString(), pDoc->GetString(ScAddress(0, 0, 0)));
++
++    OUString aTab;
++    saveAndReload(TestFilter::XLSX);
++    pDoc = getScDoc();
++    pDoc->GetName(0, aTab);
++    pDoc->CalcAll();
++    const INetURLObject& rURL = getScDocShell()->GetMedium()->GetURLObject();
++    OUString aDir;
++    CPPUNIT_ASSERT_EQUAL(osl::FileBase::E_None,
++                         osl::FileBase::getSystemPathFromFileURL(rURL.GetPartBeforeLastName(), aDir));
++    CPPUNIT_ASSERT_EQUAL(
++        OUString(aDir + "[" + rURL.GetLastName(INetURLObject::DecodeMechanism::Unambiguous) + "]" + aTab),
++        pDoc->GetString(ScAddress(0, 0, 0)));
++
++    // An OpenDocument file keeps the form its own formulas parse.
++    saveAndReload(TestFilter::ODS);
++    pDoc = getScDoc();
++    pDoc->CalcAll();
++    const INetURLObject& rOdsURL = getScDocShell()->GetMedium()->GetURLObject();
++    CPPUNIT_ASSERT_EQUAL(
++        OUString("'" + rOdsURL.GetMainURL(INetURLObject::DecodeMechanism::Unambiguous) + "'#$" + aTab),
++        pDoc->GetString(ScAddress(0, 0, 0)));
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab cinoptions=b1,g0,N-s cinkeys+=0=break: */
+--- a/sc/source/core/data/funcdesc.cxx
++++ b/sc/source/core/data/funcdesc.cxx
+@@ -809,6 +809,15 @@ ScFunctionList::ScFunctionList( bool bEnglishFunctionNames )
+         { ocUnique, ENTRY(ocUNIQUE_ARY), 0, ID_FUNCTION_GRP_TABLE, HID_FUNC_UNIQUE_MS, 3, { 0, 1, 1 }, 0 },
+         { ocWrapCols, ENTRY(ocWRAPCOLS_ARY), 0, ID_FUNCTION_GRP_TABLE, HID_FUNC_WRAPCOLS_MS, 3, { 0, 1, 1 }, 0 },
+         { ocWrapRows, ENTRY(ocWRAPROWS_ARY), 0, ID_FUNCTION_GRP_TABLE, HID_FUNC_WRAPROWS_MS, 3, { 0, 1, 1 }, 0 },
++        { ocArrayToText, ENTRY(ocARRAYTOTEXT_ARY), 0, ID_FUNCTION_GRP_TEXT, HID_FUNC_ARRAYTOTEXT_MS, 2, { 0, 1 }, 0 },
++        { ocValueToText, ENTRY(ocVALUETOTEXT_ARY), 0, ID_FUNCTION_GRP_TEXT, HID_FUNC_VALUETOTEXT_MS, 2, { 0, 1 }, 0 },
++        { ocDbcs, ENTRY(ocDBCS_ARY), 0, ID_FUNCTION_GRP_TEXT, HID_FUNC_DBCS_MS, 1, { 0 }, 0 },
++        { ocPhonetic, ENTRY(ocPHONETIC_ARY), 0, ID_FUNCTION_GRP_TEXT, HID_FUNC_PHONETIC_MS, 1, { 0 }, 0 },
++        { ocPercentOf, ENTRY(ocPERCENTOF_ARY), 0, ID_FUNCTION_GRP_MATH, HID_FUNC_PERCENTOF_MS, 2, { 0, 0 }, 0 },
++        { ocRegexTest, ENTRY(ocREGEXTEST_ARY), 0, ID_FUNCTION_GRP_TEXT, HID_FUNC_REGEXTEST_MS, 3, { 0, 0, 1 }, 0 },
++        { ocRegexExtract, ENTRY(ocREGEXEXTRACT_ARY), 0, ID_FUNCTION_GRP_TEXT, HID_FUNC_REGEXEXTRACT_MS, 4, { 0, 0, 1, 1 }, 0 },
++        { ocRegexReplace, ENTRY(ocREGEXREPLACE_ARY), 0, ID_FUNCTION_GRP_TEXT, HID_FUNC_REGEXREPLACE_MS, 5, { 0, 0, 0, 1, 1 }, 0 },
++        { ocTrimRange, ENTRY(ocTRIMRANGE_ARY), 0, ID_FUNCTION_GRP_TABLE, HID_FUNC_TRIMRANGE_MS, 3, { 0, 1, 1 }, 0 },
+     };
+ 
+     ScFuncDesc* pDesc = nullptr;
+--- a/sc/source/core/inc/interpre.hxx
++++ b/sc/source/core/inc/interpre.hxx
+@@ -803,6 +803,20 @@ public:
+     void ScSubstitute();
+     void ScRept();
+     void ScRegex();
++    // Functions of the leading spreadsheet application (interpr_excelcompat.cxx,
++    // interpr_excelregex.cxx).
++    void ScArrayToText();
++    void ScValueToText();
++    void ScPhonetic();
++    void ScPercentOf();
++    void ScTrimRange();
++    void ScRegexTest();
++    void ScRegexExtract();
++    void ScRegexReplace();
++    OUString ExcelLogicalText(double fValue);
++    OUString ExcelCellText(const ScAddress& rPos, bool bStrict);
++    bool SumArgumentForPercentOf(KahanSum& rSum);
++    bool GetRegexCaseOption(sal_uInt8 nParamCount, sal_uInt8 nPos, bool& rIgnoreCase);
+     void ScConcat();
+     void ScConcat_MS();
+     void ScTextJoin_MS();
+--- a/sc/source/core/tool/interpr1.cxx
++++ b/sc/source/core/tool/interpr1.cxx
+@@ -26,7 +26,10 @@
+ #include <o3tl/safeint.hxx>
+ #include <o3tl/temporary.hxx>
+ #include <osl/thread.h>
++#include <osl/file.hxx>
++#include <sfx2/docfilt.hxx>
+ #include <unotools/textsearch.hxx>
++#include <unotools/wincodepage.hxx>
+ #include <svl/numformat.hxx>
+ #include <svl/zforlist.hxx>
+ #include <svl/zformat.hxx>
+@@ -2394,23 +2397,52 @@ void ScInterpreter::ScCell()
+                     ScDocShell* pShell = mrDoc.GetDocumentShell();
+                     if( pShell && pShell->GetMedium() )
+                     {
+-                        const INetURLObject& rURLObj = pShell->GetMedium()->GetURLObject();
++                        SfxMedium* pMedium = pShell->GetMedium();
++                        const INetURLObject& rURLObj = pMedium->GetURLObject();
+                         OUString aTabName;
+                         mrDoc.GetName( nTab, aTabName );
+ 
++                        // The leading spreadsheet application's form is
++                        // C:\dir\[file.xlsx]Sheet with the native path, and an
++                        // empty string for a document that was never saved.
++                        // OpenDocument files keep 'file:///dir/file.ods'#$Sheet,
++                        // which their existing formulas parse, unless the
++                        // string reference syntax is explicitly an Excel one.
+                         FormulaGrammar::AddressConvention eConv = maCalcConfig.meStringRefAddressSyntax;
+-                        if (eConv == FormulaGrammar::CONV_UNSPECIFIED)
+-                            eConv = mrDoc.GetAddressConvention();
+-
++                        bool bExcelForm;
+                         if (eConv == FormulaGrammar::CONV_XL_A1 ||
+                             eConv == FormulaGrammar::CONV_XL_R1C1 ||
+                             eConv == FormulaGrammar::CONV_XL_OOX)
++                            bExcelForm = true;
++                        else if (eConv == FormulaGrammar::CONV_OOO)
++                            bExcelForm = false;
++                        else
+                         {
+-                            // file name and table name: FILEPATH/[FILENAME]TABLE
+-                            if (!comphelper::LibreOfficeKit::isActive())
+-                                aFuncResult = rURLObj.GetPartBeforeLastName();
+-                            aFuncResult += "[" + rURLObj.GetLastName(INetURLObject::DecodeMechanism::Unambiguous) +
+-                                           "]" + aTabName;
++                            std::shared_ptr<const SfxFilter> pFilter = pMedium->GetFilter();
++                            const OUString aFilter = pFilter ? pFilter->GetFilterName() : OUString();
++                            bExcelForm = !(aFilter.startsWith("calc8") || aFilter.startsWith("StarOffice XML")
++                                           || aFilter.indexOf("OpenDocument") >= 0);
++                        }
++
++                        if (bExcelForm)
++                        {
++                            if (rURLObj.HasError() || rURLObj.GetMainURL(INetURLObject::DecodeMechanism::NONE).isEmpty())
++                                aFuncResult.clear();
++                            else
++                            {
++                                if (!comphelper::LibreOfficeKit::isActive())
++                                {
++                                    OUString aDirURL = rURLObj.GetPartBeforeLastName();
++                                    OUString aSysPath;
++                                    if (rURLObj.GetProtocol() == INetProtocol::File &&
++                                        osl::FileBase::getSystemPathFromFileURL(aDirURL, aSysPath) == osl::FileBase::E_None)
++                                        aFuncResult = aSysPath;
++                                    else
++                                        aFuncResult = INetURLObject::decode(aDirURL, INetURLObject::DecodeMechanism::Unambiguous);
++                                }
++                                aFuncResult += "[" + rURLObj.GetLastName(INetURLObject::DecodeMechanism::Unambiguous) +
++                                               "]" + aTabName;
++                            }
+                         }
+                         else
+                         {
+@@ -3584,6 +3616,21 @@ void ScInterpreter::ScClean()
+ }
+ 
+ 
++// CODE and CHAR use the system ANSI code page, as the leading spreadsheet
++// application does. On Windows that is the thread text encoding (GetACP():
++// 1258 with the Vietnamese system locale, 1252 with English). Linux and macOS
++// have no ANSI code page and run UTF-8, so there the Windows code page of the
++// locale setting is used (vi-VN 1258, en-US 1252); the first byte of a UTF-8
++// sequence used before meant nothing to anyone.
++static rtl_TextEncoding lcl_GetAnsiCodePageEncoding()
++{
++#ifdef _WIN32
++    return osl_getThreadTextEncoding();
++#else
++    return utl_getWinTextEncodingFromLangStr(ScGlobal::getLocaleData().getLanguageTag().getBcp47());
++#endif
++}
++
+ void ScInterpreter::ScCode()
+ {
+ //2do: make it full range unicode?
+@@ -3600,7 +3647,7 @@ void ScInterpreter::ScCode()
+             RTL_UNICODETOTEXT_FLAGS_UNDEFINED_DEFAULT |
+             RTL_UNICODETOTEXT_FLAGS_INVALID_DEFAULT |
+             RTL_UNICODETOTEXT_FLAGS_UNDEFINED_REPLACE;
+-        PushInt( static_cast<unsigned char>(OUStringToOString(OUStringChar(aStr[0]), osl_getThreadTextEncoding(), convertFlags).toChar()) );
++        PushInt( static_cast<unsigned char>(OUStringToOString(OUStringChar(aStr[0]), lcl_GetAnsiCodePageEncoding(), convertFlags).toChar()) );
+     }
+ }
+ 
+@@ -3621,7 +3668,7 @@ void ScInterpreter::ScChar()
+             RTL_TEXTTOUNICODE_FLAGS_INVALID_DEFAULT;
+ 
+         char cEncodedChar = static_cast<char>(fVal);
+-        OUString aStr(&cEncodedChar, 1,  osl_getThreadTextEncoding(), convertFlags);
++        OUString aStr(&cEncodedChar, 1, lcl_GetAnsiCodePageEncoding(), convertFlags);
+         PushString(aStr);
+     }
+ }
+--- a/sc/source/core/tool/interpr4.cxx
++++ b/sc/source/core/tool/interpr4.cxx
+@@ -4008,6 +4008,8 @@ bool IsErrFunc(OpCode oc)
+         case ocIfs_MS:
+         case ocSwitch_MS:
+         case ocXLookup:
++        case ocValueToText:     // an error value becomes its text
++        case ocArrayToText:
+             return true;
+         default:
+             return false;
+@@ -4183,6 +4185,15 @@ StackVar ScInterpreter::Interpret()
+                     case ocLet              : ScLet();                      break;
+                     case ocWrapCols         : ScWrapCols();                 break;
+                     case ocWrapRows         : ScWrapRows();                 break;
++                    case ocArrayToText      : ScArrayToText();            break;
++                    case ocValueToText      : ScValueToText();            break;
++                    case ocDbcs             : ScJis();                    break;
++                    case ocPhonetic         : ScPhonetic();               break;
++                    case ocPercentOf        : ScPercentOf();              break;
++                    case ocRegexTest        : ScRegexTest();              break;
++                    case ocRegexExtract     : ScRegexExtract();           break;
++                    case ocRegexReplace     : ScRegexReplace();           break;
++                    case ocTrimRange        : ScTrimRange();              break;
+                     case ocTrue             : ScTrue();                     break;
+                     case ocFalse            : ScFalse();                    break;
+                     case ocGetActDate       : ScGetActDate();               break;
+--- a/sc/source/core/tool/interpr5.cxx
++++ b/sc/source/core/tool/interpr5.cxx
+@@ -3340,17 +3340,33 @@ void ScInterpreter::ScInfo()
+ 
+     OUString aStr = GetString().getString();
+     ScCellKeywordTranslator::transKeyword(aStr, ScGlobal::GetLocale(), ocInfo);
++    // SYSTEM and OSVERSION give the leading spreadsheet application's values,
++    // which workbooks test: "pcdos" (or "mac" on macOS) and, on Windows, the
++    // fixed "Windows (64-bit) NT 10.00" it reports on Windows 10 and 11 (the
++    // only Windows versions this product supports). On macOS the form is
++    // "Macintosh (Intel|ARM) Version <version>". Linux has no reference value
++    // and keeps the real system name and version.
+     if( aStr == "SYSTEM" )
+-        PushString( u"" SC_INFO_OSVERSION ""_ustr );
++#ifdef MACOSX
++        PushString( u"mac"_ustr );
++#else
++        PushString( u"pcdos"_ustr );
++#endif
+     else if( aStr == "OSVERSION" )
+ #if (defined LINUX || defined __FreeBSD__)
+         PushString(Application::GetOSVersion());
+ #elif defined MACOSX
+-        // TODO tdf#140286 handle MACOSX version to get result compatible to Excel
+-        PushString("Windows (32-bit) NT 5.01");
++    {
++        OUString aVer = Application::GetOSVersion();  // "macOS 14.4.1"
++        sal_Int32 nSpace = aVer.lastIndexOf(' ');
++#if defined __aarch64__ || defined __arm64__
++        PushString("Macintosh (ARM) Version " + aVer.copy(nSpace + 1));
++#else
++        PushString("Macintosh (Intel) Version " + aVer.copy(nSpace + 1));
++#endif
++    }
+ #else // handle Windows (WNT, WIN_NT, WIN32, _WIN32)
+-        // TODO tdf#140286 handle Windows version to get a result compatible to Excel
+-        PushString( "Windows (32-bit) NT 5.01" );
++        PushString( u"Windows (64-bit) NT 10.00"_ustr );
+ #endif
+     else if( aStr == "RELEASE" )
+         PushString( ::utl::Bootstrap::getBuildIdData( OUString() ) );
+--- /dev/null
++++ b/sc/source/core/tool/interpr_excelcompat.cxx
+@@ -0,0 +1,695 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// Worksheet functions of the leading spreadsheet application that the
++// engine did not have: VALUETOTEXT, ARRAYTOTEXT, PHONETIC, PERCENTOF,
++// REGEXTEST, REGEXEXTRACT, REGEXREPLACE and TRIMRANGE. DBCS reuses ScJis()
++// and BINOM.DIST.RANGE is the existing B function. ScArrayToText() is the
++// upstream implementation (LibreOffice master 21b9909af and a8e87aba0,
++// Tomaž Vajngerl, MPL-2.0).
++
++#include <interpre.hxx>
++
++#include <cellvalue.hxx>
++#include <compiler.hxx>
++#include <document.hxx>
++#include <dociter.hxx>
++#include <formulacell.hxx>
++#include <global.hxx>
++#include <scmatrix.hxx>
++
++#include <rtl/ustrbuf.hxx>
++#include <svl/numformat.hxx>
++
++#include <memory>
++#include <vector>
++
++using namespace formula;
++
++namespace
++{
++OUString lcl_QuoteText(const OUString& rStr)
++{
++    return "\"" + rStr.replaceAll(u"\"", u"\"\"") + "\"";
++}
++
++}
++
++OUString ScInterpreter::ExcelLogicalText(double fValue)
++{
++    const sal_uInt32 nKey = mrContext.NFGetStandardFormat(SvNumFormatType::LOGICAL, ScGlobal::eLnge);
++    OUString aString;
++    const Color* pColor = nullptr;
++    mrContext.NFGetOutputString(fValue, nKey, aString, &pColor);
++    return aString;
++}
++
++OUString ScInterpreter::ExcelCellText(const ScAddress& rPos, bool bStrict)
++{
++    ScRefCellValue aCell(mrDoc, rPos);
++    if (aCell.isEmpty())
++        return OUString();
++    if (aCell.hasError())
++        return ScGlobal::GetErrorString(aCell.getFormula()->GetErrCode());
++    if (aCell.hasNumeric())
++    {
++        SvNumFormatType eType = (aCell.getType() == CELLTYPE_FORMULA)
++            ? aCell.getFormula()->GetFormatType()
++            : mrContext.NFGetType(mrDoc.GetNumberFormat(mrContext, rPos));
++        if (eType == SvNumFormatType::LOGICAL)
++            return ExcelLogicalText(aCell.getValue());
++        return GetStringFromDouble(aCell.getValue()).getString();
++    }
++    svl::SharedString aStr;
++    GetCellString(aStr, aCell);
++    return bStrict ? lcl_QuoteText(aStr.getString()) : aStr.getString();
++}
++
++void ScInterpreter::ScValueToText()
++{
++    sal_uInt8 nParamCount = GetByte();
++    if (!MustHaveParamCount(nParamCount, 1, 2))
++        return;
++    sal_Int32 nFormat = 0;
++    if (nParamCount == 2)
++        nFormat = GetInt32WithDefault(0);
++    if (nGlobalError != FormulaError::NONE)
++    {
++        PushError(nGlobalError);
++        return;
++    }
++    if (nFormat < 0 || nFormat > 1)
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    const bool bStrict = (nFormat == 1);
++
++    switch (GetStackType())
++    {
++        case svError:
++        {
++            // An error value is converted to its text, not propagated.
++            PopError();
++            FormulaError nErr = nGlobalError;
++            nGlobalError = FormulaError::NONE;
++            PushString(ScGlobal::GetErrorString(nErr));
++            return;
++        }
++        case svDouble:
++        {
++            const auto* pDouble = dynamic_cast<const FormulaDoubleToken*>(pStack[sp - 1]);
++            const bool bLogical = pDouble && pDouble->GetDoubleType()
++                                  == static_cast<sal_Int16>(SvNumFormatType::LOGICAL);
++            double fVal = GetDouble();
++            PushString(bLogical ? ExcelLogicalText(fVal) : GetStringFromDouble(fVal).getString());
++            return;
++        }
++        case svSingleRef:
++        {
++            ScAddress aAdr;
++            PopSingleRef(aAdr);
++            if (nGlobalError != FormulaError::NONE)
++            {
++                PushError(nGlobalError);
++                return;
++            }
++            PushString(ExcelCellText(aAdr, bStrict));
++            return;
++        }
++        case svDoubleRef:
++        {
++            // A range gives an array of the same shape, one text per cell.
++            ScRange aRange;
++            PopDoubleRef(aRange);
++            if (nGlobalError != FormulaError::NONE || aRange.aStart.Tab() != aRange.aEnd.Tab())
++            {
++                PushError(nGlobalError != FormulaError::NONE ? nGlobalError : FormulaError::NoValue);
++                return;
++            }
++            SCSIZE nC = aRange.aEnd.Col() - aRange.aStart.Col() + 1;
++            SCSIZE nR = aRange.aEnd.Row() - aRange.aStart.Row() + 1;
++            ScMatrixRef pRes = GetNewMat(nC, nR, /*bEmpty*/ true);
++            if (!pRes)
++            {
++                PushError(FormulaError::MatrixSize);
++                return;
++            }
++            for (SCSIZE c = 0; c < nC; ++c)
++                for (SCSIZE r = 0; r < nR; ++r)
++                    pRes->PutString(mrStrPool.intern(ExcelCellText(
++                        ScAddress(aRange.aStart.Col() + c, aRange.aStart.Row() + r, aRange.aStart.Tab()),
++                        bStrict)), c, r);
++            PushMatrix(pRes);
++            return;
++        }
++        case svString:
++        {
++            OUString aStr = GetString().getString();
++            PushString(bStrict ? lcl_QuoteText(aStr) : aStr);
++            return;
++        }
++        case svMatrix:
++        case svExternalSingleRef:
++        case svExternalDoubleRef:
++        {
++            ScMatrixRef pMat = GetMatrix();
++            if (!pMat || nGlobalError != FormulaError::NONE)
++            {
++                PushError(nGlobalError != FormulaError::NONE ? nGlobalError : FormulaError::NoValue);
++                return;
++            }
++            SCSIZE nC, nR;
++            pMat->GetDimensions(nC, nR);
++            ScMatrixRef pRes = GetNewMat(nC, nR, /*bEmpty*/ true);
++            if (!pRes)
++            {
++                PushError(FormulaError::MatrixSize);
++                return;
++            }
++            for (SCSIZE c = 0; c < nC; ++c)
++                for (SCSIZE r = 0; r < nR; ++r)
++                {
++                    const ScMatrixValue aVal = pMat->Get(c, r);
++                    OUString aText;
++                    if (aVal.nType == ScMatValType::String)
++                        aText = bStrict ? lcl_QuoteText(aVal.aStr.getString()) : aVal.aStr.getString();
++                    else if (aVal.nType == ScMatValType::Boolean)
++                        aText = ExcelLogicalText(aVal.fVal);
++                    else if (aVal.nType == ScMatValType::Value)
++                        aText = aVal.GetError() != FormulaError::NONE
++                                    ? ScGlobal::GetErrorString(aVal.GetError())
++                                    : GetStringFromDouble(aVal.fVal).getString();
++                    pRes->PutString(mrStrPool.intern(aText), c, r);
++                }
++            PushMatrix(pRes);
++            return;
++        }
++        default:
++        {
++            // Empty cell or missing argument.
++            Pop();
++            PushString(OUString());
++            return;
++        }
++    }
++}
++
++void ScInterpreter::ScPhonetic()
++{
++    if (!MustHaveParamCount(GetByte(), 1))
++        return;
++    // No phonetic guide text is stored, so the result is the text of the
++    // reference's first cell, as the leading application returns when a
++    // cell has no furigana. A number gives an empty string.
++    ScAddress aAdr;
++    switch (GetStackType())
++    {
++        case svSingleRef:
++            PopSingleRef(aAdr);
++        break;
++        case svDoubleRef:
++        {
++            ScRange aRange;
++            PopDoubleRef(aRange);
++            aAdr = aRange.aStart;
++        }
++        break;
++        default:
++            Pop();
++            PushError(FormulaError::NotAvailable);
++            return;
++    }
++    if (nGlobalError != FormulaError::NONE)
++    {
++        PushError(nGlobalError);
++        return;
++    }
++    ScRefCellValue aCell(mrDoc, aAdr);
++    if (aCell.hasError())
++    {
++        PushError(aCell.getFormula()->GetErrCode());
++        return;
++    }
++    svl::SharedString aStr;
++    if (aCell.hasString())
++        GetCellString(aStr, aCell);
++    PushString(aStr.getString());
++}
++
++bool ScInterpreter::SumArgumentForPercentOf(KahanSum& rSum)
++{
++    // Like SUM: numbers in ranges and arrays count, text and empty cells are
++    // ignored, a direct argument is converted, an error propagates.
++    switch (GetStackType())
++    {
++        case svSingleRef:
++        case svDoubleRef:
++        {
++            ScRange aRange;
++            if (GetStackType() == svSingleRef)
++            {
++                ScAddress aAdr;
++                PopSingleRef(aAdr);
++                aRange = ScRange(aAdr);
++            }
++            else
++                PopDoubleRef(aRange, true);
++            if (nGlobalError != FormulaError::NONE)
++                return false;
++            double fVal = 0.0;
++            FormulaError nErr = FormulaError::NONE;
++            ScValueIterator aIter(mrContext, aRange, mnSubTotalFlags, false);
++            if (aIter.GetFirst(fVal, nErr))
++            {
++                do
++                {
++                    if (nErr != FormulaError::NONE)
++                    {
++                        SetError(nErr);
++                        return false;
++                    }
++                    rSum += fVal;
++                } while (aIter.GetNext(fVal, nErr));
++            }
++            if (nErr != FormulaError::NONE)
++            {
++                SetError(nErr);
++                return false;
++            }
++            return true;
++        }
++        case svMatrix:
++        case svExternalSingleRef:
++        case svExternalDoubleRef:
++        {
++            ScMatrixRef pMat = GetMatrix();
++            if (!pMat || nGlobalError != FormulaError::NONE)
++                return false;
++            SCSIZE nC, nR;
++            pMat->GetDimensions(nC, nR);
++            for (SCSIZE c = 0; c < nC; ++c)
++                for (SCSIZE r = 0; r < nR; ++r)
++                {
++                    if (!pMat->IsValue(c, r))
++                        continue;
++                    FormulaError nErr = pMat->GetError(c, r);
++                    if (nErr != FormulaError::NONE)
++                    {
++                        SetError(nErr);
++                        return false;
++                    }
++                    rSum += pMat->GetDouble(c, r);
++                }
++            return true;
++        }
++        default:
++            rSum += GetDouble();
++            return nGlobalError == FormulaError::NONE;
++    }
++}
++
++void ScInterpreter::ScPercentOf()
++{
++    if (!MustHaveParamCount(GetByte(), 2))
++        return;
++    KahanSum aAll, aSubset;
++    if (!SumArgumentForPercentOf(aAll) || !SumArgumentForPercentOf(aSubset))
++    {
++        PushError(nGlobalError != FormulaError::NONE ? nGlobalError : FormulaError::NoValue);
++        return;
++    }
++    double fAll = aAll.get();
++    if (fAll == 0.0)
++    {
++        PushError(FormulaError::DivisionByZero);
++        return;
++    }
++    PushDouble(aSubset.get() / fAll);
++}
++
++void ScInterpreter::ScTrimRange()
++{
++    sal_uInt8 nParamCount = GetByte();
++    if (!MustHaveParamCount(nParamCount, 1, 3))
++        return;
++    // 0 keeps, 1 trims leading, 2 trailing, 3 both (default) blank rows/columns.
++    sal_Int32 nCols = (nParamCount == 3) ? GetInt32WithDefault(3) : 3;
++    sal_Int32 nRows = (nParamCount >= 2) ? GetInt32WithDefault(3) : 3;
++    if (nGlobalError != FormulaError::NONE)
++    {
++        PushError(nGlobalError);
++        return;
++    }
++    if (nRows < 0 || nRows > 3 || nCols < 0 || nCols > 3)
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    const bool bLeadRows = nRows & 1, bTrailRows = nRows & 2;
++    const bool bLeadCols = nCols & 1, bTrailCols = nCols & 2;
++
++    switch (GetStackType())
++    {
++        case svSingleRef:
++        case svDoubleRef:
++        {
++            SCCOL nC1, nC2;
++            SCROW nR1, nR2;
++            SCTAB nT1, nT2;
++            if (GetStackType() == svSingleRef)
++            {
++                PopSingleRef(nC1, nR1, nT1);
++                nC2 = nC1;
++                nR2 = nR1;
++                nT2 = nT1;
++            }
++            else
++                PopDoubleRef(nC1, nR1, nT1, nC2, nR2, nT2);
++            if (nGlobalError != FormulaError::NONE || nT1 != nT2)
++            {
++                PushError(nGlobalError != FormulaError::NONE ? nGlobalError : FormulaError::NoRef);
++                return;
++            }
++            SCCOL nSC = nC1, nEC = nC2;
++            SCROW nSR = nR1, nER = nR2;
++            bool bShrunk = false;
++            if (!mrDoc.ShrinkToUsedDataArea(bShrunk, nT1, nSC, nSR, nEC, nER, false))
++            {
++                PushError(FormulaError::NoRef);  // nothing but blanks
++                return;
++            }
++            PushDoubleRef(bLeadCols ? nSC : nC1, bLeadRows ? nSR : nR1, nT1,
++                          bTrailCols ? nEC : nC2, bTrailRows ? nER : nR2, nT1);
++            return;
++        }
++        default:
++            break;
++    }
++
++    ScMatrixRef pMat = GetMatrix();
++    if (!pMat || nGlobalError != FormulaError::NONE)
++    {
++        PushError(nGlobalError != FormulaError::NONE ? nGlobalError : FormulaError::NoValue);
++        return;
++    }
++    SCSIZE nC, nR;
++    pMat->GetDimensions(nC, nR);
++    auto bRowBlank = [&](SCSIZE r) {
++        for (SCSIZE c = 0; c < nC; ++c)
++            if (!pMat->IsEmpty(c, r))
++                return false;
++        return true;
++    };
++    auto bColBlank = [&](SCSIZE c, SCSIZE r1, SCSIZE r2) {
++        for (SCSIZE r = r1; r <= r2; ++r)
++            if (!pMat->IsEmpty(c, r))
++                return false;
++        return true;
++    };
++    SCSIZE r1 = 0, r2 = nR;
++    while (r1 < nR && bRowBlank(r1))
++        ++r1;
++    if (r1 == nR)
++    {
++        PushError(FormulaError::NoRef);
++        return;
++    }
++    while (r2 > r1 && bRowBlank(r2 - 1))
++        --r2;
++    SCSIZE c1 = 0, c2 = nC;
++    while (c1 < nC && bColBlank(c1, r1, r2 - 1))
++        ++c1;
++    while (c2 > c1 && bColBlank(c2 - 1, r1, r2 - 1))
++        --c2;
++    if (!bLeadRows)
++        r1 = 0;
++    if (!bTrailRows)
++        r2 = nR;
++    if (!bLeadCols)
++        c1 = 0;
++    if (!bTrailCols)
++        c2 = nC;
++    ScMatrixRef pRes = GetNewMat(c2 - c1, r2 - r1, /*bEmpty*/ true);
++    if (!pRes)
++    {
++        PushError(FormulaError::MatrixSize);
++        return;
++    }
++    for (SCSIZE c = c1; c < c2; ++c)
++        for (SCSIZE r = r1; r < r2; ++r)
++        {
++            const ScMatrixValue aVal = pMat->Get(c, r);
++            if (aVal.nType == ScMatValType::String)
++                pRes->PutString(aVal.aStr, c - c1, r - r1);
++            else if (aVal.nType == ScMatValType::Boolean)
++                pRes->PutBoolean(aVal.fVal != 0.0, c - c1, r - r1);
++            else if (aVal.nType == ScMatValType::Value)
++                pRes->PutDouble(aVal.fVal, c - c1, r - r1);
++        }
++    PushMatrix(pRes);
++}
++
++void ScInterpreter::ScArrayToText()
++{
++    sal_uInt8 nParameterCount = GetByte();
++    if (!MustHaveParamCount(nParameterCount, 1, 2))
++        return;
++
++    // 2nd argument optional - Format: 0 = concise (default), 1 = strict
++    sal_Int32 nFormat = 0;
++    if (nParameterCount == 2)
++    {
++        nFormat = GetInt32WithDefault(0);
++        if (nGlobalError != FormulaError::NONE)
++        {
++            PushError(nGlobalError);
++            return;
++        }
++        if (nFormat < 0 || nFormat > 1)
++        {
++            // Any format other than 0 or 1 is rejected with #VALUE!.
++            PushError(FormulaError::NoValue);
++            return;
++        }
++    }
++    const bool bStrict = (nFormat == 1);
++
++    // The concise format joins all values in row order with the function
++    // separator and a space. The strict format writes an array constant:
++    // braces around the whole array, the array column separator between
++    // columns, the array row separator between rows, and quoted text. The
++    // separators are the ones formulas are entered with, and these differ
++    // from the decimal separator of the locale.
++    OUStringBuffer aResult;
++
++    const OUString aFunctionSeparator = ScCompiler::GetNativeSymbol(ocSep) + " ";
++    const OUString aColumnSeparator = ScCompiler::GetNativeSymbol(ocArrayColSep);
++    const OUString aRowSeparator = ScCompiler::GetNativeSymbol(ocArrayRowSep);
++    auto appendSeparator = [&](bool bNewRow)
++    {
++        if (!bStrict)
++            aResult.append(aFunctionSeparator);
++        else if (bNewRow)
++            aResult.append(aRowSeparator);
++        else
++            aResult.append(aColumnSeparator);
++    };
++    auto appendText = [&aResult, bStrict](const OUString& rStr)
++    {
++        if (bStrict)
++        {
++            // Each double quote inside the text is doubled.
++            aResult.append('"');
++            aResult.append(rStr.replaceAll(u"\"", u"\"\""));
++            aResult.append('"');
++        }
++        else
++            aResult.append(rStr);
++    };
++    // Boolean values format through the LOGICAL key, so their text is
++    // TRUE or FALSE in the current locale.
++    const sal_uInt32 nLogicalKey = mrContext.NFGetStandardFormat( SvNumFormatType::LOGICAL, ScGlobal::eLnge);
++    auto appendLogical = [this, &aResult, nLogicalKey](double fValue)
++    {
++        OUString aString;
++        const Color* pColor = nullptr;
++        mrContext.NFGetOutputString(fValue, nLogicalKey, aString, &pColor);
++        aResult.append(aString);
++    };
++    auto appendNumber = [this, &aResult](double fValue)
++    {
++        aResult.append(GetStringFromDouble(fValue).getString());
++    };
++    // An error value becomes its error text and the other elements are
++    // still written out.
++    auto appendError = [&aResult](FormulaError nError)
++    {
++        aResult.append(ScGlobal::GetErrorString(nError));
++    };
++    if (bStrict)
++        aResult.append('{');
++
++    switch (GetStackType())
++    {
++        case svSingleRef:
++        case svDoubleRef:
++        {
++            // A referenced range reads directly from the document, cell by
++            // cell in row order, so that a number cell formatted as boolean
++            // still lists as TRUE or FALSE.
++            SCCOL nColumn1;
++            SCCOL nColumn2;
++            SCROW nRow1;
++            SCROW nRow2;
++            SCTAB nTable1;
++            SCTAB nTable2;
++            // A single-cell reference is a scalar argument, so an error in
++            // that one cell propagates as the result. In a multi-cell range
++            // an error cell instead lists as its error text.
++            const bool bScalarRef = (GetStackType() == svSingleRef);
++            if (bScalarRef)
++            {
++                ScAddress aAddress;
++                PopSingleRef(aAddress);
++                nColumn1 = nColumn2 = aAddress.Col();
++                nRow1 = nRow2 = aAddress.Row();
++                nTable1 = nTable2 = aAddress.Tab();
++            }
++            else
++            {
++                PopDoubleRef(nColumn1, nRow1, nTable1, nColumn2, nRow2, nTable2);
++            }
++            if (nGlobalError != FormulaError::NONE)
++            {
++                PushError(nGlobalError);
++                return;
++            }
++            if (nTable1 != nTable2)
++            {
++                PushIllegalParameter();
++                return;
++            }
++
++            for (SCROW nRow = nRow1; nRow <= nRow2; ++nRow)
++            {
++                if (nRow > nRow1)
++                    appendSeparator(/*bNewRow*/ true);
++                for (SCCOL nColumn = nColumn1; nColumn <= nColumn2; ++nColumn)
++                {
++                    if (nColumn > nColumn1)
++                        appendSeparator(/*bNewRow*/ false);
++
++                    ScAddress aAddress(nColumn, nRow, nTable1);
++                    ScRefCellValue aCell(mrDoc, aAddress);
++                    if (aCell.isEmpty())
++                    {
++                        // An empty cell adds no text of its own; only the
++                        // separators around it remain.
++                    }
++                    else if (aCell.hasError())
++                    {
++                        const FormulaError nError = aCell.getFormula()->GetErrCode();
++                        if (bScalarRef)
++                        {
++                            PushError(nError);
++                            return;
++                        }
++                        appendError(nError);
++                    }
++                    else if (aCell.hasNumeric())
++                    {
++                        // A formula result carries its own format type, a
++                        // value cell is formatted by its cell attribute.
++                        SvNumFormatType eCellFormat;
++                        if (aCell.getType() == CELLTYPE_FORMULA)
++                            eCellFormat = aCell.getFormula()->GetFormatType();
++                        else
++                            eCellFormat = mrContext.NFGetType(mrDoc.GetNumberFormat(mrContext, aAddress));
++                        if (eCellFormat == SvNumFormatType::LOGICAL)
++                            appendLogical(aCell.getValue());
++                        else
++                            appendNumber(aCell.getValue());
++                    }
++                    else
++                    {
++                        svl::SharedString aSharedString;
++                        GetCellString(aSharedString, aCell);
++                        appendText(aSharedString.getString());
++                    }
++                }
++            }
++            break;
++        }
++        default:
++        {
++            // A scalar behaves like a 1 by 1 array, and a scalar error
++            // becomes an error element inside that array, so it is written
++            // out as text like any other element.
++            ScMatrixRef pMatrix = GetMatrix();
++            if (!pMatrix)
++            {
++                PushIllegalParameter();
++                return;
++            }
++            if (nGlobalError != FormulaError::NONE)
++            {
++                PushError(nGlobalError);
++                return;
++            }
++
++            SCSIZE nColumns = 0;
++            SCSIZE nRows = 0;
++            pMatrix->GetDimensions(nColumns, nRows);
++
++            for (SCSIZE nRow = 0; nRow < nRows; ++nRow)
++            {
++                if (nRow > 0)
++                    appendSeparator(/*bNewRow*/ true);
++                for (SCSIZE nColumn = 0; nColumn < nColumns; ++nColumn)
++                {
++                    if (nColumn > 0)
++                        appendSeparator(/*bNewRow*/ false);
++
++                    const ScMatrixValue aValue = pMatrix->Get(nColumn, nRow);
++                    switch (aValue.nType)
++                    {
++                        case ScMatValType::String:
++                            appendText(aValue.aStr.getString());
++                            break;
++                        case ScMatValType::Boolean:
++                            appendLogical(aValue.fVal);
++                            break;
++                        case ScMatValType::Value:
++                        {
++                            const FormulaError nError = aValue.GetError();
++                            if (nError != FormulaError::NONE)
++                                appendError(nError);
++                            else
++                                appendNumber(aValue.fVal);
++                            break;
++                        }
++                        default:
++                            // An empty element adds no text of its own;
++                            // only the separators around it remain.
++                            break;
++                    }
++                }
++            }
++            break;
++        }
++    }
++
++    if (bStrict)
++        aResult.append('}');
++
++    PushString(aResult.makeStringAndClear());
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/core/tool/interpr_excelregex.cxx
+@@ -0,0 +1,258 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// REGEXTEST, REGEXEXTRACT and REGEXREPLACE of the leading spreadsheet
++// application, on the ICU regular expression engine that REGEX() uses.
++// case_sensitivity: 0 (default) case-sensitive, 1 case-insensitive.
++// An invalid pattern or option gives #VALUE!, no match in REGEXEXTRACT #N/A.
++
++#include <interpre.hxx>
++#include <scmatrix.hxx>
++
++#include <unicode/regex.h>
++
++#include <memory>
++#include <vector>
++
++using namespace formula;
++
++namespace
++{
++icu::UnicodeString lcl_Icu(const OUString& rStr)
++{
++    return icu::UnicodeString(false, reinterpret_cast<const UChar*>(rStr.getStr()), rStr.getLength());
++}
++
++OUString lcl_Ou(const icu::UnicodeString& rStr)
++{
++    return OUString(reinterpret_cast<const sal_Unicode*>(rStr.getBuffer()), rStr.length());
++}
++
++std::unique_ptr<icu::RegexMatcher> lcl_Matcher(const OUString& rPattern, bool bIgnoreCase,
++                                               const icu::UnicodeString& rText)
++{
++    UErrorCode status = U_ZERO_ERROR;
++    auto pMatcher = std::make_unique<icu::RegexMatcher>(
++        lcl_Icu(rPattern), bIgnoreCase ? UREGEX_CASE_INSENSITIVE : 0, status);
++    if (U_FAILURE(status))
++        return nullptr;
++    // Same guard against pathological patterns as REGEX().
++    pMatcher->setTimeLimit(23 * 1000, status);
++    pMatcher->reset(rText);
++    return U_SUCCESS(status) ? std::move(pMatcher) : nullptr;
++}
++}
++
++bool ScInterpreter::GetRegexCaseOption(sal_uInt8 nParamCount, sal_uInt8 nPos, bool& rIgnoreCase)
++{
++    rIgnoreCase = false;
++    if (nParamCount < nPos)
++        return true;
++    sal_Int32 n = GetInt32WithDefault(0);
++    if (nGlobalError != FormulaError::NONE)
++        return false;
++    if (n < 0 || n > 1)
++    {
++        SetError(FormulaError::NoValue);
++        return false;
++    }
++    rIgnoreCase = (n == 1);
++    return true;
++}
++
++void ScInterpreter::ScRegexTest()
++{
++    sal_uInt8 nParamCount = GetByte();
++    if (!MustHaveParamCount(nParamCount, 2, 3))
++        return;
++    bool bIgnoreCase;
++    if (!GetRegexCaseOption(nParamCount, 3, bIgnoreCase))
++    {
++        PushError(nGlobalError);
++        return;
++    }
++    OUString aPattern = GetString().getString();
++    OUString aText = GetString().getString();
++    if (nGlobalError != FormulaError::NONE)
++    {
++        PushError(nGlobalError);
++        return;
++    }
++    icu::UnicodeString aIcuText(lcl_Icu(aText));
++    auto pMatcher = lcl_Matcher(aPattern, bIgnoreCase, aIcuText);
++    if (!pMatcher)
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    UErrorCode status = U_ZERO_ERROR;
++    bool bFound = pMatcher->find(status);
++    if (U_FAILURE(status))
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    nFuncFmtType = SvNumFormatType::LOGICAL;
++    PushInt(bFound ? 1 : 0);
++}
++
++void ScInterpreter::ScRegexExtract()
++{
++    sal_uInt8 nParamCount = GetByte();
++    if (!MustHaveParamCount(nParamCount, 2, 4))
++        return;
++    bool bIgnoreCase;
++    if (!GetRegexCaseOption(nParamCount, 4, bIgnoreCase))
++    {
++        PushError(nGlobalError);
++        return;
++    }
++    // 0 first match (default), 1 all matches, 2 capture groups of the first match.
++    sal_Int32 nMode = (nParamCount >= 3) ? GetInt32WithDefault(0) : 0;
++    OUString aPattern = GetString().getString();
++    OUString aText = GetString().getString();
++    if (nGlobalError != FormulaError::NONE)
++    {
++        PushError(nGlobalError);
++        return;
++    }
++    if (nMode < 0 || nMode > 2)
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    icu::UnicodeString aIcuText(lcl_Icu(aText));
++    auto pMatcher = lcl_Matcher(aPattern, bIgnoreCase, aIcuText);
++    if (!pMatcher)
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    UErrorCode status = U_ZERO_ERROR;
++    std::vector<OUString> aParts;
++    while (pMatcher->find(status) && U_SUCCESS(status))
++    {
++        if (nMode == 2)
++        {
++            // Groups that took no part in the match give empty text; a
++            // pattern without groups gives the whole match.
++            sal_Int32 nGroups = pMatcher->groupCount();
++            if (nGroups == 0)
++                aParts.push_back(lcl_Ou(pMatcher->group(status)));
++            for (sal_Int32 i = 1; i <= nGroups && U_SUCCESS(status); ++i)
++                aParts.push_back(pMatcher->start(i, status) < 0 ? OUString()
++                                                                 : lcl_Ou(pMatcher->group(i, status)));
++            break;
++        }
++        aParts.push_back(lcl_Ou(pMatcher->group(status)));
++        if (nMode == 0)
++            break;
++        // An empty match must not loop forever; find() moves on by itself.
++    }
++    if (U_FAILURE(status))
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    if (aParts.empty())
++    {
++        PushError(FormulaError::NotAvailable);
++        return;
++    }
++    if (nMode == 0)
++    {
++        PushString(aParts[0]);
++        return;
++    }
++    // All matches and capture groups are returned as one row.
++    ScMatrixRef pRes = GetNewMat(aParts.size(), 1, /*bEmpty*/ true);
++    if (!pRes)
++    {
++        PushError(FormulaError::MatrixSize);
++        return;
++    }
++    for (size_t i = 0; i < aParts.size(); ++i)
++        pRes->PutString(mrStrPool.intern(aParts[i]), i, 0);
++    PushMatrix(pRes);
++}
++
++void ScInterpreter::ScRegexReplace()
++{
++    sal_uInt8 nParamCount = GetByte();
++    if (!MustHaveParamCount(nParamCount, 3, 5))
++        return;
++    bool bIgnoreCase;
++    if (!GetRegexCaseOption(nParamCount, 5, bIgnoreCase))
++    {
++        PushError(nGlobalError);
++        return;
++    }
++    // 0 replaces every match (default), n the n-th, -n the n-th from the end.
++    double fOccurrence = (nParamCount >= 4) ? GetDoubleWithDefault(0.0) : 0.0;
++    OUString aReplacement = GetString().getString();
++    OUString aPattern = GetString().getString();
++    OUString aText = GetString().getString();
++    if (nGlobalError != FormulaError::NONE)
++    {
++        PushError(nGlobalError);
++        return;
++    }
++    if (fOccurrence > SAL_MAX_INT32 || fOccurrence < SAL_MIN_INT32 + 1)
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    sal_Int32 nOccurrence = static_cast<sal_Int32>(fOccurrence);
++    icu::UnicodeString aIcuText(lcl_Icu(aText));
++    auto pMatcher = lcl_Matcher(aPattern, bIgnoreCase, aIcuText);
++    if (!pMatcher)
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    UErrorCode status = U_ZERO_ERROR;
++    icu::UnicodeString aIcuReplacement(lcl_Icu(aReplacement));
++    icu::UnicodeString aResult;
++    if (nOccurrence == 0)
++        aResult = pMatcher->replaceAll(aIcuReplacement, status);
++    else
++    {
++        if (nOccurrence < 0)
++        {
++            sal_Int32 nCount = 0;
++            while (pMatcher->find(status) && U_SUCCESS(status))
++                ++nCount;
++            nOccurrence = nCount + nOccurrence + 1;
++            pMatcher->reset();
++        }
++        sal_Int32 nCount = 0;
++        bool bReplaced = false;
++        while (nOccurrence > 0 && pMatcher->find(status) && U_SUCCESS(status))
++        {
++            if (++nCount == nOccurrence)
++            {
++                pMatcher->appendReplacement(aResult, aIcuReplacement, status);
++                bReplaced = true;
++                break;
++            }
++        }
++        if (bReplaced)
++            pMatcher->appendTail(aResult);
++        else
++            aResult = aIcuText;  // no such occurrence: text unchanged
++    }
++    if (U_FAILURE(status))
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    PushString(lcl_Ou(aResult));
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/core/tool/parclass.cxx
++++ b/sc/source/core/tool/parclass.cxx
+@@ -287,6 +287,12 @@ const ScParameterClassification::RawData ScParameterClassification::pRawData[] =
+     { ocWorkday_MS,      {{ Value, Value, Value, Reference                       }, 0, Value }},
+     { ocWrapCols,        {{ ReferenceOrRefArray, Value, Value,                   }, 0, ForceArrayReturn } },
+     { ocWrapRows,        {{ ReferenceOrRefArray, Value, Value,                   }, 0, ForceArrayReturn } },
++    { ocArrayToText,     {{ ReferenceOrRefArray, Value                           }, 0, Value }},
++    { ocValueToText,     {{ ReferenceOrRefArray, Value                           }, 0, Value }},
++    { ocPhonetic,        {{ Reference                                            }, 0, Value }},
++    { ocPercentOf,       {{ ReferenceOrRefArray, ReferenceOrRefArray             }, 0, Value }},
++    { ocRegexExtract,    {{ Value, Value, Value, Value                           }, 0, ForceArrayReturn }},
++    { ocTrimRange,       {{ ReferenceOrRefArray, Value, Value                    }, 0, Reference }},
+     { ocXLookup,         {{ Value, ReferenceOrForceArray, ReferenceOrForceArray, Value, Value, Value }, 0, Reference }},
+     { ocXMatch,          {{ Value, ReferenceOrForceArray, Value, Value           }, 0, Value }},
+     { ocXor,             {{ Reference                                            }, 1, Value }},
+--- a/sc/source/filter/excel/xlformula.cxx
++++ b/sc/source/filter/excel/xlformula.cxx
+@@ -367,12 +367,12 @@ const XclFunctionInfo saFuncTable_5[] =
+     { ocRoman,              354,    1,  2,  V, { VR }, 0, nullptr }
+ };
+ 
+-/** Functions new in BIFF8. Unsupported functions: PHONETIC. */
++/** Functions new in BIFF8. */
+ const XclFunctionInfo saFuncTable_8[] =
+ {
+     { ocGetPivotData,       358,    2,  MX, V, { RR, RR, VR }, 0, nullptr },
+     { ocHyperLink,          359,    1,  2,  V, { VV, VO }, 0, nullptr },
+-    { ocNoName,             360,    1,  1,  V, { RO }, EXC_FUNCFLAG_IMPORTONLY, nullptr },    // PHONETIC
++    { ocPhonetic,           360,    1,  1,  V, { RO }, 0, nullptr },
+     { ocAverageA,           361,    1,  MX, V, { RX }, 0, nullptr },
+     { ocMaxA,               362,    1,  MX, V, { RX }, 0, nullptr },
+     { ocMinA,               363,    1,  MX, V, { RX }, 0, nullptr },
+@@ -637,6 +637,14 @@ const XclFunctionInfo saFuncTable_2024[] =
+     EXC_FUNCENTRY_V_VR(  ocToRow,      1,  3,  0,  "TOROW" ),
+     EXC_FUNCENTRY_V_VR(  ocWrapCols,   2,  3,  0,  "WRAPCOLS"),
+     EXC_FUNCENTRY_V_VR(  ocWrapRows,   2,  3,  0,  "WRAPROWS"),
++    EXC_FUNCENTRY_V_VR(  ocArrayToText,  1,  2,  0,  "ARRAYTOTEXT" ),
++    EXC_FUNCENTRY_V_VR(  ocValueToText,  1,  2,  0,  "VALUETOTEXT" ),
++    EXC_FUNCENTRY_V_VR(  ocDbcs,         1,  1,  0,  "DBCS" ),
++    EXC_FUNCENTRY_V_RO(  ocPercentOf,    2,  2,  0,  "PERCENTOF" ),
++    EXC_FUNCENTRY_V_VR(  ocRegexTest,    2,  3,  0,  "REGEXTEST" ),
++    EXC_FUNCENTRY_A_VR(  ocRegexExtract, 2,  4,  0,  "REGEXEXTRACT" ),
++    EXC_FUNCENTRY_V_VR(  ocRegexReplace, 3,  5,  0,  "REGEXREPLACE" ),
++    EXC_FUNCENTRY_V_RO(  ocTrimRange,    1,  3,  0,  "TRIMRANGE" ),
+ };
+ 
+ #define EXC_FUNCENTRY_ODF( opcode, minparam, maxparam, flags, asciiname ) \
+--- a/sc/source/filter/oox/formulabase.cxx
++++ b/sc/source/filter/oox/formulabase.cxx
+@@ -644,7 +644,7 @@ const FunctionData saFuncTableBiff8[] =
+ {
+     { "GETPIVOTDATA",           "GETPIVOTDATA",         358,    358,    2,  MX, V, { RR, RR, VR, VR }, FuncFlags::IMPORTONLY | FuncFlags::PARAMPAIRS },
+     { "HYPERLINK",              "HYPERLINK",            359,    359,    1,  2,  V, { VV, VO }, FuncFlags::NONE },
+-    { nullptr,                        "PHONETIC",             360,    360,    1,  1,  V, { RO }, FuncFlags::IMPORTONLY },
++    { "COM.MICROSOFT.PHONETIC",       "PHONETIC",             360,    360,    1,  1,  V, { RO }, FuncFlags::NONE },
+     { "AVERAGEA",               "AVERAGEA",             361,    361,    1,  MX, V, { RX }, FuncFlags::NONE },
+     { "MAXA",                   "MAXA",                 362,    362,    1,  MX, V, { RX }, FuncFlags::NONE },
+     { "MINA",                   "MINA",                 363,    363,    1,  MX, V, { RX }, FuncFlags::NONE },
+@@ -909,6 +909,14 @@ const FunctionData saFuncTable2024[] =
+     { "COM.MICROSOFT.TOROW",               "TOROW",               NOID,   NOID,   1,  3,  A, { VO }, FuncFlags::MACROCALL_NEW },
+     { "COM.MICROSOFT.WRAPCOLS",            "WRAPCOLS",            NOID,   NOID,   2,  3,  A, { VO }, FuncFlags::MACROCALL_NEW },
+     { "COM.MICROSOFT.WRAPROWS",            "WRAPROWS",            NOID,   NOID,   2,  3,  A, { VO }, FuncFlags::MACROCALL_NEW },
++    { "COM.MICROSOFT.ARRAYTOTEXT",         "ARRAYTOTEXT",         NOID,   NOID,   1,  2,  V, { RO, VR }, FuncFlags::MACROCALL_NEW },
++    { "COM.MICROSOFT.VALUETOTEXT",         "VALUETOTEXT",         NOID,   NOID,   1,  2,  V, { RO, VR }, FuncFlags::MACROCALL_NEW },
++    { "COM.MICROSOFT.DBCS",                "DBCS",                NOID,   NOID,   1,  1,  V, { VR }, FuncFlags::MACROCALL_NEW },
++    { "COM.MICROSOFT.PERCENTOF",           "PERCENTOF",           NOID,   NOID,   2,  2,  V, { RO }, FuncFlags::MACROCALL_NEW },
++    { "COM.MICROSOFT.REGEXTEST",           "REGEXTEST",           NOID,   NOID,   2,  3,  V, { VR }, FuncFlags::MACROCALL_NEW },
++    { "COM.MICROSOFT.REGEXEXTRACT",        "REGEXEXTRACT",        NOID,   NOID,   2,  4,  A, { VR }, FuncFlags::MACROCALL_NEW },
++    { "COM.MICROSOFT.REGEXREPLACE",        "REGEXREPLACE",        NOID,   NOID,   3,  5,  V, { VR }, FuncFlags::MACROCALL_NEW },
++    { "COM.MICROSOFT.TRIMRANGE",           "TRIMRANGE",           NOID,   NOID,   1,  3,  R, { RO, VR }, FuncFlags::MACROCALL_NEW },
+ };
+ 
+ 
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -18299,6 +18299,281 @@
+ msgid "The value with which to pad. The default is #N/A."
+ msgstr ""
+ 
++#: sc/inc/scfuncs.hrc
++msgctxt "ocARRAYTOTEXT"
++msgid "Returns the values of a range or array as one text string."
++msgstr "Trả về các giá trị của một vùng hoặc mảng dưới dạng một chuỗi văn bản."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocARRAYTOTEXT"
++msgid "Array"
++msgstr "Mảng"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocARRAYTOTEXT"
++msgid "The range or array to return as text."
++msgstr "Vùng hoặc mảng cần trả về dưới dạng văn bản."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocARRAYTOTEXT"
++msgid "Format"
++msgstr "Định dạng"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocARRAYTOTEXT"
++msgid "The format of the returned text. 0 or omitted - concise format, the values separated by commas (default). 1 - strict format, an array constant in braces with quoted text, comma column separators and semicolon row separators."
++msgstr "Định dạng của văn bản trả về. 0 hoặc bỏ trống - dạng ngắn gọn, các giá trị cách nhau bằng dấu phân cách đối số (mặc định). 1 - dạng chặt chẽ, một hằng mảng trong dấu ngoặc nhọn, văn bản đặt trong dấu nháy kép."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocVALUETOTEXT"
++msgid "Returns text from any value: text stays as it is, numbers, logical values and errors become their text."
++msgstr "Trả về văn bản từ một giá trị bất kỳ: văn bản giữ nguyên, số, giá trị lô-gic và lỗi được chuyển thành văn bản."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocVALUETOTEXT"
++msgid "Value"
++msgstr "Giá trị"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocVALUETOTEXT"
++msgid "The value to return as text."
++msgstr "Giá trị cần trả về dưới dạng văn bản."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocVALUETOTEXT"
++msgid "Format"
++msgstr "Định dạng"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocVALUETOTEXT"
++msgid "0 or omitted - concise format, as the cell shows it with the general format (default). 1 - strict format, text is enclosed in quotes."
++msgstr "0 hoặc bỏ trống - dạng ngắn gọn, như ô hiển thị với định dạng chung (mặc định). 1 - dạng chặt chẽ, văn bản được đặt trong dấu nháy kép."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocDBCS"
++msgid "Converts half-width (single-byte) letters and katakana within a text to full-width (double-byte) characters."
++msgstr "Chuyển các chữ cái và chữ katakana nửa độ rộng (một byte) trong văn bản thành ký tự toàn độ rộng (hai byte)."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocDBCS"
++msgid "Text"
++msgstr "Văn bản"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocDBCS"
++msgid "The text or a reference to a cell that contains the text to convert."
++msgstr "Văn bản hoặc tham chiếu tới ô chứa văn bản cần chuyển đổi."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPHONETIC"
++msgid "Returns the phonetic guide (furigana) text of a cell. When the cell has no phonetic guide, its text is returned."
++msgstr "Trả về văn bản hướng dẫn phát âm (furigana) của một ô. Nếu ô không có hướng dẫn phát âm thì trả về chính văn bản của ô."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPHONETIC"
++msgid "Reference"
++msgstr "Tham chiếu"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPHONETIC"
++msgid "The cell that contains the text. For a range, its upper-left cell is used."
++msgstr "Ô chứa văn bản. Với một vùng, ô ở góc trên bên trái được dùng."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPERCENTOF"
++msgid "Returns the sum of a subset of values divided by the sum of all the values."
++msgstr "Trả về tổng của một tập con các giá trị chia cho tổng của tất cả các giá trị."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPERCENTOF"
++msgid "Data subset"
++msgstr "Tập con dữ liệu"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPERCENTOF"
++msgid "The values that are part of the whole."
++msgstr "Các giá trị thuộc một phần của tổng thể."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPERCENTOF"
++msgid "Data all"
++msgstr "Toàn bộ dữ liệu"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPERCENTOF"
++msgid "All the values; their sum is the whole."
++msgstr "Tất cả các giá trị; tổng của chúng là tổng thể."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXTEST"
++msgid "Checks whether any part of a text matches a regular expression. Returns TRUE or FALSE."
++msgstr "Kiểm tra xem có phần nào của văn bản khớp với biểu thức chính quy hay không. Trả về TRUE hoặc FALSE."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXTEST"
++msgid "Text"
++msgstr "Văn bản"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXTEST"
++msgid "The text or a reference to a cell that contains the text to check."
++msgstr "Văn bản hoặc tham chiếu tới ô chứa văn bản cần kiểm tra."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXTEST"
++msgid "Pattern"
++msgstr "Mẫu"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXTEST"
++msgid "The regular expression that describes the text to find."
++msgstr "Biểu thức chính quy mô tả văn bản cần tìm."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXTEST"
++msgid "Case sensitivity"
++msgstr "Phân biệt chữ hoa"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXTEST"
++msgid "0 or omitted - case-sensitive. 1 - case-insensitive."
++msgstr "0 hoặc bỏ trống - phân biệt chữ hoa, chữ thường. 1 - không phân biệt."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXEXTRACT"
++msgid "Extracts the parts of a text that match a regular expression."
++msgstr "Trích xuất các phần của văn bản khớp với biểu thức chính quy."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXEXTRACT"
++msgid "Text"
++msgstr "Văn bản"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXEXTRACT"
++msgid "The text or a reference to a cell that contains the text to extract from."
++msgstr "Văn bản hoặc tham chiếu tới ô chứa văn bản cần trích xuất."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXEXTRACT"
++msgid "Pattern"
++msgstr "Mẫu"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXEXTRACT"
++msgid "The regular expression that describes the text to extract."
++msgstr "Biểu thức chính quy mô tả văn bản cần trích xuất."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXEXTRACT"
++msgid "Return mode"
++msgstr "Chế độ trả về"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXEXTRACT"
++msgid "0 or omitted - the first match. 1 - all matches as an array. 2 - the capturing groups of the first match as an array."
++msgstr "0 hoặc bỏ trống - kết quả khớp đầu tiên. 1 - tất cả kết quả khớp dưới dạng mảng. 2 - các nhóm bắt của kết quả khớp đầu tiên dưới dạng mảng."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXEXTRACT"
++msgid "Case sensitivity"
++msgstr "Phân biệt chữ hoa"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXEXTRACT"
++msgid "0 or omitted - case-sensitive. 1 - case-insensitive."
++msgstr "0 hoặc bỏ trống - phân biệt chữ hoa, chữ thường. 1 - không phân biệt."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXREPLACE"
++msgid "Replaces the parts of a text that match a regular expression."
++msgstr "Thay thế các phần của văn bản khớp với biểu thức chính quy."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXREPLACE"
++msgid "Text"
++msgstr "Văn bản"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXREPLACE"
++msgid "The text or a reference to a cell that contains the text to change."
++msgstr "Văn bản hoặc tham chiếu tới ô chứa văn bản cần thay đổi."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXREPLACE"
++msgid "Pattern"
++msgstr "Mẫu"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXREPLACE"
++msgid "The regular expression that describes the text to replace."
++msgstr "Biểu thức chính quy mô tả văn bản cần thay thế."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXREPLACE"
++msgid "Replacement"
++msgstr "Thay bằng"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXREPLACE"
++msgid "The replacement text. $1, $2... insert the capturing groups."
++msgstr "Văn bản thay thế. $1, $2... chèn các nhóm bắt."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXREPLACE"
++msgid "Occurrence"
++msgstr "Lần xuất hiện"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXREPLACE"
++msgid "0 or omitted - replace every match. A positive number replaces that match, a negative number counts from the end."
++msgstr "0 hoặc bỏ trống - thay mọi kết quả khớp. Số dương thay kết quả khớp thứ đó, số âm đếm từ cuối."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXREPLACE"
++msgid "Case sensitivity"
++msgstr "Phân biệt chữ hoa"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocREGEXREPLACE"
++msgid "0 or omitted - case-sensitive. 1 - case-insensitive."
++msgstr "0 hoặc bỏ trống - phân biệt chữ hoa, chữ thường. 1 - không phân biệt."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocTRIMRANGE"
++msgid "Removes the blank rows and columns at the edges of a range or array."
++msgstr "Loại bỏ các hàng và cột trống ở mép của một vùng hoặc mảng."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocTRIMRANGE"
++msgid "Range"
++msgstr "Vùng"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocTRIMRANGE"
++msgid "The range or array to trim."
++msgstr "Vùng hoặc mảng cần cắt bớt."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocTRIMRANGE"
++msgid "Trim rows"
++msgstr "Cắt hàng"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocTRIMRANGE"
++msgid "0 - none. 1 - leading blank rows. 2 - trailing blank rows. 3 or omitted - both."
++msgstr "0 - không cắt. 1 - các hàng trống ở đầu. 2 - các hàng trống ở cuối. 3 hoặc bỏ trống - cả hai."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocTRIMRANGE"
++msgid "Trim columns"
++msgstr "Cắt cột"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocTRIMRANGE"
++msgid "0 - none. 1 - leading blank columns. 2 - trailing blank columns. 3 or omitted - both."
++msgstr "0 - không cắt. 1 - các cột trống ở đầu. 2 - các cột trống ở cuối. 3 hoặc bỏ trống - cả hai."
++
+ #. pDDme
+ #: sc/inc/scstyles.hrc:29
+ #, fuzzy
