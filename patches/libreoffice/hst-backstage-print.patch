@@ -20,8 +20,9 @@ document on the right with page navigation and zoom (10–400 % of the real size
   Cancel()/destruction (Printer::CancelPrintJob: abortJob + FinishPrintJob, as the dialog's Cancel). Jobs without
   dialogs (API, direct), printers with their own dialog (macOS) and mail merge (PreparePrintJob without the
   hand-over flag) are unchanged.
-- sfx2: the File panel is the host (InstallFileTabHandler registers it). A job of a Writer, Calc, Impress or Draw
-  frame opens the panel on its Print page (BackstagePrintPage, hstbackstageprint.cxx); showing the page from its
+- sfx2: the File panel is the host (InstallFileTabHandler registers it). The job's frame is the one whose view
+  shell owns the job (SfxViewShell::GetPrinterController; with document tabs several frames share a window). A job
+  of a Writer, Calc, Impress or Draw frame opens the panel on its Print page (BackstagePrintPage, hstbackstageprint.cxx); showing the page from its
   left-column item runs .uno:Print so the job comes back the same way. Leaving the page or closing the panel cancels
   the job; Ctrl+P inside the panel shows the page. The earlier "Print…" and "Print Preview" buttons of the page are
   hidden; "In hai mặt" (Writer) stays. The panel's size and place are BackstageWindow::GetPlacement's.
@@ -148,7 +149,7 @@ index f8dcaaa..1faa7c1 100644
      static void                 FinishPrintJob( const std::shared_ptr<vcl::PrinterController>& i_pController );
  
 diff --git a/sfx2/Library_sfx.mk b/sfx2/Library_sfx.mk
-index a9bdc18..640f941 100644
+index da0c664..7d52563 100644
 --- a/sfx2/Library_sfx.mk
 +++ b/sfx2/Library_sfx.mk
 @@ -87,6 +87,7 @@ $(eval $(call gb_Library_add_exception_objects,sfx,\
@@ -174,10 +175,18 @@ index b32ae95..510b5af 100644
  
  /// Dispatch object for .uno:HSTBackstage on this frame (see SfxBaseController::queryDispatch).
 diff --git a/sfx2/source/backstage/hstbackstage.cxx b/sfx2/source/backstage/hstbackstage.cxx
-index 2b22a00..850aa4c 100644
+index 2b22a00..f90d826 100644
 --- a/sfx2/source/backstage/hstbackstage.cxx
 +++ b/sfx2/source/backstage/hstbackstage.cxx
-@@ -19,11 +19,13 @@
+@@ -11,6 +11,7 @@
+ #include "hstbackstagewindow.hxx"
+ 
+ #include <sfx2/viewfrm.hxx>
++#include <sfx2/viewsh.hxx>
+ 
+ #include <algorithm>
+ #include <memory>
+@@ -19,11 +20,13 @@
  #include <com/sun/star/frame/FeatureStateEvent.hpp>
  #include <com/sun/star/frame/XStatusListener.hpp>
  #include <com/sun/star/lang/XEventListener.hpp>
@@ -191,7 +200,7 @@ index 2b22a00..850aa4c 100644
  #include <vcl/svapp.hxx>
  #include <vcl/syswin.hxx>
  #include <vcl/tabctrl.hxx>
-@@ -188,30 +190,60 @@ public:
+@@ -188,30 +191,64 @@ public:
  };
  }
  
@@ -240,15 +249,19 @@ index 2b22a00..850aa4c 100644
 +bool lcl_takePrintJob(const std::shared_ptr<vcl::PrinterController>& rxController,
 +                      weld::Window* pDocumentWindow)
 +{
-+    if (comphelper::LibreOfficeKit::isActive())
++    if (comphelper::LibreOfficeKit::isActive() || !rxController)
 +        return false;
++    // the frame whose view started the job (with document tabs several frames share one window)
 +    for (SfxViewFrame* pFrame = SfxViewFrame::GetFirst(); pFrame;
 +         pFrame = SfxViewFrame::GetNext(*pFrame))
 +    {
++        SfxViewShell* pShell = pFrame->GetViewShell();
++        if (!pShell || pShell->GetPrinterController() != rxController)
++            continue;
 +        uno::Reference<frame::XFrame> xFrame = pFrame->GetFrame().GetFrameInterface();
 +        vcl::Window* pContainer = lcl_containerWindow(xFrame);
 +        if (!pContainer || pContainer->GetFrameWeld() != pDocumentWindow)
-+            continue;
++            return false; // not shown in its own window (an embedded or hidden view)
 +        BackstageWindow* pBackstage = lcl_ensureBackstage(xFrame);
 +        return pBackstage && pBackstage->ShowPrintJob(rxController);
 +    }
@@ -268,7 +281,7 @@ index 2b22a00..850aa4c 100644
  }
  
  void InstallFileTabHandler()
-@@ -221,6 +253,7 @@ void InstallFileTabHandler()
+@@ -221,6 +258,7 @@ void InstallFileTabHandler()
          return;
      bInstalled = true;
      Application::AddEventListener(LINK_NONMEMBER(nullptr, lcl_tabEvent));
@@ -736,10 +749,10 @@ index d048a25..b854656 100644
  }
  
 diff --git a/sfx2/uiconfig/ui/hstbackstage.ui b/sfx2/uiconfig/ui/hstbackstage.ui
-index 4cafbd3..26c685b 100644
+index ce00fcf..6aa1e6e 100644
 --- a/sfx2/uiconfig/ui/hstbackstage.ui
 +++ b/sfx2/uiconfig/ui/hstbackstage.ui
-@@ -1674,6 +1674,36 @@
+@@ -1673,6 +1673,36 @@
                  <property name="fill">True</property>
                </packing>
              </child>
@@ -776,7 +789,7 @@ index 4cafbd3..26c685b 100644
              <child>
                <object class="GtkGrid" id="pageprintgrid">
                  <property name="visible">True</property>
-@@ -1683,7 +1713,8 @@
+@@ -1682,7 +1712,8 @@
                  <child>
                    <object class="GtkButton" id="printprint">
                      <property name="label" translatable="yes" context="hstbackstage|printprint">Print…</property>
@@ -786,7 +799,7 @@ index 4cafbd3..26c685b 100644
                      <property name="can-focus">True</property>
                      <property name="receives-default">False</property>
                    </object>
-@@ -1695,7 +1726,8 @@
+@@ -1694,7 +1725,8 @@
                  <child>
                    <object class="GtkLabel" id="printprintnote">
                      <property name="label" translatable="yes" context="hstbackstage|printprintnote">Choose the printer, the pages and the number of copies (Ctrl+P).</property>
@@ -796,7 +809,7 @@ index 4cafbd3..26c685b 100644
                      <property name="can-focus">False</property>
                      <property name="xalign">0</property>
                      <property name="wrap">True</property>
-@@ -1709,7 +1741,8 @@
+@@ -1708,7 +1740,8 @@
                  <child>
                    <object class="GtkButton" id="printpreview">
                      <property name="label" translatable="yes" context="hstbackstage|printpreview">Print Preview</property>
@@ -806,7 +819,7 @@ index 4cafbd3..26c685b 100644
                      <property name="can-focus">True</property>
                      <property name="receives-default">False</property>
                    </object>
-@@ -1721,7 +1754,8 @@
+@@ -1720,7 +1753,8 @@
                  <child>
                    <object class="GtkLabel" id="printpreviewnote">
                      <property name="label" translatable="yes" context="hstbackstage|printpreviewnote">See the pages as they will be printed.</property>
@@ -817,10 +830,10 @@ index 4cafbd3..26c685b 100644
                      <property name="xalign">0</property>
                      <property name="wrap">True</property>
 diff --git a/translations/source/vi/sfx2/messages.po b/translations/source/vi/sfx2/messages.po
-index c759bcb..0db3377 100644
+index 8e16cb8..6b9bf8d 100644
 --- a/translations/source/vi/sfx2/messages.po
 +++ b/translations/source/vi/sfx2/messages.po
-@@ -6585,3 +6585,9 @@ msgstr "Không thấy lệnh? Gõ tên lệnh ở đây, không cần dấu."
+@@ -6597,3 +6597,9 @@ msgstr "Không thấy lệnh? Gõ tên lệnh ở đây, không cần dấu."
  msgctxt "versionsofdialog|extended_tip|VersionsOfDialog"
  msgid "Saves and organizes multiple versions of the current document in the same file. You can also open, delete and compare previous versions."
  msgstr ""
@@ -979,7 +992,7 @@ index 0000000..6dae7d2
 +
 +# vim: set noet sw=4 ts=4:
 diff --git a/vcl/Library_vcl.mk b/vcl/Library_vcl.mk
-index 2b462eb..23ab957 100644
+index 7064488..6fef222 100644
 --- a/vcl/Library_vcl.mk
 +++ b/vcl/Library_vcl.mk
 @@ -215,6 +215,7 @@ $(eval $(call gb_Library_add_exception_objects,vcl,\
@@ -1015,7 +1028,7 @@ index d849754..5cc2348 100644
  	vcl/uiconfig/ui/printerpaperpage \
  	vcl/uiconfig/ui/printerpropertiesdialog \
 diff --git a/vcl/inc/printdlg.hxx b/vcl/inc/printdlg.hxx
-index 121a773..a8ecefe 100644
+index 121a773..426e841 100644
 --- a/vcl/inc/printdlg.hxx
 +++ b/vcl/inc/printdlg.hxx
 @@ -26,6 +26,8 @@
@@ -1069,7 +1082,7 @@ index 121a773..a8ecefe 100644
              void setPreview( const GDIMetaFile&, const Size& i_rPaperSize,
                               std::u16string_view i_rPaperName,
                               const OUString& i_rNoPageString,
-@@ -104,8 +118,21 @@ namespace vcl
+@@ -104,8 +118,23 @@ namespace vcl
          };
  
          PrintDialog(weld::Window*, std::shared_ptr<PrinterController> );
@@ -1087,11 +1100,13 @@ index 121a773..a8ecefe 100644
 +        /// Show the choices of rOther that the controller does not keep itself (copies,
 +        /// collate, paper sides, orientation, paper size, pages per sheet) and apply them.
 +        void takeSettings(const PrintDialog& rOther);
++        /// Panel: show the zoom of the preview (also when the fitted page changed size).
++        void updateZoomText();
 +
          bool isPrintToFile() const;
          bool isCollate() const;
          bool isSingleJobs() const;
-@@ -119,6 +146,13 @@ namespace vcl
+@@ -119,6 +148,13 @@ namespace vcl
  
      private:
  
@@ -1105,7 +1120,7 @@ index 121a773..a8ecefe 100644
          std::unique_ptr<weld::Builder>          mxCustomOptionsUIBuilder;
  
          std::shared_ptr<PrinterController>      maPController;
-@@ -182,6 +216,20 @@ namespace vcl
+@@ -182,6 +218,19 @@ namespace vcl
          std::unique_ptr<weld::Expander>         mxRangeExpander;
          std::unique_ptr<weld::Expander>         mxLayoutExpander;
          std::unique_ptr<weld::Widget>           mxCustom;
@@ -1119,20 +1134,18 @@ index 121a773..a8ecefe 100644
 +        std::unique_ptr<weld::Button>           mxZoomFitBtn;
 +        std::unique_ptr<weld::Label>            mxZoomText;
 +        int                                     mnZoom = 0; // 0: the page fits the preview
-+        Size                                    maPreviewArea; // of mxPreviewScroll
 +        Link<PrintDialog&, void>                maPanelPrintHdl;
 +        Link<PrintDialog&, void>                maPanelMoreOptionsHdl;
 +        Link<PrintDialog&, void>                maPanelPageSetupHdl;
  
          OUString                                maPrintToFileText;
          OUString                                maPrintText;
-@@ -222,6 +270,10 @@ namespace vcl
+@@ -222,6 +271,9 @@ namespace vcl
  
          Idle maUpdatePreviewIdle;
          DECL_LINK(updatePreviewIdle, Timer*, void);
 +        DECL_LINK(ClickPanelHdl, weld::Button&, void);
 +        DECL_LINK(ZoomScaleHdl, weld::Scale&, void);
-+        DECL_LINK(PreviewScrollSizeHdl, const Size&, void);
 +        void setZoom(int nPercent);
  
          DECL_LINK(ClickOKCancelHdl, weld::Button&, void);
@@ -1187,10 +1200,10 @@ index 0000000..d08b6a1
 +</interface>
 diff --git a/vcl/qa/cppunit/hstprintjobpanel.cxx b/vcl/qa/cppunit/hstprintjobpanel.cxx
 new file mode 100644
-index 0000000..82a2667
+index 0000000..96e7545
 --- /dev/null
 +++ b/vcl/qa/cppunit/hstprintjobpanel.cxx
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,168 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of HST Office, based on LibreOffice.
@@ -1232,6 +1245,8 @@ index 0000000..82a2667
 +        return { comphelper::makePropertyValue(u"PageSize"_ustr, css::awt::Size(21000, 29700)) };
 +    }
 +    void printPage(int) const override {}
++    // both: the base's are not exported, the vtable of this class must not need them
++    void jobStarted() override {}
 +    void jobFinished(css::view::PrintableState eState) override
 +    {
 +        ++mnFinished;
@@ -1644,7 +1659,7 @@ index 0000000..e28f3f4
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/vcl/source/window/printdlg.cxx b/vcl/source/window/printdlg.cxx
-index a1062e8..846b960 100644
+index a1062e8..97473fb 100644
 --- a/vcl/source/window/printdlg.cxx
 +++ b/vcl/source/window/printdlg.cxx
 @@ -26,6 +26,7 @@
@@ -1676,7 +1691,17 @@ index a1062e8..846b960 100644
  {
  }
  
-@@ -193,8 +201,34 @@ void PrintDialog::PrintPreviewWindow::Paint(vcl::RenderContext& rRenderContext,
+@@ -120,6 +128,9 @@ void PrintDialog::PrintPreviewWindow::Resize()
+ 
+     // check and evtl. recreate preview bitmap
+     preparePreviewBitmap();
++
++    if (mpDialog->isPanel()) // the zoom shown for the fitted page follows the area
++        mpDialog->updateZoomText();
+ }
+ 
+ void PrintDialog::PrintPreviewWindow::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle&)
+@@ -193,8 +204,34 @@ void PrintDialog::PrintPreviewWindow::Paint(vcl::RenderContext& rRenderContext,
      aDecorationView.DrawFrame(aFrameRect, DrawFrameStyle::Group);
  }
  
@@ -1711,7 +1736,7 @@ index a1062e8..846b960 100644
      if( rEvt.GetCommand() == CommandEventId::Wheel )
      {
          const CommandWheelData* pWheelData = rEvt.GetWheelData();
-@@ -269,7 +303,7 @@ void PrintDialog::PrintPreviewWindow::preparePreviewBitmap()
+@@ -269,7 +306,7 @@ void PrintDialog::PrintPreviewWindow::preparePreviewBitmap()
      // define an allowed number of pixels, also see
      // defaults for primitive renderers and similar. This
      // might be centralized and made dependent of 32/64bit
@@ -1720,7 +1745,7 @@ index a1062e8..846b960 100644
  
      // check how big (squarePixels) the preview is currently (with
      // max value of MaxSquarePixels)
-@@ -525,7 +559,24 @@ Size const & PrintDialog::getJobPageSize()
+@@ -525,7 +562,24 @@ Size const & PrintDialog::getJobPageSize()
  }
  
  PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterController> i_xController)
@@ -1746,7 +1771,7 @@ index a1062e8..846b960 100644
      , maPController(std::move( i_xController ))
      , mxTabCtrl(m_xBuilder->weld_notebook(u"tabcontrol"_ustr))
      , mxScrolledWindow(m_xBuilder->weld_scrolled_window(u"scrolledwindow"_ustr))
-@@ -576,6 +627,15 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
+@@ -576,6 +630,15 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
      , mxRangeExpander(m_xBuilder->weld_expander(u"exRangeExpander"_ustr))
      , mxLayoutExpander(m_xBuilder->weld_expander(u"exLayoutExpander"_ustr))
      , mxCustom(m_xBuilder->weld_widget(u"customcontents"_ustr))
@@ -1762,7 +1787,7 @@ index a1062e8..846b960 100644
      , maPrintToFileText( VclResId( SV_PRINT_TOFILE_TXT ) )
      , maDefPrtText( VclResId( SV_PRINT_DEFPRT_TXT ) )
      , maNoPageStr( VclResId( SV_PRINT_NOPAGES ) )
-@@ -712,6 +772,22 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
+@@ -712,6 +775,22 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
      mxLayoutExpander->set_expanded(
          officecfg::Office::Common::Print::Dialog::LayoutSectionExpanded::get());
  
@@ -1778,14 +1803,14 @@ index a1062e8..846b960 100644
 +            pButton->connect_clicked(LINK(this, PrintDialog, ClickPanelHdl));
 +        mxZoomScale->set_range(PANEL_ZOOM_MIN, PANEL_ZOOM_MAX);
 +        mxZoomScale->connect_value_changed(LINK(this, PrintDialog, ZoomScaleHdl));
-+        mxPreviewScroll->connect_size_allocate(LINK(this, PrintDialog, PreviewScrollSizeHdl));
++        setZoom(0);
 +        return;
 +    }
 +
      // lock the dialog height, regardless of later expander state
      mxScrolledWindow->set_size_request(
          mxScrolledWindow->get_preferred_size().Width() + mxScrolledWindow->get_scroll_thickness(),
-@@ -720,8 +796,113 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
+@@ -720,8 +799,104 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
      m_xDialog->set_centered_on_parent(true);
  }
  
@@ -1860,34 +1885,25 @@ index a1062e8..846b960 100644
 +    setZoom(mxZoomScale->get_value());
 +}
 +
-+IMPL_LINK(PrintDialog, PreviewScrollSizeHdl, const Size&, rSize, void)
-+{
-+    if (maPreviewArea == rSize)
-+        return;
-+    maPreviewArea = rSize;
-+    if (mnZoom == 0) // the fitted page follows the size of the area
-+        setZoom(0);
-+}
-+
 +void PrintDialog::setZoom(int nPercent)
 +{
-+    // 0: the whole page fits the preview area; otherwise the page at nPercent of its real size,
-+    // scrolled in the area
++    // 0: the whole page fits the preview area (no scroll bars, the drawing area fills it);
++    // otherwise the page at nPercent of its real size, scrolled in the area
 +    mnZoom = nPercent;
 +    mxPreview->setZoomed(nPercent > 0);
-+    if (nPercent > 0)
-+    {
-+        const Size aSize(mxPreview->getZoomedSize(nPercent));
-+        mxPreviewWindow->set_size_request(aSize.Width(), aSize.Height());
-+    }
-+    else
-+    {
-+        // the size of the visible area: no scroll bars
-+        const Size aArea(maPreviewArea);
-+        mxPreviewWindow->set_size_request(std::max<tools::Long>(1, aArea.Width() - 4),
-+                                          std::max<tools::Long>(1, aArea.Height() - 4));
-+    }
-+    const int nShown = nPercent > 0 ? nPercent : mxPreview->getFitPercent();
++    const VclPolicyType ePolicy = nPercent > 0 ? VclPolicyType::AUTOMATIC : VclPolicyType::NEVER;
++    mxPreviewScroll->set_hpolicy(ePolicy);
++    mxPreviewScroll->set_vpolicy(ePolicy);
++    const Size aSize(nPercent > 0 ? mxPreview->getZoomedSize(nPercent) : Size(-1, -1));
++    mxPreviewWindow->set_size_request(aSize.Width(), aSize.Height());
++    updateZoomText();
++}
++
++void PrintDialog::updateZoomText()
++{
++    if (!mxZoomText || !mxZoomScale)
++        return;
++    const int nShown = mnZoom > 0 ? mnZoom : mxPreview->getFitPercent();
 +    mxZoomScale->set_value(nShown);
 +    mxZoomText->set_label(OUString::number(nShown) + "%");
 +}
@@ -1899,7 +1915,7 @@ index a1062e8..846b960 100644
      std::shared_ptr<comphelper::ConfigurationChanges> batch(comphelper::ConfigurationChanges::create());
      officecfg::Office::Common::Print::Dialog::RangeSectionExpanded::set(mxRangeExpander->get_expanded(), batch);
      officecfg::Office::Common::Print::Dialog::LayoutSectionExpanded::set(mxLayoutExpander->get_expanded(), batch);
-@@ -760,7 +941,8 @@ void PrintDialog::storeToSettings()
+@@ -760,7 +935,8 @@ void PrintDialog::storeToSettings()
      officecfg::VCL::VCLSettings::PrintDialog::LastPage::set(
                       mxTabCtrl->get_tab_label_text(mxTabCtrl->get_current_page_ident()), batch);
  
@@ -1909,7 +1925,7 @@ index a1062e8..846b960 100644
                       m_xDialog->get_window_state(vcl::WindowDataMask::All), batch );
  
      officecfg::VCL::VCLSettings::PrintDialog::Collate::set( mxCollateBox->get_active(), batch );
-@@ -768,7 +950,8 @@ void PrintDialog::storeToSettings()
+@@ -768,7 +944,8 @@ void PrintDialog::storeToSettings()
      officecfg::VCL::VCLSettings::PrintDialog::CollateSingleJobs::set(
                       mxSingleJobsBox->get_active(), batch );
  
@@ -1919,7 +1935,7 @@ index a1062e8..846b960 100644
  
      batch->commit();
  }
-@@ -790,7 +973,7 @@ void PrintDialog::readFromSettings()
+@@ -790,7 +967,7 @@ void PrintDialog::readFromSettings()
  
      // persistent window state
      aValue = officecfg::VCL::VCLSettings::PrintDialog::WindowState::get();
@@ -1928,7 +1944,7 @@ index a1062e8..846b960 100644
          m_xDialog->set_window_state(aValue);
  
      // collate
-@@ -2072,6 +2255,12 @@ IMPL_LINK_NOARG(PrintDialog, ToggleBrochureHdl, weld::Toggleable&, void)
+@@ -2072,6 +2249,12 @@ IMPL_LINK_NOARG(PrintDialog, ToggleBrochureHdl, weld::Toggleable&, void)
  IMPL_LINK(PrintDialog, ClickOKCancelHdl, weld::Button&, rButton, void)
  {
      storeToSettings();
@@ -1941,7 +1957,7 @@ index a1062e8..846b960 100644
      m_xDialog->response(&rButton == mxOKButton.get() ? RET_OK : RET_CANCEL);
  }
  
-@@ -2102,7 +2291,7 @@ IMPL_LINK_NOARG(PrintDialog, ClickSetupHdl, weld::Button&, void)
+@@ -2102,7 +2285,7 @@ IMPL_LINK_NOARG(PrintDialog, ClickSetupHdl, weld::Button&, void)
      // Save orientation dropdown — Properties dialog can clobber it.
      const int nSavedOrient = mxOrientationBox->get_active();
  
@@ -1952,7 +1968,7 @@ index a1062e8..846b960 100644
      if (!isPrintToFile())
 diff --git a/vcl/uiconfig/ui/hstprintpanel.ui b/vcl/uiconfig/ui/hstprintpanel.ui
 new file mode 100644
-index 0000000..def3a5b
+index 0000000..ed57878
 --- /dev/null
 +++ b/vcl/uiconfig/ui/hstprintpanel.ui
 @@ -0,0 +1,1627 @@
@@ -2121,7 +2137,6 @@ index 0000000..def3a5b
 +            <property name="visible">True</property>
 +            <property name="can-focus">True</property>
 +            <property name="vexpand">True</property>
-+            <property name="width-request">400</property>
 +            <property name="margin-start">0</property>
 +            <child>
 +              <object class="GtkScrolledWindow" id="scrolledwindow">
@@ -2129,6 +2144,7 @@ index 0000000..def3a5b
 +                <property name="can-focus">True</property>
 +                <property name="hscrollbar-policy">never</property>
 +                <property name="shadow-type">in</property>
++                <property name="height-request">200</property>
 +                <child>
 +                  <object class="GtkViewport">
 +                    <property name="visible">True</property>
