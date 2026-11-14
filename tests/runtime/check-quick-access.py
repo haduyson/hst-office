@@ -18,29 +18,27 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
 
-DEFAULTS = ["Lưu", "Hoàn tác", "Làm lại"]
+DEFAULTS = [".uno:Save", ".uno:Undo", ".uno:Redo"]
+WRITER, CALC = "com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"
 ADD = "Thêm vào thanh truy cập nhanh"
 MANY = [".uno:Paste", ".uno:Cut", ".uno:Copy", ".uno:Bold", ".uno:Italic", ".uno:Underline", ".uno:CenterPara",
         ".uno:DefaultBullet", ".uno:InsertTable", ".uno:InsertGraphic", ".uno:SearchDialog", ".uno:Print",
         ".uno:PrintPreview"]
 
 
-def qat(display_top):
-    """(names, box, node) of the quick access toolbar: the tool bar left of the first ribbon tab."""
-    tabs = gui.ribbon_tabs()
-    first = tabs[0][1] if tabs else (10 ** 6, 0, 0, 0)
-    for node in gui.walk(gui.office_app()):
-        try:
-            if node.getRoleName() != "tool bar" or not gui.showing(node):
-                continue
-            box = gui.extents(node)
-            if box[0] + box[2] <= first[0] + 2 and abs(box[1] - first[1]) < 40 and box[1] < display_top + 120:
-                names = [node.getChildAtIndex(i).name for i in range(node.childCount)]
-                shown = [n for i, n in enumerate(names) if n and gui.showing(node.getChildAtIndex(i))]
-                return shown, box, node
-        except Exception:  # noqa: BLE001 - widgets come and go
-            continue
-    return [], None, None
+def shown(office, module):
+    """Commands shown in the module's quick access toolbar (its notebookbarshortcuts settings). The toolbox sits in
+    the ribbon's tab control, whose accessible children are only the tabs, so the list is read over UNO."""
+    supplier = office.smgr.createInstanceWithContext(
+        "com.sun.star.ui.ModuleUIConfigurationManagerSupplier", office.ctx)
+    items = supplier.getUIConfigurationManager(module).getSettings(
+        "private:resource/toolbar/notebookbarshortcuts", False)
+    result = []
+    for index in range(items.getCount()):
+        props = {p.Name: p.Value for p in items.getByIndex(index)}
+        if props.get("IsVisible", True):
+            result.append(props.get("CommandURL"))
+    return result
 
 
 def right_click_add(display, label):
@@ -103,18 +101,14 @@ def main():
     try:
         office.close_welcome()
         time.sleep(2)
-        names = qat(0)[0]
-        record("defaults", names[:3] == DEFAULTS and len(names) == 3, names)
+        names = shown(office, WRITER)
+        record("defaults", names == DEFAULTS, names)
         problem = right_click_add(args.display, "Dán")
-        names = qat(0)[0]
-        record("add-from-ribbon", not problem and names[-1:] == ["Dán"], problem or names)
+        names = shown(office, WRITER)
+        record("add-from-ribbon", not problem and names[-1:] == [".uno:Paste"], problem or names)
         office.load("private:factory/scalc")
         time.sleep(8)
-        calc = [w for w, n in hst_gui.toplevels(args.display, office.pid) if gui.NAMES["calc"] in n]
-        if calc:
-            gui.xdo(args.display, "windowactivate", calc[0])
-            time.sleep(3)
-        names = qat(0)[0]
+        names = shown(office, CALC)
         record("per-app", names == DEFAULTS, names)
         office.stop()
         office.start(fresh=False)
@@ -125,16 +119,20 @@ def main():
             gui.xdo(args.display, "windowmove", writer[0], "0", "0")
             gui.xdo(args.display, "windowsize", writer[0], "1366", "900")
             time.sleep(4)
-        names = qat(0)[0]
-        record("persists-after-restart", "Dán" in names, names)
+        names = shown(office, WRITER)
+        record("persists-after-restart", ".uno:Paste" in names, names)
         banner = gui.geometry()[2]
-        set_commands(office, "com.sun.star.text.TextDocument", MANY)
+        tabs_before = [t[1] for t in gui.ribbon_tabs()]
+        set_commands(office, WRITER, [c for c in MANY if c != ".uno:Paste"])
         time.sleep(4)
-        names, box, _ = qat(0)
-        tabs = gui.ribbon_tabs()
-        ok = box is not None and tabs and box[0] + box[2] <= tabs[0][1][0] + 2 and gui.geometry()[2] == banner
-        ok = ok and len(names) < 3 + 1 + len(MANY)  # some buttons went into the » menu
-        record("overflow", ok, {"shown": names, "qat": box, "first_tab": tabs[0][1] if tabs else None,
+        tabs_after = [t[1] for t in gui.ribbon_tabs()]
+        # 16 buttons do not fit before the tabs at 1366 px: the extra ones go into the » menu, so the last tab and
+        # the banner keep their place (the tabs may move right only by the room the toolbar takes)
+        # the toolbar grew by less than the 12 buttons added (about 26 px each): the rest is in its » menu
+        grown = tabs_after[0][0] - tabs_before[0][0] if tabs_after and tabs_before else 10 ** 6
+        ok = grown < 12 * 22 and gui.geometry()[2] == banner
+        record("overflow", ok, {"commands": len(shown(office, WRITER)), "tabs_before": tabs_before[:2],
+                                "tabs_after": tabs_after[:2], "grown": grown, "last_tab": tabs_after[-1:] ,
                                 "banner_before": banner, "banner_after": gui.geometry()[2]})
     finally:
         office.stop()

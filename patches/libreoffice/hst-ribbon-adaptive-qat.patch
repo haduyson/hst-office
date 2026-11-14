@@ -186,7 +186,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
      // time-based debounce: track when the last tab switch via scroll happened
 --- /dev/null
 +++ b/sfx2/source/notebookbar/HstQuickAccess.cxx
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,139 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -225,6 +225,8 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
 +    , m_aPlacement(rPlacement)
 +    , m_bBelow(hst::qat::StoredBelow(m_aApp))
 +{
++    // one line that clips what does not fit (WB_SCROLL) into the menu button at its end
++    m_rQat.SetStyle(m_rQat.GetStyle() | WB_SCROLL);
 +    m_rQat.SetMenuType(ToolBoxMenuType::Customize | ToolBoxMenuType::ClippedItems);
 +    m_rQat.SetMenuButtonHdl(LINK(this, HstQuickAccess, MenuButtonHdl));
 +    if (PopupMenu* pMenu = m_rQat.GetMenu())
@@ -531,7 +533,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
              Application::AddKeyListener(LINK(this, NotebookbarTabControl, HstKeyHdl));
              AddEventListener(LINK(this, NotebookbarTabControl, HstTabEventHdl));
              if (HstRibbonCompact::Stored(aApp)) // the app opens as it was left, once the bar is laid out
-@@ -607,6 +614,16 @@
+@@ -607,6 +614,18 @@
      }
      else
          m_pHstBanner->Place(tools::Rectangle());
@@ -539,8 +541,10 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
 +    if (const tools::Long nRow = HstQatRow(); nRow > 0 && GetToolBox())
 +    {
 +        ToolBox* pQat = GetToolBox();
-+        const Size aWant = pQat->GetOptimalSize();
 +        const tools::Long nInset = hst::banner::scaled(4, GetDPIScaleFactor());
++        // its items and the ▾/» menu button at the end (the toolbox's size request leaves that button out)
++        const Size aWant(pQat->GetOptimalSize().Width() + hst::banner::scaled(16, GetDPIScaleFactor()),
++                         pQat->GetOptimalSize().Height());
 +        const Size aOut = GetOutputSizePixel();
 +        pQat->SetPosSizePixel(Point(nInset, aOut.Height() - nRow + (nRow - aWant.Height()) / 2),
 +                              Size(std::min<tools::Long>(aWant.Width(), aOut.Width() - 2 * nInset), aWant.Height()));
@@ -548,7 +552,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
      m_bHstLayout = false;
  }
  
-@@ -670,8 +687,14 @@
+@@ -670,8 +689,14 @@
          if (pPage)
              pPage->Show();
      }
@@ -565,7 +569,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
      queue_resize();
      for (vcl::Window* pParent = GetParent(); pParent; pParent = pParent->GetParent())
      {
-@@ -683,9 +706,40 @@
+@@ -683,9 +708,40 @@
              break;
          }
      }
@@ -606,7 +610,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
  void NotebookbarTabControl::HstDrop()
  {
      if (m_pHstCompact && m_pHstCompact->IsCompact())
-@@ -881,11 +935,14 @@
+@@ -881,11 +937,14 @@
          OUString aModuleName = xModuleManager->identify( m_xFrame );
  
          FillShortcutsToolBox( xContext, m_xFrame, aModuleName, pToolBox );
@@ -621,7 +625,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
  
          m_bInvalidate = false;
      }
-@@ -1006,6 +1063,7 @@
+@@ -1006,6 +1065,7 @@
          aSize.setWidth( 400 );
      if (m_pHstCompact && m_pHstCompact->IsCompact()) // the tab row and the quick row
          aSize.setHeight(HstHeaderHeight() + HstRibbonCompact::QuickHeight(HstHeaderHeight(), GetDPIScaleFactor()));
@@ -745,12 +749,12 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
  
      // HST Office: the feature search box (child "hst-tab-search") follows the last tab and takes
      // the rest of the row up to the menu button; when the row is short the box shrinks, then it
-@@ -2587,6 +2596,26 @@
+@@ -2587,6 +2596,29 @@
      const double fHstDpi = GetDPIScaleFactor();
      const tools::Long nHstGap = pHstSearch ? std::lround(8 * fHstDpi) : 0;
  
 +    // HST Office: the quick access toolbar (the shortcuts toolbox) at the start of the row never pushes the
-+    // tabs or the search box's magnifier out of the row: it gets the room they leave, its other buttons go
++    // tabs out of the row or shrinks the search box to its magnifier: it gets the room they leave, its other buttons go
 +    // into its » menu. Below the ribbon (HstSetShortcutsRow) it takes no room in the row.
 +    tools::Long nShortcutsWidth = 0;
 +    if (m_pShortcuts && m_nHstQatRow <= 0)
@@ -759,8 +763,11 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
 +        for (auto & item : mpTabCtrlData->maItemList)
 +            if (item.m_bVisible)
 +                nTabs += ImplGetItemSize(&item, nMaxWidth).getWidth();
-+        const tools::Long nSearch = pHstSearch ? nHstGap + std::lround(32 * fHstDpi) : 0;
-+        const Size aWant = m_pShortcuts->GetOptimalSize();
++        // the search box keeps the width at which it shows its text (below that it is only a magnifier)
++        const tools::Long nSearch = pHstSearch ? nHstGap + std::lround(120 * fHstDpi) : 0;
++        // its items and the ▾/» menu button at the end (the toolbox's size request leaves that button out)
++        const Size aWant(m_pShortcuts->GetOptimalSize().Width() + std::lround(16 * fHstDpi),
++                         m_pShortcuts->GetOptimalSize().Height());
 +        const tools::Long nRoom = nMaxWidth - nTabs - nSearch - 4;
 +        const tools::Long nQat = std::max<tools::Long>(std::min(aWant.Width(), nRoom), std::lround(24 * fHstDpi));
 +        if (m_pShortcuts->GetSizePixel().Width() != nQat)
@@ -772,7 +779,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
      const tools::Long nOffsetX = 2 + nShortcutsWidth;
      const tools::Long nOffsetY = 2;
  
-@@ -2648,8 +2677,8 @@
+@@ -2648,8 +2680,8 @@
      if (!pHstSearch) // with the search box the tabs stay left-aligned, the box fills the row
          lcl_AdjustSingleLineTabs(nMaxWidth - nShortcutsWidth, mpTabCtrlData.get());
  
