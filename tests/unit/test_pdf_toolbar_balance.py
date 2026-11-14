@@ -72,10 +72,18 @@ class PdfToolbarGrid(unittest.TestCase):
         self.assertNotIn('id="toolrow1"', self.ui)
 
     def test_shorter_row_fills_its_column(self):
-        for box, control in (("toolfind", "search"), ("toolpages", "page"), ("toolsign", "sign")):
+        for box, control in (("toolfind", "search"), ("toolpages", "page")):
             part = self.ui[self.ui.index(f'id="{box}"'):]
             block = part[part.index(f'id="{control}"'):]
             self.assertRegex(block[:block.index("</packing>")], r'"expand">True<', control)
+
+
+class SignMatchesEdit(unittest.TestCase):
+    def test_sign_is_painted_as_wide_as_edit(self):
+        from patch_sections import added
+        window = added(PATCH, "xmlsecurity/source/hstpdf/pdfviewerwindow.cxx")
+        # a stretched custom-painted button repeats its image: Sign gets Edit's width instead of stretching
+        self.assertEqual(window.count("signImageWidth(*m_xEdit, *m_xSign)"), 3)
 
 
 if __name__ == "__main__":
