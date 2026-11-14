@@ -11,7 +11,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from site_chrome import apply_chrome
 
 # trang -> mục menu đang mở
-PAGES = {"index.html": "home", "diem-moi/index.html": "whats-new", "quyen-rieng-tu/index.html": "privacy", "404.html": None}
+PAGES = {"index.html": "home", "diem-moi/index.html": "whats-new", "quyen-rieng-tu/index.html": "privacy", "404.html": None,
+         "cai-dat/index.html": "install", "cai-dat/go-loi/index.html": "install"}
 
 
 def ensure_markers(html):
