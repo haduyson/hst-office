@@ -225,7 +225,7 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
      case ocDataToken1: return "DataToken1";
 --- /dev/null
 +++ b/sc/CppunitTest_sc_excelcompat_functions_test.mk
-@@ -0,0 +1,12 @@
+@@ -0,0 +1,17 @@
 +# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
 +#
 +# This file is part of the LibreOffice project.
@@ -236,6 +236,11 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
 +#
 +
 +$(eval $(call sc_functions_test,excelcompat))
++
++# The XLSX and ODS round trips parse the exported XML.
++$(eval $(call gb_CppunitTest_use_externals,sc_excelcompat_functions_test,\
++    libxml2 \
++))
 +
 +# vim: set noet sw=4 ts=4:
 --- a/sc/Library_sc.mk
