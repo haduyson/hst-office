@@ -1,5 +1,5 @@
 {
- "comment": "Quick command row of the compact ribbon (Ctrl+F1), per tab (its merged group box): at most 10 commands of that app's own ribbon, '|' a separator. Writer's Home and Insert come from the approved mockup (v2); rows marked 'generated' were filled by scripts/patches/generate-ribbon-quick-rows.py --fill (the first command of each group) and may be edited: drop 'generated' when you do.",
+ "comment": "Quick command row of the compact ribbon (Ctrl+F1), per tab (its merged group box): commands of that app's own ribbon, '|' a separator. Hand-made rows: Writer Home and Insert (approved mockup v2) and the Home rows of Sheets, Slides and Draw (same form: clipboard | character | the app's key formatting | its essentials and Find). Rows marked 'generated' come from scripts/patches/generate-ribbon-quick-rows.py --fill (each group's main command, up to 10) and are remade on every --fill; drop 'generated' to keep an edited row.",
  "rows": [
   {
    "app": "writer",
@@ -43,12 +43,74 @@
    ]
   },
   {
+   "app": "calc",
+   "box": "pmhbHome",
+   "commands": [
+    ".uno:Paste",
+    ".uno:Cut",
+    ".uno:Copy",
+    "|",
+    ".uno:Bold",
+    ".uno:Italic",
+    ".uno:Underline",
+    "|",
+    ".uno:AlignHorizontalCenter",
+    "|",
+    ".uno:AutoSum",
+    "org.hst.office.vi:FormatVnd",
+    "|",
+    ".uno:SearchDialog"
+   ]
+  },
+  {
+   "app": "impress",
+   "box": "pmhbHome",
+   "commands": [
+    ".uno:Paste",
+    ".uno:Cut",
+    ".uno:Copy",
+    "|",
+    ".uno:InsertPage",
+    ".uno:AssignLayout",
+    "|",
+    ".uno:Bold",
+    ".uno:Italic",
+    ".uno:Underline",
+    "|",
+    ".uno:CenterPara",
+    "|",
+    ".uno:SearchDialog"
+   ]
+  },
+  {
+   "app": "draw",
+   "box": "pmhbHome",
+   "commands": [
+    ".uno:Paste",
+    ".uno:Cut",
+    ".uno:Copy",
+    "|",
+    ".uno:Bold",
+    ".uno:Italic",
+    ".uno:Underline",
+    "|",
+    ".uno:CenterPara",
+    "|",
+    ".uno:Text",
+    ".uno:InsertGraphic",
+    "|",
+    ".uno:SearchDialog"
+   ]
+  },
+  {
    "app": "writer",
    "box": "pmhbDesign Tab",
    "commands": [
     ".uno:ThemeDialog",
     ".uno:Watermark",
-    ".uno:FillPageColor"
+    ".uno:FillPageColor",
+    ".uno:BorderDialog?Page:string=hstpageborder",
+    ".uno:PageDialog"
    ],
    "generated": true
   },
@@ -57,11 +119,10 @@
    "box": "pmhbLayout",
    "commands": [
     ".uno:PageMargin",
-    ".uno:LeftParaMargin",
-    ".uno:ObjectAlign",
+    ".uno:TransformDialog",
     ".uno:Orientation",
-    ".uno:RightParaMargin",
-    ".uno:TransformDialog"
+    ".uno:AttributePageSize",
+    ".uno:PageColumnType"
    ],
    "generated": true
   },
@@ -73,9 +134,10 @@
     ".uno:InsertFootnote",
     "org.hst.office.vi:CitationInsert",
     ".uno:InsertCaptionDialog",
-    ".uno:UpdateCurIndex",
+    ".uno:InsertIndexesEntry",
     ".uno:InsertEndnote",
-    "org.hst.office.vi:CitationReinsert"
+    "org.hst.office.vi:CitationLibrary",
+    ".uno:InsertReferenceField"
    ],
    "generated": true
   },
@@ -90,8 +152,7 @@
     "org.hst.office.mailmerge:Finish",
     ".uno:InsertLabels",
     "org.hst.office.mailmerge:Recipients",
-    "org.hst.office.mailmerge:AddressBlock",
-    "org.hst.office.mailmerge:First"
+    "org.hst.office.mailmerge:EditRecipients"
    ],
    "generated": true
   },
@@ -103,9 +164,9 @@
     ".uno:SidebarDeck.A11yCheckDeck",
     ".uno:ShowAnnotations",
     ".uno:TrackChanges",
-    ".uno:NextTrackedChange",
     ".uno:CompareDocuments",
     ".uno:ProtectTraceChangeMode",
+    ".uno:NextTrackedChange",
     ".uno:ThesaurusDialog",
     ".uno:InsertAnnotation",
     ".uno:ShowTrackedChanges"
@@ -122,7 +183,9 @@
     ".uno:NewWindow",
     ".uno:RunMacro",
     ".uno:BrowseView",
-    ".uno:Ruler",
+    ".uno:PrintPreview",
+    ".uno:GridUse",
+    ".uno:ChangeTheme",
     ".uno:ZoomOptimal"
    ],
    "generated": true
@@ -132,7 +195,8 @@
    "box": "pmhbHelp",
    "commands": [
     ".uno:HelpIndex",
-    "org.hst.office.vi:WhereIsCommand"
+    "org.hst.office.vi:WhereIsCommand",
+    "org.hst.office.vi:ReportError"
    ],
    "generated": true
   },
@@ -145,8 +209,9 @@
     ".uno:ExtensionManager",
     "org.hst.office.vi:EditVba",
     "org.hst.office.vi:ConvertEncoding",
+    "org.hst.office.vi:NumberToWords",
     ".uno:OptionsTreeDialog",
-    ".uno:RunMacro"
+    ".uno:TemplateManager"
    ],
    "generated": true
   },
@@ -154,8 +219,7 @@
    "app": "writer",
    "box": "pmhbTable Design Tab",
    "commands": [
-    ".uno:AutoFormat",
-    ".uno:TableCellBackgroundColor"
+    ".uno:AutoFormat"
    ],
    "generated": true
   },
@@ -163,16 +227,14 @@
    "app": "writer",
    "box": "pmhbTable",
    "commands": [
-    ".uno:InsertRowsBefore",
     ".uno:MergeCells",
     ".uno:TableDialog",
-    ".uno:SetRowHeight",
-    ".uno:HeadingRowsRepeat",
+    ".uno:OptimizeTable",
+    ".uno:TableSort",
     ".uno:TableNumberFormatDialog",
-    ".uno:InsertRowsAfter",
+    ".uno:InsertRowsBefore",
     ".uno:SplitCell",
-    ".uno:SetColumnWidth",
-    ".uno:ConvertTableToText"
+    ".uno:SplitTable"
    ],
    "generated": true
   },
@@ -181,14 +243,10 @@
    "box": "pmhbImage",
    "commands": [
     ".uno:InsertCaptionDialog",
-    ".uno:BorderDialog",
     ".uno:ObjectTitleDescription",
-    ".uno:TransformDialog",
     ".uno:GraphicFilterToolbox",
-    ".uno:Crop",
-    ".uno:FormatArea",
-    ".uno:FormatGroup",
-    ".uno:GrafLuminance"
+    ".uno:BorderDialog",
+    ".uno:TransformDialog"
    ],
    "generated": true
   },
@@ -199,8 +257,7 @@
     ".uno:DataRanges",
     ".uno:DiagramType",
     ".uno:InsertMenuTitles",
-    ".uno:DiagramData",
-    ".uno:InsertMenuLegend"
+    ".uno:DiagramData"
    ],
    "generated": true
   },
@@ -211,7 +268,8 @@
     ".uno:FormatSelection",
     ".uno:BringToFront",
     ".uno:DiagramArea",
-    ".uno:SendToBack"
+    ".uno:DiagramWall",
+    ".uno:Legend"
    ],
    "generated": true
   },
@@ -219,16 +277,14 @@
    "app": "writer",
    "box": "pmhbDraw",
    "commands": [
-    ".uno:BasicShapes",
-    ".uno:FormatArea",
+    ".uno:InsertCaptionDialog",
     ".uno:ObjectTitleDescription",
-    ".uno:ObjectAlignLeft",
+    ".uno:Navigator",
     ".uno:FormatGroup",
+    ".uno:FormatArea",
     ".uno:ExtrusionToggle",
-    ".uno:DrawText",
-    ".uno:FillStyle",
-    ".uno:AlignCenter",
-    ".uno:EnterGroup"
+    ".uno:EnterGroup",
+    ".uno:LeaveGroup"
    ],
    "generated": true
   },
@@ -237,13 +293,10 @@
    "box": "pmhbObject",
    "commands": [
     ".uno:InsertCaptionDialog",
-    ".uno:BorderDialog",
     ".uno:AnchorMenu",
-    ".uno:ObjectAlignLeft",
-    ".uno:ChainFrames",
-    ".uno:FormatArea",
-    ".uno:WrapOff",
-    ".uno:AlignCenter"
+    ".uno:BorderDialog",
+    ".uno:ObjectForwardOne",
+    ".uno:FrameDialog"
    ],
    "generated": true
   },
@@ -253,11 +306,8 @@
    "commands": [
     ".uno:InsertCaptionDialog",
     ".uno:AnchorMenu",
-    ".uno:ObjectAlignLeft",
     ".uno:AVMediaToolBox",
-    ".uno:ToggleObjectRotateMode",
-    ".uno:WrapOff",
-    ".uno:AlignCenter",
+    ".uno:ObjectForwardOne",
     ".uno:AVMediaPlayer"
    ],
    "generated": true
@@ -267,10 +317,8 @@
    "box": "pmhbPrint",
    "commands": [
     ".uno:ShowSinglePage",
-    ".uno:GoToStartOfDoc",
     ".uno:Print",
     ".uno:ShowMultiplePages",
-    ".uno:PageUp",
     ".uno:ClosePreview"
    ],
    "generated": true
@@ -281,10 +329,8 @@
    "commands": [
     ".uno:SwitchControlDesignMode",
     ".uno:FormProperties",
-    ".uno:Label",
     ".uno:UseWizards",
-    ".uno:ShowFmExplorer",
-    ".uno:Edit"
+    ".uno:GroupBox"
    ],
    "generated": true
   },
@@ -298,26 +344,10 @@
     ".uno:PageDialog",
     ".uno:GoToStartOfPage",
     ".uno:InsertPageFooter",
-    ".uno:InsertDateField",
+    ".uno:PageNumberWizard",
+    ".uno:EditGlossary",
     ".uno:JumpToFooter",
     ".uno:HstDifferentFirstPage"
-   ],
-   "generated": true
-  },
-  {
-   "app": "calc",
-   "box": "pmhbHome",
-   "commands": [
-    ".uno:Paste",
-    ".uno:FormatPaintbrush",
-    ".uno:AlignTop",
-    ".uno:NumberFormatType",
-    ".uno:ConditionalFormatMenu",
-    ".uno:AutoSum",
-    ".uno:Cut",
-    ".uno:ResetAttributes",
-    ".uno:AlignVCenter",
-    "org.hst.office.vi:FormatVnd"
    ],
    "generated": true
   },
@@ -330,11 +360,11 @@
     ".uno:InsertObjectChart",
     ".uno:HyperlinkDialog",
     ".uno:InsertAnnotation",
-    ".uno:FontworkGalleryFloater",
+    ".uno:DrawText",
     ".uno:InsertObjectStarMath",
     ".uno:InsertCalcTable",
     ".uno:Gallery",
-    ".uno:InsertObjectChart?ChartType:string=Column"
+    ".uno:VerticalText"
    ],
    "generated": true
   },
@@ -347,8 +377,7 @@
     ".uno:ToggleSheetGrid",
     ".uno:Navigator",
     ".uno:PrintScaleMenu",
-    ".uno:ViewRowColumnHeaders",
-    ".uno:BringToFront"
+    ".uno:ViewRowColumnHeaders"
    ],
    "generated": true
   },
@@ -358,11 +387,10 @@
    "commands": [
     ".uno:FunctionDialog",
     ".uno:DefineName",
-    ".uno:ShowPrecedents",
     ".uno:Calculate",
-    ".uno:AutoSum",
-    ".uno:AddName",
-    ".uno:ShowDependents",
+    ".uno:ShowPrecedents",
+    ".uno:InsertFunction?FunctionName:string=DOCTIEN&FunctionCategory:short=0",
+    ".uno:CreateNames",
     ".uno:AutomaticCalculation"
    ],
    "generated": true
@@ -373,13 +401,12 @@
    "commands": [
     "org.hst.office.vi:ImportCsv",
     ".uno:DataSort",
-    ".uno:TextToColumns",
+    ".uno:DataConsolidate",
     ".uno:GoalSeekDialog",
     ".uno:DataSubTotals",
-    ".uno:ChiSquareTestDialog",
+    ".uno:DescriptiveStatisticsDialog",
     ".uno:EditLinks",
-    ".uno:SortAscending",
-    ".uno:HstConvertTextToNumber",
+    ".uno:DataFilterAutoFilter",
     ".uno:SolverDialog"
    ],
    "generated": true
@@ -393,6 +420,7 @@
     ".uno:TraceChangeMode",
     ".uno:Protect",
     ".uno:ThesaurusDialog",
+    ".uno:SpellOnline",
     ".uno:EditAnnotation",
     ".uno:AcceptChanges",
     ".uno:ToolProtectionDocument"
@@ -404,13 +432,12 @@
    "box": "pmhbView",
    "commands": [
     ".uno:NormalViewMode",
-    ".uno:Sidebar",
+    ".uno:ChangeTheme",
     ".uno:ZoomOptimal",
     ".uno:FreezePanes",
     ".uno:PagebreakMode",
-    ".uno:InputLineVisible",
-    ".uno:Zoom100Percent",
-    ".uno:SplitWindow"
+    ".uno:PrintPreview",
+    ".uno:FullScreen"
    ],
    "generated": true
   },
@@ -419,7 +446,8 @@
    "box": "pmhbHelp",
    "commands": [
     ".uno:HelpIndex",
-    "org.hst.office.vi:ReportError"
+    "org.hst.office.vi:ReportError",
+    "org.hst.office.update:Check"
    ],
    "generated": true
   },
@@ -435,8 +463,8 @@
     ".uno:ExtensionManager",
     "org.hst.office.vi:EditVba",
     "org.hst.office.vi:FormatVnd",
-    "org.hst.office.vi:RemoveDiacritics",
-    ".uno:OptionsTreeDialog"
+    "org.hst.office.vi:FormatPercent",
+    "org.hst.office.vi:RemoveDiacritics"
    ],
    "generated": true
   },
@@ -445,7 +473,7 @@
    "box": "pmhbphbTableDesign",
    "commands": [
     ".uno:RemoveCalcTable",
-    ".uno:DataSort"
+    ".uno:DataSubTotals"
    ],
    "generated": true
   },
@@ -469,15 +497,12 @@
    "box": "pmbhImage",
    "commands": [
     ".uno:Crop",
-    ".uno:FormatArea",
     ".uno:ObjectTitleDescription",
     ".uno:AnchorMenu",
     ".uno:GraphicFilterToolbox",
     ".uno:AssignMacro",
-    ".uno:CompressGraphic",
-    ".uno:FillStyle",
-    ".uno:ObjectAlignLeft",
-    ".uno:GrafLuminance"
+    ".uno:FormatArea",
+    ".uno:TransformDialog"
    ],
    "generated": true
   },
@@ -488,8 +513,7 @@
     ".uno:DataRanges",
     ".uno:DiagramType",
     ".uno:InsertMenuTitles",
-    ".uno:DiagramData",
-    ".uno:InsertMenuLegend"
+    ".uno:DiagramData"
    ],
    "generated": true
   },
@@ -500,7 +524,8 @@
     ".uno:FormatSelection",
     ".uno:BringToFront",
     ".uno:DiagramArea",
-    ".uno:SendToBack"
+    ".uno:DiagramWall",
+    ".uno:Legend"
    ],
    "generated": true
   },
@@ -508,16 +533,16 @@
    "app": "calc",
    "box": "pmhbDraw",
    "commands": [
-    ".uno:ToggleObjectBezierMode",
-    ".uno:FormatArea",
     ".uno:ObjectTitleDescription",
     ".uno:AnchorMenu",
     ".uno:FormatGroup",
-    ".uno:ExtrusionToggle",
     ".uno:AssignMacro",
-    ".uno:ToggleObjectRotateMode",
-    ".uno:FillStyle",
-    ".uno:ObjectAlignLeft"
+    ".uno:ToggleObjectBezierMode",
+    ".uno:FormatArea",
+    ".uno:ExtrusionToggle",
+    ".uno:TransformDialog",
+    ".uno:EnterGroup",
+    ".uno:LeaveGroup"
    ],
    "generated": true
   },
@@ -525,13 +550,11 @@
    "app": "calc",
    "box": "pmhbObject",
    "commands": [
-    ".uno:OriginalSize",
-    ".uno:FormatArea",
     ".uno:AnchorMenu",
     ".uno:AssignMacro",
-    ".uno:ToggleObjectRotateMode",
-    ".uno:FillStyle",
-    ".uno:ObjectAlignLeft"
+    ".uno:OriginalSize",
+    ".uno:FormatArea",
+    ".uno:TransformDialog"
    ],
    "generated": true
   },
@@ -542,7 +565,7 @@
     ".uno:AnchorMenu",
     ".uno:AVMediaToolBox",
     ".uno:AssignMacro",
-    ".uno:ObjectAlignLeft",
+    ".uno:TransformDialog",
     ".uno:AVMediaPlayer"
    ],
    "generated": true
@@ -552,10 +575,8 @@
    "box": "pmhbPrint",
    "commands": [
     ".uno:PageFormatDialog",
-    ".uno:ZoomMinus",
     ".uno:Print",
-    ".uno:Margins",
-    ".uno:ZoomPlus",
+    ".uno:PrintScaleMenu",
     ".uno:ClosePreview"
    ],
    "generated": true
@@ -566,27 +587,8 @@
    "commands": [
     ".uno:SwitchControlDesignMode",
     ".uno:FormProperties",
-    ".uno:Label",
     ".uno:UseWizards",
-    ".uno:ShowFmExplorer",
-    ".uno:Edit"
-   ],
-   "generated": true
-  },
-  {
-   "app": "impress",
-   "box": "pmhbHome",
-   "commands": [
-    ".uno:Paste",
-    ".uno:InsertPage",
-    ".uno:FormatPaintbrush",
-    ".uno:TextdirectionTopToBottom",
-    ".uno:ObjectPosition",
-    "vnd.sun.star.findbar:FocusToFindbar",
-    ".uno:Cut",
-    ".uno:AssignLayout",
-    ".uno:SetDefault",
-    ".uno:CellVertTop"
+    ".uno:GroupBox"
    ],
    "generated": true
   },
@@ -611,9 +613,9 @@
    "app": "impress",
    "box": "pmhbDesign",
    "commands": [
-    ".uno:ThemeSelectorPanel",
     ".uno:SlideSetup",
-    ".uno:SidebarDeck.PropertyDeck"
+    ".uno:SidebarDeck.PropertyDeck",
+    ".uno:DisplayMasterObjects"
    ],
    "generated": true
   },
@@ -622,9 +624,9 @@
    "box": "pmhbTransitions",
    "commands": [
     ".uno:HstPreviewTransition",
-    ".uno:HstSetTransitionDuration",
+    ".uno:HstApplyTransitionToAll",
     ".uno:HstApplyTransition",
-    ".uno:HstSetTransitionAdvance"
+    ".uno:SlideChangeWindow"
    ],
    "generated": true
   },
@@ -633,7 +635,8 @@
    "box": "pmhbAnimations",
    "commands": [
     ".uno:HstPreviewAnimation",
-    ".uno:HstApplyAnimation"
+    ".uno:HstApplyAnimation",
+    ".uno:CustomAnimation"
    ],
    "generated": true
   },
@@ -644,6 +647,7 @@
     ".uno:Presentation",
     ".uno:PresentationDialog",
     ".uno:PresentationCurrentSlide",
+    ".uno:CustomShowDialog",
     ".uno:RehearseTimings"
    ],
    "generated": true
@@ -657,7 +661,8 @@
     ".uno:InsertAnnotation",
     ".uno:RedactDoc",
     ".uno:ThesaurusDialog",
-    ".uno:NextAnnotation",
+    ".uno:SpellOnline",
+    ".uno:ShowAnnotations",
     ".uno:EditDoc"
    ],
    "generated": true
@@ -669,13 +674,13 @@
     ".uno:NormalMultiPaneGUI",
     ".uno:SlideMasterPage",
     ".uno:Sidebar",
-    ".uno:CapturePoint",
+    ".uno:GridVisible",
     ".uno:ZoomMode",
     ".uno:OutputQualityColor",
     ".uno:NewWindow",
     ".uno:DiaMode",
     ".uno:NotesMasterPage",
-    ".uno:ShowRuler"
+    ".uno:HandoutMode"
    ],
    "generated": true
   },
@@ -684,7 +689,8 @@
    "box": "pmhbHelp",
    "commands": [
     ".uno:HelpIndex",
-    "org.hst.office.vi:ReportError"
+    "org.hst.office.vi:ReportError",
+    "org.hst.office.update:Check"
    ],
    "generated": true
   },
@@ -697,7 +703,7 @@
     ".uno:ExtensionManager",
     ".uno:RunMacro",
     ".uno:OptionsTreeDialog",
-    ".uno:MacroDialog"
+    ".uno:OptionsSecurityDialog"
    ],
    "generated": true
   },
@@ -705,8 +711,7 @@
    "app": "impress",
    "box": "pmhbTableDesign",
    "commands": [
-    ".uno:TableDesign",
-    ".uno:FormatArea"
+    ".uno:TableDesign"
    ],
    "generated": true
   },
@@ -716,12 +721,11 @@
    "commands": [
     ".uno:TransformDialog",
     ".uno:MergeCells",
-    ".uno:CellVertTop",
-    ".uno:ObjectForwardOne",
     ".uno:SelectTable",
+    ".uno:TableSort",
+    ".uno:TableDialog",
     ".uno:SplitCell",
-    ".uno:CellVertCenter",
-    ".uno:ObjectBackOne"
+    ".uno:OptimizeTable"
    ],
    "generated": true
   },
@@ -730,14 +734,10 @@
    "box": "pmhbImage",
    "commands": [
     ".uno:ChangePicture",
-    ".uno:FormatArea",
     ".uno:ObjectTitleDescription",
-    ".uno:ObjectAlignLeft",
     ".uno:GraphicFilterToolbox",
-    ".uno:CompressGraphic",
-    ".uno:FillStyle",
-    ".uno:AlignCenter",
-    ".uno:GrafLuminance"
+    ".uno:FormatArea",
+    ".uno:TransformDialog"
    ],
    "generated": true
   },
@@ -748,8 +748,7 @@
     ".uno:DataRanges",
     ".uno:DiagramType",
     ".uno:InsertMenuTitles",
-    ".uno:DiagramData",
-    ".uno:InsertMenuLegend"
+    ".uno:DiagramData"
    ],
    "generated": true
   },
@@ -760,7 +759,8 @@
     ".uno:FormatSelection",
     ".uno:BringToFront",
     ".uno:DiagramArea",
-    ".uno:SendToBack"
+    ".uno:DiagramWall",
+    ".uno:Legend"
    ],
    "generated": true
   },
@@ -769,15 +769,14 @@
    "box": "pmhbDraw",
    "commands": [
     ".uno:TransformDialog",
-    ".uno:FormatArea",
     ".uno:ObjectTitleDescription",
     ".uno:FontworkGalleryFloater",
     ".uno:Combine",
     ".uno:FormatGroup",
+    ".uno:FormatArea",
     ".uno:ExtrusionToggle",
-    ".uno:AdvancedMode",
-    ".uno:FillStyle",
-    ".uno:ObjectAlignLeft"
+    ".uno:DistributeSelection",
+    ".uno:FormatUngroup"
    ],
    "generated": true
   },
@@ -785,12 +784,8 @@
    "app": "impress",
    "box": "pmhbObject",
    "commands": [
-    ".uno:ToggleObjectRotateMode",
-    ".uno:FormatArea",
-    ".uno:ObjectAlignLeft",
-    ".uno:FlipVertical",
-    ".uno:FillStyle",
-    ".uno:AlignCenter"
+    ".uno:TransformDialog",
+    ".uno:FormatArea"
    ],
    "generated": true
   },
@@ -799,9 +794,7 @@
    "box": "pmhbMedia",
    "commands": [
     ".uno:TransformDialog",
-    ".uno:ObjectAlignLeft",
     ".uno:AVMediaToolBox",
-    ".uno:AlignCenter",
     ".uno:AVMediaPlayer"
    ],
    "generated": true
@@ -812,10 +805,8 @@
    "commands": [
     ".uno:TransformDialog",
     ".uno:FormProperties",
-    ".uno:Label",
     ".uno:UseWizards",
-    ".uno:ShowFmExplorer",
-    ".uno:Edit"
+    ".uno:GroupBox"
    ],
    "generated": true
   },
@@ -823,11 +814,10 @@
    "app": "impress",
    "box": "pmhbMaster",
    "commands": [
-    ".uno:RenameMasterPage",
+    ".uno:InsertMasterPage",
     ".uno:SlideSetup",
     ".uno:CloseMasterView",
-    ".uno:DeleteMasterPage",
-    ".uno:SelectBackground"
+    ".uno:MasterLayouts"
    ],
    "generated": true
   },
@@ -838,9 +828,7 @@
     ".uno:NormalMultiPaneGUI",
     ".uno:OutlineFormat",
     ".uno:OutlineCollapseAll",
-    ".uno:DiaMode",
-    ".uno:OutlineRight",
-    ".uno:OutlineExpandAll"
+    ".uno:DiaMode"
    ],
    "generated": true
   },
@@ -849,29 +837,8 @@
    "box": "pmhb3D",
    "commands": [
     ".uno:TransformDialog",
-    ".uno:FormatArea",
-    ".uno:ObjectAlignLeft",
     ".uno:Window3D",
-    ".uno:AdvancedMode",
-    ".uno:FillStyle",
-    ".uno:AlignCenter"
-   ],
-   "generated": true
-  },
-  {
-   "app": "draw",
-   "box": "pmhbHome",
-   "commands": [
-    ".uno:Text",
-    ".uno:Paste",
-    ".uno:FormatPaintbrush",
-    ".uno:TextdirectionTopToBottom",
-    ".uno:ObjectPosition",
-    "vnd.sun.star.findbar:FocusToFindbar",
-    ".uno:InsertGraphic",
-    ".uno:Cut",
-    ".uno:SetDefault",
-    ".uno:CellVertTop"
+    ".uno:FormatArea"
    ],
    "generated": true
   },
@@ -896,14 +863,12 @@
    "app": "draw",
    "box": "pmhbArrange",
    "commands": [
-    ".uno:ObjectAlign",
     ".uno:FormatGroup",
     ".uno:TransformDialog",
     ".uno:Combine",
     ".uno:BringToFront",
     ".uno:FormatUngroup",
-    ".uno:AdvancedMode",
-    ".uno:Intersect"
+    ".uno:DistributeSelection"
    ],
    "generated": true
   },
@@ -915,10 +880,12 @@
     ".uno:PageSetup",
     ".uno:HstRotatePageLeft",
     ".uno:MovePageUp",
-    ".uno:DuplicatePage",
+    ".uno:ImportFromFile",
     ".uno:SelectBackground",
+    ".uno:SaveBackground",
     ".uno:HstRotatePageRight",
-    ".uno:MovePageDown"
+    ".uno:MovePageDown",
+    ".uno:RenamePage"
    ],
    "generated": true
   },
@@ -930,6 +897,7 @@
     ".uno:SignPDF",
     "org.hst.office.vi:OpenInHstPdf",
     ".uno:ExportToPDF",
+    ".uno:ExportTo",
     ".uno:Signature"
    ],
    "generated": true
@@ -943,7 +911,8 @@
     ".uno:InsertAnnotation",
     ".uno:RedactDoc",
     ".uno:ThesaurusDialog",
-    ".uno:NextAnnotation",
+    ".uno:SpellOnline",
+    ".uno:ShowAnnotations",
     ".uno:EditDoc"
    ],
    "generated": true
@@ -958,8 +927,7 @@
     ".uno:OutputQualityColor",
     ".uno:NewWindow",
     ".uno:MasterPage",
-    ".uno:ShowRuler",
-    ".uno:ZoomPageWidth",
+    ".uno:ChangeTheme",
     ".uno:OutputQualityGrayscale"
    ],
    "generated": true
@@ -969,7 +937,8 @@
    "box": "pmhbHelp",
    "commands": [
     ".uno:HelpIndex",
-    "org.hst.office.vi:ReportError"
+    "org.hst.office.vi:ReportError",
+    "org.hst.office.update:Check"
    ],
    "generated": true
   },
@@ -982,7 +951,7 @@
     ".uno:ExtensionManager",
     ".uno:RunMacro",
     ".uno:OptionsTreeDialog",
-    ".uno:MacroDialog"
+    ".uno:OptionsSecurityDialog"
    ],
    "generated": true
   },
@@ -990,8 +959,7 @@
    "app": "draw",
    "box": "pmhbTableDesign",
    "commands": [
-    ".uno:TableDesign",
-    ".uno:FormatArea"
+    ".uno:TableDesign"
    ],
    "generated": true
   },
@@ -1001,12 +969,9 @@
    "commands": [
     ".uno:TransformDialog",
     ".uno:MergeCells",
-    ".uno:CellVertTop",
-    ".uno:ObjectForwardOne",
     ".uno:SelectTable",
     ".uno:SplitCell",
-    ".uno:CellVertCenter",
-    ".uno:ObjectBackOne"
+    ".uno:OptimizeTable"
    ],
    "generated": true
   },
@@ -1015,14 +980,10 @@
    "box": "pmhbImage",
    "commands": [
     ".uno:ChangePicture",
-    ".uno:FormatArea",
     ".uno:ObjectTitleDescription",
-    ".uno:ObjectAlignLeft",
     ".uno:GraphicFilterToolbox",
-    ".uno:CompressGraphic",
-    ".uno:FillStyle",
-    ".uno:AlignCenter",
-    ".uno:GrafLuminance"
+    ".uno:FormatArea",
+    ".uno:TransformDialog"
    ],
    "generated": true
   },
@@ -1033,8 +994,7 @@
     ".uno:DataRanges",
     ".uno:DiagramType",
     ".uno:InsertMenuTitles",
-    ".uno:DiagramData",
-    ".uno:InsertMenuLegend"
+    ".uno:DiagramData"
    ],
    "generated": true
   },
@@ -1045,7 +1005,8 @@
     ".uno:FormatSelection",
     ".uno:BringToFront",
     ".uno:DiagramArea",
-    ".uno:SendToBack"
+    ".uno:DiagramWall",
+    ".uno:Legend"
    ],
    "generated": true
   },
@@ -1054,15 +1015,14 @@
    "box": "pmhbDraw",
    "commands": [
     ".uno:TransformDialog",
-    ".uno:FormatArea",
     ".uno:ObjectTitleDescription",
     ".uno:FontworkGalleryFloater",
     ".uno:Combine",
     ".uno:FormatGroup",
+    ".uno:FormatArea",
     ".uno:ExtrusionToggle",
-    ".uno:AdvancedMode",
-    ".uno:FillStyle",
-    ".uno:ObjectAlignLeft"
+    ".uno:DistributeSelection",
+    ".uno:FormatUngroup"
    ],
    "generated": true
   },
@@ -1070,12 +1030,8 @@
    "app": "draw",
    "box": "pmhbObject",
    "commands": [
-    ".uno:ToggleObjectRotateMode",
-    ".uno:FormatArea",
-    ".uno:ObjectAlignLeft",
-    ".uno:FlipVertical",
-    ".uno:FillStyle",
-    ".uno:AlignCenter"
+    ".uno:TransformDialog",
+    ".uno:FormatArea"
    ],
    "generated": true
   },
@@ -1084,9 +1040,7 @@
    "box": "pmhbMedia",
    "commands": [
     ".uno:TransformDialog",
-    ".uno:ObjectAlignLeft",
     ".uno:AVMediaToolBox",
-    ".uno:AlignCenter",
     ".uno:AVMediaPlayer"
    ],
    "generated": true
@@ -1097,10 +1051,8 @@
    "commands": [
     ".uno:TransformDialog",
     ".uno:FormProperties",
-    ".uno:Label",
     ".uno:UseWizards",
-    ".uno:ShowFmExplorer",
-    ".uno:Edit"
+    ".uno:GroupBox"
    ],
    "generated": true
   },
@@ -1108,11 +1060,12 @@
    "app": "draw",
    "box": "pmhbMaster",
    "commands": [
-    ".uno:RenameMasterPage",
+    ".uno:InsertMasterPage",
     ".uno:PageSetup",
     ".uno:CloseMasterView",
-    ".uno:DeleteMasterPage",
-    ".uno:SelectBackground"
+    ".uno:MasterLayouts",
+    ".uno:SelectBackground",
+    ".uno:SaveBackground"
    ],
    "generated": true
   },
@@ -1121,12 +1074,8 @@
    "box": "pmhb3D",
    "commands": [
     ".uno:TransformDialog",
-    ".uno:FormatArea",
-    ".uno:ObjectAlignLeft",
     ".uno:Window3D",
-    ".uno:AdvancedMode",
-    ".uno:FillStyle",
-    ".uno:AlignCenter"
+    ".uno:FormatArea"
    ],
    "generated": true
   }
