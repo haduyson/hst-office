@@ -52,7 +52,7 @@
       if (!code || !status) return;
       try {
         await navigator.clipboard.writeText(code.textContent.trim());
-        status.textContent = 'Đã sao chép lệnh giải nén.';
+        status.textContent = 'Đã sao chép lệnh.';
       } catch {
         const range = document.createRange();
         range.selectNodeContents(code);
@@ -64,18 +64,33 @@
     });
   });
 
-  // Opening the Linux guide from a card also expands the native details element.
-  const openLinkedDetails = () => {
-    if (window.location.hash === '#cai-dat-linux') {
-      const details = document.getElementById('cai-dat-linux');
-      if (details) details.open = true;
-    }
+  // Hướng dẫn cài Linux đã chuyển sang trang Hướng dẫn cài đặt; giữ liên kết cũ /#cai-dat-linux.
+  const movedLinuxGuide = () => {
+    if (window.location.hash === '#cai-dat-linux') window.location.replace('/cai-dat/#linux');
   };
-  window.addEventListener('hashchange', openLinkedDetails);
-  document.querySelectorAll('a[href="#cai-dat-linux"]').forEach((link) => {
-    link.addEventListener('click', openLinkedDetails);
+  movedLinuxGuide();
+  window.addEventListener('hashchange', movedLinuxGuide);
+
+  // Menu thả xuống "Hướng dẫn": CSS mở khi rê chuột/focus; bấm nút để mở hoặc đóng trên màn hình cảm ứng.
+  document.querySelectorAll('.nav-group').forEach((group) => {
+    const toggle = group.querySelector('.nav-group-toggle');
+    const setOpen = (open) => {
+      group.classList.toggle('is-open', open);
+      group.classList.toggle('is-closed', !open);
+      toggle.setAttribute('aria-expanded', String(open));
+    };
+    const reset = () => {
+      group.classList.remove('is-open', 'is-closed');
+      toggle.setAttribute('aria-expanded', 'false');
+    };
+    toggle.addEventListener('click', () => setOpen(!group.classList.contains('is-open')));
+    group.addEventListener('mouseleave', () => group.classList.remove('is-closed'));
+    group.addEventListener('focusout', (event) => { if (!group.contains(event.relatedTarget)) reset(); });
+    group.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && group.classList.contains('is-open')) { setOpen(false); toggle.focus(); }
+    });
+    document.addEventListener('click', (event) => { if (!group.contains(event.target)) reset(); });
   });
-  openLinkedDetails();
 
   // Điểm mới: bản cũ thu gọn trong <details>; link tới #v<phiên bản> thì tự mở bản đó.
   const openVersion = () => {

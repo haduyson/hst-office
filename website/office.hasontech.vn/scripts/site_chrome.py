@@ -8,10 +8,11 @@ không thể lệch nhau giữa các trang. Sửa menu: sửa NAV rồi chạy s
 import re
 
 # (nhãn, đường dẫn, khóa mục đang mở). Khóa so với `active` của trang để gắn aria-current.
+# Mục có danh sách con (thay cho đường dẫn) thành menu thả xuống; trên điện thoại các mục con hiện thẳng.
 NAV = [
     ("Trang chủ", "/", "home"),
     ("Tính năng", "/#tinh-nang", None),
-    ("Hướng dẫn", "/huong-dan/", "guide"),
+    ("Hướng dẫn", [("Hướng dẫn cài đặt", "/cai-dat/", "install"), ("Hướng dẫn sử dụng", "/huong-dan/", "guide")], None),
     ("Điểm mới", "/diem-moi/", "whats-new"),
     ("Liên hệ", "#lien-he", None),
 ]
@@ -20,7 +21,8 @@ CTA = ("Tải miễn phí", "/#tai-ve")
 SUPPORT_BAR = '<a class="support-bar" href="https://www.facebook.com/share/g/1TvVaU6q4V/" target="_blank" rel="noopener nofollow"><svg class="fb-icon" aria-hidden="true" viewBox="0 0 24 24" width="16" height="16"><path fill="currentColor" d="M24 12a12 12 0 1 0-13.9 11.9v-8.400H7.100V12h3V9.400c0-3 1.800-4.700 4.500-4.700 1.300 0 2.700.2 2.700.2v3h-1.500c-1.500 0-2 .9-2 1.900V12h3.400l-.5 3.500h-2.900v8.400A12 12 0 0 0 24 12Z"/></svg><span>Cần hỗ trợ khi dùng HST Office? <strong>Tham gia nhóm Facebook</strong></span> <span aria-hidden="true">→</span></a>'
 NAV_SUPPORT = '<a class="nav-support" href="https://www.facebook.com/share/g/1TvVaU6q4V/" target="_blank" rel="noopener nofollow">Nhóm hỗ trợ</a>'
 FOOTER_NAV = [("Trang chủ", "/", "home"), ("Tính năng", "/#tinh-nang", None), ("Tải về", "/#tai-ve", None),
-              ("Hướng dẫn", "/huong-dan/", "guide"), ("Điểm mới", "/diem-moi/", "whats-new"),
+              ("Hướng dẫn cài đặt", "/cai-dat/", "install"), ("Hướng dẫn sử dụng", "/huong-dan/", "guide"),
+              ("Điểm mới", "/diem-moi/", "whats-new"),
               ("Quyền riêng tư", "/quyen-rieng-tu/", "privacy")]
 
 LOGO = ('<picture><source srcset="/assets/img/hst-office-logo-400.webp?v=1" type="image/webp">'
@@ -33,8 +35,18 @@ def _link(label, href, key, active, cls=""):
     return f'<a{cls_attr} href="{href}"{current}>{label}</a>'
 
 
+def _nav_group(label, children, active):
+    """Menu thả xuống: mở khi rê chuột/focus (không cần JS), main.js thêm bấm để mở trên màn hình cảm ứng."""
+    current = any(k == active for _l, _h, k in children)
+    items = "".join(_link(l, h, k, active) for l, h, k in children)
+    cls = "nav-group is-current" if current else "nav-group"
+    return (f'<div class="{cls}"><button class="nav-group-toggle" type="button" aria-expanded="false" aria-controls="nav-sub-guide">'
+            f'{label}<span class="nav-caret" aria-hidden="true"></span></button>'
+            f'<div class="nav-submenu" id="nav-sub-guide">{items}</div></div>')
+
+
 def render_header(active):
-    links = "\n        ".join(_link(l, h, k, active) for l, h, k in NAV)
+    links = "\n        ".join(_nav_group(l, h, active) if isinstance(h, list) else _link(l, h, k, active) for l, h, k in NAV)
     return f"""{SUPPORT_BAR}
   <header class="site-header">
     <div class="container header-inner">
