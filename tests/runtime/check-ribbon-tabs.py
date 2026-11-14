@@ -25,7 +25,7 @@ HEAD = ["Tệp tin", "Trang đầu", "Chèn"]
 TAIL_1_0 = ["Xem lại", "Xem", "Trợ giúp", "Phần mở rộng"]
 TABS = {"writer": HEAD + ["Thiết kế", "Bố cục", "Tham khảo", "Gửi thư"] + TAIL_1_0,
         "calc": HEAD + ["Bố trí trang", "Công thức", "Dữ liệu"] + TAIL_1_0,
-        "impress": HEAD + ["Thiết kế", "Chuyển tiếp", "Hoạt hình", "Trình chiếu"] + TAIL_1_0,
+        "impress": HEAD + ["Thiết kế", "Chuyển tiếp", "Hiệu ứng", "Trình chiếu"] + TAIL_1_0,
         # HST Draw edits PDFs (hst-ribbon-draw.patch): its own tabs; Xem last, as in the other apps
         "draw": HEAD + ["Sắp xếp", "Trang", "Xuất/PDF", "Xem lại", "Xem", "Trợ giúp", "Phần mở rộng"]}
 NAMES = {"writer": "HST Writer", "calc": "HST Sheets", "impress": "HST Slides", "draw": "HST Draw"}

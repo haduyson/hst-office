@@ -122,7 +122,7 @@ def edit_impress(b):
         b.ribbon_label(bid, key)
     b.drop("Layout-Menu")
 
-    # Chuyển tiếp, Hoạt hình
+    # Chuyển tiếp, Hiệu ứng
     b.expand_gallery("gdTransitionsSlide", "bxHstSlideChangeWindow6")
     b.ribbon_label("btnHstSlideChangeWindow6", "transition_pane")
     b.expand_gallery("gdAnimationsMain", "bxHstCustomAnimation7")
@@ -171,7 +171,7 @@ def edit_impress(b):
 
 def effect_buttons(b):
     """Chuyển tiếp: Xem trước and the gallery, then a Thời gian group (Thời lượng, Tự chuyển sau, Áp dụng cho tất
-    cả); Hoạt hình: Xem trước first."""
+    cả); Hiệu ứng: Xem trước first."""
     for box, bid, command in (("bxHstSlideChangeWindow6", "btnHstTransitionPreview", ".uno:HstPreviewTransition"),
                               ("bxHstCustomAnimation7", "btnHstAnimationPreview", ".uno:HstPreviewAnimation")):
         hold = b.button(bid, command)

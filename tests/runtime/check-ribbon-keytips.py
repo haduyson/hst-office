@@ -23,7 +23,7 @@ import ribbon_tabs_gui as gui  # noqa: E402
 
 TABS = {"writer": {"Trang đầu": "H", "Chèn": "N", "Thiết kế": "G", "Bố cục": "P", "Tham khảo": "S", "Gửi thư": "M", "Xem lại": "R", "Xem": "W"},
         "calc": {"Trang đầu": "H", "Chèn": "N", "Bố trí trang": "P", "Công thức": "M", "Dữ liệu": "A", "Xem lại": "R", "Xem": "W"},
-        "impress": {"Trang đầu": "H", "Chèn": "N", "Thiết kế": "G", "Chuyển tiếp": "K", "Hoạt hình": "A", "Trình chiếu": "S", "Xem lại": "R", "Xem": "W"}}
+        "impress": {"Trang đầu": "H", "Chèn": "N", "Thiết kế": "G", "Chuyển tiếp": "K", "Hiệu ứng": "A", "Trình chiếu": "S", "Xem lại": "R", "Xem": "W"}}
 ROWS = []
 
 
