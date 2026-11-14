@@ -1,0 +1,1404 @@
+HST Office: the document windows of the Tabbed user interface draw their own title bar on Windows (gap list G19).
+
+The OS caption and the ribbon tab row become one top row, 48 logical px high as in the reference suite: a drag
+band above the unchanged tab row (quick access toolbar, tabs, feature search) and, at its right end, the window
+title then minimize, maximize/restore and close drawn in the Windows 10/11 style (46 px buttons, hover and
+pressed states, red close, dimmed when inactive, system colours in high contrast, light on a dark theme).
+At 100 % this gives back 18 px (31 px caption + 35 px tab row -> 48 px). Ribbon groups, tab row height and the
+banner slot are untouched.
+
+- vcl/win (HstWinTitleBar.cxx, hook in SalFrameWndProc): WM_NCCALCSIZE takes the caption out (a maximized
+  window keeps its client inside the monitor and one pixel for an auto-hide taskbar); WM_NCHITTEST keeps every
+  OS behaviour native: drag areas answer HTCAPTION (move, double-click maximize, Aero Snap, right-click
+  system menu; Alt+Space is unchanged), the buttons HTMINBUTTON/HTMAXBUTTON/HTCLOSE (Windows 11 shows Snap
+  Layouts on the maximize button), the top edge HTTOP*. Button presses never reach DefWindowProc; the frame
+  tracks hover and press, vcl paints them, WM_SYSCOMMAND runs them. WM_GETTITLEBARINFOEX reports the real
+  rectangles for UI Automation. A one-pixel DWM frame extension keeps the shadow. Window states stay in
+  system-caption terms, so switching between sessions never moves or grows a window.
+- vcl (HstTitleBar*.cxx, ImplBorderWindow): wanted for a top-level work window with the Tabbed notebookbar,
+  no shown menu bar, not full screen, and the option off; the switch runs asynchronously. Empty parts of the
+  tab row are caption, tabs and controls stay client. The tab row keeps room for the caption area through
+  hst::titlebar::RowReserve (NotebookbarTabControlBase::ImplPlaceTabs); the title yields before the search box.
+- Tools > Options > HST Office > View > Interface > "Use the operating system's title bar"
+  (org.openoffice.Office.Common/Misc/HstSystemTitleBar, default false) switches every window at once; shown
+  only on Windows. Linux (gtk3) and macOS keep the system title bar.
+
+License: modified upstream files keep their license (MPL-2.0); new files MPL-2.0.
+Test: tests/unit/test_custom_titlebar.py; tests/realwin/check-custom-titlebar.ps1 on Windows.
+---
+--- a/cui/source/options/optgdlg.cxx
++++ b/cui/source/options/optgdlg.cxx
+@@ -78,6 +78,7 @@
+ #include <com/sun/star/linguistic2/XLinguProperties.hpp>
+ 
+ #include <vcl/vclenum.hxx>
++#include <vcl/HstTitleBar.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/settings.hxx>
+ #include <vcl/window.hxx>
+@@ -690,7 +691,12 @@ OfaViewTabPage::OfaViewTabPage(weld::Container* pPage, weld::DialogController* p
+     , m_xMouseMiddleLB(m_xBuilder->weld_combo_box(u"mousemiddle"_ustr))
+     , m_xMouseMiddleImg(m_xBuilder->weld_widget(u"lockmousemiddle"_ustr))
+     , m_xRunGPTests(m_xBuilder->weld_button(u"btn_rungptest"_ustr))
++    , m_xSystemTitleBarFrame(m_xBuilder->weld_widget(u"frametitlebar"_ustr))
++    , m_xSystemTitleBar(m_xBuilder->weld_check_button(u"systemtitlebar"_ustr))
+ {
++    // HST Office: only where the own title bar exists (Windows); elsewhere the system title bar is the only one
++    m_xSystemTitleBarFrame->set_visible(hst::titlebar::Supported());
++
+     m_xFontAntiAliasing->connect_toggled( LINK( this, OfaViewTabPage, OnAntialiasingToggled ) );
+ 
+     m_xUseSkia->connect_toggled(LINK(this, OfaViewTabPage, OnUseSkiaToggled));
+@@ -800,7 +806,8 @@ OUString OfaViewTabPage::GetAllStrings()
+     OUStringBuffer sAllStrings;
+     OUString labels[] = { u"label16"_ustr, u"label1"_ustr,      u"label6"_ustr,       u"label15"_ustr,
+                           u"label14"_ustr, u"label8"_ustr,      u"label9"_ustr,       u"label4"_ustr, u"label12"_ustr,
+-                          u"label2"_ustr,  u"skiaenabled"_ustr, u"skiadisabled"_ustr, u"label5"_ustr, u"aafrom"_ustr };
++                          u"label2"_ustr,  u"skiaenabled"_ustr, u"skiadisabled"_ustr, u"label5"_ustr, u"aafrom"_ustr,
++                          u"labeltitlebar"_ustr };
+ 
+     for (const auto& label : labels)
+     {
+@@ -809,7 +816,8 @@ OUString OfaViewTabPage::GetAllStrings()
+     }
+ 
+     OUString checkButton[]
+-        = { u"useaccel"_ustr, u"useaa"_ustr, u"useskia"_ustr, u"forceskiagpu"_ustr, u"showfontpreview"_ustr, u"aafont"_ustr };
++        = { u"useaccel"_ustr, u"useaa"_ustr, u"useskia"_ustr, u"forceskiagpu"_ustr, u"showfontpreview"_ustr, u"aafont"_ustr,
++            u"systemtitlebar"_ustr };
+ 
+     for (const auto& check : checkButton)
+     {
+@@ -893,8 +901,18 @@ bool OfaViewTabPage::FillItemSet( SfxItemSet* )
+         bModified = true;
+     }
+ 
++    const bool bTitleBarChanged = m_xSystemTitleBar->get_state_changed_from_saved();
++    if (bTitleBarChanged)
++    {
++        officecfg::Office::Common::Misc::HstSystemTitleBar::set(m_xSystemTitleBar->get_active(), xChanges);
++        bModified = true;
++    }
++
+     xChanges->commit();
+ 
++    if (bTitleBarChanged) // every document window switches now, no restart
++        hst::titlebar::SettingChanged();
++
+     if ( bAppearanceChanged )
+     {
+         batch->commit();
+@@ -980,6 +998,11 @@ void OfaViewTabPage::Reset( const SfxItemSet* )
+     m_xAAPointLimit->save_value();
+     m_xFontShowCB->save_state();
+ 
++    bEnable = !officecfg::Office::Common::Misc::HstSystemTitleBar::isReadOnly();
++    m_xSystemTitleBar->set_active(officecfg::Office::Common::Misc::HstSystemTitleBar::get());
++    m_xSystemTitleBar->set_sensitive(bEnable);
++    m_xSystemTitleBar->save_state();
++
+     OnAntialiasingToggled(*m_xFontAntiAliasing);
+     UpdateSkiaStatus();
+ }
+--- a/cui/source/options/optgdlg.hxx
++++ b/cui/source/options/optgdlg.hxx
+@@ -137,6 +137,9 @@ private:
+     std::unique_ptr<weld::ComboBox> m_xMouseMiddleLB;
+     std::unique_ptr<weld::Widget> m_xMouseMiddleImg;
+     std::unique_ptr<weld::Button> m_xRunGPTests;
++    // HST Office: "Use the operating system's title bar" (Common/Misc/HstSystemTitleBar)
++    std::unique_ptr<weld::Widget> m_xSystemTitleBarFrame;
++    std::unique_ptr<weld::CheckButton> m_xSystemTitleBar;
+ 
+     DECL_LINK(OnAntialiasingToggled, weld::Toggleable&, void);
+     DECL_LINK(OnUseSkiaToggled, weld::Toggleable&, void);
+--- a/cui/uiconfig/ui/optviewpage.ui
++++ b/cui/uiconfig/ui/optviewpage.ui
+@@ -18,7 +18,7 @@
+     <property name="border-width">6</property>
+     <property name="column-spacing">24</property>
+     <child>
+-      <!-- n-columns=1 n-rows=1 -->
++      <!-- n-columns=1 n-rows=2 -->
+       <object class="GtkGrid" id="grid2">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+@@ -106,6 +106,45 @@
+             <property name="top-attach">0</property>
+           </packing>
+         </child>
++        <child>
++          <object class="GtkFrame" id="frametitlebar">
++            <property name="can-focus">False</property>
++            <property name="hexpand">True</property>
++            <property name="label-xalign">0</property>
++            <property name="shadow-type">none</property>
++            <child>
++              <object class="GtkCheckButton" id="systemtitlebar">
++                <property name="label" translatable="yes" context="optviewpage|systemtitlebar">Use the operating system's _title bar</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="margin-start">12</property>
++                <property name="margin-top">6</property>
++                <property name="use-underline">True</property>
++                <property name="draw-indicator">True</property>
++                <child internal-child="accessible">
++                  <object class="AtkObject" id="systemtitlebar-atkobject">
++                    <property name="AtkObject::accessible-description" translatable="yes" context="extended_tip|systemtitlebar">Shows the title bar of the operating system above the ribbon instead of the title bar that shares the top row with the ribbon tabs.</property>
++                  </object>
++                </child>
++              </object>
++            </child>
++            <child type="label">
++              <object class="GtkLabel" id="labeltitlebar">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="label" translatable="yes" context="optviewpage|labeltitlebar">Interface</property>
++                <attributes>
++                  <attribute name="weight" value="bold"/>
++                </attributes>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="left-attach">0</property>
++            <property name="top-attach">1</property>
++          </packing>
++        </child>
+       </object>
+       <packing>
+         <property name="left-attach">0</property>
+--- /dev/null
++++ b/include/vcl/HstTitleBar.hxx
+@@ -0,0 +1,28 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: the own title bar of the document windows (Tabbed user interface, Windows). The top row
++// merges the window title and the caption buttons with the ribbon tab row; see
++// vcl/source/window/HstTitleBar.cxx. Tools ▸ Options ▸ View ▸ "Use the operating system's title bar"
++// (org.openoffice.Office.Common/Misc/HstSystemTitleBar) gives the system title bar back.
++
++#include <vcl/dllapi.h>
++
++namespace hst::titlebar
++{
++/// The platform can draw the own title bar; the option is shown only then.
++VCL_DLLPUBLIC bool Supported();
++
++/// The option changed: every document window takes the own title bar or gives it back, now.
++VCL_DLLPUBLIC void SettingChanged();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/include/vcl/tabctrl.hxx
++++ b/include/vcl/tabctrl.hxx
+@@ -189,6 +189,8 @@ public:
+     void SetToolBox( ToolBox* pToolBox );
+     ToolBox* GetToolBox() { return m_pShortcuts; }
+     Control* GetOpenMenu();
++    /// HST Office: height of the tab row (the own title bar continues it, vcl/source/window/HstTitleBar.cxx)
++    static tools::Long HstHeaderHeight() { return m_nHeaderHeight; }
+ 
+     virtual Size        calculateRequisition() const override;
+ 
+--- a/officecfg/registry/schema/org/openoffice/Office/Common.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Common.xcs
+@@ -5079,6 +5079,17 @@
+         </info>
+         <value>true</value>
+       </prop>
++      <prop oor:name="HstSystemTitleBar" oor:type="xs:boolean" oor:nillable="false">
++        <!-- HST Office: own title bar of the document windows (vcl/source/window/HstTitleBar.cxx) -->
++        <info>
++          <desc>Keeps the operating system's title bar on document windows. When false (default),
++          Windows document windows with the Tabbed user interface draw their own title bar: the window
++          title and the minimize, maximize and close buttons share the top row with the ribbon tabs.
++          Set to true if a graphics driver, remote desktop or window manager has trouble with it.</desc>
++          <label>Use the operating system's title bar</label>
++        </info>
++        <value>false</value>
++      </prop>
+       <prop oor:name="UseSystemPrintDialog" oor:type="xs:boolean" oor:nillable="false">
+         <info>
+           <desc>Determines if the system's print dialog should be used. If
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -23966,3 +23966,21 @@ msgstr "Mỗi tệp một cửa sổ riêng"
+ msgctxt "optgeneralpage|applyopenwindows"
+ msgid "_Apply to the open windows"
+ msgstr "Á_p dụng cho các cửa sổ đang mở"
++
++#. hstTB
++#: cui/uiconfig/ui/optviewpage.ui
++msgctxt "optviewpage|labeltitlebar"
++msgid "Interface"
++msgstr "Giao diện"
++
++#. hstTB
++#: cui/uiconfig/ui/optviewpage.ui
++msgctxt "optviewpage|systemtitlebar"
++msgid "Use the operating system's _title bar"
++msgstr "Dùng _thanh tiêu đề của hệ điều hành"
++
++#. hstTB
++#: cui/uiconfig/ui/optviewpage.ui
++msgctxt "extended_tip|systemtitlebar"
++msgid "Shows the title bar of the operating system above the ribbon instead of the title bar that shares the top row with the ribbon tabs."
++msgstr "Hiện thanh tiêu đề của hệ điều hành phía trên ribbon thay cho thanh tiêu đề dùng chung hàng trên cùng với các thẻ ribbon."
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -178,6 +178,8 @@ $(eval $(call gb_Library_add_exception_objects,vcl,\
+     vcl/source/window/accel \
+     vcl/source/window/accmgr \
+     vcl/source/window/brdwin \
++    vcl/source/window/HstTitleBar \
++    vcl/source/window/HstTitleBarWindow \
+     vcl/source/window/bufferdevice \
+     vcl/source/window/accessibility \
+     vcl/source/window/colorpicker \
+--- a/vcl/Library_vclplug_win.mk
++++ b/vcl/Library_vclplug_win.mk
+@@ -107,6 +107,7 @@ $(eval $(call gb_Library_add_exception_objects,vclplug_win,\
+     vcl/win/gdi/salvd \
+     vcl/win/gdi/winlayout \
+     vcl/win/gdi/DWriteTextRenderer \
++    vcl/win/window/HstWinTitleBar \
+     vcl/win/window/keynames \
+     vcl/win/window/salframe \
+     vcl/win/window/salmenu \
+--- /dev/null
++++ b/vcl/inc/HstTitleBarGeometry.hxx
+@@ -0,0 +1,84 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: geometry of the own title bar (vcl/source/window/HstTitleBar.cxx), in pixels for a DPI
++// scale factor. No VCL types, so that tests/unit/test_custom_titlebar.py compiles it on its own.
++
++#include <algorithm>
++#include <cmath>
++
++namespace hst::titlebar
++{
++/// What the title bar has at a point; the frame turns it into the system hit-test code.
++enum Hit : int
++{
++    Client = 0, ///< a control of the window: tabs, quick access buttons, search
++    Caption = 1, ///< the title or an empty part of the row: drag, double-click, system menu
++    MinButton = 2,
++    MaxButton = 3,
++    CloseButton = 4
++};
++
++/// The merged top row (drag band + ribbon tab row) is this high, as in the reference suite.
++constexpr long ROW_HEIGHT = 48;
++/// The drag band above the tab row is at least this high, so a resize edge never covers a tab.
++constexpr long MIN_BAND = 4;
++/// Width of one caption button (Windows 10 and 11).
++constexpr long BUTTON_WIDTH = 46;
++/// The title shows only when this much room is left; the feature search keeps its preferred width first.
++constexpr long TITLE_MIN = 96;
++constexpr long TITLE_MAX = 420;
++constexpr long TITLE_PAD = 12;
++constexpr long SEARCH_PREFERRED = 320;
++
++inline long scaled(long n, double fScale) { return std::lround(n * fScale); }
++
++/// The drag band above a tab row nTabRow pixels high.
++inline long bandHeight(long nTabRow, double fScale)
++{
++    return std::max(scaled(MIN_BAND, fScale), scaled(ROW_HEIGHT, fScale) - nTabRow);
++}
++
++inline long buttonsWidth(double fScale) { return 3 * scaled(BUTTON_WIDTH, fScale); }
++
++/** Width of the title slot, left of the buttons. nFree: room the tab row has after its tabs and before
++    the buttons; nText: width of the title text. The title yields first: the search box keeps
++    SEARCH_PREFERRED, a title that does not fit is elided, below TITLE_MIN it is not shown. */
++inline long titleWidth(long nFree, long nText, double fScale)
++{
++    const long nWant = std::min(nText + 2 * scaled(TITLE_PAD, fScale), scaled(TITLE_MAX, fScale));
++    const long nRoom = std::min(nFree - scaled(SEARCH_PREFERRED, fScale), nWant);
++    if (nText <= 0 || nRoom <= 0)
++        return 0;
++    return (nRoom >= nWant || nRoom >= scaled(TITLE_MIN, fScale)) ? nRoom : 0;
++}
++
++/// The caption area (title, then the three buttons) at x of an area nWidth pixels wide.
++inline Hit captionAreaHit(long nX, long nWidth, double fScale)
++{
++    const long nButton = scaled(BUTTON_WIDTH, fScale);
++    const long nFromRight = nWidth - nX;
++    if (nX < 0 || nFromRight <= 0)
++        return Client;
++    if (nFromRight <= nButton)
++        return CloseButton;
++    if (nFromRight <= 2 * nButton)
++        return MaxButton;
++    if (nFromRight <= 3 * nButton)
++        return MinButton;
++    return Caption;
++}
++
++/// The system resize edge at the top of a restored window: y below nFrame pixels.
++inline bool onTopEdge(long nY, long nFrame) { return nY >= 0 && nY < nFrame; }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/inc/HstTitleBarWindow.hxx
+@@ -0,0 +1,56 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: the caption area of the own title bar (vcl/source/window/HstTitleBar.cxx): the window
++// title and the minimize, maximize/restore and close buttons at the right end of the merged top row.
++// The border window places it over the right end of the ribbon tab row, which keeps that room free
++// (hst::titlebar::RowReserve). It receives no mouse input: the frame answers the system hit test and
++// reports hover and press (SalFrame::m_aHstTitleBarButtons).
++
++#include <vcl/window.hxx>
++
++class HstTitleBar final : public vcl::Window
++{
++public:
++    explicit HstTitleBar(vcl::Window* pParent);
++
++    /// The button under the pointer and the pressed one (hst::titlebar::Hit), repainting on a change.
++    void SetButtons(int nHot, int nPressed);
++    /// Width of the title slot left of the buttons; 0 hides the title.
++    void SetTitleWidth(tools::Long nWidth) { mnTitleWidth = nWidth; }
++    tools::Long TitleWidth() const { return mnTitleWidth; }
++    /// Width of the window title in the title font.
++    tools::Long TitleTextWidth();
++    /// Height of the drag band above the tab row; the title is centred in the row below it.
++    void SetBand(tools::Long nBand) { mnBand = nBand; }
++    /// The part at a point of this window (hst::titlebar::Hit).
++    int HitTest(const Point& rPos) const;
++
++    virtual void Paint(vcl::RenderContext& rDev, const tools::Rectangle& rRect) override;
++
++private:
++    void DrawButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect, int nButton, const Color& rBack,
++                    bool bActive);
++
++    int mnHot = 0;
++    int mnPressed = 0;
++    tools::Long mnTitleWidth = 0;
++    tools::Long mnBand = 0;
++};
++
++namespace hst::titlebar
++{
++/** The room the ribbon tab row rTabControl keeps free at its right end for the caption area, 0 without
++    the own title bar. nFree: room left in the row after the tabs and before the menu button. */
++tools::Long RowReserve(const vcl::Window& rTabControl, tools::Long nFree);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/inc/brdwin.hxx
++++ b/vcl/inc/brdwin.hxx
+@@ -26,6 +26,8 @@
+ #include <com/sun/star/frame/XFrame.hpp>
+ 
+ class HstRibbonBanner;
++class HstTitleBar;
++class NotebookbarTabControlBase;
+ class ImplBorderWindowView;
+ struct NotebookBarAddonsItem;
+ enum class DrawButtonFlags;
+@@ -88,6 +90,9 @@ private:
+     // HST Office: the HASON TECH banner beside a notebookbar whose content has none (docs/BANNERS.md)
+     VclPtr<HstRibbonBanner> mpHstBanner;
+     tools::Rectangle        maHstStrip; // the notebookbar's strip beside which the banner sits, empty without
++    // HST Office: the own title bar (vcl/source/window/HstTitleBar.cxx): caption area and pending switch
++    VclPtr<HstTitleBar>     mpHstTitleBar;
++    ImplSVEvent*            mpHstTitleBarEvent = nullptr;
+     tools::Long                    mnMinWidth;
+     tools::Long                    mnMinHeight;
+     tools::Long                    mnMaxWidth;
+@@ -165,6 +170,23 @@ public:
+     tools::Long HstNotebookBarStripHeight() const;
+     /// HST Office: the banner beside the notebookbar, for accessibility (null without).
+     HstRibbonBanner* GetHstBanner() const { return mpHstBanner.get(); }
++    /// HST Office: decide whether the window draws its own title bar; a change is applied asynchronously.
++    void HstUpdateTitleBar();
++    /// HST Office: height of the drag band above the notebookbar, 0 without the own title bar.
++    tools::Long HstTitleBand() const;
++    /// HST Office: the own title bar's part at a point of the window (hst::titlebar::Hit).
++    int HstHitTest(const Point& rPos) const;
++    /// HST Office: place the caption area at the right end of the top row.
++    void HstPlaceTitleBar();
++    /// HST Office: the caption area, null without the own title bar.
++    HstTitleBar* GetHstTitleBar() const { return mpHstTitleBar.get(); }
++    /// HST Office: the ribbon tab row of the notebookbar (Tabbed user interface), null without.
++    NotebookbarTabControlBase* HstTabControl() const;
++    bool HstIsDisplayActive() const { return mbDisplayActive; }
++private:
++    bool HstWantsTitleBar() const;
++    DECL_LINK(HstTitleBarHdl, void*, void);
++public:
+ 
+     void                    SetMinOutputSize( tools::Long nWidth, tools::Long nHeight )
+                                 { mnMinWidth = nWidth; mnMinHeight = nHeight; }
+--- a/vcl/inc/salframe.hxx
++++ b/vcl/inc/salframe.hxx
+@@ -26,6 +26,8 @@
+ #include <vcl/help.hxx>
+ #include <o3tl/typed_flags_set.hxx>
+ 
++#include <functional>
++
+ #include <vcl/window.hxx>
+     // complete vcl::Window for SalFrame::CallCallback under -fsanitize=function
+ 
+@@ -324,6 +326,18 @@ public:
+ 
+     virtual void  SetTaskBarProgress(int /*nCurrentProgress*/) {}
+     virtual void  SetTaskBarState(VclTaskBarStates /*eTaskBarState*/) {}
++
++    /** HST Office: the window draws its own title bar in the client area (vcl/source/window/HstTitleBar.cxx,
++        Windows: vcl/win/window/HstWinTitleBar.cxx). Returns whether the platform does it; the default keeps
++        the system title bar. */
++    virtual bool  HstSetOwnTitleBar(bool /*bOn*/) { return false; }
++    /// HST Office: the own title bar's part (hst::titlebar::Hit) at a client point, set by vcl
++    std::function<int(tools::Long, tools::Long)> m_aHstTitleBarHitTest;
++    /// HST Office: the caption button under the pointer and the pressed one (hst::titlebar::Hit), set by vcl
++    std::function<void(int, int)> m_aHstTitleBarButtons;
++    /// HST Office: height of the own title bar row and width of its caption buttons, in client pixels
++    tools::Long m_nHstTitleBarHeight = 0;
++    tools::Long m_nHstCaptionButtonsWidth = 0;
+ };
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/inc/win/salframe.h
++++ b/vcl/inc/win/salframe.h
+@@ -83,6 +83,10 @@ public:
+     sal_Int32               mnDisplay;              // Display used for Fullscreen, 0 is primary monitor
+     bool                    mbPropertiesStored;     // has values stored in the window property store
+     POINT                   maFirstPanGesturePt;    // has value stores the start point of the panning gesture
++    // HST Office: own title bar (vcl/win/window/HstWinTitleBar.cxx)
++    bool                    mbHstOwnTitleBar = false; // the caption is drawn by vcl in the client area
++    int                     mnHstHotButton = 0;     // caption button under the pointer (hst::titlebar::Hit)
++    int                     mnHstPressedButton = 0; // caption button pressed with the left mouse button
+ 
+     void updateScreenNumber();
+ 
+@@ -99,6 +103,7 @@ public:
+     virtual void                SetTitle( const OUString& rTitle ) override;
+     virtual void                SetIcon( sal_uInt16 nIcon ) override;
+     virtual void                SetTabGroupMember( bool bMember ) override;
++    virtual bool                HstSetOwnTitleBar( bool bOn ) override;
+     virtual void                SetMenu( SalMenu* pSalMenu ) override;
+     virtual void                SetExtendedFrameStyle( SalExtStyle nExtStyle ) override;
+     virtual void                Show( bool bVisible, bool bNoActivate = false ) override;
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -22,6 +22,7 @@
+ #include <tools/json_writer.hxx>
+ #include <tools/mapunit.hxx>
+ #include <vcl/HstRibbonContext.hxx>
++#include <HstTitleBarWindow.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
+ #include <algorithm>
+ #include <chrono>
+@@ -2615,6 +2616,12 @@ bool NotebookbarTabControlBase::ImplPlaceTabs( tools::Long nWidth )
+         nX += aSize.Width();
+     }
+ 
++    // HST Office: with the own title bar the window title and the caption buttons take the right end of
++    // the row (HstTitleBar.cxx); the search box and the menu button stop before them
++    const tools::Long nHstCaption = hst::titlebar::RowReserve(*this, nWidth - nHamburgerWidth - nX - nHstGap);
++    nWidth -= nHstCaption;
++    nMaxWidth -= nHstCaption;
++
+     // we always have only one line of tabs
+     // tdf#127610 subtract width of shortcuts from width available for tab items
+     if (!pHstSearch) // with the search box the tabs stay left-aligned, the box fills the row
+--- /dev/null
++++ b/vcl/source/window/HstTitleBar.cxx
+@@ -0,0 +1,218 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the own title bar of the document windows, Tabbed user interface (gap list G19).
++// The merged top row is ROW_HEIGHT logical px: a drag band above the ribbon tab row (quick access
++// toolbar, tabs, feature search), and at its right end the caption area (HstTitleBar): the window title,
++// then minimize, maximize/restore and close in the style of the system. The frame takes the caption out
++// of the system frame and asks HstHitTest what is under the pointer (SalFrame::HstSetOwnTitleBar,
++// Windows: vcl/win/window/HstWinTitleBar.cxx). Other platforms, other user interfaces, full screen, a
++// shown menu bar and the option "Use the operating system's title bar" keep the system title bar.
++
++#include <sal/config.h>
++
++#include <brdwin.hxx>
++#include <salframe.hxx>
++#include <window.h>
++#include <HstTitleBarGeometry.hxx>
++#include <HstTitleBarWindow.hxx>
++
++#include <comphelper/configuration.hxx>
++#include <officecfg/Office/Common.hxx>
++#include <vcl/HstTitleBar.hxx>
++#include <vcl/notebookbar/notebookbar.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/tabctrl.hxx>
++#include <vcl/wrkwin.hxx>
++
++using namespace hst::titlebar;
++
++namespace
++{
++ImplBorderWindow* BorderOf(const vcl::Window& rWindow)
++{
++    vcl::Window* pFrame = rWindow.ImplGetFrameWindow();
++    return pFrame && pFrame->GetType() == WindowType::BORDERWINDOW ? static_cast<ImplBorderWindow*>(pFrame)
++                                                                    : nullptr;
++}
++}
++
++NotebookbarTabControlBase* ImplBorderWindow::HstTabControl() const
++{
++    if (!mpNotebookBar || mpNotebookBar->isDisposed())
++        return nullptr;
++    // the tab row is a child or grandchild of the notebookbar
++    for (vcl::Window* pChild = mpNotebookBar->GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (auto* pTab = dynamic_cast<NotebookbarTabControlBase*>(pChild))
++            return pTab;
++        for (vcl::Window* pGrand = pChild->GetWindow(GetWindowType::FirstChild); pGrand;
++             pGrand = pGrand->GetWindow(GetWindowType::Next))
++            if (auto* pTab = dynamic_cast<NotebookbarTabControlBase*>(pGrand))
++                return pTab;
++    }
++    return nullptr;
++}
++
++bool ImplBorderWindow::HstWantsTitleBar() const
++{
++    if (!mpWindowImpl->mbFrame || isDisposed() || !Supported() || comphelper::IsFuzzing())
++        return false;
++    try
++    {
++        if (officecfg::Office::Common::Misc::HstSystemTitleBar::get())
++            return false;
++    }
++    catch (const css::uno::Exception&)
++    {
++        return false; // no configuration: the system title bar
++    }
++    const vcl::Window* pClient = ImplGetClientWindow();
++    if (!pClient || pClient->GetType() != WindowType::WORKWINDOW
++        || static_cast<const WorkWindow*>(pClient)->IsFullScreenMode())
++        return false;
++    if (mpMenuBarWindow && !mbMenuHide && mpMenuBarWindow->GetSizePixel().Height() > 0)
++        return false; // a shown menu bar stays under the system title bar
++    return mpNotebookBar && mpNotebookBar->IsVisible() && mpNotebookBar->HstHasOwnBanner() && HstTabControl();
++}
++
++void ImplBorderWindow::HstUpdateTitleBar()
++{
++    if (mpHstTitleBarEvent || isDisposed() || HstWantsTitleBar() == bool(mpHstTitleBar))
++        return;
++    // not inside a resize: switching the frame resizes the window again
++    mpHstTitleBarEvent = Application::PostUserEvent(LINK(this, ImplBorderWindow, HstTitleBarHdl));
++}
++
++IMPL_LINK_NOARG(ImplBorderWindow, HstTitleBarHdl, void*, void)
++{
++    mpHstTitleBarEvent = nullptr;
++    SalFrame* pFrame = mpWindowImpl->mpFrame;
++    if (isDisposed() || !pFrame || HstWantsTitleBar() == bool(mpHstTitleBar))
++        return;
++    if (!mpHstTitleBar)
++    {
++        mpHstTitleBar = VclPtr<HstTitleBar>::Create(this);
++        pFrame->m_aHstTitleBarHitTest = [this](tools::Long nX, tools::Long nY) { return HstHitTest(Point(nX, nY)); };
++        pFrame->m_aHstTitleBarButtons = [this](int nHot, int nPressed) {
++            if (mpHstTitleBar)
++                mpHstTitleBar->SetButtons(nHot, nPressed);
++        };
++        Resize(); // band and caption area are in place before the frame asks for them
++        if (!pFrame->HstSetOwnTitleBar(true))
++        {
++            pFrame->m_aHstTitleBarHitTest = nullptr;
++            pFrame->m_aHstTitleBarButtons = nullptr;
++            mpHstTitleBar.disposeAndClear(); // the platform keeps the system title bar
++        }
++    }
++    else
++    {
++        pFrame->HstSetOwnTitleBar(false);
++        pFrame->m_aHstTitleBarHitTest = nullptr;
++        pFrame->m_aHstTitleBarButtons = nullptr;
++        pFrame->m_nHstTitleBarHeight = pFrame->m_nHstCaptionButtonsWidth = 0;
++        mpHstTitleBar.disposeAndClear();
++    }
++    Resize();
++    if (NotebookbarTabControlBase* pTab = HstTabControl())
++        pTab->Resize(); // the tab row takes or gives back the room of the caption area
++    Invalidate();
++}
++
++tools::Long ImplBorderWindow::HstTitleBand() const
++{
++    if (!mpHstTitleBar)
++        return 0;
++    return bandHeight(NotebookbarTabControlBase::HstHeaderHeight(), GetDPIScaleFactor());
++}
++
++void ImplBorderWindow::HstPlaceTitleBar()
++{
++    if (!mpHstTitleBar || !mpNotebookBar)
++        return;
++    const double f = GetDPIScaleFactor();
++    const tools::Long nBand = HstTitleBand();
++    const tools::Long nWidth = buttonsWidth(f) + mpHstTitleBar->TitleWidth();
++    const tools::Long nHeight = nBand + NotebookbarTabControlBase::HstHeaderHeight();
++    const Point aBar = mpNotebookBar->GetPosPixel();
++    const Point aPos(aBar.X() + mpNotebookBar->GetSizePixel().Width() - nWidth, aBar.Y() - nBand);
++    mpHstTitleBar->SetBand(nBand);
++    mpHstTitleBar->SetPosSizePixel(aPos, Size(nWidth, nHeight));
++    if (GetWindow(GetWindowType::FirstChild) != mpHstTitleBar.get())
++        mpHstTitleBar->SetZOrder(nullptr, ZOrderFlags::First); // above the notebookbar
++    mpNotebookBar->EnableClipSiblings(true); // the tab row never paints over the caption area
++    mpHstTitleBar->Show();
++    mpHstTitleBar->Invalidate();
++    mpWindowImpl->mpFrame->m_nHstTitleBarHeight = aPos.Y() + nHeight;
++    mpWindowImpl->mpFrame->m_nHstCaptionButtonsWidth = buttonsWidth(f);
++}
++
++int ImplBorderWindow::HstHitTest(const Point& rPos) const
++{
++    if (!mpHstTitleBar || !mpHstTitleBar->IsVisible() || !mpNotebookBar)
++        return Client;
++    const tools::Rectangle aCaption(mpHstTitleBar->GetPosPixel(), mpHstTitleBar->GetSizePixel());
++    if (aCaption.Contains(rPos))
++        return mpHstTitleBar->HitTest(rPos - aCaption.TopLeft());
++    if (rPos.Y() >= 0 && rPos.Y() < mpNotebookBar->GetPosPixel().Y())
++        return Caption; // the drag band
++    NotebookbarTabControlBase* pTab = HstTabControl();
++    if (!pTab || !pTab->IsReallyVisible())
++        return Client;
++    const Point aPos = pTab->ScreenToOutputPixel(OutputToScreenPixel(rPos));
++    if (aPos.X() < 0 || aPos.Y() < 0 || aPos.X() >= pTab->GetOutputSizePixel().Width()
++        || aPos.Y() >= NotebookbarTabControlBase::HstHeaderHeight())
++        return Client;
++    if (pTab->GetPageId(aPos) != 0)
++        return Client;
++    // the quick access toolbar, the search box and the menu button are controls
++    for (vcl::Window* pChild = pTab->GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++        if (pChild->IsVisible() && tools::Rectangle(pChild->GetPosPixel(), pChild->GetSizePixel()).Contains(aPos))
++            return Client;
++    return Caption; // an empty part of the tab row
++}
++
++tools::Long hst::titlebar::RowReserve(const vcl::Window& rTabControl, tools::Long nFree)
++{
++    ImplBorderWindow* pBorder = BorderOf(rTabControl);
++    if (!pBorder || !pBorder->GetHstTitleBar() || pBorder->HstTabControl() != &rTabControl)
++        return 0;
++    HstTitleBar& rBar = *pBorder->GetHstTitleBar();
++    const double f = rTabControl.GetDPIScaleFactor();
++    const tools::Long nButtons = buttonsWidth(f);
++    const tools::Long nTitle = titleWidth(nFree - nButtons, rBar.TitleTextWidth(), f);
++    if (nTitle != rBar.TitleWidth())
++    {
++        rBar.SetTitleWidth(nTitle);
++        pBorder->HstPlaceTitleBar();
++    }
++    return nButtons + nTitle;
++}
++
++bool hst::titlebar::Supported()
++{
++#ifdef _WIN32
++    return true; // Windows 10 and 11
++#else
++    return false; // gtk3 (client-side decorations differ per desktop) and macOS keep the system title bar
++#endif
++}
++
++void hst::titlebar::SettingChanged()
++{
++    for (vcl::Window* pWin = Application::GetFirstTopLevelWindow(); pWin;
++         pWin = Application::GetNextTopLevelWindow(pWin))
++        if (pWin->GetType() == WindowType::BORDERWINDOW)
++            static_cast<ImplBorderWindow*>(pWin)->HstUpdateTitleBar();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/window/HstTitleBarWindow.cxx
+@@ -0,0 +1,191 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: painting of the caption area of the own title bar (vcl/source/window/HstTitleBar.cxx):
++// the window title and the minimize, maximize/restore and close buttons in the style of the system, with
++// hover and pressed states, dimmed in an inactive window, system colours in high contrast.
++
++#include <sal/config.h>
++
++#include <brdwin.hxx>
++#include <HstTitleBarGeometry.hxx>
++#include <HstTitleBarWindow.hxx>
++
++#include <vcl/notebookbar/notebookbar.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/wrkwin.hxx>
++#include <com/sun/star/accessibility/AccessibleRole.hpp>
++
++using namespace hst::titlebar;
++
++namespace
++{
++/// rBase with fAmount of rOver laid over it.
++Color Mix(Color aBase, const Color& rOver, double fAmount)
++{
++    aBase.Merge(rOver, static_cast<sal_uInt8>(std::lround(255 * (1.0 - fAmount))));
++    return aBase;
++}
++
++/// The system's caption glyph font: Segoe Fluent Icons (Windows 11), Segoe MDL2 Assets (Windows 10).
++OUString GlyphFont(const OutputDevice& rDev)
++{
++    static const OUString aFont = [&rDev] {
++        for (const OUString& rName : { u"Segoe Fluent Icons"_ustr, u"Segoe MDL2 Assets"_ustr })
++            if (rDev.IsFontAvailable(rName))
++                return rName;
++        return OUString();
++    }();
++    return aFont;
++}
++
++/// Lines of a caption glyph when no glyph font exists: 10 logical px, centred in rRect.
++void DrawVectorGlyph(vcl::RenderContext& rDev, const tools::Rectangle& rRect, int nButton, bool bRestore, double f)
++{
++    const tools::Long n = scaled(10, f);
++    const Point aC = rRect.Center();
++    const tools::Rectangle aBox(Point(aC.X() - n / 2, aC.Y() - n / 2), Size(n, n));
++    rDev.SetFillColor();
++    if (nButton == MinButton)
++        rDev.DrawLine(Point(aBox.Left(), aC.Y()), Point(aBox.Right(), aC.Y()));
++    else if (nButton == CloseButton)
++    {
++        rDev.DrawLine(aBox.TopLeft(), aBox.BottomRight());
++        rDev.DrawLine(aBox.TopRight(), aBox.BottomLeft());
++    }
++    else if (!bRestore)
++        rDev.DrawRect(aBox);
++    else
++    {
++        const tools::Long d = scaled(2, f);
++        rDev.DrawRect(tools::Rectangle(Point(aBox.Left(), aBox.Top() + d), Point(aBox.Right() - d, aBox.Bottom())));
++        rDev.DrawLine(Point(aBox.Left() + d, aBox.Top()), aBox.TopRight());
++        rDev.DrawLine(aBox.TopRight(), Point(aBox.Right(), aBox.Bottom() - d));
++    }
++}
++}
++
++HstTitleBar::HstTitleBar(vcl::Window* pParent)
++    : vcl::Window(pParent, WB_NOTABSTOP)
++{
++    SetAccessibleRole(css::accessibility::AccessibleRole::LABEL); // reads the window title
++    SetText(pParent->GetText());
++}
++
++void HstTitleBar::SetButtons(int nHot, int nPressed)
++{
++    if (mnHot == nHot && mnPressed == nPressed)
++        return;
++    mnHot = nHot;
++    mnPressed = nPressed;
++    Invalidate();
++}
++
++tools::Long HstTitleBar::TitleTextWidth()
++{
++    OutputDevice& rDev = *GetOutDev();
++    rDev.Push(vcl::PushFlags::FONT);
++    SetPointFont(rDev, GetSettings().GetStyleSettings().GetTitleFont());
++    const tools::Long nWidth = rDev.GetTextWidth(GetText());
++    rDev.Pop();
++    return nWidth;
++}
++
++int HstTitleBar::HitTest(const Point& rPos) const
++{
++    if (rPos.Y() < 0 || rPos.Y() >= GetOutputSizePixel().Height())
++        return Client;
++    return captionAreaHit(rPos.X(), GetOutputSizePixel().Width(), GetDPIScaleFactor());
++}
++
++void HstTitleBar::DrawButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect, int nButton,
++                             const Color& rBack, bool bActive)
++{
++    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++    const bool bHighContrast = rStyle.GetHighContrastMode();
++    const bool bHot = mnHot == nButton;
++    const bool bPressed = bHot && mnPressed == nButton;
++    Color aGlyph = rStyle.GetDialogTextColor();
++    if (bHot)
++    {
++        const Color aClose(0xC4, 0x2B, 0x1C); // the system's close button red
++        const Color aOver = rBack.IsDark() ? COL_WHITE : COL_BLACK;
++        Color aFill = bPressed ? Mix(rBack, aOver, 0.06) : Mix(rBack, aOver, 0.09);
++        if (bHighContrast)
++            aFill = rStyle.GetHighlightColor();
++        else if (nButton == CloseButton)
++            aFill = bPressed ? Mix(rBack, aClose, 0.9) : aClose;
++        rDev.SetLineColor();
++        rDev.SetFillColor(aFill);
++        rDev.DrawRect(rRect);
++        aGlyph = bHighContrast ? rStyle.GetHighlightTextColor() : nButton == CloseButton ? COL_WHITE : aGlyph;
++    }
++    else if (!bActive)
++        aGlyph = Mix(aGlyph, rBack, 0.45);
++
++    const double f = GetDPIScaleFactor();
++    const bool bRestore = static_cast<const WorkWindow*>(GetParent()->ImplGetClientWindow())->IsMaximized();
++    const OUString aFontName = GlyphFont(rDev);
++    if (aFontName.isEmpty())
++    {
++        rDev.SetLineColor(aGlyph);
++        DrawVectorGlyph(rDev, rRect, nButton, bRestore, f);
++        return;
++    }
++    // ChromeMinimize, ChromeMaximize, ChromeRestore, ChromeClose
++    const sal_Unicode cGlyph = nButton == MinButton ? 0xE921 : nButton == CloseButton ? 0xE8BB : bRestore ? 0xE923 : 0xE922;
++    vcl::Font aFont(aFontName, Size(0, scaled(10, f)));
++    aFont.SetColor(aGlyph);
++    aFont.SetTransparent(true);
++    rDev.SetFont(aFont);
++    rDev.SetTextColor(aGlyph);
++    rDev.DrawText(rRect, OUString(cGlyph), DrawTextFlags::Center | DrawTextFlags::VCenter);
++}
++
++void HstTitleBar::Paint(vcl::RenderContext& rDev, const tools::Rectangle&)
++{
++    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++    auto* pBorder = static_cast<ImplBorderWindow*>(GetParent());
++    const VclPtr<NotebookBar>& rBar = pBorder->GetNotebookBar();
++    const Wallpaper aBack = rBar && rBar->IsBackground() ? rBar->GetBackground() : Wallpaper(rStyle.GetFaceColor());
++    const Color aBackColor = aBack.IsBitmap() || aBack.IsGradient() ? rStyle.GetFaceColor() : aBack.GetColor();
++    const Size aSize = GetOutputSizePixel();
++    rDev.DrawWallpaper(tools::Rectangle(Point(), aSize), aBack);
++
++    const bool bActive = pBorder->HstIsDisplayActive();
++    const double f = GetDPIScaleFactor();
++    const tools::Long nButton = scaled(BUTTON_WIDTH, f);
++    if (mnTitleWidth > 0)
++    {
++        const tools::Long nPad = scaled(TITLE_PAD, f);
++        Color aText = rStyle.GetDialogTextColor();
++        if (!bActive)
++            aText = Mix(aText, aBackColor, 0.45);
++        rDev.Push(vcl::PushFlags::FONT | vcl::PushFlags::TEXTCOLOR);
++        SetPointFont(rDev, rStyle.GetTitleFont());
++        rDev.SetTextColor(aText);
++        // the title stands in the tab row's line, with the tabs and the search box
++        const tools::Rectangle aTitle(Point(nPad, mnBand), Size(mnTitleWidth - 2 * nPad, aSize.Height() - mnBand));
++        rDev.DrawText(aTitle, GetText(),
++                      DrawTextFlags::Center | DrawTextFlags::VCenter
++                          | DrawTextFlags::EndEllipsis);
++        rDev.Pop();
++    }
++    rDev.Push(vcl::PushFlags::FONT | vcl::PushFlags::TEXTCOLOR | vcl::PushFlags::LINECOLOR
++              | vcl::PushFlags::FILLCOLOR);
++    const int aButtons[] = { MinButton, MaxButton, CloseButton };
++    for (int i = 0; i < 3; ++i)
++    {
++        const tools::Rectangle aRect(Point(aSize.Width() - (3 - i) * nButton, 0), Size(nButton, aSize.Height()));
++        DrawButton(rDev, aRect, aButtons[i], aBackColor, bActive);
++    }
++    rDev.Pop();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/window/brdwin.cxx
++++ b/vcl/source/window/brdwin.cxx
+@@ -38,6 +38,8 @@
+ #include <vcl/ptrstyle.hxx>
+ #include <vcl/HstBanner.hxx>
+ #include <vcl/HstBannerGeometry.hxx>
++#include <HstTitleBarWindow.hxx>
++#include <vcl/tabctrl.hxx>
+ 
+ using namespace ::com::sun::star::uno;
+ 
+@@ -1616,6 +1618,15 @@ void ImplBorderWindow::dispose()
+     mpBorderView.reset();
+     mpMenuBarWindow.reset();
+     mpHstBanner.disposeAndClear();
++    if (mpHstTitleBarEvent)
++        Application::RemoveUserEvent(mpHstTitleBarEvent);
++    mpHstTitleBarEvent = nullptr;
++    if (mpHstTitleBar && mpWindowImpl->mpFrame)
++    {
++        mpWindowImpl->mpFrame->m_aHstTitleBarHitTest = nullptr;
++        mpWindowImpl->mpFrame->m_aHstTitleBarButtons = nullptr;
++    }
++    mpHstTitleBar.disposeAndClear();
+     mpNotebookBar.disposeAndClear();
+     vcl::Window::dispose();
+ }
+@@ -1652,6 +1663,15 @@ void ImplBorderWindow::Paint( vcl::RenderContext& rRenderContext, const tools::R
+         rRenderContext.DrawWallpaper(maHstStrip, mpNotebookBar->GetBackground());
+         rRenderContext.Pop();
+     }
++    // HST Office: the drag band of the own title bar, above the notebookbar, in the bar's background
++    if (const tools::Long nBand = HstTitleBand(); nBand > 0 && mpNotebookBar)
++    {
++        const Point aBar = mpNotebookBar->GetPosPixel();
++        rRenderContext.DrawWallpaper(
++            tools::Rectangle(Point(aBar.X(), aBar.Y() - nBand), Size(mpNotebookBar->GetSizePixel().Width(), nBand)),
++            mpNotebookBar->IsBackground() ? mpNotebookBar->GetBackground()
++                                          : Wallpaper(GetSettings().GetStyleSettings().GetFaceColor()));
++    }
+ }
+ 
+ void ImplBorderWindow::Draw( OutputDevice* pOutDev, const Point& rPos )
+@@ -1778,7 +1798,8 @@ void ImplBorderWindow::Resize()
+                 mpHstBanner->Place(tools::Rectangle());
+                 mpNotebookBar->SetWindowRegionPixel();
+             }
+-            mpNotebookBar->setPosSizePixel(nLeftBorder, nTopBorder, nWidth, nNotebookBarHeight);
++            // HST Office: with the own title bar the drag band sits above the bar (HstTitleBar.cxx)
++            mpNotebookBar->setPosSizePixel(nLeftBorder, nTopBorder + HstTitleBand(), nWidth, nNotebookBarHeight);
+         }
+     }
+     else
+@@ -1801,6 +1822,9 @@ void ImplBorderWindow::Resize()
+     mpBorderView->Init( GetOutDev(), aSize.Width(), aSize.Height() );
+     InvalidateBorder();
+ 
++    HstPlaceTitleBar();
++    HstUpdateTitleBar();
++
+     Window::Resize();
+ }
+ 
+@@ -1811,6 +1835,14 @@ void ImplBorderWindow::StateChanged( StateChangedType nType )
+     {
+         if (IsReallyVisible() && mbFrameBorder)
+             InvalidateBorder();
++        // HST Office: the own title bar shows the window title and keeps room for it in the tab row
++        if (mpHstTitleBar && nType == StateChangedType::Text)
++        {
++            mpHstTitleBar->SetText(GetText());
++            if (NotebookbarTabControlBase* pTab = HstTabControl())
++                pTab->Resize();
++            mpHstTitleBar->Invalidate();
++        }
+     }
+ 
+     Window::StateChanged( nType );
+@@ -1928,6 +1960,8 @@ void ImplBorderWindow::SetDisplayActive( bool bActive )
+         mbDisplayActive = bActive;
+         if ( mbFrameBorder )
+             InvalidateBorder();
++        if (mpHstTitleBar) // HST Office: the own title bar dims its title and buttons when inactive
++            mpHstTitleBar->Invalidate();
+     }
+ }
+ 
+@@ -2025,7 +2059,7 @@ void ImplBorderWindow::GetBorder( sal_Int32& rLeftBorder, sal_Int32& rTopBorder,
+         rTopBorder += mpMenuBarWindow->GetSizePixel().Height();
+ 
+     if (mpNotebookBar && mpNotebookBar->IsVisible())
+-        rTopBorder += HstNotebookBarStripHeight();
++        rTopBorder += HstNotebookBarStripHeight() + HstTitleBand();
+ }
+ 
+ bool ImplBorderWindow::HstBannerBesideNotebookBar() const
+--- /dev/null
++++ b/vcl/win/window/HstWinTitleBar.cxx
+@@ -0,0 +1,279 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the Windows part of the own title bar (vcl/source/window/HstTitleBar.cxx draws it).
++// The caption is taken out of the non-client area (WM_NCCALCSIZE); everything else stays native through
++// hit testing: drag, double-click, Aero Snap and the system menu answer HTCAPTION, the buttons answer
++// HTMINBUTTON/HTMAXBUTTON/HTCLOSE (Windows 11 opens Snap Layouts for HTMAXBUTTON), the top edge HTTOP*.
++// Button presses never reach DefWindowProc, which would paint classic buttons; the frame tracks hover and
++// press, tells vcl to paint them and runs the system command. WM_GETTITLEBARINFOEX reports the real
++// rectangles, so UI Automation exposes the title bar and its buttons.
++
++#include <sal/config.h>
++
++#include <win/svsys.h>
++#include <dwmapi.h>
++#include <shellapi.h>
++#include <windowsx.h>
++
++#include <HstTitleBarGeometry.hxx>
++#include <win/saldata.hxx>
++#include <win/salframe.h>
++
++#include <initializer_list>
++
++namespace
++{
++using namespace hst::titlebar;
++
++/// Thickness of the sizing frame: also how far a maximized window reaches beyond the monitor.
++int FrameHeight() { return GetSystemMetrics(SM_CYFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER); }
++int FrameWidth() { return GetSystemMetrics(SM_CXFRAME) + GetSystemMetrics(SM_CXPADDEDBORDER); }
++
++bool IsButton(WPARAM nCode) { return nCode == HTMINBUTTON || nCode == HTMAXBUTTON || nCode == HTCLOSE; }
++
++int ButtonOfCode(WPARAM nCode)
++{
++    switch (nCode)
++    {
++        case HTMINBUTTON: return MinButton;
++        case HTMAXBUTTON: return MaxButton;
++        case HTCLOSE: return CloseButton;
++        default: return Client;
++    }
++}
++
++/// A maximized window leaves one pixel to an auto-hide taskbar of its monitor, or it could not appear.
++void LeaveRoomForAutoHideTaskbar(HWND hWnd, RECT& rClient)
++{
++    APPBARDATA aState{ sizeof(APPBARDATA) };
++    if (!(SHAppBarMessage(ABM_GETSTATE, &aState) & ABS_AUTOHIDE))
++        return;
++    MONITORINFO aMonitor{ sizeof(MONITORINFO) };
++    if (!GetMonitorInfoW(MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST), &aMonitor))
++        return;
++    for (UINT nEdge : { ABE_BOTTOM, ABE_TOP, ABE_LEFT, ABE_RIGHT })
++    {
++        APPBARDATA aBar{ sizeof(APPBARDATA) };
++        aBar.uEdge = nEdge;
++        aBar.rc = aMonitor.rcMonitor;
++        if (!SHAppBarMessage(ABM_GETAUTOHIDEBAREX, &aBar))
++            continue;
++        if (nEdge == ABE_BOTTOM) rClient.bottom -= 1;
++        else if (nEdge == ABE_TOP) rClient.top += 1;
++        else if (nEdge == ABE_LEFT) rClient.left += 1;
++        else rClient.right -= 1;
++    }
++}
++
++/// vcl's answer for a client point; vcl is entered with the solar mutex, like every other message.
++int AskVcl(const WinSalFrame& rFrame, POINT aClient)
++{
++    if (!rFrame.m_aHstTitleBarHitTest)
++        return Client;
++    ImplSalYieldMutexAcquireWithWait();
++    const int nHit = rFrame.m_aHstTitleBarHitTest(aClient.x, aClient.y);
++    ImplSalYieldMutexRelease();
++    return nHit;
++}
++
++void SetButtons(WinSalFrame& rFrame, int nHot, int nPressed)
++{
++    if (rFrame.mnHstHotButton == nHot && rFrame.mnHstPressedButton == nPressed)
++        return;
++    rFrame.mnHstHotButton = nHot;
++    rFrame.mnHstPressedButton = nPressed;
++    if (!rFrame.m_aHstTitleBarButtons)
++        return;
++    ImplSalYieldMutexAcquireWithWait();
++    rFrame.m_aHstTitleBarButtons(nHot, nPressed);
++    ImplSalYieldMutexRelease();
++}
++
++LRESULT HitTest(WinSalFrame& rFrame, HWND hWnd, WPARAM wParam, LPARAM lParam)
++{
++    // the side and bottom sizing borders are still non-client
++    LRESULT nDefault = DefWindowProcW(hWnd, WM_NCHITTEST, wParam, lParam);
++    POINT aPoint{ GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam) };
++    ScreenToClient(hWnd, &aPoint);
++    const bool bTopEdge = !IsZoomed(hWnd) && onTopEdge(aPoint.y, GetSystemMetrics(SM_CYFRAME));
++    if (nDefault == HTLEFT && bTopEdge)
++        return HTTOPLEFT;
++    if (nDefault == HTRIGHT && bTopEdge)
++        return HTTOPRIGHT;
++    if (nDefault != HTCLIENT)
++        return nDefault;
++    if (bTopEdge)
++    {
++        RECT aClient;
++        GetClientRect(hWnd, &aClient);
++        if (aPoint.x < FrameWidth())
++            return HTTOPLEFT;
++        if (aPoint.x >= aClient.right - FrameWidth())
++            return HTTOPRIGHT;
++        return HTTOP;
++    }
++    switch (AskVcl(rFrame, aPoint))
++    {
++        case Caption: return HTCAPTION;
++        case MinButton: return HTMINBUTTON;
++        case MaxButton: return HTMAXBUTTON;
++        case CloseButton: return HTCLOSE;
++        default: return HTCLIENT;
++    }
++}
++
++void RunButton(HWND hWnd, int nButton)
++{
++    WPARAM nCommand = SC_CLOSE;
++    if (nButton == MinButton)
++        nCommand = SC_MINIMIZE;
++    else if (nButton == MaxButton)
++        nCommand = IsZoomed(hWnd) ? SC_RESTORE : SC_MAXIMIZE;
++    PostMessageW(hWnd, WM_SYSCOMMAND, nCommand, 0);
++}
++
++void FillTitleBarInfo(const WinSalFrame& rFrame, HWND hWnd, TITLEBARINFOEX& rInfo)
++{
++    RECT aClient;
++    GetClientRect(hWnd, &aClient);
++    POINT aOrigin{ 0, 0 };
++    ClientToScreen(hWnd, &aOrigin);
++    const LONG nRight = aOrigin.x + aClient.right;
++    const LONG nBottom = aOrigin.y + static_cast<LONG>(rFrame.m_nHstTitleBarHeight);
++    const LONG nButton = static_cast<LONG>(rFrame.m_nHstCaptionButtonsWidth / 3);
++    rInfo.rcTitleBar = { aOrigin.x, aOrigin.y, nRight, nBottom };
++    rInfo.rgstate[0] = STATE_SYSTEM_FOCUSABLE;
++    rInfo.rgstate[1] = rInfo.rgstate[4] = STATE_SYSTEM_INVISIBLE; // reserved, help
++    rInfo.rgrect[1] = rInfo.rgrect[4] = RECT{ 0, 0, 0, 0 };
++    const int aButtons[] = { 5, 3, 2 }; // close, maximize, minimize from the right
++    for (int i = 0; i < 3; ++i)
++    {
++        const int nIndex = aButtons[i];
++        rInfo.rgrect[nIndex] = { nRight - (i + 1) * nButton, aOrigin.y, nRight - i * nButton, nBottom };
++        const int nButtonHit = nIndex == 5 ? CloseButton : nIndex == 3 ? MaxButton : MinButton;
++        rInfo.rgstate[nIndex] = rFrame.mnHstPressedButton == nButtonHit ? STATE_SYSTEM_PRESSED
++                                : rFrame.mnHstHotButton == nButtonHit   ? STATE_SYSTEM_HOTTRACKED
++                                                                        : 0;
++    }
++}
++}
++
++bool WinSalFrame::HstSetOwnTitleBar(bool bOn)
++{
++    const DWORD nStyle = GetWindowStyle(mhWnd);
++    if (bOn && (isFullScreen() || mbPresentation || !(nStyle & WS_CAPTION) || !(nStyle & WS_THICKFRAME)))
++        bOn = false;
++    if (bOn == mbHstOwnTitleBar)
++        return bOn;
++    mbHstOwnTitleBar = bOn;
++    mnHstHotButton = mnHstPressedButton = 0;
++    // a one-pixel frame extension keeps the system shadow (and on Windows 10 the top border) of the window
++    const MARGINS aMargins{ 0, 0, bOn ? 1 : 0, 0 };
++    DwmExtendFrameIntoClientArea(mhWnd, &aMargins);
++    SetWindowPos(mhWnd, nullptr, 0, 0, 0, 0,
++                 SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
++    return bOn;
++}
++
++/// Window rectangle for a client rectangle, like AdjustWindowRectEx, without the caption when the frame
++/// draws its own title bar (the client then starts at the window's top edge).
++void ImplHstAdjustWindowRect(const WinSalFrame* pFrame, RECT* pRect)
++{
++    const LONG nTop = pRect->top;
++    AdjustWindowRectEx(pRect, GetWindowStyle(pFrame->mhWnd), FALSE, GetWindowExStyle(pFrame->mhWnd));
++    if (pFrame->mbHstOwnTitleBar && !pFrame->isFullScreen())
++        pRect->top = nTop;
++}
++
++/// How much lower the client would start with the system caption: window states are kept in those terms.
++tools::Long ImplHstWindowStateShift(const WinSalFrame* pFrame)
++{
++    if (!pFrame->mbHstOwnTitleBar || pFrame->isFullScreen() || IsIconic(pFrame->mhWnd))
++        return 0;
++    RECT aDeco{ 0, 0, 0, 0 };
++    AdjustWindowRectEx(&aDeco, GetWindowStyle(pFrame->mhWnd), FALSE, GetWindowExStyle(pFrame->mhWnd));
++    return tools::Long(-aDeco.top) - tools::Long(pFrame->GetUnmirroredGeometry().topDecoration());
++}
++
++/// The messages of the own title bar; true when handled (rResult is the answer).
++bool ImplHstTitleBarProc(HWND hWnd, UINT nMsg, WPARAM wParam, LPARAM lParam, LRESULT& rResult)
++{
++    WinSalFrame* pFrame = GetWindowPtr(hWnd);
++    if (!pFrame || !pFrame->mbHstOwnTitleBar || pFrame->isFullScreen())
++        return false;
++    switch (nMsg)
++    {
++        case WM_NCCALCSIZE:
++        {
++            if (!wParam)
++                return false;
++            RECT& rClient = reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam)->rgrc[0];
++            const LONG nTop = rClient.top;
++            rResult = DefWindowProcW(hWnd, nMsg, wParam, lParam);
++            rClient.top = nTop;
++            if (IsZoomed(hWnd))
++            {
++                rClient.top += FrameHeight(); // not off-screen: the frame reaches beyond the monitor
++                LeaveRoomForAutoHideTaskbar(hWnd, rClient);
++            }
++            return true;
++        }
++        case WM_NCHITTEST:
++            rResult = HitTest(*pFrame, hWnd, wParam, lParam);
++            return true;
++        case WM_NCMOUSEMOVE:
++        {
++            const int nHot = IsButton(wParam) ? ButtonOfCode(wParam) : Client;
++            SetButtons(*pFrame, nHot, pFrame->mnHstPressedButton); // a press lasts until the button is released
++            if (nHot != Client)
++            {
++                TRACKMOUSEEVENT aTrack{ sizeof(TRACKMOUSEEVENT), TME_LEAVE | TME_NONCLIENT, hWnd, 0 };
++                TrackMouseEvent(&aTrack);
++            }
++            return false; // vcl still learns that the pointer left its client area
++        }
++        case WM_NCMOUSELEAVE:
++        case WM_MOUSEMOVE:
++        case WM_LBUTTONUP:
++            SetButtons(*pFrame, Client, Client);
++            return false;
++        case WM_NCLBUTTONDOWN:
++        case WM_NCLBUTTONDBLCLK:
++            if (!IsButton(wParam))
++                return false;
++            SetButtons(*pFrame, ButtonOfCode(wParam), ButtonOfCode(wParam));
++            rResult = 0;
++            return true;
++        case WM_NCLBUTTONUP:
++        {
++            const int nPressed = pFrame->mnHstPressedButton;
++            SetButtons(*pFrame, IsButton(wParam) ? ButtonOfCode(wParam) : Client, Client);
++            if (!IsButton(wParam))
++                return false;
++            if (nPressed == ButtonOfCode(wParam))
++                RunButton(hWnd, nPressed);
++            rResult = 0;
++            return true;
++        }
++        case WM_GETTITLEBARINFOEX:
++        {
++            auto* pInfo = reinterpret_cast<TITLEBARINFOEX*>(lParam);
++            if (!pInfo || pInfo->cbSize < sizeof(TITLEBARINFOEX) || pFrame->m_nHstTitleBarHeight <= 0)
++                return false;
++            FillTitleBarInfo(*pFrame, hWnd, *pInfo);
++            rResult = 0;
++            return true;
++        }
++        default:
++            return false;
++    }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/win/window/salframe.cxx
++++ b/vcl/win/window/salframe.cxx
+@@ -744,6 +744,11 @@ static UINT ImplSalGetWheelScrollChars()
+     return nScrChars;
+ }
+ 
++// HST Office: own title bar (HstWinTitleBar.cxx)
++void ImplHstAdjustWindowRect(const WinSalFrame* pFrame, RECT* pRect);
++bool ImplHstTitleBarProc(HWND hWnd, UINT nMsg, WPARAM wParam, LPARAM lParam, LRESULT& rResult);
++tools::Long ImplHstWindowStateShift(const WinSalFrame* pFrame);
++
+ static void ImplSalAddBorder( const WinSalFrame* pFrame, int& width, int& height )
+ {
+     // transform client size into window size
+@@ -752,8 +757,7 @@ static void ImplSalAddBorder( const WinSalFrame* pFrame, int& width, int& height
+     aWinRect.right  = width-1;
+     aWinRect.top    = 0;
+     aWinRect.bottom = height-1;
+-    AdjustWindowRectEx( &aWinRect, GetWindowStyle( pFrame->mhWnd ),
+-                        FALSE,     GetWindowExStyle( pFrame->mhWnd ) );
++    ImplHstAdjustWindowRect( pFrame, &aWinRect ); // HST Office: no caption with the own title bar
+     width  = aWinRect.right - aWinRect.left + 1;
+     height = aWinRect.bottom - aWinRect.top + 1;
+ }
+@@ -1242,8 +1246,7 @@ void WinSalFrame::SetPosSize( tools::Long nX, tools::Long nY, tools::Long nWidth
+     aWinRect.right  = static_cast<int>(nWidth)-1;
+     aWinRect.top    = 0;
+     aWinRect.bottom = static_cast<int>(nHeight)-1;
+-    AdjustWindowRectEx( &aWinRect, GetWindowStyle( mhWnd ),
+-                        FALSE,     GetWindowExStyle( mhWnd ) );
++    ImplHstAdjustWindowRect( this, &aWinRect ); // HST Office: no caption with the own title bar
+     nWidth  = aWinRect.right - aWinRect.left + 1;
+     nHeight = aWinRect.bottom - aWinRect.top + 1;
+ 
+@@ -1699,6 +1702,13 @@ void WinSalFrame::SetWindowState(const vcl::WindowData* pState)
+ bool WinSalFrame::GetWindowState(vcl::WindowData* pState)
+ {
+     pState->setPosSize(maGeometry.posSize());
++    // HST Office: the state is saved as if the system caption were there (SetWindowState adds it back),
++    // so switching the own title bar on or off between sessions never moves or grows the window
++    if (const tools::Long nShift = ImplHstWindowStateShift(this); nShift > 0)
++    {
++        pState->setY(pState->y() + nShift);
++        pState->setHeight(pState->height() - nShift);
++    }
+     pState->setState(m_eState);
+     pState->setMask(vcl::WindowDataMask::PosSizeState);
+     return true;
+@@ -5800,6 +5810,19 @@ static LRESULT CALLBACK SalFrameWndProc( HWND hWnd, UINT nMsg, WPARAM wParam, LP
+         return 0;
+     }
+ 
++    // HST Office: the own title bar answers the non-client messages it changes (HstWinTitleBar.cxx)
++    if ( ImplHstTitleBarProc( hWnd, nMsg, wParam, lParam, nRet ) )
++    {
++        if ( nMsg == WM_NCLBUTTONDOWN )
++        {
++            ImplSalYieldMutexAcquireWithWait();
++            ImplCallClosePopupsHdl( hWnd );   // a caption button closes popups like the system one
++            ImplSalYieldMutexRelease();
++        }
++        rDef = false;
++        return nRet;
++    }
++
+     switch( nMsg )
+     {
+         case WM_GESTURE:
