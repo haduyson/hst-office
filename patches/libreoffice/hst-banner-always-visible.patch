@@ -287,8 +287,8 @@ logical px (the artwork's 360:104 ratio), in a strip at least that high.
 +    void Place(const tools::Rectangle& rSlot);
 +    /** The width (px) the ribbon's wide slot had at the last layout, 0 before; it is kept while the
 +        room changes by less than the hysteresis (hst::banner::wideSlotWidth). */
-+    tools::Long WideSlotWidth() const { return mnWideSlotWidth; }
-+    void SetWideSlotWidth(tools::Long nWidth) { mnWideSlotWidth = nWidth; }
++    long WideSlotWidth() const { return mnWideSlotWidth; }
++    void SetWideSlotWidth(long nWidth) { mnWideSlotWidth = nWidth; }
 +
 +    virtual void Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect) override;
 +    virtual void Resize() override;
@@ -309,7 +309,7 @@ logical px (the artwork's 360:104 ratio), in a strip at least that high.
 +    rtl::Reference<hst::banner::Core> mxCore;
 +    bool mbHover = false;
 +    bool mbPressed = false;
-+    tools::Long mnWideSlotWidth = 0;
++    long mnWideSlotWidth = 0; // hst::banner geometry is plain long
 +};
 +
 +class VCL_DLLPUBLIC HstBannerWidget final : public weld::CustomWidgetController
@@ -2111,7 +2111,7 @@ logical px (the artwork's 360:104 ratio), in a strip at least that high.
 +    const tools::Long nHeight = mpNotebookBar ? mpNotebookBar->GetSizePixel().Height() : 0;
 +    if (!HstBannerBesideNotebookBar())
 +        return nHeight;
-+    return std::max(nHeight, hst::banner::minStripHeight(GetDPIScaleFactor()));
++    return std::max<tools::Long>(nHeight, hst::banner::minStripHeight(GetDPIScaleFactor()));
  }
  
  tools::Long ImplBorderWindow::CalcTitleWidth() const
