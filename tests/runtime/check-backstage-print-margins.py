@@ -169,6 +169,8 @@ def main():
         docs = [doc := make_doc(office, "simpress")]
         page = open_page(office, doc)
         check(bool(page.get("pages")) and not page.get("showing"), f"simpress: no margins box ({page})")
+        scroll_settings()
+        shot("simpress-no-margins.png")
         office.ui.executeCommandForProvider(".uno:HSTBackstage", doc.getCurrentController().getFrame())
         for doc in docs:
             doc.setModified(False)  # the office quits without asking

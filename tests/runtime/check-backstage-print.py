@@ -134,7 +134,7 @@ def main():
     parser.add_argument("--out", default=tempfile.mkdtemp(prefix="hst-bsprint-"))  # noqa
     parser.add_argument("--shot", help="screenshot command with {} for the file, e.g. 'import -window root {}'")
     parser.add_argument("--no-pdf-printer", action="store_true", help="no printer of the profile, no printing")
-    parser.add_argument("--more-options-at", default="405,732", help="its button on a 1600x900 screen (gen)")
+    parser.add_argument("--more-options-at", default="395,796", help="its button on a 1600x900 screen (gen)")
     args = parser.parse_args()
     out = os.path.abspath(args.out)  # noqa
     os.makedirs(pdf_dir := os.path.join(out, "pdf"), exist_ok=True)
