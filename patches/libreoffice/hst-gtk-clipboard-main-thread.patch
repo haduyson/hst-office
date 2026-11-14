@@ -12,11 +12,11 @@ dispatched and neither thread moves again. gdb stacks of 4 hangs of tests/runtim
 The Paste state needs the targets only. Off the main thread, getTransferDataFlavorsAsVector now returns the
 targets the main thread last read (HstClipboardTargets), kept fresh without waiting: an idle of the default
 main context (run by the main thread only) calls gtk_clipboard_request_targets when the clipboard object is
-made and at every owner change. The caller neither runs a nested loop nor releases the SolarMutex. Handing
-the query to the main thread with vcl::solarthread::syncExecute instead fixed the hang but released the
-SolarMutex inside close(True) over UNO, and the main thread then ran events posted for the half-disposed
-frame (SIGSEGV in ImplBorderWindow::Resize, 3 of 12 load-test runs). Only reading the data itself (a paste
-over UNO) still goes to the main thread with syncExecute; gtk_clipboard_wait_* only ever runs there.
+made and at every owner change. The caller neither runs a nested loop nor releases the SolarMutex, so a Paste
+state asked in the middle of a close or load over UNO cannot let the main thread run events for a frame that is
+half built or half disposed. Only reading the data itself (a paste over UNO) goes to the main thread with
+vcl::solarthread::syncExecute, which releases the SolarMutex while it waits; gtk_clipboard_wait_* only ever
+runs on the main thread.
 
 License: modified upstream files keep their license (MPL-2.0).
 
