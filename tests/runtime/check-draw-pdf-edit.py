@@ -10,7 +10,7 @@ A two-page PDF made by HST Office itself (pdf_samples) opens in HST PDF; "Chỉn
     Trang đầu is folded into "»";
   - a text box of the PDF is edited by keyboard (selected, F2, End, typed);
   - the drawing is exported to PDF and saved as .odg, and the exported PDF holds the edit (pdftotext);
-  - Xuất/PDF ▸ "Mở trong HST PDF" (org.hst.office.vi:OpenInHstPdf) shows the edited drawing in HST PDF, also
+  - PDF ▸ "Mở trong HST PDF" (org.hst.office.vi:OpenInHstPdf) shows the edited drawing in HST PDF, also
     with "Open PDF files in HST PDF" turned off in Options (an explicit command asks for the viewer).
 The display must already run. Runs as the build user under dbus-run-session (AT-SPI); writes evidence.json
 and draw-1485.png. Exit 1 on a failed check.
@@ -37,7 +37,7 @@ _spec.loader.exec_module(home_fit)
 
 PORT = 7436
 WIDTH, HEIGHT = 1485, 900
-TABS = ["Tệp tin", "Trang đầu", "Chèn", "Sắp xếp", "Trang", "Xuất/PDF", "Xem lại", "Xem", "Trợ giúp", "Phần mở rộng"]
+TABS = ["Tệp tin", "Trang đầu", "Chèn", "Sắp xếp", "Trang", "PDF", "Xem lại", "Xem", "Trợ giúp", "Phần mở rộng"]
 MARK, EDIT = "HSTPDF-1", " SUA-OK"
 ROWS = []
 

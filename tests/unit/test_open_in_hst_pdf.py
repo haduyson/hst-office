@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Xuất/PDF ▸ Mở trong HST PDF (hst_office/open_in_hst_pdf.py): which file HST PDF shows, and the exported copy."""
+"""PDF ▸ Mở trong HST PDF (hst_office/open_in_hst_pdf.py): which file HST PDF shows, and the exported copy."""
 import os
 import sys
 import tempfile
