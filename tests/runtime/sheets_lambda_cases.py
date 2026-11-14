@@ -13,8 +13,10 @@ LAMBDA_CASES = [
     ('=SUM(BYROW(J2:J6;LAMBDA(r;r*2)))', "30", "_xlfn.BYROW("),
     ('=SUM(BYCOL(J2:J6;SUM))', "15", "_xlfn.BYCOL(J2:J6,_xleta.SUM)"),
     ('=SUM(MAKEARRAY(2;3;LAMBDA(r;c;r*c)))', "18", "_xlfn.MAKEARRAY("),
-    ('=LAMBDA(a;[b];IF(ISOMITTED(b);a;a+b))(5)', "5", "_xlfn.ISOMITTED("),
+    ('=LAMBDA(a;[b];IF(ISOMITTED(b);a;a+b))(5)', "5", "_xlop.b,IF(_xlfn.ISOMITTED("),
     ('=INDEX(GROUPBY(H2:H6;J2:J6;SUM);3;2)', "15", "_xlfn.GROUPBY(H2:H6,J2:J6,_xleta.SUM)"),
     ('=INDEX(GROUPBY(H2:H6;J2:J6;PERCENTOF;0;0);1;2)', "0{dec}6", "_xleta.PERCENTOF"),
-    ('=INDEX(PIVOTBY(H2:H6;I2:I6;J2:J6;SUM);2;2)', "6", "_xlfn.PIVOTBY(H2:H6,I2:I6,J2:J6,_xleta.SUM)"),    ('=LET(f;LAMBDA(x;x+1);f(2))', "3", "_xlfn.LET(_xlpm.f,_xlfn.LAMBDA(_xlpm.x,_xlpm.x+1),_xlpm.f(2))"),
+    ('=INDEX(GROUPBY(H2:H6;J2:J6;LAMBDA(v;MAX(v));0;0);1;2)', "5", "_xlfn.LAMBDA(_xlpm.v,MAX(_xlpm.v)),0,0)"),
+    ('=INDEX(PIVOTBY(H2:H6;I2:I6;J2:J6;SUM);2;2)', "6", "_xlfn.PIVOTBY(H2:H6,I2:I6,J2:J6,_xleta.SUM)"),
+    ('=LET(f;LAMBDA(x;x+1);f(2))', "3", "_xlfn.LET(_xlpm.f,_xlfn.LAMBDA(_xlpm.x,_xlpm.x+1),_xlpm.f(2))"),
 ]
