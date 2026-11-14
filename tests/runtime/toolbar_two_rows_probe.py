@@ -99,6 +99,15 @@ def rows(items):
     return out
 
 
+def data_banner(snapshot):
+    return strip(snapshot)[0]
+
+
+def banner_gap(bar, banner):
+    """px between the toolbar's right edge and the banner."""
+    return banner[0] - (bar["box"][0] + bar["box"][2])
+
+
 def judge(app, mode, snapshot):
     """(ok, detail) for one snapshot of `app` in the toolbar user interface `mode`."""
     banner, bars = strip(snapshot)
@@ -124,8 +133,13 @@ def judge(app, mode, snapshot):
     t1, b2 = min(i[1] for i in plain), max(i[1] + i[3] for i in plain)
     if abs(l1 - l2) > EDGE_TOLERANCE:
         return False, f"rows start {abs(l1 - l2)} px apart"
-    if abs((r1 - l1) - (r2 - l2)) > button + 1:
-        return False, f"rows {r1 - l1} and {r2 - l2} px wide, more than one button ({button} px) apart"
+    # a window narrower than the two rows: the items flow from row to row and the rest goes into the menu, so
+    # the rows can differ by the widest item that did not fit any more (the toolbar then reaches the banner gap)
+    tolerance = button
+    if banner_gap(bar, data_banner(snapshot)) <= 16:
+        tolerance = max(button, max(i[2] for i in bar["items"]))
+    if abs((r1 - l1) - (r2 - l2)) > tolerance + 1:
+        return False, f"rows {r1 - l1} and {r2 - l2} px wide, more than {tolerance} px apart"
     if t2 < b1 - 1:
         return False, "the rows overlap"
     x, y, w, h = bar["box"]
