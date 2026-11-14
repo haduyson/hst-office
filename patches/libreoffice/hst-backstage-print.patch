@@ -149,7 +149,7 @@ index f8dcaaa..1faa7c1 100644
      static void                 FinishPrintJob( const std::shared_ptr<vcl::PrinterController>& i_pController );
  
 diff --git a/sfx2/Library_sfx.mk b/sfx2/Library_sfx.mk
-index da0c664..7d52563 100644
+index 494b35e..44e6430 100644
 --- a/sfx2/Library_sfx.mk
 +++ b/sfx2/Library_sfx.mk
 @@ -87,6 +87,7 @@ $(eval $(call gb_Library_add_exception_objects,sfx,\
@@ -830,10 +830,10 @@ index ce00fcf..6aa1e6e 100644
                      <property name="xalign">0</property>
                      <property name="wrap">True</property>
 diff --git a/translations/source/vi/sfx2/messages.po b/translations/source/vi/sfx2/messages.po
-index 8e16cb8..6b9bf8d 100644
+index 96fa0c7..8c569f9 100644
 --- a/translations/source/vi/sfx2/messages.po
 +++ b/translations/source/vi/sfx2/messages.po
-@@ -6597,3 +6597,9 @@ msgstr "Không thấy lệnh? Gõ tên lệnh ở đây, không cần dấu."
+@@ -6699,3 +6699,9 @@ msgstr "Mọi tài liệu mới (_A)"
  msgctxt "versionsofdialog|extended_tip|VersionsOfDialog"
  msgid "Saves and organizes multiple versions of the current document in the same file. You can also open, delete and compare previous versions."
  msgstr ""
@@ -1659,7 +1659,7 @@ index 0000000..e28f3f4
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/vcl/source/window/printdlg.cxx b/vcl/source/window/printdlg.cxx
-index a1062e8..97473fb 100644
+index a1062e8..6eb42f7 100644
 --- a/vcl/source/window/printdlg.cxx
 +++ b/vcl/source/window/printdlg.cxx
 @@ -26,6 +26,7 @@
@@ -1787,7 +1787,7 @@ index a1062e8..97473fb 100644
      , maPrintToFileText( VclResId( SV_PRINT_TOFILE_TXT ) )
      , maDefPrtText( VclResId( SV_PRINT_DEFPRT_TXT ) )
      , maNoPageStr( VclResId( SV_PRINT_NOPAGES ) )
-@@ -712,6 +775,22 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
+@@ -712,6 +775,35 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
      mxLayoutExpander->set_expanded(
          officecfg::Office::Common::Print::Dialog::LayoutSectionExpanded::get());
  
@@ -1801,6 +1801,19 @@ index a1062e8..97473fb 100644
 +        for (weld::Button* pButton : { mxMoreOptionsBtn.get(), mxPageSetupBtn.get(), mxZoomOutBtn.get(),
 +                                       mxZoomInBtn.get(), mxZoomFitBtn.get() })
 +            pButton->connect_clicked(LINK(this, PrintDialog, ClickPanelHdl));
++        // the application's options (Slides: slides, handouts, notes; Sheets: which sheets) join the
++        // one settings column, under the range, instead of a second tab
++        std::unique_ptr<weld::Container> xAppOptions(
++            mxCustomOptionsUIBuilder ? mxCustomOptionsUIBuilder->weld_container(u"box"_ustr) : nullptr);
++        std::unique_ptr<weld::Container> xCustomPage(m_xBuilder->weld_container(u"customcontents"_ustr));
++        std::unique_ptr<weld::Container> xTarget(m_xBuilder->weld_container(u"appoptions"_ustr));
++        if (xAppOptions && xCustomPage && xTarget)
++        {
++            xCustomPage->move(xAppOptions.get(), xTarget.get());
++            if (mxTabCtrl->get_n_pages() > 1)
++                mxTabCtrl->remove_page(mxTabCtrl->get_page_ident(1));
++        }
++        mxTabCtrl->set_show_tabs(mxTabCtrl->get_n_pages() > 1);
 +        mxZoomScale->set_range(PANEL_ZOOM_MIN, PANEL_ZOOM_MAX);
 +        mxZoomScale->connect_value_changed(LINK(this, PrintDialog, ZoomScaleHdl));
 +        setZoom(0);
@@ -1810,7 +1823,7 @@ index a1062e8..97473fb 100644
      // lock the dialog height, regardless of later expander state
      mxScrolledWindow->set_size_request(
          mxScrolledWindow->get_preferred_size().Width() + mxScrolledWindow->get_scroll_thickness(),
-@@ -720,8 +799,104 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
+@@ -720,8 +812,104 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
      m_xDialog->set_centered_on_parent(true);
  }
  
@@ -1915,7 +1928,7 @@ index a1062e8..97473fb 100644
      std::shared_ptr<comphelper::ConfigurationChanges> batch(comphelper::ConfigurationChanges::create());
      officecfg::Office::Common::Print::Dialog::RangeSectionExpanded::set(mxRangeExpander->get_expanded(), batch);
      officecfg::Office::Common::Print::Dialog::LayoutSectionExpanded::set(mxLayoutExpander->get_expanded(), batch);
-@@ -760,7 +935,8 @@ void PrintDialog::storeToSettings()
+@@ -760,7 +948,8 @@ void PrintDialog::storeToSettings()
      officecfg::VCL::VCLSettings::PrintDialog::LastPage::set(
                       mxTabCtrl->get_tab_label_text(mxTabCtrl->get_current_page_ident()), batch);
  
@@ -1925,7 +1938,7 @@ index a1062e8..97473fb 100644
                       m_xDialog->get_window_state(vcl::WindowDataMask::All), batch );
  
      officecfg::VCL::VCLSettings::PrintDialog::Collate::set( mxCollateBox->get_active(), batch );
-@@ -768,7 +944,8 @@ void PrintDialog::storeToSettings()
+@@ -768,7 +957,8 @@ void PrintDialog::storeToSettings()
      officecfg::VCL::VCLSettings::PrintDialog::CollateSingleJobs::set(
                       mxSingleJobsBox->get_active(), batch );
  
@@ -1935,7 +1948,7 @@ index a1062e8..97473fb 100644
  
      batch->commit();
  }
-@@ -790,7 +967,7 @@ void PrintDialog::readFromSettings()
+@@ -790,7 +980,7 @@ void PrintDialog::readFromSettings()
  
      // persistent window state
      aValue = officecfg::VCL::VCLSettings::PrintDialog::WindowState::get();
@@ -1944,7 +1957,7 @@ index a1062e8..97473fb 100644
          m_xDialog->set_window_state(aValue);
  
      // collate
-@@ -2072,6 +2249,12 @@ IMPL_LINK_NOARG(PrintDialog, ToggleBrochureHdl, weld::Toggleable&, void)
+@@ -2072,6 +2262,12 @@ IMPL_LINK_NOARG(PrintDialog, ToggleBrochureHdl, weld::Toggleable&, void)
  IMPL_LINK(PrintDialog, ClickOKCancelHdl, weld::Button&, rButton, void)
  {
      storeToSettings();
@@ -1957,7 +1970,7 @@ index a1062e8..97473fb 100644
      m_xDialog->response(&rButton == mxOKButton.get() ? RET_OK : RET_CANCEL);
  }
  
-@@ -2102,7 +2285,7 @@ IMPL_LINK_NOARG(PrintDialog, ClickSetupHdl, weld::Button&, void)
+@@ -2102,7 +2298,7 @@ IMPL_LINK_NOARG(PrintDialog, ClickSetupHdl, weld::Button&, void)
      // Save orientation dropdown — Properties dialog can clobber it.
      const int nSavedOrient = mxOrientationBox->get_active();
  
@@ -1968,10 +1981,10 @@ index a1062e8..97473fb 100644
      if (!isPrintToFile())
 diff --git a/vcl/uiconfig/ui/hstprintpanel.ui b/vcl/uiconfig/ui/hstprintpanel.ui
 new file mode 100644
-index 0000000..ed57878
+index 0000000..c0b1418
 --- /dev/null
 +++ b/vcl/uiconfig/ui/hstprintpanel.ui
-@@ -0,0 +1,1627 @@
+@@ -0,0 +1,1647 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<!-- HST Office: the print dialog as a panel (the Print page of the File panel); generated
 +     from printdialog.ui, same widget ids (vcl::PrintDialog serves both). -->
@@ -2033,6 +2046,11 @@ index 0000000..ed57878
 +    <property name="can-focus">False</property>
 +    <property name="icon-name">go-last</property>
 +  </object>
++  <object class="GtkImage" id="printimg">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/lc_print.png</property>
++  </object>
 +  <object class="GtkAdjustment" id="zoomadj">
 +    <property name="lower">10</property>
 +    <property name="upper">400</property>
@@ -2066,6 +2084,9 @@ index 0000000..ed57878
 +                <property name="use-underline">True</property>
 +                <property name="width-request">96</property>
 +                <property name="height-request">72</property>
++                <property name="image">printimg</property>
++                <property name="image-position">top</property>
++                <property name="always-show-image">True</property>
 +                <style>
 +                  <class name="suggested-action" />
 +                </style>
@@ -2664,6 +2685,18 @@ index 0000000..ed57878
 +                          </packing>
 +                        </child>
 +                        <child>
++                          <object class="GtkBox" id="appoptions">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="expand">False</property>
++                            <property name="fill">True</property>
++                            <property name="position">2</property>
++                          </packing>
++                        </child>
++                        <child>
 +                          <object class="GtkFrame" id="layoutframe">
 +                            <property name="visible">True</property>
 +                            <property name="can-focus">False</property>
@@ -3146,7 +3179,7 @@ index 0000000..ed57878
 +                          <packing>
 +                            <property name="expand">False</property>
 +                            <property name="fill">True</property>
-+                            <property name="position">2</property>
++                            <property name="position">3</property>
 +                          </packing>
 +                        </child>
 +                      </object>
