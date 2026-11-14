@@ -70,7 +70,7 @@ class TestModeTest(QueueTestCase):
             self.shas["rc/1.0.2-batch4"] = f"{i + 1:040d}"
             job, _ = self.submit(tests=["CppunitTest_a"])
             self.finish_tests(job, {"CppunitTest_a": True})
-        bq.apply_retention(self.store, dict(bq.DEFAULT_CONFIG, retention_per_branch=1), git=self.git, protected=set())
+        bq.apply_retention(self.store, dict(bq.DEFAULT_CONFIG, retention_per_branch=1), git=self.git, protected=set(), free=1000)
         self.assertFalse(self.store.load(pkg["id"]).get("output_deleted"))
 
     def test_linux_runner_passes_tests_and_reads_results(self):

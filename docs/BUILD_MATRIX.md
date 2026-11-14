@@ -60,7 +60,9 @@ các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u
   job (gói, overlay, test), `retention_trains` (3) cho mọi build train gộp chung; xoá đầu ra của job `failed`,
   `cancelled` hoặc bị invalidate sau `retention_failed_hours` (6 giờ); xoá build của nhánh mà commit đã nằm trong
   `integration_branch` (`rc/1.0.2-batch5`) sau `retention_merged_hours` (12 giờ; build `rc/*` và train chỉ theo luật
-  số lượng). Không bao giờ xoá: job đã `pin` (`build-queue.sh pin <id> --reason …`, bỏ bằng `unpin <id>`), job một
+  số lượng). Khi `/data` còn dưới `retention_pressure_free_gib` (22 GiB; ngưỡng nhận build Linux là 17 GiB):
+  chỉ giữ 1 đầu ra mới nhất mỗi nhóm và bỏ thời gian ân hạn. Thư mục `out/<id>` không có job tương ứng bị xoá sau
+  6 giờ. Không bao giờ xoá: job đã `pin` (`build-queue.sh pin <id> --reason …`, bỏ bằng `unpin <id>`), job một
   train đang dùng, job đang chờ/chạy. Job vẫn còn, đánh dấu `output_deleted` + `output_deleted_reason`. Job Windows
   ghi máy đã build (`host`, `slot`).
 - **Luật submit cho agent:**
@@ -153,7 +155,8 @@ nền (ví dụ `rc/1.0.2-batch4`) rồi `compare`. Job giống hệt (cùng com
 `--modules sc,sw` chỉ chạy `make udkapi.build offapi.build oovbaapi.build` rồi `make sc.build sw.build` (tên có `.`
 hoặc `_` được dùng nguyên là target make, ví dụ `Library_merged` khi sửa vcl/sfx2/svx) trên một slot đã từng build
 đủ, và cho ra **overlay**: các tệp trong `instdir` mà lượt make đó ghi lại (thư viện, `uiconfig`, registry…), cùng
-`FILES`, `SHA256SUMS`, `README.txt` và script áp:
+`FILES` (Windows: `FILES.txt`, vì NTFS không phân biệt hoa thường nên `FILES` trùng thư mục `files\`), `SHA256SUMS`,
+`README.txt` và script áp:
 
 - Linux: `HSTOffice-overlay-<nhánh>-<sha>-<module>.tar.gz`;
   `dpkg-deb -x HSTOffice_<release>_Linux_x86-64.deb ref/ && ./apply-build-overlay.sh ref/`

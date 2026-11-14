@@ -10,7 +10,7 @@ param([Parameter(Mandatory)][string]$Image)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $files = Join-Path $PSScriptRoot 'files'
-$list = @(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'FILES') | Where-Object { $_ })
+$list = @(Get-Content -LiteralPath (Join-Path $PSScriptRoot 'FILES.txt') | Where-Object { $_ })
 foreach ($line in Get-Content -LiteralPath (Join-Path $PSScriptRoot 'SHA256SUMS')) {
     $hash, $rel = $line -split '\s+\*?', 2
     if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $files $rel)).Hash -ne $hash.ToUpper()) { throw "checksum mismatch: $rel" }

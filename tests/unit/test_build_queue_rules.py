@@ -25,8 +25,8 @@ class RetentionRulesTest(QueueTestCase):
     def deleted(self):
         return {j["id"]: j.get("output_deleted_reason") for j in self.store.all() if j.get("output_deleted")}
 
-    def retain(self, now=None, protected=frozenset(), **cfg):
-        return bq.apply_retention(self.store, self.cfg(**cfg), now=now, git=self.git, protected=protected)
+    def retain(self, now=None, protected=frozenset(), free=1000, **cfg):
+        return bq.apply_retention(self.store, self.cfg(**cfg), now=now, git=self.git, protected=protected, free=free)
 
     def test_failed_cancelled_invalidated_go_after_the_grace_period(self):
         old = self.build("feat/a", "1" * 40, state="failed", error="local-build.sh exit 2")
@@ -49,8 +49,26 @@ class RetentionRulesTest(QueueTestCase):
         with self.assertRaises(bq.QueueError):
             bq.pin(self.store, ids[1], "already deleted")
         bq.pin(self.store, ids[0], None)
-        self.retain(protected=set())
+        self.retain(protected=set(), free=1000)
         self.assertIn(ids[0], self.deleted())
+
+    def test_disk_pressure_keeps_one_per_branch_without_grace_and_orphans_go(self):
+        old, new = (self.build("feat/a", f"{i:040d}", finished=time.time() - 60 * (2 - i)) for i in range(2))
+        fresh_fail = self.build("feat/b", "5" * 40, state="failed", finished=time.time() - 60)
+        pinned = self.build("feat/c", "6" * 40, finished=time.time() - 120)
+        self.build("feat/c", "7" * 40, finished=time.time() - 60)
+        bq.pin(self.store, pinned["id"], "kept")
+        orphan = self.store.job_out("q261101-000000-abcd")
+        os.makedirs(orphan)
+        os.utime(orphan, (time.time() - 7 * HOUR,) * 2)
+        # Enough disk: the young outputs stay; an output without a job record goes in any case.
+        self.assertEqual([f[:2] for f in self.retain(free=30)], [("q261101-000000-abcd", "output without a job record")])
+        self.assertFalse(os.path.exists(orphan))
+        reasons = {jid: why for jid, why, _ in self.retain(free=18)}
+        self.assertIn("disk pressure: 18.0 GiB free", reasons[old["id"]])
+        self.assertIn(fresh_fail["id"], reasons)
+        for kept in (new, pinned):
+            self.assertNotIn(kept["id"], reasons)
 
     def test_merged_branch_builds_go_but_integration_builds_stay(self):
         tip = "f" * 40

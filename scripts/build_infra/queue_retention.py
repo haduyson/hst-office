@@ -7,7 +7,7 @@ import time
 
 from .queue_git import Git
 from .queue_rules import retention_victims
-from .queue_store import QueueError, now_iso
+from .queue_store import ID_RE, QueueError, now_iso
 from .queue_train_store import TrainStore
 
 
@@ -39,11 +39,41 @@ def dir_size(path):
     return total
 
 
-def apply_retention(store, cfg=None, now=None, git=None, dry_run=False, protected=None):
+def free_gib(path):
+    try:
+        return shutil.disk_usage(path).free / 2**30
+    except OSError:
+        return float("inf")
+
+
+def pressure_cfg(cfg):
+    """Disk pressure (free space below retention_pressure_free_gib, just above the admission floor): keep only the
+    newest output per group and drop the grace periods, so builds are not held for want of disk. Pins, active
+    jobs and the outputs trains still point to stay protected as always."""
+    return dict(cfg, retention_per_branch=1, retention_trains=1, retention_failed_hours=0, retention_merged_hours=0)
+
+
+def orphan_outputs(store, jobs, now, min_age=6 * 3600):
+    """out/<id> directories without a job record (a crash between creating the output and saving the job)."""
+    known = {j["id"] for j in jobs}
+    found = []
+    for name in sorted(os.listdir(store.out_dir)) if os.path.isdir(store.out_dir) else []:
+        path = os.path.join(store.out_dir, name)
+        if ID_RE.match(name) and name not in known and os.path.isdir(path) and now - os.path.getmtime(path) >= min_age:
+            found.append(name)
+    return found
+
+
+def apply_retention(store, cfg=None, now=None, git=None, dry_run=False, protected=None, free=None):
     """Delete the outputs retention_victims selects; returns [(job id, reason, bytes freed)]. Merged = the job's
-    commit is an ancestor of origin/<integration_branch> (unknown when git cannot tell: kept)."""
+    commit is an ancestor of origin/<integration_branch> (unknown when git cannot tell: kept). Below
+    retention_pressure_free_gib free on the queue's disk the pressure rules apply (pressure_cfg)."""
     cfg = cfg or store.config()
     now = time.time() if now is None else now
+    free = free_gib(store.root) if free is None else free
+    pressure = free < cfg["retention_pressure_free_gib"]
+    if pressure:
+        cfg = pressure_cfg(cfg)
     git = git or Git()
     if protected is None:
         protected = TrainStore(store).protected_jobs()
@@ -57,7 +87,15 @@ def apply_retention(store, cfg=None, now=None, git=None, dry_run=False, protecte
 
     freed = []
     with store.lock():
-        for job, reason in retention_victims(store.all(), cfg, now, merged, protected):
+        jobs = store.all()
+        for name in orphan_outputs(store, jobs, now):
+            path = store.job_out(name)
+            freed.append((name, "output without a job record", dir_size(path)))
+            if not dry_run:
+                shutil.rmtree(path, ignore_errors=True)
+        for job, reason in retention_victims(jobs, cfg, now, merged, protected):
+            if pressure:
+                reason += f" (disk pressure: {free:.1f} GiB free)"
             out = store.job_out(job["id"])
             size = dir_size(out) if os.path.isdir(out) else 0
             freed.append((job["id"], reason, size))

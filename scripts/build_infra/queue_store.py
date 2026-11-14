@@ -27,6 +27,8 @@ DEFAULT_CONFIG = {
     "retention_trains": 3,
     "retention_failed_hours": 6,
     "retention_merged_hours": 12,
+    # Below this much free disk (the Linux admission floor is 17 GiB) retention keeps 1 per group, no grace.
+    "retention_pressure_free_gib": 22,
     # The integration branch (trains are built on it; merged = an ancestor of it) and who counts as the integrator:
     # refs matching integrator_refs or `submit --integrator`. Everyone else is capped at agent_max_priority.
     "integration_branch": "rc/1.0.2-batch5",
