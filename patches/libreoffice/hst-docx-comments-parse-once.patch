@@ -1,0 +1,386 @@
+Writer: a .docx with many comments no longer parses comments.xml once per comment.
+
+Every comment reference created a sub-document for comments.xml and parsed the whole part; only the
+<w:comment> with the wanted id was forwarded (OOXMLFastContextHandlerXNote). N comments therefore cost
+O(N^2) XML parsing on the main thread. Measured with the 1.0.2 batch5 build on Linux (4 CPUs) on a
+2000-paragraph document with 4000 tracked changes: 2 comments 5.8 s to load, 500 comments 9.2 s, 1000
+comments 19.6 s, 2000 comments 71 s, during which the window was frozen (65 s); a 10 MB reviewed
+document did not open within 15 minutes.
+
+comments.xml is now read once, on the first comment, and cut into its top-level elements. Each comment
+parses a small document made of the original prolog and root start tag (namespace declarations), the
+<w:comment> elements with its id in document order, and the root end tag, so the import is linear.
+The sub-document is otherwise the same (OOXMLStreamImpl::setDocumentInput replaces only the bytes that
+are parsed). Anything unexpected keeps the old full parse: UTF-16 or NUL bytes, a DTD with an internal
+subset, a top-level element other than a comment or without an id, unbalanced markup.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: CppunitTest_sw_writerfilter_ooxml testCommentsEachGetOwnText (22 comments, each with the text of
+its own element); the existing comment import/export tests; tests/unit/test_large_office_open_patches.py.
+---
+--- a/sw/source/writerfilter/inc/ooxml/OOXMLDocument.hxx
++++ b/sw/source/writerfilter/inc/ooxml/OOXMLDocument.hxx
+@@ -35,6 +35,7 @@
+ #include <oox/drawingml/theme.hxx>
+ #include <oox/drawingml/drawingmltypes.hxx>
+ #include <oox/drawingml/ThemeFilterBase.hxx>
++#include <memory>
+ #include <vector>
+ #include <stack>
+ #include <set>
+@@ -161,6 +162,10 @@
+ 
+     bool mbCommentsExtendedResolved = false;
+ 
++    /// HST Office: comments.xml cut into one small document per comment, built on the first comment.
++    struct CommentParts;
++    std::shared_ptr<CommentParts> mpCommentParts;
++
+ private:
+     void resolveFastSubStream(Stream & rStream,
+                                       OOXMLStream::StreamType_t nType);
+@@ -177,12 +182,14 @@
+     getSubStream(const OUString & rId);
+ 
+     writerfilter::Reference<Stream>::Pointer_t
+-    getXNoteStream(OOXMLStream::StreamType_t nType, const sal_Int32 nNoteId);
++    getXNoteStream(OOXMLStream::StreamType_t nType, const sal_Int32 nNoteId,
++                   const css::uno::Reference<css::io::XInputStream>& xInput = {});
+ 
+     void resolveCustomXmlStream(Stream & rStream);
+     void resolveGlossaryStream(Stream & rStream);
+     void resolveEmbeddingsStream(const OOXMLStream::Pointer_t& pStream);
+     void resolveCommentsExtendedStream(Stream & rStream);
++    static void splitComments(const css::uno::Reference<css::io::XInputStream>& xIn, CommentParts& rParts);
+ 
+ public:
+     OOXMLDocument(OOXMLStream::Pointer_t pStream,
+--- a/sw/source/writerfilter/ooxml/OOXMLStreamImpl.hxx
++++ b/sw/source/writerfilter/ooxml/OOXMLStreamImpl.hxx
+@@ -38,6 +38,8 @@
+     css::uno::Reference<css::embed::XStorage> mxStorage;
+     css::uno::Reference<css::embed::XRelationshipAccess> mxRelationshipAccess;
+     css::uno::Reference<css::io::XStream> mxDocumentStream;
++    /// HST Office: parsed instead of the part when set (one comment cut out of comments.xml)
++    css::uno::Reference<css::io::XInputStream> mxDocumentInput;
+     css::uno::Reference<css::xml::sax::XFastParser> mxFastParser;
+     css::uno::Reference<css::xml::sax::XFastTokenHandler> mxFastTokenHandler;
+ 
+@@ -75,6 +77,8 @@
+ 
+     virtual css::uno::Reference<css::xml::sax::XFastTokenHandler> getFastTokenHandler() override;
+ 
++    void setDocumentInput(const css::uno::Reference<css::io::XInputStream>& xInput) { mxDocumentInput = xInput; }
++
+     // Giving access to mxDocumentStream. It is needed by resolving custom xml to get list of customxml's used in document.
+     const css::uno::Reference<css::io::XStream>& accessDocumentStream() { return mxDocumentStream;}
+ };
+--- a/sw/source/writerfilter/ooxml/OOXMLStreamImpl.cxx
++++ b/sw/source/writerfilter/ooxml/OOXMLStreamImpl.cxx
+@@ -380,6 +380,8 @@
+ {
+     uno::Reference<io::XInputStream> xResult;
+ 
++    if (mxDocumentInput.is())
++        return mxDocumentInput;
+     if (mxDocumentStream.is())
+         xResult = mxDocumentStream->getInputStream();
+ 
+--- a/sw/source/writerfilter/ooxml/OOXMLDocumentImpl.cxx
++++ b/sw/source/writerfilter/ooxml/OOXMLDocumentImpl.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include <comphelper/sequenceashashmap.hxx>
++#include <comphelper/seqstream.hxx>
+ 
+ #include <com/sun/star/lang/WrappedTargetRuntimeException.hpp>
+ #include <com/sun/star/document/XDocumentPropertiesSupplier.hpp>
+@@ -45,6 +46,10 @@
+ 
+ #include <iostream>
+ #include <sfx2/objsh.hxx>
++#include <algorithm>
++#include <string>
++#include <string_view>
++#include <unordered_map>
+ #include <utility>
+ 
+ // this extern variable is declared in OOXMLStreamImpl.hxx
+@@ -262,10 +267,16 @@
+ }
+ 
+ writerfilter::Reference<Stream>::Pointer_t
+-OOXMLDocument::getXNoteStream(OOXMLStream::StreamType_t nType, const sal_Int32 nId)
++OOXMLDocument::getXNoteStream(OOXMLStream::StreamType_t nType, const sal_Int32 nId,
++                              const uno::Reference<io::XInputStream>& xInput)
+ {
++    OOXMLStream::Pointer_t pNoteStream = OOXMLDocumentFactory::createStream(mpStream, nType);
++    // HST Office: parse only the given part of the stream (one comment), see resolveComment()
++    if (xInput.is())
++        if (auto pImpl = dynamic_cast<OOXMLStreamImpl*>(pNoteStream.get()))
++            pImpl->setDocumentInput(xInput);
+     // See above, no status indicator for the note stream, either.
+-    OOXMLDocument * pDocument = new OOXMLDocument(OOXMLDocumentFactory::createStream(mpStream, nType),
++    OOXMLDocument * pDocument = new OOXMLDocument(std::move(pNoteStream),
+             uno::Reference<task::XStatusIndicator>(), mbSkipImages, maMediaDescriptor, nullptr);
+     pDocument->setXNoteId(nId);
+     pDocument->setModel(getModel());
+@@ -331,6 +342,99 @@
+     resolveFastSubStream(rStream, OOXMLStream::StreamType_t::COMMENTS_EXTENDED);
+ }
+ 
++/* HST Office: every comment used to parse the whole comments.xml again (only the comment with the
++   wanted id is forwarded), so N comments cost O(N^2): 2000 comments froze the import for over a
++   minute. comments.xml is now read once and cut into its top-level <w:comment> elements; each
++   comment parses a small document made of the original prolog and root start tag, the elements
++   with its id (in their order) and the root end tag. Anything unexpected (UTF-16, a DTD subset,
++   another top-level element, unbalanced markup) keeps the old full parse. */
++struct OOXMLDocument::CommentParts
++{
++    std::vector<sal_Int8> aData; // the whole part
++    sal_Int32 nHeadEnd = 0; // end of the root start tag
++    sal_Int32 nTailStart = 0; // start of the root end tag
++    std::unordered_map<sal_Int32, std::vector<std::pair<sal_Int32, sal_Int32>>> aRanges;
++    bool bValid = false;
++};
++
++namespace
++{
++bool lcl_startsWith(const std::vector<sal_Int8>& r, size_t i, std::string_view s)
++{
++    return i + s.size() <= r.size() && std::equal(s.begin(), s.end(), r.begin() + i);
++}
++
++// index after the markup starting at r[i] == '<': a start/end tag (quotes honoured), a comment,
++// CDATA or a processing instruction; 0 when it is not closed or is a DTD with a subset
++size_t lcl_markupEnd(const std::vector<sal_Int8>& r, size_t i, bool& rSelfClosing)
++{
++    rSelfClosing = false;
++    std::string_view aClose;
++    if (lcl_startsWith(r, i, "<?"))
++        aClose = "?>";
++    else if (lcl_startsWith(r, i, "<!--"))
++        aClose = "-->";
++    else if (lcl_startsWith(r, i, "<![CDATA["))
++        aClose = "]]>";
++    if (!aClose.empty())
++    {
++        auto it = std::search(r.begin() + i + 2, r.end(), aClose.begin(), aClose.end());
++        return it == r.end() ? 0 : (it - r.begin()) + aClose.size();
++    }
++    char cQuote = 0;
++    for (size_t j = i + 1; j < r.size(); ++j)
++    {
++        char c = r[j];
++        if (cQuote)
++            cQuote = c == cQuote ? 0 : cQuote;
++        else if (c == '"' || c == '\'')
++            cQuote = c;
++        else if (c == '[' && r[i + 1] == '!')
++            return 0;
++        else if (c == '>')
++        {
++            rSelfClosing = r[j - 1] == '/';
++            return j + 1;
++        }
++    }
++    return 0;
++}
++
++// local name of the tag starting at r[i] == '<', and the value of its attribute with local name "id"
++std::string lcl_tagInfo(const std::vector<sal_Int8>& r, size_t i, size_t nEnd, std::string& rId)
++{
++    auto isName = [](char c) {
++        return c != ' ' && c != '\t' && c != '\r' && c != '\n' && c != '/' && c != '>' && c != '=';
++    };
++    size_t j = i + 1;
++    std::string aName;
++    while (j < nEnd && isName(r[j]))
++        aName += r[j++];
++    while (j < nEnd)
++    {
++        while (j < nEnd && !isName(r[j]))
++            ++j;
++        std::string aAttr;
++        while (j < nEnd && isName(r[j]))
++            aAttr += r[j++];
++        while (j < nEnd && r[j] != '"' && r[j] != '\'' && r[j] != '>')
++            ++j;
++        if (j >= nEnd || r[j] == '>')
++            break;
++        char cQuote = r[j++];
++        std::string aValue;
++        while (j < nEnd && r[j] != cQuote)
++            aValue += r[j++];
++        ++j;
++        if (aAttr == "id" || aAttr.ends_with(":id"))
++            rId = aValue;
++    }
++    size_t nColon = aName.find(':');
++    return nColon == std::string::npos ? aName : aName.substr(nColon + 1);
++}
++
++}
++
+ void OOXMLDocument::resolveComment(Stream & rStream,
+                                        const sal_Int32 nId)
+ {
+@@ -340,12 +444,113 @@
+         mbCommentsExtendedResolved = true;
+     }
+ 
++    if (!mpCommentParts)
++    {
++        mpCommentParts = std::make_shared<CommentParts>();
++        try
++        {
++            OOXMLStream::Pointer_t pPart
++                = OOXMLDocumentFactory::createStream(mpStream, OOXMLStream::StreamType_t::COMMENTS);
++            splitComments(pPart->getDocumentStream(), *mpCommentParts);
++        }
++        catch (const uno::Exception&)
++        {
++            mpCommentParts->bValid = false;
++        }
++    }
++    uno::Reference<io::XInputStream> xInput;
++    if (mpCommentParts->bValid)
++    {
++        const CommentParts& r = *mpCommentParts;
++        std::vector<sal_Int8> aOne(r.aData.begin(), r.aData.begin() + r.nHeadEnd);
++        auto it = r.aRanges.find(nId); // an unknown id is forwarded by neither path
++        if (it != r.aRanges.end())
++            for (const auto& [nBegin, nEnd] : it->second)
++                aOne.insert(aOne.end(), r.aData.begin() + nBegin, r.aData.begin() + nEnd);
++        aOne.insert(aOne.end(), r.aData.begin() + r.nTailStart, r.aData.end());
++        xInput = new comphelper::SequenceInputStream(
++            uno::Sequence<sal_Int8>(aOne.data(), static_cast<sal_Int32>(aOne.size())));
++    }
++
+     writerfilter::Reference<Stream>::Pointer_t pStream =
+-        getXNoteStream(OOXMLStream::StreamType_t::COMMENTS, nId);
++        getXNoteStream(OOXMLStream::StreamType_t::COMMENTS, nId, xInput);
+ 
+     resolveFastSubStreamWithId(rStream, pStream, NS_ooxml::LN_annotation);
+ }
+ 
++void OOXMLDocument::splitComments(const uno::Reference<io::XInputStream>& xIn, CommentParts& rParts)
++{
++    rParts.bValid = false;
++    if (!xIn.is())
++        return;
++    std::vector<sal_Int8>& r = rParts.aData;
++    uno::Sequence<sal_Int8> aBuf;
++    while (sal_Int32 nRead = xIn->readBytes(aBuf, 1 << 20))
++        r.insert(r.end(), aBuf.begin(), aBuf.begin() + nRead);
++    // UTF-16 or anything with NUL bytes: no byte-wise cutting
++    const auto itProbeEnd = r.begin() + std::min<size_t>(r.size(), 512);
++    if (r.size() < 8 || std::find(r.begin(), itProbeEnd, 0) != itProbeEnd)
++        return;
++    bool bSelf = false;
++    size_t i = 0;
++    while (i < r.size() && r[i] != '<')
++        ++i;
++    while (i < r.size() && (lcl_startsWith(r, i, "<?") || lcl_startsWith(r, i, "<!")))
++    {
++        i = lcl_markupEnd(r, i, bSelf);
++        if (!i)
++            return;
++        while (i < r.size() && r[i] != '<')
++            ++i;
++    }
++    if (i >= r.size())
++        return;
++    size_t nRootEnd = lcl_markupEnd(r, i, bSelf);
++    if (!nRootEnd || bSelf)
++        return;
++    rParts.nHeadEnd = nRootEnd;
++    i = nRootEnd;
++    for (;;)
++    {
++        while (i < r.size() && r[i] != '<')
++            ++i;
++        if (i >= r.size())
++            return; // no root end tag
++        if (lcl_startsWith(r, i, "</"))
++        {
++            rParts.nTailStart = i;
++            rParts.bValid = true;
++            return;
++        }
++        size_t nStart = i;
++        i = lcl_markupEnd(r, i, bSelf);
++        if (!i)
++            return;
++        if (lcl_startsWith(r, nStart, "<?") || lcl_startsWith(r, nStart, "<!"))
++            continue; // comment or processing instruction between the elements
++        std::string aId;
++        if (lcl_tagInfo(r, nStart, i, aId) != "comment" || aId.empty())
++            return;
++        for (sal_Int32 nDepth = bSelf ? 0 : 1; nDepth > 0;)
++        {
++            while (i < r.size() && r[i] != '<')
++                ++i;
++            if (i >= r.size())
++                return;
++            bool bEnd = lcl_startsWith(r, i, "</");
++            bool bOther = lcl_startsWith(r, i, "<?") || lcl_startsWith(r, i, "<!");
++            i = lcl_markupEnd(r, i, bSelf);
++            if (!i)
++                return;
++            if (bEnd)
++                --nDepth;
++            else if (!bOther && !bSelf)
++                ++nDepth;
++        }
++        rParts.aRanges[OString(aId.c_str()).toInt32()].emplace_back(nStart, i);
++    }
++}
++
+ OOXMLPropertySet * OOXMLDocument::getPicturePropSet
+ (const OUString & rId)
+ {
+--- a/sw/qa/writerfilter/ooxml/ooxml.cxx
++++ b/sw/qa/writerfilter/ooxml/ooxml.cxx
+@@ -14,6 +14,9 @@
+ #include <com/sun/star/style/XStyleFamiliesSupplier.hpp>
+ #include <com/sun/star/text/XTextTablesSupplier.hpp>
+ #include <com/sun/star/text/XTextDocument.hpp>
++#include <com/sun/star/text/XTextFieldsSupplier.hpp>
++
++#include <set>
+ 
+ #include <fmtcntnt.hxx>
+ #include <ndtxt.hxx>
+@@ -191,6 +194,30 @@
+     int nTables = countXPathNodes(pXmlDoc, "//page[1]//tab");
+     CPPUNIT_ASSERT_EQUAL(6, nTables);
+ }
++
++CPPUNIT_TEST_FIXTURE(Test, testCommentsEachGetOwnText)
++{
++    // Given a document with 22 comments (ids 0..41 with gaps, several with the same text):
++    // When importing it (comments.xml is cut into one small document per comment instead of being
++    // parsed in full for every comment):
++    createSwDoc("../../../extras/ooxmlexport/data/wDateValueFormat.docx");
++
++    // Then every comment exists once with the text of its own <w:comment> element:
++    uno::Reference<text::XTextFieldsSupplier> xSupplier(mxComponent, uno::UNO_QUERY);
++    uno::Reference<container::XEnumeration> xFields
++        = xSupplier->getTextFields()->createEnumeration();
++    std::multiset<OUString> aContents;
++    while (xFields->hasMoreElements())
++    {
++        uno::Reference<lang::XServiceInfo> xField(xFields->nextElement(), uno::UNO_QUERY);
++        if (xField->supportsService(u"com.sun.star.text.textfield.Annotation"_ustr))
++            aContents.insert(getProperty<OUString>(xField, u"Content"_ustr));
++    }
++    CPPUNIT_ASSERT_EQUAL(size_t(22), aContents.size());
++    CPPUNIT_ASSERT_EQUAL(size_t(1), aContents.count(u"Ersetzen durch Übersicht"_ustr));
++    CPPUNIT_ASSERT_EQUAL(size_t(6), aContents.count(u"löschen"_ustr));
++    CPPUNIT_ASSERT_EQUAL(size_t(1), aContents.count(u"Seitenumbruch löschen"_ustr));
++}
+ }
+ 
+ CPPUNIT_PLUGIN_IMPLEMENT();

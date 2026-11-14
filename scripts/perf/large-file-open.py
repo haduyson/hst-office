@@ -3,6 +3,7 @@
 
     python large-file-open.py --soffice <soffice> --python <office python> --files <dir> --out <dir> --label <name>
         [--mode gui|headless|cli] [--repeat N] [--timeout S] [--seed default|spell|...] [--cpus N] [--save] [--full-layout] [--probe S] [--only a,b]
+        [--freeze] [--interact] [--autosave]
 
 Per file and repeat: a new office process on the label's profile (large_file_open_profile.py), --accept on a private
 pipe; large_file_open_client.py (run by the office's Python) loads the file in a visible window (gui), hidden
@@ -10,7 +11,10 @@ pipe; large_file_open_client.py (run by the office's Python) loads the file in a
 optionally stores it again with its own filter and as ODF (the cost of a save / an AutoRecovery copy). Peak memory of
 the office processes is sampled. An open that does not finish within --timeout is killed and recorded as "timeout";
 an office that ends with a non-zero code is recorded as "office_exit" (crash). --cpus N runs the office on N logical
-processors only (a 4-core PC on a big build machine). Writes <label>.jsonl and prints one JSON line per open.
+processors only (a 4-core PC on a big build machine). --freeze records the longest frozen user interface (main-loop
+stall) during and after the load, --interact scroll/typing latencies, --autosave the AutoRecovery timer's save (seed
+"autosave": every minute); on Windows hung_s/hung_longest_s count what Windows shows as "Not responding" (needs a desktop
+session). Writes <label>.jsonl and prints one JSON line per open.
 """
 import argparse
 import json
@@ -59,7 +63,7 @@ def one_open(a, path, profile, pipe):
     profiles.reseed(profile, a.seed)
     before = set(procs.office_pids())
     args = [a.soffice, "-env:UserInstallation=" + file_url(profile), "--accept=pipe,name=%s;urp;" % pipe,
-            "--norestore", "--nologo", "--nodefault"]
+            "--nologo", "--nodefault"] + ([] if a.seed == "autosave" else ["--norestore"])  # it disables AutoRecovery
     if a.mode == "headless":
         args.append("--headless")
     if a.mode == "cli":  # as a double-click: the file on the command line
@@ -69,13 +73,22 @@ def one_open(a, path, profile, pipe):
     client = subprocess.Popen([a.python, CLIENT, pipe, os.path.abspath(path),
                                {"headless": "1", "gui": "0"}.get(a.mode, "cli"), save_to],
                               stdout=subprocess.PIPE, text=True)
-    peak, own, stop = [0.0], set(), threading.Event()
+    peak, own, stop, hung = [0.0], set(), threading.Event(), [0.0, 0.0, 0.0]  # total, current, longest
 
     def sample():
+        last = time.monotonic()
         while not stop.is_set():
             own.update(procs.descendants(office.pid, set(procs.office_pids()) - before))
             peak[0] = max(peak[0], procs.rss_mb(own))
-            time.sleep(1.0 if sys.platform == "win32" else 0.25)
+            now = time.monotonic()
+            if procs.WINDOWS and procs.any_hung_window(own):
+                hung[0] += now - last
+                hung[1] += now - last
+                hung[2] = max(hung[2], hung[1])
+            else:
+                hung[1] = 0.0
+            last = now
+            time.sleep(0.5 if sys.platform == "win32" else 0.25)
     sampler = threading.Thread(target=sample, daemon=True)
     sampler.start()
     started = time.monotonic()
@@ -101,6 +114,8 @@ def one_open(a, path, profile, pipe):
         res["office_exit"] = office.returncode
     procs.kill(office, own)
     res["peak_mb"] = round(peak[0])
+    if procs.WINDOWS:
+        res["hung_s"], res["hung_longest_s"] = round(hung[0], 1), round(hung[2], 1)
     for leftover, key in ((save_to, "saved_mb"), (save_to + ".odf", "")):
         if save_to != "-" and os.path.exists(leftover):
             if key:
@@ -123,17 +138,26 @@ def main():
     ap.add_argument("--probe", type=float, default=0, help="seconds of responsiveness probes after the load")
     ap.add_argument("--only", default="")
     ap.add_argument("--profile", default="")
+    for flag in ("freeze", "interact", "autosave"):  # read by the client (large_file_open_interact.py)
+        ap.add_argument("--" + flag, action="store_true")
     a = ap.parse_args()
+    for flag in ("freeze", "interact", "autosave"):
+        if getattr(a, flag):
+            os.environ["LFO_" + flag.upper()] = "1"
+    if a.autosave:
+        os.environ["LFO_FREEZE"] = "1"
     if a.full_layout:
         os.environ["LFO_FULL_LAYOUT"] = "1"  # read by the client (large_file_open_client.py)
     if a.probe:
         os.environ["LFO_PROBE"] = str(a.probe)
     os.makedirs(a.out, exist_ok=True)
     profile = a.profile or os.path.join(a.out, "profile-" + a.label)
+    os.environ["LFO_PROFILE"] = os.path.abspath(profile)
     shutil.rmtree(profile, ignore_errors=True)
     profiles.create(profile, a.seed)
-    only = set(filter(None, a.only.split(",")))
-    files = sorted(n for n in os.listdir(a.files) if not n.startswith(".") and (not only or n in only))
+    only = list(filter(None, a.only.split(",")))  # opened in this order (the most important first)
+    present = set(os.listdir(a.files))
+    files = [n for n in only if n in present] if only else sorted(n for n in present if not n.startswith("."))
     pipe = "lfo%d" % os.getpid()
     # the first start creates the profile (extension registration, configuration) outside the measurements
     from large_file_fixtures_xlsx import write_xlsx

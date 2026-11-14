@@ -140,3 +140,21 @@ def limit_cpus(args, cpus):
     if WINDOWS:  # a string: start's empty title argument does not survive list quoting
         return 'cmd /c start "" /B /WAIT /AFFINITY %X %s' % ((1 << cpus) - 1, subprocess.list2cmdline(args))
     return ["taskset", "-c", "0-%d" % (cpus - 1)] + args
+
+
+def any_hung_window(pids):
+    """Windows: does one of these processes have a visible top-level window that Windows considers hung (IsHungAppWindow:
+    no message processed for 5 s, shown as "Not responding")? Only meaningful in a desktop session."""
+    import ctypes
+    from ctypes import wintypes
+    user32, found = ctypes.windll.user32, [False]
+
+    def cb(hwnd, _):
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value in pids and user32.IsWindowVisible(hwnd) and user32.IsHungAppWindow(hwnd):
+            found[0] = True
+            return False
+        return True
+    user32.EnumWindows(ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)(cb), 0)
+    return found[0]
