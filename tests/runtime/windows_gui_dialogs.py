@@ -64,11 +64,12 @@ def close_hwnd(hwnd, timeout=5.0):
 
 
 def close_dialog(window, timeout=5.0):
-    """End a dialog: WM_CLOSE to its own HWND, endExecute only when that did not close it. Never sends a key.
+    """End a dialog: WM_CLOSE to its own HWND (twice), endExecute only when that did not close it. Never sends a key.
     Returns how it was closed ("wm_close", "endExecute") or "open" when neither worked."""
     hwnd = dialog_hwnd(window)
-    if hwnd and close_hwnd(hwnd, timeout):
-        return "wm_close"
+    for _attempt in range(2):  # a dialog still building its pages may let the first WM_CLOSE pass
+        if hwnd and close_hwnd(hwnd, timeout):
+            return "wm_close"
     try:
         window.endExecute()
         return "endExecute"
