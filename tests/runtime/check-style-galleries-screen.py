@@ -110,6 +110,7 @@ def check_kind(args, app, port, kind):
     gui.click(args.display, gui.extents(tile))
     time.sleep(1.5)
     state = uno(args, port, "state", app, kind)
+    hst_gui.screenshot(os.path.join(args.out, f"full-{app}-{kind}-applied{tag}.png"), args.display)
     if kind == "picture":
         record(f"[{app}] picture: a click on '{tile_name}' outlines the picture blue", state["colour"] == 0x0072BB, state)
     else:
