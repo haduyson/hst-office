@@ -158,7 +158,9 @@ check "HST Writer opens again after the Dock restart" opens "HST Writer" writer
 # HST Base is offered nowhere, but an .odb still opens (hst-hide-base-launchers.patch).
 check "no HST Base launcher in the bundle" test ! -e "$app/Contents/Helpers/HST Base.app"
 check "File ▸ New (and the Dock menu) offers no database" uno no-base-menu
-check "probe database stored" uno make-odb "$out/probe.odb"
+# Creating a database is removed from the product, so the probe opens a committed one (dBase folder next to it).
+odb_fixture() { cp "$repo/tests/fixtures/base/probe.odb" "$out/probe.odb" && mkdir -p "$out/probe-tables"; }
+check "probe database copied from the fixture" odb_fixture
 check "office closed before the .odb" quit_office
 odb_opens() { open -a "$app" "$out/probe.odb" && uno wait base --timeout 120 >>"$out/checks.log" 2>&1; }
 check "an .odb opens in HST Office" odb_opens

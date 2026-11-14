@@ -60,19 +60,22 @@ def _safe(fn, *args):
 
 
 def loading(ctx):
-    """True while a shown task frame of the desktop has no controller yet, i.e. a document is still being imported.
+    """True while a task frame of the desktop has no controller yet, i.e. a document is still being imported.
 
     A document opened from the file manager (double click, Open, Open with) starts the office with that file: the
     loader shows the document's frame BEFORE the import, to parent its dialogs, so onFirstVisibleTask fires mid-load,
     and the import reschedules the event loop for its progress bar. A modal dialog run from that nested loop holds the
     import under it: the window stays blank ("Load document") until the dialog is closed, and when the dialog is not
-    noticed the document never appears. The controller is attached only when the import ends."""
+    noticed the document never appears. The controller is attached only when the import ends.
+
+    A load through the API (loadComponentFromURL from a script, an automation client, a test) keeps its window hidden
+    until the import ends and shows it while the loader still holds the frame's action lock (onFirstVisibleTask fires
+    right then, the call returns after the lock is freed): a frame without a controller, shown or not, or with an
+    action lock counts as loading. A frame that stays so holds the questions at most LOAD_WAIT seconds."""
     frames = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).getFrames()
     for index in range(frames.getCount()):
         frame = frames.getByIndex(index)
-        window = frame.getContainerWindow()
-        # hidden loads (macros, conversions) never show a dialog parent, so they do not hold the prompts
-        if frame.getController() is None and window is not None and window.isVisible():
+        if frame.getController() is None or (hasattr(frame, "isActionLocked") and frame.isActionLocked()):
             return True
     return False
 
