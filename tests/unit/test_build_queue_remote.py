@@ -238,3 +238,44 @@ class RemoteOnlyLinuxTest(RemoteTestCase):
         cmd = self.host.calls[-1][2]
         self.assertIn("slots/*/logs -mindepth 1 -maxdepth 1 -name '20*' -mtime +2", cmd)
         self.assertIn("-mtime +1 -exec rm -rf", cmd)
+
+
+class PushSourceTest(RemoteTestCase):
+    """A train commit is pushed to origin from the train's own clone; before pushing it to a remote build host the
+    runner fetches it into the queue's repository (a missing object made pack-objects die: 'eof before pack
+    header'). Real git on a scratch origin."""
+
+    def test_missing_commit_is_fetched_and_an_unknown_one_is_a_clear_error(self):
+        import tempfile
+        from build_train_fixtures import GitWorld, git
+        from build_infra import dispatch_remote_linux as drl
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        world = GitWorld(tmp.name)
+        sha = world.branch("train/1.0.2-099", {"scripts/x.py": "x = 99\n"})
+        git(world.clone, "update-ref", "-d", "refs/remotes/origin/train/1.0.2-099")
+        git(world.clone, "gc", "-q", "--prune=now")
+        self.assertNotEqual(subprocess_rc(world.clone, sha), 0)   # not in the queue's repository yet
+        runner = RemoteLinuxRunner(self.store, self.cfg, HOST, host=self.host, now=lambda: self.t[0])
+        old = drl.REPO
+        drl.REPO = str(world.clone)
+        self.addCleanup(setattr, drl, "REPO", old)
+        runner.ensure_local(sha)
+        self.assertEqual(subprocess_rc(world.clone, sha), 0)
+        with self.assertRaisesRegex(RemoteError, "not in .* could not be fetched"):
+            runner.ensure_local("0123456789" * 4)
+
+
+def subprocess_rc(repo, sha):
+    import subprocess
+    return subprocess.run(["git", "-C", str(repo), "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True,
+                          check=False).returncode
+
+
+class SlotMountTest(RemoteTestCase):
+    def test_slot_overlay_is_mounted_on_a_private_bind(self):
+        from build_queue_fixtures import ROOT
+        text = (ROOT / "scripts/linux/local-build.sh").read_text()
+        body = text[text.index("mount_chroot() {"):text.index("MOUNTED=1", text.index("mount_chroot() {"))]
+        self.assertLess(body.index('mount --bind "$CHROOT" "$CHROOT"'), body.index("mount -t overlay"))
+        self.assertLess(body.index('mount --make-private "$CHROOT"'), body.index("mount -t overlay"))

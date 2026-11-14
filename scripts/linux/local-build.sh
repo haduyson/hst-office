@@ -153,7 +153,8 @@ mounts_under() { awk -v p="$1/" 'index($5, p) == 1 {print $5}' /proc/self/mounti
 umount_tree() { # umount_tree <dir>: everything mounted below <dir>, deepest first, then <dir> itself
   local m
   mounts_under "$1" | sort -r | while IFS= read -r m; do umount -R "$m" 2>/dev/null || umount -R -l "$m" || true; done
-  if mountpoint -q "$1"; then umount "$1" 2>/dev/null || umount -l "$1" || true; fi
+  local _   # <dir> itself may carry stacked mounts (the slot's private bind under its overlay): unmount them all
+  for _ in 1 2 3 4; do mountpoint -q "$1" || break; umount "$1" 2>/dev/null || umount -l "$1" || true; done
   if [ -n "$(mounts_under "$1")" ] || mountpoint -q "$1"; then die "could not unmount $1: $(mounts_under "$1" | tr '\n' ' ')"; fi
 }
 umount_chroot() { umount_tree "$CHROOT"; MOUNTED=0; }
@@ -185,9 +186,15 @@ mount_system() { # mount_system <root>: proc, sys and an own minimal /dev
 base_marker() { cat "$BASE/.hst-image" "$BASE/.hst-deps" 2>/dev/null | sha256sum | cut -c1-16; }
 
 mount_chroot() { # the slot's overlay of the base chroot (writes go to chroot-upper/, reset when the base changes)
-  if ! mountpoint -q "$CHROOT"; then
+  if [ "$(findmnt -rn -o FSTYPE --mountpoint "$CHROOT" | tail -1)" != overlay ]; then
     if [ "$(cat "$ROOT/.chroot-base" 2>/dev/null)" != "$(base_marker)" ]; then rm -rf "$UPPER" "$OVLWORK"; fi
     mkdir -p "$CHROOT" "$UPPER" "$OVLWORK"
+    # A private bind of the mountpoint first, so the overlay (and everything later mounted in it) never propagates
+    # into other mount namespaces: / is a shared mount, and services with a private namespace (udevd, fwupd,
+    # resolved, ...) would otherwise keep a copy that the unmount here never reaches. overlayfs then holds the
+    # upper/work dirs "in use" and warns (undefined behaviour) on the slot's next mount.
+    mountpoint -q "$CHROOT" || mount --bind "$CHROOT" "$CHROOT"
+    mount --make-private "$CHROOT"
     mount -t overlay overlay -o "lowerdir=$BASE,upperdir=$UPPER,workdir=$OVLWORK" "$CHROOT"
     mount --make-private "$CHROOT"
     base_marker > "$ROOT/.chroot-base"

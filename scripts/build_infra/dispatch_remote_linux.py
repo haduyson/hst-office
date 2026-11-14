@@ -131,12 +131,31 @@ class RemoteLinuxRunner:
             log(f"{self.name}: leftover check failed: {exc}")
 
     # ------------------------------------------------------------ deploy and commits
+    def ensure_local(self, sha):
+        """The commit must be in the queue's repository before it can be pushed: train commits are made in the
+        train's own clone and pushed to origin, and nothing else fetches them here (pushing a missing object makes
+        pack-objects die, which the host reports as "remote unpack failed: eof before pack header")."""
+        def have():
+            return subprocess.run(["git", "-C", REPO, "cat-file", "-e", f"{sha}^{{commit}}"], capture_output=True,
+                                  timeout=60, check=False, env=git_env()).returncode == 0
+        if have():
+            return
+        for args in (["fetch", "-q", "origin"], ["fetch", "-q", "origin", sha]):
+            subprocess.run(["git", "-C", REPO, *args], capture_output=True, timeout=600, check=False, env=git_env())
+            if have():
+                log(f"{self.name}: fetched {sha[:12]} from origin before pushing it")
+                return
+        raise RemoteError(f"{self.name}: commit {sha[:12]} is not in {REPO} and could not be fetched from origin")
+
     def push(self, sha, ref):
+        self.ensure_local(sha)
         url = f"ssh://{self.host.user}@{self.host.address}{self.root}/repo.git"
         done = subprocess.run(["git", "-C", REPO, "push", "-q", "--force", url, f"{sha}:{ref}"], capture_output=True,
                               text=True, timeout=900, check=False, env={**git_env(), "GIT_SSH_COMMAND": self.host.git_ssh()})
         if done.returncode != 0:
-            raise RemoteError(f"{self.name}: git push {ref}: {done.stderr.strip()[-300:]}")
+            err = done.stderr.strip()
+            # The first lines carry the client's own error (e.g. "fatal: bad object"), the last ones the remote's.
+            raise RemoteError(f"{self.name}: git push {ref}: {err if len(err) <= 700 else err[:350] + ' ... ' + err[-350:]}")
 
     def ensure_deployed(self):
         sha = infra_sha()
