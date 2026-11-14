@@ -11,13 +11,16 @@ system clipboard and so runs a nested main loop with the SolarMutex released; th
 thread destroyed that toolbar meanwhile, and the paste control then laid out its disposed ToolBox
 (ToolBox::GetItemRect -> ImplFormat); with that fixed alone, the update loop then read the controller map the
 dispose had cleared (ToolBarManager::UpdateControllers). Usage: python3 tests/runtime/check-ui-mode-cycle-stress.py
-[--instdir upstream/libreoffice/instdir] [--out tests/output/ui-mode-cycle-stress] [--display :97] [--rounds 20] [--port 21994].
+[--instdir upstream/libreoffice/instdir] [--out tests/output/ui-mode-cycle-stress] [--display :97] [--rounds 20] [--port 21986].
 Exit 1 when the office crashed, hung or a round failed.
 """
 import argparse
 import importlib.util
 import json
 import os
+import shutil
+import signal
+import subprocess
 import sys
 import threading
 import time
@@ -27,7 +30,7 @@ sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
 import ui_mode_tabs_scenario as scenario  # noqa: E402
 
-PORT = 21994  # deterministic per check (see hst_gui)
+PORT = 21986  # deterministic per check (see hst_gui); 21994 is check-vi-intro.py's
 HANG_SECONDS = 300
 MODES = ("Single", "Sidebar", "notebookbar_compact.ui", "notebookbar_groupedbar_compact.ui", "notebookbar_single.ui",
          "Default", "notebookbar.ui")
@@ -56,12 +59,25 @@ def close_all_but_one(office):
     time.sleep(3)
 
 
+def load(office, url):
+    """Open the document as a new tab. Type detection of a just-written file failed once in about 130 loads (the file was
+    complete and valid): retry that once, it is not what this check is about."""
+    try:
+        office.desktop.loadComponentFromURL(url, "_blank", 0, ())
+    except Exception as error:  # noqa: BLE001 - only the type detection error is retried
+        if "type detection failed" not in str(error):
+            raise
+        print("retry load after: %s" % error, flush=True)
+        time.sleep(3)
+        office.desktop.loadComponentFromURL(url, "_blank", 0, ())
+
+
 def run_round(office, folder, number, progress):
     for app, factory, ext, filter_name in DOCS * 2:
         path = os.path.join(folder, "%s%d-%d.%s" % (app, number, int(time.time() * 1000) % 100000, ext))
         url = scenario.make_document(office, factory, path, filter_name)
         progress("load %s round %d" % (app, number))
-        office.desktop.loadComponentFromURL(url, "_blank", 0, ())
+        load(office, url)
         time.sleep(3)
         for mode in MODES:
             progress("%s %s round %d" % (app, mode, number))
@@ -73,6 +89,12 @@ def run_round(office, folder, number, progress):
             progress("switch %s round %d #%d" % (mode, number, switch))
             office.dispatch(scenario.shown(office.desktop), ".uno:NextDocumentTab")
             time.sleep(2)
+    # Back to the default ribbon (no menubar) before the next round's documents load. A document loaded over UNO
+    # into a window with a menubar builds the gtk menubar on the request thread, and its Paste state then waits for
+    # the system clipboard from that thread; gtk can wait there for good (a separate upstream hazard of UNO-driven
+    # loads, seen once in round 10), which this check is not about.
+    progress("all notebookbar.ui round %d" % number)
+    scenario.apply_mode(office, "Writer", "notebookbar.ui", to_all=True)
     close_all_but_one(office)
 
 
@@ -101,6 +123,14 @@ def main():
             if time.time() - state["last"] > HANG_SECONDS:
                 hst_gui.screenshot(os.path.join(args.out, "hang.png"), args.display)
                 print("FAIL  office hung at %s" % state["step"], flush=True)
+                pid = office.pid
+                if pid and shutil.which("gdb"):  # where it hangs, for the report
+                    with open(os.path.join(args.out, "hang-stacks.txt"), "w", encoding="utf-8") as stacks:
+                        subprocess.run(["gdb", "-p", str(pid), "-batch", "-ex", "set pagination off",
+                                        "-ex", "info sharedlibrary", "-ex", "thread apply all bt 50"],
+                                       stdout=stacks, stderr=subprocess.STDOUT, timeout=180, check=False)
+                if pid:  # never leave the hung office behind
+                    os.kill(pid, signal.SIGKILL)
                 os._exit(1)
 
     threading.Thread(target=watchdog, daemon=True).start()
@@ -113,8 +143,9 @@ def main():
             run_round(adapter, folder, number, progress)
             print("round %d ok" % number, flush=True)
     except Exception as error:  # noqa: BLE001 - a dead bridge is the crash this check is for
-        alive = office.pid is not None
-        result.update(status="FAIL", detail="%s at %s: %r" % ("error" if alive else "office crashed",
+        time.sleep(5)  # the crash handler of a dying office still runs for a moment
+        crashed = office.pid is None or "disposed" in str(error)
+        result.update(status="FAIL", detail="%s at %s: %r" % ("office crashed" if crashed else "error",
                                                              state["step"], error))
     finally:
         office.stop()
