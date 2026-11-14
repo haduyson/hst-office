@@ -2,6 +2,7 @@
 """Daily display report: body schema and size, send decision, response handling, the feed attempt and the widget's
 Shown call. Every transport is stubbed: no network."""
 import json
+import os
 import re
 import tempfile
 import unittest
@@ -68,22 +69,18 @@ class BodyTest(unittest.TestCase):
 class DecisionTest(unittest.TestCase):
     DAYS = {"2026-11-12": {"aios": 1}}
 
-    def test_sends_with_install_id_on_a_valid_key_and_counts(self):
-        self.assertTrue(rep.should_send(True, KEY, True, self.DAYS))
-
-    def test_send_install_id_off(self):
-        self.assertFalse(rep.should_send(False, KEY, True, self.DAYS))
-        self.assertFalse(rep.should_send(None, KEY, True, self.DAYS))
+    def test_sends_on_a_valid_key_and_counts(self):
+        self.assertTrue(rep.should_send(KEY, True, self.DAYS))
 
     def test_empty_placeholder_key_is_the_bundled_only_path(self):
-        self.assertFalse(rep.should_send(True, b"", True, self.DAYS))
-        self.assertFalse(rep.should_send(True, bytes(32), True, self.DAYS))
+        self.assertFalse(rep.should_send(b"", True, self.DAYS))
+        self.assertFalse(rep.should_send(bytes(32), True, self.DAYS))
 
     def test_nothing_to_send(self):
-        self.assertFalse(rep.should_send(True, KEY, True, {}))
+        self.assertFalse(rep.should_send(KEY, True, {}))
 
     def test_test_packages_and_testing_origins_never_send(self):
-        self.assertFalse(rep.should_send(True, KEY, False, self.DAYS))
+        self.assertFalse(rep.should_send(KEY, False, self.DAYS))
 
 
 class ResponseTest(unittest.TestCase):
@@ -110,8 +107,8 @@ class ReportTest(unittest.TestCase):
         self.counter = imp.Counter(self.tmp.name, lambda: NOW)
         self.today = imp.local_day(NOW).isoformat()
 
-    def report(self, post, allowed=True, key=KEY, production=True):
-        return rep.report(self.counter, VERSION, {"https": "proxy:8080"}, allowed, key, production, post)
+    def report(self, post, key=KEY, production=True):
+        return rep.report(self.counter, VERSION, {"https": "proxy:8080"}, key, production, post)
 
     def test_pending_counts_are_flushed_sent_and_cleared(self):
         self.counter.record("aios")
@@ -132,7 +129,7 @@ class ReportTest(unittest.TestCase):
 
     def test_not_allowed_reads_writes_and_sends_nothing(self):
         self.counter.record("aios")
-        for kwargs in ({"allowed": False}, {"key": b""}, {"production": False}):
+        for kwargs in ({"key": b""}, {"production": False}):
             post = Post()
             self.assertIsNone(self.report(post, **kwargs))
             self.assertEqual(post.calls, [])
@@ -143,11 +140,11 @@ class FeedAttemptTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        self.post, self.allowed = Post(204), True
+        self.post = Post(204)
 
     def feed(self, **kwargs):
         return BannerFeed(self.tmp.name, VERSION, public_key=KEY, fetcher=Remote(), clock=lambda: NOW,
-                          impressions_allowed=lambda: self.allowed, poster=self.post, **kwargs)
+                          poster=self.post, **kwargs)
 
     def refresh(self, feed):
         thread = feed.refresh_async()
@@ -164,14 +161,16 @@ class FeedAttemptTest(unittest.TestCase):
         self.refresh(feed)
         self.assertEqual(len(self.post.calls), 1)
 
-    def test_send_install_id_off_counts_and_sends_nothing(self):
-        self.allowed = False
+    def test_counting_does_not_depend_on_send_install_id(self):
+        """Display counting always runs: the anonymous install ID box neither stops counting nor reporting."""
         feed = self.feed()
         feed.shown("aios")
-        feed.impressions.flush()
         self.refresh(feed)
-        self.assertEqual(self.post.calls, [])
-        self.assertFalse((feed.root / imp.FILE).exists())
+        self.assertEqual(len(self.post.calls), 1)
+        self.assertNotIn(b"install", self.post.calls[0][1].lower())
+        source = open(os.path.join(os.path.dirname(rep.__file__), "banner_uno.py"), encoding="utf-8").read()
+        self.assertNotIn("SendInstallId", source)
+        self.assertNotIn("update_install_id", source)
 
     def test_testing_origin_does_not_report_to_production(self):
         feed = self.feed(override="https://staging.example.test/banners.json")

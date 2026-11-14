@@ -5,13 +5,14 @@
   * The ID is a random UUID4 (uuid.uuid4, from os.urandom), created at the first update check and stored in the user
     profile at /org.hasontech.hstoffice.UpdateCheck/InstallId (update.xcs). It is derived from nothing on the machine:
     not the hardware, the network (MAC) address, the user or machine name. A new or reset profile gets a new ID.
-  * It travels only as ?i=<id> on the manifest request of the update check (feed_url); the User-Agent
-    already carries the release and the OS, so nothing else is added.
-  * SendInstallId = false (Tùy chọn ▸ HST Office ▸ Cập nhật; administrators can lock it, update_config): no ID is sent
-    and none is created. An ID created earlier stays in the profile, unused, so ticking the box again does not count
-    the machine twice.
+  * It travels as ?i=<id> on the manifest request of the update check (feed_url); the User-Agent already carries the
+    release and the OS, so nothing else is added. An error report the user sends carries the same ID in its own
+    "installId" field (for_report), so HASON TECH can group reports from the same machine; a report never creates one.
+  * SendInstallId = false (Tùy chọn ▸ HST Office ▸ Cập nhật; administrators can lock it, update_config): no ID is sent,
+    neither with the update check nor with an error report, and none is created. An ID created earlier stays in the
+    profile, unused, so ticking the box again does not count the machine twice.
   * It is never logged: callers log errors without it (update_fetch), and the local log's filter replaces every UUID
-    (error_report_filter.scrub).
+    (error_report_filter.scrub), so in an error report it appears only in the "installId" field, never in free text.
 """
 import re
 import urllib.parse
@@ -82,5 +83,24 @@ def for_check(ctx):
             return None
         return send
     except Exception:  # noqa: BLE001 - the update check must work without the ID
+        diag_log.exception("update_install_id")
+        return None
+
+
+def for_report(values):
+    """Pure: the ID an error report carries, from the resolved update settings, or None. Never creates one: no ID when
+    SendInstallId is off, or when no update check has stored a valid ID yet."""
+    if not values.get(SEND_KEY, True):
+        return None
+    stored = values.get(ID_KEY, "")
+    return stored if is_install_id(stored) else None
+
+
+def for_error_report(ctx):
+    """The ID to put in an error report now, or None. Reads the profile only (never writes) and never raises: on any
+    failure the report goes without an ID."""
+    try:
+        return for_report(update_config.settings(ctx))
+    except Exception:  # noqa: BLE001 - the report must work without the ID
         diag_log.exception("update_install_id")
         return None

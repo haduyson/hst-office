@@ -2,9 +2,9 @@
 """Trợ giúp ▸ Báo lỗi cho HASON TECH…: the error report dialog (also opened by the crash prompt with kind=crash).
 
 Nothing is sent until the user presses "Gửi". The summary (version, OS, app) is always part of the report and shown
-read-only; "Gửi kèm thông tin chẩn đoán" (systemInfo, the local log, the crash facts) is ticked by default and can be
-unticked; "Xem nội dung sẽ gửi" shows the exact object that would
-be sent now. Sending runs on a worker thread (error_report_send, 15 s deadline); the answer comes back to the main
+read-only, together with the anonymous install ID when "Gửi mã máy ẩn danh" is on (update_install_id.for_report:
+read once here, never created for a report); "Gửi kèm thông tin chẩn đoán" (systemInfo, the local log, the crash
+facts) is ticked by default and can be unticked; "Xem nội dung sẽ gửi" shows the exact object that would be sent now. Sending runs on a worker thread (error_report_send, 15 s deadline); the answer comes back to the main
 thread. A retry keeps the same reportId. On 429, 5xx or no answer the e-mail fallback is offered.
 """
 import threading
@@ -15,6 +15,7 @@ from .error_report_mail import mailto_url, summary_lines
 from .error_report_payload import build_payload, encode, new_report_id, preview_text, problems, utc_now
 from .error_report_send import send
 from .error_report_texts import TEXT
+from .update_install_id import for_error_report
 from .update_fetch import release_info
 from .update_ui import on_main_thread, proxy
 
@@ -28,6 +29,7 @@ class ReportDialog:
         self.product, self.os, self.locale, self.app = info.environment(ctx, frame)
         self.app = app or self.app  # a crash report names the app that was open, not the one now in front
         self.release = release_info()
+        self.install_id = for_error_report(ctx)  # None when the box is off or no ID exists yet
         self.proxy = proxy(ctx)  # read on the main thread; the worker only sends
         self._diagnostics = None
         self.outcome, self.closed, self.dialog = None, False, None
@@ -47,7 +49,7 @@ class ReportDialog:
             with_diagnostics = bool(dialog and dialog.get("diagnostics"))
         return build_payload(self.report_id, self.kind, utc_now(), self.product, self.os, self.locale, self.app,
                              dialog.get("description") if dialog else "", dialog.get("email") if dialog else "",
-                             self.diagnostics() if with_diagnostics else None)
+                             self.diagnostics() if with_diagnostics else None, self.install_id)
 
     def run(self, parent_peer=None):
         crash = self.kind == "crash"

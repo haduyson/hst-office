@@ -30,12 +30,14 @@ def summary_lines(payload):
 
 
 def plain_text(payload):
-    """The report as text: description, contact, summary, ids, then the attached diagnostics."""
+    """The report as text: description, contact, summary, ids (the install ID when sent), then the diagnostics."""
     lines = [payload.get("description") or "(không có mô tả)", ""]
     if payload.get("contactEmail"):
         lines.append("Thư điện tử liên hệ: " + payload["contactEmail"])
     lines += summary_lines(payload)
     lines += ["Mã báo cáo trong máy: " + payload["reportId"], "Thời điểm (UTC): " + payload["createdAt"]]
+    if payload.get("installId"):
+        lines.append("Mã máy ẩn danh: " + payload["installId"])
     for name, title in DIAGNOSTIC_TITLES:
         value = payload.get("diagnostics", {}).get(name)
         if value:

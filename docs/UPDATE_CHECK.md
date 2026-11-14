@@ -41,7 +41,8 @@ HST Office tự biết khi có bản mới và báo cho người dùng kèm liê
   Mã: `update_install_id.py` (tạo bằng `uuid.uuid4()` ở lần kiểm tra đầu, trên luồng chính, lưu vào
   `/org.hasontech.hstoffice.UpdateCheck/InstallId`; không lưu được thì không gửi), `update_logic.feed_url`,
   `update_fetch` (thông báo lỗi không chứa mã), `error_report_filter.scrub` thay mọi UUID bằng `<ID>` trước khi ghi
-  nhật ký cục bộ. Tắt: `SendInstallId = false` (Công cụ ▸ Tùy chọn ▸ HST Office ▸ Cập nhật; khóa được, xem
+  nhật ký cục bộ. Từ 1.0.2 báo cáo lỗi người dùng gửi kèm cùng mã ở trường `installId` (chỉ đọc, không bao giờ tạo mã;
+  `update_install_id.for_report`, [hợp đồng API báo lỗi](../plans/261106-0144-error-report/api-contract.md)). Tắt: `SendInstallId = false` (Công cụ ▸ Tùy chọn ▸ HST Office ▸ Cập nhật; khóa được, xem
   [UPDATE_ADMIN](UPDATE_ADMIN.md)).
 - **Thông báo:** thanh thông tin (infobar) trên Văn bản/Bảng tính/Trình chiếu: "Đã có HST Office X — bản mới."
   với [Tải về] [Xem điểm mới] [Bỏ qua phiên bản này]. Nếu lúc đó chỉ có Start Center, thông báo hiện ở tài liệu

@@ -180,7 +180,8 @@ adds the display in memory and merges the counts into `$(user)/hst-banners/impre
 banner id and a number: `{"schemaVersion":1,"days":{"2026-11-12":{"aios":34,"hst-post":12}}}`. It keeps at most 7 days
 (today − 6 … today + 1, so a clock that was set back leaves no far-future day), 24 ids per day and 5000 per id and day.
 Writes are atomic under the kernel lock `impressions.lock`, shared by every office process of the profile; a read-only
-profile keeps the counts in memory only. While `SendInstallId` is off nothing is counted.
+profile keeps the counts in memory only. Counting always runs: it does not depend on `SendInstallId` or any other
+setting and cannot be turned off (owner decision 2026-11-14).
 
 **Report.** [banner_impressions_report.py](../extensions/hst-vietnamese-tools/python/hst_office/banner_impressions_report.py)
 sends the stored counts within the feed's attempt of at most once per 86,400 seconds (the same stamp and lock, after
@@ -206,14 +207,14 @@ does not store the IP address. Answer handling:
 | 413 | the oldest sent day is removed |
 | 429, 5xx, any other status, no answer (DNS, TLS, timeout, redirect) | kept for the next daily attempt, until they are 7 days old |
 
-**When nothing is sent.** No report is made when `SendInstallId` is false, without a valid banner public key (the
+**When nothing is sent.** No report is made without a valid banner public key (the
 bundled-only path, which makes no banner requests at all), from test-stamped packages or with a `FeedURL` testing
 override (counts stay local and expire), or when there is nothing to send.
 
-**How to stop it.** Untick **Gửi mã máy ẩn danh khi kiểm tra cập nhật** in Công cụ ▸ Tùy chọn ▸ HST Office ▸ Cập nhật
-(`/org.openoffice.Office.HSTUpdate/SendInstallId` = `false`; administrators can lock it, [UPDATE_ADMIN](UPDATE_ADMIN.md)).
-Unticking stops counting and sending at once; ticking it again takes effect at the next start at the latest. Counts stored earlier
-stay in `impressions.json` and are not sent while the box is unticked; they expire after 7 days, or delete the file.
+**No opt-out.** The display report is always on (owner decision 2026-11-14). It is independent of the anonymous install
+ID box (**Gửi mã máy ẩn danh**, `/org.openoffice.Office.HSTUpdate/SendInstallId`), which affects only the update check
+and error reports: the report holds aggregate per-day, per-banner counts and no machine ID. Counts that were stored
+earlier expire after 7 days if they cannot be sent.
 
 ## Runtime, cache and privacy
 
@@ -243,7 +244,7 @@ manifest endpoint for testing. Empty, non-HTTPS, credentialed, nonstandard-port 
 values are ignored. A valid HTTPS override may use a testing origin outside the content
 allow-list, but signatures and every item/image URL still obey production rules.
 There are no environment overrides, hide keys, administrator disable keys, app-specific
-feeds or dependencies on update-check enable/disable preferences; only the display report follows `SendInstallId`
+feeds or dependencies on update-check enable/disable preferences, `SendInstallId` included
 ([Display counting](#display-counting)). Standard office proxy
 settings are reused solely for transport.
 

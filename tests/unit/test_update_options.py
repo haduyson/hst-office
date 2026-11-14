@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Tùy chọn ▸ HST Office ▸ Cập nhật: the "Gửi mã máy ẩn danh khi kiểm tra cập nhật" box, its registration, default,
+"""Tùy chọn ▸ HST Office ▸ Cập nhật: the "Gửi mã máy ẩn danh khi kiểm tra cập nhật và báo lỗi" box, its registration, default,
 administrator lock, and that unticking it stops the ID."""
 import os
 import re
@@ -31,7 +31,7 @@ class OptionsPage(unittest.TestCase):
         box = self.controls()["sendInstallId"]
         self.assertEqual(box.tag, DLG + "checkbox")
         self.assertEqual(box.get(DLG + "value"),
-                         "Gửi mã máy ẩn danh khi kiểm tra cập nhật (giúp HASON TECH biết số máy đang dùng)")
+                         "Gửi mã máy ẩn danh khi kiểm tra cập nhật và báo lỗi (giúp HASON TECH biết số máy đang dùng)")
         self.assertEqual(box.get(DLG + "checked"), "true")
 
     def test_texts_name_no_other_product(self):
