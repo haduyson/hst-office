@@ -1,0 +1,351 @@
+Writer: a large plain text file is laid out page by page instead of moving every paragraph on each page break.
+
+Text files have no layout cache, and upstream removed the paragraphs-per-page guess in SwLayHelper
+(tdf#166871), so all paragraphs of a newly opened .txt are created on the first page. Each page break
+then moves the whole rest of the document to the next page: SwFrame::GetNextLeaf() walks all following
+frames and SwFlowFrame::PasteTree() reparents them (CheckDirChange for each), and SwLayAction visits
+them again. That is O(paragraphs x pages): a 50 MB file of short lines took about 20 minutes of full
+layout, 93 % of the samples in those loops.
+
+For documents opened by the plain text filters (TEXT, TEXT_DLG) with at least 3000 paragraphs, no
+header, footer or columns, SwLayHelper now inserts a page when the paragraphs on the current page are
+estimated to fill 90 % of the body. The estimate deliberately overstates each paragraph (1.5 x font
+height per line, 0.6 em per Latin character, 1 em per wide character, 3 em per tab, line spacing and
+paragraph spacing included), so pages start underfilled and the normal layout pulls the following
+paragraphs back; every move is bounded by one page. The final pagination is the same as before; the
+new test compares every page start with the old start-to-end layout (HST_SW_TEXT_PAGINATION=0 turns
+the estimate off for that comparison). Other formats and small text files are unchanged.
+
+--- a/sw/source/core/layout/laycache.cxx
++++ b/sw/source/core/layout/laycache.cxx
+@@ -47,6 +47,20 @@
+ #include <node.hxx>
+ #include <ndtxt.hxx>
+ #include <frameformats.hxx>
++#include <docsh.hxx>
++#include <iodetect.hxx>
++#include <fmtclds.hxx>
++#include <fmthdft.hxx>
++#include <frmatr.hxx>
++#include <charatr.hxx>
++#include <paratr.hxx>
++#include <editeng/lrspitem.hxx>
++#include <editeng/ulspitem.hxx>
++#include <editeng/lspcitem.hxx>
++#include <editeng/fhgtitem.hxx>
++#include <sfx2/docfile.hxx>
++#include <sfx2/docfilt.hxx>
++#include <cstdlib>
+ 
+ #include <limits>
+ 
+@@ -529,6 +543,9 @@
+     , mbBreakAfter(false)
+     , mrDoc(rDoc)
+     , mnFlyIdx( 0 )
++    , mnTextPageBudget( 0 )
++    , mnTextPageUsed( 0 )
++    , mnTextBodyWidth( 0 )
+     , mbFirst( bCache )
+ {
+     mpImpl = mrDoc.GetLayoutCache() ? mrDoc.GetLayoutCache()->LockImpl() : nullptr;
+@@ -552,9 +569,98 @@
+     {
+         mnIndex = std::numeric_limits<size_t>::max();
+         mnStartOfContent = NODE_OFFSET_MAX;
++        if (bCache)
++            InitTextPagination(nNodeIndex);
+     }
+ }
+ 
++namespace
++{
++/// Paragraph count from which a plain text without layout cache is put on pages while the frames are
++/// created: below it the start-to-end layout is cheap enough.
++constexpr SwNodeOffset TEXT_PAGINATION_MIN_NODES(3000);
++
++bool IsPlainTextImport(const SwDoc& rDoc)
++{
++    const SwDocShell* pShell = rDoc.GetDocShell();
++    const SfxMedium* pMedium = pShell ? pShell->GetMedium() : nullptr;
++    const std::shared_ptr<const SfxFilter>& pFilter = pMedium ? pMedium->GetFilter() : nullptr;
++    return pFilter && (pFilter->GetUserData() == FILTER_TEXT || pFilter->GetUserData() == FILTER_TEXT_DLG);
++}
++}
++
++/** A plain text without layout cache has all its paragraphs created on the first page. Every page
++ *  break then moves all the following paragraphs to the next page (MoveFwd: GetNextLeaf walks them,
++ *  PasteTree reparents them), which costs O(paragraphs * pages) - about 20 min for 50 MB.
++ *  Instead, insert a page when the paragraphs on the current page are estimated to fill most of the
++ *  body. The estimate is generous (each paragraph is guessed taller than it is), so the pages start
++ *  underfilled and the layout pulls the following paragraphs back (MoveBwd), each move bounded by one
++ *  page; the result is the same pagination as the start-to-end layout.
++ */
++void SwLayHelper::InitTextPagination(SwNodeOffset nNodeIndex)
++{
++    const char* pEnv = std::getenv("HST_SW_TEXT_PAGINATION");
++    if (pEnv && pEnv[0] == '0')
++        return;
++    const SwNodes& rNodes = mrDoc.GetNodes();
++    if (nNodeIndex != rNodes.GetEndOfContent().StartOfSectionNode()->GetIndex() + 1
++        || rNodes.GetEndOfContent().GetIndex() - nNodeIndex < TEXT_PAGINATION_MIN_NODES
++        || !mrpPage || !mrpLay || !mrpLay->IsPageBodyFrame() || mrpActualSection
++        || !IsPlainTextImport(mrDoc))
++        return;
++    const SwViewShell* pSh = mrpPage->getRootFrame()->GetCurrShell();
++    if (pSh && pSh->GetViewOptions()->getBrowseMode())
++        return;
++    const SwFrameFormat& rFormat = mrpPage->GetPageDesc()->GetMaster();
++    if (rFormat.GetHeader().IsActive() || rFormat.GetFooter().IsActive()
++        || rFormat.GetCol().GetNumCols() > 1)
++        return;
++    const Size aSize = rFormat.GetFrameSize().GetSize();
++    const SvxLRSpaceItem& rLR = rFormat.GetLRSpace();
++    const SvxULSpaceItem& rUL = rFormat.GetULSpace();
++    const tools::Long nWidth = aSize.Width() - rLR.ResolveLeft() - rLR.ResolveRight({});
++    const tools::Long nHeight = aSize.Height() - rUL.GetUpper() - rUL.GetLower();
++    if (nWidth <= 0 || nHeight <= 0)
++        return;
++    mnTextBodyWidth = nWidth;
++    mnTextPageBudget = nHeight * 9 / 10;
++}
++
++/// Generous height estimate of the paragraph mrpFrame, which is about to be inserted (0: estimate off).
++tools::Long SwLayHelper::EstimateTextHeight()
++{
++    if (!mrpFrame->IsTextFrame() || mrpActualSection || !mrpLay->IsPageBodyFrame())
++    {
++        mnTextPageBudget = 0; // not a plain paragraph sequence: leave the layout to itself
++        return 0;
++    }
++    const SwTextFrame& rFrame = *static_cast<SwTextFrame*>(mrpFrame);
++    const SwAttrSet& rSet = rFrame.GetTextNodeForParaProps()->GetSwAttrSet();
++    const tools::Long nFont = std::max({ tools::Long(rSet.GetSize().GetHeight()),
++                                         tools::Long(rSet.GetCJKSize().GetHeight()),
++                                         tools::Long(rSet.GetCTLSize().GetHeight()), tools::Long(1) });
++    // Guess the paragraph taller than it is: 1.5 x font height per line, Latin characters 0.6 em
++    // wide, wide (CJK) characters 1 em and tabs 3 em.
++    const SvxLineSpacingItem& rSpacing = rSet.GetLineSpacing();
++    tools::Long nLine = nFont * 3 / 2;
++    if (rSpacing.GetInterLineSpaceRule() == SvxInterLineSpaceRule::Prop)
++        nLine = nLine * std::max<tools::Long>(100, rSpacing.GetPropLineSpace()) / 100;
++    else if (rSpacing.GetInterLineSpaceRule() == SvxInterLineSpaceRule::Fix)
++        nLine += std::max<tools::Long>(0, rSpacing.GetInterLineSpace());
++    if (rSpacing.GetLineSpaceRule() != SvxLineSpaceRule::Auto)
++        nLine = std::max<tools::Long>(nLine, rSpacing.GetLineHeight());
++    const OUString& rText = rFrame.GetText();
++    sal_Int64 nWidth10 = 0; // width in tenths of an em
++    for (sal_Int32 i = 0; i < rText.getLength(); ++i)
++    {
++        const sal_Unicode c = rText[i];
++        nWidth10 += c == '\t' ? 30 : (c >= 0x1100 ? 10 : 6);
++    }
++    const sal_Int64 nLines = 1 + nWidth10 * nFont / 10 / mnTextBodyWidth;
++    const SvxULSpaceItem& rUL = rSet.GetULSpace();
++    return nLines * nLine + rUL.GetUpper() + rUL.GetLower();
++}
++
+ SwLayHelper::~SwLayHelper()
+ {
+     if( mpImpl )
+@@ -822,7 +928,12 @@
+             }
+ 
+             SwPageFrame* pLastPage = mrpPage;
+-            if (CheckInsertPage(mrpPage, mrpLay, mrpFrame, mbBreakAfter))
++            const tools::Long nTextHeight = mnTextPageBudget ? EstimateTextHeight() : 0;
++            if (nTextHeight && mnTextPageUsed > 0 && mnTextPageUsed + nTextHeight > mnTextPageBudget)
++                mbBreakAfter = true;
++            const bool bNewPage = CheckInsertPage(mrpPage, mrpLay, mrpFrame, mbBreakAfter);
++            mnTextPageUsed = (bNewPage ? 0 : mnTextPageUsed) + nTextHeight;
++            if (bNewPage)
+             {
+                 CheckFlyCache_( pLastPage );
+                 if( mrpPrv && mrpPrv->IsTextFrame() && !mrpPrv->isFrameAreaSizeValid() )
+--- a/sw/source/core/layout/layhelp.hxx
++++ b/sw/source/core/layout/layhelp.hxx
+@@ -117,8 +117,15 @@
+     SwNodeOffset mnStartOfContent;
+     size_t mnIndex;                          ///< the index in the page break array
+     size_t mnFlyIdx;                         ///< the index in the fly cache array
++    /// Large plain text without a layout cache: body height that the estimated paragraph heights may
++    /// fill before a page is inserted (0: off), and the estimate already put on the current page.
++    tools::Long mnTextPageBudget;
++    tools::Long mnTextPageUsed;
++    tools::Long mnTextBodyWidth;
+     bool mbFirst : 1;
+     void CheckFlyCache_( SwPageFrame* pPage );
++    void InitTextPagination( SwNodeOffset nNodeIndex );
++    tools::Long EstimateTextHeight();
+ public:
+     SwLayHelper( SwDoc& rDoc, SwFrame* &rpF, SwFrame* &rpP, SwPageFrame* &rpPg,
+             SwLayoutFrame* &rpL, std::unique_ptr<SwActualSection> &rpA,
+--- a/sw/CppunitTest_sw_core_layout.mk
++++ b/sw/CppunitTest_sw_core_layout.mk
+@@ -21,6 +21,7 @@
+     sw/qa/core/layout/frmtool \
+     sw/qa/core/layout/ftnfrm \
+     sw/qa/core/layout/layact \
++    sw/qa/core/layout/laycache \
+     sw/qa/core/layout/layout \
+     sw/qa/core/layout/paintfrm \
+     sw/qa/core/layout/sortedobjs \
+--- /dev/null
++++ b/sw/qa/core/layout/laycache.cxx
+@@ -0,0 +1,156 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <chrono>
++#include <iostream>
++#include <vector>
++
++#include <comphelper/propertyvalue.hxx>
++#include <osl/process.h>
++#include <rtl/ustrbuf.hxx>
++#include <tools/stream.hxx>
++#include <unotools/tempfile.hxx>
++
++#include <IDocumentLayoutAccess.hxx>
++#include <ndtxt.hxx>
++#include <pagefrm.hxx>
++#include <rootfrm.hxx>
++#include <txtfrm.hxx>
++
++namespace
++{
++/// Covers sw/source/core/layout/laycache.cxx: pagination of a large plain text without layout cache.
++class Test : public SwModelTestBase
++{
++public:
++    Test()
++        : SwModelTestBase(u"/sw/qa/core/layout/data/"_ustr)
++    {
++    }
++
++    /// Pages of the current layout: (paragraph number, offset) of the first body text on each page.
++    std::vector<std::pair<sal_Int32, sal_Int32>> getPagination()
++    {
++        SwDoc* pDoc = getSwDoc();
++        const SwNodeOffset nStart
++            = pDoc->GetNodes().GetEndOfContent().StartOfSectionNode()->GetIndex();
++        std::vector<std::pair<sal_Int32, sal_Int32>> aPages;
++        const SwRootFrame* pLayout = pDoc->getIDocumentLayoutAccess().GetCurrentLayout();
++        for (const SwFrame* pPage = pLayout->Lower(); pPage; pPage = pPage->GetNext())
++        {
++            const SwContentFrame* pContent
++                = static_cast<const SwPageFrame*>(pPage)->FindFirstBodyContent();
++            if (!pContent || !pContent->IsTextFrame())
++            {
++                aPages.emplace_back(-1, -1);
++                continue;
++            }
++            auto pText = static_cast<const SwTextFrame*>(pContent);
++            aPages.emplace_back(sal_Int32(pText->GetTextNodeFirst()->GetIndex() - nStart),
++                                sal_Int32(pText->GetOffset()));
++        }
++        return aPages;
++    }
++
++    /// Opens rURL as UTF-8 text, lays it out completely; returns the pagination, the page count
++    /// right after loading and the layout time in milliseconds.
++    std::vector<std::pair<sal_Int32, sal_Int32>> layoutText(const OUString& rURL, bool bPaginate,
++                                                            size_t& rLoadPages, sal_Int64& rMs)
++    {
++        osl_setEnvironment(u"HST_SW_TEXT_PAGINATION"_ustr.pData,
++                           (bPaginate ? u"1"_ustr : u"0"_ustr).pData);
++        const auto aStart = std::chrono::steady_clock::now();
++        loadURL(rURL, { comphelper::makePropertyValue(u"FilterName"_ustr, u"Text (encoded)"_ustr),
++                        comphelper::makePropertyValue(u"FilterOptions"_ustr, u"UTF8"_ustr) });
++        rLoadPages = getSwDoc()->getIDocumentLayoutAccess().GetCurrentLayout()->GetPageNum();
++        calcLayout();
++        rMs = std::chrono::duration_cast<std::chrono::milliseconds>(
++                  std::chrono::steady_clock::now() - aStart)
++                  .count();
++        osl_clearEnvironment(u"HST_SW_TEXT_PAGINATION"_ustr.pData);
++        return getPagination();
++    }
++};
++
++/// Deterministic mix of short, empty, long, tabbed, Vietnamese, CJK and longer-than-a-page lines.
++void writeText(SvStream& rStream, sal_Int32 nParagraphs)
++{
++    static const char* const aWords[] = { "Báo", "cáo", "thanh", "toán", "hợp", "đồng",
++                                          "kế",  "khách", "hàng", "Lorem", "ipsum", "漢字" };
++    sal_uInt32 nSeed = 12345;
++    auto next = [&nSeed](sal_uInt32 n) {
++        nSeed = nSeed * 1103515245 + 12345;
++        return (nSeed >> 16) % n;
++    };
++    for (sal_Int32 i = 0; i < nParagraphs; ++i)
++    {
++        const sal_uInt32 nKind = next(100);
++        sal_uInt32 nWords = nKind < 50 ? 2 + next(6) : nKind < 75 ? 15 + next(40) : nKind < 85 ? 0
++                            : nKind < 95 ? 100 + next(250) : nKind < 99 ? 8 : 1200 + next(600);
++        OUStringBuffer aLine;
++        for (sal_uInt32 j = 0; j < nWords; ++j)
++        {
++            if (j)
++                aLine.append(nKind >= 95 && nKind < 99 ? '\t' : ' ');
++            aLine.append(OUString::fromUtf8(aWords[next(SAL_N_ELEMENTS(aWords))]));
++        }
++        rStream.WriteOString(OUStringToOString(aLine, RTL_TEXTENCODING_UTF8));
++        rStream.WriteOString("\n");
++    }
++}
++
++OUString createText(utl::TempFileNamed& rFile, sal_Int32 nParagraphs)
++{
++    rFile.EnableKillingFile();
++    SvStream* pStream = rFile.GetStream(StreamMode::WRITE | StreamMode::TRUNC);
++    writeText(*pStream, nParagraphs);
++    rFile.CloseStream();
++    return rFile.GetURL();
++}
++
++CPPUNIT_TEST_FIXTURE(Test, testLargeTextPaginationUnchanged)
++{
++    // Above the size threshold: pages are inserted while the frames are created, and the final
++    // pagination is the same as the one of the start-to-end layout.
++    utl::TempFileNamed aFile(u"large-text", true, u".txt");
++    const OUString aURL = createText(aFile, 8000);
++    size_t nOffPages = 0, nOnPages = 0;
++    sal_Int64 nOffMs = 0, nOnMs = 0;
++    const auto aOff = layoutText(aURL, false, nOffPages, nOffMs);
++    const auto aOn = layoutText(aURL, true, nOnPages, nOnMs);
++    std::cerr << "large text: " << aOff.size() << " pages; start-to-end " << nOffMs
++              << " ms, paginated " << nOnMs << " ms; pages after load " << nOffPages << " / "
++              << nOnPages << "\n";
++    CPPUNIT_ASSERT_GREATER(size_t(100), aOff.size());
++    // The estimate is generous: right after loading there are more pages than in the end.
++    CPPUNIT_ASSERT_GREATER(aOn.size(), nOnPages);
++    CPPUNIT_ASSERT_EQUAL(aOff.size(), aOn.size());
++    for (size_t i = 0; i < aOff.size(); ++i)
++    {
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(OString("page " + OString::number(i + 1)).getStr(),
++                                     aOff[i], aOn[i]);
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(Test, testSmallTextNotPaginated)
++{
++    // Below the size threshold the frames all start on the first page, as before.
++    utl::TempFileNamed aFile(u"small-text", true, u".txt");
++    const OUString aURL = createText(aFile, 1500);
++    size_t nLoadPages = 0;
++    sal_Int64 nMs = 0;
++    const auto aPages = layoutText(aURL, true, nLoadPages, nMs);
++    CPPUNIT_ASSERT_GREATER(size_t(10), aPages.size());
++    CPPUNIT_ASSERT_LESS(aPages.size(), nLoadPages);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
