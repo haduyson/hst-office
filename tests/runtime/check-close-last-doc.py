@@ -9,8 +9,7 @@ Run with the office's own Python (it needs pyuno), headless:
 
 Each case creates a document over UNO (the only document, so its menubar is the current one), closes it, and
 then asks the office something: a crash while the menubar goes away (macOS: AquaSalMenu::setDefaultMenu, run on
-the main thread on behalf of the UNO thread) shows up as a disposed bridge. --launcher runs the office through a
-wrapper (for example a debugger script) that gets the soffice path and arguments. Exit 1 when a case fails.
+the main thread on behalf of the UNO thread) shows up as a disposed bridge. Exit 1 when a case fails.
 """
 import argparse
 import os
@@ -58,14 +57,11 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--program", required=True, help="folder with soffice (Linux program/, macOS Contents/MacOS)")
     ap.add_argument("--port", type=int, default=22236)
-    ap.add_argument("--launcher", default="", help="optional wrapper command placed before soffice")
     args = ap.parse_args()
     work = tempfile.mkdtemp(prefix="hst-close-last-doc-")
     cmd = [os.path.join(args.program, "soffice"), "--headless", "--norestore", "--nologo",
            "-env:UserInstallation=file://" + os.path.join(work, "profile"),
            "--accept=socket,host=127.0.0.1,port=%d;urp;" % args.port]
-    if args.launcher:
-        cmd = args.launcher.split() + cmd
     proc = subprocess.Popen(cmd)
     failed = 0
     try:

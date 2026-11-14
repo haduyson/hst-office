@@ -64,7 +64,7 @@ jobs:
           "$app/Contents/Resources/python" tests/runtime/check-close-last-doc.py --program "$app/Contents/MacOS" \
             2>&1 | tee "$out/close-last-doc.txt"
           exit "${PIPESTATUS[0]}"
-      - name: Diagnose the close crash (lldb, zombies, disassembly)
+      - name: Diagnose the close crash (zombies, disassembly)
         if: ${{ always() && steps.closelast.outcome == 'failure' }}
         shell: bash
         run: |
@@ -80,10 +80,6 @@ jobs:
           NSZombieEnabled=YES MallocStackLogging=1 "$app/Contents/Resources/python" tests/runtime/check-close-last-doc.py \
             --program "$app/Contents/MacOS" --port 22237 2>&1 | tee "$out/close-last-doc-zombie.txt"
           pkill -f "$app/Contents/MacOS/soffice"
-          echo "== lldb run"
-          "$app/Contents/Resources/python" tests/runtime/check-close-last-doc.py --program "$app/Contents/MacOS" \
-            --port 22238 --launcher "bash $GITHUB_WORKSPACE/tests/runtime/macos-lldb-crash-launcher.sh" \
-            2>&1 | tee "$out/close-last-doc-lldb.txt"
           exit 0
       - name: Stop leftover office processes
         if: ${{ always() }}
