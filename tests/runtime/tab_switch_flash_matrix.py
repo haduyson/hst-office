@@ -15,7 +15,10 @@ import os
 import subprocess
 import time
 
-import screen_patches_win as sp
+try:  # Windows; the document helpers below are shared with the Linux check
+    import screen_patches_win as sp
+except (AttributeError, OSError):
+    sp = None
 
 APPS = {  # module -> (factory, extension, filter, DocumentTabs<App> key suffix)
     "writer": ("swriter", "docx", "MS Word 2007 XML", "Writer"),

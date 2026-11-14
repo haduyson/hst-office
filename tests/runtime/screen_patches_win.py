@@ -6,6 +6,7 @@ rectangle (the office window) with BitBlt from the screen DC: several hundred gr
 per second the compositor shows, so every composed frame is seen. A grab is classified per patch against three
 references: the screen before the switch, the screen after it and the desktop grabbed before the office started.
 """
+from screen_patch_compare import classify, describe, near  # noqa: F401 (the checks use them from here)
 import ctypes
 import threading
 import time
@@ -28,7 +29,6 @@ gdi32.BitBlt.argtypes = [wintypes.HDC] + [ctypes.c_int] * 4 + [wintypes.HDC] + [
 gdi32.CreateDIBSection.restype = wintypes.HBITMAP
 gdi32.CreateDIBSection.argtypes = [wintypes.HDC, ctypes.c_void_p, wintypes.UINT, ctypes.POINTER(ctypes.c_void_p),
                                    wintypes.HANDLE, wintypes.DWORD]
-NEAR = 12  # mean per-channel difference below which two patches show the same picture
 
 
 class _Header(ctypes.Structure):
@@ -68,42 +68,6 @@ class Patches:
         gdi32.DeleteObject(self.dib)
         gdi32.DeleteDC(self.mem)
         user32.ReleaseDC(0, self.screen)
-
-
-def near(a, b):
-    """Mean absolute difference per channel (alpha ignored) below NEAR."""
-    total = sum(abs(a[i] - b[i]) + abs(a[i + 1] - b[i + 1]) + abs(a[i + 2] - b[i + 2]) for i in range(0, len(a), 4))
-    return total / (3 * len(a) / 4) < NEAR
-
-
-def mean_colour(data):
-    n = len(data) // 4
-    return tuple(sum(data[i + c] for i in range(0, len(data), 4)) // n for c in (2, 1, 0))  # RGB
-
-
-def describe(patches, frame, before, after):
-    """Patches of `frame` that show neither the before nor the after picture: [(n, rgb, before rgb, after rgb)]."""
-    out = []
-    for n in range(patches.count):
-        p, b, a = patches.patch(frame, n), patches.patch(before, n), patches.patch(after, n)
-        if not (near(p, b) or near(p, a)):
-            out.append((n, mean_colour(p), mean_colour(b), mean_colour(a)))
-    return out
-
-
-def classify(patches, frame, before, after, desktop):
-    """'desktop': some patch shows the desktop where neither the screen before nor after the switch does;
-    'partial': some patch shows neither the before, the after nor the desktop picture (a blank or half painted
-    window); '' otherwise."""
-    kind = ""
-    for n in range(patches.count):
-        p, b, a = patches.patch(frame, n), patches.patch(before, n), patches.patch(after, n)
-        if near(p, b) or near(p, a):
-            continue
-        if near(p, patches.patch(desktop, n)):
-            return "desktop"
-        kind = "partial"
-    return kind
 
 
 class Recorder(threading.Thread):
