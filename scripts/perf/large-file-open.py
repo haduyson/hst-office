@@ -99,8 +99,11 @@ def one_open(a, path, profile, pipe):
         res["after"] = round(time.monotonic() - started, 1)
     except subprocess.TimeoutExpired:
         evidence(a, os.path.basename(path), own)
-        client.kill()
-        out, _ = client.communicate()
+        procs.kill(client, [client.pid])  # its tree: on Windows the office's python.exe is a launcher
+        try:
+            out, _ = client.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            out = ""
         lines = [x for x in out.strip().splitlines() if x.startswith("{")]
         res = json.loads(lines[-1]) if lines else {}
         res.update({"error": "timeout", "after": round(time.monotonic() - started, 1)})

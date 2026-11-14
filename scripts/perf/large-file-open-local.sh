@@ -33,7 +33,7 @@ fi
 sha256sum "$pkg" > "$out/package.sha256"
 
 if [ "$target" = linux ]; then
-  inst="$out/inst"
+  inst="${LFO_INST:-$out/inst}"  # LFO_INST: one shared unpacked package for several runs
   if ! cmp -s "$out/package.sha256" "$inst/.package.sha256" 2>/dev/null; then
     rm -rf "$inst"; dpkg-deb -x "$pkg" "$inst"; cp "$out/package.sha256" "$inst/.package.sha256"
   fi
