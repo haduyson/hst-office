@@ -12,9 +12,10 @@ The X display must already run, at least 2400 px wide. Per app and width:
   - the groups named in MUST_SHOW have a visible caption: Clipboard, Font and Paragraph at 1485 in Writer and Slides
     (Paragraph is used constantly), Clipboard and Font at 1366; those in SHOW_OR_BUTTON are on the ribbon or are
     their group button (Styles "Kiểu", Sheets' Number);
-  - Find & Replace is a button of the paragraph group (Sheets: alignment); at 2400 px the group "Công cụ" has the
-    tab menu and the HST commands in rows but no "Tìm tính năng" button (the tab row has the search box), and the tab
-    menu offers "Tìm tính năng" (ribbon_home_tools_gui.py); Draw's ribbon has no such block, nor a "Công cụ" caption.
+  - Find & Replace is a button of the editing group "Chỉnh sửa" (Sheets: "Tìm và chọn"); at 2400 px there is no old
+    "Công cụ" group and no "Tìm tính năng" button on the page: the tab row has the search box (ribbon_home_tools_gui.py);
+  - Clone Formatting and Clear are labelled at 2400 px unless they sit in the Font group (Writer's Clear, Sheets'
+    first Font column): formatting commands may be bare icons (gap list G10).
 Prints the visible group captions per width. Exit 1 when a check fails.
 """
 import argparse
@@ -41,6 +42,8 @@ LABELLED = {"writer", "calc", "impress", "draw"}  # apps whose 1.0.0 content pat
 ICON_MAX = 40  # an icon with its button padding; the same button with its text is over 100 px wide
 PAINTBRUSH = "Sao chép định dạng"
 CLEAR = {"writer": "Xóa", "calc": "Xóa", "impress": "Xóa", "draw": "Xóa"}
+# (app, command) that sit in the Font group (Sheets: its first column): bare formatting icons are allowed (G10)
+IN_FONT_GROUP = {("writer", "Xóa"), ("calc", "Xóa"), ("calc", PAINTBRUSH)}
 CAPTION_BAND = (95, 165)  # the caption row of a ribbon page, y relative to the window
 # groups that stay on the ribbon (caption shown): Paragraph is used constantly, so at 1485 it stays in Writer and
 # Slides; the Styles gallery becomes its "Kiểu ▾" button first
@@ -52,8 +55,7 @@ MUST_SHOW = {("impress", 1366): ["Bảng tạm", "Phông chữ"], ("writer", 136
 SHOW_OR_BUTTON = {("calc", 1366): ["Số", "Kiểu"], ("calc", 1485): ["Số", "Kiểu"], ("writer", 1485): ["Kiểu"],
                   ("writer", 1366): ["Đoạn văn", "Kiểu"], ("impress", 1366): ["Đoạn văn"], ("draw", 1366): ["Đoạn văn"]}
 NO_OVERFLOW = (1366, 1485)  # widths at which no group may be folded into the "»" overflow
-WIDE = {"writer": 2400, "calc": 2400, "impress": 2400, "draw": 2400}  # nothing folds: the whole "Công cụ" group shows
-TOOLS_BLOCK = {"writer", "calc", "impress"}  # Draw's ribbon was built without the tabs' right-hand blocks
+WIDE = {"writer": 2400, "calc": 2400, "impress": 2400, "draw": 2400}  # nothing folds
 
 
 def showing(node):
@@ -119,12 +121,12 @@ def check_app(app, args, port):
                     tabs.record(f"[{app} {width}] group '{group}' shows or is its button",
                                 group in captions or bool(as_button), (captions, as_button))
             caption_boxes = [(n, b) for n, b in labels if b[3] < 30]
-            tools.check_find_in_paragraph(tabs, app, width, caption_boxes)
+            tools.check_find_in_editing(tabs, app, width, caption_boxes)
             for name in (PAINTBRUSH, CLEAR[app]):
                 box = buttons.get(name, ((0, 0, 0, 0),))[0]
                 if app not in LABELLED:
                     tabs.record(f"[{app} {width}] '{name}' accessible and icon-only", 0 < box[2] <= ICON_MAX, box)
-                elif width >= LABEL_WIDTH[app]:
+                elif width >= LABEL_WIDTH[app] and (app, name) not in IN_FONT_GROUP:
                     tabs.record(f"[{app} {width}] '{name}' accessible and labelled", box[2] > ICON_MAX, box)
                 else:
                     tabs.record(f"[{app} {width}] '{name}' accessible", box[2] > 0, box)
@@ -143,11 +145,7 @@ def check_app(app, args, port):
         time.sleep(4)
         labels, _buttons, _banner = measure(WIDE[app])
         wide_captions = [(n, b) for n, b in labels if b[3] < 30]
-        if app in TOOLS_BLOCK:
-            tools.check_tools_group(tabs, args, app, WIDE[app], wide_captions)
-            tools.check_menu_has_search(tabs, args, app)
-        else:
-            tabs.record(f"[{app} {WIDE[app]}] no right-hand Tools block", "Công cụ" not in dict(wide_captions), wide_captions)
+        tools.check_wide_home(tabs, app, WIDE[app], wide_captions)
         if args.shots:
             office.screenshot(os.path.join(args.shots, f"home-fit-{app}-{WIDE[app]}.png"))
     finally:
