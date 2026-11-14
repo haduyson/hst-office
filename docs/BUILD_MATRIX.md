@@ -133,6 +133,16 @@ scripts/build-queue.sh train start --integrator          # integrator: dựng tr
 - **Tắt train:** `"train_enabled": false` trong `config.json` (agent quay lại submit theo nhánh). Base là
   `integration_branch` trong `config.json`; đổi khi integrator chuyển sang batch mới.
 
+### Đĩa của máy Windows
+
+Thiếu đĩa (`D: has … GiB free, below … GiB`, `disk-stop` trên Linux) là lỗi hạ tầng: job được đưa lại hàng đợi và
+build train không quy lỗi cho nhánh nào. Slot Windows mà ổ còn dưới `windows_min_free_gib` (15 GiB) không nhận job;
+dưới `windows_warn_free_gib` (25 GiB) dispatcher ghi cảnh báo (journal, `/data/hst-build-queue/alerts.log`, dòng
+`WARNING` phía trên `build-queue.sh list`) kèm các thư mục lớn nhất dưới `D:\hst-test`.
+`build-queue.sh disk-report [--host hst5] [--refresh]` in dung lượng trống và các thư mục đó (kích thước, tệp mới
+nhất, chủ). Hàng đợi **không bao giờ xoá** thư mục test của agent. Agent ghi tên mình/nhánh vào
+`D:\hst-test\<thư mục>\.hst-owner` (dòng đầu) để báo cáo biết ai sở hữu.
+
 ### Máy build Linux từ xa (VM103)
 
 Dispatcher dùng slot của máy dev trước, hết chỗ thì dùng các máy trong `linux_remote_hosts` của `config.json`

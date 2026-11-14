@@ -134,6 +134,8 @@ INFRA_PATTERNS = [
         r"ssh \S+ rc=255|Connection (timed out|refused|reset)",
         r"Exclude the build and source directories associated with LibreOffice",   # slot root lacks AV exclusion
         r"extracting MergeModule\.CABinet failed",      # host's Cygwin tmp ACL (hst4-setup.ps1 -Step TmpAcl)
+        r"\b[A-Z]: has [0-9.]+ GiB free, below \d+ GiB",  # Windows host disk below the build floor (hst4-build.ps1)
+        r"disk-stop: less than \d+ GiB free",            # Linux slot disk floor (local-build.sh)
     )
 ]
 MAX_INFRA_RETRIES = 2

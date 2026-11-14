@@ -18,6 +18,8 @@ class WindowsRunner:
         self.cfg = cfg
         self.next_poll = {}
         self.probes = {}   # slot id -> (time, probe result): remote probes at most once a minute per slot
+        self.low_noted = {}   # slot id -> time a low-disk skip was logged
+        self.warned = {}      # host -> time of the last low-disk warning
 
     def remote(self, host, action, *args, timeout=1200):
         cmd = [sys.executable, self.cfg["remote_py"], host, "ps", WIN_HELPER, "-Action", action, *args]
@@ -111,8 +113,52 @@ class WindowsRunner:
                 self.probes[sid] = (time.time(), probe)
             if probe.get("busy"):
                 continue
+            free = probe.get("free_gib")
+            if isinstance(free, (int, float)):
+                self.check_disk(slot["host"], free)
+                if free < self.cfg.get("windows_min_free_gib", 15):
+                    if self.low_noted.get(sid, 0) < time.time() - 3600:
+                        self.low_noted[sid] = time.time()
+                        log(f"windows slot {sid} skipped: {free} GiB free, below "
+                            f"{self.cfg.get('windows_min_free_gib', 15)} GiB (no job would build there)")
+                    continue
             return slot
         return None
+
+    # ------------------------------------------------------------ disk report (read only: nothing is deleted)
+    def disk_report(self, host, top=15):
+        """Free space and the largest D:\\hst-test folders of a host, saved in windows-disk.json."""
+        rep = self.remote(host, "DiskReport", "-Top", str(top), timeout=900)
+        rep["host"], rep["fetched"] = host, time.time()
+        path = os.path.join(self.store.root, "windows-disk.json")
+        try:
+            with open(path, encoding="utf-8") as f:
+                all_reports = json.load(f)
+        except (FileNotFoundError, ValueError):
+            all_reports = {}
+        all_reports[host] = rep
+        with open(path + ".tmp", "w", encoding="utf-8") as f:
+            json.dump(all_reports, f, indent=1, sort_keys=True)
+        os.replace(path + ".tmp", path)
+        return rep
+
+    def check_disk(self, host, free):
+        """Below windows_warn_free_gib: a warning (journal + alerts.log) naming the largest D:\\hst-test folders,
+        at most once an hour per host."""
+        if free >= self.cfg.get("windows_warn_free_gib", 25) or self.warned.get(host, 0) > time.time() - 3600:
+            return
+        self.warned[host] = time.time()
+        try:
+            rep = self.disk_report(host)
+            top = ", ".join(f"{d['name']} {d['gib']} GiB (newest {d['newest'][:16]}"
+                            f"{', owner ' + d['owner'] if d.get('owner') else ''})" for d in rep.get("folders", [])[:5])
+        except (RuntimeError, subprocess.SubprocessError, OSError, ValueError) as exc:
+            top = f"(disk report failed: {exc})"
+        msg = (f"WARNING {host} D: {free} GiB free (< {self.cfg.get('windows_warn_free_gib', 25)} GiB); "
+               f"largest D:\\hst-test folders: {top}")
+        log(msg)
+        with open(os.path.join(self.store.root, "alerts.log"), "a", encoding="utf-8") as f:
+            f.write(f"{time.strftime('%F %T')} {msg}\n")
 
     def jobs_for(self, slot):
         """-Jobs for a new build: the slot's threads shared with the builds already running on the same host

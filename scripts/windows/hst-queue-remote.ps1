@@ -9,15 +9,18 @@ tests/realwin/remote.py <host> ps. Prints one JSON line as its result.
   -Action Status -Root R -Job q-...      {"state": running|done|failed, "out": R\out\<Job>, "log": task log tail}
   -Action Cancel -Root R -Job q-...      stops the task and its process tree (only processes of that task)
   -Action Cleanup -Root R -Job q-...     deletes R\out\<Job> after the dispatcher pulled it
+  -Action DiskReport [-Top N]            free space of C:/D: and the largest folders under D:\hst-test (size, newest
+                                         file, owner tag from the folder's .hst-owner file); read only, deletes nothing
 #>
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory)][ValidateSet('Deploy', 'Probe', 'Start', 'Status', 'Cancel', 'Cleanup')][string]$Action,
+    [Parameter(Mandatory)][ValidateSet('Deploy', 'Probe', 'Start', 'Status', 'Cancel', 'Cleanup', 'DiskReport')][string]$Action,
     [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$Root = 'D:\hst-build',
     [ValidatePattern('^[A-Za-z]:\\[^ ]+$')][string]$ToolsRoot = 'D:\hst-build',
     [ValidatePattern('^q-[0-9a-f-]{6,40}$')][string]$Job = '',
     [ValidatePattern('^[0-9a-f]{40}$')][string]$Ref = '',
     [ValidateRange(1, 64)][int]$Jobs = 28,
+    [ValidateRange(1, 50)][int]$Top = 15,
     [ValidatePattern('^$|^[A-Za-z0-9][A-Za-z0-9_.+-]*(,[A-Za-z0-9][A-Za-z0-9_.+-]*)*$')][string]$Modules = ''
 )
 Set-StrictMode -Version Latest
@@ -56,6 +59,21 @@ function Get-LogTail([int]$Lines = 60) {
 }
 
 switch ($Action) {
+    'DiskReport' {
+        $rows = foreach ($d in @(Get-ChildItem -LiteralPath 'D:\hst-test' -Directory -Force -ErrorAction SilentlyContinue)) {
+            $files = @(Get-ChildItem -LiteralPath $d.FullName -Recurse -File -Force -ErrorAction SilentlyContinue)
+            $bytes = 0.0; foreach ($f in $files) { $bytes += $f.Length }   # (Measure-Object has no Sum for an empty folder)
+            $newest = ($files | Sort-Object LastWriteTime -Descending | Select-Object -First 1)
+            $tagFile = Join-Path $d.FullName '.hst-owner'
+            $tag = if (Test-Path -LiteralPath $tagFile) { (Get-Content -LiteralPath $tagFile -TotalCount 1) -replace '[^\w .@/:-]', '' } else { '' }
+            [ordered]@{ name = $d.Name; gib = [math]::Round([double]$bytes / 1GB, 2); files = $files.Count
+                newest = if ($newest) { $newest.LastWriteTime.ToString('s') } else { $d.LastWriteTime.ToString('s') }
+                owner = $tag }
+        }
+        $largest = @($rows | Sort-Object { $_.gib } -Descending | Select-Object -First $Top)   # ($top would be $Top)
+        Out-Json @{ d_free_gib = [math]::Round((Get-PSDrive D).Free / 1GB, 1); c_free_gib = [math]::Round((Get-PSDrive C).Free / 1GB, 1)
+            taken = (Get-Date).ToString('s'); folders = $largest }
+    }
     'Deploy' {
         $src = 'D:\hst-test\hst-build-tools\scripts'
         if (-not (Test-Path -LiteralPath $src)) { throw "nothing staged at $src" }

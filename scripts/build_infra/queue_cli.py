@@ -9,6 +9,8 @@
                                                   tests/ docs/ plans/ *.md since the branch's last build is refused
                                                   (--force: integrator); a newer commit cancels the branch's queued job
   build-queue.sh pin <id> --reason TEXT | unpin <id>   keep a done job's output out of retention (or release it)
+  build-queue.sh disk-report [--host H] [--refresh]   Windows hosts: free space and the largest D:\\hst-test folders
+                                                  (size, newest file, owner from the folder's .hst-owner file)
   build-queue.sh retention [--dry-run]            apply output retention now; prints what is deleted and the space freed
   build-queue.sh train add|remove|status|wait|start ...   build train (scripts/build_infra/queue_train_cli.py)
   build-queue.sh status <id> [--json]             state, slot/host, output, log
@@ -33,6 +35,7 @@ of commits merged into the integration branch go after a grace period; job recor
 """
 import argparse
 import json
+import os
 import sys
 
 from .queue_ops import cancel, drain, invalidate, submit
@@ -59,6 +62,9 @@ def main(argv=None):
     pn.add_argument("--reason", required=True)
     up = sub.add_parser("unpin")
     up.add_argument("id")
+    dk = sub.add_parser("disk-report")
+    dk.add_argument("--host")
+    dk.add_argument("--refresh", action="store_true", help="ask the host(s) now instead of the last saved report")
     rt = sub.add_parser("retention")
     rt.add_argument("--dry-run", action="store_true")
     queue_train_cli.add_parser(sub)
@@ -124,6 +130,8 @@ def main(argv=None):
             if args.json:
                 print(json.dumps(jobs, indent=1, sort_keys=True))
             else:
+                for line in disk_warnings(store):
+                    print(line, file=sys.stderr)
                 for job in jobs:
                     print(describe(job))
             return 0
@@ -139,6 +147,8 @@ def main(argv=None):
             job = pin(store, args.id, args.reason if args.cmd == "pin" else None)
             print(f"{job['id']}: {'pinned: ' + job['pinned'] if job.get('pinned') else 'unpinned'}")
             return 0
+        if args.cmd == "disk-report":
+            return disk_report(store, args.host, args.refresh)
         if args.cmd == "retention":
             freed = apply_retention(store, dry_run=args.dry_run)
             for job_id, reason, size in freed:
@@ -158,5 +168,49 @@ def main(argv=None):
     except QueueError as exc:
         print(f"build-queue: {exc}", file=sys.stderr)
         return 2
+    return 0
+
+
+def disk_warnings(store, max_age=7200):
+    """Low-disk warnings of Windows hosts from their last report (shown above `list`)."""
+    import time
+    cfg = store.config()
+    try:
+        with open(os.path.join(store.root, "windows-disk.json"), encoding="utf-8") as f:
+            reports = json.load(f)
+    except (FileNotFoundError, ValueError):
+        return []
+    return [f"WARNING {h}: D: {r['d_free_gib']} GiB free (< {cfg['windows_warn_free_gib']}); "
+            f"`build-queue.sh disk-report --host {h}`" for h, r in sorted(reports.items())
+            if r.get("d_free_gib", 1e9) < cfg["windows_warn_free_gib"] and time.time() - r.get("fetched", 0) < max_age]
+
+
+def disk_report(store, host=None, refresh=False, out=sys.stdout):
+    cfg = store.config()
+    hosts = sorted({s["host"] for s in cfg["windows_slots"]})
+    if host and host not in hosts:
+        raise QueueError(f"unknown Windows host {host!r}; known: {', '.join(hosts)}")
+    reports = {}
+    if refresh:
+        from .dispatch_windows import WindowsRunner
+        runner = WindowsRunner(store, cfg)
+        for h in [host] if host else hosts:
+            try:
+                reports[h] = runner.disk_report(h)
+            except (RuntimeError, OSError, ValueError) as exc:
+                print(f"{h}: disk report failed: {exc}", file=out)
+    else:
+        try:
+            with open(os.path.join(store.root, "windows-disk.json"), encoding="utf-8") as f:
+                reports = {h: r for h, r in json.load(f).items() if not host or h == host}
+        except (FileNotFoundError, ValueError):
+            reports = {}
+        if not reports:
+            print("no saved report; use --refresh", file=out)
+    for h, r in sorted(reports.items()):
+        print(f"{h}: D: {r['d_free_gib']} GiB free, C: {r['c_free_gib']} GiB free (taken {r['taken']})", file=out)
+        for d in r.get("folders", []):
+            print(f"  {d['gib']:8.2f} GiB  {d['newest'][:16]}  {d.get('owner') or '-':<20} D:\\hst-test\\{d['name']}",
+                  file=out)
     return 0
 

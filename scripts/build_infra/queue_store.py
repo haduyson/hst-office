@@ -64,6 +64,10 @@ DEFAULT_CONFIG = {
     "remote_job_timeout_hours": 6,
     "poll_seconds": 10,
     "windows_poll_seconds": 60,
+    # A Windows slot whose drive has less than windows_min_free_gib free gets no job (it would fail at once);
+    # below windows_warn_free_gib the dispatcher warns (journal + alerts.log) with the largest D:\hst-test folders.
+    "windows_min_free_gib": 15,
+    "windows_warn_free_gib": 25,
 }
 
 
