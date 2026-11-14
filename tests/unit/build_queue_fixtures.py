@@ -81,7 +81,7 @@ class FakeRunner:
     def want(self, job):
         return 8 if job["modules"] else 20
 
-    def free_slot(self, jobs, want=None):
+    def free_slot(self, jobs, want=None, job=None):
         running = {j.get("slot") for j in jobs if j["state"] == "running"}
         for s in self.slots:
             if s not in running:

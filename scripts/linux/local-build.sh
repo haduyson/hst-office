@@ -67,6 +67,9 @@ TARBALL_CACHE="${HST_LOCAL_TARBALL_CACHE:-/home/office/upstream/cache/libreoffic
 RESUME_MEM_GIB="${HST_LOCAL_RESUME_MEM_GIB:-8}"; MAX_JOBS=20
 MEM_WAIT_MIN="${HST_LOCAL_MEM_WAIT_MIN:-30}"; MIN_FREE_GIB="${HST_LOCAL_MIN_FREE_GIB:-5}"
 CCACHE_MAX="${HST_CCACHE_MAX:-30G}"
+# Optional systemd slice for the make scopes (a remote build host caps all its builds together in hst-build.slice).
+SLICE="${HST_LOCAL_SLICE:-}"
+[ -z "$SLICE" ] || [[ "$SLICE" =~ ^[A-Za-z0-9_-]+\.slice$ ]] || { echo "local-build: bad HST_LOCAL_SLICE" >&2; exit 64; }
 JOBS=$MAX_JOBS; RECONFIGURE=0; FRESH=0; PACKAGE=1; TARGET=""; BUILD_PGID=""; MOUNTED=0; ADMITTED=0; BASE_MOUNTED=0
 SLOT=auto; MODULES=""; TESTS=""; LABEL_OPT=""; OUT_OPT=""; UMOUNT_ONLY=0
 
@@ -122,7 +125,7 @@ if [ -n "$TESTS" ]; then
 fi
 MAKE_KIND=full; [ -z "$MODULES" ] || MAKE_KIND=modules
 [ "$(id -u)" -eq 0 ] || die "needs root (chroot and mounts)"
-for tool in git rsync docker chroot mount flock python3 sha256sum systemd-run systemctl ionice; do
+for tool in git rsync chroot mount flock python3 sha256sum systemd-run systemctl ionice; do   # docker: update_base
   command -v "$tool" >/dev/null || die "missing host tool: $tool"
 done
 if [ ! -d "$BASE" ] || [ ! -d "$BUILD_ROOT/slots" ]; then die "$BUILD_ROOT is not set up (scripts/linux/build-slots-setup.sh)"; fi
@@ -270,6 +273,7 @@ update_base() { # recreate/extend the base chroot; runs with the chroot lock hel
   if [ "$(cat "$BASE/.hst-image" 2>/dev/null)" != "$IMAGE" ]; then
     [ -z "$(mounts_under "$BASE")" ] || die "base chroot still mounted"
     log "creating base chroot from $IMAGE"
+    command -v docker >/dev/null || die "docker is needed to create the base chroot from $IMAGE (a remote build host gets a copy of the dev server's chroot instead)"
     local had_image=0 cid
     docker image inspect "$IMAGE" >/dev/null 2>&1 && had_image=1
     [ "$had_image" -eq 1 ] || docker pull -q "$IMAGE" >/dev/null
@@ -444,7 +448,7 @@ configure_if_needed() {
 mem_avail_gib() { awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo; }
 swap_used_mib() { awk '/SwapTotal/{t=$2}/SwapFree/{f=$2}END{print int((t-f)/1024)}' /proc/meminfo; }
 free_gib() { df -BG --output=avail "$BUILD_ROOT" | tail -1 | tr -dc 0-9; }
-scope_cg() { echo "/sys/fs/cgroup/system.slice/$SCOPE.scope"; }
+scope_cg() { echo "/sys/fs/cgroup/${SLICE:-system.slice}/$SCOPE.scope"; }
 budget_mib() { "${SLOTS_PY[@]}" budget --jobs "$1"; }
 
 start_make() { # make like ci-build.sh --build (or the --modules targets), in a capped scope, own session
@@ -455,7 +459,7 @@ start_make() { # make like ci-build.sh --build (or the --modules targets), in a 
     "MemorySwapMax=0 CPUQuota=$(( jobs * 100 ))%, nice 19, idle I/O; MemAvailable $(mem_avail_gib) GiB," \
     "swap used $(swap_used_mib) MiB, /data free $(free_gib) GiB)"
   # shellcheck disable=SC2016 # expanded by the inner shell
-  systemd-run --scope --quiet --unit="$SCOPE" -p MemoryMax="${max}M" -p MemoryHigh="${high}M" \
+  systemd-run --scope --quiet --unit="$SCOPE" ${SLICE:+--slice="$SLICE"} -p MemoryMax="${max}M" -p MemoryHigh="${high}M" \
     -p MemorySwapMax=0 -p CPUQuota="$(( jobs * 100 ))%" -- \
     setsid nice -n 19 ionice -c3 chroot "$CHROOT" /usr/bin/env -i HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin \
     CCACHE_DIR="$C_CCACHE" HST_REPO_ROOT="$C_CHECKOUT" HST_ICON_DIR="$C_CHECKOUT/assets/brand/icons" \

@@ -22,9 +22,10 @@ class LinuxRunner:
         return os.path.join(self.store.work_dir, job["id"] + ".rc")
 
     def busy_slots(self, jobs):
-        return [str(j["slot"]) for j in jobs if j["platform"] == "linux" and j["state"] == "running"]
+        return [str(j["slot"]) for j in jobs if j["platform"] == "linux" and j["state"] == "running"
+                and j.get("host", "local") in ("local", None)]
 
-    def free_slot(self, jobs, want):
+    def free_slot(self, jobs, want, job=None):
         cmd = [sys.executable, "-I", BUILD_SLOTS, "free-slot", "--want", str(want),
                "--exclude", ",".join(self.busy_slots(jobs))]
         done = subprocess.run(cmd, capture_output=True, text=True, check=False)

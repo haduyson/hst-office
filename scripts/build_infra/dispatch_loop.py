@@ -19,7 +19,7 @@ import os
 import sys
 import time
 
-from .dispatch_linux import LinuxRunner
+from .dispatch_linux_pool import LinuxPool
 from .dispatch_paths import log
 from .dispatch_windows import WindowsRunner
 
@@ -87,6 +87,9 @@ def tick(store, runners, core):
     except Exception as exc:  # noqa: BLE001 - the train must never stop the dispatching of other jobs
         log(f"train step failed: {exc!r}")
     jobs = store.all()
+    if hasattr(runners["linux"], "health"):
+        runners["linux"].health(jobs)   # remote Linux hosts that stopped answering: offline, their jobs requeued
+        jobs = store.all()
     if hasattr(runners["windows"], "process_drains"):
         runners["windows"].process_drains(jobs, core)
     blocked = set()
@@ -95,7 +98,7 @@ def tick(store, runners, core):
         if platform in blocked:
             continue   # strict priority per platform: nothing overtakes a waiting higher-priority job
         runner = runners[platform]
-        slot = runner.free_slot(jobs, runner.want(job)) if platform == "linux" else runner.free_slot(jobs)
+        slot = runner.free_slot(jobs, runner.want(job), job) if platform == "linux" else runner.free_slot(jobs)
         if slot is None:
             blocked.add(platform)
             continue
@@ -132,7 +135,7 @@ def run(store, once=False):
         print("build-queue: another dispatcher is running", file=sys.stderr)
         return 1
     cfg = store.config()
-    runners = {"linux": LinuxRunner(store, cfg), "windows": WindowsRunner(store, cfg)}
+    runners = {"linux": LinuxPool(store, cfg), "windows": WindowsRunner(store, cfg)}
     log(f"dispatcher started (queue {store.root}, windows slots "
         f"{[s['host'] + ':' + s['root'] for s in cfg['windows_slots']]})")
     while True:

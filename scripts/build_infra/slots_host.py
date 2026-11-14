@@ -32,7 +32,7 @@ def swap_used_gib():
 def scope_memory_gib(scope):
     if not scope:
         return 0.0
-    path = f"/sys/fs/cgroup/system.slice/{scope}.scope/memory.current"
+    path = f"/sys/fs/cgroup/{os.environ.get('HST_LOCAL_SLICE') or 'system.slice'}/{scope}.scope/memory.current"
     try:
         with open(path, encoding="ascii") as f:
             return int(f.read().strip()) / GIB

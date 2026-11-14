@@ -133,6 +133,29 @@ scripts/build-queue.sh train start --integrator          # integrator: dựng tr
 - **Tắt train:** `"train_enabled": false` trong `config.json` (agent quay lại submit theo nhánh). Base là
   `integration_branch` trong `config.json`; đổi khi integrator chuyển sang batch mới.
 
+### Máy build Linux từ xa (VM103)
+
+Dispatcher dùng slot của máy dev trước, hết chỗ thì dùng các máy trong `linux_remote_hosts` của `config.json`
+(mỗi máy: `name`, `address` (một giá trị duy nhất; đổi IP chỉ cần sửa ở đây), `key`, `known_hosts`, `slots`,
+`total_jobs`, `max_jobs`, `min_free_gib`, `ccache_max`, `enabled`). Máy từ xa chạy đúng `local-build.sh` và
+`build-slots.py` của bản triển khai, với bản sao chroot (cùng digest image và cùng dấu deps), external tarballs và
+tarball đã ghim của máy dev, nên đầu ra giống hệt. Dựng máy: `ssh root@<ip> bash -s < scripts/linux/remote-build-host-setup.sh`
+([script](../scripts/linux/remote-build-host-setup.sh)), rồi
+[`remote-build-host-seed.sh --host <name>`](../scripts/linux/remote-build-host-seed.sh) (chép chroot, tarball và cây
+ấm của một slot đang rảnh, slot đó bị khoá trong lúc chép; slot 2 nhân bản từ slot 1 ngay trên máy đó).
+
+- **Chống treo máy:** mọi job và scope make của nó nằm trong `hst-build.slice` (MemoryMax 24 GiB cho tất cả, không
+  swap, CPUQuota 12 lõi, IOWeight thấp), mỗi job là unit `hstq-<id>.service` (nice 10, I/O idle, OOM score cao);
+  tổng `-j` ≤ 12 (`HST_TOTAL_JOBS`); earlyoom giết trình biên dịch/linker trước, không bao giờ giết sshd; sshd và
+  journald có OOMScoreAdjust -1000; ngưỡng đĩa 15 GiB dừng job. Mọi lệnh SSH có giới hạn thời gian (kết nối 10 s,
+  keep-alive, timeout cứng).
+- **Mất liên lạc:** không trả lời trong `remote_offline_seconds` (300 s) thì máy bị đánh dấu offline
+  (`/data/hst-build-queue/hosts.json`), job đang chạy trên đó quay lại hàng đợi với `avoid_hosts` và build trên máy
+  dev. Khi máy trả lời lại, các unit `hstq-*` còn sót được dừng. Job chạy quá `remote_job_timeout_hours` (6 giờ) bị
+  dừng và đưa lại hàng đợi theo cùng cách.
+- **Đầu ra:** chép về `out/<id>/` (kiểm `SHA256SUMS`), rồi xoá trên máy từ xa; log đổ dần về `logs/<id>.log`.
+  `status` cho biết `host`/`slot` (ví dụ `vm103:1`). Tắt máy: `"enabled": false`.
+
 ### `--test`: chạy test LibreOffice trong slot (không cần cây riêng)
 
 ```bash

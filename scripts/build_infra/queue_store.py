@@ -54,6 +54,14 @@ DEFAULT_CONFIG = {
     "windows_slots": [
         {"host": "hst4", "root": "D:\\hst-build", "jobs": 28},
     ],
+    # Remote Linux build hosts (dispatch_remote_linux.py), e.g. VM103:
+    #   {"name": "vm103", "address": "192.168.1.166", "key": "/root/.ssh/hst-vm103_ed25519",
+    #    "known_hosts": "/data/hst-build-queue/known_hosts-vm103", "slots": 2, "total_jobs": 12, "max_jobs": 12,
+    #    "min_free_gib": 15, "ccache_max": "10G", "enabled": true}
+    "linux_remote_hosts": [],
+    "remote_poll_seconds": 30,
+    "remote_offline_seconds": 300,
+    "remote_job_timeout_hours": 6,
     "poll_seconds": 10,
     "windows_poll_seconds": 60,
 }
