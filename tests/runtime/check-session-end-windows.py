@@ -4,11 +4,13 @@
 Run with the office's Python in the test user's own session (windows-own-session-task.ps1):
   <inst>\\program\\python.exe check-session-end-windows.py --program <inst>\\program --work D:\\hst-test\\session-end
 
-  logoff  a new document changed after its first recovery copy; what Windows does at log off: WM_QUERYENDSESSION to
-          every top-level window of the office (its save question holds it past the 5 s Windows waits), then
-          WM_ENDSESSION(TRUE), then the process is ended ("Đóng bắt buộc"). The next start asks no crash report
-          question and its log says "session end"; a later normal start still offers the recovery copy.
-  kill    the same ended with taskkill /F only: the question is still asked ("not closed").
+  logoff  without AutoRecovery (--norestore: nothing can be stored for the next start) a changed document; what
+          Windows does at log off: WM_QUERYENDSESSION to every top-level window of the office (its save question
+          holds it past the 5 s Windows waits), then WM_ENDSESSION(TRUE), then the process is ended ("Đóng bắt
+          buộc"). The next start asks no crash report question and its log says "session end". (With AutoRecovery
+          the document is stored and reopened instead: check-session-end-windows-answer.py.)
+  kill    a new document changed after its first recovery copy, ended with taskkill /F: the question is still asked
+          ("not closed") and a later normal start offers the recovery copy.
 The first start after the end uses --norestore (the recovery dialog would wait for input that a disconnected session
 cannot give); the recovery state is left as it was and the next normal start shows the dialog. Exit 1 on a failure.
 """
@@ -118,10 +120,12 @@ def log_lines(o):
 
 
 def scenario(o, name, how, expect_question):
-    o.start()
+    stored = how != "logoff"  # AutoRecovery on: a log off would store the document instead of asking
+    o.start(("--nodefault",) if stored else ("--nodefault", "--norestore"))
     doc = o.new("writer", "PHIEN-A")
     o.end_welcome()
-    record("%s: a recovery copy within 60 s" % name, wait(o.copies, 60, 1))
+    if stored:
+        record("%s: a recovery copy within 120 s" % name, wait(o.copies, 120, 1))
     rw.append(doc, "PHIEN-B")
     time.sleep(2)
     if how == "logoff":
@@ -144,6 +148,8 @@ def scenario(o, name, how, expect_question):
     o.end_welcome(4)
     record("%s: that start quits normally" % name, o.quit())
     o.kill()
+    if not stored:
+        return
     o.start(())
     found = wait(lambda: find_window(r"Khôi phục tài liệu|Document Recovery", rw.own_pids(o.work)), 60)
     record("%s: a normal start offers the recovery copy" % name, found)

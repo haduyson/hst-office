@@ -5,15 +5,21 @@
 Usage: python3 tests/runtime/check-session-end-linux.py --instdir <instdir> [--out tests/output/session-end]
            [--display :97]
 
-  sigterm  a document changed after its first recovery copy; SIGTERM to every process of the office at once (as
-           systemd's KillMode=control-group does). The next start offers the copy (recovery dialog) and the recovered
-           document holds the text, but no crash report question appears and the log says "session end".
-  kill     the same with SIGKILL (a kill or a power cut): the crash report question still appears ("not closed").
-Before hst-session-end-note.patch the sigterm scenario asked the question too. The office's stderr goes to a file, as on a
+  sigterm            a document changed after its first recovery copy; SIGTERM to every process of the office at once
+                     (as systemd's KillMode=control-group does). The office stores the document and quits by itself;
+                     the next start reopens it with both changes, still modified, without the recovery dialog and
+                     without the crash report question (hst-session-end-store.patch; before it the office exited at
+                     once, the next start offered the copy without the later change).
+  sigterm-norestore  the same without AutoRecovery (--norestore): nothing can be stored, the office ends at once as
+                     before, the next start asks no crash report question and its log says "session end"
+                     (hst-session-end-note.patch).
+  kill               a kill or a power cut (SIGKILL): the recovery dialog offers the copy and the crash report question
+                     still appears ("not closed"). The office's stderr goes to a file, as on a
 desktop start (no terminal, no pipe): the extension keeps it for the next start. The X display must already run.
 Exit 1 when a check fails.
 """
 import argparse
+import importlib.util
 import os
 import re
 import subprocess
@@ -27,6 +33,9 @@ import recovery_runtime as rr  # noqa: E402
 from recovery_runtime import record  # noqa: E402
 
 PORT = 22237
+_spec = importlib.util.spec_from_file_location("session_end_gnome", os.path.join(HERE, "check-session-end-gnome.py"))
+gnome = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(gnome)
 
 
 def start_with_stderr_file(off, fresh):
@@ -66,17 +75,52 @@ def log_lines(off):
         return []
 
 
-def scenario(off, name, sig, expect_question):
+def end_office(off, name, sig, timeout=30):
+    """A document changed before and after its first recovery copy, then the signal to every office process."""
     start_with_stderr_file(off, True)
     doc = rr.new_document(off, "writer", "PHIEN-%s-A" % name.upper())
-    record("%s: a recovery copy within 60 s" % name, rr.wait(lambda: rr.copies(off), 60, 0.5), rr.backups(off))
+    if off.restore:
+        record("%s: a recovery copy within 120 s" % name, rr.wait(lambda: rr.copies(off), 120, 0.5), rr.backups(off))
     rr.append(doc, "PHIEN-%s-B" % name.upper())
     time.sleep(2)
     pattern = "UserInstallation=file://%s" % os.path.join(off.workdir, "profile")
+    started = time.time()
     subprocess.run(["pkill", "-%d" % sig, "-f", pattern], check=False)
-    record("%s: the office ended" % name, rr.wait(lambda: off.pid is None, 30, 0.5))
+    ended = rr.wait(lambda: off.pid is None, timeout, 0.5)
+    print("%s: office ended after %.1f s" % (name, time.time() - started) if ended else "%s: still running" % name)
+    record("%s: the office ended" % name, ended)
     subprocess.run(["pkill", "-KILL", "-f", pattern], check=False)
-    before = len(log_lines(off))
+    return len(log_lines(off))
+
+
+def stored(off, name):
+    end_office(off, name, 15, 40)
+    record("%s: the session is marked for restore (SessionData)" % name, gnome.session_data(off))
+    start_with_stderr_file(off, False)
+    texts = rr.wait(lambda: [t for t in (rr.text_of(d) for d in rr.documents(off)) if t.strip()] or None, 60, 1) or []
+    marks = ("PHIEN-%s-A" % name.upper(), "PHIEN-%s-B" % name.upper())
+    record("%s: the next start reopens the document with both changes" % name,
+           any(all(m in t for m in marks) for t in texts), texts)
+    record("%s: the reopened document is still marked modified" % name, any(d.isModified() for d in rr.documents(off)))
+    time.sleep(20)  # the crash question would come after the first visible window
+    dialogs = gnome.small_hst_dialogs(off)
+    record("%s: no recovery dialog and no crash report question" % name, not dialogs, dialogs)
+    rr.finish(off)
+
+
+def fallback(off, name):
+    off.restore = False
+    before = end_office(off, name, 15)
+    start_with_stderr_file(off, False)
+    question = rr.wait(lambda: crash_question(off), 30, 1)
+    record("%s: crash report question not asked" % name, not question, question)
+    lines = log_lines(off)[before:]
+    record("%s: the log says 'session end'" % name, any("previous session ended: session end" in x for x in lines), lines)
+    rr.finish(off)
+
+
+def scenario(off, name, sig, expect_question):
+    before = end_office(off, name, sig)
     start_with_stderr_file(off, False)
     record("%s: the recovery dialog offers the document" % name, rr.reconnect_after_recovery(off))
     texts = rr.wait(lambda: [t for t in (rr.text_of(d) for d in rr.documents(off)) if t.strip()] or None, 60, 1) or []
@@ -103,10 +147,11 @@ def main():
     args = ap.parse_args()
     os.makedirs(args.out, exist_ok=True)
     hst_gui.setup_uno(args.instdir)
-    for name, sig, expect in (("sigterm", 15, False), ("kill", 9, True)):
+    runs = {"sigterm": stored, "sigterm-norestore": fallback, "kill": lambda o, n: scenario(o, n, 9, True)}
+    for name, run in runs.items():
         off = rr.office(args.instdir, os.path.join(args.out, name), PORT, args.display, 1)
         try:
-            scenario(off, name, sig, expect)
+            run(off, name)
         except Exception as exc:  # noqa: BLE001 - one broken scenario must not hide the other
             record("%s: ran without error" % name, False, repr(exc))
             off.stop()

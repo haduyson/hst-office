@@ -1,0 +1,451 @@
+HST Office: when the system ends the session, store the open documents and reopen them at the next start.
+
+A log out, shut down or restart ended the office in three ways, all losing changes: Windows asked
+"Save document?" inside WM_QUERYENDSESSION and ended the process while the question held the log off
+(the changes after the last recovery copy were lost, the next start offered the recovery dialog);
+Linux SIGTERM (systemd stopping the session; KDE and other desktops) exited at once with the same
+result; a GNOME/Cinnamon EndSession stored the documents by the X11 session protocol, which clears
+their modified state. All three now run one AutoRecovery job first:
+- framework autorecovery.cxx: vnd.sun.star.autorecovery:/doSessionEnd = doSessionRestart without the
+  restart: every document is stored to its recovery file, the files are checked, the documents are
+  closed keeping their modified state and the session is marked (RecoveryInfo/SessionData). The next
+  start reopens them silently, still modified. Without AutoRecovery (--norestore), or if a document
+  has no usable recovery file (password, untracked), nothing is closed and the caller keeps its old way.
+- vcl win salframe.cxx: WM_QUERYENDSESSION with unsaved documents stores them first (Windows shows
+  "There are unsaved documents" as the reason meanwhile), then answers "yes" at once and quits. A
+  document that could not be stored keeps the save question.
+- vcl gtk3 gtkframe.cxx: EndSession/Stop run doSessionEnd first; doSessionSave + doSessionQuietQuit
+  only for what it could not take.
+- desktop hstsessionend.cxx (new), app.cxx: Linux SIGTERM (not headless or invisible): the signal
+  handler only writes to a pipe; a watcher thread posts the session end to the main thread, which
+  stores the documents and terminates normally. A document that could not be stored, a veto, a
+  second SIGTERM or no end within 20 s end the office at once as before ("Terminated: Signal 15").
+License: these upstream files remain under their original license (MPL-2.0); the new files are MPL-2.0.
+Test: tests/runtime/check-session-end-linux.py; tests/runtime/check-session-end-gnome.py;
+tests/runtime/check-session-end-windows-answer.py; tests/runtime/check-session-end-windows.py.
+---
+--- a/framework/source/services/autorecovery.cxx
++++ b/framework/source/services/autorecovery.cxx
+@@ -268,12 +268,15 @@
+     SessionQuietQuit          = 1024,
+     UserAutoSave              = 2048,
+     // HST Office: restart the office and reopen every open document (see implts_doSessionRestart)
+-    SessionRestart            = 4096
++    SessionRestart            = 4096,
++    // HST Office: the system ends the session: store and close every open document, the next start
++    // reopens them (implts_doSessionRestart without the restart)
++    SessionEnd                = 8192
+ };
+ 
+ }
+ 
+-template<> struct o3tl::typed_flags<Job>: o3tl::is_typed_flags<Job, 0x1FFF> {};
++template<> struct o3tl::typed_flags<Job>: o3tl::is_typed_flags<Job, 0x3FFF> {};
+ 
+ namespace {
+ 
+@@ -1128,6 +1131,7 @@
+ constexpr OUString CMD_DO_SESSION_QUIET_QUIT = u"/doSessionQuietQuit"_ustr;    // let the current session be quietly closed ( the saving should be done using doSessionSave previously ) if e.g. a window manager closes an user session
+ constexpr OUString CMD_DO_SESSION_RESTORE = u"/doSessionRestore"_ustr;    // restore a saved user session from disc
+ constexpr OUString CMD_DO_SESSION_RESTART = u"/doSessionRestart"_ustr;    // HST Office: restart the office, reopening every open document
++constexpr OUString CMD_DO_SESSION_END = u"/doSessionEnd"_ustr;    // HST Office: the system ends the session; store and close every document for the next start
+ constexpr OUString CMD_DO_DISABLE_RECOVERY = u"/disableRecovery"_ustr;    // disable recovery and auto save (!) temp. for this office session
+ constexpr OUString CMD_DO_SET_AUTOSAVE_STATE = u"/setAutoSaveState"_ustr;    // disable/enable auto save (not crash save) for this office session
+ 
+@@ -1533,6 +1537,19 @@
+             SAL_INFO("fwk.autorecovery", "... do session quiet quit ...");
+             bAllowAutoSaveReactivation = false;
+             implts_doSessionQuietQuit();
++        }
++        else
++        if ((eJob & Job::SessionEnd) == Job::SessionEnd)
++        {
++            // HST Office: the system ends the session (log out, shut down). Store and close every
++            // document as for a session restart, without restarting: the caller terminates the
++            // office, the next start reopens the documents. Without AutoRecovery or if a document
++            // cannot be backed up, nothing is closed and the caller keeps its old way.
++            SAL_INFO("fwk.autorecovery", "... do session end ...");
++            bool bStored = false;
++            if ((eJob & Job::DisableAutorecovery) != Job::DisableAutorecovery)
++                bStored = implts_doSessionRestart(aParams);
++            bAllowAutoSaveReactivation = !bStored;
+         }
+         else
+         if ((eJob & Job::SessionRestart) == Job::SessionRestart)
+@@ -3795,6 +3812,8 @@
+         sFeature.append(CMD_DO_RECOVERY);
+     else if ((eJob & Job::SessionRestart) == Job::SessionRestart)
+         sFeature.append(CMD_DO_SESSION_RESTART);
++    else if ((eJob & Job::SessionEnd) == Job::SessionEnd)
++        sFeature.append(CMD_DO_SESSION_END);
+     else if ((eJob & Job::SessionSave) == Job::SessionSave)
+         sFeature.append(CMD_DO_SESSION_SAVE);
+     else if ((eJob & Job::SessionQuietQuit) == Job::SessionQuietQuit)
+@@ -3835,6 +3854,8 @@
+             return Job::SessionRestore;
+         else if ( aURL.Path == CMD_DO_SESSION_RESTART )
+             return Job::SessionRestart;
++        else if ( aURL.Path == CMD_DO_SESSION_END )
++            return Job::SessionEnd;
+         else if ( aURL.Path == CMD_DO_DISABLE_RECOVERY )
+             return Job::DisableAutorecovery;
+         else if ( aURL.Path == CMD_DO_SET_AUTOSAVE_STATE )
+--- a/vcl/win/window/salframe.cxx
++++ b/vcl/win/window/salframe.cxx
+@@ -80,8 +80,13 @@
+ #include <com/sun/star/uno/Exception.hpp>
+ #include <com/sun/star/container/XEnumeration.hpp>
+ #include <com/sun/star/frame/Desktop.hpp>
++#include <com/sun/star/frame/theAutoRecovery.hpp>
++#include <com/sun/star/util/URLTransformer.hpp>
+ #include <com/sun/star/util/XModifiable.hpp>
+ #include <comphelper/processfactory.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <strings.hrc>
++#include <svdata.hxx>
+ 
+ #include <oleacc.h>
+ #include <com/sun/star/accessibility/XMSAAService.hpp>
+@@ -4446,6 +4451,30 @@
+     return false;
+ }
+ 
++// HST Office: store every open document for the next start: AutoRecovery's session end (the session
++// restart without the restart) stores each one to its recovery file, checks them and closes them
++// keeping their modified state; the next start reopens them silently. Nothing is closed when a
++// document cannot be taken. Windows shows the reason while this holds the shut down.
++static void ImplHstStoreSession( HWND hWnd )
++{
++    ShutdownBlockReasonCreate( hWnd, o3tl::toW( VclResId( STR_UNSAVED_DOCUMENTS ).getStr() ) );
++    try
++    {
++        const css::uno::Reference<css::uno::XComponentContext>& xContext
++            = comphelper::getProcessComponentContext();
++        css::util::URL aURL;
++        aURL.Complete = u"vnd.sun.star.autorecovery:/doSessionEnd"_ustr;
++        css::util::URLTransformer::create( xContext )->parseStrict( aURL );
++        css::frame::theAutoRecovery::get( xContext )->dispatch(
++            aURL, { comphelper::makePropertyValue( u"DispatchAsynchron"_ustr, false ) } );
++    }
++    catch ( const css::uno::Exception& )
++    {
++        TOOLS_WARN_EXCEPTION( "vcl", "session end: the documents could not be stored" );
++    }
++    ShutdownBlockReasonDestroy( hWnd );
++}
++
+ static bool ImplHandleShutDownMsg( HWND hWnd )
+ {
+     bool nRet = false;
+@@ -4454,11 +4483,17 @@
+     {
+         // HST Office: Windows waits about 5 s for the answer to WM_QUERYENDSESSION, then shows
+         // that an application blocks the shut down and ends it. Quitting inside the call took
+-        // 98-115 s even with every document saved: it stalls while the call is pending. With
+-        // nothing to ask, answer "yes" now (ReplyMessage releases the sender) and quit afterwards;
+-        // with unsaved changes the save question still runs inside the call.
+-        if ( InSendMessage() && !ImplHstAnyDocumentModified() )
+-            ReplyMessage( TRUE );
++        // 98-115 s even with every document saved: it stalls while the call is pending. Unsaved
++        // documents are first stored for the next start; then, with nothing left to ask, answer
++        // "yes" now (ReplyMessage releases the sender) and quit afterwards. A document that could
++        // not be stored keeps the save question inside the call.
++        if ( InSendMessage() )
++        {
++            if ( ImplHstAnyDocumentModified() )
++                ImplHstStoreSession( hWnd );
++            if ( !ImplHstAnyDocumentModified() )
++                ReplyMessage( TRUE );
++        }
+         nRet = pFrame->CallCallback( SalEvent::Shutdown, nullptr );
+         ImplSalYieldMutexRelease();
+     }
+--- a/vcl/unx/gtk3/gtkframe.cxx
++++ b/vcl/unx/gtk3/gtkframe.cxx
+@@ -1486,26 +1486,45 @@
+                       nullptr, nullptr, nullptr);
+ }
+ 
+-// HST Office: store the open documents as a session before anything is dropped, as the X11
+-// session management does (SessionListener: doSessionSave, then doSessionQuietQuit). Every
+-// document is written to its recovery file and closed with its entry kept (modified state
+-// included), and the session is marked (RecoveryInfo/SessionData): the next start reopens the
+-// documents with their changes. Without AutoRecovery (--norestore) both jobs do nothing and the
+-// documents are dropped as before.
++static void dispatch_recovery_job(const css::uno::Reference<css::uno::XComponentContext>& xContext,
++                                  const OUString& rJob)
++{
++    css::util::URL aURL;
++    aURL.Complete = "vnd.sun.star.autorecovery:/" + rJob;
++    css::util::URLTransformer::create(xContext)->parseStrict(aURL);
++    css::frame::theAutoRecovery::get(xContext)->dispatch(
++        aURL, { comphelper::makePropertyValue(u"DispatchAsynchron"_ustr, false) });
++}
++
++static bool any_document_modified(const css::uno::Reference<css::uno::XComponentContext>& xContext)
++{
++    uno::Reference<css::container::XEnumeration> xComponents
++        = frame::Desktop::create(xContext)->getComponents()->createEnumeration();
++    while (xComponents->hasMoreElements())
++    {
++        css::uno::Reference<css::util::XModifiable> xModifiable(xComponents->nextElement(), css::uno::UNO_QUERY);
++        if (xModifiable && xModifiable->isModified())
++            return true;
++    }
++    return false;
++}
++
++// HST Office: store the open documents as a session before anything is dropped. First as
++// AutoRecovery's session end (the session restart without the restart): every document is stored
++// to its recovery file, checked, and closed keeping its modified state; the next start reopens
++// them silently. If that cannot take every document (no AutoRecovery, a document without a usable
++// recovery file), what the X11 session management does (SessionListener: doSessionSave, then
++// doSessionQuietQuit) stores what it can and marks the session; the rest is dropped as before.
+ static void store_session()
+ {
+     try
+     {
+         const css::uno::Reference<css::uno::XComponentContext>& xContext = ::comphelper::getProcessComponentContext();
+-        css::uno::Reference<css::frame::XDispatch> xRecovery = css::frame::theAutoRecovery::get(xContext);
+-        css::uno::Reference<css::util::XURLTransformer> xParser = css::util::URLTransformer::create(xContext);
+-        for (const OUString& rJob : { u"doSessionSave"_ustr, u"doSessionQuietQuit"_ustr })
+-        {
+-            css::util::URL aURL;
+-            aURL.Complete = "vnd.sun.star.autorecovery:/" + rJob;
+-            xParser->parseStrict(aURL);
+-            xRecovery->dispatch(aURL, { comphelper::makePropertyValue(u"DispatchAsynchron"_ustr, false) });
+-        }
++        dispatch_recovery_job(xContext, u"doSessionEnd"_ustr);
++        if (!any_document_modified(xContext))
++            return;
++        dispatch_recovery_job(xContext, u"doSessionSave"_ustr);
++        dispatch_recovery_job(xContext, u"doSessionQuietQuit"_ustr);
+     }
+     catch (const css::uno::Exception&)
+     {
+--- a/desktop/Library_sofficeapp.mk
++++ b/desktop/Library_sofficeapp.mk
+@@ -122,6 +122,7 @@
+     desktop/source/app/cmdlinehelp \
+     desktop/source/app/desktopcontext \
+     desktop/source/app/dispatchwatcher \
++    desktop/source/app/hstsessionend \
+     desktop/source/app/initjsunoscripting \
+     desktop/source/app/langselect \
+     desktop/source/app/lockfile2 \
+--- a/desktop/source/app/app.cxx
++++ b/desktop/source/app/app.cxx
+@@ -40,6 +40,7 @@
+ #include <lockfile.hxx>
+ #include "userinstall.hxx"
+ #include "desktopcontext.hxx"
++#include "hstsessionend.hxx"
+ #include <migration.hxx>
+ #include "officeipcthread.hxx"
+ #if HAVE_FEATURE_UPDATE_MAR
+@@ -1692,6 +1693,12 @@
+             // if this run of the office is triggered by restart, some additional actions should be done
+             DoRestartActionsIfNecessary( !rCmdLineArgs.IsInvisible() && !rCmdLineArgs.IsNoQuickstart() );
+ 
++            // HST Office: a SIGTERM from the system (log out, shut down) stores the documents for
++            // the next start; a headless or invisible office (a server, a conversion) keeps sal's
++            // immediate exit
++            if (!rCmdLineArgs.IsHeadless() && !rCmdLineArgs.IsInvisible())
++                desktop::hst::installSessionEndOnTerminate();
++
+             Execute();
+         }
+     }
+--- /dev/null
++++ b/desktop/source/app/hstsessionend.hxx
+@@ -0,0 +1,19 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++namespace desktop::hst
++{
++/** Linux: when the system ends the office with SIGTERM (log out or shut down), store every open
++    document for the next start and quit, instead of exiting at once. No-op on other platforms. */
++void installSessionEndOnTerminate();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/desktop/source/app/hstsessionend.cxx
+@@ -0,0 +1,168 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include "hstsessionend.hxx"
++
++#if defined LINUX
++
++#include <atomic>
++#include <cerrno>
++#include <chrono>
++#include <csignal>
++#include <system_error>
++#include <thread>
++
++#include <fcntl.h>
++#include <unistd.h>
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XEnumeration.hpp>
++#include <com/sun/star/frame/Desktop.hpp>
++#include <com/sun/star/frame/theAutoRecovery.hpp>
++#include <com/sun/star/util/URLTransformer.hpp>
++#include <com/sun/star/util/XModifiable.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <osl/signal.h>
++#include <sal/log.hxx>
++#include <tools/link.hxx>
++#include <vcl/svapp.hxx>
++
++using namespace css;
++
++// systemd ends a desktop session (log out, shut down) with SIGTERM to every process of the session,
++// SIGKILL follows after its stop timeout (90 s by default); desktops without the GNOME session
++// protocol (KDE, ...) end the office only this way. sal's handler used to _exit(255) at once: the
++// changes since the last recovery copy were lost and the next start offered the recovery dialog.
++// Now the signal handler only writes to a pipe; a watcher thread posts the session end to the main
++// thread: AutoRecovery's session end (the session restart without the restart) stores, checks and
++// closes every document, then the office terminates normally and the next start reopens the
++// documents silently. When a document cannot be stored, the office ends at once as before (the
++// next start offers the last recovery copy). A second SIGTERM, or no clean end within the
++// deadline (a hung main thread), ends it at once as before too.
++namespace
++{
++constexpr auto DEADLINE = std::chrono::seconds(20);
++int g_aPipe[2] = { -1, -1 };
++std::atomic<bool> g_bPending(false);
++
++// as sal's handler did, with the note the bundled extension reads at the next start
++[[noreturn]] void endNow()
++{
++    static const char aNote[] = "\n\nTerminated: Signal 15\n";
++    ssize_t nIgnored = write(STDERR_FILENO, aNote, sizeof aNote - 1);
++    (void)nIgnored;
++    _exit(255);
++}
++
++oslSignalAction onSignal(void*, oslSignalInfo* pInfo)
++{
++    if (pInfo->Signal != osl_Signal_Terminate || pInfo->UserSignal != SIGTERM)
++        return osl_Signal_ActCallNextHdl;
++    if (g_bPending.exchange(true)) // async-signal-safe: std::atomic<bool> is lock-free
++        return osl_Signal_ActCallNextHdl;
++    const char c = 1;
++    if (write(g_aPipe[1], &c, 1) != 1)
++        return osl_Signal_ActCallNextHdl;
++    return osl_Signal_ActIgnoreSignal;
++}
++
++bool anyDocumentModified(const uno::Reference<uno::XComponentContext>& xContext)
++{
++    uno::Reference<container::XEnumeration> xComponents
++        = frame::Desktop::create(xContext)->getComponents()->createEnumeration();
++    while (xComponents->hasMoreElements())
++    {
++        uno::Reference<util::XModifiable> xModifiable(xComponents->nextElement(), uno::UNO_QUERY);
++        if (xModifiable.is() && xModifiable->isModified())
++            return true;
++    }
++    return false;
++}
++
++struct SessionEnd
++{
++    DECL_STATIC_LINK(SessionEnd, OnMainThread, void*, void);
++};
++
++IMPL_STATIC_LINK_NOARG(SessionEnd, OnMainThread, void*, void)
++{
++    try
++    {
++        const uno::Reference<uno::XComponentContext>& xContext
++            = comphelper::getProcessComponentContext();
++        util::URL aURL;
++        aURL.Complete = u"vnd.sun.star.autorecovery:/doSessionEnd"_ustr;
++        util::URLTransformer::create(xContext)->parseStrict(aURL);
++        frame::theAutoRecovery::get(xContext)->dispatch(
++            aURL, { comphelper::makePropertyValue(u"DispatchAsynchron"_ustr, false) });
++        if (anyDocumentModified(xContext))
++        {
++            SAL_WARN("desktop.app", "session end: not every document could be stored");
++            endNow();
++        }
++        uno::Reference<frame::XDesktop2> xDesktop = frame::Desktop::create(xContext);
++        uno::Reference<beans::XPropertySet>(xDesktop, uno::UNO_QUERY_THROW)
++            ->setPropertyValue(u"SuspendQuickstartVeto"_ustr, uno::Any(true));
++        if (!xDesktop->terminate())
++            endNow(); // vetoed: the documents are stored, end as the system asked
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("desktop.app", "session end failed");
++        endNow();
++    }
++}
++
++void watch()
++{
++    char c;
++    ssize_t n;
++    while ((n = read(g_aPipe[0], &c, 1)) < 0 && errno == EINTR)
++    {
++    }
++    if (n != 1)
++        return;
++    Application::PostUserEvent(LINK(nullptr, SessionEnd, OnMainThread));
++    std::this_thread::sleep_for(DEADLINE);
++    endNow();
++}
++}
++
++void desktop::hst::installSessionEndOnTerminate()
++{
++    static bool bInstalled = false;
++    if (bInstalled)
++        return;
++    bInstalled = true;
++    if (pipe2(g_aPipe, O_CLOEXEC) != 0)
++    {
++        SAL_WARN("desktop.app", "session end: no pipe, SIGTERM ends the office at once");
++        return;
++    }
++    try
++    {
++        std::thread(watch).detach();
++    }
++    catch (const std::system_error&)
++    {
++        SAL_WARN("desktop.app", "session end: no watcher thread, SIGTERM ends the office at once");
++        return;
++    }
++    osl_addSignalHandler(onSignal, nullptr);
++}
++
++#else
++
++void desktop::hst::installSessionEndOnTerminate() {}
++
++#endif
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
