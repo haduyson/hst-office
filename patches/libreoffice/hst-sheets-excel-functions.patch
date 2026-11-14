@@ -21,9 +21,11 @@ Files: .xlsx _xlfn.<NAME> (PHONETIC has no prefix, it is a BIFF8 function), ODF 
 binary .xls tables too. New code: sc/source/core/tool/interpr_excelcompat.cxx and interpr_excelregex.cxx.
 
 Semantics:
-- CHAR/CODE use the system ANSI code page like the reference application: on Windows the thread encoding
-  (GetACP: 1258 Vietnamese, 1252 English, as before); on Linux/macOS, which have no ANSI code page and gave the
-  first UTF-8 byte (CODE("Đ") = 196), the Windows code page of the locale setting (vi-VN 1258, en-US 1252).
+- CHAR/CODE use the system ANSI code page like the reference application (sc/source/core/tool/ansicodepage.cxx):
+  on Windows the ANSI code page of the system default locale (1258 Vietnamese, 1252 English); the process runs
+  with the UTF-8 code page of its manifest, so the thread encoding used before gave UTF-8 bytes (CODE("é") = 195,
+  CHAR(233) invalid). On Linux/macOS, which have no ANSI code page and gave the same UTF-8 bytes, the Windows
+  code page of the locale setting (vi-VN 1258, en-US 1252).
   OpenFormula leaves the code page to the implementation, so ODF documents need no special case.
 - CELL("filename"): C:\dir\[file.xlsx]Sheet with the native path of the OS (/home/u/[file.xlsx]Sheet on Linux)
   and "" for a document never saved. OpenDocument files keep 'file:///dir/file.ods'#$Sheet, which existing ODF
@@ -250,10 +252,11 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
 +# vim: set noet sw=4 ts=4:
 --- a/sc/Library_sc.mk
 +++ b/sc/Library_sc.mk
-@@ -264,6 +264,8 @@ $(eval $(call gb_Library_add_exception_objects,sc,\
+@@ -264,6 +264,9 @@ $(eval $(call gb_Library_add_exception_objects,sc,\
      sc/source/core/tool/interpr6 \
      sc/source/core/tool/interpr7 \
      sc/source/core/tool/interpr8 \
++    sc/source/core/tool/ansicodepage \
 +    sc/source/core/tool/interpr_excelcompat \
 +    sc/source/core/tool/interpr_excelregex \
      sc/source/core/tool/interpretercontext \
@@ -637,6 +640,30 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
      };
  
      ScFuncDesc* pDesc = nullptr;
+--- /dev/null
++++ b/sc/source/core/inc/ansicodepage.hxx
+@@ -0,0 +1,21 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <rtl/textenc.h>
++
++namespace sc
++{
++/// The code page of CODE() and CHAR(): the system ANSI code page, as in the leading
++/// spreadsheet application (see ansicodepage.cxx).
++rtl_TextEncoding GetAnsiCodePageEncoding();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sc/source/core/inc/interpre.hxx
 +++ b/sc/source/core/inc/interpre.hxx
 @@ -803,6 +803,20 @@ public:
@@ -660,6 +687,60 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
      void ScConcat();
      void ScConcat_MS();
      void ScTextJoin_MS();
+--- /dev/null
++++ b/sc/source/core/tool/ansicodepage.cxx
+@@ -0,0 +1,51 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// CODE and CHAR use the system ANSI code page, as the leading spreadsheet
++// application does: 1258 with the Vietnamese system locale, 1252 with English.
++// On Windows that is the ANSI code page of the system default locale; the
++// process itself runs with the UTF-8 code page of its manifest, so GetACP()
++// and the thread encoding are UTF-8 there. Linux and macOS have no ANSI code
++// page and run UTF-8, so the Windows code page of the locale setting is used
++// (vi-VN 1258, en-US 1252); the first byte of a UTF-8 sequence that CODE gave
++// before meant nothing to anyone.
++
++#include <ansicodepage.hxx>
++
++#include <global.hxx>
++#include <i18nlangtag/languagetag.hxx>
++#include <rtl/tencinfo.h>
++#include <unotools/localedatawrapper.hxx>
++#include <unotools/wincodepage.hxx>
++
++#ifdef _WIN32
++#include <prewin.h>
++#include <postwin.h>
++#include <cwchar>
++#endif
++
++namespace sc
++{
++rtl_TextEncoding GetAnsiCodePageEncoding()
++{
++#ifdef _WIN32
++    wchar_t aBuf[8] = {};
++    if (GetLocaleInfoEx(LOCALE_NAME_SYSTEM_DEFAULT, LOCALE_IDEFAULTANSICODEPAGE, aBuf, 8) > 0)
++    {
++        rtl_TextEncoding eEnc = rtl_getTextEncodingFromWindowsCodePage(
++            static_cast<sal_uInt32>(std::wcstoul(aBuf, nullptr, 10)));
++        if (eEnc != RTL_TEXTENCODING_DONTKNOW && eEnc != RTL_TEXTENCODING_UTF8)
++            return eEnc;
++    }
++#endif
++    return utl_getWinTextEncodingFromLangStr(ScGlobal::getLocaleData().getLanguageTag().getBcp47());
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sc/source/core/tool/compiler.cxx
 +++ b/sc/source/core/tool/compiler.cxx
 @@ -4993,7 +4993,13 @@ Label_Rewind:
@@ -686,7 +767,7 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
 +#include <osl/file.hxx>
 +#include <sfx2/docfilt.hxx>
  #include <unotools/textsearch.hxx>
-+#include <unotools/wincodepage.hxx>
++#include <ansicodepage.hxx>
  #include <svl/numformat.hxx>
  #include <svl/zforlist.hxx>
  #include <svl/zformat.hxx>
@@ -752,43 +833,21 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
                          }
                          else
                          {
-@@ -3584,6 +3616,21 @@ void ScInterpreter::ScClean()
- }
- 
- 
-+// CODE and CHAR use the system ANSI code page, as the leading spreadsheet
-+// application does. On Windows that is the thread text encoding (GetACP():
-+// 1258 with the Vietnamese system locale, 1252 with English). Linux and macOS
-+// have no ANSI code page and run UTF-8, so there the Windows code page of the
-+// locale setting is used (vi-VN 1258, en-US 1252); the first byte of a UTF-8
-+// sequence used before meant nothing to anyone.
-+static rtl_TextEncoding lcl_GetAnsiCodePageEncoding()
-+{
-+#ifdef _WIN32
-+    return osl_getThreadTextEncoding();
-+#else
-+    return utl_getWinTextEncodingFromLangStr(ScGlobal::getLocaleData().getLanguageTag().getBcp47());
-+#endif
-+}
-+
- void ScInterpreter::ScCode()
- {
- //2do: make it full range unicode?
-@@ -3600,7 +3647,7 @@ void ScInterpreter::ScCode()
+@@ -3600,7 +3632,7 @@ void ScInterpreter::ScCode()
              RTL_UNICODETOTEXT_FLAGS_UNDEFINED_DEFAULT |
              RTL_UNICODETOTEXT_FLAGS_INVALID_DEFAULT |
              RTL_UNICODETOTEXT_FLAGS_UNDEFINED_REPLACE;
 -        PushInt( static_cast<unsigned char>(OUStringToOString(OUStringChar(aStr[0]), osl_getThreadTextEncoding(), convertFlags).toChar()) );
-+        PushInt( static_cast<unsigned char>(OUStringToOString(OUStringChar(aStr[0]), lcl_GetAnsiCodePageEncoding(), convertFlags).toChar()) );
++        PushInt( static_cast<unsigned char>(OUStringToOString(OUStringChar(aStr[0]), sc::GetAnsiCodePageEncoding(), convertFlags).toChar()) );
      }
  }
  
-@@ -3621,7 +3668,7 @@ void ScInterpreter::ScChar()
+@@ -3621,7 +3653,7 @@ void ScInterpreter::ScChar()
              RTL_TEXTTOUNICODE_FLAGS_INVALID_DEFAULT;
  
          char cEncodedChar = static_cast<char>(fVal);
 -        OUString aStr(&cEncodedChar, 1,  osl_getThreadTextEncoding(), convertFlags);
-+        OUString aStr(&cEncodedChar, 1, lcl_GetAnsiCodePageEncoding(), convertFlags);
++        OUString aStr(&cEncodedChar, 1, sc::GetAnsiCodePageEncoding(), convertFlags);
          PushString(aStr);
      }
  }

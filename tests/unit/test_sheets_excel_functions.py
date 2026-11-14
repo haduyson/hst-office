@@ -129,9 +129,12 @@ class SheetsExcelFunctions(unittest.TestCase):
 
     def test_char_code_use_the_ansi_code_page(self):
         cxx = new_side(PATCH, "sc/source/core/tool/interpr1.cxx")
-        self.assertIn("utl_getWinTextEncodingFromLangStr(ScGlobal::getLocaleData().getLanguageTag().getBcp47())", cxx)
-        self.assertEqual(cxx.count("lcl_GetAnsiCodePageEncoding(), convertFlags"), 2)
+        self.assertEqual(cxx.count("sc::GetAnsiCodePageEncoding(), convertFlags"), 2)
         self.assertNotIn("osl_getThreadTextEncoding(), convertFlags", cxx)
+        page = new_side(PATCH, "sc/source/core/tool/ansicodepage.cxx")
+        # Windows: the system default locale's ANSI code page (the process itself runs UTF-8).
+        self.assertIn("GetLocaleInfoEx(LOCALE_NAME_SYSTEM_DEFAULT, LOCALE_IDEFAULTANSICODEPAGE", page)
+        self.assertIn("utl_getWinTextEncodingFromLangStr(ScGlobal::getLocaleData().getLanguageTag().getBcp47())", page)
 
     def test_cell_filename_and_info(self):
         cxx = new_side(PATCH, "sc/source/core/tool/interpr1.cxx")

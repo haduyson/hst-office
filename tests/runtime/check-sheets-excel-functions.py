@@ -67,7 +67,7 @@ def run_phase(program, out, ui, loc, results):
         results.append({"phase": f"{ui}:{loc}", "check": name, "ok": bool(ok), "detail": detail})
         print(("PASS " if ok else "FAIL ") + f"[{ui}:{loc}] {name} {detail}")
     try:
-        ctx = connect(uno, pipe)
+        ctx = connect(uno, pipe, timeout=300)  # first start installs the bundled extensions
         smgr = ctx.ServiceManager
         desk = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
         doc = desk.loadComponentFromURL("private:factory/scalc", "_blank", 0, (prop("Hidden", True),))
