@@ -1,0 +1,469 @@
+HST Office: ribbon groups at their medium and small size form Office's even 3-row grid; large labels wrap.
+
+1.0.2 ribbon (owner decisions 14/11/2026, gap list G01-G03, G09): a group keeps its labels as long as possible.
+At the medium size the buttons of a large toolbox become small icons with their label on the right in even
+columns of three rows (24 logical px, 2 px apart), filled top to bottom then left to right; at the small size
+the same grid without labels. Every item starts at its column's left edge, so the icons line up and nothing
+is staggered. A large button's label wider than 62 logical px wraps at its most balanced space (at most two
+lines), and a large menu button is split as in Office: the image runs the command, the label below it opens
+the menu, with ▾ after the label's last line instead of a column of its own on the right.
+
+- vcl/inc/HstRibbonGrid.hxx: the grid geometry (plain arithmetic, unit tested); LABEL_WRAP.
+- ToolBox::HstSetGridRows (opt-in, ribbon ladder only); ImplCalcSize and ImplFormat lay out the grid.
+- toolbox.cxx: balanced label wrap for ribbon toolboxes, split large menu buttons (ImplToolItem::GetDropDownRect
+  returns the label part); HstRibbonLadder.cxx: grid rows 3 at the medium and small size of large toolboxes.
+
+--- a/include/vcl/toolbox.hxx
++++ b/include/vcl/toolbox.hxx
+@@ -335,6 +335,9 @@
+     bool                IsHorizontal() const { return mbHorz; }
+ 
+     void                SetLineCount( ImplToolItems::size_type nNewLines );
++    /// HST Office: lay the items out in an even grid of nRows rows, column by column (ribbon groups at their
++    /// medium and small size); 0 = the usual line layout
++    void                HstSetGridRows( int nRows );
+     SAL_DLLPRIVATE void ShowLine( bool bNext );
+ 
+     ImplToolItems::size_type GetItemCount() const;
+--- /dev/null
++++ b/vcl/inc/HstRibbonGrid.hxx
+@@ -0,0 +1,117 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: the even grid of a ribbon group at its medium and small size (Office's 3-row columns).
++// Plain integer arithmetic without LibreOffice types, so it can be unit tested on its own
++// (tests/unit/test_ribbon_grid.py compiles it from the patch with a test driver).
++//
++// The items of one toolbox fill columns top to bottom, `rows` items per column, left to right; a separator
++// ends the current column and stands as a thin column of its own. Every row has the same height and every
++// item starts at its column's left edge, so the icons line up in even columns and rows (never staggered).
++// A column is as wide as its widest item; the grid is as high as `rows` rows whatever the item count.
++
++#include <algorithm>
++#include <vector>
++
++namespace hst::ribbon
++{
++/// Logical px over which a large button's label wraps to a second line (at its most balanced space).
++constexpr long LABEL_WRAP = 62;
++
++struct GridItem
++{
++    long w = 0;
++    long h = 0;
++    bool separator = false;
++    bool visible = true;
++};
++
++struct GridCell
++{
++    long x = 0;
++    long y = 0;
++    long w = 0;
++    long h = 0;
++};
++
++struct GridLayout
++{
++    std::vector<GridCell> cells; // one per item, empty (0 x 0) for hidden items
++    long width = 0;
++    long height = 0;
++};
++
++/** Lay out rItems in an even grid of nRows rows nRowHeight high (at least the tallest item), nRowGap
++    between rows, nColumnGap between columns and nSeparator wide separators. */
++inline GridLayout gridLayout(const std::vector<GridItem>& rItems, int nRows, long nRowHeight, long nRowGap,
++                             long nColumnGap, long nSeparator)
++{
++    GridLayout aLayout;
++    aLayout.cells.resize(rItems.size());
++    if (nRows < 1)
++        nRows = 1;
++    long nRow = nRowHeight;
++    for (const GridItem& rItem : rItems)
++        if (rItem.visible && !rItem.separator)
++            nRow = std::max(nRow, rItem.h);
++    aLayout.height = nRows * nRow + (nRows - 1) * nRowGap;
++
++    long nX = 0; // left edge of the current column
++    long nColumnWidth = 0; // widest item of the current column, 0 while the column is empty
++    int nInColumn = 0;
++    auto closeColumn = [&]() {
++        if (nInColumn == 0)
++            return;
++        nX += nColumnWidth + nColumnGap;
++        nColumnWidth = 0;
++        nInColumn = 0;
++    };
++    for (std::size_t i = 0; i < rItems.size(); ++i)
++    {
++        const GridItem& rItem = rItems[i];
++        if (!rItem.visible)
++            continue;
++        if (rItem.separator)
++        {
++            closeColumn();
++            if (nX == 0)
++                continue; // no separator before the first column
++            aLayout.cells[i] = GridCell{ nX, 0, nSeparator, aLayout.height };
++            nX += nSeparator + nColumnGap;
++            continue;
++        }
++        if (nInColumn == nRows)
++            closeColumn();
++        aLayout.cells[i] = GridCell{ nX, nInColumn * (nRow + nRowGap), rItem.w, nRow };
++        nColumnWidth = std::max(nColumnWidth, rItem.w);
++        ++nInColumn;
++    }
++    if (nInColumn > 0)
++        aLayout.width = nX + nColumnWidth;
++    else
++        aLayout.width = std::max(0L, nX - nColumnGap);
++    // a trailing separator does not stand alone at the right end
++    for (std::size_t i = rItems.size(); i-- > 0;)
++    {
++        if (!rItems[i].visible)
++            continue;
++        if (rItems[i].separator && aLayout.cells[i].w > 0 && aLayout.cells[i].x + aLayout.cells[i].w >= aLayout.width)
++        {
++            aLayout.width = aLayout.cells[i].x > nColumnGap ? aLayout.cells[i].x - nColumnGap : 0;
++            aLayout.cells[i] = GridCell{};
++        }
++        break;
++    }
++    return aLayout;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/inc/toolbox.h
++++ b/vcl/inc/toolbox.h
+@@ -65,6 +65,10 @@
+                         mbBreak:1,
+                         mbVisibleText:1,    // indicates if text will definitely be drawn, influences dropdown pos
+                         mbExpand:1;
++    // HST Office: a large ribbon menu button split in two: the image runs the command, the label below it
++    // (from mnHstSplitTop px under the item's top, ▾ after its last line) opens the menu, as in Office
++    bool                mbHstSplitBelow = false;
++    tools::Long         mnHstSplitTop = 0;
+ 
+                         ImplToolItem();
+                         ImplToolItem( ToolBoxItemId nItemId, Image aImage,
+@@ -138,6 +142,9 @@
+     ButtonType meHstAuthoredType = ButtonType::SYMBOLONLY;
+     ToolBoxButtonSize meHstAuthoredSize = ToolBoxButtonSize::DontCare;
+     ToolBoxTextPosition meHstAuthoredTextPosition = ToolBoxTextPosition::Right;
++    // HST Office: rows of the even grid the items fill column by column (ribbon medium/small sizes,
++    // HstRibbonGrid.hxx); 0 = the usual line layout
++    int mnHstGridRows = 0;
+ 
+     // the optional custom menu
+     VclPtr<PopupMenu>   mpMenu;
+--- a/vcl/source/control/HstRibbonLadder.cxx
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -106,6 +106,13 @@
+         rToolBox.SetToolBoxTextPosition(ePosition);
+         bChanged = true;
+     }
++    // a large toolbox at the medium or small size: its buttons in Office's even 3-row columns (HstRibbonGrid.hxx)
++    const int nGridRows = !bKeep && rData.meHstAuthoredSize == ToolBoxButtonSize::Large ? 3 : 0;
++    if (rData.mnHstGridRows != nGridRows)
++    {
++        rToolBox.HstSetGridRows(nGridRows);
++        bChanged = true;
++    }
+     // HST Office: a gallery in the toolbox (Slides' themes) shows fewer columns at the smaller states, so the
+     // group narrows before it folds; a window that does not know the property ignores it
+     const OUString aGalleryState = OUString::number(std::min(nState, int(GroupSmall)));
+--- a/vcl/source/window/toolbox.cxx
++++ b/vcl/source/window/toolbox.cxx
+@@ -44,6 +44,7 @@
+ #include <svdata.hxx>
+ #include <window.h>
+ #include <toolbox.h>
++#include <HstRibbonGrid.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
+ #include <spin.hxx>
+ #if defined(_WIN32)
+@@ -92,6 +93,60 @@
+     return Size(nWidth, nLines * rDev.GetTextHeight());
+ }
+ }
++
++namespace
++{
++// HST Office: the label of a large ribbon button (text below its image) in at most two lines: one wider than
++// hst::ribbon::LABEL_WRAP logical px breaks at the space that makes its wider line the narrowest, as Office's
++// two-line labels; authored line breaks are kept. Other toolboxes and positions keep their text.
++OUString ImplHstLabel(const ToolBox& rToolBox, const ImplToolBoxPrivateData& rData, const OUString& rText,
++                      ToolBoxTextPosition ePosition)
++{
++    if (!rData.mbHstOwnerDraw || ePosition != ToolBoxTextPosition::Bottom || rText.indexOf('\n') >= 0)
++        return rText;
++    const OutputDevice& rDev = *rToolBox.GetOutDev();
++    if (rDev.GetCtrlTextWidth(rText) <= std::lround(hst::ribbon::LABEL_WRAP * rToolBox.GetDPIScaleFactor()))
++        return rText;
++    sal_Int32 nBest = -1;
++    tools::Long nBestWidth = 0;
++    for (sal_Int32 i = rText.indexOf(' '); i > 0; i = rText.indexOf(' ', i + 1))
++    {
++        const tools::Long nWidth = std::max(rDev.GetCtrlTextWidth(rText.copy(0, i)),
++                                            rDev.GetCtrlTextWidth(rText.copy(i + 1)));
++        if (nBest < 0 || nWidth < nBestWidth)
++        {
++            nBest = i;
++            nBestWidth = nWidth;
++        }
++    }
++    return nBest < 0 ? rText : rText.replaceAt(nBest, 1, u"\n");
++}
++
++// HST Office: the even grid of a ribbon toolbox at its medium/small size (HstRibbonGrid.hxx); item sizes
++// from ImplCalcItem, rows 24 logical px high with 2 px between them, as Office's 3-row columns.
++hst::ribbon::GridLayout ImplHstGrid(const ToolBox& rToolBox, const ImplToolBoxPrivateData& rData)
++{
++    const double fDpi = rToolBox.GetDPIScaleFactor();
++    std::vector<hst::ribbon::GridItem> aItems;
++    aItems.reserve(rData.m_aItems.size());
++    for (const ImplToolItem& rItem : rData.m_aItems)
++    {
++        hst::ribbon::GridItem aItem;
++        aItem.visible = rItem.mbVisible;
++        aItem.separator = rItem.meType == ToolBoxItemType::SEPARATOR;
++        if (rItem.meType == ToolBoxItemType::BUTTON || rItem.meType == ToolBoxItemType::SPACE)
++        {
++            aItem.w = rItem.maItemSize.Width();
++            aItem.h = rItem.maItemSize.Height();
++        }
++        else if (!aItem.separator)
++            aItem.visible = false; // breaks have no place in a grid
++        aItems.push_back(aItem);
++    }
++    return hst::ribbon::gridLayout(aItems, rData.mnHstGridRows, std::lround(24 * fDpi), std::lround(2 * fDpi),
++                                   std::lround(2 * fDpi), std::lround(7 * fDpi));
++}
++}
+ #define TB_SPIN_SIZE            14
+ #define TB_SPIN_OFFSET          2
+ #define TB_BORDER_OFFSET1       4
+@@ -710,7 +765,13 @@
+ 
+     ImplCalcItem();
+ 
+-    if( !nCalcMode && ImplIsFloatingMode() )
++    if (mpData->mnHstGridRows > 0 && mbHorz && !ImplIsFloatingMode())
++    {
++        // HST Office: a ribbon group at its medium/small size: the even grid, whatever nCalcLines
++        const hst::ribbon::GridLayout aGrid = ImplHstGrid(*this, *mpData);
++        aSize = Size(aGrid.width + nLeft + nRight, aGrid.height + nTop + nBottom);
++    }
++    else if( !nCalcMode && ImplIsFloatingMode() )
+     {
+         aSize = ImplCalcFloatSize( nCalcLines );
+     }
+@@ -1519,9 +1580,11 @@
+                         // we're drawing images and text
+                         item.maItemSize.setWidth( bText ? GetOutDev()->GetCtrlTextWidth( item.maText )+TB_TEXTOFFSET : 0 );
+                         item.maItemSize.setHeight( bText ? GetTextHeight() : 0 );
+-                        if ( bText && ImplHasLabelLines( item.maText, meTextPosition ) )
++                        const OUString aHstLabel = bText ? ImplHstLabel(*this, *mpData, item.maText, meTextPosition)
++                                                         : item.maText;
++                        if ( bText && ImplHasLabelLines( aHstLabel, meTextPosition ) )
+                         {
+-                            const Size aLines( ImplLabelLinesSize( *GetOutDev(), item.maText ) );
++                            const Size aLines( ImplLabelLinesSize( *GetOutDev(), aHstLabel ) );
+                             item.maItemSize = Size( aLines.Width()+TB_TEXTOFFSET, aLines.Height() );
+                         }
+ 
+@@ -1569,9 +1632,26 @@
+                 }
+ 
+                 // add in drop down arrow
++                item.mbHstSplitBelow = false;
+                 if( item.mnBits & ToolBoxItemBits::DROPDOWN )
+                 {
+-                    item.maItemSize.AdjustWidth(nDropDownArrowWidth );
++                    if (bImage && bText && mbHorz && meTextPosition == ToolBoxTextPosition::Bottom
++                        && tmpButtonType != ButtonType::SYMBOLONLY && tmpButtonType != ButtonType::TEXT)
++                    {
++                        // HST Office: a large ribbon menu button is split, ▾ after the label's last line
++                        // (Office's two-part large buttons) instead of a column of its own on the right
++                        const OUString aLabel = ImplHstLabel(*this, *mpData, item.maText, meTextPosition);
++                        const sal_Int32 nLast = aLabel.lastIndexOf('\n');
++                        const tools::Long nLastLine = GetOutDev()->GetCtrlTextWidth(aLabel.copy(nLast + 1));
++                        const tools::Long nNeeded = nLastLine + nDropDownArrowWidth + TB_TEXTOFFSET;
++                        if (item.maItemSize.Width() < nNeeded)
++                            item.maItemSize.setWidth(nNeeded);
++                        item.mbHstSplitBelow = true;
++                        item.mnHstSplitTop = SMALLBUTTON_VSIZE / 2 + item.maImage.GetSizePixel().Height()
++                                             + TB_IMAGETEXTOFFSET / 2;
++                    }
++                    else
++                        item.maItemSize.AdjustWidth(nDropDownArrowWidth );
+                     item.mnDropDownArrowWidth = nDropDownArrowWidth;
+                 }
+ 
+@@ -1945,6 +2025,36 @@
+ 
+     bMustFullPaint = ImplCalcItem();
+ 
++    if (mpData->mnHstGridRows > 0 && mbHorz && !ImplIsFloatingMode())
++    {
++        // HST Office: a ribbon group at its medium/small size: every item in its cell of the even grid
++        const hst::ribbon::GridLayout aGrid = ImplHstGrid(*this, *mpData);
++        mnCurLines = mnVisLines = mnCurLine = 1;
++        maUpperRect = maLowerRect = aEmptyRect;
++        mpData->maMenubuttonItem.maRect = aEmptyRect;
++        for (std::size_t i = 0; i < mpData->m_aItems.size(); ++i)
++        {
++            ImplToolItem& rItem = mpData->m_aItems[i];
++            const hst::ribbon::GridCell& rCell = aGrid.cells[i];
++            rItem.mbShowWindow = false;
++            rItem.maCalcRect = rCell.w > 0 && rCell.h > 0
++                                   ? tools::Rectangle(Point(mnLeftBorder + rCell.x, mnTopBorder + rCell.y),
++                                                      Size(rCell.w, rCell.h))
++                                   : aEmptyRect;
++            if (rItem.mpWindow)
++                rItem.mpWindow->Hide(); // toolboxes with item windows never get a grid
++            if (rItem.maRect != rItem.maCalcRect)
++                bMustFullPaint = true;
++            rItem.maRect = rItem.maCalcRect;
++        }
++        mbIsArranged = true;
++        if (IsVisible() && !mbFullPaint && bMustFullPaint)
++            Invalidate();
++        maPaintRect = aEmptyRect;
++        mbFormat = false;
++        return;
++    }
++
+     // calculate new size during interactive resize or
+     // set computed size when formatting only
+     if ( ImplIsFloatingMode() )
+@@ -2656,7 +2766,7 @@
+         }
+         else
+         {
+-            nImageOffX += (nBtnWidth-(bDropDown ? aDropDownRect.getOpenWidth() : 0)+SMALLBUTTON_OFF_NORMAL_X-aImageSize.Width())/2;
++            nImageOffX += (nBtnWidth-(bDropDown && !pItem->mbHstSplitBelow ? aDropDownRect.getOpenWidth() : 0)+SMALLBUTTON_OFF_NORMAL_X-aImageSize.Width())/2;
+             if ( meTextPosition == ToolBoxTextPosition::Right )
+                 nImageOffY += (nBtnHeight-aImageSize.Height())/2;
+         }
+@@ -2668,6 +2778,14 @@
+                 ImplDrawButton(rRenderContext, aButtonRect, nHighlight, pItem->meState == TRISTATE_TRUE,
+                                pItem->mbEnabled && IsEnabled(), pItem->mbShowWindow);
+         }
++        if (pItem->mbHstSplitBelow && nHighlight != 0 && !bHasOpenPopup)
++        {
++            // HST Office: the two parts of a split large button
++            auto popLine = rRenderContext.ScopedPush(vcl::PushFlags::LINECOLOR);
++            rRenderContext.SetLineColor(rStyleSettings.GetSeparatorColor());
++            const tools::Long nY = pItem->maRect.Top() + pItem->mnHstSplitTop;
++            rRenderContext.DrawLine(Point(pItem->maRect.Left() + 2, nY), Point(pItem->maRect.Right() - 2, nY));
++        }
+ 
+         // determine drawing flags
+         DrawImageFlags nImageStyle = DrawImageFlags::NONE;
+@@ -2681,10 +2799,12 @@
+ 
+     // draw the text
+     bool bRotate = false;
++    tools::Rectangle aHstArrowRect; // HST Office: where ▾ of a split large button goes
+     if ( bText )
+     {
+-        const bool bLines = ImplHasLabelLines(pItem->maText, meTextPosition);
+-        const Size aTxtSize(bLines ? ImplLabelLinesSize(*GetOutDev(), pItem->maText)
++        const OUString aHstLabel = ImplHstLabel(*this, *mpData, pItem->maText, meTextPosition);
++        const bool bLines = ImplHasLabelLines(aHstLabel, meTextPosition);
++        const Size aTxtSize(bLines ? ImplLabelLinesSize(*GetOutDev(), aHstLabel)
+                                    : Size(GetOutDev()->GetCtrlTextWidth(pItem->maText), GetTextHeight()));
+         tools::Long nTextOffX = nOffX;
+         tools::Long nTextOffY = nOffY;
+@@ -2723,7 +2843,7 @@
+             else
+             {
+                 // center horizontally
+-                nTextOffX += (nBtnWidth-(bDropDown ? aDropDownRect.getOpenWidth() : 0)+SMALLBUTTON_OFF_NORMAL_X-aTxtSize.Width() - TB_IMAGETEXTOFFSET)/2;
++                nTextOffX += (nBtnWidth-(bDropDown && !pItem->mbHstSplitBelow ? aDropDownRect.getOpenWidth() : 0)+SMALLBUTTON_OFF_NORMAL_X-aTxtSize.Width() - TB_IMAGETEXTOFFSET)/2;
+                 // set vertical position
+                 nTextOffY += nBtnHeight - aTxtSize.Height();
+             }
+@@ -2742,16 +2862,22 @@
+         DrawTextFlags nTextStyle = DrawTextFlags::NONE;
+         if ( !pItem->mbEnabled )
+             nTextStyle |= DrawTextFlags::Disable;
+-        if ( bLines && !bRotate )
++        // HST Office: a split large button keeps room for ▾ after its last line (centred with it)
++        const tools::Long nSplitArrow = pItem->mbHstSplitBelow ? pItem->mnDropDownArrowWidth : 0;
++        if ( (bLines || nSplitArrow) && !bRotate )
+         {
+             // HST Office: each line centred under the image, the block in the place of one line
+             sal_Int32 nIndex = 0;
+             do
+             {
+-                const OUString aLine(o3tl::getToken(pItem->maText, 0, '\n', nIndex));
++                const OUString aLine(o3tl::getToken(aHstLabel, 0, '\n', nIndex));
+                 const tools::Long nLineWidth = GetOutDev()->GetCtrlTextWidth(aLine);
+-                rRenderContext.DrawCtrlText(Point(nTextOffX + (aTxtSize.Width() - nLineWidth) / 2, nTextOffY),
+-                                            aLine, 0, aLine.getLength(), nTextStyle);
++                const tools::Long nLineBlock = nLineWidth + (nIndex < 0 ? nSplitArrow : 0);
++                const tools::Long nLineX = nTextOffX + (aTxtSize.Width() - nLineBlock) / 2;
++                rRenderContext.DrawCtrlText(Point(nLineX, nTextOffY), aLine, 0, aLine.getLength(), nTextStyle);
++                if (nIndex < 0 && nSplitArrow)
++                    aHstArrowRect = tools::Rectangle(Point(nLineX + nLineWidth, nTextOffY),
++                                                     Size(nSplitArrow, GetTextHeight()));
+                 nTextOffY += GetTextHeight();
+             } while (nIndex >= 0);
+         }
+@@ -2773,6 +2899,14 @@
+         rRenderContext.SetFillColor(rStyleSettings.GetShadowColor());
+     }
+ 
++    if (pItem->mbHstSplitBelow)
++    {
++        // HST Office: only ▾ after the label; the label part is not erased (it holds the label)
++        if (!aHstArrowRect.IsEmpty())
++            ImplDrawDropdownArrow(rRenderContext, aHstArrowRect, bSetColor, false);
++        return;
++    }
++
+     // dropdown only will be painted without inner border
+     if( (pItem->mnBits & ToolBoxItemBits::DROPDOWNONLY) != ToolBoxItemBits::DROPDOWNONLY )
+     {
+@@ -3831,6 +3965,14 @@
+     maStateChangedHandler.Call( &nType );
+ }
+ 
++void ToolBox::HstSetGridRows( int nRows )
++{
++    if ( mpData->mnHstGridRows == nRows )
++        return;
++    mpData->mnHstGridRows = nRows;
++    ImplInvalidate( true );
++}
++
+ void ToolBox::DataChanged( const DataChangedEvent& rDCEvt )
+ {
+     DockingWindow::DataChanged( rDCEvt );
+--- a/vcl/source/window/toolbox2.cxx
++++ b/vcl/source/window/toolbox2.cxx
+@@ -252,7 +252,9 @@
+     if( (mnBits & ToolBoxItemBits::DROPDOWN) && !maRect.IsEmpty() )
+     {
+         aRect = maRect;
+-        if( mbVisibleText && !bHorz )
++        if (mbHstSplitBelow)
++            aRect.SetTop(maRect.Top() + mnHstSplitTop); // HST Office: the label part of a split large button
++        else if( mbVisibleText && !bHorz )
+             // item will be rotated -> place dropdown to the bottom
+             aRect.SetTop( aRect.Bottom() - mnDropDownArrowWidth );
+         else
