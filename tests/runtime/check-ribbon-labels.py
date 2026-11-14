@@ -4,7 +4,8 @@
 
 Per app (HST Writer, Sheets, Slides, Draw), tab and width (1920, 1485): every button of the ribbon band that shows only
 its icon (ICON_MAX px wide or less) must belong to a formatting group (FORMATTING: bold, italic, alignment, lists,
-number formats) or to a group shown as its "Caption ▾" button. Gallery arrows and the group launchers (↘) are not
+number formats) or to a group shown as its "Caption ▾" button, or be bare by design in the reference suite too (BARE_GROUPS,
+BARE_COMMANDS: Developer controls, grid toggles, shape combine, record navigation, A→Z/Z→A). Gallery arrows and the group launchers (↘) are not
 commands of the band. The reference suite labels almost every command at these widths.
 Usage: python3 tests/runtime/check-ribbon-labels.py --instdir DIR [--display :71] [--apps writer,calc] [--out DIR]
 Runs as the build user under dbus-run-session (AT-SPI). Writes <out>/results.json; exit 1 on any FAIL.
@@ -22,6 +23,10 @@ import ribbon_tabs_gui as gui  # noqa: E402
 from ribbon_home_tools_gui import group_range  # noqa: E402
 
 FORMATTING = {"Phông chữ", "Đoạn văn", "Căn chỉnh", "Số"}  # bare formatting icons are allowed (G10)
+# bare by design in the reference suite too (coordinator 15/11/2026): whole groups, and single commands
+BARE_GROUPS = {"Nhà phát triển", "Lưới", "Gộp hình"}  # Developer controls, grid/snap toggles, shape combine
+BARE_COMMANDS = {"Bản ghi đầu", "Bản ghi trước", "Bản ghi sau", "Bản ghi cuối",  # record navigation ◀ ▶
+                 "Sắp xếp tăng dần", "Sắp xếp giảm dần"}  # Sheets' A→Z, Z→A beside the labelled Sort
 WIDTHS = (1920, 1485)
 ICON_MAX = 40  # an icon with its button padding; with its label a button is wider
 BAND = (44, 135)  # the buttons of a tab page, above the caption row
@@ -54,7 +59,7 @@ def check_tab(app, width, tab):
     bare = {}
     for name, box in icons:
         group = next((c for c, (left, right) in ranges.items() if left <= box[0] < right), "?")
-        if group not in FORMATTING:
+        if group not in FORMATTING | BARE_GROUPS and name not in BARE_COMMANDS:
             bare.setdefault(group, []).append(name)
     record(f"[{app} {width}] {tab}: commands outside formatting groups are labelled", not bare, bare)
 
