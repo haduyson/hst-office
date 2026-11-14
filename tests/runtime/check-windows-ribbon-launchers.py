@@ -4,16 +4,16 @@
 tab (data/ribbon/launcher-targets.json; the Linux counterpart is check-ribbon-launchers.py).
 
 The office runs with its own profile in the tester's own session (tests/runtime/windows-own-session-task.ps1 over SSH).
-Nothing is typed: the ribbon tab, the launcher and the dialog tabs are driven through the office's accessibility tree
-over UNO, dialogs are closed with WM_CLOSE to their own HWND (windows_gui_dialogs). Each dialog is first left on
+Nothing is typed: the ribbon tab, the launcher and the dialog tabs are pressed through MSAA (windows-msaa-ribbon.ps1,
+the tree VCL's IAccessible2 bridge serves), dialogs are closed with WM_CLOSE to their own HWND (windows_gui_dialogs). Each dialog is first left on
 another tab, so a launcher that names no tab fails. Usage:
   "<install>\\program\\python.exe" tests/runtime/check-windows-ribbon-launchers.py --install DIR --out DIR [app ...]
 """
 import argparse
 import json
 import os
+import subprocess
 import sys
-import threading
 import time
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -26,30 +26,23 @@ from ribbon_launcher_contexts import MODULES, prepare  # noqa: E402
 TABLE = os.path.join(os.path.dirname(os.path.dirname(HERE)), "data", "ribbon", "launcher-targets.json")
 
 
-def role(name):
-    import uno
-    return uno.getConstantByName("com.sun.star.accessibility.AccessibleRole." + name)
+MSAA = os.path.join(HERE, "windows-msaa-ribbon.ps1")
 
 
-def showing_named(accessible, name, wanted):
-    return [c for c, _d in wg.walk(accessible, limit=24)
-            if c.getAccessibleRole() == role(wanted) and c.getAccessibleName() == name and wg.showing(c)]
+def msaa(action, wait=True, **args):
+    """Run one windows-msaa-ribbon.ps1 action; with wait=False the call may stay inside a modal dialog's loop."""
+    cmd = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", MSAA, "-Action", action]
+    for key, value in args.items():
+        cmd += ["-" + key, str(value)]
+    if not wait:
+        return subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    result = subprocess.run(cmd, capture_output=True, timeout=180, check=False)
+    return result.stdout.decode("utf-8", "replace").strip()
 
 
-def selected_tab(window):
-    import uno
-    selected = uno.getConstantByName("com.sun.star.accessibility.AccessibleStateType.SELECTED")
-    for context, _depth in wg.walk(window):
-        if context.getAccessibleRole() == role("PAGE_TAB") and context.getAccessibleStateSet() & selected:
-            return context.getAccessibleName()
-    return None
-
-
-def in_thread(action):
-    """A modal dialog blocks the UNO call that opened it until it closes: run the call from a thread."""
-    thread = threading.Thread(target=action, daemon=True)
-    thread.start()
-    return thread
+def close_dialogs(office):
+    for window, _title in wg.dialogs(office):
+        wg.close_dialog(window)
 
 
 def wait_dialog(office, timeout=30):
@@ -67,11 +60,8 @@ def leave_on_other_tab(office, frame, row):
     """Open the dialog the plain way and leave it on another tab (the tab a dialog reopens on unless told)."""
     office.dispatch_async(frame, row["command"].split("?", 1)[0])
     window, _title = wait_dialog(office)
-    for context, _depth in wg.walk(window):
-        if context.getAccessibleRole() == role("PAGE_TAB") and context.getAccessibleName() != row["tab"]:
-            wg.press(context)
-            time.sleep(0.5)
-            break
+    msaa("other-tab", Hwnd=wg.dialog_hwnd(window), Name=row["tab"])
+    time.sleep(0.5)
     wg.close_dialog(window)
     time.sleep(1.0)
 
@@ -79,35 +69,40 @@ def leave_on_other_tab(office, frame, row):
 def check_row(office, report, row, out):
     what = f"{row['app']} {row['ribbon_tab']} > {row['group']}"
     doc = office.load("private:factory/" + MODULES[row["app"]])
+    pressing = None
     try:
         prepare(doc, row["app"], row.get("context"), out)
         time.sleep(2.0)
-        frame = doc.getCurrentController().getFrame()
-        top = frame.getContainerWindow()
-        tabs = showing_named(top, row["ribbon_tab"], "PAGE_TAB")
-        if not tabs:
-            raise AssertionError(f"ribbon tab {row['ribbon_tab']!r} not shown")
-        wg.press(tabs[0])
+        close_dialogs(office)  # the tip of the day comes with the first document
+        pid = office.bin_pids_of_profile()[0]
+        shown = msaa("select-tab", OfficePid=pid, Name=row["ribbon_tab"])
+        if not shown.startswith("OK"):
+            raise AssertionError(f"ribbon tab {row['ribbon_tab']!r}: {shown}; {msaa('dump', OfficePid=pid)[:600]}")
         time.sleep(1.5)
+        if os.environ.get("HST_LAUNCHER_DUMP"):
+            report.note(what + " before", msaa("dump", OfficePid=pid).split("SMALL")[-1])
         if row.get("tab"):
-            leave_on_other_tab(office, frame, row)
-        label = row.get("label") or row["group"]
-        launchers = showing_named(top, label, "PUSH_BUTTON")
-        if len(launchers) != 1:
-            names = sorted({c.getAccessibleName() for c, _d in wg.walk(top, limit=24)
-                            if c.getAccessibleRole() == role("PUSH_BUTTON") and wg.showing(c)})
-            raise AssertionError(f"{len(launchers)} shown buttons named {label!r}; shown: {names}")
-        in_thread(lambda: wg.press(launchers[0]))
+            leave_on_other_tab(office, doc.getCurrentController().getFrame(), row)
+        pressing = msaa("press", wait=False, OfficePid=pid, Name=row.get("label") or row["group"])
         window, title = wait_dialog(office)
-        tab = selected_tab(window)
-        wg.screenshot(os.path.join(out, row["app"] + "-" + row["id"] + ".png"))
+        tab = msaa("selected", Hwnd=wg.dialog_hwnd(window)).removeprefix("TAB ")
+        if os.environ.get("HST_LAUNCHER_DUMP"):
+            report.note(what + " dialog", msaa("tabs", Hwnd=wg.dialog_hwnd(window)))
         wg.close_dialog(window)
         report(what, not row.get("tab") or tab == row["tab"], f"{title} › {tab} (expected {row.get('tab')})")
     except Exception as error:  # noqa: BLE001 - one broken launcher must not hide the others
-        report(what, False, repr(error))
-        for window, _title in wg.dialogs(office):
-            wg.close_dialog(window)
+        if pressing is not None and pressing.poll() is not None:
+            error = f"{error!r}; press: {pressing.stdout.read().decode('utf-8', 'replace').strip()}"
+        report(what, False, str(error))
+        if os.environ.get("HST_LAUNCHER_DUMP"):
+            report.note(what + " ribbon", msaa("dump", OfficePid=office.bin_pids_of_profile()[0]).split("SMALL")[-1])
+        close_dialogs(office)
     finally:
+        if pressing is not None:
+            try:
+                pressing.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                pressing.kill()  # our own helper process, stuck in a dialog that is gone
         doc.setModified(False)
         doc.close(True)
 

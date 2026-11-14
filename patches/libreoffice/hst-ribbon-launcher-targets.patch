@@ -6,7 +6,8 @@ suite, instead of the tab used last.
   Ảnh opens Picture on Kích thước, its Tô & viền on Đường viền (borders and shadow); the shape's Tô & viền opens Area on Vùng, its
   Định vị opens Position and Size on Vị trí và kích thước. Footnote/Endnote Settings (the Cước chú launcher)
   always opens on footnotes.
-- Sheets: Phông chữ, Căn chỉnh and Số open Format Cells on Phông chữ, Căn chỉnh and Số.
+- Sheets: Phông chữ, Căn chỉnh and Số open Format Cells on Phông chữ, Căn chỉnh and Số; Tùy chọn trang tính (Page
+  Setup on Trang tính, hst-sheets-sheet-options-launcher.patch) gets its caption as label too.
 - Slides and Draw: Phông chữ opens Character on Phông chữ, Đoạn văn opens Paragraph on Thụt lề và giãn cách, Bản vẽ
   and Tô & viền open Area on Vùng, Đối tượng vẽ opens Position and Size on Vị trí và kích thước; Draw's Xoay và
   lật opens it on Xoay.
@@ -15,6 +16,10 @@ suite, instead of the tab used last.
   argument as "apply without a dialog", a Page argument that is the only one is taken out of the request first
   (sfx2/hstdialogpage.hxx), so every other call keeps its meaning. A launcher with a Page argument has no
   command label, so its .ui label is the group caption (same msgctxt, same translation).
+- The bindings keep one dispatch per slot, made for the first URL; its state now also reaches listeners of the
+  same command with other URL arguments (unoctitm.cxx). Without it, a launcher whose command also sits elsewhere
+  on the tab with other arguments (or none) stayed disabled on the ribbon: Writer's table Căn chỉnh, picture and
+  shape Tô và viền, shape Sắp xếp (seen on Windows; a dispatch from a test does not show it).
 
 License: these upstream files remain under their original license (MPL-2.0); include/sfx2/hstdialogpage.hxx is
 new HST code under MPL-2.0 like the files around it.
@@ -139,6 +144,18 @@ Test: tests/unit/test_ribbon_launcher_targets.py, tests/runtime/check-ribbon-lau
 -                                    <property name="action-name">.uno:FormatCellDialog</property>
 +                                    <property name="action-name">.uno:FormatCellDialog?Page:string=numbers</property>
 +                                    <property name="label" translatable="yes" context="TabbedCalc|labelHomeNumber">Number</property>
+                                   </object>
+                                   <packing>
+                                     <property name="expand">False</property>
+                                     <property name="homogeneous">True</property>
+                                   </packing>
+@@ -7481,10 +7484,11 @@
+                                   <object class="GtkToolButton" id="btnHstLaunchLayoutSheetOptions">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
+                                     <property name="icon-name">sfx2/res/symphony/morebutton.png</property>
+                                     <property name="action-name">.uno:PageFormatDialog?Page:string=sheet</property>
++                                    <property name="label" translatable="yes" context="TabbedCalc|labelLayoutSheetOptions">Sheet Options</property>
                                    </object>
                                    <packing>
                                      <property name="expand">False</property>
@@ -470,6 +487,30 @@ Test: tests/unit/test_ribbon_launcher_targets.py, tests/runtime/check-ribbon-lau
                                      <property name="expand">False</property>
                                      <property name="homogeneous">True</property>
                                    </packing>
+--- a/sfx2/source/control/unoctitm.cxx
++++ b/sfx2/source/control/unoctitm.cxx
+@@ -930,10 +930,21 @@
+     const std::vector<OUString> aContainedTypes = pDispatch->getContainedTypes();
+     for (const OUString& rName: aContainedTypes)
+     {
+         if (rName == aDispatchURL.Main || rName == aDispatchURL.Complete)
+             sendStatusChanged(rName, aEvent);
++        // HST: the bindings keep one dispatch per slot, made for the first URL asked for. Listeners of the
++        // same command with other URL arguments (the ribbon's ".uno:GraphicDialog?Page:string=hstsize" and
++        // "...=borders" launchers, or one beside a plain ".uno:GraphicDialog") get the slot's state too;
++        // otherwise they keep their first state and a launcher stays disabled.
++        else if (rName.startsWith(Concat2View(aDispatchURL.Main + "?")))
++        {
++            css::frame::FeatureStateEvent aOther(aEvent);
++            aOther.FeatureURL.Complete = rName;
++            URLTransformer::create(::comphelper::getProcessComponentContext())->parseStrict(aOther.FeatureURL);
++            sendStatusChanged(rName, aOther);
++        }
+     }
+ }
+ 
+ void SfxDispatchController_Impl::StateChangedAtToolBoxControl( sal_uInt16 nSID, SfxItemState eState, const SfxPoolItem* pState )
+ {
 --- a/svx/sdi/svx.sdi
 +++ b/svx/sdi/svx.sdi
 @@ -3408,11 +3408,11 @@
