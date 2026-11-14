@@ -22,11 +22,22 @@ from hst_gui import free_port  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 BLOCK, CENTER_CELL = 2, 2  # style.ParagraphAdjust.BLOCK, table.CellHoriJustify.CENTER
+SHOTS = {}  # "script" (PowerShell PrintWindow capture of the office windows, Windows) and "dir", from --shots
+
+
+def shot(name):
+    """Windows only: PNGs of every visible office window (PrintWindow works in a disconnected session)."""
+    if not SHOTS:
+        return
+    import subprocess
+    subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SHOTS["script"],
+                    "-Out", SHOTS["dir"], "-Tag", name], timeout=120, check=False)
 
 
 def set_as_default(h, c, dlg, scope, label):
     """Set As Default runs the scope question inside the click, so the click gets its own thread."""
     c.equal(f"{label}: button shown", state(dlg.getChild("hstsetdefault")).get("ReallyVisible"), "true")
+    shot(f"{label}-dialog")
     clicker = threading.Thread(target=click, args=(dlg, "hstsetdefault"), daemon=True)
     clicker.start()
     question = None
@@ -37,6 +48,7 @@ def set_as_default(h, c, dlg, scope, label):
             break
         time.sleep(0.25)
     assert question is not None, f"{label}: the scope question did not open"
+    shot(f"{label}-question")
     c.equal(f"{label}: all new documents preselected", state(question.getChild("newdocs")).get("Checked"), "true")
     click(question, scope)
     click(question, "ok")
@@ -114,11 +126,15 @@ def prop(name, value):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--instdir", default=os.path.join(ROOT, "upstream/libreoffice/instdir"))
-    parser.add_argument("--work", default=os.path.join(ROOT, "tests/output/set-as-default"))
+    parser.add_argument("--work", "--out", default=os.path.join(ROOT, "tests/output/set-as-default"))
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--display", default=":79", help="X display (ignored on Windows)")
+    parser.add_argument("--shots", nargs=2, metavar=("SCRIPT", "DIR"), help="PrintWindow script and output folder")
     args = parser.parse_args()
+    if args.shots:
+        SHOTS.update(script=args.shots[0], dir=args.shots[1])
     checks = Checks()
-    harness = DialogHarness(args.instdir, args.work, args.port or free_port(), ":79")
+    harness = DialogHarness(args.instdir, args.work, args.port or free_port(), args.display)
     try:
         try:
             before_restart(harness, checks)
