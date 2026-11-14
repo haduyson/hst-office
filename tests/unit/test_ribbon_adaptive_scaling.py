@@ -107,5 +107,12 @@ class ApprovedOrder(unittest.TestCase):
         self.assertGreater(checked, 40)
 
 
+    def test_sheets_home_grows_its_clipboard_first_and_font_last(self):
+        # G10: Cut, Copy and Format Painter keep their labels at 1920; owner 13/11: Font gives up its labels first
+        text = added(LADDERS, "vcl/inc/HstRibbonLadders.hxx")
+        self.assertIn('calc_pmhbHome_grow[] = { u"gdHomeClipboard", u"gdHomeEditing", u"gdHomeCells", u"gdHomeStyles", '
+                      'u"gdHomeAlignment", u"gdHomeNumber", u"gdHomeFont" };', text)
+
+
 if __name__ == "__main__":
     unittest.main()

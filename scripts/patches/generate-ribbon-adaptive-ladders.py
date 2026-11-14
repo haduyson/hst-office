@@ -61,6 +61,16 @@ def replaced(text, data):
                                   lambda _m: line, text, flags=re.M)
             if count != 1:
                 raise LadderError(f"no fold of {name} in {HEADER}")
+        # the growth order (first grown first) of a ladder that has one (HstRibbonRegrow step 2)
+        if "grow" in ladder:
+            if not set(ladder["grow"]) <= set(known):
+                raise LadderError(f"{name}: the growth order names unknown groups (groups: {known})")
+            grow = ", ".join(f'u"{g}"' for g in ladder["grow"])
+            line = f"inline constexpr std::u16string_view {name}_grow[] = {{ {grow} }};"
+            text, count = re.subn(rf"^inline constexpr std::u16string_view {name}_grow\[\] = .*;$",
+                                  lambda _m: line, text, flags=re.M)
+            if count != 1:
+                raise LadderError(f"no growth order of {name} in {HEADER}")
     return text
 
 
