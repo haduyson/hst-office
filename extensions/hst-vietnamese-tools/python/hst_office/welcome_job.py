@@ -69,10 +69,15 @@ def loading(ctx):
     noticed the document never appears. The controller is attached only when the import ends.
 
     A load through the API (loadComponentFromURL from a script, an automation client, a test) keeps its window hidden
-    until the import ends, so a frame without a controller counts whether its window is shown or not; a frame that
-    never gets one holds the questions at most LOAD_WAIT seconds."""
+    until the import ends and shows it while the loader still holds the frame's action lock (onFirstVisibleTask fires
+    right then, the call returns after the lock is freed): a frame without a controller, shown or not, or with an
+    action lock counts as loading. A frame that stays so holds the questions at most LOAD_WAIT seconds."""
     frames = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).getFrames()
-    return any(frames.getByIndex(index).getController() is None for index in range(frames.getCount()))
+    for index in range(frames.getCount()):
+        frame = frames.getByIndex(index)
+        if frame.getController() is None or (hasattr(frame, "isActionLocked") and frame.isActionLocked()):
+            return True
+    return False
 
 
 class _Later(unohelper.Base, XCallback):
