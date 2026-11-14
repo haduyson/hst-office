@@ -25,6 +25,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 UI_PO = "translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po"
 BASELINE = os.path.join(ROOT, "data/l10n/ui-po-runs.json")
 SOURCE = re.compile(r'^"(\w+\.xcu)\\n"$')
+REFERENCE = re.compile(r"^#: (\w+\.xcu)$")  # the source reference line of a neighbouring entry
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@")
 MIN_GENERIC = 1000
 
@@ -99,8 +100,10 @@ def replay(baseline, series_dir):
             for key in entry_keys(removed):
                 placed.pop(key, None)
             neighbour = next((anchors[c[3:].strip()] for c in context if c.startswith("#. ") and c[3:].strip() in anchors), None)
-            if neighbour is None:  # context without a comment line: the source marker or nothing to go by
-                neighbour = next((m.group(1) for m in map(SOURCE.match, context) if m), None)
+            if neighbour is None:  # no known comment hash (HST hashes repeat across files): the neighbour's
+                # source marker or its "#: <file>.xcu" reference line, else nothing to go by
+                neighbour = next((m.group(1) for line in context for m in (SOURCE.match(line), REFERENCE.match(line)) if m),
+                                 None)
             source, keys = None, []
             for line in added:
                 match = SOURCE.match(line)
