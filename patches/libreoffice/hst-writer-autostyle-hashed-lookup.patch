@@ -1,0 +1,172 @@
+Writer: a .docx whose runs carry many distinct colours no longer takes minutes to open.
+
+Every run with a colour stores the original value in its character grab bag (CharThemeOriginalColor),
+and the import puts each run's attributes into the item sharing (HashedItemInstanceManager) and into
+the autostyle pool (StylePool). Both searched linearly among the distinct items:
+- SfxGrabBagItem::hashCode() hashed only the keys, so all these grab bags shared one hash bucket and
+  were compared one by one (Any comparison, uno_type_equalData);
+- StylePool::Node::findChildNode() compared a new item with every child of the node, one child per
+  distinct colour.
+The import was therefore O(N^2) in distinct run colours, which OCR output and text pasted from web
+pages or PDF files have in thousands. With the 1.0.2 batch5 build on Linux (4 CPUs) a synthetic
+0.4 MB document of 2500 paragraphs (20 000 runs, a colour each) took 244 s to load, frozen the whole
+time; 1000 paragraphs took 14.5 s, but 3.9 s without the colours.
+
+- SfxGrabBagItem::hashCode() also hashes string values (equal Anys of other types may differ in their
+  type, so only strings are added; equal items keep equal hash codes).
+- StylePool nodes keep their children whose item supports hashCode() in an unordered_multimap keyed by
+  hash and Which; other items keep the linear search. Child order (mChildren, used by the iterators)
+  is unchanged.
+
+License: modified upstream files keep their license (MPL-2.0); the new test file is MPL-2.0.
+Test: CppunitTest_svl_items (test_grabbagitem: equal bags hash equally, different string values
+hash differently); the sw import/export suites; tests/unit/test_large_office_open_patches.py.
+---
+--- a/svl/source/items/grabbagitem.cxx
++++ b/svl/source/items/grabbagitem.cxx
+@@ -45,7 +45,16 @@
+ {
+     std::size_t seed(0);
+     for (const auto& rPair : m_aMap)
++    {
+         o3tl::hash_combine(seed, rPair.first.hashCode());
++        // HST Office: string values too. With the keys alone every run of a .docx that keeps its
++        // original colour in the grab bag (CharThemeOriginalColor) had the same hash, and the
++        // item sharing and the autostyle pool compared them one by one: O(N^2) in distinct
++        // colours. Only strings: equal Anys of other types may differ in type (equal hashes).
++        OUString aValue;
++        if (rPair.second.getValueTypeClass() == uno::TypeClass_STRING && (rPair.second >>= aValue))
++            o3tl::hash_combine(seed, aValue.hashCode());
++    }
+     return seed;
+ }
+ 
+--- a/svl/source/items/stylepool.cxx
++++ b/svl/source/items/stylepool.cxx
+@@ -21,10 +21,12 @@
+ #include <svl/itemiter.hxx>
+ #include <svl/itempool.hxx>
+ #include <tools/debug.hxx>
++#include <o3tl/hash_combine.hxx>
+ #include <algorithm>
+ #include <map>
+ #include <memory>
+ #include <optional>
++#include <unordered_map>
+ #include <vector>
+ 
+ namespace {
+@@ -36,6 +38,10 @@
+     class Node
+     {
+         std::vector<std::unique_ptr<Node>> mChildren; // child nodes, create by findChildNode(..)
++        // HST Office: the children whose item supports hashCode(), by Which and hash. A run
++        // of a .docx with its own colour (OCR output, pasted web text) adds one child per
++        // distinct colour, and the linear search below made the import O(N^2).
++        std::unordered_multimap<size_t, Node*> maHashedChildren;
+         // container of shared pointers of inserted item sets; for non-poolable
+         // items more than one item set is needed
+         std::vector< std::shared_ptr<SfxItemSet> > maItemSet;
+@@ -111,15 +117,33 @@
+     Node* Node::findChildNode( const SfxPoolItem& rItem,
+                                const bool bIsItemIgnorable )
+     {
+-        for( auto const & rChild : mChildren )
+-        {
+-            if( rItem.Which() == rChild->mpItem->Which() &&
+-                rItem == *rChild->mpItem )
+-                return rChild.get();
++        // supportsHashCode() is fixed per item type and equal items have equal hash codes, so
++        // an equal child of a hashable item is always in maHashedChildren
++        const bool bHashed = rItem.supportsHashCode();
++        size_t nKey = 0;
++        if (bHashed)
++        {
++            nKey = rItem.hashCode();
++            o3tl::hash_combine(nKey, rItem.Which());
++            auto [aBegin, aEnd] = maHashedChildren.equal_range(nKey);
++            for (auto it = aBegin; it != aEnd; ++it)
++                if (rItem.Which() == it->second->mpItem->Which() && rItem == *it->second->mpItem)
++                    return it->second;
++        }
++        else
++        {
++            for( auto const & rChild : mChildren )
++            {
++                if( rItem.Which() == rChild->mpItem->Which() &&
++                    rItem == *rChild->mpItem )
++                    return rChild.get();
++            }
+         }
+         // #i86923#
+         auto pNextNode = new Node( rItem, this, bIsItemIgnorable );
+         mChildren.emplace_back( pNextNode );
++        if (bHashed)
++            maHashedChildren.emplace(nKey, pNextNode);
+         return pNextNode;
+     }
+ 
+--- a/svl/CppunitTest_svl_items.mk
++++ b/svl/CppunitTest_svl_items.mk
+@@ -15,6 +15,7 @@
+ 
+ $(eval $(call gb_CppunitTest_add_exception_objects,svl_items, \
+ 	svl/qa/unit/items/test_IndexedStyleSheets \
++	svl/qa/unit/items/test_grabbagitem \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,svl_items, \
+--- /dev/null
++++ b/svl/qa/unit/items/test_grabbagitem.cxx
+@@ -0,0 +1,51 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <svl/grabbagitem.hxx>
++
++#include <cppunit/TestAssert.h>
++#include <cppunit/TestFixture.h>
++#include <cppunit/extensions/HelperMacros.h>
++
++using namespace css;
++
++namespace
++{
++SfxGrabBagItem colourBag(const OUString& rColour, sal_Int32 nTint)
++{
++    std::map<OUString, uno::Any> aMap{ { u"CharThemeOriginalColor"_ustr, uno::Any(rColour) },
++                                       { u"Tint"_ustr, uno::Any(nTint) } };
++    return SfxGrabBagItem(1, std::move(aMap));
++}
++
++class GrabBagItemTest : public CppUnit::TestFixture
++{
++    void testHashCodeUsesStringValues()
++    {
++        // Equal bags hash equally:
++        CPPUNIT_ASSERT(colourBag(u"FF0000"_ustr, 1) == colourBag(u"FF0000"_ustr, 1));
++        CPPUNIT_ASSERT_EQUAL(colourBag(u"FF0000"_ustr, 1).hashCode(),
++                             colourBag(u"FF0000"_ustr, 1).hashCode());
++        // Bags that differ in a string value hash differently (only the keys counted before, so
++        // every run colour of a .docx fell into one hash bucket):
++        CPPUNIT_ASSERT(colourBag(u"FF0000"_ustr, 1) != colourBag(u"00FF00"_ustr, 1));
++        CPPUNIT_ASSERT(colourBag(u"FF0000"_ustr, 1).hashCode()
++                       != colourBag(u"00FF00"_ustr, 1).hashCode());
++        // Non-string values are not hashed (equal Anys may hold different integer types):
++        CPPUNIT_ASSERT_EQUAL(colourBag(u"FF0000"_ustr, 1).hashCode(),
++                             colourBag(u"FF0000"_ustr, 2).hashCode());
++    }
++
++    CPPUNIT_TEST_SUITE(GrabBagItemTest);
++    CPPUNIT_TEST(testHashCodeUsesStringValues);
++    CPPUNIT_TEST_SUITE_END();
++};
++
++CPPUNIT_TEST_SUITE_REGISTRATION(GrabBagItemTest);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
