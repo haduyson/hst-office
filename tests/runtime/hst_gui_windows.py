@@ -90,10 +90,14 @@ class Office:
         return self.office.desktop
 
     def load(self, url, target="_blank", hidden=False):
+        """On the office's main thread, like a user's open (see windows_gui_office.WinOffice.load)."""
         from com.sun.star.beans import PropertyValue
-        prop = PropertyValue()
-        prop.Name, prop.Value = "Hidden", hidden
-        return self.desktop().loadComponentFromURL(url, target, 0, (prop,))
+        args = []
+        for name, value in (("Hidden", hidden), ("OnMainThread", True)):
+            prop = PropertyValue()
+            prop.Name, prop.Value = name, value
+            args.append(prop)
+        return self.desktop().loadComponentFromURL(url, target, 0, tuple(args))
 
     def dispatch(self, frame, command, args=()):
         return self.service("com.sun.star.frame.DispatchHelper").executeDispatch(frame, command, "", 0, tuple(args))
