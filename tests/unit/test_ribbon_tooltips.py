@@ -126,6 +126,8 @@ class Wiring(unittest.TestCase):
                        "QuickHelpFlags::RichTitle);",  # the ribbon asks for a rich tip
                        "sfx2/source/notebookbar/HstRibbonTooltip \\"):
             self.assertIn(needle, patch)
+        # GTK markup: both the title (labels such as "Thu phóng & dời") and the sentence are escaped
+        self.assertEqual(patch.count("g_markup_escape_text("), 2)
         # no new delay: the tip keeps HelpSettings' delay and hide timer
         self.assertNotIn("GetTipDelay", "".join(l for l in patch.splitlines() if l.startswith("+")))
 
