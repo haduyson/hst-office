@@ -35,8 +35,11 @@ class _Window:
 
 
 class _Frame:
-    def __init__(self, controller, visible=True):
-        self.controller, self.window = controller, _Window(visible)
+    def __init__(self, controller, visible=True, locked=False):
+        self.controller, self.window, self.locked = controller, _Window(visible), locked
+
+    def isActionLocked(self):
+        return self.locked
 
     def getController(self):
         return self.controller
@@ -68,9 +71,16 @@ class Loading(unittest.TestCase):
     def test_a_shown_frame_without_controller_is_loading(self):
         self.assertTrue(wj.loading(_ctx([_Frame(object()), _Frame(None)])))
 
-    def test_loaded_frames_and_hidden_loads_do_not_hold_the_prompts(self):
-        self.assertFalse(wj.loading(_ctx([_Frame(object()), _Frame(None, visible=False)])))
+    def test_loaded_frames_do_not_hold_the_prompts(self):
+        self.assertFalse(wj.loading(_ctx([_Frame(object()), _Frame(object(), visible=False)])))
         self.assertFalse(wj.loading(_ctx([])))
+
+    def test_an_api_load_whose_window_is_shown_only_at_the_end_holds_the_prompts(self):
+        self.assertTrue(wj.loading(_ctx([_Frame(object()), _Frame(None, visible=False)])))
+
+    def test_a_frame_the_loader_still_locks_holds_the_prompts(self):
+        # the loader shows the window (onFirstVisibleTask) before it frees the frame's action lock
+        self.assertTrue(wj.loading(_ctx([_Frame(object(), locked=True)])))
 
 
 class Later(unittest.TestCase):
