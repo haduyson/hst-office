@@ -8,6 +8,9 @@ import subprocess
 import sys
 import time
 
+sys.path.insert(1, str(Path(__file__).resolve().parents[1]))  # tests/runtime: the shared input gate
+import windows_gui_guard as guard  # noqa: E402 - every Windows key and click below passes it
+
 SYSTEM = platform.system()
 KEYS = {"tab": (9, 48), "enter": (13, 36), "escape": (27, 53), "a": (65, 0),
         "q": (81, 12), "k": (75, 40), "z": (90, 6), "down": (40, 125),
@@ -30,6 +33,8 @@ def win_event(kind, *args):
     if kind == 0:
         event.value.mouse = Mouse(*args, 0, 0)
     else:
+        if not args[2] & 2:  # a key-down: only into an HST Office window (a key-up is always sent, nothing sticks)
+            guard.check_foreground()
         event.value.key = Key(*args, 0, 0)
     if ctypes.windll.user32.SendInput(1, ctypes.byref(event), ctypes.sizeof(event)) != 1:
         raise OSError("SendInput không gửi được đầu vào")
@@ -45,6 +50,7 @@ def keyboard(names=None, text=None):
                 win_event(1, 0, code, 6)
                 time.sleep(0.08)  # a person's pace; back-to-back events lost all but the first characters (W7)
         else:
+            guard.check_chord([KEYS[name][0] for name in names])
             for name in names:
                 win_event(1, KEYS[name][0], 0, 0)
             for name in reversed(names):
@@ -83,6 +89,7 @@ def pointer(action, x, y=0):
         else:
             ctypes.windll.user32.SetCursorPos(int(x), int(y))
             if action == "click":
+                guard.check_point(int(x), int(y))
                 win_event(0, 0, 0, 0, 2)
                 win_event(0, 0, 0, 0, 4)
     elif SYSTEM == "Darwin":
@@ -167,9 +174,6 @@ def main():
         from AppKit import NSRunningApplication
         app = NSRunningApplication.runningApplicationWithProcessIdentifier_(int(args[0]))
         return bool(app and app.activateWithOptions_(3))
-    if action == "tree":
-        from native_tree import tree
-        return tree(*args)
     if action == "foreground":
         from windows_focus import foreground
         return foreground(*args)
@@ -177,21 +181,14 @@ def main():
         return owned(args[0])
     if action == "cleanup":
         return cleanup(args[0])
-    if action == "print":
-        from native_print import save_print
-        return save_print(*args)
     if action in {"measure", "text-band"}:
         from pdf_metrics import run
         return run(action, *args)
-    if action == "field-text":
-        from visual_metrics import field_text
-        return field_text(*args)
-    if action == "icon-change":
-        from visual_metrics import icon_change
-        return icon_change(*args)
-    if action == "handlers":
-        from mac_access import handlers
-        return handlers()
+    lazy = {"tree": ("native_tree", "tree"), "print": ("native_print", "save_print"),
+            "handlers": ("mac_access", "handlers"), "field-text": ("visual_metrics", "field_text"),
+            "icon-change": ("visual_metrics", "icon_change")}
+    if action in lazy:
+        return getattr(__import__(lazy[action][0]), lazy[action][1])(*args)
     raise ValueError(action)
 
 
