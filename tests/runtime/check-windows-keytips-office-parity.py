@@ -31,8 +31,16 @@ def letters(hwnd, word):
     time.sleep(1.0)
 
 
+def front(hwnd):
+    """The document window in front, with no KeyTips left open (bringing it forward may press Alt itself)."""
+    wg.foreground(hwnd)
+    time.sleep(0.6)
+    esc(hwnd, 2)
+
+
 def alt_tip(hwnd, word):
-    wg.chord(VK_ALT, target=hwnd)
+    front(hwnd)
+    wg.chord(VK_ALT, target=hwnd, front=False)
     time.sleep(0.8)
     letters(hwnd, word)
 
@@ -80,7 +88,8 @@ def calc(office, doc, hwnd, res, out):
     res("[calc] Alt, A, SA sorts A to Z", got == [1, 2, 3], got)
     cell = sheet.getCellByPosition(0, 0)
     doc.CurrentController.select(cell)
-    wg.chord(VK_CTRL, ord("5"), target=hwnd)
+    front(hwnd)
+    wg.chord(VK_CTRL, ord("5"), target=hwnd, front=False)
     time.sleep(1.0)
     res("[calc] Ctrl+5 strikes the cell through", cell.CharStrikeout != 0, cell.CharStrikeout)
     row = sheet.Rows.getByIndex(0)
@@ -125,12 +134,15 @@ def main():
         for app, step in (("writer", writer), ("calc", calc), ("impress", impress)):
             doc = office.load(FACTORY[app])
             time.sleep(4)
+            # the welcome window can open with the first document: closed with WM_CLOSE, never with a key
+            wg.dismiss_startup(office, os.path.join(args.out, f"{app}-startup.png"), timeout=8, settle=2)
             window = wg.find_window(lambda title: TITLE[app] in title, timeout=30)
             hwnd = window[0] if window else None
             if not hwnd:
                 res(f"[{app}] window found", False, "none")
                 continue
-            wg.chord(VK_ALT, target=hwnd)
+            front(hwnd)
+            wg.chord(VK_ALT, target=hwnd, front=False)
             time.sleep(1.0)
             wg.screenshot(os.path.join(args.out, f"{app}-1-alt.png"))
             letters(hwnd, "H")
