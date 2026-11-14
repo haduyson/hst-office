@@ -75,19 +75,38 @@ jobs:
           if [ "$count" = 1 ]; then artifact="$signed"; fi
           gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "$RUNNER_TEMP/dmg"
           python tests/runtime/r1auto/select-package.py "$RUNNER_TEMP/dmg" .dmg >> "$GITHUB_ENV"
+          # Signing runs on main only: a release candidate's dmg is unsigned and skips the Gatekeeper items.
+          if [ "$artifact" = "$signed" ]; then echo "R1_SIGNED=true" >> "$GITHUB_ENV"; else echo "R1_SIGNED=false" >> "$GITHUB_ENV"; fi
+          branch=$(python -c "import json,sys; print(json.load(open(sys.argv[1]))['head_branch'])" "$RUNNER_TEMP/source-run.json")
+          echo "R1_SOURCE_BRANCH=$branch" >> "$GITHUB_ENV"
           echo "artifact=$artifact" | tee "$RUNNER_TEMP/r1-evidence/package-signature.log"
       - name: Ghi chữ ký và công chứng của DMG (trước khi gắn quarantine)
         shell: bash
         run: |
           set -uo pipefail
+          # Evidence for every dmg; a failure only when a signed dmg does not validate or main's dmg is unsigned.
           log="$RUNNER_TEMP/r1-evidence/package-signature.log"
-          { spctl -a -t open --context context:primary-signature -vv "$R1_PACKAGE" 2>&1
-            xcrun stapler validate "$R1_PACKAGE" 2>&1
-            mnt="$(mktemp -d)"; hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$R1_PACKAGE" >/dev/null
-            spctl -a -t execute -vv "$mnt/HST Office.app" 2>&1
-            codesign -dv --verbose=2 "$mnt/HST Office.app" 2>&1 | grep -E "Authority|TeamIdentifier|Timestamp|Notarization|flags"
-            hdiutil detach "$mnt" >/dev/null; } >> "$log" 2>&1
+          rc=0
+          spctl -a -t open --context context:primary-signature -vv "$R1_PACKAGE" >> "$log" 2>&1 || rc=$?
+          xcrun stapler validate "$R1_PACKAGE" >> "$log" 2>&1 || rc=$?
+          mnt="$(mktemp -d)"
+          hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$R1_PACKAGE" >/dev/null
+          spctl -a -t execute -vv "$mnt/HST Office.app" >> "$log" 2>&1 || rc=$?
+          codesign -dv --verbose=2 "$mnt/HST Office.app" 2>&1 | grep -E "Authority|TeamIdentifier|Timestamp|Notarization|flags" >> "$log" || rc=$?
+          hdiutil detach "$mnt" >/dev/null
+          echo "signed artifact: $R1_SIGNED; source branch: $R1_SOURCE_BRANCH; signature checks exit $rc" >> "$log"
           cat "$log"
+          if [ "$R1_SIGNED" = true ] && [ "$rc" -ne 0 ]; then
+            echo "::error title=Signed dmg rejected::the Developer ID-signed dmg does not pass Gatekeeper (exit $rc)"
+            exit "$rc"
+          fi
+          if [ "$R1_SIGNED" != true ] && [ "$R1_SOURCE_BRANCH" = main ]; then
+            echo "::error title=Unsigned main build::a main build must carry the signed dmg; M1-M3 cannot be skipped"
+            exit 1
+          fi
+          if [ "$R1_SIGNED" != true ]; then
+            echo "::notice title=Unsigned dmg::$R1_SOURCE_BRANCH is not main: M1-M3 are skipped as needing a signed build"
+          fi
       - name: Ghi quyền TCC và chế độ màn hình của runner
         shell: bash
         run: |

@@ -2,10 +2,11 @@
 """Platform prerequisites; startup failures remain failures while unrelated probes continue."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
-from results import row
+from results import needs_signed_row, row
 from native import screenshot
 
 STARTUP_TIMEOUT = 900  # M1+M2 with Gatekeeper verification and two relaunches; a hang fails here, not at job timeout
@@ -43,6 +44,8 @@ def installation(args, results):
     if not package.is_file():
         raise FileNotFoundError("Không có bộ cài")
     results.report["package"] = dict(name=package.name, sha256=hashlib.sha256(package.read_bytes()).hexdigest())
+    if args.platform == "macos":
+        results.report["package"]["signed"] = os.environ.get("R1_SIGNED") == "true"
     results.save()
     if args.platform == "windows":
         from windows_install import install
@@ -55,6 +58,12 @@ def installation(args, results):
     def record(value):
         if value["item"] in {r["item"] for r in results.report["results"]}:
             results.put(value)
+    if not results.report["package"]["signed"]:
+        # Gatekeeper refuses an unsigned quarantined bundle: M1-M3 wait for the signed release dmg.
+        for item in ("M1", "M2"):
+            record(needs_signed_row(item))
+        install_without_quarantine(args, package, destination)
+        return destination, None, None
     rows, error = startup(package, args.out)
     from mac_access import dismiss_download
     for _ in range(5):  # a prompt left by a stopped start would steal the keyboard from the probes
@@ -79,8 +88,14 @@ def installation(args, results):
                 pass
             record(row(item, "FAIL", dict(message=f"{type(error).__name__}: {error}", log="startup.log",
                                           stack="startup-stack.log"), shot.name if shot.exists() else None))
-    # Continue M4–M8 against the unchanged artifact. This does not satisfy M1–M3. The app is copied without the
-    # quarantine flag: Gatekeeper is M1's subject, and a prompt here would only block the unrelated probes.
+    # Continue M4–M8 against the unchanged artifact. This does not satisfy M1–M3.
+    install_without_quarantine(args, package, destination)
+    return destination, None, False
+
+
+def install_without_quarantine(args, package, destination):
+    """The app copied without the quarantine flag: Gatekeeper is M1's subject, and a prompt here would only block
+    the unrelated probes."""
     if not destination.exists():
         mount = Path(args.work) / "fallback-mount"
         mount.mkdir(parents=True, exist_ok=True)
@@ -90,4 +105,3 @@ def installation(args, results):
             subprocess.run(["ditto", "--noqtn", str(mount / "HST Office.app"), str(destination)], **QUIET)
         finally:
             subprocess.run(["hdiutil", "detach", "-force", str(mount)], **QUIET)
-    return destination, None, False

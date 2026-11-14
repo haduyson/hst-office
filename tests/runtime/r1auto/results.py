@@ -7,6 +7,15 @@ from pathlib import Path, PureWindowsPath
 ITEMS = {"windows": tuple(f"W{i}" for i in range(1, 17)),
          "macos": tuple(f"M{i}" for i in range(1, 9))}
 OWNER_ONLY = {"M4"}
+# Gatekeeper's first start (quarantine, translocation, move, default-apps question) needs a Developer ID-signed,
+# notarized dmg. Signing runs on main only, so a release-candidate dmg skips these items; see needs_signed_row.
+NEEDS_SIGNED = ("M1", "M2", "M3")
+NEEDS_SIGNED_MESSAGE = ("Cần bản DMG đã ký Developer ID và công chứng: bản này chưa ký (chỉ main được ký); "
+                        "mục này chạy đầy đủ trên bản phát hành")
+
+
+def needs_signed_row(item):
+    return row(item, "SKIP", dict(message=NEEDS_SIGNED_MESSAGE, needs_signed_build=True))
 
 
 def parse_items(text, platform):
@@ -53,14 +62,21 @@ def validate_row(value):
         raise ValueError("PASS cần ảnh bằng chứng")
 
 
-def gate(rows):
-    return bool(rows) and all(r["status"] == "PASS" or
+def gate(rows, unsigned=False):
+    """unsigned: the package is a release candidate without Developer ID signing (never a main build, the workflow
+    refuses that); its Gatekeeper items may then be skipped as needing a signed build, nothing else."""
+    def skipped_unsigned(r):
+        return (unsigned and r["item"] in NEEDS_SIGNED and r["status"] == "SKIP"
+                and isinstance(r["detail"], dict) and r["detail"].get("needs_signed_build") is True)
+    return bool(rows) and all(r["status"] == "PASS" or skipped_unsigned(r) or
                              r["item"] in OWNER_ONLY and r["status"] == "SKIP" and r["screenshot"]
                              for r in rows)
 
 
 def summary(report):
     lines = ["## Kiểm tra R1", "", f"Bản dựng: {report['run_id']} · {report['platform']}", ""]
+    if report.get("package", {}).get("signed") is False:
+        lines += ["**Bản chưa ký: không phải kết quả phát hành.** " + NEEDS_SIGNED_MESSAGE, ""]
     for result in report["results"]:
         detail = result["detail"]
         text = detail if isinstance(detail, str) else detail.get("message", "Xem số đo trong results.json")

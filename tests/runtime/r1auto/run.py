@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import platform
 import sys
-from results import Results, gate, parse_items, row
+from results import Results, gate, needs_signed_row, parse_items, row
 from support import HERE
 from native import screenshot
 
@@ -58,6 +58,9 @@ def main():
         python, env = interpreter(install)
         for item in items:
             if item in {"M1", "M2"}:
+                continue
+            if item == "M3" and startup_ok is None:  # unsigned dmg: no Gatekeeper first start to follow
+                results.put(needs_signed_row(item))
                 continue
             if item == "M3" and not startup_ok:
                 results.put(row(item, "FAIL", "Không đạt bước chuyển ứng dụng và đồng ý mở tài liệu mặc định"))
@@ -126,7 +129,8 @@ def main():
         from artifacts import verify
         verify(args.out, results.report)
         results.save()
-    return 0 if gate(results.report["results"]) and "setup_error" not in results.report and "error" not in results.report.get("display", {}) else 1
+    unsigned = results.report.get("package", {}).get("signed") is False
+    return 0 if gate(results.report["results"], unsigned) and "setup_error" not in results.report and "error" not in results.report.get("display", {}) else 1
 
 
 if __name__ == "__main__":

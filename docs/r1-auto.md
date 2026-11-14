@@ -59,6 +59,15 @@ Các bước chuẩn bị cần thiết vẫn chạy khi lọc mục. Nếu M1/M
 vẫn có thể chạy trên bản sao từ chính DMG để thu thêm bằng chứng, không ghi nhận
 bản sao đó là đã đạt thao tác chuyển ứng dụng.
 
+Chỉ nhánh main được ký Developer ID và công chứng (môi trường `macos-signing`), nên
+DMG của nhánh rc chưa ký:
+- Bước ghi chữ ký vẫn lưu bằng chứng nhưng không báo lỗi.
+- M1–M3 được ghi SKIP với lý do "cần bản đã ký"; cổng R1 chỉ chấp nhận SKIP này khi bản chưa ký.
+- M4–M8 chạy trên bản sao không gắn quarantine.
+- Bản tóm tắt ghi rõ đây không phải kết quả phát hành.
+
+Một DMG đã ký mà không qua Gatekeeper, hoặc một bản dựng từ main mà chưa ký, vẫn làm bước đó thất bại.
+
 Windows có thêm `-f overlay_extension=true`: extension HST dựng từ commit của nhánh
 thay bản đi kèm ngay sau khi cài, trước lần khởi động đầu, để thử một bản sửa
 extension trên bộ cài có sẵn mà không dựng lại (kết quả đó không phải duyệt bản dựng).
