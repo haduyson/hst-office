@@ -297,7 +297,7 @@ the menu, with ▾ after the label's last line instead of a column of its own on
      // HST Office: a gallery in the toolbox (Slides' themes) shows fewer columns at the smaller states, so the
      // group narrows before it folds; a window that does not know the property ignores it
      const OUString aGalleryState = OUString::number(std::min(nState, int(GroupSmall)));
-@@ -176,6 +187,83 @@
+@@ -176,6 +187,84 @@
      }
  }
  
@@ -326,7 +326,8 @@ the menu, with ▾ after the label's last line instead of a column of its own on
 +    {
 +        GroupCell aCell{ rChild.get_grid_left_attach(), rChild.get_grid_top_attach(), rChild.get_grid_width(),
 +                         rChild.get_grid_height(), false, false };
-+        aCell.caption = dynamic_cast<FixedText*>(&rChild) && aCell.top == 2;
++        // the caption row: the caption, or the box holding the caption and the group's launcher
++        aCell.caption = aCell.top == 2;
 +        it = rCells.emplace(&rChild, aCell).first;
 +        rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
 +    }
@@ -381,7 +382,7 @@ the menu, with ▾ after the label's last line instead of a column of its own on
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
  {
      for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
-@@ -240,6 +328,7 @@
+@@ -240,6 +329,7 @@
      const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
      for (ToolBox* pToolBox : aToolBoxes)
          applyToToolBox(*pToolBox, nState, bFewCommands);
