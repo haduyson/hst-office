@@ -29,6 +29,8 @@ class GtkClipboardMainThread(unittest.TestCase):
         self.assertIn("g_idle_add_full(", added)
         self.assertNotIn("gtk_clipboard_wait_for_targets(", added)
         self.assertIn("hstRequestTargets(GetSelectionType());", added)
+        # an owner change stores the new targets before setContents tells the listeners (no state one change behind)
+        self.assertEqual(added.count("hstTargetsReceived(clipboard, "), 2)
         removed = "\n".join(line[1:] for line in text.splitlines() if line.startswith("-") and not line.startswith("---"))
         self.assertIn("if (gtk_clipboard_wait_for_targets(clipboard, &targets, &n_targets))", removed)
 
