@@ -18,7 +18,7 @@ the estimate off for that comparison). Other formats and small text files are un
 
 --- a/sw/source/core/layout/laycache.cxx
 +++ b/sw/source/core/layout/laycache.cxx
-@@ -47,6 +47,20 @@
+@@ -47,6 +47,22 @@
  #include <node.hxx>
  #include <ndtxt.hxx>
  #include <frameformats.hxx>
@@ -26,6 +26,8 @@ the estimate off for that comparison). Other formats and small text files are un
 +#include <iodetect.hxx>
 +#include <fmtclds.hxx>
 +#include <fmthdft.hxx>
++#include <fmtfsize.hxx>
++#include <viewsh.hxx>
 +#include <frmatr.hxx>
 +#include <charatr.hxx>
 +#include <paratr.hxx>
@@ -39,7 +41,7 @@ the estimate off for that comparison). Other formats and small text files are un
  
  #include <limits>
  
-@@ -529,6 +543,9 @@
+@@ -529,6 +545,9 @@
      , mbBreakAfter(false)
      , mrDoc(rDoc)
      , mnFlyIdx( 0 )
@@ -49,7 +51,7 @@ the estimate off for that comparison). Other formats and small text files are un
      , mbFirst( bCache )
  {
      mpImpl = mrDoc.GetLayoutCache() ? mrDoc.GetLayoutCache()->LockImpl() : nullptr;
-@@ -552,9 +569,98 @@
+@@ -552,9 +571,98 @@
      {
          mnIndex = std::numeric_limits<size_t>::max();
          mnStartOfContent = NODE_OFFSET_MAX;
@@ -148,7 +150,7 @@ the estimate off for that comparison). Other formats and small text files are un
  SwLayHelper::~SwLayHelper()
  {
      if( mpImpl )
-@@ -822,7 +928,12 @@
+@@ -822,7 +930,12 @@
              }
  
              SwPageFrame* pLastPage = mrpPage;
@@ -192,7 +194,7 @@ the estimate off for that comparison). Other formats and small text files are un
      sw/qa/core/layout/sortedobjs \
 --- /dev/null
 +++ b/sw/qa/core/layout/laycache.cxx
-@@ -0,0 +1,156 @@
+@@ -0,0 +1,159 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -262,8 +264,10 @@ the estimate off for that comparison). Other formats and small text files are un
 +    {
 +        osl_setEnvironment(u"HST_SW_TEXT_PAGINATION"_ustr.pData,
 +                           (bPaginate ? u"1"_ustr : u"0"_ustr).pData);
++        if (mxComponent.is())
++            dispose();
 +        const auto aStart = std::chrono::steady_clock::now();
-+        loadURL(rURL, { comphelper::makePropertyValue(u"FilterName"_ustr, u"Text (encoded)"_ustr),
++        loadFromURL(rURL, { comphelper::makePropertyValue(u"FilterName"_ustr, u"Text (encoded)"_ustr),
 +                        comphelper::makePropertyValue(u"FilterOptions"_ustr, u"UTF8"_ustr) });
 +        rLoadPages = getSwDoc()->getIDocumentLayoutAccess().GetCurrentLayout()->GetPageNum();
 +        calcLayout();
@@ -330,8 +334,9 @@ the estimate off for that comparison). Other formats and small text files are un
 +    CPPUNIT_ASSERT_EQUAL(aOff.size(), aOn.size());
 +    for (size_t i = 0; i < aOff.size(); ++i)
 +    {
-+        CPPUNIT_ASSERT_EQUAL_MESSAGE(OString("page " + OString::number(i + 1)).getStr(),
-+                                     aOff[i], aOn[i]);
++        const OString aPage("page " + OString::number(i + 1));
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aPage.getStr(), aOff[i].first, aOn[i].first);
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aPage.getStr(), aOff[i].second, aOn[i].second);
 +    }
 +}
 +
