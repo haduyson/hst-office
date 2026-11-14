@@ -1,0 +1,105 @@
+HST Office: crisp HST icons at the fractional icon scales (150 and 250 %).
+
+Reason: VCL rasterises an SVG icon at its icon scale, which CountDPIScaleFactor rounds to 100,
+150, 200 or 250 %. At 150 % (a 144-168 DPI display, 150 and 175 % in the Windows settings) and at
+250 % the 1 px lines of the pixel-snapped HST glyphs land between device pixels and turn grey and
+blurred. The HST archives now ship every icon also snapped natively for those scales, as
+"<name>@150.svg" / "<name>@250.svg" drawn at the final pixel size
+(scripts/brand/hst_icon_glyph.py). ImplImageTree::findImage loads that variant at 1.0 when it
+exists for the current scale, else the 100 % file as before; themes without variants (Colibre and
+the other upstream sets) are unchanged. The disk and memory caches already key rasters by scale.
+
+Applies after hst-icon-theme-hidpi-and-cache.patch.
+Test: make CppunitTest_vcl_app_test (test_HstIconTheme).
+License: upstream files remain MPL-2.0.
+---
+--- a/vcl/inc/HstIconTheme.hxx
++++ b/vcl/inc/HstIconTheme.hxx
+@@ -78,6 +78,18 @@
+     return OUString();
+ }
+ 
++/// The HST themes ship each SVG icon also pixel-snapped for the fractional icon scales VCL uses
++/// (CountDPIScaleFactor: 150 and 250 %), as "<name>@<percent>.svg" drawn at its final pixel
++/// size. Rasterising the 100 % file at 1.5x would put its 1 px lines between pixels.
++/// Returns the variant's archive path for rPath at nScalePercentage, or empty when none applies.
++inline OUString scaledVariant(std::u16string_view rPath, sal_Int32 nScalePercentage)
++{
++    if ((nScalePercentage != 150 && nScalePercentage != 250) || !o3tl::ends_with(rPath, u".svg"))
++        return OUString();
++    return OUString::Concat(rPath.substr(0, rPath.size() - 4)) + "@"
++           + OUString::number(nScalePercentage) + ".svg";
++}
++
+ /// Name of the stamp file inside each "<UserInstallation>/cache/<theme>" directory.
+ inline constexpr OUString ICON_CACHE_STAMP_FILE = u"hst-icon-cache-version"_ustr;
+ 
+--- a/vcl/source/image/ImplImageTree.cxx
++++ b/vcl/source/image/ImplImageTree.cxx
+@@ -189,10 +189,12 @@
+     return aMemoryStream;
+ }
+ 
+-void loadImageFromStream(std::shared_ptr<SvStream> const & xStream, OUString const & rPath, ImageRequestParameters& rParameters)
++void loadImageFromStream(std::shared_ptr<SvStream> const & xStream, OUString const & rPath, ImageRequestParameters& rParameters,
++                         bool bPixelSnapped = false)
+ {
+     bool bConvertToDarkTheme = rParameters.convertToDarkTheme();
+-    sal_Int32 aScalePercentage = rParameters.scalePercentage();
++    // HST Office: a pixel-snapped scale variant is drawn at its final size (vcl/inc/HstIconTheme.hxx)
++    sal_Int32 aScalePercentage = bPixelSnapped ? 100 : rParameters.scalePercentage();
+ 
+     if (rPath.endsWith(".png"))
+     {
+@@ -600,6 +602,17 @@
+ 
+     for (OUString const & rPath : rPaths)
+     {
++        // HST Office: prefer the icon pixel-snapped for the current fractional scale
++        const OUString aVariant = vcl::hst::scaledVariant(rPath, rParameters.scalePercentage());
++        if (!aVariant.isEmpty() && rNameAccess->hasByName(aVariant))
++        {
++            uno::Reference<io::XInputStream> aStream;
++            if (rNameAccess->getByName(aVariant) >>= aStream)
++            {
++                loadImageFromStream(wrapStream(aStream), aVariant, rParameters, true);
++                return true;
++            }
++        }
+         if (rNameAccess->hasByName(rPath))
+         {
+             uno::Reference<io::XInputStream> aStream;
+--- a/vcl/qa/cppunit/app/test_HstIconTheme.cxx
++++ b/vcl/qa/cppunit/app/test_HstIconTheme.cxx
+@@ -67,11 +67,13 @@
+     void SvgOnlyThemesScaleAtTheSurface();
+     void FallbacksStayOnSvgColibre();
+     void CacheOfAnotherVersionIsPurged();
++    void FractionalScalesUsePixelSnappedVariants();
+ 
+     CPPUNIT_TEST_SUITE(HstIconThemeTest);
+     CPPUNIT_TEST(SvgOnlyThemesScaleAtTheSurface);
+     CPPUNIT_TEST(FallbacksStayOnSvgColibre);
+     CPPUNIT_TEST(CacheOfAnotherVersionIsPurged);
++    CPPUNIT_TEST(FractionalScalesUsePixelSnappedVariants);
+     CPPUNIT_TEST_SUITE_END();
+ };
+ 
+@@ -157,6 +159,17 @@
+     CPPUNIT_ASSERT(!exists(aRoot));
+ }
+ 
++void HstIconThemeTest::FractionalScalesUsePixelSnappedVariants()
++{
++    CPPUNIT_ASSERT_EQUAL(u"cmd/lc_bold@150.svg"_ustr, vcl::hst::scaledVariant(u"cmd/lc_bold.svg", 150));
++    CPPUNIT_ASSERT_EQUAL(u"hst/cmd/32/numbertowords@250.svg"_ustr,
++                         vcl::hst::scaledVariant(u"hst/cmd/32/numbertowords.svg", 250));
++    // Whole scales double the 100 % geometry onto whole pixels; PNG themes have no variants.
++    CPPUNIT_ASSERT(vcl::hst::scaledVariant(u"cmd/lc_bold.svg", 100).isEmpty());
++    CPPUNIT_ASSERT(vcl::hst::scaledVariant(u"cmd/lc_bold.svg", 200).isEmpty());
++    CPPUNIT_ASSERT(vcl::hst::scaledVariant(u"cmd/lc_bold.png", 150).isEmpty());
++}
++
+ CPPUNIT_TEST_SUITE_REGISTRATION(HstIconThemeTest);
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

@@ -27,7 +27,7 @@ REQUIRED = {"quality.yml", "desktop-linux.yml", "desktop-windows.yml", "desktop-
 RELEASE_PERMISSIONS = {"contents": "write", "actions": "read"}
 # The only jobs that may read secrets: macOS and Linux signing behind a reviewable environment, in the build
 # workflows and in the signing probe. Each may be skipped only by its own job condition.
-SIGNING_JOBS = {("desktop-macos.yml", SIGNING_JOB): "${{ inputs.mode == 'full' }}",
+SIGNING_JOBS = {("desktop-macos.yml", SIGNING_JOB): "${{ inputs.mode == 'full' && github.ref == 'refs/heads/main' }}",
                 ("macos-signature-probe.yml", SIGNING_JOB): "${{ inputs.sign }}",
                 ("desktop-linux.yml", SIGNING_JOB): "${{ inputs.mode == 'full' }}"}
 SIGNING_ENVIRONMENTS = {"desktop-linux.yml": LINUX_SIGNING_ENVIRONMENT}

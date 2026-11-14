@@ -81,7 +81,11 @@ def overlay(files, coverage, notice):
     """Overlay archive files of an HST theme's `files` for the requests `coverage` misses."""
     links = parse_links(files["links.txt"].decode("utf-8"))
     requests = {_stem(link) for link in links}
-    requests |= {_stem(name) for name in files if name not in EXTRA}
+    requests |= {_stem(name) for name in files if name not in EXTRA and "@" not in name}
+    variants = {}  # display-scale variants (cmd/lc_x@150.svg) travel with their glyph
+    for name in files:
+        if "@" in name:
+            variants.setdefault(name.split("@")[0], []).append(name)
     result, aliases = {}, {}
     for request in sorted(requests):
         if coverage.covers(request):
@@ -92,6 +96,8 @@ def overlay(files, coverage, notice):
         if target is None or target not in files:
             continue  # a derived 32/ link of a size HST serves under another name
         result[PREFIX + target] = files[target]
+        for name in variants.get(_stem(target), ()):
+            result[PREFIX + name] = files[name]
         for ext in (".png", ".svg"):
             aliases[request + ext] = PREFIX + target
     result["links.txt"] = ("# HST Office Cổ điển: HST glyphs for requests Colibre does not resolve\n" + "".join(

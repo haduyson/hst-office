@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -109,6 +110,26 @@ def run_pdf(args, catalogue, results):
         office.stop()
 
 
+def session_bus_call(*method):
+    reply = subprocess.run(["dbus-send", "--session", "--print-reply=literal", *method], capture_output=True,
+                           text=True, timeout=30, check=False)
+    if reply.returncode:
+        raise RuntimeError(f"dbus-send {method[1]} failed: {reply.stderr.strip()}")
+    return reply.stdout.strip()
+
+
+def private_atspi_bus():
+    """This run's own AT-SPI bus (address, launcher pid), activated on the private session bus. libatspi, in the
+    harness and in the office, reads AT_SPI_BUS_ADDRESS before the display's AT_SPI_BUS property, which an earlier
+    run on a reused display may have left pointing at a bus this user cannot open."""
+    address = session_bus_call("--dest=org.a11y.Bus", "/org/a11y/bus", "org.a11y.Bus.GetAddress")
+    if not address.startswith(("unix:", "tcp:")):
+        raise RuntimeError(f"no private AT-SPI bus address: {address!r}")
+    pid = session_bus_call("--dest=org.freedesktop.DBus", "/org/freedesktop/DBus",
+                           "org.freedesktop.DBus.GetConnectionUnixProcessID", "string:org.a11y.Bus").split()[-1]
+    return address, int(pid)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--instdir", required=True)
@@ -126,7 +147,18 @@ def main():
         os.execvp("runuser", ["runuser", "-u", hst_gui.BUILD_USER, "--", "dbus-run-session", "--", sys.executable]
                   + sys.argv)
     args.instdir, args.out = os.path.abspath(args.instdir), os.path.abspath(args.out)
-    os.environ.update(NO_AT_BRIDGE="0", GTK_MODULES="gail:atk-bridge")
+    address, launcher = private_atspi_bus()  # dbus-run-session ends without stopping the launcher it activated
+    os.environ.update(NO_AT_BRIDGE="0", GTK_MODULES="gail:atk-bridge", AT_SPI_BUS_ADDRESS=address)
+    try:
+        return run_cases(args)
+    finally:
+        try:
+            os.kill(launcher, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+
+def run_cases(args):
     args.sizes = [tuple(int(v) for v in s.split("x")) for s in args.sizes.split(",")]
     os.makedirs(args.out, exist_ok=True)
     hst_gui.setup_uno(args.instdir)

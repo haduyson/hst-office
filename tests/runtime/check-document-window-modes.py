@@ -2,7 +2,7 @@
 """Check the window mode of each application (tabs or separate windows) on a real GUI build (Xvfb).
 
 Usage: python3 tests/runtime/check-document-window-modes.py [--instdir upstream/libreoffice/instdir]
-           [--out tests/output/document-window-modes] [--display :97]
+           [--out tests/output/document-window-modes] [--display :97] [--port 21994]
 
 The profile starts with HST Writer, HST Slides and HST PDF set to separate windows, HST Sheets and HST Draw to
 tabs. A second soffice on the same profile stands for the launchers and the file manager. Asserts:
@@ -30,7 +30,7 @@ from importlib import import_module  # noqa: E402
 base = import_module("check-module-windows")  # Checker, module_of: the same harness
 from document_window_modes_helpers import open_twice, snapshot, touch_all  # noqa: E402
 ROOT = hst_gui.ROOT
-PORT = 21994  # deterministic per check (see hst_gui)
+PORT = 21994  # deterministic per check (see hst_gui); parallel runs pass --port
 MISC = "/org.openoffice.Office.Common/Misc"
 APPS = (("Writer", "--writer"), ("Calc", "--calc"), ("Impress", "--impress"), ("Draw", "--draw"), ("Pdf", None))
 START_TABS = {"Writer": False, "Calc": True, "Impress": False, "Draw": True, "Pdf": False}
@@ -40,7 +40,7 @@ def run(args):
     hst_gui.setup_uno(args.instdir)
     config = [(MISC, f"DocumentTabs{app}", "true" if tabs else "false") for app, tabs in START_TABS.items()]
     config.append(("/org.openoffice.Office.Impress/Misc/NewDoc", "AutoPilot", "false"))  # modal template chooser
-    office = hst_gui.Office(args.instdir, args.out, PORT, display=args.display, nodefault=False, config=config)
+    office = hst_gui.Office(args.instdir, args.out, args.port, display=args.display, nodefault=False, config=config)
     office.start()
     c = base.Checker(office, args.out)
     try:
@@ -119,7 +119,7 @@ def run(args):
         office.stop()
 
     # 5. Restart: the inverted modes stay and route.
-    office = hst_gui.Office(args.instdir, args.out, PORT, display=args.display, nodefault=False)
+    office = hst_gui.Office(args.instdir, args.out, args.port, display=args.display, nodefault=False)
     office.start(fresh=False)
     c2 = base.Checker(office, args.out)
     try:
@@ -158,6 +158,7 @@ def main():
     parser.add_argument("--instdir", default=os.path.join(ROOT, "upstream/libreoffice/instdir"))
     parser.add_argument("--out", default=os.path.join(ROOT, "tests/output/document-window-modes"))
     parser.add_argument("--display", default=":97")
+    parser.add_argument("--port", type=int, default=PORT, help="UNO port; one per parallel run")
     args = parser.parse_args()
     args.out = os.path.abspath(args.out)
     return run(args)

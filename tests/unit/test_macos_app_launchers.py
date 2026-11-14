@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[2]
 MACOS = ROOT / "scripts" / "macos"
@@ -142,6 +143,20 @@ class ProbeHelper(unittest.TestCase):
                 return name == self.service
         docs = [Doc(PROBE.KINDS["writer"]), Doc(PROBE.KINDS["calc"]), Doc(PROBE.KINDS["writer"]), Doc(None), Doc("x")]
         self.assertEqual(PROBE.kinds_of(docs), {"writer": 2, "calc": 1})
+
+    def test_odb_fixture_is_a_portable_database_document(self):
+        # The product no longer creates databases, so the probe opens this committed file instead.
+        with zipfile.ZipFile(ROOT / "tests" / "fixtures" / "base" / "probe.odb") as odb:
+            first = odb.infolist()[0]
+            self.assertEqual((first.filename, first.compress_type), ("mimetype", zipfile.ZIP_STORED))
+            self.assertEqual(odb.read("mimetype"), b"application/vnd.oasis.opendocument.base")
+            self.assertNotIn("meta.xml", odb.namelist())  # no author or machine details
+            content = odb.read("content.xml").decode()
+        self.assertIn('xlink:href="../probe-tables/"', content)  # beside the copy, on any machine
+        self.assertIn('db:media-type="application/dbase"', content)
+        script = (MACOS / "app-launchers-probe.sh").read_text()
+        self.assertIn('tests/fixtures/base/probe.odb" "$out/probe.odb"', script)
+        self.assertIn('mkdir -p "$out/probe-tables"', script)
 
 
 if __name__ == "__main__":

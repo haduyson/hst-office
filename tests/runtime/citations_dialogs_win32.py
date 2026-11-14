@@ -124,7 +124,11 @@ class Win32Driver:
             user32.ReleaseDC(None, screen)
 
     def keys(self, window, *keys):
-        """The X11 driver's key names ("Tab", "space", "Escape", "Return", "alt+shift+i"), sent to ``window``."""
+        """The X11 driver's key names ("Tab", "space", "Escape", "Return", "alt+shift+i"), posted to ``window`` only
+        (never the foreground window), which must be an HST Office window."""
+        import windows_gui_guard as guard
+        if not guard.is_ours(window):
+            raise guard.BlockedInput("keys %r not posted: %#x is not an HST Office window" % (keys, window or 0))
         thread = user32.GetWindowThreadProcessId(window, None)
         mine = kernel32.GetCurrentThreadId()
         user32.AttachThreadInput(mine, thread, True)

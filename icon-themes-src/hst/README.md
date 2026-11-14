@@ -2,8 +2,8 @@
 
 **Hai kiểu biểu tượng (1.0.0):** Tùy chọn ▸ HST Office ▸ Giao diện cho chọn giữa
 - **Hiện đại (nhiều màu)**, tùy chọn: `hst_modern` / `hst_modern_dark`, vẽ từ mẫu gốc trong
-  `../hst-modern/`. Mực nét lấy từ `../hst-modern/metadata/ink.json` lúc dựng (sáng `#1D2F42`, tối
-  `#EEF4F9`), và ở 16 px nét 1 px được làm dày thành 2 px khi glyph còn chỗ
+  `../hst-modern/`. Mực nét lấy từ `../hst-modern/metadata/ink.json` lúc dựng (từ 1.0.2 là mực của
+  Colibre: sáng `#3A3A38`, tối `#FAFAFA`). Từ 1.0.2 tắt `heavy16` (nét 16 px giữ 1 px như mọi cỡ, đồng bộ với Colibre); khi bật, ở 16 px nét 1 px được làm dày thành 2 px khi glyph còn chỗ
   (`scripts/brand/hst_icon_weight.py`: không lấp khe 1 px, không bít lỗ chữ, không chạm nét khác,
   vùng màu còn thấy). Mẫu gốc không đổi nên các đợt vẽ mới cũng được xử lý giống vậy.
 - **Cổ điển**, mặc định (từ 08/11/2026): `hst_classic` / `hst_classic_dark` là bộ Colibre SVG của LibreOffice, chồng thêm
@@ -14,13 +14,28 @@
   Hồ sơ cũ còn ghi `hst` / `hst_dark` vẫn mở ra kiểu Cổ điển này. Bộ `hst` / `hst_dark` vẫn được
   cài, làm lớp dự phòng cho kiểu Hiện đại.
 
+**Đồng bộ với Colibre (1.0.2):** mọi theme HST (`hst`, `hst_dark`, `hst_modern*` và lớp glyph HST của
+Cổ điển) dựng từ mẫu gốc nhiều màu trong `../hst-modern/` theo màu của Colibre: mực nét `#3A3A38` /
+`#FAFAFA` (`../hst-modern/metadata/ink.json`), vùng tô là các tông nhạt của Colibre, nét màu và vạch
+trạng thái là màu nhấn của Colibre, nền giấy để trống ở theme tối như Colibre
+(`../hst-modern/metadata/colibre-harmony.json`). Mẫu đơn sắc trong thư mục này chỉ còn dùng khi chưa
+có mẫu nhiều màu và cho các bản 16 px vẽ tay. Nhờ vậy biểu tượng HST đứng cạnh biểu tượng Colibre
+không bị lạc. Mỗi biểu tượng còn có bản bắt điểm ảnh riêng cho tỉ lệ 150 % và 250 % (`<tên>@150.svg`,
+`<tên>@250.svg`, `scripts/brand/hst_icon_glyph.py`): VCL chỉ vẽ biểu tượng ở 100, 150, 200 hoặc 250 %,
+và ở 150 / 250 % nét 1 px của bản 100 % rơi giữa hai điểm ảnh nên bị nhòe;
+`patches/libreoffice/hst-icon-theme-fractional-scale.patch` cho VCL nạp bản riêng đó.
+
 **Bắt điểm ảnh (1.0.0):** gói sản phẩm không còn xuất nguyên hình học lưới 24 cho mọi cỡ.
 `scripts/brand/hst_icon_snap.py` bắt từng glyph theo cỡ raster: nét 1,65 đơn vị thành
-**1 px ở 16, 2 px ở 24, 3 px ở 32** (nét đậm hơn giữ tỉ lệ), tâm nét lẻ nằm giữa điểm ảnh, nét chẵn
+**1 px ở cả 16, 24 và 32** như bộ Colibre đứng cạnh (từ 1.0.2; trước đó 2 px ở 24 và 3 px ở 32 làm
+nút lớn trên ribbon đậm hơn hẳn nút nhỏ); nét gấp 1,4 lần nét cơ sở trở lên (chữ B đậm, vạch màu)
+giữ tối thiểu 2 px. Tâm nét lẻ nằm giữa điểm ảnh, nét chẵn
 nằm trên mép điểm ảnh; transform của nhóm được trải phẳng. `hst_icon_outline.py` vẽ nét thành vùng tô
 vì VCL dịch nét (không dịch vùng tô) nửa điểm ảnh thiết bị, nên chỉ vùng tô sắc nét được ở cả 1x và 2x.
 78 họ Home/truy cập nhanh có bản 16 px vẽ tay trong `glyphs/stage-1-16/` (viewBox 16, nét nguyên
-điểm ảnh); các cỡ và họ khác được bắt tự động. Kiểm tra bằng chính bộ dựng hình của VCL:
+điểm ảnh); các cỡ và họ khác được bắt tự động. Độ đậm và độ nét của từng biểu tượng
+so với trung vị cùng cỡ được kiểm bằng `scripts/brand/check-hst-icon-weight.py` (lỗi khi nút lớn đậm hơn
+nút nhỏ, khi một biểu tượng đậm lệch hẳn, bị nhòe hoặc tràn khung). Kiểm tra bằng chính bộ dựng hình của VCL:
 `tests/runtime/check-hst-icon-sharpness.py` (`rasterise` cho cả gói, `cache` đọc bộ đệm biểu tượng
 khi chạy giao diện ở GDK_SCALE 1 và 2). Mẫu gốc lưới 24 vẫn là nguồn chỉnh sửa.
 

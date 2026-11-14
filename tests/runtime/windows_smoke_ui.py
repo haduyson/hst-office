@@ -37,13 +37,10 @@ def shot(label):
 
 
 def close_dialog(window):
-    """End a modal dialog: endExecute when the peer offers XDialog, otherwise press Escape in the foreground window."""
-    try:
-        window.endExecute()
-    except Exception:  # noqa: BLE001
-        subprocess.run(["powershell", "-NoProfile", "-Command",
-                        "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ESC}')"],
-                       timeout=30, check=False)
+    """End a dialog without keystrokes: WM_CLOSE to its own window (twice), then endExecute (windows_gui_dialogs).
+    A key sent to the foreground could reach a desktop or another session's window."""
+    from windows_gui_dialogs import close_dialog as close  # Windows only (ctypes user32)
+    return close(window)
 
 
 def is_new(window, known):
@@ -68,21 +65,26 @@ def pump(toolkit, work, wait_for_window):
     thread.start()
     found, deadline = [], time.time() + 40
     area = toolkit.getWorkArea()
-    while time.time() < deadline and (thread.is_alive() or (wait_for_window and not found)):
-        for window in top_windows(toolkit):
-            if is_new(window, known):
-                known.append(window)
-                time.sleep(4)  # let the dialog lay out (peer size settles), paint and get its title
-                try:
-                    size = window.getPosSize()
-                except Exception:  # noqa: BLE001
-                    size = area.__class__(0, 0, 0, 0)
-                label = "%s %dx%d" % (window_title(window), size.Width, size.Height)
-                if size.Width > area.Width or size.Height > area.Height:
-                    label += " OVERSIZE(work area %dx%d)" % (area.Width, area.Height)
-                found.append(label)
-                shot(label)
-                close_dialog(window)
+    while time.time() < deadline:
+        busy = thread.is_alive() or (wait_for_window and not found)
+        new = [window for window in top_windows(toolkit) if is_new(window, known)]
+        # one more pass once the work has ended: a dialog that opened during the last 4 s settle (the first-start
+        # welcome during the first load) would otherwise stay up unseen and hold later closes and the terminate
+        if not busy and not new:
+            break
+        for window in new:
+            known.append(window)
+            time.sleep(4)  # let the dialog lay out (peer size settles), paint and get its title
+            try:
+                size = window.getPosSize()
+            except Exception:  # noqa: BLE001
+                size = area.__class__(0, 0, 0, 0)
+            label = "%s %dx%d" % (window_title(window), size.Width, size.Height)
+            if size.Width > area.Width or size.Height > area.Height:
+                label += " OVERSIZE(work area %dx%d)" % (area.Width, area.Height)
+            found.append(label)
+            shot(label)
+            close_dialog(window)
         time.sleep(0.3)
     thread.join(10)
     if thread.is_alive():

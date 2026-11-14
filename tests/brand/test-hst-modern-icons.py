@@ -65,15 +65,20 @@ class ModernIconsTest(unittest.TestCase):
                                  and light not in colours.values()), "light palette values left in dark theme")
         self.assertEqual(builder.MISSING_MODERN, set())  # every master drawn: the release gate passes
 
-    def test_modern_ink_is_the_build_token_not_the_classic_ink(self):
+    def test_every_theme_takes_colibres_ink_from_the_build_token(self):
         ink = modern.ink()
-        self.assertEqual(builder.PALETTES["hst_modern"], ink["light"])
-        self.assertEqual(builder.PALETTES["hst_modern_dark"], ink["dark"])
-        self.assertNotEqual(ink["light"], builder.PALETTES["hst"])
+        self.assertEqual((ink["light"], ink["dark"]), ("#3A3A38", "#FAFAFA"))  # Colibre's outline ink
+        for theme in builder.FULL_THEMES:
+            self.assertEqual(builder.PALETTES[theme], ink["dark" if theme.endswith("_dark") else "light"])
         light = builder.resources("hst_modern")[builder.svg_key(builder.sized("cmd/underline.png", 16))].decode()
         self.assertIn(ink["light"], light)
         self.assertNotIn("currentColor", light)
-        self.assertNotIn(builder.PALETTES["hst"], light)
+
+    def test_colours_are_colibres_pale_fills_and_accent_lines(self):
+        svg = '<g fill="#3478DA"><path stroke="#3478DA"/><rect data-state="x" fill="#D85650"/><path fill="#929499"/></g>'
+        self.assertEqual(modern.harmonise(svg, False),
+                         '<g fill="#83BEEC"><path stroke="#1E8BCD"/><rect data-state="x" fill="#ED3D3B"/><path fill="#FAFAFA"/></g>')
+        self.assertIn('<path fill="none"/>', modern.harmonise(svg, True))  # dark Colibre leaves its paper unpainted
 
     def test_ink_contrast_against_the_ribbon(self):
         def luminance(colour):
