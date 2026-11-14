@@ -52,7 +52,7 @@ DEFAULT_CONFIG = {
     "remote_py": "/home/wt-realwin-102/tests/realwin/remote.py",
     # Windows slot pool: one entry per slot; a slot's root holds its own repo/lo/stage/pristine trees.
     "windows_slots": [
-        {"host": "hst4", "root": "D:\\hst-build", "jobs": 28},
+        {"host": "hst4", "root": "D:\\hst-build", "jobs": 24},   # jobs: threads - 4 (keeps the PC responsive)
     ],
     # Remote Linux build hosts (dispatch_remote_linux.py), e.g. VM103:
     #   {"name": "vm103", "address": "192.168.1.166", "key": "/root/.ssh/hst-vm103_ed25519",

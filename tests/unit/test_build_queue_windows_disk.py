@@ -80,3 +80,15 @@ class DiskShortageTest(QueueTestCase):
         self.assertEqual(queue_cli.disk_warnings(self.store), [])
         with self.assertRaises(bq.QueueError):
             queue_cli.disk_report(self.store, "hst9")
+
+
+class WindowsJobLimitTest(QueueTestCase):
+    def test_slots_build_with_threads_minus_four_shared_per_host(self):
+        self.assertEqual(bq.DEFAULT_CONFIG["windows_slots"][0]["jobs"], 24)
+        cfg = dict(bq.DEFAULT_CONFIG, windows_slots=[{"host": "hst3", "root": "D:\\hst-build", "jobs": 24}])
+        runner = bqd.WindowsRunner(self.store, cfg)
+        slot = cfg["windows_slots"][0]
+        self.assertEqual(runner.jobs_for(slot), 24)
+        job, _ = self.submit(platform="windows")
+        self.store.update(job["id"], state="running", host="hst3")
+        self.assertEqual(runner.jobs_for(slot), 12)

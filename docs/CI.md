@@ -225,12 +225,17 @@ chỉ đặt `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` tới bộ CA đó trong lúc 
 thuộc người build, không cấp quyền cho Administrators) bên trong task S4U nâng quyền; bước `TmpAcl` của
 `hst4-setup.ps1` cấp toàn quyền kế thừa cho Administrators và SYSTEM trên `D:\cygwin64\tmp` (đã áp trên HST5).
 
-Số slot (đo 13/11/2026, giữ ổ còn trống ≥ 15 GB và RAM không quá tải):
+Số slot (đo 13–15/11/2026, giữ ổ còn trống ≥ 15 GB và RAM không quá tải):
 
 | Máy | Slot (`-Root`) | Lý do |
 |---|---|---|
 | HST4 (28 luồng, 32 GB) | 1: `D:\hst-build` | Mỗi cây ~40 GB (`lo` 33 + `stage` 3,5 + `pristine` 3,5); D: chỉ còn ~37 GB trống, C: dao động 10–56 GB vì việc khác nên không đặt cây thứ hai ở C:; các ứng dụng sẵn có trên máy đã chiếm ~15 GB RAM. |
 | HST5 (Xeon E5-2680 v4, 28 luồng, 32 GB) | 2: `D:\hst-build`, `D:\hst-build-s2` | D: 130 GB: hai cây (~80 GB) vẫn để ~37 GB trống, cây thứ ba thì không. Một build `-j28` lên đỉnh ~21 GB commit (gồm ~8 GB nền); build thứ hai trên cùng máy chạy `-j14`. |
+| HST3 (U2U-SEO3, 28 luồng, 32 GB; từ 15/11/2026) | 1: `D:\hst-build` | Dựng bằng `hst4-setup.ps1` (bước Prereqs, VisualStudio, Cygwin, TmpAcl, Tools, Python; 11 phút): bộ công cụ trùng HST4 (VS BT 17.14.37906.3, MSVC 14.44.35207, clang-cl 19.1.5, SDK 10.0.26100, .NET 4.8.1, Cygwin 3.6.12, NASM 3.02, Python 3.12.10). Chỉ một ngoại lệ Defender: `D:\hst-build` (configure của LibreOffice ghi chuỗi EICAR vào cây nguồn/build và dừng khi Defender xoá nó); thư mục Cygwin không cần nên không thêm. Build đủ đầu tiên `-j24`: 9114 s (tải tarball 1119, cây 1549, configure 105, fetch 535, make + MSI 5777); đỉnh commit 21,1 GB, RAM trống ≥ 13,4 GB; D: còn 50 GB trống sau build (cây ~45 GB + VS 9 GB + Cygwin 1 GB). MSI cùng commit với HST4 (9a3e6e8687): cùng 5743 tệp; khác biệt chỉ là siêu dữ liệu build (dấu thời gian PE/zip, tên kiểu namespace ẩn danh của MSVC, thứ tự mục trong gallery). |
+| HST1 (U2U-SEO1) | 0: chỉ để test | Một slot cần ~44,6 GB (cây 43,5 đo trên HST4 + Cygwin 1,1) mà D: chỉ còn 46,6 GB, không giữ được 15 GB trống; VS Build Tools có sẵn ở C: (20,5 GB trống) là bản 17.14.36705. |
+
+Mọi slot Windows chạy tối đa `jobs` = số luồng − 4 (24 trên máy 28 luồng) để máy test vẫn phản hồi; hai build trên
+cùng máy chia đôi.
 
 Bản dịch tiếng Việt trong build tăng dần: `make` của LibreOffice không dựng lại `.mo`, `registry_vi.xcd` hay
 `XcuResTarget/*/vi` khi `.po` đổi ([SHARED_BUILD_SLOTS.md](SHARED_BUILD_SLOTS.md#incremental-build-gaps)), nên trước

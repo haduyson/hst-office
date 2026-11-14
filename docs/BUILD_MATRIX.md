@@ -25,7 +25,7 @@ scripts/build-linux.sh --package          # .deb (EPM)
 
 ## Hàng đợi build cục bộ (agent tự dùng)
 
-Agent tự build `.deb` (trên **VM103**, xem mục dưới) hoặc `.msi` (HST4/HST5) qua hàng đợi
+Agent tự build `.deb` (trên **VM103**, xem mục dưới) hoặc `.msi` (HST3/HST4/HST5) qua hàng đợi
 [`scripts/build-queue.sh`](../scripts/build-queue.sh), không cần qua S0. Bản phát hành chính thức vẫn lấy từ CI.
 
 ```bash
@@ -82,7 +82,7 @@ các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u
   `build-queue.sh drain <máy>` để ép (chờ máy rảnh, chép, rồi nhận job lại).
   Job hỏng vì hạ tầng (script đổi giữa chừng, slot bận, mount, mạng/SSH/SSL, task Windows biến mất…) được tự đưa lại
   vào hàng đợi, tối đa 2 lần (`infra_retries` trong job); lỗi build thật (lỗi make) thì không. Job Linux chạy `local-build.sh --slot N` trên slot rảnh mà bộ
-  điều phối cho vào; job Windows chạy trên các slot trong `windows_slots` (HST4, HST5): dispatcher tự chép công cụ
+  điều phối cho vào; job Windows chạy trên các slot trong `windows_slots` (HST3, HST4, HST5; mỗi slot tối đa 24 job make, xem [CI.md](CI.md)): dispatcher tự chép công cụ
   (`D:\hst-build\tools\scripts`) khi chúng đổi, chạy build thành scheduled task qua
   [`hst-queue-remote.ps1`](../scripts/windows/hst-queue-remote.ps1), kéo MSI về `out/<id>/` rồi xoá bản trên máy
   Windows. Slot có `build.lock` do người khác giữ (ví dụ một lượt `hst4-build.ps1` chạy tay) bị bỏ qua tới khi rảnh.
@@ -149,7 +149,7 @@ nhất, chủ). Hàng đợi **không bao giờ xoá** thư mục test của age
 overlay `--modules` và `--test`. Máy dev không nhận job Linux mới (`"linux_local_enabled": false` trong
 `config.json`; job đang chạy trên máy dev vẫn chạy xong). Job Linux đang chờ hiện `waiting for vm103 (vm103 N/2 slots
 busy)` hoặc `(vm103 OFFLINE)` trong `build-queue.sh list`; khi VM103 offline, job chờ nó trả lời lại. Windows vẫn ở
-HST4/HST5.
+HST3/HST4/HST5.
 
 Khi `linux_local_enabled` bật, dispatcher dùng slot của máy dev trước, hết chỗ thì dùng các máy trong `linux_remote_hosts` của `config.json`
 (mỗi máy: `name`, `address` (một giá trị duy nhất; đổi IP chỉ cần sửa ở đây), `key`, `known_hosts`, `slots`,
