@@ -66,105 +66,6 @@ HST Office: PPTX slide transitions round-trip like the reference presentation ap
          {
              maTransition.setSlideProperties( maSlideProperties );
              mbHasTransition = false;
---- a/sd/qa/unit/export-tests-ooxml3.cxx
-+++ b/sd/qa/unit/export-tests-ooxml3.cxx
-@@ -15,6 +15,8 @@
- #include <unotools/saveopt.hxx>
- #include <com/sun/star/drawing/EnhancedCustomShapeAdjustmentValue.hpp>
- #include <com/sun/star/drawing/FillStyle.hpp>
-+#include <com/sun/star/animations/TransitionType.hpp>
-+#include <com/sun/star/animations/TransitionSubType.hpp>
- #include <test/commontesttools.hxx>
- 
- #include <sdpage.hxx>
-@@ -1270,6 +1272,87 @@ CPPUNIT_TEST_FIXTURE(SdOOXMLExportTest3, testTdf169952_multiple_OLEs)
-     CPPUNIT_ASSERT_EQUAL(true, bool(xNameAccess->hasByName(u"ppt/embeddings/oleObject3.bin"_ustr)));
- }
- 
-+CPPUNIT_TEST_FIXTURE(SdOOXMLExportTest3, testTransitionDurationOnlyWithEffect)
-+{
-+    // Slide 1 has no effect and keeps the default duration of 2 s; slide 2 fades with that duration.
-+    createSdImpressDoc();
-+    uno::Reference<drawing::XDrawPagesSupplier> xDoc(mxComponent, uno::UNO_QUERY_THROW);
-+    xDoc->getDrawPages()->insertNewByIndex(0);
-+    uno::Reference<beans::XPropertySet> xFaded(getPage(1), uno::UNO_QUERY_THROW);
-+    xFaded->setPropertyValue(u"TransitionType"_ustr, uno::Any(animations::TransitionType::FADE));
-+    xFaded->setPropertyValue(u"TransitionSubtype"_ustr,
-+                             uno::Any(animations::TransitionSubType::CROSSFADE));
-+    xFaded->setPropertyValue(u"TransitionDuration"_ustr, uno::Any(2.0));
-+    save(TestFilter::PPTX);
-+
-+    // Without the fix, slide 1 got an empty <p:transition spd="slow" p14:dur="2000"/>.
-+    xmlDocUniquePtr pSlide1 = parseExport(u"ppt/slides/slide1.xml"_ustr);
-+    assertXPath(pSlide1, "//p:transition", 0);
-+    assertXPath(pSlide1, "/p:sld/mc:AlternateContent", 0);
-+
-+    xmlDocUniquePtr pSlide2 = parseExport(u"ppt/slides/slide2.xml"_ustr);
-+    assertXPath(pSlide2, "/p:sld/mc:AlternateContent/mc:Choice/p:transition", "dur", u"2000");
-+    assertXPath(pSlide2, "/p:sld/mc:AlternateContent/mc:Choice/p:transition/p:fade", 1);
-+    assertXPath(pSlide2, "/p:sld/mc:AlternateContent/mc:Fallback/p:transition/p:fade", 1);
-+}
-+
-+CPPUNIT_TEST_FIXTURE(SdOOXMLExportTest3, testAdvanceTimingWithoutEffect)
-+{
-+    createSdImpressDoc();
-+    uno::Reference<beans::XPropertySet> xPage(getPage(0), uno::UNO_QUERY_THROW);
-+    xPage->setPropertyValue(u"Change"_ustr, uno::Any(sal_Int32(1)));
-+    xPage->setPropertyValue(u"Duration"_ustr, uno::Any(sal_Int32(3)));
-+    saveAndReload(TestFilter::PPTX);
-+
-+    // The advance timing is written without a duration or an effect ...
-+    xmlDocUniquePtr pSlide = parseExport(u"ppt/slides/slide1.xml"_ustr);
-+    assertXPath(pSlide, "/p:sld/mc:AlternateContent", 0);
-+    assertXPath(pSlide, "/p:sld/p:transition", "advTm", u"3000");
-+    assertXPathNoAttribute(pSlide, "/p:sld/p:transition", "dur");
-+    assertXPathChildren(pSlide, "/p:sld/p:transition", 0);
-+
-+    // ... and still makes the slide advance automatically after import.
-+    xPage.set(getPage(0), uno::UNO_QUERY_THROW);
-+    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xPage->getPropertyValue(u"Change"_ustr).get<sal_Int32>());
-+    CPPUNIT_ASSERT_EQUAL(sal_Int32(3), xPage->getPropertyValue(u"Duration"_ustr).get<sal_Int32>());
-+}
-+
-+CPPUNIT_TEST_FIXTURE(SdOOXMLExportTest3, testPlainCutRoundTrip)
-+{
-+    // Slide 1: plain cut (no effect, zero duration). Slide 2: cut through black.
-+    createSdImpressDoc();
-+    uno::Reference<drawing::XDrawPagesSupplier> xDoc(mxComponent, uno::UNO_QUERY_THROW);
-+    xDoc->getDrawPages()->insertNewByIndex(0);
-+    uno::Reference<beans::XPropertySet> xCut(getPage(0), uno::UNO_QUERY_THROW);
-+    xCut->setPropertyValue(u"TransitionDuration"_ustr, uno::Any(0.0));
-+    uno::Reference<beans::XPropertySet> xBlack(getPage(1), uno::UNO_QUERY_THROW);
-+    xBlack->setPropertyValue(u"TransitionType"_ustr, uno::Any(animations::TransitionType::BARWIPE));
-+    xBlack->setPropertyValue(u"TransitionSubtype"_ustr,
-+                             uno::Any(animations::TransitionSubType::FADEOVERCOLOR));
-+
-+    for (int nRound = 0; nRound < 2; ++nRound)
-+    {
-+        saveAndReload(TestFilter::PPTX);
-+
-+        // Without the fix, a plain <p:cut/> was imported as no transition and dropped on export.
-+        xmlDocUniquePtr pSlide1 = parseExport(u"ppt/slides/slide1.xml"_ustr);
-+        assertXPath(pSlide1, "/p:sld/p:transition/p:cut", 1);
-+        assertXPathNoAttribute(pSlide1, "/p:sld/p:transition/p:cut", "thruBlk");
-+        xmlDocUniquePtr pSlide2 = parseExport(u"ppt/slides/slide2.xml"_ustr);
-+        assertXPath(pSlide2, "/p:sld/mc:AlternateContent/mc:Fallback/p:transition/p:cut", "thruBlk",
-+                    u"true");
-+
-+        // A plain cut changes the slide instantly: no effect, zero duration.
-+        xCut.set(getPage(0), uno::UNO_QUERY_THROW);
-+        CPPUNIT_ASSERT_EQUAL(sal_Int16(0),
-+                             xCut->getPropertyValue(u"TransitionType"_ustr).get<sal_Int16>());
-+        CPPUNIT_ASSERT_EQUAL(0.0, xCut->getPropertyValue(u"TransitionDuration"_ustr).get<double>());
-+        xBlack.set(getPage(1), uno::UNO_QUERY_THROW);
-+        CPPUNIT_ASSERT_EQUAL(animations::TransitionType::BARWIPE,
-+                             xBlack->getPropertyValue(u"TransitionType"_ustr).get<sal_Int16>());
-+    }
-+}
-+
- CPPUNIT_PLUGIN_IMPLEMENT();
- 
- /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sd/source/filter/eppt/pptx-epptooxml.cxx
 +++ b/sd/source/filter/eppt/pptx-epptooxml.cxx
 @@ -1327,10 +1327,6 @@ void PowerPointExport::WriteTransition(const FSHelperPtr& pFS)
@@ -206,3 +107,103 @@ HST Office: PPTX slide transitions round-trip like the reference presentation ap
              break;
          }
      }
+--- a/sd/qa/unit/export-tests.cxx
++++ b/sd/qa/unit/export-tests.cxx
+@@ -28,6 +28,8 @@
+ #include <svx/svdomedia.hxx>
+ #include <rtl/ustring.hxx>
+ 
++#include <com/sun/star/animations/TransitionSubType.hpp>
++#include <com/sun/star/animations/TransitionType.hpp>
+ #include <com/sun/star/drawing/BitmapMode.hpp>
+ #include <com/sun/star/drawing/FillStyle.hpp>
+ #include <com/sun/star/drawing/TextVerticalAdjust.hpp>
+@@ -2716,6 +2718,88 @@ CPPUNIT_TEST_FIXTURE(SdExportTest, testFontVariationSettings)
+                          xRunProps2->getPropertyValue(u"CharFontVariations"_ustr).get<OUString>());
+ }
+ 
++CPPUNIT_TEST_FIXTURE(SdExportTest, testTransitionDurationOnlyWithEffect)
++{
++    // Slide 1 has no effect and keeps the default duration of 2 s; slide 2 fades with that duration.
++    createSdImpressDoc();
++    uno::Reference<drawing::XDrawPagesSupplier> xDoc(mxComponent, uno::UNO_QUERY_THROW);
++    xDoc->getDrawPages()->insertNewByIndex(0);
++    uno::Reference<beans::XPropertySet> xFaded(getPage(1), uno::UNO_QUERY_THROW);
++    xFaded->setPropertyValue(u"TransitionType"_ustr, uno::Any(animations::TransitionType::FADE));
++    xFaded->setPropertyValue(u"TransitionSubtype"_ustr,
++                             uno::Any(animations::TransitionSubType::CROSSFADE));
++    xFaded->setPropertyValue(u"TransitionDuration"_ustr, uno::Any(2.0));
++    save(TestFilter::PPTX);
++
++    // Without the fix, slide 1 got an empty <p:transition spd="slow" p14:dur="2000"/>.
++    xmlDocUniquePtr pSlide1 = parseExport(u"ppt/slides/slide1.xml"_ustr);
++    assertXPath(pSlide1, "//p:transition", 0);
++    assertXPath(pSlide1, "/p:sld/mc:AlternateContent", 0);
++
++    xmlDocUniquePtr pSlide2 = parseExport(u"ppt/slides/slide2.xml"_ustr);
++    assertXPath(pSlide2, "/p:sld/mc:AlternateContent/mc:Choice/p:transition", "dur", u"2000");
++    assertXPath(pSlide2, "/p:sld/mc:AlternateContent/mc:Choice/p:transition/p:fade", 1);
++    assertXPath(pSlide2, "/p:sld/mc:AlternateContent/mc:Fallback/p:transition/p:fade", 1);
++}
++
++CPPUNIT_TEST_FIXTURE(SdExportTest, testAdvanceTimingWithoutEffect)
++{
++    createSdImpressDoc();
++    uno::Reference<beans::XPropertySet> xPage(getPage(0), uno::UNO_QUERY_THROW);
++    xPage->setPropertyValue(u"Change"_ustr, uno::Any(sal_Int32(1)));
++    xPage->setPropertyValue(u"Duration"_ustr, uno::Any(sal_Int32(3)));
++    saveAndReload(TestFilter::PPTX);
++
++    // The advance timing is written without a duration or an effect ...
++    xmlDocUniquePtr pSlide = parseExport(u"ppt/slides/slide1.xml"_ustr);
++    assertXPath(pSlide, "/p:sld/mc:AlternateContent", 0);
++    assertXPath(pSlide, "/p:sld/p:transition", "advTm", u"3000");
++    assertXPathNoAttribute(pSlide, "/p:sld/p:transition", "dur");
++    assertXPathChildren(pSlide, "/p:sld/p:transition", 0);
++
++    // ... and still makes the slide advance automatically after import.
++    xPage.set(getPage(0), uno::UNO_QUERY_THROW);
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xPage->getPropertyValue(u"Change"_ustr).get<sal_Int32>());
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(3), xPage->getPropertyValue(u"Duration"_ustr).get<sal_Int32>());
++}
++
++CPPUNIT_TEST_FIXTURE(SdExportTest, testPlainCutRoundTrip)
++{
++    // Slide 1: plain cut (no effect, zero duration). Slide 2: cut through black.
++    createSdImpressDoc();
++    uno::Reference<drawing::XDrawPagesSupplier> xDoc(mxComponent, uno::UNO_QUERY_THROW);
++    xDoc->getDrawPages()->insertNewByIndex(0);
++    uno::Reference<beans::XPropertySet> xCut(getPage(0), uno::UNO_QUERY_THROW);
++    xCut->setPropertyValue(u"TransitionDuration"_ustr, uno::Any(0.0));
++    uno::Reference<beans::XPropertySet> xBlack(getPage(1), uno::UNO_QUERY_THROW);
++    xBlack->setPropertyValue(u"TransitionType"_ustr, uno::Any(animations::TransitionType::BARWIPE));
++    xBlack->setPropertyValue(u"TransitionSubtype"_ustr,
++                             uno::Any(animations::TransitionSubType::FADEOVERCOLOR));
++
++    for (int nRound = 0; nRound < 2; ++nRound)
++    {
++        saveAndReload(TestFilter::PPTX);
++
++        // Without the fix, a plain <p:cut/> was imported as no transition and dropped on export.
++        xmlDocUniquePtr pSlide1 = parseExport(u"ppt/slides/slide1.xml"_ustr);
++        assertXPath(pSlide1, "/p:sld/p:transition/p:cut", 1);
++        assertXPathNoAttribute(pSlide1, "/p:sld/p:transition/p:cut", "thruBlk");
++        xmlDocUniquePtr pSlide2 = parseExport(u"ppt/slides/slide2.xml"_ustr);
++        assertXPath(pSlide2, "/p:sld/mc:AlternateContent/mc:Fallback/p:transition/p:cut", "thruBlk",
++                    u"true");
++
++        // A plain cut changes the slide instantly: no effect, zero duration.
++        xCut.set(getPage(0), uno::UNO_QUERY_THROW);
++        CPPUNIT_ASSERT_EQUAL(sal_Int16(0),
++                             xCut->getPropertyValue(u"TransitionType"_ustr).get<sal_Int16>());
++        CPPUNIT_ASSERT_EQUAL(0.0, xCut->getPropertyValue(u"TransitionDuration"_ustr).get<double>());
++        xBlack.set(getPage(1), uno::UNO_QUERY_THROW);
++        CPPUNIT_ASSERT_EQUAL(animations::TransitionType::BARWIPE,
++                             xBlack->getPropertyValue(u"TransitionType"_ustr).get<sal_Int16>());
++    }
++}
++
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
