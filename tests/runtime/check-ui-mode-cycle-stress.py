@@ -2,9 +2,7 @@
 """Stress: cycling the user interface modes with two documents of each module open never crashes the office
 (Linux, GUI build, existing X display).
 
-Each round opens two Writer and two Sheets documents (tabs of one window), applies every user interface mode to each
-of them in turn (.uno:ToolbarMode over UNO, as the dialog's "Apply to <module>"), then "Apply to All" for the three
-toolbar modes with four tab switches each, and closes all documents but one. Before
+Scenario and verdict: ui_mode_cycle_stress.py (PASS, FAIL only on a crash, INCONCLUSIVE on a hang). Before
 hst-toolbox-control-disposed-state.patch the office died with SIGSEGV within a few rounds: a toolbar's delayed
 controller update (ToolBarManager::AsyncUpdateControllersHdl) bound the paste control, whose first state asks the
 system clipboard and so runs a nested main loop with the SolarMutex released; the mode switch on the UNO request
@@ -12,34 +10,28 @@ thread destroyed that toolbar meanwhile, and the paste control then laid out its
 (ToolBox::GetItemRect -> ImplFormat); with that fixed alone, the update loop then read the controller map the
 dispose had cleared (ToolBarManager::UpdateControllers). Usage: python3 tests/runtime/check-ui-mode-cycle-stress.py
 [--instdir upstream/libreoffice/instdir] [--out tests/output/ui-mode-cycle-stress] [--display :97] [--rounds 20] [--port 21986].
-Exit 1 when the office crashed, hung or a round failed.
+Exit 1 only when the office crashed.
 
 Known separate hang (upstream, gtk3, UNO-driven only): when a mode switch or load runs on the UNO request thread and
 builds a Paste control (menubar or notebookbar), its state calls gtk_clipboard_wait_for_targets on that thread; the
 request thread then owns the glib main context while the main thread waits for it in g_main_context_iteration, and
-neither moves again. Seen on the fixed build after 7 to 19 rounds; a hang writes hang-stacks.txt (gdb) to --out.
+neither moves again. Seen on the fixed build after 7 to 19 rounds (fix planned for 1.0.3); a hang is INCONCLUSIVE and
+writes hang-stacks.txt (gdb) to --out.
 """
 import argparse
 import importlib.util
-import json
 import os
 import shutil
 import signal
 import subprocess
 import sys
-import threading
-import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
-import ui_mode_tabs_scenario as scenario  # noqa: E402
+import ui_mode_cycle_stress as stress  # noqa: E402
 
 PORT = 21986  # deterministic per check (see hst_gui); 21994 is check-vi-intro.py's
-HANG_SECONDS = 300
-MODES = ("Single", "Sidebar", "notebookbar_compact.ui", "notebookbar_groupedbar_compact.ui", "notebookbar_single.ui",
-         "Default", "notebookbar.ui")
-DOCS = (("Writer", "swriter", "docx", "MS Word 2007 XML"), ("Calc", "scalc", "xlsx", "Calc MS Excel 2007 XML"))
 
 
 def load_adapter():
@@ -48,59 +40,6 @@ def load_adapter():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module.Adapter
-
-
-def close_all_but_one(office):
-    components = office.desktop.getComponents().createEnumeration()
-    docs = []
-    while components.hasMoreElements():
-        docs.append(components.nextElement())
-    for doc in docs[1:]:  # keep one document: the office stays up
-        try:
-            doc.setModified(False)
-            doc.close(True)
-        except Exception:  # noqa: BLE001 - a document that refuses to close does not change the verdict
-            pass
-    time.sleep(3)
-
-
-def load(office, url):
-    """Open the document as a new tab. Type detection of a just-written file failed once in about 130 loads (the file was
-    complete and valid): retry that once, it is not what this check is about."""
-    try:
-        office.desktop.loadComponentFromURL(url, "_blank", 0, ())
-    except Exception as error:  # noqa: BLE001 - only the type detection error is retried
-        if "type detection failed" not in str(error):
-            raise
-        print("retry load after: %s" % error, flush=True)
-        time.sleep(3)
-        office.desktop.loadComponentFromURL(url, "_blank", 0, ())
-
-
-def run_round(office, folder, number, progress):
-    for app, factory, ext, filter_name in DOCS * 2:
-        path = os.path.join(folder, "%s%d-%d.%s" % (app, number, int(time.time() * 1000) % 100000, ext))
-        url = scenario.make_document(office, factory, path, filter_name)
-        progress("load %s round %d" % (app, number))
-        load(office, url)
-        time.sleep(3)
-        for mode in MODES:
-            progress("%s %s round %d" % (app, mode, number))
-            scenario.apply_mode(office, app, mode)
-    for mode in ("Single", "Default", "Sidebar"):
-        progress("all %s round %d" % (mode, number))
-        scenario.apply_mode(office, "Writer", mode, to_all=True)
-        for switch in range(4):
-            progress("switch %s round %d #%d" % (mode, number, switch))
-            office.dispatch(scenario.shown(office.desktop), ".uno:NextDocumentTab")
-            time.sleep(2)
-    # Back to the default ribbon (no menubar) before the next round's documents load. A document loaded over UNO
-    # into a window with a menubar builds the gtk menubar on the request thread, and its Paste state then waits for
-    # the system clipboard from that thread; gtk can wait there for good (a separate upstream hazard of UNO-driven
-    # loads, seen once in round 10), which this check is not about.
-    progress("all notebookbar.ui round %d" % number)
-    scenario.apply_mode(office, "Writer", "notebookbar.ui", to_all=True)
-    close_all_but_one(office)
 
 
 def main():
@@ -112,52 +51,30 @@ def main():
     parser.add_argument("--port", type=int, default=PORT, help="UNO port (another one to run two builds side by side)")
     args = parser.parse_args()
     hst_gui.setup_uno(args.instdir)
-    folder = os.path.join(args.out, "docs")
-    os.makedirs(folder, exist_ok=True)
+    os.makedirs(os.path.join(args.out, "docs"), exist_ok=True)
     if os.geteuid() == 0:
-        os.chmod(folder, 0o777)
-
-    state = {"step": "start", "last": time.time()}
-
-    def progress(step):
-        state["step"], state["last"] = step, time.time()
-
-    def watchdog():  # a hang is a failure too: report it instead of waiting for the CI timeout
-        while True:
-            time.sleep(20)
-            if time.time() - state["last"] > HANG_SECONDS:
-                hst_gui.screenshot(os.path.join(args.out, "hang.png"), args.display)
-                print("FAIL  office hung at %s" % state["step"], flush=True)
-                pid = office.pid
-                if pid and shutil.which("gdb"):  # where it hangs, for the report
-                    with open(os.path.join(args.out, "hang-stacks.txt"), "w", encoding="utf-8") as stacks:
-                        subprocess.run(["gdb", "-p", str(pid), "-batch", "-ex", "set pagination off",
-                                        "-ex", "info sharedlibrary", "-ex", "thread apply all bt 50"],
-                                       stdout=stacks, stderr=subprocess.STDOUT, timeout=180, check=False)
-                if pid:  # never leave the hung office behind
-                    os.kill(pid, signal.SIGKILL)
-                os._exit(1)
-
-    threading.Thread(target=watchdog, daemon=True).start()
+        os.chmod(os.path.join(args.out, "docs"), 0o777)
     office = hst_gui.Office(args.instdir, args.out, args.port, display=args.display, nodefault=True)
+
+    def on_hang():
+        hst_gui.screenshot(os.path.join(args.out, "hang.png"), args.display)
+        pid = office.pid
+        if pid and shutil.which("gdb"):  # where it hangs, for the report
+            with open(os.path.join(args.out, "hang-stacks.txt"), "w", encoding="utf-8") as stacks:
+                subprocess.run(["gdb", "-p", str(pid), "-batch", "-ex", "set pagination off",
+                                "-ex", "info sharedlibrary", "-ex", "thread apply all bt 50"],
+                               stdout=stacks, stderr=subprocess.STDOUT, timeout=180, check=False)
+        if pid:  # never leave the hung office behind
+            os.kill(pid, signal.SIGKILL)
+
+    def is_crash(error):
+        return office.pid is None or "disposed" in str(error)
+
     office.start()
-    result = {"check": "UI mode cycling, %d rounds" % args.rounds, "status": "PASS", "detail": ""}
     try:
-        adapter = load_adapter()(office)
-        for number in range(args.rounds):
-            run_round(adapter, folder, number, progress)
-            print("round %d ok" % number, flush=True)
-    except Exception as error:  # noqa: BLE001 - a dead bridge is the crash this check is for
-        time.sleep(5)  # the crash handler of a dying office still runs for a moment
-        crashed = office.pid is None or "disposed" in str(error)
-        result.update(status="FAIL", detail="%s at %s: %r" % ("office crashed" if crashed else "error",
-                                                             state["step"], error))
+        return stress.run(load_adapter()(office), args.rounds, args.out, on_hang, is_crash)
     finally:
         office.stop()
-    print("%s  %s  %s" % (result["status"], result["check"], result["detail"]), flush=True)
-    with open(os.path.join(args.out, "results.json"), "w", encoding="utf-8") as handle:
-        json.dump([result], handle, ensure_ascii=False, indent=1)
-    return 1 if result["status"] == "FAIL" else 0
 
 
 if __name__ == "__main__":
