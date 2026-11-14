@@ -112,7 +112,7 @@ class Dialog:
     def link(self, name, text, x, y, w, callback, help_text="", h=10):
         """A text link (no URL of its own: only `callback` acts on a click), in the readable link colour."""
         model = self._add("FixedHyperlink", name, x, y, w, h, Label=text, HelpText=help_text or text,
-                          TextColor=palette(self.ctx)["link"])
+                          TextColor=palette(self.ctx)["link"], Tabstop=True)
         self._listeners.append((name, _Action(callback)))
         return model
 
