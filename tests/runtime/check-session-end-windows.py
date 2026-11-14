@@ -130,8 +130,10 @@ def scenario(o, name, how, expect_question):
     o.kill()
     before = len(log_lines(o))
     o.start(("--norestore",))
-    question = wait(lambda: [w for w in windows_of(o.bins()) if w[1] == "HST Office" and w[2] < 900 and w[3] < 400],
-                    45, 1)
+    # the crash question is a wide, low "HST Office" dialog (576x163 at 100 %); the default-apps question, shown on
+    # a start without it (one question per start), has the same title but is taller (536x191)
+    question = wait(lambda: [w for w in windows_of(o.bins())
+                             if w[1] == "HST Office" and w[2] < 900 and w[3] and w[2] / w[3] > 3.2], 45, 1)
     record("%s: crash report question %s" % (name, "asked" if expect_question else "not asked"),
            bool(question) == expect_question, question)
     want = "previous session ended: %s" % ("not closed" if expect_question else "session end")
