@@ -1584,7 +1584,7 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/svx/source/tbxctrls/HstTableStyleCells.cxx
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,98 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -1612,6 +1612,7 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +namespace
 +{
 +constexpr Color BODY_TEXT(0x1F, 0x29, 0x33);
++constexpr sal_Int32 WRITER_CELL_PADDING = 100; // 1/100 mm
 +
 +table::BorderLine Line(Color aColor, sal_Int32 nWidth)
 +{
@@ -1629,6 +1630,11 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +                  bool bComplete)
 +{
 +    const bool bHeader = ePart == Part::Header;
++    if (!bComplete)
++    {
++        // a Writer cell style carries the whole border item, the padding too: keep Writer's 0.10 cm
++        rxCell->setPropertyValue(u"BorderDistance"_ustr, uno::Any(sal_Int32(WRITER_CELL_PADDING)));
++    }
 +    {
 +        const table::BorderLine aThin = Line(rStyle.aLineColor, TABLE_THIN_LINE);
 +        const table::BorderLine aSide = rStyle.bVerticalLines ? aThin : table::BorderLine();

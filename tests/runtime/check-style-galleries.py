@@ -53,8 +53,9 @@ def check_writer(office, work, png):
         ok = table.TableTemplateName == style and (header is None or a1.BackColor == header)
         ok = ok and (band is None or a2.BackColor == band)
         bold = a1.getText().createTextCursor().CharWeight
-        sg.record(f"Writer: table style {style} formats the cells", ok and bold >= 150,
-                  (table.TableTemplateName, hex(a1.BackColor), hex(a2.BackColor), bold))
+        padding = a2.LeftBorderDistance  # Writer's 0.10 cm stays: text does not touch the cell border
+        sg.record(f"Writer: table style {style} formats the cells", ok and bold >= 150 and padding >= 90,
+                  (table.TableTemplateName, hex(a1.BackColor), hex(a2.BackColor), bold, padding))
     sg.dispatch(office, doc, "Table", "HST Blue")
     path = os.path.join(work, "styles.docx")
     sg.store(office, doc, path, "MS Word 2007 XML")
