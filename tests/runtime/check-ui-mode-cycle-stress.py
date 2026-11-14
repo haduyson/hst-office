@@ -11,7 +11,7 @@ system clipboard and so runs a nested main loop with the SolarMutex released; th
 thread destroyed that toolbar meanwhile, and the paste control then laid out its disposed ToolBox
 (ToolBox::GetItemRect -> ImplFormat); with that fixed alone, the update loop then read the controller map the
 dispose had cleared (ToolBarManager::UpdateControllers). Usage: python3 tests/runtime/check-ui-mode-cycle-stress.py
-[--instdir upstream/libreoffice/instdir] [--out tests/output/ui-mode-cycle-stress] [--display :97] [--rounds 20] [--port 21994].
+[--instdir upstream/libreoffice/instdir] [--out tests/output/ui-mode-cycle-stress] [--display :97] [--rounds 20] [--port 21986].
 Exit 1 when the office crashed, hung or a round failed.
 """
 import argparse
@@ -28,7 +28,7 @@ sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
 import ui_mode_tabs_scenario as scenario  # noqa: E402
 
-PORT = 21994  # deterministic per check (see hst_gui)
+PORT = 21986  # deterministic per check (see hst_gui); 21994 is check-vi-intro.py's
 HANG_SECONDS = 300
 MODES = ("Single", "Sidebar", "notebookbar_compact.ui", "notebookbar_groupedbar_compact.ui", "notebookbar_single.ui",
          "Default", "notebookbar.ui")
