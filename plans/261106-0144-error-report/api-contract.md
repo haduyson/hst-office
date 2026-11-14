@@ -33,6 +33,7 @@ document content or file names. Reports appear on system.hasontech.vn under menu
   "appName": "HST Writer | HST Sheets | HST Slides | HST Draw | HST Math | HST Base | HST PDF | Trang bắt đầu | Không rõ",
   "description": "user text, ≤ 5000 chars; required for kind=user, optional for kind=crash",
   "contactEmail": "optional, ≤ 254 chars, syntactically valid if present",
+  "installId": "optional (from 1.0.2), anonymous install ID: lowercase canonical uuid v4",
   "diagnostics": {
     "systemInfo": "optional text ≤ 16 KiB: what Help → About → Copy version info gives, plus VCL backend, UI scale, renderer",
     "log": "optional text ≤ 192 KiB: HST's own recent log lines, already filtered on the client",
@@ -47,6 +48,13 @@ engine follows from `product.version` ([docs/BUILD_MATRIX.md](../../docs/BUILD_M
 `app` is a stable machine key (the engine's module names; HST PDF is sent as `unknown`); from 1.0.2 the client
 adds `appName`, the product name users see (optional, ignored by older servers). Admin views should show
 `appName` or map the key (`calc` = HST Sheets, `impress` = HST Slides, ...), never the raw key.
+From 1.0.2 the client adds `installId` (optional, ignored by older servers): the anonymous install ID that the update
+check sends as `?i=<id>` (a random lowercase UUID v4 kept in the user profile, docs/PRIVACY.md). It is present only when
+the user left "Gửi mã máy ẩn danh" (`/org.openoffice.Office.HSTUpdate/SendInstallId`) on and an ID already exists; a
+report never creates one. It lets HASON TECH group reports from the same machine. It appears only in this field: the
+client's filter still replaces every UUID in free text and logs with `<ID>`. A server that stores it should drop an
+invalid value (treat it as absent) rather than answer 400, and show it in the report popup ("Mã máy ẩn danh") with a
+way to list the other reports carrying the same ID.
 `diagnostics` and each of its fields are optional. The user chooses whether to attach them
 (off by default) and sees exactly what will be sent before sending.
 

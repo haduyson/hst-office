@@ -34,13 +34,13 @@ def test_key(text):
 
 class BannerFeed:
     def __init__(self, profile_dir, version, override="", proxy=None, *, public_key=None, fetcher=fetch, clock=time.time,
-                 test_mode=False, environ=None, impressions_allowed=None, poster=post_status):
+                 test_mode=False, environ=None, poster=post_status):
         """test_mode comes only from the package stamp (release.json update_test_mode, which release checks
         reject). Only then are HST_BANNER_TEST_URL (plain HTTP to the local test host, or HTTPS) and HST_BANNER_TEST_KEY read;
         test state lives in its own cache so it never mixes with the production feed.
 
-        impressions_allowed: callable, True while SendInstallId is on (banner_uno reads it); without it nothing is
-        counted or reported. poster: the display report transport, injected by unit tests only."""
+        Display counting always runs and cannot be turned off: it is independent of SendInstallId and carries no
+        machine ID. poster: the display report transport, injected by unit tests only."""
         self.allow_test = test_mode is True
         environ = (os.environ if environ is None else environ) if self.allow_test else {}
         self.root = Path(profile_dir) / ("hst-banners-test" if self.allow_test else "hst-banners")
@@ -53,7 +53,6 @@ class BannerFeed:
         env_key = test_key(environ.get(TEST_KEY_ENV, ""))
         self.key = public_key if public_key is not None else env_key or banner_verify.PUBLIC_KEY
         self.fetcher, self.clock = fetcher, clock
-        self.impressions_allowed = impressions_allowed or (lambda: False)
         self.impressions, self._poster = Counter(self.root, clock), poster
         self.utm = load_data("solutions.json")["utm"]
         self.bundle = parse_manifest(json.dumps(load_data("banners.json"), ensure_ascii=False).encode("utf-8"), bundled=True)
@@ -117,19 +116,14 @@ class BannerFeed:
     def shown(self, banner_id):
         """The widget showed banner_id (one count per card change, docs/BANNERS.md); off the UI thread."""
         try:
-            if self.impressions_allowed() is True:
-                self.impressions.record(banner_id)
+            self.impressions.record(banner_id)
         except Exception:  # noqa: BLE001 - never disturb the widget
             pass
 
     def _report_impressions(self):
         """Within the claimed daily attempt; production feed of a release package only."""
-        try:
-            allowed = self.impressions_allowed() is True
-        except Exception:  # noqa: BLE001 - unknown setting: do not send
-            allowed = False
         production = not self.allow_test and self.url == FEED_URL
-        impressions_report.report(self.impressions, self.version, self.proxy, allowed, self.key, production,
+        impressions_report.report(self.impressions, self.version, self.proxy, self.key, production,
                                   self._poster)
 
     def _fetch(self, url, limit):

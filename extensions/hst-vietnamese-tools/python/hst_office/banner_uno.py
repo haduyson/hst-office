@@ -11,9 +11,7 @@ from .banner_feed import BannerFeed, get_banners, test_mode_from_release
 from .banner_snapshot import selected_json
 from .data_files import load_data
 from .office_proxy import proxy
-from . import update_config
 from .update_config import _node
-from .update_install_id import SEND_KEY, current
 
 SERVICE_NAME = "org.hst.office.BannerFeed"
 _START_NAME = "org.hst.office.BannerStartup"
@@ -30,23 +28,11 @@ def feed_for_context(ctx):
         except Exception:  # noqa: BLE001 - schema absent: use production endpoint
             override = ""
         release = load_data("release.json")
-        sending = _send_install_id(ctx)
         # The test feed URL/key environment is honoured only by test-stamped packages.
         _FEEDS[profile] = BannerFeed(profile, release["release"], override, proxy(ctx),
-                                     test_mode=test_mode_from_release(release),
-                                     impressions_allowed=lambda: current(sending) is True)
+                                     test_mode=test_mode_from_release(release))
         _flush_on_exit(ctx, _FEEDS[profile])
     return _FEEDS[profile]
-
-
-def _send_install_id(ctx):
-    """SendInstallId as resolved for the update check (administrator locks included); False when unreadable.
-    Display counts follow it: unticking the box in this session stops them at once (update_install_id.current);
-    ticking it again takes effect at the next start at the latest."""
-    try:
-        return update_config.settings(ctx).get(SEND_KEY, True) is True
-    except Exception:  # noqa: BLE001 - no settings: count nothing
-        return False
 
 
 class _FlushOnExit(unohelper.Base, XTerminateListener):

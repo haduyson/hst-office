@@ -10,7 +10,7 @@ TEXT = {
     "description": "Mô tả lỗi và các bước để gặp lại lỗi (bắt buộc):",
     "description_crash": "Bạn đang làm gì khi HST Office bị đóng (không bắt buộc):",
     "email": "Thư điện tử để HASON TECH liên hệ lại (không bắt buộc):",
-    "summary": "Thông tin luôn gửi kèm:",
+    "summary": "Thông tin luôn gửi kèm, cùng mã máy ẩn danh (nếu bật):",
     "diagnostics": "Gửi kèm thông tin chẩn đoán",
     "diagnostics_note": "Thông tin hệ thống và nhật ký lỗi gần đây của HST Office, đã lọc bỏ tên tệp, "
                         "đường dẫn và tên người dùng.",
