@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Checks of the smaller Writer dialogs that follow Word. Used by check-dialogs-writer.py."""
 from dialogs_writer_paragraph_font_cases import first_paragraph
-from hst_dialog_uitest import click, props, select_tab, state, tab_titles, type_value, visible
+from hst_dialog_uitest import click, end_execute_survives, props, select_tab, state, tab_titles, type_value, visible
 
 def check_word_count(h, c):
     doc = h.new_document()
@@ -66,6 +66,9 @@ def check_page_setup(h, c):
     dlg = h.open_dialog(".uno:PageDialog", "TemplateDialog8")
     c.equal("page setup: reopens on the page tab after the organizer", current_tab(dlg), "Trang")
     click(dlg, "cancel")
+    h.wait_idle()
+    c.equal("page setup: the office survives XDialog.endExecute",
+            end_execute_survives(h, ".uno:PageDialog", "TemplateDialog8"), True)
     h.close_document(doc)
 
 

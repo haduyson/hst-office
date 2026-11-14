@@ -11,7 +11,8 @@ import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hst_dialog_uitest import Checks, DialogHarness, click, select_entry, select_tab, state, tab_titles, visible  # noqa: E402
+from hst_dialog_uitest import (Checks, DialogHarness, click, end_execute_survives, select_entry, select_tab,  # noqa: E402
+                               state, tab_titles, visible)
 from hst_sheets_dialog_checks import (check_accounting, check_format_cells_font_command,  # noqa: E402
                                       check_format_cells_tabs, check_merge_cells, close_welcome, new_sheet,
                                       type_text)
@@ -55,6 +56,9 @@ def check_page_setup(h, c):
     c.equal("page setup: reopens on the page tab after the organizer",
             state(dlg.getChild("tabcontrol")).get("CurrPageTitle"), "Trang")
     click(dlg, "cancel")
+    h.wait_idle()
+    c.equal("page setup: the office survives XDialog.endExecute",
+            end_execute_survives(h, ".uno:PageFormatDialog", "PageTemplateDialog"), True)
     doc.close(True)
 
 
