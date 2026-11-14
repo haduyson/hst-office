@@ -73,10 +73,13 @@ class SheetsExcelFunctions(unittest.TestCase):
 
     def test_binom_dist_range_is_the_ui_and_xlsx_name_of_b(self):
         text = names()
-        # The reference name comes first (it is the one shown and written), B stays an input alias.
-        self.assertRegex(text, r'"_xlfn\.BINOM\.DIST\.RANGE" , ocB \},\s*\{ "B" , ocB \}')
-        self.assertRegex(text, r'\{ "BINOM\.DIST\.RANGE" , ocB \},\s*\{ "B" , ocB \},  // HST: input alias')
-        self.assertRegex(text, r'"BINOM\.DIST\.RANGE"\) , ocB \},\s*\{ NC_\("RID_STRLIST_FUNCTION_NAMES", "B"\) , ocB \}')
+        self.assertIn('{ "_xlfn.BINOM.DIST.RANGE" , ocB }', text)
+        self.assertIn('{ "BINOM.DIST.RANGE" , ocB }', text)
+        self.assertIn('NC_("RID_STRLIST_FUNCTION_NAMES", "BINOM.DIST.RANGE") , ocB }', text)
+        # B stays readable: typed in the UI and in .xlsx files written by earlier versions.
+        compiler = new_side(PATCH, "sc/source/core/tool/compiler.cxx")
+        self.assertIn('{ "B",              ocB },              // B -> _xlfn.BINOM.DIST.RANGE', compiler)
+        self.assertIn('else if (!mxSymbols->isPODF() && rName.equalsIgnoreAsciiCaseAscii("B"))', compiler)
 
     def test_function_wizard_entries(self):
         funcdesc = new_side(PATCH, "sc/source/core/data/funcdesc.cxx")

@@ -16,7 +16,7 @@ New functions (UI, .xlsx and ODF names; Function Wizard text in English and Viet
   3 both, default 3); returns a reference for a reference, an array for an array, #REF! when all is blank.
 - BINOM.DIST.RANGE is the UI and .xlsx name of the existing B function (same arguments and results). Upstream
   wrote it to .xlsx as B(), which the reference application does not know; B stays accepted as input and in
-  older .xlsx files, ODF keeps BINOM.DIST.RANGE.
+  older .xlsx files (ScCompiler::ParseOpCode aliases, like ODF's), ODF keeps BINOM.DIST.RANGE.
 Files: .xlsx _xlfn.<NAME> (PHONETIC has no prefix, it is a BIFF8 function), ODF COM.MICROSOFT.<NAME>, the
 binary .xls tables too. New code: sc/source/core/tool/interpr_excelcompat.cxx and interpr_excelregex.cxx.
 
@@ -61,17 +61,16 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
      { "_xlpm." , ocStringName },
      { "ORG.OPENOFFICE.MULTIRANGE" , ocMultiArea }, // legacy for range list (union)
      { "OFFSET" , ocOffset },
-@@ -687,7 +696,8 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_OOXML[] =
+@@ -687,7 +696,7 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_OOXML[] =
      { "STDEVPA" , ocStDevPA },
      { "_xlfn.STDEV.P" , ocStDevP_MS },
      { "_xlfn.STDEV.S" , ocStDevS },
 -    { "B" , ocB },
 +    { "_xlfn.BINOM.DIST.RANGE" , ocB },
-+    { "B" , ocB },  // HST: files written before, alias
      { "NORMDIST" , ocNormDist },
      { "_xlfn.NORM.DIST" , ocNormDist_MS },
      { "EXPONDIST" , ocExpDist },
-@@ -771,6 +781,15 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_OOXML[] =
+@@ -771,6 +780,15 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_OOXML[] =
      { "_xlfn.LET" , ocLet },
      { "_xlfn.WRAPCOLS" , ocWrapCols },
      { "_xlfn.WRAPROWS" , ocWrapRows },
@@ -87,7 +86,7 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
      { "_xlpm." , ocStringName },
      { "_xlfn.ORG.OPENOFFICE.MULTIRANGE" , ocMultiArea }, // legacy for range list (union)
      { "OFFSET" , ocOffset },
-@@ -1249,6 +1268,15 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_PODF[] =
+@@ -1249,6 +1267,15 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_PODF[] =
      { "LET" , ocLet },
      { "WRAPCOLS" , ocWrapCols },
      { "WRAPROWS" , ocWrapRows },
@@ -103,7 +102,7 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
      { "MULTIRANGE" , ocMultiArea },    // legacy for range list (union)
      { "OFFSET" , ocOffset },
      { "INDEX" , ocIndex },
-@@ -1725,6 +1753,15 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_API[] =
+@@ -1725,6 +1752,15 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_API[] =
      { "LET" , ocLet },
      { "WRAPCOLS" , ocWrapCols },
      { "WRAPROWS" , ocWrapRows },
@@ -119,17 +118,16 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
      { "MULTIRANGE" , ocMultiArea },    // legacy for range list (union)
      { "OFFSET" , ocOffset },
      { "INDEX" , ocIndex },  // ?? first character = I ??
-@@ -2115,7 +2152,8 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH[] =
+@@ -2115,7 +2151,7 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH[] =
      { "STDEVPA" , ocStDevPA },
      { "STDEV.P" , ocStDevP_MS },
      { "STDEV.S" , ocStDevS },
 -    { "B" , ocB },
 +    { "BINOM.DIST.RANGE" , ocB },
-+    { "B" , ocB },  // HST: input alias
      { "NORMDIST" , ocNormDist },
      { "NORM.DIST" , ocNormDist_MS },
      { "EXPONDIST" , ocExpDist },
-@@ -2199,6 +2237,15 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH[] =
+@@ -2199,6 +2235,15 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH[] =
      { "LET" , ocLet },
      { "WRAPCOLS" , ocWrapCols },
      { "WRAPROWS" , ocWrapRows },
@@ -145,17 +143,16 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
      { "MULTIRANGE" , ocMultiArea },
      { "OFFSET" , ocOffset },
      { "INDEX" , ocIndex },
-@@ -2569,7 +2616,8 @@ const std::pair<TranslateId, int> RID_STRLIST_FUNCTION_NAMES[] =
+@@ -2569,7 +2614,7 @@ const std::pair<TranslateId, int> RID_STRLIST_FUNCTION_NAMES[] =
      { NC_("RID_STRLIST_FUNCTION_NAMES", "STDEVPA") , ocStDevPA },
      { NC_("RID_STRLIST_FUNCTION_NAMES", "STDEV.P") , ocStDevP_MS },
      { NC_("RID_STRLIST_FUNCTION_NAMES", "STDEV.S") , ocStDevS },
 -    { NC_("RID_STRLIST_FUNCTION_NAMES", "B") , ocB },
 +    { NC_("RID_STRLIST_FUNCTION_NAMES", "BINOM.DIST.RANGE") , ocB },
-+    { NC_("RID_STRLIST_FUNCTION_NAMES", "B") , ocB }, // HST: input alias
      { NC_("RID_STRLIST_FUNCTION_NAMES", "NORMDIST") , ocNormDist },
      { NC_("RID_STRLIST_FUNCTION_NAMES", "NORM.DIST") , ocNormDist_MS },
      { NC_("RID_STRLIST_FUNCTION_NAMES", "EXPONDIST") , ocExpDist },
-@@ -2653,6 +2701,15 @@ const std::pair<TranslateId, int> RID_STRLIST_FUNCTION_NAMES[] =
+@@ -2653,6 +2698,15 @@ const std::pair<TranslateId, int> RID_STRLIST_FUNCTION_NAMES[] =
      { NC_("RID_STRLIST_FUNCTION_NAMES", "LET") , ocLet },
      { NC_("RID_STRLIST_FUNCTION_NAMES", "WRAPCOLS") , ocWrapCols },
      { NC_("RID_STRLIST_FUNCTION_NAMES", "WRAPROWS") , ocWrapRows },
@@ -743,7 +740,29 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sc/source/core/tool/compiler.cxx
 +++ b/sc/source/core/tool/compiler.cxx
-@@ -4993,7 +4993,13 @@ Label_Rewind:
+@@ -3171,6 +3171,7 @@ bool ScCompiler::ParseOpCode( const OUString& rName, bool bInArray )
+             OpCode      eOp;
+         };
+         static const FunctionName aOoxmlAliases[] = {
++            { "B",              ocB },              // B -> _xlfn.BINOM.DIST.RANGE, as earlier versions wrote it
+             { "EFFECTIVE",      ocEffect },         // EFFECTIVE -> EFFECT
+             { "ERRORTYPE",      ocErrorType },      // ERRORTYPE -> _xlfn.ORG.OPENOFFICE.ERRORTYPE
+             { "MULTIRANGE",     ocMultiArea },      // MULTIRANGE -> _xlfn.ORG.OPENOFFICE.MULTIRANGE
+@@ -3189,6 +3190,13 @@ bool ScCompiler::ParseOpCode( const OUString& rName, bool bInArray )
+             }
+         }
+     }
++    else if (!mxSymbols->isPODF() && rName.equalsIgnoreAsciiCaseAscii("B"))
++    {
++        // HST: the UI name of B is BINOM.DIST.RANGE, as in the leading
++        // spreadsheet application; the old name is still accepted as input.
++        maRawToken.SetOpCode(ocB);
++        bFound = true;
++    }
+     else if (mxSymbols->isPODF())
+     {
+         // PODF names are ODF 1.0/1.1 and also used in API XFunctionAccess.
+@@ -4993,7 +5001,13 @@ Label_Rewind:
      // would prematurely end compilation. Simple unknown names are handled by
      // the interpreter.
      // Use the same CharClass that was used for uppercase.
@@ -771,7 +790,7 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
  #include <svl/numformat.hxx>
  #include <svl/zforlist.hxx>
  #include <svl/zformat.hxx>
-@@ -2394,23 +2397,52 @@ void ScInterpreter::ScCell()
+@@ -2394,23 +2397,55 @@ void ScInterpreter::ScCell()
                      ScDocShell* pShell = mrDoc.GetDocumentShell();
                      if( pShell && pShell->GetMedium() )
                      {
@@ -811,11 +830,14 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
 +                                           || aFilter.indexOf("OpenDocument") >= 0);
 +                        }
 +
-+                        if (bExcelForm)
++                        if (rURLObj.HasError() || rURLObj.GetMainURL(INetURLObject::DecodeMechanism::NONE).isEmpty())
 +                        {
-+                            if (rURLObj.HasError() || rURLObj.GetMainURL(INetURLObject::DecodeMechanism::NONE).isEmpty())
-+                                aFuncResult.clear();
-+                            else
++                            // Never saved: the new document's default filter is the
++                            // ODF one, but the reference application gives "".
++                            aFuncResult.clear();
++                        }
++                        else if (bExcelForm)
++                        {
 +                            {
 +                                if (!comphelper::LibreOfficeKit::isActive())
 +                                {
@@ -833,7 +855,7 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
                          }
                          else
                          {
-@@ -3600,7 +3632,7 @@ void ScInterpreter::ScCode()
+@@ -3600,7 +3635,7 @@ void ScInterpreter::ScCode()
              RTL_UNICODETOTEXT_FLAGS_UNDEFINED_DEFAULT |
              RTL_UNICODETOTEXT_FLAGS_INVALID_DEFAULT |
              RTL_UNICODETOTEXT_FLAGS_UNDEFINED_REPLACE;
@@ -842,7 +864,7 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
      }
  }
  
-@@ -3621,7 +3653,7 @@ void ScInterpreter::ScChar()
+@@ -3621,7 +3656,7 @@ void ScInterpreter::ScChar()
              RTL_TEXTTOUNICODE_FLAGS_INVALID_DEFAULT;
  
          char cEncodedChar = static_cast<char>(fVal);
