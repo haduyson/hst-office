@@ -9,11 +9,13 @@ again. That is O(paragraphs x pages): a 50 MB file of short lines took about 20 
 
 For documents opened by the plain text filters (TEXT, TEXT_DLG) with at least 3000 paragraphs, no
 header, footer or columns, SwLayHelper now inserts a page when the paragraphs on the current page are
-estimated to fill 90 % of the body. The estimate overstates each paragraph (2 x font height per line,
-0.7 em per Latin character, 1 em per wide character, 3 em per tab, line and paragraph spacing
-included), so pages start underfilled and the normal layout pulls the following paragraphs back; every
-move is bounded by one page. The final pagination is the same as before; the new test compares every
-page start with the start-to-end layout (HST_SW_TEXT_PAGINATION=0 turns the estimate off for that).
+estimated to fill the body. Each paragraph is measured with its font on the reference device (line
+height, character advances, lines of 85 % of the body width, line and paragraph spacing) and the result
+is increased by a fifth, so the pages start slightly underfilled and the normal layout pulls the
+following paragraphs back; every move is bounded by one page. (An estimate below half of the real page
+would leave empty pages behind the layout, one above it would push a growing rest from page to page.)
+The final pagination is the same as before; the new test compares every page start with the
+start-to-end layout (HST_SW_TEXT_PAGINATION=0 turns the estimate off for that).
 
 Pulling paragraphs back briefly empties pages in the middle, and removing such a page (or creating the
 pre-estimated pages) recomputed the position of every page and moved all their frames each time
@@ -88,7 +90,7 @@ unchanged.
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sw/source/core/layout/laycache.cxx
 +++ b/sw/source/core/layout/laycache.cxx
-@@ -47,6 +47,22 @@
+@@ -47,6 +47,30 @@
  #include <node.hxx>
  #include <ndtxt.hxx>
  #include <frameformats.hxx>
@@ -108,10 +110,36 @@ unchanged.
 +#include <sfx2/docfile.hxx>
 +#include <sfx2/docfilt.hxx>
 +#include <cstdlib>
++#include <unordered_map>
++#include <IDocumentDeviceAccess.hxx>
++#include <editeng/fontitem.hxx>
++#include <editeng/wghtitem.hxx>
++#include <editeng/postitem.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/metric.hxx>
++#include <rtl/character.hxx>
  
  #include <limits>
  
-@@ -529,6 +545,10 @@
+@@ -512,6 +536,17 @@
+ 
+ } // namespace
+ 
++/// Line height and character advances of the paragraph font on the reference device.
++struct SwTextPaginationMetrics
++{
++    OUString maName;
++    tools::Long mnHeight = -1;
++    FontWeight meWeight = WEIGHT_DONTKNOW;
++    FontItalic meItalic = ITALIC_DONTKNOW;
++    tools::Long mnLine = 0;
++    std::unordered_map<sal_Unicode, tools::Long> maAdvances;
++};
++
+ /** helper class, which utilizes the layout cache information
+  *  to distribute the document content to the right pages.
+  * It's used by the InsertCnt_(..)-function.
+@@ -529,6 +564,10 @@
      , mbBreakAfter(false)
      , mrDoc(rDoc)
      , mnFlyIdx( 0 )
@@ -122,15 +150,15 @@ unchanged.
      , mbFirst( bCache )
  {
      mpImpl = mrDoc.GetLayoutCache() ? mrDoc.GetLayoutCache()->LockImpl() : nullptr;
-@@ -552,11 +572,107 @@
+@@ -552,11 +591,158 @@
      {
          mnIndex = std::numeric_limits<size_t>::max();
          mnStartOfContent = NODE_OFFSET_MAX;
 +        if (bCache)
 +            InitTextPagination(nNodeIndex);
-     }
- }
- 
++    }
++}
++
 +namespace
 +{
 +/// Paragraph count from which a plain text without layout cache is put on pages while the frames are
@@ -180,49 +208,100 @@ unchanged.
 +    if (nWidth <= 0 || nHeight <= 0)
 +        return;
 +    mnTextBodyWidth = nWidth;
-+    mnTextPageBudget = nHeight * 9 / 10;
++    mnTextPageBudget = nHeight;
 +    // Every inserted page would compute the positions of all pages: do it once at the end.
 +    mpTextRoot = mrpPage->getRootFrame();
 +    mpTextRoot->SetLargeTextPagination();
 +    mpTextRoot->LockViewLayout();
 +}
 +
-+/// Generous height estimate of the paragraph mrpFrame, which is about to be inserted (0: estimate off).
++/** Height estimate of the paragraph mrpFrame, which is about to be inserted (0: estimate off).
++ *  Measured with the paragraph font on the reference device and then increased by a fifth, so that
++ *  the estimated pages hold a bit less than the real ones (the layout pulls the rest back, bounded
++ *  by one page); a page holding less than half would leave empty pages behind, a page holding more
++ *  would push a growing rest from page to page.
++ */
 +tools::Long SwLayHelper::EstimateTextHeight()
 +{
-+    if (!mrpFrame->IsTextFrame() || mrpActualSection || !mrpLay->IsPageBodyFrame())
++    OutputDevice* pOut = mrDoc.getIDocumentDeviceAccess().getReferenceDevice(true);
++    if (!pOut || !mrpFrame->IsTextFrame() || mrpActualSection || !mrpLay->IsPageBodyFrame())
 +    {
 +        mnTextPageBudget = 0; // not a plain paragraph sequence: leave the layout to itself
 +        return 0;
-+    }
+     }
 +    const SwTextFrame& rFrame = *static_cast<SwTextFrame*>(mrpFrame);
 +    const SwAttrSet& rSet = rFrame.GetTextNodeForParaProps()->GetSwAttrSet();
-+    const tools::Long nFont = std::max({ tools::Long(rSet.GetSize().GetHeight()),
-+                                         tools::Long(rSet.GetCJKSize().GetHeight()),
-+                                         tools::Long(rSet.GetCTLSize().GetHeight()), tools::Long(1) });
-+    // Guess the paragraph taller than it is: 2 x font height per line, Latin characters 0.7 em
-+    // wide, wide (CJK) characters 1 em and tabs 3 em. Too tall only costs pulling paragraphs back
-+    // (O(paragraphs)); too short would push a growing rest from page to page.
++    if (!mpTextMetrics)
++        mpTextMetrics.reset(new SwTextPaginationMetrics);
++    SwTextPaginationMetrics& rM = *mpTextMetrics;
++    const SvxFontItem& rFontItem = rSet.GetFont();
++    const tools::Long nHeight = rSet.GetSize().GetHeight();
++    const FontWeight eWeight = rSet.GetWeight().GetWeight();
++    const FontItalic eItalic = rSet.GetPosture().GetPosture();
++    auto pushFont = [&]() {
++        vcl::Font aFont(rFontItem.GetFamilyName(), rFontItem.GetStyleName(), Size(0, nHeight));
++        aFont.SetFamily(rFontItem.GetFamily());
++        aFont.SetPitch(rFontItem.GetPitch());
++        aFont.SetCharSet(rFontItem.GetCharSet());
++        aFont.SetWeight(eWeight);
++        aFont.SetItalic(eItalic);
++        pOut->Push(vcl::PushFlags::FONT | vcl::PushFlags::MAPMODE);
++        pOut->SetMapMode(MapMode(MapUnit::MapTwip));
++        pOut->SetFont(aFont);
++    };
++    if (rM.maName != rFontItem.GetFamilyName() || rM.mnHeight != nHeight || rM.meWeight != eWeight
++        || rM.meItalic != eItalic)
++    {
++        rM.maName = rFontItem.GetFamilyName();
++        rM.mnHeight = nHeight;
++        rM.meWeight = eWeight;
++        rM.meItalic = eItalic;
++        rM.maAdvances.clear();
++        pushFont();
++        rM.mnLine = pOut->GetTextHeight() + pOut->GetFontMetric().GetExternalLeading();
++        pOut->Pop();
++    }
++    const OUString& rText = rFrame.GetText();
++    tools::Long nWidth = 0;
++    bool bPushed = false;
++    for (sal_Int32 i = 0; i < rText.getLength(); ++i)
++    {
++        const sal_Unicode c = rText[i];
++        auto it = rM.maAdvances.find(c);
++        if (it == rM.maAdvances.end())
++        {
++            if (!bPushed)
++            {
++                pushFont();
++                bPushed = true;
++            }
++            tools::Long nAdvance = nHeight; // tabs, surrogates, controls: one em
++            if (c != '\t' && !rtl::isSurrogate(c) && c >= 0x20)
++                nAdvance = std::max<tools::Long>(0, pOut->GetTextWidth(OUString(c)));
++            else if (c == '\t')
++                nAdvance = 3 * nHeight;
++            it = rM.maAdvances.emplace(c, nAdvance).first;
++        }
++        nWidth += it->second;
++    }
++    if (bPushed)
++        pOut->Pop();
++    // A line breaks at a word, so it is shorter than the body width: count lines of 85 %.
++    const tools::Long nLineWidth = std::max<tools::Long>(1, mnTextBodyWidth * 85 / 100);
++    const sal_Int64 nLines = std::max<sal_Int64>(1, (sal_Int64(nWidth) + nLineWidth - 1) / nLineWidth);
 +    const SvxLineSpacingItem& rSpacing = rSet.GetLineSpacing();
-+    tools::Long nLine = nFont * 2;
++    tools::Long nLine = std::max<tools::Long>(rM.mnLine, nHeight);
 +    if (rSpacing.GetInterLineSpaceRule() == SvxInterLineSpaceRule::Prop)
 +        nLine = nLine * std::max<tools::Long>(100, rSpacing.GetPropLineSpace()) / 100;
 +    else if (rSpacing.GetInterLineSpaceRule() == SvxInterLineSpaceRule::Fix)
 +        nLine += std::max<tools::Long>(0, rSpacing.GetInterLineSpace());
 +    if (rSpacing.GetLineSpaceRule() != SvxLineSpaceRule::Auto)
 +        nLine = std::max<tools::Long>(nLine, rSpacing.GetLineHeight());
-+    const OUString& rText = rFrame.GetText();
-+    sal_Int64 nWidth10 = 0; // width in tenths of an em
-+    for (sal_Int32 i = 0; i < rText.getLength(); ++i)
-+    {
-+        const sal_Unicode c = rText[i];
-+        nWidth10 += c == '\t' ? 30 : (c >= 0x1100 ? 10 : 7);
-+    }
-+    const sal_Int64 nLines = 1 + nWidth10 * nFont / 10 / mnTextBodyWidth;
 +    const SvxULSpaceItem& rUL = rSet.GetULSpace();
-+    return nLines * nLine + rUL.GetUpper() + rUL.GetLower();
-+}
-+
++    const tools::Long nPara = nLines * nLine + rUL.GetUpper() + rUL.GetLower();
++    return nPara + nPara / 5;
+ }
+ 
  SwLayHelper::~SwLayHelper()
  {
 +    if (mpTextRoot)
@@ -230,7 +309,7 @@ unchanged.
      if( mpImpl )
      {
          assert(mrDoc.GetLayoutCache() && "Missing layoutcache");
-@@ -822,7 +938,12 @@
+@@ -822,7 +1008,12 @@
              }
  
              SwPageFrame* pLastPage = mrpPage;
@@ -246,7 +325,16 @@ unchanged.
                  if( mrpPrv && mrpPrv->IsTextFrame() && !mrpPrv->isFrameAreaSizeValid() )
 --- a/sw/source/core/layout/layhelp.hxx
 +++ b/sw/source/core/layout/layhelp.hxx
-@@ -117,8 +117,16 @@
+@@ -102,6 +102,8 @@
+     SwFrame* GetLastPos() const { return m_pLastPos; }
+ };
+ 
++struct SwTextPaginationMetrics;
++
+ /// Helps during the InsertCnt_ function to create new pages.
+ /// If there's a layout cache available, this information is used.
+ class SwLayHelper
+@@ -117,8 +119,17 @@
      SwNodeOffset mnStartOfContent;
      size_t mnIndex;                          ///< the index in the page break array
      size_t mnFlyIdx;                         ///< the index in the fly cache array
@@ -256,6 +344,7 @@ unchanged.
 +    tools::Long mnTextPageUsed;
 +    tools::Long mnTextBodyWidth;
 +    SwRootFrame* mpTextRoot; ///< the root whose page positions are deferred while frames are created
++    std::unique_ptr<SwTextPaginationMetrics> mpTextMetrics; ///< font metrics of the estimate
      bool mbFirst : 1;
      void CheckFlyCache_( SwPageFrame* pPage );
 +    void InitTextPagination( SwNodeOffset nNodeIndex );
