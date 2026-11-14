@@ -143,7 +143,8 @@ def main():
     office = wg.WinOffice(args.install, profile, args.port, args.out, nodefault=True)
     office.start(fresh=True)
     try:
-        time.sleep(5)
+        time.sleep(15)
+        office.ctx = office._connect()  # the first start of a new image restarts itself after the extension sync
         wg.dismiss_startup(office, os.path.join(args.out, "startup.png"))
         for app, step in (("writer", writer), ("calc", calc), ("impress", impress)):
             doc = office.load(FACTORY[app])
