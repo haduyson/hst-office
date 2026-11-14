@@ -1,0 +1,43 @@
+HST Office: no OpenCL self-test when the office starts.
+
+Upstream Desktop::Main calls CheckOpenCLCompute() after OnStartApp, on the main thread, before the
+Start Center answers. With UseOpenCL on and no stored test result (every new profile), it runs
+opencltest.exe (up to 10 s) and then loads share/opencl/cl-test.ods hidden and computes it with
+OpenCL kernels. A fault in the driver during that test reaches vcl's signal handler inside
+OpenCLInitialZone: on Windows it turns OpenCL off and calls TerminateProcess with the restart code,
+so soffice.exe starts the office again at once. No dialog, no Windows event, no recovery data; the
+session marker of the first start stays, and the next start only knows that the previous session
+"was not closed".
+
+Measured on Windows 11 25H2 (HST 1.0.1, NVIDIA OpenCL): the first start of a fresh profile loads
+OpenCL.dll and the vendor driver, runs opencltest.exe and writes SelectedOpenCLDeviceIdentifier;
+the Start Center shows "Not responding" while the test runs. An access violation injected into the
+main thread during the test gave exit code 0x51, an immediate restart, no events, and a log of
+"start", "previous session ended: not closed", "start": the record of error reports HSTO-000010
+and HSTO-000011 (first start of a new profile, 31 s and 41 s before the restart).
+
+HST Sheets never computes formulas with OpenCL (hst-sheets-error-parity.patch), and UseOpenCL is
+off by default (StartupDefaults.xcu), but Expert Configuration or an administrator's configuration
+can still turn UseOpenCL on, which would bring the test back at the next start. The test has no
+purpose any more, so it is not called.
+
+License: this upstream file remains under its original license (MPL-2.0).
+Test: tests/unit/test_no_startup_opencl_test.py, tests/runtime/check-first-start-no-opencl.ps1.
+---
+--- a/desktop/source/app/app.cxx
++++ b/desktop/source/app/app.cxx
+@@ -1654,10 +1654,10 @@
+         SetSplashScreenProgress(100);
+         recordTime(startT, "SetSplashScreenProgress(100): time = ");
+ 
+-        // FIXME: move this somewhere sensible.
+-#if HAVE_FEATURE_OPENCL
+-        CheckOpenCLCompute(xDesktop);
+-#endif
++        // HST: no OpenCL self-test at start-up. HST Sheets never computes formulas with OpenCL
++        // (ScCalcConfig::isOpenCLEnabled), so the test only risked the start: it ran on the main
++        // thread of a new profile's first start, and a driver fault inside it ended the office
++        // silently (OpenCLInitialZone -> TerminateProcess with the restart code).
+ 
+ #if defined(DBG_UTIL) && !defined(__EMSCRIPTEN__)
+         //Running the VCL graphics rendering tests
