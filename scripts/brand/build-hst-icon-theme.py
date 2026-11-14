@@ -24,10 +24,10 @@ from hst_icon_snap import snap_svg  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "icon-themes-src/hst"
-# Ink per theme. hst_modern* is the colourful style: modern masters where drawn (missing ones are
-# listed and substituted by the classic glyph until --require-modern gates the release).
-# The colourful style takes its darker ink (and heavier 16 px pen) from hst-modern/metadata/ink.json.
-PALETTES = {"hst": "#294159", "hst_dark": "#DBE7F1", "hst_modern": modern.ink()["light"],
+# Ink per theme: Colibre's, from hst-modern/metadata/ink.json, for every style. All themes draw the
+# colourful masters in Colibre's colours; a missing one is listed and replaced by the classic glyph
+# until --require-modern gates the release.
+PALETTES = {"hst": modern.ink()["light"], "hst_dark": modern.ink()["dark"], "hst_modern": modern.ink()["light"],
             "hst_modern_dark": modern.ink()["dark"]}
 PALETTES.update({theme: ink for theme, (_, _, ink) in classic.CLASSIC.items()})
 FULL_THEMES = [theme for theme in PALETTES if theme not in classic.CLASSIC]  # self-contained archives
@@ -51,18 +51,18 @@ def svg_key(key):
 def glyph_svg(master, size, colour, theme="hst"):
     """Shipped SVG of one glyph: pixel-snapped strokes painted as filled outlines.
 
-    Hand-tuned masters drawn in target pixels (glyphs/stage-1-16, glyphs/stage-1-24) replace the
-    snapped 24-unit master for that size."""
+    Every theme draws the colourful master (hst-modern) in Colibre's colours (colibre-harmony.json),
+    the classic master only where none is drawn. Hand-tuned masters drawn in target pixels
+    (glyphs/stage-1-16, glyphs/stage-1-24) replace the snapped 24-unit master for that size."""
     root, colours = SOURCE, None
-    if theme.startswith("hst_modern"):
-        drawn = modern.master(master)
-        if drawn is None:
-            MISSING_MODERN.add(master.stem)
-        else:
-            root, master, colours = modern.MODERN, drawn, modern.palette()
-            problems = modern.violations(drawn.read_text(encoding="utf-8"), colours)
-            if problems:
-                raise ValueError(f"{drawn}: " + "; ".join(problems))
+    drawn = modern.master(master)
+    if drawn is None:
+        MISSING_MODERN.add(master.stem)
+    else:
+        root, master, colours = modern.MODERN, drawn, modern.palette()
+        problems = modern.violations(drawn.read_text(encoding="utf-8"), colours)
+        if problems:
+            raise ValueError(f"{drawn}: " + "; ".join(problems))
     tuned = root / f"glyphs/stage-1-{size}" / master.name
     if colours is not None and not tuned.is_file() and not modern.HEX.search(master.read_text(encoding="utf-8")):
         tuned = SOURCE / f"glyphs/stage-1-{size}" / master.name  # ink-only: the classic tuning is the same art
@@ -72,9 +72,8 @@ def glyph_svg(master, size, colour, theme="hst"):
         if problems:
             raise ValueError(f"{tuned}: " + "; ".join(problems))
     heavy = theme.startswith("hst_modern") and modern.ink()["heavy16"]
-    svg = snap_svg((tuned if native else master).read_text(encoding="utf-8"), size, native=native, heavy=heavy)
-    if colours is not None:
-        svg = modern.recolour(svg, colours, theme.endswith("_dark"))
+    text = modern.harmonise((tuned if native else master).read_text(encoding="utf-8"), theme.endswith("_dark"))
+    svg = snap_svg(text, size, native=native, heavy=heavy)
     return svg.replace("currentColor", colour).encode("utf-8")
 
 

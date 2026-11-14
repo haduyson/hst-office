@@ -14,7 +14,8 @@ def svg(size, body):
     return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {size} {size}">{body}</svg>'
 
 
-def icon(size, stem, stroke, ink=0.2, fringe=0.1, overflow=0.0):
+def icon(size, stem, stroke, ink=None, fringe=0.1, overflow=0.0):
+    ink = check.COLIBRE[size]["ink"] if ink is None else ink
     return {"size": size, "stem": stem, "stroke": stroke, "ink": ink, "fringe": fringe, "overflow": overflow}
 
 
@@ -49,6 +50,10 @@ class WeightCheckTest(unittest.TestCase):
         failures, _ = check.judge("t", theme(large_stroke=2.0))
         self.assertTrue(any("24 px: median stroke" in line for line in failures))
         self.assertEqual(check.judge("t", theme())[0], [])
+
+    def test_a_set_much_lighter_or_darker_than_colibre_fails(self):
+        icons = {name: dict(item, ink=item["ink"] * 1.6) for name, item in theme().items()}
+        self.assertTrue(any("median ink" in line for line in check.judge("t", icons)[0]))
 
     def test_single_outliers_fail_and_heavy_on_purpose_icons_do_not(self):
         heavy = {"cmd/24/x.svg": icon(24, "x", 2.0), "cmd/24/bold.svg": icon(24, "bold", 3.0),

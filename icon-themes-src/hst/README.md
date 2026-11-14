@@ -2,8 +2,8 @@
 
 **Hai kiểu biểu tượng (1.0.0):** Tùy chọn ▸ HST Office ▸ Giao diện cho chọn giữa
 - **Hiện đại (nhiều màu)**, tùy chọn: `hst_modern` / `hst_modern_dark`, vẽ từ mẫu gốc trong
-  `../hst-modern/`. Mực nét lấy từ `../hst-modern/metadata/ink.json` lúc dựng (sáng `#1D2F42`, tối
-  `#EEF4F9`). Từ 1.0.2 tắt `heavy16` (nét 16 px giữ 1 px như mọi cỡ, đồng bộ với Colibre); khi bật, ở 16 px nét 1 px được làm dày thành 2 px khi glyph còn chỗ
+  `../hst-modern/`. Mực nét lấy từ `../hst-modern/metadata/ink.json` lúc dựng (từ 1.0.2 là mực của
+  Colibre: sáng `#3A3A38`, tối `#FAFAFA`). Từ 1.0.2 tắt `heavy16` (nét 16 px giữ 1 px như mọi cỡ, đồng bộ với Colibre); khi bật, ở 16 px nét 1 px được làm dày thành 2 px khi glyph còn chỗ
   (`scripts/brand/hst_icon_weight.py`: không lấp khe 1 px, không bít lỗ chữ, không chạm nét khác,
   vùng màu còn thấy). Mẫu gốc không đổi nên các đợt vẽ mới cũng được xử lý giống vậy.
 - **Cổ điển**, mặc định (từ 08/11/2026): `hst_classic` / `hst_classic_dark` là bộ Colibre SVG của LibreOffice, chồng thêm
@@ -13,6 +13,14 @@
   Danh sách lệnh được tính từ chính cây LibreOffice lúc dựng (`--tree`, hoặc `--lo-tree` khi dùng `--out`).
   Hồ sơ cũ còn ghi `hst` / `hst_dark` vẫn mở ra kiểu Cổ điển này. Bộ `hst` / `hst_dark` vẫn được
   cài, làm lớp dự phòng cho kiểu Hiện đại.
+
+**Đồng bộ với Colibre (1.0.2):** mọi theme HST (`hst`, `hst_dark`, `hst_modern*` và lớp glyph HST của
+Cổ điển) dựng từ mẫu gốc nhiều màu trong `../hst-modern/` theo màu của Colibre: mực nét `#3A3A38` /
+`#FAFAFA` (`../hst-modern/metadata/ink.json`), vùng tô là các tông nhạt của Colibre, nét màu và vạch
+trạng thái là màu nhấn của Colibre, nền giấy để trống ở theme tối như Colibre
+(`../hst-modern/metadata/colibre-harmony.json`). Mẫu đơn sắc trong thư mục này chỉ còn dùng khi chưa
+có mẫu nhiều màu và cho các bản 16 px vẽ tay. Nhờ vậy biểu tượng HST đứng cạnh biểu tượng Colibre
+không bị lạc.
 
 **Bắt điểm ảnh (1.0.0):** gói sản phẩm không còn xuất nguyên hình học lưới 24 cho mọi cỡ.
 `scripts/brand/hst_icon_snap.py` bắt từng glyph theo cỡ raster: nét 1,65 đơn vị thành

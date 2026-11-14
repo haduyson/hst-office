@@ -11,10 +11,11 @@ and measured on its ink, the paths painted in the theme's ink colour:
   fringe   share of painted pixels only partly covered (alpha 8-80 %), the blur measure of
            tests/runtime/check-hst-icon-sharpness.py.
 
-The LibreOffice Colibre icons the HST glyphs stand beside draw 1 px lines at every size (measured
-stroke medians 0.92 / 0.91 / 0.94 px at 16 / 24 / 32, rsvg-convert, 1.0.2 tree). Exit status 1 when
-  * a size's median stroke exceeds MAX_MEDIAN_STROKE or 1.25 x the 16 px median (large icons
-    heavier than small ones: the 2 px / 3 px pens of 1.0.1 at 24 / 32 px);
+COLIBRE holds the same medians of the LibreOffice Colibre icons the HST glyphs stand beside (533
+ribbon requests, dark outline ink only, rsvg-convert, 1.0.2 tree): 1 px lines at every size. Exit 1 when
+  * a size's median stroke or ink differs from Colibre's by more than 25 % / 35 %, or the median
+    stroke at 24 / 32 px exceeds 1.25 x the 16 px one (large icons heavier than small ones: the
+    2 px / 3 px pens of 1.0.1);
   * an icon's stroke exceeds 1.5 x, or its ink 2 x, its size's median (outliers);
   * a size's median fringe exceeds 0.35, or an icon's fringe exceeds MAX_FRINGE (blurred icon);
   * geometry reaches outside the canvas (clipped shapes).
@@ -40,7 +41,7 @@ from hst_svg_path import parse_path  # noqa: E402
 NS = "{http://www.w3.org/2000/svg}"
 SS = 4
 SIZES = {"cmd/sc_": 16, "cmd/lc_": 24, "cmd/32/": 32}
-MAX_MEDIAN_STROKE = 1.25
+COLIBRE = {16: {"stroke": 0.92, "ink": 0.251}, 24: {"stroke": 0.91, "ink": 0.156}, 32: {"stroke": 0.94, "ink": 0.125}}
 MAX_FRINGE = 0.8
 # Heavy on purpose: the bold B's heavier pen; the solid dots of the grid toggle are not lines.
 HEAVY_ON_PURPOSE = {"bold", "gridvisible"}
@@ -114,9 +115,12 @@ def judge(theme, icons):
         group = [i for i in icons.values() if i["size"] == size and i["stem"] not in HEAVY_ON_PURPOSE and i["ink"]]
         medians[size] = {k: statistics.median(i[k] for i in group) for k in ("stroke", "ink", "fringe")}
     for size, median in medians.items():
-        if median["stroke"] > MAX_MEDIAN_STROKE or median["stroke"] > 1.25 * medians[16]["stroke"]:
-            failures.append(f"{theme} {size} px: median stroke {median['stroke']:.2f} px is heavier than "
-                            f"16 px ({medians[16]['stroke']:.2f}) / Colibre allows")
+        reference = COLIBRE[size]
+        if abs(median["stroke"] / reference["stroke"] - 1) > 0.25 or median["stroke"] > 1.25 * medians[16]["stroke"]:
+            failures.append(f"{theme} {size} px: median stroke {median['stroke']:.2f} px, Colibre "
+                            f"{reference['stroke']:.2f}, 16 px {medians[16]['stroke']:.2f}")
+        if abs(median["ink"] / reference["ink"] - 1) > 0.35:
+            failures.append(f"{theme} {size} px: median ink {median['ink']:.3f}, Colibre {reference['ink']:.3f}")
         if median["fringe"] > 0.35:
             failures.append(f"{theme} {size} px: median fringe {median['fringe']:.2f} (blurred set)")
     for name, icon in icons.items():
@@ -136,8 +140,8 @@ def judge(theme, icons):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--themes", nargs="+", default=["hst", "hst_modern"],
-                        help="HST themes to build in memory and check (dark variants share the geometry)")
+    parser.add_argument("--themes", nargs="+", default=["hst", "hst_dark"],
+                        help="HST themes to build in memory and check (every theme draws the same masters)")
     parser.add_argument("--json", type=Path, help="write every measurement here")
     args = parser.parse_args()
     builder = load_builder()
