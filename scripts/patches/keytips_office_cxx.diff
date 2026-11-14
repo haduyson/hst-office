@@ -114,15 +114,18 @@
  };
  
  IMPL_LINK(KeyTips, ModKeyHdl, const CommandModKeyData&, rData, void)
-@@ -417,6 +435,7 @@
+@@ -417,6 +435,10 @@
      // Alt released with no key in between
      if (std::exchange(m_bAltArmed, false))
      {
++        // Windows: with the classic menu bar shown, Alt alone activates the menu bar (its KEY_MENU goes on to it)
++        if (MENU_ECHO && m_eLevel == Level::None && MenubarShown())
++            return;
 +        m_bMenuEcho = MENU_ECHO;
          if (m_eLevel == Level::None)
          {
              if (!m_xBar->IsInModalMode() && !vcl::IsInPopupMenuExecute())
-@@ -443,6 +462,9 @@
+@@ -443,6 +465,9 @@
      if (rEvent.GetId() != VclEventId::WindowKeyInput)
          return false;
      m_bAltArmed = false;
@@ -132,7 +135,7 @@
  
      if (m_eLevel == Level::None)
      {
-@@ -454,6 +476,7 @@
+@@ -454,6 +479,7 @@
              if (bMenubar)
                  return false;
              ShowTabs();
@@ -140,7 +143,7 @@
              return true;
          }
          // Alt+letter: the tab with that letter, then its commands. Other Alt keys are shortcuts. A shown
-@@ -494,6 +517,7 @@
+@@ -494,6 +520,7 @@
      if (IsF10(rCode)) // F10 again closes the tips, as Alt does
      {
          Close();
