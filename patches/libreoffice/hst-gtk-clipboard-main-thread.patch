@@ -9,14 +9,14 @@ then waits for the context in g_main_context_iteration (g_cond_wait), the select
 dispatched and neither thread moves again. gdb stacks of 4 hangs of tests/runtime/check-ui-mode-cycle-stress.py
 (after 0 to 19 rounds) all show this. A user's clicks run on the main thread and never met it.
 
-The Paste state needs the targets only. Off the main thread, getTransferDataFlavorsAsVector now returns the
-targets the main thread last read (HstClipboardTargets), kept fresh without waiting: an idle of the default
-main context (run by the main thread only) calls gtk_clipboard_request_targets when the clipboard object is
-made and at every owner change. The caller neither runs a nested loop nor releases the SolarMutex, so a Paste
-state asked in the middle of a close or load over UNO cannot let the main thread run events for a frame that is
-half built or half disposed. Only reading the data itself (a paste over UNO) goes to the main thread with
-vcl::solarthread::syncExecute, which releases the SolarMutex while it waits; gtk_clipboard_wait_* only ever
-runs on the main thread.
+A Paste state needs the targets only, and now never waits for them on any thread: getTransferDataFlavorsAsVector
+returns the targets the main thread last read (HstClipboardTargets), kept fresh without waiting: an idle of the
+default main context (run by the main thread only) calls gtk_clipboard_request_targets when the clipboard object
+is made and at every owner change. On the main thread, gtk_clipboard_wait_for_targets releases the SolarMutex
+(gdk_threads_leave) while its nested loop polls; under the nd30 load test a UNO client closed a document while
+the main thread was in SwBaseShell::StateClpbrd, which then crashed (1 of 20 runs). Only reading the data itself
+waits: on the main thread as before, and a paste over UNO goes to the main thread with
+vcl::solarthread::syncExecute, which releases the SolarMutex while it waits.
 
 License: modified upstream files keep their license (MPL-2.0).
 
@@ -33,19 +33,18 @@ License: modified upstream files keep their license (MPL-2.0).
  
  #include <dlfcn.h>
  #include <fcntl.h>
-@@ -874,6 +878,42 @@
+@@ -874,6 +878,41 @@
  
  #endif
  
 +#if !GTK_CHECK_VERSION(4, 0, 0)
 +namespace
 +{
-+/// HST: the targets of a selection as the main thread last read them. A caller off the main thread (a UNO
-+/// client: the Paste state while a toolbar, menubar or ribbon is built, or a document loads or closes) gets
-+/// these. gtk_clipboard_wait_for_targets there would run a nested loop of the default main context against the
-+/// main thread (both threads then wait for good), and handing the query to the main thread would release the
-+/// SolarMutex in the middle of whatever that caller does (a frame half disposed while the main thread runs the
-+/// events posted for it).
++/// HST: the targets of a selection as the main thread last read them, asynchronously; every Paste state gets
++/// these and never waits. gtk_clipboard_wait_for_targets runs a nested loop of the default main context: off the
++/// main thread (a UNO client building a toolbar, menubar or ribbon, loading or closing a document) against the
++/// main thread, and both wait for good; on the main thread it releases the SolarMutex (gdk_threads_leave) while
++/// it polls, so a UNO client could close the document in the middle of a Paste state.
 +struct HstClipboardTargets
 +{
 +    std::mutex aMutex;
@@ -76,7 +75,7 @@ License: modified upstream files keep their license (MPL-2.0).
  class GtkClipboardTransferable : public GtkTransferable
  {
  private:
-@@ -891,6 +931,14 @@
+@@ -891,6 +930,14 @@
  
      virtual css::uno::Any SAL_CALL getTransferData(const css::datatransfer::DataFlavor& rFlavor) override
      {
@@ -91,34 +90,40 @@ License: modified upstream files keep their license (MPL-2.0).
          css::uno::Any aRet;
  
          css::datatransfer::DataFlavor aFlavor(rFlavor);
-@@ -963,6 +1011,18 @@
+@@ -953,28 +1000,69 @@
+     std::vector<css::datatransfer::DataFlavor> getTransferDataFlavorsAsVector()
+         override
+     {
++#if GTK_CHECK_VERSION(4, 0, 0)
+         std::vector<css::datatransfer::DataFlavor> aVector;
+ 
+         GdkClipboard* clipboard = clipboard_get(m_eSelection);
+ 
+-#if GTK_CHECK_VERSION(4, 0, 0)
+         GdkContentFormats* pFormats = gdk_clipboard_get_formats(clipboard);
+         gsize n_targets;
          const char * const *targets = gdk_content_formats_get_mime_types(pFormats, &n_targets);
          aVector = GtkTransferable::getTransferDataFlavorsAsVector(targets, n_targets);
- #else
-+        if (!Application::IsMainThread()) // HST: see HstClipboardTargets
+-#else
+-        GdkAtom *targets;
+-        gint n_targets;
+-        if (gtk_clipboard_wait_for_targets(clipboard, &targets, &n_targets))
+-        {
++
++        return aVector;
++#else
++        // HST: on every thread, see HstClipboardTargets
++        HstClipboardTargets& rTargets = hstTargets(m_eSelection);
++        std::scoped_lock aLock(rTargets.aMutex);
++        if (!rTargets.bRequested)
 +        {
-+            HstClipboardTargets& rTargets = hstTargets(m_eSelection);
-+            std::scoped_lock aLock(rTargets.aMutex);
-+            if (!rTargets.bRequested)
-+            {
-+                rTargets.bRequested = true;
-+                hstRequestTargets(m_eSelection);
-+            }
-+            m_aMimeTypeToGtkType = rTargets.aTypes;
-+            return rTargets.aFlavors;
++            rTargets.bRequested = true;
++            hstRequestTargets(m_eSelection);
 +        }
-         GdkAtom *targets;
-         gint n_targets;
-         if (gtk_clipboard_wait_for_targets(clipboard, &targets, &n_targets))
-@@ -970,11 +1030,50 @@
-             aVector = GtkTransferable::getTransferDataFlavorsAsVector(targets, n_targets);
-             g_free(targets);
-         }
-+        hstStoreTargets(m_eSelection, aVector, m_aMimeTypeToGtkType);
- #endif
- 
-         return aVector;
-     }
++        m_aMimeTypeToGtkType = rTargets.aTypes;
++        return rTargets.aFlavors;
++#endif
++    }
 +
 +#if !GTK_CHECK_VERSION(4, 0, 0)
 +    /// HST: called on the main thread with the targets gtk_clipboard_request_targets read
@@ -126,7 +131,13 @@ License: modified upstream files keep their license (MPL-2.0).
 +    {
 +        std::vector<css::datatransfer::DataFlavor> aVector;
 +        if (targets)
-+            aVector = GtkTransferable::getTransferDataFlavorsAsVector(targets, n_targets);
+             aVector = GtkTransferable::getTransferDataFlavorsAsVector(targets, n_targets);
+-            g_free(targets);
+-        }
+-#endif
+-
+-        return aVector;
+-    }
 +        hstStoreTargets(m_eSelection, std::move(aVector), m_aMimeTypeToGtkType);
 +    }
 +#endif
@@ -161,7 +172,7 @@ License: modified upstream files keep their license (MPL-2.0).
  
  class VclGtkClipboard
      : public cppu::ImplInheritanceHelper<ClipboardBase,
-@@ -1127,6 +1226,9 @@
+@@ -1127,6 +1215,9 @@
  void VclGtkClipboard::OwnerPossiblyChanged(GdkClipboard* clipboard)
  {
      SyncGtkClipboard(); // tdf#138183 do any pending SetGtkClipboard calls
@@ -171,7 +182,7 @@ License: modified upstream files keep their license (MPL-2.0).
      if (!m_aContents.is())
          return;
  
-@@ -1407,6 +1509,12 @@
+@@ -1407,6 +1498,12 @@
  #else
      m_nOwnerChangedSignalId = g_signal_connect(clipboard, "owner-change",
                                                 G_CALLBACK(handle_owner_change), this);
