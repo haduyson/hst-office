@@ -11,6 +11,7 @@ style) and reloads the file to check the properties survived. Writes evidence.js
 import argparse
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -44,7 +45,7 @@ def check_writer(office, work, png):
     controller.select(picture)
     check_picture("Writer", doc, office, picture, True)
     sg.dispatch(office, doc, "Picture", "blue-shadow")
-    controller.getViewCursor().gotoRange(table.getCellByName("B3").getText().getStart(), False)
+    controller.select(table.getCellByName("B3"))  # the cursor into the table (out of the picture)
     for style in sg.TABLE_IDS:
         header, band = sg.TABLES[style]
         sg.dispatch(office, doc, "Table", style)
@@ -92,7 +93,8 @@ def check_sheets(office, work, png):
     doc.close(True)
     styles, tables = sg.part(path, "xl/styles.xml"), sg.part(path, "xl/tables/")
     sg.record("xlsx: the custom table style HST Blue is written with its formats",
-              'tableStyle name="HST Blue"' in styles and "headerRow" in styles and "firstRowStripe" in styles)
+              re.search(r'<tableStyle [^>]*name="HST Blue"', styles) and "headerRow" in styles
+              and "firstRowStripe" in styles and 'rgb="FF0072BB"' in styles)
     sg.record("xlsx: the table uses it", 'tableStyleInfo name="HST Blue"' in tables)
     drawing = sg.part(path, "xl/drawings/")
     sg.record("xlsx: the picture has an outline and an outer shadow", "<a:ln" in drawing and "outerShdw" in drawing)

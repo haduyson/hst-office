@@ -91,7 +91,7 @@ class StyleGalleries(unittest.TestCase):
             self.assertIn(f"Commands..uno:{command}\\n", ui_po)
 
     def test_registrations(self):
-        component = self.core["svx/util/svx.component"]
+        component = self.core["svx/util/svxcore.component"]
         for name in ("HstStyleGalleryControl", "HstStyleDispatcher"):
             self.assertIn(f'constructor="com_sun_star_comp_svx_{name}_get_implementation"', component)
             cxx = self.core[f"svx/source/tbxctrls/{name}.cxx"]
@@ -100,9 +100,10 @@ class StyleGalleries(unittest.TestCase):
         self.assertEqual(controllers.count("com.sun.star.comp.svx.HstStyleGalleryControl"), 2)
         self.assertIn("<value>vnd.hst.styles:*</value>",
                       self.core["officecfg/registry/data/org/openoffice/Office/ProtocolHandler.xcu"])
-        makefile = self.core["svx/Library_svx.mk"]
+        makefile = self.core["svx/Library_svxcore.mk"]
         for name in re.findall(r"^\+\+\+ b/svx/source/tbxctrls/(\w+)\.cxx", open(CORE, encoding="utf-8").read(), re.M):
             self.assertIn(f"svx/source/tbxctrls/{name} \\", makefile)
+        self.assertIn("svx/source/table/HstSlidesTableStyle \\", makefile)
         self.assertIn("sc/source/core/data/HstTableStyles \\", self.core["sc/Library_sc.mk"])
         self.assertIn("ScHstTableStyles::Register(*this);", self.core["sc/source/core/data/documen9.cxx"])
 

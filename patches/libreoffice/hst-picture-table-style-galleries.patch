@@ -14,13 +14,19 @@ a one-row gallery of 8 HST-designed styles, like the reference suite's Picture S
   Slides "table" design with "cell" styles + TableTemplate (the table's header/banding options stay);
   Sheets the table's TableStyleName (header row / banded rows options stay).
 - sc HstTableStyles: the HST styles as custom Sheets table styles in every document beside the OOXML ones
-  (exported to xlsx as tableStyles with dxfs only when a table uses them).
+  (exported to xlsx as tableStyles with dxfs only when a table uses them; both row stripes repeat the row line
+  because the export writes no inner lines of the whole table).
+- svx HstSlidesTableStyle: Sheets/Slides shape properties set through UNO leave no undo action, so the picture
+  styles record SdrUndoAttrObj first; the Slides table design is set like the Table Design pane does
+  (TableStyleUndo, direct cell attributes the design also sets are cleared).
 - svx HstStyleGalleryWindow/Control: .uno:HstPictureStyles and .uno:HstTableStyles (generic Controller.xcu
   entries) show one row of tiles drawn in code on the field colour (light and dark mode), 6/4/3 tiles for the
   ribbon ladder's "hst-gallery-state", ◂ ▸ paging and ▾ for the full options (Writer picture dialog / line
   dialog, Writer table styles dialog, Sheets sidebar, Slides table design). No live preview on hover:
   applying and undoing on hover would discard the redo stack and mark the document modified.
 - Rounded corners and reflection are not offered: LibreOffice pictures have no native property for them.
+
+All in svxcore (sc links it; the Slides table code needs svx's private table headers).
 
 License: these upstream files remain under their original license (MPL-2.0); new files MPL-2.0.
 Test: tests/unit/test_picture_table_style_galleries.py reads the patch; tests/runtime/check-style-galleries.py
@@ -81,18 +87,18 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +
 +/// Shadow colour of every picture style.
 +constexpr Color PICTURE_SHADOW_COLOR(0x00, 0x00, 0x00);
-+/// Thin table line and the header's bottom line, 1/100 mm (0.5 pt, 1.5 pt).
-+constexpr sal_Int32 TABLE_THIN_LINE = 18;
++/// Thin table line and the header's bottom line, 1/100 mm (0.75 pt, 1.5 pt).
++constexpr sal_Int32 TABLE_THIN_LINE = 26;
 +constexpr sal_Int32 TABLE_HEADER_LINE = 53;
 +
-+SVX_DLLPUBLIC std::span<const PictureStyle> PictureStyles();
-+SVX_DLLPUBLIC std::span<const TableStyle> TableStyles();
-+SVX_DLLPUBLIC const PictureStyle* FindPictureStyle(std::u16string_view rId);
-+SVX_DLLPUBLIC const TableStyle* FindTableStyle(std::u16string_view rId);
++SVXCORE_DLLPUBLIC std::span<const PictureStyle> PictureStyles();
++SVXCORE_DLLPUBLIC std::span<const TableStyle> TableStyles();
++SVXCORE_DLLPUBLIC const PictureStyle* FindPictureStyle(std::u16string_view rId);
++SVXCORE_DLLPUBLIC const TableStyle* FindTableStyle(std::u16string_view rId);
 +/// The translated name of a style, for tooltips, accessible names and the applications' style lists.
-+SVX_DLLPUBLIC OUString StyleUIName(const TranslateId& rName);
++SVXCORE_DLLPUBLIC OUString StyleUIName(const TranslateId& rName);
 +/// The colour of the header's bottom line: the header fill, or the line colour of an unfilled header.
-+SVX_DLLPUBLIC Color HeaderLineColor(const TableStyle& rStyle);
++SVXCORE_DLLPUBLIC Color HeaderLineColor(const TableStyle& rStyle);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -142,12 +148,20 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +#define RID_HST_STYLEGALLERY_UNDO_TABLE     NC_("RID_HST_STYLEGALLERY_UNDO_TABLE", "Apply table style")
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
---- a/svx/Library_svx.mk
-+++ b/svx/Library_svx.mk
-@@ -278,6 +278,14 @@
-     svx/source/tbxctrls/fillctrl \
-     svx/source/tbxctrls/formatpaintbrushctrl \
-     svx/source/tbxctrls/grafctrl \
+--- a/svx/Library_svxcore.mk
++++ b/svx/Library_svxcore.mk
+@@ -417,6 +417,7 @@
+     svx/source/table/cellcursor \
+     svx/source/table/cellrange \
+     svx/source/table/propertyset \
++    svx/source/table/HstSlidesTableStyle \
+     svx/source/table/svdotable \
+     svx/source/table/tablecolumn \
+     svx/source/table/tablecolumns \
+@@ -439,6 +440,14 @@
+     svx/source/tbxctrls/PaletteManager \
+     svx/source/tbxctrls/tbcontrl \
+     svx/source/tbxctrls/tbxcolorupdate \
 +    svx/source/tbxctrls/HstPictureStyleApply \
 +    svx/source/tbxctrls/HstStyleDispatcher \
 +    svx/source/tbxctrls/HstStyleGalleryControl \
@@ -156,9 +170,9 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +    svx/source/tbxctrls/HstStyleGalleryWindow \
 +    svx/source/tbxctrls/HstTableStyleApply \
 +    svx/source/tbxctrls/HstTableStyleCells \
-     svx/source/tbxctrls/itemwin \
-     svx/source/tbxctrls/layctrl \
-     svx/source/tbxctrls/lboxctrl \
+     svx/source/tbxctrls/StylesPreviewToolBoxControl \
+     svx/source/tbxctrls/StylesPreviewWindow \
+     svx/source/toolbars/extrusionbar \
 --- a/svx/UIConfig_svx.mk
 +++ b/svx/UIConfig_svx.mk
 @@ -138,6 +138,7 @@
@@ -170,8 +184,128 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
  	svx/uiconfig/ui/textcharacterspacingcontrol \
  	svx/uiconfig/ui/textcontrolchardialog \
 --- /dev/null
++++ b/svx/source/inc/HstSlidesTableStyle.hxx
+@@ -0,0 +1,28 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: the undoable parts of the gallery styles on drawing objects (Sheets and Slides), where a
++// property change through UNO leaves no undo action.
++
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/uno/XInterface.hpp>
++
++namespace svx::hststyles
++{
++/// Records the object's attributes for undo before a picture style changes them (no-op for other objects).
++void AddPictureUndo(const css::uno::Reference<css::uno::XInterface>& rxShape);
++/// Sets a table design on a table shape like the Table Design pane: one undo action, and direct cell
++/// formatting that the design also sets is cleared so the design shows. False when rxShape is no table.
++bool SetSlidesTableDesign(const css::uno::Reference<css::uno::XInterface>& rxShape,
++                          const css::uno::Reference<css::container::XIndexAccess>& rxDesign);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/source/table/HstSlidesTableStyle.cxx
+@@ -0,0 +1,86 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <HstSlidesTableStyle.hxx>
++
++#include <cell.hxx>
++#include <tablemodel.hxx>
++#include "tableundo.hxx"
++
++#include <svl/itemset.hxx>
++#include <svl/style.hxx>
++#include <svx/svddef.hxx>
++#include <svx/svdmodel.hxx>
++#include <svx/svdograf.hxx>
++#include <svx/svdotable.hxx>
++#include <svx/svdundo.hxx>
++#include <svx/dialmgr.hxx>
++#include <svx/strings.hrc>
++
++using namespace css;
++
++namespace svx::hststyles
++{
++void AddPictureUndo(const uno::Reference<uno::XInterface>& rxShape)
++{
++    SdrObject* pObj = SdrObject::getSdrObjectFromXShape(rxShape);
++    if (!pObj || !dynamic_cast<SdrGrafObj*>(pObj))
++        return;
++    SdrModel& rModel = pObj->getSdrModelFromSdrObject();
++    if (rModel.IsUndoEnabled())
++        rModel.AddUndo(rModel.GetSdrUndoFactory().CreateUndoAttrObject(*pObj));
++}
++
++bool SetSlidesTableDesign(const uno::Reference<uno::XInterface>& rxShape,
++                          const uno::Reference<container::XIndexAccess>& rxDesign)
++{
++    auto* pTableObj = dynamic_cast<sdr::table::SdrTableObj*>(SdrObject::getSdrObjectFromXShape(rxShape));
++    if (!pTableObj || !rxDesign.is())
++        return false;
++    SdrModel& rModel = pTableObj->getSdrModelFromSdrObject();
++    const bool bUndo = rModel.IsUndoEnabled();
++    if (bUndo)
++    {
++        rModel.BegUndo(SvxResId(STR_TABLE_STYLE));
++        rModel.AddUndo(std::make_unique<sdr::table::TableStyleUndo>(*pTableObj));
++    }
++    pTableObj->setTableStyle(rxDesign);
++
++    // as SvxTableController::SetTableStyle: direct cell attributes the design also sets would hide it
++    const rtl::Reference<sdr::table::TableModel>& xTable = pTableObj->getUnoTable();
++    for (sal_Int32 nRow = 0; xTable.is() && nRow < xTable->getRowCount(); ++nRow)
++        for (sal_Int32 nCol = 0; nCol < xTable->getColumnCount(); ++nCol)
++        {
++            sdr::table::CellRef xCell(xTable->getCell(nCol, nRow));
++            SfxStyleSheet* pStyleSheet = xCell.is() ? xCell->GetStyleSheet() : nullptr;
++            if (!pStyleSheet)
++                continue;
++            SfxItemSet aSet(xCell->GetItemSet());
++            const SfxItemSet& rStyleSet = pStyleSheet->GetItemSet();
++            bool bChanges = false;
++            for (sal_uInt16 nWhich = SDRATTR_START; nWhich <= SDRATTR_TABLE_LAST; ++nWhich)
++                if (rStyleSet.GetItemState(nWhich) == SfxItemState::SET
++                    && aSet.GetItemState(nWhich) == SfxItemState::SET)
++                {
++                    aSet.ClearItem(nWhich);
++                    bChanges = true;
++                }
++            if (!bChanges)
++                continue;
++            if (bUndo)
++                xCell->AddUndo();
++            xCell->SetMergedItemSetAndBroadcast(aSet, true);
++        }
++    if (bUndo)
++        rModel.EndUndo();
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
 +++ b/svx/source/tbxctrls/HstPictureStyleApply.cxx
-@@ -0,0 +1,126 @@
+@@ -0,0 +1,130 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -187,6 +321,7 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +// written as a:ln and a:outerShdw in .xlsx and .pptx.
 +
 +#include "HstStyleApply.hxx"
++#include <HstSlidesTableStyle.hxx>
 +
 +#include <com/sun/star/beans/XPropertySet.hpp>
 +#include <com/sun/star/container/XIndexAccess.hpp>
@@ -288,7 +423,10 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +        if (Supports(rxObject, u"com.sun.star.text.TextGraphicObject"_ustr))
 +            ApplyToWriterFrame(xProps, rStyle);
 +        else if (Supports(rxObject, u"com.sun.star.drawing.GraphicObjectShape"_ustr))
++        {
++            AddPictureUndo(rxObject); // shape properties set through UNO leave no undo action of their own
 +            ApplyToShape(xProps, rStyle);
++        }
 +        else
 +            continue;
 +        bApplied = true;
@@ -1291,6 +1429,7 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +// banded rows options of the table stay as they are.
 +
 +#include "HstStyleApply.hxx"
++#include <HstSlidesTableStyle.hxx>
 +
 +#include <com/sun/star/beans/XPropertySet.hpp>
 +#include <com/sun/star/container/XIndexAccess.hpp>
@@ -1381,12 +1520,11 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +    bool bApplied = false;
 +    for (sal_Int32 i = 0; i < rxShapes->getCount(); ++i)
 +    {
-+        uno::Reference<lang::XServiceInfo> xInfo(rxShapes->getByIndex(i), uno::UNO_QUERY);
-+        uno::Reference<beans::XPropertySet> xShape(xInfo, uno::UNO_QUERY);
-+        if (!xInfo.is() || !xShape.is() || !xInfo->supportsService(u"com.sun.star.drawing.TableShape"_ustr))
-+            continue;
-+        xShape->setPropertyValue(u"TableTemplate"_ustr, xDesigns->getByName(aName));
-+        bApplied = true;
++        // Slides table shapes do not name the TableShape service; the table object tells
++        uno::Reference<uno::XInterface> xShape(rxShapes->getByIndex(i), uno::UNO_QUERY);
++        uno::Reference<container::XIndexAccess> xDesign(xDesigns->getByName(aName), uno::UNO_QUERY);
++        if (SetSlidesTableDesign(xShape, xDesign))
++            bApplied = true;
 +    }
 +    return bApplied;
 +}
@@ -1686,11 +1824,11 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +    </child>
 +  </object>
 +</interface>
---- a/svx/util/svx.component
-+++ b/svx/util/svx.component
-@@ -138,4 +138,13 @@
-     constructor="com_sun_star_comp_svx_ThemeColorsToolBoxControl_get_implementation">
-     <service name="com.sun.star.frame.ToolbarController"/>
+--- a/svx/util/svxcore.component
++++ b/svx/util/svxcore.component
+@@ -79,6 +79,15 @@
+       constructor="com_sun_star_comp_graphic_PrimitiveFactory2D_get_implementation">
+     <service name="com.sun.star.graphic.PrimitiveFactory2D"/>
    </implementation>
 +  <implementation name="com.sun.star.comp.svx.HstStyleGalleryControl"
 +    constructor="com_sun_star_comp_svx_HstStyleGalleryControl_get_implementation">
@@ -1701,7 +1839,9 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +    <service name="com.sun.star.frame.ProtocolHandler"/>
 +    <service name="com.sun.star.comp.svx.HstStyleDispatcher"/>
 +  </implementation>
- </component>
+   <implementation name="com.sun.star.comp.svx.StylesPreviewToolBoxControl"
+     constructor="com_sun_star_comp_svx_StylesPreviewToolBoxControl_get_implementation">
+     <service name="com.sun.star.frame.ToolbarController"/>
 --- a/sc/Library_sc.mk
 +++ b/sc/Library_sc.mk
 @@ -210,6 +210,7 @@
@@ -1741,7 +1881,7 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sc/source/core/data/HstTableStyles.cxx
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,110 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -1772,8 +1912,8 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +
 +namespace
 +{
-+// widths in twips: 0.5 pt and 1.5 pt, as svx::hststyles::TABLE_THIN_LINE and TABLE_HEADER_LINE
-+constexpr tools::Long THIN_TWIPS = 10;
++// widths in twips: 0.75 pt and 1.5 pt, as svx::hststyles::TABLE_THIN_LINE and TABLE_HEADER_LINE
++constexpr tools::Long THIN_TWIPS = 15;
 +constexpr tools::Long HEADER_TWIPS = 30;
 +
 +std::unique_ptr<ScPatternAttr> MakePattern(ScDocument& rDoc)
@@ -1823,12 +1963,19 @@ dispatches every style in Writer, Sheets and Slides, checks the properties, one 
 +    rHeaderSet.Put(SvxWeightItem(WEIGHT_BOLD, ATTR_CTL_FONT_WEIGHT));
 +    pStyle->SetPattern(ScTableStyleElement::HeaderRow, std::move(pHeader));
 +
-+    // banded rows: the first stripe (the first data row) is tinted
-+    if (rStyle.aBandFill != COL_TRANSPARENT)
++    // banded rows: the first stripe (the first data row) is tinted. Both stripes repeat the row line: the
++    // .xlsx export writes no inner lines of the whole table, so other readers draw the rows from the stripes
++    for (const ScTableStyleElement eStripe :
++         { ScTableStyleElement::FirstRowStripe, ScTableStyleElement::SecondRowStripe })
 +    {
-+        auto pBand = MakePattern(rDoc);
-+        PutFill(pBand->GetItemSetWritable(), rStyle.aBandFill);
-+        pStyle->SetPattern(ScTableStyleElement::FirstRowStripe, std::move(pBand));
++        auto pStripe = MakePattern(rDoc);
++        SfxItemSet& rStripeSet = pStripe->GetItemSetWritable();
++        if (eStripe == ScTableStyleElement::FirstRowStripe && rStyle.aBandFill != COL_TRANSPARENT)
++            PutFill(rStripeSet, rStyle.aBandFill);
++        SvxBoxItem aRowLine(ATTR_BORDER);
++        aRowLine.SetLine(&aThin, SvxBoxItemLine::BOTTOM);
++        rStripeSet.Put(aRowLine);
++        pStyle->SetPattern(eStripe, std::move(pStripe));
 +    }
 +    return pStyle;
 +}
