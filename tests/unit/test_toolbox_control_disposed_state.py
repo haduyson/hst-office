@@ -13,6 +13,8 @@ ROOT = Path(__file__).resolve().parents[2]
 PATCH = ROOT / "patches/libreoffice/hst-toolbox-control-disposed-state.patch"
 SERIES = ROOT / "patches/libreoffice/series"
 STRESS = ROOT / "tests/runtime/check-ui-mode-cycle-stress.py"
+WIN_STRESS = ROOT / "tests/runtime/check-windows-ui-mode-cycle-stress.py"
+SCENARIO = ROOT / "tests/runtime/ui_mode_cycle_stress.py"
 
 
 def hunks():
@@ -59,9 +61,18 @@ class ToolboxControlDisposedState(unittest.TestCase):
         self.assertIn("m_bDisposed", new)
 
     def test_stress_check_runs_at_least_twenty_rounds(self):
-        text = STRESS.read_text(encoding="utf-8")
-        self.assertIn('parser.add_argument("--rounds", type=int, default=20)', text)
-        self.assertIn("NextDocumentTab", text)
+        for check in (STRESS, WIN_STRESS):
+            text = check.read_text(encoding="utf-8")
+            self.assertIn('parser.add_argument("--rounds", type=int, default=20)', text)
+            self.assertIn("stress.run(", text)
+        self.assertIn("NextDocumentTab", SCENARIO.read_text(encoding="utf-8"))
+
+    def test_only_a_crash_fails_the_stress_check(self):
+        text = SCENARIO.read_text(encoding="utf-8")
+        self.assertIn('return 1 if status == "FAIL" else 0', text)
+        self.assertIn('finish("FAIL", "office crashed', text)
+        self.assertIn('finish("INCONCLUSIVE", "office hung', text)
+        self.assertIn('finish("INCONCLUSIVE", "harness error', text)
 
 
 if __name__ == "__main__":

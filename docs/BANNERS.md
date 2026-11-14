@@ -166,13 +166,15 @@ open one browser tab.
 
 Owner decision of 12/11/2026, from HST Office 1.0.2. The report below is contract v1 with the server.
 
-**What one display is.** A card is drawn in a visible window (not minimized, the banner slot of the ribbon shown, its
+**What one display is.** A card is drawn in a visible window (not minimized, the banner slot shown, its
 image decoded) and stays there for at least one second. Each rotation to another card is a new display; a window that
 keeps one card counts it once until the card changes. Redrawing the same card (rescaling, the switch between wide and
 compact artwork, a one-item rotation) does not count again; a card replaced within the second is not counted. The
 [widget](#ribbon-widget) checks at the start and at the end of the second, and again every second while a card waits
 in a hidden slot or a minimized window. It then calls `org.hst.office.BannerFeed` with `NamedValue("Shown", id)` on a
-short worker thread, so the UI thread never calls Python.
+short worker thread, so the UI thread never calls Python. Every placement (ribbon, window border, top docking area,
+HST PDF) counts through the same engine in the same way; each window's banner counts its own displays, from the one
+shared set of banners.
 
 **Local counts.** [banner_impressions.py](../extensions/hst-vietnamese-tools/python/hst_office/banner_impressions.py)
 adds the display in memory and merges the counts into `$(user)/hst-banners/impressions.json` at most every 60 seconds
@@ -293,9 +295,31 @@ the response size for the same selected banner and scale.
 
 ## Ribbon widget
 
-Implemented by [hst-ribbon-banner.patch](../patches/libreoffice/hst-ribbon-banner.patch)
-(`sfx2/source/notebookbar/HstRibbonBanner.cxx`, `HstBannerGeometry.hxx`), a plain VCL control owned by
-`NotebookbarTabControl`, for `notebookbar.ui` of Writer, Calc and Impress only (not Draw or the compact variants).
+Every document window of Writer, Calc, Impress and Draw shows the banner in every user interface, and HST PDF
+shows it in its toolbar strip (owner decision 14/11/2026, [hst-banner-always-visible.patch](../patches/libreoffice/hst-banner-always-visible.patch)).
+There is no user or administrator setting to hide it, and choosing another user interface (View ▸ User
+Interface), hiding, customizing or locking toolbars does not remove it. It always draws its artwork, never a
+text card, at least 260 × 75 logical px (the artwork's 360:104 ratio); only its size changes, never its style.
+Full screen hides it with the rest of the window's chrome; the Start Center keeps its own banner.
+
+One engine, `hst::banner::Core` (`vcl/source/control/HstBannerCore.*`: content, rotation, display counting,
+click, painting), has two views (`include/vcl/HstBanner.hxx`): `HstRibbonBanner`, a VCL control, and
+`HstBannerWidget`, a weld drawing area. Where it sits:
+
+| User interface | Placement | Owner |
+|---|---|---|
+| Tabbed (`notebookbar.ui`), all four apps (Draw included since [hst-ribbon-banner.patch](../patches/libreoffice/hst-ribbon-banner.patch)) | right end of the tab page, beside the 2-row groups (rules below) | sfx2 `NotebookbarTabControl` |
+| Tabbed compact, Groupedbar compact, Contextual single | right end of the notebookbar's strip; the bar takes the width left of it, centred vertically; the strip is at least 79 logical px high | vcl `ImplBorderWindow` (the window border), unless `NotebookBar::HstHasOwnBanner()` |
+| Standard, Single, Sidebar (toolbars) | right end of the top docking area, at least 79 logical px high also without any toolbar; the toolbar rows take the width left of it, centred vertically beside it | framework `ToolbarLayoutManager` |
+| HST PDF | right end of the toolbar strip; the controls stand in two even rows on the left | `PdfViewerWindow` (`HstBannerWidget`) |
+
+The window border and the toolbar layout are not toolbars: View ▸ Toolbars, toolbar customization and locking
+do not reach them, and the banner shows even when no toolbar is shown. The docking-area banner belongs to the
+top-level windows of the four document modules only (not Base, Math, the Basic IDE or embedded objects).
+There is no ribbon collapse (double-click on a tab or Ctrl+F1) in HST Office; the one-row tabbed compact
+interface is the collapsed case and gets the strip above.
+
+Rules of the Tabbed ribbon slot:
 
 - **The slot adapts to the ribbon, never the reverse.** It is not part of the ribbon layout: height = height of
   the tab page that already holds the 2-row groups minus 2 px margins per scale step; width = height × 360/104,
@@ -303,8 +327,9 @@ Implemented by [hst-ribbon-banner.patch](../patches/libreoffice/hst-ribbon-banne
   width minus an 8 px gap, so groups fold into their `»` menu as usual; the right-hand block of the tab folds first (`hst-ribbon-fold.patch`). Ribbon and group heights do not change.
 - **Images never change the slot.** Any pixel size is aspect-fitted, centred, with a high-quality downscale cached
   per device size. The requested variant is the exact @1x/@2x/@3x for the device height, else the next larger one.
-  Device scale = VCL DPI factor × cairo surface scale on gtk; 2 on macOS, where it cannot be queried from sfx2.
-- **Hidden below 1280 logical px of window width**; the page gets its full width back and rotation stops.
+  Device scale = VCL DPI factor × cairo surface scale on gtk; 2 on macOS, where it cannot be queried from vcl.
+- **Never hidden on the two-row ribbon**: in narrow windows the slot narrows (ratio kept) down to 260 logical px
+  and the groups fold beside it ([hst-ribbon-banner-narrow.patch](../patches/libreoffice/hst-ribbon-banner-narrow.patch)).
 - **Data:** a worker thread reads the installed defaults once for the first paint, then calls
   `org.hst.office.BannerFeed`; the UI thread never touches Python, the cache or the network. Results are posted to
   the main thread, which decodes the image. If the service fails, the widget reads `data/banners.json`,
@@ -322,7 +347,16 @@ Implemented by [hst-ribbon-banner.patch](../patches/libreoffice/hst-ribbon-banne
   tabs of a tab control (`vclxaccessibletabcontrol.cxx`). The whole ribbon is now reachable by screen readers.
 - **Dark mode:** when the window or dialog colour is dark, the artwork sits on a light rounded card (`#F4F6F9`).
 
-Checks: `tests/unit/test_ribbon_banner_geometry.py` compiles the geometry header from the patch.
+Checks: `tests/unit/test_ribbon_banner_geometry.py` compiles the geometry header from the patch;
+`tests/unit/test_banner_always_visible.py` compiles the strip geometry and checks every placement.
+`tests/runtime/check-banner-everywhere.py` is the regression check: it chooses every user interface of every app
+and opens HST PDF, at 1366×768 and 1920×1080, and fails when a case shows no banner, two, one smaller than
+260 × 75 or one that is not a bundled artwork:
+
+```sh
+python3 tests/runtime/check-banner-everywhere.py --instdir /path/to/instdir --display :171 --shots DIR
+```
+
 `tests/runtime/check-ribbon-banner.py` drives the real GUI under Xvfb and gtk3 (needs a running display, and a second
 one of at least 3000×1820 for `--display-hidpi`; `--baseline-instdir` compares with a build without the banner):
 
@@ -335,7 +369,7 @@ python3 tests/runtime/check-ribbon-banner.py --baseline-instdir /path/to/instdir
 Use the already registered service **`org.hst.office.BannerFeed`**, implementing
 `com.sun.star.task.XJob`. No new IDL or Python script-provider installation is needed.
 Create it with the normal office component context and call `execute` on the main thread.
-It shares the same feed instance with the startup job and all Writer/Calc/Impress frames.
+It shares the same feed instance with the startup job and all Writer, Calc, Impress and Draw windows and HST PDF.
 
 ```cpp
 // With normal UNO headers and namespace alias css = com::sun::star.
