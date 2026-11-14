@@ -31,6 +31,11 @@ Semantics:
 - INFO("system") is "pcdos" ("mac" on macOS) instead of LINUX/WNT/MACOSX; INFO("osversion") is
   "Windows (64-bit) NT 10.00" on Windows 10/11 (was "Windows (32-bit) NT 5.01"), "Macintosh (Intel|ARM)
   Version x.y" on macOS; Linux keeps its real version, the reference application has no Linux value.
+- Functions this product does not implement because they need the reference vendor's online services or
+  Windows-only components (STOCKHISTORY, TRANSLATE, DETECTLANGUAGE, COPILOT, PY, FIELDVALUE, IMAGE, CUBE*, RTD,
+  CALL, REGISTER.ID): an .xlsx keeps their formulas and cached results on open and writes them back unchanged.
+  The compiler used to lower-case such unknown names (_xlfn.stockhistory); in OOXML formulas it now keeps the
+  file's spelling. A recalculation still gives #NAME?.
 
 License: these upstream files remain under their original license (MPL-2.0).
 Test: CppunitTest_sc_excelcompat_functions_test (sc/qa/unit/functions_excelcompat.cxx),
@@ -645,6 +650,23 @@ tests/unit/test_sheets_excel_functions.py, tests/runtime/check-sheets-excel-func
      void ScConcat();
      void ScConcat_MS();
      void ScTextJoin_MS();
+--- a/sc/source/core/tool/compiler.cxx
++++ b/sc/source/core/tool/compiler.cxx
+@@ -4993,7 +4993,13 @@ Label_Rewind:
+     // would prematurely end compilation. Simple unknown names are handled by
+     // the interpreter.
+     // Use the same CharClass that was used for uppercase.
+-    aUpper = ((bAsciiUpper || mbCharClassesDiffer) ? ScGlobal::getCharClass() : *pCharClass).lowercase( aUpper );
++    // An unknown name in an .xlsx formula, e.g. a function of an online service
++    // of the file's author (_xlfn.STOCKHISTORY, CUBEVALUE, RTD), keeps the
++    // file's spelling so that the formula is written back unchanged.
++    if (mxSymbols->isOOXML())
++        aUpper = OUString(cSymbol);
++    else
++        aUpper = ((bAsciiUpper || mbCharClassesDiffer) ? ScGlobal::getCharClass() : *pCharClass).lowercase( aUpper );
+     svl::SharedString aSS = rDoc.GetSharedStringPool().intern(aUpper);
+     maRawToken.SetString(aSS.getData(), aSS.getDataIgnoreCase());
+     maRawToken.NewOpCode( ocBad );
 --- a/sc/source/core/tool/interpr1.cxx
 +++ b/sc/source/core/tool/interpr1.cxx
 @@ -26,7 +26,10 @@
