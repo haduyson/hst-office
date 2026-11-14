@@ -116,7 +116,7 @@ def check_module(office, check, screen, desktop, module, out, switches):
         if hwnd:
             # Ctrl+Alt+. (.uno:NextDocumentTab) as a user presses it: the switch runs in the office's main thread.
             # A dispatch over UNO runs in a bridge thread, where vcl posts Show() to the main thread instead.
-            grab.chord(0x11, 0x12, 0xBE)
+            wg.chord(0x11, 0x12, 0xBE, target=hwnd, front=False)
         else:
             helper.executeDispatch(office.desktop.getCurrentFrame(), ".uno:NextDocumentTab", "", 0, ())
         time.sleep(1.4)

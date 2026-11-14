@@ -37,13 +37,9 @@ def shot(label):
 
 
 def close_dialog(window):
-    """End a modal dialog: endExecute when the peer offers XDialog, otherwise press Escape in the foreground window."""
-    try:
-        window.endExecute()
-    except Exception:  # noqa: BLE001
-        subprocess.run(["powershell", "-NoProfile", "-Command",
-                        "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait('{ESC}')"],
-                       timeout=30, check=False)
+    """End a dialog with WM_CLOSE to its own HWND (endExecute as the fallback); never a key to the foreground window."""
+    from windows_gui_dialogs import close_dialog as close_without_keys
+    return close_without_keys(window)
 
 
 def is_new(window, known):
