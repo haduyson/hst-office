@@ -26,13 +26,14 @@ document on the right with page navigation and zoom (10–400 % of the real size
   left-column item runs .uno:Print so the job comes back the same way. Leaving the page or closing the panel cancels
   the job; Ctrl+P inside the panel shows the page. The earlier "Print…" and "Print Preview" buttons of the page are
   hidden; "In hai mặt" (Writer) stays. The panel's size and place are BackstageWindow::GetPlacement's.
-- Margins box (Writer, Sheets, as the reference suite): "Lề trang:" under the orientation offers the presets of
-  Page Setup (Writer's Layout ▸ Margins, sw PageMarginUtils.hxx): Bình thường 2 cm, Hẹp 1.27 cm, Vừa 2.54/1.91 cm,
-  Rộng 2.54/5.08 cm, and "Lề tùy chỉnh" (shown for other margins; picking it is "Thiết lập trang"). A preset changes
-  the page style (Writer: at the cursor, .uno:PageLRMargin + .uno:PageULMargin; Sheets: of the active sheet,
-  .uno:CalcPageMargin) in one undo step ("Đổi lề trang") and the waiting job shows its pages again
-  (PrintJobPanel::SetMargins/GetMargins/UpdatePreview; sfx2 hstbackstageprintmargins.cxx). sc: .uno:CalcPageMargin
-  (also Layout ▸ Margins of Sheets) records ScUndoModifyStyle, as the page style dialog does.
+- Margins box (Writer, Sheets, as the reference suite): "Lề trang:" under the orientation offers the presets of the
+  application's Layout ▸ Margins, by entry id (normal/narrow/moderate/wide/custom). Writer (sw PageMarginUtils.hxx):
+  Bình thường 2 cm, Hẹp 1,27 cm, Vừa 2,54/1,91 cm, Rộng 2,54/5,08 cm. Sheets (its ribbon's Margins menu): Bình
+  thường 1,9/1,8 cm, Hẹp 1,9/0,64 cm, Rộng 2,54 cm (no Vừa). "Lề tùy chỉnh" is shown for other margins; picking it is
+  "Thiết lập trang". A preset changes the page style (Writer: at the cursor, .uno:PageLRMargin + .uno:PageULMargin;
+  Sheets: of the active sheet, .uno:CalcPageMargin) in one undo step ("Đổi lề trang") and the waiting job shows its
+  pages again (PrintJobPanel::SetMargins/GetMargins/UpdatePreview; sfx2 hstbackstageprintmargins.cxx).
+  sc: .uno:CalcPageMargin (also Layout ▸ Margins of Sheets) records ScUndoModifyStyle, as the page style dialog does.
 - solenv/sanitizers/ui/vcl.suppr: the print dialog's accessibility suppressions repeated for its panel copy, plus
   the zoom percentage label.
 - Strings: vcl hstprintpanel.ui and sfx2 hstbackstage.ui "printwait"; Vietnamese in vcl/sfx2 messages.po (labels
@@ -44,10 +45,10 @@ tests/runtime/check-backstage-print.py (margin presets, undo, preview).
 ---
 diff --git a/include/vcl/hstprintjobpanel.hxx b/include/vcl/hstprintjobpanel.hxx
 new file mode 100644
-index 0000000..2949f90
+index 0000000..1cad16d
 --- /dev/null
 +++ b/include/vcl/hstprintjobpanel.hxx
-@@ -0,0 +1,101 @@
+@@ -0,0 +1,105 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of HST Office, based on LibreOffice.
@@ -59,11 +60,13 @@ index 0000000..2949f90
 +
 +#pragma once
 +
-+#include <vcl/dllapi.h>
++#include <rtl/ustring.hxx>
 +#include <tools/link.hxx>
++#include <vcl/dllapi.h>
 +
 +#include <functional>
 +#include <memory>
++#include <vector>
 +
 +namespace weld
 +{
@@ -119,13 +122,14 @@ index 0000000..2949f90
 +                 const Link<PrintJobPanel&, void>& rMoreOptions,
 +                 const Link<PrintJobPanel&, void>& rPageSetup);
 +
-+    /// The document's margins box of the panel (its entries: the presets of Page Setup, then
-+    /// "Custom Margins"): nActive is the entry to show, rChanged is called when one is picked
-+    /// (GetMargins() tells which). Without a call the box stays hidden; it stays when the panel
-+    /// is made again.
-+    void SetMargins(int nActive, const Link<PrintJobPanel&, void>& rChanged);
-+    /// The entry shown or picked; -1 without the box.
-+    int GetMargins() const { return m_nMargins; }
++    /// The document's margins box of the panel. Its entries have the ids "normal", "narrow",
++    /// "moderate", "wide" (presets of Page Setup) and "custom"; those in aRemoved go. rActive is
++    /// the id of the entry to show, rChanged is called when one is picked (GetMargins() tells
++    /// which). Without a call the box stays hidden; it stays when the panel is made again.
++    void SetMargins(const OUString& rActive, std::vector<OUString> aRemoved,
++                    const Link<PrintJobPanel&, void>& rChanged);
++    /// The id of the entry shown or picked; empty without the box.
++    const OUString& GetMargins() const { return m_aMargins; }
 +    /// The document changed (e.g. its margins): the preview asks the job for its pages again.
 +    void UpdatePreview();
 +
@@ -144,7 +148,8 @@ index 0000000..2949f90
 +    Link<PrintJobPanel&, void> m_aMoreOptionsHdl;
 +    Link<PrintJobPanel&, void> m_aPageSetupHdl;
 +    Link<PrintJobPanel&, void> m_aMarginsHdl; ///< set: the box shows
-+    int m_nMargins;
++    OUString m_aMargins;
++    std::vector<OUString> m_aRemovedMargins;
 +};
 +}
 +
@@ -358,10 +363,10 @@ index 2b22a00..f90d826 100644
  bool CloseBackstage(const uno::Reference<frame::XFrame>& rxFrame)
 diff --git a/sfx2/source/backstage/hstbackstageprint.cxx b/sfx2/source/backstage/hstbackstageprint.cxx
 new file mode 100644
-index 0000000..a6cfe0f
+index 0000000..fa8f6a4
 --- /dev/null
 +++ b/sfx2/source/backstage/hstbackstageprint.cxx
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,197 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of HST Office, based on LibreOffice.
@@ -385,6 +390,19 @@ index 0000000..a6cfe0f
 +
 +namespace sfx2::hst
 +{
++namespace
++{
++/// The page style dialog of the application ("Page Setup..."): margins, paper, orientation.
++OUString PageSetupCommand(BackstageApp eApp)
++{
++    if (eApp == BackstageApp::Writer)
++        return u".uno:PageDialog"_ustr;
++    if (eApp == BackstageApp::Calc)
++        return u".uno:PageFormatDialog"_ustr;
++    return eApp == BackstageApp::Other ? OUString() : u".uno:PageSetup"_ustr;
++}
++}
++
 +BackstagePrintPage::BackstagePrintPage(weld::Builder& rBuilder, uno::Reference<frame::XFrame> xFrame,
 +                                       BackstageApp eApp, std::function<void()> aClosePanel,
 +                                       std::function<void()> aShowPage)
@@ -456,7 +474,7 @@ index 0000000..a6cfe0f
 +void BackstagePrintPage::ShowMargins()
 +{
 +    if (m_xJob && HasMarginPresets(m_eApp))
-+        m_xJob->SetMargins(static_cast<int>(GetMarginPreset(m_xFrame, m_eApp)),
++        m_xJob->SetMargins(GetMarginPreset(m_xFrame, m_eApp), RemovedMarginPresets(m_eApp),
 +                           LINK(this, BackstagePrintPage, MarginsHdl));
 +}
 +
@@ -488,11 +506,11 @@ index 0000000..a6cfe0f
 +    }
 +    if (eAction == Action::Margins && m_xJob)
 +    {
-+        const int nPreset = m_xJob->GetMargins();
-+        if (nPreset >= 0 && nPreset < static_cast<int>(MarginPreset::Custom))
++        const OUString aPreset = m_xJob->GetMargins();
++        if (aPreset != MARGINS_CUSTOM)
 +        {
 +            // the page style changes, the job stays: it shows the pages as they are now
-+            ApplyMarginPreset(m_xFrame, m_eApp, static_cast<MarginPreset>(nPreset));
++            ApplyMarginPreset(m_xFrame, m_eApp, aPreset);
 +            ShowMargins(); // what the document has (also when it refused the change)
 +            m_xJob->UpdatePreview();
 +            return;
@@ -656,10 +674,10 @@ index 0000000..641d6c2
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/backstage/hstbackstageprintmargins.cxx b/sfx2/source/backstage/hstbackstageprintmargins.cxx
 new file mode 100644
-index 0000000..a6a0883
+index 0000000..01770e9
 --- /dev/null
 +++ b/sfx2/source/backstage/hstbackstageprintmargins.cxx
-@@ -0,0 +1,198 @@
+@@ -0,0 +1,199 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of HST Office, based on LibreOffice.
@@ -672,9 +690,7 @@ index 0000000..a6a0883
 +#include "hstbackstageprintmargins.hxx"
 +
 +#include <cstdlib>
-+#include <initializer_list>
-+#include <utility>
-+#include <vector>
++#include <span>
 +
 +#include <backstage/hstbackstage.hrc>
 +#include <com/sun/star/beans/XPropertySet.hpp>
@@ -687,7 +703,6 @@ index 0000000..a6a0883
 +#include <comphelper/dispatchcommand.hxx>
 +#include <comphelper/propertyvalue.hxx>
 +#include <comphelper/sequence.hxx>
-+#include <o3tl/unit_conversion.hxx>
 +#include <sfx2/sfxresid.hxx>
 +
 +using namespace css;
@@ -696,22 +711,44 @@ index 0000000..a6a0883
 +{
 +namespace
 +{
-+struct Margins
++struct Preset
 +{
-+    sal_Int32 nLeft, nRight, nTop, nBottom;
++    std::u16string_view aId; ///< of the margins box's entry
++    sal_Int32 nLeft, nRight, nTop, nBottom; ///< 1/100 mm
 +};
 +
-+// Twips, in the order of MarginPreset (sw/source/uibase/sidebar/PageMarginUtils.hxx): NORMAL_VALUE,
-+// NARROW_VALUE, HST_MODERATE_LR with WIDE_VALUE1, WIDE_VALUE2 with WIDE_VALUE1 (SWPAGE_...).
-+constexpr Margins PRESETS[] = {
-+    { 1136, 1136, 1136, 1136 },
-+    { 720, 720, 720, 720 },
-+    { 1080, 1080, 1440, 1440 },
-+    { 2880, 2880, 1440, 1440 },
-+};
++// Writer: its Layout ▸ Margins (sw/source/uibase/sidebar/PageMarginUtils.hxx, twips: NORMAL_VALUE
++// 1136, NARROW 720, HST_MODERATE_LR 1080 with WIDE_VALUE1 1440, WIDE_VALUE2 2880 with WIDE_VALUE1).
++constexpr Preset WRITER[] = { { u"normal", 2004, 2004, 2004, 2004 },
++                              { u"narrow", 1270, 1270, 1270, 1270 },
++                              { u"moderate", 1905, 1905, 2540, 2540 },
++                              { u"wide", 5080, 5080, 2540, 2540 } };
++// Sheets: its Layout ▸ Margins (TabbedCalc MenuHstLayoutMargins, the reference spreadsheet's; no
++// Moderate).
++constexpr Preset CALC[] = { { u"normal", 1800, 1800, 1900, 1900 },
++                            { u"narrow", 640, 640, 1900, 1900 },
++                            { u"wide", 2540, 2540, 2540, 2540 } };
 +
-+/// Margins that differ this little are the preset's (SWPAGE_UNIT_THRESHOLD of the Margins menu).
-+constexpr sal_Int32 THRESHOLD_TWIPS = 5;
++/// Margins that differ this little are the preset's (5 twips, SWPAGE_UNIT_THRESHOLD of the menu).
++constexpr sal_Int32 THRESHOLD = 9;
++
++std::span<const Preset> lcl_presets(BackstageApp eApp)
++{
++    if (eApp == BackstageApp::Writer)
++        return WRITER;
++    if (eApp == BackstageApp::Calc)
++        return CALC;
++    return {};
++}
++
++/// The application's preset with that id, else nullptr.
++const Preset* lcl_find(BackstageApp eApp, std::u16string_view aId)
++{
++    for (const Preset& rPreset : lcl_presets(eApp))
++        if (rPreset.aId == aId)
++            return &rPreset;
++    return nullptr;
++}
 +
 +/// The page style the margins belong to: Writer's at the cursor, Sheets' of the active sheet.
 +uno::Reference<beans::XPropertySet> lcl_pageStyle(const uno::Reference<frame::XFrame>& rxFrame,
@@ -752,76 +789,58 @@ index 0000000..a6a0883
 +              sal_Int32 nPreset)
 +{
 +    sal_Int32 nMm100 = -1;
-+    return (rxStyle->getPropertyValue(rName) >>= nMm100)
-+           && std::abs(o3tl::convert(nMm100, o3tl::Length::mm100, o3tl::Length::twip) - nPreset)
-+                  <= THRESHOLD_TWIPS;
++    return (rxStyle->getPropertyValue(rName) >>= nMm100) && std::abs(nMm100 - nPreset) <= THRESHOLD;
 +}
 +
 +bool lcl_dispatch(const OUString& rCommand, const uno::Reference<frame::XFrame>& rxFrame,
 +                  std::initializer_list<std::pair<OUString, sal_Int32>> aValues)
 +{
 +    std::vector<beans::PropertyValue> aArgs;
-+    for (const auto & [ rName, nTwips ] : aValues)
-+        aArgs.push_back(comphelper::makePropertyValue(
-+            rName, o3tl::convert(nTwips, o3tl::Length::twip, o3tl::Length::mm100)));
-+    // the margins must be in the document when the undo context closes
-+    aArgs.push_back(comphelper::makePropertyValue(u"SynchronMode"_ustr, true));
++    for (const auto & [ rName, nMm100 ] : aValues)
++        aArgs.push_back(comphelper::makePropertyValue(rName, nMm100));
++    aArgs.push_back(comphelper::makePropertyValue(u"SynchronMode"_ustr, true)); // in the undo step
 +    return comphelper::dispatchCommand(rCommand, rxFrame, comphelper::containerToSequence(aArgs));
 +}
 +}
 +
-+OUString PageSetupCommand(BackstageApp eApp)
++std::vector<OUString> RemovedMarginPresets(BackstageApp eApp)
 +{
-+    switch (eApp)
-+    {
-+        case BackstageApp::Writer:
-+            return u".uno:PageDialog"_ustr;
-+        case BackstageApp::Calc:
-+            return u".uno:PageFormatDialog"_ustr;
-+        case BackstageApp::Impress:
-+        case BackstageApp::Draw:
-+            return u".uno:PageSetup"_ustr;
-+        case BackstageApp::Other:
-+            break;
-+    }
-+    return OUString();
++    std::vector<OUString> aRemoved;
++    for (std::u16string_view aId : { u"normal", u"narrow", u"moderate", u"wide" })
++        if (!lcl_find(eApp, aId))
++            aRemoved.emplace_back(aId);
++    return aRemoved;
 +}
 +
-+bool HasMarginPresets(BackstageApp eApp)
-+{
-+    return eApp == BackstageApp::Writer || eApp == BackstageApp::Calc;
-+}
++bool HasMarginPresets(BackstageApp eApp) { return !lcl_presets(eApp).empty(); }
 +
-+MarginPreset GetMarginPreset(const uno::Reference<frame::XFrame>& rxFrame, BackstageApp eApp)
++OUString GetMarginPreset(const uno::Reference<frame::XFrame>& rxFrame, BackstageApp eApp)
 +{
 +    try
 +    {
 +        const uno::Reference<beans::XPropertySet> xStyle(
 +            rxFrame.is() && HasMarginPresets(eApp) ? lcl_pageStyle(rxFrame, eApp) : nullptr);
-+        for (size_t i = 0; xStyle && i < std::size(PRESETS); ++i)
-+        {
-+            const Margins& rPreset = PRESETS[i];
-+            if (lcl_near(xStyle, u"LeftMargin"_ustr, rPreset.nLeft)
++        for (const Preset& rPreset : lcl_presets(eApp))
++            if (xStyle && lcl_near(xStyle, u"LeftMargin"_ustr, rPreset.nLeft)
 +                && lcl_near(xStyle, u"RightMargin"_ustr, rPreset.nRight)
 +                && lcl_near(xStyle, u"TopMargin"_ustr, rPreset.nTop)
 +                && lcl_near(xStyle, u"BottomMargin"_ustr, rPreset.nBottom))
-+                return static_cast<MarginPreset>(i);
-+        }
++                return OUString(rPreset.aId);
 +    }
 +    catch (const uno::Exception&)
 +    {
 +        TOOLS_WARN_EXCEPTION("sfx.backstage", "the margins of the document are unknown");
 +    }
-+    return MarginPreset::Custom;
++    return MARGINS_CUSTOM;
 +}
 +
 +bool ApplyMarginPreset(const uno::Reference<frame::XFrame>& rxFrame, BackstageApp eApp,
-+                       MarginPreset ePreset)
++                       std::u16string_view aId)
 +{
-+    const size_t nIndex = static_cast<size_t>(ePreset);
-+    if (!HasMarginPresets(eApp) || nIndex >= std::size(PRESETS) || !rxFrame.is())
++    const Preset* pPreset = lcl_find(eApp, aId);
++    if (!pPreset || !rxFrame.is())
 +        return false;
-+    const Margins& rMargins = PRESETS[nIndex];
++    const Preset& rMargins = *pPreset;
 +    uno::Reference<frame::XController> xController(rxFrame->getController());
 +    uno::Reference<document::XUndoManagerSupplier> xSupplier(
 +        xController.is() ? xController->getModel() : nullptr, uno::UNO_QUERY);
@@ -860,10 +879,10 @@ index 0000000..a6a0883
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/backstage/hstbackstageprintmargins.hxx b/sfx2/source/backstage/hstbackstageprintmargins.hxx
 new file mode 100644
-index 0000000..7b2a219
+index 0000000..5a51439
 --- /dev/null
 +++ b/sfx2/source/backstage/hstbackstageprintmargins.hxx
-@@ -0,0 +1,57 @@
+@@ -0,0 +1,53 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of HST Office, based on LibreOffice.
@@ -877,47 +896,43 @@ index 0000000..7b2a219
 +
 +#include "hstbackstagedata.hxx"
 +
++#include <string_view>
++#include <vector>
++
 +#include <com/sun/star/frame/XFrame.hpp>
 +
 +namespace sfx2::hst
 +{
-+/* HST Office: the page style on the Print page: "Page Setup..." and the margins box.
++/* HST Office: the margins box of the Print page.
 +
-+   The margins box's entries, in this order (vcl/uiconfig/ui/hstprintpanel.ui, "marginsbox"),
-+   are the margin presets of Page Setup, as Writer's Layout ▸ Margins has them
-+   (sw PageMarginUtils.hxx):
-+   - Normal: 2 cm on every side;
-+   - Narrow: 1.27 cm on every side;
-+   - Moderate: 2.54 cm top and bottom, 1.91 cm left and right;
-+   - Wide: 2.54 cm top and bottom, 5.08 cm left and right;
-+   then "Custom Margins", shown for other margins, which opens Page Setup.
++   The margins box (vcl/uiconfig/ui/hstprintpanel.ui, "marginsbox") offers the margin presets the
++   application's Layout ▸ Margins has, by entry id:
++   - Writer (sw PageMarginUtils.hxx): "normal" 2 cm on every side, "narrow" 1.27 cm, "moderate"
++     2.54 cm top and bottom with 1.91 cm left and right, "wide" 2.54 cm with 5.08 cm;
++   - Sheets (its ribbon's Margins menu): "normal" 1.9 cm top and bottom with 1.8 cm left and right,
++     "narrow" 1.9 cm with 0.64 cm, "wide" 2.54 cm on every side (no "moderate");
++   then "custom", shown for other margins, which opens Page Setup.
 +
 +   A preset changes the page style of the document as one undoable action: in Writer the page
 +   style at the cursor (.uno:PageLRMargin and .uno:PageULMargin, as the Margins menu), in Sheets
 +   the one of the active sheet (.uno:CalcPageMargin). Slides and drawings have no margins box. */
-+enum class MarginPreset
-+{
-+    Normal,
-+    Narrow,
-+    Moderate,
-+    Wide,
-+    Custom
-+};
-+
-+/// The page style dialog of the application ("Page Setup..."): margins, paper size, orientation.
-+OUString PageSetupCommand(BackstageApp eApp);
++inline constexpr OUString MARGINS_CUSTOM = u"custom"_ustr;
 +
 +/// Writer and Sheets have the box.
 +bool HasMarginPresets(BackstageApp eApp);
 +
-+/// The preset the document's margins are; Custom for other margins or when they are unknown.
-+MarginPreset GetMarginPreset(const css::uno::Reference<css::frame::XFrame>& rxFrame,
-+                             BackstageApp eApp);
++/// The ids of the box's presets the application does not have.
++std::vector<OUString> RemovedMarginPresets(BackstageApp eApp);
 +
-+/// Give the document the margins of ePreset (not Custom) as one undoable action; false when the
-+/// application did not take the commands.
++/// The id of the preset the document's margins are; MARGINS_CUSTOM for other margins or when
++/// they are unknown.
++OUString GetMarginPreset(const css::uno::Reference<css::frame::XFrame>& rxFrame,
++                         BackstageApp eApp);
++
++/// Give the document the margins of preset aId as one undoable action; false for an id the
++/// application has no preset for, or when it did not take the commands.
 +bool ApplyMarginPreset(const css::uno::Reference<css::frame::XFrame>& rxFrame, BackstageApp eApp,
-+                       MarginPreset ePreset);
++                       std::u16string_view aId);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -1436,7 +1451,7 @@ index d849754..5cc2348 100644
  	vcl/uiconfig/ui/printerpaperpage \
  	vcl/uiconfig/ui/printerpropertiesdialog \
 diff --git a/vcl/inc/printdlg.hxx b/vcl/inc/printdlg.hxx
-index 121a773..7238546 100644
+index 121a773..2474f2b 100644
 --- a/vcl/inc/printdlg.hxx
 +++ b/vcl/inc/printdlg.hxx
 @@ -26,6 +26,8 @@
@@ -1490,7 +1505,7 @@ index 121a773..7238546 100644
              void setPreview( const GDIMetaFile&, const Size& i_rPaperSize,
                               std::u16string_view i_rPaperName,
                               const OUString& i_rNoPageString,
-@@ -104,8 +118,29 @@ namespace vcl
+@@ -104,8 +118,31 @@ namespace vcl
          };
  
          PrintDialog(weld::Window*, std::shared_ptr<PrinterController> );
@@ -1508,10 +1523,12 @@ index 121a773..7238546 100644
 +        /// Show the choices of rOther that the controller does not keep itself (copies,
 +        /// collate, paper sides, orientation, paper size, pages per sheet) and apply them.
 +        void takeSettings(const PrintDialog& rOther);
-+        /// Panel: show the document's margins box with entry nActive; picking an entry calls
-+        /// rChanged (getPanelMargins() tells which). Hidden until called.
-+        void setPanelMargins(int nActive, const Link<PrintDialog&, void>& rChanged);
-+        int getPanelMargins() const;
++        /// Panel: show the document's margins box without the entries of rRemoved, with the entry
++        /// of id rActive; picking one calls rChanged (getPanelMargins() tells its id). Hidden until
++        /// called.
++        void setPanelMargins(const OUString& rActive, const std::vector<OUString>& rRemoved,
++                             const Link<PrintDialog&, void>& rChanged);
++        OUString getPanelMargins() const;
 +        /// Panel: the document changed (its margins): ask the job for its pages again.
 +        void updatePreviewFromDocument() { schedulePreviewUpdate(false); }
 +        /// Panel: show the zoom of the preview (also when the fitted page changed size).
@@ -1520,7 +1537,7 @@ index 121a773..7238546 100644
          bool isPrintToFile() const;
          bool isCollate() const;
          bool isSingleJobs() const;
-@@ -119,6 +154,13 @@ namespace vcl
+@@ -119,6 +156,13 @@ namespace vcl
  
      private:
  
@@ -1534,7 +1551,7 @@ index 121a773..7238546 100644
          std::unique_ptr<weld::Builder>          mxCustomOptionsUIBuilder;
  
          std::shared_ptr<PrinterController>      maPController;
-@@ -182,6 +224,22 @@ namespace vcl
+@@ -182,6 +226,22 @@ namespace vcl
          std::unique_ptr<weld::Expander>         mxRangeExpander;
          std::unique_ptr<weld::Expander>         mxLayoutExpander;
          std::unique_ptr<weld::Widget>           mxCustom;
@@ -1557,7 +1574,7 @@ index 121a773..7238546 100644
  
          OUString                                maPrintToFileText;
          OUString                                maPrintText;
-@@ -222,6 +280,10 @@ namespace vcl
+@@ -222,6 +282,10 @@ namespace vcl
  
          Idle maUpdatePreviewIdle;
          DECL_LINK(updatePreviewIdle, Timer*, void);
@@ -1618,10 +1635,10 @@ index 0000000..d08b6a1
 +</interface>
 diff --git a/vcl/qa/cppunit/hstprintjobpanel.cxx b/vcl/qa/cppunit/hstprintjobpanel.cxx
 new file mode 100644
-index 0000000..1d8bb6e
+index 0000000..8169ae5
 --- /dev/null
 +++ b/vcl/qa/cppunit/hstprintjobpanel.cxx
-@@ -0,0 +1,194 @@
+@@ -0,0 +1,195 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of HST Office, based on LibreOffice.
@@ -1778,14 +1795,15 @@ index 0000000..1d8bb6e
 +        {
 +            vcl::PrintJobPanel aPanel(xJob);
 +            aPanel.Show(m_xHost.get());
-+            CPPUNIT_ASSERT_EQUAL(-1, aPanel.GetMargins()); // no box without the host's margins
-+            // the host offers the margins: the box shows its entry
-+            aPanel.SetMargins(2, LINK(nullptr, HstPrintJobPanelTest, MarginsHdl));
-+            CPPUNIT_ASSERT_EQUAL(2, aPanel.GetMargins());
++            CPPUNIT_ASSERT(aPanel.GetMargins().isEmpty()); // no box without the host's margins
++            // the host offers the margins without "moderate": the box shows the entry of its id
++            aPanel.SetMargins(u"wide"_ustr, { u"moderate"_ustr },
++                              LINK(nullptr, HstPrintJobPanelTest, MarginsHdl));
++            CPPUNIT_ASSERT_EQUAL(u"wide"_ustr, aPanel.GetMargins());
 +            aPanel.Show(m_xHost.get()); // made again (after the dialog): the box stays
-+            CPPUNIT_ASSERT_EQUAL(2, aPanel.GetMargins());
-+            aPanel.SetMargins(4, LINK(nullptr, HstPrintJobPanelTest, MarginsHdl));
-+            CPPUNIT_ASSERT_EQUAL(4, aPanel.GetMargins());
++            CPPUNIT_ASSERT_EQUAL(u"wide"_ustr, aPanel.GetMargins());
++            aPanel.SetMargins(u"custom"_ustr, {}, LINK(nullptr, HstPrintJobPanelTest, MarginsHdl));
++            CPPUNIT_ASSERT_EQUAL(u"custom"_ustr, aPanel.GetMargins());
 +            // the document changed: the preview asks the waiting job again, the job goes on
 +            aPanel.UpdatePreview();
 +            CPPUNIT_ASSERT(aPanel.IsPending());
@@ -1949,10 +1967,10 @@ index 7751bd4..5f7f141 100644
      mnError = ERRCODE_NONE;
 diff --git a/vcl/source/window/hstprintjobpanel.cxx b/vcl/source/window/hstprintjobpanel.cxx
 new file mode 100644
-index 0000000..a55f5b7
+index 0000000..1c0432d
 --- /dev/null
 +++ b/vcl/source/window/hstprintjobpanel.cxx
-@@ -0,0 +1,176 @@
+@@ -0,0 +1,178 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of HST Office, based on LibreOffice.
@@ -2008,7 +2026,6 @@ index 0000000..a55f5b7
 +    : m_xController(std::move(xController))
 +    , m_pParent(nullptr)
 +    , m_bPending(true)
-+    , m_nMargins(-1)
 +{
 +}
 +
@@ -2092,9 +2109,11 @@ index 0000000..a55f5b7
 +    m_aPageSetupHdl = rPageSetup;
 +}
 +
-+void PrintJobPanel::SetMargins(int nActive, const Link<PrintJobPanel&, void>& rChanged)
++void PrintJobPanel::SetMargins(const OUString& rActive, std::vector<OUString> aRemoved,
++                               const Link<PrintJobPanel&, void>& rChanged)
 +{
-+    m_nMargins = nActive;
++    m_aMargins = rActive;
++    m_aRemovedMargins = std::move(aRemoved);
 +    m_aMarginsHdl = rChanged;
 +    ShowMargins();
 +}
@@ -2102,7 +2121,8 @@ index 0000000..a55f5b7
 +void PrintJobPanel::ShowMargins()
 +{
 +    if (m_xSettings && m_aMarginsHdl.IsSet())
-+        m_xSettings->setPanelMargins(m_nMargins, LINK(this, PrintJobPanel, MarginsHdl));
++        m_xSettings->setPanelMargins(m_aMargins, m_aRemovedMargins,
++                                     LINK(this, PrintJobPanel, MarginsHdl));
 +}
 +
 +void PrintJobPanel::UpdatePreview()
@@ -2123,14 +2143,14 @@ index 0000000..a55f5b7
 +
 +IMPL_LINK(PrintJobPanel, MarginsHdl, PrintDialog&, rSettings, void)
 +{
-+    m_nMargins = rSettings.getPanelMargins();
++    m_aMargins = rSettings.getPanelMargins();
 +    m_aMarginsHdl.Call(*this);
 +}
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/vcl/source/window/printdlg.cxx b/vcl/source/window/printdlg.cxx
-index a1062e8..6cb40f5 100644
+index a1062e8..817a7e6 100644
 --- a/vcl/source/window/printdlg.cxx
 +++ b/vcl/source/window/printdlg.cxx
 @@ -26,6 +26,7 @@
@@ -2297,7 +2317,7 @@ index a1062e8..6cb40f5 100644
      // lock the dialog height, regardless of later expander state
      mxScrolledWindow->set_size_request(
          mxScrolledWindow->get_preferred_size().Width() + mxScrolledWindow->get_scroll_thickness(),
-@@ -720,8 +815,121 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
+@@ -720,8 +815,128 @@ PrintDialog::PrintDialog(weld::Window* i_pWindow, std::shared_ptr<PrinterControl
      m_xDialog->set_centered_on_parent(true);
  }
  
@@ -2310,17 +2330,24 @@ index a1062e8..6cb40f5 100644
 +    maPanelPageSetupHdl = rPageSetup;
 +}
 +
-+void PrintDialog::setPanelMargins(int nActive, const Link<PrintDialog&, void>& rChanged)
++void PrintDialog::setPanelMargins(const OUString& rActive, const std::vector<OUString>& rRemoved,
++                                  const Link<PrintDialog&, void>& rChanged)
 +{
 +    if (!mxMarginsBox)
 +        return;
 +    maPanelMarginsHdl = rChanged;
-+    mxMarginsBox->set_active(nActive);
++    for (const OUString& rId : rRemoved)
++        if (const int nPos = mxMarginsBox->find_id(rId); nPos != -1)
++            mxMarginsBox->remove(nPos);
++    mxMarginsBox->set_active_id(rActive);
 +    mxMarginsLabel->show();
 +    mxMarginsBox->show();
 +}
 +
-+int PrintDialog::getPanelMargins() const { return mxMarginsBox ? mxMarginsBox->get_active() : -1; }
++OUString PrintDialog::getPanelMargins() const
++{
++    return mxMarginsBox ? mxMarginsBox->get_active_id() : OUString();
++}
 +
 +IMPL_LINK_NOARG(PrintDialog, SelectMarginsHdl, weld::ComboBox&, void)
 +{
@@ -2419,7 +2446,7 @@ index a1062e8..6cb40f5 100644
      std::shared_ptr<comphelper::ConfigurationChanges> batch(comphelper::ConfigurationChanges::create());
      officecfg::Office::Common::Print::Dialog::RangeSectionExpanded::set(mxRangeExpander->get_expanded(), batch);
      officecfg::Office::Common::Print::Dialog::LayoutSectionExpanded::set(mxLayoutExpander->get_expanded(), batch);
-@@ -760,7 +968,8 @@ void PrintDialog::storeToSettings()
+@@ -760,7 +975,8 @@ void PrintDialog::storeToSettings()
      officecfg::VCL::VCLSettings::PrintDialog::LastPage::set(
                       mxTabCtrl->get_tab_label_text(mxTabCtrl->get_current_page_ident()), batch);
  
@@ -2429,7 +2456,7 @@ index a1062e8..6cb40f5 100644
                       m_xDialog->get_window_state(vcl::WindowDataMask::All), batch );
  
      officecfg::VCL::VCLSettings::PrintDialog::Collate::set( mxCollateBox->get_active(), batch );
-@@ -768,7 +977,8 @@ void PrintDialog::storeToSettings()
+@@ -768,7 +984,8 @@ void PrintDialog::storeToSettings()
      officecfg::VCL::VCLSettings::PrintDialog::CollateSingleJobs::set(
                       mxSingleJobsBox->get_active(), batch );
  
@@ -2439,7 +2466,7 @@ index a1062e8..6cb40f5 100644
  
      batch->commit();
  }
-@@ -790,7 +1000,7 @@ void PrintDialog::readFromSettings()
+@@ -790,7 +1007,7 @@ void PrintDialog::readFromSettings()
  
      // persistent window state
      aValue = officecfg::VCL::VCLSettings::PrintDialog::WindowState::get();
@@ -2448,7 +2475,7 @@ index a1062e8..6cb40f5 100644
          m_xDialog->set_window_state(aValue);
  
      // collate
-@@ -2072,6 +2282,12 @@ IMPL_LINK_NOARG(PrintDialog, ToggleBrochureHdl, weld::Toggleable&, void)
+@@ -2072,6 +2289,12 @@ IMPL_LINK_NOARG(PrintDialog, ToggleBrochureHdl, weld::Toggleable&, void)
  IMPL_LINK(PrintDialog, ClickOKCancelHdl, weld::Button&, rButton, void)
  {
      storeToSettings();
@@ -2461,7 +2488,7 @@ index a1062e8..6cb40f5 100644
      m_xDialog->response(&rButton == mxOKButton.get() ? RET_OK : RET_CANCEL);
  }
  
-@@ -2102,7 +2318,7 @@ IMPL_LINK_NOARG(PrintDialog, ClickSetupHdl, weld::Button&, void)
+@@ -2102,7 +2325,7 @@ IMPL_LINK_NOARG(PrintDialog, ClickSetupHdl, weld::Button&, void)
      // Save orientation dropdown — Properties dialog can clobber it.
      const int nSavedOrient = mxOrientationBox->get_active();
  
@@ -2472,7 +2499,7 @@ index a1062e8..6cb40f5 100644
      if (!isPrintToFile())
 diff --git a/vcl/uiconfig/ui/hstprintpanel.ui b/vcl/uiconfig/ui/hstprintpanel.ui
 new file mode 100644
-index 0000000..2518915
+index 0000000..fe86cab
 --- /dev/null
 +++ b/vcl/uiconfig/ui/hstprintpanel.ui
 @@ -0,0 +1,1680 @@
@@ -3295,11 +3322,11 @@ index 0000000..2518915
 +                                        <property name="hexpand">True</property>
 +                                        <property name="tooltip-text" translatable="yes" context="hstprintpanel|marginsboxtip">The page margins of the document (its page style)</property>
 +                                        <items>
-+                                          <item translatable="yes" context="hstprintpanel|marginsbox">Normal</item>
-+                                          <item translatable="yes" context="hstprintpanel|marginsbox">Narrow</item>
-+                                          <item translatable="yes" context="hstprintpanel|marginsbox">Moderate</item>
-+                                          <item translatable="yes" context="hstprintpanel|marginsbox">Wide</item>
-+                                          <item translatable="yes" context="hstprintpanel|marginsbox">Custom Margins</item>
++                                          <item id="normal" translatable="yes" context="hstprintpanel|marginsbox">Normal</item>
++                                          <item id="narrow" translatable="yes" context="hstprintpanel|marginsbox">Narrow</item>
++                                          <item id="moderate" translatable="yes" context="hstprintpanel|marginsbox">Moderate</item>
++                                          <item id="wide" translatable="yes" context="hstprintpanel|marginsbox">Wide</item>
++                                          <item id="custom" translatable="yes" context="hstprintpanel|marginsbox">Custom Margins</item>
 +                                        </items>
 +                                      </object>
 +                                      <packing>

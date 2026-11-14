@@ -17,8 +17,9 @@ DOCSH = "sc/source/ui/docshell/docsh4.cxx"
 VCL_PO = "translations/source/vi/vcl/messages.po"
 SFX_PO = "translations/source/vi/sfx2/messages.po"
 ENTRIES = ["Normal", "Narrow", "Moderate", "Wide", "Custom Margins"]
+IDS = ["normal", "narrow", "moderate", "wide", "custom"]
 VIETNAMESE = ["Bình thường", "Hẹp", "Vừa", "Rộng", "Lề tùy chỉnh"]
-TWIPS_PER_CM = 1440 / 2.54
+MM100_PER_TWIP = 2540 / 1440
 
 
 def by_id(root, oid):
@@ -44,13 +45,16 @@ class Box(unittest.TestCase):
         self.assertEqual(props(label)["visible"], "False")
         self.assertEqual(props(box)["visible"], "False")
         self.assertEqual([i.text for i in box.iter("item")], ENTRIES)
+        self.assertEqual([i.get("id") for i in box.iter("item")], IDS)
 
     def test_dialog_and_job_panel(self):
         code = added(PATCH, DIALOG)
         self.assertIn('mxMarginsBox(m_xBuilder->weld_combo_box(u"marginsbox"_ustr))', code)
         self.assertIn("mxMarginsBox->connect_changed(LINK(this, PrintDialog, SelectMarginsHdl));", code)
-        setter = code[code.index("void PrintDialog::setPanelMargins"):code.index("int PrintDialog::getPanelMargins")]
-        for step in ("mxMarginsBox->set_active(nActive);", "mxMarginsLabel->show();", "mxMarginsBox->show();"):
+        setter = code[code.index("void PrintDialog::setPanelMargins"):
+                      code.index("OUString PrintDialog::getPanelMargins")]
+        for step in ("mxMarginsBox->remove(nPos);", "mxMarginsBox->set_active_id(rActive);", "mxMarginsLabel->show();",
+                     "mxMarginsBox->show();"):
             with self.subTest(step=step):
                 self.assertIn(step, setter)
         job = added(PATCH, JOBPANEL)
@@ -61,27 +65,43 @@ class Box(unittest.TestCase):
 
 
 class Presets(unittest.TestCase):
-    def test_presets_are_page_setup_ones(self):
+    def test_presets_are_the_applications_margins_menus(self):
         code = added(PATCH, MARGINS)
-        rows = re.findall(r"\{ (\d+), (\d+), (\d+), (\d+) \}", code)
-        presets = [tuple(int(v) for v in row) for row in rows]
-        # sw PageMarginUtils.hxx: NORMAL 1136, NARROW 720, HST_MODERATE_LR 1080, WIDE 1440 / 2880
-        self.assertEqual(presets, [(1136,) * 4, (720,) * 4, (1080, 1080, 1440, 1440), (2880, 2880, 1440, 1440)])
-        self.assertAlmostEqual(presets[0][0] / TWIPS_PER_CM, 2.0, places=2)  # Bình thường = 2 cm
+
+        def table(name):
+            body = code[code.index("constexpr Preset %s[]" % name):]
+            body = body[:body.index(";")]
+            return [(i, tuple(int(v) for v in vals.split(", ")))
+                    for i, vals in re.findall(r'\{ u"(\w+)", ([\d, ]+) \}', body)]
+        writer = dict(table("WRITER"))
+        # sw PageMarginUtils.hxx in twips: NORMAL 1136, NARROW 720, HST_MODERATE_LR 1080, WIDE 1440 / 2880
+        for preset, twips in (("normal", (1136,) * 4), ("narrow", (720,) * 4), ("moderate", (1080, 1080, 1440, 1440)),
+                              ("wide", (2880, 2880, 1440, 1440))):
+            with self.subTest(preset=preset):
+                self.assertEqual(writer[preset], tuple(round(t * MM100_PER_TWIP) for t in twips))
+        self.assertEqual(writer["normal"][0], 2004)  # Bình thường = 2 cm
         self.assertIn("SWPAGE_HST_MODERATE_LR = 1080;", added("hst-writer-margin-moderate.patch",
                                                                 "sw/source/uibase/sidebar/PageMarginControl.hxx"))
+        # Sheets: the values of its ribbon's Margins menu (left, right, top, bottom), no Moderate
+        menu = added("hst-ribbon-ux-calc.patch", "sc/uiconfig/scalc/ui/notebookbar.ui")
+        calc = dict(table("CALC"))
+        self.assertEqual(sorted(calc), ["narrow", "normal", "wide"])
+        for preset, values in calc.items():
+            with self.subTest(preset=preset):
+                self.assertIn(".uno:CalcPageMargin?Page.LeftMargin:long=%d&amp;Page.RightMargin:long=%d&amp;"
+                              "Page.TopMargin:long=%d&amp;Page.BottomMargin:long=%d" % values, menu)
 
     def test_commands_and_one_undo_step(self):
         code = added(PATCH, MARGINS)
         for name in ('u".uno:PageLRMargin"_ustr', 'u"Page.Left"_ustr', 'u"Page.Right"_ustr',
                      'u".uno:PageULMargin"_ustr', 'u"Page.Upper"_ustr', 'u"Page.Lower"_ustr',
                      'u".uno:CalcPageMargin"_ustr', 'u"Page.LeftMargin"_ustr', 'u"Page.BottomMargin"_ustr',
-                     'u"SynchronMode"_ustr', "o3tl::Length::mm100"):
+                     'u"SynchronMode"_ustr', 'u"moderate"'):
             with self.subTest(name=name):
                 self.assertIn(name, code)
         self.assertLess(code.index("enterUndoContext(SfxResId(STR_HST_BS_PRINT_MARGINS))"),
                         code.index("leaveUndoContext()"))
-        self.assertIn("return eApp == BackstageApp::Writer || eApp == BackstageApp::Calc;", code)
+        self.assertIn("bool HasMarginPresets(BackstageApp eApp) { return !lcl_presets(eApp).empty(); }", code)
 
     def test_calc_margins_command_is_undoable(self):
         code = after(PATCH, DOCSH)
@@ -96,11 +116,13 @@ class PageAction(unittest.TestCase):
     def test_preset_keeps_the_job_custom_opens_page_setup(self):
         page = added(PATCH, PAGE)
         margins = page[page.index("if (eAction == Action::Margins && m_xJob)"):page.index("// the job leaves the page")]
-        for step in ("ApplyMarginPreset(m_xFrame, m_eApp", "ShowMargins();", "m_xJob->UpdatePreview();",
+        for step in ("if (aPreset != MARGINS_CUSTOM)", "ApplyMarginPreset(m_xFrame, m_eApp, aPreset);",
+                     "ShowMargins();", "m_xJob->UpdatePreview();",
                      "eAction = Action::PageSetup;"):
             with self.subTest(step=step):
                 self.assertIn(step, margins)
         self.assertIn("if (m_xJob && HasMarginPresets(m_eApp))", page)
+        self.assertIn("GetMarginPreset(m_xFrame, m_eApp), RemovedMarginPresets(m_eApp),", page)
 
     def test_vietnamese(self):
         entries = re.findall(r'msgctxt "hstprintpanel\|marginsbox"\nmsgid "([^"]*)"\nmsgstr "([^"]*)"',

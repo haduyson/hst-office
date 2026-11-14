@@ -3,9 +3,10 @@
 """Margins box of the File panel's Print page (hst-backstage-print.patch) end to end, widgets driven by id through
 the UITest service (no keys). Usage: <office python> check-backstage-print-margins.py --soffice PATH --out DIR
 [--shot CMD] [--no-pdf-printer]
-Writer and Sheets: .uno:Print opens the page; the box shows the preset of the document (2 cm: "Bình thường");
-picking a preset gives the page style its margins in one undo step ("Đổi lề trang"), the preview counts the new pages
-and the job prints them; one undo gives the old margins back; "Lề tùy chỉnh" opens Page Setup. Slides: no box.
+Writer and Sheets: .uno:Print opens the page; the box shows the preset of the document ("Bình thường":
+Writer 2 cm, Sheets 1,9/1,8 cm as its ribbon's Margins menu; Sheets has no "Vừa"); picking a preset gives the
+page style its margins in one undo step ("Đổi lề trang"), the preview counts the new pages and the job prints them;
+one undo gives the old margins back; "Lề tùy chỉnh" opens Page Setup. Slides: no box.
 Exit 1 on a failure.
 """
 import argparse, glob, importlib.util, os, sys, tempfile, time  # noqa: E401
@@ -17,10 +18,11 @@ base = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(base)
 check, state, failures = base.check, base.state, base.failures
 
-# entries of the box, in its order; margins in 1/100 mm (left, right, top, bottom) as the page style reports them
-PRESETS = [("Bình thường", (2004,) * 4), ("Hẹp", (1270,) * 4), ("Vừa", (1905, 1905, 2540, 2540)),
-           ("Rộng", (5080, 5080, 2540, 2540))]
-CUSTOM, UNDO_TITLE = 4, "Đổi lề trang"
+# entries of the box per application, in its order; margins in 1/100 mm (left, right, top, bottom)
+PRESETS = {"swriter": {"Bình thường": (2004,) * 4, "Hẹp": (1270,) * 4, "Vừa": (1905, 1905, 2540, 2540),
+                       "Rộng": (5080, 5080, 2540, 2540)},
+           "scalc": {"Bình thường": (1800, 1800, 1900, 1900), "Hẹp": (640, 640, 1900, 1900), "Rộng": (2540,) * 4}}
+NORMAL, CUSTOM, UNDO_TITLE = "Bình thường", "Lề tùy chỉnh", "Đổi lề trang"
 
 
 def props(**values):
@@ -51,7 +53,7 @@ def near(got, want, slack=3):
 
 
 def make_doc(office, app):
-    """A document of several pages whose page count follows its margins, its page style at 2 cm."""
+    """A document of several pages whose page count follows its margins, its page style at "Bình thường"."""
     doc = office.desktop.loadComponentFromURL(f"private:factory/{app}", "_blank", 0, ())
     if app == "swriter":
         text = doc.Text
@@ -63,8 +65,8 @@ def make_doc(office, app):
             tuple(tuple("R%dC%d text" % (r, c) for c in range(14)) for r in range(120)))
     if app in ("swriter", "scalc"):
         style = page_style(doc, app)
-        for prop in ("LeftMargin", "RightMargin", "TopMargin", "BottomMargin"):
-            style.setPropertyValue(prop, 2000)
+        for prop, value in zip(("LeftMargin", "RightMargin", "TopMargin", "BottomMargin"), PRESETS[app][NORMAL]):
+            style.setPropertyValue(prop, value)
     return doc
 
 
@@ -83,14 +85,17 @@ def open_page(office, doc):
     return top
 
 
-def pick(office, doc, app, index, pdf_dir, shot):
-    """Pick preset index on the open page; checks margins, undo step, preview and the printout."""
+def pick(office, doc, app, name, pdf_dir, shot):
+    """Pick preset name on the open page; checks margins, undo step, preview and the printout."""
     top = wait_panel(office)
     before_pages = state(top.getChild("totalnumpages")).get("Text")
     old, undo = margins(doc, app), doc.UndoManager
     titles = len(undo.getAllUndoActionTitles())
-    name, want = PRESETS[index]
-    top.getChild("marginsbox").executeAction("SELECT", props(POS=str(index)))
+    want = PRESETS[app][name]
+    box = top.getChild("marginsbox")
+    entries = state(box).get("EntryCount")
+    check(str(entries) == str(len(PRESETS[app]) + 1), f"{app}: the box has its presets and {CUSTOM} ({entries})")
+    box.executeAction("SELECT", props(TEXT=name))
     time.sleep(4)
     top = wait_panel(office)
     check(top is not None, f"{app}: {name}: the job stays on the Print page")
@@ -105,7 +110,7 @@ def pick(office, doc, app, index, pdf_dir, shot):
     after_pages = state(top.getChild("totalnumpages")).get("Text")
     check(after_pages != before_pages,
           f"{app}: {name}: the preview counts the new pages ({before_pages} -> {after_pages})")
-    shot(f"{app}-margins-{index}.png")
+    shot(f"{app}-margins-{list(PRESETS[app]).index(name)}.png")
     if pdf_dir:
         before = set(glob.glob(os.path.join(pdf_dir, "*.pdf")))
         top.getChild("ok").executeAction("CLICK", ())
@@ -120,11 +125,11 @@ def pick(office, doc, app, index, pdf_dir, shot):
 def check_custom(office, doc, app, shot):
     top = open_page(office, doc)
     shown = top and state(top.getChild("marginsbox")).get("SelectEntryText")
-    check(shown == PRESETS[0][0], f"{app}: the box shows the 2 cm page style as {PRESETS[0][0]} ({shown})")
+    check(shown == NORMAL, f"{app}: the box shows the page style {PRESETS[app][NORMAL]} as {NORMAL} ({shown})")
     if top is None:
         return
     panel_id = state(top).get("ID")
-    top.getChild("marginsbox").executeAction("SELECT", props(POS=str(CUSTOM)))
+    top.getChild("marginsbox").executeAction("SELECT", props(TEXT=CUSTOM))
     for _ in range(40):
         dialog = office.ui.getTopFocusWindow()
         if state(dialog).get("ID") != panel_id and "cancel" in dialog.getChildren():
@@ -132,7 +137,7 @@ def check_custom(office, doc, app, shot):
         time.sleep(0.5)
     else:
         dialog = None
-    check(dialog is not None, f"{app}: Lề tùy chỉnh opens Page Setup ({dialog and state(dialog).get('ID')})")
+    check(dialog is not None, f"{app}: {CUSTOM} opens Page Setup ({dialog and state(dialog).get('ID')})")
     shot(f"{app}-margins-custom.png")
     dialog and dialog.getChild("cancel").executeAction("CLICK", ())
     time.sleep(1)
@@ -151,11 +156,11 @@ def main():
     office = base.VisibleOffice(args.soffice, out, None if args.no_pdf_printer else pdf_dir)
     docs = []
     try:
-        for app, index in (("swriter", 1), ("scalc", 3)):
+        for app, name in (("swriter", "Hẹp"), ("scalc", "Rộng")):
             docs.append(doc := make_doc(office, app))
             office.close_welcome()
             check(open_page(office, doc) is not None, f"{app}: .uno:Print opens the Print page")
-            pick(office, doc, app, index, None if args.no_pdf_printer else pdf_dir, shot)
+            pick(office, doc, app, name, None if args.no_pdf_printer else pdf_dir, shot)
             office.ui.executeCommandForProvider(".uno:HSTBackstage", doc.getCurrentController().getFrame())
             time.sleep(1)
             check_custom(office, doc, app, shot)
