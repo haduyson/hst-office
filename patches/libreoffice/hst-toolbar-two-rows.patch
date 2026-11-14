@@ -61,7 +61,7 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
              if ( mnWinHeight > mnMaxItemHeight )
                  aSize.setHeight( nCalcLines * mnWinHeight );
              else
-@@ -1694,6 +1698,39 @@
+@@ -1694,6 +1698,40 @@
      if( IsMenuEnabled() && !ImplIsFloatingMode() )
          nMenuWidth = mpData->maMenubuttonItem.maItemSize.Width();
  
@@ -70,7 +70,8 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
 +    // the width, the items flow on from the first row into the second and those left over go into the menu.
 +    ImplToolItems::size_type nHstBreak = 0;
 +    ImplToolItems::size_type nHstLineEnd = 0; // the last button of the first row
-+    if ( bCalcHorz && ImplHstBalanced() )
++    const bool bHstRows = bCalcHorz && ImplHstBalanced();
++    if ( bHstRows )
 +    {
 +        std::vector< hst::toolbar::RowItem > aRow;
 +        aRow.reserve( mpData->m_aItems.size() );
@@ -101,7 +102,7 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
      // we need to know which item is the last visible one to be able to add
      // the menu width in case we are unable to show all the items
      ImplToolItems::iterator it, lastVisible;
-@@ -1709,6 +1746,21 @@
+@@ -1709,6 +1747,21 @@
          it->mbBreak = bBreak;
          bBreak = false;
  
@@ -123,7 +124,7 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
          if ( it->mbVisible )
          {
              bWindow     = false;
-@@ -1741,14 +1793,14 @@
+@@ -1741,14 +1794,16 @@
  
                  // in case we are able to show all the items, we do not want
                  // to show the toolbar's menu; otherwise yes
@@ -137,11 +138,13 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
              {
                  nCurWidth = it->mnSepSize;
 -                if ( !ImplIsFloatingMode() && ( it != lastVisible ) && (nLineWidth+nCurWidth+nMenuWidth > nWidthTotal) )
-+                if ( !ImplIsFloatingMode() && ( it != lastVisible ) && !bHstLineEnd && (nLineWidth+nCurWidth+nMenuWidth > nWidthTotal) )
++                // HST Office: in the two rows a separator never starts a row; the next button does, and the
++                // separator before it is not drawn
++                if ( !ImplIsFloatingMode() && ( it != lastVisible ) && !bHstRows && (nLineWidth+nCurWidth+nMenuWidth > nWidthTotal) )
                      bBreak = true;
              }
              // treat breaks as separators, except when using old style toolbars (ie. no menu button)
-@@ -1994,7 +2046,8 @@
+@@ -1994,7 +2049,8 @@
  
          // adjust linesize if docked in single-line mode (i.e. when using a clipped item menu)
          // we have to center all items in the window height
@@ -151,7 +154,7 @@ Tests: tests/unit/test_toolbar_two_rows.py (break placement), tests/runtime/chec
          {
              tools::Long  nWinHeight = mnDY - nTop - nBottom;
              if( nWinHeight > nLineSize )
-@@ -4037,6 +4090,23 @@
+@@ -4037,6 +4093,23 @@
      return aSize;
  }
  
