@@ -1,0 +1,637 @@
+HST Office: the picture and table style galleries on the contextual ribbon tabs.
+
+The gallery tool items (.uno:HstPictureStyles, .uno:HstTableStyles from hst-picture-table-style-galleries.patch)
+become the first column of an existing group, spanning its two item rows; the group's other items move one
+column right and its caption spans the gallery too. Ids bxHst{Picture,Table}StylesGallery /
+hst{Picture,Table}StylesGallery are stable for the ribbon scale ladder (6/4/3 tiles, then the group folds).
+
+- Writer: gdImageFillBorder ("Định dạng ảnh" ▸ Tô nền và viền), gdTableStyle ("Thiết kế bảng" ▸ Kiểu dáng bảng).
+- Sheets: gdImageFillBorder ("Định dạng ảnh"), gdTableDesignMain ("Thiết kế bảng" ▸ Bảng).
+- Slides: gdImageFillBorder ("Định dạng ảnh"), gdTableLayout ("Thiết kế bảng" ▸ Kiểu dáng bảng).
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -10378,6 +10378,29 @@
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">3</property>
+                         <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstTableStylesGallery">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="hstTableStylesGallery">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:HstTableStyles</property>
++                              </object>
++                              <packing>
++                                <property name="expand">True</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkBox" id="bxHstCaptionTableStyle">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+@@ -10450,7 +10473,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">3</property>
++                            <property name="width">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10477,7 +10500,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">2</property>
+                           </packing>
+@@ -10502,7 +10525,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -10527,7 +10550,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -10551,7 +10574,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -10575,7 +10598,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -10586,7 +10609,7 @@
+                             <property name="orientation">vertical</property>
+                               </object>
+                               <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+@@ -12165,6 +12188,29 @@
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">3</property>
+                         <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstPictureStylesGallery">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="hstPictureStylesGallery">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:HstPictureStyles</property>
++                              </object>
++                              <packing>
++                                <property name="expand">True</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkBox" id="bxHstCaptionImageFillBorder">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+@@ -12237,7 +12283,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">3</property>
++                            <property name="width">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12250,7 +12296,7 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+@@ -12274,7 +12320,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -12298,7 +12344,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -12334,7 +12380,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -12358,7 +12404,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -12381,7 +12427,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">1</property>
+                             <property name="width">2</property>
+                           </packing>
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -12595,6 +12595,29 @@
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">3</property>
+                         <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstTableStylesGallery">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="hstTableStylesGallery">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:HstTableStyles</property>
++                              </object>
++                              <packing>
++                                <property name="expand">True</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkLabel" id="lbTableDesignMain">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+@@ -12609,7 +12632,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">5</property>
++                            <property name="width">6</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12635,7 +12658,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">2</property>
+                           </packing>
+@@ -12662,7 +12685,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -12688,7 +12711,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -12715,7 +12738,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">2</property>
+                           </packing>
+@@ -12739,7 +12762,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -12762,7 +12785,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -12785,7 +12808,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">5</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -12808,7 +12831,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">5</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -12819,7 +12842,7 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">5</property>
++                            <property name="left-attach">6</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+@@ -13651,6 +13674,29 @@
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">3</property>
+                         <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstPictureStylesGallery">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="hstPictureStylesGallery">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:HstPictureStyles</property>
++                              </object>
++                              <packing>
++                                <property name="expand">True</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkLabel" id="lbImageFillBorder">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+@@ -13668,7 +13714,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">3</property>
++                            <property name="width">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -13681,7 +13727,7 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+@@ -13705,7 +13751,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -13728,7 +13774,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">1</property>
+                             <property name="width">2</property>
+                           </packing>
+@@ -13752,7 +13798,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -13788,7 +13834,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -13833,7 +13879,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+--- a/sd/uiconfig/simpress/ui/notebookbar.ui
++++ b/sd/uiconfig/simpress/ui/notebookbar.ui
+@@ -9526,6 +9526,29 @@
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">3</property>
+                         <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstTableStylesGallery">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="hstTableStylesGallery">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:HstTableStyles</property>
++                              </object>
++                              <packing>
++                                <property name="expand">True</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkLabel" id="lbTableLayout">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+@@ -9541,7 +9564,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">4</property>
++                            <property name="width">5</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9551,7 +9574,7 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">5</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+@@ -9580,7 +9603,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">2</property>
+                           </packing>
+@@ -9604,7 +9627,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -9628,7 +9651,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -9651,7 +9674,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">1</property>
+                             <property name="width">2</property>
+                           </packing>
+@@ -9675,7 +9698,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -9711,7 +9734,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -10642,6 +10665,29 @@
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">3</property>
+                         <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstPictureStylesGallery">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="hstPictureStylesGallery">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:HstPictureStyles</property>
++                              </object>
++                              <packing>
++                                <property name="expand">True</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkLabel" id="lbImageFillBorder">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+@@ -10659,7 +10705,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">3</property>
++                            <property name="width">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10672,7 +10718,7 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+@@ -10696,7 +10742,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -10719,7 +10765,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">1</property>
+                             <property name="width">2</property>
+                           </packing>
+@@ -10743,7 +10789,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -10779,7 +10825,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -10825,7 +10871,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+--- a/solenv/sanitizers/ui/modules/swriter.suppr
++++ b/solenv/sanitizers/ui/modules/swriter.suppr
+@@ -693,3 +693,5 @@
+ sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstInsertShapes-12'] button-no-label
+ sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstInsertShapes-13'] button-no-label
+ sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstInsertShapes-14'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='hstPictureStylesGallery'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkToolButton[@id='hstTableStylesGallery'] button-no-label
+--- a/solenv/sanitizers/ui/modules/scalc.suppr
++++ b/solenv/sanitizers/ui/modules/scalc.suppr
+@@ -776,3 +776,5 @@
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='btnHstConvertTextToNumber'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuToolButton[@id='btnViewFreezePanes'] button-no-label
+ sc/uiconfig/scalc/ui/hsttextnumberbutton.ui://GtkMenuButton[@id='menubutton'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='hstPictureStylesGallery'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkToolButton[@id='hstTableStylesGallery'] button-no-label
+--- a/solenv/sanitizers/ui/modules/simpress.suppr
++++ b/solenv/sanitizers/ui/modules/simpress.suppr
+@@ -697,3 +697,5 @@
+ sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxConnect'] button-no-label
+ sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxBreak'] button-no-label
+ sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHstCtxMorphing'] button-no-label
++sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='hstPictureStylesGallery'] button-no-label
++sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='hstTableStylesGallery'] button-no-label

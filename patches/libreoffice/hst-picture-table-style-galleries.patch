@@ -1,0 +1,1936 @@
+HST Office: picture and table style galleries on the contextual ribbon tabs (Writer, Sheets, Slides).
+
+Owner decision (14/11/2026, gap list G20 moved into 1.0.2): the "Định dạng ảnh" and "Thiết kế bảng" tabs get
+a one-row gallery of 8 HST-designed styles, like the reference suite's Picture Styles and Table Styles.
+
+- svx HstStyleGalleryData: the 8 picture styles (no style, thin border, blue border, white frame with shadow,
+  soft shadow, dark frame, thin border with drop shadow, blue border with shadow) and the 8 table styles
+  (HST blue, light grid, green, orange, teal, purple, charcoal, minimal) in HST colours.
+- svx HstStyleDispatcher: protocol handler vnd.hst.styles:Picture / vnd.hst.styles:Table with Style=<id>,
+  applied through UNO in one undo context; read-only documents and selections without a picture or table
+  change nothing. Pictures map to native properties: Writer frame borders + ShadowFormat (docx a:ln and outer
+  shadow), Sheets/Slides shape LineStyle/LineColor/LineWidth + Shadow* (xlsx/pptx a:ln, a:outerShdw).
+  Tables: Writer TableStyles family + TableTemplateName (autoformat: direct cell formatting in docx);
+  Slides "table" design with "cell" styles + TableTemplate (the table's header/banding options stay);
+  Sheets the table's TableStyleName (header row / banded rows options stay).
+- sc HstTableStyles: the HST styles as custom Sheets table styles in every document beside the OOXML ones
+  (exported to xlsx as tableStyles with dxfs only when a table uses them).
+- svx HstStyleGalleryWindow/Control: .uno:HstPictureStyles and .uno:HstTableStyles (generic Controller.xcu
+  entries) show one row of tiles drawn in code on the field colour (light and dark mode), 6/4/3 tiles for the
+  ribbon ladder's "hst-gallery-state", ◂ ▸ paging and ▾ for the full options (Writer picture dialog / line
+  dialog, Writer table styles dialog, Sheets sidebar, Slides table design). No live preview on hover:
+  applying and undoing on hover would discard the redo stack and mark the document modified.
+- Rounded corners and reflection are not offered: LibreOffice pictures have no native property for them.
+
+License: these upstream files remain under their original license (MPL-2.0); new files MPL-2.0.
+Test: tests/unit/test_picture_table_style_galleries.py reads the patch; tests/runtime/check-style-galleries.py
+dispatches every style in Writer, Sheets and Slides, checks the properties, one undo action, and the
+.docx/.xlsx/.pptx round trip.
+---
+--- /dev/null
++++ b/include/svx/HstStyleGalleryData.hxx
+@@ -0,0 +1,66 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: the picture and table styles of the ribbon galleries ("Định dạng ảnh", "Thiết kế bảng").
++// One table of styles serves Writer, Sheets and Slides; each application maps a style onto its native
++// properties (frame borders and shadow, shape line and shadow, table styles), so documents keep the look
++// when saved as .docx/.xlsx/.pptx.
++
++#include <svx/svxdllapi.h>
++#include <tools/color.hxx>
++#include <unotools/resmgr.hxx>
++
++#include <span>
++#include <string_view>
++
++namespace svx::hststyles
++{
++/// A picture style. Lengths in 1/100 mm; a zero line width removes the line, a zero shadow distance the shadow.
++struct PictureStyle
++{
++    std::u16string_view aId;
++    TranslateId aName;
++    Color aLineColor;
++    sal_Int32 nLineWidth;
++    sal_Int32 nShadowDistance; // towards the bottom right
++    sal_Int32 nShadowBlur; // Sheets and Slides; Writer frames have a hard shadow
++    sal_Int16 nShadowTransparence; // percent
++};
++
++/// A table style. aId is also the name of the style in the document (stable across UI languages).
++struct TableStyle
++{
++    std::u16string_view aId;
++    TranslateId aName;
++    Color aHeaderFill; // COL_TRANSPARENT: no header fill (the header has a strong bottom line instead)
++    Color aHeaderText;
++    Color aBandFill; // COL_TRANSPARENT: no banded rows
++    Color aLineColor;
++    bool bVerticalLines;
++};
++
++/// Shadow colour of every picture style.
++constexpr Color PICTURE_SHADOW_COLOR(0x00, 0x00, 0x00);
++/// Thin table line and the header's bottom line, 1/100 mm (0.5 pt, 1.5 pt).
++constexpr sal_Int32 TABLE_THIN_LINE = 18;
++constexpr sal_Int32 TABLE_HEADER_LINE = 53;
++
++SVX_DLLPUBLIC std::span<const PictureStyle> PictureStyles();
++SVX_DLLPUBLIC std::span<const TableStyle> TableStyles();
++SVX_DLLPUBLIC const PictureStyle* FindPictureStyle(std::u16string_view rId);
++SVX_DLLPUBLIC const TableStyle* FindTableStyle(std::u16string_view rId);
++/// The translated name of a style, for tooltips, accessible names and the applications' style lists.
++SVX_DLLPUBLIC OUString StyleUIName(const TranslateId& rName);
++/// The colour of the header's bottom line: the header fill, or the line colour of an unfilled header.
++SVX_DLLPUBLIC Color HeaderLineColor(const TableStyle& rStyle);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/inc/hststylegallery.hrc
+@@ -0,0 +1,43 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: strings of the picture and table style galleries.
++
++#include <unotools/resmgr.hxx>
++
++#define NC_(Context, String) TranslateId(Context, u8##String)
++
++#define RID_HST_PICSTYLE_NONE               NC_("RID_HST_PICSTYLE_NONE", "No Style")
++#define RID_HST_PICSTYLE_THIN               NC_("RID_HST_PICSTYLE_THIN", "Thin Border")
++#define RID_HST_PICSTYLE_BLUE               NC_("RID_HST_PICSTYLE_BLUE", "Blue Border")
++#define RID_HST_PICSTYLE_WHITE_SHADOW       NC_("RID_HST_PICSTYLE_WHITE_SHADOW", "White Frame with Shadow")
++#define RID_HST_PICSTYLE_SOFT_SHADOW        NC_("RID_HST_PICSTYLE_SOFT_SHADOW", "Soft Shadow")
++#define RID_HST_PICSTYLE_DARK_FRAME         NC_("RID_HST_PICSTYLE_DARK_FRAME", "Dark Frame")
++#define RID_HST_PICSTYLE_THIN_DROP          NC_("RID_HST_PICSTYLE_THIN_DROP", "Thin Border with Drop Shadow")
++#define RID_HST_PICSTYLE_BLUE_SHADOW        NC_("RID_HST_PICSTYLE_BLUE_SHADOW", "Blue Border with Shadow")
++
++#define RID_HST_TABLESTYLE_BLUE             NC_("RID_HST_TABLESTYLE_BLUE", "HST Blue")
++#define RID_HST_TABLESTYLE_GRID             NC_("RID_HST_TABLESTYLE_GRID", "Light Grid")
++#define RID_HST_TABLESTYLE_GREEN            NC_("RID_HST_TABLESTYLE_GREEN", "Green")
++#define RID_HST_TABLESTYLE_ORANGE           NC_("RID_HST_TABLESTYLE_ORANGE", "Orange")
++#define RID_HST_TABLESTYLE_TEAL             NC_("RID_HST_TABLESTYLE_TEAL", "Teal")
++#define RID_HST_TABLESTYLE_PURPLE           NC_("RID_HST_TABLESTYLE_PURPLE", "Purple")
++#define RID_HST_TABLESTYLE_CHARCOAL         NC_("RID_HST_TABLESTYLE_CHARCOAL", "Charcoal")
++#define RID_HST_TABLESTYLE_MINIMAL          NC_("RID_HST_TABLESTYLE_MINIMAL", "Minimal")
++
++#define RID_HST_STYLEGALLERY_PICTURES       NC_("RID_HST_STYLEGALLERY_PICTURES", "Picture Styles")
++#define RID_HST_STYLEGALLERY_TABLES         NC_("RID_HST_STYLEGALLERY_TABLES", "Table Styles")
++#define RID_HST_STYLEGALLERY_MORE_PICTURES  NC_("RID_HST_STYLEGALLERY_MORE_PICTURES", "More border and shadow options")
++#define RID_HST_STYLEGALLERY_MORE_TABLES    NC_("RID_HST_STYLEGALLERY_MORE_TABLES", "More table styles")
++#define RID_HST_STYLEGALLERY_UNDO_PICTURE   NC_("RID_HST_STYLEGALLERY_UNDO_PICTURE", "Apply picture style")
++#define RID_HST_STYLEGALLERY_UNDO_TABLE     NC_("RID_HST_STYLEGALLERY_UNDO_TABLE", "Apply table style")
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/svx/Library_svx.mk
++++ b/svx/Library_svx.mk
+@@ -278,6 +278,14 @@
+     svx/source/tbxctrls/fillctrl \
+     svx/source/tbxctrls/formatpaintbrushctrl \
+     svx/source/tbxctrls/grafctrl \
++    svx/source/tbxctrls/HstPictureStyleApply \
++    svx/source/tbxctrls/HstStyleDispatcher \
++    svx/source/tbxctrls/HstStyleGalleryControl \
++    svx/source/tbxctrls/HstStyleGalleryData \
++    svx/source/tbxctrls/HstStyleGalleryPreview \
++    svx/source/tbxctrls/HstStyleGalleryWindow \
++    svx/source/tbxctrls/HstTableStyleApply \
++    svx/source/tbxctrls/HstTableStyleCells \
+     svx/source/tbxctrls/itemwin \
+     svx/source/tbxctrls/layctrl \
+     svx/source/tbxctrls/lboxctrl \
+--- a/svx/UIConfig_svx.mk
++++ b/svx/UIConfig_svx.mk
+@@ -138,6 +138,7 @@
+ 	svx/uiconfig/ui/stylemenu \
+ 	svx/uiconfig/ui/surfacewindow \
+ 	svx/uiconfig/ui/tablewindow \
++	svx/uiconfig/ui/hststylegallery \
+ 	svx/uiconfig/ui/stylespreview \
+ 	svx/uiconfig/ui/textcharacterspacingcontrol \
+ 	svx/uiconfig/ui/textcontrolchardialog \
+--- /dev/null
++++ b/svx/source/tbxctrls/HstPictureStyleApply.cxx
+@@ -0,0 +1,126 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: a picture style on the selected pictures. Writer pictures are frames: the style sets the four
++// frame borders and the frame shadow, which the .docx export writes as the picture outline (a:ln) and its
++// outer shadow. Sheets and Slides pictures are shapes: the style sets the shape line and the shape shadow,
++// written as a:ln and a:outerShdw in .xlsx and .pptx.
++
++#include "HstStyleApply.hxx"
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/drawing/LineStyle.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/table/BorderLine2.hpp>
++#include <com/sun/star/table/BorderLineStyle.hpp>
++#include <com/sun/star/table/ShadowFormat.hpp>
++#include <com/sun/star/view/XSelectionSupplier.hpp>
++
++#include <vector>
++
++using namespace css;
++
++namespace svx::hststyles
++{
++namespace
++{
++bool Supports(const uno::Reference<uno::XInterface>& rxObject, const OUString& rService)
++{
++    uno::Reference<lang::XServiceInfo> xInfo(rxObject, uno::UNO_QUERY);
++    return xInfo.is() && xInfo->supportsService(rService);
++}
++
++void ApplyToWriterFrame(const uno::Reference<beans::XPropertySet>& rxFrame, const PictureStyle& rStyle)
++{
++    table::BorderLine2 aLine;
++    if (rStyle.nLineWidth > 0)
++    {
++        aLine.Color = sal_Int32(rStyle.aLineColor);
++        aLine.LineStyle = table::BorderLineStyle::SOLID;
++        aLine.LineWidth = rStyle.nLineWidth;
++        aLine.OuterLineWidth = static_cast<sal_Int16>(rStyle.nLineWidth);
++    }
++    else
++        aLine.LineStyle = table::BorderLineStyle::NONE;
++    for (const OUString& rName : { u"LeftBorder"_ustr, u"RightBorder"_ustr, u"TopBorder"_ustr,
++                                   u"BottomBorder"_ustr })
++        rxFrame->setPropertyValue(rName, uno::Any(aLine));
++
++    table::ShadowFormat aShadow;
++    aShadow.Location = rStyle.nShadowDistance > 0 ? table::ShadowLocation_BOTTOM_RIGHT
++                                                  : table::ShadowLocation_NONE;
++    aShadow.ShadowWidth = static_cast<sal_Int16>(rStyle.nShadowDistance);
++    aShadow.IsTransparent = false;
++    aShadow.Color = sal_Int32(PICTURE_SHADOW_COLOR);
++    rxFrame->setPropertyValue(u"ShadowFormat"_ustr, uno::Any(aShadow));
++    if (rStyle.nShadowDistance > 0)
++        rxFrame->setPropertyValue(u"ShadowTransparence"_ustr, uno::Any(rStyle.nShadowTransparence));
++}
++
++void ApplyToShape(const uno::Reference<beans::XPropertySet>& rxShape, const PictureStyle& rStyle)
++{
++    const bool bLine = rStyle.nLineWidth > 0;
++    rxShape->setPropertyValue(u"LineStyle"_ustr,
++                              uno::Any(bLine ? drawing::LineStyle_SOLID : drawing::LineStyle_NONE));
++    if (bLine)
++    {
++        rxShape->setPropertyValue(u"LineColor"_ustr, uno::Any(sal_Int32(rStyle.aLineColor)));
++        rxShape->setPropertyValue(u"LineWidth"_ustr, uno::Any(rStyle.nLineWidth));
++    }
++    const bool bShadow = rStyle.nShadowDistance > 0;
++    rxShape->setPropertyValue(u"Shadow"_ustr, uno::Any(bShadow));
++    if (!bShadow)
++        return;
++    rxShape->setPropertyValue(u"ShadowColor"_ustr, uno::Any(sal_Int32(PICTURE_SHADOW_COLOR)));
++    rxShape->setPropertyValue(u"ShadowXDistance"_ustr, uno::Any(rStyle.nShadowDistance));
++    rxShape->setPropertyValue(u"ShadowYDistance"_ustr, uno::Any(rStyle.nShadowDistance));
++    rxShape->setPropertyValue(u"ShadowBlur"_ustr, uno::Any(rStyle.nShadowBlur));
++    rxShape->setPropertyValue(u"ShadowTransparence"_ustr, uno::Any(rStyle.nShadowTransparence));
++}
++}
++
++bool ApplyPictureStyle(const uno::Reference<frame::XController>& rxController, const PictureStyle& rStyle)
++{
++    uno::Reference<view::XSelectionSupplier> xSupplier(rxController, uno::UNO_QUERY);
++    if (!xSupplier.is())
++        return false;
++    uno::Reference<uno::XInterface> xSelection(xSupplier->getSelection(), uno::UNO_QUERY);
++    if (!xSelection.is())
++        return false;
++
++    // Writer answers a selected picture with its frame; shapes come as a collection
++    std::vector<uno::Reference<uno::XInterface>> aObjects;
++    if (Supports(xSelection, u"com.sun.star.text.TextGraphicObject"_ustr))
++        aObjects.push_back(xSelection);
++    else if (uno::Reference<container::XIndexAccess> xShapes{ xSelection, uno::UNO_QUERY })
++    {
++        for (sal_Int32 i = 0; i < xShapes->getCount(); ++i)
++            aObjects.emplace_back(xShapes->getByIndex(i), uno::UNO_QUERY);
++    }
++
++    bool bApplied = false;
++    for (const auto& rxObject : aObjects)
++    {
++        uno::Reference<beans::XPropertySet> xProps(rxObject, uno::UNO_QUERY);
++        if (!xProps.is())
++            continue;
++        if (Supports(rxObject, u"com.sun.star.text.TextGraphicObject"_ustr))
++            ApplyToWriterFrame(xProps, rStyle);
++        else if (Supports(rxObject, u"com.sun.star.drawing.GraphicObjectShape"_ustr))
++            ApplyToShape(xProps, rStyle);
++        else
++            continue;
++        bApplied = true;
++    }
++    return bApplied;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/source/tbxctrls/HstStyleApply.hxx
+@@ -0,0 +1,43 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: applying the gallery styles through UNO, so one implementation serves Writer, Sheets and
++// Slides. The callers group the changes into one undo action.
++
++#include <svx/HstStyleGalleryData.hxx>
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XNameContainer.hpp>
++#include <com/sun/star/frame/XController.hpp>
++#include <com/sun/star/frame/XModel.hpp>
++
++namespace svx::hststyles
++{
++/// Applies rStyle to the selected pictures; false when nothing applicable is selected.
++bool ApplyPictureStyle(const css::uno::Reference<css::frame::XController>& rxController,
++                       const PictureStyle& rStyle);
++/// Applies rStyle to the table at the cursor or the selected table; false when there is none.
++bool ApplyTableStyle(const css::uno::Reference<css::frame::XController>& rxController,
++                     const TableStyle& rStyle);
++
++namespace detail
++{
++enum class Part { Header, Band, Body };
++/// Sets the cell format of one part of rStyle on a Writer cell style (bComplete false) or a Slides cell
++/// style (bComplete true: each cell uses exactly one style, so every part has its own fill and text colour).
++void SetCellProps(const css::uno::Reference<css::beans::XPropertySet>& rxCell, const TableStyle& rStyle,
++                  Part ePart, bool bComplete);
++/// The style family rName of the document, or empty.
++css::uno::Reference<css::container::XNameContainer> Family(const css::uno::Reference<css::frame::XModel>& rxModel,
++                                                            const OUString& rName);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/source/tbxctrls/HstStyleDispatcher.cxx
+@@ -0,0 +1,182 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the protocol handler behind the picture and table style galleries.
++//   vnd.hst.styles:Picture  Style=<id of a picture style>   the selected pictures
++//   vnd.hst.styles:Table    Style=<id of a table style>     the table at the cursor or the selected table
++// One handler for Writer, Sheets and Slides; the changes form one undo action. Unknown ids, read-only
++// documents and selections without a picture or table change nothing.
++
++#include "HstStyleApply.hxx"
++#include <hststylegallery.hrc>
++
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <com/sun/star/document/XUndoManagerSupplier.hpp>
++#include <com/sun/star/frame/XDispatch.hpp>
++#include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <com/sun/star/frame/XFrame.hpp>
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/frame/XStorable.hpp>
++#include <com/sun/star/lang/XInitialization.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <cppuhelper/implbase.hxx>
++#include <cppuhelper/supportsservice.hxx>
++#include <svx/dialmgr.hxx>
++#include <vcl/svapp.hxx>
++
++using namespace css;
++
++namespace
++{
++constexpr std::u16string_view PROTOCOL = u"vnd.hst.styles:";
++
++enum class Target { None, Picture, Table };
++
++Target TargetOf(const util::URL& rURL)
++{
++    std::u16string_view aPath(rURL.Complete);
++    if (!aPath.starts_with(PROTOCOL))
++        return Target::None;
++    aPath.remove_prefix(PROTOCOL.size());
++    aPath = aPath.substr(0, aPath.find(u'?'));
++    if (aPath == u"Picture")
++        return Target::Picture;
++    if (aPath == u"Table")
++        return Target::Table;
++    return Target::None;
++}
++
++class HstStyleDispatcher final
++    : public cppu::WeakImplHelper<frame::XDispatchProvider, frame::XDispatch, lang::XInitialization,
++                                  lang::XServiceInfo>
++{
++public:
++    // XInitialization: the frame comes first, as for every protocol handler
++    void SAL_CALL initialize(const uno::Sequence<uno::Any>& rArguments) override
++    {
++        if (rArguments.hasElements())
++            rArguments[0] >>= m_xFrame;
++    }
++
++    // XDispatchProvider
++    uno::Reference<frame::XDispatch> SAL_CALL queryDispatch(const util::URL& rURL, const OUString&,
++                                                            sal_Int32) override
++    {
++        return TargetOf(rURL) == Target::None ? nullptr : this;
++    }
++    uno::Sequence<uno::Reference<frame::XDispatch>> SAL_CALL
++    queryDispatches(const uno::Sequence<frame::DispatchDescriptor>& rRequests) override
++    {
++        uno::Sequence<uno::Reference<frame::XDispatch>> aResult(rRequests.getLength());
++        auto pResult = aResult.getArray();
++        for (sal_Int32 i = 0; i < rRequests.getLength(); ++i)
++            pResult[i] = queryDispatch(rRequests[i].FeatureURL, rRequests[i].FrameName,
++                                       rRequests[i].SearchFlags);
++        return aResult;
++    }
++
++    // XDispatch
++    void SAL_CALL dispatch(const util::URL& rURL, const uno::Sequence<beans::PropertyValue>& rArgs) override;
++    void SAL_CALL addStatusListener(const uno::Reference<frame::XStatusListener>& rxListener,
++                                    const util::URL& rURL) override
++    {
++        if (!rxListener.is())
++            return;
++        frame::FeatureStateEvent aEvent;
++        aEvent.FeatureURL = rURL;
++        aEvent.IsEnabled = TargetOf(rURL) != Target::None && Editable().is();
++        aEvent.Source = getXWeak();
++        rxListener->statusChanged(aEvent);
++    }
++    void SAL_CALL removeStatusListener(const uno::Reference<frame::XStatusListener>&,
++                                       const util::URL&) override
++    {
++    }
++
++    // XServiceInfo
++    OUString SAL_CALL getImplementationName() override
++    {
++        return u"com.sun.star.comp.svx.HstStyleDispatcher"_ustr;
++    }
++    sal_Bool SAL_CALL supportsService(const OUString& rServiceName) override
++    {
++        return cppu::supportsService(this, rServiceName);
++    }
++    uno::Sequence<OUString> SAL_CALL getSupportedServiceNames() override
++    {
++        return { u"com.sun.star.frame.ProtocolHandler"_ustr,
++                 u"com.sun.star.comp.svx.HstStyleDispatcher"_ustr };
++    }
++
++private:
++    /// The frame's controller, when its document can be changed.
++    uno::Reference<frame::XController> Editable() const
++    {
++        if (!m_xFrame.is())
++            return {};
++        uno::Reference<frame::XController> xController = m_xFrame->getController();
++        if (!xController.is())
++            return {};
++        uno::Reference<frame::XStorable> xStorable(xController->getModel(), uno::UNO_QUERY);
++        if (!xStorable.is() || xStorable->isReadonly())
++            return {};
++        return xController;
++    }
++
++    uno::Reference<frame::XFrame> m_xFrame;
++};
++
++void HstStyleDispatcher::dispatch(const util::URL& rURL, const uno::Sequence<beans::PropertyValue>& rArgs)
++{
++    const Target eTarget = TargetOf(rURL);
++    OUString aId;
++    for (const beans::PropertyValue& rArg : rArgs)
++        if (rArg.Name == "Style")
++            rArg.Value >>= aId;
++
++    SolarMutexGuard aGuard;
++    const auto* pPicture
++        = eTarget == Target::Picture ? svx::hststyles::FindPictureStyle(aId) : nullptr;
++    const auto* pTable = eTarget == Target::Table ? svx::hststyles::FindTableStyle(aId) : nullptr;
++    const uno::Reference<frame::XController> xController = Editable();
++    if ((!pPicture && !pTable) || !xController.is())
++        return;
++
++    uno::Reference<document::XUndoManagerSupplier> xUndoSupplier(xController->getModel(),
++                                                                 uno::UNO_QUERY);
++    uno::Reference<document::XUndoManager> xUndo
++        = xUndoSupplier.is() ? xUndoSupplier->getUndoManager() : nullptr;
++    if (xUndo.is())
++        xUndo->enterUndoContext(SvxResId(pPicture ? RID_HST_STYLEGALLERY_UNDO_PICTURE
++                                                  : RID_HST_STYLEGALLERY_UNDO_TABLE));
++    try
++    {
++        if (pPicture)
++            svx::hststyles::ApplyPictureStyle(xController, *pPicture);
++        else
++            svx::hststyles::ApplyTableStyle(xController, *pTable);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("svx", "Applying an HST gallery style");
++    }
++    if (xUndo.is())
++        xUndo->leaveUndoContext(); // an empty context leaves no undo action
++}
++}
++
++extern "C" SAL_DLLPUBLIC_EXPORT uno::XInterface*
++com_sun_star_comp_svx_HstStyleDispatcher_get_implementation(uno::XComponentContext*,
++                                                            uno::Sequence<uno::Any> const&)
++{
++    return cppu::acquire(new HstStyleDispatcher);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/source/tbxctrls/HstStyleGalleryControl.cxx
+@@ -0,0 +1,150 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the toolbox controller of the ribbon's picture and table style galleries. Its commands,
++// .uno:HstPictureStyles and .uno:HstTableStyles, only name the gallery (label, keytip, accessibility);
++// nothing dispatches them, so their state is ignored and the gallery follows the document's
++// read-only state through the vnd.hst.styles: handler instead.
++
++#include "HstStyleGalleryWindow.hxx"
++
++#include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/util/URL.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <comphelper/lok.hxx>
++#include <comphelper/unique_unlock.hxx>
++#include <cppuhelper/implbase.hxx>
++#include <cppuhelper/supportsservice.hxx>
++#include <svtools/toolboxcontroller.hxx>
++#include <toolkit/helper/vclunohelper.hxx>
++#include <vcl/svapp.hxx>
++
++using namespace css;
++
++namespace
++{
++using svx::hststyles::GalleryKind;
++using svx::hststyles::StyleGalleryWindow;
++
++using HstStyleGalleryControl_Base
++    = cppu::ImplInheritanceHelper<svt::ToolboxController, lang::XServiceInfo>;
++
++class HstStyleGalleryControl final : public HstStyleGalleryControl_Base
++{
++public:
++    // XUpdatable
++    void SAL_CALL update() override {}
++
++    // XStatusListener: the gallery's own command is never dispatchable (see above)
++    void SAL_CALL statusChanged(const frame::FeatureStateEvent&) override
++    {
++        SolarMutexGuard aGuard;
++        if (!m_xWindow || m_xWindow->isDisposed())
++            return;
++        m_xWindow->Enable(Editable());
++    }
++
++    // XToolbarController
++    uno::Reference<awt::XWindow> SAL_CALL createItemWindow(const uno::Reference<awt::XWindow>& rParent) override
++    {
++        if (comphelper::LibreOfficeKit::isActive())
++            return {};
++        SolarMutexGuard aGuard;
++        try
++        {
++            VclPtr<vcl::Window> pParent = VCLUnoHelper::GetWindow(rParent);
++            if (!pParent)
++                return {};
++            const GalleryKind eKind = m_aCommandURL == ".uno:HstTableStyles" ? GalleryKind::Table
++                                                                             : GalleryKind::Picture;
++            m_xWindow = VclPtr<StyleGalleryWindow>::Create(pParent, m_xFrame, eKind);
++            m_xWindow->Enable(Editable());
++            return VCLUnoHelper::GetInterface(m_xWindow);
++        }
++        catch (const uno::Exception&)
++        {
++            TOOLS_WARN_EXCEPTION("svx", "Creating a ribbon style gallery");
++            return {};
++        }
++    }
++
++    // XServiceInfo
++    OUString SAL_CALL getImplementationName() override
++    {
++        return u"com.sun.star.comp.svx.HstStyleGalleryControl"_ustr;
++    }
++    sal_Bool SAL_CALL supportsService(const OUString& rServiceName) override
++    {
++        return cppu::supportsService(this, rServiceName);
++    }
++    uno::Sequence<OUString> SAL_CALL getSupportedServiceNames() override
++    {
++        return { u"com.sun.star.frame.ToolbarController"_ustr };
++    }
++
++    // WeakComponentImplHelperBase
++    using HstStyleGalleryControl_Base::disposing;
++    void disposing(std::unique_lock<std::mutex>& rGuard) override
++    {
++        svt::ToolboxController::disposing(rGuard);
++        comphelper::unique_unlock aUnlock(rGuard);
++        SolarMutexGuard aSolarGuard;
++        m_xWindow.disposeAndClear();
++    }
++
++private:
++    /// Whether the handler would apply a style now (false in read-only documents).
++    bool Editable() const
++    {
++        uno::Reference<frame::XDispatchProvider> xProvider(m_xFrame, uno::UNO_QUERY);
++        if (!xProvider.is())
++            return false;
++        util::URL aURL;
++        aURL.Complete = m_aCommandURL == ".uno:HstTableStyles" ? u"vnd.hst.styles:Table"_ustr
++                                                               : u"vnd.hst.styles:Picture"_ustr;
++        aURL.Protocol = u"vnd.hst.styles:"_ustr;
++        aURL.Path = aURL.Complete.copy(aURL.Protocol.getLength());
++        try
++        {
++            struct Listener final : public cppu::WeakImplHelper<frame::XStatusListener>
++            {
++                bool bEnabled = false;
++                void SAL_CALL statusChanged(const frame::FeatureStateEvent& rEvent) override
++                {
++                    bEnabled = rEvent.IsEnabled;
++                }
++                void SAL_CALL disposing(const lang::EventObject&) override {}
++            };
++            uno::Reference<frame::XDispatch> xDispatch = xProvider->queryDispatch(aURL, OUString(), 0);
++            if (!xDispatch.is())
++                return false;
++            rtl::Reference<Listener> xListener(new Listener);
++            xDispatch->addStatusListener(xListener, aURL);
++            xDispatch->removeStatusListener(xListener, aURL);
++            return xListener->bEnabled;
++        }
++        catch (const uno::Exception&)
++        {
++            return false;
++        }
++    }
++
++    VclPtr<StyleGalleryWindow> m_xWindow;
++};
++}
++
++extern "C" SAL_DLLPUBLIC_EXPORT uno::XInterface*
++com_sun_star_comp_svx_HstStyleGalleryControl_get_implementation(uno::XComponentContext*,
++                                                                uno::Sequence<uno::Any> const&)
++{
++    return cppu::acquire(new HstStyleGalleryControl);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/source/tbxctrls/HstStyleGalleryData.cxx
+@@ -0,0 +1,93 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the HST picture and table styles. Colours come from the HST palette (brand blue #0072BB,
++// the app colours of Sheets #1E8E3E, Slides (darkened to #D9480F so white header text stays readable),
++// the teal #0F8A8A and purple #7B3FC4, and the charcoal #322E2E of the logo text).
++
++#include <svx/HstStyleGalleryData.hxx>
++#include <svx/dialmgr.hxx>
++#include <hststylegallery.hrc>
++
++#include <algorithm>
++
++namespace svx::hststyles
++{
++namespace
++{
++// 1 pt = 35.28 hundredths of a millimetre
++constexpr sal_Int32 PT_075 = 26;
++constexpr sal_Int32 PT_225 = 79;
++constexpr sal_Int32 PT_3 = 106;
++constexpr sal_Int32 PT_4 = 141;
++constexpr sal_Int32 PT_6 = 212;
++constexpr sal_Int32 PT_10 = 353;
++
++constexpr Color HST_BLUE(0x00, 0x72, 0xBB);
++constexpr Color HST_GREY(0x7F, 0x8C, 0x99);
++constexpr Color HST_CHARCOAL(0x32, 0x2E, 0x2E);
++
++const PictureStyle aPictureStyles[] = {
++    { u"none", RID_HST_PICSTYLE_NONE, COL_TRANSPARENT, 0, 0, 0, 0 },
++    { u"thin", RID_HST_PICSTYLE_THIN, HST_GREY, PT_075, 0, 0, 0 },
++    { u"blue", RID_HST_PICSTYLE_BLUE, HST_BLUE, PT_225, 0, 0, 0 },
++    { u"white-shadow", RID_HST_PICSTYLE_WHITE_SHADOW, COL_WHITE, PT_6, PT_3, PT_6, 60 },
++    { u"soft-shadow", RID_HST_PICSTYLE_SOFT_SHADOW, COL_TRANSPARENT, 0, PT_4, PT_10, 55 },
++    { u"dark-frame", RID_HST_PICSTYLE_DARK_FRAME, HST_CHARCOAL, PT_6, 0, 0, 0 },
++    { u"thin-drop-shadow", RID_HST_PICSTYLE_THIN_DROP, HST_GREY, PT_075, PT_4, 0, 40 },
++    { u"blue-shadow", RID_HST_PICSTYLE_BLUE_SHADOW, HST_BLUE, PT_225, PT_3, PT_6, 60 },
++};
++
++const TableStyle aTableStyles[] = {
++    { u"HST Blue", RID_HST_TABLESTYLE_BLUE, HST_BLUE, COL_WHITE, Color(0xE3, 0xEF, 0xF8),
++      Color(0x9D, 0xC3, 0xE0), false },
++    { u"HST Light Grid", RID_HST_TABLESTYLE_GRID, COL_TRANSPARENT, Color(0x1F, 0x29, 0x33),
++      Color(0xF2, 0xF4, 0xF7), Color(0xBF, 0xC5, 0xCC), true },
++    { u"HST Green", RID_HST_TABLESTYLE_GREEN, Color(0x1E, 0x8E, 0x3E), COL_WHITE,
++      Color(0xE6, 0xF4, 0xEA), Color(0xA8, 0xD5, 0xB5), false },
++    { u"HST Orange", RID_HST_TABLESTYLE_ORANGE, Color(0xD9, 0x48, 0x0F), COL_WHITE,
++      Color(0xFD, 0xEB, 0xDD), Color(0xF4, 0xB2, 0x8E), false },
++    { u"HST Teal", RID_HST_TABLESTYLE_TEAL, Color(0x0F, 0x8A, 0x8A), COL_WHITE,
++      Color(0xE0, 0xF2, 0xF2), Color(0x9B, 0xCF, 0xCF), false },
++    { u"HST Purple", RID_HST_TABLESTYLE_PURPLE, Color(0x7B, 0x3F, 0xC4), COL_WHITE,
++      Color(0xEF, 0xE6, 0xFA), Color(0xC6, 0xAE, 0xE8), false },
++    { u"HST Charcoal", RID_HST_TABLESTYLE_CHARCOAL, HST_CHARCOAL, COL_WHITE,
++      Color(0xEF, 0xEF, 0xEF), Color(0xBD, 0xBD, 0xBD), true },
++    { u"HST Minimal", RID_HST_TABLESTYLE_MINIMAL, COL_TRANSPARENT, HST_BLUE, COL_TRANSPARENT,
++      HST_BLUE, false },
++};
++}
++
++std::span<const PictureStyle> PictureStyles() { return aPictureStyles; }
++
++std::span<const TableStyle> TableStyles() { return aTableStyles; }
++
++const PictureStyle* FindPictureStyle(std::u16string_view rId)
++{
++    const auto it = std::find_if(std::begin(aPictureStyles), std::end(aPictureStyles),
++                                 [rId](const PictureStyle& rStyle) { return rStyle.aId == rId; });
++    return it == std::end(aPictureStyles) ? nullptr : &*it;
++}
++
++const TableStyle* FindTableStyle(std::u16string_view rId)
++{
++    const auto it = std::find_if(std::begin(aTableStyles), std::end(aTableStyles),
++                                 [rId](const TableStyle& rStyle) { return rStyle.aId == rId; });
++    return it == std::end(aTableStyles) ? nullptr : &*it;
++}
++
++OUString StyleUIName(const TranslateId& rName) { return SvxResId(rName); }
++
++Color HeaderLineColor(const TableStyle& rStyle)
++{
++    return rStyle.aHeaderFill == COL_TRANSPARENT ? rStyle.aLineColor : rStyle.aHeaderFill;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/source/tbxctrls/HstStyleGalleryPreview.cxx
+@@ -0,0 +1,158 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include "HstStyleGalleryPreview.hxx"
++
++#include <tools/gen.hxx>
++#include <tools/poly.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/virdev.hxx>
++
++#include <algorithm>
++#include <cmath>
++
++namespace svx::hststyles
++{
++namespace
++{
++tools::Long Px(double fValue, float fScale) { return std::lround(fValue * fScale); }
++
++/// Line widths in the tile: 1/100 mm mapped onto 1, 2 or 4 pixels so the styles stay distinguishable.
++tools::Long LinePx(sal_Int32 nWidth, float fScale)
++{
++    if (nWidth <= 0)
++        return 0;
++    return Px(nWidth < 50 ? 1 : nWidth < 150 ? 2 : 4, fScale);
++}
++
++ScopedVclPtr<VirtualDevice> MakeDevice(float fScale, Color& rField)
++{
++    ScopedVclPtr<VirtualDevice> xDevice(VclPtr<VirtualDevice>::Create());
++    xDevice->SetOutputSizePixel(Size(Px(TILE_WIDTH, fScale), Px(TILE_HEIGHT, fScale)));
++    rField = Application::GetSettings().GetStyleSettings().GetFieldColor();
++    xDevice->SetBackground(Wallpaper(rField));
++    xDevice->Erase();
++    return xDevice;
++}
++
++Bitmap Finish(const VirtualDevice& rDevice)
++{
++    return rDevice.GetBitmap(Point(0, 0), rDevice.GetOutputSizePixel());
++}
++
++void FillRect(VirtualDevice& rDevice, const tools::Rectangle& rRect, Color aColor)
++{
++    rDevice.SetLineColor();
++    rDevice.SetFillColor(aColor);
++    rDevice.DrawRect(rRect);
++}
++}
++
++Bitmap RenderPicturePreview(const PictureStyle& rStyle, float fScale)
++{
++    Color aField;
++    ScopedVclPtr<VirtualDevice> xDevice = MakeDevice(fScale, aField);
++    const tools::Long nLine = LinePx(rStyle.nLineWidth, fScale);
++    const tools::Long nInset = Px(7, fScale);
++    tools::Rectangle aPhoto(Point(nInset, Px(6, fScale)),
++                            Size(Px(TILE_WIDTH, fScale) - 2 * nInset - Px(3, fScale),
++                                 Px(TILE_HEIGHT, fScale) - Px(15, fScale)));
++    tools::Rectangle aOuter(aPhoto);
++    aOuter.expand(nLine);
++
++    if (rStyle.nShadowDistance > 0)
++    {
++        // a soft shadow fades over a few rings, a hard one is a single offset rectangle
++        const tools::Long nOffset = Px(rStyle.nShadowDistance > 120 ? 3 : 2, fScale);
++        const int nRings = rStyle.nShadowBlur > 0 ? 3 : 1;
++        const double fStrength = (100 - rStyle.nShadowTransparence) / 100.0;
++        for (int i = nRings; i >= 1; --i)
++        {
++            tools::Rectangle aShadow(aOuter);
++            aShadow.Move(nOffset, nOffset);
++            aShadow.expand(Px(i - 1, fScale));
++            Color aShade(aField);
++            aShade.Merge(PICTURE_SHADOW_COLOR,
++                         sal_uInt8(255 - 255 * fStrength / (nRings == 1 ? 1.4 : 1.2 + i)));
++            FillRect(*xDevice, aShadow, aShade);
++        }
++    }
++    if (nLine > 0)
++        FillRect(*xDevice, aOuter, rStyle.aLineColor);
++
++    // the picture: sky, sun and two hills
++    FillRect(*xDevice, aPhoto, Color(0xCF, 0xE5, 0xF5));
++    xDevice->SetFillColor(Color(0xF6, 0xC3, 0x44));
++    xDevice->DrawEllipse(tools::Rectangle(
++        Point(aPhoto.Right() - Px(13, fScale), aPhoto.Top() + Px(4, fScale)), Size(Px(7, fScale), Px(7, fScale))));
++    const Point aBL = aPhoto.BottomLeft(), aBR = aPhoto.BottomRight();
++    const tools::Long nW = aPhoto.GetWidth(), nH = aPhoto.GetHeight();
++    xDevice->SetFillColor(Color(0x7C, 0xBF, 0x86));
++    const Point aFar[] = { aBL, Point(aBL.X(), aBL.Y() - nH / 3), Point(aBL.X() + nW * 2 / 5, aBL.Y() - nH * 3 / 5),
++                           Point(aBL.X() + nW * 3 / 4, aBL.Y() - nH / 4), aBR };
++    xDevice->DrawPolygon(tools::Polygon(std::size(aFar), aFar));
++    xDevice->SetFillColor(Color(0x3E, 0x8E, 0x55));
++    const Point aNear[] = { Point(aBL.X() + nW / 3, aBL.Y()), Point(aBL.X() + nW * 2 / 3, aBL.Y() - nH * 2 / 5),
++                            Point(aBR.X(), aBL.Y() - nH / 5), aBR };
++    xDevice->DrawPolygon(tools::Polygon(std::size(aNear), aNear));
++    return Finish(*xDevice);
++}
++
++Bitmap RenderTablePreview(const TableStyle& rStyle, float fScale)
++{
++    Color aField;
++    ScopedVclPtr<VirtualDevice> xDevice = MakeDevice(fScale, aField);
++    constexpr int ROWS = 5, COLS = 4;
++    const tools::Long nCellW = Px(12, fScale), nCellH = Px(6, fScale);
++    const Point aOrigin(Px(6, fScale), Px(5, fScale));
++    const tools::Rectangle aTable(aOrigin, Size(nCellW * COLS, nCellH * ROWS));
++
++    FillRect(*xDevice, aTable, COL_WHITE); // the page or the slide cell under the table
++    for (int nRow = 0; nRow < ROWS; ++nRow)
++    {
++        const tools::Rectangle aRowRect(Point(aOrigin.X(), aOrigin.Y() + nRow * nCellH),
++                                        Size(nCellW * COLS, nCellH));
++        if (nRow == 0 && rStyle.aHeaderFill != COL_TRANSPARENT)
++            FillRect(*xDevice, aRowRect, rStyle.aHeaderFill);
++        else if (nRow % 2 == 1 && rStyle.aBandFill != COL_TRANSPARENT)
++            FillRect(*xDevice, aRowRect, rStyle.aBandFill);
++        // a text stroke in each cell: header text colour, body text dark grey
++        for (int nCol = 0; nCol < COLS; ++nCol)
++        {
++            const tools::Long nX = aRowRect.Left() + nCol * nCellW + Px(2, fScale);
++            FillRect(*xDevice,
++                     tools::Rectangle(Point(nX, aRowRect.Top() + nCellH / 2 - Px(1, fScale) / 2),
++                                      Size(nCellW - Px(5, fScale), std::max<tools::Long>(1, Px(1.2, fScale)))),
++                     nRow == 0 ? rStyle.aHeaderText : Color(0x8A, 0x93, 0x9D));
++        }
++    }
++    xDevice->SetFillColor();
++    xDevice->SetLineColor(rStyle.aLineColor);
++    for (int nRow = 0; nRow <= ROWS; ++nRow)
++    {
++        const tools::Long nY = aOrigin.Y() + nRow * nCellH;
++        xDevice->DrawLine(Point(aTable.Left(), nY), Point(aTable.Right(), nY));
++    }
++    if (rStyle.bVerticalLines)
++        for (int nCol = 0; nCol <= COLS; ++nCol)
++        {
++            const tools::Long nX = aOrigin.X() + nCol * nCellW;
++            xDevice->DrawLine(Point(nX, aTable.Top()), Point(nX, aTable.Bottom()));
++        }
++    // the header's strong bottom line
++    FillRect(*xDevice,
++             tools::Rectangle(Point(aTable.Left(), aOrigin.Y() + nCellH - Px(1, fScale) / 2),
++                              Size(aTable.GetWidth(), std::max<tools::Long>(1, Px(1.5, fScale)))),
++             HeaderLineColor(rStyle));
++    return Finish(*xDevice);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/source/tbxctrls/HstStyleGalleryPreview.hxx
+@@ -0,0 +1,28 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: the gallery tiles, drawn in code (no artwork files): a small landscape picture or a small
++// table in the style, on the field colour of the UI theme so the tiles sit well in light and dark mode.
++
++#include <svx/HstStyleGalleryData.hxx>
++#include <vcl/bitmap.hxx>
++
++namespace svx::hststyles
++{
++/// Tile size in pixels at 100 % scale.
++constexpr tools::Long TILE_WIDTH = 60;
++constexpr tools::Long TILE_HEIGHT = 44;
++
++Bitmap RenderPicturePreview(const PictureStyle& rStyle, float fScale);
++Bitmap RenderTablePreview(const TableStyle& rStyle, float fScale);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/source/tbxctrls/HstStyleGalleryWindow.cxx
+@@ -0,0 +1,214 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include "HstStyleGalleryWindow.hxx"
++#include "HstStyleGalleryPreview.hxx"
++#include <hststylegallery.hrc>
++
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <comphelper/dispatchcommand.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <svx/dialmgr.hxx>
++#include <vcl/weld/Builder.hxx>
++#include <vcl/weld/Button.hxx>
++#include <vcl/weld/IconView.hxx>
++#include <vcl/weld/ScrolledWindow.hxx>
++
++#include <algorithm>
++
++using namespace css;
++
++namespace svx::hststyles
++{
++namespace
++{
++constexpr int COLUMNS[] = { 6, 4, 3 }; // tiles in a row at the ribbon's large, medium and small states
++constexpr int ITEM_STEP = TILE_WIDTH + 10; // a tile with the icon view's padding
++constexpr int FRAME_WIDTH = 8;
++constexpr int VIEW_HEIGHT = TILE_HEIGHT + 12; // one row, never taller (Windows asks for every row)
++
++bool IsModel(const uno::Reference<frame::XFrame>& rxFrame, const OUString& rService)
++{
++    if (!rxFrame.is() || !rxFrame->getController().is())
++        return false;
++    uno::Reference<lang::XServiceInfo> xInfo(rxFrame->getController()->getModel(), uno::UNO_QUERY);
++    return xInfo.is() && xInfo->supportsService(rService);
++}
++}
++
++StyleGalleryWindow::StyleGalleryWindow(vcl::Window* pParent, uno::Reference<frame::XFrame> xFrame,
++                                       GalleryKind eKind)
++    : InterimItemWindow(pParent, u"svx/ui/hststylegallery.ui"_ustr, u"StyleGalleryBox"_ustr, true)
++    , m_xFrame(std::move(xFrame))
++    , m_eKind(eKind)
++    , m_xScroll(m_xBuilder->weld_scrolled_window(u"stylesscroll"_ustr))
++    , m_xView(m_xBuilder->weld_icon_view(u"styles"_ustr))
++    , m_xPrev(m_xBuilder->weld_button(u"prev"_ustr))
++    , m_xNext(m_xBuilder->weld_button(u"next"_ustr))
++    , m_xMore(m_xBuilder->weld_button(u"more"_ustr))
++{
++    InitControlBase(m_xView.get());
++    const float fScale = GetDPIScaleFactor();
++    const bool bPicture = eKind == GalleryKind::Picture;
++    if (bPicture)
++        for (const PictureStyle& rStyle : PictureStyles())
++            m_aEntries.push_back({ OUString(rStyle.aId), StyleUIName(rStyle.aName),
++                                   RenderPicturePreview(rStyle, fScale) });
++    else
++        for (const TableStyle& rStyle : TableStyles())
++            m_aEntries.push_back({ OUString(rStyle.aId), StyleUIName(rStyle.aName),
++                                   RenderTablePreview(rStyle, fScale) });
++
++    m_xView->set_accessible_name(SvxResId(bPicture ? RID_HST_STYLEGALLERY_PICTURES : RID_HST_STYLEGALLERY_TABLES));
++    const OUString aMore = SvxResId(bPicture ? RID_HST_STYLEGALLERY_MORE_PICTURES : RID_HST_STYLEGALLERY_MORE_TABLES);
++    m_xMore->set_tooltip_text(aMore);
++    m_xMore->set_accessible_name(aMore);
++    m_xView->set_item_width(TILE_WIDTH * fScale);
++    // a click applies (as in the Styles gallery); Enter or a double click applies the focused tile
++    m_xView->connect_selection_changed(LINK(this, StyleGalleryWindow, SelectedHdl));
++    m_xView->connect_item_activated(LINK(this, StyleGalleryWindow, ActivatedHdl));
++    m_xPrev->connect_clicked(LINK(this, StyleGalleryWindow, PageHdl));
++    m_xNext->connect_clicked(LINK(this, StyleGalleryWindow, PageHdl));
++    m_xMore->connect_clicked(LINK(this, StyleGalleryWindow, MoreHdl));
++    ApplyColumns();
++}
++
++StyleGalleryWindow::~StyleGalleryWindow() { disposeOnce(); }
++
++void StyleGalleryWindow::dispose()
++{
++    m_xView.reset();
++    m_xScroll.reset();
++    m_xPrev.reset();
++    m_xNext.reset();
++    m_xMore.reset();
++    InterimItemWindow::dispose();
++}
++
++bool StyleGalleryWindow::set_property(const OUString& rKey, const OUString& rValue)
++{
++    if (rKey != "hst-gallery-state")
++        return InterimItemWindow::set_property(rKey, rValue);
++    const int nState = std::clamp<int>(rValue.toInt32(), 0, std::size(COLUMNS) - 1);
++    if (nState == m_nState)
++        return false; // nothing changed: the ladder need not lay the toolbox out again
++    m_nState = nState;
++    ApplyColumns();
++    return true;
++}
++
++void StyleGalleryWindow::ApplyColumns()
++{
++    const float fScale = GetDPIScaleFactor();
++    m_xScroll->set_size_request((COLUMNS[m_nState] * ITEM_STEP + FRAME_WIDTH) * fScale, VIEW_HEIGHT * fScale);
++    ShowPage();
++    Size aSize = get_preferred_size();
++    aSize.setHeight(std::min<tools::Long>(aSize.Height(), (VIEW_HEIGHT + 6) * fScale));
++    SetSizePixel(aSize);
++}
++
++void StyleGalleryWindow::ShowPage()
++{
++    if (!m_xView)
++        return;
++    const size_t nPage = COLUMNS[m_nState];
++    if (m_nFirst >= m_aEntries.size())
++        m_nFirst = 0;
++    m_nFirst -= m_nFirst % nPage; // pages start at multiples of the page size
++    const size_t nEnd = std::min(m_aEntries.size(), m_nFirst + nPage);
++    m_bFilling = true; // our own changes are not a choice of the user
++    m_xView->freeze();
++    m_xView->clear();
++    for (size_t i = m_nFirst; i < nEnd; ++i)
++    {
++        const Entry& rEntry = m_aEntries[i];
++        const int nPos = static_cast<int>(i - m_nFirst);
++        m_xView->insert(nPos, nullptr, &rEntry.aId, &rEntry.aTile, nullptr);
++        m_xView->set_item_tooltip_text(nPos, rEntry.aName);
++        m_xView->set_item_accessible_name(nPos, rEntry.aName);
++    }
++    m_xView->thaw();
++    m_xView->unselect_all();
++    m_bFilling = false;
++    m_xPrev->set_sensitive(m_nFirst > 0);
++    m_xNext->set_sensitive(nEnd < m_aEntries.size());
++}
++
++void StyleGalleryWindow::Apply(const OUString& rId)
++{
++    if (rId.isEmpty() || !m_xFrame.is())
++        return;
++    try
++    {
++        comphelper::dispatchCommand(m_eKind == GalleryKind::Picture ? u"vnd.hst.styles:Picture"_ustr
++                                                                    : u"vnd.hst.styles:Table"_ustr,
++                                    m_xFrame, { comphelper::makePropertyValue(u"Style"_ustr, rId) });
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("svx", "Applying a ribbon gallery style");
++    }
++}
++
++IMPL_LINK_NOARG(StyleGalleryWindow, SelectedHdl, weld::ItemView&, void)
++{
++    if (m_bFilling)
++        return;
++    Apply(m_xView->get_selected_id());
++    // no tile stays chosen: a style is not a state of the picture, and a second click applies again
++    m_bFilling = true;
++    m_xView->unselect_all();
++    m_bFilling = false;
++}
++
++IMPL_LINK(StyleGalleryWindow, ActivatedHdl, const weld::TreeIter&, rIter, bool)
++{
++    Apply(m_xView->get_id(rIter));
++    return true;
++}
++
++IMPL_LINK(StyleGalleryWindow, PageHdl, weld::Button&, rButton, void)
++{
++    const size_t nPage = COLUMNS[m_nState];
++    if (&rButton == m_xNext.get())
++    {
++        if (m_nFirst + nPage < m_aEntries.size())
++            m_nFirst += nPage;
++    }
++    else
++        m_nFirst = m_nFirst > nPage ? m_nFirst - nPage : 0;
++    ShowPage();
++}
++
++IMPL_LINK_NOARG(StyleGalleryWindow, MoreHdl, weld::Button&, void)
++{
++    const bool bWriter = IsModel(m_xFrame, u"com.sun.star.text.TextDocument"_ustr);
++    OUString aCommand;
++    if (m_eKind == GalleryKind::Picture)
++        aCommand = bWriter ? u".uno:GraphicDialog"_ustr : u".uno:FormatLine"_ustr;
++    else if (bWriter)
++        aCommand = u".uno:AutoFormat"_ustr;
++    else if (IsModel(m_xFrame, u"com.sun.star.sheet.SpreadsheetDocument"_ustr))
++        aCommand = u".uno:SidebarDeck.PropertyDeck"_ustr; // the table's style list and options
++    else
++        aCommand = u".uno:TableDesign"_ustr;
++    try
++    {
++        comphelper::dispatchCommand(aCommand, m_xFrame, {});
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("svx", "Opening the full style options");
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/source/tbxctrls/HstStyleGalleryWindow.hxx
+@@ -0,0 +1,80 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: one row of picture or table style tiles on the ribbon, like the other ribbon galleries:
++// at least three tiles, ◂ ▸ page through the styles, ▾ opens the full options. A click applies the style
++// through the vnd.hst.styles: protocol handler (HstStyleDispatcher.cxx).
++
++#include <com/sun/star/frame/XFrame.hpp>
++#include <vcl/InterimItemWindow.hxx>
++#include <vcl/bitmap.hxx>
++
++#include <memory>
++#include <vector>
++
++namespace weld
++{
++class Button;
++class IconView;
++class ScrolledWindow;
++class ItemView;
++class TreeIter;
++}
++
++namespace svx::hststyles
++{
++enum class GalleryKind
++{
++    Picture,
++    Table
++};
++
++class StyleGalleryWindow final : public InterimItemWindow
++{
++public:
++    StyleGalleryWindow(vcl::Window* pParent, css::uno::Reference<css::frame::XFrame> xFrame,
++                       GalleryKind eKind);
++    ~StyleGalleryWindow() override;
++    void dispose() override;
++    /// "hst-gallery-state" (0 large, 1 medium, 2 small) from the ribbon's scale ladder: 6, 4 or 3 tiles.
++    bool set_property(const OUString& rKey, const OUString& rValue) override;
++
++private:
++    struct Entry
++    {
++        OUString aId;
++        OUString aName;
++        Bitmap aTile;
++    };
++
++    void ApplyColumns();
++    void ShowPage();
++    void Apply(const OUString& rId);
++    DECL_LINK(SelectedHdl, weld::ItemView&, void);
++    DECL_LINK(ActivatedHdl, const weld::TreeIter&, bool);
++    DECL_LINK(PageHdl, weld::Button&, void);
++    DECL_LINK(MoreHdl, weld::Button&, void);
++
++    css::uno::Reference<css::frame::XFrame> m_xFrame;
++    GalleryKind m_eKind;
++    std::unique_ptr<weld::ScrolledWindow> m_xScroll;
++    std::unique_ptr<weld::IconView> m_xView;
++    std::unique_ptr<weld::Button> m_xPrev;
++    std::unique_ptr<weld::Button> m_xNext;
++    std::unique_ptr<weld::Button> m_xMore;
++    std::vector<Entry> m_aEntries;
++    size_t m_nFirst = 0;
++    int m_nState = 0;
++    bool m_bFilling = false;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/source/tbxctrls/HstTableStyleApply.cxx
+@@ -0,0 +1,165 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: a table style on the table at the cursor, through each application's own table styles.
++// Writer: a table style (autoformat) in the TableStyles family, set as the table's TableTemplateName; the
++// autoformat formats the cells directly, so .docx keeps the look. Slides: a table design in the "table"
++// family with cell styles in the "cell" family, set as the table's TableTemplate; the table's options
++// (header row, banded rows...) stay as they are. Sheets: the table's TableStyleName; the HST styles are
++// registered in every spreadsheet beside the OOXML ones (sc HstTableStyles.cxx) and the header row and
++// banded rows options of the table stay as they are.
++
++#include "HstStyleApply.hxx"
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/container/XNameContainer.hpp>
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/lang/XSingleServiceFactory.hpp>
++#include <com/sun/star/sheet/XCellRangeAddressable.hpp>
++#include <com/sun/star/sheet/XDatabaseRange.hpp>
++#include <com/sun/star/text/XTextViewCursorSupplier.hpp>
++#include <com/sun/star/view/XSelectionSupplier.hpp>
++
++using namespace css;
++
++namespace svx::hststyles
++{
++namespace
++{
++using detail::Family;
++using detail::Part;
++using detail::SetCellProps;
++
++bool ApplyWriter(const uno::Reference<frame::XController>& rxController, const TableStyle& rStyle)
++{
++    uno::Reference<text::XTextViewCursorSupplier> xCursorSupplier(rxController, uno::UNO_QUERY_THROW);
++    uno::Reference<beans::XPropertySet> xCursor(xCursorSupplier->getViewCursor(), uno::UNO_QUERY_THROW);
++    uno::Reference<beans::XPropertySet> xTable(xCursor->getPropertyValue(u"TextTable"_ustr), uno::UNO_QUERY);
++    const uno::Reference<frame::XModel> xModel = rxController->getModel();
++    uno::Reference<container::XNameContainer> xStyles = Family(xModel, u"TableStyles"_ustr);
++    if (!xTable.is() || !xStyles.is())
++        return false;
++    const OUString aName(rStyle.aId);
++    if (!xStyles->hasByName(aName))
++    {
++        uno::Reference<lang::XMultiServiceFactory> xFactory(xModel, uno::UNO_QUERY_THROW);
++        xStyles->insertByName(aName, uno::Any(xFactory->createInstance(u"com.sun.star.style.TableStyle"_ustr)));
++        uno::Reference<container::XNameAccess> xStyle(xStyles->getByName(aName), uno::UNO_QUERY_THROW);
++        const auto CellStyle = [&xStyle](const OUString& rCell) {
++            return uno::Reference<beans::XPropertySet>(xStyle->getByName(rCell), uno::UNO_QUERY_THROW);
++        };
++        SetCellProps(CellStyle(u"body"_ustr), rStyle, Part::Body, false);
++        if (rStyle.aBandFill != COL_TRANSPARENT) // Writer counts the first row below the header as even
++            SetCellProps(CellStyle(u"even-rows"_ustr), rStyle, Part::Band, false);
++        SetCellProps(CellStyle(u"first-row"_ustr), rStyle, Part::Header, false);
++    }
++    xTable->setPropertyValue(u"TableTemplateName"_ustr, uno::Any(aName));
++    return true;
++}
++
++uno::Reference<beans::XPropertySet> SlidesCellStyle(const uno::Reference<container::XNameContainer>& rxCells,
++                                                    const OUString& rName)
++{
++    if (!rxCells->hasByName(rName))
++    {
++        uno::Reference<lang::XSingleServiceFactory> xFactory(rxCells, uno::UNO_QUERY_THROW);
++        rxCells->insertByName(rName, uno::Any(xFactory->createInstance()));
++    }
++    return { rxCells->getByName(rName), uno::UNO_QUERY_THROW };
++}
++
++bool ApplySlides(const uno::Reference<frame::XController>& rxController,
++                 const uno::Reference<container::XIndexAccess>& rxShapes, const TableStyle& rStyle)
++{
++    const uno::Reference<frame::XModel> xModel = rxController->getModel();
++    uno::Reference<container::XNameContainer> xDesigns = Family(xModel, u"table"_ustr);
++    uno::Reference<container::XNameContainer> xCells = Family(xModel, u"cell"_ustr);
++    if (!xDesigns.is() || !xCells.is())
++        return false;
++    const OUString aName(rStyle.aId);
++    if (!xDesigns->hasByName(aName))
++    {
++        uno::Reference<lang::XSingleServiceFactory> xFactory(xDesigns, uno::UNO_QUERY_THROW);
++        uno::Reference<container::XNameReplace> xDesign(xFactory->createInstance(), uno::UNO_QUERY_THROW);
++        const std::pair<const char16_t*, Part> aParts[]
++            = { { u"first-row", Part::Header }, { u"odd-rows", Part::Band }, { u"body", Part::Body } };
++        for (const auto& [pCell, ePart] : aParts)
++        {
++            if (ePart == Part::Band && rStyle.aBandFill == COL_TRANSPARENT)
++                continue;
++            // Slides counts the first row below the header as odd
++            auto xCell = SlidesCellStyle(xCells, aName + "-" + OUString(pCell));
++            SetCellProps(xCell, rStyle, ePart, true);
++            xDesign->replaceByName(OUString(pCell), uno::Any(xCell));
++        }
++        xDesigns->insertByName(aName, uno::Any(xDesign));
++    }
++    bool bApplied = false;
++    for (sal_Int32 i = 0; i < rxShapes->getCount(); ++i)
++    {
++        uno::Reference<lang::XServiceInfo> xInfo(rxShapes->getByIndex(i), uno::UNO_QUERY);
++        uno::Reference<beans::XPropertySet> xShape(xInfo, uno::UNO_QUERY);
++        if (!xInfo.is() || !xShape.is() || !xInfo->supportsService(u"com.sun.star.drawing.TableShape"_ustr))
++            continue;
++        xShape->setPropertyValue(u"TableTemplate"_ustr, xDesigns->getByName(aName));
++        bApplied = true;
++    }
++    return bApplied;
++}
++
++bool ApplySheets(const uno::Reference<frame::XController>& rxController,
++                 const uno::Reference<sheet::XCellRangeAddressable>& rxCells, const TableStyle& rStyle)
++{
++    uno::Reference<beans::XPropertySet> xDocProps(rxController->getModel(), uno::UNO_QUERY_THROW);
++    uno::Reference<container::XNameAccess> xRanges(xDocProps->getPropertyValue(u"DatabaseRanges"_ustr),
++                                                   uno::UNO_QUERY_THROW);
++    const table::CellRangeAddress aCursor = rxCells->getRangeAddress();
++    for (const OUString& rName : xRanges->getElementNames())
++    {
++        uno::Reference<sheet::XDatabaseRange> xRange(xRanges->getByName(rName), uno::UNO_QUERY);
++        uno::Reference<beans::XPropertySet> xProps(xRange, uno::UNO_QUERY);
++        if (!xRange.is() || !xProps.is())
++            continue;
++        const table::CellRangeAddress aArea = xRange->getDataArea();
++        if (aArea.Sheet != aCursor.Sheet || aCursor.StartColumn < aArea.StartColumn
++            || aCursor.StartColumn > aArea.EndColumn || aCursor.StartRow < aArea.StartRow
++            || aCursor.StartRow > aArea.EndRow)
++            continue;
++        // only tables have a style; setting one on a plain database range would turn it into a table
++        if (!xProps->getPropertyValue(u"TableStyleName"_ustr).hasValue())
++            continue;
++        xProps->setPropertyValue(u"TableStyleName"_ustr, uno::Any(OUString(rStyle.aId)));
++        return true;
++    }
++    return false;
++}
++}
++
++bool ApplyTableStyle(const uno::Reference<frame::XController>& rxController, const TableStyle& rStyle)
++{
++    if (!rxController.is())
++        return false;
++    if (uno::Reference<text::XTextViewCursorSupplier>(rxController, uno::UNO_QUERY).is())
++        return ApplyWriter(rxController, rStyle);
++    uno::Reference<view::XSelectionSupplier> xSupplier(rxController, uno::UNO_QUERY);
++    if (!xSupplier.is())
++        return false;
++    const uno::Any aSelection = xSupplier->getSelection();
++    if (uno::Reference<sheet::XCellRangeAddressable> xCells{ aSelection, uno::UNO_QUERY })
++        return ApplySheets(rxController, xCells, rStyle);
++    if (uno::Reference<container::XIndexAccess> xShapes{ aSelection, uno::UNO_QUERY })
++        return ApplySlides(rxController, xShapes, rStyle);
++    return false;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/source/tbxctrls/HstTableStyleCells.cxx
+@@ -0,0 +1,92 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the cell formats of an HST table style, shared by the Writer table styles and the Slides
++// table designs (HstTableStyleApply.cxx).
++
++#include "HstStyleApply.hxx"
++
++#include <com/sun/star/awt/FontWeight.hpp>
++#include <com/sun/star/drawing/FillStyle.hpp>
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/style/XStyleFamiliesSupplier.hpp>
++#include <com/sun/star/table/BorderLine.hpp>
++
++using namespace css;
++
++namespace svx::hststyles::detail
++{
++namespace
++{
++constexpr Color BODY_TEXT(0x1F, 0x29, 0x33);
++
++table::BorderLine Line(Color aColor, sal_Int32 nWidth)
++{
++    table::BorderLine aLine;
++    aLine.Color = sal_Int32(aColor);
++    aLine.OuterLineWidth = static_cast<sal_Int16>(nWidth);
++    return aLine;
++}
++}
++
++/// The cell properties of one part. Every part carries all four borders (a part's border item replaces
++/// the body's as a whole). bComplete: every part also has a fill and a text colour (Slides uses exactly
++/// one cell style per cell); otherwise the band and header fills add to the body (Writer).
++void SetCellProps(const uno::Reference<beans::XPropertySet>& rxCell, const TableStyle& rStyle, Part ePart,
++                  bool bComplete)
++{
++    const bool bHeader = ePart == Part::Header;
++    {
++        const table::BorderLine aThin = Line(rStyle.aLineColor, TABLE_THIN_LINE);
++        const table::BorderLine aSide = rStyle.bVerticalLines ? aThin : table::BorderLine();
++        rxCell->setPropertyValue(u"TopBorder"_ustr, uno::Any(aThin));
++        rxCell->setPropertyValue(u"BottomBorder"_ustr, uno::Any(aThin));
++        rxCell->setPropertyValue(u"LeftBorder"_ustr, uno::Any(aSide));
++        rxCell->setPropertyValue(u"RightBorder"_ustr, uno::Any(aSide));
++    }
++    if (bHeader)
++        rxCell->setPropertyValue(u"BottomBorder"_ustr,
++                                 uno::Any(Line(HeaderLineColor(rStyle), TABLE_HEADER_LINE)));
++
++    Color aFill = COL_TRANSPARENT;
++    if (bHeader)
++        aFill = rStyle.aHeaderFill;
++    else if (ePart == Part::Band)
++        aFill = rStyle.aBandFill;
++    if (bComplete && aFill == COL_TRANSPARENT)
++        aFill = COL_WHITE; // slide tables need an opaque cell on any slide background
++    if (aFill != COL_TRANSPARENT)
++    {
++        if (bComplete)
++        {
++            rxCell->setPropertyValue(u"FillStyle"_ustr, uno::Any(drawing::FillStyle_SOLID));
++            rxCell->setPropertyValue(u"FillColor"_ustr, uno::Any(sal_Int32(aFill)));
++        }
++        else
++            rxCell->setPropertyValue(u"BackColor"_ustr, uno::Any(sal_Int32(aFill)));
++    }
++    if (bHeader || bComplete)
++        rxCell->setPropertyValue(u"CharColor"_ustr,
++                                 uno::Any(sal_Int32(bHeader ? rStyle.aHeaderText : BODY_TEXT)));
++    if (bHeader)
++        rxCell->setPropertyValue(u"CharWeight"_ustr, uno::Any(awt::FontWeight::BOLD));
++}
++
++uno::Reference<container::XNameContainer> Family(const uno::Reference<frame::XModel>& rxModel,
++                                                 const OUString& rName)
++{
++    uno::Reference<style::XStyleFamiliesSupplier> xSupplier(rxModel, uno::UNO_QUERY);
++    if (!xSupplier.is() || !xSupplier->getStyleFamilies()->hasByName(rName))
++        return {};
++    return { xSupplier->getStyleFamilies()->getByName(rName), uno::UNO_QUERY };
++}
++
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/uiconfig/ui/hststylegallery.ui
+@@ -0,0 +1,150 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- HST Office: the animations gallery of the Slides ribbon (tab "Hiệu ứng"), one row of
++     animation thumbnails with buttons on the right that page through them and open the Custom
++     Animation deck, as Office's gallery. Filled by sd/source/ui/controller/HstAnimationGallery.cxx. -->
++<interface domain="svx">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkTreeStore" id="liststore1">
++    <columns>
++      <!-- column-name image -->
++      <column type="GdkPixbuf"/>
++      <!-- column-name text -->
++      <column type="gchararray"/>
++      <!-- column-name id -->
++      <column type="gchararray"/>
++      <!-- column-name tooltip -->
++      <column type="gchararray"/>
++    </columns>
++  </object>
++  <object class="GtkBox" id="StyleGalleryBox">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="spacing">0</property>
++    <child>
++      <object class="GtkScrolledWindow" id="stylesscroll">
++        <property name="visible">True</property>
++        <property name="can-focus">True</property>
++        <property name="hexpand">True</property>
++        <property name="valign">center</property>
++        <property name="hscrollbar-policy">never</property>
++        <property name="vscrollbar-policy">never</property>
++        <property name="shadow-type">in</property>
++        <child>
++          <object class="GtkIconView" id="styles">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="model">liststore1</property>
++            <property name="pixbuf-column">0</property>
++                        <property name="tooltip-column">3</property>
++            <property name="item-width">60</property>
++            <property name="item-padding">2</property>
++            <property name="column-spacing">0</property>
++            <property name="row-spacing">0</property>
++            <property name="margin">0</property>
++            <property name="activate-on-single-click">False</property>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="styles-atkobject">
++                <property name="AtkObject::accessible-name" translatable="yes" context="hststylegallery|styles-atkobject">Styles</property>
++              </object>
++            </child>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">True</property>
++        <property name="fill">True</property>
++        <property name="position">0</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkBox" id="buttons">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="orientation">vertical</property>
++        <property name="homogeneous">True</property>
++        <property name="valign">center</property>
++        <child>
++          <object class="GtkButton" id="prev">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="tooltip-text" translatable="yes" context="hststylegallery|prev">Previous styles</property>
++            <property name="label">◂</property>
++            <property name="relief">none</property>
++            <property name="height-request">20</property>
++            <property name="width-request">18</property>
++            <style>
++              <class name="small-button"/>
++            </style>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="prev-atkobject">
++                <property name="AtkObject::accessible-name" translatable="yes" context="hststylegallery|prev-atkobject">Previous styles</property>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">0</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="next">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="tooltip-text" translatable="yes" context="hststylegallery|next">Next styles</property>
++            <property name="label">▸</property>
++            <property name="relief">none</property>
++            <property name="height-request">20</property>
++            <property name="width-request">18</property>
++            <style>
++              <class name="small-button"/>
++            </style>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="next-atkobject">
++                <property name="AtkObject::accessible-name" translatable="yes" context="hststylegallery|next-atkobject">Next styles</property>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">1</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkButton" id="more">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">False</property>
++            <property name="tooltip-text" translatable="yes" context="hststylegallery|more">More styles</property>
++            <property name="label">▾</property>
++            <property name="relief">none</property>
++            <property name="height-request">20</property>
++            <property name="width-request">18</property>
++            <style>
++              <class name="small-button"/>
++            </style>
++            <child internal-child="accessible">
++              <object class="AtkObject" id="more-atkobject">
++                <property name="AtkObject::accessible-name" translatable="yes" context="hststylegallery|more-atkobject">More styles</property>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">2</property>
++          </packing>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">1</property>
++      </packing>
++    </child>
++  </object>
++</interface>
+--- a/svx/util/svx.component
++++ b/svx/util/svx.component
+@@ -138,4 +138,13 @@
+     constructor="com_sun_star_comp_svx_ThemeColorsToolBoxControl_get_implementation">
+     <service name="com.sun.star.frame.ToolbarController"/>
+   </implementation>
++  <implementation name="com.sun.star.comp.svx.HstStyleGalleryControl"
++    constructor="com_sun_star_comp_svx_HstStyleGalleryControl_get_implementation">
++    <service name="com.sun.star.frame.ToolbarController"/>
++  </implementation>
++  <implementation name="com.sun.star.comp.svx.HstStyleDispatcher"
++    constructor="com_sun_star_comp_svx_HstStyleDispatcher_get_implementation">
++    <service name="com.sun.star.frame.ProtocolHandler"/>
++    <service name="com.sun.star.comp.svx.HstStyleDispatcher"/>
++  </implementation>
+ </component>
+--- a/sc/Library_sc.mk
++++ b/sc/Library_sc.mk
+@@ -210,6 +210,7 @@
+     sc/source/core/data/table5 \
+     sc/source/core/data/table6 \
+     sc/source/core/data/table7 \
++    sc/source/core/data/HstTableStyles \
+     sc/source/core/data/TableStyleGenerator \
+     sc/source/core/data/tablestyle \
+     sc/source/core/data/tabprotection \
+--- /dev/null
++++ b/sc/inc/HstTableStyles.hxx
+@@ -0,0 +1,24 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include "scdllapi.h"
++
++class ScDocument;
++
++/// HST Office: the HST table styles of the ribbon gallery in a spreadsheet's table styles.
++class SC_DLLPUBLIC ScHstTableStyles
++{
++public:
++    /// Adds the HST styles that the document does not have yet (a loaded .xlsx may bring its own copy).
++    static void Register(ScDocument& rDoc);
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/core/data/HstTableStyles.cxx
+@@ -0,0 +1,103 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the HST table styles of the ribbon gallery (svx HstStyleGalleryData) as Sheets table styles.
++// They are custom OOXML-like styles (whole table, header row, first row stripe), so a table that uses one
++// is saved to .xlsx with its own tableStyle and dxf formats, and the table's header row and banded rows
++// options keep working.
++
++#include <HstTableStyles.hxx>
++
++#include <document.hxx>
++#include <patattr.hxx>
++#include <scitems.hxx>
++#include <tablestyle.hxx>
++
++#include <editeng/borderline.hxx>
++#include <editeng/boxitem.hxx>
++#include <editeng/brushitem.hxx>
++#include <editeng/colritem.hxx>
++#include <editeng/wghtitem.hxx>
++#include <svx/HstStyleGalleryData.hxx>
++
++namespace
++{
++// widths in twips: 0.5 pt and 1.5 pt, as svx::hststyles::TABLE_THIN_LINE and TABLE_HEADER_LINE
++constexpr tools::Long THIN_TWIPS = 10;
++constexpr tools::Long HEADER_TWIPS = 30;
++
++std::unique_ptr<ScPatternAttr> MakePattern(ScDocument& rDoc)
++{
++    return std::make_unique<ScPatternAttr>(rDoc.getCellAttributeHelper());
++}
++
++void PutFill(SfxItemSet& rSet, Color aColor) { rSet.Put(SvxBrushItem(aColor, ATTR_BACKGROUND)); }
++
++std::unique_ptr<ScTableStyle> MakeStyle(ScDocument& rDoc, const svx::hststyles::TableStyle& rStyle)
++{
++    auto pStyle = std::make_unique<ScTableStyle>(OUString(rStyle.aId),
++                                                 svx::hststyles::StyleUIName(rStyle.aName));
++
++    // whole table: outer lines and inner horizontal lines, vertical lines for the grid styles
++    const editeng::SvxBorderLine aThin(&rStyle.aLineColor, THIN_TWIPS);
++    auto pTable = MakePattern(rDoc);
++    SfxItemSet& rTableSet = pTable->GetItemSetWritable();
++    SvxBoxItem aBox(ATTR_BORDER);
++    aBox.SetLine(&aThin, SvxBoxItemLine::TOP);
++    aBox.SetLine(&aThin, SvxBoxItemLine::BOTTOM);
++    SvxBoxInfoItem aInner(ATTR_BORDER_INNER);
++    aInner.SetLine(&aThin, SvxBoxInfoItemLine::HORI);
++    if (rStyle.bVerticalLines)
++    {
++        aBox.SetLine(&aThin, SvxBoxItemLine::LEFT);
++        aBox.SetLine(&aThin, SvxBoxItemLine::RIGHT);
++        aInner.SetLine(&aThin, SvxBoxInfoItemLine::VERT);
++    }
++    rTableSet.Put(aBox);
++    rTableSet.Put(aInner);
++    pStyle->SetPattern(ScTableStyleElement::WholeTable, std::move(pTable));
++
++    // header row: fill, bold text in the header colour and a strong bottom line
++    const Color aHeaderLine = svx::hststyles::HeaderLineColor(rStyle);
++    const editeng::SvxBorderLine aStrong(&aHeaderLine, HEADER_TWIPS);
++    auto pHeader = MakePattern(rDoc);
++    SfxItemSet& rHeaderSet = pHeader->GetItemSetWritable();
++    if (rStyle.aHeaderFill != COL_TRANSPARENT)
++        PutFill(rHeaderSet, rStyle.aHeaderFill);
++    SvxBoxItem aHeaderBox(ATTR_BORDER);
++    aHeaderBox.SetLine(&aStrong, SvxBoxItemLine::BOTTOM);
++    rHeaderSet.Put(aHeaderBox);
++    rHeaderSet.Put(SvxColorItem(rStyle.aHeaderText, ATTR_FONT_COLOR));
++    rHeaderSet.Put(SvxWeightItem(WEIGHT_BOLD, ATTR_FONT_WEIGHT));
++    rHeaderSet.Put(SvxWeightItem(WEIGHT_BOLD, ATTR_CJK_FONT_WEIGHT));
++    rHeaderSet.Put(SvxWeightItem(WEIGHT_BOLD, ATTR_CTL_FONT_WEIGHT));
++    pStyle->SetPattern(ScTableStyleElement::HeaderRow, std::move(pHeader));
++
++    // banded rows: the first stripe (the first data row) is tinted
++    if (rStyle.aBandFill != COL_TRANSPARENT)
++    {
++        auto pBand = MakePattern(rDoc);
++        PutFill(pBand->GetItemSetWritable(), rStyle.aBandFill);
++        pStyle->SetPattern(ScTableStyleElement::FirstRowStripe, std::move(pBand));
++    }
++    return pStyle;
++}
++}
++
++void ScHstTableStyles::Register(ScDocument& rDoc)
++{
++    ScTableStyles* pStyles = rDoc.GetTableStyles();
++    if (!pStyles)
++        return;
++    for (const svx::hststyles::TableStyle& rStyle : svx::hststyles::TableStyles())
++        if (!pStyles->GetTableStyle(OUString(rStyle.aId)))
++            pStyles->AddTableStyle(MakeStyle(rDoc, rStyle));
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/core/data/documen9.cxx
++++ b/sc/source/core/data/documen9.cxx
+@@ -53,6 +53,7 @@
+ #include <userdat.hxx>
+ #include <tablestyle.hxx>
+ #include <TableStyleGenerator.hxx>
++#include <HstTableStyles.hxx>
+ #include <docmodel/theme/Theme.hxx>
+ 
+ using namespace ::com::sun::star;
+@@ -203,6 +204,8 @@
+                 ScTableStyleGenerator::generateDefaultStyles(*this, *pColorSet);
+         }
+     }
++    // HST Office: the HST table styles of the ribbon gallery, beside the OOXML ones
++    ScHstTableStyles::Register(*this);
+ }
+ 
+ void ScDocument::UpdateDrawLanguages()
+--- a/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
+@@ -1936,6 +1936,28 @@
+           <value>com.sun.star.comp.sd.HstTransitionGalleryControl</value>
+         </prop>
+       </node>
++      <node oor:name="HstPictureStyleGallery" oor:op="replace">
++        <prop oor:name="Command">
++          <value>.uno:HstPictureStyles</value>
++        </prop>
++        <prop oor:name="Module">
++          <value/>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.svx.HstStyleGalleryControl</value>
++        </prop>
++      </node>
++      <node oor:name="HstTableStyleGallery" oor:op="replace">
++        <prop oor:name="Command">
++          <value>.uno:HstTableStyles</value>
++        </prop>
++        <prop oor:name="Module">
++          <value/>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.svx.HstStyleGalleryControl</value>
++        </prop>
++      </node>
+       <node oor:name="HstAnimationGallery" oor:op="replace">
+         <prop oor:name="Command">
+           <value>.uno:HstApplyAnimation</value>
+--- a/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
+@@ -4274,6 +4274,22 @@
+           <value>1</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HstPictureStyles" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Picture Styles</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Apply a border and shadow style to the selected picture</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstTableStyles" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Table Styles</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Apply a style to the table</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:CloseWin" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Close Window</value>
+--- a/officecfg/registry/data/org/openoffice/Office/ProtocolHandler.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/ProtocolHandler.xcu
+@@ -34,6 +34,11 @@
+         <value>.uno* slot:*</value>
+       </prop>
+     </node>
++    <node oor:name="com.sun.star.comp.svx.HstStyleDispatcher" oor:op="replace">
++      <prop oor:name="Protocols">
++        <value>vnd.hst.styles:*</value>
++      </prop>
++    </node>
+     <node oor:name="com.sun.star.comp.framework.ServiceHandler" oor:op="replace">
+       <prop oor:name="Protocols">
+         <value>service:*</value>
