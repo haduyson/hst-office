@@ -13,8 +13,8 @@ their modified state. All three now run one AutoRecovery job first:
   has no usable recovery file (password, untracked), nothing is closed and the caller keeps its old way.
 - vcl win salframe.cxx: WM_QUERYENDSESSION with unsaved documents stores them first (Windows shows
   "There are unsaved documents" as the reason meanwhile), then answers "yes" at once and quits
-  (through a frame still there: storing closes the documents and maybe the frame that got the
-  message). A document that could not be stored keeps the save question.
+  (directly: storing disposes the document windows, a shutdown sent through one is dropped). A
+  document that could not be stored keeps the save question.
 - vcl gtk3 gtkframe.cxx: EndSession/Stop run doSessionEnd first; doSessionSave + doSessionQuietQuit
   only for what it could not take.
 - desktop hstsessionend.cxx (new), app.cxx: Linux SIGTERM (not headless or invisible): the signal
@@ -138,7 +138,7 @@ tests/runtime/check-session-end-windows-answer.py; tests/runtime/check-session-e
  static bool ImplHandleShutDownMsg( HWND hWnd )
  {
      bool nRet = false;
-@@ -4454,12 +4483,35 @@
+@@ -4454,12 +4483,30 @@
      {
          // HST Office: Windows waits about 5 s for the answer to WM_QUERYENDSESSION, then shows
          // that an application blocks the shut down and ends it. Quitting inside the call took
@@ -163,15 +163,10 @@ tests/runtime/check-session-end-windows-answer.py; tests/runtime/check-session-e
 +            if ( !ImplHstAnyDocumentModified() )
 +                ReplyMessage( TRUE );
 +        }
-+        // storing closes the documents: their frames, this one too, may be gone; quit through
-+        // a frame still there (the Start Center), or directly when none is left
-+        if ( bStored )
-+        {
-+            pFrame = GetWindowPtr( hWnd );
-+            if ( !pFrame && !GetSalData()->maFrames.empty() )
-+                pFrame = GetSalData()->maFrames.front();
-+        }
-+        if ( pFrame )
++        // storing closes the documents and disposes their windows, this one too: a shutdown
++        // sent through such a frame is dropped, so after storing the application quits directly
++        // (what the shutdown callback does)
++        if ( !bStored )
 +            nRet = pFrame->CallCallback( SalEvent::Shutdown, nullptr );
 +        else if ( GetpApp() && GetpApp()->QueryExit() )
 +            Application::Quit();
@@ -374,7 +369,7 @@ tests/runtime/check-session-end-windows-answer.py; tests/runtime/check-session-e
 +    const char c = 1;
 +    if (write(g_aPipe[1], &c, 1) != 1)
 +        return osl_Signal_ActCallNextHdl;
-+    return osl_Signal_ActIgnoreSignal;
++    return osl_Signal_ActIgnore;
 +}
 +
 +bool anyDocumentModified(const uno::Reference<uno::XComponentContext>& xContext)

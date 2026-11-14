@@ -74,16 +74,16 @@ class StoreTests(unittest.TestCase):
         self.assertIn('dispatch_recovery_job(xContext, u"doSessionEnd"_ustr);', self.code)  # GNOME
         self.assertRegex(self.code, r"ImplHstStoreSession\( hWnd \);\s*bStored = true;\s*\}\s*"
                                     r"if \( !ImplHstAnyDocumentModified\(\) \)\s*ReplyMessage\( TRUE \);")
-        # the store closes this window's document: the quit goes through a frame still there
-        self.assertIn("pFrame = GetWindowPtr( hWnd );", self.code)
-        self.assertIn("else if ( GetpApp() && GetpApp()->QueryExit() )", self.code)
+        # the store disposes the windows of the documents: the application quits directly
+        self.assertRegex(self.code, r"if \( !bStored \)\s*nRet = pFrame->CallCallback\( SalEvent::Shutdown, nullptr \);\s*"
+                                    r"else if \( GetpApp\(\) && GetpApp\(\)->QueryExit\(\) \)\s*Application::Quit\(\);")
         self.assertIn("ShutdownBlockReasonCreate", self.code)
         self.assertIn("ShutdownBlockReasonDestroy( hWnd );", self.code)
 
     def test_sigterm_handler_only_signals_and_keeps_the_old_exit_as_fallback(self):
         handler = re.search(r"oslSignalAction onSignal\(.*?\n\}", self.code, re.S).group(0)
         self.assertIn("write(g_aPipe[1], &c, 1)", handler)
-        self.assertIn("return osl_Signal_ActIgnoreSignal;", handler)
+        self.assertIn("return osl_Signal_ActIgnore;", handler)
         self.assertIn("g_bPending.exchange(true)", handler)  # a second SIGTERM ends at once
         self.assertNotRegex(handler, r"SAL_|OUString|Reference|PostUserEvent")  # nothing unsafe in a signal handler
         self.assertIn("constexpr auto DEADLINE = std::chrono::seconds(20);", self.code)
