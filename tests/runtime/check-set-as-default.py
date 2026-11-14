@@ -114,14 +114,14 @@ def before_restart(h, c):
     dlg = h.open_dialog(".uno:PageFormatDialog", "PageTemplateDialog")
     retype(dlg, "spinMargLeft", "2 cm")
     set_as_default(h, c, dlg, "newdocs", "sheets page setup")
-    c.equal("sheets page setup: this document 2 cm", round(page_style(sheet, "Default").LeftMargin / 10), 2000 // 10)
+    c.equal("sheets page setup: this document 2 cm (0.1 mm: twips)", abs(page_style(sheet, "Default").LeftMargin - 2000) <= 10, True)
     h.close_document(sheet)
 
     doc = h.new_document()
     dlg = h.open_dialog(".uno:PageDialog", "TemplateDialog8")
     retype(dlg, "spinMargLeft", "3 cm")
     set_as_default(h, c, dlg, "newdocs", "page setup")
-    c.equal("page setup: this document 3 cm", round(page_style(doc, "Standard").LeftMargin / 10), 3000 // 10)
+    c.equal("page setup: this document 3 cm (0.1 mm: twips)", abs(page_style(doc, "Standard").LeftMargin - 3000) <= 10, True)
     h.close_document(doc)
 
 
@@ -131,12 +131,12 @@ def after_restart(h, c):
     c.equal("restart: new document justified", int(para.ParaAdjust), BLOCK)
     c.equal("restart: new document 1.5 lines", para.ParaLineSpacing.Height, 150)
     c.equal("restart: font set for one document only stays out", para.CharHeight != 14.0, True)
-    c.equal("restart: new document left margin 3 cm", round(page_style(doc, "Standard").LeftMargin / 10), 3000 // 10)
+    c.equal("restart: new document left margin 3 cm (0.1 mm: twips)", abs(page_style(doc, "Standard").LeftMargin - 3000) <= 10, True)
     h.close_document(doc)
     sheet = h.new_document("scalc")
     cell = sheet.getSheets().getByIndex(0).getCellByPosition(0, 0)
     c.equal("restart: new spreadsheet centered", cell.HoriJustify.value, "CENTER")
-    c.equal("restart: new spreadsheet left margin 2 cm", round(page_style(sheet, "Default").LeftMargin / 10), 2000 // 10)
+    c.equal("restart: new spreadsheet left margin 2 cm (0.1 mm: twips)", abs(page_style(sheet, "Default").LeftMargin - 2000) <= 10, True)
     h.close_document(sheet)
 
 
