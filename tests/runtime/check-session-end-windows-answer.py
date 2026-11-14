@@ -29,6 +29,7 @@ sys.path.insert(0, HERE)
 import recovery_windows as rw  # noqa: E402
 from recovery_windows import record, wait  # noqa: E402
 from recovery_windows_ui import find_window  # noqa: E402
+import uno_main_thread_load  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("session_end_windows", os.path.join(HERE, "check-session-end-windows.py"))
 sew = importlib.util.module_from_spec(_spec)
@@ -86,7 +87,7 @@ def docx_from_disk(o, marker):
     flt.Name, flt.Value = "FilterName", "MS Word 2007 XML"
     doc.storeToURL(url, (flt,))
     doc.close(True)
-    return o.desktop().loadComponentFromURL(url, "_default", 0, ()), path
+    return uno_main_thread_load.load(o.desktop(), url, "_default"), path
 
 
 def end_and_restart(o, name):

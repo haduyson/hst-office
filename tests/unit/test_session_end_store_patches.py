@@ -90,7 +90,8 @@ class StoreTests(unittest.TestCase):
         self.assertNotRegex(handler, r"SAL_|OUString|Reference|PostUserEvent")  # nothing unsafe in a signal handler
         self.assertIn("constexpr auto DEADLINE = std::chrono::seconds(20);", self.code)
         self.assertIn('static const char aNote[] = "\\n\\nTerminated: Signal 15\\n";', self.code)
-        self.assertIn("if (!rCmdLineArgs.IsHeadless() && !rCmdLineArgs.IsInvisible())", self.code)
+        self.assertIn("if (!rArgs.IsHeadless() && !rArgs.IsInvisible())", self.code)
+        self.assertNotIn("+++ b/desktop/source/app/app.cxx", self.text)  # the crash handler patch owns app.cxx
         self.assertIn("desktop/source/app/hstsessionend \\", self.code)
 
 

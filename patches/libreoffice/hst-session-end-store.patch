@@ -17,7 +17,7 @@ their modified state. All three now run one AutoRecovery job first:
   document that could not be stored keeps the save question.
 - vcl gtk3 gtkframe.cxx: EndSession/Stop run doSessionEnd first; doSessionSave + doSessionQuietQuit
   only for what it could not take.
-- desktop hstsessionend.cxx (new), app.cxx: Linux SIGTERM (not headless or invisible): the signal
+- desktop hstsessionend.cxx (new), appinit.cxx (installed when the main loop starts): Linux SIGTERM (not headless or invisible): the signal
   handler only writes to a pipe; a watcher thread posts the session end to the main thread, which
   stores the documents and terminates normally. A document that could not be stored, a veto or no
   end within 20 s end the office at once as before ("Terminated: Signal 15"); repeated SIGTERMs
@@ -251,29 +251,30 @@ tests/runtime/check-session-end-windows-answer.py; tests/runtime/check-session-e
      desktop/source/app/initjsunoscripting \
      desktop/source/app/langselect \
      desktop/source/app/lockfile2 \
---- a/desktop/source/app/app.cxx
-+++ b/desktop/source/app/app.cxx
-@@ -40,6 +40,7 @@
- #include <lockfile.hxx>
- #include "userinstall.hxx"
- #include "desktopcontext.hxx"
+--- a/desktop/source/app/appinit.cxx
++++ b/desktop/source/app/appinit.cxx
+@@ -24,6 +24,7 @@
+ #include <app.hxx>
+ #include <dp_shared.hxx>
+ #include "cmdlineargs.hxx"
 +#include "hstsessionend.hxx"
- #include <migration.hxx>
- #include "officeipcthread.hxx"
- #if HAVE_FEATURE_UPDATE_MAR
-@@ -1692,6 +1693,12 @@
-             // if this run of the office is triggered by restart, some additional actions should be done
-             DoRestartActionsIfNecessary( !rCmdLineArgs.IsInvisible() && !rCmdLineArgs.IsNoQuickstart() );
- 
-+            // HST Office: a SIGTERM from the system (log out, shut down) stores the documents for
-+            // the next start; a headless or invisible office (a server, a conversion) keeps sal's
-+            // immediate exit
-+            if (!rCmdLineArgs.IsHeadless() && !rCmdLineArgs.IsInvisible())
-+                desktop::hst::installSessionEndOnTerminate();
+ #include <strings.hrc>
+ #include <com/sun/star/lang/XInitialization.hpp>
+ #include <com/sun/star/lang/XMultiServiceFactory.hpp>
+@@ -196,6 +197,13 @@
+ // enable acceptors
+ IMPL_STATIC_LINK_NOARG(Desktop, EnableAcceptors_Impl, void*, void)
+ {
++    // HST Office: the main loop runs: a SIGTERM from the system (log out, shut down) now stores the
++    // documents for the next start; a headless or invisible office (a server, a conversion) keeps
++    // sal's immediate exit
++    const CommandLineArgs& rArgs = GetCommandLineArgs();
++    if (!rArgs.IsHeadless() && !rArgs.IsInvisible())
++        desktop::hst::installSessionEndOnTerminate();
 +
-             Execute();
-         }
-     }
+     if (!bAccept)
+     {
+         // from now on, all new acceptors are enabled
 --- a/desktop/unx/source/start.c
 +++ b/desktop/unx/source/start.c
 @@ -720,8 +720,11 @@
