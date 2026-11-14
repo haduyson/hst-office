@@ -18,6 +18,7 @@ import argparse
 import importlib.util
 import json
 import os
+import signal
 import sys
 import threading
 import time
@@ -73,6 +74,12 @@ def run_round(office, folder, number, progress):
             progress("switch %s round %d #%d" % (mode, number, switch))
             office.dispatch(scenario.shown(office.desktop), ".uno:NextDocumentTab")
             time.sleep(2)
+    # Back to the default ribbon (no menubar) before the next round's documents load. A document loaded over UNO
+    # into a window with a menubar builds the gtk menubar on the request thread, and its Paste state then waits for
+    # the system clipboard from that thread; gtk can wait there for good (a separate upstream hazard of UNO-driven
+    # loads, seen once in round 10), which this check is not about.
+    progress("all notebookbar.ui round %d" % number)
+    scenario.apply_mode(office, "Writer", "notebookbar.ui", to_all=True)
     close_all_but_one(office)
 
 
@@ -101,6 +108,9 @@ def main():
             if time.time() - state["last"] > HANG_SECONDS:
                 hst_gui.screenshot(os.path.join(args.out, "hang.png"), args.display)
                 print("FAIL  office hung at %s" % state["step"], flush=True)
+                pid = office.pid
+                if pid:  # never leave the hung office behind
+                    os.kill(pid, signal.SIGKILL)
                 os._exit(1)
 
     threading.Thread(target=watchdog, daemon=True).start()
