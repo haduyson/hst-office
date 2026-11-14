@@ -10,7 +10,7 @@ banner.
 
 --- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
 +++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
-@@ -115,6 +115,15 @@
+@@ -115,6 +115,16 @@
      rButton.set_accessible_name(aText);
  }
  
@@ -18,24 +18,25 @@ banner.
 +/// (the button's own padding aside), so both toolbar rows end together.
 +tools::Long signImageWidth(weld::Widget& rEdit, weld::Widget& rSign)
 +{
++    const tools::Long nRequest = rSign.get_size_request().Width();
 +    const tools::Long nPadding
-+        = std::max<tools::Long>(0, rSign.get_preferred_size().Width() - rSign.get_size_request().Width());
++        = nRequest > 0 ? std::max<tools::Long>(0, rSign.get_preferred_size().Width() - nRequest) : 0;
 +    return rEdit.get_preferred_size().Width() - nPadding;
 +}
 +
  /// Largest side of a Start Center thumbnail, as for the documents HST Office opens itself.
  constexpr int THUMBNAIL_EXTENT = 512;
  
-@@ -307,7 +316,7 @@
-     m_xPages->setPlacementChangedHdl(LINK(this, PdfViewerWindow, PlacementHdl));
+@@ -308,6 +318,8 @@
      m_xThumbs->setPageActivatedHdl(LINK(this, PdfViewerWindow, ThumbActivatedHdl));
  
--    paintPrimaryButton(*m_xSign, XsResId(STR_HSTPDF_SIGN), false, true);
+     paintPrimaryButton(*m_xSign, XsResId(STR_HSTPDF_SIGN), false, true);
++    // again as wide as Edit: signImageWidth needs the size request of a first painting
 +    paintPrimaryButton(*m_xSign, XsResId(STR_HSTPDF_SIGN), false, true, signImageWidth(*m_xEdit, *m_xSign));
      m_xSign->set_accessible_name(XsResId(STR_HSTPDF_SIGN));
  
      // Paint our own background, as the Start Center does: InterimItemWindow leaves the window
-@@ -337,6 +346,9 @@
+@@ -337,6 +349,9 @@
      for (const auto& [pButton, rLabel] : m_aCompactButtons)
          pButton->set_label(bIcons ? OUString() : rLabel);
      m_xPageLabel->set_visible(nLevel < TOOLBAR_LEVEL_NO_PAGE_LABEL);
@@ -45,7 +46,7 @@ banner.
  }
  
  void PdfViewerWindow::fitToolbar()
-@@ -783,7 +795,7 @@
+@@ -783,7 +798,7 @@
  {
      if (m_xSign->get_active() != bShow)
          m_xSign->set_active(bShow);
