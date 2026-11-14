@@ -110,7 +110,8 @@ class CompactWiring(unittest.TestCase):
         schema = added(PATCH, "officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs")
         self.assertIn('<prop oor:name="CompactApps" oor:type="oor:string-list" oor:nillable="false">', schema)
         compact = added(PATCH, "sfx2/source/notebookbar/HstRibbonCompact.cxx")
-        self.assertIn("officecfg::Office::HSTRibbon::CompactApps::set(", compact)
+        self.assertIn('SetAppListed(u"CompactApps"_ustr, m_aApp, bCompact);', compact)
+        self.assertNotIn("officecfg::", compact)  # no generated header: builds that skip officecfg still compile
 
     def test_tooltips_are_translated(self):
         entries = po_entries(added(PATCH, "translations/source/vi/sfx2/messages.po"))
