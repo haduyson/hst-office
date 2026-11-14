@@ -7,8 +7,9 @@ to words) run through actions with a captured message box and never raise, and a
 gets the document right after that table in one undo step.
 
 Usage: <office>/program/python tests/runtime/check-nd30-insertion-point.py --display :173 --instdir <instdir>
-       [--out DIR] [--port 2307]
-The display must already run; it is never started or stopped here. Exit 1 on failure.
+       [--out DIR] [--port 2307] [--hang-after 300]
+The display must already run; it is never started or stopped here. Exit 1 on failure, 3 when the office makes no
+progress for --hang-after seconds (stacks in DIR/hang-*.txt; the gtk3 clipboard deadlock is named when seen).
 """
 import argparse
 import os
@@ -17,8 +18,10 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path[:0] = [HERE, os.path.join(os.path.dirname(os.path.dirname(HERE)), "extensions/hst-vietnamese-tools/python")]
 import hst_gui  # noqa: E402
+import hst_gui_hang  # noqa: E402
 
 ROWS = []
+WATCH = None  # hst_gui_hang.HangWatch: every check line and scenario step is progress
 EXPECTED = {"plain_body": [], "table_cell": [], "table_cells_selected": [], "nested_table_cell": [],
             "table_last_in_document": [], "table_cell_text_selected": ["selection"], "text_selected": ["selection"],
             "multi_selection": ["selection"], "image_selected": ["not-text-cursor"], "shape_selected": ["not-text-cursor"],
@@ -30,6 +33,7 @@ AFTER_TABLE = {"table_cell", "table_cells_selected", "nested_table_cell", "table
 
 def check(name, ok, detail=""):
     ROWS.append(bool(ok))
+    WATCH.beat(name)
     print("%s  %s  %s" % ("PASS" if ok else "FAIL", name, str(detail)[:240]), flush=True)
 
 
@@ -70,11 +74,16 @@ def main():
     parser.add_argument("--instdir", default=os.path.join(hst_gui.ROOT, "upstream/libreoffice/instdir"))
     parser.add_argument("--out", default=os.path.join(hst_gui.ROOT, "tests/output/nd30-insertion-point"))
     parser.add_argument("--port", type=int, default=2307)
+    parser.add_argument("--hang-after", type=int, default=300, help="seconds without progress before stacks + exit 3")
     args = parser.parse_args()
+    global WATCH
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
     hst_gui.setup_uno(args.instdir)
-    office = hst_gui.Office(args.instdir, os.path.join(out, "office"), args.port, display=args.display).start()
+    office = hst_gui.Office(args.instdir, os.path.join(out, "office"), args.port, display=args.display)
+    WATCH = hst_gui_hang.HangWatch(office, out, idle=args.hang_after).start()
+    office.start()
+    WATCH.beat("office started")
     try:
         import nd30_insertion_scenarios as scenarios
         from hst_office import actions, nd30_insertion
@@ -83,6 +92,7 @@ def main():
         choice = {"type": "cong-van", "fields": {}, "apply_page": False, "page_numbers": False, "duplex": False}
         for make in scenarios.SCENARIOS:
             name, want = make.__name__, EXPECTED[make.__name__]
+            WATCH.beat("%s: opening its document" % name)
             doc = make(office)
             got = nd30_insertion.insertion_point(doc, doc.getCurrentController())["reasons"]
             check("%s: ND30 decision %s" % (name, want), got == want, got)
@@ -105,9 +115,12 @@ def main():
             for label, command in (("convert encoding", actions.convert_encoding), ("number to words", actions.COMMANDS["NumberToWords"])):
                 said, exc = run_command(office.ctx, actions, command, doc)
                 check("%s: %s does not raise" % (name, label), exc is None, exc)
+            WATCH.beat("%s: closing its document" % name)
             scenarios.close(doc)
     finally:
+        WATCH.beat("stopping the office")
         office.stop()
+        WATCH.stop()
     print("PASS" if all(ROWS) else "FAIL", flush=True)
     return 0 if all(ROWS) else 1
 
