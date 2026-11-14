@@ -18,37 +18,10 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import windows_gui as wg  # noqa: E402
+from windows_keytips_keys import VK_ALT, VK_CTRL, VK_SHIFT, alt_tip, esc, front, letters, menu_bar_mode  # noqa: E402,E501
 
-VK_ALT, VK_CTRL, VK_SHIFT, VK_ESC = 0x12, 0x11, 0x10, 0x1B
 FACTORY = {"writer": "private:factory/swriter", "calc": "private:factory/scalc", "impress": "private:factory/simpress"}
 TITLE = {"writer": "HST Writer", "calc": "HST Sheets", "impress": "HST Slides"}
-
-
-def letters(hwnd, word):
-    for char in word:
-        wg.chord(ord(char), target=hwnd, front=False)
-        time.sleep(0.5)
-    time.sleep(1.0)
-
-
-def front(hwnd):
-    """The document window in front, with no KeyTips left open (bringing it forward may press Alt itself)."""
-    wg.foreground(hwnd)
-    time.sleep(0.6)
-    esc(hwnd, 2)
-
-
-def alt_tip(hwnd, word):
-    front(hwnd)
-    wg.chord(VK_ALT, target=hwnd, front=False)
-    time.sleep(0.8)
-    letters(hwnd, word)
-
-
-def esc(hwnd, times=2):
-    for _ in range(times):
-        wg.chord(VK_ESC, target=hwnd, front=False)
-        time.sleep(0.3)
 
 
 def annotations(doc):
@@ -136,6 +109,7 @@ def main():
     parser.add_argument("--install", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--port", type=int, default=2371)
+    parser.add_argument("--menubar", action="store_true", help="only the classic menu bar checks (HST Writer)")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
     profile = os.path.join(args.out, "profile")
@@ -146,7 +120,8 @@ def main():
         time.sleep(15)
         office.ctx = office._connect()  # the first start of a new image restarts itself after the extension sync
         wg.dismiss_startup(office, os.path.join(args.out, "startup.png"))
-        for app, step in (("writer", writer), ("calc", calc), ("impress", impress)):
+        steps = (("writer", menu_bar_mode),) if args.menubar else (("writer", writer), ("calc", calc), ("impress", impress))
+        for app, step in steps:
             doc = office.load(FACTORY[app])
             time.sleep(4)
             # the welcome window can open with the first document: closed with WM_CLOSE, never with a key
