@@ -26,7 +26,13 @@ nhưng lệnh HST làm khác một chút), **thiếu** (HST chưa có lệnh tư
 
 ## Mẹo phím (KeyTips)
 
-Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh; Esc lùi một bước; Alt+chữ mở thẳng thẻ (`hst-ribbon-keytips.patch`). Chữ của thẻ lấy từ trang phím tắt vi-vn của Microsoft: Word F H N G P S M R W L, Excel F H N P M A R W, PowerPoint F H N G K A S R W. Chữ của lệnh: bảng trong `sfx2/source/notebookbar/HstKeyTipTable.hxx`, lệnh ngoài bảng được gán chữ còn trống khi mở thẻ, nên có thể khác Office. Nút » (các nhóm không đủ chỗ trên ribbon) và khối bên phải đã thu gọn cũng có chữ; mở chúng bằng chữ thì các lệnh trong khung hiện ra cũng có chữ, Esc đóng khung (`hst-ribbon-chevron.patch`).
+Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh; Esc lùi một bước; Alt+chữ mở thẳng thẻ (`hst-ribbon-keytips.patch`). Chữ của thẻ lấy từ trang phím tắt vi-vn của Microsoft: Word F H N G P S M R W L, Excel F H N P M A R W, PowerPoint F H N G K A S R W. Chữ của lệnh: bảng trong `sfx2/source/notebookbar/HstKeyTipTable.hxx`, lệnh ngoài bảng được gán chữ còn trống khi mở thẻ, nên có thể khác Office.
+
+Từ 1.0.2 (chủ dự án 14/11/2026: "Phím Alt của thẻ hiệu ứng nên để giống như MS Office"):
+
+- Chữ của lệnh theo từng ứng dụng và từng thẻ, lấy từ Office 2021 cài trên máy HST4 (`data/ribbon/office-keytips-reference.json`, ghi bằng UI Automation; máy chỉ có giao diện tiếng Anh nên dùng chữ tiếng Anh). Ví dụ Alt, R, C là Chú thích mới ở thẻ Xem lại của mọi ứng dụng; Alt, N, SI là Trang chiếu mới ở thẻ Chèn của Slides. Bảng `data/ribbon/keytips-office-parity.json` sinh ra `hst-ribbon-keytips-office.patch`.
+- Tên thẻ ribbon trong giao diện tiếng Việt không còn chữ gạch dưới (Office cũng không có). Trước đây "~Hiệu ứng" gạch chữ H, trong khi Alt+H mở Trang đầu.
+- `scripts/check-keytips-parity.py` (chạy trong CI) báo lỗi khi chữ của thẻ, chữ của lệnh, chữ gạch dưới của thẻ hoặc một phím tắt trong `data/ribbon/shortcuts-office-parity.json` lệch khỏi Office. Nút » (các nhóm không đủ chỗ trên ribbon) và khối bên phải đã thu gọn cũng có chữ; mở chúng bằng chữ thì các lệnh trong khung hiện ra cũng có chữ, Esc đóng khung (`hst-ribbon-chevron.patch`).
 
 ## HST Writer ↔ Word
 
@@ -108,6 +114,32 @@ Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh;
 | Bỏ nhóm | Ctrl+Shift+G | Cmd+Option+Shift+G | Ctrl+Alt+Shift+G | Ctrl+Shift+G (Ctrl+Alt+Shift+G vẫn dùng được) | đổi | **Nhóm** (Ctrl+Shift+G) chuyển sang Ctrl+G |
 | Lưu thành | F12 | Cmd+Shift+S | không có | Lưu thành (Win/Linux) | đổi | |
 
+## Thêm trong 1.0.2 (đối chiếu Office 2021 trên HST4)
+
+`patches/libreoffice/hst-msoffice-shortcuts-parity.patch`; toàn bộ 210 dòng đối chiếu (khớp, đổi, khác có lý do) ở
+`data/ribbon/shortcuts-office-parity.json`.
+
+| Ứng dụng | Phím | Lệnh mới | Trước đó |
+|---|---|---|---|
+| Writer | Ctrl+F2 | Xem trước khi in | Trường (hộp thoại) |
+| Writer | Ctrl+Shift+E | Theo dõi thay đổi | Nhảy tới chú thích cuối trang / neo |
+| Writer | Ctrl+Shift+8 (Ctrl+*) | Hiện dấu định dạng | không có (Ctrl+F10 vẫn dùng được) |
+| Writer, Sheets, Slides, PDF | Shift+F7 | Từ điển đồng nghĩa | Tự động kiểm tra chính tả |
+| Writer | Ctrl+Alt+F / Ctrl+Alt+D | Chú thích cuối trang / cuối văn bản | không có |
+| Sheets | Ctrl+F2 | Xem trước khi in | Hàm (hộp thoại) |
+| Sheets | Shift+F3 | Chèn hàm | Xoay vòng kiểu chữ |
+| Sheets | Shift+F9 | Tính lại | Theo dấu ô tham chiếu |
+| Sheets | Ctrl+5 | Gạch ngang chữ | Giãn dòng 1,5 |
+| Sheets | Ctrl+Shift+F3, Shift+F2, Ctrl+9, Ctrl+0 | Tạo tên, Chú thích, Ẩn hàng, Ẩn cột | không có |
+| Sheets | Alt+Shift+→ / ← | Nhóm / Bỏ nhóm | không có |
+| Slides | Alt+F8, Ctrl+Shift+> / <, Shift+F9, Alt+Shift+F9, Ctrl+T, Ctrl+Alt+V | Macro, cỡ chữ, lưới, thước, Phông chữ, Dán đặc biệt | không có |
+| PDF | F12 | Lưu thành | không có |
+
+Còn khác Office (có lý do trong bảng): F1 (Trợ giúp do hệ điều hành mở), Ctrl+F1 (chưa có thu gọn ribbon), Ctrl+Shift+C/V
+và Ctrl+Alt+V của Word (HST theo Office bản mới 2024+, máy HST4 là Office 2021), Ctrl+Shift+A (chưa có lệnh Chữ hoa),
+Shift+F12 / Ctrl+F12 / Ctrl+Shift+F12 của Word (giữ Dấu đầu dòng, Chèn bảng như cũ), Ctrl+E và Ctrl+Alt+L của Excel
+(chưa có Flash Fill, Áp dụng lại bộ lọc), Ctrl+F2 của Slides (không có xem trước khi in).
+
 ## Tổng hợp
 
 | | Khớp | Đổi | Một phần | Thiếu |
@@ -155,6 +187,13 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 | Sheets | Cmd+; (macOS) | Ngày hiện tại | Control+; |
 | Slides | Ctrl+Shift+G | Nhóm | Ctrl+G |
 | Slides | Cmd+Shift+N (macOS) | Mẫu mới | Tệp tin ▸ Mới ▸ Mẫu |
+| Writer | Ctrl+F2 | Trường (hộp thoại) | Chèn ▸ Trường ▸ Thêm trường |
+| Writer | Ctrl+Shift+E | Nhảy tới chú thích / neo | Công cụ ▸ Tùy biến (gán lại phím được) |
+| Writer, Sheets, Slides, PDF | Shift+F7 | Tự động kiểm tra chính tả | thẻ Xem lại |
+| Sheets | Ctrl+F2 | Hàm (hộp thoại) | Shift+F3, thẻ Công thức |
+| Sheets | Shift+F3 | Xoay vòng kiểu chữ | Định dạng ▸ Văn bản |
+| Sheets | Shift+F9 | Theo dấu ô tham chiếu | thẻ Công thức |
+| Sheets | Ctrl+5 | Giãn dòng 1,5 (khi sửa chữ trong ô) | hộp thoại Đoạn văn |
 
 ## Chưa xác minh
 

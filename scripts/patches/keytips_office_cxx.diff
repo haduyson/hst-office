@@ -1,0 +1,67 @@
+--- a/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
++++ b/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
+@@ -7,6 +7,7 @@
+ 
+ #include "HstRibbonKeyTips.hxx"
+ #include "HstKeyTipTable.hxx"
++#include "HstKeyTipOffice.hxx"
+ 
+ #include <com/sun/star/accessibility/AccessibleRole.hpp>
+ #include <rtl/ustrbuf.hxx>
+@@ -98,6 +99,7 @@
+         , m_xBar(&rBar)
+         , m_xQuick(pQuickAccess)
+         , m_xBanner(pBanner)
++        , m_aModule(moduleOf(std::string_view(rBar.GetUIFilePath().toUtf8())))
+     {
+         Application::AddKeyListener(LINK(this, KeyTips, KeyHdl));
+         Application::AddEventListener(LINK(this, KeyTips, AppEventHdl));
+@@ -160,7 +162,8 @@
+     {
+         Clear();
+         m_aTargets = std::move(rTargets);
+-        const std::vector<std::string> aTips = assign(rPreferred);
++        // HST Office: the letters of the familiar suite on this tab win over the general table
++        const std::vector<std::string> aTips = assign(prioritise(rPreferred));
+         // the tips go on the ribbon, or on the popup whose commands they show
+         vcl::Window& rHost = m_xPopup ? *m_xPopup : *m_xBar;
+         const Size aBar = rHost.GetOutputSizePixel();
+@@ -291,8 +294,7 @@
+                     aCommand = aCommand.replaceFirst(".uno:", "");
+                     const OString aUtf8 = aCommand.toUtf8();
+                     AddToolBoxItem(*pBox, nId, rTargets, rPreferred,
+-                                   std::string(lookup(std::begin(COMMAND_KEYS), std::end(COMMAND_KEYS),
+-                                                      std::string_view(aUtf8))));
++                                   preferred(m_aModule, m_aTab, std::string_view(aUtf8)));
+                 }
+             }
+             else if (pChild->GetType() == WindowType::PUSHBUTTON || pChild->GetType() == WindowType::MENUBUTTON)
+@@ -306,8 +308,7 @@
+                 aTarget.bEnabled = pChild->IsEnabled();
+                 // HST Office: a ribbon menu button ("Chèn ▾") may have a letter of its own, by widget id
+                 const OString aId = pChild->get_id().getToken(0, ':').toUtf8();
+-                const std::string_view aIdTip
+-                    = lookup(std::begin(COMMAND_KEYS), std::end(COMMAND_KEYS), std::string_view(aId));
++                const std::string aIdTip = preferred(m_aModule, m_aTab, std::string_view(aId));
+                 VclPtr<vcl::Window> xButton(pChild);
+                 aTarget.aRun = [this, xButton] {
+                     const Point aCentre(xButton->GetOutputSizePixel().Width() / 2, xButton->GetOutputSizePixel().Height() / 2);
+@@ -333,6 +334,8 @@
+     {
+         std::vector<Target> aTargets;
+         std::vector<std::string> aPreferred;
++        const OString aTab = m_xTabs->GetPageName(m_xTabs->GetCurPageId()).toUtf8();
++        m_aTab.assign(aTab.getStr(), aTab.getLength());
+         if (TabPage* pPage = m_xTabs->GetTabPage(m_xTabs->GetCurPageId()))
+             CollectCommands(*pPage, aTargets, aPreferred);
+         m_eLevel = Level::Commands;
+@@ -403,6 +406,9 @@
+     OUString m_aTyped;
+     Level m_eLevel = Level::None;
+     bool m_bAltArmed = false;
++    // HST Office: module of the ribbon ("swriter") and id of the tab whose commands are shown, for HstKeyTipOffice.hxx
++    std::string m_aModule;
++    std::string m_aTab;
+ };
+ 
+ IMPL_LINK(KeyTips, ModKeyHdl, const CommandModKeyData&, rData, void)
