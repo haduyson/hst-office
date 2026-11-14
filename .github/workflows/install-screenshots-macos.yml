@@ -24,7 +24,7 @@ concurrency:
 jobs:
   shots:
     runs-on: ${{ inputs.arch == 'x86_64' && 'macos-15-intel' || 'macos-15' }}
-    timeout-minutes: 40
+    timeout-minutes: 25
     env:
       VERSION: ${{ inputs.version }}
       ARCH: ${{ inputs.arch }}
@@ -105,17 +105,22 @@ jobs:
           try osascript -e 'tell application "Finder" to close every window'
           if ! hdiutil detach "$vol"; then try hdiutil detach -force "$vol"; fi
           # 3. open the quarantined app as a user would; Gatekeeper answers through CoreServicesUIAgent
-          try open "/Applications/HST Office.app"
-          sleep 10
+          # `open` waits while Gatekeeper asks, so it runs in the background and is stopped afterwards
+          open "/Applications/HST Office.app" > "$out/open-gatekeeper.log" 2>&1 &
+          opener=$!
+          sleep 12
           shot mac-02-gatekeeper.png '$3=="CoreServicesUIAgent" && $5>200'
           try pkill -f "HST Office.app/Contents/MacOS/"
           try killall CoreServicesUIAgent
+          try kill "$opener"
           # 4. the user-approved state (Open Anyway / no quarantine): first launch with a fresh profile
           xattr -dr com.apple.quarantine "/Applications/HST Office.app"
-          open "/Applications/HST Office.app"
+          open "/Applications/HST Office.app" > "$out/open-first-launch.log" 2>&1 &
+          opener=$!
           sleep 45
           shot mac-03-first-launch.png '($3 ~ /soffice|HST Office/) && $7==0 && $5>300'
           try pkill -f "HST Office.app/Contents/MacOS/"
+          try kill "$opener"
       - name: Upload screenshots
         if: ${{ always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
