@@ -1,0 +1,35 @@
+HST Office: in a narrow window the ribbon's tabs never run under the menu button.
+
+Below about 850 px the tab row was wider than the room before the ≡ button: the last tabs were drawn under it
+and the search box was pushed out. A tab that would end past the room the search box's magnifier needs is now
+left off the row (not drawn, no clicks); the keyboard still reaches it.
+
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -2681,6 +2681,26 @@
+         nX += aSize.Width();
+     }
+ 
++    // HST Office: in a narrow window a tab that would run under the menu button (past the room the search box's
++    // magnifier needs) is left off the row: it is not drawn and takes no clicks (the keyboard still reaches it).
++    // The search box follows the last tab shown.
++    if (pHstSearch)
++    {
++        const tools::Long nRowEnd = nMaxWidth - 2 * nHstGap - std::lround(32 * fHstDpi);
++        for (auto & item : mpTabCtrlData->maItemList)
++        {
++            if (item.m_bVisible && !item.maRect.IsEmpty() && item.maRect.Right() > nRowEnd)
++            {
++                item.maRect = tools::Rectangle();
++                item.mbFullVisible = false;
++            }
++        }
++        nX = nOffsetX;
++        for (auto & item : mpTabCtrlData->maItemList)
++            if (item.m_bVisible && !item.maRect.IsEmpty())
++                nX = std::max(nX, item.maRect.Right() + 1);
++    }
++
+     // we always have only one line of tabs
+     // tdf#127610 subtract width of shortcuts from width available for tab items
+     if (!pHstSearch) // with the search box the tabs stay left-aligned, the box fills the row
