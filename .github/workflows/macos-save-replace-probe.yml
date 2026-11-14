@@ -52,6 +52,39 @@ jobs:
           "$app/Contents/Resources/python" tests/runtime/check-save-replace.py --program "$app/Contents/MacOS" \
             2>&1 | tee "$out/result.txt"
           exit "${PIPESTATUS[0]}"
+      - name: Check closing the last document
+        id: closelast
+        if: ${{ always() && hashFiles('tests/runtime/check-close-last-doc.py') != '' }}
+        shell: bash
+        run: |
+          set -eu
+          app="$RUNNER_TEMP/HST Office.app"
+          out="$RUNNER_TEMP/save-replace"; mkdir -p "$out"
+          pkill -f "$app/Contents/MacOS/soffice" || true
+          "$app/Contents/Resources/python" tests/runtime/check-close-last-doc.py --program "$app/Contents/MacOS" \
+            2>&1 | tee "$out/close-last-doc.txt"
+          exit "${PIPESTATUS[0]}"
+      - name: Diagnose the close crash (lldb, zombies, disassembly)
+        if: ${{ always() && steps.closelast.outcome == 'failure' }}
+        shell: bash
+        run: |
+          set +e
+          app="$RUNNER_TEMP/HST Office.app"; out="$RUNNER_TEMP/save-replace"
+          lib="$app/Contents/Frameworks/libvclplug_osxlo.dylib"
+          [ -f "$lib" ] || lib=$(find "$app" -name 'libvclplug_osxlo.dylib' -print -quit)
+          { echo "== static disassembly of AquaSalMenu::setDefaultMenu ($lib)"
+            lldb --batch -o "target create \"$lib\"" -o "disassemble --name AquaSalMenu::setDefaultMenu" \
+              -o "disassemble --name AquaSalMenu::unsetMainMenu" ; } 2>&1 | tee "$out/disassembly.txt"
+          pkill -f "$app/Contents/MacOS/soffice"
+          echo "== NSZombieEnabled run"
+          NSZombieEnabled=YES MallocStackLogging=1 "$app/Contents/Resources/python" tests/runtime/check-close-last-doc.py \
+            --program "$app/Contents/MacOS" --port 22237 2>&1 | tee "$out/close-last-doc-zombie.txt"
+          pkill -f "$app/Contents/MacOS/soffice"
+          echo "== lldb run"
+          "$app/Contents/Resources/python" tests/runtime/check-close-last-doc.py --program "$app/Contents/MacOS" \
+            --port 22238 --launcher "bash $GITHUB_WORKSPACE/tests/runtime/macos-lldb-crash-launcher.sh" \
+            2>&1 | tee "$out/close-last-doc-lldb.txt"
+          exit 0
       - name: Stop leftover office processes
         if: ${{ always() }}
         shell: bash
