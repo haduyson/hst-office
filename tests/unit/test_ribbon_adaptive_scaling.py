@@ -88,5 +88,22 @@ class ApprovedOrder(unittest.TestCase):
         self.assertLess(insert.index(["gdInsertSymbols", "S"]), insert.index(["gdInsertReferences", "S"]))
 
 
+    def test_other_tabs_shrink_right_to_left_main_group_last(self):
+        # coordinator 14/11/2026: right to left to M, to S, to C; the tab's first (main) group last
+        data = json.load(open(os.path.join(ROOT, "data/ribbon/adaptive-ladders.json"), encoding="utf-8"))
+        order = {(l["app"], l["box"]): l["groups"] for l in
+                 json.load(open(os.path.join(ROOT, "data/ribbon/scaling-priorities.json"), encoding="utf-8"))["ladders"]}
+        checked = 0
+        for ladder in data["ladders"]:
+            groups = order.get((ladder["app"], ladder["box"]))
+            if ladder["app"] == "writer" and ladder["box"] in ("pmhbHome", "pmhbInsert") or not groups:
+                continue
+            rest = groups[1:][::-1]
+            want = [[g, s] for s in "MSC" for g in rest] + [[groups[0], s] for s in "MSC"]
+            self.assertEqual(ladder["steps"], want, (ladder["app"], ladder["box"]))
+            checked += 1
+        self.assertGreater(checked, 40)
+
+
 if __name__ == "__main__":
     unittest.main()
