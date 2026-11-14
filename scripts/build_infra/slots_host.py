@@ -29,10 +29,16 @@ def swap_used_gib():
     return (m["SwapTotal"] - m["SwapFree"]) / GIB
 
 
+def slice_cgroup(name):
+    """cgroup v2 directory of a systemd slice: a dash nests slices (hst-build.slice is hst.slice/hst-build.slice)."""
+    parts = name[:-len(".slice")].split("-")
+    return "/sys/fs/cgroup/" + "/".join("-".join(parts[:i + 1]) + ".slice" for i in range(len(parts)))
+
+
 def scope_memory_gib(scope):
     if not scope:
         return 0.0
-    path = f"/sys/fs/cgroup/{os.environ.get('HST_LOCAL_SLICE') or 'system.slice'}/{scope}.scope/memory.current"
+    path = f"{slice_cgroup(os.environ.get('HST_LOCAL_SLICE') or 'system.slice')}/{scope}.scope/memory.current"
     try:
         with open(path, encoding="ascii") as f:
             return int(f.read().strip()) / GIB

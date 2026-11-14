@@ -448,7 +448,13 @@ configure_if_needed() {
 mem_avail_gib() { awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo; }
 swap_used_mib() { awk '/SwapTotal/{t=$2}/SwapFree/{f=$2}END{print int((t-f)/1024)}' /proc/meminfo; }
 free_gib() { df -BG --output=avail "$BUILD_ROOT" | tail -1 | tr -dc 0-9; }
-scope_cg() { echo "/sys/fs/cgroup/${SLICE:-system.slice}/$SCOPE.scope"; }
+slice_cg() { # cgroup path of a slice: a dash nests slices (hst-build.slice is hst.slice/hst-build.slice)
+  local name="${1%.slice}" path="" part="" p
+  IFS=- read -r -a parts <<< "$name"
+  for p in "${parts[@]}"; do part="${part:+$part-}$p"; path="$path/$part.slice"; done
+  echo "/sys/fs/cgroup$path"
+}
+scope_cg() { echo "$(slice_cg "${SLICE:-system.slice}")/$SCOPE.scope"; }
 budget_mib() { "${SLOTS_PY[@]}" budget --jobs "$1"; }
 
 start_make() { # make like ci-build.sh --build (or the --modules targets), in a capped scope, own session
