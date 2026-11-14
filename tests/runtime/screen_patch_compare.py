@@ -31,14 +31,14 @@ def describe(patches, frame, before, after):
 
 def classify(patches, frame, before, after, desktop):
     """'desktop': some patch shows the desktop where neither the screen before nor after the switch does;
-    'partial': some patch shows neither the before, the after nor the desktop picture (a blank or half painted
-    window); '' otherwise."""
-    kind = ""
+    'partial': two or more patches show neither the before, the after nor the desktop picture (a blank or half
+    painted window; one such patch alone is animated content, e.g. the ribbon banner); '' otherwise."""
+    odd = 0
     for n in range(patches.count):
         p, b, a = patches.patch(frame, n), patches.patch(before, n), patches.patch(after, n)
         if near(p, b) or near(p, a):
             continue
         if near(p, patches.patch(desktop, n)):
             return "desktop"
-        kind = "partial"
-    return kind
+        odd += 1
+    return "partial" if odd >= 2 else ""
