@@ -1,0 +1,31 @@
+HST Office: a parked document tab gets its menubar back when its module returns to a toolbar mode.
+
+Two Writer tabs, A parked: cycling the UI mode on B through ribbon modes back to Standard Toolbar left A,
+once shown, with its toolbars but no menubar (1.0.1 did the same). Traced over UNO, per step, the menubar
+state of both frames: entering a ribbon mode hides the menubar of every frame of the module
+(SfxNotebookBar::ShowMenubarForModuleOf, from StateMethod of the frame that gets the ribbon), parked A
+included. Going back, .uno:ToolbarMode runs SID_NOTEBOOKBAR per frame, whose CloseMethod closes B's ribbon and
+shows only B's menubar; StateMethod then finds no ribbon to close and does nothing, and A never had a
+ribbon of its own. Nothing showed A's menubar again.
+
+SID_TOOLBAR_MODE now shows the menubars of the whole module after it applied a mode without a ribbon. In a
+ribbon mode nothing changes (the ribbon setup decides, by its HasMenubar). Regression check:
+tests/runtime/check-ui-mode-tabs.py and check-windows-ui-mode-tabs.py judge the menubar on every tab again.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/sfx2/source/appl/appserv.cxx
++++ b/sfx2/source/appl/appserv.cxx
+@@ -1224,6 +1224,12 @@
+                 pViewFrame = SfxViewFrame::GetNext(*pViewFrame);
+             }
+ 
++            // HST Office: a ribbon mode hid the menubar of every frame of the module (parked document
++            // tabs too, SfxNotebookBar::ShowMenubarForModuleOf); a tab without a ribbon of its own to close
++            // kept it hidden after the module went back to a toolbar mode. Show the module's menubars again.
++            if (xCurrentFrame.is() && !sfx2::SfxNotebookBar::IsActiveFor(xCurrentFrame))
++                sfx2::SfxNotebookBar::ShowMenubarForModuleOf(xCurrentFrame, true);
++
+             bDone = true;
+             break;
+         }

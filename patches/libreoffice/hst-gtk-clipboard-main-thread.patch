@@ -1,0 +1,184 @@
+HST Office: gtk3 clipboard queries off the main thread are made on the main thread.
+
+An office driven over UNO hung for good (Linux, gtk3) while a mode switch or a document load ran on the UNO
+request thread and built a Paste control (menubar, toolbar or ribbon): its first state asks the system
+clipboard (SwBaseShell::StateClpbrd -> TransferableDataHelper::CreateFromSystemClipboard ->
+GtkClipboardTransferable::getTransferDataFlavorsAsVector -> gtk_clipboard_wait_for_targets ->
+g_main_loop_run). That nested loop runs the default glib main context on the request thread; the main thread
+then waits for the context in g_main_context_iteration (g_cond_wait), the selection reply is never
+dispatched and neither thread moves again. gdb stacks of 4 hangs of tests/runtime/check-ui-mode-cycle-stress.py
+(after 0 to 19 rounds) all show this. A user's clicks run on the main thread and never met it.
+
+The Paste state needs the targets only. Off the main thread, getTransferDataFlavorsAsVector now returns the
+targets the main thread last read (HstClipboardTargets), kept fresh without waiting: an idle of the default
+main context (run by the main thread only) calls gtk_clipboard_request_targets when the clipboard object is
+made and at every owner change. The caller neither runs a nested loop nor releases the SolarMutex. Handing
+the query to the main thread with vcl::solarthread::syncExecute instead fixed the hang but released the
+SolarMutex inside close(True) over UNO, and the main thread then ran events posted for the half-disposed
+frame (SIGSEGV in ImplBorderWindow::Resize, 3 of 12 load-test runs). Only reading the data itself (a paste
+over UNO) still goes to the main thread with syncExecute; gtk_clipboard_wait_* only ever runs there.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/vcl/unx/gtk3/gtkinst.cxx
++++ b/vcl/unx/gtk3/gtkinst.cxx
+@@ -81,6 +81,10 @@
+ 
+ #include <basegfx/numeric/ftools.hxx>
+ #include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/threadex.hxx>
++
++#include <mutex>
+ 
+ #include <dlfcn.h>
+ #include <fcntl.h>
+@@ -874,6 +878,42 @@
+ 
+ #endif
+ 
++#if !GTK_CHECK_VERSION(4, 0, 0)
++namespace
++{
++/// HST: the targets of a selection as the main thread last read them. A caller off the main thread (a UNO
++/// client: the Paste state while a toolbar, menubar or ribbon is built, or a document loads or closes) gets
++/// these. gtk_clipboard_wait_for_targets there would run a nested loop of the default main context against the
++/// main thread (both threads then wait for good), and handing the query to the main thread would release the
++/// SolarMutex in the middle of whatever that caller does (a frame half disposed while the main thread runs the
++/// events posted for it).
++struct HstClipboardTargets
++{
++    std::mutex aMutex;
++    std::vector<css::datatransfer::DataFlavor> aFlavors;
++    std::map<OUString, GdkAtom> aTypes;
++    bool bRequested = false;
++};
++
++HstClipboardTargets& hstTargets(ClipboardSelectionType eSelection)
++{
++    static HstClipboardTargets aTargets[2];
++    return aTargets[eSelection == ClipboardSelectionType::Clipboard ? 0 : 1];
++}
++
++void hstStoreTargets(ClipboardSelectionType eSelection, std::vector<css::datatransfer::DataFlavor> aFlavors,
++                     std::map<OUString, GdkAtom> aTypes)
++{
++    HstClipboardTargets& rTargets = hstTargets(eSelection);
++    std::scoped_lock aLock(rTargets.aMutex);
++    rTargets.aFlavors = std::move(aFlavors);
++    rTargets.aTypes = std::move(aTypes);
++}
++
++void hstRequestTargets(ClipboardSelectionType eSelection);
++}
++#endif
++
+ class GtkClipboardTransferable : public GtkTransferable
+ {
+ private:
+@@ -891,6 +931,14 @@
+ 
+     virtual css::uno::Any SAL_CALL getTransferData(const css::datatransfer::DataFlavor& rFlavor) override
+     {
++        // HST: the data itself (a paste over UNO) is read on the main thread; syncExecute releases the SolarMutex
++        // while it waits. The Paste state never comes here: it needs the targets only (see HstClipboardTargets).
++        if (!Application::IsMainThread())
++        {
++            SolarMutexGuard aGuard;
++            return vcl::solarthread::syncExecute([this, &rFlavor]() { return getTransferData(rFlavor); });
++        }
++
+         css::uno::Any aRet;
+ 
+         css::datatransfer::DataFlavor aFlavor(rFlavor);
+@@ -963,6 +1011,18 @@
+         const char * const *targets = gdk_content_formats_get_mime_types(pFormats, &n_targets);
+         aVector = GtkTransferable::getTransferDataFlavorsAsVector(targets, n_targets);
+ #else
++        if (!Application::IsMainThread()) // HST: see HstClipboardTargets
++        {
++            HstClipboardTargets& rTargets = hstTargets(m_eSelection);
++            std::scoped_lock aLock(rTargets.aMutex);
++            if (!rTargets.bRequested)
++            {
++                rTargets.bRequested = true;
++                hstRequestTargets(m_eSelection);
++            }
++            m_aMimeTypeToGtkType = rTargets.aTypes;
++            return rTargets.aFlavors;
++        }
+         GdkAtom *targets;
+         gint n_targets;
+         if (gtk_clipboard_wait_for_targets(clipboard, &targets, &n_targets))
+@@ -970,11 +1030,50 @@
+             aVector = GtkTransferable::getTransferDataFlavorsAsVector(targets, n_targets);
+             g_free(targets);
+         }
++        hstStoreTargets(m_eSelection, aVector, m_aMimeTypeToGtkType);
+ #endif
+ 
+         return aVector;
+     }
++
++#if !GTK_CHECK_VERSION(4, 0, 0)
++    /// HST: called on the main thread with the targets gtk_clipboard_request_targets read
++    void HstStoreTargets(GdkAtom* targets, gint n_targets)
++    {
++        std::vector<css::datatransfer::DataFlavor> aVector;
++        if (targets)
++            aVector = GtkTransferable::getTransferDataFlavorsAsVector(targets, n_targets);
++        hstStoreTargets(m_eSelection, std::move(aVector), m_aMimeTypeToGtkType);
++    }
++#endif
+ };
++
++#if !GTK_CHECK_VERSION(4, 0, 0)
++namespace
++{
++void hstTargetsReceived(GtkClipboard*, GdkAtom* targets, gint n_targets, gpointer pData)
++{
++    const auto eSelection = static_cast<ClipboardSelectionType>(GPOINTER_TO_INT(pData));
++    rtl::Reference<GtkClipboardTransferable> xReader(new GtkClipboardTransferable(eSelection));
++    xReader->HstStoreTargets(targets, n_targets);
++}
++
++gboolean hstRequestTargetsIdle(gpointer pData)
++{
++    const auto eSelection = static_cast<ClipboardSelectionType>(GPOINTER_TO_INT(pData));
++    gtk_clipboard_request_targets(clipboard_get(eSelection), hstTargetsReceived, pData);
++    return G_SOURCE_REMOVE;
++}
++
++/// asks for the targets on the main thread without waiting: from an idle of the default main context, which only
++/// the main thread runs, and with the answer handled when it comes (no nested loop, no SolarMutex)
++void hstRequestTargets(ClipboardSelectionType eSelection)
++{
++    g_idle_add_full(G_PRIORITY_HIGH_IDLE, hstRequestTargetsIdle, GINT_TO_POINTER(static_cast<int>(eSelection)),
++                    nullptr);
++}
++}
++#endif
+ 
+ class VclGtkClipboard
+     : public cppu::ImplInheritanceHelper<ClipboardBase,
+@@ -1119,6 +1218,7 @@
+     void handle_owner_change(GdkClipboard *clipboard, GdkEvent* /*event*/, gpointer user_data)
+     {
+         VclGtkClipboard* pThis = static_cast<VclGtkClipboard*>(user_data);
++        hstRequestTargets(pThis->GetSelectionType()); // HST: the targets callers off the main thread get
+         pThis->OwnerPossiblyChanged(clipboard);
+     }
+ #endif
+@@ -1407,6 +1507,12 @@
+ #else
+     m_nOwnerChangedSignalId = g_signal_connect(clipboard, "owner-change",
+                                                G_CALLBACK(handle_owner_change), this);
++    {
++        HstClipboardTargets& rTargets = hstTargets(eSelection);
++        std::scoped_lock aLock(rTargets.aMutex);
++        rTargets.bRequested = true;
++    }
++    hstRequestTargets(eSelection); // HST: the targets callers off the main thread get, from the start
+ #endif
+ }
+ 

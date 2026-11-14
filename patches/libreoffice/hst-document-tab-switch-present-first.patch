@@ -1,0 +1,146 @@
+HST Office: a tab switch shows the new tab window only once it is painted and presented (Windows).
+
+Measured on HST5 (Windows 11, Skia) with tests/runtime/check-windows-tab-switch-flash.py, which samples a
+patch grid of the screen in every frame the compositor presents (DXGI Desktop Duplication): after
+hst-document-tab-switch-no-flash.patch no switch showed the desktop any more, but 1 to 3 composed frames of
+nearly every tab switch inside a window (HST Office window and per-application tab windows; Writer,
+Sheets, Slides, Draw, HST PDF and the Start Center, same- and cross-application) showed the new window
+blank: pure white patches where both the old and the new tab show grey UI. Separate windows (one
+document per window) showed none. A newly shown window is composed at once, before vcl has painted it and
+Skia has presented its picture.
+
+DocumentTabGroup::activate now shows the target window cloaked (DWMWA_CLOAK: shown, painted and presented
+as usual, but not composed) while the previous tab still covers the screen. ParkIdleHdl paints it,
+waits for one composition (DwmFlush), uncloaks it, waits for the composition that shows it, and only then
+hides the previous tab. A switch that comes before that uncloaks the pending window first, so one window
+is always on screen; shutdown and an aborted activation uncloak too. Other platforms are unchanged
+(no-ops).
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/framework/inc/documenttabgroup.hxx
++++ b/framework/inc/documenttabgroup.hxx
+@@ -299,6 +299,8 @@
+     Timer m_aSaveLayoutTimer{ "framework DocumentTabGroup save layout" };
+     /// Hides the previous tab once everything else is done (painting and the flush to the screen included).
+     Idle m_aParkIdle{ "framework DocumentTabGroup park previous tab" };
++    /// Windows: the tab window shown cloaked (not composed) until ParkIdleHdl has it painted and presented
++    VclPtr<vcl::Window> m_pCloaked;
+     Timer m_aFinishRestoreTimer{ "framework DocumentTabGroup finish restore" };
+     /// applyWindowModes(): runs once no modal dialog (Options, its restart question) is up
+     Timer m_aApplyWindowModesTimer{ "framework DocumentTabGroup apply window modes" };
+--- a/framework/source/services/documenttabgroup.cxx
++++ b/framework/source/services/documenttabgroup.cxx
+@@ -59,6 +59,11 @@
+ #include <vcl/windowstate.hxx>
+ #include <vcl/wrkwin.hxx>
+ #include <o3tl/string_view.hxx>
++#ifdef _WIN32
++#include <prewin.h>
++#include <postwin.h>
++#include <vcl/sysdata.hxx>
++#endif
+ #include <osl/file.hxx>
+ #include <tools/stream.hxx>
+ #include <unotools/pathoptions.hxx>
+@@ -206,6 +211,45 @@
+     pWindow->PaintImmediately();
+     if (!pWindow->isDisposed())
+         pWindow->GetOutDev()->Flush();
++}
++
++/** Windows: show a tab window without the compositor showing it yet. A newly shown window is composed
++    at once, before vcl has painted it and Skia has presented the picture: for a frame or two the
++    screen shows the window blank (white) over the previous tab. A cloaked window (DWMWA_CLOAK) is
++    shown, painted and presented like any other, but not composed. ParkIdleHdl uncloaks it once its
++    picture is presented (DwmFlush: one composition), then hides the previous tab. */
++void lcl_cloak(vcl::Window* pWindow, bool bCloak)
++{
++#ifdef _WIN32
++    if (!pWindow || pWindow->isDisposed())
++        return;
++    const SystemEnvData* pData = pWindow->GetSystemData();
++    if (!pData || !pData->hWnd)
++        return;
++    using SetAttributeFn = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
++    static HMODULE hDwm = LoadLibraryW(L"dwmapi.dll");
++    static auto pSet = hDwm ? reinterpret_cast<SetAttributeFn>(GetProcAddress(hDwm, "DwmSetWindowAttribute")) : nullptr;
++    if (pSet)
++    {
++        BOOL bValue = bCloak;
++        pSet(pData->hWnd, 13 /* DWMWA_CLOAK */, &bValue, sizeof(bValue));
++    }
++#else
++    (void)pWindow;
++    (void)bCloak;
++#endif
++}
++
++/// Windows: wait until the compositor has composed the next frame (what was presented is on screen).
++void lcl_waitForComposition()
++{
++#ifdef _WIN32
++    using FlushFn = HRESULT(WINAPI*)();
++    static HMODULE hDwm = LoadLibraryW(L"dwmapi.dll");
++    static auto pFlush = hDwm ? reinterpret_cast<FlushFn>(GetProcAddress(hDwm, "DwmFlush")) : nullptr;
++    if (pFlush)
++        pFlush();
++#endif
+ }
+ 
+ uno::Reference<frame::XFrame> lcl_get(const uno::WeakReference<frame::XFrame>& rWeak)
+@@ -1078,6 +1122,15 @@
+ 
+ IMPL_LINK_NOARG(DocumentTabGroup, ParkPreviousHdl, void*, void)
+ {
++    // HST Office (Windows): the shown tab was cloaked until now: paint it, let its picture be
++    // presented, show it, and hide the previous tab only after that frame was composed.
++    if (VclPtr<vcl::Window> pCloaked = std::move(m_pCloaked))
++    {
++        lcl_paintNow(pCloaked);
++        lcl_waitForComposition();
++        lcl_cloak(pCloaked, false);
++        lcl_waitForComposition();
++    }
+     try
+     {
+         std::vector<uno::WeakReference<frame::XFrame>> aToPark;
+@@ -1129,13 +1182,28 @@
+         pTarget->bParked = false;
+         VclPtr<vcl::Window> pTargetWindow = pTarget->pWindow;
+         const sal_uInt32 nGroup = pGroup->nId;
++        // HST Office: a tab still cloaked from a switch just before is shown now, so that one window
++        // stays on screen; the new one is shown cloaked while the previous one covers the screen.
++        if (VclPtr<vcl::Window> pPending = std::move(m_pCloaked))
++            lcl_cloak(pPending, false);
++        const bool bCloak = xPrevious.is() && xPrevious != xFrame && pPrevious->pWindow
++                            && pPrevious->pWindow->IsVisible() && !pTargetWindow->IsVisible();
++        if (bCloak)
++        {
++            lcl_cloak(pTargetWindow, true);
++            m_pCloaked = pTargetWindow;
++        }
+         {
+             InternalShow aInternal(m_nInternal);
+             pTargetWindow->Show(true, ShowFlags::ForegroundTask);
+         }
+         pGroup = groupById(nGroup);
+         if (!pGroup || !find(xFrame))
+-            return;
++        {
++            if (VclPtr<vcl::Window> pCloaked = std::move(m_pCloaked))
++                lcl_cloak(pCloaked, false);
++            return;
++        }
+         pGroup->xActive = xFrame;
+         // The previous tab stays under the shown one until it has been painted and copied to the
+         // screen (ParkIdleHdl), so the desktop never shows through.
+@@ -2176,6 +2244,8 @@
+     m_aFinishRestoreTimer.Stop();
+     m_aApplyWindowModesTimer.Stop();
+     m_aParkIdle.Stop();
++    if (VclPtr<vcl::Window> pCloaked = std::move(m_pCloaked))
++        lcl_cloak(pCloaked, false);
+     m_aRestore.clear();
+     if (!m_bLayoutFrozen)
+         osl::File::remove(lcl_layoutURL());
