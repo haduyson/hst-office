@@ -77,6 +77,7 @@ def appearance(args):
 
 def run_pdf(args, catalogue, results):
     import pdf_selection_highlight as selection
+    import pdf_viewer_toolbar_layout as toolbar_layout
     from pdf_viewer_uno import info, open_viewer
     work = os.path.join(args.out, "pdf")
     os.makedirs(work, exist_ok=True)
@@ -98,8 +99,11 @@ def run_pdf(args, catalogue, results):
             path = os.path.join(work, f"{case}.png")
             for attempt in range(2):
                 hst_gui.screenshot(path, args.display)
-                banner = info(office, frame).get("BannerScreen")
-                ok, detail = judge([list(banner)] if banner else [], box, path, catalogue)
+                data = info(office, frame)
+                ok, detail = judge([list(data["BannerScreen"])] if data.get("BannerScreen") else [], box, path, catalogue)
+                spread = toolbar_layout.row_spread(data.get("ToolbarLayout", ()))
+                if ok and spread > toolbar_layout.ROW_SPREAD:  # the two rows beside the banner end together
+                    ok, detail = False, f"toolbar rows end {spread} px apart"
                 if ok or "artwork" not in detail:
                     break
                 time.sleep(1.5)
