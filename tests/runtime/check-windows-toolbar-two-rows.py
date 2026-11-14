@@ -86,6 +86,8 @@ def run(args):
                           nodefault=True)
     try:
         office.start(fresh=True)
+        time.sleep(15)
+        office.ctx = office._connect()  # the first start of a new profile restarts itself after the extension sync
         wg.dismiss_startup(office, os.path.join(args.out, "startup.png"), timeout=30, settle=5)
         set_config(office, "/org.openoffice.Office.Common/Appearance", "ApplicationAppearance",
                    {"light": 1, "dark": 2}[args.appearance])
