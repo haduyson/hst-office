@@ -60,7 +60,7 @@ jobs:
           set -eu
           app="$RUNNER_TEMP/HST Office.app"
           out="$RUNNER_TEMP/save-replace"; mkdir -p "$out"
-          pkill -f "$app/Contents/MacOS/soffice" || true
+          if pgrep -f "$app/Contents/MacOS/soffice" >/dev/null; then pkill -f "$app/Contents/MacOS/soffice"; sleep 2; fi
           "$app/Contents/Resources/python" tests/runtime/check-close-last-doc.py --program "$app/Contents/MacOS" \
             2>&1 | tee "$out/close-last-doc.txt"
           exit "${PIPESTATUS[0]}"
