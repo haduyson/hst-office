@@ -40,7 +40,7 @@ Slides:
   menu); Minh họa is "Hình dạng ▾" and Biểu đồ; Văn bản is open (Hộp văn bản, Chữ nghệ thuật, Số trang chiếu,
   Ngày giờ, Đầu trang và chân trang, Đối tượng khác); "Âm thanh và video".
 - Thiết kế: the theme gallery takes the free room; Kích cỡ trang chiếu, Định dạng nền, trang chiếu cái
-  commands; Chuyển tiếp/Hoạt hình: the galleries take the free room, "Tùy chọn chuyển tiếp", "Ngăn hoạt hình"
+  commands; Chuyển tiếp/Hiệu ứng: the galleries take the free room, "Tùy chọn chuyển tiếp", "Ngăn hiệu ứng"
   (Tương tác is in Chèn ▸ Liên kết); Trình chiếu: Từ đầu, Từ trang hiện tại, Diễn tập thời gian, Ẩn trang
   chiếu (Nén bản trình chiếu is in the Tools menu); Xem lại: no Gạch nối từ, "Che thông tin"; Xem: Thường,
   Sắp xếp trang chiếu, Trang ghi chú, Dàn bài, trang cái views, Thang xám, no Thanh thẻ khung xem and no Macro

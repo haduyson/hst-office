@@ -66,7 +66,7 @@ class RibbonUxImpressDrawPatch(unittest.TestCase):
         removed = "\n".join(lines(self.impress, "-"))
         for gid in ("gdHomeHstEditing", "gdExtensionHstDeveloper"):
             self.assertIn(f'id="{gid}"', added)
-        # the "Tab ▾" blocks and the Home "Công cụ ▾" block are gone; Tương tác left Hoạt hình
+        # the "Tab ▾" blocks and the Home "Công cụ ▾" block are gone; Tương tác left Hiệu ứng
         for block in ("Home-Menu", "Insert-Menu", "Layout-Menu", "Slideshow-Menu", "Reference-Menu", "View-Menu",
                       "Table-Menu", "Draw-Menu", "Object-Menu",
                       "bxHstAnimationEffects8", "gdViewHstMacros", "gdToolsMacro", "bxReviewHyphenation"):

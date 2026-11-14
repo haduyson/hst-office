@@ -7,7 +7,7 @@ import time
 import hst_gui
 from slides_animation_gallery_uno import COMMAND, ROWS, record, settled_effects
 
-GALLERY_NAMES = ("Hiệu ứng hoạt hình", "Animations")
+GALLERY_NAMES = ("Kiểu hiệu ứng", "Animations")
 
 
 def ribbon_tab_list(tabs):
@@ -46,7 +46,7 @@ def check_gallery_on_screen(office, doc, page, args):
     tab_list = ribbon_tab_list(tabs)
     nodes = list(tabs.walk(tab_list)) if tab_list else []
     tab = next((n for n in nodes if n.getRoleName() == "page tab"
-                and n.name in ("Hoạt hình", "Hiệu ứng", "Animations", "Animation")), None)
+                and n.name in ("Hiệu ứng", "Animations", "Animation")), None)
     if tab:
         tabs.click(args.display, tabs.extents(tab))
         time.sleep(2)
