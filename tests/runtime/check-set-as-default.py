@@ -9,6 +9,7 @@ office on the same profile, as a user closing and reopening HST Office would:
   a restart a new document (what Ctrl+N, Start Center "Văn bản" and the HST Writer launcher open) starts with them.
 - Font: 14 pt for this document only -> this document has it, new documents keep their size.
 - Format Cells: centered for all new spreadsheets -> after the restart a new spreadsheet's A1 is centered.
+- Page Setup (Writer 3 cm, Sheets 2 cm left margin) for all new documents -> new documents after the restart have it.
 """
 import argparse
 import os
@@ -17,7 +18,7 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from hst_dialog_uitest import Checks, DialogHarness, click, select_entry, state  # noqa: E402
+from hst_dialog_uitest import Checks, DialogHarness, click, select_entry, state, type_value  # noqa: E402
 from hst_gui import free_port  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -54,6 +55,10 @@ def set_as_default(h, c, dlg, scope, label):
     click(question, "ok")
     clicker.join(30)
     h.wait_idle(2)
+
+
+def page_style(doc, name):
+    return doc.StyleFamilies.getByName("PageStyles").getByName(name)
 
 
 def first_paragraph(doc):
@@ -100,7 +105,18 @@ def before_restart(h, c):
     select_entry(dlg, "comboboxHorzAlign", 2)  # Center
     set_as_default(h, c, dlg, "newdocs", "format cells")
     c.equal("format cells: default template written", template_on_disk(h, "scalc", "ots"), True)
+    dlg = h.open_dialog(".uno:PageFormatDialog", "PageTemplateDialog")
+    type_value(dlg, "spinMargLeft", "2 cm")
+    set_as_default(h, c, dlg, "newdocs", "sheets page setup")
+    c.equal("sheets page setup: this document 2 cm", abs(page_style(sheet, "Default").LeftMargin - 2000) <= 2, True)
     h.close_document(sheet)
+
+    doc = h.new_document()
+    dlg = h.open_dialog(".uno:PageDialog", "TemplateDialog8")
+    type_value(dlg, "spinMargLeft", "3 cm")
+    set_as_default(h, c, dlg, "newdocs", "page setup")
+    c.equal("page setup: this document 3 cm", abs(page_style(doc, "Standard").LeftMargin - 3000) <= 2, True)
+    h.close_document(doc)
 
 
 def after_restart(h, c):
@@ -109,10 +125,12 @@ def after_restart(h, c):
     c.equal("restart: new document justified", int(para.ParaAdjust), BLOCK)
     c.equal("restart: new document 1.5 lines", para.ParaLineSpacing.Height, 150)
     c.equal("restart: font set for one document only stays out", para.CharHeight != 14.0, True)
+    c.equal("restart: new document left margin 3 cm", abs(page_style(doc, "Standard").LeftMargin - 3000) <= 2, True)
     h.close_document(doc)
     sheet = h.new_document("scalc")
     cell = sheet.getSheets().getByIndex(0).getCellByPosition(0, 0)
     c.equal("restart: new spreadsheet centered", cell.HoriJustify.value, "CENTER")
+    c.equal("restart: new spreadsheet left margin 2 cm", abs(page_style(sheet, "Default").LeftMargin - 2000) <= 2, True)
     h.close_document(sheet)
 
 
