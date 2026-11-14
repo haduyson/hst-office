@@ -1,0 +1,123 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: macOS install screenshots
+# Captures real screenshots of installing a published HST Office release on macOS for the website's install
+# guide: the mounted dmg window (drag to Applications), the Gatekeeper dialog for a quarantined copy and the
+# first launch. Downloads the public dmg from office.hasontech.vn and checks it against the published SHA256.
+# Runner UI is English. Evidence only: a missing capture never fails the run, a bad download does.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Published version to install (office.hasontech.vn/tai/<version>/)'
+        type: string
+        default: '1.0.1'
+      arch:
+        description: 'dmg architecture'
+        type: choice
+        options: [arm64, x86_64]
+        default: arm64
+permissions:
+  contents: read
+concurrency:
+  group: install-screenshots-macos
+  cancel-in-progress: false
+jobs:
+  shots:
+    runs-on: ${{ inputs.arch == 'x86_64' && 'macos-15-intel' || 'macos-15' }}
+    timeout-minutes: 40
+    env:
+      VERSION: ${{ inputs.version }}
+      ARCH: ${{ inputs.arch }}
+    steps:
+      - name: Download and verify the dmg
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$ ]] || { echo "bad version: $VERSION" >&2; exit 64; }
+          name="HSTOffice_${VERSION}_macOS_${ARCH}.dmg"
+          mkdir -p "$RUNNER_TEMP/dl" "$RUNNER_TEMP/shots"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/dl/$name" "https://office.hasontech.vn/tai/${VERSION}/${name}"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/dl/SHA256SUMS" "https://office.hasontech.vn/tai/sha256"
+          ( cd "$RUNNER_TEMP/dl" && grep " ${name}\$" SHA256SUMS | shasum -a 256 -c - ) | tee "$RUNNER_TEMP/shots/checksum.txt"
+          # a browser download carries the quarantine flag; give the dmg the same so the run matches a user's
+          xattr -w com.apple.quarantine "0083;$(printf %x "$(date +%s)");Safari;$(uuidgen)" "$RUNNER_TEMP/dl/$name"
+          echo "DMG=$RUNNER_TEMP/dl/$name" >> "$GITHUB_ENV"
+      - name: Build the window lister
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          cat > "$RUNNER_TEMP/winlist.swift" <<'SWIFT'
+          // Prints on-screen windows: id<TAB>pid<TAB>owner<TAB>title<TAB>width<TAB>height<TAB>layer
+          import CoreGraphics
+          import Foundation
+          let opts: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+          let list = (CGWindowListCopyWindowInfo(opts, kCGNullWindowID) as? [[String: Any]]) ?? []
+          for w in list {
+            let b = (w[kCGWindowBounds as String] as? [String: Any]) ?? [:]
+            let f = { (k: String) -> Int in Int((b[k] as? Double) ?? 0) }
+            print([w[kCGWindowNumber as String] as? Int ?? 0, w[kCGWindowOwnerPID as String] as? Int ?? 0,
+                   w[kCGWindowOwnerName as String] as? String ?? "", w[kCGWindowName as String] as? String ?? "",
+                   f("Width"), f("Height"), w[kCGWindowLayer as String] as? Int ?? 0]
+                  .map { "\($0)" }.joined(separator: "\t"))
+          }
+          SWIFT
+          swiftc -O -o "$RUNNER_TEMP/winlist" "$RUNNER_TEMP/winlist.swift"
+          sw_vers | tee "$RUNNER_TEMP/shots/host.txt"
+          uname -m | tee -a "$RUNNER_TEMP/shots/host.txt"
+          if ! spctl --status 2>&1 | tee -a "$RUNNER_TEMP/shots/host.txt"; then echo "spctl --status failed"; fi
+          if ! system_profiler SPDisplaysDataType | grep -i resolution | tee -a "$RUNNER_TEMP/shots/host.txt"; then
+            echo "display resolution not reported"; fi
+      - name: Capture the dmg window, Gatekeeper and first launch
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          out="$RUNNER_TEMP/shots"; wl="$RUNNER_TEMP/winlist"
+          # try <cmd...>: run a non-essential command and record a failure instead of stopping the run
+          try() { if ! "$@"; then echo "non-fatal failure: $*" | tee -a "$out/notes.txt"; fi; }
+          # shot <png> <awk filter on winlist columns>: capture the largest matching window, else the full screen
+          shot() {
+            try "$wl" > "$out/${1%.png}-windows.tsv"
+            local id
+            id="$(awk -F'\t' "$2"' {print $5*$6"\t"$1}' "$out/${1%.png}-windows.tsv" | sort -rn | head -1 | cut -f2)"
+            try screencapture -x "$out/${1%.png}-fullscreen.png"
+            if [ -n "$id" ] && screencapture -x -o -l"$id" "$out/$1"; then echo "captured $1 (window $id)"
+            else echo "no matching window for $1; full screen kept" | tee -a "$out/notes.txt"; fi
+          }
+          # 1. mount like a double-click (Finder shows the volume) and open the volume window
+          hdiutil attach "$DMG" | tee "$out/attach.txt"
+          vol="$(awk -F'\t' '/\/Volumes\// {print $NF}' "$out/attach.txt" | tail -1)"
+          [ -d "$vol/HST Office.app" ] || { echo "HST Office.app not found in $vol" >&2; ls -la "$vol" >&2; exit 1; }
+          open "$vol"; sleep 8
+          volname="$(basename "$vol")"
+          shot mac-01-dmg-window.png "\$3==\"Finder\" && \$4==\"$volname\" && \$7==0"
+          # 2. what the drag does: copy the app to /Applications, keeping the quarantine flag a drag would inherit
+          ditto "$vol/HST Office.app" "/Applications/HST Office.app"
+          if ! xattr -p com.apple.quarantine "/Applications/HST Office.app" > "$out/quarantine.txt" 2>&1; then
+            echo "copy has no quarantine flag; setting the one a browser download gives" >> "$out/quarantine.txt"
+            xattr -w com.apple.quarantine "0083;$(printf %x "$(date +%s)");Safari;$(uuidgen)" "/Applications/HST Office.app"
+          fi
+          try xattr -l "/Applications/HST Office.app" >> "$out/quarantine.txt" 2>&1
+          try codesign -dv --verbose=2 "/Applications/HST Office.app" > "$out/signature.txt" 2>&1
+          try spctl -a -vv -t exec "/Applications/HST Office.app" >> "$out/signature.txt" 2>&1
+          try osascript -e 'tell application "Finder" to close every window'
+          if ! hdiutil detach "$vol"; then try hdiutil detach -force "$vol"; fi
+          # 3. open the quarantined app as a user would; Gatekeeper answers through CoreServicesUIAgent
+          try open "/Applications/HST Office.app"
+          sleep 10
+          shot mac-02-gatekeeper.png '$3=="CoreServicesUIAgent" && $5>200'
+          try pkill -f "HST Office.app/Contents/MacOS/"
+          try killall CoreServicesUIAgent
+          # 4. the user-approved state (Open Anyway / no quarantine): first launch with a fresh profile
+          xattr -dr com.apple.quarantine "/Applications/HST Office.app"
+          open "/Applications/HST Office.app"
+          sleep 45
+          shot mac-03-first-launch.png '($3 ~ /soffice|HST Office/) && $7==0 && $5>300'
+          try pkill -f "HST Office.app/Contents/MacOS/"
+      - name: Upload screenshots
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: install-screenshots-macos-${{ inputs.arch }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/shots/
+          if-no-files-found: error
+          retention-days: 14
