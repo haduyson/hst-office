@@ -13,6 +13,11 @@ thread destroyed that toolbar meanwhile, and the paste control then laid out its
 dispose had cleared (ToolBarManager::UpdateControllers). Usage: python3 tests/runtime/check-ui-mode-cycle-stress.py
 [--instdir upstream/libreoffice/instdir] [--out tests/output/ui-mode-cycle-stress] [--display :97] [--rounds 20] [--port 21986].
 Exit 1 when the office crashed, hung or a round failed.
+
+Known separate hang (upstream, gtk3, UNO-driven only): when a mode switch or load runs on the UNO request thread and
+builds a Paste control (menubar or notebookbar), its state calls gtk_clipboard_wait_for_targets on that thread; the
+request thread then owns the glib main context while the main thread waits for it in g_main_context_iteration, and
+neither moves again. Seen on the fixed build after 7 to 19 rounds; a hang writes hang-stacks.txt (gdb) to --out.
 """
 import argparse
 import importlib.util
