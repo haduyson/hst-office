@@ -116,7 +116,7 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
          <desc>Set once HST Slides has started: on its first start the sidebar is folded to its tab bar
 --- a/sfx2/Library_sfx.mk
 +++ b/sfx2/Library_sfx.mk
-@@ -259,6 +259,8 @@
+@@ -260,6 +260,8 @@
      sfx2/source/explorer/nochaos \
      sfx2/source/inet/inettbc \
      sfx2/source/notebookbar/SfxNotebookBar \
@@ -170,7 +170,7 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
      std::chrono::steady_clock::time_point m_lastTabSwitch{};
 --- /dev/null
 +++ b/sfx2/source/notebookbar/HstRibbonCompact.cxx
-@@ -0,0 +1,155 @@
+@@ -0,0 +1,180 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -183,9 +183,13 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +#include "HstRibbonCompact.hxx"
 +#include "HstRibbonQuickRows.hxx"
 +
-+#include <comphelper/configuration.hxx>
 +#include <comphelper/sequence.hxx>
-+#include <officecfg/Office/HSTRibbon.hxx>
++#include <com/sun/star/configuration/theDefaultProvider.hpp>
++#include <com/sun/star/container/XNameReplace.hpp>
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/util/XChangesBatch.hpp>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/propertyvalue.hxx>
 +#include <sfx2/sfxresid.hxx>
 +#include <sfx2/strings.hrc>
 +#include <vcl/ctrl.hxx>
@@ -228,16 +232,52 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +    return std::max(BandHeight(fDpi) - nHeaderHeight, px(32, fDpi));
 +}
 +
-+bool HstRibbonCompact::Stored(std::u16string_view rApp)
++bool HstRibbonCompact::Stored(std::u16string_view rApp) { return AppListed(u"CompactApps"_ustr, rApp); }
++
++// the HSTRibbon app lists through the configuration API (not the generated officecfg header, so a build
++// that does not regenerate officecfg's headers still compiles)
++static css::uno::Reference<css::uno::XInterface> hstRibbonNode(bool bUpdate)
++{
++    const auto xProvider = css::configuration::theDefaultProvider::get(comphelper::getProcessComponentContext());
++    return xProvider->createInstanceWithArguments(
++        bUpdate ? u"com.sun.star.configuration.ConfigurationUpdateAccess"_ustr
++                : u"com.sun.star.configuration.ConfigurationAccess"_ustr,
++        { css::uno::Any(comphelper::makePropertyValue(u"nodepath"_ustr, u"/org.openoffice.Office.HSTRibbon"_ustr)) });
++}
++
++bool hst::ribbon::compact::AppListed(const OUString& rList, std::u16string_view rApp)
 +{
 +    try
 +    {
-+        const auto aApps = officecfg::Office::HSTRibbon::CompactApps::get();
++        css::uno::Sequence<OUString> aApps;
++        css::uno::Reference<css::container::XNameAccess>(hstRibbonNode(false), css::uno::UNO_QUERY_THROW)
++                ->getByName(rList) >>= aApps;
 +        return std::find(aApps.begin(), aApps.end(), rApp) != aApps.end();
 +    }
 +    catch (const css::uno::Exception&)
 +    {
-+        return false; // no configuration (LibreOfficeKit, broken profile): the full ribbon
++        return false; // no configuration (LibreOfficeKit, broken profile)
++    }
++}
++
++void hst::ribbon::compact::SetAppListed(const OUString& rList, const OUString& rApp, bool bListed)
++{
++    try
++    {
++        const css::uno::Reference<css::uno::XInterface> xNode = hstRibbonNode(true);
++        css::uno::Reference<css::container::XNameReplace> xReplace(xNode, css::uno::UNO_QUERY_THROW);
++        css::uno::Sequence<OUString> aOld;
++        xReplace->getByName(rList) >>= aOld;
++        auto aApps = comphelper::sequenceToContainer<std::vector<OUString>>(aOld);
++        std::erase(aApps, rApp);
++        if (bListed)
++            aApps.push_back(rApp);
++        xReplace->replaceByName(rList, css::uno::Any(comphelper::containerToSequence(aApps)));
++        css::uno::Reference<css::util::XChangesBatch>(xNode, css::uno::UNO_QUERY_THROW)->commitChanges();
++    }
++    catch (const css::uno::Exception&)
++    {
++        // read-only configuration: the state holds for this session only
 +    }
 +}
 +
@@ -251,23 +291,8 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +    }
 +    else
 +        m_xCollapse->Hide();
-+    if (Stored(m_aApp) == bCompact)
-+        return;
-+    try
-+    {
-+        auto aApps = comphelper::sequenceToContainer<std::vector<OUString>>(
-+            officecfg::Office::HSTRibbon::CompactApps::get());
-+        std::erase(aApps, m_aApp);
-+        if (bCompact)
-+            aApps.push_back(m_aApp);
-+        auto xChanges = comphelper::ConfigurationChanges::create();
-+        officecfg::Office::HSTRibbon::CompactApps::set(comphelper::containerToSequence(aApps), xChanges);
-+        xChanges->commit();
-+    }
-+    catch (const css::uno::Exception&)
-+    {
-+        // read-only configuration: the state holds for this session only
-+    }
++    if (Stored(m_aApp) != bCompact)
++        SetAppListed(u"CompactApps"_ustr, m_aApp, bCompact);
 +}
 +
 +void HstRibbonCompact::Fill(const TabPage* pPage, const css::uno::Reference<css::frame::XFrame>& xFrame)
@@ -328,7 +353,7 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sfx2/source/notebookbar/HstRibbonCompact.hxx
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,86 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -365,6 +390,9 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +OUString boxOf(const vcl::Window& rWindow);
 +/// the label the ribbon shows for rCommand below rWindow (its lines joined), or empty
 +OUString ribbonLabel(const vcl::Window& rWindow, const OUString& rCommand);
++/// whether rApp is in the HSTRibbon string list rList (CompactApps, QatBelowApps), and changing that (saved)
++bool AppListed(const OUString& rList, std::u16string_view rApp);
++void SetAppListed(const OUString& rList, const OUString& rApp, bool bListed);
 +}
 +
 +/** HST Office (1.0.2 ribbon, owner decision 14/11/2026): the compact ribbon of the Tabbed notebookbar.

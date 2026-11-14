@@ -145,7 +145,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
  </toolbar:toolbar>
 --- a/sfx2/Library_sfx.mk
 +++ b/sfx2/Library_sfx.mk
-@@ -261,6 +261,8 @@
+@@ -262,6 +262,8 @@
      sfx2/source/notebookbar/SfxNotebookBar \
      sfx2/source/notebookbar/HstRibbonCompact \
      sfx2/source/notebookbar/HstRibbonCompactWidgets \
@@ -404,7 +404,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sfx2/source/notebookbar/HstQuickAccessStore.cxx
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,96 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -418,17 +418,15 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
 +// notebookbarshortcuts UI configuration, its placement in HSTRibbon/QatBelowApps.
 +
 +#include "HstQuickAccess.hxx"
++#include "HstRibbonCompact.hxx"
 +
 +#include <com/sun/star/container/XIndexContainer.hpp>
 +#include <com/sun/star/ui/ItemType.hpp>
 +#include <com/sun/star/ui/XUIConfigurationPersistence.hpp>
 +#include <com/sun/star/ui/theModuleUIConfigurationManagerSupplier.hpp>
-+#include <comphelper/configuration.hxx>
 +#include <comphelper/processfactory.hxx>
 +#include <comphelper/propertyvalue.hxx>
-+#include <comphelper/sequence.hxx>
 +#include <comphelper/diagnose_ex.hxx>
-+#include <officecfg/Office/HSTRibbon.hxx>
 +#include <vcl/commandinfoprovider.hxx>
 +
 +#include <algorithm>
@@ -462,37 +460,11 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
 +
 +namespace hst::qat
 +{
-+bool StoredBelow(std::u16string_view rApp)
-+{
-+    try
-+    {
-+        const auto aApps = officecfg::Office::HSTRibbon::QatBelowApps::get();
-+        return std::find(aApps.begin(), aApps.end(), rApp) != aApps.end();
-+    }
-+    catch (const uno::Exception&)
-+    {
-+        return false;
-+    }
-+}
++namespace compact = hst::ribbon::compact;
 +
-+void StoreBelow(const OUString& rApp, bool bBelow)
-+{
-+    try
-+    {
-+        auto aApps = comphelper::sequenceToContainer<std::vector<OUString>>(
-+            officecfg::Office::HSTRibbon::QatBelowApps::get());
-+        std::erase(aApps, rApp);
-+        if (bBelow)
-+            aApps.push_back(rApp);
-+        auto xChanges = comphelper::ConfigurationChanges::create();
-+        officecfg::Office::HSTRibbon::QatBelowApps::set(comphelper::containerToSequence(aApps), xChanges);
-+        xChanges->commit();
-+    }
-+    catch (const uno::Exception&)
-+    {
-+        TOOLS_WARN_EXCEPTION("sfx.notebookbar", "quick access toolbar placement not saved");
-+    }
-+}
++bool StoredBelow(std::u16string_view rApp) { return compact::AppListed(u"QatBelowApps"_ustr, rApp); }
++
++void StoreBelow(const OUString& rApp, bool bBelow) { compact::SetAppListed(u"QatBelowApps"_ustr, rApp, bBelow); }
 +
 +void SetCommand(const uno::Reference<frame::XFrame>& xFrame, const OUString& rCommand, bool bShown, bool bRemove)
 +{
@@ -746,7 +718,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
          return (nW > 0 && nH > 0)
              ? tools::Rectangle( Point( TAB_OFFSET, nTabBottom + TAB_OFFSET ), Size( nW, nH ) )
              : tools::Rectangle();
-@@ -2547,6 +2547,17 @@
+@@ -2552,6 +2552,17 @@
      Invalidate();
  }
  
@@ -764,7 +736,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
  void NotebookbarTabControlBase::HstSetPageReserve( tools::Long nWidth )
  {
      nWidth = std::max<tools::Long>(0, nWidth);
-@@ -2568,8 +2579,6 @@
+@@ -2573,8 +2584,6 @@
  
      const tools::Long nHamburgerWidth = m_pOpenMenu->GetSizePixel().Width();
      tools::Long nMaxWidth = nWidth - nHamburgerWidth;
@@ -773,7 +745,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
  
      // HST Office: the feature search box (child "hst-tab-search") follows the last tab and takes
      // the rest of the row up to the menu button; when the row is short the box shrinks, then it
-@@ -2582,6 +2591,26 @@
+@@ -2587,6 +2596,26 @@
      const double fHstDpi = GetDPIScaleFactor();
      const tools::Long nHstGap = pHstSearch ? std::lround(8 * fHstDpi) : 0;
  
@@ -800,7 +772,7 @@ access toolbar (sfx2/source/notebookbar/HstQuickAccess*).
      const tools::Long nOffsetX = 2 + nShortcutsWidth;
      const tools::Long nOffsetY = 2;
  
-@@ -2643,8 +2672,8 @@
+@@ -2648,8 +2677,8 @@
      if (!pHstSearch) // with the search box the tabs stay left-aligned, the box fills the row
          lcl_AdjustSingleLineTabs(nMaxWidth - nShortcutsWidth, mpTabCtrlData.get());
  

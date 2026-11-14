@@ -55,7 +55,8 @@ class Behaviour(unittest.TestCase):
         store = added(PATCH, "sfx2/source/notebookbar/HstQuickAccessStore.cxx")
         self.assertIn("->getUIConfigurationManager(aModule)", store)
         self.assertIn("XUIConfigurationPersistence>(xConfig, uno::UNO_QUERY_THROW)->store();", store)
-        self.assertIn("officecfg::Office::HSTRibbon::QatBelowApps::set(", store)
+        self.assertIn('compact::SetAppListed(u"QatBelowApps"_ustr, rApp, bBelow);', store)
+        self.assertNotIn("officecfg::", store)
         schema = added(PATCH, "officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs")
         self.assertIn('<prop oor:name="QatBelowApps" oor:type="oor:string-list" oor:nillable="false">', schema)
 
