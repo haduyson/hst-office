@@ -106,6 +106,12 @@ class EveryUserInterface(unittest.TestCase):
         self.assertIn("rTopBorder += HstNotebookBarStripHeight();", border)
         self.assertIn("!mpNotebookBar->HstHasOwnBanner()", border)
         self.assertIn("hst::banner::minStripHeight(GetDPIScaleFactor())", border)
+        # a bar wider than its room (grouped compact) is cut at the banner, never painted under it
+        self.assertIn("mpNotebookBar->SetWindowRegionPixel(", border)
+        # screen readers find the border's banner as a child of the work window, like the notebookbar
+        a11y = added(PATCH, "vcl/source/window/accessibility.cxx")
+        self.assertIn("static_cast<ImplBorderWindow*>(pParent)->GetHstBanner() == this", a11y)
+        self.assertIn("if (lcl_HstBorderBanner(pWorkWindow->mpWindowImpl->mpBorderWindow))", a11y)
 
     def test_toolbar_modes_reserve_the_top_docking_area(self):
         toolbars = added(PATCH, TOOLBARS)

@@ -13,7 +13,8 @@ View > User Interface does), and at every window size the screenshot must show e
 HST PDF: the viewer's BannerScreen (HSTPdfInfo) is at least 260 x 75 and shows a bundled artwork.
 Writes results.json and one screenshot per case (--shots: also copied there as <app>-<mode>-<size>.png);
 exit 1 when any case has no banner, more than one, a small one or one that is not the artwork.
-The X display must already run (this script never starts or stops it).
+The X display must already run (this script never starts or stops it). Run as root, it runs itself again as the
+build user under dbus-run-session (AT-SPI needs a session bus).
 """
 import argparse
 import json
@@ -26,62 +27,8 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 import ribbon_banner_probe as probe  # noqa: E402
+from banner_everywhere_cases import MODES, NAMES, judge, mode_label, prop, visible_boxes  # noqa: E402
 from ribbon_banner_run import geometry, xdo  # noqa: E402
-
-NAMES = {"writer": "HST Writer", "calc": "HST Sheets", "impress": "HST Slides", "draw": "HST Draw"}
-# the user interfaces each app offers in View > User Interface (officecfg ToolbarMode.xcu, experimental ones aside)
-MODES = {
-    "writer": ("Default", "Single", "Sidebar", "notebookbar.ui", "notebookbar_compact.ui",
-               "notebookbar_groupedbar_compact.ui", "notebookbar_single.ui"),
-    "calc": ("Default", "Single", "Sidebar", "notebookbar.ui", "notebookbar_compact.ui",
-             "notebookbar_groupedbar_compact.ui"),
-    "impress": ("Default", "Single", "notebookbar.ui", "notebookbar_compact.ui",
-                "notebookbar_groupedbar_compact.ui", "notebookbar_single.ui"),
-    "draw": ("Default", "notebookbar.ui", "notebookbar_compact.ui", "notebookbar_groupedbar_compact.ui",
-             "notebookbar_single.ui"),
-}
-MIN_W, MIN_H = 260, 75
-
-
-def mode_label(mode):
-    return mode.replace("notebookbar_", "").replace("notebookbar", "tabbed").replace(".ui", "")
-
-
-def prop(name, value):
-    from com.sun.star.beans import PropertyValue
-    p = PropertyValue()
-    p.Name, p.Value = name, value
-    return p
-
-
-def judge(boxes, frame, shot, catalogue):
-    """(ok, detail) for the visible banner boxes [x, y, w, h] of one screenshot of the window frame."""
-    if len(boxes) != 1:
-        return False, f"{len(boxes)} banners visible"
-    x, y, w, h = boxes[0]
-    fx, fy, fw, fh = frame
-    if w < MIN_W - 1 or h < MIN_H - 1:
-        return False, f"banner {w}x{h} smaller than {MIN_W}x{MIN_H}"
-    if x < fx or y < fy or x + w > fx + fw or y + h > fy + fh // 2:
-        return False, f"banner {boxes[0]} outside the window's top chrome {frame}"
-    ident, best, second = probe.recognise(shot, boxes[0], catalogue, 1)
-    if ident is None:
-        return False, f"banner {boxes[0]} is not a bundled artwork (score {best}, next {second})"
-    return True, f"{ident} at {boxes[0]}"
-
-
-def visible_boxes(frame):
-    fx, fy, fw, fh = frame
-    boxes = []
-    for node in probe.banner_nodes():
-        record = probe.describe(node)
-        if " — " not in (record["name"] or ""):
-            continue
-        x, y, w, h = record["box"]
-        if w > 0 and h > 0 and x < fx + fw and y < fy + fh and x + w > fx and y + h > fy:
-            boxes.append(record["box"])
-    return boxes
-
 
 def record(results, shots, case, path, ok, detail):
     results.append({"case": case, "status": "PASS" if ok else "FAIL", "detail": detail, "shot": path})
@@ -115,9 +62,7 @@ def run_app(args, app, catalogue, results):
                 office.screenshot(path)
                 ok, detail = judge(visible_boxes(box), box, path, catalogue)
                 record(results, args.shots, case, path, ok, detail)
-        # back to the tabbed ribbon, so a later run starts as users do
-        office.dispatch(frame, ".uno:ToolbarMode", (prop("Mode", "notebookbar.ui"),))
-        time.sleep(2)
+        office.dispatch(frame, ".uno:ToolbarMode", (prop("Mode", "notebookbar.ui"),))  # back to the default
     finally:
         office.stop()
 
@@ -161,6 +106,14 @@ def main():
     parser.add_argument("--sizes", default="1366x768,1920x1080")
     parser.add_argument("--shots", default=None)
     args = parser.parse_args()
+    if os.geteuid() == 0:  # as the build user under a session bus of its own (AT-SPI needs one)
+        for path in filter(None, (args.out, args.shots)):
+            os.makedirs(path, exist_ok=True)
+            subprocess.run(["chown", "-R", hst_gui.BUILD_USER, path], check=False)
+        os.execvp("runuser", ["runuser", "-u", hst_gui.BUILD_USER, "--", "dbus-run-session", "--", sys.executable]
+                  + sys.argv)
+    args.instdir, args.out = os.path.abspath(args.instdir), os.path.abspath(args.out)
+    os.environ.update(NO_AT_BRIDGE="0", GTK_MODULES="gail:atk-bridge")
     args.sizes = [tuple(int(v) for v in s.split("x")) for s in args.sizes.split(",")]
     os.makedirs(args.out, exist_ok=True)
     hst_gui.setup_uno(args.instdir)

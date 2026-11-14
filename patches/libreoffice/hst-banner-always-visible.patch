@@ -660,16 +660,17 @@ logical px (the artwork's 360:104 ratio), in a strip at least that high.
  class ImplBorderWindowView;
  struct NotebookBarAddonsItem;
  enum class DrawButtonFlags;
-@@ -84,6 +85,8 @@
+@@ -84,6 +85,9 @@
      std::unique_ptr<ImplBorderWindowView> mpBorderView;
      VclPtr<vcl::Window>     mpMenuBarWindow;
      VclPtr<NotebookBar>     mpNotebookBar;
 +    // HST Office: the HASON TECH banner beside a notebookbar whose content has none (docs/BANNERS.md)
 +    VclPtr<HstRibbonBanner> mpHstBanner;
++    tools::Rectangle        maHstStrip; // the notebookbar's strip beside which the banner sits, empty without
      tools::Long                    mnMinWidth;
      tools::Long                    mnMinHeight;
      tools::Long                    mnMaxWidth;
-@@ -155,6 +158,10 @@
+@@ -155,6 +159,12 @@
                          std::unique_ptr<NotebookBarAddonsItem> pNotebookBarAddonsItem);
      void CloseNotebookBar();
      const VclPtr<NotebookBar>& GetNotebookBar() const { return mpNotebookBar; }
@@ -677,6 +678,8 @@ logical px (the artwork's 360:104 ratio), in a strip at least that high.
 +    bool HstBannerBesideNotebookBar() const;
 +    /// HST Office: height of the notebookbar's strip: the bar, at least as high as the banner needs.
 +    tools::Long HstNotebookBarStripHeight() const;
++    /// HST Office: the banner beside the notebookbar, for accessibility (null without).
++    HstRibbonBanner* GetHstBanner() const { return mpHstBanner.get(); }
  
      void                    SetMinOutputSize( tools::Long nWidth, tools::Long nHeight )
                                  { mnMinWidth = nWidth; mnMinHeight = nHeight; }
@@ -1908,6 +1911,92 @@ logical px (the artwork's 360:104 ratio), in a strip at least that high.
  void NotebookBar::SetSystemWindow(SystemWindow* pSystemWindow)
  {
      m_pSystemWindow = pSystemWindow;
+--- a/vcl/source/window/accessibility.cxx
++++ b/vcl/source/window/accessibility.cxx
+@@ -26,6 +26,7 @@
+ #include <vcl/vclevent.hxx>
+ #include <vcl/wrkwin.hxx>
+ #include <vcl/notebookbar/notebookbar.hxx>
++#include <vcl/HstBanner.hxx>
+ 
+ #include <accessibility/floatingwindowaccessible.hxx>
+ #include <accessibility/vclxaccessiblefixedtext.hxx>
+@@ -133,6 +134,18 @@
+     return IsNativeFrame();
+ }
+ 
++namespace
++{
++/// HST Office: the visible banner the border window shows beside a notebookbar (docs/BANNERS.md), or null.
++vcl::Window* lcl_HstBorderBanner(const vcl::Window* pBorder)
++{
++    if (!pBorder || pBorder->GetType() != WindowType::BORDERWINDOW)
++        return nullptr;
++    vcl::Window* pBanner = static_cast<const ImplBorderWindow*>(pBorder)->GetHstBanner();
++    return pBanner && pBanner->IsVisible() ? pBanner : nullptr;
++}
++}
++
+ vcl::Window* Window::GetAccessibleParentWindow() const
+ {
+     if (!mpWindowImpl || IsNativeFrame())
+@@ -150,9 +163,11 @@
+     }
+ 
+     vcl::Window* pParent = mpWindowImpl->mpParent;
+-    // HST Office: the notebookbar is reported as a child of THE workwindow, like the menubar
++    // HST Office: the notebookbar and the banner beside it are reported as children of THE workwindow,
++    // like the menubar
+     if (pParent && pParent->GetType() == WindowType::BORDERWINDOW
+-        && static_cast<ImplBorderWindow*>(pParent)->GetNotebookBar().get() == this)
++        && (static_cast<ImplBorderWindow*>(pParent)->GetNotebookBar().get() == this
++            || static_cast<ImplBorderWindow*>(pParent)->GetHstBanner() == this))
+     {
+         for (vcl::Window* pSibling = pParent->mpWindowImpl->mpFirstChild; pSibling;
+              pSibling = pSibling->mpWindowImpl->mpNext)
+@@ -205,6 +220,8 @@
+             --nChildren;
+         if (pBorderWindow->GetNotebookBar() && pBorderWindow->GetNotebookBar()->IsVisible())
+             --nChildren;
++        if (lcl_HstBorderBanner(pBorderWindow))
++            --nChildren;
+     }
+     else if( GetType() == WindowType::WORKWINDOW )
+     {
+@@ -217,6 +234,8 @@
+         // HST Office: the ribbon lives in the border window; without this it is unreachable for AT
+         if (pWorkWindow->GetNotebookBar() && pWorkWindow->GetNotebookBar()->IsVisible())
+             ++nChildren;
++        if (lcl_HstBorderBanner(pWorkWindow->mpWindowImpl->mpBorderWindow))
++            ++nChildren;
+     }
+ 
+     return nChildren;
+@@ -247,6 +266,12 @@
+                 return pNotebookBar;
+             --n;
+         }
++        if (vcl::Window* pBanner = lcl_HstBorderBanner(mpWindowImpl->mpBorderWindow))
++        {
++            if (n == 0)
++                return pBanner;
++            --n;
++        }
+     }
+ 
+     // transform n to child number including invisible children
+@@ -255,9 +280,10 @@
+     const vcl::Window* pSkip = GetType() == WindowType::BORDERWINDOW
+                                    ? static_cast<ImplBorderWindow*>(this)->GetNotebookBar().get()
+                                    : nullptr;
++    const vcl::Window* pSkipBanner = lcl_HstBorderBanner(this);
+     while( pChild )
+     {
+-        if( pChild->IsVisible() && pChild != pSkip )
++        if( pChild->IsVisible() && pChild != pSkip && pChild != pSkipBanner )
+         {
+             if( ! nChildren )
+                 break;
 --- a/vcl/source/window/brdwin.cxx
 +++ b/vcl/source/window/brdwin.cxx
 @@ -36,6 +36,8 @@
@@ -1927,7 +2016,24 @@ logical px (the artwork's 360:104 ratio), in a strip at least that high.
      mpNotebookBar.disposeAndClear();
      vcl::Window::dispose();
  }
-@@ -1724,11 +1727,36 @@
+@@ -1639,6 +1642,16 @@
+ {
+     if (mpBorderView)
+         mpBorderView->DrawWindow(rRenderContext);
++    // HST Office: the strip around the notebookbar and behind the banner has the bar's own background
++    if (!maHstStrip.IsEmpty() && mpNotebookBar && mpNotebookBar->IsBackground())
++    {
++        vcl::Region aStrip(maHstStrip);
++        aStrip.Exclude(tools::Rectangle(mpNotebookBar->GetPosPixel(), mpNotebookBar->GetSizePixel()));
++        rRenderContext.Push(vcl::PushFlags::CLIPREGION);
++        rRenderContext.IntersectClipRegion(aStrip);
++        rRenderContext.DrawWallpaper(maHstStrip, mpNotebookBar->GetBackground());
++        rRenderContext.Pop();
++    }
+ }
+ 
+ void ImplBorderWindow::Draw( OutputDevice* pOutDev, const Point& rPos )
+@@ -1724,10 +1737,55 @@
      if (mpNotebookBar)
      {
          tools::Long nNotebookBarHeight = mpNotebookBar->GetSizePixel().Height();
@@ -1948,27 +2054,46 @@ logical px (the artwork's 360:104 ratio), in a strip at least that high.
 +            const tools::Long nGap = hst::banner::scaled(8, fDpi);
 +            if (!mpHstBanner)
 +                mpHstBanner = VclPtr<HstRibbonBanner>::Create(this);
++            const tools::Long nBarWidth = std::max<tools::Long>(0, nWidth - aSlot.w - nRightMargin - nGap);
 +            mpNotebookBar->setPosSizePixel(
-+                    nLeftBorder, nTopBorder + (nStrip - nNotebookBarHeight) / 2,
-+                    std::max<tools::Long>(0, nWidth - aSlot.w - nRightMargin - nGap),
-+                    nNotebookBarHeight);
++                    nLeftBorder, nTopBorder + (nStrip - nNotebookBarHeight) / 2, nBarWidth, nNotebookBarHeight);
++            // a bar that cannot be narrower than its content (grouped compact) is cut at the banner, as it is
++            // cut at the window's edge without one
++            if (mpNotebookBar->GetSizePixel().Width() > nBarWidth)
++                mpNotebookBar->SetWindowRegionPixel(
++                    vcl::Region(tools::Rectangle(Point(), Size(nBarWidth, nNotebookBarHeight))));
++            else
++                mpNotebookBar->SetWindowRegionPixel();
 +            mpHstBanner->Place(tools::Rectangle(
 +                Point(nLeftBorder + nWidth - nRightMargin - aSlot.w, nTopBorder + (nStrip - aSlot.h) / 2),
 +                Size(aSlot.w, aSlot.h)));
++            const tools::Rectangle aStrip(Point(nLeftBorder, nTopBorder), Size(nWidth, nStrip));
++            if (aStrip != maHstStrip)
++            {
++                maHstStrip = aStrip;
++                Invalidate(maHstStrip); // the bar and the banner over the new background
++            }
 +        }
 +        else
 +        {
++            maHstStrip = tools::Rectangle();
 +            if (mpHstBanner)
++            {
 +                mpHstBanner->Place(tools::Rectangle());
++                mpNotebookBar->SetWindowRegionPixel();
++            }
 +            mpNotebookBar->setPosSizePixel(nLeftBorder, nTopBorder, nWidth, nNotebookBarHeight);
 +        }
++    }
++    else
++    {
++        maHstStrip = tools::Rectangle();
++        if (mpHstBanner)
++            mpHstBanner->Place(tools::Rectangle());
      }
-+    else if (mpHstBanner)
-+        mpHstBanner->Place(tools::Rectangle());
  
      GetBorder( pClientWindow->mpWindowImpl->mnLeftBorder, pClientWindow->mpWindowImpl->mnTopBorder,
-                pClientWindow->mpWindowImpl->mnRightBorder, pClientWindow->mpWindowImpl->mnBottomBorder );
-@@ -1967,7 +1995,20 @@
+@@ -1967,7 +2025,20 @@
          rTopBorder += mpMenuBarWindow->GetSizePixel().Height();
  
      if (mpNotebookBar && mpNotebookBar->IsVisible())
