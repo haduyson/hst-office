@@ -50,8 +50,14 @@ def guardrails(label):
         bottom = max(extents(node)[1] + extents(node)[3] for node in ribbon)
         # never over the ribbon; the rest of the NotebookBar below its tab control (its margin, up to about 30 px in
         # Slides) lies in between
-        record(label + ": the panel starts at the bottom edge of the ribbon", bottom - 1 <= box[1] <= bottom + 40,
+        # the document tab strip (about 32 px) may lie in between: the panel starts below it
+        record(label + ": the panel starts at the bottom edge of the ribbon", bottom - 1 <= box[1] <= bottom + 80,
                "ribbon bottom %d, panel top %d" % (bottom, box[1]))
+    strips = [node for role, name, node in in_frame if role == "panel" and name == "Thẻ tài liệu"]
+    if strips:  # owner 14/11/2026: the document tab strip stays visible while the panel is open
+        strip = extents(strips[0])
+        record(label + ": the document tab strip stays visible above the panel", strip[1] + strip[3] <= box[1] + 1,
+               "strip %s, panel top %d" % (strip, box[1]))
     documents = [node for role, name, node in in_frame if role in DOCUMENT_ROLES]
     if documents:
         doc = extents(documents[0])
