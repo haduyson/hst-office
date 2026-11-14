@@ -2,7 +2,8 @@
 """Crash capture: did the last session end without closing, and what did the office or the OS record about it.
 
 A session marker (session.json in the diag_log directory) is written at OnStartApp and removed at OnCloseApp; a
-marker found at the next start means the session never closed (crash, kill, power loss). The signature is what the
+marker found at the next start means the session never closed (crash, kill, power loss, or the operating system ending
+it, which session_end recognises from the office's own note). The signature is what the
 platform recorded, read at that next start (crash_signature.py parses it):
   * Linux: the office's own fatal-signal handler prints "Fatal exception: Signal N" and a backtrace
     (module(+offset) frames) to stderr, before the emergency save (hst-emergency-save-crash-log.patch) and again
@@ -29,7 +30,7 @@ import stat
 import sys
 import time
 
-from . import crash_signature, diag_log, windows_fault_note, session_facts
+from . import crash_signature, diag_log, session_end, windows_fault_note, session_facts
 
 MARKER = "session.json"
 STDERR_NAME = "last-session.err"
@@ -73,28 +74,32 @@ def _beat_fields(marker):
 
 
 def previous_session(system=None, marker=None, stderr_text=None, now=None, note_text=None):
-    """{"ended": "crash"|"hang"|"not closed", "started", "signature", "hang", "version", and the last heartbeat's
+    """{"ended": "crash"|"hang"|"session end"|"not closed", "started", "signature", "hang", "session_end", "version",
+    and the last heartbeat's
     "beat", "apps", "active", "modified", "loading" when recorded} of an unclosed previous session, else None."""
     system = system or platform.system()
     marker = read_marker(_path(MARKER)) if marker is None else marker
     if not marker:
         return None
     started = float(marker.get("started", 0))
+    ended_by = ""
     if system == "Linux":
         text = _read_stderr() if stderr_text is None else stderr_text
         signature = crash_signature.from_linux_stderr(text)
+        ended_by = session_end.from_linux_stderr(text)
     elif system == "Darwin":
         signature = crash_signature.from_mac_reports(os.path.expanduser("~/Library/Logs/DiagnosticReports"), started)
     elif system == "Windows":
         note = windows_fault_note.read(_path(windows_fault_note.NAME), started) if note_text is None else note_text
         signature = windows_fault_note.combined(crash_signature.from_windows_events(started),
                                                 windows_fault_note.signature(note))
+        ended_by = session_end.from_windows_note(note)
     else:
         signature = ""
     hang = crash_signature.windows_hang(started) if system == "Windows" and not signature else None
-    ended = "crash" if signature else "hang" if hang else "not closed"
+    ended = "crash" if signature else "hang" if hang else "session end" if ended_by else "not closed"
     return dict(_beat_fields(marker), ended=ended, started=started, signature=signature, hang=hang,
-                version=marker.get("version", ""))
+                session_end=ended_by, version=marker.get("version", ""))
 
 
 def _read_stderr():
@@ -173,6 +178,8 @@ def facts(previous):
     lines = ["Session marker: previous session %s (version %s)" % (previous["ended"], previous.get("version") or "?")]
     if previous.get("signature"):
         lines += ["Crash signature:", previous["signature"]]
+    elif previous.get("session_end"):
+        lines.append("Crash signature: none; the system ended the session: %s" % previous["session_end"])
     elif previous.get("hang"):
         lines.append("Crash signature: none; the system recorded a hang (not responding, then closed)")
         lines.append("Hang: %s" % previous["hang"]["text"])

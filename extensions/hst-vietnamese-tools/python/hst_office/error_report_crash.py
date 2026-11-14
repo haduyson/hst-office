@@ -14,7 +14,8 @@ is asked about once; "Không hỏi lại" stores /org.hasontech.hstoffice.ErrorR
 
 The crash facts are what the office knows: how many documents were open and in which apps, whether the session marker
 was left and the crash signature (faulting module and offsets). Never document names or locations.
-OnCloseApp removes the session marker: a normal exit is never reported. While the office runs, session_heartbeat keeps
+OnCloseApp removes the session marker: a normal exit is never reported, nor a session the operating system ended
+(session_end). While the office runs, session_heartbeat keeps
 the apps of the open documents and the last time the office answered in the marker, so a session that ended with
 unchanged documents still names its app, and one closed while "not responding" (Windows' hang events) reads as a hang.
 """
@@ -22,7 +23,7 @@ import unohelper
 from com.sun.star.lang import XServiceInfo
 from com.sun.star.task import XJob
 
-from . import diag_crash, diag_log, session_facts, session_heartbeat
+from . import diag_crash, diag_log, session_end, session_facts, session_heartbeat
 from .error_report_apps import app_name
 from .error_report_info import app_of_module, environment
 from .error_report_texts import TEXT
@@ -93,7 +94,8 @@ def capture(ctx):
     previous = diag_crash.start(ctx, environment(ctx, None))
     state = recovery_state(ctx)
     state["session_marker"] = previous
-    if (abnormal(state) or previous) and ask_enabled(ctx):
+    # a shut down, restart or log off is not a crash: recovery (the office's own decision) without the question
+    if (abnormal(state) or previous) and ask_enabled(ctx) and not session_end.ended_by_system(state, previous):
         STATE["pending"] = state
 
 
