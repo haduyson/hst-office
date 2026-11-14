@@ -1,0 +1,1282 @@
+HST Office: HST Sheets has GROUPBY and PIVOTBY (owner decision 2026-11-14: the whole LAMBDA family is in 1.0.2).
+Upstream LibreOffice has neither; this is HST code on the callable machinery of hst-sheets-lambda-functions.patch.
+
+- GROUPBY(row_fields; values; function; [field_headers]; [total_depth]; [sort_order]; [filter_array];
+  [field_relationship]) and PIVOTBY(row_fields; col_fields; values; function; [field_headers]; [row_total_depth];
+  [row_sort_order]; [col_total_depth]; [col_sort_order]; [filter_array]; [relative_to]).
+- function is a built-in function passed as a value (SUM, AVERAGE, COUNTA, MAX, PERCENTOF, ARRAYTOTEXT...) or a
+  LAMBDA; it gets one group's values as a one-column array. A function with two required parameters
+  (PERCENTOF, LAMBDA(x;y;...)) also gets the values it is relative to: for GROUPBY all filtered values of that
+  column, for PIVOTBY per relative_to (0 column totals, 1 row totals, 2 grand total, 3 parent column total,
+  4 parent row total).
+- field_headers 0/1/2/3 (omitted: headers when the first values row is text and the second a number);
+  generated headers read "Row Field n" / "Value n". total_depth 0, 1 grand total "Total" (default), 2 with
+  subtotals, -1/-2 at the top. sort_order: 1-based column indexes, negative descending; a value column sorts
+  each level by the group aggregate; default ascending keys (numbers, text, logical values, errors, blanks;
+  text case-insensitive). field_relationship 1 (table) groups by all fields at once without subtotals.
+  filter_array: a column of logical values. An error from the function stays in its own cell.
+- PIVOTBY layout: column keys on top (one row per column field, "Total" for column totals), a value-name row
+  when there are several value columns or headers are shown, row keys on the left; empty intersections stay
+  empty. Known differences: the reference application returns #CALC! where this gives #VALUE! (no data
+  left, an argument out of range); its header-row layout for shown headers may differ in detail.
+- .xlsx: _xlfn.GROUPBY/_xlfn.PIVOTBY; a function passed as a value is written _xleta.SUM (_xleta.PERCENTOF,
+  without _xlfn.) as the reference application does, and _xleta.PERCENTOF is read back as PERCENTOF. ODF:
+  COM.MICROSOFT.GROUPBY / COM.MICROSOFT.PIVOTBY.
+- Function Wizard: up to 11 parameters (ScFuncDescCore optional-argument flags and the parameter class table
+  grow from 7 to 11); English and Vietnamese text.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: CppunitTest_sc_excelcompat_functions_test (testGroupByPivotByAndLambda: results, XLSX and ODS round trip),
+tests/unit/test_sheets_groupby_pivotby.py, tests/runtime/check-sheets-excel-functions.py.
+---
+--- a/formula/inc/core_resource.hrc
++++ b/formula/inc/core_resource.hrc
+@@ -307,6 +307,8 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_ODFF[] =
+     { "COM.MICROSOFT.REGEXEXTRACT" , ocRegexExtract },
+     { "COM.MICROSOFT.REGEXREPLACE" , ocRegexReplace },
+     { "COM.MICROSOFT.TRIMRANGE" , ocTrimRange },
++    { "COM.MICROSOFT.GROUPBY" , ocGroupBy },
++    { "COM.MICROSOFT.PIVOTBY" , ocPivotBy },
+     { "COM.MICROSOFT.LAMBDA" , ocLambda },
+     { "COM.MICROSOFT.ISOMITTED" , ocIsOmitted },
+     { "COM.MICROSOFT.BYCOL" , ocByCol },
+@@ -799,6 +801,8 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_OOXML[] =
+     { "_xlfn.REGEXEXTRACT" , ocRegexExtract },
+     { "_xlfn.REGEXREPLACE" , ocRegexReplace },
+     { "_xlfn.TRIMRANGE" , ocTrimRange },
++    { "_xlfn.GROUPBY" , ocGroupBy },
++    { "_xlfn.PIVOTBY" , ocPivotBy },
+     { "_xlfn.LAMBDA" , ocLambda },
+     { "_xlfn.ISOMITTED" , ocIsOmitted },
+     { "_xlfn.BYCOL" , ocByCol },
+@@ -1295,6 +1299,8 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_PODF[] =
+     { "REGEXEXTRACT" , ocRegexExtract },
+     { "REGEXREPLACE" , ocRegexReplace },
+     { "TRIMRANGE" , ocTrimRange },
++    { "GROUPBY" , ocGroupBy },
++    { "PIVOTBY" , ocPivotBy },
+     { "LAMBDA" , ocLambda },
+     { "ISOMITTED" , ocIsOmitted },
+     { "BYCOL" , ocByCol },
+@@ -1788,6 +1794,8 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_API[] =
+     { "REGEXEXTRACT" , ocRegexExtract },
+     { "REGEXREPLACE" , ocRegexReplace },
+     { "TRIMRANGE" , ocTrimRange },
++    { "GROUPBY" , ocGroupBy },
++    { "PIVOTBY" , ocPivotBy },
+     { "LAMBDA" , ocLambda },
+     { "ISOMITTED" , ocIsOmitted },
+     { "BYCOL" , ocByCol },
+@@ -2280,6 +2288,8 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH[] =
+     { "REGEXEXTRACT" , ocRegexExtract },
+     { "REGEXREPLACE" , ocRegexReplace },
+     { "TRIMRANGE" , ocTrimRange },
++    { "GROUPBY" , ocGroupBy },
++    { "PIVOTBY" , ocPivotBy },
+     { "LAMBDA" , ocLambda },
+     { "ISOMITTED" , ocIsOmitted },
+     { "BYCOL" , ocByCol },
+@@ -2752,6 +2762,8 @@ const std::pair<TranslateId, int> RID_STRLIST_FUNCTION_NAMES[] =
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "REGEXEXTRACT") , ocRegexExtract },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "REGEXREPLACE") , ocRegexReplace },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "TRIMRANGE") , ocTrimRange },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "GROUPBY") , ocGroupBy },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "PIVOTBY") , ocPivotBy },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "LAMBDA") , ocLambda },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "ISOMITTED") , ocIsOmitted },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "BYCOL") , ocByCol },
+--- a/formula/source/core/api/FormulaCompiler.cxx
++++ b/formula/source/core/api/FormulaCompiler.cxx
+@@ -3053,6 +3053,16 @@ const FormulaToken* FormulaCompiler::CreateStringFromToken( OUStringBuffer& rBuf
+         else
+             rBuffer.append(mxSymbols->getSymbol(ocStringName));
+     }
++    else if (FormulaGrammar::isOOXML(meGrammar) && bAllowArrAdvance && ocStopNoParameters <= eOp
++             && eOp < ocStopFunction
++             && !(maArrIterator.PeekNext() && maArrIterator.PeekNext()->GetOpCode() == ocOpen))
++    {
++        // A built-in function passed as a value, e.g. GROUPBY(A2:A9,C2:C9,SUM),
++        // is written with the _xleta. prefix that OOXML uses for it (read back
++        // by ScCompiler), without the _xlfn. prefix of the call form.
++        OUString aName = mxSymbols->getSymbol(eOp);
++        rBuffer.append(u"_xleta." + (aName.startsWith(u"_xlfn.") ? aName.copy(6) : aName));
++    }
+     else if( static_cast<sal_uInt16>(eOp) < mxSymbols->getSymbolCount())        // Keyword:
+         rBuffer.append(mxSymbols->getSymbol(eOp));
+     else
+--- a/include/formula/opcode.hxx
++++ b/include/formula/opcode.hxx
+@@ -574,7 +574,9 @@ enum OpCode : sal_uInt16
+         ocRegexExtract      = 533,
+         ocRegexReplace      = 534,
+         ocTrimRange         = 535,
+-        ocStopTwoParameters = 536, /* last function with two or more parameters' OpCode + 1 */
++        ocGroupBy           = 536,
++        ocPivotBy           = 537,
++        ocStopTwoParameters = 538, /* last function with two or more parameters' OpCode + 1 */
+ 
+         ocStopFunction      = ocStopTwoParameters,  /* last function's OpCode + 1 */
+         ocLastOpcodeId      = ocStopFunction - 1, /* last OpCode */
+@@ -1092,6 +1094,8 @@ inline std::string OpCodeEnumToString(OpCode eCode)
+     case ocRegexExtract: return "RegexExtract";
+     case ocRegexReplace: return "RegexReplace";
+     case ocTrimRange: return "TrimRange";
++    case ocGroupBy: return "GroupBy";
++    case ocPivotBy: return "PivotBy";
+     case ocLambda: return "Lambda";
+     case ocIsOmitted: return "IsOmitted";
+     case ocByCol: return "ByCol";
+--- a/sc/Library_sc.mk
++++ b/sc/Library_sc.mk
+@@ -267,6 +267,8 @@ $(eval $(call gb_Library_add_exception_objects,sc,\
+     sc/source/core/tool/interpr8 \
+     sc/source/core/tool/interpr_excelcompat \
+     sc/source/core/tool/interpr_excelregex \
++    sc/source/core/tool/interpr_groupby \
++    sc/source/core/tool/interpr_pivotby \
+     sc/source/core/tool/interpretercontext \
+     sc/source/core/tool/jumpmatrix \
+     sc/source/core/tool/listenerquery \
+--- a/sc/inc/helpids.h
++++ b/sc/inc/helpids.h
+@@ -632,6 +632,8 @@ inline constexpr OUString HID_FUNC_REGEXTEST_MS = u"SC_HID_FUNC_REGEXTEST_MS"_us
+ inline constexpr OUString HID_FUNC_REGEXEXTRACT_MS = u"SC_HID_FUNC_REGEXEXTRACT_MS"_ustr;
+ inline constexpr OUString HID_FUNC_REGEXREPLACE_MS = u"SC_HID_FUNC_REGEXREPLACE_MS"_ustr;
+ inline constexpr OUString HID_FUNC_TRIMRANGE_MS = u"SC_HID_FUNC_TRIMRANGE_MS"_ustr;
++inline constexpr OUString HID_FUNC_GROUPBY_MS = u"SC_HID_FUNC_GROUPBY_MS"_ustr;
++inline constexpr OUString HID_FUNC_PIVOTBY_MS = u"SC_HID_FUNC_PIVOTBY_MS"_ustr;
+ inline constexpr OUString HID_FUNC_LAMBDA_MS = u"SC_HID_FUNC_LAMBDA_MS"_ustr;
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/inc/scfuncs.hrc
++++ b/sc/inc/scfuncs.hrc
+@@ -4639,4 +4639,54 @@ const TranslateId ocIS_OMITTED_ARY[] =
+     NC_("ocIS_OMITTED", "The name of the parameter to check.")
+ };
+ 
++// -=*# Resource for function GROUPBY #*=-
++const TranslateId ocGROUPBY_ARY[] =
++{
++    NC_("ocGROUPBY", "Groups the rows of a range by one or more fields and aggregates the values of each group."),
++    NC_("ocGROUPBY", "Row fields"),
++    NC_("ocGROUPBY", "The columns whose values form the groups."),
++    NC_("ocGROUPBY", "Values"),
++    NC_("ocGROUPBY", "The columns of values to aggregate."),
++    NC_("ocGROUPBY", "Function"),
++    NC_("ocGROUPBY", "The function that aggregates each group, for example SUM, AVERAGE, COUNTA, PERCENTOF or a LAMBDA."),
++    NC_("ocGROUPBY", "Field headers"),
++    NC_("ocGROUPBY", "0 - none. 1 - present, not shown. 2 - none, generate them. 3 - present and shown. Omitted - present and shown when the first row of values is text and the second a number."),
++    NC_("ocGROUPBY", "Total depth"),
++    NC_("ocGROUPBY", "0 - no totals. 1 - grand total (default). 2 - grand total and subtotals. -1, -2 - the same at the top."),
++    NC_("ocGROUPBY", "Sort order"),
++    NC_("ocGROUPBY", "Column indexes to sort by, negative for descending order. Omitted - ascending by the fields."),
++    NC_("ocGROUPBY", "Filter array"),
++    NC_("ocGROUPBY", "A column of logical values; only the rows that are TRUE are used."),
++    NC_("ocGROUPBY", "Field relationship"),
++    NC_("ocGROUPBY", "0 or omitted - hierarchy. 1 - table, every field sorted on its own, no subtotals.")
++};
++
++// -=*# Resource for function PIVOTBY #*=-
++const TranslateId ocPIVOTBY_ARY[] =
++{
++    NC_("ocPIVOTBY", "Summarizes the values of a range by row fields and column fields."),
++    NC_("ocPIVOTBY", "Row fields"),
++    NC_("ocPIVOTBY", "The columns whose values form the rows of the summary."),
++    NC_("ocPIVOTBY", "Column fields"),
++    NC_("ocPIVOTBY", "The columns whose values form the columns of the summary."),
++    NC_("ocPIVOTBY", "Values"),
++    NC_("ocPIVOTBY", "The columns of values to aggregate."),
++    NC_("ocPIVOTBY", "Function"),
++    NC_("ocPIVOTBY", "The function that aggregates each group, for example SUM, AVERAGE, COUNTA, PERCENTOF or a LAMBDA."),
++    NC_("ocPIVOTBY", "Field headers"),
++    NC_("ocPIVOTBY", "0 - none. 1 - present, not shown. 2 - none, generate them. 3 - present and shown. Omitted - present and shown when the first row of values is text and the second a number."),
++    NC_("ocPIVOTBY", "Row total depth"),
++    NC_("ocPIVOTBY", "0 - no totals. 1 - grand total (default). 2 - grand total and subtotals. -1, -2 - the same at the top."),
++    NC_("ocPIVOTBY", "Row sort order"),
++    NC_("ocPIVOTBY", "Column indexes to sort by, negative for descending order. Omitted - ascending by the fields."),
++    NC_("ocPIVOTBY", "Column total depth"),
++    NC_("ocPIVOTBY", "0 - no totals. 1 - grand total (default). 2 - grand total and subtotals. -1, -2 - the same at the top."),
++    NC_("ocPIVOTBY", "Column sort order"),
++    NC_("ocPIVOTBY", "Column indexes to sort by, negative for descending order. Omitted - ascending by the fields."),
++    NC_("ocPIVOTBY", "Filter array"),
++    NC_("ocPIVOTBY", "A column of logical values; only the rows that are TRUE are used."),
++    NC_("ocPIVOTBY", "Relative to"),
++    NC_("ocPIVOTBY", "What a two-parameter function such as PERCENTOF gets as the whole: 0 or omitted - column totals. 1 - row totals. 2 - grand total. 3 - parent column total. 4 - parent row total.")
++};
++
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/qa/unit/functions_excelcompat.cxx
++++ b/sc/qa/unit/functions_excelcompat.cxx
+@@ -207,6 +207,81 @@ CPPUNIT_TEST_FIXTURE(ExcelCompatFunctionsTest, testCellFilename)
+         pDoc->GetString(ScAddress(0, 0, 0)));
+ }
+ 
++namespace
++{
++// Region, product, quantity with a header row in H1:J6.
++const char* aGroupData[][3] = { { "Region", "Product", "Qty" }, { "N", "x", "1" }, { "S", "y", "2" },
++                                { "N", "y", "3" }, { "S", "x", "4" }, { "N", "x", "5" } };
++
++const Check aGroupChecks[] = {
++    { "=ROWS(GROUPBY(H2:H6;J2:J6;SUM))", "3" },
++    { "=INDEX(GROUPBY(H2:H6;J2:J6;SUM);1;1)", "N" },
++    { "=INDEX(GROUPBY(H2:H6;J2:J6;SUM);1;2)", "9" },
++    { "=INDEX(GROUPBY(H2:H6;J2:J6;SUM);3;1)", "Total" },
++    { "=INDEX(GROUPBY(H2:H6;J2:J6;SUM);3;2)", "15" },
++    { "=ROWS(GROUPBY(H1:H6;J1:J6;SUM))", "4" },
++    { "=INDEX(GROUPBY(H1:H6;J1:J6;SUM);1;2)", "Qty" },
++    { "=INDEX(GROUPBY(H2:H6;J2:J6;SUM;0;0;2);1;1)", "S" },
++    { "=INDEX(GROUPBY(H2:H6;J2:J6;SUM;0;0;-1);1;1)", "S" },
++    { "=ROWS(GROUPBY(H2:I6;J2:J6;SUM;0;2))", "7" },
++    { "=INDEX(GROUPBY(H2:I6;J2:J6;SUM;0;2);3;3)", "9" },
++    { "=INDEX(GROUPBY(H2:I6;J2:J6;SUM;0;-2);1;1)", "Total" },
++    { "=ROWS(GROUPBY(H2:I6;J2:J6;SUM;0;2;;;1))", "5" },
++    { "=INDEX(GROUPBY(H2:H6;J2:J6;PERCENTOF;0;0);1;2)", "0.6" },
++    { "=INDEX(GROUPBY(H2:H6;J2:J6;LAMBDA(v;MAX(v));0;0);1;2)", "5" },
++    { "=INDEX(GROUPBY(H2:H6;J2:J6;SUM;0;0;;I2:I6=\"x\");2;2)", "4" },
++    { "=GROUPBY(H2:H6;J2:J4;SUM)", "#VALUE!" },
++    { "=GROUPBY(H2:H6;J2:J6;1)", "#VALUE!" },
++    { "=ROWS(PIVOTBY(H2:H6;I2:I6;J2:J6;SUM))", "4" },
++    { "=COLUMNS(PIVOTBY(H2:H6;I2:I6;J2:J6;SUM))", "4" },
++    { "=INDEX(PIVOTBY(H2:H6;I2:I6;J2:J6;SUM);1;2)", "x" },
++    { "=INDEX(PIVOTBY(H2:H6;I2:I6;J2:J6;SUM);2;2)", "6" },
++    { "=INDEX(PIVOTBY(H2:H6;I2:I6;J2:J6;SUM);1;4)", "Total" },
++    { "=INDEX(PIVOTBY(H2:H6;I2:I6;J2:J6;SUM);4;4)", "15" },
++    { "=INDEX(PIVOTBY(H2:H6;I2:I6;J2:J6;PERCENTOF;0;0;;0;;;2);2;2)", "0.4" },
++    { "=LAMBDA(x;x*2)(21)", "42" },
++    { "=SUM(MAP(J2:J4;LAMBDA(v;v+1)))", "9" },
++    { "=REDUCE(0;J2:J6;LAMBDA(a;v;a+v))", "15" },
++    { "=SUM(SCAN(0;J2:J4;LAMBDA(a;v;a+v)))", "10" },
++    { "=SUM(BYROW(J2:J6;LAMBDA(r;r*2)))", "30" },
++    { "=SUM(BYCOL(J2:J6;SUM))", "15" },
++    { "=SUM(MAKEARRAY(2;3;LAMBDA(r;c;r*c)))", "18" },
++    { "=LAMBDA(a;[b];IF(ISOMITTED(b);a;a+b))(5)", "5" },
++};
++}
++
++CPPUNIT_TEST_FIXTURE(ExcelCompatFunctionsTest, testGroupByPivotByAndLambda)
++{
++    createScDoc();
++    ScDocument* pDoc = getScDoc();
++    for (SCROW r = 0; r < 6; ++r)
++        for (SCCOL c = 0; c < 3; ++c)
++            pDoc->SetString(ScAddress(7 + c, r, 0), OUString::createFromAscii(aGroupData[r][c]));
++    for (size_t i = 0; i < SAL_N_ELEMENTS(aGroupChecks); ++i)
++        pDoc->SetString(ScAddress(0, i, 0), OUString::fromUtf8(aGroupChecks[i].pFormula));
++    auto check = [&](const char* pStage) {
++        pDoc = getScDoc();
++        pDoc->CalcAll();
++        for (size_t i = 0; i < SAL_N_ELEMENTS(aGroupChecks); ++i)
++        {
++            OString aMsg = OString::Concat(pStage) + ": " + aGroupChecks[i].pFormula;
++            CPPUNIT_ASSERT_EQUAL_MESSAGE(aMsg.getStr(), OUString::fromUtf8(aGroupChecks[i].pResult),
++                                         pDoc->GetString(ScAddress(0, i, 0)));
++        }
++    };
++    check("new document");
++    saveAndReload(TestFilter::XLSX);
++    check("after XLSX round trip");
++    xmlDocUniquePtr pSheet = parseExport(u"xl/worksheets/sheet1.xml"_ustr);
++    // A function passed as a value takes the _xleta. prefix, without _xlfn.
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='1']/x:c[@r='A1']/x:f",
++                       u"ROWS(_xlfn.GROUPBY(H2:H6,J2:J6,_xleta.SUM))");
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='14']/x:c[@r='A14']/x:f",
++                       u"INDEX(_xlfn.GROUPBY(H2:H6,J2:J6,_xleta.PERCENTOF,0,0),1,2)");
++    saveAndReload(TestFilter::ODS);
++    check("after ODS round trip");
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab cinoptions=b1,g0,N-s cinkeys+=0=break: */
+--- a/sc/source/core/data/funcdesc.cxx
++++ b/sc/source/core/data/funcdesc.cxx
+@@ -88,7 +88,7 @@ struct ScFuncDescCore
+      * For every parameter:
+      *     Boolean flag whether the parameter is optional.
+      */
+-    sal_uInt8 aOptionalArgs[7];
++    sal_uInt8 aOptionalArgs[11];
+     /*
+      * Limited number of maximum (variable) parameters, or 0 if no specific
+      * limit other than the general VAR_ARGS-1 value.
+@@ -826,6 +826,8 @@ ScFunctionList::ScFunctionList( bool bEnglishFunctionNames )
+         { ocRegexExtract, ENTRY(ocREGEXEXTRACT_ARY), 0, ID_FUNCTION_GRP_TEXT, HID_FUNC_REGEXEXTRACT_MS, 4, { 0, 0, 1, 1 }, 0 },
+         { ocRegexReplace, ENTRY(ocREGEXREPLACE_ARY), 0, ID_FUNCTION_GRP_TEXT, HID_FUNC_REGEXREPLACE_MS, 5, { 0, 0, 0, 1, 1 }, 0 },
+         { ocTrimRange, ENTRY(ocTRIMRANGE_ARY), 0, ID_FUNCTION_GRP_TABLE, HID_FUNC_TRIMRANGE_MS, 3, { 0, 1, 1 }, 0 },
++        { ocGroupBy, ENTRY(ocGROUPBY_ARY), 0, ID_FUNCTION_GRP_TABLE, HID_FUNC_GROUPBY_MS, 8, { 0, 0, 0, 1, 1, 1, 1, 1 }, 0 },
++        { ocPivotBy, ENTRY(ocPIVOTBY_ARY), 0, ID_FUNCTION_GRP_TABLE, HID_FUNC_PIVOTBY_MS, 11, { 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1 }, 0 },
+     };
+ 
+     ScFuncDesc* pDesc = nullptr;
+--- /dev/null
++++ b/sc/source/core/inc/groupbyaxis.hxx
+@@ -0,0 +1,61 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <types.hxx>
++#include <scmatrix.hxx>
++
++#include <functional>
++#include <vector>
++
++namespace svl { class SharedStringPool; }
++
++/// Ascending order of the reference application: numbers, text, logical values, errors, empty.
++int ScGroupByCompare(const ScMatrix& rA, SCSIZE nAC, SCSIZE nAR, const ScMatrix& rB, SCSIZE nBC, SCSIZE nBR);
++
++/// One output row (GROUPBY) or row/column (PIVOTBY): the source rows it
++/// aggregates and how many key levels label it (all keys for a group, fewer
++/// for a subtotal, 0 for the grand total).
++struct ScGroupByEntry
++{
++    std::vector<SCSIZE> maRows;
++    SCSIZE mnLevels;
++    SCSIZE mnKeyRow;
++};
++
++/// Groups the rows of a key array (one column per field) into the ordered
++/// entries of GROUPBY's rows or of one PIVOTBY axis.
++class ScGroupByAxis
++{
++public:
++    /// Compares two groups by the aggregate of a value column.
++    using ValueSortFn
++        = std::function<int(SCSIZE nValueCol, const std::vector<SCSIZE>&, const std::vector<SCSIZE>&)>;
++
++    explicit ScGroupByAxis(const ScMatrixRef& pKeys);
++    void Build(const std::vector<SCSIZE>& rRows, sal_Int32 nDepth, bool bTable,
++               const std::vector<sal_Int32>& rSort, const ValueSortFn& rValueSort);
++    const std::vector<ScGroupByEntry>& GetEntries() const { return maEntries; }
++    /// Rows of rAll that share the first nLevels keys of rEntry (the parent group).
++    std::vector<SCSIZE> GetParentRows(const ScGroupByEntry& rEntry, const std::vector<SCSIZE>& rAll) const;
++    void PutKeys(const ScGroupByEntry& rEntry, ScMatrix& rDst, SCSIZE nDstCol, SCSIZE nDstRow, bool bByRow,
++                 svl::SharedStringPool& rPool) const;
++
++private:
++    bool SameKeys(SCSIZE nRowA, SCSIZE nRowB, SCSIZE nLevels) const;
++    void AddLevel(const std::vector<SCSIZE>& rRows, SCSIZE nLevel, SCSIZE nKeys,
++                  const std::vector<sal_Int32>& rSort, const ValueSortFn& rValueSort, bool bSubtotals,
++                  sal_Int32 nDepth);
++
++    ScMatrixRef mpKeys;
++    std::vector<ScGroupByEntry> maEntries;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/core/inc/interpre.hxx
++++ b/sc/source/core/inc/interpre.hxx
+@@ -835,6 +835,19 @@ public:
+     OUString ExcelCellText(const ScAddress& rPos, bool bStrict);
+     bool SumArgumentForPercentOf(KahanSum& rSum);
+     bool GetRegexCaseOption(sal_uInt8 nParamCount, sal_uInt8 nPos, bool& rIgnoreCase);
++    // GROUPBY and PIVOTBY (interpr_groupby.cxx, interpr_pivotby.cxx).
++    void ScGroupBy();
++    void ScPivotBy();
++    ScMatrixRef GetOptionalGroupByMatrix();
++    bool GetGroupBySortOrder(std::vector<sal_Int32>& rSort);
++    bool GetGroupByRows(const ScMatrixRef& pFilter, SCSIZE nRows, SCSIZE nFirst, std::vector<SCSIZE>& rRows);
++    static sal_Int32 GroupByHeaderMode(sal_Int32 nHeaders, const ScMatrixRef& pValues);
++    void PutGroupByHeader(ScMatrix& rDst, SCSIZE nC, SCSIZE nR, bool bHasHeader, const ScMatrixRef& pSrc,
++                          SCSIZE nSrcCol, const char* pGenerated, SCSIZE nNumber);
++    static bool GroupByCallableHasTwoArgs(const formula::FormulaCallableRef& pCallable);
++    void GroupByAggregate(const formula::FormulaCallableRef& pCallable, bool bTwoArgs, const ScMatrixRef& pValues,
++                          SCSIZE nCol, const std::vector<SCSIZE>& rRows, const std::vector<SCSIZE>& rAll,
++                          const ScMatrixRef& pResult, SCSIZE nResCol, SCSIZE nResRow);
+     void ScConcat();
+     void ScConcat_MS();
+     void ScTextJoin_MS();
+--- a/sc/source/core/inc/parclass.hxx
++++ b/sc/source/core/inc/parclass.hxx
+@@ -72,7 +72,7 @@ private:
+ 
+     struct CommonData
+     {
+-        const static sal_Int32 nMaxParams = 7;
++        const static sal_Int32 nMaxParams = 11;
+ 
+         formula::ParamClass nParam[nMaxParams];
+         sal_uInt8           nRepeatLast;
+--- a/sc/source/core/tool/compiler.cxx
++++ b/sc/source/core/tool/compiler.cxx
+@@ -3089,6 +3089,9 @@ bool ScCompiler::ParseOpCode( const OUString& rName, bool bInArray )
+     if (mxSymbols->isOOXML() && rName.startsWithIgnoreAsciiCase(u"_xleta."))
+         aName = rName.copy(7);
+     OpCodeHashMap::const_iterator iLook( mxSymbols->getHashMap().find( aName));
++    // _xleta.PERCENTOF names a function whose call form is _xlfn.PERCENTOF.
++    if (iLook == mxSymbols->getHashMap().end() && aName.getLength() != rName.getLength())
++        iLook = mxSymbols->getHashMap().find( u"_XLFN." + aName.toAsciiUpperCase());
+     bool bFound = (iLook != mxSymbols->getHashMap().end());
+     if (bFound)
+     {
+--- a/sc/source/core/tool/interpr4.cxx
++++ b/sc/source/core/tool/interpr4.cxx
+@@ -3781,6 +3781,8 @@ void ScInterpreter::DispatchOpCode( OpCode eOp )
+         case ocRegexExtract     : ScRegexExtract();           break;
+         case ocRegexReplace     : ScRegexReplace();           break;
+         case ocTrimRange        : ScTrimRange();              break;
++        case ocGroupBy          : ScGroupBy();                break;
++        case ocPivotBy          : ScPivotBy();                break;
+         case ocLambda           : ScLambda();                   break;
+         case ocIsOmitted        : ScIsOmitted();                break;
+         case ocTrue             : ScTrue();                     break;
+--- /dev/null
++++ b/sc/source/core/tool/interpr_groupby.cxx
+@@ -0,0 +1,273 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// GROUPBY and PIVOTBY of the leading spreadsheet application, on the callable
++// machinery of LAMBDA: the function argument is a built-in function passed as a
++// value (SUM, AVERAGE, COUNTA, PERCENTOF, ARRAYTOTEXT...) or a LAMBDA. It gets the
++// values of one group as a one-column array; a function of two required
++// parameters (PERCENTOF, LAMBDA(x,y,...)) also gets the values it is relative to.
++//
++// field_headers: 0 none, 1 present and not shown, 2 none but generated, 3 present
++// and shown; omitted means present and shown when the first row of values is text
++// and the second holds a number. total_depth: 0 none, 1 grand total (default),
++// 2 grand total and subtotals, negative puts them above. sort_order: one or more
++// 1-based column indexes, negative for descending. field_relationship: 0 hierarchy
++// (default), 1 table (no subtotals).
++
++#include <interpre.hxx>
++
++#include <callable.hxx>
++#include <groupbyaxis.hxx>
++#include <global.hxx>
++#include <scmatrix.hxx>
++#include <unotools/collatorwrapper.hxx>
++
++#include <algorithm>
++#include <map>
++#include <vector>
++
++using namespace formula;
++
++namespace
++{
++// Ascending order of the reference application: numbers, text, logical
++// values, errors, then empty elements.
++int lcl_Rank(const ScMatrix& rMat, SCSIZE nC, SCSIZE nR)
++{
++    if (rMat.IsEmpty(nC, nR))
++        return 4;
++    if (rMat.IsBoolean(nC, nR))
++        return 2;
++    if (rMat.IsValue(nC, nR))
++        return rMat.GetError(nC, nR) != FormulaError::NONE ? 3 : 0;
++    return 1;
++}
++
++int lcl_Compare(const ScMatrix& rA, SCSIZE nAC, SCSIZE nAR, const ScMatrix& rB, SCSIZE nBC, SCSIZE nBR)
++{
++    int nRankA = lcl_Rank(rA, nAC, nAR), nRankB = lcl_Rank(rB, nBC, nBR);
++    if (nRankA != nRankB)
++        return nRankA < nRankB ? -1 : 1;
++    switch (nRankA)
++    {
++        case 0:
++        case 2:
++        {
++            double fA = rA.GetDouble(nAC, nAR), fB = rB.GetDouble(nBC, nBR);
++            return fA < fB ? -1 : (fA > fB ? 1 : 0);
++        }
++        case 1:
++            return ScGlobal::GetCollator().compareString(rA.GetString(nAC, nAR).getString(),
++                                                         rB.GetString(nBC, nBR).getString());
++        case 3:
++        {
++            int nA = static_cast<int>(rA.GetError(nAC, nAR)), nB = static_cast<int>(rB.GetError(nBC, nBR));
++            return nA < nB ? -1 : (nA > nB ? 1 : 0);
++        }
++        default:
++            return 0;
++    }
++}
++
++}
++
++int ScGroupByCompare(const ScMatrix& rA, SCSIZE nAC, SCSIZE nAR, const ScMatrix& rB, SCSIZE nBC, SCSIZE nBR)
++{
++    return lcl_Compare(rA, nAC, nAR, rB, nBC, nBR);
++}
++
++namespace
++{
++void lcl_CopyElement(const ScMatrix& rSrc, SCSIZE nSC, SCSIZE nSR, ScMatrix& rDst, SCSIZE nDC, SCSIZE nDR)
++{
++    if (rSrc.IsEmpty(nSC, nSR))
++        rDst.PutEmpty(nDC, nDR);
++    else if (rSrc.IsBoolean(nSC, nSR))
++        rDst.PutBoolean(rSrc.GetDouble(nSC, nSR) != 0.0, nDC, nDR);
++    else if (rSrc.IsValue(nSC, nSR))
++    {
++        FormulaError nErr = rSrc.GetError(nSC, nSR);
++        if (nErr != FormulaError::NONE)
++            rDst.PutError(nErr, nDC, nDR);
++        else
++            rDst.PutDouble(rSrc.GetDouble(nSC, nSR), nDC, nDR);
++    }
++    else
++        rDst.PutString(rSrc.GetString(nSC, nSR), nDC, nDR);
++}
++}
++
++ScGroupByAxis::ScGroupByAxis(const ScMatrixRef& pKeys)
++    : mpKeys(pKeys)
++{
++}
++
++std::vector<SCSIZE> ScGroupByAxis::GetParentRows(const ScGroupByEntry& rEntry,
++                                                 const std::vector<SCSIZE>& rAll) const
++{
++    if (rEntry.mnLevels <= 1)
++        return rAll;
++    std::vector<SCSIZE> aRows;
++    for (SCSIZE nRow : rAll)
++        if (SameKeys(nRow, rEntry.mnKeyRow, rEntry.mnLevels - 1))
++            aRows.push_back(nRow);
++    return aRows;
++}
++
++bool ScGroupByAxis::SameKeys(SCSIZE nRowA, SCSIZE nRowB, SCSIZE nLevels) const
++{
++    for (SCSIZE c = 0; c < nLevels; ++c)
++        if (lcl_Compare(*mpKeys, c, nRowA, *mpKeys, c, nRowB) != 0)
++            return false;
++    return true;
++}
++
++void ScGroupByAxis::Build(const std::vector<SCSIZE>& rRows, sal_Int32 nDepth, bool bTable,
++                          const std::vector<sal_Int32>& rSort, const ValueSortFn& rValueSort)
++{
++    SCSIZE nKeys, nR;
++    mpKeys->GetDimensions(nKeys, nR);
++    maEntries.clear();
++    const bool bSubtotals = !bTable && nKeys > 1 && (nDepth == 2 || nDepth == -2);
++    if (nDepth < 0)
++        maEntries.push_back({ rRows, 0, rRows.front() });
++    if (bTable)
++        AddLevel(rRows, nKeys, nKeys, rSort, rValueSort, false, nDepth);
++    else
++        AddLevel(rRows, 0, nKeys, rSort, rValueSort, bSubtotals, nDepth);
++    if (nDepth > 0)
++        maEntries.push_back({ rRows, 0, rRows.front() });
++}
++
++void ScGroupByAxis::AddLevel(const std::vector<SCSIZE>& rRows, SCSIZE nLevel, SCSIZE nKeys,
++                             const std::vector<sal_Int32>& rSort, const ValueSortFn& rValueSort,
++                             bool bSubtotals, sal_Int32 nDepth)
++{
++    // A table groups by every key at once (nLevel == nKeys), a hierarchy one
++    // level at a time; both keep the order of first occurrence until sorted.
++    const bool bTable = (nLevel == nKeys);
++    const SCSIZE nUpTo = bTable ? nKeys : nLevel + 1;
++    std::vector<std::vector<SCSIZE>> aGroups;
++    for (SCSIZE nRow : rRows)
++    {
++        auto it = std::find_if(aGroups.begin(), aGroups.end(), [&](const std::vector<SCSIZE>& rG) {
++            return bTable ? SameKeys(rG.front(), nRow, nKeys)
++                          : lcl_Compare(*mpKeys, nLevel, rG.front(), *mpKeys, nLevel, nRow) == 0;
++        });
++        if (it == aGroups.end())
++            aGroups.push_back({ nRow });
++        else
++            it->push_back(nRow);
++    }
++
++    // Sort keys relevant to this level: the key column itself (a table uses
++    // all of them) or a value column; nothing relevant means ascending keys.
++    std::vector<sal_Int32> aSort;
++    for (sal_Int32 n : rSort)
++    {
++        SCSIZE nAbs = static_cast<SCSIZE>(std::abs(n));
++        if (nAbs > nKeys || (bTable ? nAbs >= 1 : nAbs == nLevel + 1))
++            aSort.push_back(n);
++    }
++    if (aSort.empty())
++    {
++        if (bTable)
++            for (SCSIZE c = 1; c <= nKeys; ++c)
++                aSort.push_back(static_cast<sal_Int32>(c));
++        else
++            aSort.push_back(static_cast<sal_Int32>(nLevel + 1));
++    }
++    std::stable_sort(aGroups.begin(), aGroups.end(),
++                     [&](const std::vector<SCSIZE>& rA, const std::vector<SCSIZE>& rB) {
++                         for (sal_Int32 n : aSort)
++                         {
++                             SCSIZE nAbs = static_cast<SCSIZE>(std::abs(n));
++                             int nCmp = (nAbs <= nKeys)
++                                 ? lcl_Compare(*mpKeys, nAbs - 1, rA.front(), *mpKeys, nAbs - 1, rB.front())
++                                 : (rValueSort ? rValueSort(nAbs - nKeys - 1, rA, rB) : 0);
++                             if (nCmp != 0)
++                                 return n > 0 ? nCmp < 0 : nCmp > 0;
++                         }
++                         return false;
++                     });
++
++    for (const std::vector<SCSIZE>& rGroup : aGroups)
++    {
++        if (bTable || nLevel + 1 == nKeys)
++        {
++            maEntries.push_back({ rGroup, nKeys, rGroup.front() });
++            continue;
++        }
++        if (bSubtotals && nDepth < 0)
++            maEntries.push_back({ rGroup, nUpTo, rGroup.front() });
++        AddLevel(rGroup, nLevel + 1, nKeys, rSort, rValueSort, bSubtotals, nDepth);
++        if (bSubtotals && nDepth > 0)
++            maEntries.push_back({ rGroup, nUpTo, rGroup.front() });
++    }
++}
++
++void ScGroupByAxis::PutKeys(const ScGroupByEntry& rEntry, ScMatrix& rDst, SCSIZE nDstCol, SCSIZE nDstRow,
++                            bool bByRow, svl::SharedStringPool& rPool) const
++{
++    SCSIZE nKeys, nR;
++    mpKeys->GetDimensions(nKeys, nR);
++    for (SCSIZE k = 0; k < nKeys; ++k)
++    {
++        SCSIZE nC = bByRow ? nDstCol + k : nDstCol, nRw = bByRow ? nDstRow : nDstRow + k;
++        if (rEntry.mnLevels == 0)
++        {
++            if (k == 0)
++                rDst.PutString(rPool.intern(u"Total"_ustr), nC, nRw);
++            else
++                rDst.PutEmpty(nC, nRw);
++        }
++        else if (k < rEntry.mnLevels)
++            lcl_CopyElement(*mpKeys, k, rEntry.mnKeyRow, rDst, nC, nRw);
++        else
++            rDst.PutEmpty(nC, nRw);
++    }
++}
++
++bool ScInterpreter::GroupByCallableHasTwoArgs(const formula::FormulaCallableRef& pCallable)
++{
++    if (pCallable->GetOpCode() == ocPercentOf)
++        return true;
++    if (auto pFunction = dynamic_cast<const ScFormulaFunction*>(pCallable.get()))
++        return pFunction->GetNumRequiredParams() == 2;
++    return false;
++}
++
++void ScInterpreter::GroupByAggregate(const formula::FormulaCallableRef& pCallable, bool bTwoArgs,
++                                     const ScMatrixRef& pValues, SCSIZE nCol,
++                                     const std::vector<SCSIZE>& rRows, const std::vector<SCSIZE>& rAll,
++                                     const ScMatrixRef& pResult, SCSIZE nResCol, SCSIZE nResRow)
++{
++    auto makeArg = [&](const std::vector<SCSIZE>& rFrom) -> formula::FormulaConstTokenRef {
++        ScMatrixRef pArg = GetNewMat(1, rFrom.size(), /*bEmpty*/ true);
++        if (!pArg)
++            return nullptr;
++        for (SCSIZE i = 0; i < rFrom.size(); ++i)
++            lcl_CopyElement(*pValues, nCol, rFrom[i], *pArg, 0, i);
++        return new ScMatrixToken(pArg);
++    };
++    std::vector<formula::FormulaConstTokenRef> aArgs{ makeArg(rRows) };
++    if (bTwoArgs)
++        aArgs.push_back(makeArg(rAll));
++    if (std::any_of(aArgs.begin(), aArgs.end(), [](const auto& p) { return !p; }))
++    {
++        pResult->PutError(FormulaError::MatrixSize, nResCol, nResRow);
++        return;
++    }
++    ScCall(pCallable, aArgs);
++    PutMatrixValue(PopToken(), pResult, nResCol, nResRow);
++    // Keep a group's error in its own cell only.
++    nGlobalError = FormulaError::NONE;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/core/tool/interpr_pivotby.cxx
+@@ -0,0 +1,340 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// The GROUPBY and PIVOTBY entry points: arguments, header rows, output layout.
++// Grouping, sorting and the function calls are in interpr_groupby.cxx.
++
++#include <interpre.hxx>
++
++#include <groupbyaxis.hxx>
++#include <scmatrix.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <map>
++#include <tuple>
++#include <vector>
++
++using namespace formula;
++
++namespace
++{
++bool lcl_ValidDepth(sal_Int32 n) { return n >= -2 && n <= 2; }
++
++std::vector<SCSIZE> lcl_Intersect(const std::vector<SCSIZE>& rA, const std::vector<SCSIZE>& rB)
++{
++    std::vector<SCSIZE> aRes;
++    std::set_intersection(rA.begin(), rA.end(), rB.begin(), rB.end(), std::back_inserter(aRes));
++    return aRes;
++}
++}
++
++ScMatrixRef ScInterpreter::GetOptionalGroupByMatrix()
++{
++    if (IsMissing())
++    {
++        Pop();
++        return nullptr;
++    }
++    ScMatrixRef pMat = GetMatrix();
++    if (!pMat && nGlobalError == FormulaError::NONE)
++        SetError(FormulaError::NoValue);
++    return pMat;
++}
++
++bool ScInterpreter::GetGroupBySortOrder(std::vector<sal_Int32>& rSort)
++{
++    ScMatrixRef pMat = GetOptionalGroupByMatrix();
++    if (nGlobalError != FormulaError::NONE)
++        return false;
++    if (!pMat)
++        return true;
++    SCSIZE nC, nR;
++    pMat->GetDimensions(nC, nR);
++    for (SCSIZE r = 0; r < nR; ++r)
++        for (SCSIZE c = 0; c < nC; ++c)
++        {
++            if (!pMat->IsValue(c, r) || pMat->GetError(c, r) != FormulaError::NONE)
++                return false;
++            double f = std::trunc(pMat->GetDouble(c, r));
++            if (f == 0.0 || std::abs(f) > 1e6)
++                return false;
++            rSort.push_back(static_cast<sal_Int32>(f));
++        }
++    return true;
++}
++
++bool ScInterpreter::GetGroupByRows(const ScMatrixRef& pFilter, SCSIZE nRows, SCSIZE nFirst,
++                                   std::vector<SCSIZE>& rRows)
++{
++    if (pFilter)
++    {
++        SCSIZE nFC, nFR;
++        pFilter->GetDimensions(nFC, nFR);
++        if (nFC != 1 || nFR != nRows)
++            return false;
++    }
++    for (SCSIZE r = nFirst; r < nRows; ++r)
++    {
++        if (pFilter)
++        {
++            if (!pFilter->IsValue(0, r) || pFilter->GetError(0, r) != FormulaError::NONE)
++                return false;
++            if (pFilter->GetDouble(0, r) == 0.0)
++                continue;
++        }
++        rRows.push_back(r);
++    }
++    return true;
++}
++
++sal_Int32 ScInterpreter::GroupByHeaderMode(sal_Int32 nHeaders, const ScMatrixRef& pValues)
++{
++    if (nHeaders >= 0)
++        return nHeaders;
++    // Automatic: headers when the first row of values is text and the second
++    // holds a number.
++    SCSIZE nC, nR;
++    pValues->GetDimensions(nC, nR);
++    if (nR < 2)
++        return 0;
++    bool bText = true, bNumber = false;
++    for (SCSIZE c = 0; c < nC; ++c)
++    {
++        bText = bText && pValues->IsStringOrEmpty(c, 0) && !pValues->IsEmpty(c, 0);
++        bNumber = bNumber || (pValues->IsValue(c, 1) && !pValues->IsBoolean(c, 1));
++    }
++    return (bText && bNumber) ? 3 : 0;
++}
++
++void ScInterpreter::PutGroupByHeader(ScMatrix& rDst, SCSIZE nC, SCSIZE nR, bool bHasHeader,
++                                     const ScMatrixRef& pSrc, SCSIZE nSrcCol, const char* pGenerated,
++                                     SCSIZE nNumber)
++{
++    if (!bHasHeader)
++    {
++        rDst.PutString(mrStrPool.intern(OUString::createFromAscii(pGenerated) + OUString::number(nNumber)), nC, nR);
++        return;
++    }
++    if (pSrc->IsStringOrEmpty(nSrcCol, 0) && !pSrc->IsEmpty(nSrcCol, 0))
++        rDst.PutString(pSrc->GetString(nSrcCol, 0), nC, nR);
++    else if (pSrc->IsValue(nSrcCol, 0))
++        rDst.PutDouble(pSrc->GetDouble(nSrcCol, 0), nC, nR);
++    else
++        rDst.PutEmpty(nC, nR);
++}
++
++void ScInterpreter::ScGroupBy()
++{
++    sal_uInt8 nParamCount = GetByte();
++    if (!MustHaveParamCount(nParamCount, 3, 8))
++        return;
++    sal_Int32 nRelation = 0, nDepth = 1, nHeaders = -1;
++    ScMatrixRef pFilter;
++    std::vector<sal_Int32> aSort;
++    bool bSortOk = true;
++    if (nParamCount >= 8)
++        nRelation = GetInt32WithDefault(0);
++    if (nParamCount >= 7)
++        pFilter = GetOptionalGroupByMatrix();
++    if (nParamCount >= 6)
++        bSortOk = GetGroupBySortOrder(aSort);
++    if (nParamCount >= 5)
++        nDepth = GetInt32WithDefault(1);
++    if (nParamCount >= 4)
++        nHeaders = GetInt32WithDefault(-1);
++    formula::FormulaCallableRef pFunc = GetCallable();
++    ScMatrixRef pValues = GetMatrix();
++    ScMatrixRef pKeys = GetMatrix();
++    if (nGlobalError != FormulaError::NONE)
++    {
++        PushError(nGlobalError);
++        return;
++    }
++    SCSIZE nKC = 0, nKR = 0, nVC = 0, nVR = 0;
++    if (pKeys)
++        pKeys->GetDimensions(nKC, nKR);
++    if (pValues)
++        pValues->GetDimensions(nVC, nVR);
++    if (!pFunc || !pKeys || !pValues || !bSortOk || nKR != nVR || nKR == 0 || (nRelation != 0 && nRelation != 1)
++        || !lcl_ValidDepth(nDepth) || nHeaders < -1 || nHeaders > 3
++        || std::any_of(aSort.begin(), aSort.end(), [&](sal_Int32 n) { return std::abs(n) > sal_Int32(nKC + nVC); }))
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    const sal_Int32 nMode = GroupByHeaderMode(nHeaders, pValues);
++    const bool bHasHeader = nMode == 1 || nMode == 3, bShowHeader = nMode == 2 || nMode == 3;
++    std::vector<SCSIZE> aRows;
++    if (!GetGroupByRows(pFilter, nKR, bHasHeader ? 1 : 0, aRows))
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    if (aRows.empty())
++    {
++        PushError(FormulaError::NoValue);  // the reference application gives #CALC!
++        return;
++    }
++    const bool bTwoArgs = GroupByCallableHasTwoArgs(pFunc);
++
++    // Sorting by a value column compares the groups' aggregates.
++    std::map<std::tuple<SCSIZE, SCSIZE, SCSIZE>, ScMatrixRef> aCache;
++    auto aggregate = [&](SCSIZE nCol, const std::vector<SCSIZE>& rG) {
++        auto aKey = std::make_tuple(nCol, rG.front(), rG.size());
++        auto it = aCache.find(aKey);
++        if (it != aCache.end())
++            return it->second;
++        ScMatrixRef pOne = GetNewMat(1, 1, /*bEmpty*/ true);
++        GroupByAggregate(pFunc, bTwoArgs, pValues, nCol, rG, aRows, pOne, 0, 0);
++        aCache.emplace(aKey, pOne);
++        return pOne;
++    };
++    ScGroupByAxis::ValueSortFn aValueSort = [&](SCSIZE nCol, const std::vector<SCSIZE>& rA,
++                                                const std::vector<SCSIZE>& rB) {
++        ScMatrixRef pA = aggregate(nCol, rA), pB = aggregate(nCol, rB);
++        return ScGroupByCompare(*pA, 0, 0, *pB, 0, 0);
++    };
++    ScGroupByAxis aAxis(pKeys);
++    aAxis.Build(aRows, nDepth, nRelation == 1, aSort, aValueSort);
++    const auto& rEntries = aAxis.GetEntries();
++
++    const SCSIZE nTop = bShowHeader ? 1 : 0;
++    ScMatrixRef pRes = GetNewMat(nKC + nVC, nTop + rEntries.size(), /*bEmpty*/ true);
++    if (!pRes)
++    {
++        PushError(FormulaError::MatrixSize);
++        return;
++    }
++    if (bShowHeader)
++    {
++        for (SCSIZE k = 0; k < nKC; ++k)
++            PutGroupByHeader(*pRes, k, 0, bHasHeader, pKeys, k, "Row Field ", k + 1);
++        for (SCSIZE v = 0; v < nVC; ++v)
++            PutGroupByHeader(*pRes, nKC + v, 0, bHasHeader, pValues, v, "Value ", v + 1);
++    }
++    for (SCSIZE i = 0; i < rEntries.size(); ++i)
++    {
++        aAxis.PutKeys(rEntries[i], *pRes, 0, nTop + i, /*bByRow*/ true, mrStrPool);
++        for (SCSIZE v = 0; v < nVC; ++v)
++            GroupByAggregate(pFunc, bTwoArgs, pValues, v, rEntries[i].maRows, aRows, pRes, nKC + v, nTop + i);
++    }
++    PushMatrix(pRes);
++}
++
++void ScInterpreter::ScPivotBy()
++{
++    sal_uInt8 nParamCount = GetByte();
++    if (!MustHaveParamCount(nParamCount, 4, 11))
++        return;
++    sal_Int32 nRelative = 0, nColDepth = 1, nRowDepth = 1, nHeaders = -1;
++    ScMatrixRef pFilter;
++    std::vector<sal_Int32> aRowSort, aColSort;
++    bool bSortOk = true;
++    if (nParamCount >= 11)
++        nRelative = GetInt32WithDefault(0);
++    if (nParamCount >= 10)
++        pFilter = GetOptionalGroupByMatrix();
++    if (nParamCount >= 9)
++        bSortOk = GetGroupBySortOrder(aColSort);
++    if (nParamCount >= 8)
++        nColDepth = GetInt32WithDefault(1);
++    if (nParamCount >= 7)
++        bSortOk = GetGroupBySortOrder(aRowSort) && bSortOk;
++    if (nParamCount >= 6)
++        nRowDepth = GetInt32WithDefault(1);
++    if (nParamCount >= 5)
++        nHeaders = GetInt32WithDefault(-1);
++    formula::FormulaCallableRef pFunc = GetCallable();
++    ScMatrixRef pValues = GetMatrix();
++    ScMatrixRef pColKeys = GetMatrix();
++    ScMatrixRef pRowKeys = GetMatrix();
++    if (nGlobalError != FormulaError::NONE)
++    {
++        PushError(nGlobalError);
++        return;
++    }
++    SCSIZE nRC = 0, nRR = 0, nCC = 0, nCR = 0, nVC = 0, nVR = 0;
++    if (pRowKeys)
++        pRowKeys->GetDimensions(nRC, nRR);
++    if (pColKeys)
++        pColKeys->GetDimensions(nCC, nCR);
++    if (pValues)
++        pValues->GetDimensions(nVC, nVR);
++    auto badSort = [](const std::vector<sal_Int32>& r, SCSIZE nMax) {
++        return std::any_of(r.begin(), r.end(), [&](sal_Int32 n) { return std::abs(n) > sal_Int32(nMax); });
++    };
++    if (!pFunc || !pRowKeys || !pColKeys || !pValues || !bSortOk || nRR != nVR || nCR != nVR || nVR == 0
++        || !lcl_ValidDepth(nRowDepth) || !lcl_ValidDepth(nColDepth) || nHeaders < -1 || nHeaders > 3
++        || nRelative < 0 || nRelative > 4 || badSort(aRowSort, nRC) || badSort(aColSort, nCC))
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    const sal_Int32 nMode = GroupByHeaderMode(nHeaders, pValues);
++    const bool bHasHeader = nMode == 1 || nMode == 3, bShowHeader = nMode == 2 || nMode == 3;
++    std::vector<SCSIZE> aRows;
++    if (!GetGroupByRows(pFilter, nVR, bHasHeader ? 1 : 0, aRows) || aRows.empty())
++    {
++        PushError(FormulaError::NoValue);
++        return;
++    }
++    const bool bTwoArgs = GroupByCallableHasTwoArgs(pFunc);
++    ScGroupByAxis aRowAxis(pRowKeys), aColAxis(pColKeys);
++    aRowAxis.Build(aRows, nRowDepth, false, aRowSort, nullptr);
++    aColAxis.Build(aRows, nColDepth, false, aColSort, nullptr);
++    const auto& rRowEntries = aRowAxis.GetEntries();
++    const auto& rColEntries = aColAxis.GetEntries();
++
++    // Column field rows on top, then a row of value names when there are
++    // several value columns or headers are shown.
++    const bool bNameRow = nVC > 1 || bShowHeader;
++    const SCSIZE nTop = nCC + (bNameRow ? 1 : 0);
++    ScMatrixRef pRes = GetNewMat(nRC + rColEntries.size() * nVC, nTop + rRowEntries.size(), /*bEmpty*/ true);
++    if (!pRes)
++    {
++        PushError(FormulaError::MatrixSize);
++        return;
++    }
++    for (SCSIZE c = 0; c < rColEntries.size(); ++c)
++    {
++        aColAxis.PutKeys(rColEntries[c], *pRes, nRC + c * nVC, 0, /*bByRow*/ false, mrStrPool);
++        for (SCSIZE v = 0; bNameRow && v < nVC; ++v)
++            PutGroupByHeader(*pRes, nRC + c * nVC + v, nCC, bHasHeader, pValues, v, "Value ", v + 1);
++    }
++    for (SCSIZE k = 0; bShowHeader && k < nRC; ++k)
++        PutGroupByHeader(*pRes, k, nTop - 1, bHasHeader, pRowKeys, k, "Row Field ", k + 1);
++
++    for (SCSIZE r = 0; r < rRowEntries.size(); ++r)
++    {
++        const ScGroupByEntry& rRowEntry = rRowEntries[r];
++        aRowAxis.PutKeys(rRowEntry, *pRes, 0, nTop + r, /*bByRow*/ true, mrStrPool);
++        for (SCSIZE c = 0; c < rColEntries.size(); ++c)
++        {
++            const ScGroupByEntry& rColEntry = rColEntries[c];
++            std::vector<SCSIZE> aCell = lcl_Intersect(rRowEntry.maRows, rColEntry.maRows);
++            if (aCell.empty())
++                continue;
++            std::vector<SCSIZE> aAll;
++            switch (nRelative)
++            {
++                case 0: aAll = rColEntry.maRows; break;
++                case 1: aAll = rRowEntry.maRows; break;
++                case 2: aAll = aRows; break;
++                case 3: aAll = lcl_Intersect(rRowEntry.maRows, aColAxis.GetParentRows(rColEntry, aRows)); break;
++                default: aAll = lcl_Intersect(aRowAxis.GetParentRows(rRowEntry, aRows), rColEntry.maRows); break;
++            }
++            for (SCSIZE v = 0; v < nVC; ++v)
++                GroupByAggregate(pFunc, bTwoArgs, pValues, v, aCell, aAll, pRes, nRC + c * nVC + v, nTop + r);
++        }
++    }
++    PushMatrix(pRes);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/core/tool/parclass.cxx
++++ b/sc/source/core/tool/parclass.cxx
+@@ -302,6 +302,8 @@ const ScParameterClassification::RawData ScParameterClassification::pRawData[] =
+     { ocPercentOf,       {{ ReferenceOrRefArray, ReferenceOrRefArray             }, 0, Value }},
+     { ocRegexExtract,    {{ Value, Value, Value, Value                           }, 0, ForceArrayReturn }},
+     { ocTrimRange,       {{ ReferenceOrRefArray, Value, Value                    }, 0, Reference }},
++    { ocGroupBy,         {{ ForceArray, ForceArray, Value, Value, Value, ForceArray, ForceArray, Value }, 0, ForceArrayReturn }},
++    { ocPivotBy,         {{ ForceArray, ForceArray, ForceArray, Value, Value, Value, ForceArray, Value, ForceArray, ForceArray, Value }, 0, ForceArrayReturn }},
+     { ocXLookup,         {{ Value, ReferenceOrForceArray, ReferenceOrForceArray, Value, Value, Value }, 0, Reference }},
+     { ocXMatch,          {{ Value, ReferenceOrForceArray, Value, Value           }, 0, Value }},
+     { ocXor,             {{ Reference                                            }, 1, Value }},
+--- a/sc/source/filter/excel/xlformula.cxx
++++ b/sc/source/filter/excel/xlformula.cxx
+@@ -653,6 +653,8 @@ const XclFunctionInfo saFuncTable_2024[] =
+     EXC_FUNCENTRY_A_VR(  ocRegexExtract, 2,  4,  0,  "REGEXEXTRACT" ),
+     EXC_FUNCENTRY_V_VR(  ocRegexReplace, 3,  5,  0,  "REGEXREPLACE" ),
+     EXC_FUNCENTRY_V_RO(  ocTrimRange,    1,  3,  0,  "TRIMRANGE" ),
++    EXC_FUNCENTRY_A_VR(  ocGroupBy,      3,  8,  0,  "GROUPBY" ),
++    EXC_FUNCENTRY_A_VR(  ocPivotBy,      4, 11,  0,  "PIVOTBY" ),
+ };
+ 
+ #define EXC_FUNCENTRY_ODF( opcode, minparam, maxparam, flags, asciiname ) \
+--- a/sc/source/filter/oox/formulabase.cxx
++++ b/sc/source/filter/oox/formulabase.cxx
+@@ -925,6 +925,8 @@ const FunctionData saFuncTable2024[] =
+     { "COM.MICROSOFT.REGEXEXTRACT",        "REGEXEXTRACT",        NOID,   NOID,   2,  4,  A, { VR }, FuncFlags::MACROCALL_NEW },
+     { "COM.MICROSOFT.REGEXREPLACE",        "REGEXREPLACE",        NOID,   NOID,   3,  5,  V, { VR }, FuncFlags::MACROCALL_NEW },
+     { "COM.MICROSOFT.TRIMRANGE",           "TRIMRANGE",           NOID,   NOID,   1,  3,  R, { RO, VR }, FuncFlags::MACROCALL_NEW },
++    { "COM.MICROSOFT.GROUPBY",             "GROUPBY",             NOID,   NOID,   3,  8,  A, { VA }, FuncFlags::MACROCALL_NEW },
++    { "COM.MICROSOFT.PIVOTBY",             "PIVOTBY",             NOID,   NOID,   4, 11,  A, { VA }, FuncFlags::MACROCALL_NEW },
+ };
+ 
+ 
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -18089,6 +18089,196 @@
+ msgid "Scan the array by column. FALSE or omitted (default) - the array is scanned by row. TRUE - the array is scanned by column."
+ msgstr ""
+ 
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "Groups the rows of a range by one or more fields and aggregates the values of each group."
++msgstr "Nhóm các hàng của một vùng theo một hoặc nhiều trường và tổng hợp giá trị của từng nhóm."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "Row fields"
++msgstr "Trường hàng"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "The columns whose values form the groups."
++msgstr "Các cột có giá trị dùng để tạo nhóm."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "Values"
++msgstr "Giá trị"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "The columns of values to aggregate."
++msgstr "Các cột giá trị cần tổng hợp."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "Function"
++msgstr "Hàm"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "The function that aggregates each group, for example SUM, AVERAGE, COUNTA, PERCENTOF or a LAMBDA."
++msgstr "Hàm tổng hợp từng nhóm, ví dụ SUM, AVERAGE, COUNTA, PERCENTOF hoặc một hàm LAMBDA."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "Field headers"
++msgstr "Tiêu đề trường"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "0 - none. 1 - present, not shown. 2 - none, generate them. 3 - present and shown. Omitted - present and shown when the first row of values is text and the second a number."
++msgstr "0 - không có. 1 - có, không hiển thị. 2 - không có, tự tạo. 3 - có và hiển thị. Bỏ trống - có và hiển thị nếu hàng đầu của giá trị là văn bản và hàng thứ hai là số."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "Total depth"
++msgstr "Mức tổng"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "0 - no totals. 1 - grand total (default). 2 - grand total and subtotals. -1, -2 - the same at the top."
++msgstr "0 - không có tổng. 1 - tổng chung (mặc định). 2 - tổng chung và tổng phụ. -1, -2 - như trên nhưng đặt ở đầu."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "Sort order"
++msgstr "Thứ tự sắp xếp"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "Column indexes to sort by, negative for descending order. Omitted - ascending by the fields."
++msgstr "Chỉ số các cột dùng để sắp xếp, số âm là giảm dần. Bỏ trống - tăng dần theo các trường."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "Filter array"
++msgstr "Mảng lọc"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "A column of logical values; only the rows that are TRUE are used."
++msgstr "Một cột giá trị lô-gic; chỉ dùng các hàng có giá trị TRUE."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "Field relationship"
++msgstr "Quan hệ trường"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocGROUPBY"
++msgid "0 or omitted - hierarchy. 1 - table, every field sorted on its own, no subtotals."
++msgstr "0 hoặc bỏ trống - phân cấp. 1 - dạng bảng, mỗi trường sắp xếp riêng, không có tổng phụ."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "Summarizes the values of a range by row fields and column fields."
++msgstr "Tổng hợp các giá trị của một vùng theo trường hàng và trường cột."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "Row fields"
++msgstr "Trường hàng"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "The columns whose values form the rows of the summary."
++msgstr "Các cột có giá trị tạo thành các hàng của bảng tổng hợp."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "Column fields"
++msgstr "Trường cột"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "The columns whose values form the columns of the summary."
++msgstr "Các cột có giá trị tạo thành các cột của bảng tổng hợp."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "Values"
++msgstr "Giá trị"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "The columns of values to aggregate."
++msgstr "Các cột giá trị cần tổng hợp."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "Function"
++msgstr "Hàm"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "The function that aggregates each group, for example SUM, AVERAGE, COUNTA, PERCENTOF or a LAMBDA."
++msgstr "Hàm tổng hợp từng nhóm, ví dụ SUM, AVERAGE, COUNTA, PERCENTOF hoặc một hàm LAMBDA."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "Field headers"
++msgstr "Tiêu đề trường"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "0 - none. 1 - present, not shown. 2 - none, generate them. 3 - present and shown. Omitted - present and shown when the first row of values is text and the second a number."
++msgstr "0 - không có. 1 - có, không hiển thị. 2 - không có, tự tạo. 3 - có và hiển thị. Bỏ trống - có và hiển thị nếu hàng đầu của giá trị là văn bản và hàng thứ hai là số."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "Row total depth"
++msgstr "Mức tổng theo hàng"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "0 - no totals. 1 - grand total (default). 2 - grand total and subtotals. -1, -2 - the same at the top."
++msgstr "0 - không có tổng. 1 - tổng chung (mặc định). 2 - tổng chung và tổng phụ. -1, -2 - như trên nhưng đặt ở đầu."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "Row sort order"
++msgstr "Thứ tự sắp xếp hàng"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "Column indexes to sort by, negative for descending order. Omitted - ascending by the fields."
++msgstr "Chỉ số các cột dùng để sắp xếp, số âm là giảm dần. Bỏ trống - tăng dần theo các trường."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "Column total depth"
++msgstr "Mức tổng theo cột"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "Column sort order"
++msgstr "Thứ tự sắp xếp cột"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "Filter array"
++msgstr "Mảng lọc"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "A column of logical values; only the rows that are TRUE are used."
++msgstr "Một cột giá trị lô-gic; chỉ dùng các hàng có giá trị TRUE."
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "Relative to"
++msgstr "Tương đối với"
++
++#: sc/inc/scfuncs.hrc
++msgctxt "ocPIVOTBY"
++msgid "What a two-parameter function such as PERCENTOF gets as the whole: 0 or omitted - column totals. 1 - row totals. 2 - grand total. 3 - parent column total. 4 - parent row total."
++msgstr "Phần tổng thể mà hàm hai tham số như PERCENTOF nhận được: 0 hoặc bỏ trống - tổng cột. 1 - tổng hàng. 2 - tổng chung. 3 - tổng cột cấp cha. 4 - tổng hàng cấp cha."
++
+ #. 89qUq
+ #: sc/inc/scfuncs.hrc:4401
+ msgctxt "ocTOROW"
