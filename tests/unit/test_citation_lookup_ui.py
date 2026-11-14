@@ -23,10 +23,9 @@ from hst_office import citation_lookup, citation_lookup_action, citation_style, 
 PYTHON = pathlib.Path(_paths.ROOT, "extensions", "hst-vietnamese-tools", "python", "hst_office")
 XCS = pathlib.Path(_paths.ROOT, "extensions", "hst-vietnamese-tools", "citations.xcs")
 HINTS = {
-    "vi": ("Mã bạn gõ sẽ được gửi tới dịch vụ tra cứu tương ứng (doi.org, Crossref, NCBI, arXiv, Open Library).",
+    "vi": ("Nút Tra cứu gửi mã DOI/ISBN bạn gõ tới dịch vụ tra cứu ở nước ngoài.",
            "Dòng này (tối đa 500 ký tự) sẽ được gửi tới Crossref (api.crossref.org) để tìm thông tin thư mục."),
-    "en": ("The identifier you type will be sent to the matching lookup service (doi.org, Crossref, NCBI, arXiv, "
-           "Open Library).",
+    "en": ("The Look Up button sends the DOI/ISBN you type to lookup services abroad.",
            "This line (up to 500 characters) will be sent to Crossref (api.crossref.org) to find its bibliographic "
            "record."),
 }
@@ -131,6 +130,11 @@ class SourceFormLookupTest(unittest.TestCase):
             self.assertEqual((id_hint, line_hint), (controls["lookupHint"].Label, controls["lineHint"].Label))
             lookup, line = controls["lookup"], controls["lookupLine"]
             self.assertLessEqual(controls["lookupHint"].y - (lookup.y + lookup.h), 4)  # right under "Tra cứu"
+            self.assertEqual(self.texts["entry"]["lookupHint"], controls["lookupHint"].HelpText)  # services: tooltip
+            privacy = controls["privacy"]
+            self.assertEqual({"vi": "Chính sách quyền riêng tư", "en": "Privacy policy"}[language], privacy.Label)
+            self.assertLess(controls["lookupHint"].y, privacy.y)
+            self.assertLessEqual(privacy.y + privacy.h, controls["lPaste"].y)  # between the line and the paste row
             self.assertLessEqual(abs(controls["lineHint"].y - line.y), 2)  # on the row of its button
             self.assertLessEqual(line.x + line.w, controls["lineHint"].x)
         self.assertEqual("Tra cứu", citation_texts.load_language("vi")["entry"]["lookupButton"])

@@ -54,7 +54,10 @@ class FakeDialog:
         return self.controls[name]
 
     def label(self, name, text, x, y, w, h=10, wrap=False):
-        self._add("label", name, x, y, w, h, text=text)
+        return self._add("label", name, x, y, w, h, text=text)
+
+    def link(self, name, text, x, y, w, callback, help_text="", h=10):
+        self._add("link", name, x, y, w, h, text=text).callback = callback
 
     def edit(self, name, x, y, w, h=12, text="", multiline=False, readonly=False, help_text=""):
         self._add("edit", name, x, y, w, h, value=text)

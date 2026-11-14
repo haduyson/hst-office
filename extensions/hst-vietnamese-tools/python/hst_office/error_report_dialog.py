@@ -9,7 +9,7 @@ thread. A retry keeps the same reportId. On 429, 5xx or no answer the e-mail fal
 """
 import threading
 
-from . import diag_log, error_report_info as info
+from . import diag_log, error_report_info as info, privacy_link
 from .dialogs import Dialog, message_box, palette
 from .error_report_mail import mailto_url, summary_lines
 from .error_report_payload import build_payload, encode, new_report_id, preview_text, problems, utc_now
@@ -70,6 +70,8 @@ class ReportDialog:
         status = d.label("status", "", 8, 218, WIDTH - 16, 18, wrap=True)
         status.TextColor = colours["error"]
         d.button("preview", TEXT["preview"], 8, HEIGHT - 20, 92, callback=self.show_preview)
+        d.link("privacy", privacy_link.ui_label(self.ctx), 106, HEIGHT - 17, 90,
+               lambda: privacy_link.open_policy(self.ctx, "error-report"))
         d.button("send", TEXT["send"], WIDTH - 8 - 54 - 4 - 54, HEIGHT - 20, 54, callback=self.on_send, default=True)
         d.button("cancel", TEXT["cancel"], WIDTH - 8 - 54, HEIGHT - 20, 54, kind=2)
 

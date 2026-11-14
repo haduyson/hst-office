@@ -49,7 +49,7 @@ class OptionsPage(unittest.TestCase):
     def test_handler_loads_and_saves(self):
         config = FakeConfig().patch(self)
         self.addCleanup(iid.set_sending, True)
-        controls = {name: mock.Mock() for name in ("sendInstallId", "locked")}
+        controls = {name: mock.Mock() for name in ("sendInstallId", "locked", "privacy")}
         window = mock.Mock()
         window.getControl.side_effect = controls.__getitem__
         handler = opts.UpdateOptionsHandler(None)
@@ -69,7 +69,7 @@ class OptionsPage(unittest.TestCase):
 
     def test_locked_page_is_greyed_out_and_writes_nothing(self):
         config = FakeConfig(locked={"SendInstallId"}, SendInstallId=False).patch(self)
-        controls = {name: mock.Mock() for name in ("sendInstallId", "locked")}
+        controls = {name: mock.Mock() for name in ("sendInstallId", "locked", "privacy")}
         window = mock.Mock()
         window.getControl.side_effect = controls.__getitem__
         handler = opts.UpdateOptionsHandler(None)
