@@ -4,8 +4,8 @@
 
 Usage: scripts/patches/generate-ribbon-quick-rows.py --tree DIR [--fill] [--header OUT] [--check]
 
---fill adds a row for every tab (merged group box) that has none: up to 10 commands, the first command of each
-group in ribbon order (launchers aside), taken from that app's own notebookbar.ui, so a row never brings a
+--fill (re)makes the generated row of every tab (merged group box) without a hand-made one: up to 10 commands,
+each group's main command (its first large button, else its first labelled item; fine-tuning items aside), taken from that app's own notebookbar.ui, so a row never brings a
 command into an app that does not have it. Rows already in the file (Writer's Home and Insert from the approved
 mockup, or the owner's edits) are kept. --header writes sfx2/source/notebookbar/HstRibbonQuickRows.hxx.
 --check only validates: every command of a row must be one of its app's notebookbar.ui ("|" is a separator).
@@ -24,36 +24,60 @@ SKIP_BOXES = {"pmhbFile"}  # the File tab opens the File page
 MAX = 10
 
 
-def actions(node):
-    """Action names of the tool buttons below node, in document order, launchers (caption row) aside."""
+# fine-tuning items that never make a tab's main command: alignment and indent steps, spin fields, resets
+SKIP_COMMANDS = ("Align", "CellVert", "Textdirection", "ParaMargin", "Spacing", "Indent", "LeftToRight",
+                 "RightToLeft", "SetDefault", "ResetAttributes", "Grow", "Shrink", "SubScript", "SuperScript",
+                 "FontHeight", "CharFontName", "Paraspace", "LineSpacing", "Increment", "Decrement")
+
+
+def commands(group):
+    """[(command, kind)] of a group in ribbon order: kind "large" (label below), "labelled" (label beside) or
+    "icon"; launchers (caption row) and fine-tuning items aside."""
     out = []
-    for child in node.iter("object"):
-        ident = child.get("id") or ""
-        if ident.startswith(("btnHstLaunch", "bxHstCaption")):
+    for box in group.iter("object"):
+        if "ToolBox" not in (box.get("class") or ""):
             continue
-        for prop in child.findall("property"):
-            if prop.get("name") == "action-name" and prop.text and prop.text not in out:
-                out.append(prop.text)
+        style = next((p.text for p in box.findall("property") if p.get("name") == "toolbar-style"), "")
+        kind = {"both": "large", "both-horiz": "labelled", "text": "labelled"}.get(style, "icon")
+        for item in box.iter("object"):
+            ident = item.get("id") or ""
+            command = next((p.text for p in item.findall("property") if p.get("name") == "action-name"), None)
+            if (not command or ident.startswith(("btnHstLaunch", "bxHstCaption"))
+                    or any(word in command for word in SKIP_COMMANDS) or command in [c for c, _ in out]):
+                continue
+            out.append((command, kind))
     return out
 
 
 def boxes(path):
-    """{box id: [[first commands of each group]]} of the merged group boxes of a notebookbar.ui."""
+    """{box id: [[(command, kind)] of each group]} of the merged group boxes of a notebookbar.ui."""
     result = {}
     for box in ET.parse(path).iter("object"):
         if box.get("class") == "sfxlo-PriorityMergedHBox" and box.get("id") not in SKIP_BOXES:
             groups = [c.find("object") for c in box.findall("child") if c.find("object") is not None]
-            result[box.get("id")] = [actions(g) for g in groups]
+            result[box.get("id")] = [commands(g) for g in groups]
     return result
 
 
+def primary(group):
+    """A group's main command: its first large button, else its first labelled item, else none."""
+    for wanted in ("large", "labelled"):
+        found = [c for c, kind in group if kind == wanted]
+        if found:
+            return found[0], wanted
+    return None, None
+
+
 def default_row(groups):
-    row = [g[0] for g in groups if g][:MAX]
-    for group in groups:  # fewer groups than MAX: the second command of the first groups
-        for command in group[1:2]:
-            if len(row) < MAX and command not in row:
+    """Main commands of the groups, large buttons first (ribbon order), then the labelled ones; up to MAX,
+    filled with the groups' next large buttons."""
+    picks = [primary(g) for g in groups]
+    row = [c for c, kind in picks if kind == "large"] + [c for c, kind in picks if kind == "labelled"]
+    for group in groups:
+        for command, kind in group:
+            if kind == "large" and command not in row:
                 row.append(command)
-    return row
+    return list(dict.fromkeys(row))[:MAX]
 
 
 def known_commands(path):
@@ -101,6 +125,7 @@ def main():
     args = parser.parse_args()
     data = json.load(open(DATA, encoding="utf-8"))
     if args.fill:
+        data["rows"] = [r for r in data["rows"] if not r.get("generated")]  # hand-made rows stay
         have = {(r["app"], r["box"]) for r in data["rows"]}
         for app, path in UI.items():
             for box, groups in boxes(os.path.join(args.tree, path)).items():

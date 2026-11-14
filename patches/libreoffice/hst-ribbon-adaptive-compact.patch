@@ -10,7 +10,8 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 - Choosing a tab of the compact ribbon (click, access key) drops its full page over the document, below
   the tab row and left of the banner (vcl/source/control/HstRibbonDrop.cxx); Esc, a click outside or a
   command run from it closes it. Ctrl+F1, the quick row's ˅ chevron or a double-click on a tab restore
-  the full ribbon. Each app remembers its state (HSTRibbon/CompactApps).
+  the full ribbon, as does the ≡ menu's "Collapse the Ribbon / Show the Full Ribbon (Ctrl+F1)" entry. Each
+  app remembers its state (HSTRibbon/CompactApps).
 - framework DocumentTabBar: 32 px high (G13), at least the text height and its padding.
 - Strings: STR_HST_RIBBON_COLLAPSE / STR_HST_RIBBON_EXPAND with their Vietnamese translation.
 
@@ -572,151 +573,151 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +
 +inline constexpr std::u16string_view row0[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u".uno:DefaultBullet", u"|", u".uno:SearchDialog", u"org.hst.office.vi:Nd30Wizard" }; // writer pmhbHome
 +inline constexpr std::u16string_view row1[] = { u".uno:TitlePageDialog", u".uno:InsertPagebreak", u"|", u".uno:InsertTable", u".uno:InsertGraphic", u".uno:BasicShapes", u".uno:InsertObjectChart", u"|", u".uno:HyperlinkDialog", u".uno:InsertAnnotation", u"|", u".uno:InsertPageHeader", u".uno:PageNumberWizard", u"|", u".uno:DrawText", u".uno:CharmapControl" }; // writer pmhbInsert
-+inline constexpr std::u16string_view row2[] = { u".uno:ThemeDialog", u".uno:Watermark", u".uno:FillPageColor" }; // writer pmhbDesign Tab
-+inline constexpr std::u16string_view row3[] = { u".uno:PageMargin", u".uno:LeftParaMargin", u".uno:ObjectAlign", u".uno:Orientation", u".uno:RightParaMargin", u".uno:TransformDialog" }; // writer pmhbLayout
-+inline constexpr std::u16string_view row4[] = { u".uno:InsertMultiIndex", u".uno:InsertFootnote", u"org.hst.office.vi:CitationInsert", u".uno:InsertCaptionDialog", u".uno:UpdateCurIndex", u".uno:InsertEndnote", u"org.hst.office.vi:CitationReinsert" }; // writer pmhbReferences
-+inline constexpr std::u16string_view row5[] = { u".uno:InsertEnvelope", u"org.hst.office.mailmerge:Start", u"org.hst.office.mailmerge:InsertField", u"org.hst.office.mailmerge:Preview", u"org.hst.office.mailmerge:Finish", u".uno:InsertLabels", u"org.hst.office.mailmerge:Recipients", u"org.hst.office.mailmerge:AddressBlock", u"org.hst.office.mailmerge:First" }; // writer pmhbMailings Tab
-+inline constexpr std::u16string_view row6[] = { u".uno:SpellingAndGrammarDialog", u".uno:SidebarDeck.A11yCheckDeck", u".uno:ShowAnnotations", u".uno:TrackChanges", u".uno:NextTrackedChange", u".uno:CompareDocuments", u".uno:ProtectTraceChangeMode", u".uno:ThesaurusDialog", u".uno:InsertAnnotation", u".uno:ShowTrackedChanges" }; // writer pmhbReview
-+inline constexpr std::u16string_view row7[] = { u".uno:PrintLayout", u".uno:Sidebar", u".uno:Zoom", u".uno:NewWindow", u".uno:RunMacro", u".uno:BrowseView", u".uno:Ruler", u".uno:ZoomOptimal" }; // writer pmhbView
-+inline constexpr std::u16string_view row8[] = { u".uno:HelpIndex", u"org.hst.office.vi:WhereIsCommand" }; // writer pmhbHelp
-+inline constexpr std::u16string_view row9[] = { u"org.hst.office.vi:Nd30Wizard", u"org.hst.office.vi:ShowSolutions", u".uno:ExtensionManager", u"org.hst.office.vi:EditVba", u"org.hst.office.vi:ConvertEncoding", u".uno:OptionsTreeDialog", u".uno:RunMacro" }; // writer pmhbExtension
-+inline constexpr std::u16string_view row10[] = { u".uno:AutoFormat", u".uno:TableCellBackgroundColor" }; // writer pmhbTable Design Tab
-+inline constexpr std::u16string_view row11[] = { u".uno:InsertRowsBefore", u".uno:MergeCells", u".uno:TableDialog", u".uno:SetRowHeight", u".uno:HeadingRowsRepeat", u".uno:TableNumberFormatDialog", u".uno:InsertRowsAfter", u".uno:SplitCell", u".uno:SetColumnWidth", u".uno:ConvertTableToText" }; // writer pmhbTable
-+inline constexpr std::u16string_view row12[] = { u".uno:InsertCaptionDialog", u".uno:BorderDialog", u".uno:ObjectTitleDescription", u".uno:TransformDialog", u".uno:GraphicFilterToolbox", u".uno:Crop", u".uno:FormatArea", u".uno:FormatGroup", u".uno:GrafLuminance" }; // writer pmhbImage
-+inline constexpr std::u16string_view row13[] = { u".uno:DataRanges", u".uno:DiagramType", u".uno:InsertMenuTitles", u".uno:DiagramData", u".uno:InsertMenuLegend" }; // writer pmhbChart Design Tab
-+inline constexpr std::u16string_view row14[] = { u".uno:FormatSelection", u".uno:BringToFront", u".uno:DiagramArea", u".uno:SendToBack" }; // writer pmhbChart Format Tab
-+inline constexpr std::u16string_view row15[] = { u".uno:BasicShapes", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:ObjectAlignLeft", u".uno:FormatGroup", u".uno:ExtrusionToggle", u".uno:DrawText", u".uno:FillStyle", u".uno:AlignCenter", u".uno:EnterGroup" }; // writer pmhbDraw
-+inline constexpr std::u16string_view row16[] = { u".uno:InsertCaptionDialog", u".uno:BorderDialog", u".uno:AnchorMenu", u".uno:ObjectAlignLeft", u".uno:ChainFrames", u".uno:FormatArea", u".uno:WrapOff", u".uno:AlignCenter" }; // writer pmhbObject
-+inline constexpr std::u16string_view row17[] = { u".uno:InsertCaptionDialog", u".uno:AnchorMenu", u".uno:ObjectAlignLeft", u".uno:AVMediaToolBox", u".uno:ToggleObjectRotateMode", u".uno:WrapOff", u".uno:AlignCenter", u".uno:AVMediaPlayer" }; // writer pmhbMedia
-+inline constexpr std::u16string_view row18[] = { u".uno:ShowSinglePage", u".uno:GoToStartOfDoc", u".uno:Print", u".uno:ShowMultiplePages", u".uno:PageUp", u".uno:ClosePreview" }; // writer pmhbPrint
-+inline constexpr std::u16string_view row19[] = { u".uno:SwitchControlDesignMode", u".uno:FormProperties", u".uno:Label", u".uno:UseWizards", u".uno:ShowFmExplorer", u".uno:Edit" }; // writer pmhbForm
-+inline constexpr std::u16string_view row20[] = { u".uno:InsertPageHeader", u".uno:InsertGraphic", u".uno:JumpToHeader", u".uno:PageDialog", u".uno:GoToStartOfPage", u".uno:InsertPageFooter", u".uno:InsertDateField", u".uno:JumpToFooter", u".uno:HstDifferentFirstPage" }; // writer pmhbphbHeaderFooter
-+inline constexpr std::u16string_view row21[] = { u".uno:Paste", u".uno:FormatPaintbrush", u".uno:AlignTop", u".uno:NumberFormatType", u".uno:ConditionalFormatMenu", u".uno:AutoSum", u".uno:Cut", u".uno:ResetAttributes", u".uno:AlignVCenter", u"org.hst.office.vi:FormatVnd" }; // calc pmhbHome
-+inline constexpr std::u16string_view row22[] = { u".uno:DataDataPilotRun", u".uno:InsertGraphic", u".uno:InsertObjectChart", u".uno:HyperlinkDialog", u".uno:InsertAnnotation", u".uno:FontworkGalleryFloater", u".uno:InsertObjectStarMath", u".uno:InsertCalcTable", u".uno:Gallery", u".uno:InsertObjectChart?ChartType:string=Column" }; // calc pmhbInsert
-+inline constexpr std::u16string_view row23[] = { u".uno:ChooseDesign", u".uno:EditHeaderAndFooter", u".uno:ToggleSheetGrid", u".uno:Navigator", u".uno:PrintScaleMenu", u".uno:ViewRowColumnHeaders", u".uno:BringToFront" }; // calc pmhbLayout
-+inline constexpr std::u16string_view row24[] = { u".uno:FunctionDialog", u".uno:DefineName", u".uno:ShowPrecedents", u".uno:Calculate", u".uno:AutoSum", u".uno:AddName", u".uno:ShowDependents", u".uno:AutomaticCalculation" }; // calc pmhbFunctions
-+inline constexpr std::u16string_view row25[] = { u"org.hst.office.vi:ImportCsv", u".uno:DataSort", u".uno:TextToColumns", u".uno:GoalSeekDialog", u".uno:DataSubTotals", u".uno:ChiSquareTestDialog", u".uno:EditLinks", u".uno:SortAscending", u".uno:HstConvertTextToNumber", u".uno:SolverDialog" }; // calc pmhbData
-+inline constexpr std::u16string_view row26[] = { u".uno:SpellDialog", u".uno:InsertAnnotation", u".uno:TraceChangeMode", u".uno:Protect", u".uno:ThesaurusDialog", u".uno:EditAnnotation", u".uno:AcceptChanges", u".uno:ToolProtectionDocument" }; // calc pmhbReview
-+inline constexpr std::u16string_view row27[] = { u".uno:NormalViewMode", u".uno:Sidebar", u".uno:ZoomOptimal", u".uno:FreezePanes", u".uno:PagebreakMode", u".uno:InputLineVisible", u".uno:Zoom100Percent", u".uno:SplitWindow" }; // calc pmhbView
-+inline constexpr std::u16string_view row28[] = { u".uno:HelpIndex", u"org.hst.office.vi:ReportError" }; // calc pmhbHelp
-+inline constexpr std::u16string_view row29[] = { u"org.hst.office.vi:Nd30Wizard", u"org.hst.office.vi:FormatDate", u"org.hst.office.vi:ImportCsv", u"org.hst.office.vi:NumberToWords", u"org.hst.office.vi:ShowSolutions", u".uno:ExtensionManager", u"org.hst.office.vi:EditVba", u"org.hst.office.vi:FormatVnd", u"org.hst.office.vi:RemoveDiacritics", u".uno:OptionsTreeDialog" }; // calc pmhbExtension
-+inline constexpr std::u16string_view row30[] = { u".uno:RemoveCalcTable", u".uno:DataSort" }; // calc pmhbphbTableDesign
-+inline constexpr std::u16string_view row31[] = { u".uno:DataDataPilotRun", u".uno:Group", u".uno:RecalcPivotTable", u".uno:DataPilotFilter", u".uno:CalculatedFieldRun", u".uno:InsertObjectChart", u".uno:Ungroup", u".uno:DeletePivotTable" }; // calc pmhbphbPivot
-+inline constexpr std::u16string_view row32[] = { u".uno:Crop", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:AnchorMenu", u".uno:GraphicFilterToolbox", u".uno:AssignMacro", u".uno:CompressGraphic", u".uno:FillStyle", u".uno:ObjectAlignLeft", u".uno:GrafLuminance" }; // calc pmbhImage
-+inline constexpr std::u16string_view row33[] = { u".uno:DataRanges", u".uno:DiagramType", u".uno:InsertMenuTitles", u".uno:DiagramData", u".uno:InsertMenuLegend" }; // calc pmhbphbChartDesign
-+inline constexpr std::u16string_view row34[] = { u".uno:FormatSelection", u".uno:BringToFront", u".uno:DiagramArea", u".uno:SendToBack" }; // calc pmhbphbChartFormat
-+inline constexpr std::u16string_view row35[] = { u".uno:ToggleObjectBezierMode", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:AnchorMenu", u".uno:FormatGroup", u".uno:ExtrusionToggle", u".uno:AssignMacro", u".uno:ToggleObjectRotateMode", u".uno:FillStyle", u".uno:ObjectAlignLeft" }; // calc pmhbDraw
-+inline constexpr std::u16string_view row36[] = { u".uno:OriginalSize", u".uno:FormatArea", u".uno:AnchorMenu", u".uno:AssignMacro", u".uno:ToggleObjectRotateMode", u".uno:FillStyle", u".uno:ObjectAlignLeft" }; // calc pmhbObject
-+inline constexpr std::u16string_view row37[] = { u".uno:AnchorMenu", u".uno:AVMediaToolBox", u".uno:AssignMacro", u".uno:ObjectAlignLeft", u".uno:AVMediaPlayer" }; // calc pmhbMedia
-+inline constexpr std::u16string_view row38[] = { u".uno:PageFormatDialog", u".uno:ZoomMinus", u".uno:Print", u".uno:Margins", u".uno:ZoomPlus", u".uno:ClosePreview" }; // calc pmhbPrint
-+inline constexpr std::u16string_view row39[] = { u".uno:SwitchControlDesignMode", u".uno:FormProperties", u".uno:Label", u".uno:UseWizards", u".uno:ShowFmExplorer", u".uno:Edit" }; // calc pmhbForm
-+inline constexpr std::u16string_view row40[] = { u".uno:Paste", u".uno:InsertPage", u".uno:FormatPaintbrush", u".uno:TextdirectionTopToBottom", u".uno:ObjectPosition", u"vnd.sun.star.findbar:FocusToFindbar", u".uno:Cut", u".uno:AssignLayout", u".uno:SetDefault", u".uno:CellVertTop" }; // impress pmhbHome
-+inline constexpr std::u16string_view row41[] = { u".uno:InsertPage", u".uno:InsertTable", u".uno:PhotoAlbumDialog", u".uno:InsertObjectChart", u".uno:HyperlinkDialog", u".uno:InsertAnnotation", u".uno:Text", u".uno:CharmapControl", u".uno:InsertAVMedia", u".uno:ImportSlideFromFile" }; // impress pmhbInsert
-+inline constexpr std::u16string_view row42[] = { u".uno:ThemeSelectorPanel", u".uno:SlideSetup", u".uno:SidebarDeck.PropertyDeck" }; // impress pmhbDesign
-+inline constexpr std::u16string_view row43[] = { u".uno:HstPreviewTransition", u".uno:HstSetTransitionDuration", u".uno:HstApplyTransition", u".uno:HstSetTransitionAdvance" }; // impress pmhbTransitions
-+inline constexpr std::u16string_view row44[] = { u".uno:HstPreviewAnimation", u".uno:HstApplyAnimation" }; // impress pmhbAnimations
-+inline constexpr std::u16string_view row45[] = { u".uno:Presentation", u".uno:PresentationDialog", u".uno:PresentationCurrentSlide", u".uno:RehearseTimings" }; // impress pmhbSlideShow
-+inline constexpr std::u16string_view row46[] = { u".uno:SpellDialog", u".uno:SidebarDeck.A11yCheckDeck", u".uno:InsertAnnotation", u".uno:RedactDoc", u".uno:ThesaurusDialog", u".uno:NextAnnotation", u".uno:EditDoc" }; // impress pmhbReview
-+inline constexpr std::u16string_view row47[] = { u".uno:NormalMultiPaneGUI", u".uno:SlideMasterPage", u".uno:Sidebar", u".uno:CapturePoint", u".uno:ZoomMode", u".uno:OutputQualityColor", u".uno:NewWindow", u".uno:DiaMode", u".uno:NotesMasterPage", u".uno:ShowRuler" }; // impress pmhbView
-+inline constexpr std::u16string_view row48[] = { u".uno:HelpIndex", u"org.hst.office.vi:ReportError" }; // impress pmhbHelp
-+inline constexpr std::u16string_view row49[] = { u"org.hst.office.vi:Nd30Wizard", u"org.hst.office.vi:ShowSolutions", u".uno:ExtensionManager", u".uno:RunMacro", u".uno:OptionsTreeDialog", u".uno:MacroDialog" }; // impress pmhbExtension
-+inline constexpr std::u16string_view row50[] = { u".uno:TableDesign", u".uno:FormatArea" }; // impress pmhbTableDesign
-+inline constexpr std::u16string_view row51[] = { u".uno:TransformDialog", u".uno:MergeCells", u".uno:CellVertTop", u".uno:ObjectForwardOne", u".uno:SelectTable", u".uno:SplitCell", u".uno:CellVertCenter", u".uno:ObjectBackOne" }; // impress pmhbTable
-+inline constexpr std::u16string_view row52[] = { u".uno:ChangePicture", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:ObjectAlignLeft", u".uno:GraphicFilterToolbox", u".uno:CompressGraphic", u".uno:FillStyle", u".uno:AlignCenter", u".uno:GrafLuminance" }; // impress pmhbImage
-+inline constexpr std::u16string_view row53[] = { u".uno:DataRanges", u".uno:DiagramType", u".uno:InsertMenuTitles", u".uno:DiagramData", u".uno:InsertMenuLegend" }; // impress pmhbChartDesign
-+inline constexpr std::u16string_view row54[] = { u".uno:FormatSelection", u".uno:BringToFront", u".uno:DiagramArea", u".uno:SendToBack" }; // impress pmhbChartFormat
-+inline constexpr std::u16string_view row55[] = { u".uno:TransformDialog", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:FontworkGalleryFloater", u".uno:Combine", u".uno:FormatGroup", u".uno:ExtrusionToggle", u".uno:AdvancedMode", u".uno:FillStyle", u".uno:ObjectAlignLeft" }; // impress pmhbDraw
-+inline constexpr std::u16string_view row56[] = { u".uno:ToggleObjectRotateMode", u".uno:FormatArea", u".uno:ObjectAlignLeft", u".uno:FlipVertical", u".uno:FillStyle", u".uno:AlignCenter" }; // impress pmhbObject
-+inline constexpr std::u16string_view row57[] = { u".uno:TransformDialog", u".uno:ObjectAlignLeft", u".uno:AVMediaToolBox", u".uno:AlignCenter", u".uno:AVMediaPlayer" }; // impress pmhbMedia
-+inline constexpr std::u16string_view row58[] = { u".uno:TransformDialog", u".uno:FormProperties", u".uno:Label", u".uno:UseWizards", u".uno:ShowFmExplorer", u".uno:Edit" }; // impress pmhbForm
-+inline constexpr std::u16string_view row59[] = { u".uno:RenameMasterPage", u".uno:SlideSetup", u".uno:CloseMasterView", u".uno:DeleteMasterPage", u".uno:SelectBackground" }; // impress pmhbMaster
-+inline constexpr std::u16string_view row60[] = { u".uno:NormalMultiPaneGUI", u".uno:OutlineFormat", u".uno:OutlineCollapseAll", u".uno:DiaMode", u".uno:OutlineRight", u".uno:OutlineExpandAll" }; // impress pmhbOutline
-+inline constexpr std::u16string_view row61[] = { u".uno:TransformDialog", u".uno:FormatArea", u".uno:ObjectAlignLeft", u".uno:Window3D", u".uno:AdvancedMode", u".uno:FillStyle", u".uno:AlignCenter" }; // impress pmhb3D
-+inline constexpr std::u16string_view row62[] = { u".uno:Text", u".uno:Paste", u".uno:FormatPaintbrush", u".uno:TextdirectionTopToBottom", u".uno:ObjectPosition", u"vnd.sun.star.findbar:FocusToFindbar", u".uno:InsertGraphic", u".uno:Cut", u".uno:SetDefault", u".uno:CellVertTop" }; // draw pmhbHome
++inline constexpr std::u16string_view row2[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:AlignHorizontalCenter", u"|", u".uno:AutoSum", u"org.hst.office.vi:FormatVnd", u"|", u".uno:SearchDialog" }; // calc pmhbHome
++inline constexpr std::u16string_view row3[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:InsertPage", u".uno:AssignLayout", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u"|", u".uno:SearchDialog" }; // impress pmhbHome
++inline constexpr std::u16string_view row4[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u"|", u".uno:Text", u".uno:InsertGraphic", u"|", u".uno:SearchDialog" }; // draw pmhbHome
++inline constexpr std::u16string_view row5[] = { u".uno:ThemeDialog", u".uno:Watermark", u".uno:FillPageColor", u".uno:BorderDialog?Page:string=hstpageborder", u".uno:PageDialog" }; // writer pmhbDesign Tab
++inline constexpr std::u16string_view row6[] = { u".uno:PageMargin", u".uno:TransformDialog", u".uno:Orientation", u".uno:AttributePageSize", u".uno:PageColumnType" }; // writer pmhbLayout
++inline constexpr std::u16string_view row7[] = { u".uno:InsertMultiIndex", u".uno:InsertFootnote", u"org.hst.office.vi:CitationInsert", u".uno:InsertCaptionDialog", u".uno:InsertIndexesEntry", u".uno:InsertEndnote", u"org.hst.office.vi:CitationLibrary", u".uno:InsertReferenceField" }; // writer pmhbReferences
++inline constexpr std::u16string_view row8[] = { u".uno:InsertEnvelope", u"org.hst.office.mailmerge:Start", u"org.hst.office.mailmerge:InsertField", u"org.hst.office.mailmerge:Preview", u"org.hst.office.mailmerge:Finish", u".uno:InsertLabels", u"org.hst.office.mailmerge:Recipients", u"org.hst.office.mailmerge:EditRecipients" }; // writer pmhbMailings Tab
++inline constexpr std::u16string_view row9[] = { u".uno:SpellingAndGrammarDialog", u".uno:SidebarDeck.A11yCheckDeck", u".uno:ShowAnnotations", u".uno:TrackChanges", u".uno:CompareDocuments", u".uno:ProtectTraceChangeMode", u".uno:NextTrackedChange", u".uno:ThesaurusDialog", u".uno:InsertAnnotation", u".uno:ShowTrackedChanges" }; // writer pmhbReview
++inline constexpr std::u16string_view row10[] = { u".uno:PrintLayout", u".uno:Sidebar", u".uno:Zoom", u".uno:NewWindow", u".uno:RunMacro", u".uno:BrowseView", u".uno:PrintPreview", u".uno:GridUse", u".uno:ChangeTheme", u".uno:ZoomOptimal" }; // writer pmhbView
++inline constexpr std::u16string_view row11[] = { u".uno:HelpIndex", u"org.hst.office.vi:WhereIsCommand", u"org.hst.office.vi:ReportError" }; // writer pmhbHelp
++inline constexpr std::u16string_view row12[] = { u"org.hst.office.vi:Nd30Wizard", u"org.hst.office.vi:ShowSolutions", u".uno:ExtensionManager", u"org.hst.office.vi:EditVba", u"org.hst.office.vi:ConvertEncoding", u"org.hst.office.vi:NumberToWords", u".uno:OptionsTreeDialog", u".uno:TemplateManager" }; // writer pmhbExtension
++inline constexpr std::u16string_view row13[] = { u".uno:AutoFormat" }; // writer pmhbTable Design Tab
++inline constexpr std::u16string_view row14[] = { u".uno:MergeCells", u".uno:TableDialog", u".uno:OptimizeTable", u".uno:TableSort", u".uno:TableNumberFormatDialog", u".uno:InsertRowsBefore", u".uno:SplitCell", u".uno:SplitTable" }; // writer pmhbTable
++inline constexpr std::u16string_view row15[] = { u".uno:InsertCaptionDialog", u".uno:ObjectTitleDescription", u".uno:GraphicFilterToolbox", u".uno:BorderDialog", u".uno:TransformDialog" }; // writer pmhbImage
++inline constexpr std::u16string_view row16[] = { u".uno:DataRanges", u".uno:DiagramType", u".uno:InsertMenuTitles", u".uno:DiagramData" }; // writer pmhbChart Design Tab
++inline constexpr std::u16string_view row17[] = { u".uno:FormatSelection", u".uno:BringToFront", u".uno:DiagramArea", u".uno:DiagramWall", u".uno:Legend" }; // writer pmhbChart Format Tab
++inline constexpr std::u16string_view row18[] = { u".uno:InsertCaptionDialog", u".uno:ObjectTitleDescription", u".uno:Navigator", u".uno:FormatGroup", u".uno:FormatArea", u".uno:ExtrusionToggle", u".uno:EnterGroup", u".uno:LeaveGroup" }; // writer pmhbDraw
++inline constexpr std::u16string_view row19[] = { u".uno:InsertCaptionDialog", u".uno:AnchorMenu", u".uno:BorderDialog", u".uno:ObjectForwardOne", u".uno:FrameDialog" }; // writer pmhbObject
++inline constexpr std::u16string_view row20[] = { u".uno:InsertCaptionDialog", u".uno:AnchorMenu", u".uno:AVMediaToolBox", u".uno:ObjectForwardOne", u".uno:AVMediaPlayer" }; // writer pmhbMedia
++inline constexpr std::u16string_view row21[] = { u".uno:ShowSinglePage", u".uno:Print", u".uno:ShowMultiplePages", u".uno:ClosePreview" }; // writer pmhbPrint
++inline constexpr std::u16string_view row22[] = { u".uno:SwitchControlDesignMode", u".uno:FormProperties", u".uno:UseWizards", u".uno:GroupBox" }; // writer pmhbForm
++inline constexpr std::u16string_view row23[] = { u".uno:InsertPageHeader", u".uno:InsertGraphic", u".uno:JumpToHeader", u".uno:PageDialog", u".uno:GoToStartOfPage", u".uno:InsertPageFooter", u".uno:PageNumberWizard", u".uno:EditGlossary", u".uno:JumpToFooter", u".uno:HstDifferentFirstPage" }; // writer pmhbphbHeaderFooter
++inline constexpr std::u16string_view row24[] = { u".uno:DataDataPilotRun", u".uno:InsertGraphic", u".uno:InsertObjectChart", u".uno:HyperlinkDialog", u".uno:InsertAnnotation", u".uno:DrawText", u".uno:InsertObjectStarMath", u".uno:InsertCalcTable", u".uno:Gallery", u".uno:VerticalText" }; // calc pmhbInsert
++inline constexpr std::u16string_view row25[] = { u".uno:ChooseDesign", u".uno:EditHeaderAndFooter", u".uno:ToggleSheetGrid", u".uno:Navigator", u".uno:PrintScaleMenu", u".uno:ViewRowColumnHeaders" }; // calc pmhbLayout
++inline constexpr std::u16string_view row26[] = { u".uno:FunctionDialog", u".uno:DefineName", u".uno:Calculate", u".uno:ShowPrecedents", u".uno:InsertFunction?FunctionName:string=DOCTIEN&FunctionCategory:short=0", u".uno:CreateNames", u".uno:AutomaticCalculation" }; // calc pmhbFunctions
++inline constexpr std::u16string_view row27[] = { u"org.hst.office.vi:ImportCsv", u".uno:DataSort", u".uno:DataConsolidate", u".uno:GoalSeekDialog", u".uno:DataSubTotals", u".uno:DescriptiveStatisticsDialog", u".uno:EditLinks", u".uno:DataFilterAutoFilter", u".uno:SolverDialog" }; // calc pmhbData
++inline constexpr std::u16string_view row28[] = { u".uno:SpellDialog", u".uno:InsertAnnotation", u".uno:TraceChangeMode", u".uno:Protect", u".uno:ThesaurusDialog", u".uno:SpellOnline", u".uno:EditAnnotation", u".uno:AcceptChanges", u".uno:ToolProtectionDocument" }; // calc pmhbReview
++inline constexpr std::u16string_view row29[] = { u".uno:NormalViewMode", u".uno:ChangeTheme", u".uno:ZoomOptimal", u".uno:FreezePanes", u".uno:PagebreakMode", u".uno:PrintPreview", u".uno:FullScreen" }; // calc pmhbView
++inline constexpr std::u16string_view row30[] = { u".uno:HelpIndex", u"org.hst.office.vi:ReportError", u"org.hst.office.update:Check" }; // calc pmhbHelp
++inline constexpr std::u16string_view row31[] = { u"org.hst.office.vi:Nd30Wizard", u"org.hst.office.vi:FormatDate", u"org.hst.office.vi:ImportCsv", u"org.hst.office.vi:NumberToWords", u"org.hst.office.vi:ShowSolutions", u".uno:ExtensionManager", u"org.hst.office.vi:EditVba", u"org.hst.office.vi:FormatVnd", u"org.hst.office.vi:FormatPercent", u"org.hst.office.vi:RemoveDiacritics" }; // calc pmhbExtension
++inline constexpr std::u16string_view row32[] = { u".uno:RemoveCalcTable", u".uno:DataSubTotals" }; // calc pmhbphbTableDesign
++inline constexpr std::u16string_view row33[] = { u".uno:DataDataPilotRun", u".uno:Group", u".uno:RecalcPivotTable", u".uno:DataPilotFilter", u".uno:CalculatedFieldRun", u".uno:InsertObjectChart", u".uno:Ungroup", u".uno:DeletePivotTable" }; // calc pmhbphbPivot
++inline constexpr std::u16string_view row34[] = { u".uno:Crop", u".uno:ObjectTitleDescription", u".uno:AnchorMenu", u".uno:GraphicFilterToolbox", u".uno:AssignMacro", u".uno:FormatArea", u".uno:TransformDialog" }; // calc pmbhImage
++inline constexpr std::u16string_view row35[] = { u".uno:DataRanges", u".uno:DiagramType", u".uno:InsertMenuTitles", u".uno:DiagramData" }; // calc pmhbphbChartDesign
++inline constexpr std::u16string_view row36[] = { u".uno:FormatSelection", u".uno:BringToFront", u".uno:DiagramArea", u".uno:DiagramWall", u".uno:Legend" }; // calc pmhbphbChartFormat
++inline constexpr std::u16string_view row37[] = { u".uno:ObjectTitleDescription", u".uno:AnchorMenu", u".uno:FormatGroup", u".uno:AssignMacro", u".uno:ToggleObjectBezierMode", u".uno:FormatArea", u".uno:ExtrusionToggle", u".uno:TransformDialog", u".uno:EnterGroup", u".uno:LeaveGroup" }; // calc pmhbDraw
++inline constexpr std::u16string_view row38[] = { u".uno:AnchorMenu", u".uno:AssignMacro", u".uno:OriginalSize", u".uno:FormatArea", u".uno:TransformDialog" }; // calc pmhbObject
++inline constexpr std::u16string_view row39[] = { u".uno:AnchorMenu", u".uno:AVMediaToolBox", u".uno:AssignMacro", u".uno:TransformDialog", u".uno:AVMediaPlayer" }; // calc pmhbMedia
++inline constexpr std::u16string_view row40[] = { u".uno:PageFormatDialog", u".uno:Print", u".uno:PrintScaleMenu", u".uno:ClosePreview" }; // calc pmhbPrint
++inline constexpr std::u16string_view row41[] = { u".uno:SwitchControlDesignMode", u".uno:FormProperties", u".uno:UseWizards", u".uno:GroupBox" }; // calc pmhbForm
++inline constexpr std::u16string_view row42[] = { u".uno:InsertPage", u".uno:InsertTable", u".uno:PhotoAlbumDialog", u".uno:InsertObjectChart", u".uno:HyperlinkDialog", u".uno:InsertAnnotation", u".uno:Text", u".uno:CharmapControl", u".uno:InsertAVMedia", u".uno:ImportSlideFromFile" }; // impress pmhbInsert
++inline constexpr std::u16string_view row43[] = { u".uno:SlideSetup", u".uno:SidebarDeck.PropertyDeck", u".uno:DisplayMasterObjects" }; // impress pmhbDesign
++inline constexpr std::u16string_view row44[] = { u".uno:HstPreviewTransition", u".uno:HstApplyTransitionToAll", u".uno:HstApplyTransition", u".uno:SlideChangeWindow" }; // impress pmhbTransitions
++inline constexpr std::u16string_view row45[] = { u".uno:HstPreviewAnimation", u".uno:HstApplyAnimation", u".uno:CustomAnimation" }; // impress pmhbAnimations
++inline constexpr std::u16string_view row46[] = { u".uno:Presentation", u".uno:PresentationDialog", u".uno:PresentationCurrentSlide", u".uno:CustomShowDialog", u".uno:RehearseTimings" }; // impress pmhbSlideShow
++inline constexpr std::u16string_view row47[] = { u".uno:SpellDialog", u".uno:SidebarDeck.A11yCheckDeck", u".uno:InsertAnnotation", u".uno:RedactDoc", u".uno:ThesaurusDialog", u".uno:SpellOnline", u".uno:ShowAnnotations", u".uno:EditDoc" }; // impress pmhbReview
++inline constexpr std::u16string_view row48[] = { u".uno:NormalMultiPaneGUI", u".uno:SlideMasterPage", u".uno:Sidebar", u".uno:GridVisible", u".uno:ZoomMode", u".uno:OutputQualityColor", u".uno:NewWindow", u".uno:DiaMode", u".uno:NotesMasterPage", u".uno:HandoutMode" }; // impress pmhbView
++inline constexpr std::u16string_view row49[] = { u".uno:HelpIndex", u"org.hst.office.vi:ReportError", u"org.hst.office.update:Check" }; // impress pmhbHelp
++inline constexpr std::u16string_view row50[] = { u"org.hst.office.vi:Nd30Wizard", u"org.hst.office.vi:ShowSolutions", u".uno:ExtensionManager", u".uno:RunMacro", u".uno:OptionsTreeDialog", u".uno:OptionsSecurityDialog" }; // impress pmhbExtension
++inline constexpr std::u16string_view row51[] = { u".uno:TableDesign" }; // impress pmhbTableDesign
++inline constexpr std::u16string_view row52[] = { u".uno:TransformDialog", u".uno:MergeCells", u".uno:SelectTable", u".uno:TableSort", u".uno:TableDialog", u".uno:SplitCell", u".uno:OptimizeTable" }; // impress pmhbTable
++inline constexpr std::u16string_view row53[] = { u".uno:ChangePicture", u".uno:ObjectTitleDescription", u".uno:GraphicFilterToolbox", u".uno:FormatArea", u".uno:TransformDialog" }; // impress pmhbImage
++inline constexpr std::u16string_view row54[] = { u".uno:DataRanges", u".uno:DiagramType", u".uno:InsertMenuTitles", u".uno:DiagramData" }; // impress pmhbChartDesign
++inline constexpr std::u16string_view row55[] = { u".uno:FormatSelection", u".uno:BringToFront", u".uno:DiagramArea", u".uno:DiagramWall", u".uno:Legend" }; // impress pmhbChartFormat
++inline constexpr std::u16string_view row56[] = { u".uno:TransformDialog", u".uno:ObjectTitleDescription", u".uno:FontworkGalleryFloater", u".uno:Combine", u".uno:FormatGroup", u".uno:FormatArea", u".uno:ExtrusionToggle", u".uno:DistributeSelection", u".uno:FormatUngroup" }; // impress pmhbDraw
++inline constexpr std::u16string_view row57[] = { u".uno:TransformDialog", u".uno:FormatArea" }; // impress pmhbObject
++inline constexpr std::u16string_view row58[] = { u".uno:TransformDialog", u".uno:AVMediaToolBox", u".uno:AVMediaPlayer" }; // impress pmhbMedia
++inline constexpr std::u16string_view row59[] = { u".uno:TransformDialog", u".uno:FormProperties", u".uno:UseWizards", u".uno:GroupBox" }; // impress pmhbForm
++inline constexpr std::u16string_view row60[] = { u".uno:InsertMasterPage", u".uno:SlideSetup", u".uno:CloseMasterView", u".uno:MasterLayouts" }; // impress pmhbMaster
++inline constexpr std::u16string_view row61[] = { u".uno:NormalMultiPaneGUI", u".uno:OutlineFormat", u".uno:OutlineCollapseAll", u".uno:DiaMode" }; // impress pmhbOutline
++inline constexpr std::u16string_view row62[] = { u".uno:TransformDialog", u".uno:Window3D", u".uno:FormatArea" }; // impress pmhb3D
 +inline constexpr std::u16string_view row63[] = { u".uno:InsertTable", u".uno:InsertGraphic", u".uno:InsertObjectChart", u".uno:HyperlinkDialog", u".uno:InsertAnnotation", u".uno:InsertObject", u".uno:InsertPageField", u".uno:FontworkGalleryFloater", u".uno:CharmapControl", u".uno:InsertAVMedia" }; // draw pmhbInsert
-+inline constexpr std::u16string_view row64[] = { u".uno:ObjectAlign", u".uno:FormatGroup", u".uno:TransformDialog", u".uno:Combine", u".uno:BringToFront", u".uno:FormatUngroup", u".uno:AdvancedMode", u".uno:Intersect" }; // draw pmhbArrange
-+inline constexpr std::u16string_view row65[] = { u".uno:InsertPage", u".uno:PageSetup", u".uno:HstRotatePageLeft", u".uno:MovePageUp", u".uno:DuplicatePage", u".uno:SelectBackground", u".uno:HstRotatePageRight", u".uno:MovePageDown" }; // draw pmhbPage
-+inline constexpr std::u16string_view row66[] = { u".uno:ExportDirectToPDF", u".uno:SignPDF", u"org.hst.office.vi:OpenInHstPdf", u".uno:ExportToPDF", u".uno:Signature" }; // draw pmhbExport
-+inline constexpr std::u16string_view row67[] = { u".uno:SpellDialog", u".uno:SidebarDeck.A11yCheckDeck", u".uno:InsertAnnotation", u".uno:RedactDoc", u".uno:ThesaurusDialog", u".uno:NextAnnotation", u".uno:EditDoc" }; // draw pmhbReview
-+inline constexpr std::u16string_view row68[] = { u".uno:PageMode", u".uno:Sidebar", u".uno:ZoomMode", u".uno:OutputQualityColor", u".uno:NewWindow", u".uno:MasterPage", u".uno:ShowRuler", u".uno:ZoomPageWidth", u".uno:OutputQualityGrayscale" }; // draw pmhbView
-+inline constexpr std::u16string_view row69[] = { u".uno:HelpIndex", u"org.hst.office.vi:ReportError" }; // draw pmhbHelp
-+inline constexpr std::u16string_view row70[] = { u"org.hst.office.vi:Nd30Wizard", u"org.hst.office.vi:ShowSolutions", u".uno:ExtensionManager", u".uno:RunMacro", u".uno:OptionsTreeDialog", u".uno:MacroDialog" }; // draw pmhbExtension
-+inline constexpr std::u16string_view row71[] = { u".uno:TableDesign", u".uno:FormatArea" }; // draw pmhbTableDesign
-+inline constexpr std::u16string_view row72[] = { u".uno:TransformDialog", u".uno:MergeCells", u".uno:CellVertTop", u".uno:ObjectForwardOne", u".uno:SelectTable", u".uno:SplitCell", u".uno:CellVertCenter", u".uno:ObjectBackOne" }; // draw pmhbTable
-+inline constexpr std::u16string_view row73[] = { u".uno:ChangePicture", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:ObjectAlignLeft", u".uno:GraphicFilterToolbox", u".uno:CompressGraphic", u".uno:FillStyle", u".uno:AlignCenter", u".uno:GrafLuminance" }; // draw pmhbImage
-+inline constexpr std::u16string_view row74[] = { u".uno:DataRanges", u".uno:DiagramType", u".uno:InsertMenuTitles", u".uno:DiagramData", u".uno:InsertMenuLegend" }; // draw pmhbChartDesign
-+inline constexpr std::u16string_view row75[] = { u".uno:FormatSelection", u".uno:BringToFront", u".uno:DiagramArea", u".uno:SendToBack" }; // draw pmhbChartFormat
-+inline constexpr std::u16string_view row76[] = { u".uno:TransformDialog", u".uno:FormatArea", u".uno:ObjectTitleDescription", u".uno:FontworkGalleryFloater", u".uno:Combine", u".uno:FormatGroup", u".uno:ExtrusionToggle", u".uno:AdvancedMode", u".uno:FillStyle", u".uno:ObjectAlignLeft" }; // draw pmhbDraw
-+inline constexpr std::u16string_view row77[] = { u".uno:ToggleObjectRotateMode", u".uno:FormatArea", u".uno:ObjectAlignLeft", u".uno:FlipVertical", u".uno:FillStyle", u".uno:AlignCenter" }; // draw pmhbObject
-+inline constexpr std::u16string_view row78[] = { u".uno:TransformDialog", u".uno:ObjectAlignLeft", u".uno:AVMediaToolBox", u".uno:AlignCenter", u".uno:AVMediaPlayer" }; // draw pmhbMedia
-+inline constexpr std::u16string_view row79[] = { u".uno:TransformDialog", u".uno:FormProperties", u".uno:Label", u".uno:UseWizards", u".uno:ShowFmExplorer", u".uno:Edit" }; // draw pmhbForm
-+inline constexpr std::u16string_view row80[] = { u".uno:RenameMasterPage", u".uno:PageSetup", u".uno:CloseMasterView", u".uno:DeleteMasterPage", u".uno:SelectBackground" }; // draw pmhbMaster
-+inline constexpr std::u16string_view row81[] = { u".uno:TransformDialog", u".uno:FormatArea", u".uno:ObjectAlignLeft", u".uno:Window3D", u".uno:AdvancedMode", u".uno:FillStyle", u".uno:AlignCenter" }; // draw pmhb3D
++inline constexpr std::u16string_view row64[] = { u".uno:FormatGroup", u".uno:TransformDialog", u".uno:Combine", u".uno:BringToFront", u".uno:FormatUngroup", u".uno:DistributeSelection" }; // draw pmhbArrange
++inline constexpr std::u16string_view row65[] = { u".uno:InsertPage", u".uno:PageSetup", u".uno:HstRotatePageLeft", u".uno:MovePageUp", u".uno:ImportFromFile", u".uno:SelectBackground", u".uno:SaveBackground", u".uno:HstRotatePageRight", u".uno:MovePageDown", u".uno:RenamePage" }; // draw pmhbPage
++inline constexpr std::u16string_view row66[] = { u".uno:ExportDirectToPDF", u".uno:SignPDF", u"org.hst.office.vi:OpenInHstPdf", u".uno:ExportToPDF", u".uno:ExportTo", u".uno:Signature" }; // draw pmhbExport
++inline constexpr std::u16string_view row67[] = { u".uno:SpellDialog", u".uno:SidebarDeck.A11yCheckDeck", u".uno:InsertAnnotation", u".uno:RedactDoc", u".uno:ThesaurusDialog", u".uno:SpellOnline", u".uno:ShowAnnotations", u".uno:EditDoc" }; // draw pmhbReview
++inline constexpr std::u16string_view row68[] = { u".uno:PageMode", u".uno:Sidebar", u".uno:ZoomMode", u".uno:OutputQualityColor", u".uno:NewWindow", u".uno:MasterPage", u".uno:ChangeTheme", u".uno:OutputQualityGrayscale" }; // draw pmhbView
++inline constexpr std::u16string_view row69[] = { u".uno:HelpIndex", u"org.hst.office.vi:ReportError", u"org.hst.office.update:Check" }; // draw pmhbHelp
++inline constexpr std::u16string_view row70[] = { u"org.hst.office.vi:Nd30Wizard", u"org.hst.office.vi:ShowSolutions", u".uno:ExtensionManager", u".uno:RunMacro", u".uno:OptionsTreeDialog", u".uno:OptionsSecurityDialog" }; // draw pmhbExtension
++inline constexpr std::u16string_view row71[] = { u".uno:TableDesign" }; // draw pmhbTableDesign
++inline constexpr std::u16string_view row72[] = { u".uno:TransformDialog", u".uno:MergeCells", u".uno:SelectTable", u".uno:SplitCell", u".uno:OptimizeTable" }; // draw pmhbTable
++inline constexpr std::u16string_view row73[] = { u".uno:ChangePicture", u".uno:ObjectTitleDescription", u".uno:GraphicFilterToolbox", u".uno:FormatArea", u".uno:TransformDialog" }; // draw pmhbImage
++inline constexpr std::u16string_view row74[] = { u".uno:DataRanges", u".uno:DiagramType", u".uno:InsertMenuTitles", u".uno:DiagramData" }; // draw pmhbChartDesign
++inline constexpr std::u16string_view row75[] = { u".uno:FormatSelection", u".uno:BringToFront", u".uno:DiagramArea", u".uno:DiagramWall", u".uno:Legend" }; // draw pmhbChartFormat
++inline constexpr std::u16string_view row76[] = { u".uno:TransformDialog", u".uno:ObjectTitleDescription", u".uno:FontworkGalleryFloater", u".uno:Combine", u".uno:FormatGroup", u".uno:FormatArea", u".uno:ExtrusionToggle", u".uno:DistributeSelection", u".uno:FormatUngroup" }; // draw pmhbDraw
++inline constexpr std::u16string_view row77[] = { u".uno:TransformDialog", u".uno:FormatArea" }; // draw pmhbObject
++inline constexpr std::u16string_view row78[] = { u".uno:TransformDialog", u".uno:AVMediaToolBox", u".uno:AVMediaPlayer" }; // draw pmhbMedia
++inline constexpr std::u16string_view row79[] = { u".uno:TransformDialog", u".uno:FormProperties", u".uno:UseWizards", u".uno:GroupBox" }; // draw pmhbForm
++inline constexpr std::u16string_view row80[] = { u".uno:InsertMasterPage", u".uno:PageSetup", u".uno:CloseMasterView", u".uno:MasterLayouts", u".uno:SelectBackground", u".uno:SaveBackground" }; // draw pmhbMaster
++inline constexpr std::u16string_view row81[] = { u".uno:TransformDialog", u".uno:Window3D", u".uno:FormatArea" }; // draw pmhb3D
 +
 +inline constexpr Row all[] = {
 +    { u"writer", u"pmhbHome", row0, std::size(row0) },
 +    { u"writer", u"pmhbInsert", row1, std::size(row1) },
-+    { u"writer", u"pmhbDesign Tab", row2, std::size(row2) },
-+    { u"writer", u"pmhbLayout", row3, std::size(row3) },
-+    { u"writer", u"pmhbReferences", row4, std::size(row4) },
-+    { u"writer", u"pmhbMailings Tab", row5, std::size(row5) },
-+    { u"writer", u"pmhbReview", row6, std::size(row6) },
-+    { u"writer", u"pmhbView", row7, std::size(row7) },
-+    { u"writer", u"pmhbHelp", row8, std::size(row8) },
-+    { u"writer", u"pmhbExtension", row9, std::size(row9) },
-+    { u"writer", u"pmhbTable Design Tab", row10, std::size(row10) },
-+    { u"writer", u"pmhbTable", row11, std::size(row11) },
-+    { u"writer", u"pmhbImage", row12, std::size(row12) },
-+    { u"writer", u"pmhbChart Design Tab", row13, std::size(row13) },
-+    { u"writer", u"pmhbChart Format Tab", row14, std::size(row14) },
-+    { u"writer", u"pmhbDraw", row15, std::size(row15) },
-+    { u"writer", u"pmhbObject", row16, std::size(row16) },
-+    { u"writer", u"pmhbMedia", row17, std::size(row17) },
-+    { u"writer", u"pmhbPrint", row18, std::size(row18) },
-+    { u"writer", u"pmhbForm", row19, std::size(row19) },
-+    { u"writer", u"pmhbphbHeaderFooter", row20, std::size(row20) },
-+    { u"calc", u"pmhbHome", row21, std::size(row21) },
-+    { u"calc", u"pmhbInsert", row22, std::size(row22) },
-+    { u"calc", u"pmhbLayout", row23, std::size(row23) },
-+    { u"calc", u"pmhbFunctions", row24, std::size(row24) },
-+    { u"calc", u"pmhbData", row25, std::size(row25) },
-+    { u"calc", u"pmhbReview", row26, std::size(row26) },
-+    { u"calc", u"pmhbView", row27, std::size(row27) },
-+    { u"calc", u"pmhbHelp", row28, std::size(row28) },
-+    { u"calc", u"pmhbExtension", row29, std::size(row29) },
-+    { u"calc", u"pmhbphbTableDesign", row30, std::size(row30) },
-+    { u"calc", u"pmhbphbPivot", row31, std::size(row31) },
-+    { u"calc", u"pmbhImage", row32, std::size(row32) },
-+    { u"calc", u"pmhbphbChartDesign", row33, std::size(row33) },
-+    { u"calc", u"pmhbphbChartFormat", row34, std::size(row34) },
-+    { u"calc", u"pmhbDraw", row35, std::size(row35) },
-+    { u"calc", u"pmhbObject", row36, std::size(row36) },
-+    { u"calc", u"pmhbMedia", row37, std::size(row37) },
-+    { u"calc", u"pmhbPrint", row38, std::size(row38) },
-+    { u"calc", u"pmhbForm", row39, std::size(row39) },
-+    { u"impress", u"pmhbHome", row40, std::size(row40) },
-+    { u"impress", u"pmhbInsert", row41, std::size(row41) },
-+    { u"impress", u"pmhbDesign", row42, std::size(row42) },
-+    { u"impress", u"pmhbTransitions", row43, std::size(row43) },
-+    { u"impress", u"pmhbAnimations", row44, std::size(row44) },
-+    { u"impress", u"pmhbSlideShow", row45, std::size(row45) },
-+    { u"impress", u"pmhbReview", row46, std::size(row46) },
-+    { u"impress", u"pmhbView", row47, std::size(row47) },
-+    { u"impress", u"pmhbHelp", row48, std::size(row48) },
-+    { u"impress", u"pmhbExtension", row49, std::size(row49) },
-+    { u"impress", u"pmhbTableDesign", row50, std::size(row50) },
-+    { u"impress", u"pmhbTable", row51, std::size(row51) },
-+    { u"impress", u"pmhbImage", row52, std::size(row52) },
-+    { u"impress", u"pmhbChartDesign", row53, std::size(row53) },
-+    { u"impress", u"pmhbChartFormat", row54, std::size(row54) },
-+    { u"impress", u"pmhbDraw", row55, std::size(row55) },
-+    { u"impress", u"pmhbObject", row56, std::size(row56) },
-+    { u"impress", u"pmhbMedia", row57, std::size(row57) },
-+    { u"impress", u"pmhbForm", row58, std::size(row58) },
-+    { u"impress", u"pmhbMaster", row59, std::size(row59) },
-+    { u"impress", u"pmhbOutline", row60, std::size(row60) },
-+    { u"impress", u"pmhb3D", row61, std::size(row61) },
-+    { u"draw", u"pmhbHome", row62, std::size(row62) },
++    { u"calc", u"pmhbHome", row2, std::size(row2) },
++    { u"impress", u"pmhbHome", row3, std::size(row3) },
++    { u"draw", u"pmhbHome", row4, std::size(row4) },
++    { u"writer", u"pmhbDesign Tab", row5, std::size(row5) },
++    { u"writer", u"pmhbLayout", row6, std::size(row6) },
++    { u"writer", u"pmhbReferences", row7, std::size(row7) },
++    { u"writer", u"pmhbMailings Tab", row8, std::size(row8) },
++    { u"writer", u"pmhbReview", row9, std::size(row9) },
++    { u"writer", u"pmhbView", row10, std::size(row10) },
++    { u"writer", u"pmhbHelp", row11, std::size(row11) },
++    { u"writer", u"pmhbExtension", row12, std::size(row12) },
++    { u"writer", u"pmhbTable Design Tab", row13, std::size(row13) },
++    { u"writer", u"pmhbTable", row14, std::size(row14) },
++    { u"writer", u"pmhbImage", row15, std::size(row15) },
++    { u"writer", u"pmhbChart Design Tab", row16, std::size(row16) },
++    { u"writer", u"pmhbChart Format Tab", row17, std::size(row17) },
++    { u"writer", u"pmhbDraw", row18, std::size(row18) },
++    { u"writer", u"pmhbObject", row19, std::size(row19) },
++    { u"writer", u"pmhbMedia", row20, std::size(row20) },
++    { u"writer", u"pmhbPrint", row21, std::size(row21) },
++    { u"writer", u"pmhbForm", row22, std::size(row22) },
++    { u"writer", u"pmhbphbHeaderFooter", row23, std::size(row23) },
++    { u"calc", u"pmhbInsert", row24, std::size(row24) },
++    { u"calc", u"pmhbLayout", row25, std::size(row25) },
++    { u"calc", u"pmhbFunctions", row26, std::size(row26) },
++    { u"calc", u"pmhbData", row27, std::size(row27) },
++    { u"calc", u"pmhbReview", row28, std::size(row28) },
++    { u"calc", u"pmhbView", row29, std::size(row29) },
++    { u"calc", u"pmhbHelp", row30, std::size(row30) },
++    { u"calc", u"pmhbExtension", row31, std::size(row31) },
++    { u"calc", u"pmhbphbTableDesign", row32, std::size(row32) },
++    { u"calc", u"pmhbphbPivot", row33, std::size(row33) },
++    { u"calc", u"pmbhImage", row34, std::size(row34) },
++    { u"calc", u"pmhbphbChartDesign", row35, std::size(row35) },
++    { u"calc", u"pmhbphbChartFormat", row36, std::size(row36) },
++    { u"calc", u"pmhbDraw", row37, std::size(row37) },
++    { u"calc", u"pmhbObject", row38, std::size(row38) },
++    { u"calc", u"pmhbMedia", row39, std::size(row39) },
++    { u"calc", u"pmhbPrint", row40, std::size(row40) },
++    { u"calc", u"pmhbForm", row41, std::size(row41) },
++    { u"impress", u"pmhbInsert", row42, std::size(row42) },
++    { u"impress", u"pmhbDesign", row43, std::size(row43) },
++    { u"impress", u"pmhbTransitions", row44, std::size(row44) },
++    { u"impress", u"pmhbAnimations", row45, std::size(row45) },
++    { u"impress", u"pmhbSlideShow", row46, std::size(row46) },
++    { u"impress", u"pmhbReview", row47, std::size(row47) },
++    { u"impress", u"pmhbView", row48, std::size(row48) },
++    { u"impress", u"pmhbHelp", row49, std::size(row49) },
++    { u"impress", u"pmhbExtension", row50, std::size(row50) },
++    { u"impress", u"pmhbTableDesign", row51, std::size(row51) },
++    { u"impress", u"pmhbTable", row52, std::size(row52) },
++    { u"impress", u"pmhbImage", row53, std::size(row53) },
++    { u"impress", u"pmhbChartDesign", row54, std::size(row54) },
++    { u"impress", u"pmhbChartFormat", row55, std::size(row55) },
++    { u"impress", u"pmhbDraw", row56, std::size(row56) },
++    { u"impress", u"pmhbObject", row57, std::size(row57) },
++    { u"impress", u"pmhbMedia", row58, std::size(row58) },
++    { u"impress", u"pmhbForm", row59, std::size(row59) },
++    { u"impress", u"pmhbMaster", row60, std::size(row60) },
++    { u"impress", u"pmhbOutline", row61, std::size(row61) },
++    { u"impress", u"pmhb3D", row62, std::size(row62) },
 +    { u"draw", u"pmhbInsert", row63, std::size(row63) },
 +    { u"draw", u"pmhbArrange", row64, std::size(row64) },
 +    { u"draw", u"pmhbPage", row65, std::size(row65) },
@@ -952,7 +953,36 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
  void NotebookbarTabControl::ArrowStops( sal_uInt16 nCode )
  {
      ToolBox* pToolBox( GetToolBox() );
-@@ -833,6 +992,8 @@
+@@ -802,16 +961,25 @@
+         return;
+ 
+     xPopupController->setPopupMenu(xPopupMenu);
++    // HST Office: the compact ribbon's switch, after "Search features" (the controller fills ids from 1 up and
++    // leaves an item without a command to us)
++    constexpr sal_Int16 HST_COMPACT_ITEM = 30000;
++    if (m_pHstCompact)
++        xPopupMenu->insertItem(HST_COMPACT_ITEM,
++                               SfxResId(m_pHstCompact->IsCompact() ? STR_HST_RIBBON_EXPAND : STR_HST_RIBBON_COLLAPSE),
++                               0, std::min<sal_Int16>(1, xPopupMenu->getItemCount()));
+     Control* pOpenMenuButton = GetOpenMenu();
+     assert(pOpenMenuButton);
+     Point aPos(pOpenMenuButton->GetSizePixel().getWidth(), pOpenMenuButton->GetSizePixel().getHeight());
+-    xPopupMenu->execute(pOpenMenuButton->GetComponentInterface(),
+-                        css::awt::Rectangle(aPos.X(), aPos.Y(), 1, 1),
+-                        css::awt::PopupMenuDirection::EXECUTE_DOWN);
++    const sal_Int16 nChosen = xPopupMenu->execute(pOpenMenuButton->GetComponentInterface(),
++                                                  css::awt::Rectangle(aPos.X(), aPos.Y(), 1, 1),
++                                                  css::awt::PopupMenuDirection::EXECUTE_DOWN);
+ 
+     Reference<css::lang::XComponent> xComponent(xPopupController, UNO_QUERY);
+     if (xComponent.is())
+         xComponent->dispose();
++    if (nChosen == HST_COMPACT_ITEM && m_pHstCompact)
++        HstSetCompact(!m_pHstCompact->IsCompact());
+ }
+ 
+ Size NotebookbarTabControl::calculateRequisition() const
+@@ -833,6 +1001,8 @@
  
      if (aSize.Width() < 400)
          aSize.setWidth( 400 );

@@ -51,6 +51,22 @@ class QuickRows(unittest.TestCase):
             self.assertIn((app, "pmhbHome"), keys)
             self.assertNotIn((app, "pmhbFile"), keys)  # the File tab opens the File page
 
+    def test_home_rows_are_hand_made_in_one_form(self):
+        rows = {(r["app"], r["box"]): r for r in self.data["rows"]}
+        for app in ("writer", "calc", "impress", "draw"):
+            row = rows[(app, "pmhbHome")]
+            self.assertFalse(row.get("generated"), app)
+            self.assertEqual(row["commands"][:3], [".uno:Paste", ".uno:Cut", ".uno:Copy"], app)
+            self.assertIn(".uno:Bold", row["commands"], app)
+            self.assertIn(".uno:SearchDialog", row["commands"], app)
+            self.assertLessEqual(len([c for c in row["commands"] if c != "|"]), 10, app)
+
+    def test_generated_rows_skip_fine_tuning_items(self):
+        for row in self.data["rows"]:
+            if row.get("generated"):
+                for word in generator().SKIP_COMMANDS:
+                    self.assertFalse([c for c in row["commands"] if word in c], (row["box"], word))
+
     def test_generated_rows_hold_at_most_ten_commands(self):
         for row in self.data["rows"]:
             commands = [c for c in row["commands"] if c != "|"]
@@ -70,6 +86,7 @@ class CompactWiring(unittest.TestCase):
         self.assertIn("pKey->GetKeyCode().GetFullCode() != (KEY_F1 | KEY_MOD1)", tabs)
         self.assertIn("if (rMEvt.GetClicks() == 2)", tabs)
         self.assertIn("LINK(this, NotebookbarTabControl, HstToggleHdl)", tabs)
+        self.assertIn("if (nChosen == HST_COMPACT_ITEM && m_pHstCompact)", tabs)  # the ≡ menu entry
         # the bar takes its new height and the window gives the document the difference
         self.assertIn("pBar->SetSizePixel(Size(pBar->GetSizePixel().Width(), 0));", tabs)
 
