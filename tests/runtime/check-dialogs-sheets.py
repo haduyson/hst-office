@@ -23,7 +23,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 def check_page_setup(h, c):
     doc, sheet = new_sheet(h, "A1")
     dlg = h.open_dialog(".uno:PageFormatDialog", "PageTemplateDialog")
+    c.equal("page setup: opens on the page tab", state(dlg.getChild("tabcontrol")).get("CurrPageTitle"), "Trang")
     titles = tab_titles(dlg)
+    c.equal("page setup: style organizer last", titles[-1], "Chung")
     page = titles.index("Trang")
     c.equal("page setup: Excel's order", titles[page:page + 4], ["Trang", "Đầu trang", "Chân trang", "Trang tính"])
     select_tab(dlg, titles.index("Trang tính"))
@@ -44,6 +46,15 @@ def check_page_setup(h, c):
     click(dlg, "cancel")
     h.wait_idle()
     c.equal("page setup: cancel keeps rows", (sheet.TitleRows.StartRow, sheet.TitleRows.EndRow), (0, 1))
+
+    dlg = h.open_dialog(".uno:PageFormatDialog", "PageTemplateDialog")
+    select_tab(dlg, len(titles) - 1)
+    click(dlg, "cancel")
+    h.wait_idle()
+    dlg = h.open_dialog(".uno:PageFormatDialog", "PageTemplateDialog")
+    c.equal("page setup: reopens on the page tab after the organizer",
+            state(dlg.getChild("tabcontrol")).get("CurrPageTitle"), "Trang")
+    click(dlg, "cancel")
     doc.close(True)
 
 

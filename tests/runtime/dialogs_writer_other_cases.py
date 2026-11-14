@@ -30,9 +30,14 @@ def check_hyperlink(h, c):
     h.close_document(doc)
 
 
+def current_tab(dlg):
+    return state(dlg.getChild("tabcontrol")).get("CurrPageTitle")
+
+
 def check_page_setup(h, c):
     doc = h.new_document()
     dlg = h.open_dialog(".uno:PageDialog", "TemplateDialog8")
+    c.equal("page setup: opens on the page tab", current_tab(dlg), "Trang")
     titles = tab_titles(dlg)
     c.equal("page setup: page comes first", titles[0], "Trang")
     c.equal("page setup: style organizer last", titles[-1], "Chung")
@@ -52,6 +57,42 @@ def check_page_setup(h, c):
     click(dlg, "ok")
     h.wait_idle()
     c.equal("header: Different odd and even pages applied", style.HeaderIsShared, False)
+
+    # Closed on the style organizer, the dialog used to reopen there; Page Setup always opens on the page tab.
+    dlg = h.open_dialog(".uno:PageDialog", "TemplateDialog8")
+    select_tab(dlg, len(titles) - 1)
+    click(dlg, "cancel")
+    h.wait_idle()
+    dlg = h.open_dialog(".uno:PageDialog", "TemplateDialog8")
+    c.equal("page setup: reopens on the page tab after the organizer", current_tab(dlg), "Trang")
+    click(dlg, "cancel")
+    h.close_document(doc)
+
+
+def check_margin_presets(h, c):
+    """Layout > Margins offers Word's Moderate preset ("Vừa") and applies it to the page style."""
+    doc = h.new_document()
+    main = h.ui.getWindow(doc.getCurrentController().getFrame().getContainerWindow())
+    ribbon = main.getChild("ContextContainer")
+    for pos in range(int(state(ribbon)["PageCount"])):  # the Layout tab holds the Margins dropdown
+        ribbon.executeAction("SELECT", props(POS=str(pos)))
+        if state(main.getChild("boxMargin")).get("ReallyVisible") == "true":
+            break
+    margins = main.getChild("boxMargin")
+    margins.executeAction("FOCUS", ())  # keyboard focus, Home highlights the item, Down opens its dropdown
+    for key in ("HOME", "DOWN"):
+        margins.executeAction("TYPE", props(KEYCODE=key))
+        h.wait_idle(0.5)
+    popup = h.ui.getFloatWindow()
+    labels = [state(popup.getChild(i)).get("Text", "").replace("~", "").replace("_", "")
+              for i in ("narrow", "normal", "hstmoderate", "wide")]
+    c.equal("margins: Hẹp, Bình thường, Vừa, Rộng", labels, ["Hẹp", "Bình thường", "Vừa", "Rộng"])
+    click(popup, "hstmoderate")
+    h.wait_idle()
+    style = doc.StyleFamilies.getByName("PageStyles").getByName(first_paragraph(doc).PageStyleName or "Standard")
+    c.equal("margins: Moderate left/right 1.91 cm, top/bottom 2.54 cm",
+            [abs(v - want) <= 3 for v, want in ((style.LeftMargin, 1905), (style.RightMargin, 1905),
+                                                (style.TopMargin, 2540), (style.BottomMargin, 2540))], [True] * 4)
     h.close_document(doc)
 
 
