@@ -84,7 +84,9 @@ class StoreTests(unittest.TestCase):
         handler = re.search(r"oslSignalAction onSignal\(.*?\n\}", self.code, re.S).group(0)
         self.assertIn("write(g_aPipe[1], &c, 1)", handler)
         self.assertIn("return osl_Signal_ActIgnore;", handler)
-        self.assertIn("g_bPending.exchange(true)", handler)  # a second SIGTERM ends at once
+        # systemd and oosplash both send SIGTERM: a repeated one changes nothing, the deadline holds
+        self.assertRegex(handler, r"g_bPending\.exchange\(true\)\)[^\n]*\n\s*return osl_Signal_ActIgnore;")
+        self.assertIn("TimeValue delay = { 25, 0 };", self.code)  # oosplash outwaits the 20 s deadline
         self.assertNotRegex(handler, r"SAL_|OUString|Reference|PostUserEvent")  # nothing unsafe in a signal handler
         self.assertIn("constexpr auto DEADLINE = std::chrono::seconds(20);", self.code)
         self.assertIn('static const char aNote[] = "\\n\\nTerminated: Signal 15\\n";', self.code)

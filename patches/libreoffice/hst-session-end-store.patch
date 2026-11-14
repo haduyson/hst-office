@@ -19,8 +19,11 @@ their modified state. All three now run one AutoRecovery job first:
   only for what it could not take.
 - desktop hstsessionend.cxx (new), app.cxx: Linux SIGTERM (not headless or invisible): the signal
   handler only writes to a pipe; a watcher thread posts the session end to the main thread, which
-  stores the documents and terminates normally. A document that could not be stored, a veto, a
-  second SIGTERM or no end within 20 s end the office at once as before ("Terminated: Signal 15").
+  stores the documents and terminates normally. A document that could not be stored, a veto or no
+  end within 20 s end the office at once as before ("Terminated: Signal 15"); repeated SIGTERMs
+  (systemd signals every process, oosplash forwards its own) change nothing.
+- desktop unx start.c (oosplash): it forwarded SIGTERM and killed soffice.bin after 1 s, cutting the
+  store off; it now waits 25 s (soffice.bin ends itself within 20 s, a headless one at once).
 License: these upstream files remain under their original license (MPL-2.0); the new files are MPL-2.0.
 Test: tests/runtime/check-session-end-linux.py; tests/runtime/check-session-end-gnome.py;
 tests/runtime/check-session-end-windows-answer.py; tests/runtime/check-session-end-windows.py.
@@ -271,6 +274,21 @@ tests/runtime/check-session-end-windows-answer.py; tests/runtime/check-session-e
              Execute();
          }
      }
+--- a/desktop/unx/source/start.c
++++ b/desktop/unx/source/start.c
+@@ -720,8 +720,11 @@
+ 
+         // forward SIGTERM to soffice.bin and give it a chance to semi-gracefully exit
+         // enough to remove named pipe
++        // HST Office: soffice.bin stores the open documents for the next start on SIGTERM (the
++        // system ending the session) and ends itself within 20 s; a headless one still exits at
++        // once. Killing it after 1 s cut the store off.
+         if (osl_getProcessInfo(g_pProcess, osl_Process_IDENTIFIER, &info) == osl_Process_E_None) {
+-            TimeValue delay = { 1, 0 }; // 1 sec
++            TimeValue delay = { 25, 0 }; // 25 sec
+             SigTermSucceded = kill(info.Ident, SIGTERM) == 0 &&
+                               osl_joinProcessWithTimeout(g_pProcess, &delay) == osl_Process_E_None;
+         }
 --- /dev/null
 +++ b/desktop/source/app/hstsessionend.hxx
 @@ -0,0 +1,19 @@
@@ -295,7 +313,7 @@ tests/runtime/check-session-end-windows-answer.py; tests/runtime/check-session-e
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/desktop/source/app/hstsessionend.cxx
-@@ -0,0 +1,168 @@
+@@ -0,0 +1,169 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of HST Office, based on LibreOffice.
@@ -343,8 +361,9 @@ tests/runtime/check-session-end-windows-answer.py; tests/runtime/check-session-e
 +// thread: AutoRecovery's session end (the session restart without the restart) stores, checks and
 +// closes every document, then the office terminates normally and the next start reopens the
 +// documents silently. When a document cannot be stored, the office ends at once as before (the
-+// next start offers the last recovery copy). A second SIGTERM, or no clean end within the
-+// deadline (a hung main thread), ends it at once as before too.
++// next start offers the last recovery copy); without a clean end within the deadline (a hung
++// main thread) too. Further SIGTERMs meanwhile (systemd signals every process of the session and
++// oosplash forwards its own) change nothing: the deadline still holds.
 +namespace
 +{
 +constexpr auto DEADLINE = std::chrono::seconds(20);
@@ -365,7 +384,7 @@ tests/runtime/check-session-end-windows-answer.py; tests/runtime/check-session-e
 +    if (pInfo->Signal != osl_Signal_Terminate || pInfo->UserSignal != SIGTERM)
 +        return osl_Signal_ActCallNextHdl;
 +    if (g_bPending.exchange(true)) // async-signal-safe: std::atomic<bool> is lock-free
-+        return osl_Signal_ActCallNextHdl;
++        return osl_Signal_ActIgnore; // already ending, within the deadline
 +    const char c = 1;
 +    if (write(g_aPipe[1], &c, 1) != 1)
 +        return osl_Signal_ActCallNextHdl;

@@ -85,8 +85,17 @@ def end_office(off, name, sig, timeout=30):
     time.sleep(2)
     pattern = "UserInstallation=file://%s" % os.path.join(off.workdir, "profile")
     started = time.time()
-    subprocess.run(["pkill", "-%d" % sig, "-f", pattern], check=False)
-    ended = rr.wait(lambda: off.pid is None, timeout, 0.5)
+    # the office's own processes (systemd signals every process of the session), not the su wrapper of the check,
+    # which kills its children on SIGTERM
+    for pid in subprocess.run(["pgrep", "-f", pattern], capture_output=True, text=True).stdout.split():
+        try:
+            with open("/proc/%s/comm" % pid, encoding="utf-8") as handle:
+                if handle.read().strip() in ("soffice.bin", "oosplash"):
+                    os.kill(int(pid), sig)
+        except OSError:
+            pass
+    # the processes, not the windows: storing closes the document windows before the office ends
+    ended = rr.wait(lambda: subprocess.run(["pgrep", "-f", pattern], capture_output=True).returncode == 1, timeout, 0.5)
     print("%s: office ended after %.1f s" % (name, time.time() - started) if ended else "%s: still running" % name)
     record("%s: the office ended" % name, ended)
     subprocess.run(["pkill", "-KILL", "-f", pattern], check=False)
