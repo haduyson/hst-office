@@ -41,6 +41,8 @@ with a 10px gap from the 230px text column. The new illustrated cards balance ta
 the company CTA uses slightly tighter letter spacing to retain its footer gap.
 The renderer checks text/illustration separation. The 160×104 compact cards omit illustrations
 to preserve readable text. Regenerate the PNGs, manifests and previews after changing these inputs.
+AI Dễ Lắm's logo is the official “Ai + sparkle” mark extracted from its website's `og:image`; the logo
+sources document records the extraction.
 HST Post's full logo derives
 from the owner-supplied official 476×393 file, with extracted all-caps dark lettering.
 [Logo comparison](design/hst-post-logo-preview.png) shows the logo, square icon and original together.
