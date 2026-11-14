@@ -22,6 +22,7 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(1, os.path.join(os.path.dirname(os.path.abspath(__file__)), "r1auto"))
+import toolbar_two_rows_probe as probe  # noqa: E402
 import toolbar_two_rows_steps as steps  # noqa: E402
 import windows_gui as wg  # noqa: E402
 
@@ -88,6 +89,7 @@ def run(args):
         wg.dismiss_startup(office, os.path.join(args.out, "startup.png"), timeout=30, settle=5)
         set_appearance(office, {"light": 1, "dark": 2}[args.appearance])
         adapter = Adapter(office)
+        args.snapshot = lambda: probe.snapshot_uno(office.top_windows())
         for app in args.apps.split(","):
             try:
                 document = office.load(FACTORY[app])

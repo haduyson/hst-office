@@ -1,11 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Measure and judge the toolbars beside the window banner over UNO (Linux and Windows alike).
+"""Measure and judge the toolbars beside the window banner (Linux AT-SPI, Windows UNO accessibility).
 
 hst-toolbar-two-rows.patch: in the toolbar user interfaces with one docked toolbar (Single toolbar, Sidebar, and
-Draw's Standard one) that toolbar takes two rows of about equal width beside the banner; the toolbar block is
-centred vertically in the top docking area, left of the banner. Other toolbar layouts keep one row per toolbar.
-Everything is read through the accessibility API of the toolbar windows (no AT-SPI needed), in px relative to the
-window's container.
+Draw's Standard one) that toolbar takes two rows of about equal width beside the banner, the block centred
+vertically on the banner; other toolbar layouts keep one row per toolbar. A snapshot is
+{"bars": [{"box": [x, y, w, h], "items": [[x, y, w, h], ...]}], "banners": [[x, y, w, h], ...]} in screen px,
+as a screen reader finds the tool bars, their showing items (separators aside) and the banner link.
 """
 
 # the toolbar user interfaces of each app (officecfg ToolbarMode.xcu); Draw and Slides have no Sidebar one
@@ -14,66 +14,88 @@ MODES = {"writer": ("Default", "Single", "Sidebar"), "calc": ("Default", "Single
 # the user interfaces whose top docking area holds one toolbar (the others have two rows of toolbars already)
 LONE = {("writer", "Single"), ("writer", "Sidebar"), ("calc", "Single"), ("calc", "Sidebar"), ("impress", "Single"),
         ("draw", "Default")}
-CENTRE_TOLERANCE = 2  # px between the space above and below the toolbar block
+CENTRE_TOLERANCE = 2  # px between the centres of the toolbar block and the banner
 EDGE_TOLERANCE = 1  # px between the left edges of the two rows
+SKIP = ("document text", "document spreadsheet", "document presentation", "document frame", "menu bar",
+        "status bar", "ruler", "tree", "table", "list")
 
 
-def _const(group, name):
+def snapshot_atspi():
+    """Linux: the snapshot of every office application on the AT-SPI bus."""
+    import pyatspi
+
+    def box(node):
+        ext = node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+        return [ext.x, ext.y, ext.width, ext.height]
+
+    def showing(node):
+        return node.getState().contains(pyatspi.STATE_SHOWING)
+
+    out = {"bars": [], "banners": []}
+
+    def walk(node, depth):
+        try:
+            role = node.getRoleName()
+            if role == "link" and " — " in (node.name or "") and showing(node):
+                out["banners"].append(box(node))
+            if role == "tool bar" and showing(node):
+                kids = [node.getChildAtIndex(i) for i in range(node.childCount)]
+                out["bars"].append({"box": box(node), "items": [box(k) for k in kids if showing(k)
+                                                                and k.getRoleName() != "separator"]})
+                return
+            if depth < 16 and role not in SKIP:
+                for index in range(node.childCount):
+                    walk(node.getChildAtIndex(index), depth + 1)
+        except Exception:  # noqa: BLE001 - widgets come and go
+            pass
+
+    desktop = pyatspi.Registry.getDesktop(0)
+    for index in range(desktop.childCount):
+        app = desktop.getChildAtIndex(index)
+        if "office" in (app.name or "").lower():
+            walk(app, 0)
+    return out
+
+
+def snapshot_uno(top_windows):
+    """Windows: the snapshot of the toolkit top windows over UNO accessibility (windows_gui.walk)."""
     import uno
-    return uno.getConstantByName(f"com.sun.star.accessibility.{group}.{name}")
+    import windows_gui as wg
+
+    def role(name):
+        return uno.getConstantByName("com.sun.star.accessibility.AccessibleRole." + name)
+
+    def box(context):
+        loc, size = context.getLocationOnScreen(), context.getSize()
+        return [loc.X, loc.Y, size.Width, size.Height]
+
+    out = {"bars": [], "banners": []}
+    for window in top_windows:
+        for context, _depth in wg.walk(window, limit=16):
+            try:
+                if not wg.showing(context):
+                    continue
+                if context.getAccessibleRole() == role("TOOL_BAR"):
+                    kids = [context.getAccessibleChild(i).getAccessibleContext()
+                            for i in range(context.getAccessibleChildCount())]
+                    out["bars"].append({"box": box(context), "items": [
+                        box(k) for k in kids if wg.showing(k) and k.getAccessibleRole() != role("SEPARATOR")]})
+                elif " — " in (context.getAccessibleName() or ""):
+                    out["banners"].append(box(context))
+            except Exception:  # noqa: BLE001 - a disposed node
+                continue
+    return out
 
 
-def _showing(context):
-    try:
-        return bool(context.getAccessibleStateSet() & _const("AccessibleStateType", "SHOWING"))
-    except Exception:  # noqa: BLE001 - a disposed node
-        return False
-
-
-def _box(context, origin):
-    loc, size = context.getLocationOnScreen(), context.getSize()
-    return [loc.X - origin.X, loc.Y - origin.Y, size.Width, size.Height]
-
-
-def measure(frame):
-    """{"bars": [{"url", "box", "items": [[x, y, w, h] relative to the toolbar]}], "area": box of the top docking
-    area, "banner": box or None} for the docked toolbars of the top docking area of `frame`."""
-    container = frame.getContainerWindow().getAccessibleContext()
-    origin = container.getLocationOnScreen()
-    layout = frame.LayoutManager
-    separator = _const("AccessibleRole", "SEPARATOR")
-    docked = []  # (docking area context, its box, bar)
-    for element in layout.getElements():
-        url = element.ResourceURL
-        if not url.startswith("private:resource/toolbar/") or not layout.isElementVisible(url) \
-                or layout.isElementFloating(url):
-            continue
-        context = element.getRealInterface().getAccessibleContext()
-        if not _showing(context):
-            continue
-        items = []
-        for index in range(context.getAccessibleChildCount()):
-            child = context.getAccessibleChild(index).getAccessibleContext()
-            if _showing(child) and child.getAccessibleRole() != separator:
-                b = child.getBounds()
-                if b.Width > 0 and b.Height > 0:
-                    items.append([b.X, b.Y, b.Width, b.Height])
-        parent = context.getAccessibleParent().getAccessibleContext()
-        docked.append((parent, _box(parent, origin), {"url": url, "box": _box(context, origin), "items": items}))
-    result = {"bars": [], "area": None, "banner": None}
-    if not docked:
-        return result
-    # the top docking area is the highest one that is wider than high
-    top = min((d for d in docked if d[1][2] > d[1][3]), key=lambda d: d[1][1], default=None)
-    if top is None:
-        return result
-    result["area"] = top[1]
-    result["bars"] = [bar for _parent, box, bar in docked if box == top[1]]
-    for index in range(top[0].getAccessibleChildCount()):
-        child = top[0].getAccessibleChild(index).getAccessibleContext()
-        if " — " in (child.getAccessibleName() or "") and _showing(child):
-            result["banner"] = _box(child, origin)
-    return result
+def strip(snapshot):
+    """(banner box, the tool bars beside it in the banner strip) of a snapshot, or (None, [])."""
+    banners = [b for b in snapshot["banners"] if b[2] > 0 and b[3] > 0]
+    if len(banners) != 1:
+        return None, []
+    bx, by, bw, bh = banners[0]
+    bars = [bar for bar in snapshot["bars"] if len(bar["items"]) >= 2 and bar["box"][0] < bx
+            and by <= bar["box"][1] + bar["box"][3] / 2 <= by + bh]
+    return banners[0], bars
 
 
 def rows(items):
@@ -88,21 +110,23 @@ def rows(items):
     return out
 
 
-def judge(app, mode, data):
-    """(ok, detail) for one measurement of `app` in the toolbar user interface `mode`."""
-    bars = data["bars"]
+def judge(app, mode, snapshot):
+    """(ok, detail) for one snapshot of `app` in the toolbar user interface `mode`."""
+    banner, bars = strip(snapshot)
+    if banner is None:
+        return False, f"{len(snapshot['banners'])} banners showing, one expected"
     if not bars:
-        return False, "no docked toolbar in the top docking area"
+        return False, "no toolbar beside the banner"
     if (app, mode) not in LONE:
-        multi = [b["url"].rsplit("/", 1)[-1] for b in bars if len(rows(b["items"])) != 1]
+        multi = [bar["box"] for bar in bars if len(rows(bar["items"])) != 1]
         return (not multi), (f"toolbars with more than one row: {multi}" if multi else
-                             f"{len(bars)} toolbars, one row each")
+                             f"{len(bars)} toolbars beside the banner, one row each")
     if len(bars) != 1:
-        return False, f"{len(bars)} toolbars in the top docking area, one expected"
+        return False, f"{len(bars)} toolbars beside the banner, one expected"
     bar = bars[0]
     found = rows(bar["items"])
     if len(found) != 2:
-        return False, f"{bar['url']}: {len(found)} rows of buttons, two expected"
+        return False, f"{len(found)} rows of buttons, two expected"
     (l1, r1, t1, b1, w1), (l2, r2, t2, b2, w2) = found
     button = max(w1, w2)
     if abs(l1 - l2) > EDGE_TOLERANCE:
@@ -112,15 +136,10 @@ def judge(app, mode, data):
     if t2 < b1 - 1:
         return False, "the rows overlap"
     x, y, w, h = bar["box"]
-    if max(r1, r2) > w + 1 or max(b1, b2) > h + 1:
+    if l1 < x - 1 or max(r1, r2) > x + w + 1 or t1 < y - 1 or b2 > y + h + 1:
         return False, f"buttons outside the toolbar {bar['box']}"
-    ax, ay, aw, ah = data["area"]
-    above, below = y - ay, ay + ah - (y + h)
-    if abs(above - below) > CENTRE_TOLERANCE:
-        return False, f"toolbar block {above} px below the strip top, {below} px above its bottom"
-    banner = data["banner"]
-    if banner is None:
-        return False, "no banner in the top docking area"
+    if abs((t1 + b2) / 2 - (banner[1] + banner[3] / 2)) > CENTRE_TOLERANCE:
+        return False, f"buttons {t1}..{b2} not centred on the banner {banner}"
     if banner[0] < x + w:
         return False, f"banner {banner} overlaps the toolbar {bar['box']}"
-    return True, f"rows {r1 - l1}/{r2 - l2} px (button {button}), block {h} px in a {ah} px strip, banner {banner}"
+    return True, f"rows {r1 - l1}/{r2 - l2} px (button {button}), buttons {t1}..{b2}, banner {banner}"

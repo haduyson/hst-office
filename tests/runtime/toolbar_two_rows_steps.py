@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """The steps of check-toolbar-two-rows.py and check-windows-toolbar-two-rows.py (same cases on Linux and Windows).
 
-`office` is any object with ctx, screenshot(path) and dispatch(frame, command, args); `args` has out and shots.
+`office` is any object with ctx, screenshot(path) and dispatch(frame, command, args); `args` has out, shots and
+snapshot() (toolbar_two_rows_probe.snapshot_atspi on Linux, snapshot_uno on Windows).
 """
 import os
 import shutil
@@ -29,12 +30,15 @@ def record(args, results, case, path, ok, detail, data=None):
         shutil.copy(path, os.path.join(args.shots, f"{case}.png"))
 
 
-def check(args, office, frame, results, app, mode, case, expect_two=True):
+def check(args, office, frame, results, app, mode, case, bars=1):
+    """One case; bars > 1: that many toolbars beside the banner, one row each (any user interface)."""
     time.sleep(3)
     path = os.path.join(args.out, f"{case}.png")
     office.screenshot(path)
-    data = probe.measure(frame)
-    ok, detail = probe.judge(app, mode if expect_two else "Default", data)
+    data = args.snapshot()
+    ok, detail = probe.judge(app, mode if bars == 1 else "Default", data)
+    if ok and bars > 1 and len(probe.strip(data)[1]) != bars:
+        ok, detail = False, f"{len(probe.strip(data)[1])} toolbars beside the banner, {bars} expected"
     record(args, results, case, path, ok, detail, data)
 
 
@@ -49,18 +53,23 @@ def transitions(args, office, frame, results, tag):
     layout = frame.LayoutManager
     module = "com.sun.star.text.TextDocument"
     before = window_state(office, module, SINGLE)
+    layout.createElement(GUEST)
     layout.showElement(GUEST)
-    check(args, office, frame, results, "writer", "Single", f"writer-single-guest-toolbar{tag}", expect_two=False)
+    layout.dockWindow(GUEST, 0, point(0, 1))  # DockingArea_DOCKINGAREA_TOP, second row
+    check(args, office, frame, results, "writer", "Single", f"writer-single-guest-toolbar{tag}", bars=2)
     layout.hideElement(GUEST)
     check(args, office, frame, results, "writer", "Single", f"writer-single-guest-gone{tag}")
-    layout.lockWindow(SINGLE)
-    check(args, office, frame, results, "writer", "Single", f"writer-single-locked{tag}")
+    locked = layout.isElementLocked(SINGLE)
+    (layout.unlockWindow if locked else layout.lockWindow)(SINGLE)
+    check(args, office, frame, results, "writer", "Single", f"writer-single-{'un' if locked else ''}locked{tag}")
     layout.unlockWindow(SINGLE)
     layout.floatWindow(SINGLE)
     time.sleep(3)
     floating = layout.isElementFloating(SINGLE)
     record(args, results, f"writer-single-floating{tag}", None, floating, "floats" if floating else "still docked")
-    layout.dockWindow(SINGLE, 0, top_left())  # DockingArea_DOCKINGAREA_TOP, first row
+    layout.dockWindow(SINGLE, 0, point(0, 0))  # DockingArea_DOCKINGAREA_TOP, first row
+    if locked:
+        layout.lockWindow(SINGLE)
     check(args, office, frame, results, "writer", "Single", f"writer-single-docked-again{tag}")
     after = window_state(office, module, SINGLE)
     record(args, results, f"writer-single-window-state{tag}", None, after == before, f"before {before}, after {after}")
@@ -81,6 +90,6 @@ def run_modes(args, office, frame, app, results, tag, resize):
     office.dispatch(frame, ".uno:ToolbarMode", (prop("Mode", "notebookbar.ui"),))  # back to the default
 
 
-def top_left():
+def point(x, y):
     import uno
-    return uno.createUnoStruct("com.sun.star.awt.Point", 0, 0)
+    return uno.createUnoStruct("com.sun.star.awt.Point", x, y)

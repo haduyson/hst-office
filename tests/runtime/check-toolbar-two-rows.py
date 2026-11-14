@@ -13,16 +13,19 @@ keep one row per toolbar. In Writer's Single toolbar interface the toolbar then 
 it: another toolbar joins the top docking area (one row each), it is hidden again (two rows), the toolbar is
 locked (two rows), undocked (floating) and docked again (two rows), and the persisted window state of the toolbar
 is the same as before. --scale 2 runs under GDK_SCALE=2. Writes results.json and one screenshot per case.
-The X display must already run (this script never starts or stops it).
+The X display must already run (this script never starts or stops it). Run as root, it runs itself again as the
+build user under dbus-run-session (AT-SPI needs a session bus).
 """
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
+import toolbar_two_rows_probe as probe  # noqa: E402
 import toolbar_two_rows_steps as steps  # noqa: E402
 from banner_everywhere_cases import NAMES  # noqa: E402
 from ribbon_banner_run import xdo  # noqa: E402
@@ -63,6 +66,14 @@ def main():
     parser.add_argument("--appearance", choices=("light", "dark"), default="light")
     parser.add_argument("--shots", default=None)
     args = parser.parse_args()
+    if os.geteuid() == 0:  # as the build user under a session bus of its own (AT-SPI needs one)
+        for path in filter(None, (args.out, args.shots)):
+            os.makedirs(path, exist_ok=True)
+            subprocess.run(["chown", "-R", hst_gui.BUILD_USER, path], check=False)
+        os.execvp("runuser", ["runuser", "-u", hst_gui.BUILD_USER, "--", "dbus-run-session", "--", sys.executable]
+                  + sys.argv)
+    os.environ.update(NO_AT_BRIDGE="0", GTK_MODULES="gail:atk-bridge")
+    args.snapshot = probe.snapshot_atspi
     args.instdir, args.out = os.path.abspath(args.instdir), os.path.abspath(args.out)
     args.sizes = [tuple(int(v) for v in s.split("x")) for s in args.sizes.split(",")]
     os.makedirs(args.out, exist_ok=True)
@@ -72,8 +83,9 @@ def main():
         try:
             run_app(args, app, results)
         except Exception as error:  # noqa: BLE001 - one app failing must not hide the others
-            results.append({"case": app, "status": "FAIL", "detail": repr(error)[:400]})
-            print(f"FAIL  {app}  {error!r}", flush=True)
+            import traceback
+            results.append({"case": app, "status": "FAIL", "detail": traceback.format_exc()[-1200:]})
+            print(f"FAIL  {app}  {results[-1]['detail']}", flush=True)
     ok = bool(results) and all(r["status"] == "PASS" for r in results)
     with open(os.path.join(args.out, "results.json"), "w", encoding="utf-8") as handle:
         json.dump({"results": results, "pass": ok}, handle, ensure_ascii=False, indent=1)
