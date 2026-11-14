@@ -1,0 +1,22 @@
+HST Office: the notebookbar's UI configuration listener takes the SolarMutex.
+
+ChangedUIEventListener refilled the quick access toolbar (the shortcuts toolbox) and laid out the tab row
+from whatever thread changed the module's UI configuration. A UNO client (a macro, an extension, a test
+over the remote bridge) changing it from its own thread raced the main loop and crashed in
+TabControl::ImplGetItemSize -> OutputDevice::GetCtrlTextWidth (seen on Linux, 14/11/2026). The listener now
+holds the SolarMutex and skips a disposed tab control.
+
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -391,6 +391,11 @@
+     {
+         if( rEvent.ResourceURL == TOOLBAR_STR )
+         {
++            // HST Office: a UNO client may change the module's UI configuration from its own thread; the
++            // toolbox refill and the tab row layout need the SolarMutex (else they race the main loop)
++            SolarMutexGuard aGuard;
++            if (!m_pParent || m_pParent->isDisposed())
++                return;
+             m_pParent->m_bInvalidate = true;
+             m_pParent->StateChanged(StateChangedType::UpdateMode);
+         }
