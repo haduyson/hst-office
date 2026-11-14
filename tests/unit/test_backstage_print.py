@@ -15,6 +15,7 @@ DIALOG = "vcl/source/window/printdlg.cxx"
 PRINT3 = "vcl/source/gdi/print3.cxx"
 JOBPANEL = "vcl/source/window/hstprintjobpanel.cxx"
 PAGE = "sfx2/source/backstage/hstbackstageprint.cxx"
+PAGE_STYLE = "sfx2/source/backstage/hstbackstageprintmargins.cxx"
 HOST = "sfx2/source/backstage/hstbackstage.cxx"
 WINDOW = "sfx2/source/backstage/hstbackstagewindow.cxx"
 BACKSTAGE_UI = "sfx2/uiconfig/ui/hstbackstage.ui"
@@ -132,9 +133,10 @@ class PrintPage(unittest.TestCase):
     def test_page_requests_and_cancels_jobs(self):
         page = added(PATCH, PAGE)
         self.assertIn('comphelper::dispatchCommand(u".uno:Print"_ustr, m_xFrame, {})', page)
+        self.assertIn("comphelper::dispatchCommand(aCommand, m_xFrame, {});", page)
         for command in (".uno:PageDialog", ".uno:PageFormatDialog", ".uno:PageSetup"):
             with self.subTest(command=command):
-                self.assertIn('u"%s"_ustr' % command, page)
+                self.assertIn('u"%s"_ustr' % command, added(PATCH, PAGE_STYLE))
         window = added(PATCH, WINDOW)
         self.assertIn("m_xPrintPage->Deactivate(); // leaving the Print page cancels its print job", window)
         self.assertIn("m_xPrintPage->Deactivate(); // a print job waiting on the Print page is cancelled", window)
