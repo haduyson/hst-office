@@ -1218,12 +1218,12 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
      // resize/position current TabPage
      ImplTabItem* pItem = ImplGetItem( GetCurPageId() );
 +    // HST Office: a page shown in the compact ribbon's popup (HstDropPage) is placed by the popup
-+    if ( pItem && pItem->mpTabPage && pItem->mpTabPage->GetParent() != this )
++    if ( pItem && pItem->mpTabPage && !pItem->mpTabPage->isDisposed() && pItem->mpTabPage->GetParent() != this )
 +        return true;
-     if ( pItem && pItem->mpTabPage )
+     // HST: a page window of a .ui notebook can be disposed before the notebook (see ImplCalculateRequisition)
+     if ( pItem && pItem->mpTabPage && !pItem->mpTabPage->isDisposed() )
      {
-         if (  GetStyle() & WB_NOBORDER )
-@@ -2488,6 +2491,7 @@
+@@ -2493,6 +2496,7 @@
  
  void NotebookbarTabControlBase::dispose()
  {
@@ -1231,7 +1231,7 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
      m_pShortcuts.disposeAndClear();
      m_pOpenMenu.disposeAndClear();
      TabControl::dispose();
-@@ -2534,8 +2538,27 @@
+@@ -2539,8 +2543,27 @@
      SelectTabPage( TabControl::GetPageId( nCurPos ) );
  }
  
