@@ -150,7 +150,7 @@ def check_slides(office, work, png):
     doc = office.load(office.url(path))
     shapes = [doc.DrawPages.getByIndex(0).getByIndex(i) for i in range(doc.DrawPages.getByIndex(0).Count)]
     pics = [s for s in shapes if s.supportsService("com.sun.star.drawing.GraphicObjectShape")]
-    tabs = [s for s in shapes if s.supportsService("com.sun.star.drawing.TableShape")]
+    tabs = [s for s in shapes if s.ShapeType == "com.sun.star.drawing.TableShape"]
     ok = pics and pics[0].LineColor == 0x0072BB and pics[0].Shadow and tabs and \
         tabs[0].Model.getCellByPosition(0, 0).FillColor == 0x0072BB
     sg.record("pptx reload: outline, shadow and header fill survive", ok,

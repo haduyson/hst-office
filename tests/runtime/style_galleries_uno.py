@@ -94,10 +94,11 @@ def sheets_table(doc):
 def slides_table(doc, page):
     shape = doc.createInstance("com.sun.star.drawing.TableShape")
     page.add(shape)
-    shape.setSize(size(12000, 6000))
     model = shape.Model
     model.Rows.insertByIndex(0, 3)
     model.Columns.insertByIndex(0, 2)
+    for col in range(model.Columns.Count):
+        model.Columns.getByIndex(col).Width = 4000
     for row in range(model.Rows.Count):
         for col in range(model.Columns.Count):
             model.getCellByPosition(col, row).setString(f"{col}{row}")
