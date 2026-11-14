@@ -35035,7 +35035,7 @@ tests/runtime/check-sheets-excel-functions.py.
  
  const sal_uInt64 n2power48 = SAL_CONST_UINT64( 281474976710656); // 2^48
  
-@@ -8502,6 +8520,11 @@ void ScInterpreter::ScSort()
+@@ -8487,6 +8505,11 @@ void ScInterpreter::ScSort()
      {
          bool bMissing = IsMissing();
          ScMatrixRef pSortOrder = GetMatrix();
@@ -35047,7 +35047,7 @@ tests/runtime/check-sheets-excel-functions.py.
          if (!bMissing)
          {
              aSortOrderValues.clear();
-@@ -8523,6 +8546,11 @@ void ScInterpreter::ScSort()
+@@ -8508,6 +8531,11 @@ void ScInterpreter::ScSort()
      {
          bool bMissing = IsMissing();
          ScMatrixRef pSortIndex = GetMatrix();
@@ -35059,7 +35059,7 @@ tests/runtime/check-sheets-excel-functions.py.
          if (!bMissing)
          {
              aSortIndexValues.clear();
-@@ -10026,175 +10054,951 @@ void ScInterpreter::ScUnique()
+@@ -10011,175 +10039,951 @@ void ScInterpreter::ScUnique()
      PushMatrix(pResMat);
  }
  
@@ -35295,8 +35295,7 @@ tests/runtime/check-sheets-excel-functions.py.
 +            return pToken->Clone();
 +    }
 +}
- 
--    if (nJumpCount < 3 || (nJumpCount % 2 != 1))
++
 +#if HAVE_FEATURE_SCRIPTING
 +
 +static uno::Any lcl_getSheetModule( const uno::Reference<table::XCellRange>& xCellRange, const ScDocument* pDok )
@@ -35311,7 +35310,8 @@ tests/runtime/check-sheets-excel-functions.py.
 +    // the document in the future could fix this, especially IF the switching of the vba mode takes care to
 +    // create the special document module objects if they don't exist.
 +    BasicManager* pBasMgr = pDok->GetDocumentShell()->GetBasicManager();
-+
+ 
+-    if (nJumpCount < 3 || (nJumpCount % 2 != 1))
 +    uno::Reference< uno::XInterface > xIf;
 +    if ( pBasMgr && !pBasMgr->GetName().isEmpty() )
      {
@@ -35485,15 +35485,15 @@ tests/runtime/check-sheets-excel-functions.py.
 -            return;
 +            auto pToken = static_cast<const FormulaStringToken*>(pArgIn.get());
 +            pArgOut->PutString( pToken->GetString().getString() );
-         }
--        nJumpCount--;
++        }
 +        break;
 +        case svCallable: // TODO
 +        {
 +            //auto pToken = static_cast<const FormulaCallableToken*>(pArgIn.get());
 +            SetError( FormulaError::IllegalParameter );
 +            return false;
-+        }
+         }
+-        nJumpCount--;
 +        case svExternalSingleRef:
 +        {
 +            auto pToken = static_cast<const ScExternalSingleRefToken*>(pArgIn.get());
@@ -35518,14 +35518,14 @@ tests/runtime/check-sheets-excel-functions.py.
 +                SetError(FormulaError::NoRef);
 +                return false;
 +            }
- 
--        // calculate the inner results unless we already have a push result token
--        if (aTempTokens.GetLen() == 0)
++
 +            ScAddress aAddr = aRef.toAbs(mrDoc, aPos);
 +            ScExternalRefCache::CellFormat aFmt;
 +            ScExternalRefCache::TokenRef pRefToken = pRefMgr->getSingleRefToken(
 +                nFileId, aTabName, aAddr, &aPos, nullptr, &aFmt);
-+
+ 
+-        // calculate the inner results unless we already have a push result token
+-        if (aTempTokens.GetLen() == 0)
 +            if (!pRefToken)
 +            {
 +                SetError(FormulaError::NoRef);
@@ -35666,17 +35666,25 @@ tests/runtime/check-sheets-excel-functions.py.
 +        }
 +        break;
 +        case svExternalDoubleRef:
-+        {
+         {
+-            ScInterpreter aInt(mrDoc.GetFormulaCell(aPos), mrDoc, mrContext, aPos, aValueTokens);
+-            aInt.aCode.Jump(pJump[nOrgJumpCount - nJumpCount], pJump[nOrgJumpCount - nJumpCount + 1], pJump[nOrgJumpCount - nJumpCount + 1]);
+-            while (aInt.aCode.HasStacked())
+-                aInt.aCode.FrontPop();
+-            aInt.aCode.Lambda(true);
 +            auto pToken = static_cast<const ScExternalDoubleRefToken*>(pArgIn.get());
 +            sal_uInt16 nFileId = pToken->GetFileId();
 +            OUString aTabName = pToken->GetTableName().getString();
 +            ScComplexRefData aData = pToken->GetDoubleRef();
 +            ScExternalRefCache::TokenArrayRef pArray;
-+
+ 
+-            sfx2::LinkManager aNewLinkMgr(mrDoc.GetDocumentShell());
+-            aInt.SetLinkManager(&aNewLinkMgr);
 +            GetExternalDoubleRef(nFileId, aTabName, aData, pArray);
 +            if (nGlobalError != FormulaError::NONE)
 +                return false;
-+
+ 
+-            formula::StackVar aIntType = aInt.Interpret();
 +            // For now, we only support single range data for external
 +            // references, which means the array should only contain a
 +            // single matrix token.
@@ -35754,19 +35762,13 @@ tests/runtime/check-sheets-excel-functions.py.
 +        // here. A formula that exceeds the limit yields an error.
 +        sal_uInt16 nLevel = aCode.GetCallableInterpretLevel();
 +        if (nLevel >= MAX_CALLABLE_INTERPRET_LEVEL)
-         {
--            ScInterpreter aInt(mrDoc.GetFormulaCell(aPos), mrDoc, mrContext, aPos, aValueTokens);
--            aInt.aCode.Jump(pJump[nOrgJumpCount - nJumpCount], pJump[nOrgJumpCount - nJumpCount + 1], pJump[nOrgJumpCount - nJumpCount + 1]);
--            while (aInt.aCode.HasStacked())
--                aInt.aCode.FrontPop();
--            aInt.aCode.Lambda(true);
++        {
 +            SetError(FormulaError::StackOverflow);
 +            PushError(nGlobalError);
 +            return;
 +        }
  
--            sfx2::LinkManager aNewLinkMgr(mrDoc.GetDocumentShell());
--            aInt.SetLinkManager(&aNewLinkMgr);
+-            if (aIntType == formula::svMatrixCell)
 +        sal_Int32 nParamCount = pLambda->GetNumParams();
 +        sal_Int32 nRequiredParamCount = pLambda->GetNumRequiredParams();
 +        sal_Int32 nArgCount = aArguments.size();
@@ -35778,12 +35780,10 @@ tests/runtime/check-sheets-excel-functions.py.
 +            PushError(nGlobalError);
 +            return;
 +        }
- 
--            formula::StackVar aIntType = aInt.Interpret();
++
 +        // clone tokens of lambda-body for replacing string name tokens with arguments
 +        ScTokenArray aNewTokens = pLambda->GetLambdaBody().CloneValue();
- 
--            if (aIntType == formula::svMatrixCell)
++
 +        for (sal_Int32 nParam = 0; nParam < nParamCount; ++nParam)
 +        {
 +            const std::forward_list<short>& rPositions = pLambda->GetReplacementPositions(nParam);
@@ -35909,9 +35909,9 @@ tests/runtime/check-sheets-excel-functions.py.
 +                        // Do not add SbxCURRENCY, we don't know which currency.
 +                    default:
 +                        ;   // nothing
-                 }
++                }
 +                PushDouble( fVal );
-             }
++            }
 +            else if ( eResType & SbxARRAY )
 +            {
 +                SbxBase* pElemObj = refRes->GetObject();
@@ -35967,10 +35967,10 @@ tests/runtime/check-sheets-excel-functions.py.
 +                    }
 +                    else
 +                        PushIllegalArgument();
-+                }
+                 }
 +                else
 +                    PushNoValue();
-+            }
+             }
 +            else
 +                PushString( refRes->GetOUString() );
          }
