@@ -648,7 +648,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,37 +479,149 @@
+@@ -281,37 +479,158 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -701,6 +701,15 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    // content's height (a group of two rows with combo boxes is lower than one of large buttons)
 +    bChanged |= setIfChanged<VclAlign>(rGrid.get_valign(), VclAlign::Fill, [&rGrid](VclAlign e) { rGrid.set_valign(e); });
 +    bChanged |= setIfChanged<bool>(rGrid.get_vexpand(), true, [&rGrid](bool b) { rGrid.set_vexpand(b); });
++    // and so do the boxes holding the groups up to the tab's page (a tab's box is authored centred: a tab of
++    // lower groups put its captions higher than a tab of large buttons)
++    for (vcl::Window* pBox = rGrid.GetParent(); dynamic_cast<VclBox*>(pBox); pBox = pBox->GetParent())
++    {
++        bool bBox = setIfChanged<VclAlign>(pBox->get_valign(), VclAlign::Fill, [pBox](VclAlign e) { pBox->set_valign(e); });
++        bBox |= setIfChanged<bool>(pBox->get_vexpand(), true, [pBox](bool b) { pBox->set_vexpand(b); });
++        if (bBox)
++            pBox->queue_resize();
++    }
 +    for (std::size_t i = 0; i < rChildren.size(); ++i)
 +    {
 +        vcl::Window& rChild = *rChildren[i];
@@ -809,7 +818,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
-@@ -377,8 +687,11 @@
+@@ -377,8 +696,11 @@
      }
      const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
      for (ToolBox* pToolBox : aToolBoxes)
@@ -823,7 +832,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // the menu buttons of every group drop their labels at the small state only (their image stays where it
      // is: above the label in a group of few commands)
      forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
-@@ -408,7 +721,8 @@
+@@ -408,7 +730,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {
