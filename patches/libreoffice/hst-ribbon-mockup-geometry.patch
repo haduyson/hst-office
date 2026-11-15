@@ -65,6 +65,19 @@ License: these upstream files remain under their original license (MPL-2.0).
  /** The name of the File tab ("Tệp tin") in the notebookbar .ui files. It opens the File panel and
      never shows ribbon content of its own, so it is drawn as a button, not as a tab. */
  inline constexpr OUString FILE_TAB_NAME = u"FileLabel"_ustr;
+@@ -77,7 +94,11 @@
+     inside the filled shape. */
+ SAL_DLLPRIVATE tools::Long FileTabExtraWidth(const OutputDevice& rDev);
+ 
+-/** The filled, rounded File button inside rItem (the full height of the tab row, like the tabs);
++/** Logical px height of the File button (the approved mockup's .hw-file), centred in the tab row. */
++inline constexpr tools::Long FILE_BUTTON_HEIGHT = 24;
++
++/** The filled, rounded File button inside rItem: FILE_BUTTON_HEIGHT high, centred in rItem vertically, 2 px in
++    from its left and right;
+     in high contrast with an outline in the text colour while hovered or pressed. Returns the
+     colour for its label. */
+ SAL_DLLPRIVATE Color DrawFileTab(vcl::RenderContext& rDev, const tools::Rectangle& rItem,
 --- /dev/null
 +++ b/vcl/inc/HstRibbonGeometry.hxx
 @@ -0,0 +1,184 @@
@@ -470,14 +483,15 @@ License: these upstream files remain under their original license (MPL-2.0).
      const ButtonType eType = bLabels ? rData.meHstAuthoredType : ButtonType::SYMBOLONLY;
      const ToolBoxButtonSize eSize
          = bKeep || rData.meHstAuthoredSize != ToolBoxButtonSize::Large ? rData.meHstAuthoredSize
-@@ -129,6 +198,22 @@
+@@ -129,6 +198,23 @@
          rToolBox.HstSetGridRows(nGridRows);
          bChanged = true;
      }
 +    // HST Office: a large button stands at the top of its group's content (its icon and label on the line of every
 +    // large button); medium and small buttons start at their column's left edge, so the icons of a column line up
 +    // (Find over Replace) whatever their labels' widths
-+    const bool bLargeNow = eSize == ToolBoxButtonSize::Large && ePosition == ToolBoxTextPosition::Bottom;
++    const bool bLargeNow = (eSize == ToolBoxButtonSize::Large || eSize == ToolBoxButtonSize::Size32)
++                           && ePosition == ToolBoxTextPosition::Bottom;
 +    const VclAlign eVAlign = bLargeNow ? VclAlign::Start : VclAlign::Center;
 +    const VclAlign eHAlign = bLargeNow ? VclAlign::Center : VclAlign::Start;
 +    if (rToolBox.get_valign() != eVAlign)
@@ -493,7 +507,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // HST Office: a gallery in the toolbox (Slides' themes) shows fewer columns at the smaller states, so the
      // group narrows before it folds; a window that does not know the property ignores it
      const OUString aGalleryState = OUString::number(std::min(nState, int(GroupSmall)));
-@@ -163,6 +248,13 @@
+@@ -163,6 +249,13 @@
      {
          OUString aText; // the label as authored
          bool bTip = false; // the tooltip was set from the label (the label is hidden)
@@ -507,7 +521,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      };
      static std::map<const vcl::Window*, Label>& labels()
      {
-@@ -198,22 +290,126 @@
+@@ -198,22 +291,126 @@
      return OUString::Concat(rLabel.subView(0, nBest)) + "\n" + rLabel.subView(nBest + 1) + " " + aArrow;
  }
  
@@ -637,7 +651,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      const bool bLarge = !bHide && bImage && rButton.GetImageAlign() == ImageAlign::Top;
      const OUString aText = bHide ? OUString() : bLarge ? largeMenuLabel(rLabel.aText) : rLabel.aText;
      const PushButtonDropdownStyle eArrow = bLarge ? PushButtonDropdownStyle::NONE : PushButtonDropdownStyle::MenuButton;
-@@ -228,12 +424,14 @@
+@@ -228,12 +425,14 @@
          rLabel.bTip = false;
      }
      rButton.SetDropDown(eArrow); // no change when it is already so
@@ -658,7 +672,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  /// Grid attachments of a group's children as authored, kept while the window lives.
-@@ -247,10 +445,211 @@
+@@ -247,10 +446,211 @@
      DECL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, void);
  };
  
@@ -870,7 +884,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  GroupCell authoredCell(vcl::Window& rChild)
-@@ -259,10 +658,8 @@
+@@ -259,10 +659,8 @@
      auto it = rCells.find(&rChild);
      if (it == rCells.end())
      {
@@ -883,7 +897,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,37 +678,211 @@
+@@ -281,37 +679,218 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -958,6 +972,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                                                [&rChild](sal_Int32 n) { rChild.set_margin_top(n); });
 +            bChanged |= setIfChanged<VclAlign>(rChild.get_valign(), VclAlign::End,
 +                                               [&rChild](VclAlign e) { rChild.set_valign(e); });
++            bChanged |= setIfChanged<bool>(rChild.get_vexpand(), true, [&rChild](bool b) { rChild.set_vexpand(b); });
 +            // the caption's text centred in the band, whether the label is the cell or sits in its box
 +            vcl::Window* pFirst = rChild.GetWindow(GetWindowType::FirstChild);
 +            for (vcl::Window* pText = &rChild; pText;
@@ -967,7 +982,13 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                                                      (pText->GetStyle() & ~(WB_TOP | WB_BOTTOM)) | WB_VCENTER,
 +                                                      [pText](WinBits n) { pText->SetStyle(n); });
 +        }
-+        else if (FixedLine* pLine = dynamic_cast<FixedLine*>(&rChild))
++        else if (!dynamic_cast<FixedLine*>(&rChild))
++        {
++            // only the caption row takes the body's spare height: an item that expands (Paste, Select are authored
++            // so) made the content rows 25 px instead of 24, so the third row stood 2 px under the others' rows
++            bChanged |= setIfChanged<bool>(rChild.get_vexpand(), false, [&rChild](bool b) { rChild.set_vexpand(b); });
++        }
++        if (FixedLine* pLine = dynamic_cast<FixedLine*>(&rChild))
 +        {
 +            const sal_Int32 nInset = px(geometry::SEPARATOR_INSET) - px(geometry::GROUP_PADDING);
 +            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_top(), nInset,
@@ -1107,7 +1128,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
-@@ -375,10 +946,18 @@
+@@ -375,10 +954,18 @@
          if (nCommands > FEW_COMMANDS)
              break;
      }
@@ -1129,7 +1150,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // the menu buttons of every group drop their labels at the small state only (their image stays where it
      // is: above the label in a group of few commands)
      forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
-@@ -408,7 +987,8 @@
+@@ -408,7 +995,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {
@@ -1157,11 +1178,10 @@ License: these upstream files remain under their original license (MPL-2.0).
  
  namespace hst::ribbon
  {
-@@ -126,6 +129,104 @@
-     }
+@@ -127,6 +130,104 @@
      rDev.Pop();
  }
-+
+ 
 +namespace
 +{
 +/// The caption of a folded group on one line, or on two split at the space that makes the wider one the
@@ -1259,9 +1279,26 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    }
 +    rDev.Pop();
 +}
- 
++
  FileTabColors fileTabColorsFor(const StyleSettings& rStyle, bool bPressed, bool bHover)
  {
+     if (rStyle.GetHighContrastMode())
+@@ -150,11 +251,10 @@
+     const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
+     const FileTabColors aColors = fileTabColorsFor(rStyle, bPressed, bHover);
+     const tools::Long nInset = scaled(rDev, 2);
+-    tools::Rectangle aFill(rItem);
+-    aFill.AdjustLeft(nInset);
+-    aFill.AdjustTop(nInset);
+-    aFill.AdjustRight(-nInset);
+-    aFill.AdjustBottom(-nInset);
++    // the approved mockup's File button: 24 logical px high, centred in the tab row (whatever the row's height)
++    const tools::Long nHeight = std::min<tools::Long>(rItem.GetHeight(), scaled(rDev, FILE_BUTTON_HEIGHT));
++    tools::Rectangle aFill(Point(rItem.Left() + nInset, rItem.Top() + (rItem.GetHeight() - nHeight) / 2),
++                           Size(std::max<tools::Long>(1, rItem.GetWidth() - 2 * nInset), nHeight));
+     rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
+     // high contrast has one fill colour only: the state shows as an outline
+     if (rStyle.GetHighContrastMode() && (bPressed || bHover))
 --- a/vcl/source/window/toolbox.cxx
 +++ b/vcl/source/window/toolbox.cxx
 @@ -44,6 +44,7 @@
@@ -1272,7 +1309,15 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <HstRibbonGrid.hxx>
  #include <vcl/HstRibbonPaint.hxx>
  #include <spin.hxx>
-@@ -97,30 +98,66 @@
+@@ -52,6 +53,7 @@
+ #endif
+ 
+ #include <algorithm>
++#include <cstdio>
+ #include <cstdlib>
+ #include <map>
+ #include <string_view>
+@@ -97,30 +99,90 @@
  
  namespace
  {
@@ -1339,6 +1384,30 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    return ePosition == ToolBoxTextPosition::Bottom ? HstKind::Large : HstKind::Small;
 +}
 +
++// HST Office: with HST_RIBBON_DUMP_ICONS=<file>, every ribbon button appends where its icon is drawn, for the icon
++// grid check (tests/runtime/check-ribbon-icon-grid.py): one line per paint, in VCL's absolute screen px (relative to
++// the top-level window on some platforms: compare the icon with its button, both in the same frame),
++// "HST_RIBBON_ICON <L|S> <command> icon x y w h button x y w h scale <factor>". Unset: nothing is written.
++void ImplHstDumpIcon(const ToolBox& rToolBox, const ImplToolItem& rItem, bool bLarge, const Point& rIcon,
++                     const Size& rIconSize)
++{
++    static FILE* const pDump = [] {
++        const char* pPath = std::getenv("HST_RIBBON_DUMP_ICONS");
++        return pPath && *pPath ? std::fopen(pPath, "a") : nullptr;
++    }();
++    if (!pDump)
++        return;
++    const AbsoluteScreenPixelPoint aIcon = rToolBox.OutputToAbsoluteScreenPixel(rIcon);
++    const AbsoluteScreenPixelPoint aButton = rToolBox.OutputToAbsoluteScreenPixel(rItem.maRect.TopLeft());
++    std::fprintf(pDump, "HST_RIBBON_ICON %c %s icon %ld %ld %ld %ld button %ld %ld %ld %ld scale %.2f\n",
++                 bLarge ? 'L' : 'S', rItem.maCommandStr.toUtf8().getStr(), static_cast<long>(aIcon.X()),
++                 static_cast<long>(aIcon.Y()), static_cast<long>(rIconSize.Width()), static_cast<long>(rIconSize.Height()),
++                 static_cast<long>(aButton.X()), static_cast<long>(aButton.Y()),
++                 static_cast<long>(rItem.maRect.GetWidth()), static_cast<long>(rItem.maRect.GetHeight()),
++                 rToolBox.GetDPIScaleFactor());
++    std::fflush(pDump);
++}
++
 +// HST Office: the parts of a large ribbon button; rLabel is its label as drawn (ImplHstLabel), empty when the
 +// label is not drawn
 +hst::ribbon::geometry::LargeButton ImplHstLargeButton(const ToolBox& rToolBox, const ImplToolItem& rItem,
@@ -1354,7 +1423,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  // HST Office: the even grid of a ribbon toolbox at its medium/small size (HstRibbonGrid.hxx); item sizes
-@@ -1531,6 +1568,11 @@
+@@ -1531,6 +1593,11 @@
          }
      }
  
@@ -1366,7 +1435,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      if ( ! mpData->m_aItems.empty() )
      {
          for (auto & item : mpData->m_aItems)
-@@ -1628,7 +1670,9 @@
+@@ -1628,7 +1695,9 @@
                  item.maContentSize = item.maItemSize;
  
                  // if required, take window height into consideration
@@ -1377,7 +1446,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                  {
                      tools::Long nHeight = item.mpWindow->GetSizePixel().Height();
                      if ( nHeight > mnWinHeight )
-@@ -1709,6 +1753,44 @@
+@@ -1709,6 +1778,44 @@
                      // grow the content size by the additional available space
                      item.maContentSize.AdjustWidth(nGrowContentWidth );
                      item.maContentSize.AdjustHeight(nGrowContentHeight );
@@ -1422,7 +1491,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                  }
  
                  // keep track of max item size
-@@ -1727,8 +1809,9 @@
+@@ -1727,8 +1834,9 @@
          ImplAddButtonBorder( nMaxWidth, nMaxHeight, mpData->mbNativeButtons );
      }
  
@@ -1433,7 +1502,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      {
          // make sure all vertical toolbars have the same width and horizontal have the same height
          // this depends on the used button sizes
-@@ -2800,6 +2883,13 @@
+@@ -2800,6 +2908,13 @@
      if (bDropDown)
          aDropDownRect = pItem->GetDropDownRect(mbHorz);
  
@@ -1447,7 +1516,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      if ( bImage )
      {
          const Image* pImage = &(pItem->maImage);
-@@ -2811,7 +2901,18 @@
+@@ -2811,7 +2926,18 @@
          // draw the image
          nImageOffX = nOffX;
          nImageOffY = nOffY;
@@ -1467,7 +1536,14 @@ License: these upstream files remain under their original license (MPL-2.0).
              && ( meTextPosition == ToolBoxTextPosition::Right ) )
          {
              // left align also to leave space for drop down arrow
-@@ -2856,9 +2957,51 @@
+@@ -2851,14 +2977,58 @@
+             nImageStyle |= DrawImageFlags::Disable;
+ 
+         rRenderContext.DrawImage(Point( nImageOffX, nImageOffY ), *pImage, nImageStyle);
++        if ( eHst != HstKind::None )
++            ImplHstDumpIcon( *this, *pItem, eHst == HstKind::Large, Point( nImageOffX, nImageOffY ), aImageSize );
+     }
+ 
      // draw the text
      bool bRotate = false;
      tools::Rectangle aHstArrowRect; // HST Office: where ▾ of a split large button goes
@@ -1521,7 +1597,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          const bool bLines = ImplHasLabelLines(aHstLabel, meTextPosition);
          const Size aTxtSize(bLines ? ImplLabelLinesSize(*GetOutDev(), aHstLabel)
                                     : Size(GetOutDev()->GetCtrlTextWidth(pItem->maText), GetTextHeight()));
-@@ -2959,7 +3102,17 @@
+@@ -2959,7 +3129,17 @@
      {
          // HST Office: only ▾ after the label; the label part is not erased (it holds the label)
          if (!aHstArrowRect.IsEmpty())

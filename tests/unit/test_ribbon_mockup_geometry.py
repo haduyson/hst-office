@@ -143,6 +143,21 @@ class MockupGeometry(unittest.TestCase):
             with open(writer, encoding="utf-8") as handle:
                 self.assertNotIn("btnHomeHstCellStyles", handle.read())
 
+    def test_file_button_is_24_px_centred(self):
+        self.assertIn("inline constexpr tools::Long FILE_BUTTON_HEIGHT = 24;", added(PATCH, "include/vcl/HstRibbonPaint.hxx"))
+        paint = added(PATCH, "vcl/source/control/HstRibbonPaint.cxx")
+        self.assertIn("rItem.Top() + (rItem.GetHeight() - nHeight) / 2", paint)
+
+    def test_only_the_caption_row_expands(self):
+        ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
+        self.assertIn("setIfChanged<bool>(rChild.get_vexpand(), false", ladder)
+        self.assertIn("eSize == ToolBoxButtonSize::Size32", ladder)
+
+    def test_icon_dump_is_opt_in(self):
+        toolbox = added(PATCH, "vcl/source/window/toolbox.cxx")
+        self.assertIn('const char* pPath = std::getenv("HST_RIBBON_DUMP_ICONS");', toolbox)
+        self.assertIn("if ( eHst != HstKind::None )\n            ImplHstDumpIcon(", toolbox)
+
     def test_menu_buttons_use_the_tool_font(self):
         ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
         self.assertIn("rButton.SetControlFont(rToolFont);", ladder)
