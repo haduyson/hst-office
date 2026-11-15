@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-""""Macro VBA" (HST menu, Tools ribbon tab, Alt+F11): open the Basic IDE on the VBA module of the current Writer/Sheets document.
+""""Macro VBA" (HST menu, ribbon, Alt+F11): open the Basic IDE on the VBA module of the current document.
 
-The document's VBA module is the first normal module that runs in VBA mode (an Excel/Word file's
-own modules, or one HST created earlier). Without one, HST creates Module<n> from vba_template
-and opens the editor on its example Sub. A document without any Basic code yet is switched to VBA
-mode (project "VBAProject"/"Project", Vietnamese code page) so that saving as .xlsm/.docm writes
-the VBA project; a document that already holds LibreOffice Basic code keeps its mode, and only
-the new module gets VBA support (its "Option VBASupport 1" line), so existing macros run as before.
+Works in HST Writer, Sheets, Slides and Draw. The document's VBA module is the first normal module
+that runs in VBA mode (an Excel/Word/PowerPoint file's own modules, or one HST created earlier).
+Without one, HST creates Module<n> from vba_template and opens the editor on its example Sub.
+In Writer and Sheets a document without any Basic code yet is switched to VBA mode (project
+"VBAProject"/"Project", Vietnamese code page) so that saving as .xlsm/.docm writes the VBA project.
+Slides and Draw cannot write a new VBA project, so their documents keep their mode and the module
+gets VBA support from its "Option VBASupport 1" line, like a new module in a document that already
+holds LibreOffice Basic code (existing macros run as before).
 UNO is only touched through the objects passed in, so tests/runtime/check-vba.py uses the same code.
 """
 from . import vba_template
@@ -22,6 +24,11 @@ def app_of(doc):
         return "calc"
     if doc.supportsService("com.sun.star.text.TextDocument"):
         return "writer"
+    # Impress models also offer the generic drawing services: test the presentation first.
+    if doc.supportsService("com.sun.star.presentation.PresentationDocument"):
+        return "impress"
+    if doc.supportsService("com.sun.star.drawing.DrawingDocument"):
+        return "draw"
     return None
 
 
@@ -63,7 +70,7 @@ def prepare_document(doc, app):
     project = libs.ProjectName if vba_mode and libs.ProjectName and libs.hasByName(libs.ProjectName) else None
     if project is None:
         project = vba_template.project_name(app)
-        if not vba_mode and not has_basic_code(libs):
+        if not vba_mode and vba_template.exports_vba_project(app) and not has_basic_code(libs):
             if not libs.hasByName(project):
                 libs.createLibrary(project)
             libs.VBACompatibilityMode = True
@@ -99,7 +106,7 @@ def open_editor(ctx, frame, doc, library, module, line):
 
 
 def run(host):
-    """HST command EditVba. Menu, ribbon and Alt+F11 offer it only in Writer and Sheets."""
+    """HST command EditVba (HST menu, Alt+F11) in Writer, Sheets, Slides and Draw; elsewhere it does nothing."""
     app = app_of(host.doc)
     if app is None:
         return

@@ -1,23 +1,33 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Text of the VBA modules HST creates for "Macro VBA" (pure Python, no UNO; unit-tested).
 
-Every new module starts with Option VBASupport 1, so Excel/Word object names (Range, Cells,
-ActiveDocument…) work in it even when the document is not in VBA mode, followed by a short
-Vietnamese guide and one example macro the user can run with F5.
+Every new module starts with Option VBASupport 1, so VBA syntax and the object names of the
+spreadsheet and text object models (Range, Cells, ActiveDocument…) work in it even when the
+document is not in VBA mode, followed by a short Vietnamese guide and one example macro the user
+can run with F5. HST Slides and HST Draw have no VBA object model of their own: their example
+reaches the document through ThisComponent, and only the ODF formats keep code written in HST.
 """
 import unicodedata
 
 OPTION_LINE = "Option VBASupport 1"
-# Names the Office VBA editors use for a new file's project, so users find what they know.
-PROJECT_NAMES = {"calc": "VBAProject", "writer": "Project"}
+# Names the reference suite's VBA editor gives a new file's project, so users find what they know.
+PROJECT_NAMES = {"calc": "VBAProject", "writer": "Project", "impress": "VBAProject", "draw": "VBAProject"}
+# Apps whose file filters write a VBA project HST authored (.xlsm/.docm): only there a document
+# without code is switched to VBA mode. The presentation export only writes back a project it loaded.
+VBA_PROJECT_EXPORT = {"calc", "writer"}
 MODULE_PREFIX = "Module"
 # Windows-1258 (Vietnamese): the code page Excel/Word on Vietnamese Windows store VBA source in.
 # rtl_TextEncoding value of RTL_TEXTENCODING_MS_1258 (include/rtl/textenc.h).
 VBA_TEXT_ENCODING_VI = 40
 
+# (product, what VBA reaches there, formats that keep the macros) — user-visible, no other suite's names.
 _GUIDE = {
-    "calc": ("HST Sheets", "Excel", ".xlsm (Excel có macro) hoặc .ods"),
-    "writer": ("HST Writer", "Word", ".docm (Word có macro) hoặc .odt"),
+    "calc": ("HST Sheets", "các đối tượng bảng tính quen thuộc (Range, Cells, ActiveSheet…)",
+             ".xlsm (bảng tính có macro) hoặc .ods"),
+    "writer": ("HST Writer", "các đối tượng văn bản quen thuộc (ActiveDocument, Selection…)",
+               ".docm (văn bản có macro) hoặc .odt"),
+    "impress": ("HST Slides", "bản trình chiếu qua ThisComponent", ".odp"),
+    "draw": ("HST Draw", "bản vẽ qua ThisComponent", ".odg"),
 }
 _EXAMPLE = {
     "calc": ('Sub XinChao()\n'
@@ -30,15 +40,25 @@ _EXAMPLE = {
                '    ActiveDocument.Content.InsertAfter "Xin chào từ VBA!"\n'
                '    MsgBox "Đã thêm câu chào vào cuối văn bản", vbInformation, "HST Writer"\n'
                'End Sub\n'),
+    "impress": ('Sub XinChao()\n'
+                '    \' Ví dụ: đếm số trang chiếu của bản trình chiếu đang mở\n'
+                '    MsgBox "Xin chào từ VBA! Bản trình chiếu có " & ThisComponent.DrawPages.Count & " trang chiếu.", _\n'
+                '        vbInformation, "HST Slides"\n'
+                'End Sub\n'),
+    "draw": ('Sub XinChao()\n'
+             '    \' Ví dụ: đếm số trang của bản vẽ đang mở\n'
+             '    MsgBox "Xin chào từ VBA! Bản vẽ có " & ThisComponent.DrawPages.Count & " trang.", _\n'
+             '        vbInformation, "HST Draw"\n'
+             'End Sub\n'),
 }
 
 
 def module_text(app):
-    """Initial code of a new VBA module for app "calc" or "writer"."""
-    product, office, formats = _GUIDE[app]
+    """Initial code of a new VBA module for app "calc", "writer", "impress" or "draw"."""
+    product, objects, formats = _GUIDE[app]
     return (f"{OPTION_LINE}\n"
             "' ==================================================================\n"
-            f"'  Macro VBA của {product}: viết như trong Microsoft {office}.\n"
+            f"'  Macro VBA của {product}: cú pháp VBA, dùng {objects}.\n"
             "'  - Chạy macro: đặt con trỏ trong một Sub rồi nhấn F5.\n"
             "'  - Từ tài liệu: Alt+F8 mở hộp thoại Macro để chọn và chạy.\n"
             f"'  - Lưu tệp dạng {formats} để giữ macro.\n"
@@ -49,6 +69,11 @@ def module_text(app):
 
 def project_name(app):
     return PROJECT_NAMES[app]
+
+
+def exports_vba_project(app):
+    """True when saving from app can write a VBA project HST created (so new documents get VBA mode)."""
+    return app in VBA_PROJECT_EXPORT
 
 
 def next_module_name(existing):

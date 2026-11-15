@@ -1,15 +1,18 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""GUI check of the "Macro VBA" entry points in HST Sheets and HST Writer (GTK3, fresh Vietnamese profile).
+"""GUI check of the "Macro VBA" entry points in HST Sheets, Writer, Slides and Draw (GTK3, fresh Vietnamese profile).
 
 Usage: python3 tests/runtime/check-vba-editor.py [--instdir upstream/libreoffice/instdir]
        [--out tests/output/vba-editor] [--display :91] [--port 22979] [--shots DIR]
 
 The X display must already run (e.g. Xvfb :91 -screen 0 1600x1000x24 -nolisten tcp).
-  - org.hst.office.vi:EditVba (HST menu / ribbon command) in a new Calc and a new Writer document:
-    the Basic IDE opens and the document gets Module1 = Option VBASupport 1 + Vietnamese template,
-    in a VBA-mode project (VBAProject / Project); a second call reuses the module.
-  - Alt+F11 opens the editor from a document, Alt+F8 opens the Basic Macros dialog (Sheets and Writer).
-  - Opening an .xlsm with macros shows the macro security prompt (nothing runs before the answer).
+  - org.hst.office.vi:EditVba (HST menu / ribbon command) in a new document of each app: the Basic
+    IDE opens and the document gets Module1 = Option VBASupport 1 + Vietnamese template, in a
+    VBA-mode project (VBAProject / Project) in Calc and Writer, in a Basic-mode VBAProject library
+    in Slides and Draw; a second call reuses the module.
+  - Alt+F11 opens the editor from a document, Alt+F8 opens the Basic Macros dialog (all four apps).
+  - Slides and Draw: a macro runs when the user asks, from the editor (F5) and from Alt+F8 ▸ Chạy
+    (vba_editor_run_macro.py).
+  - Opening an .xlsm, .odp or .odg with macros shows the macro security prompt (nothing runs before the answer).
 --shots writes the help screenshots (macro-vba-*.png). Exit 1 when any check fails.
 """
 import argparse
@@ -23,6 +26,7 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(HERE)), "extensions/hst-vietnamese-tools/python"))
 import hst_gui  # noqa: E402
 from hst_office import vba, vba_template  # noqa: E402
+from vba_editor_run_macro import check_run_from_editor, check_run_from_macro_dialog  # noqa: E402
 from vba_worksheet_change import check_worksheet_change  # noqa: E402
 
 RESULTS = []
@@ -84,8 +88,10 @@ def check_app(office, kind, app, title, shots):
     libs = doc.BasicLibraries
     project = vba_template.project_name(app)
     code = libs.getByName(project).getByName("Module1") if libs.hasByName(project) and libs.getByName(project).hasByName("Module1") else ""
-    check(f"{app}: VBA-mode project {project} with Module1 from the template",
-          libs.VBACompatibilityMode and libs.ProjectName == project and vba_template.same_text(code, vba_template.module_text(app)),
+    vba_mode = vba_template.exports_vba_project(app)  # Slides/Draw keep Basic mode: the module has VBA support
+    check(f"{app}: {'VBA-mode project' if vba_mode else 'library'} {project} with Module1 from the template",
+          bool(libs.VBACompatibilityMode) == vba_mode and (libs.ProjectName == project or not vba_mode)
+          and vba_template.same_text(code, vba_template.module_text(app)),
           f"mode={libs.VBACompatibilityMode} project={libs.ProjectName!r}")
     if shots:
         time.sleep(2)
@@ -111,17 +117,17 @@ def check_app(office, kind, app, title, shots):
             if shots and app == "calc":
                 office.screenshot(os.path.join(shots, "macro-vba-run.png"))
             keys(office, window(office, r"Macro Basic|Basic Macros|Macro")[0], "Escape")
-    doc.close(True)
+    return doc
 
 
-def check_security_prompt(office, out, shots):
+def check_security_prompt(office, out, shots, kind="scalc", app="calc", name="prompt.xlsm", filter_name="Calc Office Open XML VBA"):
     import uno
     from com.sun.star.beans import PropertyValue
-    path = os.path.join(out, "prompt.xlsm")
-    doc = office.load("private:factory/scalc")
-    vba.prepare_document(doc, "calc")  # a VBA project with Module1: the saved file contains macros
+    path = os.path.join(out, name)
+    doc = office.load(f"private:factory/{kind}")
+    vba.prepare_document(doc, app)  # Module1 from the template: the saved file contains macros
     prop = PropertyValue()
-    prop.Name, prop.Value = "FilterName", "Calc Office Open XML VBA"
+    prop.Name, prop.Value = "FilterName", filter_name
     doc.storeToURL(uno.systemPathToFileUrl(path), (prop,))
     doc.close(True)
     mode = PropertyValue()
@@ -131,9 +137,9 @@ def check_security_prompt(office, out, shots):
                               daemon=True)
     loader.start()
     prompt = wait(lambda: window(office, r"[Bb]ảo mật|[Ss]ecurity") is not None, 30)
-    check("an .xlsm with macros shows the macro security prompt", prompt, str(hst_gui.toplevels(office.display, office.pid)))
+    check(f"{name}: a file with macros shows the macro security prompt", prompt, str(hst_gui.toplevels(office.display, office.pid)))
     if prompt:
-        if shots:
+        if shots and app == "calc":
             office.screenshot(os.path.join(shots, "macro-vba-security.png"))
         keys(office, window(office, r"[Bb]ảo mật|[Ss]ecurity")[0], "Escape")
     loader.join(30)
@@ -150,10 +156,19 @@ def main():
     hst_gui.setup_uno(args.instdir)
     office = hst_gui.Office(args.instdir, args.out, args.port, display=args.display).start()
     try:
-        check_app(office, "scalc", "calc", r"HST Sheets$", args.shots)
-        check_app(office, "swriter", "writer", r"HST Writer$", args.shots)
+        for kind, app, title in (("scalc", "calc", r"HST Sheets$"), ("swriter", "writer", r"HST Writer$")):
+            check_app(office, kind, app, title, args.shots).close(True)
+        this = sys.modules[__name__]
+        for kind, app, product in (("simpress", "impress", "HST Slides"), ("sdraw", "draw", "HST Draw")):
+            doc = check_app(office, kind, app, product + "$", args.shots)
+            check_run_from_editor(this, office, doc, app, product)
+            check_run_from_macro_dialog(this, office, app, product + "$")
+            doc.close(True)
         check_worksheet_change(office, os.path.abspath(args.out), check, wait, window)
-        check_security_prompt(office, os.path.abspath(args.out), args.shots)
+        out = os.path.abspath(args.out)
+        check_security_prompt(office, out, args.shots)
+        check_security_prompt(office, out, None, "simpress", "impress", "prompt.odp", "impress8")
+        check_security_prompt(office, out, None, "sdraw", "draw", "prompt.odg", "draw8")
     finally:
         office.stop()
     failed = [name for name, ok in RESULTS if not ok]

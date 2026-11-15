@@ -104,9 +104,9 @@ class MenuContractTest(unittest.TestCase):
         menu = items("OfficeMenuBar")
         vi = "org.hst.office.vi:"
         for url in (vi + "Nd30Wizard", vi + "ImportCsv", vi + "SetupUsbToken", vi + "UILanguageVi", vi + "DefaultApps",
-                    ".uno:CommandPopup", vi + "ShowSolutions", UPDATE):
+                    ".uno:CommandPopup", vi + "ShowSolutions", UPDATE, vi + "EditVba"):
             self.assertIn(DRAW, menu[url][0][1], url)
-        for url in (vi + "ConvertEncoding", vi + "NumberToWords", vi + "ToggleDuplex", vi + "EditVba", vi + "FormatVnd"):
+        for url in (vi + "ConvertEncoding", vi + "NumberToWords", vi + "ToggleDuplex", vi + "FormatVnd"):
             self.assertNotIn(DRAW, menu[url][0][1], url)
 
     def test_english_menu_strings_are_vietnamese(self):
