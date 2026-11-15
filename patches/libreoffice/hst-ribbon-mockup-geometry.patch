@@ -67,7 +67,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  inline constexpr OUString FILE_TAB_NAME = u"FileLabel"_ustr;
 --- /dev/null
 +++ b/vcl/inc/HstRibbonGeometry.hxx
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,175 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -104,7 +104,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +constexpr long LAUNCHER = 15; // the dialog launcher, at the right end of the caption band
 +constexpr long LAUNCHER_ROOM = 18; // the caption keeps this much room for the launcher on its right
 +
-+constexpr long LARGE_ICON_SLOT = 32; // a large button's icon (24 px) is centred in a 32 px slot
++constexpr long LARGE_ICON = 24; // a large button's icon (lc_), centred in a 32 px slot
++constexpr long LARGE_ICON_SLOT = 32; // a larger icon (Paste's 32 px) fills the slot
 +constexpr long LARGE_SLOT_TOP = 6; // the slot's top: 1 px border and 5 px padding
 +constexpr long LARGE_MIN_WIDTH = 42;
 +constexpr long LARGE_LABEL_PAD = 4; // left and right of the label: 1 px border and 3 px padding
@@ -190,10 +191,14 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    aButton.width = std::max({ px(LARGE_MIN_WIDTH, fScale), nLabel + 2 * px(LARGE_LABEL_PAD, fScale),
 +                               nIcon + 2 * px(LARGE_LABEL_PAD, fScale) });
 +    aButton.height = px(CONTENT, fScale);
-+    const long nRoom = aButton.height - px(LARGE_BOTTOM_PAD, fScale) - 2 * nTextHeight - imageTextGap(nTextHeight) - nIcon;
-+    aButton.iconY = std::max(0L, std::min(px(LARGE_SLOT_TOP, fScale) + std::max(0L, px(LARGE_ICON_SLOT, fScale) - nIcon) / 2,
-+                                          nRoom));
-+    aButton.textY = aButton.iconY + nIcon + imageTextGap(nTextHeight);
++    // the label's line comes from a LARGE_ICON icon whatever the icon's size (the mockup's label starts under the
++    // slot), so Paste's 32 px icon does not push its label under the others; a larger icon shares the centre
++    const long nNominal = px(LARGE_ICON, fScale);
++    const long nRoom = aButton.height - px(LARGE_BOTTOM_PAD, fScale) - 2 * nTextHeight - imageTextGap(nTextHeight) - nNominal;
++    const long nNominalY = std::max(
++        0L, std::min(px(LARGE_SLOT_TOP, fScale) + std::max(0L, px(LARGE_ICON_SLOT, fScale) - nNominal) / 2, nRoom));
++    aButton.iconY = std::max(0L, nNominalY - (nIcon - nNominal) / 2);
++    aButton.textY = nNominalY + nNominal + imageTextGap(nTextHeight);
 +    aButton.linePitch = nTextHeight;
 +    return aButton;
 +}
@@ -421,7 +426,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      };
      static std::map<const vcl::Window*, Label>& labels()
      {
-@@ -198,6 +232,66 @@
+@@ -198,6 +232,68 @@
      return OUString::Concat(rLabel.subView(0, nBest)) + "\n" + rLabel.subView(nBest + 1) + " " + aArrow;
  }
  
@@ -449,7 +454,9 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            = rButton.IsNativeControlSupported(ControlType::Pushbutton, ControlPart::Entire) ? 4 : 2;
 +        nStyle = (rLabel.nStyle & ~(WB_VCENTER | WB_BOTTOM | WB_LEFT | WB_RIGHT)) | WB_TOP | WB_CENTER | WB_WORDBREAK;
 +        eVAlign = VclAlign::Start;
-+        nMarginTop = static_cast<sal_Int32>(std::max<tools::Long>(0, aLarge.iconY - nInner));
++        // the label on the large buttons' label line whatever the image's size (PushButton puts it under the image)
++        nMarginTop = static_cast<sal_Int32>(std::max<tools::Long>(
++            0, aLarge.textY - geometry::imageTextGap(rButton.GetTextHeight()) - aImage.Height() - nInner));
 +        nWidth = static_cast<sal_Int32>(aLarge.width);
 +        nHeight = static_cast<sal_Int32>(aLarge.height - nMarginTop);
 +    }
@@ -488,7 +495,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  void applyToMenuButton(MenuButton& rButton, int nState)
  {
      auto& rLabels = MenuButtonLabels::labels();
-@@ -205,8 +299,25 @@
+@@ -205,8 +301,25 @@
      if (it == rLabels.end())
      {
          if (rButton.GetText().isEmpty())
@@ -516,7 +523,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          rButton.AddEventListener(LINK(nullptr, MenuButtonLabels, ButtonEventHdl));
          // the name of the authored label, whatever the button shows
          rButton.SetAccessibleName(it->second.aText.replaceAll("~", "").replace('\n', ' '));
-@@ -228,12 +339,14 @@
+@@ -228,12 +341,14 @@
          rLabel.bTip = false;
      }
      rButton.SetDropDown(eArrow); // no change when it is already so
@@ -537,7 +544,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  /// Grid attachments of a group's children as authored, kept while the window lives.
-@@ -247,10 +360,114 @@
+@@ -247,10 +362,114 @@
      DECL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, void);
  };
  
@@ -652,7 +659,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  GroupCell authoredCell(vcl::Window& rChild)
-@@ -259,10 +476,8 @@
+@@ -259,10 +478,8 @@
      auto it = rCells.find(&rChild);
      if (it == rCells.end())
      {
@@ -665,7 +672,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,37 +496,158 @@
+@@ -281,37 +498,158 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -835,7 +842,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
-@@ -377,8 +713,11 @@
+@@ -377,8 +715,11 @@
      }
      const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
      for (ToolBox* pToolBox : aToolBoxes)
@@ -849,7 +856,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // the menu buttons of every group drop their labels at the small state only (their image stays where it
      // is: above the label in a group of few commands)
      forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
-@@ -408,7 +747,8 @@
+@@ -408,7 +749,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {

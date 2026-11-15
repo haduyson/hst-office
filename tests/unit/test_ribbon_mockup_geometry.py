@@ -36,6 +36,9 @@ int main()
     CHECK(l.textY + 2 * l.linePitch <= l.height);
     l = largeButton(36, 75, 80, false, 25, 1.5);
     CHECK(l.height == 114 && l.iconY == 14 && l.textY == 14 + 36 + 8 && l.textY + 2 * l.linePitch <= l.height - 6);
+    // Paste's 32 px icon: the same label line as a 24 px icon, the icon on the same centre
+    LargeButton p = largeButton(32, 30, 0, true, 17, 1.0);
+    CHECK(p.textY == 38 && p.iconY == 6);
     // a taller font moves the icon up so that two lines keep 4 px over the bottom (PushButton's frame)
     l = largeButton(24, 30, 40, false, 18, 1.0);
     CHECK(l.iconY == 7 && l.textY == 7 + 24 + 5 && l.textY + 2 * 18 == 76 - 4);
@@ -112,7 +115,7 @@ class MockupGeometry(unittest.TestCase):
 
     def test_ladder_places_menu_buttons_and_frames_groups(self):
         ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
-        self.assertIn("std::max<tools::Long>(0, aLarge.iconY - nInner)", ladder)
+        self.assertIn("aLarge.textY - geometry::imageTextGap(rButton.GetTextHeight()) - aImage.Height() - nInner", ladder)
         self.assertIn("placeLargeMenuButton(rButton, rLabel, bLarge);", ladder)
         self.assertIn("normaliseGroupFrame(*pGrid, aChildren, aCells);", ladder)
         self.assertIn("aCells[i].caption = aCells[i].top >= 2 && aCells[i].top == nBottom", ladder)
