@@ -159,7 +159,7 @@ Test: CppunitTest_sw_writerfilter_ooxml testTableNamesDuringImport; the table na
  SwTableFormat* SwDoc::FindTableFormatByName( const UIName& rName, bool bAll ) const
 --- a/sw/qa/writerfilter/ooxml/ooxml.cxx
 +++ b/sw/qa/writerfilter/ooxml/ooxml.cxx
-@@ -195,6 +195,21 @@
+@@ -195,6 +195,24 @@
      CPPUNIT_ASSERT_EQUAL(6, nTables);
  }
  
@@ -175,7 +175,10 @@ Test: CppunitTest_sw_writerfilter_ooxml testTableNamesDuringImport; the table na
 +    std::set<OUString> aNames;
 +    for (const OUString& rName : xTables->getElementNames())
 +        aNames.insert(rName);
-+    CPPUNIT_ASSERT_EQUAL((std::set<OUString>{ u"Table1"_ustr, u"Table2"_ustr, u"Table3"_ustr }), aNames);
++    CPPUNIT_ASSERT_EQUAL(size_t(3), aNames.size());
++    CPPUNIT_ASSERT(aNames.contains(u"Table1"_ustr));
++    CPPUNIT_ASSERT(aNames.contains(u"Table2"_ustr));
++    CPPUNIT_ASSERT(aNames.contains(u"Table3"_ustr));
 +}
 +
  CPPUNIT_TEST_FIXTURE(Test, testCommentsEachGetOwnText)
