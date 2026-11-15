@@ -3,11 +3,11 @@
 
 Each round opens two Writer and two Sheets documents (tabs of one window), applies every user interface mode to each
 of them in turn (.uno:ToolbarMode over UNO, as the dialog's "Apply to <module>"), then "Apply to All" for the three
-toolbar modes with four tab switches each, returns to the ribbon and closes all documents but one.
+toolbar modes with four tab switches each, and closes all documents but one (the next round's documents then load
+into a window with a menubar, which met the gtk clipboard hang before hst-gtk-clipboard-main-thread.patch).
 
 Verdict: PASS when all rounds ran; FAIL only when the office crashed (the defect this check is for); INCONCLUSIVE when
-the office hung (stacks saved where the platform can) or the harness failed otherwise. Exit 1 on FAIL only, so CI can
-run it although the known gtk clipboard hang of UNO-driven offices (see check-ui-mode-cycle-stress.py) may stop a run.
+the office hung (stacks saved where the platform can) or the harness failed otherwise. Exit 1 on FAIL only.
 """
 import json
 import os
@@ -66,11 +66,6 @@ def run_round(office, folder, number, progress):
             progress("switch %s round %d #%d" % (mode, number, switch))
             office.dispatch(scenario.shown(office.desktop), ".uno:NextDocumentTab")
             time.sleep(2)
-    # Back to the default ribbon (no menubar) before the next round's documents load: on gtk a document loaded over UNO
-    # into a window with a menubar builds the menubar on the request thread, whose Paste state can then wait for the
-    # clipboard for good (the known hang). It keeps that out of the loads; mode switches can still meet it.
-    progress("all notebookbar.ui round %d" % number)
-    scenario.apply_mode(office, "Writer", "notebookbar.ui", to_all=True)
     close_all_but_one(office)
 
 

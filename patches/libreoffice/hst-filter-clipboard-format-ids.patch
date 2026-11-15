@@ -1,0 +1,97 @@
+HST Office: embedded spreadsheets and presentations are stored again; saving such a .docx no longer ends the office.
+
+hst-format-names renamed the ClipboardFormat of the filter types calc8, calc8_template, impress8 and
+impress8_template along with their display names ("Calc 8" -> "Sheets 8", "Impress 8" -> "Slides 8").
+ClipboardFormat is not a display text: sfx2 matches it against the format names built into sot
+(SotExchange, "Calc 8", "Impress 8") to find the filter of a storage from its MediaType
+(SfxFilter::GetTypeFromStorage). With the renamed values no filter was found for an ODF spreadsheet or
+presentation storage, so SfxBaseModel::storeToStorage failed for every embedded Calc or Impress object.
+Writer then kept the object without its container (SwOLEObj::SetNode skips AssignToContainer when
+InsertEmbeddedObject fails), and DocxAttributeOutput::WriteOLE dereferenced that null container: saving
+a .docx with an embedded spreadsheet crashed (SIGSEGV, reported as signal 6 / exit 134) and the
+document was not saved. The ClipboardFormat values go back to the upstream identifiers; the displayed
+names (UIName) stay "Sheets 8" / "Slides 8".
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: CppunitTest_sfx2_misc (testOdfStorageTypeDetection); CppunitTest_sw_ooxmlexport4 (testEmbeddedXlsx),
+CppunitTest_sw_ooxmlexport5 (testContentTypeOLE), CppunitTest_sw_ooxmlexport12 (testTdf122563).
+---
+--- a/filter/source/config/fragments/types/calc8.xcu
++++ b/filter/source/config/fragments/types/calc8.xcu
+@@ -25,5 +25,5 @@
+         <prop oor:name="UIName">
+             <value xml:lang="en-US">Sheets 8</value>
+         </prop>
+-        <prop oor:name="ClipboardFormat"><value>Sheets 8</value></prop>
++        <prop oor:name="ClipboardFormat"><value>Calc 8</value></prop>
+     </node>
+--- a/filter/source/config/fragments/types/calc8_template.xcu
++++ b/filter/source/config/fragments/types/calc8_template.xcu
+@@ -25,5 +25,5 @@
+         <prop oor:name="UIName">
+             <value xml:lang="en-US">Sheets 8 Template</value>
+         </prop>
+-        <prop oor:name="ClipboardFormat"><value>Sheets 8 Template</value></prop>
++        <prop oor:name="ClipboardFormat"><value>Calc 8 Template</value></prop>
+     </node>
+--- a/filter/source/config/fragments/types/impress8.xcu
++++ b/filter/source/config/fragments/types/impress8.xcu
+@@ -25,5 +25,5 @@
+         <prop oor:name="UIName">
+             <value xml:lang="en-US">Slides 8</value>
+         </prop>
+-        <prop oor:name="ClipboardFormat"><value>Slides 8</value></prop>
++        <prop oor:name="ClipboardFormat"><value>Impress 8</value></prop>
+     </node>
+--- a/filter/source/config/fragments/types/impress8_template.xcu
++++ b/filter/source/config/fragments/types/impress8_template.xcu
+@@ -25,5 +25,5 @@
+         <prop oor:name="UIName">
+             <value xml:lang="en-US">Slides 8 Template</value>
+         </prop>
+-        <prop oor:name="ClipboardFormat"><value>Slides 8 Template</value></prop>
++        <prop oor:name="ClipboardFormat"><value>Impress 8 Template</value></prop>
+     </node>
+--- a/sfx2/qa/cppunit/test_misc.cxx
++++ b/sfx2/qa/cppunit/test_misc.cxx
+@@ -49,6 +49,8 @@
+ #include <comphelper/propertyvalue.hxx>
+ #include <comphelper/processfactory.hxx>
+ #include <sfx2/app.hxx>
++#include <sfx2/docfilt.hxx>
++#include <comphelper/storagehelper.hxx>
+ #include <osl/file.hxx>
+ 
+ #include <libxml/xpathInternals.h>
+@@ -693,6 +695,31 @@
+     {
+     }
+ }
++
++CPPUNIT_TEST_FIXTURE(MiscTest, testOdfStorageTypeDetection)
++{
++    // An embedded object (a spreadsheet in a text document) is stored into a storage whose
++    // MediaType is the only hint about its format: the clipboard format names of the filter types
++    // must stay the ones sot knows ("Calc 8", "Impress 8"), or the object is not stored, its
++    // container stays unset and the .docx export crashed on it.
++    const std::pair<OUString, OUString> aTypes[] = {
++        { u"application/vnd.oasis.opendocument.text"_ustr, u"writer8"_ustr },
++        { u"application/vnd.oasis.opendocument.spreadsheet"_ustr, u"calc8"_ustr },
++        { u"application/vnd.oasis.opendocument.spreadsheet-template"_ustr, u"calc8_template"_ustr },
++        { u"application/vnd.oasis.opendocument.presentation"_ustr, u"impress8"_ustr },
++        { u"application/vnd.oasis.opendocument.presentation-template"_ustr, u"impress8_template"_ustr },
++        { u"application/vnd.oasis.opendocument.graphics"_ustr, u"draw8"_ustr },
++        { u"application/vnd.oasis.opendocument.formula"_ustr, u"math8"_ustr },
++    };
++    for (const auto& [rMediaType, rType] : aTypes)
++    {
++        uno::Reference<embed::XStorage> xStorage = comphelper::OStorageHelper::GetTemporaryStorage();
++        uno::Reference<beans::XPropertySet> xProps(xStorage, uno::UNO_QUERY_THROW);
++        xProps->setPropertyValue(u"MediaType"_ustr, uno::Any(rMediaType));
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(rMediaType.toUtf8().getStr(), rType,
++                                     SfxFilter::GetTypeFromStorage(xStorage));
++    }
++}
+ }
+ 
+ CPPUNIT_PLUGIN_IMPLEMENT();
