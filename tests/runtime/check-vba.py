@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Runtime check of VBA authoring in HST Sheets and HST Writer (headless, fresh profile, soffice as hstbuild).
+"""Runtime check of VBA authoring in HST Sheets, Writer, Slides and Draw (headless, fresh profile, soffice as hstbuild).
 
 Usage: python3 tests/runtime/check-vba.py [--instdir upstream/libreoffice/instdir] [--out tests/output/vba]
-                                          [--only calc|writer|roundtrip|config] [--port 22975]
+                                          [--only calc|writer|roundtrip|config|slides-draw] [--port 22975]
 
 1. Config: the VBA load/run/save defaults and macro security (ask before running document macros).
 2. Compatibility matrix (tests/runtime/vba_cases.py): every Excel/Word idiom runs in its own new
@@ -11,6 +11,7 @@ Usage: python3 tests/runtime/check-vba.py [--instdir upstream/libreoffice/instdi
 3. Upstream Word VBA suites: the testAll() macros of LibreOffice's own .docm test files.
 4. Round trip: new and existing .xlsm/.docm and .ods/.odt saved, reloaded, code kept and runnable;
    Workbook_Open / Worksheet_Change / Document_Open events.
+5. Slides and Draw (vba_check_slides_draw.py): Module1 from the template, VBA syntax, .odp/.odg round trip.
 
 Writes evidence.json and matrix.md (the table used by the help page and the report). Exit 1 when a
 case marked "ok" fails or any config/round-trip expectation fails; "limited" cases only report.
@@ -27,6 +28,7 @@ sys.path.insert(0, os.path.join(ROOT, "extensions/hst-vietnamese-tools/python"))
 import vba_cases  # noqa: E402
 from hst_office import vba  # noqa: E402  (the code behind "Macro VBA")
 from vba_check_roundtrip import check_roundtrip  # noqa: E402
+from vba_check_slides_draw import check_slides_draw  # noqa: E402
 from vba_check_support import (BUILD_USER, FIXTURES, ROWS, Office, case_module, compiles, config_value,  # noqa: E402,F401
                                module_code, prepare, pv, reexec_as_build_user, record, run)
 
@@ -101,16 +103,15 @@ def check_config(office):
         except Exception as error:  # noqa: BLE001
             got = f"ERROR {error}"
         record("config", f"{path} = {want!r}", got == want, f"got {got!r}")
-    # Keyboard shortcuts of the bundled HST extension (Accelerators.xcu): Alt+F11 editor, Alt+F8 macros.
+    # Keyboard shortcuts (extension Accelerators.xcu; Slides' Alt+F8 from the core table): Alt+F11 editor, Alt+F8 macros.
     from com.sun.star.awt import KeyEvent
     from com.sun.star.awt.Key import F11, F8
     from com.sun.star.awt.KeyModifier import MOD2
     supplier = office.ctx.ServiceManager.createInstanceWithContext("com.sun.star.ui.ModuleUIConfigurationManagerSupplier", office.ctx)
-    for module, key, name, want in (
-            ("com.sun.star.sheet.SpreadsheetDocument", F11, "Alt+F11", "org.hst.office.vi:EditVba"),
-            ("com.sun.star.text.TextDocument", F11, "Alt+F11", "org.hst.office.vi:EditVba"),
-            ("com.sun.star.sheet.SpreadsheetDocument", F8, "Alt+F8", ".uno:MacroDialog"),
-            ("com.sun.star.text.TextDocument", F8, "Alt+F8", ".uno:MacroDialog")):
+    modules = ("com.sun.star.sheet.SpreadsheetDocument", "com.sun.star.text.TextDocument",
+               "com.sun.star.presentation.PresentationDocument", "com.sun.star.drawing.DrawingDocument")
+    for module, key, name, want in [(m, F11, "Alt+F11", "org.hst.office.vi:EditVba") for m in modules] + \
+            [(m, F8, "Alt+F8", ".uno:MacroDialog") for m in modules]:
         event = KeyEvent()
         event.KeyCode, event.Modifiers = key, MOD2
         try:
@@ -149,7 +150,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--instdir", default=os.path.join(ROOT, "upstream/libreoffice/instdir"))
     parser.add_argument("--out", default=os.path.join(ROOT, "tests/output/vba"))
-    parser.add_argument("--only", choices=("calc", "writer", "roundtrip", "config"))
+    parser.add_argument("--only", choices=("calc", "writer", "roundtrip", "config", "slides-draw"))
     parser.add_argument("--port", type=int, default=22975)
     args = parser.parse_args()
     args.out = os.path.abspath(args.out)
@@ -169,6 +170,8 @@ def main():
             check_writer_suites(office)
         if args.only in (None, "roundtrip"):
             check_roundtrip(office, args.out)
+        if args.only in (None, "slides-draw"):
+            check_slides_draw(office, args.out)
     finally:
         office.stop()
     write_matrix(args.out)
