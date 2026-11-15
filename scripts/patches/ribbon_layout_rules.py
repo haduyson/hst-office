@@ -120,8 +120,8 @@ class Group:
         self.rows = 3 if any(item.top + item.height > 2 for item in self.items) else 2
 
     @property
-    def few(self):
-        return 0 < self.commands <= FEW_COMMANDS and all(
+    def few(self):  # not a 3-row group: its large button beside a column of small labelled ones is the mockup's
+        return self.rows == 2 and 0 < self.commands <= FEW_COMMANDS and all(
             item.kind != "control" and item.id.split(":")[0] not in KEEP_LARGE for item in self.items)
 
     def occupant(self, left, row):

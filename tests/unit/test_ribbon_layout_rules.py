@@ -104,6 +104,9 @@ class ThreeRowTest(unittest.TestCase):
         even = [many] + [toolbox(f"bx{c}{row}", col, row) for col, c in ((1, "C"), (2, "D")) for row in range(2)]
         self.assertEqual(self.rules(*even), [])
 
+    def test_few_commands_in_three_rows(self):  # Draw's Page Setup: a large button and a column of two
+        self.assertEqual(self.rules(toolbox("bxP", 0, 0, height=3, big=True), toolbox("bxC", 1, 0), toolbox("bxD", 1, 1)), [])
+
     def test_large_button_fills_three_rows(self):
         cells = [toolbox("bxP", 0, 0, ("A", "B", "C", "D"), height=2, big=True)]
         cells += [toolbox(f"bx{c}", 1, row) for row, c in enumerate("CDE")]
