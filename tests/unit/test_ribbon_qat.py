@@ -46,8 +46,8 @@ class Defaults(unittest.TestCase):
 
     def test_checklist_matches_the_defaults(self):
         qat = added(PATCH, "sfx2/source/notebookbar/HstQuickAccess.cxx")
-        for command in (".uno:AddDirect", ".uno:OpenFromWriter", ".uno:OpenFromCalc", ".uno:Save", ".uno:Print",
-                        ".uno:PrintPreview", ".uno:SendMail", ".uno:Undo", ".uno:Redo"):
+        for command in (".uno:AddDirect", ".uno:OpenFromWriter", ".uno:OpenFromCalc", ".uno:Save",
+                        ".uno:Print", ".uno:PrintPreview", ".uno:SendMail", ".uno:Undo", ".uno:Redo"):
             self.assertIn(f'u"{command}"_ustr', qat)
 
     def test_new_is_a_plain_button(self):
@@ -68,6 +68,14 @@ class Defaults(unittest.TestCase):
         with open(os.path.join(ROOT, "patches", "libreoffice", "series"), encoding="utf-8") as handle:
             series = handle.read().split()
         self.assertLess(series.index(PATCH), series.index(MOCKUP_PATCH))
+
+
+class NewButton(unittest.TestCase):
+    def test_mới_drops_the_dropdown_bit_of_add_direct(self):
+        # the mockup's Mới is a plain button: HstQuickAccess clears DROPDOWNONLY on .uno:AddDirect after each change
+        qat = added("hst-ribbon-mockup-compact.patch", "sfx2/source/notebookbar/HstQuickAccess.cxx")
+        self.assertIn(".uno:AddDirect", qat)
+        self.assertIn("DROPDOWNONLY", qat)
 
 
 class Behaviour(unittest.TestCase):

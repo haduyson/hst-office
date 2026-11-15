@@ -47,9 +47,12 @@ IN_FONT_GROUP = {("writer", "Xóa"), ("calc", "Xóa"), ("calc", PAINTBRUSH)}
 CAPTION_BAND = (95, 165)  # the caption row of a ribbon page, y relative to the window
 # groups that stay on the ribbon (caption shown): Paragraph is used constantly, so at 1485 it stays in Writer and
 # Slides; the Styles gallery becomes its "Kiểu ▾" button first
-MUST_SHOW = {("impress", 1366): ["Bảng tạm", "Phông chữ"], ("writer", 1366): ["Bảng tạm", "Phông chữ"],
+# Writer: the mockup (ribbon-mockup-expected.json) has no folded group on Trang đầu at 1366 or 1485, so every group's
+# caption shows there (its state L, M or S keeps the caption)
+WRITER_HOME_CAPTIONS = ["Bảng tạm", "Phông chữ", "Đoạn văn", "Chỉnh sửa", "Tiện ích Việt"]
+MUST_SHOW = {("impress", 1366): ["Bảng tạm", "Phông chữ"], ("writer", 1366): WRITER_HOME_CAPTIONS,
              ("impress", 1485): ["Bảng tạm", "Phông chữ", "Đoạn văn"],
-             ("writer", 1485): ["Bảng tạm", "Phông chữ", "Đoạn văn"],
+             ("writer", 1485): WRITER_HOME_CAPTIONS,
              ("draw", 1366): ["Bảng tạm", "Phông chữ"], ("draw", 1485): ["Bảng tạm", "Phông chữ", "Đoạn văn"]}
 # groups that are on the ribbon or its group button (every command one click away, nothing folded into »)
 SHOW_OR_BUTTON = {("calc", 1366): ["Số", "Kiểu"], ("calc", 1485): ["Số", "Kiểu"], ("writer", 1485): ["Kiểu"],

@@ -1,0 +1,69 @@
+HST Office: HST_RIBBON_DUMP_WIDTHS writes the measured width of every ribbon group state, for tuning the collapse chain.
+
+Ribbon 1.0.2 plan (phase 0): the collapse chain of the approved mockup is replayed offline with the real widths of the
+groups on Linux and Windows. With the environment variable set, every layout of a ribbon tab box writes one line to
+stderr: box, width, chevron, DPI factor, whether the tab has its own ladder, each group's widths at L, M, S (and its
+button), a gallery's without the previews the box reserves for it (marked "*"), the state chosen, the row width, the
+overflow count and the priority. Without the variable nothing changes.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -39,6 +39,9 @@
+ 
+ #include <algorithm>
+ #include <cmath>
++#include <cstdio>
++#include <cstdlib>
++#include <rtl/strbuf.hxx>
+ #include <vcl/event.hxx>
+ #include <vcl/image.hxx>
+ #include <vcl/toolbox.hxx>
+@@ -550,6 +553,46 @@
+         m_aHstLastStates = aLayout.states;
+         m_nHstLastWidth = nWidth;
+     }
++    // HST Office: HST_RIBBON_DUMP_WIDTHS set writes one line per layout to stderr: the box (tab), the width it
++    // has, the chevron, the DPI factor, every group's measured width per state (L,M,S[,C]; a gallery's without
++    // the previews this box reserves for it, marked "*") and the state chosen, the row width and the priority,
++    // so the collapse chain can be replayed offline with real widths. Without the variable nothing changes.
++    if (static const bool bDump = std::getenv("HST_RIBBON_DUMP_WIDTHS") != nullptr; bDump)
++    {
++        const tools::Long nPreview = std::lround(106 * GetDPIScaleFactor());
++        OStringBuffer aLine("HST_RIBBON_WIDTHS box=" + get_id().toUtf8() + " width="
++                            + OString::number(static_cast<sal_Int64>(nWidth))
++                            + " chevron=" + OString::number(static_cast<sal_Int64>(nChevron))
++                            + " dpi=" + OString::number(GetDPIScaleFactor()) + " own=" + OString::number(int(bOwnLadder)));
++        for (size_t i = 0; i < aWindows.size(); ++i)
++        {
++            const bool bGallery = aWindows[i]->get_hexpand();
++            aLine.append(" " + aWindows[i]->get_id().toUtf8());
++            aLine.append(bGallery ? "*=" : "=");
++            for (size_t n = 0; n < aGroups[i].widths.size(); ++n)
++            {
++                tools::Long nGroupWidth = aGroups[i].widths[n];
++                if (bGallery && n == hst::ribbon::GroupLarge)
++                    nGroupWidth -= 3 * nPreview;
++                else if (bGallery && n == hst::ribbon::GroupMedium)
++                    nGroupWidth -= nPreview;
++                if (n)
++                    aLine.append(',');
++                aLine.append(static_cast<sal_Int64>(nGroupWidth));
++            }
++            aLine.append('@');
++            aLine.append(static_cast<sal_Int64>(aLayout.states[i]));
++        }
++        aLine.append(" row=" + OString::number(static_cast<sal_Int64>(hst::ribbon::rowWidth(aGroups, aLayout.states)))
++                     + " overflow=" + OString::number(static_cast<sal_Int64>(aLayout.overflow.size())) + " priority=");
++        for (size_t n = 0; n < m_aHstPlanPriority.size(); ++n)
++        {
++            if (n)
++                aLine.append(',');
++            aLine.append(static_cast<sal_Int64>(m_aHstPlanPriority[n]));
++        }
++        std::fprintf(stderr, "%s\n", aLine.getStr());
++    }
+     m_aHstFolded.clear();
+     m_nHstFoldedFor = nWidth;
+     if (!aLayout.overflow.empty())

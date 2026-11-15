@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""VBA authoring in HST Writer/Sheets ("Macro VBA"): module template, shortcuts, ribbon button, menu item.
+"""VBA authoring ("Macro VBA"): module template, Alt+F11 (four apps), ribbon button and menu item (Writer/Sheets).
 
 The runtime behaviour (modules run, .xlsm/.docm keep the code) is checked by tests/runtime/check-vba.py.
 """
@@ -19,6 +19,8 @@ from hst_office import vba_template  # noqa: E402
 NAME = "{http://openoffice.org/2001/registry}name"
 PATCH = os.path.join(_paths.ROOT, "patches", "libreoffice", "hst-vba-authoring.patch")
 CONTEXT = {"com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"}
+SLIDES, DRAW = "com.sun.star.presentation.PresentationDocument", "com.sun.star.drawing.DrawingDocument"
+ALL_APPS = CONTEXT | {SLIDES, DRAW}
 
 
 def read(path):
@@ -32,14 +34,29 @@ def child(node, name):
 
 class Template(unittest.TestCase):
     def test_new_modules_start_in_vba_mode_with_a_vietnamese_guide(self):
-        for app, office in (("calc", "Excel"), ("writer", "Word")):
+        for app in ("calc", "writer", "impress", "draw"):
             text = vba_template.module_text(app)
             self.assertTrue(text.startswith("Option VBASupport 1\n"))
             self.assertTrue(vba_template.has_vba_option(text))
-            self.assertIn("Microsoft " + office, text)
             self.assertIn("Alt+F8", text)
             self.assertIn("Sub XinChao()", text)
             self.assertTrue(all(line.startswith("'") for line in text.splitlines()[1:8]), "guide lines are comments")
+            self.assertEqual(text.splitlines()[vba_template.first_line_of(text, "XinChao") - 1], "Sub XinChao()")
+
+    def test_guide_names_no_other_office_suite(self):
+        for app in ("calc", "writer", "impress", "draw"):
+            text = vba_template.module_text(app)
+            for name in ("Microsoft", "Excel", "Word", "PowerPoint", "Office"):
+                self.assertNotIn(name, text, (app, name))
+
+    def test_slides_and_draw_keep_macros_only_in_odf(self):
+        # The presentation export writes back only a VBA project it loaded, so the guide names .odp/.odg only.
+        self.assertIn("Lưu tệp dạng .odp để giữ macro", vba_template.module_text("impress"))
+        self.assertIn("Lưu tệp dạng .odg để giữ macro", vba_template.module_text("draw"))
+        for app in ("impress", "draw"):
+            self.assertIn("ThisComponent", vba_template.module_text(app))
+            self.assertFalse(vba_template.exports_vba_project(app))
+        self.assertTrue(vba_template.exports_vba_project("calc") and vba_template.exports_vba_project("writer"))
 
     def test_editor_cursor_goes_to_the_example(self):
         text = vba_template.module_text("calc")
@@ -57,6 +74,8 @@ class Template(unittest.TestCase):
         self.assertEqual(vba_template.next_module_name(["Module1", "module2", "ThisWorkbook"]), "Module3")
         self.assertEqual(vba_template.project_name("calc"), "VBAProject")
         self.assertEqual(vba_template.project_name("writer"), "Project")
+        self.assertEqual(vba_template.project_name("impress"), "VBAProject")
+        self.assertEqual(vba_template.project_name("draw"), "VBAProject")
 
     def test_round_trip_comparison_ignores_code_page_artifacts(self):
         text = vba_template.module_text("writer")
@@ -74,16 +93,20 @@ class Shortcuts(unittest.TestCase):
         modules = child(child(root, "PrimaryKeys"), "Modules")
         return {(module.get(NAME), key.get(NAME)): key.find("prop/value").text for module in modules for key in module}
 
-    def test_alt_f11_opens_the_vba_editor_in_writer_and_sheets(self):
+    def test_alt_f11_opens_the_vba_editor_in_all_four_apps(self):
         keys = self.keys()
-        for module in CONTEXT:
+        for module in ALL_APPS:
             self.assertEqual(keys[(module, "F11_MOD2")], "org.hst.office.vi:EditVba")
 
     def test_alt_f8_opens_the_macro_dialog_like_office(self):
+        # HST Slides binds Alt+F8 in the core table (hst-msoffice-shortcuts-parity.patch).
         keys = self.keys()
-        for module in CONTEXT:
+        for module in CONTEXT | {DRAW}:
             self.assertEqual(keys[(module, "F8_MOD2")], ".uno:MacroDialog")
-        self.assertEqual(len([k for k, command in keys.items() if command != "org.hst.office.vi:CitationReinsert"]), 4)
+        self.assertNotIn((SLIDES, "F8_MOD2"), keys)
+        self.assertIn('<node oor:name="F8_MOD2" oor:op="replace">', read(os.path.join(
+            _paths.ROOT, "patches", "libreoffice", "hst-msoffice-shortcuts-parity.patch")))
+        self.assertEqual(len([k for k, command in keys.items() if command != "org.hst.office.vi:CitationReinsert"]), 7)
 
     def test_manifest_registers_accelerators(self):
         manifest = read(os.path.join(EXT, "META-INF", "manifest.xml"))
@@ -151,7 +174,8 @@ class SaveCheck(unittest.TestCase):
 
 
 class Menu(unittest.TestCase):
-    def test_menu_item_for_writer_and_sheets(self):
+    def test_menu_item_for_writer_and_sheets_only(self):
+        # Owner decision 2026-11-16: Slides and Draw have no "Macro VBA" menu item, only Alt+F11.
         root = ET.parse(os.path.join(EXT, "Addons.xcu")).getroot()
         top = next(n for n in root.iter("node") if n.get(NAME) == "org.hst.office.vi")
         items = [n for n in child(top, "Submenu")]

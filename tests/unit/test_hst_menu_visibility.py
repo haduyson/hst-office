@@ -108,6 +108,8 @@ class MenuContractTest(unittest.TestCase):
             self.assertIn(DRAW, menu[url][0][1], url)
         for url in (vi + "ConvertEncoding", vi + "NumberToWords", vi + "ToggleDuplex", vi + "EditVba", vi + "FormatVnd"):
             self.assertNotIn(DRAW, menu[url][0][1], url)
+        # Macros are mainly for Sheets and Writer: Slides and Draw open the VBA editor by Alt+F11 only.
+        self.assertNotIn("com.sun.star.presentation.PresentationDocument", menu[vi + "EditVba"][0][1])
 
     def test_english_menu_strings_are_vietnamese(self):
         en, vi = (json.load(open(os.path.join(EXT, "locales", c + ".json"), encoding="utf-8")) for c in ("en", "vi"))

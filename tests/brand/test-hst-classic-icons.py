@@ -52,7 +52,7 @@ class OverlayTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             # Colibre draws bold (all sizes) and the italic 16 px icon only.
             files = ["cmd/sc_bold.svg", "cmd/lc_bold.svg", "cmd/32/bold.svg", "cmd/sc_italic.svg",
-                     "res/mainapp_16.svg"]
+                     "res/mainapp_16.svg", "cmd/sc_recsearch.svg", "cmd/sc_searchdialog.svg", "cmd/lc_recsearch.svg"]
             tree = colibre_tree(Path(tmp), files, {}, classic.CLASSIC[theme][1],
                                 classic.CLASSIC[theme][1].replace("_svg", ""))
             return builder.resources(theme, tree)
@@ -69,6 +69,13 @@ class OverlayTest(unittest.TestCase):
         # overlay files never sit where Colibre could look them up directly
         self.assertTrue(all(name.startswith(classic.PREFIX) for name in files if name not in classic.EXTRA))
         self.assertIn("CC0", files["COPYING.txt"].decode())
+
+    def test_find_and_replace_take_the_hst_pair(self):
+        files = self.overlay()
+        links = dict(line.split() for line in files["links.txt"].decode().splitlines() if not line.startswith("#"))
+        for request in ("cmd/sc_recsearch.png", "cmd/sc_searchdialog.png"):
+            self.assertIn(links[request], files)  # forced, though Colibre draws them
+        self.assertNotIn("cmd/lc_recsearch.png", links)  # only the 16 px pair is forced
 
     def test_hst_glyphs_take_colibre_ink(self):
         for theme, (_, _, ink) in classic.CLASSIC.items():

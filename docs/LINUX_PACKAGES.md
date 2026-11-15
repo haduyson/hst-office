@@ -135,7 +135,13 @@ Job tải lên artifact `hst-office-linux-deb-signed-<run>`. Khi chưa có khóa
 `HST_LINUX_GPG_FINGERPRINT`), bước cổng in `enabled=false` và mọi bước sau bỏ qua. Khi đã có biến
 `HST_LINUX_GPG_FINGERPRINT` mà secret không tới được job, bước cổng **báo lỗi** thay vì bỏ qua. Khi
 `data/hst/RPM-GPG-KEY-hasontech` đã được commit, `collect-release-assets.sh` chỉ nhận bộ đã ký và kiểm đủ các tệp bằng
-[check-linux-signed-set.sh](../scripts/release/check-linux-signed-set.sh); thiếu bộ đã ký thì bản phát hành dừng.
+[check-linux-signed-set.sh](../scripts/release/check-linux-signed-set.sh), rồi chạy `rpm -K` mọi `.rpm` với khóa đã
+commit (CSDL rpm tạm; workflow cài gói `rpm` nếu runner thiếu). Thiếu bộ đã ký, hoặc `rpm -K` không báo
+`digests signatures OK`, thì bản phát hành dừng.
+
+**Build phát hành qua hàng đợi (VM103).** Job Linux của integrator được ký ngay trên dev server, nơi duy nhất giữ khóa,
+bằng chính `sign-linux-packages.sh` của commit đó, rồi phải qua `rpm -K` như trên, nếu không job thất bại (xem
+[BUILD_MATRIX.md](BUILD_MATRIX.md#ký-gói-linux-của-bản-phát-hành-dev-server)).
 
 **Người dùng.**
 

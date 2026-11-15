@@ -3,7 +3,7 @@
 Chủ dự án (2026-11-04): HST Office dùng phím tắt của Microsoft Office vì phần lớn người dùng
 Việt Nam đã quen; khi trùng thì phím của Microsoft Office được ưu tiên hơn phím của LibreOffice.
 Giữ nguyên các phím riêng của HST: `Shift+Esc` / macOS `Option+Cmd+K` (Tìm tính năng,
-`hst-feature-search.patch`), `Alt+F11` (Macro VBA), `Alt+F8` (hộp thoại Macro), `Alt+Shift+I` (HST Writer: Chèn lại trích dẫn) —
+`hst-feature-search.patch`), `Alt+F11` (Macro VBA; Slides và PDF từ 15/11 chỉ bằng phím này, menu HST ở đó không có mục Macro VBA), `Alt+F8` (hộp thoại Macro, cả HST PDF từ 15/11; macro của Slides và PDF chỉ giữ trong `.odp`/`.odg`, lưu `.pptm` không giữ mã viết mới), `Alt+Shift+I` (HST Writer: Chèn lại trích dẫn) —
 `extensions/hst-vietnamese-tools/Accelerators.xcu`; `Ctrl+Alt+.` / `Ctrl+Alt+,` (thẻ tài liệu), `Ctrl+Alt+Shift+N` (tách thẻ ra cửa sổ mới, `hst-module-window-groups.patch`). `Alt+F` mở Tệp tin (`hst-file-backstage.patch`, như thẻ File của Office) không bị patch này đụng tới.
 
 - Cài đặt: `patches/libreoffice/hst-msoffice-shortcuts.patch` (officecfg `Accelerators.xcu`,
@@ -50,14 +50,14 @@ Từ 1.0.2 (chủ dự án 14/11/2026: "Phím Alt của thẻ hiệu ứng nên 
 | Hộp thoại Phông chữ | Ctrl+D | Cmd+D | Gạch dưới kép | Ký tự (Phông chữ) | đổi | **Gạch dưới kép** chuyển sang Ctrl+Shift+D (phím Word) |
 | Gạch dưới kép | Ctrl+Shift+D | Cmd+Shift+D | Đoạn phải-sang-trái | Gạch dưới kép | đổi | **Đoạn phải-sang-trái** chỉ còn trên menu Định dạng |
 | Giãn dòng đơn / đôi / 1,5 | Ctrl+1 / 2 / 5 | Cmd+1 / 2 / 5 | Tiêu đề 1 / 2 / 5 | Giãn dòng 1 / 2 / 1,5 | đổi | **Tiêu đề 1, 2** chuyển sang Ctrl+Alt+1, 2; **Tiêu đề 5** chỉ còn ở danh sách kiểu (Ctrl+3, Ctrl+4 vẫn là Tiêu đề 3, 4) |
-| Danh sách dấu đầu dòng | Ctrl+Shift+L | Cmd+Shift+L | không có | Bật/tắt dấu đầu dòng | đổi | Shift+F12 vẫn dùng được |
+| Danh sách dấu đầu dòng | Ctrl+Shift+L | Cmd+Shift+L | không có | Bật/tắt dấu đầu dòng | đổi | Shift+F12 nay là Lưu như Word (15/11) |
 | Kiểu Normal | Ctrl+Shift+N | Cmd+Shift+N | Mẫu mới (Templates) | Kiểu đoạn mặc định | đổi | **Tạo từ mẫu** trong Writer còn ở Tệp tin ▸ Mới ▸ Mẫu (Ctrl+Shift+N vẫn là Mẫu trong Sheets) |
 | Tiêu đề 1 / 2 / 3 | Ctrl+Alt+1 / 2 / 3 | Cmd+Option+1 / 2 / 3 | không có | Tiêu đề 1 / 2 / 3 | đổi | |
 | Ngắt trang | Ctrl+Enter | Cmd+Return | Ngắt trang | không đổi | khớp | |
 | Sao chép / dán định dạng | Ctrl+Alt+C / Ctrl+Alt+V | Cmd+Option+C / V | Ctrl+Alt+C = Chèn chú thích; Ctrl+Alt+V = Dán đặc biệt | Sao chép / dán định dạng văn bản | đổi | Định dạng ký tự và đoạn, cùng cơ chế với cọ "Sao chép định dạng" nhưng không vào chế độ chuột; bản chép giữ tới lần chép sau; chỉ chọn một phần đoạn thì chỉ dán định dạng ký tự. Chưa dán được sang tài liệu khác. **Chèn chú thích** và **Dán đặc biệt**: hai dòng dưới |
 | Chèn chú thích | Ctrl+Alt+M | Cmd+Option+A | Ctrl+Alt+C | Ctrl+Alt+M; macOS Cmd+Option+A | đổi | Sheets, Slides vẫn Ctrl+Alt+C (Excel, PowerPoint không dùng phím này cho định dạng) |
-| Dán đặc biệt | trang Word không ghi phím | Cmd+Control+V | Ctrl+Alt+V | Ctrl+Alt+Shift+V; macOS Cmd+Control+V | đổi | Trang Word cho Windows dành Ctrl+Alt+V cho dán định dạng. HST dùng Ctrl+Alt+Shift+V (trước đó trùng Ctrl+Shift+V), và còn trên ribbon, menu Sửa. Excel, PowerPoint vẫn Ctrl+Alt+V nên Sheets, Slides không đổi |
-| Dán chỉ văn bản | Ctrl+Shift+V | Cmd+Shift+V | Dán đặc biệt | Dán văn bản không định dạng | đổi | **Dán đặc biệt**: xem dòng trên |
+| Dán đặc biệt | Ctrl+Alt+V | Cmd+Control+V | Ctrl+Alt+V | Ctrl+Alt+V; macOS Cmd+Control+V | khớp | Từ 14/11 (`hst-msoffice-shortcuts-parity.patch`); còn trên ribbon, menu Sửa |
+| Dán chỉ văn bản | không có phím | không có phím | Dán đặc biệt | không có phím (Sửa ▸ Dán đặc biệt, ribbon) | khớp | Chủ dự án 15/11: Ctrl+Alt+Shift+V là Văn bản tự động như Word, dán không định dạng không còn phím |
 | Lặp lại thao tác | F4 | Cmd+Y | Thuộc tính hình ảnh | Lặp lại | đổi | **Thuộc tính hình ảnh** còn ở menu chuột phải / nhấp đúp vào hình |
 | Chính tả và ngữ pháp | F7 | Cmd+Option+L hoặc F7 | F7; macOS Cmd+Shift+; | thêm macOS Cmd+Option+L | khớp / đổi (macOS) | |
 | Lưu thành | F12 | Cmd+Shift+S | Đánh số (bật/tắt) | Lưu thành (Win/Linux) | đổi | **Bật/tắt đánh số** còn trên ribbon/menu Định dạng; macOS F12 giữ Đánh số |
@@ -117,8 +117,9 @@ Từ 1.0.2 (chủ dự án 14/11/2026: "Phím Alt của thẻ hiệu ứng nên 
 
 ## Thêm trong 1.0.2 (đối chiếu Office 2021 trên HST4)
 
-`patches/libreoffice/hst-msoffice-shortcuts-parity.patch`; toàn bộ 210 dòng đối chiếu (khớp, đổi, khác có lý do) ở
-`data/ribbon/shortcuts-office-parity.json`.
+`patches/libreoffice/hst-msoffice-shortcuts-parity.patch`; toàn bộ dòng đối chiếu (khớp, đổi, khác có lý do) ở
+`data/ribbon/shortcuts-office-parity.json` (215 dòng; mỗi dòng đã đổi có `via`, `was`, `reason`).
+Phím đổi sau ngày 15/11 (quy tắc 100 % của chủ dự án): `patches/libreoffice/hst-msoffice-shortcuts-parity-legacy-keys.patch`.
 
 | Ứng dụng | Phím | Lệnh mới | Trước đó |
 |---|---|---|---|
@@ -129,7 +130,13 @@ Từ 1.0.2 (chủ dự án 14/11/2026: "Phím Alt của thẻ hiệu ứng nên 
 | Writer | Ctrl+Alt+F / Ctrl+Alt+D | Chú thích cuối trang / cuối văn bản | không có |
 | Writer | Ctrl+Shift+C / Ctrl+Shift+V | Sao chép / dán định dạng (chủ dự án 14/11, như Office 2021) | không có / Dán văn bản không định dạng |
 | Writer | Ctrl+Alt+V | Dán đặc biệt | Dán định dạng |
-| Writer | Ctrl+Alt+Shift+V | Dán văn bản không định dạng | Dán đặc biệt |
+| Writer | Ctrl+Alt+Shift+V | Chèn mục Văn bản tự động, như F3 (chủ dự án 15/11) | Dán văn bản không định dạng (14/11) |
+| Writer | Shift+F12 / Ctrl+F12 / Ctrl+Shift+F12 | Lưu / Mở / In (15/11) | Dấu đầu dòng / Chèn bảng / Tắt đánh số |
+| Writer | Ctrl+Shift+A | Viết hoa toàn bộ, bật/tắt thuộc tính ký tự (`.uno:HstAllCaps`, `hst-writer-all-caps-toggle.patch`, 15/11) | Đoạn trái-sang-phải |
+| Sheets | Ctrl+Shift+F | Định dạng ô, thẻ Phông chữ (15/11) | Tìm tiếp (Win/Linux) |
+| Sheets | Ctrl+Alt+L | Áp dụng lại lọc và sắp xếp của vùng (`.uno:DataAreaRefresh`, 15/11) | không có |
+| Slides, PDF | Ctrl+F2 | Trang In có xem trước, như Ctrl+P (15/11) | không có |
+| Slides | Ctrl+Shift+C / Ctrl+Shift+V | Sao chép / dán định dạng hình hoặc chữ (`.uno:HstCopyFormat` / `.uno:HstPasteFormat`, `hst-slides-copy-paste-format.patch`, 15/11) | không có / Dán đặc biệt |
 | Sheets | Ctrl+F2 | Xem trước khi in | Hàm (hộp thoại) |
 | Sheets | Shift+F3 | Chèn hàm | Xoay vòng kiểu chữ |
 | Sheets | Shift+F9 | Tính lại | Theo dấu ô tham chiếu |
@@ -142,9 +149,10 @@ Từ 1.0.2 (chủ dự án 14/11/2026: "Phím Alt của thẻ hiệu ứng nên 
 Các dòng "Sao chép / dán định dạng" ở bảng Writer phía trên (Ctrl+Alt+C/V, Ctrl+Shift+V dán chữ) đã được thay bằng các phím
 này trên Windows/Linux; macOS giữ phím cũ. Ctrl+Alt+C vẫn sao chép định dạng.
 
-Còn khác Office (có lý do trong bảng): F1 (Trợ giúp do hệ điều hành mở), Ctrl+F1 (chưa có thu gọn ribbon), Ctrl+Shift+A (chưa có lệnh Chữ hoa),
-Shift+F12 / Ctrl+F12 / Ctrl+Shift+F12 của Word (giữ Dấu đầu dòng, Chèn bảng như cũ), Ctrl+E và Ctrl+Alt+L của Excel
-(chưa có Flash Fill, Áp dụng lại bộ lọc), Ctrl+F2 của Slides (không có xem trước khi in).
+F1 khớp: phím do hệ điều hành chuyển tới trình trợ giúp, mở hướng dẫn ngoại tuyến (`hst-offline-help.patch`), không
+qua `Accelerators.xcu` (dòng có `"handler": "vcl"`). Ctrl+F1 / macOS Cmd+Option+R (thu gọn ribbon) đang làm trong 1.0.2
+(trạng thái `planned`). Ngoại lệ được chủ dự án duyệt (15/11): Ctrl+E của Excel (Flash Fill) chuyển sang 1.0.3, Ctrl+E
+của Sheets vẫn là Căn giữa.
 
 ## Tổng hợp
 
@@ -172,9 +180,13 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 | Writer | Ctrl+1 / Ctrl+2 | Tiêu đề 1 / 2 | Ctrl+Alt+1 / 2 |
 | Writer | Ctrl+5 | Tiêu đề 5 | danh sách kiểu |
 | Writer | Ctrl+Shift+N | Mẫu mới (Templates) | Tệp tin ▸ Mới ▸ Mẫu |
-| Writer | Ctrl+Shift+V, rồi Ctrl+Alt+V | Dán đặc biệt | Ctrl+Alt+Shift+V (macOS Cmd+Control+V), ribbon, menu Sửa |
+| Writer | Ctrl+Shift+V | Dán đặc biệt | Ctrl+Alt+V (macOS Cmd+Control+V), ribbon, menu Sửa |
 | Writer | Ctrl+Alt+C | Chèn chú thích | Ctrl+Alt+M (macOS Cmd+Option+A), ribbon, menu Chèn |
-| Writer | Ctrl+Alt+Shift+V (Win/Linux) | Dán không định dạng | Ctrl+Shift+V |
+| Writer | Ctrl+Alt+Shift+V | Dán không định dạng | không có phím: Sửa ▸ Dán đặc biệt, ribbon (chủ dự án 15/11) |
+| Writer | Shift+F12 / Ctrl+F12 / Ctrl+Shift+F12 | Dấu đầu dòng / Chèn bảng / Tắt đánh số | Ctrl+Shift+L / thẻ Chèn ▸ Bảng / ribbon |
+| Sheets | Ctrl+Shift+F (Win/Linux) | Tìm tiếp | thanh Tìm, Tìm và thay thế |
+| Writer | Ctrl+Shift+A | Đoạn trái-sang-phải | menu Định dạng, ribbon |
+| Slides | Ctrl+Shift+V | Dán đặc biệt | Ctrl+Alt+V, ribbon, menu Sửa |
 | Writer | Ctrl+Q (Win/Linux) | Thoát | Alt+F4, Tệp tin ▸ Thoát |
 | Writer | F4 | Thuộc tính hình ảnh | menu chuột phải |
 | Writer | F12 (Win/Linux) | Bật/tắt đánh số | ribbon, Định dạng ▸ Dấu đầu dòng và đánh số |
@@ -201,10 +213,24 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 | Sheets | Shift+F9 | Theo dấu ô tham chiếu | thẻ Công thức |
 | Sheets | Ctrl+5 | Giãn dòng 1,5 (khi sửa chữ trong ô) | hộp thoại Đoạn văn |
 
+## macOS theo bản Mac của bộ tham chiếu (15/11)
+
+Dòng có `mac` trong `data/ribbon/shortcuts-office-parity.json` ghi phím của bản Mac (trang phím tắt Word, Excel, PowerPoint
+cho Mac, đọc 2026-11-15) khi phím đó không chỉ là Cmd thay Ctrl; dòng không có `mac` dùng Cmd thay Ctrl.
+`scripts/check-keytips-parity.py --tree` kiểm cả hai nền tảng. Phím mới trên macOS (cuối
+`hst-msoffice-shortcuts-parity-legacy-keys.patch`): Writer Control+H Tìm và thay thế, Cmd+Option+F chú thích cuối trang
+(trước là Tìm và thay thế), Cmd+Option+E chú thích cuối văn bản (trước là Quản lý phần mở rộng); Sheets Control+H, F7,
+Cmd+Shift+F lọc, Cmd+Shift+K / Cmd+Shift+J nhóm / bỏ nhóm; Slides Cmd+Shift+H, F7, Cmd+T Phông chữ (trước là Kiểu dáng),
+Cmd+Control+V Dán đặc biệt; PDF Cmd+Shift+H, F7.
+
+Ngoại lệ macOS (`mac_exception`, bản Mac không có phím hoặc hệ điều hành giữ phím): Writer Ctrl+Q (Cmd+Q là Thoát),
+Writer Ctrl+Space (Cmd+Space là Spotlight), Sheets Ctrl+Shift+F (bản Mac dùng Cmd+Shift+F cho lọc). Chủ dự án kiểm
+trên máy Mac M2.
+
 ## Chưa xác minh
 
 - Alt+F4 đi qua trình quản lý cửa sổ / Windows nên máy kiểm tra (Xvfb, không có trình quản lý cửa sổ) không thử được.
-  Slides chưa có Ctrl+Shift+C/V của PowerPoint (sao chép / dán định dạng đối tượng); `Ctrl+Alt+C/V` chỉ có ở Writer.
+  Slides: Ctrl+Shift+C/V chép định dạng trong cùng tài liệu; dán sang tài liệu khác không làm gì (như Writer).
 - macOS: mọi phím `install:module="macosx"` và phím ký hiệu (`Cmd+Shift+>`, `Control+Shift+#`,
   `Control+Shift+~`) chưa thử trên máy Mac; Option+Return trong Sheets đi qua cùng mã như Alt+Enter.
 - Windows: phím ký hiệu (`Ctrl+Shift+>`/`<`, `Ctrl+Shift+#`/`~`, `Ctrl+Shift+=`, `Ctrl+Shift+:`)

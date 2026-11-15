@@ -47,7 +47,7 @@ class NeutralUiModeDescriptions(unittest.TestCase):
         self.assertEqual(set(rows), new_ids)
         for row in rows.values():
             self.assertIn("Microsoft", row["msgid"])
-            self.assertIn("ribbon quen thuộc", row["msgstr"])
+            self.assertIn("thanh công cụ", row["msgstr"])  # owner 15/11: never "ribbon" in Vietnamese
             for word in VENDOR_WORDS:
                 self.assertNotIn(word, row["msgstr"])
 

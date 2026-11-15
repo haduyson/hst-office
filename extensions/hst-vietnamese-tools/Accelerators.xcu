@@ -1,11 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- HST Office: the Microsoft Office VBA shortcuts in HST Writer and HST Sheets.
+<!-- HST Office: the VBA shortcuts of the reference office suite in HST Writer, Sheets, Slides and Draw.
      Alt+F11 (Option+F11 on macOS) opens the VBA editor on the document's VBA module ("Macro VBA",
-     org.hst.office.vi:EditVba); it replaces, in these two modules only, the global Alt+F11 of the
+     org.hst.office.vi:EditVba); it replaces, in these four modules only, the global Alt+F11 of the
      Basic Macros dialog (.uno:MacroDialog). Alt+F8 opens that dialog (run/edit/create macros, the
-     Office "Macros" dialog) in HST Sheets and HST Writer, as in Excel and Word; in Writer this
-     replaces the extended-selection key (still on the status bar's selection mode control,
-     owner decision 2026-11-04). Checked by tests/runtime/check-vba.py. -->
+     reference suite's "Macros" dialog) in HST Sheets, Writer and Draw, as the reference suite does; in
+     Writer this replaces the extended-selection key (still on the status bar's selection mode control,
+     owner decision 2026-11-04). HST Slides gets Alt+F8 from the core shortcut table
+     (hst-msoffice-shortcuts-parity.patch). Draw (HST PDF's editor) has the same macro UI as Slides
+     (owner decision 2026-11-15); macro security is unchanged, nothing runs by itself. In Slides and
+     Draw these keys are the only way in: their HST menu has no "Macro VBA" (owner decision 2026-11-16).
+     Checked by tests/runtime/check-vba.py and check-vba-editor.py. -->
 <oor:component-data xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
                     oor:name="Accelerators" oor:package="org.openoffice.Office">
   <node oor:name="PrimaryKeys">
@@ -29,6 +33,19 @@
              number 3 again (hst_office/citation_cite_actions.py); a free key in HST Writer -->
         <node oor:name="I_SHIFT_MOD2" oor:op="replace">
           <prop oor:name="Command"><value xml:lang="en-US">org.hst.office.vi:CitationReinsert</value></prop>
+        </node>
+      </node>
+      <node oor:name="com.sun.star.presentation.PresentationDocument">
+        <node oor:name="F11_MOD2" oor:op="replace">
+          <prop oor:name="Command"><value xml:lang="en-US">org.hst.office.vi:EditVba</value></prop>
+        </node>
+      </node>
+      <node oor:name="com.sun.star.drawing.DrawingDocument">
+        <node oor:name="F11_MOD2" oor:op="replace">
+          <prop oor:name="Command"><value xml:lang="en-US">org.hst.office.vi:EditVba</value></prop>
+        </node>
+        <node oor:name="F8_MOD2" oor:op="replace">
+          <prop oor:name="Command"><value xml:lang="en-US">.uno:MacroDialog</value></prop>
         </node>
       </node>
     </node>

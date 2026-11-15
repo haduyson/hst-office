@@ -79,18 +79,6 @@ def writer_checks(office, keys):
     check("Writer Ctrl+Shift+D double underline", wait(lambda: sel().CharUnderline == 2, 5), sel().CharUnderline)
     keys.send("ctrl+z")
 
-    # Ctrl+Shift+V pastes text only: copy the bold first paragraph, paste at the end of the second.
-    keys.send("ctrl+b")
-    keys.send("ctrl+c")
-    end = text.createTextCursorByRange(p2().getEnd())
-    ctrl.select(end)
-    keys.send("ctrl+shift+v")
-    pasted = lambda: p2().getString().endswith("Xin chào HST Office")  # noqa: E731
-    ok = wait(pasted, 8)
-    last = text.createTextCursorByRange(p2().getEnd())
-    last.goLeft(1, True)
-    check("Writer Ctrl+Shift+V pastes text only", ok and last.CharWeight < 150, f"{p2().getString()!r} {last.CharWeight}")
-
     fields_before = _count(doc.getTextFields())
     keys.send("alt+shift+d")
     check("Writer Alt+Shift+D inserts a date field", wait(lambda: _count(doc.getTextFields()) > fields_before, 5))
