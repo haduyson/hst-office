@@ -5,6 +5,8 @@ collapsed group was a one-line PushButton with 24 px of padding (Đầu/chân tr
 below the other groups' caption line). It now asks FoldedButtonSize for its size and paints itself with
 DrawFoldedButton: the large icon on top, the caption on at most two balanced lines with ▾ after the last, on the
 groups' caption line, at the groups' height. Its text stays the plain caption (accessible name and tooltip).
+The ribbon's group box also starts 5 px in, so the first group's content sits 8 px from the window edge as in the
+mockup (panel 4 + group 4); its right end, 8 px before the banner, does not move.
 
 License: these upstream files remain under their original license (MPL-2.0).
 ---
@@ -18,7 +20,20 @@ License: these upstream files remain under their original license (MPL-2.0).
  #if __has_include(<HstRibbonLadders.hxx>)
  #include <HstRibbonLadders.hxx>
  #define HST_HAVE_RIBBON_LADDERS 1
-@@ -323,6 +324,36 @@
+@@ -70,6 +71,12 @@
+ PriorityMergedHBox::PriorityMergedHBox(vcl::Window* pParent)
+     : PriorityHBox(pParent)
+ {
++    // HST Office (1.0.2 mockup): the ribbon panel pads its groups by 4 px and every group by 4 px; the group's
++    // frame gives 3, so the box starts 5 px in (the first group's content 8 px from the window edge). Its right
++    // end does not move: the margin comes off the left of what the box is given. A box inside another one (the
++    // Extension tab's add-on box) is a group of that one and gets none.
++    if (!dynamic_cast<PriorityMergedHBox*>(pParent))
++        set_margin_start(std::lround(5 * GetDPIScaleFactor()));
+     m_pButton = VclPtr<PushButton>::Create(this, WB_FLATBUTTON);
+     m_pButton->SetClickHdl(LINK(this, PriorityMergedHBox, PBClickHdl));
+     m_pButton->SetModeImage(Image(StockImage::Yes, CHEVRON));
+@@ -323,6 +330,36 @@
  }
  }
  
@@ -55,7 +70,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  // HST Office: a group whose only command is a gallery without an image (Writer's Kiểu: the style
  // gallery) shows the icon of its caption's dialog launcher (Styles) on its "Caption ▾" button
  Image PriorityMergedHBox::HstGroupImage(const vcl::Window& rGroup)
-@@ -336,16 +367,11 @@
+@@ -336,16 +373,11 @@
      VclPtr<PushButton>& rButton = m_aHstGroupButtons[&rGroup];
      if (!rButton)
      {
