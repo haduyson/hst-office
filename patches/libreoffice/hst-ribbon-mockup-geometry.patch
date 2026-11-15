@@ -623,7 +623,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  /// Grid attachments of a group's children as authored, kept while the window lives.
-@@ -247,10 +412,202 @@
+@@ -247,10 +412,208 @@
      DECL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, void);
  };
  
@@ -772,6 +772,12 @@ License: these upstream files remain under their original license (MPL-2.0).
 +          { { u"bxInsertInsertGraphic", 0, 0, 1, 3 }, { u"btnInsertHstShapes", 1, 0, 1, 1, true },
 +            { u"bxInsertInsertObjectChart", 1, 1, 1, 1 }, { u"bxInsertGallery", 2, 0, 1, 1 },
 +            { u"bxInsertInsertAVMedia", 2, 1, 1, 1 } } },
++        // Slides ▸ Insert ▸ Text at the small size: Text Box, Header and Footer and WordArt stay large, Date and
++        // Time, Slide Number and Object as icons in one column of three
++        { u"gdInsertText", GroupSmall, 3, 4,
++          { { u"bxHstUXInsertText12", 0, 0, 1, 3 }, { u"bxHstUXInsertText16", 1, 0, 1, 3 },
++            { u"bxHstUXInsertText13", 2, 0, 1, 3 }, { u"bxHstUXInsertText15", 3, 0, 1, 1 },
++            { u"bxHstUXInsertText14", 3, 1, 1, 1 }, { u"bxHstUXInsertText17", 3, 2, 1, 1 } } },
 +        // Sheets ▸ Home ▸ Cells at the medium size: Insert, Delete and Format as medium buttons in one column
 +        { u"gdHomeCells", GroupMedium, 3, 1,
 +          { { u"btnHomeHstCellsInsert", 0, 0, 1, 1, true }, { u"btnHomeHstCellsDelete", 0, 1, 1, 1, true },
@@ -826,7 +832,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  GroupCell authoredCell(vcl::Window& rChild)
-@@ -259,10 +616,8 @@
+@@ -259,10 +622,8 @@
      auto it = rCells.find(&rChild);
      if (it == rCells.end())
      {
@@ -839,7 +845,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,37 +636,211 @@
+@@ -281,37 +642,211 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -1063,7 +1069,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
-@@ -375,10 +904,18 @@
+@@ -375,10 +910,18 @@
          if (nCommands > FEW_COMMANDS)
              break;
      }
@@ -1085,7 +1091,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // the menu buttons of every group drop their labels at the small state only (their image stays where it
      // is: above the label in a group of few commands)
      forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
-@@ -408,7 +945,8 @@
+@@ -408,7 +951,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {
