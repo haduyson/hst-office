@@ -73,62 +73,77 @@ class BannerWidthPerWindow(unittest.TestCase):
         self.assertIn("aLayout.states = m_aHstLastStates;", code)
 
 
+def generated_ladders():
+    """{(app, box): {"ladder", "gen", "steps": [[group, state]], "fold"}}: the explicit ladders as the data gives them,
+    the rule ladders as the generator resolves them from the tab's groups (scaling-priorities.json, tab order)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "gen_ladders", os.path.join(ROOT, "scripts/patches/generate-ribbon-adaptive-ladders.py"))
+    gen = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gen)
+    groups = {(l["app"], l["box"].replace(" ", "_")): l["groups"] for l in json.load(open(
+        os.path.join(ROOT, "data/ribbon/scaling-priorities.json"), encoding="utf-8"))["ladders"]}
+    out = {}
+    for ladder in json.load(open(os.path.join(ROOT, "data/ribbon/adaptive-ladders.json"), encoding="utf-8"))["ladders"]:
+        key = (ladder["app"], ladder["box"])
+        steps, fold = gen.rule_chain(groups[(key[0], key[1].replace(" ", "_"))]) if ladder.get("rule") else (ladder["steps"], ladder.get("fold"))
+        out[key] = {"ladder": ladder, "gen": gen, "steps": steps, "fold": fold}
+    return out
+
+
 class ApprovedOrder(unittest.TestCase):
-    def test_patch_has_the_data(self):
-        data = json.load(open(os.path.join(ROOT, "data/ribbon/adaptive-ladders.json"), encoding="utf-8"))
+    """Ribbon 1.0.2 mockup (plan 261115-2225, phase 1): Writer's Home and Insert carry the mockup's steps, every
+    other tab the mockup's rule (generate-ribbon-adaptive-ladders.py rule_chain)."""
+
+    def test_patch_has_the_chains(self):
         text = added(LADDERS, "vcl/inc/HstRibbonLadders.hxx")
         states = {"M": 1, "S": 2, "C": 3}
-        for ladder in data["ladders"]:
-            steps = ", ".join(f'{{ u"{g}", {states[s]} }}' for g, s in ladder["steps"])
-            self.assertIn(f"{ladder['app']}_{ladder['box']}_steps[] = {{ {steps} }};", text)
+        for (app, box), got in generated_ladders().items():
+            steps = ", ".join(f'{{ u"{g}", {states[s]} }}' for g, s in got["steps"])
+            name = app + "_" + re.sub(r"\W", "_", box)
+            line = f"inline constexpr Step {name}_steps[] = {{ {steps} }};"
+            # a chain the patch leaves as the series had it is not an added line
+            if f"Step {name}_steps[]" in text:
+                self.assertIn(line, text, (app, box))
 
-    def test_insert_symbols_small_before_links_small(self):
-        data = json.load(open(os.path.join(ROOT, "data/ribbon/adaptive-ladders.json"), encoding="utf-8"))
-        insert = next(l for l in data["ladders"] if l["box"] == "pmhbInsert")["steps"]
+    def test_writer_home_and_insert_are_the_mockups(self):
+        ladders = generated_ladders()
+        insert = ladders[("writer", "pmhbInsert")]["steps"]
+        self.assertNotIn(["gdInsertText", "M"], insert)  # the mockup's Text group: L, S, C
         self.assertLess(insert.index(["gdInsertSymbols", "S"]), insert.index(["gdInsertReferences", "S"]))
+        home = ladders[("writer", "pmhbHome")]["steps"]
+        self.assertEqual(home[:2], [["gdHomeStyle", "M"], ["gdHomeStyle", "S"]])
+        self.assertEqual(home[-1], ["gdHomeFont", "C"])
 
-
-    def test_writer_review_language_small_first_so_changes_keeps_labels(self):
-        # coordinator 15/11/2026 (G10): the two language menus are the widest labels of Review; Changes is labelled
-        data = json.load(open(os.path.join(ROOT, "data/ribbon/adaptive-ladders.json"), encoding="utf-8"))
-        steps = next(l for l in data["ladders"] if (l["app"], l["box"]) == ("writer", "pmhbReview"))["steps"]
-        small = [s for s in steps if s[1] == "S"]
-        self.assertEqual(small[0], ["gdReviewHstLanguage", "S"])
-        self.assertLess(steps.index(["gdReviewHstAccessibility", "M"]), steps.index(["gdReviewHstLanguage", "S"]))
-        fold = next(l for l in data["ladders"] if (l["app"], l["box"]) == ("writer", "pmhbReview"))["fold"]
-        self.assertLess(fold.index("gdReviewHstLanguage"), fold.index("gdReviewResolveChanges"))
-
-    def test_other_tabs_shrink_right_to_left_main_group_last(self):
-        # coordinator 14/11/2026: right to left to M, to S, to C; the tab's first (main) group last
-        data = json.load(open(os.path.join(ROOT, "data/ribbon/adaptive-ladders.json"), encoding="utf-8"))
-        order = {(l["app"], l["box"]): l["groups"] for l in
-                 json.load(open(os.path.join(ROOT, "data/ribbon/scaling-priorities.json"), encoding="utf-8"))["ladders"]}
+    def test_every_other_tab_follows_the_rule(self):
         checked = 0
-        for ladder in data["ladders"]:
-            groups = order.get((ladder["app"], ladder["box"]))
-            if ladder["app"] == "writer" and ladder["box"] in ("pmhbHome", "pmhbInsert") or not groups:
+        for (app, box), got in generated_ladders().items():
+            if not got["ladder"].get("rule"):
                 continue
-            rest = groups[1:][::-1]
-            want = [[g, s] for s in "MSC" for g in rest] + [[groups[0], s] for s in "MSC"]
-            if (ladder["app"], ladder["box"]) == ("writer", "pmhbReview"):  # Language is the first S step (G10)
-                want.remove(["gdReviewHstLanguage", "S"])
-                want.insert(want.index([rest[0], "S"]), ["gdReviewHstLanguage", "S"])
-            self.assertEqual(ladder["steps"], want, (ladder["app"], ladder["box"]))
-            # the regrow priority (reverse of the fold) follows the same rule: HstRibbonRegrow lays the row out by it
-            fold = rest + [groups[0]]
-            if (ladder["app"], ladder["box"]) == ("writer", "pmhbReview"):  # Language folds before Changes (G10)
-                fold.remove("gdReviewHstLanguage")
-                fold.insert(fold.index("gdReviewResolveChanges"), "gdReviewHstLanguage")
-            self.assertEqual(ladder.get("fold"), fold, (ladder["app"], ladder["box"]))
+            gen = got["gen"]
+            buttons = [g for g, s in got["steps"] if s == "C"]
+            self.assertEqual(got["fold"], buttons, (app, box))
+            gallery = [g for g in buttons if g in gen.GALLERIES]
+            # (a) a gallery goes to M and S first; (d) it becomes its button first
+            self.assertEqual(got["steps"][:2 * len(gallery)], [[g, s] for s in "MS" for g in gallery], (app, box))
+            self.assertEqual(buttons[:len(gallery)], gallery, (app, box))
+            # the formatting groups are the last buttons, Font the very last
+            formatting = [g for g in buttons if gen.FORMATTING.search(g) and g not in gallery]
+            if formatting:
+                self.assertEqual(buttons[-len(formatting):], formatting, (app, box))
+                if any("Font" in g for g in formatting):
+                    self.assertIn("Font", buttons[-1], (app, box))
+            # every group goes down its ladder only: M before S before C
+            for group in buttons:
+                order = [s for g, s in got["steps"] if g == group]
+                self.assertEqual(order, sorted(order, key="MSC".index), (app, box, group))
             checked += 1
-        self.assertGreater(checked, 40)
+        self.assertGreater(checked, 50)
 
-
-    def test_sheets_home_grows_its_clipboard_first_and_font_last(self):
-        # G10: Cut, Copy and Format Painter keep their labels at 1920; owner 13/11: Font gives up its labels first
-        text = added(LADDERS, "vcl/inc/HstRibbonLadders.hxx")
-        self.assertIn('calc_pmhbHome_grow[] = { u"gdHomeClipboard", u"gdHomeEditing", u"gdHomeCells", u"gdHomeStyles", '
-                      'u"gdHomeAlignment", u"gdHomeNumber", u"gdHomeFont" };', text)
+    def test_sheets_home_font_collapses_last(self):
+        steps = generated_ladders()[("calc", "pmhbHome")]["steps"]
+        self.assertEqual(steps[-1], ["gdHomeFont", "C"])
+        self.assertEqual(steps[:2], [["gdHomeStyles", "M"], ["gdHomeStyles", "S"]])
 
 
 if __name__ == "__main__":
