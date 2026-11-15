@@ -88,6 +88,14 @@ class ApprovedOrder(unittest.TestCase):
         self.assertLess(insert.index(["gdInsertSymbols", "S"]), insert.index(["gdInsertReferences", "S"]))
 
 
+    def test_writer_review_language_small_first_so_changes_keeps_labels(self):
+        # coordinator 15/11/2026 (G10): the two language menus are the widest labels of Review; Changes is labelled
+        data = json.load(open(os.path.join(ROOT, "data/ribbon/adaptive-ladders.json"), encoding="utf-8"))
+        steps = next(l for l in data["ladders"] if (l["app"], l["box"]) == ("writer", "pmhbReview"))["steps"]
+        small = [s for s in steps if s[1] == "S"]
+        self.assertEqual(small[0], ["gdReviewHstLanguage", "S"])
+        self.assertLess(steps.index(["gdReviewHstAccessibility", "M"]), steps.index(["gdReviewHstLanguage", "S"]))
+
     def test_other_tabs_shrink_right_to_left_main_group_last(self):
         # coordinator 14/11/2026: right to left to M, to S, to C; the tab's first (main) group last
         data = json.load(open(os.path.join(ROOT, "data/ribbon/adaptive-ladders.json"), encoding="utf-8"))
@@ -100,6 +108,9 @@ class ApprovedOrder(unittest.TestCase):
                 continue
             rest = groups[1:][::-1]
             want = [[g, s] for s in "MSC" for g in rest] + [[groups[0], s] for s in "MSC"]
+            if (ladder["app"], ladder["box"]) == ("writer", "pmhbReview"):  # Language is the first S step (G10)
+                want.remove(["gdReviewHstLanguage", "S"])
+                want.insert(want.index([rest[0], "S"]), ["gdReviewHstLanguage", "S"])
             self.assertEqual(ladder["steps"], want, (ladder["app"], ladder["box"]))
             # the regrow priority (reverse of the fold) follows the same rule: HstRibbonRegrow lays the row out by it
             self.assertEqual(ladder.get("fold"), rest + [groups[0]], (ladder["app"], ladder["box"]))
