@@ -1,0 +1,224 @@
+HST Office: the 1.0.2 ribbon mockup's frame: a 106 px body, the banner 8 px from the window's edge, ⌘⌥R on macOS.
+
+- The ribbon with the banner (Tabbed notebookbar of Writer, Sheets, Slides and Draw) is the tab row, 3 px, a body of
+  exactly 106 logical px and 3 px in every tab (35 + 112 = 147 px with the 35 px tab row). It was at least 165 px and
+  grew with the tallest page (198 px in Writer at 1920 px); content taller than the body is a .ui to fix. Other
+  notebookbar files keep the 165 px minimum.
+- slotFor() no longer takes 2 px above and below the slot: in the 106 px body the banner is w x w*104/360, centred
+  (360 x 104 at 1920 px, 269 x 78 at 1485, 260 x 75 up to 1440, 390 x 113 at 150 %), instead of 353 x 102. Its width follows the document
+  window's frame (windowSlotWidth got the SystemWindow's narrower client: 357 px at 1920), its right edge is 8 px
+  from the window's right edge and the groups stop 8 px before it.
+- Compact ribbon: the banner is 260 x 75 (compactSlot) centred in the 80 px band, 8 px from the window's edge; the
+  tab row, the quick row and the dropped page stop 8 px before it (W - 276 px).
+- macOS (owner decision D10): ⌘⌥R switches the compact ribbon as Ctrl+F1 does; Ctrl+F1 also works there.
+
+--- a/include/vcl/HstBannerGeometry.hxx
++++ b/include/vcl/HstBannerGeometry.hxx
+@@ -105,26 +105,42 @@
+     return eMode == Mode::Wide ? ART_WIDTH : eMode == Mode::Compact ? COMPACT_ART_WIDTH : 0;
+ }
+ 
++/** HST Office (1.0.2 ribbon mockup): the logical height of the full ribbon's body (the tab page holding the
++    groups) in every tab of every app, and the gap between the banner and the window's right edge. */
++constexpr long RIBBON_BODY_HEIGHT = 106;
++constexpr long RIGHT_GAP = 8;
++
+ /** Banner slot at the right end of the full tab page rectangle rPage (pixels), for artwork
+     nArtWidth logical px wide: the largest rectangle with the artwork's ratio that fits the page
+-    height (minus margins) and the artwork's logical size, centred vertically on the page. */
+-inline Rect slotFor(const Rect& rPage, double fDpi, long nArtWidth = ART_WIDTH, long nMaxWidth = 0)
++    height and the artwork's logical size (nMaxWidth > 0: at most that wide), centred vertically on
++    the page. Its right edge is nRight (pixels; < 0: 4 logical px inside the page's right end). There
++    are no fixed vertical margins: in the 106 px body the 360 px slot is 360 x 104, 1 px from the top
++    and the bottom, and the 260 px slot 260 x 75 (heights rounded to the nearest pixel). */
++inline Rect slotFor(const Rect& rPage, double fDpi, long nArtWidth = ART_WIDTH, long nMaxWidth = 0, long nRight = -1)
+ {
+-    const long nVMargin = scaled(2, fDpi);
+-    const long nRightMargin = scaled(4, fDpi);
+-    const long nRoom = std::max(0L, rPage.h - 2 * nVMargin);
++    if (nRight < 0)
++        nRight = rPage.x + rPage.w - scaled(4, fDpi);
++    const long nRoom = std::max(0L, rPage.h);
+     Rect aSlot;
+     if (nArtWidth <= 0)
+-        return Rect{ rPage.x + rPage.w - nRightMargin, rPage.y + nVMargin, 0, 0 };
++        return Rect{ nRight, rPage.y, 0, 0 };
+     aSlot.w = std::min(scaled(nArtWidth, fDpi), nRoom * nArtWidth / ART_HEIGHT);
+     if (nMaxWidth > 0)
+-        aSlot.w = std::min(aSlot.w, nMaxWidth); // a narrowed wide slot (wideSlotWidth)
+-    aSlot.h = std::min(nRoom, aSlot.w * ART_HEIGHT / nArtWidth);
+-    aSlot.x = rPage.x + rPage.w - nRightMargin - aSlot.w;
+-    aSlot.y = rPage.y + nVMargin + (SLOT_CENTRED ? (nRoom - aSlot.h) / 2 : 0);
++        aSlot.w = std::min(aSlot.w, nMaxWidth); // the window's banner width (windowSlotWidth)
++    aSlot.h = std::min(nRoom, (aSlot.w * ART_HEIGHT + nArtWidth / 2) / nArtWidth); // rounded: 390 x 113 at 150 %
++    aSlot.x = nRight - aSlot.w;
++    aSlot.y = rPage.y + (SLOT_CENTRED ? (nRoom - aSlot.h) / 2 : 0);
+     return aSlot;
+ }
+ 
++/** HST Office (1.0.2 ribbon mockup): the banner of the compact ribbon, MIN_WIDE_ART_WIDTH wide with the
++    artwork's ratio (260 x 75 logical px) at every window width. */
++inline StripSlot compactSlot(double fDpi)
++{
++    const long nW = scaled(MIN_WIDE_ART_WIDTH, fDpi);
++    return StripSlot{ nW, (nW * ART_HEIGHT + ART_WIDTH / 2) / ART_WIDTH };
++}
++
+ /** Width left to the groups of the page when the banner occupies rSlot. */
+ inline long pageWidthBeside(const Rect& rPage, const Rect& rSlot, double fDpi)
+ {
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -58,6 +58,8 @@
+     void HstSetCompact( bool bCompact );
+     void HstDrop();
+     tools::Long HstCompactReserve() const;
++    /// x in px where the banner ends: 8 logical px before the document window's right edge, never past this control
++    tools::Long HstBannerRight() const;
+     DECL_LINK(HstToggleHdl, LinkParamNone*, void);
+     DECL_LINK(HstKeyHdl, VclWindowEvent&, bool);
+     DECL_LINK(HstTabEventHdl, VclWindowEvent&, void);
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -562,16 +562,17 @@
+     TabPage* pPage = GetTabPage(GetCurPageId());
+     if (m_pHstCompact && m_pHstCompact->IsCompact())
+     {
+-        // the compact ribbon: the banner (260 x 75) stands across the tab row and the quick row, the
+-        // tab row's search box and menu button stop before it and so does the quick row
++        // the compact ribbon: the banner (260 x 75, 8 px from the window's right edge) stands across the tab
++        // row and the quick row, centred in the band; the tab row's search box and menu button stop 8 px
++        // before it and so does the quick row
+         const double fDpi = GetDPIScaleFactor();
+         const tools::Long nHeader = HstHeaderHeight();
+         const tools::Long nBand = nHeader + HstRibbonCompact::QuickHeight(nHeader, fDpi);
+-        const hst::banner::StripSlot aSlot = hst::banner::stripSlot(HstRibbonCompact::BandHeight(fDpi), fDpi);
++        const hst::banner::StripSlot aSlot = hst::banner::compactSlot(fDpi);
+         const tools::Long nWidth = GetOutputSizePixel().Width();
+         const tools::Long nReserve = HstCompactReserve();
+-        m_pHstBanner->Place(tools::Rectangle(
+-            Point(nWidth - hst::banner::scaled(4, fDpi) - aSlot.w, (nBand - aSlot.h) / 2), Size(aSlot.w, aSlot.h)));
++        m_pHstBanner->Place(tools::Rectangle(Point(HstBannerRight() - aSlot.w, std::max<tools::Long>(0, (nBand - aSlot.h) / 2)),
++                                             Size(aSlot.w, aSlot.h)));
+         HstSetRowReserve(nReserve);
+         const tools::Long nLeft = hst::banner::scaled(4, fDpi);
+         m_pHstCompact->Place(tools::Rectangle(Point(nLeft, nHeader),
+@@ -598,12 +599,15 @@
+         {
+             // HST Office (1.0.2 ribbon, owner decision 14/11/2026): the banner's width follows the window, not
+             // the tab: 260 logical px up to 1440 px, then linearly up to 360 px at 1920 (windowSlotWidth); the
+-            // groups scale beside it (Office-style ladder) and the banner never moves between tabs
+-            const SystemWindow* pWindow = GetSystemWindow();
++            // groups scale beside it (Office-style ladder) and the banner never moves between tabs. The width is
++            // the document window's (its frame), not the SystemWindow's client, which is narrower than the window
++            // (a 1920 px window got a 357 px banner); 1.0.2 mockup: 8 px from the window's right edge, w x w*104/360
++            // centred in the 106 px body (360 x 104 at 1920, 260 x 75 up to 1440)
++            const vcl::Window* pFrame = GetFrameWindow();
+             const long nMaxWidth = hst::banner::windowSlotWidth(
+-                pWindow ? pWindow->GetSizePixel().Width() : GetOutputSizePixel().Width(), fDpi);
++                pFrame ? pFrame->GetOutputSizePixel().Width() : GetOutputSizePixel().Width(), fDpi);
+             const hst::banner::Rect aSlot
+-                = hst::banner::slotFor(aPage, fDpi, hst::banner::artWidth(eMode), nMaxWidth);
++                = hst::banner::slotFor(aPage, fDpi, hst::banner::artWidth(eMode), nMaxWidth, HstBannerRight());
+             nPageWidth = hst::banner::pageWidthBeside(aPage, aSlot, fDpi);
+             m_pHstBanner->Place(tools::Rectangle(Point(aSlot.x, aSlot.y), Size(aSlot.w, aSlot.h)));
+         }
+@@ -668,11 +672,30 @@
+     HstLayoutBanner();
+ }
+ 
++tools::Long NotebookbarTabControl::HstBannerRight() const
++{
++    // the document window's right edge in this control's pixels (this control may stop before it: the margins of
++    // the notebookbar's .ui), never past this control, less the 8 px gap of the mockup
++    const tools::Long nOwn = GetOutputSizePixel().Width();
++    tools::Long nEdge = nOwn;
++    const vcl::Window* pFrame = GetFrameWindow();
++    if (pFrame && !IsRTLEnabled())
++    {
++        const Point aEdge = ScreenToOutputPixel(pFrame->OutputToScreenPixel(Point(pFrame->GetOutputSizePixel().Width(), 0)));
++        if (aEdge.X() > 0)
++            nEdge = std::min(nOwn, aEdge.X());
++    }
++    return nEdge - hst::banner::scaled(hst::banner::RIGHT_GAP, GetDPIScaleFactor());
++}
++
+ tools::Long NotebookbarTabControl::HstCompactReserve() const
+ {
+-    // the banner of the compact ribbon, its 4 px right margin and an 8 px gap before it
++    // everything right of 8 px before the compact ribbon's banner: 260 + 16 logical px when this control reaches
++    // the window's right edge (the dropped page is then W - 276 px wide)
+     const double fDpi = GetDPIScaleFactor();
+-    return hst::banner::stripSlot(HstRibbonCompact::BandHeight(fDpi), fDpi).w + hst::banner::scaled(12, fDpi);
++    const tools::Long nBannerLeft = HstBannerRight() - hst::banner::compactSlot(fDpi).w;
++    return std::max<tools::Long>(0, GetOutputSizePixel().Width() - nBannerLeft
++                                        + hst::banner::scaled(hst::banner::RIGHT_GAP, fDpi));
+ }
+ 
+ void NotebookbarTabControl::HstSetCompact( bool bCompact )
+@@ -764,7 +787,7 @@
+     HstSetCompact(true);
+ }
+ 
+-// Ctrl+F1 anywhere in this document window (its dropped page included) switches the ribbon's state
++// Ctrl+F1 (macOS: also ⌘⌥R) anywhere in this document window (its dropped page included) switches the ribbon's state
+ IMPL_LINK(NotebookbarTabControl, HstKeyHdl, VclWindowEvent&, rEvent, bool)
+ {
+     if (rEvent.GetId() != VclEventId::WindowKeyInput || !m_pHstCompact || !IsReallyVisible())
+@@ -773,7 +796,16 @@
+     // vcl hands the key listeners the frame window of the key (a document window's border window, above
+     // this window's SystemWindow), so frames are compared; a popup of this control (the dropped page) counts
+     const vcl::Window* pWindow = rEvent.GetWindow();
+-    if (!pKey || pKey->GetKeyCode().GetFullCode() != (KEY_F1 | KEY_MOD1) || !pWindow
++    const sal_uInt16 nFull = pKey ? pKey->GetKeyCode().GetFullCode() : 0;
++#ifdef MACOSX
++    // macOS (owner decision D10): ⌘⌥R as in the reference suite on the Mac, and Ctrl+F1 when the system leaves it
++    // to the application (KEY_MOD1 is ⌘, KEY_MOD2 ⌥, KEY_MOD3 Ctrl)
++    const bool bToggle = nFull == (KEY_R | KEY_MOD1 | KEY_MOD2) || nFull == (KEY_F1 | KEY_MOD3)
++                         || nFull == (KEY_F1 | KEY_MOD1);
++#else
++    const bool bToggle = nFull == (KEY_F1 | KEY_MOD1);
++#endif
++    if (!bToggle || !pWindow
+         || (pWindow->GetFrameWindow() != GetFrameWindow() && !IsWindowOrChild(pWindow, true)))
+         return false;
+     HstSetCompact(!m_pHstCompact->IsCompact());
+@@ -1067,16 +1099,24 @@
+     }
+ }
+ 
+-// HST Office: the tab row and the tallest tab page of the full ribbon, in logical px (gap list G06: one height and
+-// one caption row for Writer, Sheets, Slides and Draw)
++// HST Office: the tab row and the tallest tab page of a full ribbon without the banner (another notebookbar file), in
++// logical px (gap list G06)
+ constexpr double HST_RIBBON_HEIGHT = 165;
++// the tab control's insets above and below the page, in px at every scale (TAB_OFFSET of vcl/source/control/tabctrl.cxx)
++constexpr tools::Long HST_PAGE_INSETS = 2 * 3;
+ 
+ Size NotebookbarTabControl::calculateRequisition() const
+ {
+     Size aSize = NotebookbarTabControlBase::calculateRequisition();
+-    // HST Office: one ribbon height in every app (Sheets' tallest page was 3 px lower); the compact ribbon below sets
+-    // its own height
+-    aSize.setHeight(std::max<tools::Long>(aSize.Height(), std::lround(HST_RIBBON_HEIGHT * GetDPIScaleFactor())));
++    const double fDpi = GetDPIScaleFactor();
++    // HST Office (1.0.2 ribbon mockup): the ribbon of Writer, Sheets, Slides and Draw (the one with the banner) is the
++    // tab row, 3 px, a body of exactly 106 logical px (rounded once) and 3 px in every tab: never taller for a page
++    // whose content asks for more (a .ui to fix) nor lower for a shorter one. The compact ribbon below sets its own
++    // height.
++    if (m_pHstBanner && HstHeaderHeight() > 0)
++        aSize.setHeight(HstHeaderHeight() + HST_PAGE_INSETS + hst::banner::scaled(hst::banner::RIBBON_BODY_HEIGHT, fDpi));
++    else
++        aSize.setHeight(std::max<tools::Long>(aSize.Height(), std::lround(HST_RIBBON_HEIGHT * fDpi)));
+ 
+     for (int i = 0; i < GetPageCount(); i++)
+     {
+@@ -1094,7 +1134,7 @@
+     if (aSize.Width() < 400)
+         aSize.setWidth( 400 );
+     if (m_pHstCompact && m_pHstCompact->IsCompact()) // the tab row and the quick row
+-        aSize.setHeight(HstHeaderHeight() + HstRibbonCompact::QuickHeight(HstHeaderHeight(), GetDPIScaleFactor()));
++        aSize.setHeight(HstHeaderHeight() + HstRibbonCompact::QuickHeight(HstHeaderHeight(), fDpi));
+     aSize.AdjustHeight(HstQatRow()); // the quick access toolbar's own row below the ribbon
+ 
+     return aSize;
