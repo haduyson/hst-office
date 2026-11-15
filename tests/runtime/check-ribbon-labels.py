@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
 from ribbon_home_tools_gui import group_range  # noqa: E402
-from ribbon_mockup_geometry import CAPTIONS  # noqa: E402
+from ribbon_mockup_geometry import CAPTIONS  # noqa: E402  (Writer)
 
 # the mockup's ladder (reference vectors): a group in state S is icon-only at that width, so it needs no labels there
 _EXPECTED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ribbon-mockup-expected.json")

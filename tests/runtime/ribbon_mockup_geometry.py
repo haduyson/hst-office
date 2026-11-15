@@ -9,12 +9,25 @@ small button). Heuristic until the label widths of phase 0 are available.
 """
 from ribbon_mockup_rules import LEVEL, compare_states, is_monotonic  # noqa: F401  re-exported for the checkers
 
-CAPTIONS = {  # expected-JSON key -> caption text of the group on the Writer ribbon (Trang đầu, Chèn)
-    "home": {"clip": "Bảng tạm", "font": "Phông chữ", "para": "Đoạn văn", "edit": "Chỉnh sửa", "viet": "Tiện ích Việt"},
-    "insert": {"pages": "Trang", "tables": "Bảng", "illus": "Minh họa", "links": "Liên kết", "comments": "Chú thích",
-               "hf": "Đầu trang và chân trang", "text": "Văn bản", "symbols": "Ký hiệu"},
+CAPTIONS_BY_APP = {  # app -> tab -> expected-JSON key -> caption text of the group on that app's ribbon
+    "writer": {
+        "home": {"clip": "Bảng tạm", "font": "Phông chữ", "para": "Đoạn văn", "edit": "Chỉnh sửa", "viet": "Tiện ích Việt"},
+        "insert": {"pages": "Trang", "tables": "Bảng", "illus": "Minh họa", "links": "Liên kết", "comments": "Chú thích",
+                   "hf": "Đầu trang và chân trang", "text": "Văn bản", "symbols": "Ký hiệu"},
+    },
+    "calc": {  # Sheets: the cell styles (cellstyles) are part of Kiểu, the owner's decision; Ô is the cells group
+        "home": {"clip": "Bảng tạm", "font": "Phông chữ", "align": "Căn chỉnh", "number": "Số", "edit": "Chỉnh sửa",
+                 "cells": "Ô"},
+        "insert": {"tables": "Bảng", "illus": "Minh họa", "charts": "Biểu đồ", "links": "Liên kết",
+                   "comments": "Chú thích", "text": "Văn bản", "symbols": "Ký hiệu"},
+    },
 }
-FOLDED = {"home": {"styles": "Kiểu"}}  # groups whose only accessible node is a folded or gallery button
+CAPTIONS = CAPTIONS_BY_APP["writer"]  # kept for the Writer callers
+FOLDED_BY_APP = {  # groups whose only accessible node is a folded or gallery button, when folded
+    "writer": {"home": {"styles": "Kiểu"}},
+    "calc": {"home": {"styles": "Kiểu", "cells": "Ô", "edit": "Chỉnh sửa"}},
+}
+FOLDED = FOLDED_BY_APP["writer"]
 GROUP_MIN_H = 90  # the body of a ribbon group is 106 px; its caption sits at its bottom
 FOLDED_MIN_H = 90  # a folded group button is 98 px tall
 LARGE_MIN_H = 40  # a large button: icon over label, 63 px in the reference
@@ -37,10 +50,10 @@ def _state(buttons, folded):
     return "S"
 
 
-def groups(nodes, tab):
+def groups(nodes, tab, app="writer"):
     """{key: {"state", "box", "caption_bottom", "buttons"}} for the groups of tab ("home" or "insert") that are showing."""
     found = {}
-    for key, caption in CAPTIONS[tab].items():
+    for key, caption in CAPTIONS_BY_APP[app][tab].items():
         label = next((n for n in nodes if n[0] == "label" and n[1] == caption and n[2][3] <= CAPTION_MAX_H), None)
         if label is None:
             continue
@@ -51,7 +64,7 @@ def groups(nodes, tab):
         buttons = [(n[1], n[2]) for n in nodes if n[0] in BUTTON_ROLES and _inside(n[2], gbox)
                    and gbox[1] <= n[2][1] < bottom]
         found[key] = {"state": _state(buttons, False), "box": gbox, "caption_bottom": bottom, "buttons": buttons}
-    for key, caption in FOLDED.get(tab, {}).items():
+    for key, caption in FOLDED_BY_APP[app].get(tab, {}).items():
         button = next((n for n in nodes if n[0] in BUTTON_ROLES and n[1] == caption and n[2][3] >= 40), None)
         if button is not None:
             box = button[2]

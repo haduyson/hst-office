@@ -27,7 +27,9 @@ import ribbon_mockup_atspi as atspi  # noqa: E402
 import ribbon_mockup_geometry as geo  # noqa: E402
 from ribbon_mockup_rules import monotonic_findings, width_findings  # noqa: E402
 
-EXPECTED = os.path.join(HERE, "ribbon-mockup-expected.json")
+EXPECTED = {"writer": os.path.join(HERE, "ribbon-mockup-expected.json"),
+            "calc": os.path.join(HERE, "ribbon-mockup-expected-sheets.json")}  # by app
+APP = ["writer"]  # the app under test, set by main (writer: Writer; calc: Sheets)
 ROWS = []
 WINDOW = [None]  # AT-SPI window id of the office under test, set by main
 
@@ -41,7 +43,7 @@ def measure(tab, width):
     """States, body, tab row, banner and font boxes at one width of one tab."""
     nodes = atspi.ribbon_nodes()
     tab_top, strip = geo.tab_geometry(nodes)
-    return {"groups": geo.groups(nodes, tab), "tab_top": tab_top, "strip": strip, "banner": geo.banner(nodes),
+    return {"groups": geo.groups(nodes, tab, APP[0]), "tab_top": tab_top, "strip": strip, "banner": geo.banner(nodes),
             "page": geo.page_box(nodes, tab_top),
             "font_box": geo.named_box(nodes, "Tên phông"), "size_box": geo.named_box(nodes, "Kích cỡ phông"),
             "width": width}
@@ -82,6 +84,7 @@ def main():
     parser.add_argument("--display", default=":281")
     parser.add_argument("--out", default=os.path.join(hst_gui.ROOT, "tests/output/ribbon-mockup"))
     parser.add_argument("--sweep-step", type=int, default=0, help="also sweep 1100-1920 in steps of N px (0: off)")
+    parser.add_argument("--app", default="writer", choices=sorted(EXPECTED), help="writer, or calc for Sheets")
     args = parser.parse_args()
     if os.geteuid() == 0:
         os.makedirs(args.out, exist_ok=True)
@@ -89,10 +92,14 @@ def main():
         os.execvp("runuser", ["runuser", "-u", hst_gui.BUILD_USER, "--", "env", "NO_AT_BRIDGE=0",
                               "GTK_MODULES=gail:atk-bridge", "dbus-run-session", "--", sys.executable] + sys.argv)
     args.instdir, args.out = os.path.abspath(args.instdir), os.path.abspath(args.out)
-    with open(EXPECTED, encoding="utf-8") as handle:
+    APP[0] = args.app
+    with open(EXPECTED[args.app], encoding="utf-8") as handle:
         expected = json.load(handle)["states"]
+    if args.app == "calc":  # Sheets: the cell styles are part of Kiểu (owner decision), compared as the Kiểu group
+        for value in expected.values():
+            value["states"].pop("cellstyles", None)
     hst_gui.setup_uno(args.instdir)
-    office, wid, _ = gui.start(args.instdir, "writer", args.display, os.path.join(args.out, "work"), 7601)
+    office, wid, _ = gui.start(args.instdir, args.app, args.display, os.path.join(args.out, "work"), 7601)
     WINDOW[0] = wid
     measured = {}
     try:
