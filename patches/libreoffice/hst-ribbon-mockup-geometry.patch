@@ -66,7 +66,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  inline constexpr OUString FILE_TAB_NAME = u"FileLabel"_ustr;
 --- /dev/null
 +++ b/vcl/inc/HstRibbonGeometry.hxx
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,170 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -107,6 +107,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +constexpr long LARGE_SLOT_TOP = 6; // the slot's top: 1 px border and 5 px padding
 +constexpr long LARGE_MIN_WIDTH = 42;
 +constexpr long LARGE_LABEL_PAD = 4; // left and right of the label: 1 px border and 3 px padding
++constexpr long LARGE_BOTTOM_PAD = 4; // under the label's last line (the frame VCL's PushButton keeps inside)
 +constexpr long LABEL_MAX = 72; // a one-line label wider than this wraps even when it is short
 +constexpr int SHORT_LABEL = 7; // characters: a label this short stays on one line (the mockup's twoLines)
 +
@@ -178,7 +179,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +
 +/** A large button: nIcon px icon, label lines nLine1 and nLine2 px wide (nLine2 0 for a one-line label) in a
 +    font nTextHeight px high; bMenu: ▾ ends the second line. It is CONTENT high, so every large button of the
-+    ribbon puts its icon and its label's first line at the same height whatever its label. */
++    ribbon puts its icon and its label's first line at the same height whatever its label. The icon moves up
++    from its slot when a font taller than the mockup's would push a second line under LARGE_BOTTOM_PAD. */
 +inline LargeButton largeButton(long nIcon, long nLine1, long nLine2, bool bMenu, long nTextHeight, double fScale)
 +{
 +    LargeButton aButton;
@@ -187,7 +189,9 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    aButton.width = std::max({ px(LARGE_MIN_WIDTH, fScale), nLabel + 2 * px(LARGE_LABEL_PAD, fScale),
 +                               nIcon + 2 * px(LARGE_LABEL_PAD, fScale) });
 +    aButton.height = px(CONTENT, fScale);
-+    aButton.iconY = px(LARGE_SLOT_TOP, fScale) + std::max(0L, px(LARGE_ICON_SLOT, fScale) - nIcon) / 2;
++    const long nRoom = aButton.height - px(LARGE_BOTTOM_PAD, fScale) - 2 * nTextHeight - imageTextGap(nTextHeight) - nIcon;
++    aButton.iconY = std::max(0L, std::min(px(LARGE_SLOT_TOP, fScale) + std::max(0L, px(LARGE_ICON_SLOT, fScale) - nIcon) / 2,
++                                          nRoom));
 +    aButton.textY = aButton.iconY + nIcon + imageTextGap(nTextHeight);
 +    aButton.linePitch = nTextHeight;
 +    return aButton;
@@ -643,7 +647,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,37 +479,143 @@
+@@ -281,37 +479,147 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -691,6 +695,10 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                                  [&rGrid](int n) { rGrid.set_row_spacing(n); });
 +    bChanged |= setIfChanged<int>(rGrid.get_column_spacing(), px(geometry::COLUMN_GAP),
 +                                  [&rGrid](int n) { rGrid.set_column_spacing(n); });
++    // the whole height of the ribbon body, its content at the top and its caption at the bottom, whatever its
++    // content's height (a group of two rows with combo boxes is lower than one of large buttons)
++    bChanged |= setIfChanged<VclAlign>(rGrid.get_valign(), VclAlign::Fill, [&rGrid](VclAlign e) { rGrid.set_valign(e); });
++    bChanged |= setIfChanged<bool>(rGrid.get_vexpand(), true, [&rGrid](bool b) { rGrid.set_vexpand(b); });
 +    for (std::size_t i = 0; i < rChildren.size(); ++i)
 +    {
 +        vcl::Window& rChild = *rChildren[i];
@@ -798,7 +806,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
-@@ -377,8 +681,11 @@
+@@ -377,8 +685,11 @@
      }
      const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
      for (ToolBox* pToolBox : aToolBoxes)
@@ -812,7 +820,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // the menu buttons of every group drop their labels at the small state only (their image stays where it
      // is: above the label in a group of few commands)
      forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
-@@ -408,7 +715,8 @@
+@@ -408,7 +719,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {

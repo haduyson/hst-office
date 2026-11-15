@@ -35,7 +35,10 @@ int main()
     CHECK(l.arrowWidth == 10 && l.width == 56 + 10 + 8);
     CHECK(l.textY + 2 * l.linePitch <= l.height);
     l = largeButton(36, 75, 80, false, 25, 1.5);
-    CHECK(l.height == 114 && l.iconY == 9 + 6 && l.textY == 15 + 36 + 8 && l.textY + 2 * l.linePitch <= l.height);
+    CHECK(l.height == 114 && l.iconY == 14 && l.textY == 14 + 36 + 8 && l.textY + 2 * l.linePitch <= l.height - 6);
+    // a taller font moves the icon up so that two lines keep 4 px over the bottom (PushButton's frame)
+    l = largeButton(24, 30, 40, false, 18, 1.0);
+    CHECK(l.iconY == 7 && l.textY == 7 + 24 + 5 && l.textY + 2 * 18 == 76 - 4);
     // medium: 4 + icon + 5 + label + 4; small: 22; split: + 12
     CHECK(smallButtonWidth(16, 40, false, 1.0) == 69 && smallButtonWidth(16, 0, false, 1.0) == 22);
     CHECK(smallButtonWidth(16, 0, true, 1.0) == 34 && smallButtonWidth(24, 0, false, 1.5) == 34);
