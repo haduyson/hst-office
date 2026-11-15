@@ -108,7 +108,8 @@ class ReferenceDesign(unittest.TestCase):
         self.assertEqual(writer[".uno:SubScript"]["vi"], "Viết chữ nhỏ ở dưới dòng, như H₂O.")
         self.assertEqual(writer[".uno:InsertPageHeader"]["vi"], "Thêm hoặc sửa phần đầu trang.")
         # sentences a Writer .ui line gives are replaced through the .po: the key must be such a line
-        described = {t["en"] for t in INVENTORY["writer"]["ui_described"].values()}
+        described = {t["en"] for kind in ("ui_described", "menu_described")
+                     for t in INVENTORY["writer"].get(kind, {}).values()}
         rows = [r for r in self.overrides() if r["msgctxt"] == "TabbedWriter|hstUxTip"]
         self.assertGreaterEqual(len(rows), 30)
         self.assertEqual([r["msgid"] for r in rows if r["msgid"] not in described], [])
