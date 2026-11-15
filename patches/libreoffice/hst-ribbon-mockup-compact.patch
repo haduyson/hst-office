@@ -10,7 +10,9 @@ click on another tab drops that tab's page. The quick access toolbar shows New, 
 Print (owner decision D3, replacing the three-button default of 14/11) in the four apps, KeyTips 1 to 6 by
 position; New (.uno:AddDirect, Ctrl+N) is a plain button without its document type ▾; profiles with a
 customised toolbar keep it. The quick row's Tìm is the find bar (Ctrl+F) as on the ribbon; the find bar and HST
-commands take the 16 px icon their ribbon button shows (data/ribbon/quick-rows.json "icons").
+commands take the 16 px icon their ribbon button shows (data/ribbon/quick-rows.json "icons"). In the compact
+state the tab row narrows the feature search box down to its magnifier before any quick access button goes
+into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's row is unchanged.
 
 --- a/sfx2/source/notebookbar/HstRibbonCompact.hxx
 +++ b/sfx2/source/notebookbar/HstRibbonCompact.hxx
@@ -503,6 +505,22 @@ commands take the 16 px icon their ribbon button shows (data/ribbon/quick-rows.j
      pPage->Show();
      // below the tab row, from the control's left edge
      xDrop->StartPopupMode(tools::Rectangle(Point(0, 0), Size(1, m_nHeaderHeight)),
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -2619,8 +2619,11 @@
+                 nTabs += hst::ribbon::FileTabExtraWidth(*GetOutDev()); // as the tabs are placed below
+         }
+         // the search box keeps the width at which it shows its text (below that it is only a magnifier), with
+-        // its gaps before and after it; the row's start offset (2 px) and the toolbox's 1 px follow below
+-        const tools::Long nSearch = pHstSearch ? 2 * nHstGap + std::lround(120 * fHstDpi) : 0;
++        // its gaps before and after it; the row's start offset (2 px) and the toolbox's 1 px follow below.
++        // The compact ribbon (its banner beside the row, m_nHstRowReserve) keeps the quick access buttons
++        // whole, as the approved 1.0.2 mockup: the box narrows down to its magnifier first.
++        const tools::Long nSearchBox = std::lround((m_nHstRowReserve > 0 ? 32 : 120) * fHstDpi);
++        const tools::Long nSearch = pHstSearch ? 2 * nHstGap + nSearchBox : 0;
+         // its items and the ▾/» menu button at the end (the toolbox's size request leaves that button out)
+         const Size aWant(m_pShortcuts->GetOptimalSize().Width() + std::lround(16 * fHstDpi),
+                          m_pShortcuts->GetOptimalSize().Height());
 --- a/sw/uiconfig/swriter/toolbar/notebookbarshortcuts.xml
 +++ b/sw/uiconfig/swriter/toolbar/notebookbarshortcuts.xml
 @@ -8,14 +8,15 @@
