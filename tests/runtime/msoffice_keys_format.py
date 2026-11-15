@@ -5,7 +5,7 @@ from shortcut_keys import check, wait
 
 
 def format_keys(office, keys, doc):
-    """Ctrl+Alt+C / Ctrl+Alt+V copy character and paragraph formats; Ctrl+Q removes paragraph formatting only."""
+    """Ctrl+Shift+C / Ctrl+Shift+V copy character and paragraph formats; Ctrl+Q removes paragraph formatting only."""
     from com.sun.star.text.ControlCharacter import PARAGRAPH_BREAK
     text = doc.getText()
     ctrl = doc.getCurrentController()
@@ -17,12 +17,12 @@ def format_keys(office, keys, doc):
     sample = paras["Mẫu định dạng"]
     sample.CharWeight, sample.CharHeight, sample.ParaAdjust = 150.0, 18.0, 3  # bold 18 pt centered
     ctrl.select(text.createTextCursorByRange(sample.getStart()))
-    keys.send("ctrl+alt+c")
+    keys.send("ctrl+shift+c")
 
     whole = paras["Đích cả đoạn"]
     ctrl.select(whole)
-    keys.send("ctrl+alt+v")
-    check("Writer Ctrl+Alt+V pastes character and paragraph formats on a whole paragraph",
+    keys.send("ctrl+shift+v")
+    check("Writer Ctrl+Shift+V pastes character and paragraph formats on a whole paragraph",
           wait(lambda: whole.CharWeight == 150.0 and whole.CharHeight == 18.0 and whole.ParaAdjust == 3, 5),
           f"{whole.CharWeight} {whole.CharHeight} {whole.ParaAdjust}")
 
@@ -30,14 +30,14 @@ def format_keys(office, keys, doc):
     cursor = text.createTextCursorByRange(part.getStart())
     cursor.goRight(4, True)
     ctrl.select(cursor)
-    keys.send("ctrl+alt+v")
-    check("Writer Ctrl+Alt+V on part of a paragraph: character formats only",
+    keys.send("ctrl+shift+v")
+    check("Writer Ctrl+Shift+V on part of a paragraph: character formats only",
           wait(lambda: cursor.CharWeight == 150.0, 5) and part.ParaAdjust != 3 and text.createTextCursorByRange(part.getEnd()).CharWeight != 150.0,
           f"{cursor.CharWeight} {part.ParaAdjust}")
 
     # The keys' copy stays for another paste, and does not switch the paintbrush on.
     state = _command_state(office, doc, ".uno:FormatPaintbrush")
-    check("Writer Ctrl+Alt+C leaves the format paintbrush off", state is not True, state)
+    check("Writer Ctrl+Shift+C leaves the format paintbrush off", state is not True, state)
 
     target = paras["Đoạn để xóa"]
     target.ParaAdjust, target.ParaLeftMargin, target.CharWeight = 3, 1000, 150.0
@@ -58,7 +58,7 @@ def format_keys(office, keys, doc):
     check("Writer Ctrl+Alt+M inserts a comment", wait(lambda: text_field_count(doc.getTextFields()) > comments, 5))
     keys.send("Escape")
     office.raise_windows()
-    dialog_check(office, keys, "ctrl+alt+shift+v", "Writer Ctrl+Alt+Shift+V Paste Special (clipboard filled above)")
+    dialog_check(office, keys, "ctrl+alt+v", "Writer Ctrl+Alt+V Paste Special (clipboard filled above)")
 
 
 def _command_state(office, doc, command):
