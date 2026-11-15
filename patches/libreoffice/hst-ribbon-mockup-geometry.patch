@@ -24,7 +24,8 @@ follows one geometry, the mockup's (plans/261115-2225-ribbon-mockup-1-0-2/refere
   label; large tool boxes stand at the top, medium and small ones at their column's left edge (Find over Replace);
   every group's frame is the mockup's whatever its .ui: 4 px padding, 2 px between columns and rows, the caption
   band 18 px high at the bottom with its text centred (one caption line in every tab of every application), the
-  separator 1 px wide, 6 px from the body's top and bottom, 4 px after the content. The caption row of a group is
+  separator 1 px wide, 6 px from the body's top and bottom, 3 px after the content (8 px from content to content,
+  the first group's content 4 px inside the page). The caption row of a group is
   its lowest row (2, or 3 for the 3-row columns), holding a label or the box of the label and the launcher.
 - HstRibbonPaint: FoldedButtonSize and DrawFoldedButton measure and draw a folded group's "Caption ▾" button for
   PriorityMergedHBox::HstGroupButton (the contract is in HstRibbonPaint.hxx).
@@ -647,7 +648,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,37 +479,147 @@
+@@ -281,37 +479,149 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -678,7 +679,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    whatever the .ui says: GROUP_PADDING above and under the grid, COLUMN_GAP between its columns, CAPTION_GAP
 +    between the content and the caption band, the caption band CAPTION_ROW high at the bottom with its text centred
 +    (one caption line for every group), the separator 1 px wide, SEPARATOR_INSET from the body's top and bottom and
-+    4 px after the content (with the next group's 3 px margin, 8 px from content to content). */
++    3 px after the content, the next group's content 4 px after it: 8 px from content to content, and the first
++    group's content 4 px inside the page (with the page's own 4 px, 8 px from its edge, as the mockup). */
 +void normaliseGroupFrame(VclGrid& rGrid, const std::vector<vcl::Window*>& rChildren, const std::vector<GroupCell>& rCells)
 +{
 +    const double fScale = rGrid.GetDPIScaleFactor();
@@ -688,7 +690,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                                        [&rGrid](sal_Int32 n) { rGrid.set_margin_top(n); });
 +    bChanged |= setIfChanged<sal_Int32>(rGrid.get_margin_bottom(), px(geometry::GROUP_PADDING),
 +                                        [&rGrid](sal_Int32 n) { rGrid.set_margin_bottom(n); });
-+    bChanged |= setIfChanged<sal_Int32>(rGrid.get_margin_start(), px(geometry::GROUP_PADDING) - px(geometry::SEPARATOR),
++    bChanged |= setIfChanged<sal_Int32>(rGrid.get_margin_start(), px(geometry::GROUP_PADDING),
 +                                        [&rGrid](sal_Int32 n) { rGrid.set_margin_start(n); });
 +    bChanged |= setIfChanged<sal_Int32>(rGrid.get_margin_end(), 0, [&rGrid](sal_Int32 n) { rGrid.set_margin_end(n); });
 +    bChanged |= setIfChanged<int>(rGrid.get_row_spacing(), px(geometry::SMALL_ROW_GAP),
@@ -729,7 +731,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_bottom(), nInset,
 +                                                [pLine](sal_Int32 n) { pLine->set_margin_bottom(n); });
 +            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_start(),
-+                                                px(geometry::GROUP_PADDING) - px(geometry::COLUMN_GAP),
++                                                px(geometry::GROUP_PADDING) - px(geometry::COLUMN_GAP)
++                                                    - px(geometry::SEPARATOR),
 +                                                [pLine](sal_Int32 n) { pLine->set_margin_start(n); });
 +            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_end(), 0,
 +                                                [pLine](sal_Int32 n) { pLine->set_margin_end(n); });
@@ -806,7 +809,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
-@@ -377,8 +685,11 @@
+@@ -377,8 +687,11 @@
      }
      const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
      for (ToolBox* pToolBox : aToolBoxes)
@@ -820,7 +823,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // the menu buttons of every group drop their labels at the small state only (their image stays where it
      // is: above the label in a group of few commands)
      forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
-@@ -408,7 +719,8 @@
+@@ -408,7 +721,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {
