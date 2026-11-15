@@ -129,14 +129,15 @@ def sweep(args, app, wid, office):
                 for w, b, c, n, _x, g in observed]
     # at the narrowest width a group is on the ribbon, shown as its button (the adaptive ladders' last state) or in
     # the chevron: the chevron is needed only when some group is in none of the first two
-    # compared by caption: a group's toolbar keys change with its state (its buttons regroup at M and S)
+    # counted, not named: a group's toolbar keys and even its caption reading change with its state; at the narrowest
+    # width the groups on the ribbon and the groups shown as their button must be all the groups of the widest one,
+    # else the missing ones are in the chevron, which must then show
     narrow = observed[-1][0]
-    shown_captions = {names.get(k) for k in observed[-1][5]}
-    buttons = list(collapsed.get(narrow, {}))
-    missing = sorted({names.get(k) or k for k in seen} - shown_captions
-                     - {c for c in (names.get(k) for k in seen) if c and any(b.startswith(c) for b in buttons)})
+    widest = len(observed[0][5])
+    shown_now = len(observed[-1][5]) + len(collapsed.get(narrow, {}))
     record(f"[{app}] at {narrow} px every group shows (or as its button) or the chevron shows",
-           observed[-1][2] is not None or not missing, missing or observed[-1][2])
+           observed[-1][2] is not None or shown_now >= widest,
+           {"groups at the widest": widest, "shown or buttons": shown_now, "chevron": observed[-1][2]})
     record(f"[{app}] no ribbon group is clipped at {WIDTHS[0]}..{WIDTHS[-1]} px", not clipped, clipped or len(observed))
     record(f"[{app}] a group folds only when it would not fit at its smallest", not early,
            early or [(w, bool(c)) for w, _b, c, _n, _x, _g in observed])
