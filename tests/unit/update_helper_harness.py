@@ -37,9 +37,10 @@ def build(system="Linux", **kwargs):
 
 class ShellHarness(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="hst-helper's ")
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
+        # Private directory per test (mkdtemp). The helper relaunches the app as a detached process that may still be
+        # writing its record into the directory when the test ends, so removal waits for it instead of racing it.
+        self.root = Path(tempfile.mkdtemp(prefix="hst-helper's "))
+        self.addCleanup(self.remove_root)
         self.bin = self.root / "bin"
         self.bin.mkdir()
         # Restrict PATH so tests cannot invoke a host package manager or GUI.
@@ -57,6 +58,21 @@ class ShellHarness(unittest.TestCase):
         with subprocess.Popen(["/bin/sh", "-c", "exit 0"]) as exited:
             exited.wait()
             self.exited_pid = exited.pid
+
+    def remove_root(self, timeout=10):
+        """Delete the test directory, retrying while the detached relaunch stub finishes writing; a leftover that
+        outlives the timeout still raises."""
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                shutil.rmtree(self.root)
+                return
+            except FileNotFoundError:
+                return
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise
+                time.sleep(0.05)
 
     def stub(self, name, body):
         path = Path(name) if Path(name).is_absolute() else self.bin / name
