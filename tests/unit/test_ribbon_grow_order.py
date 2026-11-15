@@ -59,7 +59,7 @@ def regrow_header(tmp):
     """HstRibbonRegrow.hxx as the series leaves it."""
     return apply(tmp, "vcl/inc/HstRibbonRegrow.hxx",
                  added_file("hst-ribbon-ux-engine.patch", "vcl/inc/HstRibbonRegrow.hxx"),
-                 [PATCH, "hst-ribbon-ux-folded-groups.patch"])
+                 [PATCH, "hst-ribbon-ux-folded-groups.patch", "hst-ribbon-regrow-chain.patch"])
 
 
 
@@ -82,26 +82,27 @@ int main()
     const std::vector<std::size_t> growth = { 6, 5, 4, 2, 3, 0, 1 };
     CHECK((growthOrder(7, priority, {}) == priority));
     CHECK((growthOrder(4, { 2, 9, 0 }, { 3, 1, 3 }) == std::vector<std::size_t>{ 3, 1, 2, 0 }));
-    // room for every group at its largest but Font: by priority Font grows and Cells stays small; by the
-    // growth order every other group grows and Font gives up its labels
-    const long nRoom = 110 + 415 + 265 + 230 + 130 + 190 + 340 + 60;
-    const Layout byPriority = fitByPriority(home, priority, nRoom);
-    CHECK(byPriority.fits && byPriority.states[1] == 0 && byPriority.states[5] == 2);
-    const Layout byGrowth = fitByPriority(home, priority, nRoom, growth);
-    CHECK(byGrowth.fits && byGrowth.states[1] == 2 && byGrowth.width <= nRoom);
-    for (std::size_t i : { 0, 2, 3, 4, 5, 6 })
-        CHECK(byGrowth.states[i] == 0);
-    // the growth order never changes which groups collapse: the least used, Font last
+    // owner decision 15/11/2026: one fixed chain of steps per tab decides every state, so a ladder's growth
+    // order changes nothing, and the least used groups become buttons before the most used (Font)
     for (long nWidth = 300; nWidth <= 2000; nWidth += 7)
     {
         const Layout a = fitByPriority(home, priority, nWidth);
         const Layout b = fitByPriority(home, priority, nWidth, growth);
-        CHECK(a.fits == b.fits);
-        if (!b.fits)
+        CHECK(a.fits == b.fits && a.states == b.states);
+        if (!a.fits)
             continue;
-        CHECK(b.width <= nWidth && b.width == rowWidth(home, b.states));
-        for (std::size_t i = 0; i < home.size(); ++i)
-            CHECK((a.states[i] == 3) == (b.states[i] == 3));
+        CHECK(a.width <= nWidth && a.width == rowWidth(home, a.states));
+        if (a.states[1] == 3) // Font a button: the least used groups (Cells, Editing) are buttons already
+            CHECK(a.states[5] == 3 && a.states[6] == 3);
+    }
+    // every label at 1790 px; 50 px short, one group gives up only its labels, and Font keeps its own
+    {
+        const Layout l = fitByPriority(home, priority, 1740);
+        CHECK(l.fits && l.states[1] == 0);
+        std::size_t nSmall = 0;
+        for (std::size_t s : l.states)
+            nSmall += s == 2;
+        CHECK(nSmall == 1);
     }
     return failures ? 1 : 0;
 }
@@ -128,7 +129,7 @@ class RibbonGrowOrderTest(unittest.TestCase):
             regrow = regrow_header(os.path.join(tmp, "tree"))
             self.assertIn("const std::vector<std::size_t>& rGrowth = {}", regrow)
             includes = re.findall(r"^#include\s+[<\"]([^>\"]+)[>\"]", regrow, re.M)
-            self.assertEqual(sorted(includes), ["HstRibbonScaling.hxx", "cstddef", "vector"])
+            self.assertEqual(sorted(includes), ["HstRibbonScaling.hxx", "algorithm", "cstddef", "utility", "vector"])
             compile_and_run(self, tmp, {
                 "HstRibbonScaling.hxx": added_file("hst-ribbon-scaling-helper.patch", "vcl/inc/HstRibbonScaling.hxx"),
                 "HstRibbonRegrow.hxx": regrow}, REGROW_DRIVER)

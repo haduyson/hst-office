@@ -1,0 +1,189 @@
+HST Office: the ribbon lays each tab out from one fixed chain of steps (owner decision 15/11/2026, gap list G10).
+
+fitByPriority collapsed the least used groups first, reopened collapsed groups out of order and grew the others
+back in priority order: a wider window could hide a label or collapse a group that a narrower one showed. Each
+tab now has one chain of steps built from its groups' widths and usage, every step the one that saves the most
+room for its cost (medium 0.2, labels 1, the button 3 per 100 px hidden, times the usage weight 1..4); a width
+takes the shortest part of the chain that fits, so labels and groups only go as the window narrows.
+
+--- a/vcl/inc/HstRibbonRegrow.hxx
++++ b/vcl/inc/HstRibbonRegrow.hxx
+@@ -14,26 +14,20 @@
+ //
+ // select() walks the ladder and stops at the first step that makes the row fit; that step can free far
+ // more than was missing (a large group turned into its "Caption ▾" button), so groups stayed buttons
+-// beside free room, even in a 1920 px window. fitByPriority() lays the row out again from the groups'
+-// priority (most used first):
+-//   1. as few groups as possible become their button, least used first: the k least used groups
+-//      (k as small as possible) collapse when the row does not fit with every other group at its
+-//      smallest shown state. The collapsed groups at a width are therefore always the least used ones,
+-//      and a wider window never collapses a group that a narrower one shows (monotonic);
+-//   1b. owner decision (13/11/2026): the room left after step 1 is not left empty. A collapsed group that fits
+-//      in it at its smallest shown state opens again, out of the usage order, the one that takes the most
+-//      room first, as long as any fits. A smaller, less used group may then be open beside the button of a
+-//      larger, more used one, and a wider window may close a group a narrower one showed (no longer
+-//      monotonic), but no group is a button beside room enough to show it;
+-//   2. the shown groups then grow, most used first, into the largest state that still fits. A ladder may
+-//      give another order for this (its growth order, HstRibbonLadders.hxx): Sheets' Font group is the
+-//      last to collapse, yet the first to give up its labels, so Styles, Cells and Editing keep theirs.
+-// A row that does not fit even with every collapsible group collapsed is left to select() and its
+-// overflow popup.
++// beside free room, even in a 1920 px window. fitByPriority() lays the row out again from one fixed chain of
++// steps per tab (owner decision 15/11/2026, gap list G10), built once from the groups' widths and usage:
++// each step takes one group to a narrower state (large -> medium -> small -> its button, several at once
++// allowed) and is the one that saves the most room for what it costs: medium 0.2, labels (small) 1, the
++// button 3 per 100 px of the group it hides, each times the group's usage weight (1 least used .. 4 most
++// used). At a width the row takes the shortest part of the chain that fits, so a wider window never hides a
++// label or collapses a group that a narrower one shows. A row that does not fit even at the end of the
++// chain is left to select() and its overflow popup.
+ 
+ #include "HstRibbonScaling.hxx"
+ 
++#include <algorithm>
+ #include <cstddef>
++#include <utility>
+ #include <vector>
+ 
+ namespace hst::ribbon
+@@ -87,77 +81,81 @@
+     return aOrder;
+ }
+ 
+-/// The layout for nAvailable from the groups' priority (rPriority: group indexes, most used first);
+-/// fits is false when the row does not fit even with every collapsible group collapsed. The least used
+-/// groups collapse first; the shown ones grow back in rGrowth's order (growthOrder), by default the
+-/// priority's.
+-inline Layout fitByPriority(const std::vector<Group>& rGroups, const std::vector<std::size_t>& rPriority,
+-                            long nAvailable, const std::vector<std::size_t>& rGrowth = {})
++/// The weight of losing a group's medium state, its labels, or the group itself behind its button, from
++/// state nFrom to nTo (several steps at once): see the head of this file.
++inline double regrowStepCost(const Group& rGroup, std::size_t nFrom, std::size_t nTo)
+ {
+-    Layout aLayout;
+-    aLayout.states.assign(rGroups.size(), 0);
+-    for (std::size_t i = 0; i < rGroups.size(); ++i)
+-        aLayout.states[i] = smallestShownState(rGroups[i]);
+-    long nRow = rowWidth(rGroups, aLayout.states);
+-    // 1. the least used groups become their buttons until the row fits at its smallest
+-    for (auto it = rPriority.rbegin(); it != rPriority.rend() && nRow > nAvailable; ++it)
+-    {
+-        if (*it >= rGroups.size() || rGroups[*it].widths.size() <= RegrowCollapsedState)
+-            continue; // a group without a button state stays shown
+-        const Group& rGroup = rGroups[*it];
+-        if (widthOf(rGroup, RegrowCollapsedState) >= widthOf(rGroup, aLayout.states[*it]))
+-            continue; // its button would save nothing
+-        nRow += widthOf(rGroup, RegrowCollapsedState) - widthOf(rGroup, aLayout.states[*it]);
+-        aLayout.states[*it] = RegrowCollapsedState;
+-    }
+-    if (nRow > nAvailable)
+-    {
+-        aLayout.width = nRow;
+-        aLayout.fits = false;
+-        return aLayout;
+-    }
+-    // 1b. the room left opens the collapsed groups that fit in it, the one taking the most room first
++    double fCost = 0;
++    for (std::size_t nState = nFrom; nState < nTo && nState < RegrowCollapsedState; ++nState)
++        fCost += nState == 0 ? 0.2 : nState == 1 ? 1.0 : 3.0 * double(widthOf(rGroup, 2)) / 100.0;
++    return fCost;
++}
++
++/// The tab's fixed chain of steps (group, state reached), first taken first: see the head of this file.
++/// rPriority: group indexes, most used first; a group it does not name counts as the least used.
++inline std::vector<std::pair<std::size_t, std::size_t>> regrowChain(const std::vector<Group>& rGroups,
++                                                                    const std::vector<std::size_t>& rPriority)
++{
++    const std::size_t nGroups = rGroups.size();
++    std::vector<std::size_t> aRank(nGroups, nGroups); // usage rank, 0 most used
++    for (std::size_t n = 0; n < rPriority.size(); ++n)
++        if (rPriority[n] < nGroups && aRank[rPriority[n]] == nGroups)
++            aRank[rPriority[n]] = n;
++    std::vector<double> aWeight(nGroups, 1.0);
++    for (std::size_t i = 0; i < nGroups; ++i)
++        if (aRank[i] < nGroups && nGroups > 1)
++            aWeight[i] = 1.0 + 3.0 * double(nGroups - 1 - aRank[i]) / double(nGroups - 1);
++    std::vector<std::size_t> aState(nGroups, 0);
++    std::vector<std::pair<std::size_t, std::size_t>> aChain;
+     for (;;)
+     {
+-        std::size_t nBest = rGroups.size();
+-        long nBestGain = 0;
+-        for (std::size_t i = 0; i < rGroups.size(); ++i)
++        std::size_t nBest = nGroups, nBestState = 0;
++        double fBest = 0;
++        for (std::size_t i = 0; i < nGroups; ++i)
+         {
+-            if (aLayout.states[i] != RegrowCollapsedState)
+-                continue;
+-            const std::size_t nShown = smallestShownState(rGroups[i]);
+-            const long nGain = widthOf(rGroups[i], nShown) - widthOf(rGroups[i], RegrowCollapsedState);
+-            if (nRow + nGain <= nAvailable && (nBest == rGroups.size() || nGain > nBestGain))
++            const std::size_t nStates = std::min<std::size_t>(rGroups[i].widths.size(), RegrowCollapsedState + 1);
++            for (std::size_t nState = aState[i] + 1; nState < nStates; ++nState)
+             {
+-                nBest = i;
+-                nBestGain = nGain;
++                const long nSaved = widthOf(rGroups[i], aState[i]) - widthOf(rGroups[i], nState);
++                if (nSaved <= 0)
++                    continue;
++                const double fRatio = double(nSaved) / (regrowStepCost(rGroups[i], aState[i], nState) * aWeight[i]);
++                // the best ratio; on a tie the least used group, then the smaller step
++                if (nBest == nGroups || fRatio > fBest * (1 + 1e-9)
++                    || (fRatio >= fBest * (1 - 1e-9) && aRank[i] > aRank[nBest]))
++                {
++                    nBest = i;
++                    nBestState = nState;
++                    fBest = fRatio;
++                }
+             }
+         }
+-        if (nBest == rGroups.size())
+-            break;
+-        aLayout.states[nBest] = smallestShownState(rGroups[nBest]);
+-        nRow += nBestGain;
++        if (nBest == nGroups)
++            return aChain;
++        aState[nBest] = nBestState;
++        aChain.emplace_back(nBest, nBestState);
+     }
+-    // 2. the shown groups grow back, most used first (or in the ladder's growth order)
+-    for (std::size_t nGroup : growthOrder(rGroups.size(), rPriority, rGrowth))
++}
++
++/// The layout for nAvailable: the shortest part of the tab's chain (regrowChain) that makes the row fit;
++/// fits is false when even the whole chain does not. rGrowth (a ladder's growth order) is no longer used:
++/// the chain decides every state.
++inline Layout fitByPriority(const std::vector<Group>& rGroups, const std::vector<std::size_t>& rPriority,
++                            long nAvailable, const std::vector<std::size_t>& rGrowth = {})
++{
++    (void)rGrowth;
++    Layout aLayout;
++    aLayout.states.assign(rGroups.size(), 0);
++    long nRow = rowWidth(rGroups, aLayout.states);
++    for (const auto& [nGroup, nState] : regrowChain(rGroups, rPriority))
+     {
+-        if (nGroup >= rGroups.size() || aLayout.states[nGroup] == RegrowCollapsedState)
+-            continue;
+-        const Group& rGroup = rGroups[nGroup];
+-        const std::size_t nCurrent = aLayout.states[nGroup];
+-        for (std::size_t nState = 0; nState < nCurrent; ++nState)
+-        {
+-            const long nNext = nRow - widthOf(rGroup, nCurrent) + widthOf(rGroup, nState);
+-            if (nNext <= nAvailable)
+-            {
+-                aLayout.states[nGroup] = nState;
+-                nRow = nNext;
+-                break;
+-            }
+-        }
++        if (nRow <= nAvailable)
++            break;
++        nRow += widthOf(rGroups[nGroup], nState) - widthOf(rGroups[nGroup], aLayout.states[nGroup]);
++        aLayout.states[nGroup] = nState;
+     }
+     aLayout.width = nRow;
+-    aLayout.fits = true;
++    aLayout.fits = nRow <= nAvailable;
+     return aLayout;
+ }
+ }

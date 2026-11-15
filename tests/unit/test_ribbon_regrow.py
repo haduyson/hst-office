@@ -63,22 +63,28 @@ static Layout layoutFor(const std::vector<Group>& rGroups, const std::vector<std
 static void sweep(const std::vector<Group>& rGroups, const std::vector<std::size_t>& rPriority, long nFrom, long nTo)
 {
     const long nIdeal = rowWidth(rGroups, std::vector<std::size_t>(rGroups.size(), 0));
+    std::vector<std::size_t> aBefore; // the states at the previous width (empty after an overflow)
     for (long nWidth = nFrom; nWidth <= nTo; nWidth += 3)
     {
         const Layout aLayout = layoutFor(rGroups, rPriority, nWidth);
         if (!aLayout.overflow.empty())
+        {
+            aBefore.clear();
             continue;
+        }
         CHECK(aLayout.width <= nWidth);
         CHECK(aLayout.width == rowWidth(rGroups, aLayout.states));
         if (nWidth >= nIdeal)
             for (std::size_t s : aLayout.states)
                 CHECK(s == 0);
-        // no group is a button beside room enough to show it (owner decision: folded groups open again out of
-        // the usage order, so folding is no longer monotonic as the window widens)
-        for (std::size_t i = 0; i < rGroups.size(); ++i)
-            if (aLayout.states[i] == 3
-                && aLayout.width - widthOf(rGroups[i], 3) + widthOf(rGroups[i], smallestShownState(rGroups[i])) <= nWidth)
-                std::printf("FAIL room: group %zu a button at %ld with room to show it\n", i, nWidth), ++failures;
+        // owner decision 15/11/2026: one fixed chain of steps per tab, so widening never takes a group to a
+        // narrower state (no label lost, no group collapsed) that a narrower window did not have
+        if (!aBefore.empty())
+            for (std::size_t i = 0; i < rGroups.size(); ++i)
+                if (aLayout.states[i] > aBefore[i])
+                    std::printf("FAIL monotonic: group %zu in state %zu at %ld, %zu at %ld\n", i, aLayout.states[i],
+                                nWidth, aBefore[i], nWidth - 3), ++failures;
+        aBefore = aLayout.states;
     }
 }
 
@@ -114,9 +120,9 @@ int main()
         for (std::size_t i : { 0, 2, 3, 4 })
             CHECK(l.states[i] != 3);
     }
-    // the room left after folding opens a smaller, less used group again (out of the usage order): with
-    // 300 px for Dạng xem (most used, 150 at its smallest), a large group (400) and a small one (60), the large
-    // one folds first by usage, then the small one, and the small one comes back into the room left
+    // the chain collapses the group whose button saves the most for what it hides: with 300 px for Dạng xem
+    // (most used, 150), a large group (400) and a small one (60), the large one becomes its button and the
+    // small one stays open beside it
     {
         const std::vector<Group> row = { { { 150, 150, 150, 70 }, false }, { { 400, 400, 400, 70 }, false },
                                          { { 60, 60, 60, 50 }, false } };
