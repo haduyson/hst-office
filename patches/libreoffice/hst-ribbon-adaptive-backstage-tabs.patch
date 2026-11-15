@@ -1,0 +1,82 @@
+HST Office: the File page opens below the document tab strip, which stays visible with the banner.
+
+Owner requirement 14/11/2026: the File page (BackstageWindow::GetPlacement) starts below the document tab
+strip ("Không tên 1 / 2 / …", framework DocumentTabBar, now with the id "hst-document-tabs") when it shows,
+else below the ribbon's tab row as before; it still ends left of the banner, on gen, gtk3 and Windows alike.
+
+--- a/framework/source/uielement/documenttabbar.cxx
++++ b/framework/source/uielement/documenttabbar.cxx
+@@ -63,6 +63,7 @@
+ {
+     ImplInitSettings();
+     SetAccessibleName(FwkResId(STR_DOCTAB_BAR));
++    set_id(u"hst-document-tabs"_ustr); // the File page opens below it (sfx2 BackstageWindow::GetPlacement)
+ }
+ 
+ void DocumentTabBar::ImplInitSettings()
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -760,6 +760,20 @@
+         lcl_findRibbonParts(*pChild, rpTabs, rpBanner);
+     }
+ }
++
++/// The document tab strip of the window (framework DocumentTabBar, id "hst-document-tabs") when it shows.
++const vcl::Window* lcl_findDocumentTabs(const vcl::Window& rParent)
++{
++    for (const vcl::Window* pChild = rParent.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (pChild->get_id() == u"hst-document-tabs")
++            return pChild->IsReallyVisible() ? pChild : nullptr;
++        if (const vcl::Window* pFound = lcl_findDocumentTabs(*pChild))
++            return pFound;
++    }
++    return nullptr;
++}
+ }
+ 
+ bool BackstageWindow::GetPlacement(tools::Rectangle& rAnchor, Size& rSize) const
+@@ -770,7 +784,8 @@
+         return false;
+     // HST Office (1.0.2 ribbon, gap list G13): the panel drops down from the bottom edge of the tab row and
+     // covers the ribbon body and the document down to the window's bottom, left of the HASON TECH banner,
+-    // which stays visible (docs/BANNERS.md); without a ribbon it covers the document area
++    // which stays visible (docs/BANNERS.md); without a ribbon it covers the document area. The document tab
++    // strip stays visible too (owner, 14/11/2026): when it shows, the panel starts below it.
+     SystemWindow* pSysWin = pContainer->GetSystemWindow();
+     NotebookBar* pRibbon = pSysWin ? pSysWin->GetNotebookBar().get() : nullptr;
+     const TabControl* pTabs = nullptr;
+@@ -783,6 +798,14 @@
+           : pRibbon && pRibbon->IsReallyVisible()
+               ? pRibbon->OutputToAbsoluteScreenPixel(Point(0, pRibbon->GetOutputSizePixel().Height()))
+               : pContainer->OutputToAbsoluteScreenPixel(Point(0, 0));
++    AbsoluteScreenPixelPoint aEdgeTop = aEdge;
++    if (const vcl::Window* pDocTabs = lcl_findDocumentTabs(*pFrameWindow))
++    {
++        const AbsoluteScreenPixelPoint aBelow
++            = pDocTabs->OutputToAbsoluteScreenPixel(Point(0, pDocTabs->GetOutputSizePixel().Height()));
++        if (aBelow.Y() > aEdgeTop.Y())
++            aEdgeTop = AbsoluteScreenPixelPoint(aEdge.X(), aBelow.Y());
++    }
+     // the anchor is in the coordinates of the window behind m_pFrameWeld: GTK takes them in the
+     // frame window (GtkInstancePopover), the other plugins in the frame window's client window
+     // (SalFrame::GetFrameWeld, SalInstancePopover)
+@@ -791,7 +814,7 @@
+                                : pFrameWindow->GetWindow(GetWindowType::Client);
+     if (!pOrigin)
+         return false;
+-    const Point aTop = pOrigin->AbsoluteScreenToOutputPixel(aEdge);
++    const Point aTop = pOrigin->AbsoluteScreenToOutputPixel(aEdgeTop);
+     const Size aFrame = pOrigin->GetOutputSizePixel();
+     const AbsoluteScreenPixelRectangle aScreen = pFrameWindow->GetDesktopRectPixel();
+     const tools::Long nInset = Scaled(PANEL_INSET);
+@@ -800,7 +823,7 @@
+         nRight = std::min(nRight, pOrigin->AbsoluteScreenToOutputPixel(pBanner->OutputToAbsoluteScreenPixel(Point()))
+                                           .X() - nInset);
+     const tools::Long nWidth = nRight - (aTop.X() + nInset);
+-    const tools::Long nHeight = std::min(aFrame.Height() - aTop.Y() - nInset, aScreen.Bottom() - aEdge.Y() - nInset);
++    const tools::Long nHeight = std::min(aFrame.Height() - aTop.Y() - nInset, aScreen.Bottom() - aEdgeTop.Y() - nInset);
+     if (nWidth <= 0 || nHeight <= 0)
+         return false;
+     rSize = Size(nWidth, nHeight);

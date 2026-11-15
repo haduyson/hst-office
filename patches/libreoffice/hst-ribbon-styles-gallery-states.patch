@@ -1,0 +1,90 @@
+HST Office: Writer's Styles gallery keeps 6, 4, then 3 previews in its row before it becomes "Kiểu ▾".
+
+Gap list G05 (owner decision 14/11/2026): the gallery narrowed to one preview as soon as the Home tab shrank, so
+at 1366 px it showed a single three-line tile. It now answers the ribbon ladder's "hst-gallery-state" (as Slides'
+theme gallery does, hst-ribbon-ux-gallery-fit.patch): 6 previews at the large group, 4 at medium, 3 at small; the
+next step is the group's "Kiểu ▾" button. The view still takes any extra room the ribbon leaves.
+
+--- a/svx/source/inc/StylesPreviewWindow.hxx
++++ b/svx/source/inc/StylesPreviewWindow.hxx
+@@ -27,6 +27,7 @@
+ #include <sfx2/sfxstatuslistener.hxx>
+ #include <vcl/weld/Button.hxx>
+ #include <vcl/weld/IconView.hxx>
++#include <vcl/weld/ScrolledWindow.hxx>
+ 
+ // pair of id and name, name can be translated to other language
+ struct StylePreviewDescriptor
+@@ -175,6 +176,17 @@
+     void dispose();
+ 
+     void SetOptimalSize();
++
++    /// HST Office: "hst-gallery-state" (sent by the ribbon ladder, vcl HstRibbonLadder.cxx): 0, 1, 2 for the
++    /// large, medium and small group; the gallery keeps 6, 4 or 3 previews in its row before the group becomes
++    /// its "Kiểu ▾" button. True when the width changed.
++    bool set_property(const OUString& rKey, const OUString& rValue) override;
++
++private:
++    void HstApplyPreviews();
++
++    std::unique_ptr<weld::ScrolledWindow> m_xHstScroll;
++    int m_nHstState = 0;
+ };
+ 
+ #endif
+--- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
++++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
+@@ -20,6 +20,7 @@
+ #include <StylesPreviewWindow.hxx>
+ 
+ #include <algorithm>
++#include <iterator>
+ 
+ #include <comphelper/base64.hxx>
+ #include <comphelper/lok.hxx>
+@@ -1250,14 +1251,44 @@
+     const css::uno::Reference<css::frame::XFrame>& xFrame)
+     : InterimItemWindow(pParent, u"svx/ui/stylespreview.ui"_ustr, u"ApplyStyleBox"_ustr, true)
+     , StylesPreviewWindow_Base(*m_xBuilder, rDefaultStyles, xFrame)
++    , m_xHstScroll(m_xBuilder->weld_scrolled_window(u"stylesscroll"_ustr))
+ {
++    HstApplyPreviews();
+     SetOptimalSize();
+ }
+ 
++namespace
++{
++// HST Office: previews kept in the row at the large, medium and small group (one preview with the icon view's
++// padding is 106 px, stylespreview.ui), as Office's Styles gallery narrows from 6 to 4 to 3 before it folds
++constexpr int HST_PREVIEWS[] = { 6, 4, 3 };
++constexpr tools::Long HST_PREVIEW_WIDTH = 106;
++}
++
++void StylesPreviewWindow_Impl::HstApplyPreviews()
++{
++    if (m_xHstScroll)
++        m_xHstScroll->set_size_request(HST_PREVIEWS[m_nHstState] * HST_PREVIEW_WIDTH * GetDPIScaleFactor(), -1);
++}
++
++bool StylesPreviewWindow_Impl::set_property(const OUString& rKey, const OUString& rValue)
++{
++    if (rKey != "hst-gallery-state")
++        return InterimItemWindow::set_property(rKey, rValue);
++    const int nState = std::clamp<int>(rValue.toInt32(), 0, std::size(HST_PREVIEWS) - 1);
++    if (nState == m_nHstState)
++        return false; // nothing changed: the ladder need not lay the toolbox out again
++    m_nHstState = nState;
++    HstApplyPreviews();
++    SetOptimalSize();
++    return true;
++}
++
+ StylesPreviewWindow_Impl::~StylesPreviewWindow_Impl() { disposeOnce(); }
+ 
+ void StylesPreviewWindow_Impl::dispose()
+ {
++    m_xHstScroll.reset();
+     m_xStylesView.reset();
+     m_xPrevButton.reset();
+     m_xNextButton.reset();
