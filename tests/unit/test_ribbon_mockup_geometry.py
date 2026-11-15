@@ -112,6 +112,8 @@ class MockupGeometry(unittest.TestCase):
         self.assertIn("item.maItemSize = item.maContentSize = Size( aLarge.width, aLarge.height );", toolbox)
         self.assertIn("&& ( meTextPosition == ToolBoxTextPosition::Right ) && !mpData->mbHstOwnerDraw )", toolbox)
         self.assertIn("nImageOffY = pItem->maRect.Top() + aHstLarge.iconY;", toolbox)
+        # a ribbon toolbox's rows are as high as its buttons and visible item windows, not a native combo box
+        self.assertIn("if ( mpData->mbHstOwnerDraw )\n        mnWinHeight = 0;", toolbox)
 
     def test_ladder_places_menu_buttons_and_frames_groups(self):
         ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")

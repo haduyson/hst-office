@@ -1078,7 +1078,30 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  // HST Office: the even grid of a ribbon toolbox at its medium/small size (HstRibbonGrid.hxx); item sizes
-@@ -1709,6 +1746,44 @@
+@@ -1531,6 +1568,11 @@
+         }
+     }
+ 
++    // HST Office: a ribbon toolbox is as high as its buttons and its visible item windows, not as a native combo box
++    // (the 3-row grid of the approved mockup has 24 px rows; the flicker this avoids is that of docked toolbars)
++    if ( mpData->mbHstOwnerDraw )
++        mnWinHeight = 0;
++
+     if ( ! mpData->m_aItems.empty() )
+     {
+         for (auto & item : mpData->m_aItems)
+@@ -1628,7 +1670,9 @@
+                 item.maContentSize = item.maItemSize;
+ 
+                 // if required, take window height into consideration
+-                if ( item.mpWindow )
++                // HST Office: in the ribbon only the windows of visible items (Sheets' hidden Spacing box made
++                // every row of its 3-row grid as high as a spin field)
++                if ( item.mpWindow && ( item.mbVisible || !mpData->mbHstOwnerDraw ) )
+                 {
+                     tools::Long nHeight = item.mpWindow->GetSizePixel().Height();
+                     if ( nHeight > mnWinHeight )
+@@ -1709,6 +1753,44 @@
                      // grow the content size by the additional available space
                      item.maContentSize.AdjustWidth(nGrowContentWidth );
                      item.maContentSize.AdjustHeight(nGrowContentHeight );
@@ -1123,7 +1146,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                  }
  
                  // keep track of max item size
-@@ -1727,8 +1802,9 @@
+@@ -1727,8 +1809,9 @@
          ImplAddButtonBorder( nMaxWidth, nMaxHeight, mpData->mbNativeButtons );
      }
  
@@ -1134,7 +1157,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      {
          // make sure all vertical toolbars have the same width and horizontal have the same height
          // this depends on the used button sizes
-@@ -2800,6 +2876,15 @@
+@@ -2800,6 +2883,15 @@
      if (bDropDown)
          aDropDownRect = pItem->GetDropDownRect(mbHorz);
  
@@ -1150,7 +1173,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      if ( bImage )
      {
          const Image* pImage = &(pItem->maImage);
-@@ -2811,7 +2896,20 @@
+@@ -2811,7 +2903,20 @@
          // draw the image
          nImageOffX = nOffX;
          nImageOffY = nOffY;
@@ -1172,7 +1195,7 @@ License: these upstream files remain under their original license (MPL-2.0).
              && ( meTextPosition == ToolBoxTextPosition::Right ) )
          {
              // left align also to leave space for drop down arrow
-@@ -2856,9 +2954,51 @@
+@@ -2856,9 +2961,51 @@
      // draw the text
      bool bRotate = false;
      tools::Rectangle aHstArrowRect; // HST Office: where ▾ of a split large button goes
@@ -1226,7 +1249,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          const bool bLines = ImplHasLabelLines(aHstLabel, meTextPosition);
          const Size aTxtSize(bLines ? ImplLabelLinesSize(*GetOutDev(), aHstLabel)
                                     : Size(GetOutDev()->GetCtrlTextWidth(pItem->maText), GetTextHeight()));
-@@ -2959,7 +3099,17 @@
+@@ -2959,7 +3106,17 @@
      {
          // HST Office: only ▾ after the label; the label part is not erased (it holds the label)
          if (!aHstArrowRect.IsEmpty())
