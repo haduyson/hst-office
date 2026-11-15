@@ -109,7 +109,9 @@ class ReferenceDesign(unittest.TestCase):
         self.assertEqual(writer[".uno:InsertPageHeader"]["vi"], "Thêm hoặc sửa phần đầu trang.")
         # sentences a Writer .ui line gives are replaced through the .po: the key must be such a line
         described = {t["en"] for t in INVENTORY["writer"]["ui_described"].values()}
-        rows = [r for r in self.overrides() if r["msgctxt"] == "TabbedWriter|hstUxTip"]
+        # (menu buttons have no command, their .ui lines are not in the inventory)
+        rows = [r for r in self.overrides() if r["msgctxt"] == "TabbedWriter|hstUxTip"
+                and r["reason"].startswith("Writer ribbon tooltip sentence")]
         self.assertGreaterEqual(len(rows), 30)
         self.assertEqual([r["msgid"] for r in rows if r["msgid"] not in described], [])
         self.assertIn("Căn đều cả hai lề, thường dùng cho văn bản hành chính.", [r["msgstr"] for r in rows])
