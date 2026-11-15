@@ -537,7 +537,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  /// Grid attachments of a group's children as authored, kept while the window lives.
-@@ -247,10 +360,97 @@
+@@ -247,10 +360,114 @@
      DECL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, void);
  };
  
@@ -591,6 +591,16 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            { u"bxHomeAlign", 0, 1, 3 },
 +            { u"bxHomeIndent", 0, 2, 1 }, { u"bxHomeLineSpacing", 1, 2, 1 }, { u"bxHomeShading", 2, 2, 1 },
 +            { u"bxHomeHanging", 0, 0, 0 }, { u"bxHstSort", 0, 0, 0 }, { u"bxHstBorders", 0, 0, 0 } } },
++        // Sheets ▸ Home ▸ Alignment at the small size: three rows of icons (vertical alignment and Wrap Text |
++        // horizontal alignment and Justified | indents and Merge and Center)
++        { u"gdHomeAlignment", GroupSmall, 3, 2,
++          { { u"bxHomeVAlign", 0, 0, 1 }, { u"bxHomeWrapRTL", 1, 0, 1 },
++            { u"boxHomeHAlign", 0, 1, 1 }, { u"bxHomeAlignBlock", 1, 1, 1 },
++            { u"bxHomeSpacingIndentation", 0, 2, 1 }, { u"bxHomeMergeCells", 1, 2, 1 } } },
++        // Sheets ▸ Home ▸ Number at the small size: the format box over two rows of icons
++        { u"gdHomeNumber", GroupSmall, 3, 1,
++          { { u"bxHomeNumberFormatType", 0, 0, 1 }, { u"bxHomeNumberFormat", 0, 1, 1 },
++            { u"bxHomeNumberDecimals", 0, 2, 1 } } },
 +    };
 +    return aLayouts;
 +}
@@ -604,6 +614,13 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    for (const AlternativeLayout& rLayout : alternativeLayouts())
 +        if (rLayout.state == nState && rGrid.get_id() == OUString(rLayout.group))
 +            pLayout = &rLayout;
++    // only for the group it was written for: every child it names is there (another application may use the
++    // same grid id)
++    if (pLayout)
++        for (const LayoutCell& rCell : pLayout->cells)
++            if (std::none_of(rChildren.begin(), rChildren.end(),
++                             [&rCell](const vcl::Window* p) { return p->get_id() == OUString(rCell.id); }))
++                pLayout = nullptr;
 +    auto& rHidden = hiddenByLayout();
 +    for (std::size_t i = 0; i < rChildren.size(); ++i)
 +    {
@@ -635,7 +652,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  GroupCell authoredCell(vcl::Window& rChild)
-@@ -259,10 +459,8 @@
+@@ -259,10 +476,8 @@
      auto it = rCells.find(&rChild);
      if (it == rCells.end())
      {
@@ -648,7 +665,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,37 +479,158 @@
+@@ -281,37 +496,158 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -818,7 +835,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
-@@ -377,8 +696,11 @@
+@@ -377,8 +713,11 @@
      }
      const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
      for (ToolBox* pToolBox : aToolBoxes)
@@ -832,7 +849,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // the menu buttons of every group drop their labels at the small state only (their image stays where it
      // is: above the label in a group of few commands)
      forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
-@@ -408,7 +730,8 @@
+@@ -408,7 +747,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {
