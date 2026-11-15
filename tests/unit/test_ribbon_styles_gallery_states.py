@@ -28,21 +28,24 @@ class MockupGallery(unittest.TestCase):
     def test_height_survives_the_width_request(self):
         # set_size_request(width, -1) dropped the .ui's height-request on gtk3: a 2 px view, a blank gallery
         code = added(MOCKUP, GALLERY)
-        self.assertIn("m_xHstScroll->set_size_request(std::lround((nTiles * HST_TILE_WIDTH + 2) * fScale),", code)
-        self.assertIn("std::lround(HST_GALLERY_HEIGHT * fScale));", code)
+        self.assertIn("m_xHstScroll->set_size_request(nWidth, nHeight);", code)
+        self.assertIn("static_cast<int>(std::lround(HST_GALLERY_HEIGHT * fScale));", code)
         self.assertNotIn(", -1);", code)
+        # vcl's builder folds "stylesscroll" into the icon view: the view takes the size there
+        self.assertIn("g_bHstVclIconView = !m_xHstScroll;", code)
+        self.assertIn("m_xStylesView->set_size_request(nWidth, nHeight);", code)
         self.assertIn("constexpr tools::Long HST_GALLERY_HEIGHT = 76;", code)
 
     def test_fixed_tiles_not_the_view_width(self):
         code = added(MOCKUP, GALLERY)
         self.assertIn("constexpr int HST_PREVIEWS[] = { 6, 4, 3 };", after(MOCKUP, GALLERY))
         self.assertIn("constexpr tools::Long HST_TILE_WIDTH = 96;", code)
+        self.assertIn("constexpr tools::Long HST_TILE_HEIGHT = 74;", code)
         self.assertIn("return std::max<size_t>(1, m_nHstTiles); }", code)
         self.assertIn("connect_size_allocate", removed(MOCKUP, GALLERY))
         self.assertNotIn("ViewSizeHdl", after(MOCKUP, "svx/source/inc/StylesPreviewWindow.hxx"))
-        # 92 x 70 and the item padding 2 on each side make the 96 x 74 preview
-        self.assertIn("HST_PREVIEW_IMAGE_WIDTH = 92;", code)
-        self.assertIn("HST_PREVIEW_IMAGE_HEIGHT = 70;", code)
+        # the image leaves gtk's item padding 2 (92 x 70) or vcl's own 5 px (86 x 64) of the 96 x 74 tile
+        self.assertIn("const tools::Long nRoom = g_bHstVclIconView ? 10 : 4;", code)
         ui = after(MOCKUP, "svx/uiconfig/ui/stylespreview.ui")
         for prop in ('"item-padding">2<', '"item-width">92<', '"height-request">76<', '"width-request">16<'):
             self.assertIn(prop, ui)
@@ -90,7 +93,7 @@ class MockupFontBoxes(unittest.TestCase):
         self.assertIn("if (hst::ribbon::InNotebookbar(*this))", name)
         self.assertIn("hst::ribbon::FONT_NAME_BOX_WIDTH", name)
         size = added(MOCKUP, "svx/source/tbxctrls/tbunocontroller.cxx")
-        self.assertIn("pCombo->set_entry_width_chars(1);", size)  # FontSizeBox asks for "105 pt" otherwise
+        self.assertIn("pCombo->set_entry_width_chars(2);", size)  # FontSizeBox asks for "105 pt"; "12" stays readable
         self.assertIn("hst::ribbon::FONT_SIZE_BOX_WIDTH", size)
         # gtk3 sizes the entry and puts the ▾ button on top: the overshoot is taken off the request
         self.assertIn("rWindow.get_preferred_size().Width() - nTarget;", helper)
@@ -121,6 +124,8 @@ class CalcCellStylesGallery(unittest.TestCase):
         self.assertIn("rRenderContext.SetLineColor(Color(0xd6, 0xd6, 0xd6));", code)
         self.assertIn('if (lcl_HstModuleIs(u"swriter"))', code)  # the short-name order is Writer's only
         self.assertIn('const size_t nRank = lcl_HstModuleIs(u"swriter") ? lcl_HstShortRank(rStyle)', code)
+        # Calc's font heights are twips; the shell's unit (1/100 mm) made the previews a third of their size
+        self.assertIn("pItemSet->GetPool()->GetMetric(pFontHeightItem->Which())", code)
         # Writer's and Calc's "Heading 1" are different previews
         self.assertIn('(lcl_HstModuleIs(u"scalc") ? u"scalc:"_ustr : OUString()) + rStyle.translatedName;', code)
 
