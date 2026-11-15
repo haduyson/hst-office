@@ -21,7 +21,8 @@ import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
 import ribbon_mockup_atspi as atspi  # noqa: E402
 
-EXPECTED = os.path.join(HERE, "ribbon-word-label-expected.json")
+EXPECTED = {"writer": os.path.join(HERE, "ribbon-word-label-expected.json"),
+            "calc": os.path.join(HERE, "ribbon-sheets-label-expected.json")}  # by app: the reference tables
 WIDTHS = (1920, 1485, 1366)
 ICON_MAX = 40
 BUTTON_ROLES = ("push button", "toggle button", "push button menu", "menu button")
@@ -46,7 +47,8 @@ def wanted(state, width):
 
 
 def check(args, expected):
-    office, wid, _ = gui.start(args.instdir, "writer", args.display, os.path.join(args.out, "work"), 7703)
+    app_name = {"writer": "writer", "calc": "Sheets"}[args.app]
+    office, wid, _ = gui.start(args.instdir, args.app, args.display, os.path.join(args.out, "work"), 7703)
     try:
         for index, width in enumerate(WIDTHS):
             gui.xdo(args.display, "windowsize", wid, str(width), "900")
@@ -61,14 +63,19 @@ def check(args, expected):
                     if want is None:
                         continue
                     for name in row["hst"]:
-                        found = next((n for n in nodes if n[0] in BUTTON_ROLES and n[1] == name), None)
-                        if found is None:
+                        same = [n for n in nodes if n[0] in BUTTON_ROLES and n[1] == name]
+                        if not same:
                             print(f"absent  {width} {tab} {name}", flush=True)
                             continue
-                        box = found[2]
-                        width_px = box[2] - (expected.get("arrow_px", 0) if row.get("arrow") else 0)
-                        got = "label" if width_px > ICON_MAX else "icon"
-                        record(f"[writer {width}] {tab}: {name} shows {want}", got == want, f"width {box[2]}, got {got}")
+                        # several buttons may share a name (Xóa: clear formatting, and delete cells): one must match
+                        gots = []
+                        for found in same:
+                            box = found[2]
+                            width_px = box[2] - (expected.get("arrow_px", 0) if row.get("arrow") else 0)
+                            gots.append(("label" if width_px > ICON_MAX else "icon", box[2]))
+                        ok = any(g == want for g, _w in gots)
+                        record(f"[{app_name} {width}] {tab}: {name} shows {want}", ok,
+                               f"widths {[w for _g, w in gots]}, got {[g for g, _w in gots]}")
     finally:
         office.stop()
 
@@ -78,6 +85,7 @@ def main():
     parser.add_argument("--instdir", required=True)
     parser.add_argument("--display", default=":281")
     parser.add_argument("--out", default=os.path.join(hst_gui.ROOT, "tests/output/ribbon-word-labels"))
+    parser.add_argument("--app", default="writer", choices=sorted(EXPECTED), help="writer, or calc for Sheets")
     args = parser.parse_args()
     if os.geteuid() == 0:
         os.makedirs(args.out, exist_ok=True)
@@ -85,7 +93,7 @@ def main():
         os.execvp("runuser", ["runuser", "-u", hst_gui.BUILD_USER, "--", "env", "NO_AT_BRIDGE=0",
                               "GTK_MODULES=gail:atk-bridge", "dbus-run-session", "--", sys.executable] + sys.argv)
     args.instdir, args.out = os.path.abspath(args.instdir), os.path.abspath(args.out)
-    with open(EXPECTED, encoding="utf-8") as handle:
+    with open(EXPECTED[args.app], encoding="utf-8") as handle:
         expected = json.load(handle)
     hst_gui.setup_uno(args.instdir)
     try:
