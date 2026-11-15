@@ -6,7 +6,7 @@ Usage: python3 tests/runtime/check-ribbon-word-labels.py --instdir DIR [--displa
 Expected states: ribbon-word-label-expected.json (from reports/word-ribbon-audit.md, widths 1920, 1485, 1366). A button
 shows a label when it is wider than ICON_MAX px (an icon with its padding is narrower). A button named in the
 expected table but absent from the ribbon is listed as absent and is not an error (the table's "unmapped" rows are
-never checked). Run as the build user under dbus-run-session, as the other AT-SPI checks. Exit 1 on any FAIL.
+never checked). A dropdown button (row "arrow") counts its width less the arrow (arrow_px). Run as the build user under dbus-run-session, as the other AT-SPI checks. Exit 1 on any FAIL.
 """
 import argparse
 import json
@@ -51,9 +51,10 @@ def check(args, expected):
         for index, width in enumerate(WIDTHS):
             gui.xdo(args.display, "windowsize", wid, str(width), "900")
             time.sleep(4)
-            for tab in ("Trang đầu", "Chèn"):
-                gui.open_tab(args.display, tab)
-                time.sleep(2)
+            for tab in ("Trang đầu", "Chèn", "QAT"):
+                if tab != "QAT":  # the quick access toolbar is on the tab row, present on every tab
+                    gui.open_tab(args.display, tab)
+                    time.sleep(2)
                 nodes = atspi.ribbon_nodes()
                 for row in (r for r in expected["rows"] if r["tab"] == tab):
                     want = wanted(row["states"][index] if len(row["states"]) == 3 else row["states"][0], width)
@@ -65,7 +66,8 @@ def check(args, expected):
                             print(f"absent  {width} {tab} {name}", flush=True)
                             continue
                         box = found[2]
-                        got = "label" if box[2] > ICON_MAX else "icon"
+                        width_px = box[2] - (expected.get("arrow_px", 0) if row.get("arrow") else 0)
+                        got = "label" if width_px > ICON_MAX else "icon"
                         record(f"[writer {width}] {tab}: {name} shows {want}", got == want, f"width {box[2]}, got {got}")
     finally:
         office.stop()
