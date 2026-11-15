@@ -374,7 +374,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <utility>
  #include <vector>
  
-@@ -71,8 +76,30 @@
+@@ -71,8 +76,53 @@
  /// buttons filling the group's height)
  constexpr int FEW_COMMANDS = 3;
  
@@ -388,18 +388,41 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    return strip(std::u16string_view(rOwn)) == strip(aId);
 +}
 +
++/// Whether a sibling of rWindow (a child of the same group) has the .ui id aId
++bool hasSibling(const vcl::Window& rWindow, std::u16string_view aId)
++{
++    const vcl::Window* pParent = rWindow.GetParent();
++    for (const vcl::Window* pChild = pParent ? pParent->GetWindow(GetWindowType::FirstChild) : nullptr; pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++        if (hasId(*pChild, aId))
++            return true;
++    return false;
++}
++
 +/// Buttons that keep their large labelled look at every size until their group folds, as Paste does, where the
 +/// reference suite keeps them so (Writer and Sheets: Text Box; Sheets: Header and Footer, Sort and Filter, Find
-+/// and Select, Text to Columns, Calculation Options). Ids of the .ui files: VclBuilder hands an unknown .ui property to
-+/// Window::set_property, which drops it, so the data lives here.
++/// and Select, Text to Columns, Calculation Options; Slides: New Slide, Shapes, Pictures, the large Text buttons).
++/// Ids of the .ui files: VclBuilder hands an unknown .ui property to Window::set_property, which drops it, so the
++/// data lives here. An id the applications share names its group by a sibling only that application has.
 +bool keepsLarge(const vcl::Window& rWindow)
 +{
-+    static constexpr std::u16string_view aIds[]
-+        = { u"btnHomeHstEditingSortFilter", u"btnHomeHstEditingFindSelect", u"bxInsertTextBox",
-+            u"bxUxInsertDrawText", u"bxHstEditHeaderAndFooter6", u"bxDataTextToColumns",
-+            u"bxHstAutomaticCalculation12" };
-+    return std::any_of(std::begin(aIds), std::end(aIds),
-+                       [&rWindow](std::u16string_view aId) { return hasId(rWindow, aId); });
++    struct Named
++    {
++        std::u16string_view id;
++        std::u16string_view sibling; // empty: any group
++    };
++    static constexpr Named aNamed[] = {
++        { u"btnHomeHstEditingSortFilter", u"" }, { u"btnHomeHstEditingFindSelect", u"" },
++        { u"bxInsertTextBox", u"" }, { u"bxUxInsertDrawText", u"" }, { u"bxHstEditHeaderAndFooter6", u"" },
++        { u"bxDataTextToColumns", u"" }, { u"bxHstAutomaticCalculation12", u"" },
++        // Slides
++        { u"bxHstUXHomeSlide1", u"" }, { u"btnHstHomeShapes", u"" }, { u"bxHstUXInsertSlide9", u"" },
++        { u"btnHstInsertShapes", u"" }, { u"bxInsertInsertGraphic", u"btnHstInsertShapes" },
++        { u"bxHstUXInsertText12", u"" }, { u"bxHstUXInsertText16", u"" }, { u"bxHstUXInsertText13", u"" },
++    };
++    return std::any_of(std::begin(aNamed), std::end(aNamed), [&rWindow](const Named& rNamed) {
++        return hasId(rWindow, rNamed.id) && (rNamed.sibling.empty() || hasSibling(rWindow, rNamed.sibling));
++    });
 +}
 +
 +/// The toolbox's authored look, remembered the first time the ladder sees it
@@ -407,7 +430,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  {
      ImplToolBoxPrivateData& rData = *rToolBox.ImplGetToolBoxPrivateData();
      if (!rData.mbHstAuthored)
-@@ -82,16 +109,23 @@
+@@ -82,16 +132,23 @@
          rData.meHstAuthoredSize = rToolBox.GetToolboxButtonSize();
          rData.meHstAuthoredTextPosition = rData.meHstTextPosition;
          // Paste, and the Zoom group's large buttons, stay large with their labels, as in Office
@@ -433,7 +456,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      const bool bLabels = rData.mbHstKeepLarge || nState < GroupSmall;
      const ButtonType eType = bLabels ? rData.meHstAuthoredType : ButtonType::SYMBOLONLY;
      const ToolBoxButtonSize eSize
-@@ -129,6 +163,22 @@
+@@ -129,6 +186,22 @@
          rToolBox.HstSetGridRows(nGridRows);
          bChanged = true;
      }
@@ -456,7 +479,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // HST Office: a gallery in the toolbox (Slides' themes) shows fewer columns at the smaller states, so the
      // group narrows before it folds; a window that does not know the property ignores it
      const OUString aGalleryState = OUString::number(std::min(nState, int(GroupSmall)));
-@@ -163,6 +213,13 @@
+@@ -163,6 +236,13 @@
      {
          OUString aText; // the label as authored
          bool bTip = false; // the tooltip was set from the label (the label is hidden)
@@ -470,7 +493,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      };
      static std::map<const vcl::Window*, Label>& labels()
      {
-@@ -198,6 +255,72 @@
+@@ -198,6 +278,72 @@
      return OUString::Concat(rLabel.subView(0, nBest)) + "\n" + rLabel.subView(nBest + 1) + " " + aArrow;
  }
  
@@ -543,7 +566,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  void applyToMenuButton(MenuButton& rButton, int nState)
  {
      auto& rLabels = MenuButtonLabels::labels();
-@@ -205,15 +328,32 @@
+@@ -205,15 +351,32 @@
      if (it == rLabels.end())
      {
          if (rButton.GetText().isEmpty())
@@ -579,7 +602,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      const bool bLarge = !bHide && bImage && rButton.GetImageAlign() == ImageAlign::Top;
      const OUString aText = bHide ? OUString() : bLarge ? largeMenuLabel(rLabel.aText) : rLabel.aText;
      const PushButtonDropdownStyle eArrow = bLarge ? PushButtonDropdownStyle::NONE : PushButtonDropdownStyle::MenuButton;
-@@ -228,12 +368,14 @@
+@@ -228,12 +391,14 @@
          rLabel.bTip = false;
      }
      rButton.SetDropDown(eArrow); // no change when it is already so
@@ -600,7 +623,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  /// Grid attachments of a group's children as authored, kept while the window lives.
-@@ -247,10 +389,202 @@
+@@ -247,10 +412,202 @@
      DECL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, void);
  };
  
@@ -803,7 +826,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  GroupCell authoredCell(vcl::Window& rChild)
-@@ -259,10 +593,8 @@
+@@ -259,10 +616,8 @@
      auto it = rCells.find(&rChild);
      if (it == rCells.end())
      {
@@ -816,7 +839,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,37 +613,211 @@
+@@ -281,37 +636,211 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -1002,14 +1025,12 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            continue;
 +        bTwoRows = bTwoRows && aCells[i].height == 1 && aCells[i].top < 2;
 +        nRowsUsed = std::max(nRowsUsed, aCells[i].top + 1);
-     }
--    if (nState == GroupMedium || nState == GroupSmall)
--        stackGroup(aCells);
++    }
 +    bTwoRows = bTwoRows && nRowsUsed == 2;
 +    const sal_Int32 nGap = static_cast<sal_Int32>(geometry::twoRowGap(pGrid->GetDPIScaleFactor()));
 +    const sal_Int32 nRowGap = static_cast<sal_Int32>(geometry::px(geometry::SMALL_ROW_GAP, pGrid->GetDPIScaleFactor()));
 +    auto& rMargins = authoredMarginTops();
-     for (std::size_t i = 0; i < aChildren.size(); ++i)
++    for (std::size_t i = 0; i < aChildren.size(); ++i)
 +    {
 +        vcl::Window& rChild = *aChildren[i];
 +        if (aCells[i].caption || dynamic_cast<FixedLine*>(&rChild))
@@ -1024,8 +1045,10 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            rMargins.erase(it);
 +        if (rChild.get_margin_top() != nWanted)
 +            rChild.set_margin_top(nWanted);
-+    }
-+    for (std::size_t i = 0; i < aChildren.size(); ++i)
+     }
+-    if (nState == GroupMedium || nState == GroupSmall)
+-        stackGroup(aCells);
+     for (std::size_t i = 0; i < aChildren.size(); ++i)
 +    {
 +        setHiddenByLadder(*aChildren[i], aHide[i]);
 +        if (MenuButton* pButton = dynamic_cast<MenuButton*>(aChildren[i]))
@@ -1040,7 +1063,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
-@@ -375,10 +881,18 @@
+@@ -375,10 +904,18 @@
          if (nCommands > FEW_COMMANDS)
              break;
      }
@@ -1062,7 +1085,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // the menu buttons of every group drop their labels at the small state only (their image stays where it
      // is: above the label in a group of few commands)
      forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
-@@ -408,7 +922,8 @@
+@@ -408,7 +945,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {
