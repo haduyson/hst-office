@@ -39,7 +39,7 @@ reference suite; on the ribbon a split button's KeyTip still opens its list (Alt
      {
          const tools::Rectangle aRect = rBox.GetItemRect(nId);
          if (rBox.GetItemType(rBox.GetItemPos(nId)) != ToolBoxItemType::BUTTON || !rBox.IsItemVisible(nId)
-@@ -284,11 +290,15 @@
+@@ -284,10 +290,16 @@
          aTarget.bEnabled = rBox.IsItemEnabled(nId);
          aTarget.bInput = rBox.GetItemWindow(nId) != nullptr;
          VclPtr<ToolBox> xBox(&rBox);
@@ -49,11 +49,12 @@ reference suite; on the ribbon a split button's KeyTip still opens its list (Alt
              if (vcl::Window* pItem = xBox->GetItemWindow(nId))
                  pItem->GrabFocus(); // font name, size: the field takes the typing, as in Office
 -            else if (xBox->GetItemBits(nId) & ToolBoxItemBits::DROPDOWNONLY)
++            else if (bMainPart && (nBits & ToolBoxItemBits::DROPDOWNONLY) == ToolBoxItemBits::DROPDOWN
++                     && !xBox->GetItemCommand(nId).isEmpty())
++                // a split button (DROPDOWNONLY includes the DROPDOWN bit, so it is tested first): TriggerItem would
++                // click it, and its click opens the list (Undo's history)
++                comphelper::dispatchCommand(xBox->GetItemCommand(nId), css::uno::Sequence<css::beans::PropertyValue>());
 +            else if (nBits & ToolBoxItemBits::DROPDOWNONLY)
                  xBox->TriggerItemDropdown(nId);
-+            else if (bMainPart && (nBits & ToolBoxItemBits::DROPDOWN) && !xBox->GetItemCommand(nId).isEmpty())
-+                // TriggerItem clicks the item first, and a split button's click opens its list (Undo's history)
-+                comphelper::dispatchCommand(xBox->GetItemCommand(nId), css::uno::Sequence<css::beans::PropertyValue>());
              else
                  xBox->TriggerItem(nId);
-         };
