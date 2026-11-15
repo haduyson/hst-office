@@ -64,12 +64,13 @@
     });
   });
 
-  // Hướng dẫn cài Linux đã chuyển sang trang Hướng dẫn cài đặt; giữ liên kết cũ /#cai-dat-linux.
-  const movedLinuxGuide = () => {
+  // Các mục đã chuyển khỏi trang chủ: giữ liên kết cũ /#cai-dat-linux và /#cai-dat-windows-bi-chan.
+  const movedHomeSections = () => {
     if (window.location.hash === '#cai-dat-linux') window.location.replace('/cai-dat/#linux');
+    if (window.location.hash === '#cai-dat-windows-bi-chan') window.location.replace('/cai-dat/go-loi/#loi-1603');
   };
-  movedLinuxGuide();
-  window.addEventListener('hashchange', movedLinuxGuide);
+  movedHomeSections();
+  window.addEventListener('hashchange', movedHomeSections);
 
   // Menu thả xuống "Hướng dẫn": CSS mở khi rê chuột/focus; bấm nút để mở hoặc đóng trên màn hình cảm ứng.
   document.querySelectorAll('.nav-group').forEach((group) => {
@@ -133,7 +134,7 @@
     input.addEventListener('input', filter);
   }
 
-  // All-time visit/download totals; the server rewrites /thong-ke.json every 15 minutes.
+  // All-time download totals; the server rewrites /thong-ke.json every 15 minutes.
   // Numbers stay hidden (space reserved, no layout shift) until valid data arrives.
   const statsBox = document.querySelector('[data-office-stats]');
   if (statsBox && typeof window.fetch === 'function') {
@@ -141,7 +142,6 @@
       .then((data) => {
         const os = data.theo_he_dieu_hanh || {};
         const values = Object.assign({}, os, {
-          luot_truy_cap: data.luot_truy_cap,
           luot_tai: data.luot_tai,
           macos: (os['macos-arm'] || 0) + (os['macos-intel'] || 0)
         });
