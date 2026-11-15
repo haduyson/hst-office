@@ -5,7 +5,8 @@
 Per app (HST Writer, Sheets, Slides, Draw), tab and width (1920, 1485): every button of the ribbon band that shows only
 its icon (ICON_MAX px wide or less) must belong to a formatting group (FORMATTING: bold, italic, alignment, lists,
 number formats) or to a group shown as its "Caption ▾" button, or be bare by design in the reference suite too (BARE_GROUPS,
-BARE_COMMANDS: Developer controls, grid toggles, shape combine, record navigation, A→Z/Z→A). Gallery arrows and the group launchers (↘) are not
+BARE_COMMANDS: Developer controls, grid toggles, shape combine, record navigation, A→Z/Z→A, View's Show toggles
+and the Zoom group's small buttons). Gallery arrows and the group launchers (↘) are not
 commands of the band. The reference suite labels almost every command at these widths.
 Usage: python3 tests/runtime/check-ribbon-labels.py --instdir DIR [--display :71] [--apps writer,calc] [--out DIR]
 Runs as the build user under dbus-run-session (AT-SPI). Writes <out>/results.json; exit 1 on any FAIL.
@@ -24,7 +25,10 @@ from ribbon_home_tools_gui import group_range  # noqa: E402
 
 FORMATTING = {"Phông chữ", "Đoạn văn", "Căn chỉnh", "Số"}  # bare formatting icons are allowed (G10)
 # bare by design in the reference suite too (coordinator 15/11/2026): whole groups, and single commands
-BARE_GROUPS = {"Nhà phát triển", "Lưới", "Gộp hình"}  # Developer controls, grid/snap toggles, shape combine
+BARE_GROUPS = {"Nhà phát triển", "Lưới", "Gộp hình",  # Developer controls, grid/snap toggles, shape combine
+               # View: the Show toggles, and the Zoom group's small buttons beside its large labelled ones
+               # (Zoom, 100%, Zoom to Selection, Fit to Window keep their labels at every width; owner, G10)
+               "Hiện", "Phóng to/thu nhỏ"}
 BARE_COMMANDS = {"Bản ghi đầu", "Bản ghi trước", "Bản ghi sau", "Bản ghi cuối",  # record navigation ◀ ▶
                  "Sắp xếp tăng dần", "Sắp xếp giảm dần",  # Sheets' A→Z, Z→A beside the labelled Sort
                  # Fontwork's format toggles beside its labelled gallery: formatting commands (G10)
