@@ -18,5 +18,13 @@ class QatKeyTipSplit(unittest.TestCase):
         self.assertIn("bool bMainPart = false", code)  # the ribbon's split buttons keep opening their list
 
 
+    def test_quick_access_tips_close_before_their_command(self):
+        # the tips of the tab level open the next level for a tab only: a quick access command closes them first,
+        # else the next Alt closes them instead of showing them (Alt, 2 then Alt, 3 typed the 3; Windows, 15/11)
+        code = added(PATCH, "sfx2/source/notebookbar/HstRibbonKeyTips.cxx")
+        start = code.index("aTargets.back().aRun = [this, aRun = aTargets.back().aRun] {")
+        self.assertLess(code.index("Close();", start), code.index("aRun();", start))
+
+
 if __name__ == "__main__":
     unittest.main()
