@@ -65,6 +65,19 @@ License: these upstream files remain under their original license (MPL-2.0).
  /** The name of the File tab ("Tệp tin") in the notebookbar .ui files. It opens the File panel and
      never shows ribbon content of its own, so it is drawn as a button, not as a tab. */
  inline constexpr OUString FILE_TAB_NAME = u"FileLabel"_ustr;
+@@ -77,7 +94,11 @@
+     inside the filled shape. */
+ SAL_DLLPRIVATE tools::Long FileTabExtraWidth(const OutputDevice& rDev);
+ 
+-/** The filled, rounded File button inside rItem (the full height of the tab row, like the tabs);
++/** Logical px height of the File button (the approved mockup's .hw-file), centred in the tab row. */
++inline constexpr tools::Long FILE_BUTTON_HEIGHT = 24;
++
++/** The filled, rounded File button inside rItem: FILE_BUTTON_HEIGHT high, centred in rItem vertically, 2 px in
++    from its left and right;
+     in high contrast with an outline in the text colour while hovered or pressed. Returns the
+     colour for its label. */
+ SAL_DLLPRIVATE Color DrawFileTab(vcl::RenderContext& rDev, const tools::Rectangle& rItem,
 --- /dev/null
 +++ b/vcl/inc/HstRibbonGeometry.hxx
 @@ -0,0 +1,184 @@
@@ -1157,11 +1170,10 @@ License: these upstream files remain under their original license (MPL-2.0).
  
  namespace hst::ribbon
  {
-@@ -126,6 +129,104 @@
-     }
+@@ -127,6 +130,104 @@
      rDev.Pop();
  }
-+
+ 
 +namespace
 +{
 +/// The caption of a folded group on one line, or on two split at the space that makes the wider one the
@@ -1259,9 +1271,26 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    }
 +    rDev.Pop();
 +}
- 
++
  FileTabColors fileTabColorsFor(const StyleSettings& rStyle, bool bPressed, bool bHover)
  {
+     if (rStyle.GetHighContrastMode())
+@@ -150,11 +251,10 @@
+     const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
+     const FileTabColors aColors = fileTabColorsFor(rStyle, bPressed, bHover);
+     const tools::Long nInset = scaled(rDev, 2);
+-    tools::Rectangle aFill(rItem);
+-    aFill.AdjustLeft(nInset);
+-    aFill.AdjustTop(nInset);
+-    aFill.AdjustRight(-nInset);
+-    aFill.AdjustBottom(-nInset);
++    // the approved mockup's File button: 24 logical px high, centred in the tab row (whatever the row's height)
++    const tools::Long nHeight = std::min<tools::Long>(rItem.GetHeight(), scaled(rDev, FILE_BUTTON_HEIGHT));
++    tools::Rectangle aFill(Point(rItem.Left() + nInset, rItem.Top() + (rItem.GetHeight() - nHeight) / 2),
++                           Size(std::max<tools::Long>(1, rItem.GetWidth() - 2 * nInset), nHeight));
+     rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
+     // high contrast has one fill colour only: the state shows as an outline
+     if (rStyle.GetHighContrastMode() && (bPressed || bHover))
 --- a/vcl/source/window/toolbox.cxx
 +++ b/vcl/source/window/toolbox.cxx
 @@ -44,6 +44,7 @@
