@@ -64,6 +64,7 @@ MENU_KEYS = {
                               "btnHstInsertChartOther": ["I1", "Insert Waterfall, Funnel, Stock, Surface, or Radar Chart"],
                               "btnHstInsertChartCombo": ["SD", "Insert Combo Chart"]},
               "DataLabel": {"btnHstDataAnalysisMenu": ["DA", "Data Analysis"]}},
+    "simpress": {"HomeLabel": {"btnHstHomeArrangeMenu": ["G", "Arrange"], "btnHstHomeAlignTextMenu": ["AT", "Align Text"]}},
     "sdraw": {"ArrangeLabel": {"btnHstArrangeForwardMenu": ["AF", "Bring Forward"],
                                "btnHstArrangeBackwardMenu": ["AE", "Send Backward"],
                                "btnHstArrangeRotateMenu": ["AY", "Rotate"]}},
