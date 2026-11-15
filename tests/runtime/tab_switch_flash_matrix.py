@@ -15,6 +15,8 @@ import os
 import subprocess
 import time
 
+import uno_main_thread_load
+
 try:  # Windows; the document helpers below are shared with the Linux check
     import screen_patches_win as sp
 except (AttributeError, OSError):
@@ -51,7 +53,7 @@ def own_pids(profile):
 def make_document(office, app, path, n):
     import uno
     factory, _ext, filter_name, _key = APPS[app]
-    doc = office.desktop.loadComponentFromURL("private:factory/" + factory, "_blank", 0, (prop("Hidden", True),))
+    doc = uno_main_thread_load.load(office.desktop, "private:factory/" + factory, Hidden=True)
     if factory == "scalc":
         sheet = doc.Sheets.getByIndex(0)
         for r in range(30):
@@ -79,11 +81,11 @@ def open_documents(office, apps, mode, folder, per_app=2):
     os.makedirs(folder, exist_ok=True)
     for app in apps:
         office.set_config(MISC, "DocumentTabs" + APPS[app][3], mode != "windows")
-    props = () if mode == "office" else (prop("Referer", "private:OpenEvent"),)
+    props = {} if mode == "office" else {"Referer": "private:OpenEvent"}
     for app in apps:
         for n in range(per_app):
             path = os.path.join(folder, "%s-%s%d.%s" % (mode, app, n + 1, APPS[app][1]))
-            office.desktop.loadComponentFromURL(make_document(office, app, path, n + 1), "_blank", 0, props)
+            uno_main_thread_load.load(office.desktop, make_document(office, app, path, n + 1), **props)
             time.sleep(2)
     time.sleep(3)
     if mode == "windows":

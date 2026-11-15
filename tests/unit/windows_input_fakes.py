@@ -121,7 +121,8 @@ class FakeUser32:
 def install(api):
     """Load windows_gui_guard/_input/_dialogs against `api` and a recording user32; returns (guard, input, dialogs,
     user32). Fresh modules each time, so one test's state never leaks into the next."""
-    for name in ("windows_gui_guard", "windows_gui_input", "windows_gui_dialogs", "windows_gui_win32"):
+    for name in ("windows_gui_guard", "windows_gui_input", "windows_gui_dialogs", "windows_gui_win32", "windows_gui_office",
+                 "windows_gui_processes"):
         sys.modules.pop(name, None)
     user32 = FakeUser32(api)
     win32 = types.ModuleType("windows_gui_win32")

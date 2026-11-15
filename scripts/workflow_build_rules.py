@@ -61,6 +61,8 @@ def check_macos_build(jobs, events, require):
             and str(dmgs[0].get("with", {}).get("name", "")).startswith("hst-office-macos-${{ matrix.arch }}-dmg-"),
             "the unsigned dmg must be uploaded once, only after a successful build")
     require(sign_job.get("needs") == "build", "signing must follow the build")
+    require('title=Signing skipped::' in text_runs and 'refs/heads/main' in text_runs,
+            "off main the build must leave a 'Signing skipped' notice (signing runs on main only)")
 
 
 def check_windows_build(jobs, events, runs, all_steps, require):

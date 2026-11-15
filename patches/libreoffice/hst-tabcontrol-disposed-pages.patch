@@ -1,0 +1,40 @@
+HST Office: closing Page Setup with XDialog::endExecute() (a macro or extension over UNO) crashed the office on
+Windows, in Writer (.uno:PageDialog) and Sheets (.uno:PageFormatDialog).
+
+Page Setup's page tab holds a nested notebook (Margins, Paper, Layout; hst-dlg-page-setup.patch). When the dialog's
+builder is torn down, that notebook's page windows are disposed before the notebook, whose item list still points
+at them. endExecute leaves the dialog alive through its UNO peer, so its pending layout idle ran
+SystemWindow::ImplHandleLayoutTimerHdl -> TabControl::GetOptimalSize -> ImplCalculateRequisition ->
+get_preferred_size on a disposed page: access violation (minidump of batch5 9a2e846 on HST4). The Cancel, OK,
+Escape and title-bar close paths never left the dialog alive, so they did not crash.
+
+TabControl now skips disposed pages when it measures and positions them.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-writer.py page-setup; tests/runtime/check-dialogs-sheets.py page-setup
+---
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -720,7 +720,8 @@
+ {
+     // resize/position current TabPage
+     ImplTabItem* pItem = ImplGetItem( GetCurPageId() );
+-    if ( pItem && pItem->mpTabPage )
++    // HST: a page window of a .ui notebook can be disposed before the notebook (see ImplCalculateRequisition)
++    if ( pItem && pItem->mpTabPage && !pItem->mpTabPage->isDisposed() )
+     {
+         if (  GetStyle() & WB_NOBORDER )
+         {
+@@ -2138,7 +2139,11 @@
+             pPage = item.mpTabPage;
+         }
+ 
+-        if (!pPage)
++        // HST: when a dialog's builder is torn down, the page windows of a notebook nested in a dialog page
++        // (Page Setup's Margins/Paper/Layout) are disposed before the notebook itself. If the dialog outlives
++        // that (XDialog::endExecute keeps its peer alive), its pending layout idle measured the dead pages and
++        // the office crashed.
++        if (!pPage || pPage->isDisposed())
+             continue;
+ 
+         Size aPageSize(VclContainer::getLayoutRequisition(*pPage));

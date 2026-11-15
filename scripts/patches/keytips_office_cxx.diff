@@ -1,0 +1,168 @@
+--- a/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
++++ b/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
+@@ -7,6 +7,7 @@
+ 
+ #include "HstRibbonKeyTips.hxx"
+ #include "HstKeyTipTable.hxx"
++#include "HstKeyTipOffice.hxx"
+ 
+ #include <com/sun/star/accessibility/AccessibleRole.hpp>
+ #include <rtl/ustrbuf.hxx>
+@@ -98,6 +99,7 @@
+         , m_xBar(&rBar)
+         , m_xQuick(pQuickAccess)
+         , m_xBanner(pBanner)
++        , m_aModule(moduleOf(std::string_view(rBar.GetUIFilePath().toUtf8())))
+     {
+         Application::AddKeyListener(LINK(this, KeyTips, KeyHdl));
+         Application::AddEventListener(LINK(this, KeyTips, AppEventHdl));
+@@ -122,7 +124,12 @@
+     /// the "≡" menu). Its Alt+letter mnemonics and F10 then belong to it; the ribbon keeps Alt alone.
+     bool MenubarShown() const
+     {
+-        const SystemWindow* pSystem = m_xTabs ? m_xTabs->GetSystemWindow() : nullptr;
++        // HST Office: the ribbon sits in the border window of the document window, beside it, so walking up from
++        // the tabs never reaches the window that owns the menu bar: it is the border window's client.
++        vcl::Window* pBorder = m_xBar ? m_xBar->GetParent() : nullptr;
++        vcl::Window* pClient = pBorder ? pBorder->GetWindow(GetWindowType::Client) : nullptr;
++        const SystemWindow* pSystem = pClient && pClient->IsSystemWindow() ? static_cast<SystemWindow*>(pClient)
++                                                                           : nullptr;
+         const MenuBar* pMenuBar = pSystem ? pSystem->GetMenuBar() : nullptr;
+         return pMenuBar && pMenuBar->IsDisplayable();
+     }
+@@ -160,7 +167,8 @@
+     {
+         Clear();
+         m_aTargets = std::move(rTargets);
+-        const std::vector<std::string> aTips = assign(rPreferred);
++        // HST Office: the letters of the familiar suite on this tab win over the general table
++        const std::vector<std::string> aTips = assign(prioritise(rPreferred));
+         // the tips go on the ribbon, or on the popup whose commands they show
+         vcl::Window& rHost = m_xPopup ? *m_xPopup : *m_xBar;
+         const Size aBar = rHost.GetOutputSizePixel();
+@@ -224,8 +232,10 @@
+         if (m_xQuick && m_xQuick->IsReallyVisible())
+         {
+             int nDigit = 1;
++            // HST Office: 1, 2, 3... without gaps; separators and buttons folded into the » menu get no digit
+             for (ToolBox::ImplToolItems::size_type i = 0; i < m_xQuick->GetItemCount() && nDigit < 10; ++i)
+-                AddToolBoxItem(*m_xQuick, m_xQuick->GetItemId(i), aTargets, aPreferred, std::to_string(nDigit++));
++                if (AddToolBoxItem(*m_xQuick, m_xQuick->GetItemId(i), aTargets, aPreferred, std::to_string(nDigit)))
++                    ++nDigit;
+         }
+         // the feature search box of the tab row: Q, as Office's Search box
+         for (vcl::Window* pChild = m_xTabs->GetWindow(GetWindowType::FirstChild); pChild;
+@@ -250,13 +260,13 @@
+         Show(std::move(aTargets), aPreferred);
+     }
+ 
+-    void AddToolBoxItem(ToolBox& rBox, ToolBoxItemId nId, std::vector<Target>& rTargets,
++    bool AddToolBoxItem(ToolBox& rBox, ToolBoxItemId nId, std::vector<Target>& rTargets,
+                         std::vector<std::string>& rPreferred, const std::string& rTip)
+     {
+         const tools::Rectangle aRect = rBox.GetItemRect(nId);
+         if (rBox.GetItemType(rBox.GetItemPos(nId)) != ToolBoxItemType::BUTTON || !rBox.IsItemVisible(nId)
+             || rBox.IsItemClipped(nId) || aRect.IsEmpty())
+-            return;
++            return false;
+         Target aTarget;
+         aTarget.pAnchor = &rBox;
+         aTarget.aRect = aRect;
+@@ -273,6 +283,7 @@
+         };
+         rPreferred.push_back(rTip);
+         rTargets.push_back(std::move(aTarget));
++        return true;
+     }
+ 
+     void CollectCommands(vcl::Window& rWindow, std::vector<Target>& rTargets, std::vector<std::string>& rPreferred)
+@@ -288,11 +299,11 @@
+                 {
+                     const ToolBoxItemId nId = pBox->GetItemId(i);
+                     OUString aCommand = pBox->GetItemCommand(nId);
+-                    aCommand = aCommand.replaceFirst(".uno:", "");
++                    // HST Office: without arguments (".uno:PageFormatDialog?Page:string=sheet" -> "PageFormatDialog")
++                    aCommand = aCommand.replaceFirst(".uno:", "").getToken(0, '?');
+                     const OString aUtf8 = aCommand.toUtf8();
+                     AddToolBoxItem(*pBox, nId, rTargets, rPreferred,
+-                                   std::string(lookup(std::begin(COMMAND_KEYS), std::end(COMMAND_KEYS),
+-                                                      std::string_view(aUtf8))));
++                                   preferred(m_aModule, m_aTab, std::string_view(aUtf8)));
+                 }
+             }
+             else if (pChild->GetType() == WindowType::PUSHBUTTON || pChild->GetType() == WindowType::MENUBUTTON)
+@@ -306,8 +317,7 @@
+                 aTarget.bEnabled = pChild->IsEnabled();
+                 // HST Office: a ribbon menu button ("Chèn ▾") may have a letter of its own, by widget id
+                 const OString aId = pChild->get_id().getToken(0, ':').toUtf8();
+-                const std::string_view aIdTip
+-                    = lookup(std::begin(COMMAND_KEYS), std::end(COMMAND_KEYS), std::string_view(aId));
++                const std::string aIdTip = preferred(m_aModule, m_aTab, std::string_view(aId));
+                 VclPtr<vcl::Window> xButton(pChild);
+                 aTarget.aRun = [this, xButton] {
+                     const Point aCentre(xButton->GetOutputSizePixel().Width() / 2, xButton->GetOutputSizePixel().Height() / 2);
+@@ -333,6 +343,8 @@
+     {
+         std::vector<Target> aTargets;
+         std::vector<std::string> aPreferred;
++        const OString aTab = m_xTabs->GetPageName(m_xTabs->GetCurPageId()).toUtf8();
++        m_aTab.assign(aTab.getStr(), aTab.getLength());
+         if (TabPage* pPage = m_xTabs->GetTabPage(m_xTabs->GetCurPageId()))
+             CollectCommands(*pPage, aTargets, aPreferred);
+         m_eLevel = Level::Commands;
+@@ -403,6 +415,17 @@
+     OUString m_aTyped;
+     Level m_eLevel = Level::None;
+     bool m_bAltArmed = false;
++    // HST Office: Windows follows the release of Alt, and F10, with a KEY_MENU key (SC_KEYMENU, see vcl/win
++    // salframe.cxx). That echo belongs to the key that already showed or closed the tips: it must not toggle them back.
++    bool m_bMenuEcho = false;
++#ifdef _WIN32
++    static constexpr bool MENU_ECHO = true;
++#else
++    static constexpr bool MENU_ECHO = false;
++#endif
++    // HST Office: module of the ribbon ("swriter") and id of the tab whose commands are shown, for HstKeyTipOffice.hxx
++    std::string m_aModule;
++    std::string m_aTab;
+ };
+ 
+ IMPL_LINK(KeyTips, ModKeyHdl, const CommandModKeyData&, rData, void)
+@@ -417,6 +440,11 @@
+     // Alt released with no key in between
+     if (std::exchange(m_bAltArmed, false))
+     {
++        // with the classic menu bar shown, Alt alone belongs to the menu bar, as F10 and Alt+letter do (owner
++        // 2026-11-14); on Windows its KEY_MENU goes on to the menu bar
++        if (m_eLevel == Level::None && MenubarShown())
++            return;
++        m_bMenuEcho = MENU_ECHO;
+         if (m_eLevel == Level::None)
+         {
+             if (!m_xBar->IsInModalMode() && !vcl::IsInPopupMenuExecute())
+@@ -443,6 +471,9 @@
+     if (rEvent.GetId() != VclEventId::WindowKeyInput)
+         return false;
+     m_bAltArmed = false;
++    // the KEY_MENU echo of the Alt or F10 just handled (Windows) is swallowed; any other key ends the wait for it
++    if (std::exchange(m_bMenuEcho, false) && rCode.GetCode() == KEY_MENU && !rCode.GetModifier())
++        return true;
+ 
+     if (m_eLevel == Level::None)
+     {
+@@ -454,6 +485,7 @@
+             if (bMenubar)
+                 return false;
+             ShowTabs();
++            m_bMenuEcho = MENU_ECHO && rCode.GetCode() == KEY_F10;
+             return true;
+         }
+         // Alt+letter: the tab with that letter, then its commands. Other Alt keys are shortcuts. A shown
+@@ -494,6 +526,7 @@
+     if (IsF10(rCode)) // F10 again closes the tips, as Alt does
+     {
+         Close();
++        m_bMenuEcho = MENU_ECHO && rCode.GetCode() == KEY_F10;
+         return true;
+     }
+     if (rCode.IsMod1())

@@ -6,6 +6,7 @@ import threading
 import time
 import traceback
 
+import uno_main_thread_load
 from windows_smoke_report import ROWS, record
 
 def top_windows(toolkit):
@@ -37,9 +38,10 @@ def shot(label):
 
 
 def close_dialog(window):
-    """End a dialog with WM_CLOSE to its own HWND (endExecute as the fallback); never a key to the foreground window."""
-    from windows_gui_dialogs import close_dialog as close_without_keys
-    return close_without_keys(window)
+    """End a dialog without keystrokes: WM_CLOSE to its own window (twice), then endExecute (windows_gui_dialogs).
+    A key sent to the foreground could reach a desktop or another session's window."""
+    from windows_gui_dialogs import close_dialog as close  # Windows only (ctypes user32)
+    return close(window)
 
 
 def is_new(window, known):
@@ -64,21 +66,26 @@ def pump(toolkit, work, wait_for_window):
     thread.start()
     found, deadline = [], time.time() + 40
     area = toolkit.getWorkArea()
-    while time.time() < deadline and (thread.is_alive() or (wait_for_window and not found)):
-        for window in top_windows(toolkit):
-            if is_new(window, known):
-                known.append(window)
-                time.sleep(4)  # let the dialog lay out (peer size settles), paint and get its title
-                try:
-                    size = window.getPosSize()
-                except Exception:  # noqa: BLE001
-                    size = area.__class__(0, 0, 0, 0)
-                label = "%s %dx%d" % (window_title(window), size.Width, size.Height)
-                if size.Width > area.Width or size.Height > area.Height:
-                    label += " OVERSIZE(work area %dx%d)" % (area.Width, area.Height)
-                found.append(label)
-                shot(label)
-                close_dialog(window)
+    while time.time() < deadline:
+        busy = thread.is_alive() or (wait_for_window and not found)
+        new = [window for window in top_windows(toolkit) if is_new(window, known)]
+        # one more pass once the work has ended: a dialog that opened during the last 4 s settle (the first-start
+        # welcome during the first load) would otherwise stay up unseen and hold later closes and the terminate
+        if not busy and not new:
+            break
+        for window in new:
+            known.append(window)
+            time.sleep(4)  # let the dialog lay out (peer size settles), paint and get its title
+            try:
+                size = window.getPosSize()
+            except Exception:  # noqa: BLE001
+                size = area.__class__(0, 0, 0, 0)
+            label = "%s %dx%d" % (window_title(window), size.Width, size.Height)
+            if size.Width > area.Width or size.Height > area.Height:
+                label += " OVERSIZE(work area %dx%d)" % (area.Width, area.Height)
+            found.append(label)
+            shot(label)
+            close_dialog(window)
         time.sleep(0.3)
     thread.join(10)
     if thread.is_alive():
@@ -88,12 +95,9 @@ def pump(toolkit, work, wait_for_window):
 
 def open_document(ctx, desktop, kind):
     """Open a visible document from a thread: the first-start welcome dialog blocks the load until it is closed."""
-    from com.sun.star.beans import PropertyValue
     toolkit = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
     box = {}
-    flag = PropertyValue()
-    flag.Name, flag.Value = "Hidden", False
-    titles, error = pump(toolkit, lambda: box.update(doc=desktop.loadComponentFromURL("private:factory/" + kind, "_blank", 0, (flag,))), False)
+    titles, error = pump(toolkit, lambda: box.update(doc=uno_main_thread_load.load(desktop, "private:factory/" + kind, Hidden=False)), False)
     record("open %s (windows during load: %s)" % (kind, titles), "doc" in box and not error, error)
     return box.get("doc")
 

@@ -1,0 +1,32 @@
+HST Office: a media error on Windows no longer opens a modal "Error" box that stops the slide show.
+
+The Windows media player (MFPlay) showed every failure event as a raw English MessageBox owned by the slide
+show window, for example "Activate failed to create mediasink ... (hr=0xC00D36FA)" when the PC has no audio
+output device (a projector PC with HDMI audio unplugged, a test PC without speakers). The box took the focus,
+keys no longer reached the show, and closing the show afterwards could take the document window with it. The
+error is now only logged (SAL_WARN avmedia.win); the media object does not play, as in the reference
+presentation app. Windows-only code: verified in a real slide show on a Windows test PC without audio device.
+
+--- a/avmedia/source/win/player.cxx
++++ b/avmedia/source/win/player.cxx
+@@ -347,15 +347,11 @@ void Player::ShowErrorMessage(HRESULT hrErr, bool bPopUpWin)
+     HRESULT hr = StringCbPrintf(pszDest, sizeof(pszDest), pszFormat, msg.c_str(), hrErr);
+     if (SUCCEEDED(hr))
+     {
+-        if (bPopUpWin)
+-        {
+-            MessageBox(mnFrameWnd, pszDest, TEXT("Error"), MB_ICONERROR);
+-        }
+-        else
+-        {
+-            SAL_WARN("avmedia.win",
+-                     "Player::isPlaying failed with error code: " << std::string(pszDest));
+-        }
++        // Never a modal message box: in a slide show it took the focus and stopped the show, e.g. on a PC
++        // without an audio output device (MF_E_NO_AUDIO_PLAYBACK_DEVICE, 0xC00D36FA). The media object just
++        // does not play, as in the reference presentation app.
++        SAL_WARN("avmedia.win", (bPopUpWin ? "media player error: " : "Player::isPlaying failed with error code: ")
++                                    << std::string(pszDest));
+     }
+ }
+ 

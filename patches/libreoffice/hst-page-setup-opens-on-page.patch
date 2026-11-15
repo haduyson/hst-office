@@ -1,0 +1,42 @@
+HST Office: every Page Setup entry opens on the page tab, and the style organizer comes last in Sheets too.
+
+- Writer: .uno:PageDialog without a page argument (ribbon button, the group launcher, the Format menu) opened on the
+  tab the dialog was last closed on, so after a look at the organizer ("Chung") the next Page Setup opened there.
+  It now opens on "page" as Word's Page Setup does; callers that name a page (header, footer, columns, area)
+  are unchanged. A new page style is still named on the organizer.
+- Sheets: the page style dialog moves the organizer after Page, Header, Footer, Sheet, Borders and Background
+  (SfxStyleDialogController::HstMoveOrganizerToEnd, as Writer's page dialog), and opens on the page tab unless a
+  new style is being named. Cell style dialogs keep the organizer first.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-writer.py page-setup; tests/runtime/check-dialogs-sheets.py page-setup
+---
+--- a/sw/source/uibase/shells/basesh.cxx
++++ b/sw/source/uibase/shells/basesh.cxx
+@@ -3043,6 +3043,10 @@
+                     case FN_FORMAT_PAGE_DLG:
+                         if (pItem)
+                           sPageId = static_cast<const SfxStringItem*>(pItem)->GetValue();
++                        // HST: Page Setup (ribbon, its launcher, the Format menu) opens on the page tab
++                        // as in Word, not on the tab the dialog was last closed on (e.g. the organizer).
++                        if (sPageId.isEmpty())
++                            sPageId = "page";
+                         break;
+                 }
+                 rTempView.GetDocShell()->FormatPage(rReq.GetFrameWeld(), rPageDesc.GetName(), sPageId, rSh, &rReq);
+--- a/sc/source/ui/styleui/styledlg.cxx
++++ b/sc/source/ui/styleui/styledlg.cxx
+@@ -71,9 +71,10 @@
+                    RID_M + RID_TAB_BORDER.sIconName);
+         AddTabPage(u"background"_ustr, TabResId(RID_TAB_BACKGROUND.aLabel), RID_SVXPAGE_BKG,
+                    RID_M + RID_TAB_BACKGROUND.sIconName);
+-        // HST: the organizer tab comes first (added by the base class); only a new style needs it.
+-        if (!rStyleBase.GetName().isEmpty())
+-            SetCurPageId(u"page"_ustr);
++        // HST: as in Writer's Page Setup the style organizer comes last; the dialog opens on the page
++        // tab, and on the organizer only when a new style is being named.
++        HstMoveOrganizerToEnd();
++        SetCurPageId(rStyleBase.GetName().isEmpty() ? u"organizer"_ustr : u"page"_ustr);
+     }
+     else // cell format styles
+     {

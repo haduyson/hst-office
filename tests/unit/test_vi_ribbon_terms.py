@@ -95,12 +95,13 @@ class RibbonNamesTest(unittest.TestCase):
         self.assertEqual(bad, {})
 
     def test_the_known_names(self):
+        # ribbon tab labels carry no access key: Alt+letter opens the tab of the familiar suite's KeyTip
         wanted = {
-            ("sc/messages.po", "TabbedCalc|LayoutTabLabel", "Page ~Layout"): "~Bố trí trang",
-            ("sw/messages.po", "TabbedWriter|TableDesignTabLabel", "Table ~Design"): "Thiết kế bả~ng",
-            ("sw/messages.po", "TabbedWriter|ImageTabLabel", "Picture ~Format"): "Định dạng ả~nh",
-            ("sd/messages.po", "TabbedImpress|DrawTabLabel", "Shape For~mat"): "Định dạng hình dạn~g",
-            ("sd/messages.po", "TabbedImpress|TableTabLabel", "Table ~Layout"): "Bố trí bản~g",
+            ("sc/messages.po", "TabbedCalc|LayoutTabLabel", "Page ~Layout"): "Bố trí trang",
+            ("sw/messages.po", "TabbedWriter|TableDesignTabLabel", "Table ~Design"): "Thiết kế bảng",
+            ("sw/messages.po", "TabbedWriter|ImageTabLabel", "Picture ~Format"): "Định dạng ảnh",
+            ("sd/messages.po", "TabbedImpress|DrawTabLabel", "Shape For~mat"): "Định dạng hình dạng",
+            ("sd/messages.po", "TabbedImpress|TableTabLabel", "Table ~Layout"): "Bố trí bảng",
             ("sw/messages.po", "TabbedWriter|HeaderFooterTabLabel", "~Header & Footer"): "Đầu trang & c~hân trang",
             ("sw/messages.po", "TabbedWriter|labelInsertMedia", "Media"): "Đa phương tiện",
             ("sd/messages.po", "TabbedImpress|labelInsertMedia", "Media"): "Đa phương tiện",
