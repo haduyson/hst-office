@@ -73,7 +73,7 @@ def active_name(display):
 
 def key(display, *keys):
     gui.xdo(display, "key", "--clearmodifiers", *keys)
-    time.sleep(2.5)  # let the window redraw before the tree is read
+    time.sleep(2.5)  # let the window redraw before the tree is read; the P5 run waits 1.2 s then reads, so a delay is no cause
 
 
 def type_text(display, text):
@@ -87,6 +87,8 @@ def text_of(office):
 
 def check(args):
     office, wid, _ = gui.start(args.instdir, "writer", args.display, os.path.join(args.out, "work"), 7701)
+    gui.xdo(args.display, "windowsize", wid, str(args.width), str(args.height))  # the size the P5 run used: 1366x768
+    time.sleep(3)
     try:
         gui.open_tab(args.display, "Trang đầu")
         time.sleep(2)
@@ -129,6 +131,8 @@ def main():
     parser.add_argument("--instdir", required=True)
     parser.add_argument("--display", default=":281")
     parser.add_argument("--out", default=os.path.join(hst_gui.ROOT, "tests/output/ribbon-compact"))
+    parser.add_argument("--width", type=int, default=1366)
+    parser.add_argument("--height", type=int, default=768)
     args = parser.parse_args()
     if os.geteuid() == 0:
         os.makedirs(args.out, exist_ok=True)
