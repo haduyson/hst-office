@@ -124,7 +124,8 @@ def check(args):
         record("compact band shows no group caption (Phông chữ)", "Phông chữ" not in captions, sorted(captions)[:10])
         key(args.display, "ctrl+F1")
         record("second Ctrl+F1 shows the page again", page_shown(atspi.ribbon_nodes()), "")
-        mo_roles = sorted({n[0] for n in atspi.ribbon_nodes() if n[1] == "Mới"})
+        # the QAT's first button is .uno:AddDirect ("Mới"): a plain push button, matched without case (P5's labels)
+        mo_roles = sorted({n[0] for n in atspi.ribbon_nodes() if "mới" in n[1].lower()})
         record("QAT Mới is a plain button without a dropdown", mo_roles == ["push button"], mo_roles)
         gui.click(args.display, (700, 500, 10, 10))  # the document: its text takes the keys
         type_text(args.display, "qat")
