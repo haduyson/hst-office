@@ -1,0 +1,1129 @@
+HST Office: ribbon groups and buttons at the geometry of the approved 1.0.2 mockup (large, medium, small, folded).
+
+Owner reports (15/11/2026): a large menu button drew its ▾ beside its icon, "Chọn" (Select) sat higher than the
+labels beside it, the icons of Find and Replace were not in one column. Every large button of the ribbon now
+follows one geometry, the mockup's (plans/261115-2225-ribbon-mockup-1-0-2/reference/mockup-expected.json):
+
+- vcl/inc/HstRibbonGeometry.hxx (new, plain arithmetic, unit tested): the mockup's sizes in logical px, turned
+  into device px once where they are used. A large button (L) is as high as the group's content (76 px), at least
+  42 px wide, its icon centred in a 32 px slot 6 px under its top, its label on at most two lines under it,
+  split as the mockup's twoLines() (no split for one word or a label of 7 characters at most, else at the space
+  that makes the longer line shortest in characters; a one-line label wider than 72 px splits too), ▾ ending the
+  second line (alone on it after a one-line label). A medium button (M) is 24 px high, 4 px padding, 5 px between
+  icon and label; a small one (S) its icon in 22 px; the ▾ part of a split one 12 px. A folded group's button (C)
+  is 98 px high, its name on the caption line.
+- toolbox.cxx: the ribbon's tool buttons (owner-drawn notebookbar toolboxes only; every other toolbox is
+  unchanged) are measured and drawn at that geometry, whatever the native theme's button borders, so every large
+  button puts its icon and the first line of its label at the same height whatever its label; the label's first
+  line follows the image after the gap VCL's PushButton leaves, so the large menu buttons (Select ▾) line up too.
+- HstRibbonGrid.hxx: the 3-row grid of the medium and small sizes makes ceil(n/3) columns of ceil(n/columns)
+  buttons (the mockup's grid(): four buttons are two columns of two, not three and one); a group authored with
+  three rows at the large size (its caption in row 3) keeps them; LABEL_WRAP is the 72 px cap.
+- HstRibbonLadder.cxx: a large menu button stands at the top of the group's content, its image moved down to the
+  large buttons' icon line (WB_TOP, a top margin over its frame's 4 px), as wide as a large tool button with its
+  label; large tool boxes stand at the top, medium and small ones at their column's left edge (Find over Replace);
+  every group's frame is the mockup's whatever its .ui: 4 px padding, 2 px between columns and rows, the caption
+  band 18 px high at the bottom with its text centred (one caption line in every tab of every application), the
+  separator 1 px wide, 6 px from the body's top and bottom, 4 px after the content. The caption row of a group is
+  its lowest row (2, or 3 for the 3-row columns), holding a label or the box of the label and the launcher.
+- HstRibbonPaint: FoldedButtonSize and DrawFoldedButton measure and draw a folded group's "Caption ▾" button for
+  PriorityMergedHBox::HstGroupButton (the contract is in HstRibbonPaint.hxx).
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/include/vcl/HstRibbonPaint.hxx
++++ b/include/vcl/HstRibbonPaint.hxx
+@@ -20,6 +20,7 @@
+ #include <vcl/dllapi.h>
+ #include <vcl/outdev.hxx>
+ 
++class Image;
+ class StyleSettings;
+ class ToolBox;
+ 
+@@ -60,6 +61,22 @@
+ SAL_DLLPRIVATE void DrawTabItem(vcl::RenderContext& rDev, const tools::Rectangle& rItem,
+                                 tools::Long nLabelWidth, bool bSelected, bool bHover);
+ 
++/** A folded group's button (C: "Caption ▾"), at the approved mockup's geometry (vcl/inc/HstRibbonGeometry.hxx
++    foldedButton): FOLDED_HEIGHT (98) logical px high, at least FOLDED_MIN_WIDTH (48) wide; rImage (the group's
++    first large icon) centred FOLDED_PAD under its top; the caption on at most two lines of at most
++    FOLDED_LABEL_MAX (84) px, split at the space that balances them, each line centred, ▾ after the last line,
++    which ends FOLDED_LABEL_BOTTOM over the bottom: on the groups' caption line.
++
++    Contract with PriorityMergedHBox::HstGroupButton: the button asks FoldedButtonSize for its optimal size and
++    paints itself with DrawFoldedButton over its whole output rectangle (nHighlight: 1 pressed or open, 2 hovered,
++    0 neither; bEnabled false draws the disabled image and text); the caption has no mnemonic and no "▾" (drawn
++    here). rDev: the button's device, in its font. In high contrast a hovered or pressed button is outlined in the
++    text colour. */
++VCL_DLLPUBLIC Size FoldedButtonSize(const OutputDevice& rDev, const OUString& rCaption, const Image& rImage);
++VCL_DLLPUBLIC void DrawFoldedButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect,
++                                    const OUString& rCaption, const Image& rImage, sal_uInt16 nHighlight,
++                                    bool bEnabled);
++
+ /** The name of the File tab ("Tệp tin") in the notebookbar .ui files. It opens the File panel and
+     never shows ribbon content of its own, so it is drawn as a button, not as a tab. */
+ inline constexpr OUString FILE_TAB_NAME = u"FileLabel"_ustr;
+--- /dev/null
++++ b/vcl/inc/HstRibbonGeometry.hxx
+@@ -0,0 +1,166 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: the geometry of the approved 1.0.2 ribbon mockup (plans/261115-2225-ribbon-mockup-1-0-2/reference/
++// mockup-expected.json, geometry_px): the sizes of the large (L), medium (M), small (S) and folded (C) buttons and
++// of a group's frame. Plain integer arithmetic without LibreOffice types, so it is unit tested on its own
++// (tests/unit/test_ribbon_mockup_geometry.py compiles it from the patch with a test driver).
++//
++// Every constant is in logical px; px() turns it into device px once, where it is used (one rounding per value,
++// so 150 % lays out the same as 100 % within a pixel).
++
++#include <algorithm>
++#include <cmath>
++#include <cstddef>
++#include <vector>
++
++namespace hst::ribbon::geometry
++{
++constexpr long CONTENT = 76; // a group's content: one large button, or three rows of 24 with 2 between them
++constexpr long GROUP_PADDING = 4; // around a group's content, left, right, top and bottom
++constexpr long CAPTION_ROW = 18; // the group's caption band, under the content
++constexpr long CAPTION_GAP = 4; // between the content and the caption band
++constexpr long COLUMN_GAP = 2; // between the columns of a group
++constexpr long SEPARATOR = 1; // the line between two groups
++constexpr long SEPARATOR_INSET = 6; // between the separator and the top or bottom of the ribbon body
++constexpr long LAUNCHER = 15; // the dialog launcher, at the right end of the caption band
++constexpr long LAUNCHER_ROOM = 18; // the caption keeps this much room for the launcher on its right
++
++constexpr long LARGE_ICON_SLOT = 32; // a large button's icon (24 px) is centred in a 32 px slot
++constexpr long LARGE_SLOT_TOP = 6; // the slot's top: 1 px border and 5 px padding
++constexpr long LARGE_MIN_WIDTH = 42;
++constexpr long LARGE_LABEL_PAD = 4; // left and right of the label: 1 px border and 3 px padding
++constexpr long LABEL_MAX = 72; // a one-line label wider than this wraps even when it is short
++constexpr int SHORT_LABEL = 7; // characters: a label this short stays on one line (the mockup's twoLines)
++
++constexpr long ARROW_GAP = 3; // between a label and its ▾
++constexpr long ARROW_WIDTH = 7;
++constexpr long ARROW_HEIGHT = 4;
++
++constexpr long SMALL_ROW = 24; // a medium or small button's height, one row of the 3-row grid
++constexpr long SMALL_ROW_GAP = 2;
++constexpr long SMALL_PAD = 4; // left and right of a medium button's icon and label
++constexpr long SMALL_ICON_GAP = 5; // between a medium button's icon and its label
++constexpr long SMALL_ICON_ONLY = 22; // a small button: its icon only
++constexpr long SMALL_SPLIT = 12; // the ▾ part of a medium or small split button
++
++constexpr long FOLDED_HEIGHT = 98; // a folded group's button: the content, the gap and the caption band
++constexpr long FOLDED_MIN_WIDTH = 48;
++constexpr long FOLDED_PAD = 6; // above the icon, left and right of the label
++constexpr long FOLDED_LABEL_MAX = 84; // the folded group's name wraps over this width
++constexpr long FOLDED_LABEL_BOTTOM = 4; // under the name's last line: the name sits on the caption line
++constexpr long FOLDED_ARROW_GAP = 4;
++
++/** nLogical logical px in device px at fScale (GetDPIScaleFactor()), rounded once. */
++inline long px(long nLogical, double fScale) { return std::lround(nLogical * fScale); }
++
++/** The words of a large button's label that stay on its first line, as the mockup's twoLines(): all of them
++    for one word or a label of SHORT_LABEL characters at most (unless that one line is wider than LABEL_MAX:
++    bTooWide); else the split that makes the longer line, counted in characters, the shortest (the first such
++    split). rWordLengths: the characters of each word, the words split at single spaces. */
++inline std::size_t firstLineWords(const std::vector<int>& rWordLengths, bool bTooWide = false)
++{
++    const std::size_t nWords = rWordLengths.size();
++    if (nWords < 2)
++        return nWords;
++    int nTotal = static_cast<int>(nWords) - 1; // the spaces
++    for (int nLength : rWordLengths)
++        nTotal += nLength;
++    if (nTotal <= SHORT_LABEL && !bTooWide)
++        return nWords;
++    std::size_t nBest = 1;
++    int nBestLonger = nTotal + 1;
++    int nFirst = -1; // characters of the first line, its spaces included
++    for (std::size_t i = 1; i < nWords; ++i)
++    {
++        nFirst += rWordLengths[i - 1] + 1;
++        const int nLonger = std::max(nFirst, nTotal - nFirst - 1);
++        if (nLonger < nBestLonger)
++        {
++            nBest = i;
++            nBestLonger = nLonger;
++        }
++    }
++    return nBest;
++}
++
++/** Where a large button (L) draws its parts, from its top left corner, in device px. */
++struct LargeButton
++{
++    long width = 0;
++    long height = 0;
++    long iconY = 0; // the icon is centred horizontally
++    long textY = 0; // top of the label's first line; the lines are centred horizontally
++    long linePitch = 0; // from one line of the label to the next
++    long arrowWidth = 0; // ▾ after the second line (alone on it after a one-line label), 0 without a menu
++};
++
++/** The gap between a button's image and its label: the one VCL's PushButton leaves (button.cxx, nImageSep), so
++    that the large tool buttons and the large menu buttons (Select ▾) put their labels on the same line. */
++inline long imageTextGap(long nTextHeight) { return std::max(1L, 1 + (nTextHeight - 10) / 2); }
++
++/** A large button: nIcon px icon, label lines nLine1 and nLine2 px wide (nLine2 0 for a one-line label) in a
++    font nTextHeight px high; bMenu: ▾ ends the second line. It is CONTENT high, so every large button of the
++    ribbon puts its icon and its label's first line at the same height whatever its label. */
++inline LargeButton largeButton(long nIcon, long nLine1, long nLine2, bool bMenu, long nTextHeight, double fScale)
++{
++    LargeButton aButton;
++    aButton.arrowWidth = bMenu ? px(ARROW_WIDTH, fScale) + (nLine2 > 0 ? px(ARROW_GAP, fScale) : 0) : 0;
++    const long nLabel = std::max(nLine1, nLine2 + aButton.arrowWidth);
++    aButton.width = std::max({ px(LARGE_MIN_WIDTH, fScale), nLabel + 2 * px(LARGE_LABEL_PAD, fScale),
++                               nIcon + 2 * px(LARGE_LABEL_PAD, fScale) });
++    aButton.height = px(CONTENT, fScale);
++    aButton.iconY = px(LARGE_SLOT_TOP, fScale) + std::max(0L, px(LARGE_ICON_SLOT, fScale) - nIcon) / 2;
++    aButton.textY = aButton.iconY + nIcon + imageTextGap(nTextHeight);
++    aButton.linePitch = nTextHeight;
++    return aButton;
++}
++
++/** A medium button (icon and label, nText > 0) or a small one (icon only, nText 0), one row of the grid high;
++    bSplit: its ▾ part follows. */
++inline long smallButtonWidth(long nIcon, long nText, bool bSplit, double fScale)
++{
++    const long nMain = nText > 0
++                           ? 2 * px(SMALL_PAD, fScale) + nIcon + px(SMALL_ICON_GAP, fScale) + nText
++                           : std::max(px(SMALL_ICON_ONLY, fScale), nIcon + 2 * px(3, fScale));
++    return nMain + (bSplit ? px(SMALL_SPLIT, fScale) : 0);
++}
++
++/** Where a folded group's button (C, "Caption ▾") draws its parts, from its top left corner, in device px. */
++struct FoldedButton
++{
++    long width = 0;
++    long height = 0;
++    long iconY = 0; // the icon is centred horizontally
++    long textY = 0; // top of the name's first line; the lines are centred, ▾ after the last one
++    long linePitch = 0;
++    long arrowWidth = 0; // ▾ and the gap before it
++};
++
++/** A folded group's button: nIcon px icon, the group's name on nLines lines (one or two, each at most
++    FOLDED_LABEL_MAX wide; nWidest px the widest of them, nLast px the last one) in a font nTextHeight px high.
++    The name's last line ends FOLDED_LABEL_BOTTOM px over the button's bottom: on the groups' caption line. */
++inline FoldedButton foldedButton(long nIcon, long nWidest, long nLast, int nLines, long nTextHeight, double fScale)
++{
++    FoldedButton aButton;
++    aButton.arrowWidth = px(FOLDED_ARROW_GAP, fScale) + px(ARROW_WIDTH, fScale);
++    const long nLabel = std::max(nWidest, nLast + aButton.arrowWidth);
++    aButton.width = std::max({ px(FOLDED_MIN_WIDTH, fScale), nLabel + 2 * px(FOLDED_PAD, fScale),
++                               nIcon + 2 * px(FOLDED_PAD, fScale) });
++    aButton.height = px(FOLDED_HEIGHT, fScale);
++    aButton.iconY = px(FOLDED_PAD, fScale);
++    aButton.linePitch = nTextHeight;
++    aButton.textY = aButton.height - px(FOLDED_LABEL_BOTTOM, fScale) - std::max(1, nLines) * nTextHeight;
++    return aButton;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/inc/HstRibbonGrid.hxx
++++ b/vcl/inc/HstRibbonGrid.hxx
+@@ -13,18 +13,22 @@
+ // Plain integer arithmetic without LibreOffice types, so it can be unit tested on its own
+ // (tests/unit/test_ribbon_grid.py compiles it from the patch with a test driver).
+ //
+-// The items of one toolbox fill columns top to bottom, `rows` items per column, left to right; a separator
+-// ends the current column and stands as a thin column of its own. Every row has the same height and every
++// The items of one toolbox fill columns top to bottom, then left to right; a separator ends the current column
++// and stands as a thin column of its own. Between two separators n items make ceil(n / rows) columns of
++// ceil(n / columns) items (the approved mockup's grid(): four items are two columns of two, not three and one). Every row has the same height and every
+ // item starts at its column's left edge, so the icons line up in even columns and rows (never staggered).
+ // A column is as wide as its widest item; the grid is as high as `rows` rows whatever the item count.
+ 
++#include "HstRibbonGeometry.hxx"
++
+ #include <algorithm>
+ #include <vector>
+ 
+ namespace hst::ribbon
+ {
+-/// Logical px over which a large button's label wraps to a second line (at its most balanced space).
+-constexpr long LABEL_WRAP = 62;
++/// Logical px over which a one-line large button's label wraps to a second line even when it is short (the
++/// label of more than geometry::SHORT_LABEL characters wraps at its most balanced space whatever its width).
++constexpr long LABEL_WRAP = geometry::LABEL_MAX;
+ 
+ struct GridItem
+ {
+@@ -59,19 +63,31 @@
+     int top = 0;
+     int width = 1;
+     int height = 1;
+-    bool stackable = false; // a large button alone in its column (top 0, two rows high) that may become small
++    bool stackable = false; // a large button alone in its column (top 0, filling the rows) that may become small
+     bool caption = false;
+ };
+ 
++/** The content rows of an authored group: the row of its caption (2, or 3 for the mockup's 3-row columns at the
++    large state), 2 when it has none. */
++inline int contentRows(const std::vector<GroupCell>& rCells)
++{
++    int nRows = 0;
++    for (const GroupCell& rCell : rCells)
++        if (rCell.caption && (nRows == 0 || rCell.top < nRows))
++            nRows = rCell.top;
++    return nRows > 0 ? nRows : 2;
++}
++
+ /** At the medium and small size, consecutive stackable large buttons of a group stand in columns of nRows
+     small buttons, top to bottom then left to right (Office's 3-row columns); the following columns move left,
+     the caption moves below the third row over the columns it spanned, and what stood across both content rows (the
+-    large buttons that stay large) or across the content and the caption (separators) grows by a row.
++    large buttons that stay large) or across the content and the caption (separators) spans the nRows rows (and the
++    caption). A group authored with three rows keeps them.
+     Returns false (rCells unchanged) when no two stackable buttons stand next to each other. */
+ inline bool stackGroup(std::vector<GroupCell>& rCells, int nRows = 3)
+ {
+-    constexpr int CONTENT_ROWS = 2;
+     const std::vector<GroupCell> aAuthored = rCells;
++    const int CONTENT_ROWS = contentRows(aAuthored);
+     int nMaxColumn = -1;
+     for (const GroupCell& rCell : aAuthored)
+         if (!rCell.caption)
+@@ -157,6 +173,20 @@
+             nRow = std::max(nRow, rItem.h);
+     aLayout.height = nRows * nRow + (nRows - 1) * nRowGap;
+ 
++    // items per column of each run of items between separators: ceil(n / ceil(n / rows))
++    std::vector<int> aPerColumn(rItems.size(), nRows);
++    for (std::size_t nStart = 0; nStart < rItems.size();)
++    {
++        std::size_t nEnd = nStart;
++        int nCount = 0;
++        for (; nEnd < rItems.size() && !rItems[nEnd].separator; ++nEnd)
++            nCount += rItems[nEnd].visible ? 1 : 0;
++        const int nColumns = std::max(1, (nCount + nRows - 1) / nRows);
++        for (std::size_t i = nStart; i < nEnd; ++i)
++            aPerColumn[i] = std::max(1, (nCount + nColumns - 1) / nColumns);
++        nStart = nEnd + 1;
++    }
++
+     long nX = 0; // left edge of the current column
+     long nColumnWidth = 0; // widest item of the current column, 0 while the column is empty
+     int nInColumn = 0;
+@@ -181,7 +211,7 @@
+             nX += nSeparator + nColumnGap;
+             continue;
+         }
+-        if (nInColumn == nRows)
++        if (nInColumn >= aPerColumn[i])
+             closeColumn();
+         aLayout.cells[i] = GridCell{ nX, nInColumn * (nRow + nRowGap), rItem.w, nRow };
+         nColumnWidth = std::max(nColumnWidth, rItem.w);
+--- a/vcl/source/control/HstRibbonLadder.cxx
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include <HstRibbonLadder.hxx>
++#include <HstRibbonGeometry.hxx>
+ #include <HstRibbonGrid.hxx>
+ 
+ #include <comphelper/lok.hxx>
+@@ -15,13 +16,17 @@
+ #include <vcl/event.hxx>
+ #include <vcl/image.hxx>
+ #include <vcl/layout.hxx>
++#include <vcl/salnativewidgets.hxx>
+ #include <vcl/toolbox.hxx>
+ #include <vcl/toolkit/fixed.hxx>
+ #include <vcl/toolkit/MenuButton.hxx>
+ #include <vcl/vclevent.hxx>
+ 
+ #include <algorithm>
++#include <functional>
+ #include <map>
++#include <set>
++#include <string_view>
+ #include <utility>
+ #include <vector>
+ 
+@@ -129,6 +134,22 @@
+         rToolBox.HstSetGridRows(nGridRows);
+         bChanged = true;
+     }
++    // HST Office: a large button stands at the top of its group's content (its icon and label on the line of every
++    // large button); medium and small buttons start at their column's left edge, so the icons of a column line up
++    // (Find over Replace) whatever their labels' widths
++    const bool bLargeNow = eSize == ToolBoxButtonSize::Large && ePosition == ToolBoxTextPosition::Bottom;
++    const VclAlign eVAlign = bLargeNow ? VclAlign::Start : VclAlign::Center;
++    const VclAlign eHAlign = bLargeNow ? VclAlign::Center : VclAlign::Start;
++    if (rToolBox.get_valign() != eVAlign)
++    {
++        rToolBox.set_valign(eVAlign);
++        bChanged = true;
++    }
++    if (rToolBox.get_halign() != eHAlign)
++    {
++        rToolBox.set_halign(eHAlign);
++        bChanged = true;
++    }
+     // HST Office: a gallery in the toolbox (Slides' themes) shows fewer columns at the smaller states, so the
+     // group narrows before it folds; a window that does not know the property ignores it
+     const OUString aGalleryState = OUString::number(std::min(nState, int(GroupSmall)));
+@@ -163,6 +184,12 @@
+     {
+         OUString aText; // the label as authored
+         bool bTip = false; // the tooltip was set from the label (the label is hidden)
++        // the authored layout, restored when the button is not large any more
++        WinBits nStyle = 0;
++        VclAlign eVAlign = VclAlign::Fill;
++        sal_Int32 nMarginTop = 0;
++        sal_Int32 nWidthRequest = -1;
++        sal_Int32 nHeightRequest = -1;
+     };
+     static std::map<const vcl::Window*, Label>& labels()
+     {
+@@ -198,6 +225,59 @@
+     return OUString::Concat(rLabel.subView(0, nBest)) + "\n" + rLabel.subView(nBest + 1) + " " + aArrow;
+ }
+ 
++/** A large menu button (Select ▾) at the place of the large tool buttons beside it (HstRibbonGeometry.hxx
++    largeButton): as high as the group's content from its top, its image and the first line of its label at the
++    height of theirs. VCL's PushButton draws its image at the top of its content area (WB_TOP), 4 px inside its
++    native frame (2 px without one), and its label under the image after the gap imageTextGap() repeats; the top
++    margin moves the image down to the large buttons' icon line. Otherwise the authored layout comes back. */
++void placeLargeMenuButton(MenuButton& rButton, const MenuButtonLabels::Label& rLabel, bool bLarge)
++{
++    WinBits nStyle = rLabel.nStyle;
++    VclAlign eVAlign = rLabel.eVAlign;
++    sal_Int32 nMarginTop = rLabel.nMarginTop, nWidth = rLabel.nWidthRequest, nHeight = rLabel.nHeightRequest;
++    if (bLarge)
++    {
++        const OUString aText = rButton.GetText().replaceAll("~", "");
++        const sal_Int32 nBreak = aText.indexOf('\n');
++        const tools::Long nFirst = rButton.GetOutDev()->GetTextWidth(nBreak < 0 ? aText : aText.copy(0, nBreak));
++        const tools::Long nSecond = nBreak < 0 ? 0 : rButton.GetOutDev()->GetTextWidth(aText.copy(nBreak + 1));
++        const Size aImage = rButton.GetModeImage().GetSizePixel();
++        const geometry::LargeButton aLarge = geometry::largeButton(
++            aImage.Width(), std::max(nFirst, nSecond), 0, false, rButton.GetTextHeight(), rButton.GetDPIScaleFactor());
++        const tools::Long nInner
++            = rButton.IsNativeControlSupported(ControlType::Pushbutton, ControlPart::Entire) ? 4 : 2;
++        nStyle = (rLabel.nStyle & ~(WB_VCENTER | WB_BOTTOM | WB_LEFT | WB_RIGHT)) | WB_TOP | WB_CENTER | WB_WORDBREAK;
++        eVAlign = VclAlign::Start;
++        nMarginTop = static_cast<sal_Int32>(std::max<tools::Long>(0, aLarge.iconY - nInner));
++        nWidth = static_cast<sal_Int32>(aLarge.width);
++        nHeight = static_cast<sal_Int32>(aLarge.height - nMarginTop);
++    }
++    bool bChanged = false;
++    if (rButton.GetStyle() != nStyle)
++    {
++        rButton.SetStyle(nStyle);
++        bChanged = true;
++    }
++    if (rButton.get_valign() != eVAlign)
++    {
++        rButton.set_valign(eVAlign);
++        bChanged = true;
++    }
++    if (rButton.get_margin_top() != nMarginTop)
++    {
++        rButton.set_margin_top(nMarginTop);
++        bChanged = true;
++    }
++    if (rButton.get_width_request() != nWidth || rButton.get_height_request() != nHeight)
++    {
++        rButton.set_width_request(nWidth);
++        rButton.set_height_request(nHeight);
++        bChanged = true;
++    }
++    if (bChanged)
++        rButton.queue_resize();
++}
++
+ void applyToMenuButton(MenuButton& rButton, int nState)
+ {
+     auto& rLabels = MenuButtonLabels::labels();
+@@ -206,7 +286,12 @@
+     {
+         if (rButton.GetText().isEmpty())
+             return; // an image-only button: nothing to lay out
+-        it = rLabels.emplace(&rButton, MenuButtonLabels::Label{ rButton.GetText() }).first;
++        it = rLabels
++                 .emplace(&rButton, MenuButtonLabels::Label{ rButton.GetText(), false, rButton.GetStyle(),
++                                                             rButton.get_valign(), rButton.get_margin_top(),
++                                                             rButton.get_width_request(),
++                                                             rButton.get_height_request() })
++                 .first;
+         rButton.AddEventListener(LINK(nullptr, MenuButtonLabels, ButtonEventHdl));
+         // the name of the authored label, whatever the button shows
+         rButton.SetAccessibleName(it->second.aText.replaceAll("~", "").replace('\n', ' '));
+@@ -228,12 +313,14 @@
+         rLabel.bTip = false;
+     }
+     rButton.SetDropDown(eArrow); // no change when it is already so
+-    if (rButton.GetText() == aText)
+-        return;
+-    if (bLarge)
+-        rButton.SetStyle(rButton.GetStyle() | WB_WORDBREAK);
+-    rButton.SetText(aText);
+-    rButton.queue_resize();
++    if (rButton.GetText() != aText)
++    {
++        if (bLarge)
++            rButton.SetStyle(rButton.GetStyle() | WB_WORDBREAK);
++        rButton.SetText(aText);
++        rButton.queue_resize();
++    }
++    placeLargeMenuButton(rButton, rLabel, bLarge);
+ }
+ 
+ /// Grid attachments of a group's children as authored, kept while the window lives.
+@@ -247,10 +334,97 @@
+     DECL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, void);
+ };
+ 
++/// The children of groups hidden by an alternative layout (alternativeLayouts), shown again when it ends.
++std::set<const vcl::Window*>& hiddenByLayout()
++{
++    static std::set<const vcl::Window*> aHidden;
++    return aHidden;
++}
++
+ IMPL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, rEvent, void)
+ {
+     if (rEvent.GetId() == VclEventId::ObjectDying)
++    {
+         AuthoredCells::cells().erase(rEvent.GetWindow());
++        hiddenByLayout().erase(rEvent.GetWindow());
++    }
++}
++
++/** One child of a group in an alternative layout: its .ui id and its grid cell; width 0 hides it. */
++struct LayoutCell
++{
++    std::u16string_view id;
++    int left = 0;
++    int top = 0;
++    int width = 0;
++    int height = 1;
++};
++
++/** A group laid out differently at one state than the generic ladder does (stackGroup): the cells of the
++    children named here; the caption goes under the nRows rows over the nColumns columns, the separator after
++    them across the rows and the caption. Children not named keep their cells. Data only, so that any group of
++    any application can get one: add a row naming its grid's id, the state and the cells. */
++struct AlternativeLayout
++{
++    std::u16string_view group;
++    int state = GroupSmall;
++    int rows = 3;
++    int columns = 1;
++    std::vector<LayoutCell> cells;
++};
++
++const std::vector<AlternativeLayout>& alternativeLayouts()
++{
++    static const std::vector<AlternativeLayout> aLayouts{
++        // Writer ▸ Home ▸ Paragraph at the small size, as the approved mockup: three rows of four icons
++        // (Lists and Formatting Marks | the four alignments | Indents, Line Spacing and Shading); Hanging Indent,
++        // Sort and Borders stay in the paragraph dialog (↘)
++        { u"gdHomeParagraph", GroupSmall, 3, 3,
++          { { u"bxHomeList", 0, 0, 1 }, { u"bxHomeMarks", 1, 0, 2 },
++            { u"bxHomeAlign", 0, 1, 3 },
++            { u"bxHomeIndent", 0, 2, 1 }, { u"bxHomeLineSpacing", 1, 2, 1 }, { u"bxHomeShading", 2, 2, 1 },
++            { u"bxHomeHanging", 0, 0, 0 }, { u"bxHstSort", 0, 0, 0 }, { u"bxHstBorders", 0, 0, 0 } } },
++    };
++    return aLayouts;
++}
++
++/** Lay rGrid's children out by the alternative layout of nState, if its group has one; the children it hid at
++    another state are shown again. Returns whether a layout applied (rCells then hold its cells). */
++bool applyAlternativeLayout(const VclGrid& rGrid, int nState, const std::vector<vcl::Window*>& rChildren,
++                            std::vector<GroupCell>& rCells)
++{
++    const AlternativeLayout* pLayout = nullptr;
++    for (const AlternativeLayout& rLayout : alternativeLayouts())
++        if (rLayout.state == nState && rGrid.get_id() == OUString(rLayout.group))
++            pLayout = &rLayout;
++    auto& rHidden = hiddenByLayout();
++    for (std::size_t i = 0; i < rChildren.size(); ++i)
++    {
++        vcl::Window& rChild = *rChildren[i];
++        const LayoutCell* pCell = nullptr;
++        if (pLayout)
++            for (const LayoutCell& rCell : pLayout->cells)
++                if (rChild.get_id() == OUString(rCell.id))
++                    pCell = &rCell;
++        const bool bHide = pCell && pCell->width == 0;
++        if (bHide && rChild.IsVisible())
++        {
++            rChild.Hide();
++            rHidden.insert(&rChild);
++        }
++        else if (!bHide && rHidden.erase(&rChild))
++            rChild.Show();
++        if (!pLayout)
++            continue;
++        GroupCell& rOut = rCells[i];
++        if (pCell && pCell->width > 0)
++            rOut = GroupCell{ pCell->left, pCell->top, pCell->width, pCell->height, false, false };
++        else if (rOut.caption)
++            rOut = GroupCell{ 0, pLayout->rows, pLayout->columns, 1, false, true };
++        else if (dynamic_cast<FixedLine*>(&rChild))
++            rOut = GroupCell{ pLayout->columns, 0, 1, pLayout->rows + 1, false, false };
++    }
++    return pLayout != nullptr;
+ }
+ 
+ GroupCell authoredCell(vcl::Window& rChild)
+@@ -259,10 +433,8 @@
+     auto it = rCells.find(&rChild);
+     if (it == rCells.end())
+     {
+-        GroupCell aCell{ rChild.get_grid_left_attach(), rChild.get_grid_top_attach(), rChild.get_grid_width(),
+-                         rChild.get_grid_height(), false, false };
+-        // the caption row: the caption, or the box holding the caption and the group's launcher
+-        aCell.caption = aCell.top == 2;
++        const GroupCell aCell{ rChild.get_grid_left_attach(), rChild.get_grid_top_attach(),
++                               rChild.get_grid_width(), rChild.get_grid_height(), false, false };
+         it = rCells.emplace(&rChild, aCell).first;
+         rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
+     }
+@@ -281,9 +453,96 @@
+         rChild.set_grid_height(rCell.height);
+ }
+ 
++/// The caption row of a group: its caption, or the box holding the caption and the group's launcher; neither a
++/// tool box, a button nor a separator
++bool holdsCaption(vcl::Window& rChild)
++{
++    if (dynamic_cast<FixedText*>(&rChild))
++        return true;
++    if (dynamic_cast<ToolBox*>(&rChild) || dynamic_cast<Button*>(&rChild) || dynamic_cast<FixedLine*>(&rChild))
++        return false;
++    for (vcl::Window* pChild = rChild.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++        if (dynamic_cast<FixedText*>(pChild))
++            return true;
++    return false;
++}
++
++template <typename T> bool setIfChanged(T aCurrent, T aWanted, const std::function<void(T)>& rSet)
++{
++    if (aCurrent == aWanted)
++        return false;
++    rSet(aWanted);
++    return true;
++}
++
++/** The frame of a group as in the approved mockup (HstRibbonGeometry.hxx), the same in every tab and application
++    whatever the .ui says: GROUP_PADDING above and under the grid, COLUMN_GAP between its columns, CAPTION_GAP
++    between the content and the caption band, the caption band CAPTION_ROW high at the bottom with its text centred
++    (one caption line for every group), the separator 1 px wide, SEPARATOR_INSET from the body's top and bottom and
++    4 px after the content (with the next group's 3 px margin, 8 px from content to content). */
++void normaliseGroupFrame(VclGrid& rGrid, const std::vector<vcl::Window*>& rChildren, const std::vector<GroupCell>& rCells)
++{
++    const double fScale = rGrid.GetDPIScaleFactor();
++    auto px = [fScale](long nLogical) { return static_cast<sal_Int32>(geometry::px(nLogical, fScale)); };
++    bool bChanged = false;
++    bChanged |= setIfChanged<sal_Int32>(rGrid.get_margin_top(), px(geometry::GROUP_PADDING),
++                                        [&rGrid](sal_Int32 n) { rGrid.set_margin_top(n); });
++    bChanged |= setIfChanged<sal_Int32>(rGrid.get_margin_bottom(), px(geometry::GROUP_PADDING),
++                                        [&rGrid](sal_Int32 n) { rGrid.set_margin_bottom(n); });
++    bChanged |= setIfChanged<sal_Int32>(rGrid.get_margin_start(), px(geometry::GROUP_PADDING) - px(geometry::SEPARATOR),
++                                        [&rGrid](sal_Int32 n) { rGrid.set_margin_start(n); });
++    bChanged |= setIfChanged<sal_Int32>(rGrid.get_margin_end(), 0, [&rGrid](sal_Int32 n) { rGrid.set_margin_end(n); });
++    bChanged |= setIfChanged<int>(rGrid.get_row_spacing(), px(geometry::SMALL_ROW_GAP),
++                                  [&rGrid](int n) { rGrid.set_row_spacing(n); });
++    bChanged |= setIfChanged<int>(rGrid.get_column_spacing(), px(geometry::COLUMN_GAP),
++                                  [&rGrid](int n) { rGrid.set_column_spacing(n); });
++    for (std::size_t i = 0; i < rChildren.size(); ++i)
++    {
++        vcl::Window& rChild = *rChildren[i];
++        if (rCells[i].caption)
++        {
++            // the caption gap is the row spacing and the rest of the caption row over its band
++            bChanged |= setIfChanged<sal_Int32>(rChild.get_height_request(), px(geometry::CAPTION_ROW),
++                                                [&rChild](sal_Int32 n) { rChild.set_height_request(n); });
++            bChanged |= setIfChanged<sal_Int32>(rChild.get_margin_top(),
++                                                px(geometry::CAPTION_GAP) - px(geometry::SMALL_ROW_GAP),
++                                                [&rChild](sal_Int32 n) { rChild.set_margin_top(n); });
++            bChanged |= setIfChanged<VclAlign>(rChild.get_valign(), VclAlign::End,
++                                               [&rChild](VclAlign e) { rChild.set_valign(e); });
++            // the caption's text centred in the band, whether the label is the cell or sits in its box
++            vcl::Window* pFirst = rChild.GetWindow(GetWindowType::FirstChild);
++            for (vcl::Window* pText = &rChild; pText;
++                 pText = pText == &rChild ? pFirst : pText->GetWindow(GetWindowType::Next))
++                if (dynamic_cast<FixedText*>(pText))
++                    bChanged |= setIfChanged<WinBits>(pText->GetStyle(),
++                                                      (pText->GetStyle() & ~(WB_TOP | WB_BOTTOM)) | WB_VCENTER,
++                                                      [pText](WinBits n) { pText->SetStyle(n); });
++        }
++        else if (FixedLine* pLine = dynamic_cast<FixedLine*>(&rChild))
++        {
++            const sal_Int32 nInset = px(geometry::SEPARATOR_INSET) - px(geometry::GROUP_PADDING);
++            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_top(), nInset,
++                                                [pLine](sal_Int32 n) { pLine->set_margin_top(n); });
++            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_bottom(), nInset,
++                                                [pLine](sal_Int32 n) { pLine->set_margin_bottom(n); });
++            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_start(),
++                                                px(geometry::GROUP_PADDING) - px(geometry::COLUMN_GAP),
++                                                [pLine](sal_Int32 n) { pLine->set_margin_start(n); });
++            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_end(), 0,
++                                                [pLine](sal_Int32 n) { pLine->set_margin_end(n); });
++            bChanged |= setIfChanged<sal_Int32>(pLine->get_width_request(), px(geometry::SEPARATOR),
++                                                [pLine](sal_Int32 n) { pLine->set_width_request(n); });
++        }
++    }
++    if (bChanged)
++        rGrid.queue_resize();
++}
++
+ /** The large buttons of a group that stand alone in their columns (one toolbox each) form Office's 3-row
+     columns at the medium and small size (HstRibbonGrid.hxx stackGroup); the large size restores the authored
+-    grid. Paste and the buttons of a group of few commands stay large. */
++    grid. Paste and the buttons of a group of few commands stay large. A group authored with three rows (the
++    mockup's 3-row columns at the large size) keeps its caption in row 3. */
+ void stackLargeButtons(vcl::Window& rGroup, int nState, bool bFewCommands)
+ {
+     VclGrid* pGrid = dynamic_cast<VclGrid*>(&rGroup);
+@@ -294,21 +553,31 @@
+         return;
+     std::vector<vcl::Window*> aChildren;
+     std::vector<GroupCell> aCells;
++    int nBottom = 0; // the lowest authored row of anything but a separator
+     for (vcl::Window* pChild = pGrid->GetWindow(GetWindowType::FirstChild); pChild;
+          pChild = pChild->GetWindow(GetWindowType::Next))
+     {
+-        GroupCell aCell = authoredCell(*pChild);
+-        if (ToolBox* pToolBox = dynamic_cast<ToolBox*>(pChild))
++        aChildren.push_back(pChild);
++        aCells.push_back(authoredCell(*pChild));
++        if (!dynamic_cast<FixedLine*>(pChild))
++            nBottom = std::max(nBottom, aCells.back().top);
++    }
++    for (std::size_t i = 0; i < aChildren.size(); ++i)
++        aCells[i].caption = aCells[i].top >= 2 && aCells[i].top == nBottom && holdsCaption(*aChildren[i]);
++    const int nContentRows = contentRows(aCells);
++    for (std::size_t i = 0; i < aChildren.size(); ++i)
++    {
++        if (ToolBox* pToolBox = dynamic_cast<ToolBox*>(aChildren[i]))
+         {
+             const ImplToolBoxPrivateData& rData = *pToolBox->ImplGetToolBoxPrivateData();
+-            aCell.stackable = !bFewCommands && rData.mbHstAuthored && !rData.mbHstKeepLarge
+-                              && rData.meHstAuthoredSize == ToolBoxButtonSize::Large && commandCount(*pToolBox) == 1
+-                              && aCell.top == 0 && aCell.height == 2;
++            aCells[i].stackable = !bFewCommands && rData.mbHstAuthored && !rData.mbHstKeepLarge
++                                  && rData.meHstAuthoredSize == ToolBoxButtonSize::Large
++                                  && commandCount(*pToolBox) == 1 && aCells[i].top == 0
++                                  && aCells[i].height == nContentRows;
+         }
+-        aChildren.push_back(pChild);
+-        aCells.push_back(aCell);
+     }
+-    if (nState == GroupMedium || nState == GroupSmall)
++    normaliseGroupFrame(*pGrid, aChildren, aCells);
++    if (!applyAlternativeLayout(*pGrid, nState, aChildren, aCells) && (nState == GroupMedium || nState == GroupSmall))
+         stackGroup(aCells);
+     for (std::size_t i = 0; i < aChildren.size(); ++i)
+         attach(*aChildren[i], aCells[i]);
+@@ -408,7 +677,8 @@
+ {
+     sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
+     forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {
+-        nKey = nKey * 31 + (rToolBox.IsVisible() ? 1 : 0);
++        // a toolbox an alternative layout hid is not a change of content
++        nKey = nKey * 31 + (rToolBox.IsVisible() || hiddenByLayout().count(&rToolBox) ? 1 : 0);
+         for (ToolBox::ImplToolItems::size_type i = 0; i < rToolBox.GetItemCount(); ++i)
+             nKey = nKey * 31 + (rToolBox.IsItemVisible(rToolBox.GetItemId(i)) ? 1 : 0);
+     }, /*bNested*/ true);
+--- a/vcl/source/control/HstRibbonPaint.cxx
++++ b/vcl/source/control/HstRibbonPaint.cxx
+@@ -13,12 +13,15 @@
+ #include <officecfg/Office/HSTRibbon.hxx>
+ #include <vcl/image.hxx>
+ #include <vcl/settings.hxx>
++#include <tools/poly.hxx>
+ #include <vcl/toolbox.hxx>
+ 
++#include <HstRibbonGeometry.hxx>
+ #include <toolbox.h>
+ 
+ #include <algorithm>
+ #include <cmath>
++#include <utility>
+ 
+ namespace hst::ribbon
+ {
+@@ -126,6 +129,104 @@
+     }
+     rDev.Pop();
+ }
++
++namespace
++{
++/// The caption of a folded group on one line, or on two split at the space that makes the wider one the
++/// narrowest when one line is wider than FOLDED_LABEL_MAX
++std::pair<OUString, OUString> foldedLines(const OutputDevice& rDev, const OUString& rCaption)
++{
++    const tools::Long nMax = geometry::px(geometry::FOLDED_LABEL_MAX, rDev.GetDPIScaleFactor());
++    if (rDev.GetTextWidth(rCaption) <= nMax)
++        return { rCaption, OUString() };
++    sal_Int32 nBest = -1;
++    tools::Long nBestWidth = 0;
++    for (sal_Int32 i = rCaption.indexOf(' '); i > 0; i = rCaption.indexOf(' ', i + 1))
++    {
++        const tools::Long nWidth
++            = std::max(rDev.GetTextWidth(rCaption.copy(0, i)), rDev.GetTextWidth(rCaption.copy(i + 1)));
++        if (nBest < 0 || nWidth < nBestWidth)
++        {
++            nBest = i;
++            nBestWidth = nWidth;
++        }
++    }
++    if (nBest < 0)
++        return { rCaption, OUString() };
++    return { rCaption.copy(0, nBest), rCaption.copy(nBest + 1) };
++}
++
++geometry::FoldedButton foldedGeometry(const OutputDevice& rDev, const std::pair<OUString, OUString>& rLines,
++                                      const Image& rImage)
++{
++    const tools::Long nFirst = rDev.GetTextWidth(rLines.first);
++    const tools::Long nSecond = rLines.second.isEmpty() ? 0 : rDev.GetTextWidth(rLines.second);
++    return geometry::foldedButton(rImage.GetSizePixel().Width(), std::max(nFirst, nSecond),
++                                  rLines.second.isEmpty() ? nFirst : nSecond, rLines.second.isEmpty() ? 1 : 2,
++                                  rDev.GetTextHeight(), rDev.GetDPIScaleFactor());
++}
++}
++
++Size FoldedButtonSize(const OutputDevice& rDev, const OUString& rCaption, const Image& rImage)
++{
++    const geometry::FoldedButton aButton = foldedGeometry(rDev, foldedLines(rDev, rCaption), rImage);
++    return Size(aButton.width, aButton.height);
++}
++
++void DrawFoldedButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect, const OUString& rCaption,
++                      const Image& rImage, sal_uInt16 nHighlight, bool bEnabled)
++{
++    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++    const std::pair<OUString, OUString> aLines = foldedLines(rDev, rCaption);
++    const geometry::FoldedButton aButton = foldedGeometry(rDev, aLines, rImage);
++    if (!DrawToolButton(rDev, rRect, nHighlight, false, bEnabled) && nHighlight != 0 && bEnabled)
++    {
++        // high contrast: the hovered or pressed button outlined in the text colour
++        rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++        rDev.SetLineColor(rStyle.GetButtonTextColor());
++        rDev.SetFillColor();
++        rDev.DrawRect(rRect);
++        rDev.Pop();
++    }
++    // the parts from the bottom up, so that a taller button keeps its name on the caption line
++    const tools::Long nTop = rRect.Bottom() + 1 - aButton.height;
++    if (rImage.GetSizePixel().Width() > 0)
++    {
++        const Point aImage(rRect.Left() + (rRect.GetWidth() - rImage.GetSizePixel().Width()) / 2,
++                           std::max(rRect.Top(), nTop) + aButton.iconY);
++        rDev.DrawImage(aImage, rImage, bEnabled ? DrawImageFlags::NONE : DrawImageFlags::Disable);
++    }
++    rDev.Push(vcl::PushFlags::TEXTCOLOR | vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    const Color aText = bEnabled ? rStyle.GetButtonTextColor() : rStyle.GetDisableColor();
++    rDev.SetTextColor(aText);
++    const OUString aText2[2] = { aLines.first, aLines.second };
++    const int nLines = aLines.second.isEmpty() ? 1 : 2;
++    for (int nLine = 0; nLine < nLines; ++nLine)
++    {
++        const bool bLast = nLine == nLines - 1;
++        const tools::Long nWidth = rDev.GetTextWidth(aText2[nLine]);
++        const tools::Long nBlock = nWidth + (bLast ? aButton.arrowWidth : 0);
++        const tools::Long nX = rRect.Left() + (rRect.GetWidth() - nBlock) / 2;
++        const tools::Long nY = nTop + aButton.textY + nLine * aButton.linePitch;
++        rDev.DrawText(Point(nX, nY), aText2[nLine]);
++        if (!bLast)
++            continue;
++        // ▾: ARROW_WIDTH wide, ARROW_HEIGHT high, centred on the line
++        const double fScale = rDev.GetDPIScaleFactor();
++        const tools::Long nArrowW = geometry::px(geometry::ARROW_WIDTH, fScale);
++        const tools::Long nArrowH = geometry::px(geometry::ARROW_HEIGHT, fScale);
++        const tools::Long nAX = nX + nBlock - nArrowW;
++        const tools::Long nAY = nY + (aButton.linePitch - nArrowH) / 2;
++        tools::Polygon aArrow(3);
++        aArrow.SetPoint(Point(nAX, nAY), 0);
++        aArrow.SetPoint(Point(nAX + nArrowW, nAY), 1);
++        aArrow.SetPoint(Point(nAX + nArrowW / 2, nAY + nArrowH), 2);
++        rDev.SetLineColor();
++        rDev.SetFillColor(aText);
++        rDev.DrawPolygon(aArrow);
++    }
++    rDev.Pop();
++}
+ 
+ FileTabColors fileTabColorsFor(const StyleSettings& rStyle, bool bPressed, bool bHover)
+ {
+--- a/vcl/source/window/toolbox.cxx
++++ b/vcl/source/window/toolbox.cxx
+@@ -44,6 +44,7 @@
+ #include <svdata.hxx>
+ #include <window.h>
+ #include <toolbox.h>
++#include <HstRibbonGeometry.hxx>
+ #include <HstRibbonGrid.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
+ #include <spin.hxx>
+@@ -97,30 +98,66 @@
+ 
+ namespace
+ {
+-// HST Office: the label of a large ribbon button (text below its image) in at most two lines: one wider than
+-// hst::ribbon::LABEL_WRAP logical px breaks at the space that makes its wider line the narrowest, as Office's
+-// two-line labels; authored line breaks are kept. Other toolboxes and positions keep their text.
++// HST Office: the label of a large ribbon button (text below its image) in at most two lines, as the approved
++// mockup's twoLines(): a label of one word, or of geometry::SHORT_LABEL characters at most (unless wider than
++// hst::ribbon::LABEL_WRAP logical px), keeps one line; a longer one breaks at the space that makes its longer line,
++// in characters, the shortest. Authored line breaks are kept. Other toolboxes and positions keep their text.
+ OUString ImplHstLabel(const ToolBox& rToolBox, const ImplToolBoxPrivateData& rData, const OUString& rText,
+                       ToolBoxTextPosition ePosition)
+ {
+     if (!rData.mbHstOwnerDraw || ePosition != ToolBoxTextPosition::Bottom || rText.indexOf('\n') >= 0)
+         return rText;
+-    const OutputDevice& rDev = *rToolBox.GetOutDev();
+-    if (rDev.GetCtrlTextWidth(rText) <= std::lround(hst::ribbon::LABEL_WRAP * rToolBox.GetDPIScaleFactor()))
+-        return rText;
+-    sal_Int32 nBest = -1;
+-    tools::Long nBestWidth = 0;
+-    for (sal_Int32 i = rText.indexOf(' '); i > 0; i = rText.indexOf(' ', i + 1))
++    std::vector<int> aWords(1, 0); // characters of each word, the mnemonic marks aside
++    std::vector<sal_Int32> aSpaces;
++    for (sal_Int32 i = 0; i < rText.getLength(); ++i)
+     {
+-        const tools::Long nWidth = std::max(rDev.GetCtrlTextWidth(rText.copy(0, i)),
+-                                            rDev.GetCtrlTextWidth(rText.copy(i + 1)));
+-        if (nBest < 0 || nWidth < nBestWidth)
++        if (rText[i] == ' ')
+         {
+-            nBest = i;
+-            nBestWidth = nWidth;
++            aSpaces.push_back(i);
++            aWords.push_back(0);
+         }
++        else if (rText[i] != '~')
++            ++aWords.back();
+     }
+-    return nBest < 0 ? rText : rText.replaceAt(nBest, 1, u"\n");
++    const bool bTooWide = rToolBox.GetOutDev()->GetCtrlTextWidth(rText)
++                          > hst::ribbon::geometry::px(hst::ribbon::LABEL_WRAP, rToolBox.GetDPIScaleFactor());
++    const std::size_t nFirst = hst::ribbon::geometry::firstLineWords(aWords, bTooWide);
++    return nFirst == 0 || nFirst >= aWords.size() ? rText : rText.replaceAt(aSpaces[nFirst - 1], 1, u"\n");
++}
++
++// HST Office: how the ribbon draws a button at the approved mockup's geometry (HstRibbonGeometry.hxx): Large for
++// an image above its label (L), Small for an image with its label on the right or alone (M, S); None for every
++// other toolbox, item window and text-only button, drawn as before.
++enum class HstKind
++{
++    None,
++    Large,
++    Small
++};
++
++HstKind ImplHstKind(const ImplToolBoxPrivateData& rData, const ImplToolItem& rItem, ButtonType eType,
++                    ToolBoxTextPosition ePosition, bool bHorz)
++{
++    bool bImage = false;
++    bool bText = false;
++    rItem.DetermineButtonDrawStyle(eType, bImage, bText);
++    if (!rData.mbHstOwnerDraw || !bHorz || !bImage || rItem.mpWindow || rItem.meType != ToolBoxItemType::BUTTON)
++        return HstKind::None;
++    return ePosition == ToolBoxTextPosition::Bottom ? HstKind::Large : HstKind::Small;
++}
++
++// HST Office: the parts of a large ribbon button; rLabel is its label as drawn (ImplHstLabel), empty when the
++// label is not drawn
++hst::ribbon::geometry::LargeButton ImplHstLargeButton(const ToolBox& rToolBox, const ImplToolItem& rItem,
++                                                      const OUString& rLabel)
++{
++    const OutputDevice& rDev = *rToolBox.GetOutDev();
++    const sal_Int32 nBreak = rLabel.indexOf('\n');
++    const tools::Long nFirst = rLabel.isEmpty() ? 0 : rDev.GetCtrlTextWidth(nBreak < 0 ? rLabel : rLabel.copy(0, nBreak));
++    const tools::Long nSecond = nBreak < 0 ? 0 : rDev.GetCtrlTextWidth(rLabel.copy(nBreak + 1).replace('\n', ' '));
++    const bool bMenu = (rItem.mnBits & ToolBoxItemBits::DROPDOWN) == ToolBoxItemBits::DROPDOWN;
++    return hst::ribbon::geometry::largeButton(rItem.maImage.GetSizePixel().Width(), nFirst, nSecond, bMenu,
++                                              rToolBox.GetTextHeight(), rToolBox.GetDPIScaleFactor());
+ }
+ 
+ // HST Office: the even grid of a ribbon toolbox at its medium/small size (HstRibbonGrid.hxx); item sizes
+@@ -1709,6 +1746,44 @@
+                     // grow the content size by the additional available space
+                     item.maContentSize.AdjustWidth(nGrowContentWidth );
+                     item.maContentSize.AdjustHeight(nGrowContentHeight );
++
++                    // HST Office: a ribbon button at the approved mockup's geometry (HstRibbonGeometry.hxx), whatever
++                    // the native theme's button borders: every large button as high as the group's content, its icon
++                    // and its label's first line at the same height; every medium or small button one row of the
++                    // 3-row grid high
++                    const ButtonType eHstType = determineButtonType( &item, meButtonType );
++                    const HstKind eHst = ImplHstKind( *mpData, item, eHstType, meTextPosition, mbHorz );
++                    const double fHstScale = GetDPIScaleFactor();
++                    if ( eHst == HstKind::Large )
++                    {
++                        bool bHstImage = false;
++                        bool bHstText = false;
++                        item.DetermineButtonDrawStyle( eHstType, bHstImage, bHstText );
++                        const auto aLarge = ImplHstLargeButton(
++                            *this, item, bHstText ? ImplHstLabel( *this, *mpData, item.maText, meTextPosition ) : OUString() );
++                        item.maItemSize = item.maContentSize = Size( aLarge.width, aLarge.height );
++                        if ( item.mnBits & ToolBoxItemBits::DROPDOWN )
++                        {
++                            // the label part (from the gap under the image) opens the menu
++                            item.mbHstSplitBelow = true;
++                            item.mnHstSplitTop = aLarge.textY - hst::ribbon::geometry::imageTextGap( GetTextHeight() ) / 2;
++                            item.mnDropDownArrowWidth = aLarge.arrowWidth;
++                        }
++                    }
++                    else if ( eHst == HstKind::Small )
++                    {
++                        bool bHstImage = false;
++                        bool bHstText = false;
++                        item.DetermineButtonDrawStyle( eHstType, bHstImage, bHstText );
++                        const bool bSplit = bool( item.mnBits & ToolBoxItemBits::DROPDOWN );
++                        const tools::Long nText = bHstText ? GetOutDev()->GetCtrlTextWidth( item.maText ) : 0;
++                        item.maItemSize = item.maContentSize = Size(
++                            hst::ribbon::geometry::smallButtonWidth( item.maImage.GetSizePixel().Width(), nText, bSplit, fHstScale ),
++                            hst::ribbon::geometry::px( hst::ribbon::geometry::SMALL_ROW, fHstScale ) );
++                        item.mbHstSplitBelow = false;
++                        if ( bSplit )
++                            item.mnDropDownArrowWidth = hst::ribbon::geometry::px( hst::ribbon::geometry::SMALL_SPLIT, fHstScale );
++                    }
+                 }
+ 
+                 // keep track of max item size
+@@ -1727,8 +1802,9 @@
+         ImplAddButtonBorder( nMaxWidth, nMaxHeight, mpData->mbNativeButtons );
+     }
+ 
++    // HST Office: not for the ribbon, whose buttons are one row of its 3-row grid high (HstRibbonGeometry.hxx)
+     if( !ImplIsFloatingMode() && GetToolboxButtonSize() != ToolBoxButtonSize::DontCare
+-        && ( meTextPosition == ToolBoxTextPosition::Right ) )
++        && ( meTextPosition == ToolBoxTextPosition::Right ) && !mpData->mbHstOwnerDraw )
+     {
+         // make sure all vertical toolbars have the same width and horizontal have the same height
+         // this depends on the used button sizes
+@@ -2800,6 +2876,15 @@
+     if (bDropDown)
+         aDropDownRect = pItem->GetDropDownRect(mbHorz);
+ 
++    // HST Office: a ribbon button at the approved mockup's geometry (HstRibbonGeometry.hxx), as measured in ImplCalcItem
++    const HstKind eHst = ImplHstKind(*mpData, *pItem, tmpButtonType, meTextPosition, mbHorz);
++    const double fHstScale = GetDPIScaleFactor();
++    const OUString aHstLabel = bText ? ImplHstLabel(*this, *mpData, pItem->maText, meTextPosition) : OUString();
++    const hst::ribbon::geometry::LargeButton aHstLarge
++        = eHst == HstKind::Large ? ImplHstLargeButton(*this, *pItem, aHstLabel) : hst::ribbon::geometry::LargeButton();
++    // the main part of a medium or small button, left of its ▾ part
++    const tools::Long nHstMain = aBtnSize.Width() - (bDropDown && eHst == HstKind::Small ? aDropDownRect.getOpenWidth() : 0);
++
+     if ( bImage )
+     {
+         const Image* pImage = &(pItem->maImage);
+@@ -2811,7 +2896,20 @@
+         // draw the image
+         nImageOffX = nOffX;
+         nImageOffY = nOffY;
+-        if ( ( (pItem->mnBits & (ToolBoxItemBits::LEFT|ToolBoxItemBits::DROPDOWN)) || bText )
++        if ( eHst == HstKind::Large )
++        {
++            nImageOffX = pItem->maRect.Left() + (aBtnSize.Width() - aImageSize.Width()) / 2;
++            nImageOffY = pItem->maRect.Top() + aHstLarge.iconY;
++        }
++        else if ( eHst == HstKind::Small )
++        {
++            // a medium button's icon at its left padding, a small button's centred
++            nImageOffX = pItem->maRect.Left()
++                         + (bText ? hst::ribbon::geometry::px(hst::ribbon::geometry::SMALL_PAD, fHstScale)
++                                  : (nHstMain - aImageSize.Width()) / 2);
++            nImageOffY = pItem->maRect.Top() + (aBtnSize.Height() - aImageSize.Height()) / 2;
++        }
++        else if ( ( (pItem->mnBits & (ToolBoxItemBits::LEFT|ToolBoxItemBits::DROPDOWN)) || bText )
+             && ( meTextPosition == ToolBoxTextPosition::Right ) )
+         {
+             // left align also to leave space for drop down arrow
+@@ -2856,9 +2954,51 @@
+     // draw the text
+     bool bRotate = false;
+     tools::Rectangle aHstArrowRect; // HST Office: where ▾ of a split large button goes
+-    if ( bText )
++    if ( eHst == HstKind::Large && bDropDown && !bText )
++    {
++        // HST Office: ▾ alone on the second line of a large button that shows no label
++        const tools::Long nArrow = aHstLarge.arrowWidth;
++        aHstArrowRect = tools::Rectangle(Point(pItem->maRect.Left() + (aBtnSize.Width() - nArrow) / 2,
++                                               pItem->maRect.Top() + aHstLarge.textY + aHstLarge.linePitch),
++                                         Size(nArrow, GetTextHeight()));
++    }
++    if ( bText && eHst != HstKind::None )
++    {
++        // HST Office: the label of a ribbon button: under the image on at most two lines (each centred, ▾ ending the
++        // second, alone on it after a one-line label), or right of a medium button's icon, centred in its row
++        DrawTextFlags nHstTextStyle = DrawTextFlags::NONE;
++        if ( !pItem->mbEnabled )
++            nHstTextStyle |= DrawTextFlags::Disable;
++        if ( eHst == HstKind::Small )
++        {
++            const tools::Long nX = nImageOffX + aImageSize.Width()
++                                   + hst::ribbon::geometry::px(hst::ribbon::geometry::SMALL_ICON_GAP, fHstScale);
++            const tools::Long nY = pItem->maRect.Top() + (aBtnSize.Height() - GetTextHeight()) / 2;
++            rRenderContext.DrawCtrlText(Point(nX, nY), pItem->maText, 0, pItem->maText.getLength(), nHstTextStyle);
++        }
++        else
++        {
++            const sal_Int32 nBreak = aHstLabel.indexOf('\n');
++            const OUString aLines[2] = { nBreak < 0 ? aHstLabel : aHstLabel.copy(0, nBreak),
++                                         nBreak < 0 ? OUString() : aHstLabel.copy(nBreak + 1).replace('\n', ' ') };
++            const tools::Long nArrow = bDropDown ? aHstLarge.arrowWidth : 0;
++            for (int nLine = 0; nLine < 2; ++nLine)
++            {
++                const tools::Long nWidth = aLines[nLine].isEmpty() ? 0 : GetOutDev()->GetCtrlTextWidth(aLines[nLine]);
++                const tools::Long nBlock = nWidth + (nLine == 1 ? nArrow : 0);
++                if (nBlock == 0)
++                    continue;
++                const tools::Long nX = pItem->maRect.Left() + (aBtnSize.Width() - nBlock) / 2;
++                const tools::Long nY = pItem->maRect.Top() + aHstLarge.textY + nLine * aHstLarge.linePitch;
++                if (nWidth > 0)
++                    rRenderContext.DrawCtrlText(Point(nX, nY), aLines[nLine], 0, aLines[nLine].getLength(), nHstTextStyle);
++                if (nLine == 1 && nArrow > 0)
++                    aHstArrowRect = tools::Rectangle(Point(nX + nBlock - nArrow, nY), Size(nArrow, GetTextHeight()));
++            }
++        }
++    }
++    else if ( bText )
+     {
+-        const OUString aHstLabel = ImplHstLabel(*this, *mpData, pItem->maText, meTextPosition);
+         const bool bLines = ImplHasLabelLines(aHstLabel, meTextPosition);
+         const Size aTxtSize(bLines ? ImplLabelLinesSize(*GetOutDev(), aHstLabel)
+                                    : Size(GetOutDev()->GetCtrlTextWidth(pItem->maText), GetTextHeight()));
+@@ -2959,7 +3099,17 @@
+     {
+         // HST Office: only ▾ after the label; the label part is not erased (it holds the label)
+         if (!aHstArrowRect.IsEmpty())
+-            ImplDrawDropdownArrow(rRenderContext, aHstArrowRect, bSetColor, false);
++        {
++            // HST Office: an ARROW_WIDTH wide ▾ at the right end of its rectangle (ImplDrawDropdownArrow keeps a
++            // 2 px margin on each side of the arrow it draws)
++            const tools::Long nMargin = std::lround(2 * GetDPIScaleFactor());
++            const tools::Long nArrow = hst::ribbon::geometry::px(hst::ribbon::geometry::ARROW_WIDTH, fHstScale);
++            tools::Rectangle aArrow(aHstArrowRect);
++            if (eHst == HstKind::Large)
++                aArrow = tools::Rectangle(Point(aHstArrowRect.Right() + 1 - nArrow - nMargin, aHstArrowRect.Top()),
++                                          Size(nArrow + 2 * nMargin, aHstArrowRect.GetHeight()));
++            ImplDrawDropdownArrow(rRenderContext, aArrow, bSetColor, false);
++        }
+         return;
+     }
+ 
