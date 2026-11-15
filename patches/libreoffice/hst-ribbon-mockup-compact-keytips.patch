@@ -7,7 +7,7 @@ menu's button). The full ribbon is unchanged.
 
 --- a/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
 +++ b/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
-@@ -207,6 +207,44 @@
+@@ -207,6 +207,42 @@
          }
      }
  
@@ -33,11 +33,9 @@ menu's button). The full ribbon is unchanged.
 +            return false; // the full ribbon (or the page already dropped): its tips as before
 +        else
 +        {
-+            const Point aCentre = m_xTabs->GetTabBounds(nId).Center();
-+            const MouseEvent aDown(aCentre, 1, MouseEventModifiers::SIMPLECLICK, MOUSE_LEFT);
-+            const MouseEvent aUp(aCentre, 1, MouseEventModifiers::SIMPLECLICK, MOUSE_LEFT);
++            // the tab acts on the press; a posted release would land outside the popup it opened and close it
++            const MouseEvent aDown(m_xTabs->GetTabBounds(nId).Center(), 1, MouseEventModifiers::SIMPLECLICK, MOUSE_LEFT);
 +            Application::PostMouseEvent(VclEventId::WindowMouseButtonDown, m_xTabs.get(), &aDown);
-+            Application::PostMouseEvent(VclEventId::WindowMouseButtonUp, m_xTabs.get(), &aUp);
 +            m_xShown.reset(); // the popup's WindowShow sets it
 +        }
 +        // the popup took the focus from the document window: the tips of the tab row go, those of the
@@ -52,7 +50,7 @@ menu's button). The full ribbon is unchanged.
      void ShowTabs()
      {
          std::vector<Target> aTargets;
-@@ -234,6 +272,8 @@
+@@ -234,6 +270,8 @@
              aTarget.pAnchor = m_xTabs.get();
              aTarget.aRect = aRect;
              aTarget.aRun = [this, nId, bFile = aName == "FileLabel"] {

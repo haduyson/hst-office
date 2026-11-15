@@ -58,6 +58,12 @@ class Defaults(unittest.TestCase):
         self.assertIn("VclEventId::ToolboxItemAdded", qat)
         self.assertIn("Application::RemoveUserEvent(m_pPlainEvent);", qat)
 
+    def test_compact_row_keeps_the_six_buttons_whole(self):
+        # compact state only: the search box narrows to its magnifier before a button goes into the » menu
+        row = added(MOCKUP_PATCH, "vcl/source/control/tabctrl.cxx")
+        self.assertIn("std::lround((m_nHstRowReserve > 0 ? 32 : 120) * fHstDpi);", row)
+        self.assertIn("const tools::Long nSearch = pHstSearch ? 2 * nHstGap + nSearchBox : 0;", row)
+
     def test_mockup_patch_follows_the_qat_patch(self):
         with open(os.path.join(ROOT, "patches", "libreoffice", "series"), encoding="utf-8") as handle:
             series = handle.read().split()

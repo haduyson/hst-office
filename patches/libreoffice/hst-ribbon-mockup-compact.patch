@@ -9,7 +9,10 @@ gives (W - 276 with the banner 8 px from both sides), the groups choosing their 
 click on another tab drops that tab's page. The quick access toolbar shows New, Open, Save, Undo, Redo and
 Print (owner decision D3, replacing the three-button default of 14/11) in the four apps, KeyTips 1 to 6 by
 position; New (.uno:AddDirect, Ctrl+N) is a plain button without its document type ▾; profiles with a
-customised toolbar keep it.
+customised toolbar keep it. The quick row's Tìm is the find bar (Ctrl+F) as on the ribbon; the find bar and HST
+commands take the 16 px icon their ribbon button shows (data/ribbon/quick-rows.json "icons"). In the compact
+state the tab row narrows the feature search box down to its magnifier before any quick access button goes
+into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's row is unchanged.
 
 --- a/sfx2/source/notebookbar/HstRibbonCompact.hxx
 +++ b/sfx2/source/notebookbar/HstRibbonCompact.hxx
@@ -69,15 +72,16 @@ customised toolbar keep it.
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sfx2/source/notebookbar/HstRibbonCompact.cxx
 +++ b/sfx2/source/notebookbar/HstRibbonCompact.cxx
-@@ -20,6 +20,7 @@
+@@ -20,6 +20,8 @@
  #include <sfx2/sfxresid.hxx>
  #include <sfx2/strings.hrc>
  #include <vcl/ctrl.hxx>
++#include <vcl/image.hxx>
 +#include <vcl/svapp.hxx>
  #include <vcl/tabpage.hxx>
  #include <vcl/toolbox.hxx>
  
-@@ -39,12 +40,21 @@
+@@ -39,12 +41,21 @@
                                               LINK(this, HstRibbonCompact, ChevronHdl));
      m_xExpand = CreateChevron(&m_rTabs, false, SfxResId(STR_HST_RIBBON_EXPAND),
                                             LINK(this, HstRibbonCompact, ChevronHdl));
@@ -99,7 +103,7 @@ customised toolbar keep it.
      m_xQuick.disposeAndClear();
      m_xCollapse.disposeAndClear();
      m_xExpand.disposeAndClear();
-@@ -52,6 +62,20 @@
+@@ -52,6 +63,20 @@
  
  IMPL_LINK_NOARG(HstRibbonCompact, ChevronHdl, LinkParamNone*, void) { m_aToggle.Call(nullptr); }
  
@@ -120,7 +124,7 @@ customised toolbar keep it.
  tools::Long HstRibbonCompact::BandHeight(double fDpi) { return px(80, fDpi); }
  
  tools::Long HstRibbonCompact::QuickHeight(tools::Long nHeaderHeight, double fDpi)
-@@ -115,6 +139,9 @@
+@@ -115,6 +140,9 @@
      {
          m_xQuick->Hide();
          m_xExpand->Hide();
@@ -130,7 +134,7 @@ customised toolbar keep it.
      }
      else
          m_xCollapse->Hide();
-@@ -122,13 +149,23 @@
+@@ -122,13 +150,23 @@
          SetAppListed(u"CompactApps"_ustr, m_aApp, bCompact);
  }
  
@@ -155,7 +159,7 @@ customised toolbar keep it.
      for (const hst::ribbon::quick::Row& rRow : hst::ribbon::quick::all)
      {
          if (rRow.app != m_aApp || rRow.box != aBox)
-@@ -138,10 +175,10 @@
+@@ -138,12 +176,17 @@
              const OUString aCommand(rRow.commands[i]);
              if (aCommand == "|")
              {
@@ -165,10 +169,18 @@ customised toolbar keep it.
              }
 -            m_xQuick->InsertItem(aCommand, xFrame, ToolBoxItemBits::NONE, Size());
 +            m_xQuick->InsertItem(aCommand, xFrame, ToolBoxItemBits::NONE, Size(0, nButton));
++            const ToolBoxItemId nId = m_xQuick->GetItemId(aCommand);
              if (OUString aLabel = ribbonLabel(*pPage, aCommand); !aLabel.isEmpty())
-                 m_xQuick->SetItemText(m_xQuick->GetItemId(aCommand), aLabel);
+-                m_xQuick->SetItemText(m_xQuick->GetItemId(aCommand), aLabel);
++                m_xQuick->SetItemText(nId, aLabel);
++            // the find bar and HST commands have no icon of their own: the one their ribbon button shows
++            for (const hst::ribbon::quick::Icon& rIcon : hst::ribbon::quick::icons)
++                if (aCommand == rIcon.command)
++                    m_xQuick->SetItemImage(nId, Image(StockImage::Yes, OUString(rIcon.icon)));
          }
-@@ -155,21 +192,35 @@
+     }
+ }
+@@ -155,21 +198,35 @@
      const tools::Long nInset = px(4, fDpi);
      if (m_bCompact && !rQuick.IsEmpty())
      {
@@ -242,6 +254,41 @@ customised toolbar keep it.
  };
  }
  
+--- a/sfx2/source/notebookbar/HstRibbonQuickRows.hxx
++++ b/sfx2/source/notebookbar/HstRibbonQuickRows.hxx
+@@ -26,11 +26,17 @@
+     std::size_t count;
+ };
+ 
+-inline constexpr std::u16string_view row0[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u".uno:DefaultBullet", u"|", u".uno:SearchDialog", u"org.hst.office.vi:Nd30Wizard" }; // writer pmhbHome
++struct Icon
++{
++    std::u16string_view command;
++    std::u16string_view icon; // a 16 px icon of the theme, for a command without one of its own
++};
++
++inline constexpr std::u16string_view row0[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u".uno:DefaultBullet", u"|", u"vnd.sun.star.findbar:FocusToFindbar", u"org.hst.office.vi:Nd30Wizard" }; // writer pmhbHome
+ inline constexpr std::u16string_view row1[] = { u".uno:TitlePageDialog", u".uno:InsertPagebreak", u"|", u".uno:InsertTable", u".uno:InsertGraphic", u".uno:BasicShapes", u".uno:InsertObjectChart", u"|", u".uno:HyperlinkDialog", u".uno:InsertAnnotation", u"|", u".uno:InsertPageHeader", u".uno:PageNumberWizard", u"|", u".uno:DrawText", u".uno:CharmapControl" }; // writer pmhbInsert
+ inline constexpr std::u16string_view row2[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:AlignHorizontalCenter", u"|", u".uno:AutoSum", u"org.hst.office.vi:FormatVnd", u"|", u".uno:SearchDialog" }; // calc pmhbHome
+-inline constexpr std::u16string_view row3[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:InsertPage", u".uno:AssignLayout", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u"|", u".uno:SearchDialog" }; // impress pmhbHome
+-inline constexpr std::u16string_view row4[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u"|", u".uno:Text", u".uno:InsertGraphic", u"|", u".uno:SearchDialog" }; // draw pmhbHome
++inline constexpr std::u16string_view row3[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:InsertPage", u".uno:AssignLayout", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u"|", u"vnd.sun.star.findbar:FocusToFindbar" }; // impress pmhbHome
++inline constexpr std::u16string_view row4[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u"|", u".uno:Text", u".uno:InsertGraphic", u"|", u"vnd.sun.star.findbar:FocusToFindbar" }; // draw pmhbHome
+ inline constexpr std::u16string_view row5[] = { u".uno:ThemeDialog", u".uno:Watermark", u".uno:FillPageColor", u".uno:BorderDialog?Page:string=hstpageborder", u".uno:PageDialog" }; // writer pmhbDesign Tab
+ inline constexpr std::u16string_view row6[] = { u".uno:PageMargin", u".uno:TransformDialog", u".uno:Orientation", u".uno:AttributePageSize", u".uno:PageColumnType" }; // writer pmhbLayout
+ inline constexpr std::u16string_view row7[] = { u".uno:InsertMultiIndex", u".uno:InsertFootnote", u"org.hst.office.vi:CitationInsert", u".uno:InsertCaptionDialog", u".uno:InsertIndexesEntry", u".uno:InsertEndnote", u"org.hst.office.vi:CitationLibrary", u".uno:InsertReferenceField" }; // writer pmhbReferences
+@@ -193,6 +199,11 @@
+     { u"draw", u"pmhbMaster", row80, std::size(row80) },
+     { u"draw", u"pmhb3D", row81, std::size(row81) },
+ };
++
++inline constexpr Icon icons[] = {
++    { u"vnd.sun.star.findbar:FocusToFindbar", u"cmd/sc_recsearch.png" },
++    { u"org.hst.office.vi:Nd30Wizard", u"cmd/sc_nd30wizard.png" },
++};
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sfx2/source/notebookbar/HstQuickAccess.hxx
 +++ b/sfx2/source/notebookbar/HstQuickAccess.hxx
 @@ -18,6 +18,7 @@
@@ -458,6 +505,22 @@ customised toolbar keep it.
      pPage->Show();
      // below the tab row, from the control's left edge
      xDrop->StartPopupMode(tools::Rectangle(Point(0, 0), Size(1, m_nHeaderHeight)),
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -2619,8 +2619,11 @@
+                 nTabs += hst::ribbon::FileTabExtraWidth(*GetOutDev()); // as the tabs are placed below
+         }
+         // the search box keeps the width at which it shows its text (below that it is only a magnifier), with
+-        // its gaps before and after it; the row's start offset (2 px) and the toolbox's 1 px follow below
+-        const tools::Long nSearch = pHstSearch ? 2 * nHstGap + std::lround(120 * fHstDpi) : 0;
++        // its gaps before and after it; the row's start offset (2 px) and the toolbox's 1 px follow below.
++        // The compact ribbon (its banner beside the row, m_nHstRowReserve) keeps the quick access buttons
++        // whole, as the approved 1.0.2 mockup: the box narrows down to its magnifier first.
++        const tools::Long nSearchBox = std::lround((m_nHstRowReserve > 0 ? 32 : 120) * fHstDpi);
++        const tools::Long nSearch = pHstSearch ? 2 * nHstGap + nSearchBox : 0;
+         // its items and the ▾/» menu button at the end (the toolbox's size request leaves that button out)
+         const Size aWant(m_pShortcuts->GetOptimalSize().Width() + std::lround(16 * fHstDpi),
+                          m_pShortcuts->GetOptimalSize().Height());
 --- a/sw/uiconfig/swriter/toolbar/notebookbarshortcuts.xml
 +++ b/sw/uiconfig/swriter/toolbar/notebookbarshortcuts.xml
 @@ -8,14 +8,15 @@
