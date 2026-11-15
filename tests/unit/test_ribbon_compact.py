@@ -16,7 +16,8 @@ HEADER = "sfx2/source/notebookbar/HstRibbonQuickRows.hxx"
 # the approved mockup (v2) rows of Writer's Home and Insert tabs
 MOCKUP = {
     "pmhbHome": [".uno:Paste", ".uno:Cut", ".uno:Copy", "|", ".uno:Bold", ".uno:Italic", ".uno:Underline", "|",
-                 ".uno:CenterPara", ".uno:DefaultBullet", "|", ".uno:SearchDialog", "org.hst.office.vi:Nd30Wizard"],
+                 ".uno:CenterPara", ".uno:DefaultBullet", "|", "vnd.sun.star.findbar:FocusToFindbar",
+                 "org.hst.office.vi:Nd30Wizard"],
     "pmhbInsert": [".uno:TitlePageDialog", ".uno:InsertPagebreak", "|", ".uno:InsertTable", ".uno:InsertGraphic",
                    ".uno:BasicShapes", ".uno:InsertObjectChart", "|", ".uno:HyperlinkDialog", ".uno:InsertAnnotation",
                    "|", ".uno:InsertPageHeader", ".uno:PageNumberWizard", "|", ".uno:DrawText",
@@ -58,7 +59,9 @@ class QuickRows(unittest.TestCase):
             self.assertFalse(row.get("generated"), app)
             self.assertEqual(row["commands"][:3], [".uno:Paste", ".uno:Cut", ".uno:Copy"], app)
             self.assertIn(".uno:Bold", row["commands"], app)
-            self.assertIn(".uno:SearchDialog", row["commands"], app)
+            # Tìm: the find bar (Ctrl+F) where the app's ribbon has it, Sheets' Find & Replace
+            find = ".uno:SearchDialog" if app == "calc" else "vnd.sun.star.findbar:FocusToFindbar"
+            self.assertIn(find, row["commands"], app)
             self.assertLessEqual(len([c for c in row["commands"] if c != "|"]), 10, app)
 
     def test_generated_rows_skip_fine_tuning_items(self):
@@ -76,8 +79,25 @@ class QuickRows(unittest.TestCase):
                 self.assertLessEqual(len(commands), 10, row["box"])
 
     def test_patch_header_is_generated_from_the_data(self):
-        body = "\n".join(line[1:] for line in sections(PATCH)[HEADER] if line.startswith("+")) + "\n"
-        self.assertEqual(body, generator().header(self.data))
+        # every hunk of the last patch that changes the header reads as the generated header does
+        header, hunk, hunks = generator().header(self.data), [], []
+        for line in sections("hst-ribbon-mockup-compact.patch")[HEADER] + ["@@"]:
+            if line.startswith("@@"):
+                hunks += [hunk] if hunk else []
+                hunk = []
+            elif line[:1] in (" ", "+"):
+                hunk.append(line[1:])
+        self.assertTrue(hunks)
+        for lines in hunks:
+            self.assertIn("\n".join(lines), header)
+        self.assertIn('{ u"org.hst.office.vi:Nd30Wizard", u"cmd/sc_nd30wizard.png" },', header)
+
+    def test_icons_belong_to_rows(self):
+        used = {c for row in self.data["rows"] for c in row["commands"]}
+        self.assertTrue(self.data["icons"])
+        for command, icon in self.data["icons"].items():
+            self.assertIn(command, used)
+            self.assertRegex(icon, r"^cmd/sc_[a-z0-9]+\.png$")
 
 
 class CompactWiring(unittest.TestCase):
