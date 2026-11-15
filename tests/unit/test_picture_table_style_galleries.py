@@ -39,6 +39,21 @@ def added(path):
     return {name: "".join(lines) for name, lines in result.items()}
 
 
+def file_hunks(path):
+    """{file: its added and removed lines, each with its +/- sign} of a unified diff."""
+    result, current = {}, None
+    with open(path, encoding="utf-8") as handle:
+        for line in handle:
+            match = re.match(r"^\+\+\+ b/(\S+)", line)
+            if match:
+                current = result.setdefault(match.group(1), [])
+            elif line.startswith(("--- ", "diff ")):
+                current = None if line.startswith("diff ") else current
+            elif current is not None and line[:1] in "+-":
+                current.append(line)
+    return result
+
+
 def luminance(hex_colour):
     channels = [int(hex_colour[i:i + 2], 16) / 255 for i in (0, 2, 4)]
     linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
@@ -64,8 +79,25 @@ class StyleGalleries(unittest.TestCase):
         core, strings, ui = (series.index(os.path.basename(p)) for p in (CORE, STRINGS, PLACEMENT))
         self.assertLess(core, strings)
         self.assertLess(strings, ui)
-        adaptive = [i for i, name in enumerate(series) if name.startswith("hst-ribbon-adaptive-")]
-        self.assertTrue(all(i < ui for i in adaptive), "the placements go after the ribbon ladder patches")
+        # The series is append-only, so ribbon patches merged later sit after the placements. Such a patch may edit
+        # the same notebookbar.ui, but every gallery id line it removes there must come back in its added lines.
+        placed = file_hunks(PLACEMENT)
+        ids = set(re.findall(r'id="((?:bx)?[Hh]st(?:Picture|Table)StylesGallery)"', "".join(
+            line for lines in placed.values() for line in lines if line.startswith("+"))))
+        self.assertEqual(len(ids), 4, ids)
+        lost = []
+        for name in series[ui + 1:]:
+            if not name.startswith("hst-ribbon-"):
+                continue
+            for path, lines in file_hunks(os.path.join(PATCHES, name)).items():
+                if path not in placed or not path.endswith("notebookbar.ui"):
+                    continue
+                for gallery in ids:
+                    mark = 'id="%s"' % gallery
+                    removed = sum(mark in line for line in lines if line.startswith("-"))
+                    if removed > sum(mark in line for line in lines if line.startswith("+")):
+                        lost.append((name, path, gallery))
+        self.assertFalse(lost, "a later ribbon patch drops a style gallery from a notebookbar the placements edit")
 
     def test_six_to_eight_styles_each(self):
         pictures = re.findall(r'\{ u"([a-z-]+)", RID_HST_PICSTYLE_', self.data)
