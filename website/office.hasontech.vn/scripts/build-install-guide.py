@@ -17,6 +17,7 @@ Menu đầu trang và chân trang lấy từ site_chrome.py (mục đang mở: "
 import hashlib, html, io, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from site_chrome import apply_chrome
+from og_meta import apply_og
 
 SITE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(SITE, "scripts", "install-guide")
@@ -78,10 +79,6 @@ HEAD = """<!doctype html>
   <meta property="og:title" content="{crumb} — HST Office">
   <meta property="og:description" content="{description}">
   <meta property="og:url" content="{url}">
-  <meta property="og:image" content="https://office.hasontech.vn/assets/img/og-hst-office.jpg?v=2">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="628">
-  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="/assets/img/favicon.svg?v=1" type="image/svg+xml">
   <link rel="icon" href="/assets/img/favicon-32.png?v=1" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png?v=1" sizes="180x180">
@@ -268,6 +265,7 @@ def build(page, version, versions, snippets):
                       sidebar=sidebar(page["url"]), content=content.rstrip(), page_nav=nav, symbols=symbols, **versions)
     out = apply_chrome(out, "install")
     path = os.path.join(OUT, page["out"])
+    out = apply_og(out, os.path.relpath(path, SITE))  # ảnh chia sẻ riêng: scripts/og/pages.json
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(out)

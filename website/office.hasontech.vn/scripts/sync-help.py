@@ -16,6 +16,7 @@ và vùng <!-- huong-dan --> trong sitemap.xml. Chạy lại ở mỗi lần chu
 import argparse, datetime, hashlib, html, io, json, os, re, shutil, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from site_chrome import apply_chrome
+from og_meta import apply_og
 
 SITE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REPO = subprocess.run(["git", "-C", SITE, "rev-parse", "--show-toplevel"], capture_output=True, text=True, check=True).stdout.strip()
@@ -199,8 +200,6 @@ def main():
   <meta property="og:title" content="{html.escape(full_title)}">
   <meta property="og:description" content="{html.escape(desc)}">
   <meta property="og:url" content="{url}">
-  <meta property="og:image" content="{BASE}/assets/img/og-hst-office.jpg?v=2">
-  <meta name="twitter:card" content="summary_large_image">
   <link rel="icon" href="/assets/img/favicon.svg?v=1" type="image/svg+xml">
   <link rel="icon" href="/assets/img/favicon-32.png?v=1" type="image/png" sizes="32x32">
   <link rel="apple-touch-icon" href="/assets/img/apple-touch-icon.png?v=1" sizes="180x180">
@@ -238,6 +237,7 @@ def main():
 """
         page = apply_chrome(page, "guide")
         dest = os.path.join(OUT, "index.html") if slug == "index" else os.path.join(OUT, slug, "index.html")
+        page = apply_og(page, os.path.relpath(dest, SITE))  # ảnh chia sẻ riêng: scripts/og/pages.json
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         open(dest, "w", encoding="utf-8").write(page)
 
