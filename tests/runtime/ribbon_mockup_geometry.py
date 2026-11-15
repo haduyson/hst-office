@@ -77,3 +77,20 @@ def tab_geometry(nodes):
     tab_top = next((n[2][1] for n in nodes if n[0] == "page tab" and n[1] == "Trang đầu"), None)
     strip = next((n[2] for n in nodes if n[0] == "panel" and n[1] == "Thẻ tài liệu"), None)
     return tab_top, strip
+
+
+PAGE_TOP_OFFSET = (30, 42)  # the tab page starts 36 px under the tab row's top (P4: page y=44 under tab row y=8)
+PAGE_MIN_W = 600
+
+
+def page_box(nodes, tab_top):
+    """Box of the selected tab's page (P4 definition of the 106 px body): the wide panel under the tab row."""
+    if tab_top is None:
+        return None
+    for n in nodes:
+        box = n[2]
+        if n[0] == "panel" and PAGE_TOP_OFFSET[0] <= box[1] - tab_top <= PAGE_TOP_OFFSET[1] \
+                and box[2] >= PAGE_MIN_W and box[3] >= 60:
+            return box
+    return None
+

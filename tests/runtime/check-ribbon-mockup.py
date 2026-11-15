@@ -42,6 +42,7 @@ def measure(tab, width):
     nodes = atspi.ribbon_nodes()
     tab_top, strip = geo.tab_geometry(nodes)
     return {"groups": geo.groups(nodes, tab), "tab_top": tab_top, "strip": strip, "banner": geo.banner(nodes),
+            "page": geo.page_box(nodes, tab_top),
             "font_box": geo.named_box(nodes, "Tên phông"), "size_box": geo.named_box(nodes, "Kích cỡ phông"),
             "width": width}
 

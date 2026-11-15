@@ -22,6 +22,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
 from ribbon_home_tools_gui import group_range  # noqa: E402
+from ribbon_mockup_geometry import CAPTIONS  # noqa: E402
+
+# the mockup's ladder (reference vectors): a group in state S is icon-only at that width, so it needs no labels there
+_EXPECTED = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ribbon-mockup-expected.json")
+with open(_EXPECTED, encoding="utf-8") as _handle:
+    _VECTORS = json.load(_handle)["states"]
+TAB_KEYS = {"Trang đầu": "home", "Chèn": "insert"}
+
+
+def mockup_icon_only(tab, width):
+    """Caption names of the Writer groups the mockup shows as S (icon-only) at this tab and width."""
+    key = TAB_KEYS.get(tab)
+    want = _VECTORS.get(f"{key}-{width}") if key else None
+    if want is None:
+        return set()
+    return {CAPTIONS[key][g] for g, state in want["states"].items() if state == "S" and g in CAPTIONS[key]}
 
 FORMATTING = {"Phông chữ", "Đoạn văn", "Căn chỉnh", "Số"}  # bare formatting icons are allowed (G10)
 # bare by design in the reference suite too (coordinator 15/11/2026): whole groups, and single commands
@@ -64,6 +80,7 @@ def scan():
 
 def check_tab(app, width, tab):
     captions, icons = scan()
+    icon_only = mockup_icon_only(tab, width) if app == "writer" else set()
     if not captions:
         return
     ranges = {caption: group_range(captions, caption) for caption, _box in captions}
@@ -73,7 +90,7 @@ def check_tab(app, width, tab):
         # captions, the nearer half
         group = next((c for c, b in captions if b[0] <= box[0] + box[2] // 2 < b[0] + b[2]), None) \
             or next((c for c, (left, right) in ranges.items() if left <= box[0] < right), "?")
-        if group not in FORMATTING | BARE_GROUPS and name not in BARE_COMMANDS:
+        if group not in FORMATTING | BARE_GROUPS | icon_only and name not in BARE_COMMANDS:
             bare.setdefault(group, []).append(name)
     record(f"[{app} {width}] {tab}: commands outside formatting groups are labelled", not bare, bare)
 

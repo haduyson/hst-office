@@ -36,9 +36,11 @@ def width_findings(tab, width, want_states, got):
     states = {k: v["state"] for k, v in got["groups"].items()}
     diff = compare_states(want_states, {k: {"state": s} for k, s in states.items()})
     out.append((f"{tag} ladder states equal the mockup vector", not diff, diff or states))
-    bodies = {k: v["caption_bottom"] - v["box"][1] for k, v in got["groups"].items() if v["state"] != "C"}
-    off = {k: b for k, b in bodies.items() if abs(b - 106) > TOLERANCE}
-    out.append((f"{tag} group body is 106 px", bool(bodies) and not off, off or bodies))
+    page = got.get("page")  # P4's definition: the selected tab's page is the 106 px body (no 3 px margins)
+    if page is not None:
+        out.append((f"{tag} page body is 106 px", abs(page[3] - 106) <= TOLERANCE, page[3]))
+    else:
+        out.append((f"{tag} page body measured", False, "no page panel under the tab row"))
     if got.get("tab_top") is not None and got.get("strip") is not None:
         span = got["strip"][1] - got["tab_top"]
         out.append((f"{tag} tab row to document strip is 147 px", abs(span - 147) <= TOLERANCE, span))
