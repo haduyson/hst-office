@@ -279,3 +279,34 @@ class SlotMountTest(RemoteTestCase):
         body = text[text.index("mount_chroot() {"):text.index("MOUNTED=1", text.index("mount_chroot() {"))]
         self.assertLess(body.index('mount --bind "$CHROOT" "$CHROOT"'), body.index("mount -t overlay"))
         self.assertLess(body.index('mount --make-private "$CHROOT"'), body.index("mount -t overlay"))
+
+
+class RunOnceTest(RemoteTestCase):
+    """A host package upgrade restarted the job units (needrestart), which reran local-build.sh over a running build
+    and truncated its log: the job ended 'exit 1' and train 027 was misjudged. The unit command now runs once."""
+
+    def test_a_restarted_unit_reports_infrastructure_and_does_not_rerun(self):
+        import subprocess
+        import tempfile
+        from build_infra.dispatch_remote_linux import RUN_ONCE
+        with tempfile.TemporaryDirectory() as d:
+            env = {"PATH": "/usr/bin:/bin", "HST_Q_LOG": f"{d}/job.log", "HST_Q_RC": f"{d}/job.rc"}
+            run = ["bash", "-c", RUN_ONCE, "queue-runner", "sh", "-c", "echo build ran; echo ran >> " + d + "/count"]
+            self.assertEqual(subprocess.run(run, env=env, check=False).returncode, 0)
+            self.assertEqual(open(f"{d}/job.rc").read().strip(), "0")
+            self.assertEqual(subprocess.run(run, env=env, check=False).returncode, 1)   # the unit restarted
+            log = open(f"{d}/job.log").read()
+            self.assertIn("build ran", log)                                            # first run kept (appended)
+            self.assertEqual(open(f"{d}/count").read().count("ran"), 1)                 # never rerun
+            self.assertEqual(open(f"{d}/job.rc").read().strip(), "1")
+            self.assertTrue(bq.infra_failure("local-build.sh exit 1", log))             # requeued, not blamed
+        job, _ = self.submit()
+        self.remote.start(job, "vm103:1")
+        self.assertIn(RUN_ONCE, self.host.calls[-1])
+
+    def test_local_build_stops_leftover_make_scopes_of_its_slot(self):
+        from build_queue_fixtures import ROOT
+        text = (ROOT / "scripts/linux/local-build.sh").read_text()
+        lock = text.index('flock -n 9 || die "slot $SLOT is busy')
+        self.assertLess(lock, text.index('"hst-local-build-s$SLOT-*.scope"'))
+        self.assertLess(text.index('"hst-local-build-s$SLOT-*.scope"'), text.index("exec 8>"))

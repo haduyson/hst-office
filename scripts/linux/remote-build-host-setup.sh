@@ -49,6 +49,14 @@ for unit in ssh systemd-journald; do
   printf '[Service]\nOOMScoreAdjust=-1000\n' > "/etc/systemd/system/$unit.service.d/hst-oom.conf"
 done
 
+log "needrestart: never restart queue jobs or build scopes after a package upgrade"
+mkdir -p /etc/needrestart/conf.d
+cat > /etc/needrestart/conf.d/hst-build.conf <<'NREOF'
+# HST Office build host: a restart would rerun a half-finished build (the job unit's command runs again).
+$nrconf{override_rc}{qr(^hstq-)} = 0;
+$nrconf{override_rc}{qr(^hst-local-build-)} = 0;
+NREOF
+
 log "earlyoom: kill builds first, never sshd"
 cat > /etc/default/earlyoom <<'EOF'
 # HST Office build host: act at 6 % free RAM / 10 % free swap; build processes first; never the access path.

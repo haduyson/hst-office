@@ -25,6 +25,12 @@ from .queue_store import REPO
 from .remote_host import HostStates, RemoteError, RemoteHost
 
 LOG_CHUNK = 4_000_000
+# The job unit's command. A host package upgrade can restart the unit (needrestart restarts services whose libraries
+# changed), which runs the command again over a half-finished build: the second start appends an infrastructure
+# error instead (the dispatcher requeues the job; a train never judges it), and the log is only ever appended to.
+RUN_ONCE = ('if [ -e "$HST_Q_RC.started" ]; then echo "dispatcher: the job unit was restarted on the build host '
+            '(package upgrade?); not running the build twice" >> "$HST_Q_LOG"; echo 1 > "$HST_Q_RC"; exit 1; fi; '
+            ': > "$HST_Q_RC.started"; "$@" >> "$HST_Q_LOG" 2>&1; echo $? > "$HST_Q_RC"')
 
 
 def infra_sha():
@@ -210,7 +216,7 @@ class RemoteLinuxRunner:
         self.push(job["sha"], f"refs/q/{job['id']}")
         out, rc, rlog = self.qpath("out", job["id"]), self.qpath("rc", job["id"], ".rc"), self.qpath("logs", job["id"], ".log")
         self.host.run(["sh", "-c", f"mkdir -p {self.root}/queue/out {self.root}/queue/rc {self.root}/queue/logs "
-                       f"&& rm -rf {out} {rc} {rlog}"])
+                       f"&& rm -rf {out} {rc} {rc}.started {rlog}"])
         want = self.want(self.cfg["linux_modules_max_jobs"] if job["modules"] else self.cfg["linux_max_jobs"])
         cmd = [f"{d}/scripts/linux/local-build.sh", "--slot", n, "--label", job["label"], "--out", out, "-j", str(want)]
         if job["modules"]:
@@ -224,7 +230,7 @@ class RemoteLinuxRunner:
         argv = ["systemd-run", f"--unit={self.unit(job['id'])}", "--collect", "--quiet",
                 f"--slice={self.hcfg.get('slice', 'hst-build.slice')}", "-p", "Nice=10", "-p", "IOSchedulingClass=idle",
                 "-p", "OOMScoreAdjust=500", *(f"--setenv={k}={v}" for k, v in env.items()),
-                "/bin/bash", "-c", '"$@" > "$HST_Q_LOG" 2>&1; echo $? > "$HST_Q_RC"', "queue-runner", *cmd]
+                "/bin/bash", "-c", RUN_ONCE, "queue-runner", *cmd]
         self.host.run(argv, timeout=120)
         self.contact_ok()
         with open(job["log"], "a", encoding="utf-8") as f:
@@ -301,7 +307,7 @@ class RemoteLinuxRunner:
         stays free for the slot trees: slot run logs older than 2 days and queue files of jobs gone for a day (a
         lost host's leftovers) are pruned too."""
         try:
-            self.host.run(["sh", "-c", f"rm -rf {self.qpath('out', jid)} {self.qpath('rc', jid, '.rc')} "
+            self.host.run(["sh", "-c", f"rm -rf {self.qpath('out', jid)} {self.qpath('rc', jid, '.rc')}* "
                            f"{self.qpath('logs', jid, '.log')}; git -C {self.root}/repo.git update-ref -d "
                            f"refs/q/{jid} 2>/dev/null; "
                            f"find {self.root}/slots/*/logs -mindepth 1 -maxdepth 1 -name '20*' -mtime +2 "

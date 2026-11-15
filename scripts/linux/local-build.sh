@@ -144,6 +144,13 @@ OUT="$BUILD_ROOT/out"
 mkdir -p "$WORK" "$CCACHE" "$OUT" "$LOGROOT/ci" "$CHECKOUT" "$BUILD_ROOT/locks"
 exec 9>"$ROOT/.lock"
 flock -n 9 || die "slot $SLOT is busy (another local build holds $ROOT/.lock)"
+# The slot lock is ours, so a make scope of this slot that is still running belongs to a local-build.sh that was
+# killed before its EXIT trap stopped make (e.g. its unit restarted by a package upgrade): stop it before this run
+# touches the tree it would still be writing to.
+for leftover in $(systemctl list-units --plain --no-legend --state=active "hst-local-build-s$SLOT-*.scope" 2>/dev/null | awk '{print $1}'); do
+  echo "local-build: stopping leftover make scope $leftover of slot $SLOT" >&2
+  systemctl stop "$leftover" || true
+done
 # Base chroot: builds hold it shared while their overlay is mounted; only a deps update takes it exclusively.
 exec 8>"$BUILD_ROOT/locks/chroot.lock"
 
