@@ -136,6 +136,8 @@ INFRA_PATTERNS = [
         r"extracting MergeModule\.CABinet failed",      # host's Cygwin tmp ACL (hst4-setup.ps1 -Step TmpAcl)
         r"\b[A-Z]: has [0-9.]+ GiB free, below \d+ GiB",  # Windows host disk below the build floor (hst4-build.ps1)
         r"disk-stop: less than \d+ GiB free",            # Linux slot disk floor (local-build.sh)
+        # stale version resources of an incremental Windows slot (hst4-winres.ps1): the build system, not the commit
+        r"HST exe/dll do not carry FileVersion|exe/dll carry the HST Office version resource \(expected",
     )
 ]
 MAX_INFRA_RETRIES = 2

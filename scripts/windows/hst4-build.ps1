@@ -296,7 +296,7 @@ try {
     } else {
         Invoke-Step 'build' { Invoke-Build }
         Invoke-Step 'translations' { Test-Translations }
-        Invoke-Step 'versions' { Test-FileVersions $Lo $Repo $Python }
+        Invoke-Step 'versions' { Test-FileVersions $Lo $Repo $Python $MsiDir $buildStart }
         Invoke-Step 'collect' { Export-Msi $buildStart }
     }
     $script:Info.seconds['total'] = [int]((Get-Date) - $t0).TotalSeconds

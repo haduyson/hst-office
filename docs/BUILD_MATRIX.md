@@ -157,9 +157,11 @@ Tệp phụ thuộc `workdir/Dep/WinResTarget/*.d` (makedepend tạo) trên slot
 đóng gói 1.0.2 với FileVersion 1.0.1 (bản MSI 1.0.2 đầu tiên, q261115-214050-71b7). Bước `winres` của
 [hst4-build.ps1](../scripts/windows/hst4-build.ps1) ([hst4-winres.ps1](../scripts/windows/hst4-winres.ps1)) băm mọi
 header mà các `.rc` của cây include (lần theo include lồng nhau), và khi khác lần build trước thì xoá mọi `.res` để
-`make` dựng lại và link lại. Bước `versions` (trước khi lấy MSI) dừng build nếu một exe/dll mang tài nguyên "HST Office"
-có FileVersion khác `VERSION.build` hoặc ProductVersion khác mã phát hành (`write-hst-version.py`), hoặc nếu có ít
-hơn 100 tệp như vậy.
+`make` dựng lại và link lại. Bước `versions` (trước khi lấy MSI) dừng build nếu một exe/dll mà MSI mới đóng gói (bảng
+File) mang tài nguyên "HST Office" có FileVersion khác `VERSION.build` hoặc ProductVersion khác mã phát hành
+(`write-hst-version.py`), hoặc nếu có ít hơn 100 tệp như vậy. Tệp MSI không đóng gói thì bỏ qua: instdir tăng dần còn
+giữ tệp của module không còn build (`cli_uno.dll` 1.0.1 từ khi tắt CLI-UNO). Lỗi này tính là lỗi hạ tầng: job được
+đưa lại hàng đợi và build train không quy lỗi cho nhánh nào.
 
 ### Đĩa của máy Windows
 

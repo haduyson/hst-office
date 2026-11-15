@@ -11,9 +11,11 @@ the headers every .rc of the tree includes (followed transitively through the tr
 headers are part of the toolchain) are hashed; when the hash differs from the last build's, every .res is deleted
 so make rebuilds them and relinks their exe/dll. A clean tree has no stamp and no .res, so nothing is deleted.
 
-Test-FileVersions: every exe/dll of instdir whose version resource names the product "HST Office" must carry the
-FileVersion (VERSION.build) and ProductVersion (release id) that scripts/write-hst-version.py derives from the
-checkout's /VERSION and data/hst/release.json; otherwise the build fails before the MSI is collected.
+Test-FileVersions: every exe/dll the new MSI ships (its File table) whose version resource in instdir names the
+product "HST Office" must carry the FileVersion (VERSION.build) and ProductVersion (release id) that
+scripts/write-hst-version.py derives from the checkout's /VERSION and data/hst/release.json; otherwise the build
+fails before the MSI is collected. Files the MSI does not ship are not checked: an incremental instdir keeps
+leftovers of modules no longer built (cli_uno.dll after CLI-UNO was turned off, still 1.0.1).
 #>
 
 function Get-WinResInputs([string]$Tree) {
@@ -69,7 +71,28 @@ function Reset-StaleWinRes([string]$Tree) {
     [IO.File]::WriteAllText($stamp, $text)
 }
 
-function Test-FileVersions([string]$Tree, [string]$Checkout, [string]$Py, [int]$Minimum = 100) {
+function Get-MsiFileNames([string]$Msi) {
+    # Long file names of the MSI's File table ("SHORT~1.DLL|long.dll"), through the Windows Installer COM object.
+    $call = { param($o, $name, $kind, $argv) $o.GetType().InvokeMember($name, $kind, $null, $o, $argv) }
+    $wi = New-Object -ComObject WindowsInstaller.Installer
+    $db = & $call $wi 'OpenDatabase' 'InvokeMethod' @($Msi, 0)
+    $view = & $call $db 'OpenView' 'InvokeMethod' @('SELECT `FileName` FROM `File`')
+    [void](& $call $view 'Execute' 'InvokeMethod' $null)
+    $names = New-Object 'System.Collections.Generic.HashSet[string]' ([StringComparer]::OrdinalIgnoreCase)
+    while ($rec = & $call $view 'Fetch' 'InvokeMethod' $null) {
+        [void]$names.Add(((& $call $rec 'StringData' 'GetProperty' @(1)) -split '\|')[-1])
+    }
+    [void](& $call $view 'Close' 'InvokeMethod' $null)
+    foreach ($o in $view, $db, $wi) { [void][Runtime.InteropServices.Marshal]::ReleaseComObject($o) }   # unlock the MSI
+    , $names
+}
+
+function Test-FileVersions([string]$Tree, [string]$Checkout, [string]$Py, [string]$MsiDir, [datetime]$Since,
+    [int]$Minimum = 100) {
+    $msi = @(Get-ChildItem -LiteralPath $MsiDir -Filter '*.msi' -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -ge $Since } | Sort-Object LastWriteTime)
+    if (-not $msi.Count) { throw "no MSI written by this build under $MsiDir" }
+    $shipped = Get-MsiFileNames $msi[-1].FullName
     $writer = Join-Path $Checkout 'scripts\write-hst-version.py'
     $ask = { param($flag) $v = (& $Py -I $writer $flag | Out-String).Trim()
         if ($LASTEXITCODE -ne 0 -or -not $v) { throw "write-hst-version.py $flag failed" }; $v }
@@ -78,7 +101,7 @@ function Test-FileVersions([string]$Tree, [string]$Checkout, [string]$Py, [int]$
     $build = & $ask '--build'
     $wantFile = "$version.$build"
     $files = @(Get-ChildItem -LiteralPath (Join-Path $Tree 'instdir') -Recurse -File -Include '*.exe', '*.dll' |
-        Where-Object { $_.VersionInfo.ProductName -eq 'HST Office' })
+        Where-Object { $shipped.Contains($_.Name) -and $_.VersionInfo.ProductName -eq 'HST Office' })
     $bad = @($files | Where-Object { $_.VersionInfo.FileVersion -ne $wantFile -or $_.VersionInfo.ProductVersion -ne $release })
     if ($files.Count -lt $Minimum) {
         throw "only $($files.Count) exe/dll carry the HST Office version resource (expected at least $Minimum)"
@@ -88,5 +111,5 @@ function Test-FileVersions([string]$Tree, [string]$Checkout, [string]$Py, [int]$
             "$($_.Name) $($_.VersionInfo.FileVersion)/$($_.VersionInfo.ProductVersion)" }) -join ', '
         throw "$($bad.Count) of $($files.Count) HST exe/dll do not carry FileVersion $wantFile / ProductVersion ${release}: $list"
     }
-    Write-Log "file versions: $($files.Count) HST exe/dll carry FileVersion $wantFile, ProductVersion $release"
+    Write-Log "file versions: $($files.Count) HST exe/dll of $($msi[-1].Name) carry FileVersion $wantFile, ProductVersion $release"
 }

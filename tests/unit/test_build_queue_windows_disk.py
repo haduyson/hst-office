@@ -42,6 +42,8 @@ class DiskShortageTest(QueueTestCase):
         self.assertTrue(bq.infra_failure(msg, ""))
         self.assertTrue(bq.infra_failure("local-build.sh exit 1", "local-build: disk-stop: less than 5 GiB free on /x"))
         self.assertFalse(bq.infra_failure("local-build.sh exit 2", "make: *** [Makefile:312: build] Error 2"))
+        self.assertTrue(bq.infra_failure("1 of 192 HST exe/dll do not carry FileVersion 1.0.2.10000 / ProductVersion "
+                                         "1.0.2: cli_uno.dll 1.0.1.10000/1.0.1", ""))
         self.assertEqual(job_outcome({"state": "failed", "error": msg}, bq.infra_failure), "error")
 
     def test_low_disk_slot_gets_no_job_and_a_warning_names_the_largest_folders(self):
