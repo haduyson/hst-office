@@ -36,17 +36,20 @@ class MockupGeometry(unittest.TestCase):
         self.assertIn("const tools::Long nStrip = px(3, fDpi);", drop)
         # 106 px as the mockup, more only when the page's content needs it: the popup never cuts the groups
         self.assertIn("std::max(px(106, fDpi), m_xPage->GetOptimalSize().Height());", drop)
-        self.assertIn("Point(nWidth - px(4, fDpi) - aPin.Width(), nPage - nStrip - aPin.Height())", drop)
+        self.assertIn("Point(nWidth - px(4, fDpi) - aPin.Width(), nPage - aPin.Height())", drop)  # in popup coordinates
         self.assertNotIn("ImplCalculateRequisition", drop)
         # one id on both sides of the module boundary
         self.assertIn('PIN_ID = u"hstribbonpin"_ustr;', drop)
         self.assertIn('PIN_ID = u"hstribbonpin"_ustr;', added(MOCKUP_PATCH, "sfx2/source/notebookbar/HstRibbonCompact.hxx"))
 
-    def test_pin_goes_with_the_page_and_switches_after_its_click(self):
+    def test_pin_stands_in_the_popup_and_switches_after_its_click(self):
         code = added(MOCKUP_PATCH, "sfx2/source/notebookbar/HstRibbonCompact.cxx")
         self.assertIn("SfxResId(STR_HST_RIBBON_PIN)", code)
-        self.assertIn("m_xPin->SetParent(pPage);", code)
-        self.assertIn("m_xPin->SetParent(&m_rTabs);", code)
+        # the pin never joins the page: a tab page lays its content out only while that is its one child
+        self.assertNotIn("SetParent(pPage)", code)
+        drop = added(MOCKUP_PATCH, "vcl/source/control/HstRibbonDrop.cxx")
+        self.assertIn("m_xPin->SetParent(this);", drop)
+        self.assertIn("m_xPin->SetParent(m_xTabs);", drop)
         self.assertIn("Application::PostUserEvent(LINK(this, HstRibbonCompact, PinToggleHdl))", code)
         self.assertIn("Application::RemoveUserEvent(m_pPinEvent);", code)
 
