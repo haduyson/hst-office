@@ -87,6 +87,44 @@ class Wording(unittest.TestCase):
             self.assertRegex(cmd, r"^(\.uno:[A-Za-z0-9_.]+|[a-z.]+:[A-Za-z0-9]+)$")
 
 
+class ReferenceDesign(unittest.TestCase):
+    """1.0.2 reference design: Writer sentences, toolbar wording, tips under the ribbon."""
+
+    def overrides(self):
+        with open(os.path.join(ROOT, "l10n", "vi-overrides.jsonl"), encoding="utf-8") as handle:
+            return [json.loads(line) for line in handle if line.strip()]
+
+    def test_vietnamese_says_thanh_cong_cu(self):
+        # owner rule 15/11: never "ribbon" or "dải lệnh" in text the user sees
+        banned = re.compile(r"ribbon|dải lệnh", re.I)
+        self.assertEqual([cmd for _w, cmd, text in sentences() if banned.search(text["vi"])], [])
+        self.assertEqual([r["msgctxt"] for r in self.overrides() if banned.search(r["msgstr"])], [])
+        patch = open(os.path.join(PATCHES, "hst-ribbon-mockup-tooltip.patch"), encoding="utf-8").read()
+        self.assertIn('+msgstr "Ghim thanh công cụ (Ctrl+F1)"', patch)
+        self.assertIn('NC_("STR_HST_RIBBON_PIN", "Pin the Toolbar (Ctrl+F1)")', patch)
+
+    def test_writer_sentences_are_the_designs(self):
+        writer = DATA["app_descriptions"]["writer"]
+        self.assertEqual(writer[".uno:SubScript"]["vi"], "Viết chữ nhỏ ở dưới dòng, như H₂O.")
+        self.assertEqual(writer[".uno:InsertPageHeader"]["vi"], "Thêm hoặc sửa phần đầu trang.")
+        # sentences a Writer .ui line gives are replaced through the .po: the key must be such a line
+        described = {t["en"] for t in INVENTORY["writer"]["ui_described"].values()}
+        rows = [r for r in self.overrides() if r["msgctxt"] == "TabbedWriter|hstUxTip"]
+        self.assertGreaterEqual(len(rows), 30)
+        self.assertEqual([r["msgid"] for r in rows if r["msgid"] not in described], [])
+        self.assertIn("Căn đều cả hai lề, thường dùng cho văn bản hành chính.", [r["msgstr"] for r in rows])
+
+    def test_tip_goes_under_the_ribbon(self):
+        patch = open(os.path.join(PATCHES, "hst-ribbon-mockup-tooltip.patch"), encoding="utf-8").read()
+        for needle in ("constexpr tools::Long RIBBON_TIP_GAP = 2;", "constexpr tools::Long RIBBON_TIP_INSET = 4;",
+                       "constexpr tools::Long RIBBON_TIP_MAX_WIDTH = 300;", "dynamic_cast<NotebookBar*>(pWin)",
+                       "PositionByToolkit(", "eType == WindowType::MENUBUTTON",
+                       "const bool bNative = !bPlaced"):
+            self.assertIn(needle, patch)
+        series = open(os.path.join(PATCHES, "series"), encoding="utf-8").read().split()
+        self.assertLess(series.index("hst-ribbon-rich-tooltips.patch"), series.index("hst-ribbon-mockup-tooltip.patch"))
+
+
 class GeneratedPatch(unittest.TestCase):
     def setUp(self):
         with open(os.path.join(PATCHES, "hst-ribbon-tooltip-descriptions.patch"), encoding="utf-8") as handle:
