@@ -10,10 +10,13 @@ Offline (CI), from the committed tables data/ribbon/keytips-office-parity.json a
      from the table (scripts/patches/generate-keytips-office-parity.py);
   3. a ribbon tab label of the Vietnamese UI has no access key, or exactly its tab letter, so a label never shows
      a letter that Alt+letter does not open (l10n/access-keys-snapshot.json with l10n/vi-overrides.jsonl);
-  4. every shortcut row marked changed is bound by hst-msoffice-shortcuts-parity.patch, and no later patch or the
-     HST extension binds a parity key to another command.
+  4. every shortcut row with "via" is bound by that patch, and no later patch or the HST extension binds a parity key
+     to another command.
 With --tree (a fresh apply of the series, scripts/l10n merge applied for 3): the KeyTip assignment is replayed over
-the notebookbar.ui files, every table letter must win on its tab, and every shortcut row must hold in Accelerators.xcu.
+the notebookbar.ui files, every table letter must win on its tab, and every shortcut row must hold in Accelerators.xcu
+(macOS rows with the macOS values; a "vcl" row's key must stay free; a planned row's key free or already right); a
+matching row must also match on macOS, with its "mac" key (the suite's Mac edition) or Cmd for Ctrl, unless it has a
+"mac_exception".
 """
 import argparse
 import importlib
@@ -83,7 +86,7 @@ def check_tab_labels(table, snapshot, overrides, errors):
 def later_conflicts(rows, texts, errors):
     """A patch after the parity patch ({name: [(key, command)]}) must not bind a parity key to another command."""
     for row in rows:
-        if row["status"] == "deviation":
+        if row["status"] != "match":
             continue
         for name, bound in texts.items():
             for key, command in bound:
@@ -101,13 +104,17 @@ def check_shortcut_patches(rows, errors):
     for name in names[names.index(SHORTCUT_PATCH):]:
         with open(os.path.join(PATCHES, name), encoding="utf-8") as handle:
             texts[name] = accel.patch_bindings(handle.read())
-    ours = texts.pop(SHORTCUT_PATCH)
+    vias = {row["via"] for row in rows if row.get("via")}
+    ours = {name: texts.pop(name, None) for name in vias}  # the parity patches; checked per row below
     later_conflicts(rows, texts, errors)
     extension = accel.load([os.path.join(ROOT, accel.EXTENSION)])
     for row in rows:
-        if row["status"] == "changed" and not any(k == row["key"] and c in row["uno"] for k, c in ours):
-            errors.append(f"{row['app']} {row['office']}: {SHORTCUT_PATCH} does not bind {row['key']}")
-        if row["status"] == "deviation":
+        via = row.get("via")
+        if via and ours[via] is None:
+            errors.append(f"{row['app']} {row['office']}: {via} is not in the series after {SHORTCUT_PATCH}")
+        elif via and not any(k == row["key"] and c in row["uno"] for k, c in ours[via]):
+            errors.append(f"{row['app']} {row['office']}: {via} does not bind {row['key']}")
+        if row["status"] != "match" or row.get("platform"):
             continue
         command = extension.get(accel.MODULES[row["app"]], {}).get(row["key"])
         if command and command.replace(".uno:", "") not in row["uno"]:
@@ -129,7 +136,8 @@ def check_tree(tree, table, rows, errors):
                 elif got[ident] != letter and not any(o != ident and c == [letter, control] and got.get(o) == letter
                                                       for o, c in commands.items()):
                     errors.append(f"{app} {tab}: {ident} ({control}) gets {got[ident]!r}, the suite uses {letter!r}")
-    bindings = accel.load([os.path.join(tree, accel.ACCELERATORS), os.path.join(ROOT, accel.EXTENSION)])
+    files = [os.path.join(tree, accel.ACCELERATORS), os.path.join(ROOT, accel.EXTENSION)]
+    bindings = {p: accel.load(files, p) for p in ("unxwnt", "macosx")}
     for row in rows:
         if row["status"] == "handler":  # a key listener, not an accelerator: the tree must carry its key test
             path, test = row["handler"]
@@ -137,11 +145,25 @@ def check_tree(tree, table, rows, errors):
             if not os.path.exists(source) or test not in open(source, encoding="utf-8").read():
                 errors.append(f"{row['app']} {row['office']} ({row['key']}): {path} lacks {test!r}")
             continue
-        actual = accel.effective(bindings, row["app"], row["key"])
-        expected = row["uno"] if row["status"] != "deviation" else [row.get("hst") or ""]
+        platform = "macosx" if row.get("platform") == "macos" else "unxwnt"
+        actual = accel.effective(bindings[platform], row["app"], row["key"])
+        if row.get("handler") == "vcl":
+            expected = [""]  # the window system handles the key; an accelerator would take it away
+        elif row["status"] == "deviation":
+            expected = [row.get("hst") or ""]
+        elif row["status"] == "planned":
+            expected = row["uno"] + [row.get("hst") or ""]
+        else:
+            expected = row["uno"]
         if actual not in expected:
             errors.append(f"{row['app']} {row['office']} ({row['key']}): HST runs {actual or 'nothing'}, "
                           f"the table says {'/'.join(x or 'nothing' for x in expected)}")
+        if row["status"] == "match" and platform == "unxwnt" and not row.get("handler") and not row.get("mac_exception"):
+            key = row.get("mac", row["key"])  # the suite's Mac key, else Cmd for Ctrl
+            on_mac = accel.effective(bindings["macosx"], row["app"], key)
+            if on_mac not in row["uno"]:
+                errors.append(f"{row['app']} {row['office']} on macOS ({key}): HST runs {on_mac or 'nothing'}, "
+                              f"the table says {'/'.join(row['uno'])}")
 
 
 def main(argv=None):

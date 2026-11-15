@@ -1,0 +1,146 @@
+HST Office: Ctrl+Shift+A toggles All Caps in HST Writer, as in the reference suite (owner decision 2026-11-15).
+
+- .uno:HstAllCaps (FN_HST_SET_ALL_CAPS): the character attribute "All caps" (SvxCaseMap::Uppercase), toggled like Small
+  Caps (.uno:SmallCaps) in SwTextShell::ExecCharAttr: on when the selection is not all caps, off when it is. The text
+  itself is unchanged, so turning it off gives the typed letters back; Format ▸ Character ▸ Font Effects shows it as
+  Case "UPPERCASE". The state follows the selection (GetAttrState).
+- Ctrl+Shift+A (macOS Cmd+Shift+A, the Mac edition's key too) runs it; it was Left-To-Right paragraph, which stays on
+  the Format menu and the ribbon.
+License: modified upstream files keep their license (MPL-2.0).
+Test: scripts/check-keytips-parity.py (data/ribbon/shortcuts-office-parity.json), tests/runtime/check-shortcut-parity-runtime.py.
+--- a/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
+@@ -6765,10 +6765,11 @@
+             <value xml:lang="en-US">.uno:CalculateSel</value>
+           </prop>
+         </node>
++        <!-- HST Office: Ctrl+Shift+A toggles All Caps, as the reference suite (was Left-To-Right paragraph) -->
+         <node oor:name="A_SHIFT_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:ParaLeftToRight</value>
++            <value xml:lang="en-US">.uno:HstAllCaps</value>
+           </prop>
+         </node>
+         <node oor:name="BACKSPACE" oor:op="replace">
+--- a/officecfg/registry/data/org/openoffice/Office/UI/WriterCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/WriterCommands.xcu
+@@ -1697,6 +1697,14 @@
+           <value>1</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HstAllCaps" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">All Caps</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:HstDifferentFirstPage" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Different First Page</value>
+--- a/sw/inc/cmdid.h
++++ b/sw/inc/cmdid.h
+@@ -968,6 +968,8 @@
+ // HST: the header and footer tab's Trang đầu khác and Trang chẵn lẻ khác
+ #define FN_HST_DIFFERENT_FIRST_PAGE (FN_FORMAT + 17)
+ #define FN_HST_DIFFERENT_ODD_EVEN   (FN_FORMAT + 18)
++// HST: Ctrl+Shift+A toggles All Caps (the case map attribute; the text itself is unchanged)
++#define FN_HST_SET_ALL_CAPS         (FN_FORMAT + 19)
+ 
+ #endif // INCLUDED_SW_INC_CMDID_H
+ 
+--- a/sw/sdi/_textsh.sdi
++++ b/sw/sdi/_textsh.sdi
+@@ -1667,6 +1667,12 @@
+         StateMethod = GetAttrState ;
+         DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
+     ]
++    FN_HST_SET_ALL_CAPS
++    [
++        ExecMethod = ExecCharAttr ;
++        StateMethod = GetAttrState ;
++        DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
++    ]
+     SID_ATTR_CHAR_CASEMAP // status(final|play)
+     [
+         ExecMethod = ExecTextCtrl;
+--- a/sw/sdi/swriter.sdi
++++ b/sw/sdi/swriter.sdi
+@@ -6474,6 +6474,24 @@
+     GroupId = SfxGroupId::Format;
+ ]
+ 
++SfxBoolItem HstAllCaps FN_HST_SET_ALL_CAPS
++
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
+ SfxVoidItem SwBrwInsert FN_SBA_BRW_INSERT
+ ()
+ [
+--- a/sw/source/uibase/shells/txtattr.cxx
++++ b/sw/source/uibase/shells/txtattr.cxx
+@@ -124,14 +124,17 @@
+         break;
+ 
+         case FN_SET_SMALL_CAPS:
++        case FN_HST_SET_ALL_CAPS: // HST: All Caps toggles like Small Caps (Ctrl+Shift+A)
+         {
+-            SvxCaseMap eCaseMap = SvxCaseMap::SmallCaps;
++            const SvxCaseMap eTarget
++                = nWhich == FN_HST_SET_ALL_CAPS ? SvxCaseMap::Uppercase : SvxCaseMap::SmallCaps;
++            SvxCaseMap eCaseMap = eTarget;
+             switch (eState)
+             {
+             case STATE_TOGGLE:
+             {
+                 SvxCaseMap eTmpCaseMap = aSet.Get(RES_CHRATR_CASEMAP).GetCaseMap();
+-                if (eTmpCaseMap == SvxCaseMap::SmallCaps)
++                if (eTmpCaseMap == eTarget)
+                     eCaseMap = SvxCaseMap::NotMapped;
+             }
+             break;
+@@ -581,6 +584,9 @@
+             case FN_SET_SMALL_CAPS:
+                 bFlag = eCaseMap == SvxCaseMap::SmallCaps;
+                 break;
++            case FN_HST_SET_ALL_CAPS:
++                bFlag = eCaseMap == SvxCaseMap::Uppercase;
++                break;
+             case SID_ATTR_PARA_ADJUST_LEFT:
+                 if (!bAdjustGood)
+                 {
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -36801,6 +36801,16 @@
+ msgid "Remove Paragraph Formatting"
+ msgstr "Loại bỏ định dạng đoạn văn"
+ 
++#. hstAC
++#: WriterCommands.xcu
++msgctxt ""
++"WriterCommands.xcu\n"
++"..WriterCommands.UserInterface.Commands..uno:HstAllCaps\n"
++"Label\n"
++"value.text"
++msgid "All Caps"
++msgstr "Viết hoa toàn bộ"
++
+ #. hstHF
+ #: WriterCommands.xcu
+ msgctxt ""
