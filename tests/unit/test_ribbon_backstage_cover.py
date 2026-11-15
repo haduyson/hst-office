@@ -54,6 +54,20 @@ class FileTitleBand(unittest.TestCase):
         # never a live child of a disposed tab control
         self.assertIn("if (rEvent.GetId() == VclEventId::ObjectDying)", code)
 
+    def test_band_is_a_named_button_for_assistive_technology(self):
+        code = added(FRAME, WINDOW)
+        self.assertIn('set_id(u"hst-file-title"_ustr);', code)
+        self.assertIn("SetAccessibleRole(css::accessibility::AccessibleRole::PUSH_BUTTON);", code)
+        self.assertIn('OUString(rGreeting + u" — " + rSubtitle)', code)
+        self.assertIn("pBand->Back();", code)
+        listed = added(FRAME, "vcl/source/accessibility/vclxaccessibletabcontrol.cxx")
+        self.assertIn('|| pChild->get_id() == u"hst-file-title"))', listed)
+
+    def test_tab_buttons_fill_the_row(self):
+        code = added(FRAME, "vcl/source/control/tabctrl.cxx")
+        self.assertIn("const tools::Long nOffsetY = 0;", code)
+        self.assertIn("aSize.setHeight(std::max<tools::Long>(aSize.Height() + 2, nHstRowBottom + 1));", code)
+
     def test_panel_still_below_the_document_tabs(self):
         self.assertNotIn("lcl_findDocumentTabs", added(FRAME, WINDOW))
 
