@@ -9,7 +9,9 @@
 - hst-calc-condformat-row-height.patch: relative conditions compile their RPN once; GetNeededSize skips conditions
   whose styles cannot change the size.
 - hst-writer-table-name-cache.patch: GetUniqueTableName keeps its scan during a writerfilter import and checks only
-  the newest table format, with a fallback to the full scan."""
+  the newest table format, with a fallback to the full scan.
+- hst-calc-condformat-row-results-cache.patch: during a row height pass, column independent condition formulas are
+  evaluated once per row."""
 from pathlib import Path
 import unittest
 
@@ -71,6 +73,23 @@ class LargeOfficeOpenPatches(unittest.TestCase):
         self.assertIn("if (IsInWriterfilterImport() && bSamePrefix && nCount <= rCache.nCount + 1)", tbl)
         self.assertIn("rCache = TableNameCache();", tbl)  # the full scan rebuilds
         self.assertIn("maTableNameCache.bValid = false;", "\n".join(ch["sw/source/core/doc/docchart.cxx"][1]))
+
+    def test_condformat_row_results_cache(self):
+        name = "hst-calc-condformat-row-results-cache.patch"
+        series = [n for n in (PATCHES / "series").read_text(encoding="utf-8").split() if not n.startswith("#")]
+        self.assertGreater(series.index(name), series.index(NAMES[2]))  # builds on the compiled RPN copies
+        ch = changes(name)
+        cond = "\n".join(ch["sc/source/core/data/conditio.cxx"][2])
+        self.assertIn("static bool lcl_IsColumnIndependentCode", cond)
+        for opcode in ("ocRow", "ocColumn", "ocOffset", "ocIndirect", "ocName", "ocRandom", "ocGetActTime"):
+            self.assertIn("case %s:" % opcode, cond)
+        self.assertIn("IsRecalcModeAlways()", cond)
+        self.assertIn("static_cast<const ScSingleRefToken*>(t)->GetSingleRef().IsColRel()", cond)
+        # the per-row results go with the compiled copy
+        self.assertEqual(cond.count("mpRelCode1.reset(); mnColumnFree1 = -1; maRowResults1.clear();"),
+                         cond.count("mpRelCode1.reset();"))
+        self.assertIn("ScDocument::CondRowCacheScope aCondRowCache(", "\n".join(ch["sc/source/core/data/table1.cxx"][1]))
+        self.assertIn("testCondFormatRowResultsInRowHeightPass", "\n".join(ch["sc/qa/unit/ucalc_condformat.cxx"][1]))
 
 
 if __name__ == "__main__":
