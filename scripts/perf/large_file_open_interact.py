@@ -11,6 +11,8 @@ autosave(): with the "autosave" profile seed (AutoRecovery every minute, large d
 backup in <profile>/user/backup and reports how long it took and the longest freeze around it.
 """
 import os
+import subprocess
+import sys
 import threading
 import time
 
@@ -55,8 +57,19 @@ class Probe:
             pass
 
 
+KEY_TARGET = [None]  # the frame's container window: the X window that takes real key events
+XKEYS = {"PAGEDOWN": "Next", "PAGEUP": "Prior", "A": "a", "NUM7": "7", "RETURN": "Return"}
+
+
 def key(robot, window, code_name, char=""):
+    """A key press: posted to the window (XToolkitRobot), or with LFO_REAL_KEYS=1 on X11 a real X input event
+    (xdotool, XTEST) that the office sees as pending input, as the background layout checks for it."""
     import uno
+    if os.environ.get("LFO_REAL_KEYS") == "1" and sys.platform.startswith("linux"):
+        from com.sun.star.lang.SystemDependent import SYSTEM_XWINDOW
+        xid = KEY_TARGET[0].getWindowHandle(tuple([0] * 16), SYSTEM_XWINDOW).WindowHandle
+        subprocess.run(["xdotool", "windowfocus", str(xid), "key", XKEYS[code_name]], check=False, timeout=30)
+        return
     ev = uno.createUnoStruct("com.sun.star.awt.KeyEvent")
     ev.Source, ev.KeyCode, ev.Modifiers = window, uno.getConstantByName("com.sun.star.awt.Key." + code_name), 0
     ev.KeyChar = uno.Char(char or "\x00")
@@ -111,21 +124,22 @@ def summary(name, waits):
     return {name + "_median": round(waits[len(waits) // 2], 3), name + "_max": round(waits[-1], 3)} if waits else {}
 
 
-def interact(smgr, ctx, doc):
+def interact(smgr, ctx, doc, prefix=""):
     robot = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
     ctrl = doc.getCurrentController()
     window = ctrl.getFrame().getComponentWindow()
+    KEY_TARGET[0] = ctrl.getFrame().getContainerWindow()
     window.setFocus()
     time.sleep(1.0)  # the frame takes the focus asynchronously after it is shown; keys before that are dropped
-    res = summary("scroll", series(doc, ctrl, window, [lambda: key(robot, window, "PAGEDOWN"),
+    res = summary(prefix + "scroll", series(doc, ctrl, window, [lambda: key(robot, window, "PAGEDOWN"),
                                                         lambda: key(robot, window, "PAGEUP")]))
     if doc.supportsService("com.sun.star.text.TextDocument"):
-        res.update(summary("typing", series(doc, ctrl, window, [lambda: key(robot, window, "A", "a")])))
+        res.update(summary(prefix + "typing", series(doc, ctrl, window, [lambda: key(robot, window, "A", "a")])))
     elif doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
         def entry():
             key(robot, window, "NUM7", "7")
             key(robot, window, "RETURN")
-        res.update(summary("typing", series(doc, ctrl, window, [entry])))
+        res.update(summary(prefix + "typing", series(doc, ctrl, window, [entry])))
     return res
 
 

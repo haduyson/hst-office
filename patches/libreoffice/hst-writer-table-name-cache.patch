@@ -1,0 +1,183 @@
+Writer: importing a .docx with thousands of tables no longer scans every table for each new one.
+
+SwDoc::GetUniqueTableName() scanned all table formats and asked each whether it is used (SwDoc::IsUsed
+broadcasts to the table, SwTable::SwClientNotify -> FindTableNode) every time a table was created, so
+the import of T tables cost O(T^2). In a synthetic document of 4000 small tables 6 of 14 stack samples of
+the import were there; a 10 MB text document with 8800 tables spent an estimated 60 s on it (Linux) and
+the import on a 4-core Windows PC showed "Not responding" for 140 s.
+
+During a writerfilter import (SwDoc::IsInWriterfilterImport) the result of the previous call is kept
+(SwDoc::TableNameCache): when the table format list only grew by one format at its end, only that
+format is checked; any other change (a removed or reordered format, SetTableName, the end of the
+import) falls back to the full scan, which rebuilds the cache. The returned name is unchanged: the
+smallest n >= 1 for which no used, non-default format is called "Table<n>", at most count + 1.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: CppunitTest_sw_writerfilter_ooxml testTableNamesDuringImport; the table names of the upstream
+.docx test documents are identical with and without the patch; tests/unit/test_large_office_open_patches.py.
+---
+--- a/sw/inc/doc.hxx
++++ b/sw/inc/doc.hxx
+@@ -44,6 +44,7 @@
+ #include "ndarr.hxx"
+ #include "ndtyp.hxx"
+ #include <memory>
++#include <unordered_set>
+ #include <mutex>
+ #include <set>
+ #include <tuple>
+@@ -331,6 +332,17 @@
+     bool mbInXMLImport           : 1;    //< TRUE: During xml import, attribute portion building is not necessary.
+     bool mbInXMLImport242        : 1 = false; //< TRUE: During xml import, apply workaround for style-ref field
+     bool mbInWriterfilterImport  : 1;    //< TRUE: writerfilter import (DOCX,RTF)
++
++    /// HST Office: what GetUniqueTableName() found, reused during a writerfilter import (ndtbl.cxx)
++    struct TableNameCache
++    {
++        size_t nCount = 0; ///< size of the table format list then
++        const SwTableFormat* pNewest = nullptr; ///< its last format then
++        std::unordered_set<sal_Int32> aUsed; ///< numbers of the used "Table<n>" formats
++        sal_Int32 nNext = 1; ///< no smaller number is free
++        bool bValid = false;
++    };
++    mutable TableNameCache maTableNameCache;
+     bool mbUpdateTOX             : 1;    //< TRUE: After loading document, update TOX.
+     bool mbInLoadAsynchron       : 1;    //< TRUE: Document is in the process of being loaded asynchronously.
+     bool mbHasFillBitmapLinks    : 1;    //< TRUE: the fill-bitmap link tracker has registered links.
+--- a/sw/source/core/doc/docchart.cxx
++++ b/sw/source/core/doc/docchart.cxx
+@@ -153,6 +153,7 @@
+ 
+ void SwDoc::SetTableName( SwFrameFormat& rTableFormat, const UIName &rInName )
+ {
++    maTableNameCache.bValid = false; // HST Office: the names GetUniqueTableName() saw change
+     UIName aNewName = rInName;
+     const UIName aOldName( rTableFormat.GetName() );
+     if (aOldName == aNewName)
+--- a/sw/source/core/docnode/ndtbl.cxx
++++ b/sw/source/core/docnode/ndtbl.cxx
+@@ -97,6 +97,7 @@
+ #include <officecfg/Office/Writer.hxx>
+ #include <o3tl/numeric.hxx>
+ #include <o3tl/string_view.hxx>
++#include <o3tl/safeint.hxx>
+ #include <svl/numformat.hxx>
+ #include <tools/datetimeutils.hxx>
+ #include <sal/log.hxx>
+@@ -4233,6 +4234,13 @@
+     }
+ }
+ 
++/* HST Office: every new table scanned all table formats and asked each whether it is used (SwDoc::IsUsed
++   broadcasts to the table), so a .docx with thousands of tables spent most of its import here: O(T^2).
++   During a writerfilter import the result of the previous call is kept: if the list only grew by one
++   format at its end since then (the table that was created with the name returned last), only that
++   format is checked. Any other change (a removed or reordered format, a renamed table, the end of the
++   import) falls back to the full scan, which also rebuilds the cache. The name is the same either way:
++   the smallest n >= 1 for which no used, non-default format is called "Table<n>" (n <= count + 1). */
+ UIName SwDoc::GetUniqueTableName() const
+ {
+     if( IsInMailMerge())
+@@ -4244,45 +4252,42 @@
+     }
+ 
+     const OUString aName(SwResId(STR_TABLE_DEFNAME));
+-
+-    const size_t nFlagSize = ( mpTableFrameFormatTable->size() / 8 ) + 2;
+-
+-    std::unique_ptr<sal_uInt8[]> pSetFlags( new sal_uInt8[ nFlagSize ] );
+-    memset( pSetFlags.get(), 0, nFlagSize );
+-
+-    for( size_t n = 0; n < mpTableFrameFormatTable->size(); ++n )
+-    {
+-        const SwTableFormat* pFormat = (*mpTableFrameFormatTable)[ n ];
++    const sal_Int32 nNmLen = aName.getLength();
++    const size_t nCount = mpTableFrameFormatTable->size();
++    TableNameCache& rCache = maTableNameCache;
++    auto lcl_note = [&](const SwTableFormat* pFormat) {
+         if( !pFormat->IsDefault() && IsUsed( *pFormat ) &&
+             pFormat->GetName().toString().startsWith( aName ) )
+         {
+-            // Get number and set the Flag
+-            const sal_Int32 nNmLen = aName.getLength();
+-            size_t nNum = o3tl::toInt32(pFormat->GetName().toString().subView( nNmLen ));
+-            if( nNum-- && nNum < mpTableFrameFormatTable->size() )
+-                pSetFlags[ nNum / 8 ] |= (0x01 << ( nNum & 0x07 ));
+-        }
+-    }
+-
+-    // All numbers are flagged properly, thus calculate the right number
+-    size_t nNum = mpTableFrameFormatTable->size();
+-    for( size_t n = 0; n < nFlagSize; ++n )
+-    {
+-        auto nTmp = pSetFlags[ n ];
+-        if( nTmp != 0xFF )
+-        {
+-            // Calculate the number
+-            nNum = n * 8;
+-            while( nTmp & 1 )
+-            {
+-                ++nNum;
+-                nTmp >>= 1;
+-            }
+-            break;
+-        }
+-    }
+-
+-    return UIName(aName + OUString::number( ++nNum ));
++            sal_Int32 nNum = o3tl::toInt32(pFormat->GetName().toString().subView( nNmLen ));
++            if (nNum > 0)
++                rCache.aUsed.insert(nNum);
++        }
++    };
++    const bool bSamePrefix = rCache.bValid && rCache.nCount <= nCount
++        && (rCache.nCount == 0 || (*mpTableFrameFormatTable)[rCache.nCount - 1] == rCache.pNewest);
++    if (IsInWriterfilterImport() && bSamePrefix && nCount <= rCache.nCount + 1)
++    {
++        if (nCount == rCache.nCount + 1)
++            lcl_note((*mpTableFrameFormatTable)[nCount - 1]);
++    }
++    else
++    {
++        rCache = TableNameCache();
++        rCache.bValid = IsInWriterfilterImport();
++        for (size_t n = 0; n < nCount; ++n)
++            lcl_note((*mpTableFrameFormatTable)[n]);
++    }
++    rCache.nCount = nCount;
++    rCache.pNewest = nCount ? (*mpTableFrameFormatTable)[nCount - 1] : nullptr;
++    // numbers above the format count do not count (the old flag array had room for nCount)
++    sal_Int32 nNum = rCache.nNext;
++    while (o3tl::make_unsigned(nNum) <= nCount && rCache.aUsed.contains(nNum))
++        ++nNum;
++    rCache.nNext = nNum;
++    if (!rCache.bValid)
++        rCache.aUsed.clear();
++    return UIName(aName + OUString::number(nNum));
+ }
+ 
+ SwTableFormat* SwDoc::FindTableFormatByName( const UIName& rName, bool bAll ) const
+--- a/sw/qa/writerfilter/ooxml/ooxml.cxx
++++ b/sw/qa/writerfilter/ooxml/ooxml.cxx
+@@ -195,6 +195,21 @@
+     CPPUNIT_ASSERT_EQUAL(6, nTables);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(Test, testTableNamesDuringImport)
++{
++    // Given a document with 3 tables (2 floating ones, one nested), whose names are made up during the
++    // import (the table name cache of SwDoc::GetUniqueTableName):
++    createSwDoc("floattable-tables-lost.docx");
++
++    // Then the names are Table1..Table3, each once, as the full scan would give:
++    uno::Reference<text::XTextTablesSupplier> xSupplier(mxComponent, uno::UNO_QUERY);
++    uno::Reference<container::XNameAccess> xTables = xSupplier->getTextTables();
++    std::set<OUString> aNames;
++    for (const OUString& rName : xTables->getElementNames())
++        aNames.insert(rName);
++    CPPUNIT_ASSERT_EQUAL((std::set<OUString>{ u"Table1"_ustr, u"Table2"_ustr, u"Table3"_ustr }), aNames);
++}
++
+ CPPUNIT_TEST_FIXTURE(Test, testCommentsEachGetOwnText)
+ {
+     // Given a document with 22 comments (ids 0..41 with gaps, several with the same text):

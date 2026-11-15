@@ -69,6 +69,8 @@ def main():
             doc = desktop.loadComponentFromURL(url, "_blank", 0, (prop("Hidden", hidden),))
         res["load"] = round(time.monotonic() - t0, 2)
         print(json.dumps(dict(res, stage="loaded")), flush=True)  # kept by the controller if idle never comes
+        if os.environ.get("LFO_INTERACT_EARLY") == "1" and not hidden:  # while the layout still runs
+            res.update(interact.interact(smgr, ctx, doc, "early_"))
         probe = float(os.environ.get("LFO_PROBE", "0"))
         if probe and not hidden:  # responsiveness while the office works on: a call that needs the main lock
             window, waits, end = doc.getCurrentController().getFrame().getContainerWindow(), [], time.monotonic() + probe

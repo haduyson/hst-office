@@ -5,13 +5,18 @@
   its own element (with the original prolog and root tags) instead of the whole part, with a fallback to the old full
   parse for anything unexpected, and a CppunitTest that imports 22 comments.
 - hst-writer-autostyle-hashed-lookup.patch: SfxGrabBagItem::hashCode() also hashes string values and StylePool nodes
-  find hashable children through a hash index (runs with many distinct colours were O(N^2) to import)."""
+  find hashable children through a hash index (runs with many distinct colours were O(N^2) to import).
+- hst-calc-condformat-row-height.patch: relative conditions compile their RPN once; GetNeededSize skips conditions
+  whose styles cannot change the size.
+- hst-writer-table-name-cache.patch: GetUniqueTableName keeps its scan during a writerfilter import and checks only
+  the newest table format, with a fallback to the full scan."""
 from pathlib import Path
 import unittest
 
 from test_large_file_open_patches import PATCHES, changes
 
-NAMES = ("hst-docx-comments-parse-once.patch", "hst-writer-autostyle-hashed-lookup.patch")
+NAMES = ("hst-docx-comments-parse-once.patch", "hst-writer-autostyle-hashed-lookup.patch",
+         "hst-calc-condformat-row-height.patch", "hst-writer-table-name-cache.patch")
 
 
 class LargeOfficeOpenPatches(unittest.TestCase):
@@ -48,6 +53,24 @@ class LargeOfficeOpenPatches(unittest.TestCase):
         self.assertIn("maHashedChildren.equal_range(nKey)", pool)
         self.assertIn("mChildren.emplace_back( pNextNode );", pool)  # child order kept for the iterators
         self.assertIn("test_grabbagitem", "\n".join(ch["svl/CppunitTest_svl_items.mk"][1]))
+
+    def test_condformat_row_height(self):
+        ch = changes(NAMES[2])
+        cond = "\n".join(ch["sc/source/core/data/conditio.cxx"][2])
+        self.assertIn("lcl_IsPositionIndependentCode", cond)
+        self.assertIn("GetRelCode(mpRelCode1, *pFormula1, rPos)", cond)
+        self.assertEqual(cond.count("mpRelCode1.reset();"), cond.count("pFCell1.reset();"))  # dropped together
+        col = "\n".join(ch["sc/source/core/data/column2.cxx"][2])
+        self.assertIn("lcl_CondFormatMayChangeSize(rDocument, nTab, *pAttrArray->GetPattern(nRow))", col)
+        self.assertIn("pSet = pSet->GetParent()", col)  # the style's parents count too
+        self.assertIn("testCondFormatRelativeExpressionCompiledOnce", "\n".join(ch["sc/qa/unit/ucalc_condformat.cxx"][1]))
+
+    def test_table_name_cache(self):
+        ch = changes(NAMES[3])
+        tbl = "\n".join(ch["sw/source/core/docnode/ndtbl.cxx"][2])
+        self.assertIn("if (IsInWriterfilterImport() && bSamePrefix && nCount <= rCache.nCount + 1)", tbl)
+        self.assertIn("rCache = TableNameCache();", tbl)  # the full scan rebuilds
+        self.assertIn("maTableNameCache.bValid = false;", "\n".join(ch["sw/source/core/doc/docchart.cxx"][1]))
 
 
 if __name__ == "__main__":
