@@ -118,7 +118,7 @@ class MockupGeometry(unittest.TestCase):
         # a ribbon toolbox's rows are as high as its buttons and visible item windows, not a native combo box
         self.assertIn("if ( mpData->mbHstOwnerDraw )\n        mnWinHeight = 0;", toolbox)
         # the icon of a medium and of a small button at the same (4, 4)
-        self.assertIn("nImageOffX = pItem->maRect.Left() + hst::ribbon::geometry::px(hst::ribbon::geometry::SMALL_PAD", toolbox)
+        self.assertIn(": hst::ribbon::geometry::px(hst::ribbon::geometry::SMALL_PAD, fHstScale));", toolbox)
 
     def test_ladder_places_menu_buttons_and_frames_groups(self):
         ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
@@ -152,6 +152,13 @@ class MockupGeometry(unittest.TestCase):
         ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
         self.assertIn("setIfChanged<bool>(rChild.get_vexpand(), false", ladder)
         self.assertIn("eSize == ToolBoxButtonSize::Size32", ladder)
+
+    def test_dialog_launcher_on_the_caption_line(self):
+        ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
+        self.assertIn("pLauncher->HstSetLauncher(true);", ladder)
+        self.assertIn("(holdsCaption(*aChildren[i]) || (pLauncher && commandCount(*pLauncher) == 1))", ladder)
+        toolbox = added(PATCH, "vcl/source/window/toolbox.cxx")
+        self.assertIn("hst::ribbon::geometry::px( hst::ribbon::geometry::CAPTION_ROW, fHstScale ) );", toolbox)
 
     def test_icon_dump_is_opt_in(self):
         toolbox = added(PATCH, "vcl/source/window/toolbox.cxx")
