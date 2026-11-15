@@ -49,9 +49,10 @@ def is_new(window, known):
 
 
 def pump(toolkit, work, wait_for_window):
-    """Run `work` in a thread; close every window that opens meanwhile. Returns (descriptions, error text).
+    """Run `work` in a thread; close every dialog that opens meanwhile. Returns (descriptions, error text).
 
     A description is "title WxH" (pixels); a window larger than the screen work area is reported as OVERSIZE.
+    A new document frame (the Calc window of a load) is described but left open: close_dialog refuses frames.
     """
     known = top_windows(toolkit)
     state = {"error": ""}
@@ -83,9 +84,10 @@ def pump(toolkit, work, wait_for_window):
             label = "%s %dx%d" % (window_title(window), size.Width, size.Height)
             if size.Width > area.Width or size.Height > area.Height:
                 label += " OVERSIZE(work area %dx%d)" % (area.Width, area.Height)
-            found.append(label)
             shot(label)
-            close_dialog(window)
+            if close_dialog(window) == "frame":
+                label += " (document frame, left open)"
+            found.append(label)
         time.sleep(0.3)
     thread.join(10)
     if thread.is_alive():

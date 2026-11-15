@@ -86,6 +86,11 @@ jobs:
           else
             [ "$APPEND" != "true" ] || { echo "append=true but release $TAG does not exist" >&2; exit 1; }
           fi
+      - name: Tools for the Linux signature check
+        # check-linux-signed-set.sh runs `rpm -K` on the signed .rpm (docs/LINUX_PACKAGES.md).
+        shell: bash
+        run: |
+          command -v rpm >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends rpm; }
       - name: Collect and verify installers from one commit
         id: collect
         shell: bash

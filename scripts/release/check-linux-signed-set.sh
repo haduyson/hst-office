@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # A release's Linux packages are the GPG-signed set once the packaging key is configured (the public key committed at
 # data/hst/RPM-GPG-KEY-hasontech): .rpm, every .AppImage with its .asc, the Linux SHA256SUMS with its .asc, and the
-# public key, which must be the committed one. Used by collect-release-assets.sh; docs/LINUX_PACKAGES.md.
+# public key, which must be the committed one. Every .rpm must then pass `rpm -K` against the committed key (a scratch
+# rpm database): "digests signatures OK". Used by collect-release-assets.sh; docs/LINUX_PACKAGES.md. Needs rpm.
 #   check-linux-signed-set.sh <artifact-dir>     exit 1 with the missing parts listed
 set -euo pipefail
 dir="${1:?usage: $0 <artifact-dir>}"
@@ -26,4 +27,16 @@ if [ ${#missing[@]} -gt 0 ]; then
   printf 'linux release: the signed set lacks: %s\n' "${missing[*]}" >&2
   exit 1
 fi
+command -v rpm >/dev/null \
+  || { echo "linux release: rpm missing, cannot check the .rpm signatures (apt-get install rpm)" >&2; exit 1; }
+db="$(mktemp -d)"; trap 'rm -rf "$db"' EXIT
+rpm --dbpath "$db" --initdb && rpmkeys --dbpath "$db" --import "$repo/data/hst/RPM-GPG-KEY-hasontech" \
+  || { echo "linux release: cannot import the committed key into a scratch rpm database" >&2; exit 1; }
+for r in "${rpms[@]}"; do
+  verdict="$(rpm --dbpath "$db" -K "$r" 2>&1 | tail -1)" || :
+  case "$verdict" in
+    *": digests signatures OK") echo "rpm -K $(basename "$r"): digests signatures OK" ;;
+    *) printf 'linux release: rpm -K %s: %s\n' "$(basename "$r")" "$verdict" >&2; exit 1 ;;
+  esac
+done
 echo "linux release: signed set complete (${#rpms[@]} rpm, ${#apps[@]} AppImage)"
