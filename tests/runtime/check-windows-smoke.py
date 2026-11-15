@@ -155,6 +155,8 @@ def main():
             try:
                 proc.wait(30)
             except subprocess.TimeoutExpired:
+                # soffice.exe is only the launcher: kill its tree, or soffice.bin stays on the console session
+                subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True, check=False)
                 proc.kill()
     with open(os.path.join(out, "office-lifecycle.txt"), "w", encoding="utf-8") as handle:
         handle.write(LIFE.report(proc) + "\n" + "\n".join(LIFE.events) + "\n")

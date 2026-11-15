@@ -123,6 +123,21 @@ class SendInputTests(unittest.TestCase):
         window.endExecute.assert_not_called()
         self.assertEqual(self.user32.sent, [])
 
+    def test_a_document_frame_is_never_closed_as_a_dialog(self):
+        # The Calc frame of a load is a new top window with an empty title: class and style decide, not the title.
+        window = mock.Mock()
+        window.getWindowHandle.return_value = DOC
+        window.getTitle.return_value = ""
+        sys.modules["uno"] = types.SimpleNamespace(ByteSequence=bytes)
+        self.addCleanup(sys.modules.pop, "uno", None)
+        self.assertEqual(self.dialogs.close_dialog(window), "frame")
+        window.endExecute.assert_not_called()
+        self.assertEqual((self.api.posted, self.user32.sent), ([], []))
+        self.assertFalse(self.dialogs.is_frame_window(DIALOG))
+        self.api.windows[DIALOG] = ("SALFRAME", "Tùy chọn", fakes.OFFICE_PID)   # ownerless, not sizeable
+        self.api.style[DIALOG] = (0x14CA0000, 0x00000101)
+        self.assertFalse(self.dialogs.is_frame_window(DIALOG))
+
     def test_close_dialog_falls_back_to_end_execute_never_to_keys(self):
         window = mock.Mock()
         window.getWindowHandle.return_value = SHUTDOWN  # not ours: never posted to
