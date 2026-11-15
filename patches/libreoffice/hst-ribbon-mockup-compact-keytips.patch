@@ -1,0 +1,63 @@
+HST Office (1.0.2 ribbon): KeyTips of the compact ribbon as in the reference suite's collapsed ribbon.
+
+Alt shows the tab tips; a tab's letter drops that tab's page over the document and its commands get their tips
+in that popup (before: the tips went on the 80 px band, out of sight, and closed when the popup took the
+focus). The letter of the tab already chosen drops its page too (a click on its tab is posted, as for the tab
+menu's button). The full ribbon is unchanged.
+
+--- a/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
++++ b/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
+@@ -207,6 +207,44 @@
+         }
+     }
+ 
++    /** The compact ribbon (Ctrl+F1): a tab chosen from its tip drops its page over the document, as a click on
++        the tab does, and the page's commands get their tips in that popup once it is laid out, as in Office's
++        collapsed ribbon. The current tab's page is hidden in that state and choosing it again changes no page,
++        so the click on its tab is posted. False when the ribbon is not compact (the page shows in place). */
++    bool DropTab(sal_uInt16 nId)
++    {
++        auto* pBase = dynamic_cast<NotebookbarTabControlBase*>(m_xTabs.get());
++        const sal_uInt16 nCurrent = m_xTabs->GetCurPageId();
++        const TabPage* pCurrent = m_xTabs->GetTabPage(nCurrent);
++        if (!pBase || nId != nCurrent)
++        {
++            m_xTabs->SelectTabPage(nId);
++            if (!pBase || !pBase->HstIsDropped())
++                return false; // the page shows in place; the caller only shows its tips
++            const TabPage* pPage = m_xTabs->GetTabPage(nId);
++            m_xShown = pPage ? pPage->GetSystemWindow() : nullptr;
++        }
++        else if (pBase->HstIsDropped() || !pCurrent || pCurrent->IsVisible()
++                 || m_xTabs->GetPageName(nCurrent) == "FileLabel")
++            return false; // the full ribbon (or the page already dropped): its tips as before
++        else
++        {
++            const Point aCentre = m_xTabs->GetTabBounds(nId).Center();
++            const MouseEvent aDown(aCentre, 1, MouseEventModifiers::SIMPLECLICK, MOUSE_LEFT);
++            const MouseEvent aUp(aCentre, 1, MouseEventModifiers::SIMPLECLICK, MOUSE_LEFT);
++            Application::PostMouseEvent(VclEventId::WindowMouseButtonDown, m_xTabs.get(), &aDown);
++            Application::PostMouseEvent(VclEventId::WindowMouseButtonUp, m_xTabs.get(), &aUp);
++            m_xShown.reset(); // the popup's WindowShow sets it
++        }
++        // the popup took the focus from the document window: the tips of the tab row go, those of the
++        // page follow on the popup (PopupTimerHdl)
++        Close();
++        m_nPopupTries = 0;
++        m_bAwaitPopup = true;
++        m_aPopupTimer.Start();
++        return true;
++    }
++
+     void ShowTabs()
+     {
+         std::vector<Target> aTargets;
+@@ -234,6 +272,8 @@
+             aTarget.pAnchor = m_xTabs.get();
+             aTarget.aRect = aRect;
+             aTarget.aRun = [this, nId, bFile = aName == "FileLabel"] {
++                if (!bFile && DropTab(nId))
++                    return;
+                 m_xTabs->SelectTabPage(nId);
+                 if (bFile) // the handler of the File tab opens the full-window view
+                     Close();
