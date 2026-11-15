@@ -110,10 +110,16 @@ class ApprovedOrder(unittest.TestCase):
         ladders = generated_ladders()
         insert = ladders[("writer", "pmhbInsert")]["steps"]
         self.assertNotIn(["gdInsertText", "M"], insert)  # the mockup's Text group: L, S, C
-        self.assertLess(insert.index(["gdInsertSymbols", "S"]), insert.index(["gdInsertReferences", "S"]))
+        # the reference suite's narrow sweep: Links, then Pages, then Symbols to their buttons, Illustrations labelled
+        self.assertEqual(insert[6:10], [["gdInsertReferences", "C"], ["gdInsertPage", "C"], ["gdInsertSymbols", "C"],
+                                        ["gdInsertGraphic", "S"]])
+        self.assertNotIn(["gdInsertReferences", "S"], insert)
         home = ladders[("writer", "pmhbHome")]["steps"]
         self.assertEqual(home[:2], [["gdHomeStyle", "M"], ["gdHomeStyle", "S"]])
         self.assertEqual(home[-1], ["gdHomeFont", "C"])
+        # Editing keeps its labels until it becomes its "Editing ▾" button, as in the suite
+        self.assertNotIn(["gdHomeHstEditing", "S"], home)
+        self.assertEqual(home.index(["gdHomeClipboard", "S"]) + 1, home.index(["gdHomeHstEditing", "C"]))
 
     def test_every_other_tab_follows_the_rule(self):
         checked = 0
@@ -144,9 +150,10 @@ class ApprovedOrder(unittest.TestCase):
         steps = generated_ladders()[("calc", "pmhbHome")]["steps"]
         self.assertEqual(steps[-1], ["gdHomeFont", "C"])
         # the reference suite's labels: Clipboard's small buttons lose theirs before Cells and Alignment; Alignment
-        # (Wrap Text, Merge & Center) keeps them longest
+        # (Wrap Text, Merge & Center) loses them after Editing, as in the suite's 1320 px
         self.assertEqual(steps[:3], [["gdHomeStyles", "M"], ["gdHomeClipboard", "S"], ["gdHomeCells", "M"]])
-        self.assertEqual([s for s in steps if s[1] == "S"][-1], ["gdHomeAlignment", "S"])
+        self.assertEqual([s for s in steps if s[1] == "S"][-3:], [["gdHomeAlignment", "S"], ["gdHomeCells", "S"],
+                                                                  ["gdHomeNumber", "S"]])
 
     def test_sheets_reference_labels_first_to_go(self):
         ladders = generated_ladders()

@@ -27,12 +27,12 @@ GROUPS = {
 }
 BOX = {"home": "pmhbHome", "insert": "pmhbInsert"}
 # states in GROUPS order. Against the mockup: Home keeps Clipboard large down to 1440 px and gives the Vietnamese
-# group's labels up first (1280-1440); Insert keeps Header & Footer large at 1440, and at 1100-1280 drops the
-# Symbols labels before Pages and Illustrations lose theirs. The mockup's widths leave 28 px too few for a
-# labelled Clipboard at 1366: the real widths decide there (HST_RIBBON_DUMP_WIDTHS on a build)
-WANT = {"home": {1100: "SLSCSS", 1280: "SLSSLS", 1366: "SLSSLS", 1440: "LLSSLS", 1485: "LLSSLM", 1600: "LLSSLM",
+# group's labels up first (1280-1440); Insert keeps Header & Footer large at 1440 and, as the reference suite's
+# narrow sweep, sends Links, Pages and Symbols to their buttons while Illustrations keeps its labels. The mockup's
+# widths leave 28 px too few for a labelled Clipboard at 1366: the real widths decide there (HST_RIBBON_DUMP_WIDTHS)
+WANT = {"home": {1100: "SLSCLS", 1280: "SLSSLS", 1366: "SLSSLS", 1440: "LLSSLS", 1485: "LLSSLM", 1600: "LLSSLM",
                  1920: "LLLMLL"},
-        "insert": {1100: "SLSSLMSS", 1280: "LLLSLMSS", 1366: "LLLMLMSS", 1440: "LLLMLLSL", 1485: "LLLLLLSL",
+        "insert": {1100: "CLSCLMSC", 1280: "CLLCLMSC", 1366: "LLLCLMSL", 1440: "LLLMLLSL", 1485: "LLLLLLSL",
                    1600: "LLLLLLSL", 1920: "LLLLLLLL"}}
 DRIVER = r"""
 #include "HstRibbonScaling.hxx"
