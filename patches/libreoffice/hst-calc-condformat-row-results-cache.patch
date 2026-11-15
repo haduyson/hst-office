@@ -160,7 +160,7 @@ the row heights of the synthetic .xlsx files are byte-identical with and without
      }
  
      if (aResFinal.mnTab != aSrcPos.Tab())
-@@ -743,6 +743,62 @@
+@@ -743,6 +743,63 @@
      return rCache->GetCodeLen() ? *rCache : rFormula;
  }
  
@@ -187,11 +187,12 @@ the row heights of the synthetic .xlsx files are byte-identical with and without
 +            case formula::svJump:
 +                break;
 +            case formula::svSingleRef:
-+                if (t->GetSingleRef()->IsColRel())
++                if (static_cast<const ScSingleRefToken*>(t)->GetSingleRef().IsColRel())
 +                    return false;
 +                break;
 +            case formula::svDoubleRef:
-+                if (t->GetDoubleRef()->Ref1.IsColRel() || t->GetDoubleRef()->Ref2.IsColRel())
++                if (static_cast<const ScDoubleRefToken*>(t)->GetDoubleRef().Ref1.IsColRel()
++                    || static_cast<const ScDoubleRefToken*>(t)->GetDoubleRef().Ref2.IsColRel())
 +                    return false;
 +                break;
 +            default:
@@ -223,7 +224,7 @@ the row heights of the synthetic .xlsx files are byte-identical with and without
  void ScConditionEntry::Interpret( const ScAddress& rPos )
  {
      // Create formula cells
-@@ -753,9 +809,29 @@
+@@ -753,9 +810,29 @@
      // Evaluate formulas
      bool bDirty = false; // 1 and 2 separate?
  
@@ -254,7 +255,7 @@ the row heights of the synthetic .xlsx files are byte-identical with and without
      {
          if (pFormula1)
              oTemp.emplace(mrDoc, rPos, GetRelCode(mpRelCode1, *pFormula1, rPos));
-@@ -783,12 +859,21 @@
+@@ -783,12 +860,21 @@
                  aStrVal1 = pEff1->GetString().getString();
                  nVal1 = 0.0;
              }
@@ -277,7 +278,7 @@ the row heights of the synthetic .xlsx files are byte-identical with and without
      {
          if (pFormula2)
              oTemp.emplace(mrDoc, rPos, GetRelCode(mpRelCode2, *pFormula2, rPos));
-@@ -815,6 +900,8 @@
+@@ -815,6 +901,8 @@
                  aStrVal2 = pEff2->GetString().getString();
                  nVal2 = 0.0;
              }

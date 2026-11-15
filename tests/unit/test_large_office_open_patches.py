@@ -84,7 +84,7 @@ class LargeOfficeOpenPatches(unittest.TestCase):
         for opcode in ("ocRow", "ocColumn", "ocOffset", "ocIndirect", "ocName", "ocRandom", "ocGetActTime"):
             self.assertIn("case %s:" % opcode, cond)
         self.assertIn("IsRecalcModeAlways()", cond)
-        self.assertIn("if (t->GetSingleRef()->IsColRel())", cond)
+        self.assertIn("static_cast<const ScSingleRefToken*>(t)->GetSingleRef().IsColRel()", cond)
         # the per-row results go with the compiled copy
         self.assertEqual(cond.count("mpRelCode1.reset(); mnColumnFree1 = -1; maRowResults1.clear();"),
                          cond.count("mpRelCode1.reset();"))
