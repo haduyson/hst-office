@@ -311,7 +311,7 @@ HST Office: the 1.0.2 ribbon mockup's frame: a 106 px body, the banner 8 px from
  /// The document tab strip of the window (framework DocumentTabBar, id "hst-document-tabs") when it shows.
  const vcl::Window* lcl_findDocumentTabs(const vcl::Window& rParent)
  {
-@@ -789,6 +807,202 @@
+@@ -789,6 +807,203 @@
  }
  }
  
@@ -343,7 +343,7 @@ HST Office: the 1.0.2 ribbon mockup's frame: a 106 px body, the banner 8 px from
 +    {
 +        m_aGreeting = rGreeting;
 +        m_aSubtitle = rSubtitle;
-+        SetAccessibleName(rSubtitle.isEmpty() ? rGreeting : rGreeting + u", "_ustr + rSubtitle);
++        SetAccessibleName(rSubtitle.isEmpty() ? rGreeting : OUString(rGreeting + u", " + rSubtitle));
 +        Invalidate();
 +    }
 +
@@ -503,7 +503,8 @@ HST Office: the 1.0.2 ribbon mockup's frame: a 106 px body, the banner 8 px from
 +    {
 +        TOOLS_WARN_EXCEPTION("sfx.backstage", "File title band: no document title");
 +    }
-+    const OUString aSubtitle = aFile.isEmpty() || aTitle.isEmpty() ? aFile + aTitle : aFile + u" · "_ustr + aTitle;
++    const OUString aSubtitle = aFile.isEmpty() || aTitle.isEmpty() ? OUString(aFile + aTitle)
++                                                                    : OUString(aFile + u" · " + aTitle);
 +    m_xTitleBand->SetPosSizePixel(Point(0, nTop), Size(nRight, nBottom - nTop));
 +    m_xTitleBand->SetTexts(m_xGreeting->get_label(), aSubtitle);
 +    m_xTitleBand->SetZOrder(nullptr, ZOrderFlags::First); // above the tab page and the ribbon's other children
@@ -514,7 +515,7 @@ HST Office: the 1.0.2 ribbon mockup's frame: a 106 px body, the banner 8 px from
  bool BackstageWindow::GetPlacement(tools::Rectangle& rAnchor, Size& rSize) const
  {
      vcl::Window* pContainer = VCLUnoHelper::GetWindow(m_xFrame->getContainerWindow());
-@@ -803,8 +1017,7 @@
+@@ -803,8 +1018,7 @@
      NotebookBar* pRibbon = pSysWin ? pSysWin->GetNotebookBar().get() : nullptr;
      const TabControl* pTabs = nullptr;
      const vcl::Window* pBanner = nullptr;
@@ -524,7 +525,7 @@ HST Office: the 1.0.2 ribbon mockup's frame: a 106 px body, the banner 8 px from
      const TabPage* pPage = pTabs ? pTabs->GetTabPage(pTabs->GetCurPageId()) : nullptr;
      const AbsoluteScreenPixelPoint aEdge
          = pPage ? pTabs->OutputToAbsoluteScreenPixel(Point(0, pPage->GetPosPixel().Y()))
-@@ -885,6 +1098,7 @@
+@@ -885,6 +1099,7 @@
      m_xRecentTabs->set_current_page(0);
  
      m_xPanel->set_size_request(aSize.Width(), aSize.Height());
@@ -532,7 +533,7 @@ HST Office: the 1.0.2 ribbon mockup's frame: a 106 px body, the banner 8 px from
      m_xPopover->popup_at_rect(m_pFrameWeld, aAnchor, weld::Placement::Under);
      m_aNav[m_nSelectedNav].xButton->grab_focus();
      return true;
-@@ -897,6 +1111,7 @@
+@@ -897,6 +1112,7 @@
      m_bOpen = false;
      m_xPrintPage->Deactivate(); // a print job waiting on the Print page is cancelled
      m_xPopover->popdown();
@@ -540,7 +541,7 @@ HST Office: the 1.0.2 ribbon mockup's frame: a 106 px body, the banner 8 px from
      FocusDocument();
  }
  
-@@ -921,6 +1136,7 @@
+@@ -921,6 +1137,7 @@
          return; // closed by Close()
      m_bOpen = false;
      m_xPrintPage->Deactivate();
