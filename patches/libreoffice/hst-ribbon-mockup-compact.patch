@@ -25,16 +25,17 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
  class TabPage;
  class ToolBox;
  namespace vcl { class Window; }
-@@ -25,6 +26,8 @@
+@@ -25,6 +26,9 @@
  namespace hst::ribbon::compact
  {
  inline tools::Long px(tools::Long nLogical, double fDpi) { return std::llround(nLogical * fDpi); }
-+/// the id of the pin button (˅) the compact ribbon puts on the dropped page; HstRibbonDrop.cxx (vcl) places it
++/// the id of the pin button (˅), a hidden child of the tab control that HstRibbonDrop.cxx (vcl) shows in the
++/// popup of the dropped page
 +inline constexpr OUString PIN_ID = u"hstribbonpin"_ustr;
  /// a flat chevron button (˄ when bUp, else ˅) with the tooltip and accessible name rTip
  VclPtr<Control> CreateChevron(vcl::Window* pParent, bool bUp, const OUString& rTip,
                                const Link<LinkParamNone*, void>& rClick);
-@@ -44,7 +47,10 @@
+@@ -44,7 +48,11 @@
      Ctrl+F1, a double-click on a tab or the small chevron buttons switch between the full ribbon and the
      compact one: the tab row and, below it, a row of the current tab's main commands (data/ribbon/
      quick-rows.json, generated into HstRibbonQuickRows.hxx), 80 logical px together, the banner standing
@@ -42,18 +43,12 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
 +    across both rows. The approved 1.0.2 mockup sets the quick row's look: 30 px buttons with a 16 px icon and
 +    the label beside it, 1 x 22 px separators with 4 px on each side, the first button 6 px from the left edge
 +    and ˅ (18 x 16) 4 px from the row's lower right corner. A tab clicked in the compact state drops its page
-+    over the document (HstRibbonDrop.cxx) with the pin ˅ at its lower right, which brings the full ribbon back. NotebookbarTabControl owns this helper; it keeps the widgets of both states (the
++    over the document (HstRibbonDrop.cxx) with the pin ˅ at its lower right, which brings the full ribbon back.
++    NotebookbarTabControl owns this helper; it keeps the widgets of both states (the
      quick row with real toolbar controllers, the chevrons) and remembers the state per app in
      HSTRibbon/CompactApps. */
  class HstRibbonCompact
-@@ -66,12 +72,14 @@
-     static tools::Long QuickHeight(tools::Long nHeaderHeight, double fDpi);
- 
-     /// fills the quick row with the commands of the tab whose page is pPage (no-op for the same tab)
--    void Fill(const TabPage* pPage, const css::uno::Reference<css::frame::XFrame>& xFrame);
-+    void Fill(TabPage* pPage, const css::uno::Reference<css::frame::XFrame>& xFrame);
-     /// rQuick: the quick row's rectangle (compact); rPage: the page's rectangle beside the banner (full)
-     void Place(const tools::Rectangle& rQuick, const tools::Rectangle& rPage);
+@@ -72,6 +80,8 @@
  
  private:
      DECL_LINK(ChevronHdl, LinkParamNone*, void);
@@ -62,11 +57,11 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
  
      vcl::Window& m_rTabs;
      OUString m_aApp;
-@@ -81,6 +89,8 @@
+@@ -81,6 +91,8 @@
      VclPtr<ToolBox> m_xQuick;
      VclPtr<Control> m_xCollapse; // ˄ at the lower right end of the full page
      VclPtr<Control> m_xExpand; // ˅ at the right end of the quick row
-+    VclPtr<Control> m_xPin; // ˅ on the current tab's page, seen when that page drops (compact state only)
++    VclPtr<Control> m_xPin; // ˅ of the dropped page: HstRibbonDrop.cxx moves it into the popup while it is open
 +    ImplSVEvent* m_pPinEvent = nullptr; // the pin switches after its click, as the popup it sits in closes
  };
  
@@ -125,32 +120,15 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
  tools::Long HstRibbonCompact::BandHeight(double fDpi) { return px(80, fDpi); }
  
  tools::Long HstRibbonCompact::QuickHeight(tools::Long nHeaderHeight, double fDpi)
-@@ -115,6 +140,9 @@
+@@ -115,6 +140,7 @@
      {
          m_xQuick->Hide();
          m_xExpand->Hide();
 +        m_xPin->Hide();
-+        if (m_xPin->GetParent() != &m_rTabs)
-+            m_xPin->SetParent(&m_rTabs); // off the page, which the full ribbon shows in place
      }
      else
          m_xCollapse->Hide();
-@@ -122,13 +150,23 @@
-         SetAppListed(u"CompactApps"_ustr, m_aApp, bCompact);
- }
- 
--void HstRibbonCompact::Fill(const TabPage* pPage, const css::uno::Reference<css::frame::XFrame>& xFrame)
-+void HstRibbonCompact::Fill(TabPage* pPage, const css::uno::Reference<css::frame::XFrame>& xFrame)
- {
-+    // the pin goes with the page: HstRibbonDrop.cxx moves the page into its popup and places the pin there
-+    if (pPage && m_bCompact)
-+    {
-+        if (m_xPin->GetParent() != pPage)
-+            m_xPin->SetParent(pPage);
-+        m_xPin->Show();
-+    }
-     const OUString aBox = pPage ? boxOf(*pPage) : OUString();
-     if (aBox == m_aFilledBox || !xFrame.is())
+@@ -129,6 +155,9 @@
          return;
      m_aFilledBox = aBox;
      m_xQuick->Clear();
@@ -160,7 +138,7 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
      for (const hst::ribbon::quick::Row& rRow : hst::ribbon::quick::all)
      {
          if (rRow.app != m_aApp || rRow.box != aBox)
-@@ -138,12 +176,17 @@
+@@ -138,12 +167,17 @@
              const OUString aCommand(rRow.commands[i]);
              if (aCommand == "|")
              {
@@ -181,7 +159,7 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
          }
      }
  }
-@@ -155,21 +198,35 @@
+@@ -155,21 +189,35 @@
      const tools::Long nInset = px(4, fDpi);
      if (m_bCompact && !rQuick.IsEmpty())
      {
@@ -383,11 +361,13 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
  
  #include <vcl/event.hxx>
  #include <vcl/settings.hxx>
-@@ -26,10 +28,15 @@
+@@ -26,10 +28,17 @@
  
  namespace
  {
-+// the pin button the compact ribbon (sfx2 HstRibbonCompact, PIN_ID) puts on the current tab's page
++// the pin button of the compact ribbon (sfx2 HstRibbonCompact, PIN_ID), a hidden child of the tab control: it
++// stands in the popup while the popup is open (not on the page: a tab page lays its content out only while
++// that is its one child)
 +constexpr OUString PIN_ID = u"hstribbonpin"_ustr;
 +
 +tools::Long px(tools::Long nLogical, double fDpi) { return std::lround(nLogical * fDpi); }
@@ -400,7 +380,7 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
          : FloatingWindow(pTabs, WB_BORDER | WB_SYSTEMWINDOW)
          , m_xTabs(pTabs)
          , m_xPage(pPage)
-@@ -47,11 +54,12 @@
+@@ -47,11 +56,12 @@
      void dispose() override
      {
          Application::RemoveEventListener(LINK(this, HstRibbonDrop, EventHdl));
@@ -418,7 +398,7 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
          GiveBack();
          m_xTabs.reset();
          FloatingWindow::dispose();
-@@ -60,9 +68,39 @@
+@@ -60,9 +70,41 @@
      void PopupModeEnd() override
      {
          GiveBack();
@@ -443,22 +423,36 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
 +        const tools::Long nPage = std::max(px(106, fDpi), m_xPage->GetOptimalSize().Height());
 +        SetOutputSizePixel(Size(nWidth, nStrip + nPage + nStrip));
 +        m_xPage->SetPosSizePixel(Point(0, nStrip), Size(nWidth, nPage));
-+        for (vcl::Window* pChild = m_xPage->GetWindow(GetWindowType::FirstChild); pChild;
++        for (vcl::Window* pChild = m_xTabs->GetWindow(GetWindowType::FirstChild); pChild && !m_xPin;
 +             pChild = pChild->GetWindow(GetWindowType::Next))
-+        {
-+            if (pChild->get_id() != PIN_ID)
-+                continue;
-+            const Size aPin(px(18, fDpi), px(16, fDpi));
-+            pChild->SetPosSizePixel(Point(nWidth - px(4, fDpi) - aPin.Width(), nPage - nStrip - aPin.Height()), aPin);
-+            pChild->Show();
-+            pChild->SetZOrder(nullptr, ZOrderFlags::First); // over the page's last group
-+        }
++            if (pChild->get_id() == PIN_ID)
++                m_xPin = pChild;
++        if (!m_xPin)
++            return; // not the compact ribbon of sfx2 (no pin)
++        // 4 px from the right edge, 3 px above the page's bottom
++        const Size aPin(px(18, fDpi), px(16, fDpi));
++        m_xPin->SetParent(this);
++        m_xPin->SetPosSizePixel(Point(nWidth - px(4, fDpi) - aPin.Width(), nPage - aPin.Height()), aPin);
++        m_xPin->Show();
++        m_xPin->SetZOrder(nullptr, ZOrderFlags::First); // over the page's last group
 +    }
 +
      bool HasPage() const { return m_xPage && m_xPage->GetParent() == this; }
  
      // a right-click on a dropped button reaches the tab control as it does in place (its owner offers
-@@ -89,10 +127,13 @@
+@@ -83,16 +125,26 @@
+             m_xPage->SetParent(m_xTabs);
+         }
+         m_xPage.reset();
++        if (m_xPin && m_xPin->GetParent() == this)
++        {
++            m_xPin->Hide();
++            m_xPin->SetParent(m_xTabs);
++        }
++        m_xPin.reset();
+     }
+ 
+     // a command run from the dropped page (a toolbox item's own command, not its menu) closes the popup,
      // after the command has been dispatched
      DECL_LINK(EventHdl, VclSimpleEvent&, void);
      DECL_LINK(CloseHdl, void*, void);
@@ -467,13 +461,14 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
 -    VclPtr<vcl::Window> m_xTabs;
 +    VclPtr<TabControl> m_xTabs;
      VclPtr<TabPage> m_xPage;
++    VclPtr<vcl::Window> m_xPin; // the pin while it stands in the popup
      ImplSVEvent* m_pCloseEvent = nullptr;
 +    ImplSVEvent* m_pClickEvent = nullptr;
 +    Point m_aClickPos; // where the click that ended the popup hit the tab row
  };
  
  IMPL_LINK(HstRibbonDrop, EventHdl, VclSimpleEvent&, rEvent, void)
-@@ -110,6 +151,17 @@
+@@ -110,6 +162,17 @@
      if (IsInPopupMode())
          EndPopupMode();
  }
@@ -491,7 +486,7 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
  }
  
  bool NotebookbarTabControlBase::HstDropPage(tools::Long nWidth)
-@@ -118,15 +170,10 @@
+@@ -118,15 +181,10 @@
      TabPage* pPage = GetTabPage(GetCurPageId());
      if (!pPage || nWidth <= 0 || !IsReallyVisible())
          return false;
