@@ -90,7 +90,7 @@ class MockupFontBoxes(unittest.TestCase):
         self.assertIn("if (hst::ribbon::InNotebookbar(*this))", name)
         self.assertIn("hst::ribbon::FONT_NAME_BOX_WIDTH", name)
         size = added(MOCKUP, "svx/source/tbxctrls/tbunocontroller.cxx")
-        self.assertIn("pCombo->set_entry_width_chars(1);", size)  # FontSizeBox asks for "105 pt" otherwise
+        self.assertIn("pCombo->set_entry_width_chars(2);", size)  # FontSizeBox asks for "105 pt"; "12" stays readable
         self.assertIn("hst::ribbon::FONT_SIZE_BOX_WIDTH", size)
         # gtk3 sizes the entry and puts the ▾ button on top: the overshoot is taken off the request
         self.assertIn("rWindow.get_preferred_size().Width() - nTarget;", helper)
@@ -121,6 +121,8 @@ class CalcCellStylesGallery(unittest.TestCase):
         self.assertIn("rRenderContext.SetLineColor(Color(0xd6, 0xd6, 0xd6));", code)
         self.assertIn('if (lcl_HstModuleIs(u"swriter"))', code)  # the short-name order is Writer's only
         self.assertIn('const size_t nRank = lcl_HstModuleIs(u"swriter") ? lcl_HstShortRank(rStyle)', code)
+        # Calc's font heights are twips; the shell's unit (1/100 mm) made the previews a third of their size
+        self.assertIn("pItemSet->GetPool()->GetMetric(pFontHeightItem->Which())", code)
         # Writer's and Calc's "Heading 1" are different previews
         self.assertIn('(lcl_HstModuleIs(u"scalc") ? u"scalc:"_ustr : OUString()) + rStyle.translatedName;', code)
 
