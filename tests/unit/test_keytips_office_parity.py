@@ -100,7 +100,7 @@ class OfflineCheck(unittest.TestCase):
         self.assertTrue(any("hst-later.patch binds F5 to Navigator" in e for e in errors), errors)
 
     def test_patched_rows_name_their_patch_and_reason(self):
-        self.assertEqual({r["status"] for r in self.rows} - {"match", "planned", "deviation"}, set())
+        self.assertEqual({r["status"] for r in self.rows} - {"match", "planned", "deviation", "handler"}, set())
         patched = [r for r in self.rows if r.get("via")]
         self.assertGreater(len(patched), 30)
         self.assertTrue(all(r["status"] == "match" and r["reason"] for r in patched))
