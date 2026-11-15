@@ -1,0 +1,2761 @@
+HST Office: oversized ribbon groups become labelled "Caption ▾" menu buttons, as in the reference suite.
+
+Gap list G10 (owner, 15/11/2026): a group must not fall back to bare icons while the ribbon has room. Writer ▸ Bố cục
+▸ Sắp xếp (18 commands) becomes Vị trí ▾, Bao quanh văn bản ▾, Tiến lên ▾, Lùi xuống ▾, Căn chỉnh ▾, Nhóm ▾, Xoay ▾
+beside the labelled Ngăn dẫn hướng, Chọn and Vị trí và kích cỡ; Writer ▸ Xem lại ▸ Thay đổi becomes Chấp nhận ▾ and
+Từ chối ▾ beside the labelled Trước and Tiếp; Sheets ▸ Bố trí trang ▸ Sắp xếp becomes Tiến lên ▾, Lùi xuống ▾,
+Căn chỉnh ▾, Nhóm ▾, Xoay ▾ beside Chọn and Ngăn dẫn hướng; Sheets ▸ Dữ liệu ▸ Phân tích (10 statistical tests) is
+one large Phân tích dữ liệu ▾; Draw ▸ Sắp xếp gets Tiến lên ▾ and Lùi xuống ▾ beside Căn chỉnh, and Xoay ▾ beside
+Biến đổi ▾ (which now also holds the transform mode). Every grid keeps its id, so the adaptive ladders still apply;
+the menu items take their labels and icons from their commands (Writer's wrap and anchor items reuse the labels of
+its picture and shape tabs). A menu button's "hst-ribbon-description" becomes the second line of its tooltip, as
+for the ribbon's tool buttons; the menu items that take their label from their command are listed in the
+gla11y suppressions, as Menu HstTransform's are. The Vietnamese strings come from l10n/vi-overrides.jsonl.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/vcl/source/window/builder.cxx
++++ b/vcl/source/window/builder.cxx
+@@ -1390,6 +1390,18 @@
+         if (!sMenu.isEmpty())
+             m_pVclParserState->m_aButtonMenuMaps.emplace_back(id, sMenu);
+         setupFromActionName(static_cast<Button*>(xWindow.get()), rMap, m_xFrame);
++        // HST: a ribbon menu button ("Wrap Text ▾") shows the ribbon's second tooltip line too:
++        // "hst-ribbon-description", under its label
++        const auto aDescription = rMap.find(u"hst-ribbon-description"_ustr);
++        if (aDescription != rMap.end())
++        {
++            const auto aLabel = rMap.find(u"label"_ustr);
++            const OUString sLabel = aLabel == rMap.end() ? OUString() : aLabel->second.replaceAll("~", "");
++            if (!aDescription->second.isEmpty())
++                xWindow->SetQuickHelpText(sLabel.isEmpty() ? aDescription->second
++                                                           : sLabel + "\n" + aDescription->second);
++            rMap.erase(aDescription);
++        }
+     }
+     else if (name == "sfxlo-PriorityMergedHBox")
+     {
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -1472,6 +1472,395 @@
+     <property name="can-focus">False</property>
+     <property name="icon-name">cmd/lc_wrapideal.png</property>
+   </object>
++  <object class="GtkImage" id="imgHstLayoutPositionMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_toggleanchortype.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstLayoutPosition">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutPosition-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:SetAnchorToPage</property>
++        <property name="label" translatable="yes" context="TabbedWriter|hstUxMenu">Fix Position on Page</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutPosition-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:SetAnchorToPara</property>
++        <property name="label" translatable="yes" context="TabbedWriter|hstUxMenu">Move with Paragraph</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutPosition-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:SetAnchorAtChar</property>
++        <property name="label" translatable="yes" context="TabbedWriter|hstUxMenu">Move with Character</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutPosition-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:SetAnchorToChar</property>
++        <property name="label" translatable="yes" context="TabbedWriter|hstUxMenu">In Line with Text</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkSeparatorMenuItem" id="MenuHstLayoutPosition-4">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutPosition-5">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:TransformDialog</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstLayoutWrapMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_wrapideal.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstLayoutWrap">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutWrap-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:WrapOff</property>
++        <property name="label" translatable="yes" context="TabbedWriter|hstUxMenu">Top and Bottom</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutWrap-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:WrapOn</property>
++        <property name="label" translatable="yes" context="TabbedWriter|hstUxMenu">Square</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutWrap-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:WrapIdeal</property>
++        <property name="label" translatable="yes" context="TabbedWriter|hstUxMenu">Tight</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutWrap-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:WrapLeft</property>
++        <property name="label" translatable="yes" context="TabbedWriter|hstUxMenu">Text on the Left</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutWrap-4">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:WrapRight</property>
++        <property name="label" translatable="yes" context="TabbedWriter|hstUxMenu">Text on the Right</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutWrap-5">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:WrapThrough</property>
++        <property name="label" translatable="yes" context="TabbedWriter|hstUxMenu">Behind or in Front of Text</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkSeparatorMenuItem" id="MenuHstLayoutWrap-6">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutWrap-7">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ContourDialog</property>
++        <property name="label" translatable="yes" context="TabbedWriter|hstUxMenu">Edit Wrap Points</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutWrap-8">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:TextWrap</property>
++        <property name="label" translatable="yes" context="TabbedWriter|hstUxMenu">More Layout Options</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstLayoutForwardMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_objectforwardone.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstLayoutForward">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutForward-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ObjectForwardOne</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutForward-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:BringToFront</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstLayoutBackwardMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_objectbackone.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstLayoutBackward">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutBackward-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ObjectBackOne</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutBackward-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:SendToBack</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstLayoutAlignMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_objectalign.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstLayoutAlign">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutAlign-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ObjectAlignLeft</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutAlign-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:AlignCenter</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutAlign-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ObjectAlignRight</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkSeparatorMenuItem" id="MenuHstLayoutAlign-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutAlign-4">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:AlignUp</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutAlign-5">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:AlignMiddle</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutAlign-6">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:AlignDown</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstLayoutGroupMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_formatgroup.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstLayoutGroup">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutGroup-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:FormatGroup</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutGroup-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:FormatUngroup</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutGroup-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:EnterGroup</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutGroup-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:LeaveGroup</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstLayoutRotateMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_rotateright.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstLayoutRotate">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutRotate-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:RotateRight</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutRotate-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:RotateLeft</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkSeparatorMenuItem" id="MenuHstLayoutRotate-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutRotate-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:FlipVertical</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutRotate-4">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:FlipHorizontal</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkSeparatorMenuItem" id="MenuHstLayoutRotate-5">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutRotate-6">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ToggleObjectRotateMode</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstReviewAcceptMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_accepttrackedchange.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstReviewAccept">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstReviewAccept-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:AcceptTrackedChange</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstReviewAccept-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:AcceptTrackedChangeToNext</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstReviewAccept-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:AcceptAllTrackedChanges</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstReviewRejectMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_rejecttrackedchange.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstReviewReject">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstReviewReject-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:RejectTrackedChange</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstReviewReject-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:RejectTrackedChangeToNext</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstReviewReject-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:RejectAllTrackedChanges</property>
++      </object>
++    </child>
++  </object>
+   <object class="GtkGrid" id="NotebookBar">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -5566,154 +5955,136 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">7</property>
++                            <property name="width">5</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstObjectAlign">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstLayoutPositionMenu:Menu HstLayoutPosition">
++                            <property name="label" translatable="yes" context="TabbedWriter|hstG10Label">Position</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnHstObjectAlign">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ObjectAlign</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstLayoutPositionMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedWriter|hstG10Tip">Choose what the selected object stays with: the page, a paragraph or a character.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">5</property>
++                            <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstLayoutPosition">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstLayoutWrapMenu:Menu HstLayoutWrap">
++                            <property name="label" translatable="yes" context="TabbedWriter|hstG10Label">Wrap Text</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnHstLayoutPosition">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:TransformDialog</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstLayoutWrapMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedWriter|hstG10Tip">Choose how the text flows around the selected object.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">5</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstLayoutRotate">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstLayoutForwardMenu:Menu HstLayoutForward">
++                            <property name="label" translatable="yes" context="TabbedWriter|hstG10Label">Bring Forward</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnHstLayoutRotate">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:RotateRight</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstLayoutForwardMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedWriter|hstG10Tip">Bring the selected object one step forward or in front of all others.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">6</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstLayoutNavigator">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstLayoutBackwardMenu:Menu HstLayoutBackward">
++                            <property name="label" translatable="yes" context="TabbedWriter|hstG10Label">Send Backward</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnHstLayoutNavigator">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:Navigator</property>
+-                                <property name="hst-ribbon-description" translatable="yes" context="TabbedWriter|hstUxTip">Show headings, tables and pictures to move around.</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstLayoutBackwardMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedWriter|hstG10Tip">Send the selected object one step back or behind all others.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">6</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="GtkSeparator">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstLayoutAlignMenu:Menu HstLayoutAlign">
++                            <property name="label" translatable="yes" context="TabbedWriter|hstG10Label">Align</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="orientation">vertical</property>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstLayoutAlignMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedWriter|hstG10Tip">Line up the selected objects with each other or with the page.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">7</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="boxSelectObject">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstLayoutGroupMenu:Menu HstLayoutGroup">
++                            <property name="label" translatable="yes" context="TabbedWriter|hstG10Label">Group</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutSelectObject">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:SelectObject</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstLayoutGroupMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedWriter|hstG10Tip">Join objects so that they move and are formatted as one, or split a group.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
+-                            <property name="top-attach">0</property>
++                            <property name="left-attach">3</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="boxFormatGroup">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstLayoutRotateMenu:Menu HstLayoutRotate">
++                            <property name="label" translatable="yes" context="TabbedWriter|hstG10Label">Rotate</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutFormatGroup">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:FormatGroup</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstLayoutRotateMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedWriter|hstG10Tip">Rotate the selected object by 90 degrees or flip it.</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+@@ -5721,83 +6092,16 @@
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="boxWrapOnOff">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutWrapOff">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:WrapOff</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutWrapOn">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:WrapOn</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutWrapIdeal">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:WrapIdeal</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="boxWrapLeftRight">
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstLayoutPosition">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+-                              <object class="GtkToolButton" id="btnLayoutWrapLeft">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:WrapLeft</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutWrapThrough">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:WrapThrough</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutWrapRight">
++                              <object class="GtkToolButton" id="btnHstLayoutPosition">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:WrapRight</property>
++                                <property name="action-name">.uno:TransformDialog</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+@@ -5811,62 +6115,17 @@
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="boxContourDialog">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">text</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutContourDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ContourDialog</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="boxTextWrap">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">text</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutTextWrap">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:TextWrap</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">1</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="boxBringToFront">
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstLayoutNavigator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+-                              <object class="GtkToolButton" id="btnLayoutBringToFront">
++                              <object class="GtkToolButton" id="btnHstLayoutNavigator">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:BringToFront</property>
++                                <property name="action-name">.uno:Navigator</property>
++                                <property name="hst-ribbon-description" translatable="yes" context="TabbedWriter|hstUxTip">Show headings, tables and pictures to move around.</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+@@ -5875,21 +6134,21 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="boxSendToBack">
++                          <object class="sfxlo-NotebookbarToolBox" id="boxSelectObject">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+-                              <object class="GtkToolButton" id="btnLayoutSendToBack">
++                              <object class="GtkToolButton" id="btnLayoutSelectObject">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:SendToBack</property>
++                                <property name="action-name">.uno:SelectObject</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+@@ -5898,54 +6157,20 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="boxObjectForwardOne">
++                          <object class="GtkSeparator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutObjectForwardOne">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ObjectForwardOne</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">5</property>
+                             <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="boxObjectBackOne">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutObjectBackOne">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ObjectBackOne</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">4</property>
+-                            <property name="top-attach">1</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -8103,45 +8328,45 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">4</property>
++                            <property name="width">2</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="GtkSeparator" id="separator10">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstReviewAcceptMenu:Menu HstReviewAccept">
++                            <property name="label" translatable="yes" context="TabbedWriter|hstG10Label">Accept</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="halign">end</property>
+-                            <property name="margin-top">5</property>
+-                            <property name="margin-bottom">5</property>
+-                            <property name="orientation">vertical</property>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstReviewAcceptMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedWriter|hstG10Tip">Keep this change, keep it and go to the next one, or keep every change.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxReviewNextTrackedChange">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstReviewRejectMenu:Menu HstReviewReject">
++                            <property name="label" translatable="yes" context="TabbedWriter|hstG10Label">Reject</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnReviewNextTrackedChange">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:NextTrackedChange</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstReviewRejectMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedWriter|hstG10Tip">Undo this change, undo it and go to the next one, or undo every change.</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">0</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8163,46 +8388,21 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
+-                            <property name="top-attach">1</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxReviewAcceptTrackedChange">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnReviewAcceptTrackedChange">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:AcceptTrackedChange</property>
+-                                <property name="hst-ribbon-description" translatable="yes" context="TabbedWriter|hstUxTip">Keep this change.</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="boAcceptTrackedChange">
++                          <object class="sfxlo-NotebookbarToolBox" id="bxReviewNextTrackedChange">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+-                              <object class="GtkToolButton" id="btnReviewRejectTrackedChange">
++                              <object class="GtkToolButton" id="btnReviewNextTrackedChange">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:RejectTrackedChange</property>
+-                                <property name="hst-ribbon-description" translatable="yes" context="TabbedWriter|hstUxTip">Undo this change.</property>
++                                <property name="action-name">.uno:NextTrackedChange</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+@@ -8216,95 +8416,18 @@
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxReviewAcceptTrackedChangeToNext">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnReviewAcceptTrackedChangeToNext">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:AcceptTrackedChangeToNext</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxReviewRejectTrackedChangeToNext">
++                          <object class="GtkSeparator" id="separator10">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnReviewRejectTrackedChangeToNext">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:RejectTrackedChangeToNext</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="halign">end</property>
++                            <property name="margin-top">5</property>
++                            <property name="margin-bottom">5</property>
++                            <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+-                            <property name="top-attach">1</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxReviewAcceptAllTrackedChanges">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnReviewAcceptAllTrackedChanges">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:AcceptAllTrackedChanges</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxReviewRejectAllTrackedChanges">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnReviewRejectAllTrackedChanges">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:RejectAllTrackedChanges</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">3</property>
+-                            <property name="top-attach">1</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -3768,6 +3768,273 @@
+       </object>
+     </child>
+   </object>
++  <object class="GtkImage" id="imgHstLayoutForwardMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_objectforwardone.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstLayoutForward">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutForward-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ObjectForwardOne</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutForward-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:BringToFront</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstLayoutBackwardMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_objectbackone.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstLayoutBackward">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutBackward-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ObjectBackOne</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutBackward-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:SendToBack</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstLayoutAlignMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_objectalign.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstLayoutAlign">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutAlign-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ObjectAlignLeft</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutAlign-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:AlignCenter</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutAlign-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ObjectAlignRight</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkSeparatorMenuItem" id="MenuHstLayoutAlign-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutAlign-4">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:AlignUp</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutAlign-5">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:AlignMiddle</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutAlign-6">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:AlignDown</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstLayoutGroupMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_formatgroup.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstLayoutGroup">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutGroup-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:FormatGroup</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutGroup-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:FormatUngroup</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutGroup-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:EnterGroup</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutGroup-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:LeaveGroup</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstLayoutRotateMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/sc_toggleobjectrotatemode.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstLayoutRotate">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutRotate-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ToggleObjectRotateMode</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkSeparatorMenuItem" id="MenuHstLayoutRotate-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutRotate-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:FlipVertical</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstLayoutRotate-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:FlipHorizontal</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstDataAnalysisMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/lc_descriptivestatisticsdialog.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstDataAnalysis">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstDataAnalysis-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:DescriptiveStatisticsDialog</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstDataAnalysis-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:AnalysisOfVarianceDialog</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstDataAnalysis-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:CorrelationDialog</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstDataAnalysis-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:CovarianceDialog</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstDataAnalysis-4">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:RegressionDialog</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkSeparatorMenuItem" id="MenuHstDataAnalysis-5">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstDataAnalysis-6">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:TTestDialog</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstDataAnalysis-7">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:FTestDialog</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstDataAnalysis-8">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ZTestDialog</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstDataAnalysis-9">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ChiSquareTestDialog</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkSeparatorMenuItem" id="MenuHstDataAnalysis-10">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstDataAnalysis-11">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:FourierAnalysisDialog</property>
++      </object>
++    </child>
++  </object>
+   <object class="GtkGrid" id="NotebookBar">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -7618,141 +7885,105 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">5</property>
++                            <property name="width">4</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstLayoutNavigator">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstLayoutForwardMenu:Menu HstLayoutForward">
++                            <property name="label" translatable="yes" context="TabbedCalc|hstG10Label">Bring Forward</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
+                             <property name="valign">center</property>
+-                            <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both</property>
+-                            <property name="show-arrow">False</property>
+-                            <property name="icon_size">3</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnHstLayoutNavigator">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:Navigator</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstLayoutForwardMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|hstG10Tip">Bring the selected object one step forward or in front of all others.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="GtkSeparator">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstLayoutBackwardMenu:Menu HstLayoutBackward">
++                            <property name="label" translatable="yes" context="TabbedCalc|hstG10Label">Send Backward</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="orientation">vertical</property>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstLayoutBackwardMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|hstG10Tip">Send the selected object one step back or behind all others.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">5</property>
+-                            <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutBringToFront">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstLayoutAlignMenu:Menu HstLayoutAlign">
++                            <property name="label" translatable="yes" context="TabbedCalc|hstG10Label">Align</property>
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutBringToFront">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:BringToFront</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstLayoutAlignMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|hstG10Tip">Line up the selected objects with each other or with the page.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutSendToBack">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstLayoutGroupMenu:Menu HstLayoutGroup">
++                            <property name="label" translatable="yes" context="TabbedCalc|hstG10Label">Group</property>
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutSendToBack">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:SendToBack</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstLayoutGroupMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|hstG10Tip">Join objects so that they move and are formatted as one, or split a group.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutObjectForwardOne">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstLayoutRotateMenu:Menu HstLayoutRotate">
++                            <property name="label" translatable="yes" context="TabbedCalc|hstG10Label">Rotate</property>
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutObjectForwardOne">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ObjectForwardOne</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="halign">start</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstLayoutRotateMenu</property>
++                            <property name="image-position">left</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|hstG10Tip">Rotate the selected object freely or flip it.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutObjectBackOne">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutObjectBackOne">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ObjectBackOne</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">3</property>
+-                            <property name="top-attach">1</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxLayoutSelectObject">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+@@ -7771,21 +8002,24 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
+-                            <property name="top-attach">0</property>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutToggleObjectRotateMode">
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstLayoutNavigator">
+                             <property name="visible">True</property>
+-                            <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
+                             <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
+                             <child>
+-                              <object class="GtkToolButton" id="btnLayoutToggleObjectRotateMode">
++                              <object class="GtkToolButton" id="btnHstLayoutNavigator">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ToggleObjectRotateMode</property>
++                                <property name="action-name">.uno:Navigator</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+@@ -7794,55 +8028,21 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
++                            <property name="height">2</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutFormatGroup">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnLayoutFormatGroup">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:FormatGroup</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">0</property>
+-                            <property name="top-attach">1</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxLayoutObjectAlign">
++                          <object class="GtkSeparator">
+                             <property name="visible">True</property>
+-                            <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkMenuToolButton" id="btnLayoutObjectAlign">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="halign">start</property>
+-                                <property name="action-name">.uno:ObjectAlign</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">True</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">4</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -9531,18 +9731,6 @@
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">3</property>
+                         <child>
+-                          <object class="GtkSeparator">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="orientation">vertical</property>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
+-                            <property name="height">3</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+                           <object class="GtkLabel" id="lbFunctionsStatistics">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+@@ -9560,102 +9748,22 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">2</property>
++                            <property name="width">1</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxFunctionsStatisticsTop">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstDataAnalysisMenu:Menu HstDataAnalysis">
++                            <property name="label" translatable="yes" context="TabbedCalc|hstG10Label">Data Analysis</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="valign">center</property>
+-                            <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnFunctionsChiSquareTestDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ChiSquareTestDialog</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnFunctionsFTestDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:FTestDialog</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnFunctionsTTestDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:TTestDialog</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnFunctionsZTestDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ZTestDialog</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnFunctionsANOVA">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:AnalysisOfVarianceDialog</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxFunctionsDescriptiveStatisticsDialog">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both</property>
+-                            <property name="show-arrow">False</property>
+-                            <property name="icon_size">3</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnFunctionsDescriptiveStatisticsDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:DescriptiveStatisticsDialog</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstDataAnalysisMenu</property>
++                            <property name="image-position">top</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|hstG10Tip">Describe, compare or test the selected data with a statistical analysis.</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+@@ -9664,64 +9772,15 @@
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxFunctionsStatisticsBottom">
++                          <object class="GtkSeparator">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+-                            <property name="valign">center</property>
+-                            <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnFunctionsRegressionDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:RegressionDialog</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnFunctionsFourierAnalysisDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:FourierAnalysisDialog</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnFunctionsCorrelationDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:CorrelationDialog</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnFunctionsCovarianceDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:CovarianceDialog</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+-                            <property name="top-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+--- a/sd/uiconfig/sdraw/ui/notebookbar.ui
++++ b/sd/uiconfig/sdraw/ui/notebookbar.ui
+@@ -302,6 +302,14 @@
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+     <child>
++      <object class="GtkMenuItem" id="MenuHstTransform-AdvancedMode">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:AdvancedMode</property>
++        <property name="label" translatable="yes" context="TabbedDraw|hstG10Menu">Transform Mode</property>
++      </object>
++    </child>
++    <child>
+       <object class="GtkMenuItem" id="MenuHstTransform-Shear">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+@@ -389,6 +397,93 @@
+     <property name="icon-name">cmd/32/snapborder.png</property>
+   </object>
+   <!-- n-columns=1 n-rows=1 -->
++  <object class="GtkImage" id="imgHstArrangeTransform">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/lc_shear.png</property>
++  </object>
++  <object class="GtkImage" id="imgHstArrangeForwardMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/lc_objectforwardone.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstArrangeForward">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstArrangeForward-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ObjectForwardOne</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstArrangeForward-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:BringToFront</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstArrangeBackwardMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/lc_objectbackone.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstArrangeBackward">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstArrangeBackward-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ObjectBackOne</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstArrangeBackward-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:SendToBack</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstArrangeRotateMenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/lc_toggleobjectrotatemode.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstArrangeRotate">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstArrangeRotate-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:ToggleObjectRotateMode</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkSeparatorMenuItem" id="MenuHstArrangeRotate-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstArrangeRotate-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:FlipVertical</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstArrangeRotate-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:FlipHorizontal</property>
++      </object>
++    </child>
++  </object>
+   <object class="GtkGrid" id="NotebookBar">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -3715,6 +3810,27 @@
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">4</property>
+                         <child>
++                          <object class="GtkLabel" id="lbArrangePositioning">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">end</property>
++                            <property name="vexpand">True</property>
++                            <property name="label" translatable="yes" context="TabbedImpress|hstUXlabelArrangePosition">Arrange</property>
++                            <attributes>
++                              <attribute name="style" value="normal" />
++                              <attribute name="scale" value="0.9" />
++                            </attributes>
++                            <accessibility>
++                              <relation type="label-for" target="gdArrangePositioning" />
++                            </accessibility>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                            <property name="width">3</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHstUXArrangePositioning12">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+@@ -3744,103 +3860,43 @@
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstUXArrangePositioning13">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                        <child>
+-                              <object class="GtkToolButton" id="btnArrangeBringToFront">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstArrangeForwardMenu:Menu HstArrangeForward">
++                            <property name="label" translatable="yes" context="TabbedDraw|hstG10Label">Bring Forward</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:BringToFront</property>
+-                                <property name="use-underline">True</property>
+-                                <property name="hst-ribbon-label" translatable="yes" context="TabbedImpress|hstRibbonLabel">Bring to Front</property>
+-                                <property name="hst-ribbon-description" translatable="yes" context="TabbedImpress|hstRibbonDescription">Put the selected object in front of all others.</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstArrangeForwardMenu</property>
++                            <property name="image-position">top</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedDraw|hstG10Tip">Bring the selected object one step forward or in front of all others.</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                            <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstUXArrangePositioning14">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnArrangeSendToBack">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:SendToBack</property>
+-                                <property name="use-underline">True</property>
+-                                <property name="hst-ribbon-label" translatable="yes" context="TabbedImpress|hstRibbonLabel">Send to Back</property>
+-                                <property name="hst-ribbon-description" translatable="yes" context="TabbedImpress|hstRibbonDescription">Put the selected object behind all others.</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                              </object>
+-                              <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">1</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstUXArrangePositioning15">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                            <property name="toolbar-style">icons</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnArrangeObjectForwardOne">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ObjectForwardOne</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstUXArrangePositioning16">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstArrangeBackwardMenu:Menu HstArrangeBackward">
++                            <property name="label" translatable="yes" context="TabbedDraw|hstG10Label">Send Backward</property>
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">icons</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnArrangeObjectBackOne">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ObjectBackOne</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstArrangeBackwardMenu</property>
++                            <property name="image-position">top</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedDraw|hstG10Tip">Send the selected object one step back or behind all others.</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+-                            <property name="top-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -3855,27 +3911,6 @@
+                             <property name="height">3</property>
+                           </packing>
+                         </child>
+-                        <child>
+-                          <object class="GtkLabel" id="lbArrangePositioning">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="valign">end</property>
+-                            <property name="vexpand">True</property>
+-                            <property name="label" translatable="yes" context="TabbedImpress|hstUXlabelArrangePosition">Arrange</property>
+-                            <attributes>
+-                              <attribute name="style" value="normal" />
+-                              <attribute name="scale" value="0.9" />
+-                            </attributes>
+-                            <accessibility>
+-                              <relation type="label-for" target="gdArrangePositioning" />
+-                            </accessibility>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
+-                            <property name="width">3</property>
+-                          </packing>
+-                        </child>
+                         <accessibility>
+                           <relation type="labelled-by" target="lbArrangePositioning" />
+                         </accessibility>
+@@ -4043,130 +4078,6 @@
+                         <property name="row-spacing">3</property>
+                         <property name="column-spacing">4</property>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstUXArrange17">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="valign">center</property>
+-                            <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both</property>
+-                            <property name="show-arrow">False</property>
+-                            <property name="icon_size">3</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnArrangeTransformDialog">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:TransformDialog</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">False</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">0</property>
+-                            <property name="top-attach">0</property>
+-                            <property name="height">2</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstUXArrange18">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">icons</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnArrangeToggleObjectBezierMode">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:AdvancedMode</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnArrangeToggleObjectRotateMode">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ToggleObjectRotateMode</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstUXArrange19">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="toolbar-style">icons</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnArrangeFlipVertical">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:FlipVertical</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnArrangeFlipHorizontal">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:FlipHorizontal</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">1</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="svtlo-ManagedMenuButton" id="btnHstArrangeTransform:Menu HstTransform">
+-                            <property name="label" translatable="yes" context="TabbedImpress|hstUXtransformMenuButton">Transform</property>
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">True</property>
+-                            <property name="focus-on-click">False</property>
+-                            <property name="receives-default">False</property>
+-                            <property name="valign">center</property>
+-                            <property name="vexpand">True</property>
+-                            <property name="relief">none</property>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="GtkSeparator">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="orientation">vertical</property>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">3</property>
+-                            <property name="top-attach">0</property>
+-                            <property name="height">3</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+                           <object class="GtkBox" id="bxHstCaptionArrange">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+@@ -4243,6 +4154,85 @@
+                             <property name="width">3</property>
+                           </packing>
+                         </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstUXArrange17">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnArrangeTransformDialog">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="action-name">.uno:TransformDialog</property>
++                                <property name="use-underline">True</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="svtlo-ManagedMenuButton" id="btnHstArrangeRotateMenu:Menu HstArrangeRotate">
++                            <property name="label" translatable="yes" context="TabbedDraw|hstG10Label">Rotate</property>
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstArrangeRotateMenu</property>
++                            <property name="image-position">top</property>
++                            <property name="hst-ribbon-description" translatable="yes" context="TabbedDraw|hstG10Tip">Rotate the selected object freely or flip it.</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="svtlo-ManagedMenuButton" id="btnHstArrangeTransform:Menu HstTransform">
++                            <property name="label" translatable="yes" context="TabbedImpress|hstUXtransformMenuButton">Transform</property>
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstArrangeTransform</property>
++                            <property name="image-position">top</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkSeparator">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="orientation">vertical</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">3</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
+                         <accessibility>
+                           <relation type="labelled-by" target="lbArrange" />
+                         </accessibility>
+--- a/solenv/sanitizers/ui/modules/swriter.suppr
++++ b/solenv/sanitizers/ui/modules/swriter.suppr
+@@ -91,6 +91,32 @@
+ sw/uiconfig/swriter/ui/notebookbar_groups.ui://GtkLabel[@id='clipboardgrouplabel'] orphan-label
+ sw/uiconfig/swriter/ui/notebookbar_groups.ui://GtkLabel[@id='formatgrouplabel'] orphan-label
+ sw/uiconfig/swriter/ui/notebookbar_groups.ui://GtkLabel[@id='insertgrouplabel'] orphan-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutPosition-5'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutForward-0'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutForward-1'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutBackward-0'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutBackward-1'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutAlign-0'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutAlign-1'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutAlign-2'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutAlign-4'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutAlign-5'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutAlign-6'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutGroup-0'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutGroup-1'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutGroup-2'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutGroup-3'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutRotate-0'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutRotate-1'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutRotate-3'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutRotate-4'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutRotate-6'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstReviewAccept-0'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstReviewAccept-1'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstReviewAccept-2'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstReviewReject-0'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstReviewReject-1'] button-no-label
++sw/uiconfig/swriter/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstReviewReject-2'] button-no-label
+ sw/uiconfig/swriter/ui/notebookbar_groups.ui://GtkLabel[@id='tablegrouplabel'] orphan-label
+ sw/uiconfig/swriter/ui/notebookbar_groups.ui://GtkLabel[@id='imagegrouplabel'] orphan-label
+ sw/uiconfig/swriter/ui/outlinebutton.ui://GtkButton[@id='show'] button-no-label
+--- a/solenv/sanitizers/ui/modules/scalc.suppr
++++ b/solenv/sanitizers/ui/modules/scalc.suppr
+@@ -220,6 +220,33 @@
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuFile-PrintPreview'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuFile-Print'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuFile-PrintDefault'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutForward-0'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutForward-1'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutBackward-0'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutBackward-1'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutAlign-0'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutAlign-1'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutAlign-2'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutAlign-4'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutAlign-5'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutAlign-6'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutGroup-0'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutGroup-1'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutGroup-2'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutGroup-3'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutRotate-0'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutRotate-2'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstLayoutRotate-3'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstDataAnalysis-0'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstDataAnalysis-1'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstDataAnalysis-2'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstDataAnalysis-3'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstDataAnalysis-4'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstDataAnalysis-6'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstDataAnalysis-7'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstDataAnalysis-8'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstDataAnalysis-9'] button-no-label
++sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstDataAnalysis-11'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuFile-PrinterSetup'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuFile-Signature'] button-no-label
+ sc/uiconfig/scalc/ui/notebookbar.ui://GtkMenuItem[@id='MenuFile-SignPDF'] button-no-label
+--- a/solenv/sanitizers/ui/modules/sdraw.suppr
++++ b/solenv/sanitizers/ui/modules/sdraw.suppr
+@@ -336,6 +336,13 @@
+ sd/uiconfig/sdraw/ui/notebookbar.ui://GtkToolButton[@id='btnFormEdit'] button-no-label
+ sd/uiconfig/sdraw/ui/notebookbar.ui://GtkToolButton[@id='btnFormCheckBox'] button-no-label
+ sd/uiconfig/sdraw/ui/notebookbar.ui://GtkToolButton[@id='btnFormRadioButton'] button-no-label
++sd/uiconfig/sdraw/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstArrangeForward-0'] button-no-label
++sd/uiconfig/sdraw/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstArrangeForward-1'] button-no-label
++sd/uiconfig/sdraw/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstArrangeBackward-0'] button-no-label
++sd/uiconfig/sdraw/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstArrangeBackward-1'] button-no-label
++sd/uiconfig/sdraw/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstArrangeRotate-0'] button-no-label
++sd/uiconfig/sdraw/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstArrangeRotate-2'] button-no-label
++sd/uiconfig/sdraw/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstArrangeRotate-3'] button-no-label
+ sd/uiconfig/sdraw/ui/notebookbar.ui://GtkToolButton[@id='btnFormListBox'] button-no-label
+ sd/uiconfig/sdraw/ui/notebookbar.ui://GtkToolButton[@id='btnFormComboBox'] button-no-label
+ sd/uiconfig/sdraw/ui/notebookbar.ui://GtkToolButton[@id='btnFormNumericField'] button-no-label
+--- a/translations/source/vi/sw/messages.po
++++ b/translations/source/vi/sw/messages.po
+@@ -16622,6 +16622,114 @@
+ msgid "Type the name of the user-defined field  to create."
+ msgstr ""
+ 
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Label"
++msgid "Position"
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Tip"
++msgid "Choose what the selected object stays with: the page, a paragraph or a character."
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Label"
++msgid "Wrap Text"
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Tip"
++msgid "Choose how the text flows around the selected object."
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Label"
++msgid "Bring Forward"
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Tip"
++msgid "Bring the selected object one step forward or in front of all others."
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Label"
++msgid "Send Backward"
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Tip"
++msgid "Send the selected object one step back or behind all others."
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Label"
++msgid "Align"
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Tip"
++msgid "Line up the selected objects with each other or with the page."
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Label"
++msgid "Group"
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Tip"
++msgid "Join objects so that they move and are formatted as one, or split a group."
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Label"
++msgid "Rotate"
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Tip"
++msgid "Rotate the selected object by 90 degrees or flip it."
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Label"
++msgid "Accept"
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Tip"
++msgid "Keep this change, keep it and go to the next one, or keep every change."
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Label"
++msgid "Reject"
++msgstr ""
++
++#. hstG10
++#: sw/uiconfig/swriter/ui/notebookbar.ui
++msgctxt "TabbedWriter|hstG10Tip"
++msgid "Undo this change, undo it and go to the next one, or undo every change."
++msgstr ""
++
+ #. mA2Cx
+ #: sw/uiconfig/swriter/ui/fldvarpage.ui:106
+ msgctxt "fldvarpage|valueft"
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -15351,6 +15351,78 @@
+ msgid "Data 2"
+ msgstr "Ngày"
+ 
++#. hstG10
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstG10Label"
++msgid "Bring Forward"
++msgstr ""
++
++#. hstG10
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstG10Tip"
++msgid "Bring the selected object one step forward or in front of all others."
++msgstr ""
++
++#. hstG10
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstG10Label"
++msgid "Send Backward"
++msgstr ""
++
++#. hstG10
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstG10Tip"
++msgid "Send the selected object one step back or behind all others."
++msgstr ""
++
++#. hstG10
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstG10Label"
++msgid "Align"
++msgstr ""
++
++#. hstG10
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstG10Tip"
++msgid "Line up the selected objects with each other or with the page."
++msgstr ""
++
++#. hstG10
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstG10Label"
++msgid "Group"
++msgstr ""
++
++#. hstG10
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstG10Tip"
++msgid "Join objects so that they move and are formatted as one, or split a group."
++msgstr ""
++
++#. hstG10
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstG10Label"
++msgid "Rotate"
++msgstr ""
++
++#. hstG10
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstG10Tip"
++msgid "Rotate the selected object freely or flip it."
++msgstr ""
++
++#. hstG10
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstG10Label"
++msgid "Data Analysis"
++msgstr ""
++
++#. hstG10
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstG10Tip"
++msgid "Describe, compare or test the selected data with a statistical analysis."
++msgstr ""
++
+ #. B3Lg5
+ #: sc/inc/scfuncs.hrc:3117
+ msgctxt "ocCOVARIANCE_S"
+--- a/translations/source/vi/sd/messages.po
++++ b/translations/source/vi/sd/messages.po
+@@ -6021,6 +6021,48 @@
+ msgid "_Menu"
+ msgstr "_Menu"
+ 
++#. hstG10
++#: sd/uiconfig/sdraw/ui/notebookbar.ui
++msgctxt "TabbedDraw|hstG10Menu"
++msgid "Transform Mode"
++msgstr ""
++
++#. hstG10
++#: sd/uiconfig/sdraw/ui/notebookbar.ui
++msgctxt "TabbedDraw|hstG10Label"
++msgid "Bring Forward"
++msgstr ""
++
++#. hstG10
++#: sd/uiconfig/sdraw/ui/notebookbar.ui
++msgctxt "TabbedDraw|hstG10Tip"
++msgid "Bring the selected object one step forward or in front of all others."
++msgstr ""
++
++#. hstG10
++#: sd/uiconfig/sdraw/ui/notebookbar.ui
++msgctxt "TabbedDraw|hstG10Label"
++msgid "Send Backward"
++msgstr ""
++
++#. hstG10
++#: sd/uiconfig/sdraw/ui/notebookbar.ui
++msgctxt "TabbedDraw|hstG10Tip"
++msgid "Send the selected object one step back or behind all others."
++msgstr ""
++
++#. hstG10
++#: sd/uiconfig/sdraw/ui/notebookbar.ui
++msgctxt "TabbedDraw|hstG10Label"
++msgid "Rotate"
++msgstr ""
++
++#. hstG10
++#: sd/uiconfig/sdraw/ui/notebookbar.ui
++msgctxt "TabbedDraw|hstG10Tip"
++msgid "Rotate the selected object freely or flip it."
++msgstr ""
++
+ #. n8Ekd
+ #: sd/uiconfig/sdraw/ui/paranumberingtab.ui:27
+ msgctxt "paranumberingtab|checkbuttonCB_NEW_START"
