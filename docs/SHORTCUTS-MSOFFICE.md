@@ -132,6 +132,7 @@ Phím đổi sau ngày 15/11 (quy tắc 100 % của chủ dự án): `patches/li
 | Writer | Ctrl+Alt+V | Dán đặc biệt | Dán định dạng |
 | Writer | Ctrl+Alt+Shift+V | Chèn mục Văn bản tự động, như F3 (chủ dự án 15/11) | Dán văn bản không định dạng (14/11) |
 | Writer | Shift+F12 / Ctrl+F12 / Ctrl+Shift+F12 | Lưu / Mở / In (15/11) | Dấu đầu dòng / Chèn bảng / Tắt đánh số |
+| Writer | Ctrl+Shift+A | Viết hoa toàn bộ, bật/tắt thuộc tính ký tự (`.uno:HstAllCaps`, `hst-writer-all-caps-toggle.patch`, 15/11) | Đoạn trái-sang-phải |
 | Sheets | Ctrl+Shift+F | Định dạng ô, thẻ Phông chữ (15/11) | Tìm tiếp (Win/Linux) |
 | Sheets | Ctrl+Alt+L | Áp dụng lại lọc và sắp xếp của vùng (`.uno:DataAreaRefresh`, 15/11) | không có |
 | Slides, PDF | Ctrl+F2 | Trang In có xem trước, như Ctrl+P (15/11) | không có |
@@ -183,6 +184,7 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 | Writer | Ctrl+Alt+Shift+V | Dán không định dạng | không có phím: Sửa ▸ Dán đặc biệt, ribbon (chủ dự án 15/11) |
 | Writer | Shift+F12 / Ctrl+F12 / Ctrl+Shift+F12 | Dấu đầu dòng / Chèn bảng / Tắt đánh số | Ctrl+Shift+L / thẻ Chèn ▸ Bảng / ribbon |
 | Sheets | Ctrl+Shift+F (Win/Linux) | Tìm tiếp | thanh Tìm, Tìm và thay thế |
+| Writer | Ctrl+Shift+A | Đoạn trái-sang-phải | menu Định dạng, ribbon |
 | Writer | Ctrl+Q (Win/Linux) | Thoát | Alt+F4, Tệp tin ▸ Thoát |
 | Writer | F4 | Thuộc tính hình ảnh | menu chuột phải |
 | Writer | F12 (Win/Linux) | Bật/tắt đánh số | ribbon, Định dạng ▸ Dấu đầu dòng và đánh số |
