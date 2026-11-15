@@ -47,6 +47,7 @@ from single_deb_control import (PACKAGE, MAINTAINER, INSTALL_ROOT, clause_name, 
                                 with_t64_alternative, die, run, merge_packages, build_control, collect_scripts)
 from single_deb_texts import COPYRIGHT, LINTIAN_OVERRIDES, METAINFO  # noqa: E402
 from desktop_keywords import clean_tree  # noqa: E402
+from soffice_gstreamer_env import patch_tree as add_gstreamer_env  # noqa: E402
 
 EPOCH = 1
 _RELEASE = re.compile(r"(\d+\.\d+\.\d+)(?:-([0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?")
@@ -132,6 +133,8 @@ def main():
         work = pathlib.Path(tmp)
         infos, stage = merge_packages(debs, work)
         clean_tree(stage)  # no third-party product names in launcher keywords (desktop_keywords.py)
+        if (stage / INSTALL_ROOT.lstrip("/") / "program/soffice").exists():
+            add_gstreamer_env(stage, INSTALL_ROOT)  # no DirectFB video sink (soffice_gstreamer_env.py)
         control = build_control(infos, stage, version)
         (stage / "DEBIAN").mkdir()
         (stage / "DEBIAN/control").write_text(control, encoding="utf-8")

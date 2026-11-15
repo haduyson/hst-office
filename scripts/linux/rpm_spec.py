@@ -17,7 +17,9 @@ VENDOR = "HASON TECH"
 PACKAGER = "HASON TECH <lienhe@hasontech.vn>"
 # Same role as the .deb's fonts-urw-base35: metric-compatible Symbol font for equations. A weak dependency, because
 # the package name differs between distributions and a missing font must not block the install.
-RECOMMENDS = ["urw-base35-fonts", "desktop-file-utils", "shared-mime-info"]
+# gstreamer1-plugins-base carries ximagesink/xvimagesink on Fedora/RHEL, gstreamer-plugins-base on openSUSE
+RECOMMENDS = ["urw-base35-fonts", "desktop-file-utils", "shared-mime-info",
+              "(gstreamer1-plugins-base or gstreamer-plugins-base)"]
 _RELEASE = re.compile(r"(\d+\.\d+\.\d+)(?:-([0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?")
 _SAFE_PATH = re.compile(r"/[A-Za-z0-9._+/-]+")
 
