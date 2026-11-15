@@ -95,6 +95,8 @@ class ApprovedOrder(unittest.TestCase):
         small = [s for s in steps if s[1] == "S"]
         self.assertEqual(small[0], ["gdReviewHstLanguage", "S"])
         self.assertLess(steps.index(["gdReviewHstAccessibility", "M"]), steps.index(["gdReviewHstLanguage", "S"]))
+        fold = next(l for l in data["ladders"] if (l["app"], l["box"]) == ("writer", "pmhbReview"))["fold"]
+        self.assertLess(fold.index("gdReviewHstLanguage"), fold.index("gdReviewResolveChanges"))
 
     def test_other_tabs_shrink_right_to_left_main_group_last(self):
         # coordinator 14/11/2026: right to left to M, to S, to C; the tab's first (main) group last
@@ -113,7 +115,11 @@ class ApprovedOrder(unittest.TestCase):
                 want.insert(want.index([rest[0], "S"]), ["gdReviewHstLanguage", "S"])
             self.assertEqual(ladder["steps"], want, (ladder["app"], ladder["box"]))
             # the regrow priority (reverse of the fold) follows the same rule: HstRibbonRegrow lays the row out by it
-            self.assertEqual(ladder.get("fold"), rest + [groups[0]], (ladder["app"], ladder["box"]))
+            fold = rest + [groups[0]]
+            if (ladder["app"], ladder["box"]) == ("writer", "pmhbReview"):  # Language folds before Changes (G10)
+                fold.remove("gdReviewHstLanguage")
+                fold.insert(fold.index("gdReviewResolveChanges"), "gdReviewHstLanguage")
+            self.assertEqual(ladder.get("fold"), fold, (ladder["app"], ladder["box"]))
             checked += 1
         self.assertGreater(checked, 40)
 
