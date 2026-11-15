@@ -25,7 +25,7 @@ scripts/build-linux.sh --package          # .deb (EPM)
 
 ## Hàng đợi build cục bộ (agent tự dùng)
 
-Agent tự build `.deb` (trên **VM103**, xem mục dưới) hoặc `.msi` (HST3/HST4/HST5) qua hàng đợi
+Agent tự build `.deb` (trên **VM103**, xem mục dưới) hoặc `.msi` (HST1/HST3/HST4/HST5) qua hàng đợi
 [`scripts/build-queue.sh`](../scripts/build-queue.sh), không cần qua S0. Bản phát hành chính thức vẫn lấy từ CI.
 
 ```bash
@@ -82,7 +82,7 @@ các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u
   `build-queue.sh drain <máy>` để ép (chờ máy rảnh, chép, rồi nhận job lại).
   Job hỏng vì hạ tầng (script đổi giữa chừng, slot bận, mount, mạng/SSH/SSL, task Windows biến mất…) được tự đưa lại
   vào hàng đợi, tối đa 2 lần (`infra_retries` trong job); lỗi build thật (lỗi make) thì không. Job Linux chạy `local-build.sh --slot N` trên slot rảnh mà bộ
-  điều phối cho vào; job Windows chạy trên các slot trong `windows_slots` (HST3, HST4, HST5; mỗi slot tối đa 24 job make, xem [CI.md](CI.md)): dispatcher tự chép công cụ
+  điều phối cho vào; job Windows chạy trên các slot trong `windows_slots` (HST1 chỉ trong khung giờ, HST3, HST4, HST5; mỗi slot tối đa 24 job make, xem [CI.md](CI.md)): dispatcher tự chép công cụ
   (`D:\hst-build\tools\scripts`) khi chúng đổi, chạy build thành scheduled task qua
   [`hst-queue-remote.ps1`](../scripts/windows/hst-queue-remote.ps1), kéo MSI về `out/<id>/` rồi xoá bản trên máy
   Windows. Slot có `build.lock` do người khác giữ (ví dụ một lượt `hst4-build.ps1` chạy tay) bị bỏ qua tới khi rảnh.
@@ -134,6 +134,20 @@ scripts/build-queue.sh train start --integrator          # integrator: dựng tr
   sha nên hàng đợi dùng lại build đó.
 - **Tắt train:** `"train_enabled": false` trong `config.json` (agent quay lại submit theo nhánh). Base là
   `integration_branch` trong `config.json`; đổi khi integrator chuyển sang batch mới.
+
+### Khung giờ build của slot Windows (HST1)
+
+Một slot trong `windows_slots` có thể mang `"window"` ([slot_window.py](../scripts/build_infra/slot_window.py)):
+ngoài khung giờ, slot không nhận job mới; job còn chạy lúc khung giờ đóng bị dừng ngay (remote `Cancel` dừng
+cả cây tiến trình) rồi đưa lại hàng đợi, sau đó build trên slot khác hoặc trong khung giờ sau. Chọn dừng thay vì
+để chạy xong vì một build mất 0,5–2,5 giờ, không thể bảo đảm máy rảnh trước `idle_by`. Nếu đến `idle_by` mà vẫn
+không dừng được (mất SSH…), dispatcher ghi cảnh báo vào journal và `/data/hst-build-queue/alerts.log`. Khung giờ
+sai cú pháp thì slot coi như đóng (ghi log mỗi giờ). Kết quả build xong ngay trước lúc dừng vẫn được giữ.
+
+HST1 (máy kế toán dùng hằng ngày): `{"open": "18:00", "close": "07:30", "all_day": ["sun"], "idle_by": "08:00",
+"utc_offset_minutes": 420}`, tức thứ Hai–thứ Bảy 18:00–07:30 sáng hôm sau, Chủ nhật cả ngày (liền từ thứ Bảy 18:00
+đến thứ Hai 07:30), giờ Asia/Saigon (UTC+7, không đổi giờ mùa hè, nên không cần cơ sở dữ liệu múi giờ).
+Job còn chạy lúc 07:30 bị dừng và đưa lại hàng đợi; máy phải rảnh trước 08:00.
 
 ### Đĩa của máy Windows
 

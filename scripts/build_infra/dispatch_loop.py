@@ -90,6 +90,9 @@ def tick(store, runners, core):
     if hasattr(runners["linux"], "health"):
         runners["linux"].health(jobs)   # remote Linux hosts that stopped answering: offline, their jobs requeued
         jobs = store.all()
+    if hasattr(runners["windows"], "enforce_windows"):
+        runners["windows"].enforce_windows(jobs)   # jobs on slots whose time window closed: stopped, requeued
+        jobs = store.all()
     if hasattr(runners["windows"], "process_drains"):
         runners["windows"].process_drains(jobs, core)
     blocked = set()
