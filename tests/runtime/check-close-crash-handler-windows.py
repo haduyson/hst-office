@@ -37,7 +37,8 @@ def saved_and_autosaved(off):
     from com.sun.star.beans import PropertyValue
     import uno
     desktop = off.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", off.ctx)
-    doc = desktop.loadComponentFromURL("private:factory/swriter", "_default", 0, ())
+    import uno_main_thread_load
+    doc = uno_main_thread_load.load(desktop, "private:factory/swriter", "_default")
     doc.Text.insertString(doc.Text.End, "synthetic text", False)
     arg = PropertyValue()
     arg.Name, arg.Value = "FilterName", "MS Word 2007 XML"

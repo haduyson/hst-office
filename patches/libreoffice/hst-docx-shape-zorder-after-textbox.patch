@@ -1,0 +1,150 @@
+HST Office: in a .docx with text boxes, a shape could be imported over the shapes that should
+cover it. A filled rounded rectangle then hid the text box drawn on it: only the background and
+the banner of a "KIẾN THỨC TRỌNG TÂM" page showed, without its text, tables and pictures.
+
+GraphicZOrderHelper::findZOrder() takes the "ZOrder" of the shape to stack on and sets that
+number plus one as the "ZOrder" of the new shape. The setter moves the object to that position of
+the draw page, but the getter of SwXShape returns SwTextBoxHelper::getOrdNum(), which leaves out
+the text frames of shapes with text boxes. Since the text frames are flagged as text boxes again
+(upstream "sw: fix setting mbIsTextBox on shapes' text boxes", in 26.8), every text box below a
+shape makes its "ZOrder" one lower than its position, and the next shape is put under it.
+findZOrder() now reads the draw page position of the shape (SdrObject::GetOrdNum()); text frames
+and pictures already report their position. The extra place it adds over a shape with a text box
+counts positions as well, so it stays.
+
+Upstream master only drops that extra place ("sw: DOCX import: fix z-order of a shape over a shape
+with a text box"); that does not help when the text boxes are under the shape to stack on.
+
+Test: CppunitTest_sw_ooxmlimport2 testShapeOverShapeAfterTextBox (synthetic .docx kept as base64).
+---
+--- a/sw/source/writerfilter/dmapper/GraphicHelpers.cxx
++++ b/sw/source/writerfilter/dmapper/GraphicHelpers.cxx
+@@ -32,9 +32,11 @@
+ #include <sal/log.hxx>
+ #include <svx/dialmgr.hxx>
+ #include <svx/strings.hrc>
++#include <svx/svdobj.hxx>
+ #include <comphelper/diagnose_ex.hxx>
+ 
+ #include <iostream>
++#include <optional>
+ 
+ namespace writerfilter::dmapper {
+ 
+@@ -269,6 +271,25 @@
+     return nMode;
+ }
+ 
++namespace
++{
++// The draw page position of an already imported object, which is what setPropertyValue("ZOrder")
++// takes. The "ZOrder" that SwXShape reports is SwTextBoxHelper::getOrdNum() instead: it leaves out
++// the text frames of shapes with text boxes, so below any such shape it is lower than the
++// position. Using it here put a shape under the shapes it should cover. The extra place that
++// findZOrder() adds over a shape with a text box (for its text frame) also counts positions.
++std::optional<sal_Int32> lcl_getDrawPagePosition(uno::Reference<beans::XPropertySet> const& xItem)
++{
++    if (SdrObject* pObject = SdrObject::getSdrObjectFromXShape(xItem))
++        if (pObject->getParentSdrObjListFromSdrObject())
++            return static_cast<sal_Int32>(pObject->GetOrdNum());
++    // Text frames and pictures (SwXFrame) report the position itself.
++    sal_Int32 nZOrder(0);
++    if (xItem->getPropertyValue(getPropertyName(PROP_Z_ORDER)) >>= nZOrder)
++        return nZOrder;
++    return std::nullopt;
++}
++}
+ 
+ void GraphicZOrderHelper::addItem(uno::Reference<beans::XPropertySet> const& props,
+                                   sal_Int64 const relativeHeight)
+@@ -371,9 +392,8 @@
+     // SwXFrame::getPropertyValue throws uno::RuntimeException
+     // when its GetFrameFormat() returns nullptr
+     try {
+-        sal_Int32 itemZOrder(0);
+-        if( it->second->getPropertyValue(getPropertyName( PROP_Z_ORDER )) >>= itemZOrder )
+-            return itemZOrder + itemZOrderOffset;
++        if (std::optional<sal_Int32> oItemZOrder = lcl_getDrawPagePosition(it->second))
++            return *oItemZOrder + itemZOrderOffset;
+     }
+     catch (const uno::RuntimeException&) {
+         TOOLS_WARN_EXCEPTION("writerfilter", "Exception when getting item z-order");
+--- a/sw/qa/extras/ooxmlimport/ooxmlimport2.cxx
++++ b/sw/qa/extras/ooxmlimport/ooxmlimport2.cxx
+@@ -32,12 +32,14 @@
+ #include <com/sun/star/table/XCellRange.hpp>
+ #include <com/sun/star/ucb/InteractiveAugmentedIOException.hpp>
+ 
++#include <comphelper/base64.hxx>
+ #include <comphelper/propertysequence.hxx>
+ #include <comphelper/propertyvalue.hxx>
+ #include <comphelper/scopeguard.hxx>
+ #include <cppuhelper/implbase.hxx>
+ #include <officecfg/Office/Common.hxx>
+ #include <svl/documentlockfile.hxx>
++#include <svx/svdobj.hxx>
+ #include <vcl/BitmapReadAccess.hxx>
+ #include <vcl/graphicfilter.hxx>
+ #include <xmloff/odffields.hxx>
+@@ -1493,6 +1495,61 @@
+                          ucb::InteractiveAugmentedIOException);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(Test, testShapeOverShapeAfterTextBox)
++{
++    // A text box, then a filled rounded rectangle and a filled text box with a higher
++    // relativeHeight over the rectangle. The first text box adds a text frame to the draw page that
++    // the "ZOrder" of shapes leaves out, and the second text box was put under the rectangle, which
++    // hid its text. The document is generated, so it is kept here as base64.
++    static constexpr char aDocx[]
++        = "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";
++    uno::Sequence<sal_Int8> aBytes;
++    comphelper::Base64::decode(aBytes, OUString::createFromAscii(aDocx));
++    SvStream* pStream = maTempFile.GetStream(StreamMode::WRITE | StreamMode::TRUNC);
++    pStream->WriteBytes(aBytes.getConstArray(), aBytes.getLength());
++    maTempFile.CloseStream();
++    loadFromURL(maTempFile.GetURL(), { comphelper::makePropertyValue(u"FilterName"_ustr,
++                                                                     u"Office Open XML Text"_ustr) });
++
++    auto getPosition = [this](std::u16string_view aName) {
++        SdrObject* pObject = SdrObject::getSdrObjectFromXShape(getShapeByName(aName));
++        CPPUNIT_ASSERT(pObject);
++        return static_cast<sal_Int32>(pObject->GetOrdNum());
++    };
++    const sal_Int32 nBackground = getPosition(u"Background");
++    const sal_Int32 nContent = getPosition(u"Content Box");
++    uno::Reference<beans::XPropertySet> xContent(getShapeByName(u"Content Box"), uno::UNO_QUERY);
++    uno::Reference<beans::XPropertySet> xContentFrame(
++        xContent->getPropertyValue(u"TextBoxContent"_ustr), uno::UNO_QUERY_THROW);
++    const sal_Int32 nContentFrame = xContentFrame->getPropertyValue(u"ZOrder"_ustr).get<sal_Int32>();
++    // Without the fix the rectangle was over the second text box and its text frame.
++    CPPUNIT_ASSERT_LESS(nContent, nBackground);
++    CPPUNIT_ASSERT_LESS(nContentFrame, nBackground);
++    CPPUNIT_ASSERT_LESS(nContentFrame, nContent);
++}
++
+ // tests should only be added to ooxmlIMPORT *if* they fail round-tripping in ooxmlEXPORT
+ 
+ } // end of anonymous namespace

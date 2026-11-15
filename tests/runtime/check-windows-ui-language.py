@@ -70,10 +70,8 @@ def start(program, profile, port, log):
 
 def observe(ctx):
     desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-    import uno
-    hidden = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
-    hidden.Name, hidden.Value = "Hidden", True
-    doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, (hidden,))
+    import uno_main_thread_load
+    doc = uno_main_thread_load.load(desktop, "private:factory/swriter", Hidden=True)
     try:
         title = doc.getTitle()
     finally:
