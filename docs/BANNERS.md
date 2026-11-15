@@ -120,6 +120,10 @@ copy `extensions/hst-vietnamese-tools/banners/*@?x.png` to the server's
 `/hst-office/banners/` directory, and use the example as `banners.json`.
 It lists all six current solutions followed by the company card; e.g. AIOS `image.2x.url` is
 `https://system.hasontech.vn/hst-office/banners/aios@2x.png`.
+The live feed names each image `<id>-<first 12 hex of sha256>@<scale>x.png` instead.
+The installed defaults must equal the live set (generation `2026-11-14T09:13:27Z` since 1.0.2):
+[test_banner_bundled_matches_live.py](../tests/unit/test_banner_bundled_matches_live.py) checks the bundled
+manifest and PNGs against a signed snapshot of the live feed (`HST_LIVE_BANNERS=1` also queries the server).
 To change a campaign, update images, hashes, sizes, copy, order and optional windows together;
 set `generatedAt` to the new UTC publication timestamp. Upload immutable images first,
 then publish the manifest/signature pair atomically. Serve raw bytes without compression
