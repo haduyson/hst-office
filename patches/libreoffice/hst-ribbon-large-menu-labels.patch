@@ -1,0 +1,157 @@
+HST Office: a large ribbon menu button shows "Label ▾" under its image, as the large tool buttons do.
+
+Owner report (15/11/2026, Writer ▸ Trang đầu ▸ Chỉnh sửa): "Chọn" drew VCL's menu arrow beside its icon and, being
+centred as one block with a 16 px icon, its label sat higher than the labels of the large tool buttons beside it.
+A large menu button (image above its label: Writer's Select, Sheets' Insert, Delete, Margins..., the menus of the
+gap list G10) now lays its label out like the large buttons of the approved mockup: at most two lines under the
+image, split at the space that balances them, ▾ at the end of the second line (alone on it after a short label),
+and no arrow beside the image; the label stays its accessible name. At the small state it keeps the icon and
+VCL's arrow, as before. Writer's Select and Sheets' Insert and Delete cells take their large icons.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sw/uiconfig/swriter/ui/notebookbar.ui
++++ b/sw/uiconfig/swriter/ui/notebookbar.ui
+@@ -914,7 +914,7 @@
+   <object class="GtkImage" id="imgHomeHstSelect">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="icon-name">cmd/sc_selectall.png</property>
++    <property name="icon-name">cmd/lc_selectall.png</property>
+   </object>
+   <object class="GtkMenu" id="Menu HstInsertShapes">
+     <property name="visible">True</property>
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -2307,7 +2307,7 @@
+   <object class="GtkImage" id="imgHomeHstCellsInsert">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="icon-name">cmd/sc_insertcell.png</property>
++    <property name="icon-name">cmd/lc_insertcell.png</property>
+   </object>
+   <object class="GtkMenu" id="Menu HstCellsInsert">
+     <property name="visible">True</property>
+@@ -2348,7 +2348,7 @@
+   <object class="GtkImage" id="imgHomeHstCellsDelete">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="icon-name">cmd/sc_deletecell.png</property>
++    <property name="icon-name">cmd/lc_deletecell.png</property>
+   </object>
+   <object class="GtkMenu" id="Menu HstCellsDelete">
+     <property name="visible">True</property>
+--- a/vcl/source/control/HstRibbonLadder.cxx
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -154,13 +154,20 @@
+ /// stays their accessible name and becomes their tooltip. Before, a group of menu buttons kept its full
+ /// width at the small state, so the ladder collapsed it while a group of toolboxes beside it kept its
+ /// labels. A button without an image keeps its label.
++/// A large menu button (image above its label: Writer's Select, Sheets' Margins...) shows its label like the
++/// large tool buttons: on at most two lines under the image, split at the space that balances them, with ▾ at
++/// the end of the second line (alone on it after a one-word label), instead of VCL's arrow beside the image.
+ struct MenuButtonLabels
+ {
+-    /// label (and whether the tooltip was set from it) of each button shown without its label
+-    static std::map<const vcl::Window*, std::pair<OUString, bool>>& hidden()
++    struct Label
+     {
+-        static std::map<const vcl::Window*, std::pair<OUString, bool>> aHidden;
+-        return aHidden;
++        OUString aText; // the label as authored
++        bool bTip = false; // the tooltip was set from the label (the label is hidden)
++    };
++    static std::map<const vcl::Window*, Label>& labels()
++    {
++        static std::map<const vcl::Window*, Label> aLabels;
++        return aLabels;
+     }
+     DECL_STATIC_LINK(MenuButtonLabels, ButtonEventHdl, VclWindowEvent&, void);
+ };
+@@ -168,35 +175,65 @@
+ IMPL_STATIC_LINK(MenuButtonLabels, ButtonEventHdl, VclWindowEvent&, rEvent, void)
+ {
+     if (rEvent.GetId() == VclEventId::ObjectDying)
+-        MenuButtonLabels::hidden().erase(rEvent.GetWindow());
++        MenuButtonLabels::labels().erase(rEvent.GetWindow());
++}
++
++/// "Label ▾" of a large menu button: two lines split at the space that makes the longer one shortest, ▾ ending
++/// the second line; a label of one word (or of seven characters at most) on the first line and ▾ alone below.
++OUString largeMenuLabel(const OUString& rLabel)
++{
++    static constexpr OUString aArrow(u"\u25BE"_ustr); // ▾, as the "Caption ▾" buttons
++    if (rLabel.indexOf(' ') < 0 || rLabel.replaceAll("~", "").getLength() <= 7)
++        return rLabel + "\n" + aArrow;
++    sal_Int32 nBest = -1, nBestLength = SAL_MAX_INT32;
++    for (sal_Int32 i = rLabel.indexOf(' '); i >= 0; i = rLabel.indexOf(' ', i + 1))
++    {
++        const sal_Int32 nLonger = std::max(i, rLabel.getLength() - i - 1);
++        if (nLonger < nBestLength)
++        {
++            nBest = i;
++            nBestLength = nLonger;
++        }
++    }
++    return OUString::Concat(rLabel.subView(0, nBest)) + "\n" + rLabel.subView(nBest + 1) + " " + aArrow;
+ }
+ 
+ void applyToMenuButton(MenuButton& rButton, int nState)
+ {
+-    auto& rHidden = MenuButtonLabels::hidden();
+-    const auto it = rHidden.find(&rButton);
+-    const bool bHide = nState == GroupSmall && !!rButton.GetModeImage();
+-    if (bHide && it == rHidden.end() && !rButton.GetText().isEmpty())
+-    {
+-        const OUString aLabel = rButton.GetText();
+-        rButton.SetAccessibleName(rButton.GetAccessibleName()); // the name of the label, kept
+-        const bool bTip = rButton.GetQuickHelpText().isEmpty();
+-        if (bTip)
+-            rButton.SetQuickHelpText(aLabel.replaceAll("~", "").replace('\n', ' '));
+-        rHidden.emplace(&rButton, std::make_pair(aLabel, bTip));
++    auto& rLabels = MenuButtonLabels::labels();
++    auto it = rLabels.find(&rButton);
++    if (it == rLabels.end())
++    {
++        if (rButton.GetText().isEmpty())
++            return; // an image-only button: nothing to lay out
++        it = rLabels.emplace(&rButton, MenuButtonLabels::Label{ rButton.GetText() }).first;
+         rButton.AddEventListener(LINK(nullptr, MenuButtonLabels, ButtonEventHdl));
+-        rButton.SetText(OUString());
+-        rButton.queue_resize();
++        // the name of the authored label, whatever the button shows
++        rButton.SetAccessibleName(it->second.aText.replaceAll("~", "").replace('\n', ' '));
++    }
++    MenuButtonLabels::Label& rLabel = it->second;
++    const bool bImage = !!rButton.GetModeImage();
++    const bool bHide = nState == GroupSmall && bImage;
++    const bool bLarge = !bHide && bImage && rButton.GetImageAlign() == ImageAlign::Top;
++    const OUString aText = bHide ? OUString() : bLarge ? largeMenuLabel(rLabel.aText) : rLabel.aText;
++    const PushButtonDropdownStyle eArrow = bLarge ? PushButtonDropdownStyle::NONE : PushButtonDropdownStyle::MenuButton;
++    if (bHide && !rLabel.bTip && rButton.GetQuickHelpText().isEmpty())
++    {
++        rButton.SetQuickHelpText(rLabel.aText.replaceAll("~", "").replace('\n', ' '));
++        rLabel.bTip = true;
+     }
+-    else if (!bHide && it != rHidden.end())
++    else if (!bHide && rLabel.bTip)
+     {
+-        rButton.RemoveEventListener(LINK(nullptr, MenuButtonLabels, ButtonEventHdl));
+-        rButton.SetText(it->second.first);
+-        if (it->second.second)
+-            rButton.SetQuickHelpText(OUString());
+-        rHidden.erase(it);
+-        rButton.queue_resize();
++        rButton.SetQuickHelpText(OUString());
++        rLabel.bTip = false;
+     }
++    rButton.SetDropDown(eArrow); // no change when it is already so
++    if (rButton.GetText() == aText)
++        return;
++    if (bLarge)
++        rButton.SetStyle(rButton.GetStyle() | WB_WORDBREAK);
++    rButton.SetText(aText);
++    rButton.queue_resize();
+ }
+ 
+ /// Grid attachments of a group's children as authored, kept while the window lives.
