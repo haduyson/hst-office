@@ -6,9 +6,11 @@ Home:
 - Slides: New Slide large, Duplicate and Delete (short labels, the tooltip keeps the full name) in a labelled column.
 - Font and Paragraph: two rows of icons. Font: font, size, grow, shrink, change case, clear formatting / bold,
   italic, underline, strikethrough, shadow, subscript, superscript, spacing, highlight, color. Paragraph:
-  bullets, numbering, decrease and increase indent, line spacing / the four alignments, beside a column of Text
-  Direction and Align Text (a drop-down of the three vertical alignments) on the same two rows. Hanging indent,
-  left-to-right, right-to-left and paragraph spacing leave the tab (Format menu, sidebar, paragraph dialog).
+  bullets, numbering, decrease and increase indent, line spacing / the four alignments and Align Text (a
+  drop-down of the three vertical alignments). Text Direction leaves the tab: the only text direction commands of
+  Impress are disabled and hidden without Asian language support, so the button was missing for most users.
+  Hanging indent, left-to-right, right-to-left and paragraph spacing leave the tab too (Format menu, sidebar,
+  paragraph dialog).
 - Layouts (new group gdHomeHstLayouts, between Paragraph and Drawing): the slide layouts of AssignLayout.
 - Drawing: Shapes large; Arrange (order, alignment and grouping in one drop-down), Fill and Outline labelled.
 - Editing: Find, Replace and Select in one labelled column.
@@ -19,6 +21,9 @@ Groups of three rows put a large button over rows 0 to 2, small buttons in rows 
 New strings have an empty Vietnamese msgstr here; l10n/vi-overrides.jsonl holds their translations. The new menu
 items and the Duplicate and Delete buttons take their labels from their commands (gla11y suppressions, as for the
 other menus of this file).
+
+Colibre and Colibre dark link .uno:InsertDateAndTime (Insert ▸ Date and Time) to the date field icon, which
+they had no icon for; the HST themes do the same in icon-themes-src/hst/metadata/integration-map.json.
 
 diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/notebookbar.ui
 --- a/sd/uiconfig/simpress/ui/notebookbar.ui
@@ -502,30 +507,39 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                              <property name="top-attach">0</property>
                              <property name="height">3</property>
                            </packing>
-@@ -4062,13 +4179,14 @@
-                           <object class="sfxlo-NotebookbarToolBox" id="bxHstTextDirection">
-                             <property name="visible">True</property>
-                             <property name="can-focus">False</property>
+@@ -4055,75 +4172,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">4</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstTextDirection">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
 -                            <property name="toolbar-style">icons</property>
-+                            <property name="toolbar-style">both-horiz</property>
-                             <property name="show-arrow">False</property>
-                             <child>
-                               <object class="GtkToolButton" id="btnHstTextDirection">
-                                 <property name="visible">True</property>
-                                 <property name="can-focus">False</property>
-                                 <property name="action-name">.uno:TextdirectionTopToBottom</property>
-+                                <property name="hst-ribbon-label" translatable="yes" context="TabbedImpress|hstRibbonLabel">Text Direction</property>
-                               </object>
-                               <packing>
-                                 <property name="expand">False</property>
-@@ -4082,44 +4200,18 @@
-                           </packing>
-                         </child>
-                         <child>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnHstTextDirection">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:TextdirectionTopToBottom</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">3</property>
+-                            <property name="top-attach">0</property>
+-                          </packing>
+-                        </child>
+-                        <child>
 -                          <object class="sfxlo-NotebookbarToolBox" id="bxHstAlignText">
-+                          <object class="svtlo-ManagedMenuButton" id="btnHstHomeAlignTextMenu:Menu HstHomeAlignText">
-+                            <property name="label" translatable="yes" context="TabbedImpress|hstRibbonLabel">Align Text</property>
-                             <property name="visible">True</property>
+-                            <property name="visible">True</property>
 -                            <property name="can-focus">False</property>
 -                            <property name="toolbar-style">icons</property>
 -                            <property name="show-arrow">False</property>
@@ -562,6 +576,34 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
 -                                <property name="homogeneous">True</property>
 -                              </packing>
 -                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">3</property>
+-                            <property name="top-attach">1</property>
++                            <property name="width">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -4133,7 +4182,7 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+@@ -4241,6 +4290,26 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">1</property>
++                            <property name="width">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="svtlo-ManagedMenuButton" id="btnHstHomeAlignTextMenu:Menu HstHomeAlignText">
++                            <property name="label" translatable="yes" context="TabbedImpress|hstRibbonLabel">Align Text</property>
++                            <property name="visible">True</property>
 +                            <property name="can-focus">True</property>
 +                            <property name="focus-on-click">False</property>
 +                            <property name="receives-default">False</property>
@@ -571,18 +613,14 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
 +                            <property name="image">imgHstHomeAlignText</property>
 +                            <property name="image-position">left</property>
 +                            <property name="hst-ribbon-description" translatable="yes" context="TabbedImpress|hstRibbonDescription">Put the text at the top, in the middle or at the bottom of its box.</property>
-                           </object>
-                           <packing>
-                             <property name="left-attach">3</property>
-@@ -4241,6 +4333,7 @@
-                           <packing>
-                             <property name="left-attach">0</property>
-                             <property name="top-attach">1</property>
-+                            <property name="width">3</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">1</property>
                            </packing>
                          </child>
                          <child>
-@@ -4250,19 +4343,6 @@
+@@ -4250,19 +4319,6 @@
                              <property name="toolbar-style">icons</property>
                              <property name="show-arrow">False</property>
                              <child>
@@ -602,7 +640,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                                <object class="GtkToolButton" id="btnHomeDecrementIndent">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
-@@ -4276,12 +4356,12 @@
+@@ -4276,12 +4332,12 @@
                                </packing>
                              </child>
                              <child>
@@ -617,7 +655,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                                </object>
                                <packing>
                                  <property name="expand">False</property>
-@@ -4295,31 +4375,22 @@
+@@ -4295,31 +4351,22 @@
                            </packing>
                          </child>
                          <child>
@@ -655,7 +693,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                                </packing>
                              </child>
                            </object>
-@@ -4329,44 +4400,64 @@
+@@ -4329,44 +4376,64 @@
                            </packing>
                          </child>
                          <child>
@@ -752,7 +790,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                                </object>
                                <packing>
                                  <property name="expand">False</property>
-@@ -4375,21 +4466,31 @@
+@@ -4375,21 +4442,31 @@
                              </child>
                            </object>
                            <packing>
@@ -789,7 +827,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                        </packing>
                      </child>
                      <child>
-@@ -4418,28 +4519,22 @@
+@@ -4418,28 +4495,22 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -830,7 +868,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                            </object>
                            <packing>
                              <property name="left-attach">1</property>
-@@ -4447,31 +4542,6 @@
+@@ -4447,31 +4518,6 @@
                            </packing>
                          </child>
                          <child>
@@ -862,7 +900,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                            <object class="sfxlo-NotebookbarToolBox" id="bxHstUXHomeDrawing5">
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
-@@ -4492,8 +4562,8 @@
+@@ -4492,8 +4538,8 @@
                              </child>
                            </object>
                            <packing>
@@ -873,7 +911,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                            </packing>
                          </child>
                          <child>
-@@ -4517,8 +4587,8 @@
+@@ -4517,8 +4563,8 @@
                              </child>
                            </object>
                            <packing>
@@ -884,7 +922,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                            </packing>
                          </child>
                          <child>
-@@ -4528,9 +4598,9 @@
+@@ -4528,9 +4574,9 @@
                              <property name="orientation">vertical</property>
                            </object>
                            <packing>
@@ -896,7 +934,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                            </packing>
                          </child>
                          <child>
-@@ -4603,8 +4673,8 @@
+@@ -4603,8 +4649,8 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -907,7 +945,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                            </packing>
                          </child>
                          <accessibility>
-@@ -4614,7 +4684,7 @@
+@@ -4614,7 +4660,7 @@
                        <packing>
                          <property name="expand">False</property>
                          <property name="fill">True</property>
@@ -916,7 +954,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                            </packing>
                          </child>
                          <child>
-@@ -4687,12 +4757,14 @@
+@@ -4687,12 +4733,14 @@
                              <property name="focus-on-click">False</property>
                              <property name="receives-default">False</property>
                              <property name="valign">center</property>
@@ -934,7 +972,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                            </packing>
                          </child>
                          <child>
-@@ -4702,9 +4774,9 @@
+@@ -4702,9 +4750,9 @@
                              <property name="orientation">vertical</property>
                            </object>
                            <packing>
@@ -946,7 +984,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                            </packing>
                          </child>
                          <child>
-@@ -4724,8 +4796,7 @@
+@@ -4724,8 +4772,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -956,7 +994,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                            </packing>
                          </child>
                          <accessibility>
-@@ -4735,7 +4806,7 @@
+@@ -4735,7 +4782,7 @@
                        <packing>
                          <property name="expand">False</property>
                          <property name="fill">True</property>
@@ -965,7 +1003,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                        </packing>
                      </child>
                    </object>
-@@ -5388,6 +5459,7 @@
+@@ -5388,6 +5435,7 @@
                        </packing>
                      </child>
                      <child>
@@ -973,7 +1011,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                        <object class="GtkGrid" id="gdInsertText">
                          <property name="visible">True</property>
                          <property name="can-focus">False</property>
-@@ -5422,11 +5494,11 @@
+@@ -5422,11 +5470,11 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -987,7 +1025,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
                              <property name="valign">center</property>
-@@ -5435,56 +5507,62 @@
+@@ -5435,56 +5483,62 @@
                              <property name="show-arrow">False</property>
                              <property name="icon_size">3</property>
                              <child>
@@ -1064,7 +1102,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                              <child>
                                <object class="GtkToolButton" id="btnHstInsertDateTime">
                                  <property name="visible">True</property>
-@@ -5500,22 +5578,27 @@
+@@ -5500,22 +5554,27 @@
                              </child>
                            </object>
                            <packing>
@@ -1099,7 +1137,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                                </object>
                                <packing>
                                  <property name="expand">False</property>
-@@ -5524,16 +5607,20 @@
+@@ -5524,16 +5583,20 @@
                              </child>
                            </object>
                            <packing>
@@ -1122,7 +1160,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                              <child>
                                <object class="GtkToolButton" id="btnHstInsertObject">
                                  <property name="visible">True</property>
-@@ -5548,87 +5635,9 @@
+@@ -5548,87 +5611,9 @@
                              </child>
                            </object>
                            <packing>
@@ -1212,7 +1250,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                            </packing>
                          </child>
                          <child>
-@@ -5638,9 +5647,9 @@
+@@ -5638,9 +5623,9 @@
                              <property name="orientation">vertical</property>
                            </object>
                            <packing>
@@ -1224,7 +1262,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                            </packing>
                          </child>
                          <child>
-@@ -5660,8 +5669,8 @@
+@@ -5660,8 +5645,8 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1235,7 +1273,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                            </packing>
                          </child>
                          <accessibility>
-@@ -5724,7 +5733,7 @@
+@@ -5724,7 +5709,7 @@
                              </child>
                            </object>
                            <packing>
@@ -1244,7 +1282,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
                              <property name="top-attach">0</property>
                              <property name="height">2</property>
                            </packing>
-@@ -5751,7 +5760,7 @@
+@@ -5751,7 +5736,7 @@
                              </child>
                            </object>
                            <packing>
@@ -1256,7 +1294,7 @@ diff -ru a/sd/uiconfig/simpress/ui/notebookbar.ui b/sd/uiconfig/simpress/ui/note
 diff -ru a/translations/source/vi/sd/messages.po b/translations/source/vi/sd/messages.po
 --- a/translations/source/vi/sd/messages.po
 +++ b/translations/source/vi/sd/messages.po
-@@ -4599,6 +4599,48 @@
+@@ -4599,6 +4599,42 @@
  #. hstUX
  #: sd/uiconfig/simpress/ui/notebookbar.ui
  msgctxt "TabbedImpress|hstRibbonLabel"
@@ -1273,12 +1311,6 @@ diff -ru a/translations/source/vi/sd/messages.po b/translations/source/vi/sd/mes
 +#: sd/uiconfig/simpress/ui/notebookbar.ui
 +msgctxt "TabbedImpress|hstRibbonLabel"
 +msgid "Duplicate"
-+msgstr ""
-+
-+#. hstUX
-+#: sd/uiconfig/simpress/ui/notebookbar.ui
-+msgctxt "TabbedImpress|hstRibbonLabel"
-+msgid "Text Direction"
 +msgstr ""
 +
 +#. hstUX
@@ -1329,3 +1361,57 @@ diff -ru a/solenv/sanitizers/ui/modules/simpress.suppr b/solenv/sanitizers/ui/mo
 +sd/uiconfig/simpress/ui/notebookbar.ui://GtkMenuItem[@id='MenuHstHomeAlignText-2'] button-no-label
 +sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHstHomeDuplicatePage'] button-no-label
 +sd/uiconfig/simpress/ui/notebookbar.ui://GtkToolButton[@id='btnHstHomeDeletePage'] button-no-label
+diff -ru a/icon-themes/colibre/links.txt b/icon-themes/colibre/links.txt
+--- a/icon-themes/colibre/links.txt
++++ b/icon-themes/colibre/links.txt
+@@ -81,6 +81,7 @@
+ cmd/32/insertcolumns.png cmd/32/insertcolumnsafter.png
+ cmd/32/insertctrl.png cmd/32/inserttable.png
+ cmd/32/insertcurrencyfield.png cmd/32/currencyfield.png
++cmd/32/insertdateandtime.png cmd/32/datefield.png
+ cmd/32/insertdatefield.png cmd/32/datefield.png
+ cmd/32/insertedit.png cmd/32/edit.png
+ cmd/32/insertfield.png cmd/32/addfield.png
+@@ -121,6 +122,7 @@
+ cmd/lc_insertcolumns.png cmd/lc_insertcolumnsafter.png
+ cmd/lc_insertctrl.png cmd/lc_inserttable.png
+ cmd/lc_insertcurrencyfield.png cmd/lc_currencyfield.png
++cmd/lc_insertdateandtime.png cmd/lc_datefield.png
+ cmd/lc_insertdatefield.png cmd/lc_datefield.png
+ cmd/lc_insertedit.png cmd/lc_edit.png
+ cmd/lc_insertfield.png cmd/lc_addfield.png
+@@ -161,6 +163,7 @@
+ cmd/sc_insertcolumns.png cmd/sc_insertcolumnsafter.png
+ cmd/sc_insertctrl.png cmd/sc_inserttable.png
+ cmd/sc_insertcurrencyfield.png cmd/sc_currencyfield.png
++cmd/sc_insertdateandtime.png cmd/sc_datefield.png
+ cmd/sc_insertdatefield.png cmd/sc_datefield.png
+ cmd/sc_insertedit.png cmd/sc_edit.png
+ cmd/sc_insertfield.png cmd/sc_addfield.png
+diff -ru a/icon-themes/colibre_dark/links.txt b/icon-themes/colibre_dark/links.txt
+--- a/icon-themes/colibre_dark/links.txt
++++ b/icon-themes/colibre_dark/links.txt
+@@ -80,6 +80,7 @@
+ cmd/32/insertcolumns.png cmd/32/insertcolumnsafter.png
+ cmd/32/insertctrl.png cmd/32/inserttable.png
+ cmd/32/insertcurrencyfield.png cmd/32/currencyfield.png
++cmd/32/insertdateandtime.png cmd/32/datefield.png
+ cmd/32/insertdatefield.png cmd/32/datefield.png
+ cmd/32/insertedit.png cmd/32/edit.png
+ cmd/32/insertfield.png cmd/32/addfield.png
+@@ -120,6 +121,7 @@
+ cmd/lc_insertcolumns.png cmd/lc_insertcolumnsafter.png
+ cmd/lc_insertctrl.png cmd/lc_inserttable.png
+ cmd/lc_insertcurrencyfield.png cmd/lc_currencyfield.png
++cmd/lc_insertdateandtime.png cmd/lc_datefield.png
+ cmd/lc_insertdatefield.png cmd/lc_datefield.png
+ cmd/lc_insertedit.png cmd/lc_edit.png
+ cmd/lc_insertfield.png cmd/lc_addfield.png
+@@ -160,6 +162,7 @@
+ cmd/sc_insertcolumns.png cmd/sc_insertcolumnsafter.png
+ cmd/sc_insertctrl.png cmd/sc_inserttable.png
+ cmd/sc_insertcurrencyfield.png cmd/sc_currencyfield.png
++cmd/sc_insertdateandtime.png cmd/sc_datefield.png
+ cmd/sc_insertdatefield.png cmd/sc_datefield.png
+ cmd/sc_insertedit.png cmd/sc_edit.png
+ cmd/sc_insertfield.png cmd/sc_addfield.png
