@@ -1,22 +1,23 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Switching document tabs never shows the desktop for a moment, on an INSTALLED HST Office (Windows).
+"""Switching document tabs or windows never shows the desktop for a moment, on an INSTALLED HST Office (Windows).
 
 A tab switch shows the window of the new tab and hides the old one. Before hst-document-tab-switch-no-flash.patch
-the new window had no picture yet when the old one was hidden, so for about one screen refresh the desktop showed
-through and the screen flashed on every switch (error report HSTO-000006).
-
-The check grabs the desktop before the office starts (reference), opens three synthetic documents of each module
-(HST Sheets, Writer, Slides, Draw, PDF; they become tabs of one window), maximizes it and switches with
-.uno:NextDocumentTab while a thread grabs the screen as fast as GDI allows (downscaled). A frame during a switch that
-differs from the screen before and after the switch and shows the reference desktop over more than DESKTOP_SHARE of
-its pixels is a flash. Per module, any flash fails.
+the new window had no picture yet when the old one was hidden, so the desktop showed through on every switch (error
+report HSTO-000006). The matrix (tab_switch_flash_matrix.py): window modes office (one HST Office window with tabs of
+every application and the Start Center), tabs (one window per application) and windows (separate windows); every
+same-application and cross-application switch they offer; light or dark application colours. While the switches run,
+screen_dxgi_win samples a grid of patches of the work area in every frame the compositor presents. A sampled frame of a
+switch that shows the desktop (grabbed before the office started) where neither the screen before nor after the switch
+does is a flash; a frame showing neither (blank or half painted window) is counted as partial.
 
 Usage: "<install>\\program\\python.exe" tests/runtime/check-windows-tab-switch-flash.py --install DIR --out DIR
-[--port 2167] [--modules calc,writer,impress,draw,pdf] [--switches 6]. Evidence: <out>/results.json and
-<out>/<module>-flash-<n>.bmp (the flash frames). Exit 1 on any FAIL.
+[--port 2167] [--modes office,tabs,windows] [--apps writer,calc,impress,draw,pdf] [--switches 22]
+[--appearance light|dark]. Evidence: <out>/results.json, <out>/switches.jsonl. Exit 1 when a switch flashed.
 """
 import argparse
+import ctypes
+import json
 import os
 import sys
 import time
@@ -25,125 +26,36 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import screen_dxgi_win as dx  # noqa: E402
+import tab_switch_flash_matrix as matrix  # noqa: E402
 import windows_gui as wg  # noqa: E402
 
-import screen_grab_gdi as grab  # noqa: E402
 
-MODULES = {  # module -> (factory, extension, filter)
-    "calc": ("scalc", "xlsx", "Calc MS Excel 2007 XML"),
-    "writer": ("swriter", "docx", "MS Word 2007 XML"),
-    "impress": ("simpress", "pptx", "Impress MS PowerPoint 2007 XML"),
-    "draw": ("sdraw", "odg", "draw8"),
-    "pdf": ("swriter", "pdf", "writer_pdf_Export"),
-}
+def work_area():
+    rect = (ctypes.c_long * 4)()
+    ctypes.windll.user32.SystemParametersInfoW(0x30, 0, rect, 0)  # SPI_GETWORKAREA
+    return tuple(rect)
 
 
-
-def prop(name, value):
-    import uno
-    p = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
-    p.Name, p.Value = name, value
-    return p
-
-
-def make_documents(office, module, folder, count=3):
-    """Synthetic documents of `module` (cells, paragraphs or shapes; a PDF from a text document)."""
-    import uno
-    factory, extension, filter_name = MODULES[module]
-    os.makedirs(folder, exist_ok=True)
-    urls = []
-    for n in range(count):
-        doc = office.desktop.loadComponentFromURL("private:factory/" + factory, "_blank", 0, (prop("Hidden", True),))
-        if factory == "scalc":
-            sheet = doc.Sheets.getByIndex(0)
-            for r in range(40):
-                for c in range(12):
-                    sheet.getCellByPosition(c, r).setFormula("=%d*%d" % (r + 1, c + n + 1) if c % 3 else "Muc %d" % r)
-        elif factory == "swriter":
-            text = doc.Text
-            for p in range(20):
-                text.insertString(text.End, "Tai lieu %d, doan %d. " % (n + 1, p + 1) + "Noi dung mau. " * 8, False)
-                text.insertControlCharacter(text.End, 0, False)
-        else:
-            shape = doc.createInstance("com.sun.star.drawing.RectangleShape")
-            doc.DrawPages.getByIndex(0).add(shape)
-            shape.Position = uno.createUnoStruct("com.sun.star.awt.Point", 2000 + 1500 * n, 3000)
-            shape.Size = uno.createUnoStruct("com.sun.star.awt.Size", 8000, 5000)
-            shape.FillColor = 0x3366CC + 0x200000 * n
-        url = uno.systemPathToFileUrl(os.path.join(folder, "mau%d.%s" % (n + 1, extension)))
-        doc.storeToURL(url, (prop("FilterName", filter_name),))
-        doc.close(True)
-        urls.append(url)
-    return urls
+class Office(wg.WinOffice):
+    def set_config(self, node, name, value):
+        access = self.service("com.sun.star.configuration.ConfigurationProvider").createInstanceWithArguments(
+            "com.sun.star.configuration.ConfigurationUpdateAccess", (matrix.prop("nodepath", node),))
+        access.setPropertyValue(name, value)
+        access.commitChanges()
 
 
-def close_all(office):
-    try:
-        components = office.desktop.getComponents().createEnumeration()
-        while components.hasMoreElements():
-            component = components.nextElement()
-            try:
-                component.setModified(False)
-                component.close(True)
-            except Exception:  # noqa: BLE001 - the Start Center has no model
-                pass
-    except Exception:  # noqa: BLE001
-        pass
-
-
-def check_module(office, check, screen, desktop, module, out, switches):
-    urls = make_documents(office, module, os.path.join(out, "docs", module))
-    for url in urls:
-        office.desktop.loadComponentFromURL(url, "_blank", 0, ())
-        time.sleep(1.5)
-    time.sleep(3)
-    for window, _title in wg.dialogs(office):  # tip of the day and the like
-        wg.close_dialog(window)
-    time.sleep(1)
-    office.desktop.getCurrentFrame().getContainerWindow().IsMaximized = True
-    time.sleep(2.5)
-    helper = office.service("com.sun.star.frame.DispatchHelper")
-    recorder = grab.Recorder(screen)
-    recorder.start()
-    time.sleep(0.8)
-    marks = []
-    shown = office.desktop.getCurrentFrame().Title
-    hwnd = next((w[0] for w in wg.office_windows() if w[2] == shown), None)
-    if hwnd:
-        wg.foreground(hwnd)
-    for _ in range(switches):
-        marks.append(time.perf_counter())
-        if hwnd:
-            # Ctrl+Alt+. (.uno:NextDocumentTab) as a user presses it: the switch runs in the office's main thread.
-            # A dispatch over UNO runs in a bridge thread, where vcl posts Show() to the main thread instead.
-            wg.chord(0x11, 0x12, 0xBE, target=hwnd, front=False)
-        else:
-            helper.executeDispatch(office.desktop.getCurrentFrame(), ".uno:NextDocumentTab", "", 0, ())
-        time.sleep(1.4)
-    recorder.stop.set()
-    recorder.join(10)
-    frames = recorder.frames
-    flashes = []
-    for k, start in enumerate(marks):
-        before = [f for t, f in frames if t < start]
-        during = [(t, f) for t, f in frames if start <= t <= start + 1.2]
-        if not before or not during:
-            continue
-        before, after = before[-1], during[-1][1]
-        for t, frame in during:
-            share = grab.desktop_share(frame, before, after, desktop)
-            if share > grab.DESKTOP_SHARE:
-                path = os.path.join(out, "%s-flash-%d.bmp" % (module, len(flashes) + 1))
-                screen.save_bmp(path, frame)
-                flashes.append("switch %d +%d ms: %.0f%% desktop" % (k + 1, (t - start) * 1000, share * 100))
-                break
-    titles = {office.desktop.getCurrentFrame().Title}
-    fps = len(frames) / max(frames[-1][0] - frames[0][0], 0.001) if frames else 0
-    check("%s: %d tab switches (%s) show no desktop flash" % (module, len(marks), "keys" if hwnd else "dispatch"),
-          not flashes and fps >= 10,
-          "; ".join(flashes) or "%.0f grabs/s, last tab %s" % (fps, sorted(titles)))
-    close_all(office)
-    time.sleep(2)
+def start(office, out, appearance):
+    office.start(fresh=True)
+    wg.dismiss_startup(office, os.path.join(out, "startup.png"), timeout=30, settle=5)
+    office.set_config("/org.openoffice.Office.Common/Appearance", "ApplicationAppearance", 2 if appearance == "dark" else 1)
+    office.set_config("/org.openoffice.Office.Impress/Misc/NewDoc", "AutoPilot", False)
+    # a warm profile whose start shows no question: loads right after a start-up question crashed this harness
+    for attempt in range(3):
+        office.stop()
+        office.start()
+        if not wg.dismiss_startup(office, os.path.join(out, "startup-%d.png" % attempt), timeout=15, settle=3):
+            break
 
 
 def main():
@@ -151,43 +63,53 @@ def main():
     parser.add_argument("--install", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--port", type=int, default=2167)
-    parser.add_argument("--modules", default="writer,impress,draw,pdf,calc")
-    parser.add_argument("--switches", type=int, default=6)
+    parser.add_argument("--modes", default="office,tabs,windows")
+    parser.add_argument("--apps", default="writer,calc,impress,draw,pdf")
+    parser.add_argument("--switches", type=int, default=22)
+    parser.add_argument("--appearance", default="light", choices=("light", "dark"))
     args = parser.parse_args()
     out = os.path.abspath(args.out)
+    os.makedirs(out, exist_ok=True)
     check = wg.Results(out, "tab-switch-flash")
-    screen = grab.Screen()
-    desktop = screen.grab()  # before the office starts: the picture a flash shows
-    screen.save_bmp(os.path.join(out, "desktop.bmp"), desktop)
-    office = wg.WinOffice(args.install, os.path.join(out, "profile"), args.port, os.path.join(out, "log"))
+    patches = dx.DxgiPatches(work_area())  # every presented frame (Desktop Duplication)
+    desktop = patches.grab()  # before the office starts: the picture a flash shows
+    office = Office(args.install, os.path.join(out, "profile"), args.port, os.path.join(out, "log"))
+    log = open(os.path.join(out, "switches.jsonl"), "a", encoding="utf-8")
     try:
-        office.start(fresh=True)
-        check.note("start-up dialogs", wg.dismiss_startup(office, os.path.join(out, "startup.png"), timeout=30, settle=5))
-        # Measure on a warm profile whose start shows no question any more: loading documents right after a
-        # start-up question was ended over UNO has crashed the office on this harness.
-        for start in range(2, 5):
-            office.stop()
-            office.start()
-            seen = wg.dismiss_startup(office, os.path.join(out, "startup-%d.png" % start), timeout=15, settle=3)
-            check.note("start-up dialogs, start %d" % start, seen)
-            if not seen:
-                break
-        for module in args.modules.split(","):
-            for attempt in (1, 2):
-                try:
-                    check_module(office, check, screen, desktop, module, out, args.switches)
-                    break
-                except Exception as error:  # noqa: BLE001 - the office went away: once more, else report
-                    check.note("%s: attempt %d" % (module, attempt), repr(error))
-                    office.stop()
-                    office.start()
-                    wg.dismiss_startup(office, os.path.join(out, "startup-retry.png"), timeout=15, settle=3)
-                    if attempt == 2:
-                        check("%s: tab switch check ran" % module, False, repr(error))
+        start(office, out, args.appearance)
+        pids = matrix.own_pids(office.profile)
+        for mode in args.modes.split(","):
+            try:
+                matrix.open_documents(office, args.apps.split(","), mode, os.path.join(out, "docs", mode))
+                for window, _title in wg.dialogs(office):
+                    wg.close_dialog(window)
+                if mode == "tabs":  # one window per application: switch in each of them
+                    windows = matrix.visible_frames(office)
+                    rows = [row for frame in windows for row in matrix.measure(
+                        office, pids, patches, desktop, mode, max(args.switches // len(windows), 4), wg.chord, frame)]
+                else:
+                    rows = matrix.measure(office, pids, patches, desktop, mode, args.switches, wg.chord)
+            except Exception as error:  # noqa: BLE001 - report the mode, go on with the next
+                check("%s: switches ran" % mode, False, repr(error))
+                rows = []
+            for row in rows:
+                log.write(json.dumps(dict(zip(("from", "to", "driven", "frames", "desktop", "partial", "capture", "odd"), row),
+                                          mode=mode, appearance=args.appearance)) + "\n")
+            pairs = {}
+            for before, after, driven, _n, flash, partial, rate, _odd in rows:
+                pairs.setdefault((before, after), []).append((driven, flash, partial, rate))
+            for (before, after), items in sorted(pairs.items()):
+                flashes = sum(1 for _d, f, _p, _r in items if f)
+                detail = "%d switches, %d with desktop frames, %d with partial frames, capture %s, driven %s" % (
+                    len(items), flashes, sum(1 for _d, _f, p, _r in items if p), items[0][3],
+                    sorted({d for d, _f, _p, _r in items}))
+                check("%s %s: %s -> %s shows no desktop" % (args.appearance, mode, before, after),
+                      flashes == 0 and not any(d.startswith("skipped") for d, _f, _p, _r in items), detail)
+            matrix.close_all(office)
     finally:
-        close_all(office)
+        log.close()
         office.stop()
-        screen.close()
+        patches.close()
     return check.exit_code()
 
 

@@ -1,0 +1,84 @@
+HST Office: leave a note when the operating system ends the office, so the next start does not take
+a shut down, restart or log off for a crash.
+
+Measured on 1.0.1 and rc/1.0.2-batch5 (Linux Xvfb, Windows 11 HST4): a session the system ended looked
+exactly like a kill at the next start: the session marker of the bundled extension was still there, so it
+asked "Lần trước HST Office bị đóng đột ngột. Gửi thông tin…" on top of the recovery dialog.
+- Linux: systemd stops the user session with SIGTERM (log out, shut down; KDE and other desktops without
+  the GNOME session protocol). sal's handler ends the process with _exit(255) at once. It now writes
+  "Terminated: Signal 15" to stderr first (write(2), async-signal-safe); the extension keeps the stderr of
+  a desktop start in last-session.err.
+- Windows: WM_QUERYENDSESSION runs the normal quit with its save questions; when a question is still open
+  (or for a forced restart) Windows ends the process, and after WM_ENDSESSION(TRUE) it ends it in any
+  case. The first WM_QUERYENDSESSION now appends "session-end=query" to the note file named by
+  HST_FAULT_NOTE (hst-windows-silent-crash-note.patch), WM_ENDSESSION "session-end=end" or, when the log
+  off was cancelled, "session-end=cancel".
+The extension (session_end.py) reads the note at the next start: no crash report question for such a
+session; document recovery still follows the office's own recovery state.
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_session_end_note.py; tests/runtime/check-session-end-linux.py;
+tests/runtime/check-session-end-windows.py.
+---
+--- a/sal/osl/unx/signal.cxx
++++ b/sal/osl/unx/signal.cxx
+@@ -316,6 +316,15 @@
+         switch (Signals[i].Action)
+         {
+             case ACT_EXIT:      /* terminate */
++                // HST Office: SIGTERM is how the system ends the office at shutdown or log out (systemd
++                // stops the session); say so on stderr, which the bundled extension keeps for the next
++                // start, so that start does not take it for a crash. write() is async-signal-safe.
++                if (signal == SIGTERM)
++                {
++                    static const char aNote[] = "\n\nTerminated: Signal 15\n";
++                    ssize_t nIgnored = write(STDERR_FILENO, aNote, sizeof aNote - 1);
++                    (void)nIgnored;
++                }
+                 /* prevent dumping core on exit() */
+                 _exit(255);
+                 break;
+--- a/vcl/win/window/salframe.cxx
++++ b/vcl/win/window/salframe.cxx
+@@ -4397,6 +4397,26 @@
+     }
+ }
+ 
++// HST Office: append one line to the note file the bundled extension names at start-up
++// (HST_FAULT_NOTE, see hst-windows-silent-crash-note.patch). Windows ends the process soon after
++// WM_ENDSESSION, or while a save question still holds the log off; the line tells the next start
++// that the system ended this session (shut down, restart, log off), so it is not taken for a crash.
++static void ImplHstNoteSessionEnd( const char* pLine )
++{
++    wchar_t aPath[MAX_PATH];
++    DWORD nLen = GetEnvironmentVariableW( L"HST_FAULT_NOTE", aPath, MAX_PATH );
++    if ( nLen == 0 || nLen >= MAX_PATH )
++        return;
++    HANDLE hFile = CreateFileW( aPath, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
++                                OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr );
++    if ( hFile == INVALID_HANDLE_VALUE )
++        return;
++    DWORD nWritten = 0;
++    WriteFile( hFile, pLine, static_cast<DWORD>( strlen( pLine ) ), &nWritten, nullptr );
++    FlushFileBuffers( hFile );
++    CloseHandle( hFile );
++}
++
+ static bool ImplHandleShutDownMsg( HWND hWnd )
+ {
+     bool nRet = false;
+@@ -6000,6 +6020,7 @@
+             {
+                 // handle queryendsession only once
+                 bInQueryEnd = true;
++                ImplHstNoteSessionEnd( "session-end=query\n" );
+                 nRet = LRESULT(!ImplHandleShutDownMsg( hWnd ));
+                 rDef = false;
+ 
+@@ -6024,6 +6045,7 @@
+             break;
+ 
+         case WM_ENDSESSION:
++            ImplHstNoteSessionEnd( wParam ? "session-end=end\n" : "session-end=cancel\n" );
+             if( !wParam )
+                 bInQueryEnd = false; // no shutdown: allow query again
+             nRet = FALSE;

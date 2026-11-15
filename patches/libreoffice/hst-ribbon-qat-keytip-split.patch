@@ -1,0 +1,60 @@
+HST Office: Alt, 2 (Alt+2) runs Undo from the quick access toolbar instead of opening its history list.
+
+The KeyTips ran a toolbar button with ToolBox::TriggerItem, which clicks it first; a split button's click (Undo,
+Redo with their ▾ history) opens its list, so Alt, 2 showed Undo's history and undid nothing (Linux and Windows,
+15/11/2026). On the quick access toolbar a split button's KeyTip now dispatches the button's command, as in the
+reference suite; on the ribbon a split button's KeyTip still opens its list (Alt, H, V opens Paste's menu).
+
+--- a/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
++++ b/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
+@@ -10,6 +10,9 @@
+ #include "HstKeyTipOffice.hxx"
+ 
+ #include <com/sun/star/accessibility/AccessibleRole.hpp>
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <com/sun/star/uno/Sequence.hxx>
++#include <comphelper/dispatchcommand.hxx>
+ #include <rtl/ustrbuf.hxx>
+ #include <vcl/commandevent.hxx>
+ #include <vcl/event.hxx>
+@@ -245,7 +248,8 @@
+             int nDigit = 1;
+             // HST Office: 1, 2, 3... without gaps; separators and buttons folded into the » menu get no digit
+             for (ToolBox::ImplToolItems::size_type i = 0; i < m_xQuick->GetItemCount() && nDigit < 10; ++i)
+-                if (AddToolBoxItem(*m_xQuick, m_xQuick->GetItemId(i), aTargets, aPreferred, std::to_string(nDigit)))
++                if (AddToolBoxItem(*m_xQuick, m_xQuick->GetItemId(i), aTargets, aPreferred, std::to_string(nDigit),
++                                   true))
+                     ++nDigit;
+         }
+         // the feature search box of the tab row: Q, as Office's Search box
+@@ -271,8 +275,10 @@
+         Show(std::move(aTargets), aPreferred);
+     }
+ 
++    /// bMainPart: a split button (command and ▾ list) runs its command, as the quick access toolbar's Alt+2 runs
++    /// Undo in Office; elsewhere the KeyTip of a split button opens its list, as Alt, H, V opens Paste's menu
+     bool AddToolBoxItem(ToolBox& rBox, ToolBoxItemId nId, std::vector<Target>& rTargets,
+-                        std::vector<std::string>& rPreferred, const std::string& rTip)
++                        std::vector<std::string>& rPreferred, const std::string& rTip, bool bMainPart = false)
+     {
+         const tools::Rectangle aRect = rBox.GetItemRect(nId);
+         if (rBox.GetItemType(rBox.GetItemPos(nId)) != ToolBoxItemType::BUTTON || !rBox.IsItemVisible(nId)
+@@ -284,10 +290,16 @@
+         aTarget.bEnabled = rBox.IsItemEnabled(nId);
+         aTarget.bInput = rBox.GetItemWindow(nId) != nullptr;
+         VclPtr<ToolBox> xBox(&rBox);
+-        aTarget.aRun = [xBox, nId] {
++        aTarget.aRun = [xBox, nId, bMainPart] {
++            const ToolBoxItemBits nBits = xBox->GetItemBits(nId);
+             if (vcl::Window* pItem = xBox->GetItemWindow(nId))
+                 pItem->GrabFocus(); // font name, size: the field takes the typing, as in Office
+-            else if (xBox->GetItemBits(nId) & ToolBoxItemBits::DROPDOWNONLY)
++            else if (bMainPart && (nBits & ToolBoxItemBits::DROPDOWNONLY) == ToolBoxItemBits::DROPDOWN
++                     && !xBox->GetItemCommand(nId).isEmpty())
++                // a split button (DROPDOWNONLY includes the DROPDOWN bit, so it is tested first): TriggerItem would
++                // click it, and its click opens the list (Undo's history)
++                comphelper::dispatchCommand(xBox->GetItemCommand(nId), css::uno::Sequence<css::beans::PropertyValue>());
++            else if (nBits & ToolBoxItemBits::DROPDOWNONLY)
+                 xBox->TriggerItemDropdown(nId);
+             else
+                 xBox->TriggerItem(nId);

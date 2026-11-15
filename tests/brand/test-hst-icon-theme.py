@@ -45,7 +45,7 @@ class HstThemeTest(unittest.TestCase):
                     self.assertEqual(svg.get("width"), str(size))
                     self.assertEqual(svg.get("height"), str(size))
 
-    def test_all_495_static_commands_have_resources(self):
+    def test_all_496_static_commands_have_resources(self):
         files = builder.resources("hst")
         links = dict(line.split() for line in files["links.txt"].decode().splitlines() if not line.startswith("#"))
         families = json.loads((builder.SOURCE / "metadata/families.json").read_text())
@@ -60,7 +60,7 @@ class HstThemeTest(unittest.TestCase):
                 for size in (16, 24, 32):
                     request = builder.sized(key, size)
                     self.assertIn(links.get(request, request), files)
-        self.assertEqual(len(commands), 495)
+        self.assertEqual(len(commands), 496)  # .uno:InsertCalcTable (Sheets ▸ Chèn ▸ Bảng) shares the table glyph
         # These fixed controller labels are not ordinary UNO command names.
         for number in (10863, 10864, 10868, 10869):
             self.assertIn(links[f"svx/res/sc{number}.png"] if f"svx/res/sc{number}.png" in links

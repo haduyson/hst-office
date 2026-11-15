@@ -325,14 +325,14 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +{
 +    const double fDpi = m_rTabs.GetDPIScaleFactor();
 +    const Size aChevron(px(18, fDpi), px(16, fDpi));
-+    const long nInset = px(4, fDpi);
++    const tools::Long nInset = px(4, fDpi);
 +    if (m_bCompact && !rQuick.IsEmpty())
 +    {
-+        const long nRoom = rQuick.GetWidth() - aChevron.Width() - 2 * nInset;
++        const tools::Long nRoom = rQuick.GetWidth() - aChevron.Width() - 2 * nInset;
 +        const Size aWant = m_xQuick->CalcWindowSizePixel();
-+        const long nHeight = std::min<long>(aWant.Height(), rQuick.GetHeight());
++        const tools::Long nHeight = std::min<tools::Long>(aWant.Height(), rQuick.GetHeight());
 +        m_xQuick->SetPosSizePixel(Point(rQuick.Left(), rQuick.Top() + (rQuick.GetHeight() - nHeight) / 2),
-+                                  Size(std::max(0L, std::min<long>(aWant.Width(), nRoom)), nHeight));
++                                  Size(std::max<tools::Long>(0, std::min<tools::Long>(aWant.Width(), nRoom)), nHeight));
 +        m_xQuick->Show(m_xQuick->GetItemCount() > 0);
 +        m_xExpand->SetPosSizePixel(Point(rQuick.Right() - nInset - aChevron.Width(),
 +                                         rQuick.Bottom() - nInset - aChevron.Height()), aChevron);
@@ -380,7 +380,7 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +
 +namespace hst::ribbon::compact
 +{
-+inline long px(long nLogical, double fDpi) { return std::lround(nLogical * fDpi); }
++inline tools::Long px(tools::Long nLogical, double fDpi) { return std::llround(nLogical * fDpi); }
 +/// a flat chevron button (˄ when bUp, else ˅) with the tooltip and accessible name rTip
 +VclPtr<Control> CreateChevron(vcl::Window* pParent, bool bUp, const OUString& rTip,
 +                              const Link<LinkParamNone*, void>& rClick);
@@ -499,15 +499,15 @@ HST Office: compact ribbon (Ctrl+F1) with a quick command row; the document tab 
 +            rDev.DrawRect(tools::Rectangle(Point(), aSize));
 +        }
 +        const double fDpi = GetDPIScaleFactor();
-+        const long nHalf = px(4, fDpi), nRise = px(2, fDpi);
++        const tools::Long nHalf = px(4, fDpi), nRise = px(2, fDpi);
 +        const Point aMid(aSize.Width() / 2, aSize.Height() / 2);
-+        const long nTip = m_bUp ? -nRise : nRise;
++        const tools::Long nTip = m_bUp ? -nRise : nRise;
 +        tools::Polygon aChevron(3);
 +        aChevron.SetPoint(Point(aMid.X() - nHalf, aMid.Y() - nTip), 0);
 +        aChevron.SetPoint(Point(aMid.X(), aMid.Y() + nTip), 1);
 +        aChevron.SetPoint(Point(aMid.X() + nHalf, aMid.Y() - nTip), 2);
 +        rDev.SetLineColor(rStyle.GetButtonTextColor());
-+        rDev.DrawPolyLine(aChevron, LineInfo(LineStyle::Solid, std::max<long>(1, px(1, fDpi))));
++        rDev.DrawPolyLine(aChevron, LineInfo(LineStyle::Solid, std::max<tools::Long>(1, px(1, fDpi))));
 +    }
 +
 +    void MouseMove(const MouseEvent& rEvent) override
