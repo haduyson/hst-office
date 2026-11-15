@@ -2,7 +2,8 @@
 """Owner rule: every shortcut and KeyTip matches the reference suite 100 %, checked against the parity data (no GUI).
 
 Usage: python3 tests/runtime/check-ribbon-parity-data.py [--out DIR]
-Reads data/ribbon/shortcuts-office-parity.json: every row must have status "match". A row with status "changed" or
+Reads data/ribbon/shortcuts-office-parity.json: every row must have status "match" ("handler": the suite's key runs
+the same action through a key listener, scripts/check-keytips-parity.py --tree proves the listener). A row with status "changed" or
 "deviation" is a FAIL and is listed with its app, the suite's key, the HST command and the recorded reason. No
 exception list exists: an owner decision is needed to accept any of them. Reads data/ribbon/keytips-office-parity.json
 for the KeyTip tables (one entry per tab and command). The runtime KeyTip and shortcut checks are
@@ -20,9 +21,9 @@ DATA = os.path.join(HERE, "..", "..", "data", "ribbon")
 
 
 def shortcut_failures(rows):
-    """Rows whose status is not "match", as dicts with the fields the report needs."""
+    """Rows whose status is neither "match" nor "handler", as dicts with the fields the report needs."""
     return [{"app": r["app"], "office": r["office"], "status": r["status"], "hst": r.get("hst"),
-             "reason": r.get("reason", "")} for r in rows if r.get("status") != "match"]
+             "reason": r.get("reason", "")} for r in rows if r.get("status") not in ("match", "handler")]
 
 
 def main():

@@ -128,6 +128,12 @@ def check_tree(tree, table, rows, errors):
                     errors.append(f"{app} {tab}: {ident} ({control}) gets {got[ident]!r}, the suite uses {letter!r}")
     bindings = accel.load([os.path.join(tree, accel.ACCELERATORS), os.path.join(ROOT, accel.EXTENSION)])
     for row in rows:
+        if row["status"] == "handler":  # a key listener, not an accelerator: the tree must carry its key test
+            path, test = row["handler"]
+            source = os.path.join(tree, path)
+            if not os.path.exists(source) or test not in open(source, encoding="utf-8").read():
+                errors.append(f"{row['app']} {row['office']} ({row['key']}): {path} lacks {test!r}")
+            continue
         actual = accel.effective(bindings, row["app"], row["key"])
         expected = row["uno"] if row["status"] != "deviation" else [row.get("hst") or ""]
         if actual not in expected:
