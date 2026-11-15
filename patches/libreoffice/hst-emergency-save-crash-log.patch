@@ -1,0 +1,46 @@
+HST Office: record a crash before the emergency save.
+
+- vcl svmain.cxx VCLExceptionSignal_impl (Unix): prints "Fatal exception: Signal N" and the stack to
+  stderr before the emergency save starts. A successful emergency save ends the process with a restart
+  instead of an abort, so sal's own report never appeared; the bundled extension reads these lines at the
+  next start for the crash report. This replaces Python's faulthandler, which the extension no longer
+  enables: its handler ran on a small alternate signal stack, the emergency save dialog then ran on that
+  stack, overflowed it into the heap and the office crashed a second time before saving anything.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-emergency-save.py.
+---
+--- a/vcl/source/app/svmain.cxx
++++ b/vcl/source/app/svmain.cxx
+@@ -24,6 +24,8 @@
+ 
+ #include <osl/file.hxx>
+ #include <osl/signal.h>
++#include <sal/backtrace.hxx>
++#include <cstdio>
+ 
+ #include <desktop/exithelper.h>
+ 
+@@ -165,6 +167,22 @@ static oslSignalAction VCLExceptionSignal_impl( void* /*pData*/, oslSignalInfo*
+     if ( nVCLException != ExceptionCategory::NONE )
+     {
+         bIn = true;
++#ifdef UNX
++        // HST Office: record the fault before the emergency save, which may end the process with a
++        // restart instead of an abort (the abort path prints the same lines from sal). The bundled
++        // extension reads them from stderr at the next start (crash signature of the report).
++        if (nVCLException == ExceptionCategory::System)
++        {
++            const int nSignal = pInfo->Signal == osl_Signal_AccessViolation ? 11
++                                : pInfo->Signal == osl_Signal_DebugBreak    ? 5
++                                                                            : 8;
++            std::unique_ptr<sal::BacktraceState> pStack = sal::backtrace_get(50);
++            fprintf(stderr, "\n\nFatal exception: Signal %d\nStack:\n%s\n", nSignal,
++                    OUStringToOString(sal::backtrace_to_string(pStack.get()), RTL_TEXTENCODING_UTF8)
++                        .getStr());
++            fflush(stderr);
++        }
++#endif
+ 
+         vcl::SolarMutexTryAndBuyGuard aLock;
+         if( aLock.isAcquired())

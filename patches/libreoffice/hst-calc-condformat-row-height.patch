@@ -1,0 +1,331 @@
+Sheets: opening a workbook with conditional formats no longer evaluates every condition twice over.
+
+The optimal row height pass at the end of loading (ScDocShell::UpdateAllRowHeights ->
+ScColumn::GetNeededSize) asked every cell for its conditional style (ScDocument::GetCondResult).
+A condition with relative references is evaluated through a temporary formula cell per cell, and
+that cell compiled the condition's RPN again every time. On a synthetic 5 MB workbook (31 000 rows,
+4000 cell formats, an expression rule over 15 columns) the load took 42 s on Linux (4 CPUs); 19 s
+without the expression rule and 11 s without any conditional format. The 10 MB version took 60 s on
+a 4-core Windows PC, 35 s of them "Not responding".
+
+- ScConditionEntry compiles the RPN of a relative condition once (mpRelCode1/2, a copy that shares
+  the code tokens with pFormula1/2, dropped wherever the cached formula cells are dropped) and the
+  temporary cells reuse it. Only formulas whose RPN cannot depend on the position use it (single
+  references, values, operators, functions, jumps); ranges, names, labels, table, external and DDE
+  references keep the per-cell compilation.
+- GetNeededSize evaluates the conditions only when one of the cell's conditional formats may give it
+  a style with items that change the size; a style (with its parents) that only sets font colour,
+  background, borders or shadow cannot, so its condition is not evaluated for the size.
+The resulting row heights and conditional styles are unchanged.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: CppunitTest_sc_ucalc_condformat testCondFormatRelativeExpressionCompiledOnce (a relative
+condition evaluated at many positions and after its input changed, and a range condition);
+the existing conditional format and import tests; tests/unit/test_large_office_open_patches.py.
+---
+--- a/sc/inc/conditio.hxx
++++ b/sc/inc/conditio.hxx
+@@ -323,6 +323,10 @@
+     OUString              aSrcString;     // formula source position as text during XML import
+     std::unique_ptr<ScFormulaCell>  pFCell1;
+     std::unique_ptr<ScFormulaCell>  pFCell2;
++    // HST Office: pFormula1/2 with its RPN compiled once, for the per-cell evaluation of a formula
++    // with relative references (only formulas whose RPN does not depend on the position)
++    std::unique_ptr<ScTokenArray>   mpRelCode1;
++    std::unique_ptr<ScTokenArray>   mpRelCode2;
+     bool                bRelRef1;
+     bool                bRelRef2;
+     bool                bFirstRun;
+@@ -335,6 +339,8 @@
+                                      OUString& rStrVal );
+ 
+     void    MakeCells( const ScAddress& rPos );
++    const ScTokenArray& GetRelCode( std::unique_ptr<ScTokenArray>& rCache,
++                                    const ScTokenArray& rFormula, const ScAddress& rPos );
+     void    Compile( const OUString& rExpr1, const OUString& rExpr2,
+                         const OUString& rExprNmsp1, const OUString& rExprNmsp2,
+                         formula::FormulaGrammar::Grammar eGrammar1,
+--- a/sc/source/core/data/conditio.cxx
++++ b/sc/source/core/data/conditio.cxx
+@@ -458,7 +458,9 @@
+ void ScConditionEntry::CompileAll()
+ {
+     pFCell1.reset();
++    mpRelCode1.reset();
+     pFCell2.reset();
++    mpRelCode2.reset();
+ }
+ 
+ void ScConditionEntry::CompileXML()
+@@ -554,6 +556,7 @@
+ 
+         if (aRes.mbReferenceModified || bChangedPos)
+             pFCell1.reset();       // is created again in IsValid
++            mpRelCode1.reset();
+     }
+ 
+     if (pFormula2)
+@@ -573,6 +576,7 @@
+ 
+         if (aRes.mbReferenceModified || bChangedPos)
+             pFCell2.reset();       // is created again in IsValid
++            mpRelCode2.reset();
+     }
+ 
+     StartListening();
+@@ -584,12 +588,14 @@
+     {
+         pFormula1->AdjustReferenceOnInsertedTab(rCxt, aSrcPos);
+         pFCell1.reset();
++        mpRelCode1.reset();
+     }
+ 
+     if (pFormula2)
+     {
+         pFormula2->AdjustReferenceOnInsertedTab(rCxt, aSrcPos);
+         pFCell2.reset();
++        mpRelCode2.reset();
+     }
+ 
+     ScRangeUpdater::UpdateInsertTab(aSrcPos, rCxt);
+@@ -601,12 +607,14 @@
+     {
+         pFormula1->AdjustReferenceOnDeletedTab(rCxt, aSrcPos);
+         pFCell1.reset();
++        mpRelCode1.reset();
+     }
+ 
+     if (pFormula2)
+     {
+         pFormula2->AdjustReferenceOnDeletedTab(rCxt, aSrcPos);
+         pFCell2.reset();
++        mpRelCode2.reset();
+     }
+ 
+     ScRangeUpdater::UpdateDeleteTab(aSrcPos, rCxt);
+@@ -623,6 +631,7 @@
+         if (aRes.mbValueChanged)
+             aResFinal.mnTab = aRes.mnTab;
+         pFCell1.reset();
++        mpRelCode1.reset();
+     }
+ 
+     if (pFormula2)
+@@ -631,6 +640,7 @@
+         if (aRes.mbValueChanged)
+             aResFinal.mnTab = aRes.mnTab;
+         pFCell2.reset();
++        mpRelCode2.reset();
+     }
+ 
+     if (aResFinal.mnTab != aSrcPos.Tab())
+@@ -677,6 +687,62 @@
+     return true;
+ }
+ 
++/* HST Office: a condition with relative references is evaluated through a temporary formula cell
++   per cell, and that cell compiled the formula's RPN again every time (pFormula1 holds no RPN). The
++   optimal row height pass after loading a workbook evaluates the conditions of every cell, so an
++   expression rule over a whole table compiled the same formula hundreds of thousands of times. The
++   RPN is now compiled once, into a copy that shares the code tokens with pFormula1 (in-place
++   reference updates stay visible; every place that drops pFCell1/2 drops the copy too). Only
++   formulas whose RPN cannot depend on the position: single references, values, operators and
++   functions; anything else (ranges, names, labels, table and external references) keeps the old
++   per-cell compilation. */
++static bool lcl_IsPositionIndependentCode( const ScTokenArray& rArr )
++{
++    for (const formula::FormulaToken* t : rArr.Tokens())
++    {
++        switch (t->GetType())
++        {
++            case formula::svByte:
++            case formula::svDouble:
++            case formula::svString:
++            case formula::svSingleRef:
++            case formula::svMissing:
++            case formula::svSep:
++            case formula::svJump:
++                break;
++            default:
++                return false;
++        }
++        switch (t->GetOpCode())
++        {
++            case ocName: case ocColRowName: case ocTableRef: case ocDBArea: case ocMacro:
++            case ocExternal: case ocDde: case ocWebservice:
++            case ocTableRefOpen: case ocTableRefClose: case ocTableRefItemAll:
++                return false;
++            default:
++                break;
++        }
++    }
++    return true;
++}
++
++const ScTokenArray& ScConditionEntry::GetRelCode( std::unique_ptr<ScTokenArray>& rCache,
++                                                  const ScTokenArray& rFormula, const ScAddress& rPos )
++{
++    if (!rCache)
++    {
++        rCache.reset(new ScTokenArray(rFormula));
++        if (rCache->GetLen() && !rCache->GetCodeLen() && rCache->GetCodeError() == FormulaError::NONE
++            && lcl_IsPositionIndependentCode(*rCache))
++        {
++            // the same compilation as ScFormulaCell's constructor does for every temporary cell
++            ScCompiler aComp(mrDoc, rPos, *rCache, formula::FormulaGrammar::GRAM_DEFAULT, true, false);
++            aComp.CompileTokenArray();
++        }
++    }
++    return rCache->GetCodeLen() ? *rCache : rFormula;
++}
++
+ void ScConditionEntry::Interpret( const ScAddress& rPos )
+ {
+     // Create formula cells
+@@ -692,7 +758,7 @@
+     if ( bRelRef1 )
+     {
+         if (pFormula1)
+-            oTemp.emplace(mrDoc, rPos, *pFormula1);
++            oTemp.emplace(mrDoc, rPos, GetRelCode(mpRelCode1, *pFormula1, rPos));
+         else
+             oTemp.emplace(mrDoc, rPos);
+         pEff1 = &*oTemp;
+@@ -725,7 +791,7 @@
+     if ( bRelRef2 )
+     {
+         if (pFormula2)
+-            oTemp.emplace(mrDoc, rPos, *pFormula2);
++            oTemp.emplace(mrDoc, rPos, GetRelCode(mpRelCode2, *pFormula2, rPos));
+         else
+             oTemp.emplace(mrDoc, rPos);
+         pEff2 = &*oTemp;
+--- a/sc/source/core/data/column2.cxx
++++ b/sc/source/core/data/column2.cxx
+@@ -45,6 +45,9 @@
+ #include <sortparam.hxx>
+ #include <SparklineGroup.hxx>
+ #include <SparklineList.hxx>
++#include <conditio.hxx>
++#include <stlpool.hxx>
++#include <svl/itemiter.hxx>
+ 
+ #include <editeng/eeitem.hxx>
+ #include <o3tl/safeint.hxx>
+@@ -73,6 +76,61 @@
+ // factor from font size to optimal cell height (text width)
+ #define SC_ROT_BREAK_FACTOR     6
+ 
++/* HST Office: may a conditional format of this pattern give the cell a style whose items change
++   the size GetNeededSize computes? Evaluating the conditions of every cell (GetCondResult) is the
++   largest part of the optimal row height pass after loading a workbook with conditional formats.
++   Only items GetNeededSize never reads from the conditional set count as harmless (font colour,
++   background, borders, shadow); the style's parents are included, as GetNeededSize searches them.
++   Colour scales, data bars and icon sets have no cell style. */
++static bool lcl_CondFormatMayChangeSize( const ScDocument& rDoc, SCTAB nTab, const ScPatternAttr& rPattern )
++{
++    const ScCondFormatIndexes& rIndex = rPattern.GetItem(ATTR_CONDITIONAL).GetCondFormatData();
++    if (rIndex.empty())
++        return false; // GetCondResult has nothing to evaluate either
++    const ScConditionalFormatList* pList = rDoc.GetCondFormList(nTab);
++    ScStyleSheetPool* pStylePool = rDoc.GetStyleSheetPool();
++    if (!pList || !pStylePool)
++        return true;
++    for (sal_uInt32 nKey : rIndex)
++    {
++        const ScConditionalFormat* pForm = pList->GetFormat(nKey);
++        if (!pForm)
++            continue;
++        for (size_t i = 0; i < pForm->size(); ++i)
++        {
++            const ScFormatEntry* pEntry = pForm->GetEntry(i);
++            OUString aStyle;
++            if (pEntry->GetType() == ScFormatEntry::Type::Condition
++                || pEntry->GetType() == ScFormatEntry::Type::ExtCondition)
++                aStyle = static_cast<const ScCondFormatEntry*>(pEntry)->GetStyle();
++            else if (pEntry->GetType() == ScFormatEntry::Type::Date)
++                aStyle = static_cast<const ScCondDateFormatEntry*>(pEntry)->GetStyleName();
++            else
++                continue;
++            if (aStyle.isEmpty())
++                continue;
++            SfxStyleSheetBase* pStyle = pStylePool->Find(aStyle, SfxStyleFamily::Para);
++            if (!pStyle)
++                continue; // GetCondResult treats a missing style like no condition
++            for (const SfxItemSet* pSet = &pStyle->GetItemSet(); pSet; pSet = pSet->GetParent())
++            {
++                for (SfxItemIter aIter(*pSet); !aIter.IsAtEnd(); aIter.NextItem())
++                {
++                    switch (aIter.GetCurWhich())
++                    {
++                        case ATTR_FONT_COLOR: case ATTR_BACKGROUND: case ATTR_BORDER:
++                        case ATTR_BORDER_TLBR: case ATTR_BORDER_BLTR: case ATTR_SHADOW:
++                            break;
++                        default:
++                            return true;
++                    }
++                }
++            }
++        }
++    }
++    return false;
++}
++
+ static bool IsAmbiguousScript( SvtScriptType nScript )
+ {
+     //TODO: move to a header file
+@@ -137,7 +195,10 @@
+ 
+     //      conditional formatting
+     ScDocument& rDocument = GetDoc();
+-    const SfxItemSet* pCondSet = rDocument.GetCondResult( nCol, nRow, nTab );
++    const SfxItemSet* pCondSet
++        = lcl_CondFormatMayChangeSize(rDocument, nTab, *pAttrArray->GetPattern(nRow))
++              ? rDocument.GetCondResult(nCol, nRow, nTab)
++              : nullptr;
+ 
+     //The pPattern may change in GetCondResult
+     if (aCell.getType() == CELLTYPE_FORMULA)
+--- a/sc/qa/unit/ucalc_condformat.cxx
++++ b/sc/qa/unit/ucalc_condformat.cxx
+@@ -1570,6 +1570,40 @@
+     m_pDoc->DeleteTab(0);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(TestCondformat, testCondFormatRelativeExpressionCompiledOnce)
++{
++    // A relative expression is compiled once and then evaluated at many positions (optimal row
++    // heights evaluate every cell); each position must still see its own row.
++    m_pDoc->InsertTab(0, u"Test"_ustr);
++    for (SCROW nRow = 0; nRow < 20; ++nRow)
++        m_pDoc->SetValue(ScAddress(0, nRow, 0), 1.0); // the formatted cells themselves are not blank
++
++    ScConditionEntry aSingle(ScConditionMode::Direct, u"B1>9"_ustr, u""_ustr, *m_pDoc,
++                             ScAddress(0, 0, 0), u""_ustr, u""_ustr,
++                             formula::FormulaGrammar::GRAM_DEFAULT,
++                             formula::FormulaGrammar::GRAM_DEFAULT);
++    // a range reference keeps the per-cell compilation
++    ScConditionEntry aRange(ScConditionMode::Direct, u"SUM(B1:B2)>9"_ustr, u""_ustr, *m_pDoc,
++                            ScAddress(0, 0, 0), u""_ustr, u""_ustr,
++                            formula::FormulaGrammar::GRAM_DEFAULT,
++                            formula::FormulaGrammar::GRAM_DEFAULT);
++    for (SCROW nOffset : { 0, 5 })
++    {
++        // changed values are seen by the compiled code on the next evaluation
++        for (SCROW nRow = 0; nRow < 20; ++nRow)
++            m_pDoc->SetValue(ScAddress(1, nRow, 0), nRow + nOffset);
++        for (SCROW nRow = 0; nRow < 19; ++nRow)
++        {
++            ScRefCellValue aCell(*m_pDoc, ScAddress(0, nRow, 0));
++            CPPUNIT_ASSERT_EQUAL(nRow + nOffset > 9, aSingle.IsCellValid(aCell, ScAddress(0, nRow, 0)));
++            CPPUNIT_ASSERT_EQUAL(2 * (nRow + nOffset) + 1 > 9,
++                                 aRange.IsCellValid(aCell, ScAddress(0, nRow, 0)));
++        }
++    }
++
++    m_pDoc->DeleteTab(0);
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

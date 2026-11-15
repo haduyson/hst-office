@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """What the "Đọc số thành chữ" dialog writes: the words, the DOCSO/DOCTIEN formula, the error text. Pure Python."""
 from . import number_words
+from . import number_words_defaults as defaults
 from . import utilities_texts as T
 
 
@@ -18,21 +19,22 @@ def error_text(exc):
     return text % exc.detail if "%s" in text else text
 
 
-def formula(choice, source):
-    """=DOCSO(A1) / =DOCTIEN(A1;"đồng";"xu";"ngàn linh"), leaving out trailing default arguments (Vietnamese: "đồng"
-    without a sub-unit, so the default choice gives =DOCTIEN(A1); English: "dollar"/"cent")."""
+def _quoted(text):
+    return '"%s"' % text.replace('"', '""')
+
+
+def formula(choice, source, file_layer=None):
+    """=DOCSO(A1) / =DOCTIEN(A1;"đồng";"xu";"ngàn linh"): the shortest formula that reads exactly like `choice`.
+    An argument is left out only when what DOCSO/DOCTIEN use in its place (the file's default, else the program
+    default: number_words_defaults) gives the same reading, so the cell always shows what the preview showed."""
     options = choice["options"].text()
     if not choice["money"]:
-        args = [source] + (['"%s"' % options] if options else [])
-        return "=DOCSO(%s)" % ";".join(args)
-    english = choice["options"].language == "en"
-    if english:
-        defaults = (number_words.en.DEFAULT_UNIT, number_words.en.DEFAULT_SUB_UNIT)
-    else:
-        defaults = (number_words.DEFAULT_UNIT, number_words.DEFAULT_SUB_UNIT)
-    args = [source]
-    if options or (choice["unit"], choice["sub_unit"]) != defaults:
-        args += ['"%s"' % choice["unit"].replace('"', '""'), '"%s"' % choice["sub_unit"].replace('"', '""')]
-    if options:
-        args.append('"%s"' % options)
-    return "=DOCTIEN(%s)" % ";".join(args)
+        same = defaults.number_args(file_layer, None).text() == options
+        return "=DOCSO(%s)" % ";".join([source] + ([] if same else [_quoted(options)]))
+    wanted = (choice["unit"], choice["sub_unit"], options)
+    pair = [choice["unit"], choice["sub_unit"]]
+    for args in ([], pair, pair + [options]):
+        unit, sub_unit, parsed = defaults.money_args(file_layer, *(args + [None] * (3 - len(args))))
+        if (unit, sub_unit, parsed.text()) == wanted:
+            break
+    return "=DOCTIEN(%s)" % ";".join([source] + [_quoted(arg) for arg in args])

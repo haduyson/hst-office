@@ -17,7 +17,8 @@ from _paths import ROOT
 
 PATCHES = os.path.join(ROOT, "patches", "libreoffice")
 HEADER = "sfx2/source/notebookbar/HstBannerGeometry.hxx"
-CHAIN = ("hst-ribbon-banner.patch", "hst-ribbon-banner-compact.patch", "hst-ribbon-banner-slot-anchor.patch")
+CHAIN = ("hst-ribbon-banner.patch", "hst-ribbon-banner-compact.patch", "hst-ribbon-banner-slot-anchor.patch",
+         "hst-ribbon-banner-narrow.patch")
 
 DRIVER = r"""
 #include "HstBannerGeometry.hxx"
@@ -67,6 +68,22 @@ int main()
     // the compact art uses the same height variants as the wide art
     CHECK(fit(Rect{ 0, 0, 160, 104 }, COMPACT_ART_WIDTH, ART_HEIGHT).h == 104);
     CHECK(sourceScale(208) == 2);
+    // the wide slot narrows (ratio kept) when the tab's groups need the room, down to 260 logical px
+    const Rect wpage{ 3, 40, 1479, 110 };
+    CHECK(wideSlotWidth(wpage, -1, 0, 1.0) == 360);  // groups not measured yet: full width
+    CHECK(wideSlotWidth(wpage, 1000, 0, 1.0) == 360);  // they fit beside the full slot
+    CHECK(wideSlotWidth(wpage, 1479 - 12 - 300, 0, 1.0) == 300);  // the room they leave
+    CHECK(wideSlotWidth(wpage, 1400, 0, 1.0) == 260);  // never narrower than the minimum
+    CHECK(wideSlotWidth(Rect{ 6, 80, 2958, 220 }, 2958 - 24 - 600, 0, 2.0) == 600);  // scaled
+    // hysteresis: a change of less than 12 px keeps the last width, the ends are always reached
+    CHECK(wideSlotWidth(wpage, 1479 - 12 - 305, 300, 1.0) == 300);
+    CHECK(wideSlotWidth(wpage, 1479 - 12 - 312, 300, 1.0) == 312);
+    CHECK(wideSlotWidth(wpage, 1000, 355, 1.0) == 360 && wideSlotWidth(wpage, 1400, 265, 1.0) == 260);
+    // the narrowed slot keeps the artwork ratio, centred on the page, flush right
+    const Rect narrow = slotFor(wpage, 1.0, ART_WIDTH, 300);
+    CHECK(narrow.w == 300 && ratioOk(narrow, ART_WIDTH) && narrow.x + narrow.w == wpage.x + wpage.w - 4);
+    CHECK(narrow.y == wpage.y + 2 + (106 - narrow.h) / 2);
+    CHECK(slotFor(wpage, 1.0, ART_WIDTH, 0).w == 360);  // no maximum: as before
     std::printf("checks done, %d failure(s)\n", failures);
     return failures ? 1 : 0;
 }
@@ -101,6 +118,9 @@ class RibbonBannerCompactTest(unittest.TestCase):
         self.assertIn("COMPACT_ART_WIDTH = 160", header)
         self.assertIn("inline Mode modeFor(", header)
         self.assertIn("constexpr bool SLOT_CENTRED = true;", header)  # shipped: centred on the page
+        self.assertIn("constexpr long MIN_WINDOW_WIDTH = 1280;", header)  # compact card below, as before
+        self.assertIn("constexpr long MIN_WIDE_ART_WIDTH = 260;", header)
+        self.assertIn("inline long wideSlotWidth(", header)
 
     @unittest.skipUnless(shutil.which("g++") and shutil.which("patch"), "no C++ compiler or patch tool")
     def test_geometry(self):

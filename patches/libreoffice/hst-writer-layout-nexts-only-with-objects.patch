@@ -1,0 +1,43 @@
+Writer: the first layout of a long document is no longer quadratic in its number of paragraphs.
+
+SwTextFrame::Format() collected every following frame of the next-chain into a vector before each
+FormatImpl() call, to order the anchors of objects that FormatImpl() reports as intersecting the
+paragraph. Until the layout has moved them to their pages, all remaining paragraphs of a newly loaded
+document are in that chain, so the first layout was O(paragraphs^2): a 50 MB plain text file of short
+Vietnamese lines (about 550 000 paragraphs) loaded in about 20 s and then kept the office at 100 % CPU
+in idle layout for more than 15 minutes (the "never finishes opening" report), every stack sample in
+that loop. A 10 MB file still settled in 8 s, which is why smaller files looked fine.
+
+FormatImpl() can report intersecting objects only when SwTextFly is on, which needs anchored objects
+on the paragraph's page (SwTextFly::CtorInitTextFly: m_bOn = page->GetSortedObjs() != nullptr). The
+next-chain is now collected only in that case, so pages with pictures, frames or shapes behave as
+before and plain text no longer pays for it.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/unit/test_large_file_open_patches.py; runtime: scripts/perf/large-file-open-local.sh with
+the text-*-50mb.txt fixtures (docs/PERFORMANCE_LARGE_FILES.md); sw layout CppunitTests.
+
+--- a/sw/source/core/text/frmform.cxx
++++ b/sw/source/core/text/frmform.cxx
+@@ -2448,9 +2448,19 @@
+             {
+                 ::std::vector<SwAnchoredObject *> intersectingObjs;
+                 ::std::vector<SwFrame const*> nexts;
+-                for (SwFrame const* pNext = GetNext(); pNext; pNext = pNext->GetNext())
++                // FormatImpl() reports intersecting objects only when the page has anchored
++                // objects (SwTextFly is off otherwise), and only then is the next-chain needed.
++                // Collecting it for every paragraph made the first layout of a long document
++                // quadratic: until the layout has moved them to their pages, all following
++                // paragraphs are in the next-chain (a 50 MB plain text file of short lines
++                // kept the office busy for more than 15 minutes after loading).
++                if (SwPageFrame const*const pPage = FindPageFrame();
++                    pPage && pPage->GetSortedObjs())
+                 {
+-                    nexts.push_back(pNext);
++                    for (SwFrame const* pNext = GetNext(); pNext; pNext = pNext->GetNext())
++                    {
++                        nexts.push_back(pNext);
++                    }
+                 }
+                 FormatImpl(pRenderContext, EnsurePara(), intersectingObjs);
+                 if( pFootnoteBoss && nFootnoteHeight )

@@ -3,7 +3,7 @@
 
 Usage: python3 tests/runtime/check-ribbon-chevron.py [--instdir DIR] [--display :71] [--shots DIR]
 The X display must already run, at least 1600 px wide. In Writer's Home tab:
-  - at every width of a sweep (1400 to 900 px) the chevron is on the ribbon exactly when one of the groups is
+  - at every width of a sweep (1400 to 600 px) the chevron is on the ribbon exactly when one of the groups is
     folded: neither on the ribbon nor shown as its group button;
   - a click on it opens a popup with the folded groups, and Esc puts them back;
   - with KeyTips (Alt, H, then the chevron's letters) the popup opens with KeyTips on its commands; Esc closes both.
@@ -20,9 +20,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
 
-GROUPS = ["Bảng tạm", "Phông chữ", "Đoạn văn", "Kiểu"]  # Writer's Home tab, left to right
+GROUPS = ["Bảng tạm", "Phông chữ", "Đoạn văn", "Kiểu", "Chỉnh sửa", "Tiện ích Việt"]  # Writer's Home tab, left to right
 BUTTON_ROLES = ("push button", "toggle button", "push button menu", "menu button")
-WIDTHS = list(range(1400, 880, -20))  # groups become their buttons first; Writer folds a group at about 900 px
+WIDTHS = list(range(1400, 580, -20))  # groups become their buttons first (all of them fit at 900 px), then fold
 ROWS = []
 
 

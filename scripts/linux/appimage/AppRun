@@ -1,0 +1,27 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-only
+# HST Office AppImage entry point: per-user desktop integration on the first start (and after the AppImage moved),
+# then the office itself. The install tree is the .deb's /opt/hst-office1.0, whose soffice script sets up its own
+# environment (bundled python, UNO); nothing else is exported, so programs the office starts (browser, mail) get
+# the user's environment.
+#   HSTOffice_<release>_Linux_x86-64.AppImage [office options] [files]
+#   ... --install-desktop-integration | --remove-desktop-integration
+# HST_APPIMAGE_NO_INTEGRATION=1 skips the automatic integration (e.g. on a shared or kiosk machine).
+HERE=$(dirname "$(readlink -f "$0")")
+PROGRAM="$HERE/opt/hst-office1.0/program"
+export APPDIR="${APPDIR:-$HERE}"
+integrate() { "$PROGRAM/python" -B "$HERE/appimage_desktop_integration.py" "$1"; }
+case "${1:-}" in
+  --install-desktop-integration) integrate --install; exit $? ;;
+  --remove-desktop-integration) integrate --remove; exit $? ;;
+esac
+if [ -n "${APPIMAGE:-}" ] && [ -z "${HST_APPIMAGE_NO_INTEGRATION:-}" ]; then
+  STATE="${XDG_DATA_HOME:-$HOME/.local/share}/hst-office/appimage-integration.state"
+  CURRENT=$(cat "$STATE" 2>/dev/null)
+  # Nothing recorded and a .deb/.rpm install owns the menu: leave it (--install-desktop-integration overrides).
+  if [ -z "$CURRENT" ] && [ -e /usr/share/applications/vn.hasontech.hstoffice-startcenter.desktop ]; then :
+  elif [ "$CURRENT" != "$APPIMAGE" ] && [ "$CURRENT" != removed ]; then
+    integrate --auto >/dev/null 2>&1 || :
+  fi
+fi
+exec "$PROGRAM/soffice" "$@"

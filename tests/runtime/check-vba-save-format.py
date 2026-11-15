@@ -121,7 +121,7 @@ def main():
     os.makedirs(files, exist_ok=True)
     subprocess.run(["chown", "-R", hst_gui.BUILD_USER, work], check=False)
     office = hst_gui.Office(args.instdir, work, args.port, display=args.display,
-                            config=[("/org.openoffice.Office.Impress/Misc", "StartWithTemplate", "false")])
+                            config=[("/org.openoffice.Office.Impress/Misc/NewDoc", "AutoPilot", "false")])
     try:
         office.start()
         run(office, Keys(office), files)

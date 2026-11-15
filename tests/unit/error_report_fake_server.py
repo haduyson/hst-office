@@ -122,7 +122,7 @@ class FakeServer:
 def report(**changes):
     """A minimal valid kind=user report for the server tests."""
     doc = {"schemaVersion": 1, "reportId": str(uuid.uuid4()), "kind": "user", "createdAt": "2026-11-06T01:02:03Z",
-           "product": {"version": "1.0.0-beta.5", "build": "500", "engine": "26.8.1.1"},
+           "product": {"version": "1.0.0-beta.5", "build": "500"},
            "os": {"family": "linux", "version": "Ubuntu 24.04", "arch": "x86_64"}, "locale": "vi-VN", "app": "writer",
            "description": "Lỗi thử"}
     doc.update(changes)

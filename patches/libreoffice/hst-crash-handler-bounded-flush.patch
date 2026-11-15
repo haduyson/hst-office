@@ -1,0 +1,198 @@
+HST Office: the crash handler never waits forever on the configuration.
+
+Owner report (Windows 1.0.1, autosave every minute with "always autosave the document instead"):
+closing a Writer document showed the emergency save dialog with an empty list, and the office
+could only be ended from the Task Manager.
+
+Reproduced on Windows 11 with an access violation injected into the main thread while the last
+window closed. A dump of the hung process shows the main thread inside Desktop::Exception ->
+FlushConfiguration -> configmgr flushModifications -> join of the "configmgrWriter" thread, and that
+thread waiting in writeModFile for configmgr's lock, which the main thread still held: it faulted
+inside a configuration commit (utl::ConfigManager::storeConfigItems while the frames closed). The
+same join runs inside the emergency save of 1.0.2 (hstrecovery::flushConfiguration after each
+copy), where it freezes the save dialog on screen, and from exit(255) of the Windows signal handler
+(the configmgr singleton's destructor flushes too).
+
+- Desktop::Exception flushes the configuration on a helper thread and goes on after 5 s.
+- hstrecovery::flushConfiguration does the same; after one stuck flush the later ones are skipped.
+  The recovery copies are written before any flush, so the emergency save still saves them.
+- No recovery UI after Application::Quit(): every document is closed by then (hence the empty
+  list) and Dialog::Execute() returns without running its loop.
+- Windows: the signal handler ends the process with TerminateProcess instead of exit(), which ran
+  the static destructors from inside the exception filter.
+--- a/desktop/source/app/app.cxx
++++ b/desktop/source/app/app.cxx
+@@ -17,7 +17,12 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <chrono>
++#include <condition_variable>
+ #include <memory>
++#include <mutex>
++#include <system_error>
++#include <thread>
+ #include <config_emscripten.h>
+ #include <config_features.h>
+ #include <config_feature_desktop.h>
+@@ -1195,6 +1200,45 @@
+ 
+ }
+ 
++namespace
++{
++// HST Office: what Desktop::FlushConfiguration() does, on a helper thread; false when it did not
++// end within aLimit (the helper is left behind: the process ends right after the crash handler).
++bool lcl_flushConfigurationWithin(std::chrono::seconds aLimit)
++{
++    struct State
++    {
++        std::mutex aMutex;
++        std::condition_variable aDone;
++        bool bDone = false;
++    };
++    auto pState = std::make_shared<State>();
++    try
++    {
++        std::thread([pState] {
++            try
++            {
++                css::uno::Reference<css::util::XFlushable>(
++                    css::configuration::theDefaultProvider::get(comphelper::getProcessComponentContext()),
++                    css::uno::UNO_QUERY_THROW)->flush();
++            }
++            catch (...)
++            {
++            }
++            std::scoped_lock aGuard(pState->aMutex);
++            pState->bDone = true;
++            pState->aDone.notify_all();
++        }).detach();
++    }
++    catch (const std::system_error&)
++    {
++        return false;
++    }
++    std::unique_lock aGuard(pState->aMutex);
++    return pState->aDone.wait_for(aGuard, aLimit, [&pState] { return pState->bDone; });
++}
++}
++
+ void Desktop::Exception(ExceptionCategory nCategory)
+ {
+     // protect against recursive calls
+@@ -1220,7 +1264,11 @@
+                                                     ( !rArgs.IsNoRestore()                    ) && // some use cases of office must work without recovery
+                                                     ( !rArgs.IsHeadless()                     ) &&
+                                                     ( nCategory != ExceptionCategory::UserInterface ) && // recovery can't work without UI ... but UI layer seems to be the reason for this crash
+-                                                    ( Application::IsInExecute()               )    // crashes during startup and shutdown should be ignored (they indicate a corrupted installation...)
++                                                    ( Application::IsInExecute()               ) && // crashes during startup and shutdown should be ignored (they indicate a corrupted installation...)
++                                                    // HST Office: after Application::Quit() (the last window was closed and the office is
++                                                    // ending) every document is closed already, and Dialog::Execute() returns at once
++                                                    // without running its loop: the dialog would only show an empty, dead window.
++                                                    ( !Application::IsQuit()                   )
+                                                   );
+     if ( bAllowRecoveryAndSessionManagement )
+     {
+@@ -1234,7 +1282,11 @@
+ #endif
+     }
+ 
+-    FlushConfiguration();
++    // HST Office: never wait forever here. The flush joins configmgr's writer thread, and that thread
++    // needs the configuration lock, which the faulting thread may still hold (a crash inside a
++    // configuration commit, e.g. while a document closes): the handler then hung for good and the
++    // process could only be ended from the Task Manager. The documents were saved above already.
++    lcl_flushConfigurationWithin(std::chrono::seconds(5));
+ 
+     m_xLockfile.reset();
+ 
+--- a/framework/source/services/hstrecoverylist.cxx
++++ b/framework/source/services/hstrecoverylist.cxx
+@@ -23,6 +23,16 @@
+ #include <officecfg/Office/Recovery.hxx>
+ #include <unotools/pathoptions.hxx>
+ 
++#include <sal/log.hxx>
++
++#include <atomic>
++#include <chrono>
++#include <condition_variable>
++#include <memory>
++#include <mutex>
++#include <system_error>
++#include <thread>
++
+ using namespace css;
+ 
+ namespace framework::hstrecovery
+@@ -99,16 +109,49 @@
+     batch->commit();
+ }
+ 
++// The flush joins configmgr's writer thread, which needs the configuration lock. During an
++// emergency save that lock may still be held by the thread that crashed (a fault inside a
++// configuration commit): waiting for the writer then froze the save dialog for good. So the flush
++// runs on a helper thread and is given up after a few seconds; once one flush got stuck, later
++// ones are skipped (the copies themselves are written before any flush).
+ void flushConfiguration(const uno::Reference<uno::XComponentContext>& xContext)
+ {
++    static std::atomic<bool> s_bStuck(false);
++    if (s_bStuck)
++        return;
++    struct State
++    {
++        std::mutex aMutex;
++        std::condition_variable aDone;
++        bool bDone = false;
++    };
++    auto pState = std::make_shared<State>();
+     try
+     {
+-        uno::Reference<util::XFlushable>(configuration::theDefaultProvider::get(xContext),
+-                                         uno::UNO_QUERY_THROW)->flush();
++        std::thread([pState, xContext] {
++            try
++            {
++                uno::Reference<util::XFlushable>(configuration::theDefaultProvider::get(xContext),
++                                                 uno::UNO_QUERY_THROW)->flush();
++            }
++            catch (const uno::Exception&)
++            {
++                TOOLS_WARN_EXCEPTION("fwk.autorecovery", "hst: flushing the configuration");
++            }
++            std::scoped_lock aGuard(pState->aMutex);
++            pState->bDone = true;
++            pState->aDone.notify_all();
++        }).detach();
++    }
++    catch (const std::system_error&)
++    {
++        return;
+     }
+-    catch (const uno::Exception&)
++    std::unique_lock aGuard(pState->aMutex);
++    if (!pState->aDone.wait_for(aGuard, std::chrono::seconds(5), [&pState] { return pState->bDone; }))
+     {
+-        TOOLS_WARN_EXCEPTION("fwk.autorecovery", "hst: flushing the configuration");
++        s_bStuck = true;
++        SAL_WARN("fwk.autorecovery", "hst: configuration flush did not finish, given up");
+     }
+ }
+ 
+--- a/sal/osl/w32/signal.cxx
++++ b/sal/osl/w32/signal.cxx
+@@ -268,7 +268,12 @@
+         case osl_Signal_ActKillApp:
+             appendFaultNote("end=exit255\n"); // HST Office: ended here, without a Windows report
+             SetErrorMode(SEM_NOGPFAULTERRORBOX);
+-            exit(255);
++            // HST Office: not exit(): it runs the static destructors and DLL detach code from inside
++            // this exception filter, with the faulting thread still holding its locks (configmgr's
++            // destructor joins its writer thread, which waits for such a lock): the process hung
++            // instead of ending. Nothing is left to save at this point.
++            TerminateProcess(GetCurrentProcess(), 255);
++            _exit(255);
+             break;
+         default:
+             break;

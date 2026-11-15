@@ -119,13 +119,13 @@ class SignatureTests(unittest.TestCase):
     def test_windows_application_error_event(self):
         event = ("<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System>"
                  "<TimeCreated SystemTime='2026-11-10T08:00:00.000Z'/></System><EventData>"
-                 "<Data Name='AppName'>soffice.bin</Data><Data Name='AppVersion'>26.8.1.1</Data>"
+                 "<Data Name='AppName'>soffice.bin</Data><Data Name='AppVersion'>1.0.1.10000</Data>"
                  "<Data Name='AppTimeStamp'>0</Data><Data Name='ModuleName'>mergedlo.dll</Data>"
-                 "<Data Name='ModuleVersion'>26.8.1.1</Data><Data Name='ModuleTimeStamp'>0</Data>"
+                 "<Data Name='ModuleVersion'>1.0.1.10000</Data><Data Name='ModuleTimeStamp'>0</Data>"
                  "<Data Name='ExceptionCode'>c0000005</Data><Data Name='FaultingOffset'>00000000012a3b4c</Data>"
                  "</EventData></Event>")
-        self.assertEqual(sig.from_event_xml(event),
-                         "Exception c0000005 in mergedlo.dll 26.8.1.1 at offset 00000000012a3b4c (soffice 26.8.1.1)")
+        self.assertEqual(sig.from_event_xml(event), "Exception c0000005 in mergedlo.dll 1.0.1.10000 at offset "
+                                                    "00000000012a3b4c (soffice 1.0.1.10000)")
         self.assertEqual(sig.from_event_xml(event.replace("soffice.bin", "explorer.exe")), "")
 
         Done = type("Done", (), {"stdout": event})
@@ -181,8 +181,7 @@ class PayloadTests(unittest.TestCase):
         found = diag_crash.previous_session("Linux", marker={"started": 1}, stderr_text=LINUX_STDERR)
         crash = "\n".join(["Previous session: ended abnormally"] + diag_crash.facts(found))
         log = "\n".join("2026-11-10T08:00:00Z ERROR dispatch: line %d %s" % (n, "é" * 300) for n in range(2000))
-        payload = p.build_payload(p.new_report_id(), "crash", p.utc_now(),
-                                  {"version": "1.0.1", "build": "680", "engine": "26.8.1.1"},
+        payload = p.build_payload(p.new_report_id(), "crash", p.utc_now(), {"version": "1.0.1", "build": "680"},
                                   {"family": "linux", "version": "Linux Mint 22.3, kernel 7.0.0-42", "arch": "x86_64"},
                                   "vi-VN", "writer", diagnostics={"systemInfo": "Version: 1.0.1 (x86_64)\nVCL: gtk3",
                                                                   "crash": crash, "log": log})

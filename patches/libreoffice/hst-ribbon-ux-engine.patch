@@ -1,0 +1,754 @@
+HST Office: ribbon UX engine — groups reopen into free room, ribbon-only labels and two-line tooltips,
+one banner width per app, captions on one line, contextual tabs marked and opened after an insert.
+
+From the ribbon UX audit of 13/11/2026 (plans/reports/fable52-261113-1224-ribbon-ux-audit.md, section 2):
+- PriorityMergedHBox: select() stops at the first ladder step that fits, and that step can free far more
+  than was missing; every tab now grows its groups back into that room, most used first (the reverse of
+  the tab's fold order, left to right without a ladder of its own), collapsed groups before shrunk ones
+  (vcl/inc/HstRibbonRegrow.hxx, unit tested by tests/unit/test_ribbon_regrow.py). A 1920 px window no
+  longer shows a "Caption ▾" group button beside free room.
+- VclBuilder: "hst-ribbon-label" (translatable) names a toolbox item on the ribbon only, so the ribbon can
+  use short, familiar terms while menus and the feature search keep the command label; and
+  "hst-ribbon-description" (translatable) adds a second tooltip line saying what the command does.
+- NotebookbarTabControl: the wide banner narrows for the widest tab page measured so far instead of the
+  current page, so it keeps one width while the user switches tabs (still 260-360 px, ratio kept).
+- PriorityMergedHBox takes the full height of its tab and VclGrid drops a ribbon group's caption to the
+  bottom of the room it gets: the captions of every group and every tab stand on one line.
+- Tab control: a contextual tab (its page is not shown in every context) has its label in the accent
+  colour under a thin accent band; a selection made right after an insert command (picture, table,
+  chart, shape...; reported by the sfx dispatcher) opens its contextual tab, while clicking an existing
+  object still leaves the ribbon on the current tab.
+- hst::ribbon::OpenContextualTab opens the contextual tab of the current selection; the applications call it
+  when an object is double-clicked, as Office opens its Format tab.
+- The feature search box shows a one-time hint the first time it appears in a profile ("Không thấy lệnh? Gõ
+  tên lệnh ở đây, không cần dấu."); it closes at the first search or after 12 s (BubbleShown in the
+  extension's FeatureSearch configuration, search.xcs).
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/include/sfx2/strings.hrc
++++ b/include/sfx2/strings.hrc
+@@ -416,6 +416,7 @@
+ #define STR_CHANGEOPTIONS                       NC_("STR_CHANGEOPTIONS", "Change options")
+ // HST Office: placeholder of the feature search box in the ribbon tab row
+ #define STR_HST_TAB_SEARCH                      NC_("STR_HST_TAB_SEARCH", "Search features… (Alt+Q)")
++#define STR_HST_TAB_SEARCH_BUBBLE               NC_("STR_HST_TAB_SEARCH_BUBBLE", "Can't find a command? Type its name here; accents are optional.")
+ 
+ #endif
+ 
+--- a/include/vcl/HstRibbonContext.hxx
++++ b/include/vcl/HstRibbonContext.hxx
+@@ -8,6 +8,8 @@
+  */
+ #pragma once
+ 
++#include <string_view>
++
+ #include <vcl/dllapi.h>
+ #include <vcl/EnumContext.hxx>
+ 
+@@ -24,6 +26,16 @@
+ /// Context::Unknown ends it. It is not sent to the sidebar, whose decks follow the shell's context.
+ /// Does nothing on a frame without the Tabbed notebookbar.
+ VCL_DLLPUBLIC void SetRibbonSubContext(const vcl::Window& rWindow, vcl::EnumContext::Context eSub);
++
++/// HST Office: the sfx dispatcher reports every .uno: command path (without ".uno:") it executes. A
++/// command that inserts an object (Insert*, the shape tools) makes the next selection context open its
++/// contextual tab (Picture Format, Table Design...) instead of leaving the ribbon on the current tab.
++VCL_DLLPUBLIC void NoteObjectCommand(std::u16string_view aCommandPath);
++
++/// HST Office: opens the first contextual tab the current selection shows (Picture Format, Shape Format,
++/// Table Design...) on the Tabbed notebookbar of rWindow's frame, as a double-click on an object does in
++/// Office. Does nothing when no contextual tab is shown or the frame has no Tabbed notebookbar.
++VCL_DLLPUBLIC void OpenContextualTab(const vcl::Window& rWindow);
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -10,6 +10,7 @@
+ #pragma once
+ 
+ #include <chrono>
++#include <map>
+ #include <vcl/tabctrl.hxx>
+ 
+ #include <com/sun/star/frame/XFrame.hpp>
+@@ -49,6 +50,9 @@
+     // HST Office: feature search box in the tab row, after the last tab (placed by the vcl base)
+     VclPtr<HstTabSearchBox> m_pHstSearch;
+     bool m_bHstLayout = false;
++    // HST Office: the full width of every tab page measured so far: the wide banner narrows for the
++    // widest of them, so it keeps one width while the user switches tabs
++    std::map<sal_uInt16, tools::Long> m_aHstPageFullWidths;
+ 
+     // time-based debounce: track when the last tab switch via scroll happened
+     std::chrono::steady_clock::time_point m_lastTabSwitch{};
+--- a/sfx2/source/control/unoctitm.cxx
++++ b/sfx2/source/control/unoctitm.cxx
+@@ -66,6 +66,7 @@
+ #include <rtl/ustring.hxx>
+ #include <sfx2/lokhelper.hxx>
+ #include <sfx2/lokunocmdlist.hxx>
++#include <vcl/HstRibbonContext.hxx>
+ 
+ #include <memory>
+ #include <string_view>
+@@ -573,6 +574,8 @@
+     if ( aURL.Protocol == ".uno:")
+     {
+         CrashReporter::logUnoCommand(parseArguments(aURL.Path, aArgs));
++        // HST Office: an inserted object opens its contextual ribbon tab
++        hst::ribbon::NoteObjectCommand(aURL.Path);
+     }
+     collectUIInformation(aURL, aArgs);
+ 
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -60,6 +60,10 @@
+ #include <com/sun/star/awt/XVclWindowPeer.hpp>
+ #include <com/sun/star/frame/XPopupMenuController.hpp>
+ #include <comphelper/processfactory.hxx>
++#include <vcl/timer.hxx>
++#include <vcl/help.hxx>
++#include <com/sun/star/container/XNameReplace.hpp>
++#include <comphelper/configurationhelper.hxx>
+ #include <comphelper/propertyvalue.hxx>
+ #include <sidebar/SidebarToolBox.hxx>
+ #include <toolkit/awt/vclxmenu.hxx>
+@@ -86,6 +90,19 @@
+         SetAccessibleRole(css::accessibility::AccessibleRole::PUSH_BUTTON);
+         SetAccessibleName(Placeholder());
+         SetQuickHelpText(Placeholder());
++        // the first-start hint, once the window has settled
++        m_aBubbleTimer.SetTimeout(2000);
++        m_aBubbleTimer.SetInvokeHandler(LINK(this, HstTabSearchBox, BubbleHdl));
++        m_aBubbleTimer.Start();
++    }
++
++    virtual ~HstTabSearchBox() override { disposeOnce(); }
++
++    virtual void dispose() override
++    {
++        m_aBubbleTimer.Stop();
++        HideBubble();
++        Control::dispose();
+     }
+ 
+     static OUString Placeholder() { return SfxResId(STR_HST_TAB_SEARCH); }
+@@ -97,6 +114,7 @@
+ 
+     void OpenSearch(const OUString& rInitialText)
+     {
++        HideBubble(); // the first use answers the hint
+ #ifdef HST_HAVE_FEATURE_SEARCH
+         sfx2::hst::ShowFeatureSearch(this, rInitialText);
+ #else
+@@ -220,8 +238,75 @@
+ 
+ private:
+     bool mbHover = false;
++
++    // HST Office: the first time the box shows in a profile, a hint points at it: "Can't find a command?
++    // Type its name here...". It goes away at the first search or after 12 s and never comes back
++    // (BubbleShown of the extension's FeatureSearch configuration). Without the extension no hint shows.
++    static bool BubbleAlreadyShown()
++    {
++        static bool bShownInProcess = false;
++        if (bShownInProcess)
++            return true;
++        bShownInProcess = true;
++        try
++        {
++            const css::uno::Reference<css::uno::XInterface> xConfig = comphelper::ConfigurationHelper::openConfig(
++                comphelper::getProcessComponentContext(), u"/org.hasontech.hstoffice.FeatureSearch"_ustr,
++                comphelper::EConfigurationModes::Standard);
++            const css::uno::Reference<css::container::XNameAccess> xAccess(xConfig, css::uno::UNO_QUERY_THROW);
++            bool bShown = true;
++            if (!(xAccess->getByName(u"BubbleShown"_ustr) >>= bShown) || bShown)
++                return true;
++            const css::uno::Reference<css::container::XNameReplace> xWrite(xConfig, css::uno::UNO_QUERY_THROW);
++            xWrite->replaceByName(u"BubbleShown"_ustr, css::uno::Any(true));
++            comphelper::ConfigurationHelper::flush(xConfig);
++            return false;
++        }
++        catch (const css::uno::Exception&)
++        {
++            return true; // no extension configuration (or read only): no hint
++        }
++    }
++
++    void HideBubble()
++    {
++        if (m_pBubble)
++            Help::HidePopover(this, m_pBubble);
++        m_pBubble = nullptr;
++    }
++
++    DECL_LINK(BubbleHdl, Timer*, void);
++
++    Timer m_aBubbleTimer{ "sfx2 HstTabSearchBox hint" };
++    void* m_pBubble = nullptr;
++    bool m_bBubbleDone = false;
+ };
+ 
++IMPL_LINK_NOARG(HstTabSearchBox, BubbleHdl, Timer*, void)
++{
++    if (m_pBubble) // the hint has been up long enough
++    {
++        HideBubble();
++        return;
++    }
++    if (m_bBubbleDone || isDisposed())
++        return;
++    if (!IsReallyVisible() || GetOutputSizePixel().Width() <= 0)
++    {
++        m_aBubbleTimer.Start(); // not placed yet: try again
++        return;
++    }
++    m_bBubbleDone = true;
++    if (BubbleAlreadyShown())
++        return;
++    const Point aScreen = OutputToScreenPixel(Point());
++    const tools::Rectangle aBox(aScreen, GetOutputSizePixel());
++    m_pBubble = Help::ShowPopover(this, aBox, SfxResId(STR_HST_TAB_SEARCH_BUBBLE),
++                                  QuickHelpFlags::Bottom | QuickHelpFlags::Center | QuickHelpFlags::TipStyleBalloon);
++    m_aBubbleTimer.SetTimeout(12000);
++    m_aBubbleTimer.Start();
++}
++
+ /** HST Office: the search box for assistive technology: a push button (role and name from the
+     window) whose one action, "press", opens the feature search, as a click does. The tab control's
+     accessible lists it after the page tabs (vclxaccessibletabcontrol.cxx). */
+@@ -466,8 +551,17 @@
+             long nMaxWidth = 0;
+             if (eMode == hst::banner::Mode::Wide)
+             {
+-                nMaxWidth = hst::banner::wideSlotWidth(aPage, hst::ribbon::PageFullWidth(*pPage),
+-                                                       m_pHstBanner->WideSlotWidth(), fDpi);
++                // the widest page measured so far, not just the current one (the banner does not jump
++                // when the user switches tabs); a page measures once it has been shown
++                const tools::Long nCurrentFull = hst::ribbon::PageFullWidth(*pPage);
++                if (nCurrentFull >= 0)
++                    m_aHstPageFullWidths[GetCurPageId()] = nCurrentFull;
++                tools::Long nWidest = -1;
++                for (const auto& [nPageId, nFull] : m_aHstPageFullWidths)
++                    if (const TabPage* pMeasured = GetTabPage(nPageId);
++                        pMeasured && pMeasured->HasContext(vcl::EnumContext::Context::Any)) // not the contextual tabs
++                        nWidest = std::max(nWidest, nFull);
++                nMaxWidth = hst::banner::wideSlotWidth(aPage, nWidest, m_pHstBanner->WideSlotWidth(), fDpi);
+                 m_pHstBanner->SetWideSlotWidth(nMaxWidth);
+             }
+             const hst::banner::Rect aSlot
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -6490,6 +6490,12 @@
+ msgid "Search features… (Alt+Q)"
+ msgstr "Tìm tính năng… (Alt+Q)"
+ 
++#. hstUX
++#: include/sfx2/strings.hrc:419
++msgctxt "STR_HST_TAB_SEARCH_BUBBLE"
++msgid "Can't find a command? Type its name here; accents are optional."
++msgstr "Không thấy lệnh? Gõ tên lệnh ở đây, không cần dấu."
++
+ #. 5BdCA
+ #: sfx2/uiconfig/ui/versionsofdialog.ui:364
+ msgctxt "versionsofdialog|extended_tip|VersionsOfDialog"
+--- /dev/null
++++ b/vcl/inc/HstRibbonRegrow.hxx
+@@ -0,0 +1,117 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: the "re-open" pass of the ribbon collapse ladder (HstRibbonScaling.hxx).
++// Plain integer arithmetic, unit tested on its own (tests/unit/test_ribbon_regrow.py).
++//
++// select() walks the ladder and stops at the first step that makes the row fit; that step can free far
++// more than was missing (a large group turned into its "Caption ▾" button), so groups stayed buttons
++// beside free room, even in a 1920 px window. fitByPriority() lays the row out again from the groups'
++// priority (most used first):
++//   1. as few groups as possible become their button, least used first: the k least used groups
++//      (k as small as possible) collapse when the row does not fit with every other group at its
++//      smallest shown state. The collapsed groups at a width are therefore always the least used ones,
++//      and a wider window never collapses a group that a narrower one shows (monotonic);
++//   2. the shown groups then grow, most used first, into the largest state that still fits.
++// A row that does not fit even with every collapsible group collapsed is left to select() and its
++// overflow popup.
++
++#include "HstRibbonScaling.hxx"
++
++#include <cstddef>
++#include <vector>
++
++namespace hst::ribbon
++{
++/// The state of a group shown as its "Caption ▾" button (GroupCollapsed in HstRibbonLadder.hxx).
++constexpr std::size_t RegrowCollapsedState = 3;
++
++/// Priority order of a ladder: the reverse of its fold order (rFold lists the least used group
++/// first); groups missing from rFold come after, left to right.
++inline std::vector<std::size_t> priorityFromFold(std::size_t nGroups, const std::vector<std::size_t>& rFold)
++{
++    std::vector<std::size_t> aOrder;
++    std::vector<bool> aSeen(nGroups, false);
++    for (auto it = rFold.rbegin(); it != rFold.rend(); ++it)
++        if (*it < nGroups && !aSeen[*it])
++        {
++            aSeen[*it] = true;
++            aOrder.push_back(*it);
++        }
++    for (std::size_t i = 0; i < nGroups; ++i)
++        if (!aSeen[i])
++            aOrder.push_back(i);
++    return aOrder;
++}
++
++/// The shown state (not the button) in which rGroup is narrowest; the larger state on a tie.
++inline std::size_t smallestShownState(const Group& rGroup)
++{
++    std::size_t nBest = 0;
++    const std::size_t nShown = rGroup.widths.size() < RegrowCollapsedState ? rGroup.widths.size() : RegrowCollapsedState;
++    for (std::size_t nState = 1; nState < nShown; ++nState)
++        if (widthOf(rGroup, nState) < widthOf(rGroup, nBest))
++            nBest = nState;
++    return nBest;
++}
++
++/// The layout for nAvailable from the groups' priority (rPriority: group indexes, most used first);
++/// fits is false when the row does not fit even with every collapsible group collapsed.
++inline Layout fitByPriority(const std::vector<Group>& rGroups, const std::vector<std::size_t>& rPriority,
++                            long nAvailable)
++{
++    Layout aLayout;
++    aLayout.states.assign(rGroups.size(), 0);
++    for (std::size_t i = 0; i < rGroups.size(); ++i)
++        aLayout.states[i] = smallestShownState(rGroups[i]);
++    long nRow = rowWidth(rGroups, aLayout.states);
++    // 1. the least used groups become their buttons until the row fits at its smallest
++    for (auto it = rPriority.rbegin(); it != rPriority.rend() && nRow > nAvailable; ++it)
++    {
++        if (*it >= rGroups.size() || rGroups[*it].widths.size() <= RegrowCollapsedState)
++            continue; // a group without a button state stays shown
++        const Group& rGroup = rGroups[*it];
++        if (widthOf(rGroup, RegrowCollapsedState) >= widthOf(rGroup, aLayout.states[*it]))
++            continue; // its button would save nothing
++        nRow += widthOf(rGroup, RegrowCollapsedState) - widthOf(rGroup, aLayout.states[*it]);
++        aLayout.states[*it] = RegrowCollapsedState;
++    }
++    if (nRow > nAvailable)
++    {
++        aLayout.width = nRow;
++        aLayout.fits = false;
++        return aLayout;
++    }
++    // 2. the shown groups grow back, most used first
++    for (std::size_t nGroup : rPriority)
++    {
++        if (nGroup >= rGroups.size() || aLayout.states[nGroup] == RegrowCollapsedState)
++            continue;
++        const Group& rGroup = rGroups[nGroup];
++        const std::size_t nCurrent = aLayout.states[nGroup];
++        for (std::size_t nState = 0; nState < nCurrent; ++nState)
++        {
++            const long nNext = nRow - widthOf(rGroup, nCurrent) + widthOf(rGroup, nState);
++            if (nNext <= nAvailable)
++            {
++                aLayout.states[nGroup] = nState;
++                nRow = nNext;
++                break;
++            }
++        }
++    }
++    aLayout.width = nRow;
++    aLayout.fits = true;
++    return aLayout;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -66,6 +66,8 @@
+     // beside the box keeps from collapsing by dropping its caption (HstRibbonBlocks.hxx)
+     std::vector<hst::ribbon::Group> m_aHstPlanGroups;
+     std::vector<hst::ribbon::Step> m_aHstPlanSteps;
++    // group indexes, most used first, for the regrow pass (hst::ribbon::regrow)
++    std::vector<size_t> m_aHstPlanPriority;
+     size_t m_nHstBareBefore = SIZE_MAX;
+ 
+     DECL_LINK(PBClickHdl, Button*, void);
+@@ -97,6 +99,10 @@
+     Size calculateRequisition() const override;
+     void setAllocation(const Size& rAllocation) override;
+ 
++    /// HST Office: the box takes the full height of its tab ("valign" of the .ui is ignored), so every
++    /// group is as tall as the ribbon and drops its caption to the bottom (VclGrid::setAllocation)
++    bool set_property(const OUString& rKey, const OUString& rValue) override;
++
+     void GetChildrenWithPriorities() override{};
+     virtual void DataChanged(const DataChangedEvent& rEvent) override;
+ };
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -26,6 +26,7 @@
+ #include <comphelper/lok.hxx>
+ #include <HstRibbonLadder.hxx>
+ #include <HstRibbonScaling.hxx>
++#include <HstRibbonRegrow.hxx>
+ #include <vcl/HstRibbonWidth.hxx>
+ #if __has_include(<HstRibbonLadders.hxx>)
+ #include <HstRibbonLadders.hxx>
+@@ -49,32 +50,6 @@
+ 
+ namespace
+ {
+-/// HST Office: a group collapsed by an earlier step comes back (in the largest state that fits) when a
+-/// later step has made room for it: a big group's button (Paragraph) can leave room for the gallery, and
+-/// the row should not keep both collapsed beside free space; the latest collapse is tried first
+-void lcl_HstUncollapse(const std::vector<hst::ribbon::Group>& rGroups, const std::vector<hst::ribbon::Step>& rSteps,
+-                       long nWidth, hst::ribbon::Layout& rLayout)
+-{
+-    long nRow = hst::ribbon::rowWidth(rGroups, rLayout.states);
+-    for (auto it = rSteps.rbegin(); it != rSteps.rend(); ++it)
+-    {
+-        if (it->state != static_cast<size_t>(hst::ribbon::GroupCollapsed) || it->group >= rGroups.size()
+-            || rLayout.states[it->group] != static_cast<size_t>(hst::ribbon::GroupCollapsed))
+-            continue;
+-        const hst::ribbon::Group& rGroup = rGroups[it->group];
+-        for (size_t nState = 0; nState < static_cast<size_t>(hst::ribbon::GroupStateCount); ++nState)
+-        {
+-            const long nNext = nRow - hst::ribbon::widthOf(rGroup, it->state) + hst::ribbon::widthOf(rGroup, nState);
+-            if (nNext <= nWidth)
+-            {
+-                rLayout.states[it->group] = nState;
+-                nRow = nNext;
+-                break;
+-            }
+-        }
+-    }
+-}
+-
+ /// HST Office: the room a group leaves empty beside its controls because its caption is wider
+ /// (VclGrid::get_hst_caption_room), 0 for other groups
+ tools::Long lcl_HstCaptionRoom(vcl::Window& rGroup)
+@@ -83,34 +58,6 @@
+     return pGrid ? pGrid->get_hst_caption_room() : 0;
+ }
+ 
+-/// HST Office: a tab without a ladder of its own shrinks with the default ladder, one state at a time,
+-/// and its last step can free far more than was missing (a large group turned into its button): the
+-/// groups an earlier step shrank grow back, latest first, into the largest state that still fits, so no
+-/// group stays shrunk beside free room at the end of the row
+-void lcl_HstRegrow(const std::vector<hst::ribbon::Group>& rGroups, const std::vector<hst::ribbon::Step>& rSteps,
+-                   long nWidth, hst::ribbon::Layout& rLayout)
+-{
+-    long nRow = hst::ribbon::rowWidth(rGroups, rLayout.states);
+-    for (auto it = rSteps.rbegin(); it != rSteps.rend(); ++it)
+-    {
+-        if (it->group >= rGroups.size())
+-            continue;
+-        const size_t nCurrent = rLayout.states[it->group];
+-        if (nCurrent == 0 || nCurrent >= static_cast<size_t>(hst::ribbon::GroupStateCount))
+-            continue;
+-        const hst::ribbon::Group& rGroup = rGroups[it->group];
+-        for (size_t nState = 0; nState < nCurrent; ++nState)
+-        {
+-            const long nNext = nRow - hst::ribbon::widthOf(rGroup, nCurrent) + hst::ribbon::widthOf(rGroup, nState);
+-            if (nNext <= nWidth)
+-            {
+-                rLayout.states[it->group] = nState;
+-                nRow = nNext;
+-                break;
+-            }
+-        }
+-    }
+-}
+ }
+ 
+ 
+@@ -125,6 +72,16 @@
+     m_pButton->Show();
+ }
+ 
++bool PriorityMergedHBox::set_property(const OUString& rKey, const OUString& rValue)
++{
++    if (rKey == "valign" && !comphelper::LibreOfficeKit::isActive())
++    {
++        set_valign(VclAlign::Fill);
++        return true;
++    }
++    return PriorityHBox::set_property(rKey, rValue);
++}
++
+ void PriorityMergedHBox::Resize()
+ {
+     if (comphelper::LibreOfficeKit::isActive())
+@@ -490,13 +447,21 @@
+     }
+ #endif
+     hst::ribbon::Layout aLayout = hst::ribbon::select(aGroups, aSteps, nWidth, nChevron);
+-    // HST Office: the ladder select() used (the default one when the tab has none of its own), so the
+-    // passes below see the collapse steps of the default ladder too
+-    const std::vector<hst::ribbon::Step> aUsed = aSteps.empty() ? hst::ribbon::defaultLadder(aGroups) : aSteps;
++    // HST Office: select() stops at the first step that fits, and that step may free far more than was
++    // missing; when the row fits, it is laid out again from the groups' priority (the reverse of the
++    // tab's fold order; left to right without a ladder of its own): only the least used groups become
++    // their buttons, and the others grow back into the room, most used first, so no group stays a
++    // "Caption ▾" button or shrunk beside free room (hst::ribbon::fitByPriority)
++    std::vector<size_t> aFoldIndexes;
++    for (vcl::Window* pGroup : m_aHstFoldOrder)
++        aFoldIndexes.push_back(std::find(aWindows.begin(), aWindows.end(), pGroup) - aWindows.begin());
++    m_aHstPlanPriority = hst::ribbon::priorityFromFold(aWindows.size(), aFoldIndexes);
+     if (aLayout.overflow.empty())
+-        lcl_HstUncollapse(aGroups, aUsed, nWidth, aLayout);
+-    if (aLayout.overflow.empty() && !bOwnLadder)
+-        lcl_HstRegrow(aGroups, aUsed, nWidth, aLayout);
++    {
++        const hst::ribbon::Layout aFit = hst::ribbon::fitByPriority(aGroups, m_aHstPlanPriority, nWidth);
++        if (aFit.fits)
++            aLayout = aFit;
++    }
+     m_aHstFolded.clear();
+     m_nHstFoldedFor = nWidth;
+     if (!aLayout.overflow.empty())
+@@ -560,13 +525,17 @@
+         if (nTotal <= nRoom && !aShownGroups.empty())
+         {
+             hst::ribbon::Layout aRefill = hst::ribbon::select(aShownGroups, aShownSteps, nRoom, 0);
+-            if (!bOwnLadder)
++            // the shown groups grow back into the room in the tab's priority order
++            std::vector<size_t> aShownPriority;
++            for (size_t nGroup : m_aHstPlanPriority)
+             {
+-                const std::vector<hst::ribbon::Step> aShownUsed
+-                    = aShownSteps.empty() ? hst::ribbon::defaultLadder(aShownGroups) : aShownSteps;
+-                lcl_HstUncollapse(aShownGroups, aShownUsed, nRoom, aRefill);
+-                lcl_HstRegrow(aShownGroups, aShownUsed, nRoom, aRefill);
++                const auto it = std::find(aShown.begin(), aShown.end(), nGroup);
++                if (it != aShown.end())
++                    aShownPriority.push_back(static_cast<size_t>(it - aShown.begin()));
+             }
++            const hst::ribbon::Layout aShownFit = hst::ribbon::fitByPriority(aShownGroups, aShownPriority, nRoom);
++            if (aRefill.overflow.empty() && aShownFit.fits)
++                aRefill = aShownFit;
+             for (size_t j = 0; j < aShown.size(); ++j)
+                 aLayout.states[aShown[j]] = aRefill.states[j];
+         }
+@@ -625,7 +594,9 @@
+         hst::ribbon::Layout aLayout = hst::ribbon::select(m_aHstPlanGroups, m_aHstPlanSteps, nAvailable, 0);
+         if (!aLayout.overflow.empty())
+             return false;
+-        lcl_HstUncollapse(m_aHstPlanGroups, m_aHstPlanSteps, nAvailable, aLayout);
++        const hst::ribbon::Layout aFit = hst::ribbon::fitByPriority(m_aHstPlanGroups, m_aHstPlanPriority, nAvailable);
++        if (aFit.fits)
++            aLayout = aFit;
+         return aLayout.states[m_nHstBareBefore] != static_cast<size_t>(hst::ribbon::GroupCollapsed);
+     };
+     return !kept(nRoom) && kept(nRoom + nGain);
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -24,6 +24,7 @@
+ #include <vcl/HstRibbonContext.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
+ #include <algorithm>
++#include <chrono>
+ #include <cmath>
+ #include <vcl/builder.hxx>
+ #include <vcl/help.hxx>
+@@ -895,6 +896,21 @@
+         hst::ribbon::DrawTabItem(rRenderContext, pItem->maRect,
+                                  rRenderContext.GetCtrlTextWidth(pItem->maFormatText),
+                                  bool(nState & ControlState::SELECTED), bool(nState & ControlState::ROLLOVER));
++    // HST Office: a contextual tab (Table, Picture, Chart...: its page is not shown in every context) has its
++    // label in the accent colour under a thin accent band, as Office marks its contextual tabs
++    const bool bHstContextual = bHstOwnerDraw && pItem->mpTabPage
++                                && !pItem->mpTabPage->HasContext(vcl::EnumContext::Context::Any);
++    if (bHstContextual)
++    {
++        const hst::ribbon::Palette aHstPalette = hst::ribbon::paletteFor(rStyleSettings);
++        const tools::Long nBand = std::max<tools::Long>(1, std::lround(2 * GetDPIScaleFactor()));
++        rRenderContext.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++        rRenderContext.SetLineColor();
++        rRenderContext.SetFillColor(aHstPalette.aTabAccent);
++        rRenderContext.DrawRect(tools::Rectangle(pItem->maRect.TopLeft(),
++                                                 Size(pItem->maRect.GetWidth(), nBand)));
++        rRenderContext.Pop();
++    }
+     bNativeOK = bHstOwnerDraw || bHstFileTab
+                 || rRenderContext.IsNativeControlSupported(ControlType::TabItem, ControlPart::Entire);
+     if ( bNativeOK && !bHstOwnerDraw && !bHstFileTab )
+@@ -1002,6 +1018,8 @@
+             aColor = rStyleSettings.GetTabRolloverTextColor();
+         if (bHstFileTab)
+             aColor = aHstFileText;
++        else if (bHstContextual)
++            aColor = hst::ribbon::paletteFor(rStyleSettings).aTabAccent;
+ 
+         Color aOldColor(rRenderContext.GetTextColor());
+         rRenderContext.SetTextColor(aColor);
+@@ -2239,6 +2257,25 @@
+     disposeOnce();
+ }
+ 
++namespace
++{
++// HST Office: an object inserted from a ribbon or menu command (picture, table, chart, shape...) opens
++// its contextual tab, as in Office; a selection made by clicking an existing object does not.
++// NoteObjectCommand records such a command; the next context change consumes the note.
++bool g_bHstInsertPending = false;
++std::chrono::steady_clock::time_point g_aHstInsertTime;
++// a shape is drawn with the mouse after its command: the note waits up to a minute for it
++constexpr std::chrono::seconds HST_INSERT_NOTE_LIFETIME(60);
++
++bool lcl_hstTakeInsertNote()
++{
++    const bool bPending = g_bHstInsertPending
++                          && std::chrono::steady_clock::now() - g_aHstInsertTime <= HST_INSERT_NOTE_LIFETIME;
++    g_bHstInsertPending = false;
++    return bPending;
++}
++}
++
+ // HST Office: a selection shows its tabs and leaves the ribbon on the current tab, as in Office.
+ // View modes (print preview, master, outline) still open their tab.
+ static bool lcl_hstIsSelectionContext(vcl::EnumContext::Context eContext)
+@@ -2275,7 +2312,8 @@
+         return;
+ 
+     bool bHandled = false;
+-    const bool bSelection = lcl_hstIsSelectionContext(eContext);
++    // HST Office: a selection right after an insert command opens its contextual tab
++    const bool bSelection = lcl_hstIsSelectionContext(eContext) && !lcl_hstTakeInsertNote();
+ 
+     TabPage* pPage = GetTabPage(mnCurPageId);
+     // Try to stay on the current tab (unless the new context has a special tab)
+@@ -2391,6 +2429,53 @@
+     return nullptr;
+ }
+ 
++void NoteObjectCommand(std::u16string_view aCommandPath)
++{
++    // the commands that create an object and select it, and the shape tools, whose shape the mouse
++    // then draws
++    static constexpr std::u16string_view aObjectCommands[]
++        = { u"InsertGraphic", u"InsertTable", u"InsertObjectChart", u"InsertObject", u"InsertObjectStarMath",
++            u"InsertMath", u"InsertAVMedia", u"InsertFrame", u"InsertFrameInteract", u"InsertQrCode",
++            u"InsertSignatureLine", u"FontworkGalleryFloater", u"DataPilotExec", u"InsertPivotTable" };
++    static constexpr std::u16string_view aShapeTools[]
++        = { u"BasicShapes", u"ArrowShapes", u"FlowChartShapes", u"StarShapes", u"SymbolShapes",
++            u"CalloutShapes", u"Line", u"Rect", u"Ellipse" };
++    const std::u16string_view aName = aCommandPath.substr(0, aCommandPath.find(u'?'));
++    bool bObject = false;
++    for (std::u16string_view aCommand : aObjectCommands)
++        bObject = bObject || aName == aCommand;
++    for (std::u16string_view aTool : aShapeTools) // "BasicShapes" and "BasicShapes.rectangle"
++        bObject = bObject || aName == aTool
++                  || (aName.size() > aTool.size() && aName.starts_with(aTool) && aName[aTool.size()] == u'.');
++    if (!bObject)
++        return;
++    g_bHstInsertPending = true;
++    g_aHstInsertTime = std::chrono::steady_clock::now();
++}
++
++void OpenContextualTab(const vcl::Window& rWindow)
++{
++    SystemWindow* pSystemWindow = rWindow.GetSystemWindow();
++    if (!pSystemWindow || !pSystemWindow->GetNotebookBar())
++        return;
++    NotebookbarTabControlBase* pTabs = lcl_findTabControl(pSystemWindow->GetNotebookBar().get());
++    if (!pTabs)
++        return;
++    for (sal_uInt16 nPos = 0; nPos < pTabs->GetPageCount(); ++nPos)
++    {
++        const sal_uInt16 nPageId = pTabs->GetPageId(nPos);
++        const TabPage* pPage = pTabs->GetTabPage(nPageId);
++        // a contextual page (not shown in every context) whose tab the current context shows
++        if (pPage && !pPage->HasContext(vcl::EnumContext::Context::Any)
++            && pTabs->GetTabBounds(nPageId).GetWidth() > 1)
++        {
++            if (pTabs->GetCurPageId() != nPageId)
++                pTabs->SelectTabPage(nPageId);
++            return;
++        }
++    }
++}
++
+ void SetRibbonSubContext(const vcl::Window& rWindow, vcl::EnumContext::Context eSub)
+ {
+     SystemWindow* pSystemWindow = rWindow.GetSystemWindow();
+--- a/vcl/source/window/builder.cxx
++++ b/vcl/source/window/builder.cxx
+@@ -1710,6 +1710,15 @@
+                     pToolBox->SetItemText(nItemId, sUiLabel);
+                 // HST: the line break of a two-line label (large ribbon buttons) is layout only; the
+                 // accessible name reads the label as one line.
++                // HST: "hst-ribbon-label" names the button on the ribbon only (the ribbon's terms, e.g.
++                // "Gộp và căn giữa"); menus and the feature search keep the command label
++                const auto aRibbonLabel = rMap.find(u"hst-ribbon-label"_ustr);
++                if (aRibbonLabel != rMap.end())
++                {
++                    if (!aRibbonLabel->second.isEmpty())
++                        pToolBox->SetItemText(nItemId, aRibbonLabel->second);
++                    rMap.erase(aRibbonLabel);
++                }
+                 const OUString& rText = pToolBox->GetItemText(nItemId);
+                 if (rText.indexOf('\n') >= 0)
+                     pToolBox->SetAccessibleName(nItemId, rText.replace('\n', ' '));
+@@ -1728,6 +1737,22 @@
+             if (!sTooltip.isEmpty())
+                 pToolBox->SetQuickHelpText(nItemId, sTooltip);
+ 
++            // HST: "hst-ribbon-description" is a second tooltip line saying what the command does,
++            // under "Label (Shortcut)"; the line break makes the quick help a multi-line tip
++            const auto aDescription = rMap.find(u"hst-ribbon-description"_ustr);
++            if (aDescription != rMap.end())
++            {
++                if (!aDescription->second.isEmpty())
++                {
++                    OUString aFirst = pToolBox->GetQuickHelpText(nItemId);
++                    if (aFirst.isEmpty())
++                        aFirst = pToolBox->GetItemText(nItemId).replaceAll("~", "").replace('\n', ' ');
++                    pToolBox->SetQuickHelpText(nItemId, aFirst.isEmpty() ? aDescription->second
++                                                                         : aFirst + "\n" + aDescription->second);
++                }
++                rMap.erase(aDescription);
++            }
++
+             OUString sIconName(extractIconName(rMap));
+             if (!sIconName.isEmpty())
+                 pToolBox->SetItemImage(nItemId, loadThemeImage(sIconName));
+--- a/vcl/source/window/layout.cxx
++++ b/vcl/source/window/layout.cxx
+@@ -1430,6 +1430,14 @@
+         }
+     }
+ 
++    // HST Office: a ribbon group taller than its content (every group gets the height of the ribbon) keeps
++    // its controls at the top and drops its caption to the bottom, so the captions of all groups and all
++    // tabs stand on one line, as in Office
++    tools::Long nHstCaptionDrop = 0;
++    if (bCentre && !get_row_homogeneous() && nMaxY > 1 && rAllocation.Height() > aRequisition.Height()
++        && std::none_of(aHeights.begin(), aHeights.end(), [](const Value& rRow) { return rRow.m_bExpand; }))
++        nHstCaptionDrop = rAllocation.Height() - aRequisition.Height();
++
+     Point aAllocPos(0, 0);
+     for (sal_Int32 x = 0; x < nMaxX; ++x)
+     {
+@@ -1470,6 +1478,8 @@
+                         aChildPos.AdjustX(nLead);
+                         aChildAlloc.AdjustWidth(-(nLead + nTrail));
+                     }
++                    if (nHstCaptionDrop && lcl_HstIsCaption(*pChild, y, nHeight, nMaxY))
++                        aChildPos.AdjustY(nHstCaptionDrop);
+                 }
+                 setLayoutAllocation(*pChild, aChildPos, aChildAlloc);
+             }

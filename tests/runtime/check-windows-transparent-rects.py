@@ -101,7 +101,7 @@ def csv_column_header(check, office, out):
     share = header_dark_share(before, after, (left, top + (bottom - top) // 2, right, bottom))
     check("Text Import: the selected column's header is tinted, not painted near-black (dark share < 0.5)",
           share is not None and share < 0.5, share)
-    wg.keys("escape")
+    wg.close_hwnd(window[0])  # WM_CLOSE: Cancel
     time.sleep(2)
 
 

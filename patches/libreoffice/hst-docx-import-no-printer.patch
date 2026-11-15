@@ -1,0 +1,35 @@
+HST Office: opening a DOCX does not open the default printer.
+
+Every section of a DOCX import ends in SectionPropertyMap::ApplyPaperSource, which set the page
+style's PrinterPaperTray even when the document has no <w:paperSrc> (both trays 0, Word's default
+tray). SwXStyle's PaperBin setter first calls getPrinter(true), so every DOCX load created the
+document's SfxPrinter for the system default printer: OpenPrinter, DocumentProperties and CreateIC
+on that printer while the document loads. Writer's layout does not need it (printer-independent
+layout is the default; usePrinterMetrics switches it off separately).
+
+On Windows an unreachable network default printer (WSD/IPP, e.g. a Brother on another subnet) then
+blocks the load in the spooler client: winspool.drv shows its own dialog "Waiting for printer
+connection... Please wait for printer connection or cancel connection" inside soffice.bin. Found on
+test PC HST4 (default printer offline at 192.168.1.207; soffice.bin had WINSPOOL.DRV, PrintConfig.dll,
+mxdwdrv.dll and Print.PrintSupport.Source.dll loaded after opening a DOCX). Without <w:paperSrc> the
+tray now stays "from printer settings"; documents that name a tray keep the previous behaviour.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: open a DOCX without w:paperSrc with an unreachable default printer on Windows: no dialog,
+no printer DLLs loaded; a DOCX with w:paperSrc still gets its tray.
+---
+--- a/sw/source/writerfilter/dmapper/PropertyMap.cxx
++++ b/sw/source/writerfilter/dmapper/PropertyMap.cxx
+@@ -621,6 +621,12 @@
+ void SectionPropertyMap::ApplyPaperSource(DomainMapper_Impl& rDM_Impl)
+ {
+     // todo: negative spacing (from ww8par6.cxx)
++    // No <w:paperSrc> (both trays 0, Word's default tray): keep the page style's tray "from printer
++    // settings". Setting PrinterPaperTray creates the document printer, i.e. it opens the system
++    // default printer while the document loads; on Windows an unreachable network default printer
++    // then stops the import with the spooler's "Waiting for printer connection..." dialog.
++    if (m_nPaperSourceFirst == 0 && m_nPaperSourceOther == 0)
++        return;
+     if (!m_sPageStyleName.isEmpty())
+     {
+         rtl::Reference<SwXPageStyle> xFirst = GetPageStyle(rDM_Impl);

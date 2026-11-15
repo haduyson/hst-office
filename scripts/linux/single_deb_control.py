@@ -143,7 +143,7 @@ def build_control(infos, stage, version):
         "Priority: optional",
         f"Homepage: {HOMEPAGE}",
         "Depends: " + ", ".join(depends),
-        "Recommends: desktop-file-utils, shared-mime-info",
+        "Recommends: desktop-file-utils, shared-mime-info, gstreamer1.0-x",  # x(v)imagesink for video (soffice_gstreamer_env.py)
         "Conflicts: " + ", ".join(replaces),
         "Replaces: " + ", ".join(replaces),
         f"Installed-Size: {size}",

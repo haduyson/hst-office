@@ -6,7 +6,7 @@ import os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
-APPS = ("writer", "calc", "impress")
+APPS = ("writer", "calc", "impress", "draw")
 PROBES = ("hover_fill", "pressed", "checked", "focus_ring", "group_separator", "centred_caption", "tab_underline",
           "paste_32", "launcher_glyph", "collapsed_group_button")
 GALLERY = ("two_tiles_1485", "four_tiles_1920", "column_shrink", "more_popup", "keyboard_apply")
@@ -136,12 +136,12 @@ def score_probes(observations):
     return ratio(sum(1 for r in rows if r[2]), len(rows)), rows
 
 
-def score_galleries(per_app):
-    """D6 over all apps: the five Writer gallery checks plus a large Paste in each app."""
+def score_galleries(per_app, apps=APPS):
+    """D6 over the scored apps: the five Writer gallery checks plus a large Paste in each app."""
     gallery = ((per_app.get("writer") or {}).get("light") or {}).get("gallery") or {}
     rows = [(name, bool(gallery.get(name, {}).get("pass")), gallery.get(name, {}).get("detail", "not measured"))
             for name in GALLERY]
-    for app in APPS:
+    for app in apps:
         probe = (((per_app.get(app) or {}).get("light") or {}).get("probes") or {}).get("paste_32", {})
         rows.append((f"paste_32 {app}", bool(probe.get("pass")), probe.get("detail", "not measured")))
     return ratio(sum(1 for r in rows if r[1]), len(rows)), rows
@@ -163,7 +163,7 @@ def score(per_app, parity_report, pages_by_app, spec, config, apps=APPS):
                         "D5": d5, "errors": [e for m in obs.values() for e in m.get("errors", [])],
                         "parity_counts": parity_report[app]["counts"], "raw_coverage": parity_report[app]["raw_coverage"],
                         "launchers": [parity_report[app]["launchers_present"], parity_report[app]["launchers_feasible"]]}
-    d6, d6_rows = score_galleries(per_app)
+    d6, d6_rows = score_galleries(per_app, apps)
     means = {d: round(sum(v.values()) / len(v), 4) if v else 0.0 for d, v in dims.items()}
     means["D6"] = d6
     weights, floors = config["weights"], config["floors"]

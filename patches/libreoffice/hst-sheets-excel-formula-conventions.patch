@@ -1,0 +1,369 @@
+HST Office: HST Sheets formulas follow the leading spreadsheet application's conventions in every
+language and locale (owner request 2026-11-13: users coming from it must not stumble).
+
+- i18npool vi_VN.xml: the locale's boolean words are "true"/"false" (upstream "đúng"/"sai"), so
+  booleans show TRUE/FALSE in a Vietnamese-locale document, typing TRUE/FALSE in a cell gives a
+  boolean, and =TRUE in a formula works. Files are unaffected: ODF and .xlsx store booleans as
+  values, never as these words. The default date format (typed dates, TODAY(), date results,
+  autofill, imported CSV dates) is DD/MM/YYYY (13/11/2026, 05/01/2026) like the Vietnamese regional
+  short date: the medium default moves from DD/MM/YY (index 20, kept) to DD/MM/YYYY (index 21), and
+  the system short date (index 18) is DD/MM/YYYY instead of D/M/YY. Files keep the codes they store.
+- sc compiler.cxx: TRUE and FALSE written without parentheses are the boolean constants whatever
+  the document locale (before, a vi-VN document turned =FALSE, VLOOKUP(...;FALSE) and
+  AND(TRUE;...) into #NAME?), and a boolean constant gives a boolean result like TRUE().
+- formula FormulaCompiler.cxx: the UI (native grammar) prints TRUE()/FALSE() without arguments as
+  TRUE/FALSE, so a typed =TRUE reads =TRUE in the input line; ODFF and OOXML keep TRUE()/FALSE().
+- sc global.cxx: cells show the leading application's error values only (#VALUE!, #NUM!, #NAME?,
+  #REF!, #DIV/0!, #N/A, #NULL!, #SPILL!); "Err:5xx" (Vietnamese "Lỗi:5xx"), #ADDIN? and #MACRO?
+  are gone. The cause stays in the status bar. Same mapping as the .xlsx export.
+- officecfg Calc.xcs: the default formula syntax is Excel A1 (Sheet1!A1, 'Trang tính1'!A1)
+  instead of Calc A1 ($Sheet1.A1). the Formula options page still switches it, an
+  explicit profile value wins. ODF files keep storing OpenFormula ([.A1]) whatever the UI syntax.
+- formula core_resource.hrc, sc scfuncs.hrc, vi sc/messages.po: CEILING and FLOOR typed in the UI
+  are the functions of that name in .xlsx files (upstream named them CEILING.XCL/FLOOR.XCL and
+  gave CEILING/FLOOR the OpenDocument rounding, saved to .xlsx as CEILING.MATH/FLOOR.MATH); the
+  OpenDocument variants are shown as CEILING.ODF/FLOOR.ODF. Only the UI names change (native and
+  English-function-name lists): ODF, .xlsx and the macro API keep their names. Their help text no
+  longer calls them a compatibility function of an old product version. Likewise FORMULATEXT, SKEW.P,
+  FORECAST.ETS, FORECAST.ETS.CONFINT and FORECAST.ETS.STAT are the UI names of the functions upstream
+  shows as FORMULA, SKEWP, FORECAST.ETS.ADD, FORECAST.ETS.PI.ADD and FORECAST.ETS.STAT.ADD (their
+  .xlsx names; ODF keeps FORMULA, SKEWP, ...).
+
+- sc xetable.cxx: a formula kept with a syntax error (LibreOffice accepts "=1+*2" and shows an error)
+  is not written to .xlsx, only its error result: the leading application refused the whole file
+  (also with repair), measured with Office 2021 on 2026-11-13.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_sheets_excel_formula_conventions.py,
+tests/runtime/check-sheets-excel-formula-conventions.py.
+---
+--- a/officecfg/registry/schema/org/openoffice/Office/Calc.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Calc.xcs
+@@ -1504,6 +1504,7 @@
+               </info>
+             </enumeration>
+           </constraints>
++          <value>1</value>
+         </prop>
+         <prop oor:name="EnglishFunctionName" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Options  Spreadsheet  Formula -->
+--- a/i18npool/source/localedata/data/vi_VN.xml
++++ b/i18npool/source/localedata/data/vi_VN.xml
+@@ -114,15 +114,15 @@
+       <FormatCode>#.##0 [CURRENCY];[RED]-#.##0 [CURRENCY]</FormatCode>
+     </FormatElement>
+     <FormatElement msgid="DateFormatskey1" default="true" type="short" usage="DATE" formatindex="18">
+-      <FormatCode>D/M/YY</FormatCode>
++      <FormatCode>DD/MM/YYYY</FormatCode>
+     </FormatElement>
+     <FormatElement msgid="DateFormatskey9" default="true" type="long" usage="DATE" formatindex="19">
+       <FormatCode>NNNNDD MMMM YYYY</FormatCode>
+     </FormatElement>
+-    <FormatElement msgid="DateFormatskey8" default="true" type="medium" usage="DATE" formatindex="20">
++    <FormatElement msgid="DateFormatskey8" default="false" type="medium" usage="DATE" formatindex="20">
+       <FormatCode>DD/MM/YY</FormatCode>
+     </FormatElement>
+-    <FormatElement msgid="DateFormatskey7" default="false" type="medium" usage="DATE" formatindex="21">
++    <FormatElement msgid="DateFormatskey7" default="true" type="medium" usage="DATE" formatindex="21">
+       <FormatCode>DD/MM/YYYY</FormatCode>
+     </FormatElement>
+     <FormatElement msgid="DateFormatskey10" default="false" type="long" usage="DATE" formatindex="22">
+@@ -364,8 +364,8 @@
+   </LC_TRANSLITERATION>
+   <LC_MISC>
+     <ReservedWords>
+-      <trueWord>đúng</trueWord>
+-      <falseWord>sai</falseWord>
++      <trueWord>true</trueWord>
++      <falseWord>false</falseWord>
+       <quarter1Word>quý 1</quarter1Word>
+       <quarter2Word>quý 2</quarter2Word>
+       <quarter3Word>quý 3</quarter3Word>
+--- a/formula/inc/core_resource.hrc
++++ b/formula/inc/core_resource.hrc
+@@ -2059,15 +2059,15 @@
+     { "GAMMALN.PRECISE" , ocGammaLn_MS },
+     { "ERRORTYPE" , ocErrorType },
+     { "ERROR.TYPE" , ocErrorType_ODF },
+-    { "FORMULA" , ocFormula },
++    { "FORMULATEXT" , ocFormula },
+     { "ATAN2" , ocArcTan2 },
+     { "CEILING.MATH" , ocCeil_Math },
+-    { "CEILING" , ocCeil },
+-    { "CEILING.XCL" , ocCeil_MS },
++    { "CEILING.ODF" , ocCeil },
++    { "CEILING" , ocCeil_MS },
+     { "CEILING.PRECISE" , ocCeil_Precise },
+     { "ISO.CEILING" , ocCeil_ISO },
+-    { "FLOOR" , ocFloor },
+-    { "FLOOR.XCL" , ocFloor_MS },
++    { "FLOOR.ODF" , ocFloor },
++    { "FLOOR" , ocFloor_MS },
+     { "FLOOR.MATH" , ocFloor_Math },
+     { "FLOOR.PRECISE" , ocFloor_Precise },
+     { "ROUND" , ocRound },
+@@ -2262,7 +2262,7 @@
+     { "STANDARDIZE" , ocStandard },
+     { "AVEDEV" , ocAveDev },
+     { "SKEW" , ocSkew },
+-    { "SKEWP" , ocSkewp },
++    { "SKEW.P" , ocSkewp },
+     { "DEVSQ" , ocDevSq },
+     { "MEDIAN" , ocMedian },
+     { "MODE" , ocModalValue },
+@@ -2311,12 +2311,12 @@
+     { "LINEST" , ocLinest },
+     { "LOGEST" , ocLogest },
+     { "FORECAST" , ocForecast },
+-    { "FORECAST.ETS.ADD" , ocForecast_ETS_ADD },
++    { "FORECAST.ETS" , ocForecast_ETS_ADD },
+     { "FORECAST.ETS.SEASONALITY" , ocForecast_ETS_SEA },
+     { "FORECAST.ETS.MULT" , ocForecast_ETS_MUL },
+-    { "FORECAST.ETS.PI.ADD" , ocForecast_ETS_PIA },
++    { "FORECAST.ETS.CONFINT" , ocForecast_ETS_PIA },
+     { "FORECAST.ETS.PI.MULT" , ocForecast_ETS_PIM },
+-    { "FORECAST.ETS.STAT.ADD" , ocForecast_ETS_STA },
++    { "FORECAST.ETS.STAT" , ocForecast_ETS_STA },
+     { "FORECAST.ETS.STAT.MULT" , ocForecast_ETS_STM },
+     { "FORECAST.LINEAR" , ocForecast_LIN },
+     { "CHIINV" , ocChiInv },
+@@ -2512,16 +2512,16 @@
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "GAMMALN.PRECISE") , ocGammaLn_MS },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "ERRORTYPE") , ocErrorType },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "ERROR.TYPE") , ocErrorType_ODF },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORMULA") , ocFormula },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORMULATEXT") , ocFormula },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "ARABIC") , ocArabic },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "ATAN2") , ocArcTan2 },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "CEILING.MATH") , ocCeil_Math },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "CEILING") , ocCeil },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "CEILING.XCL") , ocCeil_MS },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "CEILING.ODF") , ocCeil },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "CEILING") , ocCeil_MS },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "CEILING.PRECISE") , ocCeil_Precise },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "ISO.CEILING") , ocCeil_ISO },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "FLOOR") , ocFloor },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "FLOOR.XCL") , ocFloor_MS },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "FLOOR.ODF") , ocFloor },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "FLOOR") , ocFloor_MS },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FLOOR.MATH") , ocFloor_Math },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FLOOR.PRECISE") , ocFloor_Precise },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "ROUND") , ocRound },
+@@ -2714,7 +2714,7 @@
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "STANDARDIZE") , ocStandard },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "AVEDEV") , ocAveDev },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "SKEW") , ocSkew },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "SKEWP") , ocSkewp },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "SKEW.P") , ocSkewp },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "DEVSQ") , ocDevSq },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "MEDIAN") , ocMedian },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "MODE") , ocModalValue },
+@@ -2763,12 +2763,12 @@
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "LINEST") , ocLinest },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "LOGEST") , ocLogest },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST") , ocForecast },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.ADD") , ocForecast_ETS_ADD },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS") , ocForecast_ETS_ADD },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.SEASONALITY") , ocForecast_ETS_SEA },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.MULT") , ocForecast_ETS_MUL },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.PI.ADD") , ocForecast_ETS_PIA },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.CONFINT") , ocForecast_ETS_PIA },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.PI.MULT") , ocForecast_ETS_PIM },
+-    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.STAT.ADD") , ocForecast_ETS_STA },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.STAT") , ocForecast_ETS_STA },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.ETS.STAT.MULT") , ocForecast_ETS_STM },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "FORECAST.LINEAR") , ocForecast_LIN },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "CHIINV") , ocChiInv },
+--- a/formula/source/core/api/FormulaCompiler.cxx
++++ b/formula/source/core/api/FormulaCompiler.cxx
+@@ -2617,6 +2617,24 @@
+             continue;
+         }
+ 
++        // HST: a boolean constant reads TRUE/FALSE in the UI, as in the leading spreadsheet
++        // application (it is stored as TRUE()/FALSE(), which files keep writing).
++        if ((t->GetOpCode() == ocTrue || t->GetOpCode() == ocFalse)
++            && FormulaGrammar::extractFormulaLanguage(meGrammar) == css::sheet::FormulaLanguage::NATIVE)
++        {
++            FormulaTokenArrayPlainIterator aTempIter(*mpArr);
++            aTempIter.Jump(maArrIterator.GetIndex());
++            const FormulaToken* pOpen = aTempIter.Next();
++            const FormulaToken* pClose = (pOpen && pOpen->GetOpCode() == ocOpen) ? aTempIter.Next() : nullptr;
++            if (pClose && pClose->GetOpCode() == ocClose)
++            {
++                rBuffer.append(mxSymbols->getSymbol(t->GetOpCode()));
++                maArrIterator.Jump(aTempIter.GetIndex());
++                t = maArrIterator.Next();
++                continue;
++            }
++        }
++
+         t = CreateStringFromToken(rBuffer, t, true);
+     }
+ 
+--- a/sc/inc/scfuncs.hrc
++++ b/sc/inc/scfuncs.hrc
+@@ -1431,7 +1431,7 @@
+ // -=*# Resource for function CEILING.XCL #*=-
+ const TranslateId ocCEIL_MS_ARY[] =
+ {
+-    NC_("ocCEIL_MS", "Rounds a number away from zero to the nearest multiple of significance.\nThis function exists for interoperability with Microsoft Excel 2007 or older versions."),
++    NC_("ocCEIL_MS", "Rounds a number away from zero to the nearest multiple of significance."),
+     NC_("ocCEIL_MS", "Number"),
+     NC_("ocCEIL_MS", "The number to be rounded up."),
+     NC_("ocCEIL_MS", "Significance"),
+@@ -1497,7 +1497,7 @@
+ // -=*# Resource for function FLOOR.XCL #*=-
+ const TranslateId ocFLOOR_MS_ARY[] =
+ {
+-    NC_("ocFLOOR_MS", "Rounds number towards zero to the nearest multiple of absolute value of significance.\nThis function exists for interoperability with Microsoft Excel 2007 or older versions."),
++    NC_("ocFLOOR_MS", "Rounds number towards zero to the nearest multiple of absolute value of significance."),
+     NC_("ocFLOOR_MS", "Number"),
+     NC_("ocFLOOR_MS", "The number to be rounded down."),
+     NC_("ocFLOOR_MS", "Significance"),
+--- a/sc/source/core/data/global.cxx
++++ b/sc/source/core/data/global.cxx
+@@ -313,18 +313,19 @@
+ 
+ OUString ScGlobal::GetErrorString(FormulaError nErr)
+ {
+-    TranslateId pErrNumber;
++    // HST: cells show only the error values of the leading spreadsheet application (#VALUE!,
++    // #NUM!, #NAME?, ...), never "Err:5xx" codes, which it does not have; the reason stays in
++    // the status bar (GetLongErrorString). Same mapping as the .xlsx export (XclTools) except
++    // that a calculation that does not converge is #NUM! there.
+     switch (nErr)
+     {
+         case FormulaError::NoRef:
+-            pErrNumber = STR_NO_REF_TABLE;
+-            break;
++            return ScResId(STR_NO_REF_TABLE);
+         case FormulaError::NoAddin:
+-            pErrNumber = STR_NO_ADDIN;
+-            break;
+         case FormulaError::NoMacro:
+-            pErrNumber = STR_NO_MACRO;
+-            break;
++            return ScCompiler::GetNativeSymbol(ocErrName);
++        case FormulaError::NoConvergence:
++            return ScCompiler::GetNativeSymbol(ocErrNum);
+         case FormulaError::NotAvailable:
+             return ScCompiler::GetNativeSymbol(ocErrNA);
+         case FormulaError::NoName:
+@@ -340,9 +341,8 @@
+         case FormulaError::Spill:
+             return ScCompiler::GetNativeSymbol(ocErrSpill);
+         default:
+-            return ScResId(STR_ERROR_STR) + OUString::number( static_cast<int>(nErr) );
++            return ScCompiler::GetNativeSymbol(ocErrValue);
+     }
+-    return ScResId(pErrNumber);
+ }
+ 
+ OUString ScGlobal::GetLongErrorString(FormulaError nErr)
+--- a/sc/source/core/tool/compiler.cxx
++++ b/sc/source/core/tool/compiler.cxx
+@@ -3366,29 +3366,47 @@
+     double fVal;
+     sal_uInt32 nIndex = mxSymbols->isEnglishLocale() ? mrInterpreterContext.NFGetStandardIndex(LANGUAGE_ENGLISH_US) : 0;
+ 
+-    if (!mrInterpreterContext.NFIsNumberFormat(rSym, nIndex, fVal))
+-        return false;
+-
+-    SvNumFormatType nType = mrInterpreterContext.NFGetType(nIndex);
++    // HST: TRUE and FALSE are the boolean constants whatever the document locale, as in the
++    // leading spreadsheet application; before, only the locale's own words were accepted
++    // (a vi-VN document turned =FALSE into #NAME?).
++    OpCode eBoolOp = ocNone;
++    if (rSym.equalsIgnoreAsciiCase("TRUE"))
++        eBoolOp = ocTrue;
++    else if (rSym.equalsIgnoreAsciiCase("FALSE"))
++        eBoolOp = ocFalse;
++    else
++    {
++        if (!mrInterpreterContext.NFIsNumberFormat(rSym, nIndex, fVal))
++            return false;
+ 
+-    // Don't accept 3:3 as time, it is a reference to entire row 3 instead.
+-    // Dates should never be entered directly and automatically converted
+-    // to serial, because the serial would be wrong if null-date changed.
+-    // Usually it wouldn't be accepted anyway because the date separator
+-    // clashed with other separators or operators.
+-    if (nType & (SvNumFormatType::TIME | SvNumFormatType::DATE))
+-        return false;
++        SvNumFormatType nType = mrInterpreterContext.NFGetType(nIndex);
+ 
+-    if (nType == SvNumFormatType::LOGICAL)
+-    {
+-        if (lcl_ParenthesisFollows( aFormula.getStr() + nSrcPos))
+-            return false;   // Boolean function instead.
++        // Don't accept 3:3 as time, it is a reference to entire row 3 instead.
++        // Dates should never be entered directly and automatically converted
++        // to serial, because the serial would be wrong if null-date changed.
++        // Usually it wouldn't be accepted anyway because the date separator
++        // clashed with other separators or operators.
++        if (nType & (SvNumFormatType::TIME | SvNumFormatType::DATE))
++            return false;
++
++        if (nType != SvNumFormatType::LOGICAL)
++        {
++            if( nType == SvNumFormatType::TEXT )
++                // HACK: number too big!
++                SetError( FormulaError::IllegalArgument );
++            maRawToken.SetDouble( fVal );
++            return true;
++        }
++        eBoolOp = (fVal != 0.0) ? ocTrue : ocFalse;
+     }
+ 
+-    if( nType == SvNumFormatType::TEXT )
+-        // HACK: number too big!
+-        SetError( FormulaError::IllegalArgument );
+-    maRawToken.SetDouble( fVal );
++    if (lcl_ParenthesisFollows( aFormula.getStr() + nSrcPos))
++        return false;   // Boolean function instead.
++
++    // HST: a boolean constant gives a boolean result (shown as TRUE/FALSE), like TRUE().
++    maRawToken.SetOpCode(eBoolOp);
++    maPendingOpCodes.push(ocOpen);
++    maPendingOpCodes.push(ocClose);
+     return true;
+ }
+ 
+--- a/sc/source/filter/excel/xetable.cxx
++++ b/sc/source/filter/excel/xetable.cxx
+@@ -1033,7 +1033,10 @@
+     if (bWriteFormula)
+     {
+         ScTokenArray aTokenArray(*mrScFmlaCell.GetCode());
+-        bool bValid = true;
++        // HST: a formula kept with a syntax error (it never compiled, e.g. "=1+*2") is not
++        // written: the leading application refuses the whole file, also when asked to repair
++        // it. The cell keeps its error result.
++        bool bValid = aTokenArray.GetCodeError() == FormulaError::NONE;
+         // Discard formulas containing macros in XLSX export.
+         if (!rStrm.IsExportVBA())
+         {
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -8223,9 +8223,7 @@
+ #. bAc9T
+ #: sc/inc/scfuncs.hrc:1434
+ msgctxt "ocCEIL_MS"
+-msgid ""
+-"Rounds a number away from zero to the nearest multiple of significance.\n"
+-"This function exists for interoperability with Microsoft Excel 2007 or older versions."
++msgid "Rounds a number away from zero to the nearest multiple of significance."
+ msgstr ""
+ 
+ #. HUMCV
+@@ -8443,8 +8441,7 @@
+ #: sc/inc/scfuncs.hrc:1500
+ msgctxt "ocFLOOR_MS"
+ msgid ""
+-"Rounds number towards zero to the nearest multiple of absolute value of significance.\n"
+-"This function exists for interoperability with Microsoft Excel 2007 or older versions."
++"Rounds number towards zero to the nearest multiple of absolute value of significance."
+ msgstr ""
+ 
+ #. WGc3i

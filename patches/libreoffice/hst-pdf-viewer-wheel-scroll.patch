@@ -1,0 +1,330 @@
+HST PDF: wheel scrolling and Ctrl+wheel zoom follow the wheel, touchpads and pinches.
+
+Owner report (Windows, 1.0.1/1.0.2): in HST PDF the wheel scrolls slowly and lags, while dragging
+the scrollbar is smooth. Writer, Sheets, Slides and Draw scroll through vcl's
+Window::HandleScrollCommand and are not affected.
+
+The viewer turned a wheel event into pixels as -GetDelta() / 120 * max(1, GetScrollLines()) * 18:
+- a notch scrolled 54 pixels through an ease-out of a third of the remaining distance per 16 ms
+  timer tick: 11 ticks, 225 ms measured under Xvfb, about 340 ms on Windows where a 16 ms timer
+  fires on the 15.6 ms clock tick (31 ms), the last ticks one pixel each;
+- GetDelta() is in platform units and GetScrollLines() already carries the part of a notch a
+  touchpad or high-resolution wheel sent (vcl/win salframe: lines = delta / 120 * lines per notch),
+  so small events were scaled down twice and then rounded per event: a precision touchpad gesture
+  worth 3 notches (30 events of delta 12) scrolled 60 pixels instead of 162, a high-resolution
+  wheel notch (8 events of delta 15) 16 instead of 54; on macOS (delta is a few points) a mouse
+  notch scrolled 0 pixels.
+Ctrl+wheel zoomed 10% per event whatever its size, so a touchpad pinch (many small Ctrl+wheel
+events) jumped by 10% per event, and the zoom kept the top of the view instead of the pointer.
+
+Scrolling: the distance is what vcl uses for every other window, notches times lines per notch, at
+50/3 pixels a line (50 a notch at the usual three lines). What is below a pixel is kept for the
+next event. A notch of two lines or more glides over a fixed 100 ms (ease-out cubic, 10 ms timer),
+so it ends on time whatever the timer resolution; smaller steps (touchpads) and pixel deltas are
+applied directly; a jump (zoom, search, page) ends a running glide. "One screen at a time" scrolls
+nine tenths of the view, as Page Down does.
+
+Zoom: a whole notch is still one 10% step, a part of a notch (delta / 120) zooms by the same part
+of a step, and a macOS pinch (pixel delta = magnification x 125) by its magnification. The
+document point under the pointer stays under it; the zoom stays within 10%..640% and a zoom that
+does not change (at a limit) renders nothing again. The zoom box follows as before. Every zoom
+rendered the visible pages again through PDFium (70-90 ms of CPU an event here), too slow for the
+stream of events of a pinch: a wheel zoom now shows the pages scaled from their last rendering and
+renders them once, 150 ms after the last event.
+--- a/xmlsecurity/source/hstpdf/pdfpageview.hxx
++++ b/xmlsecurity/source/hstpdf/pdfpageview.hxx
+@@ -61,7 +61,10 @@
+ 
+     double getZoom() const { return m_fZoom; }
+     /// Zoom 1.0 is 100% (one point is 96/72 pixels); keeps the current page in view.
+-    void setZoom(double fZoom);
++    /// Zoom; with pAnchor (view pixels) the document point under it stays there, else the top of the
++    /// view. bQuick (wheel, pinch): show the pages scaled from what is rendered and render them
++    /// again only when the zoom has settled.
++    void setZoom(double fZoom, const Point* pAnchor = nullptr, bool bQuick = false);
+     Fit getFit() const { return m_eFit; }
+     void setFit(Fit eFit);
+ 
+@@ -107,6 +110,7 @@
+     DECL_LINK(HScrollHdl, weld::Scrollbar&, void);
+     DECL_LINK(SmoothScrollHdl, Timer*, void);
+     DECL_LINK(ThumbnailIdleHdl, Timer*, void);
++    DECL_LINK(ZoomRenderHdl, Timer*, void);
+ 
+     Mode m_eMode;
+     std::unique_ptr<weld::Scrollbar> m_xVScroll;
+@@ -121,6 +125,12 @@
+     tools::Long m_nScrollX = 0;
+     tools::Long m_nScrollY = 0;
+     tools::Long m_nScrollTarget = 0;
++    /// Smooth scroll: where the running animation started and when (monotonic microseconds).
++    tools::Long m_nSmoothFrom = 0;
++    sal_uInt64 m_nSmoothStart = 0;
++    /// Wheel distance below one pixel, kept for the next event (touchpads, high-resolution wheels).
++    double m_fWheelRestX = 0.0;
++    double m_fWheelRestY = 0.0;
+     int m_nCurrentPage = 0;
+     int m_nSelectedPage = 0;
+     bool m_bPainted = false;
+@@ -152,6 +162,7 @@
+ 
+     Timer m_aSmoothScroll;
+     Idle m_aThumbnailIdle;
++    Timer m_aZoomRender;
+ 
+     Link<PdfPageView&, void> m_aPageChangedHdl;
+     Link<PdfPageView&, void> m_aZoomChangedHdl;
+--- a/xmlsecurity/source/hstpdf/pdfpageview.cxx
++++ b/xmlsecurity/source/hstpdf/pdfpageview.cxx
+@@ -18,6 +18,7 @@
+ #include <basegfx/range/b2drange.hxx>
+ #include <tools/poly.hxx>
+ #include <tools/mapunit.hxx>
++#include <tools/time.hxx>
+ #include <vcl/commandevent.hxx>
+ #include <vcl/event.hxx>
+ #include <vcl/lineinfo.hxx>
+@@ -52,6 +53,12 @@
+ constexpr size_t THUMB_CACHE = 600;
+ constexpr double MIN_ZOOM = 0.1;
+ constexpr double MAX_ZOOM = 6.4;
++/// Pixels of one wheel line: three lines (one notch at the usual system setting) scroll 50 pixels.
++constexpr double WHEEL_LINE = 50.0 / 3.0;
++/// Zoom of one wheel notch with Ctrl (10%); a part of a notch zooms by the same part of a step.
++constexpr double WHEEL_ZOOM_STEP = 1.1;
++/// Length of a smooth scroll; it ends on time whatever the timer resolution (Windows: about 15.6 ms).
++constexpr sal_uInt64 SMOOTH_SCROLL_US = 100000;
+ /// Smallest signature box a drag makes (points); a click places a box of the default size.
+ constexpr double MIN_PLACEMENT = 24.0;
+ constexpr double DEFAULT_PLACEMENT_W = 200.0;
+@@ -80,6 +87,7 @@
+     , m_xHScroll(std::move(xHScroll))
+     , m_aSmoothScroll("hstpdf::PdfPageView m_aSmoothScroll")
+     , m_aThumbnailIdle("hstpdf::PdfPageView m_aThumbnailIdle")
++    , m_aZoomRender("hstpdf::PdfPageView m_aZoomRender")
+ {
+     if (m_eMode == Mode::Thumbnails)
+         m_eFit = Fit::None;
+@@ -89,16 +97,19 @@
+         m_xHScroll->connect_adjustment_value_changed(LINK(this, PdfPageView, HScrollHdl));
+         m_xHScroll->set_visible(false);
+     }
+-    m_aSmoothScroll.SetTimeout(16);
++    m_aSmoothScroll.SetTimeout(10);
+     m_aSmoothScroll.SetInvokeHandler(LINK(this, PdfPageView, SmoothScrollHdl));
+     m_aThumbnailIdle.SetPriority(TaskPriority::LOWEST);
+     m_aThumbnailIdle.SetInvokeHandler(LINK(this, PdfPageView, ThumbnailIdleHdl));
++    m_aZoomRender.SetTimeout(150);
++    m_aZoomRender.SetInvokeHandler(LINK(this, PdfPageView, ZoomRenderHdl));
+ }
+ 
+ PdfPageView::~PdfPageView()
+ {
+     m_aSmoothScroll.Stop();
+     m_aThumbnailIdle.Stop();
++    m_aZoomRender.Stop();
+ }
+ 
+ void PdfPageView::SetDrawingArea(weld::DrawingArea* pDrawingArea)
+@@ -199,21 +210,41 @@
+     Invalidate();
+ }
+ 
+-void PdfPageView::setZoom(double fZoom)
++void PdfPageView::setZoom(double fZoom, const Point* pAnchor, bool bQuick)
+ {
+     if (!m_pDocument)
+         return;
+     fZoom = std::clamp(fZoom, MIN_ZOOM, MAX_ZOOM);
+-    // keep the point at the top of the view on the same place of its page
+-    const int nPage = pageAt(0);
++    if (fZoom == m_fZoom && m_eFit == Fit::None)
++        return; // at a limit already: nothing to render again
++    // keep the document point under the anchor (or at the top of the view) on the same place
++    const tools::Long nAnchorY = pAnchor ? pAnchor->Y() : 0;
++    const int nPage = pageAt(nAnchorY);
+     const tools::Long nPageTop = m_aPageTops.empty() ? 0 : m_aPageTops[nPage];
+     const double fOldPpp = pixelsPerPoint();
+-    const double fInPage = (m_nScrollY - nPageTop) / fOldPpp;
++    const double fInPageY = (m_nScrollY + nAnchorY - nPageTop) / fOldPpp;
++    const double fInPageX = pAnchor && !m_aPageTops.empty()
++                                ? (pAnchor->X() - pageRect(nPage).Left()) / fOldPpp
++                                : 0.0;
+     m_eFit = Fit::None;
+     m_fZoom = fZoom;
+-    m_aCache.clear();
++    if (bQuick)
++        m_aZoomRender.Start(); // (re)start: render once the pinch or the wheel has stopped
++    else
++    {
++        m_aZoomRender.Stop();
++        m_aCache.clear();
++    }
+     layout();
+-    scrollTo(m_aPageTops[nPage] + std::lround(fInPage * pixelsPerPoint()), m_nScrollX);
++    const double fPpp = pixelsPerPoint();
++    tools::Long nScrollX = m_nScrollX;
++    if (pAnchor && m_nContentWidth > GetOutputSizePixel().Width())
++    {
++        // pages wider than the view: pageRect() puts the page at (content - page) / 2 - scroll x
++        const tools::Long nPageWidth = std::lround(m_pDocument->getPageSize(nPage).getWidth() * fPpp);
++        nScrollX = (m_nContentWidth - nPageWidth) / 2 + std::lround(fInPageX * fPpp) - pAnchor->X();
++    }
++    scrollTo(m_aPageTops[nPage] + std::lround(fInPageY * fPpp) - nAnchorY, nScrollX);
+     m_aZoomChangedHdl.Call(*this);
+ }
+ 
+@@ -265,6 +296,8 @@
+     const tools::Long nHeight = m_aPageTops.empty() ? 0 : m_aPageTops.back();
+     const tools::Long nMaxY = std::max<tools::Long>(0, nHeight - GetOutputSizePixel().Height());
+     const tools::Long nMaxX = std::max<tools::Long>(0, m_nContentWidth - GetOutputSizePixel().Width());
++    // a jump (zoom, search, page) ends a running smooth scroll; its handler starts the next frame itself
++    m_aSmoothScroll.Stop();
+     m_nScrollY = m_nScrollTarget = std::clamp<tools::Long>(nY, 0, nMaxY);
+     m_nScrollX = std::clamp<tools::Long>(nX, 0, nMaxX);
+     m_xVScroll->adjustment_set_value(m_nScrollY);
+@@ -286,22 +319,27 @@
+         scrollTo(nTarget, m_nScrollX);
+         return;
+     }
++    // (re)start the animation from where the view is now, so a further notch speeds it up
+     m_nScrollTarget = nTarget;
++    m_nSmoothFrom = m_nScrollY;
++    m_nSmoothStart = tools::Time::GetMonotonicTicks();
+     if (!m_aSmoothScroll.IsActive())
+         m_aSmoothScroll.Start();
+ }
+ 
+ IMPL_LINK_NOARG(PdfPageView, SmoothScrollHdl, Timer*, void)
+ {
+-    const tools::Long nDistance = m_nScrollTarget - m_nScrollY;
+-    if (nDistance == 0)
+-        return;
+-    // ease out: a third of the way per frame, at least one pixel
+-    tools::Long nStep = nDistance / 3;
+-    if (nStep == 0)
+-        nStep = nDistance > 0 ? 1 : -1;
++    // ease out over a fixed time: the view follows the wheel at once and stops on time,
++    // instead of creeping the last pixels one timer tick at a time
+     const tools::Long nTarget = m_nScrollTarget;
+-    scrollTo(m_nScrollY + nStep, m_nScrollX);
++    const double fTime = double(tools::Time::GetMonotonicTicks() - m_nSmoothStart) / SMOOTH_SCROLL_US;
++    if (fTime >= 1.0)
++    {
++        scrollTo(nTarget, m_nScrollX);
++        return;
++    }
++    const double fEase = 1.0 - std::pow(1.0 - fTime, 3.0);
++    scrollTo(m_nSmoothFrom + std::lround((nTarget - m_nSmoothFrom) * fEase), m_nScrollX);
+     m_nScrollTarget = nTarget;
+     if (m_nScrollY != m_nScrollTarget)
+         m_aSmoothScroll.Start();
+@@ -405,7 +443,15 @@
+     rRenderContext.DrawRect(tools::Rectangle(aRect.Left() - 1, aRect.Top() - 1, aRect.Right() + 1,
+                                              aRect.Bottom() + 2));
+     const Size aPixels(std::lround(aRect.GetWidth() * fScale), std::lround(aRect.GetHeight() * fScale));
+-    Bitmap aBitmap = pageBitmap(nPage, aPixels, !bThumbs);
++    Bitmap aBitmap = pageBitmap(nPage, aPixels, !bThumbs && !m_aZoomRender.IsActive());
++    if (aBitmap.IsEmpty() && !bThumbs)
++    {
++        // a wheel zoom is still moving: scale the page as rendered at another zoom, if any
++        auto it = std::find_if(m_aCache.begin(), m_aCache.end(),
++                               [nPage](const CachedPage& rEntry) { return rEntry.nPage == nPage; });
++        if (it != m_aCache.end())
++            aBitmap = it->aBitmap;
++    }
+     if (aBitmap.IsEmpty())
+     {
+         rRenderContext.SetFillColor(COL_WHITE);
+@@ -497,6 +543,14 @@
+     }
+ }
+ 
++IMPL_LINK_NOARG(PdfPageView, ZoomRenderHdl, Timer*, void)
++{
++    // drop the renderings of the earlier zooms (memory as before); the paint renders the pages
++    // at the settled zoom
++    m_aCache.clear();
++    Invalidate();
++}
++
+ IMPL_LINK_NOARG(PdfPageView, ThumbnailIdleHdl, Timer*, void)
+ {
+     // render one missing thumbnail in view per idle round, so the window stays responsive
+@@ -668,26 +722,66 @@
+     if (m_eMode == Mode::Pages
+         && (pData->GetMode() == CommandWheelMode::ZOOM || pData->IsMod1()))
+     {
+-        setZoom(m_fZoom * (pData->GetDelta() > 0 ? 1.1 : 1.0 / 1.1));
++        // A whole notch is one 10% step; the parts of a notch that a touchpad pinch or a
++        // high-resolution wheel sends (Windows, X11, GTK: 120 a notch) zoom by the same part of a
++        // step, so a pinch zooms as far as the fingers move instead of 10% per event.
++        double fFactor;
++        if (pData->IsDeltaPixel())
++            fFactor = std::max(0.5, 1.0 + pData->GetDelta() / 125.0); // macOS pinch: magnification x 125
++        else
++        {
++#ifdef MACOSX
++            const double fNotches = pData->GetNotchDelta(); // delta is in points: one step an event
++#else
++            const double fNotches = pData->GetDelta() / 120.0;
++#endif
++            fFactor = std::pow(WHEEL_ZOOM_STEP, fNotches);
++        }
++        const Point aPos = rCEvt.GetMousePosPixel();
++        const bool bInView = rCEvt.IsMouseEvent()
++                             && tools::Rectangle(Point(), GetOutputSizePixel()).Contains(aPos);
++        setZoom(m_fZoom * fFactor, bInView ? &aPos : nullptr, true);
+         return true;
+     }
++    const bool bHorz = pData->IsHorz() || pData->IsShift();
+     double fPixels;
++    bool bSmooth = false;
+     if (pData->IsDeltaPixel())
+-        fPixels = -pData->GetDelta();
+-    else
++        fPixels = -pData->GetDelta(); // already smooth (trackpad): follow it directly
++    else if (pData->GetScrollLines() == COMMAND_WHEEL_PAGESCROLL)
+     {
+-        const double fLines = pData->GetScrollLines() == COMMAND_WHEEL_PAGESCROLL
+-                                  ? GetOutputSizePixel().Height() / 18.0
+-                                  : std::max(1.0, pData->GetScrollLines());
+-        fPixels = -pData->GetDelta() / 120.0 * fLines * 18.0;
++        // system setting "one screen at a time"
++        const Size aView = GetOutputSizePixel();
++        fPixels = (pData->GetDelta() < 0 ? 0.9 : -0.9) * (bHorz ? aView.Width() : aView.Height());
++        bSmooth = true;
+     }
+-    if (pData->IsHorz() || pData->IsShift())
++    else
++    {
++        // As vcl's Window::HandleScrollCommand: notches times lines per notch. GetScrollLines()
++        // already carries the part of a notch that a touchpad or high-resolution wheel sent, and
++        // GetDelta() is in platform units (120 a notch on Windows, a few points on macOS), so it
++        // must not scale the distance again.
++        const double fLines = pData->GetNotchDelta() * pData->GetScrollLines();
++        fPixels = -fLines * WHEEL_LINE;
++        // a whole notch glides; the stream of small steps a touchpad sends is followed directly
++        bSmooth = std::abs(fLines) >= 2.0;
++    }
++    // keep what is below a pixel for the next event, so small steps add up instead of rounding away
++    double& rRest = bHorz ? m_fWheelRestX : m_fWheelRestY;
++    if ((rRest < 0) != (fPixels < 0))
++        rRest = 0.0;
++    rRest += fPixels;
++    const tools::Long nPixels = static_cast<tools::Long>(rRest);
++    rRest -= nPixels;
++    if (nPixels == 0)
++        return true;
++    if (bHorz)
+     {
+         if (m_xHScroll && m_xHScroll->get_visible())
+-            scrollTo(m_nScrollY, m_nScrollX + std::lround(fPixels));
++            scrollTo(m_nScrollY, m_nScrollX + nPixels);
+         return true;
+     }
+-    scrollBy(std::lround(fPixels), true);
++    scrollBy(nPixels, bSmooth);
+     return true;
+ }
+ 

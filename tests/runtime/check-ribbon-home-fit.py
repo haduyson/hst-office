@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Check what the Home tab of Writer, Sheets and Slides shows at 1366 and 1485 px, next to the banner (gtk3, vi_VN).
 
-Usage: python3 tests/runtime/check-ribbon-home-fit.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress]
+Usage: python3 tests/runtime/check-ribbon-home-fit.py [--instdir DIR] [--display :71] [--shots DIR] [--apps writer,calc,impress,draw]
 The X display must already run, at least 2400 px wide. Per app and width:
   - Clone Formatting and Clear keep their accessible names everywhere and show their labels where the whole Home
     content fits (2400 px); below, the collapse ladder makes Font and Clipboard icon-only first, so only the name
@@ -12,9 +12,10 @@ The X display must already run, at least 2400 px wide. Per app and width:
   - the groups named in MUST_SHOW have a visible caption: Clipboard, Font and Paragraph at 1485 in Writer and Slides
     (Paragraph is used constantly), Clipboard and Font at 1366; those in SHOW_OR_BUTTON are on the ribbon or are
     their group button (Styles "Kiểu", Sheets' Number);
-  - Find & Replace is a button of the paragraph group (Sheets: alignment); at 2400 px the group "Công cụ" has the
-    tab menu and the HST commands in rows but no "Tìm tính năng" button (the tab row has the search box), and the tab
-    menu offers "Tìm tính năng" (ribbon_home_tools_gui.py).
+  - Find & Replace is a button of the editing group "Chỉnh sửa" (Sheets: "Tìm và chọn"); at 2400 px there is no old
+    "Công cụ" group and no "Tìm tính năng" button on the page: the tab row has the search box (ribbon_home_tools_gui.py);
+  - Clone Formatting and Clear are labelled at 2400 px unless they sit in the Font group (Writer's Clear, Sheets'
+    first Font column): formatting commands may be bare icons (gap list G10).
 Prints the visible group captions per width. Exit 1 when a check fails.
 """
 import argparse
@@ -36,22 +37,25 @@ _spec.loader.exec_module(tabs)
 
 # from this width up Clone Formatting and Clear show their labels: the Tools group (Công cụ) is its button and
 # Font and Clipboard are icon-only first (collapse ladder), so the labels need the whole Home content beside the banner
-LABEL_WIDTH = {"writer": 2400, "calc": 2400, "impress": 2400}
-LABELLED = {"writer", "calc", "impress"}  # apps whose 1.0.0 content patch has these labels; the others are still icon-only
+LABEL_WIDTH = {"writer": 2400, "calc": 2400, "impress": 2400, "draw": 2400}
+LABELLED = {"writer", "calc", "impress", "draw"}  # apps whose 1.0.0 content patch has these labels; the others are still icon-only
 ICON_MAX = 40  # an icon with its button padding; the same button with its text is over 100 px wide
 PAINTBRUSH = "Sao chép định dạng"
-CLEAR = {"writer": "Xóa", "calc": "Xóa", "impress": "Xóa"}
+CLEAR = {"writer": "Xóa", "calc": "Xóa", "impress": "Xóa", "draw": "Xóa"}
+# (app, command) that sit in the Font group (Sheets: its first column): bare formatting icons are allowed (G10)
+IN_FONT_GROUP = {("writer", "Xóa"), ("calc", "Xóa"), ("calc", PAINTBRUSH)}
 CAPTION_BAND = (95, 165)  # the caption row of a ribbon page, y relative to the window
 # groups that stay on the ribbon (caption shown): Paragraph is used constantly, so at 1485 it stays in Writer and
 # Slides; the Styles gallery becomes its "Kiểu ▾" button first
 MUST_SHOW = {("impress", 1366): ["Bảng tạm", "Phông chữ"], ("writer", 1366): ["Bảng tạm", "Phông chữ"],
              ("impress", 1485): ["Bảng tạm", "Phông chữ", "Đoạn văn"],
-             ("writer", 1485): ["Bảng tạm", "Phông chữ", "Đoạn văn"]}
+             ("writer", 1485): ["Bảng tạm", "Phông chữ", "Đoạn văn"],
+             ("draw", 1366): ["Bảng tạm", "Phông chữ"], ("draw", 1485): ["Bảng tạm", "Phông chữ", "Đoạn văn"]}
 # groups that are on the ribbon or its group button (every command one click away, nothing folded into »)
 SHOW_OR_BUTTON = {("calc", 1366): ["Số", "Kiểu"], ("calc", 1485): ["Số", "Kiểu"], ("writer", 1485): ["Kiểu"],
-                  ("writer", 1366): ["Đoạn văn", "Kiểu"], ("impress", 1366): ["Đoạn văn"]}
+                  ("writer", 1366): ["Đoạn văn", "Kiểu"], ("impress", 1366): ["Đoạn văn"], ("draw", 1366): ["Đoạn văn"]}
 NO_OVERFLOW = (1366, 1485)  # widths at which no group may be folded into the "»" overflow
-WIDE = {"writer": 2400, "calc": 2400, "impress": 2400}  # nothing folds: the whole "Công cụ" group shows
+WIDE = {"writer": 2400, "calc": 2400, "impress": 2400, "draw": 2400}  # nothing folds
 
 
 def showing(node):
@@ -117,12 +121,12 @@ def check_app(app, args, port):
                     tabs.record(f"[{app} {width}] group '{group}' shows or is its button",
                                 group in captions or bool(as_button), (captions, as_button))
             caption_boxes = [(n, b) for n, b in labels if b[3] < 30]
-            tools.check_find_in_paragraph(tabs, app, width, caption_boxes)
+            tools.check_find_in_editing(tabs, app, width, caption_boxes)
             for name in (PAINTBRUSH, CLEAR[app]):
                 box = buttons.get(name, ((0, 0, 0, 0),))[0]
                 if app not in LABELLED:
                     tabs.record(f"[{app} {width}] '{name}' accessible and icon-only", 0 < box[2] <= ICON_MAX, box)
-                elif width >= LABEL_WIDTH[app]:
+                elif width >= LABEL_WIDTH[app] and (app, name) not in IN_FONT_GROUP:
                     tabs.record(f"[{app} {width}] '{name}' accessible and labelled", box[2] > ICON_MAX, box)
                 else:
                     tabs.record(f"[{app} {width}] '{name}' accessible", box[2] > 0, box)
@@ -140,8 +144,8 @@ def check_app(app, args, port):
         tabs.xdo(args.display, "windowsize", wid, str(WIDE[app]), "900")
         time.sleep(4)
         labels, _buttons, _banner = measure(WIDE[app])
-        tools.check_tools_group(tabs, args, app, WIDE[app], [(n, b) for n, b in labels if b[3] < 30])
-        tools.check_menu_has_search(tabs, args, app)
+        wide_captions = [(n, b) for n, b in labels if b[3] < 30]
+        tools.check_wide_home(tabs, app, WIDE[app], wide_captions)
         if args.shots:
             office.screenshot(os.path.join(args.shots, f"home-fit-{app}-{WIDE[app]}.png"))
     finally:
@@ -154,7 +158,7 @@ def main():
     parser.add_argument("--display", default=":71")
     parser.add_argument("--out", default=os.path.join(hst_gui.ROOT, "tests/output/ribbon-home-fit"))
     parser.add_argument("--shots")
-    parser.add_argument("--apps", default="writer,calc,impress")
+    parser.add_argument("--apps", default="writer,calc,impress,draw")
     args = parser.parse_args()
     if os.geteuid() == 0:
         for path in filter(None, (args.out, args.shots)):

@@ -1,0 +1,219 @@
+HST Office: the wide banner narrows, keeping its ratio, when the tab's groups need the room.
+
+In windows of at least 1280 logical px the banner beside the ribbon was always 360 px wide, so a wide
+tab (Insert) shrank and folded its groups beside it. The wide slot now takes the room the current tab's
+groups leave at their largest (hst::ribbon::PageFullWidth), from 360 down to 260 logical px, the
+narrowest at which the bundled artwork's text stays readable at 1x. The slot keeps the 360:104 ratio,
+so the artwork is neither stretched nor cropped, stays centred vertically on the page, and the click
+target is the drawn artwork; the page height does not change. A new width replaces the last one only
+when it differs by at least 12 logical px, so the banner does not move with small changes of the room.
+Windows narrower than 1280 px keep the compact card as before; the impressions are counted as before.
+
+- sfx2 HstBannerGeometry.hxx: MIN_WIDE_ART_WIDTH, WIDE_HYSTERESIS, wideSlotWidth(), slotFor() max width.
+- sfx2 HstRibbonBanner.hxx: the last wide slot width; NotebookbarTabControl.cxx: uses it.
+- vcl: hst::ribbon::PageFullWidth (include/vcl/HstRibbonWidth.hxx, PriorityMergedHBox.cxx).
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sfx2/source/notebookbar/HstBannerGeometry.hxx
++++ b/sfx2/source/notebookbar/HstBannerGeometry.hxx
+@@ -21,6 +21,7 @@
+ 
+ #include <algorithm>
+ #include <cmath>
++#include <cstdlib>
+ 
+ namespace hst::banner
+ {
+@@ -39,6 +40,12 @@
+ // uses); false anchors it at the top of every page. Owner question pending: one line to switch.
+ constexpr bool SLOT_CENTRED = true;
+ constexpr long MIN_WINDOW_WIDTH = 1280; // narrower windows keep the whole width for the groups
++// The wide slot narrows down to this many logical px (keeping the artwork's ratio) when the current tab's
++// groups do not fit beside the full 360 px: the bundled artwork's text stays readable at 1x down to here.
++constexpr long MIN_WIDE_ART_WIDTH = 260;
++// A new width of the narrowed wide slot replaces the last one only when it differs by this many logical
++// px, so small changes of the room do not move the banner.
++constexpr long WIDE_HYSTERESIS = 12;
+ constexpr long MIN_PAGE_HEIGHT = 60; // compact ribbons (one row) never show the banner
+ 
+ inline long scaled(long nLogical, double fDpi) { return std::lround(nLogical * fDpi); }
+@@ -74,7 +81,7 @@
+ /** Banner slot at the right end of the full tab page rectangle rPage (pixels), for artwork
+     nArtWidth logical px wide: the largest rectangle with the artwork's ratio that fits the page
+     height (minus margins) and the artwork's logical size, centred vertically on the page. */
+-inline Rect slotFor(const Rect& rPage, double fDpi, long nArtWidth = ART_WIDTH)
++inline Rect slotFor(const Rect& rPage, double fDpi, long nArtWidth = ART_WIDTH, long nMaxWidth = 0)
+ {
+     const long nVMargin = scaled(2, fDpi);
+     const long nRightMargin = scaled(4, fDpi);
+@@ -83,6 +90,8 @@
+     if (nArtWidth <= 0)
+         return Rect{ rPage.x + rPage.w - nRightMargin, rPage.y + nVMargin, 0, 0 };
+     aSlot.w = std::min(scaled(nArtWidth, fDpi), nRoom * nArtWidth / ART_HEIGHT);
++    if (nMaxWidth > 0)
++        aSlot.w = std::min(aSlot.w, nMaxWidth); // a narrowed wide slot (wideSlotWidth)
+     aSlot.h = std::min(nRoom, aSlot.w * ART_HEIGHT / nArtWidth);
+     aSlot.x = rPage.x + rPage.w - nRightMargin - aSlot.w;
+     aSlot.y = rPage.y + nVMargin + (SLOT_CENTRED ? (nRoom - aSlot.h) / 2 : 0);
+@@ -95,6 +104,25 @@
+     return std::max(0L, rSlot.x - scaled(8, fDpi) - rPage.x);
+ }
+ 
++/** HST Office: the width in px of the wide slot (windows of at least MIN_WINDOW_WIDTH) on the tab page
++    rPage whose groups need nFullWidth px at their largest: the full artwork width when they fit beside it,
++    else the room they leave (the 8 px gap and the 4 px right margin aside), down to MIN_WIDE_ART_WIDTH.
++    nFullWidth < 0 (not measured yet): the full width. nPrevious (the last width, 0 for none) stays while
++    the new width is within WIDE_HYSTERESIS of it. The slot keeps the artwork's ratio (slotFor), so the
++    drawn artwork and the click target narrow together and stay centred vertically on the page. */
++inline long wideSlotWidth(const Rect& rPage, long nFullWidth, long nPrevious, double fDpi)
++{
++    const long nMax = scaled(ART_WIDTH, fDpi);
++    const long nMin = scaled(MIN_WIDE_ART_WIDTH, fDpi);
++    const long nWant = nFullWidth < 0
++                           ? nMax
++                           : std::clamp(rPage.w - nFullWidth - scaled(8, fDpi) - scaled(4, fDpi), nMin, nMax);
++    if (nPrevious >= nMin && nPrevious <= nMax && nWant != nMax && nWant != nMin
++        && std::abs(nWant - nPrevious) < scaled(WIDE_HYSTERESIS, fDpi))
++        return nPrevious;
++    return nWant;
++}
++
+ /** Aspect-fit an image of nImageW x nImageH into rBox, centred; never larger than rBox. */
+ inline Rect fit(const Rect& rBox, long nImageW, long nImageH)
+ {
+--- a/sfx2/source/notebookbar/HstRibbonBanner.hxx
++++ b/sfx2/source/notebookbar/HstRibbonBanner.hxx
+@@ -45,6 +45,10 @@
+     /** Compact artwork (windows narrower than 1280 px) or the wide artwork; call before Place. */
+     void SetCompact(bool bCompact);
+     bool IsCompact() const { return mbCompact; }
++    /** HST Office: the width (px) the wide slot had at the last layout, 0 before; it is kept while the
++        room changes by less than the hysteresis (hst::banner::wideSlotWidth). */
++    long WideSlotWidth() const { return mnWideSlotWidth; }
++    void SetWideSlotWidth(long nWidth) { mnWideSlotWidth = nWidth; }
+     /** True after the data layer and the installed defaults had no compact artwork; the parent
+         then hides the slot. It is asked again 10 minutes later. */
+     bool CompactUnavailable();
+@@ -113,6 +117,7 @@
+     bool mbPressed = false;
+     bool mbRequested = false;
+     bool mbCompact = false;
++    long mnWideSlotWidth = 0;
+     bool mbCompactUnavailable = false;
+     std::chrono::steady_clock::time_point maCompactUnavailableSince;
+     Link<HstRibbonBanner&, void> maLayoutHdl;
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -35,6 +35,7 @@
+ #include <vcl/accessibility/vclxaccessiblecomponent.hxx>
+ #include <comphelper/dispatchcommand.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
++#include <vcl/HstRibbonWidth.hxx>
+ #include <vcl/lineinfo.hxx>
+ #include <sfx2/sfxresid.hxx>
+ #include <sfx2/strings.hrc>
+@@ -431,7 +432,8 @@
+ 
+ // The banner takes the right end of the current page; the page (the 2-row groups) keeps its
+ // height and gets the remaining width, so groups fold into their overflow menu as usual. The
+-// ribbon height never depends on the banner. Windows narrower than 1280 logical px show the
++// ribbon height never depends on the banner. In wide windows the banner narrows, keeping its ratio,
++// down to 260 logical px when the current page's groups do not fit beside it at their largest. Windows narrower than 1280 logical px show the
+ // 160x104 compact artwork, so the banner keeps a slot; only when no compact artwork exists at
+ // all do the groups get the whole width.
+ void NotebookbarTabControl::HstLayoutBanner()
+@@ -460,8 +462,16 @@
+         if (eMode == hst::banner::Mode::Wide
+             || (eMode == hst::banner::Mode::Compact && !m_pHstBanner->CompactUnavailable()))
+         {
++            // HST Office: the wide banner narrows (ratio kept) when the page's groups do not fit beside it
++            long nMaxWidth = 0;
++            if (eMode == hst::banner::Mode::Wide)
++            {
++                nMaxWidth = hst::banner::wideSlotWidth(aPage, hst::ribbon::PageFullWidth(*pPage),
++                                                       m_pHstBanner->WideSlotWidth(), fDpi);
++                m_pHstBanner->SetWideSlotWidth(nMaxWidth);
++            }
+             const hst::banner::Rect aSlot
+-                = hst::banner::slotFor(aPage, fDpi, hst::banner::artWidth(eMode));
++                = hst::banner::slotFor(aPage, fDpi, hst::banner::artWidth(eMode), nMaxWidth);
+             nPageWidth = hst::banner::pageWidthBeside(aPage, aSlot, fDpi);
+             m_pHstBanner->Place(tools::Rectangle(Point(aSlot.x, aSlot.y), Size(aSlot.w, aSlot.h)));
+         }
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -26,6 +26,7 @@
+ #include <comphelper/lok.hxx>
+ #include <HstRibbonLadder.hxx>
+ #include <HstRibbonScaling.hxx>
++#include <vcl/HstRibbonWidth.hxx>
+ #if __has_include(<HstRibbonLadders.hxx>)
+ #include <HstRibbonLadders.hxx>
+ #define HST_HAVE_RIBBON_LADDERS 1
+@@ -630,6 +631,34 @@
+     return !kept(nRoom) && kept(nRoom + nGain);
+ }
+ 
++tools::Long hst::ribbon::PageFullWidth(const vcl::Window& rPage)
++{
++    // the page's merged group box, breadth first (not a merged box nested in it)
++    std::vector<const vcl::Window*> aLevel{ &rPage };
++    const PriorityMergedHBox* pMerged = nullptr;
++    while (!aLevel.empty() && !pMerged)
++    {
++        std::vector<const vcl::Window*> aNext;
++        for (const vcl::Window* pWindow : aLevel)
++            for (const vcl::Window* pChild = pWindow->GetWindow(GetWindowType::FirstChild); pChild && !pMerged;
++                 pChild = pChild->GetWindow(GetWindowType::Next))
++            {
++                if (!pChild->IsVisible())
++                    continue;
++                pMerged = dynamic_cast<const PriorityMergedHBox*>(pChild);
++                aNext.push_back(pChild);
++            }
++        aLevel = std::move(aNext);
++    }
++    const vcl::Window* pContent = rPage.GetWindow(GetWindowType::FirstChild);
++    const tools::Long nFull = pMerged ? pMerged->HstFullWidth() : -1;
++    if (nFull < 0 || !pContent)
++        return -1;
++    // the page's content asks for the box at its smallest (calculateRequisition): count its full width
++    return VclContainer::getLayoutRequisition(*pContent).Width()
++           - VclContainer::getLayoutRequisition(*pMerged).Width() + nFull;
++}
++
+ tools::Long PriorityMergedHBox::HstFullWidth() const
+ {
+     if (HstMinWidth() < 0)
+--- /dev/null
++++ b/include/vcl/HstRibbonWidth.hxx
+@@ -0,0 +1,28 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <tools/long.hxx>
++#include <vcl/dllapi.h>
++
++namespace vcl
++{
++class Window;
++}
++
++namespace hst::ribbon
++{
++/// HST Office: the width the content of a Tabbed notebookbar page needs with every group of its
++/// merged group box at its largest state, or -1 when the page has no such box or its groups are not
++/// measured yet. The banner beside the page narrows by it.
++VCL_DLLPUBLIC tools::Long PageFullWidth(const vcl::Window& rPage);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

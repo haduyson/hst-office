@@ -3,8 +3,8 @@
 Chủ dự án (2026-11-04): HST Office dùng phím tắt của Microsoft Office vì phần lớn người dùng
 Việt Nam đã quen; khi trùng thì phím của Microsoft Office được ưu tiên hơn phím của LibreOffice.
 Giữ nguyên các phím riêng của HST: `Shift+Esc` / macOS `Option+Cmd+K` (Tìm tính năng,
-`hst-feature-search.patch`), `Alt+F11` (Macro VBA), `Alt+F8` (hộp thoại Macro) —
-`extensions/hst-vietnamese-tools/Accelerators.xcu`; `Ctrl+Alt+.` / `Ctrl+Alt+,` (thẻ tài liệu). `Alt+F` mở Tệp tin (`hst-file-backstage.patch`, như thẻ File của Office) không bị patch này đụng tới.
+`hst-feature-search.patch`), `Alt+F11` (Macro VBA), `Alt+F8` (hộp thoại Macro), `Alt+Shift+I` (HST Writer: Chèn lại trích dẫn) —
+`extensions/hst-vietnamese-tools/Accelerators.xcu`; `Ctrl+Alt+.` / `Ctrl+Alt+,` (thẻ tài liệu), `Ctrl+Alt+Shift+N` (tách thẻ ra cửa sổ mới, `hst-module-window-groups.patch`). `Alt+F` mở Tệp tin (`hst-file-backstage.patch`, như thẻ File của Office) không bị patch này đụng tới.
 
 - Cài đặt: `patches/libreoffice/hst-msoffice-shortcuts.patch` (officecfg `Accelerators.xcu`,
   phím riêng cho macOS bằng `install:module="macosx"`, phím chỉ Windows/Linux bằng
@@ -26,7 +26,14 @@ nhưng lệnh HST làm khác một chút), **thiếu** (HST chưa có lệnh tư
 
 ## Mẹo phím (KeyTips)
 
-Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh; Esc lùi một bước; Alt+chữ mở thẳng thẻ (`hst-ribbon-keytips.patch`). Chữ của thẻ lấy từ trang phím tắt vi-vn của Microsoft: Word F H N G P S M R W L, Excel F H N P M A R W, PowerPoint F H N G K A S R W. Chữ của lệnh: bảng trong `sfx2/source/notebookbar/HstKeyTipTable.hxx`, lệnh ngoài bảng được gán chữ còn trống khi mở thẻ, nên có thể khác Office. Nút » (các nhóm không đủ chỗ trên ribbon) và khối bên phải đã thu gọn cũng có chữ; mở chúng bằng chữ thì các lệnh trong khung hiện ra cũng có chữ, Esc đóng khung (`hst-ribbon-chevron.patch`).
+Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh; Esc lùi một bước; Alt+chữ mở thẳng thẻ (`hst-ribbon-keytips.patch`). Chữ của thẻ lấy từ trang phím tắt vi-vn của Microsoft: Word F H N G P S M R W L, Excel F H N P M A R W, PowerPoint F H N G K A S R W. Chữ của lệnh: bảng trong `sfx2/source/notebookbar/HstKeyTipTable.hxx`, lệnh ngoài bảng được gán chữ còn trống khi mở thẻ, nên có thể khác Office.
+
+Từ 1.0.2 (chủ dự án 14/11/2026: "Phím Alt của thẻ hiệu ứng nên để giống như MS Office"):
+
+- Chữ của lệnh theo từng ứng dụng và từng thẻ, lấy từ Office 2021 cài trên máy HST4 (`data/ribbon/office-keytips-reference.json`, ghi bằng UI Automation; máy chỉ có giao diện tiếng Anh nên dùng chữ tiếng Anh). Ví dụ Alt, R, C là Chú thích mới ở thẻ Xem lại của mọi ứng dụng; Alt, N, SI là Trang chiếu mới ở thẻ Chèn của Slides. Bảng `data/ribbon/keytips-office-parity.json` sinh ra `hst-ribbon-keytips-office.patch`.
+- Khi đang hiện thanh trình đơn cổ điển, Alt (nhấn rồi thả), F10 và Alt+chữ thuộc về thanh trình đơn, trên mọi hệ điều hành (chủ dự án 14/11); khi thanh ẩn, Alt và F10 hiện mẹo phím.
+- Tên thẻ ribbon trong giao diện tiếng Việt không còn chữ gạch dưới (Office cũng không có). Trước đây "~Hiệu ứng" gạch chữ H, trong khi Alt+H mở Trang đầu.
+- `scripts/check-keytips-parity.py` (chạy trong CI) báo lỗi khi chữ của thẻ, chữ của lệnh, chữ gạch dưới của thẻ hoặc một phím tắt trong `data/ribbon/shortcuts-office-parity.json` lệch khỏi Office. Nút » (các nhóm không đủ chỗ trên ribbon) và khối bên phải đã thu gọn cũng có chữ; mở chúng bằng chữ thì các lệnh trong khung hiện ra cũng có chữ, Esc đóng khung (`hst-ribbon-chevron.patch`).
 
 ## HST Writer ↔ Word
 
@@ -63,6 +70,7 @@ Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh;
 | Thụt lề đoạn | Ctrl+M | Control+Shift+M | Xóa định dạng trực tiếp | Tăng thụt lề | đổi | **Xóa định dạng trực tiếp** chuyển sang Ctrl+Space (macOS: Control+M như cũ) |
 | Bỏ thụt lề | Ctrl+Shift+M | Cmd+Shift+M | Chế độ sửa (toàn cục) | Giảm thụt lề | đổi | **Chế độ sửa** còn ở menu Sửa |
 | Thụt lề treo | Ctrl+T | Cmd+T | macOS Cmd+T = Kiểu dáng | Thụt lề treo | đổi | **Kiểu dáng** (macOS) vẫn có F11 |
+| Đánh dấu trích dẫn (Mark Citation, mục lục trích dẫn pháp lý) | Alt+Shift+I | Cmd+Option+Shift+I | không có | Chèn lại trích dẫn | khác | HST: gõ `[3` hoặc `[3, tr. 15` rồi nhấn phím để trích lại nguồn số 3 (không có ô đánh dấu trích dẫn pháp lý); macOS Option+Shift+I |
 
 ## HST Sheets ↔ Excel
 
@@ -106,6 +114,37 @@ Alt rồi thả: chữ trên thẻ; chữ của thẻ, rồi chữ của lệnh;
 | Nhóm | Ctrl+G | Cmd+Option+G | Ctrl+Shift+G | Ctrl+G; macOS Cmd+Option+G | đổi | |
 | Bỏ nhóm | Ctrl+Shift+G | Cmd+Option+Shift+G | Ctrl+Alt+Shift+G | Ctrl+Shift+G (Ctrl+Alt+Shift+G vẫn dùng được) | đổi | **Nhóm** (Ctrl+Shift+G) chuyển sang Ctrl+G |
 | Lưu thành | F12 | Cmd+Shift+S | không có | Lưu thành (Win/Linux) | đổi | |
+
+## Thêm trong 1.0.2 (đối chiếu Office 2021 trên HST4)
+
+`patches/libreoffice/hst-msoffice-shortcuts-parity.patch`; toàn bộ 210 dòng đối chiếu (khớp, đổi, khác có lý do) ở
+`data/ribbon/shortcuts-office-parity.json`.
+
+| Ứng dụng | Phím | Lệnh mới | Trước đó |
+|---|---|---|---|
+| Writer | Ctrl+F2 | Xem trước khi in | Trường (hộp thoại) |
+| Writer | Ctrl+Shift+E | Theo dõi thay đổi | Nhảy tới chú thích cuối trang / neo |
+| Writer | Ctrl+Shift+8 (Ctrl+*) | Hiện dấu định dạng | không có (Ctrl+F10 vẫn dùng được) |
+| Writer, Sheets, Slides, PDF | Shift+F7 | Từ điển đồng nghĩa | Tự động kiểm tra chính tả |
+| Writer | Ctrl+Alt+F / Ctrl+Alt+D | Chú thích cuối trang / cuối văn bản | không có |
+| Writer | Ctrl+Shift+C / Ctrl+Shift+V | Sao chép / dán định dạng (chủ dự án 14/11, như Office 2021) | không có / Dán văn bản không định dạng |
+| Writer | Ctrl+Alt+V | Dán đặc biệt | Dán định dạng |
+| Writer | Ctrl+Alt+Shift+V | Dán văn bản không định dạng | Dán đặc biệt |
+| Sheets | Ctrl+F2 | Xem trước khi in | Hàm (hộp thoại) |
+| Sheets | Shift+F3 | Chèn hàm | Xoay vòng kiểu chữ |
+| Sheets | Shift+F9 | Tính lại | Theo dấu ô tham chiếu |
+| Sheets | Ctrl+5 | Gạch ngang chữ | Giãn dòng 1,5 |
+| Sheets | Ctrl+Shift+F3, Shift+F2, Ctrl+9, Ctrl+0 | Tạo tên, Chú thích, Ẩn hàng, Ẩn cột | không có |
+| Sheets | Alt+Shift+→ / ← | Nhóm / Bỏ nhóm | không có |
+| Slides | Alt+F8, Ctrl+Shift+> / <, Shift+F9, Alt+Shift+F9, Ctrl+T, Ctrl+Alt+V | Macro, cỡ chữ, lưới, thước, Phông chữ, Dán đặc biệt | không có |
+| PDF | F12 | Lưu thành | không có |
+
+Các dòng "Sao chép / dán định dạng" ở bảng Writer phía trên (Ctrl+Alt+C/V, Ctrl+Shift+V dán chữ) đã được thay bằng các phím
+này trên Windows/Linux; macOS giữ phím cũ. Ctrl+Alt+C vẫn sao chép định dạng.
+
+Còn khác Office (có lý do trong bảng): F1 (Trợ giúp do hệ điều hành mở), Ctrl+F1 (chưa có thu gọn ribbon), Ctrl+Shift+A (chưa có lệnh Chữ hoa),
+Shift+F12 / Ctrl+F12 / Ctrl+Shift+F12 của Word (giữ Dấu đầu dòng, Chèn bảng như cũ), Ctrl+E và Ctrl+Alt+L của Excel
+(chưa có Flash Fill, Áp dụng lại bộ lọc), Ctrl+F2 của Slides (không có xem trước khi in).
 
 ## Tổng hợp
 
@@ -154,6 +193,13 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 | Sheets | Cmd+; (macOS) | Ngày hiện tại | Control+; |
 | Slides | Ctrl+Shift+G | Nhóm | Ctrl+G |
 | Slides | Cmd+Shift+N (macOS) | Mẫu mới | Tệp tin ▸ Mới ▸ Mẫu |
+| Writer | Ctrl+F2 | Trường (hộp thoại) | Chèn ▸ Trường ▸ Thêm trường |
+| Writer | Ctrl+Shift+E | Nhảy tới chú thích / neo | Công cụ ▸ Tùy biến (gán lại phím được) |
+| Writer, Sheets, Slides, PDF | Shift+F7 | Tự động kiểm tra chính tả | thẻ Xem lại |
+| Sheets | Ctrl+F2 | Hàm (hộp thoại) | Shift+F3, thẻ Công thức |
+| Sheets | Shift+F3 | Xoay vòng kiểu chữ | Định dạng ▸ Văn bản |
+| Sheets | Shift+F9 | Theo dấu ô tham chiếu | thẻ Công thức |
+| Sheets | Ctrl+5 | Giãn dòng 1,5 (khi sửa chữ trong ô) | hộp thoại Đoạn văn |
 
 ## Chưa xác minh
 
@@ -178,6 +224,7 @@ và `tests/runtime/check-defaults.py`.
 | Khổ giấy | A4 (theo vùng vi) | không đổi | |
 | Lề trang Writer | 2 cm mọi phía (mặc định LibreOffice, HST chưa từng chọn) | 2,54 cm mọi phía (Normal của Word) | `hst-defaults.patch` và BACKLOG không chọn lề chung. Lề NĐ 30 (20/20/30/15 mm) do trình soạn Văn bản hành chính đặt, không đổi |
 | Phông Writer | Times New Roman (NĐ 30, `hst-defaults.patch`) | không đổi | Đã được duyệt; Liberation Serif thay thế cùng số đo khi máy không có |
+| Phông châu Á của Writer (Tùy chọn > Phông cơ bản (Châu Á)) | phông CJK của nền tảng (Noto Serif CJK SC, NSimSun…) | Times New Roman, cả trong mẫu HST (`hst-writer-cjk-default-font.patch`) | Khi phông châu Á khác, Word lưu mỗi chữ Việt dựng sẵn U+1E00–U+1EFF thành một run riêng: tệp `.docx` qua Word phình 4–6 lần và mở chậm khoảng 8 lần. Văn bản không có chữ CJK hiển thị không đổi |
 | Phông Sheets, Slides | Liberation Sans | Calibri, không có thì Carlito (kèm trong bộ cài, cùng số đo) | Calibri là mặc định của Excel/PowerPoint 2007–2021; Carlito có đủ dấu tiếng Việt |
 | Cỡ chữ Sheets | 10 pt | 11 pt cho bảng tính **mới** (kiểu Mặc định, `hst-sheets-default-font-size.patch`) | Như Excel (chủ dự án 2026-11-05). Tệp đã có giữ nguyên cỡ của tệp. Hàng trống theo cỡ chữ, cả ở trang tính thêm sau: khoảng 13,8 pt với Carlito (Excel 15 pt) |
 | Tên phông trong tệp lưu | | `.xlsx`, `.pptx` mới ghi `Calibri`, không ghi `Carlito`, kể cả máy không cài Calibri | Bộ lọc xuất tự đổi về tên Microsoft; đã kiểm tra thật trên máy không có Calibri (`tests/runtime/check-defaults.py`). Trong ứng dụng, ô phông chữ hiện `Carlito` khi máy không có Calibri |

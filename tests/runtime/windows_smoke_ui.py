@@ -1,0 +1,127 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+"""Window, dialog and dispatch helpers of check-windows-smoke.py (see there)."""
+import os
+import subprocess
+import threading
+import time
+import traceback
+
+import uno_main_thread_load
+from windows_smoke_report import ROWS, record
+
+def top_windows(toolkit):
+    return [toolkit.getTopWindow(i) for i in range(toolkit.getTopWindowCount())]
+
+
+def window_title(window):
+    for getter in (lambda w: w.getTitle(), lambda w: w.getAccessibleContext().getAccessibleName()):
+        try:
+            value = getter(window)
+            if value:
+                return value
+        except Exception:  # noqa: BLE001
+            continue
+    return ""
+
+
+SHOT_DIR = None  # set by check-windows-smoke.py --screenshots
+
+
+def shot(label):
+    """Optional full-screen PNG (Windows CI passes --screenshots); never fails the smoke run."""
+    if not SHOT_DIR:
+        return
+    name = "".join(c if c.isalnum() else "_" for c in label)[:40]
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "scripts", "windows", "capture-screenshot.ps1")
+    subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Path", os.path.join(SHOT_DIR, "%d-%s.png" % (len(ROWS), name))],
+                   timeout=60, check=False)
+
+
+def close_dialog(window):
+    """End a dialog without keystrokes: WM_CLOSE to its own window (twice), then endExecute (windows_gui_dialogs).
+    A key sent to the foreground could reach a desktop or another session's window."""
+    from windows_gui_dialogs import close_dialog as close  # Windows only (ctypes user32)
+    return close(window)
+
+
+def is_new(window, known):
+    return all(window != other for other in known)  # pyuno proxies compare by UNO object identity
+
+
+def pump(toolkit, work, wait_for_window):
+    """Run `work` in a thread; close every window that opens meanwhile. Returns (descriptions, error text).
+
+    A description is "title WxH" (pixels); a window larger than the screen work area is reported as OVERSIZE.
+    """
+    known = top_windows(toolkit)
+    state = {"error": ""}
+
+    def target():
+        try:
+            work()
+        except Exception:  # noqa: BLE001
+            state["error"] += traceback.format_exc()
+
+    thread = threading.Thread(target=target, daemon=True)
+    thread.start()
+    found, deadline = [], time.time() + 40
+    area = toolkit.getWorkArea()
+    while time.time() < deadline:
+        busy = thread.is_alive() or (wait_for_window and not found)
+        new = [window for window in top_windows(toolkit) if is_new(window, known)]
+        # one more pass once the work has ended: a dialog that opened during the last 4 s settle (the first-start
+        # welcome during the first load) would otherwise stay up unseen and hold later closes and the terminate
+        if not busy and not new:
+            break
+        for window in new:
+            known.append(window)
+            time.sleep(4)  # let the dialog lay out (peer size settles), paint and get its title
+            try:
+                size = window.getPosSize()
+            except Exception:  # noqa: BLE001
+                size = area.__class__(0, 0, 0, 0)
+            label = "%s %dx%d" % (window_title(window), size.Width, size.Height)
+            if size.Width > area.Width or size.Height > area.Height:
+                label += " OVERSIZE(work area %dx%d)" % (area.Width, area.Height)
+            found.append(label)
+            shot(label)
+            close_dialog(window)
+        time.sleep(0.3)
+    thread.join(10)
+    if thread.is_alive():
+        state["error"] += "still blocked after 50 s\n"
+    return found, state["error"]
+
+
+def open_document(ctx, desktop, kind):
+    """Open a visible document from a thread: the first-start welcome dialog blocks the load until it is closed."""
+    toolkit = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    box = {}
+    titles, error = pump(toolkit, lambda: box.update(doc=uno_main_thread_load.load(desktop, "private:factory/" + kind, Hidden=False)), False)
+    record("open %s (windows during load: %s)" % (kind, titles), "doc" in box and not error, error)
+    return box.get("doc")
+
+
+def run_command(ctx, frame, url_text, expect_dialog):
+    """Dispatch in a thread; return (new window titles, thread exception text or '')."""
+    import uno
+    smgr = ctx.ServiceManager
+    toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    transformer = smgr.createInstanceWithContext("com.sun.star.util.URLTransformer", ctx)
+    url = uno.createUnoStruct("com.sun.star.util.URL")
+    url.Complete = url_text
+    _, url = transformer.parseStrict(url)
+    dispatch = frame.queryDispatch(url, "_self", 0)
+    if dispatch is None:
+        return None, "queryDispatch returned None: no handler claims " + url_text
+    state = {"error": ""}
+
+    def work():
+        try:
+            dispatch.dispatch(url, ())
+        except Exception:  # noqa: BLE001
+            state["error"] = traceback.format_exc()
+
+    titles, error = pump(toolkit, work, wait_for_window=True)
+    state["error"] += error
+    return titles, state["error"]

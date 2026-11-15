@@ -68,7 +68,14 @@ def check_new_documents(ctx, out):
     writer = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, hidden)
     standard = writer.getStyleFamilies().getByName("ParagraphStyles").getByName("Standard")
     expect("Writer: Times New Roman 12", (standard.CharFontName, standard.CharHeight), ("Times New Roman", 12.0))
+    expect("Writer: East Asian font is Times New Roman too", standard.CharFontNameAsian, "Times New Roman")
+    path = os.path.join(out, "new.docx")
+    writer.storeToURL(uno.systemPathToFileUrl(path), (prop("FilterName", "MS Word 2007 XML"),))
     writer.close(True)
+    with zipfile.ZipFile(path) as package:
+        defaults = re.search(r"<w:rPrDefault>.*?</w:rPrDefault>", package.read("word/styles.xml").decode("utf-8")).group(0)
+    # Word splits every Vietnamese letter U+1E00-U+1EFF into its own run when this differs.
+    expect("Writer .docx: East Asian font Times New Roman", 'w:eastAsia="Times New Roman"' in defaults, True)
 
     slides = desktop.loadComponentFromURL("private:factory/simpress", "_blank", 0, hidden)
     path = os.path.join(out, "new.pptx")

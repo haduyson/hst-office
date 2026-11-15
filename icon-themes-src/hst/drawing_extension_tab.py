@@ -32,5 +32,22 @@ def hst_commands():
         'Person beside a downward sort arrow')
     add('deleteblankrows', r(3, 3, 13, 18, 1)+p('M3 9h13M3 15h13M6 6h7M6 18h7M18.5 12h4'),
         'Table whose empty middle row is removed')
+    # Trích dẫn (HST Writer, Tham khảo tab): a numbered citation [1] is the common mark of the group.
+    blue = '<g stroke="' + ACCENT + '">%s</g>'
+    cite = p('M5 5H3v14h2M13 5h2v14h-2M7.5 9 9.5 7.5v9')  # [1]
+    add('citationinsert', cite + blue % p('M19.5 9v6m-3-3h6'),
+        'Citation mark [1] with a plus (insert citation)')
+    add('citationreinsert', cite + blue % p('M17.5 8.5a3.5 3.5 0 1 1 0 7m1.6-1.6-1.6 1.6 1.6 1.6'),
+        'Citation mark [1] with a turning arrow (cite the same source again)')
+    add('citationbibliography', p('M8 4.5h13M8 8h9M8 13.5h13M8 17h9M8 20.5h6') + blue % p('M3 4.5h2M3 13.5h2'),
+        'Numbered reference list with hanging lines')
+    add('citationupdate', p('M7.5 9 9.5 7.5v9') + blue % p('M20 12a8 8 0 0 1-14.2 5M4 12A8 8 0 0 1 18.2 7M18.5 3v4h-4M5.5 21v-4h4'),
+        'Citation number inside two renewing arrows (update numbers)')
+    add('citationstyle', p('M5.5 4.5c-2.5 2.5-2.5 10.5 0 13M8.5 4.5c2.5 2.5 2.5 10.5 0 13M16 4.5h-2v13h2M19 4.5h2v13h-2')
+        + blue % p('M3 21.5h18'),
+        'Round and square brackets over a line: the shape of citations (citation style)')
+    add('citationlibrary', r(3, 4, 4, 15, 1) + r(9, 4, 4, 15, 1) + p('m15 5.5 3.4-1 4 14-3.4 1zM2 21.5h20')
+        + blue % p('M4.5 8h1M10.5 8h1'),
+        'Books on a shelf (the reference library)')
     # Giải pháp HASON TECH (showsolutions) is not drawn here: it shows the HASON TECH trademark
     # (branding/icon-themes/hasontech-mark.svg, the "trademark" master in families.json), outside CC BY.

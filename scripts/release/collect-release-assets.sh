@@ -52,7 +52,10 @@ fetch() { # <run id> <artifact name> -> verified copy of its installer files int
   [ -f "$dir/SHA256SUMS" ] || die "$2 has no SHA256SUMS"
   (cd "$dir" && sha256sum -c SHA256SUMS)
   # Only installers are published; build evidence (e.g. notarytool logs) stays in the artifact.
-  find "$dir" -maxdepth 1 -type f \( -name '*.msi' -o -name '*.deb' -o -name '*.dmg' -o -name '*.tar.gz' \) -exec cp {} "$out/" \;
+  # Linux: .deb, .rpm, .AppImage (+ .AppImage.asc, the signed Linux checksum list and RPM-GPG-KEY-hasontech when signed).
+  find "$dir" -maxdepth 1 -type f \( -name '*.msi' -o -name '*.deb' -o -name '*.dmg' -o -name '*.tar.gz' -o -name '*.rpm' \
+    -o -name '*.AppImage' -o -name '*.AppImage.asc' -o -name '*_Linux_x86-64.SHA256SUMS' -o -name '*_Linux_x86-64.SHA256SUMS.asc' \
+    -o -name RPM-GPG-KEY-hasontech \) -exec cp {} "$out/" \;
 }
 
 commit="${COMMIT:-}"
@@ -95,7 +98,14 @@ for platform in $platforms; do
   names="$(artifact_names "$id")"
   case "$platform" in
     windows) fetch "$id" "hst-office-windows-msi-$id" ;;
-    linux)   fetch "$id" "hst-office-linux-deb-$id" ;;
+    linux)   # The GPG-signed set; unsigned only while no packaging key is configured (docs/LINUX_PACKAGES.md).
+      signed="hst-office-linux-deb-signed-$id"
+      if grep -qx "$signed" <<<"$names"; then
+        fetch "$id" "$signed"
+        bash "$(dirname "${BASH_SOURCE[0]}")/check-linux-signed-set.sh" "$work/$signed" || die "Linux run $id: incomplete signed set"
+      elif [ -f "$(dirname "${BASH_SOURCE[0]}")/../../data/hst/RPM-GPG-KEY-hasontech" ]; then
+        die "Linux run $id has no $signed although the packaging key is configured; rerun its sign job (linux-signing)"
+      else fetch "$id" "hst-office-linux-deb-$id"; fi ;;
     macos)
       for arch in arm64 x86_64; do
         # Prefer the signed and notarized dmg when the signing stage produced one.

@@ -2,9 +2,9 @@
 """Daily report of the local banner display counts (contract v1, docs/BANNERS.md "Display counting").
 
 Sent by the feed worker within the same once-per-86,400-seconds attempt as the manifest, never on the UI thread,
-through the private HTTPS helper with its five-second deadline. Not sent while SendInstallId is off, without a
-valid banner public key (bundled-only path), from test packages or a FeedURL testing origin, or when there is
-nothing to send. The body holds only schemaVersion, the release and {day, counts}; no machine ID.
+through the private HTTPS helper with its five-second deadline. Always on and independent of SendInstallId: the
+aggregate counts carry no machine ID. Not sent without a valid banner public key (bundled-only path), from test
+packages or a FeedURL testing origin, or when there is nothing to send. The body holds only schemaVersion, the release and {day, counts}; no machine ID.
 """
 import json
 
@@ -30,15 +30,15 @@ def body(days, release):
     return None, {}
 
 
-def may_send(allowed, key, production):
-    """allowed: SendInstallId; key: the banner public key (the empty placeholder is invalid); production: the
-    production feed of a release package."""
-    return allowed is True and production is True and valid_key(key)
+def may_send(key, production):
+    """key: the banner public key (the empty placeholder is invalid); production: the production feed of a release
+    package."""
+    return production is True and valid_key(key)
 
 
-def should_send(allowed, key, production, days):
+def should_send(key, production, days):
     """may_send, and there are stored counts (days)."""
-    return may_send(allowed, key, production) and bool(days)
+    return may_send(key, production) and bool(days)
 
 
 def subtract(days, sent):
@@ -65,10 +65,10 @@ def after_response(days, sent, status):
     return days
 
 
-def report(counter, release, proxy, allowed, key, production, post=post_status):
+def report(counter, release, proxy, key, production, post=post_status):
     """One report attempt on the feed worker; returns the HTTP status, or None. Never raises."""
     try:
-        if not may_send(allowed, key, production):
+        if not may_send(key, production):
             return None  # nothing is read or written
         counter.flush()
         today = counter.today()

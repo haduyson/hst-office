@@ -1,0 +1,29 @@
+HST Office: closing the last document over UNO no longer crashes the office on macOS (headless).
+
+The application's main menu (SalNSMainMenu, made in initAppMenu) was autoreleased, so NSApp held the only
+reference. Every menubar AquaSalMenu points at it without a reference of its own, and unsetMainMenu() calls
+[NSApp setMainMenu:nil] before it removes the items. In headless mode nothing else (no drawn menu bar) holds the
+menu, so restoring the default menu when the last document's menubar went away (setDefaultMenu, run on the main
+thread for the UNO thread) sent numberOfItems to a deallocated SalNSMainMenu: Signal 11, NSZombieEnabled reports
+"-[SalNSMainMenu numberOfItems]: message sent to deallocated instance". The main menu is now kept for the life
+of the application.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-close-last-doc.py (macOS save replace probe workflow)
+---
+--- a/vcl/osx/salmenu.cxx
++++ b/vcl/osx/salmenu.cxx
+@@ -130,7 +130,12 @@
+ 
+     // Related: tdf#126638 use NSMenu subclass to catch and redirect key
+     // shortcuts when a modal window is displayed
+-    SalNSMainMenu* pMainMenu = [[[SalNSMainMenu alloc] initWithTitle: @"Main Menu"] autorelease];
++    // HST Office: the main menu is kept (not autoreleased) for the life of the application. Every
++    // menubar uses it ([NSApp mainMenu] in the AquaSalMenu constructor) without a reference of its
++    // own, and unsetMainMenu() sets the application's main menu to nil before it removes the items:
++    // when nothing else holds the menu (headless mode, where the menu bar is never drawn), that
++    // deallocated it, and closing the last document over UNO crashed in setDefaultMenu().
++    SalNSMainMenu* pMainMenu = [[SalNSMainMenu alloc] initWithTitle: @"Main Menu"];
+     pNewItem = [pMainMenu addItemWithTitle: @"Application"
+         action: nil
+         keyEquivalent: @""];

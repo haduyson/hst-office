@@ -1,0 +1,84 @@
+HST Office About dialog: "Privacy policy" link (vi: "Chính sách quyền riêng tư").
+
+- aboutdialog.ui: a fourth link button btnPrivacy in the row of the website link (the
+  Credits and Release Notes buttons stay hidden by hst-about.patch).
+- about.cxx/about.hxx: the button opens
+  https://office.hasontech.vn/quyen-rieng-tu/?utm_source=hst-office&utm_medium=about&utm_campaign=hst-office-1-0
+  in the system browser, only when clicked; nothing is fetched by the office (UTM
+  convention: docs/PRIVACY.md).
+- vi cui/messages.po: the Vietnamese label.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/unit/test_privacy_links.py, tests/runtime/check-privacy-links.py.
+---
+--- a/cui/source/dialogs/about.cxx
++++ b/cui/source/dialogs/about.cxx
+@@ -60,6 +60,7 @@
+     , m_pCreditsButton(m_xBuilder->weld_link_button(u"btnCredits"_ustr))
+     , m_pWebsiteButton(m_xBuilder->weld_link_button(u"btnWebsite"_ustr))
+     , m_pReleaseNotesButton(m_xBuilder->weld_link_button(u"btnReleaseNotes"_ustr))
++    , m_pPrivacyButton(m_xBuilder->weld_link_button(u"btnPrivacy"_ustr))
+     , m_pCloseButton(m_xBuilder->weld_button(u"btnClose"_ustr))
+     , m_pCopyButton(m_xBuilder->weld_button(u"btnCopyVersion"_ustr))
+     , m_pBrandImage(m_xBuilder->weld_image(u"imBrand"_ustr))
+@@ -123,6 +124,11 @@
+                   + "?utm_source=hst-office&utm_medium=about&utm_campaign=hst-office-1-0");
+     m_pWebsiteButton->set_uri(sURL);
+ 
++    // HST Office: privacy policy page, opened in the system browser only when clicked
++    // (same UTM convention as the website link; docs/PRIVACY.md).
++    m_pPrivacyButton->set_uri(u"https://office.hasontech.vn/quyen-rieng-tu/"
++                              "?utm_source=hst-office&utm_medium=about&utm_campaign=hst-office-1-0"_ustr);
++
+     // HST Office: no Release Notes link (it would lead to a website outside the product).
+     m_pReleaseNotesButton->hide();
+ 
+--- a/cui/source/inc/about.hxx
++++ b/cui/source/inc/about.hxx
+@@ -31,6 +31,7 @@
+     std::unique_ptr<weld::LinkButton> m_pCreditsButton;
+     std::unique_ptr<weld::LinkButton> m_pWebsiteButton;
+     std::unique_ptr<weld::LinkButton> m_pReleaseNotesButton;
++    std::unique_ptr<weld::LinkButton> m_pPrivacyButton;
+     std::unique_ptr<weld::Button> m_pCloseButton;
+     std::unique_ptr<weld::Button> m_pCopyButton;
+ 
+--- a/cui/uiconfig/ui/aboutdialog.ui
++++ b/cui/uiconfig/ui/aboutdialog.ui
+@@ -181,6 +181,21 @@
+                     <property name="position">2</property>
+                   </packing>
+                 </child>
++                <child>
++                  <object class="GtkLinkButton" id="btnPrivacy">
++                    <property name="label" translatable="yes" context="aboutdialog|privacy">Privacy policy</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">True</property>
++                    <property name="relief">none</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">3</property>
++                  </packing>
++                </child>
+               </object>
+               <packing>
+                 <property name="left-attach">1</property>
+--- a/translations/source/vi/cui/messages.po
++++ b/translations/source/vi/cui/messages.po
+@@ -5697,6 +5697,12 @@
+ msgid "Website"
+ msgstr "Website"
+ 
++#. hstPr
++#: cui/uiconfig/ui/aboutdialog.ui
++msgctxt "aboutdialog|privacy"
++msgid "Privacy policy"
++msgstr "Chính sách quyền riêng tư"
++
+ #. i4Jo2
+ #: cui/uiconfig/ui/aboutdialog.ui:170
+ msgctxt "aboutdialog|releasenotes"

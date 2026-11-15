@@ -11,6 +11,8 @@ import time
 import urllib.parse
 import uuid
 
+from .error_report_apps import app_name, server_key
+from .update_install_id import is_install_id
 from .update_logic import TEST_HOST
 
 ENDPOINT = "https://system.hasontech.vn/hst-office/api/error-reports"
@@ -23,7 +25,7 @@ MAX_VERSION = 80  # product.version, characters
 LIMITS = {"systemInfo": 16 * 1024, "log": 192 * 1024, "crash": 16 * 1024}  # UTF-8 bytes per diagnostics field
 LOG_LINES, LOG_BYTES = 200, 32 * 1024  # the client keeps the log far below the API limit
 KINDS = ("user", "crash")
-APPS = ("writer", "calc", "impress", "draw", "math", "base", "start", "unknown")
+APPS = ("writer", "calc", "impress", "draw", "math", "base", "start", "unknown")  # error_report_apps.SERVER_KEYS
 FAMILIES = {"Windows": "windows", "Darwin": "macos", "Linux": "linux"}
 ARCHES = {"x86_64": "x86_64", "amd64": "x86_64", "x64": "x86_64", "arm64": "arm64", "aarch64": "arm64"}
 _EMAIL = re.compile(r"[^@\s\"'`<>(),;:\\\[\]]{1,64}@(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
@@ -115,14 +117,15 @@ def fit_bytes(text, limit, keep_tail=False):
 
 
 def build_payload(report_id, kind, created_at, product, os, locale, app, description="", contact_email="",
-                  diagnostics=None):
-    """The request object; empty optional fields are left out, diagnostics are cut to their limits."""
+                  diagnostics=None, install_id=None):
+    """The request object; empty optional fields (an invalid install_id too) are left out, diagnostics are cut."""
     product = {key: sanitize(str(value)) for key, value in product.items()}
     product["version"] = product["version"][:MAX_VERSION]
     os = dict(os, version=sanitize(os.get("version", ""))[:MAX_OS_VERSION])
     payload = {"schemaVersion": SCHEMA_VERSION, "reportId": report_id, "kind": kind, "createdAt": created_at,
                "product": product, "os": os, "locale": locale or "vi-VN",
-               "app": app if app in APPS else "unknown"}
+               "app": server_key(app), "appName": app_name(app),
+               **({"installId": install_id} if is_install_id(install_id) else {})}  # update_install_id.for_report
     description = sanitize(description).strip()
     if description or kind == "user":
         payload["description"] = description
@@ -186,8 +189,9 @@ def schema_errors(payload):
         errors.append("product.version")
     if len(payload.get("os", {}).get("version", "")) > MAX_OS_VERSION:
         errors.append("os.version")
-    if payload.get("app") not in APPS:
-        errors.append("app")
+    errors += [name for name, bad in (("app", payload.get("app") not in APPS),
+                                      ("installId", "installId" in payload and not is_install_id(payload["installId"])))
+               if bad]
     for name, value in payload.get("diagnostics", {}).items():
         if name not in LIMITS or utf8_len(value) > LIMITS[name]:
             errors.append("diagnostics." + name)

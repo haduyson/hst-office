@@ -43,7 +43,7 @@ def main():
     work = os.path.abspath(args.out)
     os.makedirs(work, exist_ok=True)
     office = hst_gui.Office(args.instdir, work, PORT, display=args.display, lang="vi_VN.UTF-8",
-                            config=[("/org.openoffice.Office.Impress/Misc", "StartWithTemplate", "false"),
+                            config=[("/org.openoffice.Office.Impress/Misc/NewDoc", "AutoPilot", "false"),
                                     ("/org.hasontech.hstoffice.UpdateCheck", "AutoCheck", "false")])
     try:
         office.start()

@@ -1,0 +1,261 @@
+HST Office: Writer's Margins menu (ribbon Layout > Margins, sidebar Page) gets Word's Moderate preset, "Vừa":
+top and bottom 2.54 cm, left and right 1.91 cm, after Normal in both orientations.
+
+- One button (hstmoderate) for portrait and landscape; in landscape it is moved after normalL.
+- The labels Bình thường and Dọc/Ngang come from l10n/vi-overrides.jsonl.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-dialogs-writer.py margin-presets
+---
+--- a/sw/source/uibase/sidebar/PageMarginControl.hxx
++++ b/sw/source/uibase/sidebar/PageMarginControl.hxx
+@@ -36,6 +36,8 @@
+ constexpr tools::Long SWPAGE_HST_ND30_LEFT = o3tl::toTwips(30, o3tl::Length::mm);
+ constexpr tools::Long SWPAGE_HST_ND30_RIGHT = o3tl::toTwips(15, o3tl::Length::mm);
+ constexpr tools::Long SWPAGE_HST_ND30_TOP_BOTTOM = o3tl::toTwips(20, o3tl::Length::mm);
++// HST: Word's Moderate margins: left and right 0.75 in (1.91 cm); top and bottom are SWPAGE_WIDE_VALUE1 (1 in)
++constexpr tools::Long SWPAGE_HST_MODERATE_LR = 1080;
+ 
+ // #i19922# - tdf#126051 see cui/source/tabpages/page.cxx and svx/source/dialog/hdft.cxx
+ constexpr tools::Long MINBODY = o3tl::toTwips(1, o3tl::Length::mm); // 1mm in twips rounded
+@@ -59,6 +61,8 @@
+     std::unique_ptr<weld::Button> m_xLast;
+     // HST: administrative documents (Decree 30/2020/ND-CP)
+     std::unique_ptr<weld::Button> m_xHstNd30;
++    // HST: Word's Moderate preset
++    std::unique_ptr<weld::Button> m_xHstModerate;
+     std::unique_ptr<weld::Button> m_xMoreButton;
+ 
+     std::unique_ptr<weld::Label> m_xLeft;
+--- a/sw/source/uibase/sidebar/PageMarginControl.cxx
++++ b/sw/source/uibase/sidebar/PageMarginControl.cxx
+@@ -36,6 +36,7 @@
+ #include <tools/fldunit.hxx>
+ #include <tools/mapunit.hxx>
+ #include <unotools/viewoptions.hxx>
++#include <vcl/weld/Box.hxx>
+ #include <vcl/weld/Builder.hxx>
+ 
+ #include <swtypes.hxx>
+@@ -97,6 +98,7 @@
+     : WeldToolbarPopup(pControl->getFrameInterface(), pParent, u"modules/swriter/ui/pagemargincontrol.ui"_ustr, u"PageMarginControl"_ustr)
+     , m_xMoreButton(m_xBuilder->weld_button(u"moreoptions"_ustr))
+     , m_xHstNd30(m_xBuilder->weld_button(u"hstnd30"_ustr))
++    , m_xHstModerate(m_xBuilder->weld_button(u"hstmoderate"_ustr))
+     , m_xLeft(m_xBuilder->weld_label(u"leftLabel"_ustr))
+     , m_xRight(m_xBuilder->weld_label(u"rightLabel"_ustr))
+     , m_xInner(m_xBuilder->weld_label(u"innerLabel"_ustr))
+@@ -184,7 +186,15 @@
+     m_xMirrored->show();
+     m_xLast->show();
+     m_xHstNd30->show();
++    m_xHstModerate->show();
+     m_xMoreButton->show();
++    // HST: Moderate is one button for both orientations; in landscape it follows normalL (position 7 once it
++    // has left position 2), as it follows normal in portrait.
++    if ( bLandscape )
++    {
++        if (std::unique_ptr<weld::Box> xContainer = m_xBuilder->weld_box(u"container"_ustr))
++            xContainer->reorder_child(m_xHstModerate.get(), 7);
++    }
+ 
+     m_xNarrow->connect_clicked( LINK( this, PageMarginControl, SelectMarginHdl ) );
+     m_xNormal->connect_clicked( LINK( this, PageMarginControl, SelectMarginHdl ) );
+@@ -192,6 +202,7 @@
+     m_xMirrored->connect_clicked( LINK( this, PageMarginControl, SelectMarginHdl ) );
+     m_xLast->connect_clicked( LINK( this, PageMarginControl, SelectMarginHdl ) );
+     m_xHstNd30->connect_clicked( LINK( this, PageMarginControl, SelectMarginHdl ) );
++    m_xHstModerate->connect_clicked( LINK( this, PageMarginControl, SelectMarginHdl ) );
+     m_xMoreButton->connect_clicked( LINK(this, PageMarginControl, MoreButtonClickHdl_Impl));
+ 
+     m_bUserCustomValuesAvailable = GetUserCustomValues();
+@@ -320,6 +331,12 @@
+         aWide1ValText;
+     m_xWide->set_tooltip_text( aHelpText );
+ 
++    SetMetricValue( *m_xWidthHeightField, SWPAGE_HST_MODERATE_LR, m_eUnit );
++    const OUString aModerateValText = m_xWidthHeightField->get_text();
++    aHelpText = aLeft + aModerateValText + aRight + aModerateValText + aTop + aWide1ValText + aBottom
++                + aWide1ValText;
++    m_xHstModerate->set_tooltip_text( aHelpText );
++
+     const OUString aInner = SwResId( STR_MARGIN_TOOLTIP_INNER );
+     const OUString aOuter = SwResId( STR_MARGIN_TOOLTIP_OUTER );
+ 
+@@ -399,6 +416,14 @@
+         m_nPageBottomMargin = SWPAGE_WIDE_VALUE1;
+         bMirrored = true;
+     }
++    if( &rControl == m_xHstModerate.get() )
++    {
++        m_nPageLeftMargin = SWPAGE_HST_MODERATE_LR;
++        m_nPageRightMargin = SWPAGE_HST_MODERATE_LR;
++        m_nPageTopMargin = SWPAGE_WIDE_VALUE1;
++        m_nPageBottomMargin = SWPAGE_WIDE_VALUE1;
++        bMirrored = false;
++    }
+     if( &rControl == m_xHstNd30.get() )
+     {
+         m_nPageLeftMargin = SWPAGE_HST_ND30_LEFT;
+--- a/sw/uiconfig/swriter/ui/pagemargincontrol.ui
++++ b/sw/uiconfig/swriter/ui/pagemargincontrol.ui
+@@ -32,6 +32,11 @@
+     <property name="can-focus">False</property>
+     <property name="icon-name">sw/res/sidebar/pageproppanel/format_L_nomal_24x24.png</property>
+   </object>
++  <object class="GtkImage" id="hstmoderateImg">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">sw/res/sidebar/pageproppanel/format_L_nomal_24x24.png</property>
++  </object>
+   <object class="GtkImage" id="lastImg">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -130,6 +135,24 @@
+           </packing>
+         </child>
+         <child>
++          <!-- HST Office: Word's Moderate margins (top and bottom 2.54 cm, left and right 1.91 cm) -->
++          <object class="GtkButton" id="hstmoderate">
++            <property name="label" translatable="yes" context="pagemargincontrol|hstmoderate">Moderate</property>
++            <property name="can-focus">True</property>
++            <property name="receives-default">True</property>
++            <property name="image">hstmoderateImg</property>
++            <property name="relief">none</property>
++            <property name="use-underline">True</property>
++            <property name="xalign">0</property>
++            <property name="always-show-image">True</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++            <property name="position">2</property>
++          </packing>
++        </child>
++        <child>
+           <object class="GtkButton" id="wide">
+             <property name="label" translatable="yes" context="pagemargincontrol|wide">Wide</property>
+             <property name="can-focus">True</property>
+@@ -143,7 +166,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">2</property>
++            <property name="position">3</property>
+           </packing>
+         </child>
+         <child>
+@@ -160,7 +183,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">3</property>
++            <property name="position">4</property>
+           </packing>
+         </child>
+         <child>
+@@ -177,7 +200,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">4</property>
++            <property name="position">5</property>
+           </packing>
+         </child>
+         <child>
+@@ -194,7 +217,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">5</property>
++            <property name="position">6</property>
+           </packing>
+         </child>
+         <child>
+@@ -211,7 +234,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">6</property>
++            <property name="position">7</property>
+           </packing>
+         </child>
+         <child>
+@@ -228,7 +251,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">7</property>
++            <property name="position">8</property>
+           </packing>
+         </child>
+         <child>
+@@ -245,7 +268,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">8</property>
++            <property name="position">9</property>
+           </packing>
+         </child>
+         <child>
+@@ -262,7 +285,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">9</property>
++            <property name="position">10</property>
+           </packing>
+         </child>
+         <child>
+@@ -280,7 +303,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">10</property>
++            <property name="position">11</property>
+           </packing>
+         </child>
+         <child>
+@@ -474,7 +497,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">11</property>
++            <property name="position">12</property>
+           </packing>
+         </child>
+         <child>
+@@ -489,7 +512,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">12</property>
++            <property name="position">13</property>
+           </packing>
+         </child>
+         <child>
+@@ -506,7 +529,7 @@
+           <packing>
+             <property name="expand">False</property>
+             <property name="fill">True</property>
+-            <property name="position">13</property>
++            <property name="position">14</property>
+           </packing>
+         </child>
+       </object>
+--- a/translations/source/vi/sw/messages.po
++++ b/translations/source/vi/sw/messages.po
+@@ -24354,6 +24354,12 @@
+ msgid "Administrative Document"
+ msgstr "Văn bản hành chính"
+ 
++#. hstMD
++#: sw/uiconfig/swriter/ui/pagemargincontrol.ui
++msgctxt "pagemargincontrol|hstmoderate"
++msgid "Moderate"
++msgstr "Vừa"
++
+ #. D6GdF
+ #: sw/uiconfig/swriter/ui/notebookbar.ui:2425
+ msgctxt "TabbedWriter|labelFileNew"

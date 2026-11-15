@@ -1,0 +1,480 @@
+HST Office: HST Sheets ribbon commands (Home, View, Insert).
+
+- .uno:HstUnfreezePanes ("Bỏ cố định ngăn") removes frozen panes only and is disabled while nothing is frozen
+  (.uno:FreezePanes toggles, so it would freeze at the cursor when nothing is frozen). It is the last entry of the
+  freezepanes popup, which the ribbon's "Cố định ngăn ▾" split button opens.
+- "Tự tính tổng ▾" and "Gộp và căn giữa ▾" are split buttons in Sheets: a Calc-only GenericPopupToolbarController
+  for .uno:AutoSum and .uno:ToggleMergeCells opens the popups hstautosum (Sum, Average, Count, Max, Min, Function)
+  and hstmergecells (Merge and Center, Merge Cells, Unmerge Cells). The AutoSum variants are the upstream
+  .uno:AutoSum?Function:string=… arguments; their labels are new CalcCommands.xcu nodes.
+- .uno:InsertObjectChart takes an optional ChartType (Column, Line or Pie): the new chart gets that chart type
+  template before the chart wizard opens, so the ribbon's Column/Line/Pie buttons start the wizard on that type.
+  A ChartType alone keeps the interactive path (range from the selection, chart on the current sheet).
+- Vietnamese labels of the new commands in UI.po.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: build only (every C++ file syntax-checked against the configured tree). Runtime: View ▸ Cố định ngăn ▾ ▸
+Bỏ cố định ngăn (disabled until panes are frozen); Home ▸ Tự tính tổng ▾ / Gộp và căn giữa ▾ arrows; Insert ▸ Biểu đồ cột/đường/tròn open the wizard on that type.
+---
+--- a/sc/inc/sc.hrc
++++ b/sc/inc/sc.hrc
+@@ -670,6 +670,7 @@
+ #define WID_SIMPLE_REF          (SC_RESOURCE_START+20)
+ #define SID_SC_ATTR_PAGE_SIZE   (SC_RESOURCE_START+21)
+ #define SID_SC_ATTR_PAGE_MARGIN   (SC_RESOURCE_START+22)
++#define SID_HST_UNFREEZE_PANES    (SC_RESOURCE_START+24) // HST: remove frozen panes only
+ 
+ #endif
+ 
+--- a/sc/sdi/tabvwsh.sdi
++++ b/sc/sdi/tabvwsh.sdi
+@@ -174,6 +174,7 @@
+         SID_CURRENTDOC      [ ExecMethod = Execute; StateMethod = GetState; ]
+     SID_WINDOW_SPLIT    [ ExecMethod = Execute; StateMethod = GetState; ]
+     SID_WINDOW_FIX      [ ExecMethod = Execute; StateMethod = GetState; ]
++    SID_HST_UNFREEZE_PANES [ ExecMethod = Execute; StateMethod = GetState; ]
+     SID_WINDOW_FIX_ROW  [ ExecMethod = Execute; StateMethod = GetState; ]
+     SID_WINDOW_FIX_COL  [ ExecMethod = Execute; StateMethod = GetState; ]
+     SID_SAVEDOC
+--- a/sc/sdi/scalc.sdi
++++ b/sc/sdi/scalc.sdi
+@@ -1992,6 +1992,24 @@
+     GroupId = SfxGroupId::View;
+ ]
+ 
++// HST Office: View ▸ Freeze Panes ▾ ▸ "Bỏ cố định ngăn" (only removes frozen panes, unlike the FreezePanes toggle)
++SfxVoidItem HstUnfreezePanes SID_HST_UNFREEZE_PANES
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = TRUE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::View;
++]
++
+ SfxPointItem FreezePanesColumn SID_WINDOW_FIX_COL
+ (SfxInt32Item Index FN_PARAM_1)
+ [
+--- a/svx/sdi/svx.sdi
++++ b/svx/sdi/svx.sdi
+@@ -5066,7 +5066,7 @@
+ 
+ 
+ SfxVoidItem InsertObjectChart SID_INSERT_DIAGRAM
+-(SfxBoolItem ColHeaders FN_PARAM_1,SfxBoolItem RowHeaders FN_PARAM_2,SfxBoolItem InNewTable FN_PARAM_4,SfxStringItem RangeList FN_PARAM_5)
++(SfxBoolItem ColHeaders FN_PARAM_1,SfxBoolItem RowHeaders FN_PARAM_2,SfxBoolItem InNewTable FN_PARAM_4,SfxStringItem RangeList FN_PARAM_5,SfxStringItem ChartType FN_PARAM_6)
+ [
+     AutoUpdate = FALSE,
+     FastCall = FALSE,
+--- a/sc/source/ui/view/tabvwsh3.cxx
++++ b/sc/source/ui/view/tabvwsh3.cxx
+@@ -1355,6 +1355,15 @@
+             }
+             break;
+ 
++        case SID_HST_UNFREEZE_PANES: // .uno:HstUnfreezePanes: like SID_WINDOW_FIX, but never freezes
++            if (GetViewData().GetHSplitMode() == SC_SPLIT_FIX || GetViewData().GetVSplitMode() == SC_SPLIT_FIX)
++            {
++                RemoveSplit();
++                InvalidateSplit();
++            }
++            rReq.Done();
++            break;
++
+         case SID_WINDOW_FIX:
+             {
+                 if (!comphelper::LibreOfficeKit::isActive())
+--- a/sc/source/ui/view/tabvwsha.cxx
++++ b/sc/source/ui/view/tabvwsha.cxx
+@@ -479,6 +479,12 @@
+                             rViewData.GetVSplitMode() == SC_SPLIT_NORMAL ));
+                 break;
+ 
++            case SID_HST_UNFREEZE_PANES: // enabled only while panes are frozen (desktop freeze mode)
++                if (comphelper::LibreOfficeKit::isActive()
++                    || (rViewData.GetHSplitMode() != SC_SPLIT_FIX && rViewData.GetVSplitMode() != SC_SPLIT_FIX))
++                    rSet.DisableItem(nWhich);
++                break;
++
+             case SID_WINDOW_FIX:
+                 if(!comphelper::LibreOfficeKit::isActive())
+                 {
+--- a/sc/source/ui/view/tabview.cxx
++++ b/sc/source/ui/view/tabview.cxx
+@@ -2347,6 +2347,7 @@
+     rBindings.Invalidate( SID_WINDOW_FIX );
+     rBindings.Invalidate( SID_WINDOW_FIX_COL );
+     rBindings.Invalidate( SID_WINDOW_FIX_ROW );
++    rBindings.Invalidate( SID_HST_UNFREEZE_PANES );
+ 
+     pHSplitter->SetFixed( aViewData.GetHSplitMode() == SC_SPLIT_FIX );
+     pVSplitter->SetFixed( aViewData.GetVSplitMode() == SC_SPLIT_FIX );
+--- a/sc/source/ui/drawfunc/fuins2.cxx
++++ b/sc/source/ui/drawfunc/fuins2.cxx
+@@ -55,6 +55,8 @@
+ #include <com/sun/star/beans/PropertyValue.hpp>
+ #include <com/sun/star/chart2/data/XDataReceiver.hpp>
+ #include <com/sun/star/chart2/XChartDocument.hpp>
++#include <com/sun/star/chart2/XChartTypeTemplate.hpp>
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
+ #include <com/sun/star/ui/dialogs/XAsynchronousExecutableDialog.hpp>
+ #include <com/sun/star/lang/XInitialization.hpp>
+ #include <com/sun/star/frame/XModel.hpp>
+@@ -82,6 +84,29 @@
+ namespace
+ {
+ 
++/// HST Office: the ribbon's chart buttons (ChartType=Column, Line or Pie) give the new chart that type before
++/// the wizard opens, so the wizard starts on it; any other value keeps the default.
++void lcl_HstSetChartType(const uno::Reference<chart2::XChartDocument>& xChartDoc, const OUString& rType)
++{
++    if (!xChartDoc.is() || (rType != "Column" && rType != "Line" && rType != "Pie"))
++        return;
++    try
++    {
++        uno::Reference<lang::XMultiServiceFactory> xManager(xChartDoc->getChartTypeManager(), uno::UNO_QUERY);
++        uno::Reference<chart2::XDiagram> xDiagram(xChartDoc->getFirstDiagram());
++        if (!xManager.is() || !xDiagram.is())
++            return;
++        uno::Reference<chart2::XChartTypeTemplate> xTemplate(
++            xManager->createInstance("com.sun.star.chart2.template." + rType), uno::UNO_QUERY);
++        if (xTemplate.is())
++            xTemplate->changeDiagram(xDiagram);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sc.ui", "HST: cannot preset the chart type " << rType);
++    }
++}
++
+ void lcl_ChartInit(const uno::Reference <embed::XEmbeddedObject>& xObj, ScViewData* pViewData,
+                    const OUString& rRangeParam, bool bRangeIsPivotTable)
+ {
+@@ -416,6 +441,13 @@
+     : FuPoor(rViewSh, pWin, pViewP, rDoc, rReq)
+ {
+     const SfxItemSet* pReqArgs = rReq.GetArgs();
++    // HST Office: a ChartType alone (the ribbon's chart buttons) keeps the interactive path: range from the
++    // selection, chart on the current sheet
++    OUString aHstChartType;
++    if (const SfxStringItem* pTypeItem = rReq.GetArg<SfxStringItem>(FN_PARAM_6))
++        aHstChartType = pTypeItem->GetValue();
++    if (pReqArgs && !aHstChartType.isEmpty() && pReqArgs->Count() == 1)
++        pReqArgs = nullptr;
+ 
+     if( ! rReq.IsAPI() )
+         rReq.Done();
+@@ -596,6 +628,7 @@
+     }
+ 
+     lcl_ChartInit(xObj, &rData, aRangeString, bRangeIsPivotTable);         // set source range, auto-detect column/row headers
++    lcl_HstSetChartType(xChartDoc, aHstChartType);
+ 
+     //  object position
+ 
+--- a/sc/UIConfig_scalc.mk
++++ b/sc/UIConfig_scalc.mk
+@@ -30,7 +30,9 @@
+ 	sc/uiconfig/scalc/popupmenu/formulabar \
+ 	sc/uiconfig/scalc/popupmenu/freezepanes \
+ 	sc/uiconfig/scalc/popupmenu/graphic \
++	sc/uiconfig/scalc/popupmenu/hstautosum \
+ 	sc/uiconfig/scalc/popupmenu/hstformatdate \
++	sc/uiconfig/scalc/popupmenu/hstmergecells \
+ 	sc/uiconfig/scalc/popupmenu/media \
+ 	sc/uiconfig/scalc/popupmenu/notebookbar \
+ 	sc/uiconfig/scalc/popupmenu/oleobject \
+--- a/sc/uiconfig/scalc/popupmenu/freezepanes.xml
++++ b/sc/uiconfig/scalc/popupmenu/freezepanes.xml
+@@ -11,4 +11,6 @@
+   <menu:menuitem menu:id=".uno:FreezePanes"/>
+   <menu:menuitem menu:id=".uno:FreezePanesColumn"/>
+   <menu:menuitem menu:id=".uno:FreezePanesRow"/>
++  <menu:menuseparator/>
++  <menu:menuitem menu:id=".uno:HstUnfreezePanes"/>
+ </menu:menupopup>
+--- a/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/Controller.xcu
+@@ -2150,6 +2150,35 @@
+           <value>private:resource/popupmenu/hstformatdate</value>
+         </prop>
+       </node>
++      <!-- HST Office: Sheets ribbon split buttons: a click runs the command, the arrow opens its menu. -->
++      <node oor:name="HstAutoSumSplitButton" oor:op="replace">
++        <prop oor:name="Command">
++          <value>.uno:AutoSum</value>
++        </prop>
++        <prop oor:name="Module">
++          <value>com.sun.star.sheet.SpreadsheetDocument</value>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.framework.GenericPopupToolbarController</value>
++        </prop>
++        <prop oor:name="Value">
++          <value>private:resource/popupmenu/hstautosum</value>
++        </prop>
++      </node>
++      <node oor:name="HstMergeCellsSplitButton" oor:op="replace">
++        <prop oor:name="Command">
++          <value>.uno:ToggleMergeCells</value>
++        </prop>
++        <prop oor:name="Module">
++          <value>com.sun.star.sheet.SpreadsheetDocument</value>
++        </prop>
++        <prop oor:name="Controller">
++          <value>com.sun.star.comp.framework.GenericPopupToolbarController</value>
++        </prop>
++        <prop oor:name="Value">
++          <value>private:resource/popupmenu/hstmergecells</value>
++        </prop>
++      </node>
+     </node>
+     <node oor:name="StatusBar">
+       <node oor:name="c5" oor:op="replace">
+--- a/officecfg/registry/data/org/openoffice/Office/UI/CalcCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/CalcCommands.xcu
+@@ -2668,6 +2668,63 @@
+           <value>1</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HstUnfreezePanes" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Unfreeze Panes</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Remove the frozen rows and columns</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:AutoSum?Function:string=sum" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Sum</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:AutoSum?Function:string=average" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Average</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:AutoSum?Function:string=count" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Count Numbers</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:AutoSum?Function:string=max" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Max</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:AutoSum?Function:string=min" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Min</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:InsertObjectChart?ChartType:string=Column" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Column Chart</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Insert a column chart of the selected data</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:InsertObjectChart?ChartType:string=Line" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Line Chart</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Insert a line chart of the selected data</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:InsertObjectChart?ChartType:string=Pie" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Pie Chart</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Insert a pie chart of the selected data</value>
++        </prop>
++      </node>
+     </node>
+     <node oor:name="Popups">
+       <node oor:name=".uno:InsertFieldMenu" oor:op="replace">
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -4728,6 +4728,136 @@
+ msgid "Change page orientation to portrait or landscape"
+ msgstr ""
+ 
++#. hstUX
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstUnfreezePanes\n"
++"Label\n"
++"value.text"
++msgid "Unfreeze Panes"
++msgstr "Bỏ cố định ngăn"
++
++#. hstUX
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstUnfreezePanes\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Remove the frozen rows and columns"
++msgstr "Bỏ cố định các hàng, cột đang được giữ"
++
++#. hstUX
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:AutoSum?Function:string=sum\n"
++"Label\n"
++"value.text"
++msgid "Sum"
++msgstr "Tổng"
++
++#. hstUX
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:AutoSum?Function:string=average\n"
++"Label\n"
++"value.text"
++msgid "Average"
++msgstr "Trung bình"
++
++#. hstUX
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:AutoSum?Function:string=count\n"
++"Label\n"
++"value.text"
++msgid "Count Numbers"
++msgstr "Đếm số"
++
++#. hstUX
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:AutoSum?Function:string=max\n"
++"Label\n"
++"value.text"
++msgid "Max"
++msgstr "Lớn nhất"
++
++#. hstUX
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:AutoSum?Function:string=min\n"
++"Label\n"
++"value.text"
++msgid "Min"
++msgstr "Nhỏ nhất"
++
++#. hstUX
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:InsertObjectChart?ChartType:string=Column\n"
++"Label\n"
++"value.text"
++msgid "Column Chart"
++msgstr "Biểu đồ cột"
++
++#. hstUX
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:InsertObjectChart?ChartType:string=Column\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Insert a column chart of the selected data"
++msgstr "Chèn biểu đồ cột từ dữ liệu đã chọn"
++
++#. hstUX
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:InsertObjectChart?ChartType:string=Line\n"
++"Label\n"
++"value.text"
++msgid "Line Chart"
++msgstr "Biểu đồ đường"
++
++#. hstUX
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:InsertObjectChart?ChartType:string=Line\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Insert a line chart of the selected data"
++msgstr "Chèn biểu đồ đường từ dữ liệu đã chọn"
++
++#. hstUX
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:InsertObjectChart?ChartType:string=Pie\n"
++"Label\n"
++"value.text"
++msgid "Pie Chart"
++msgstr "Biểu đồ tròn"
++
++#. hstUX
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:InsertObjectChart?ChartType:string=Pie\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Insert a pie chart of the selected data"
++msgstr "Chèn biểu đồ tròn từ dữ liệu đã chọn"
++
+ #. u5Hxi
+ #: CalcCommands.xcu
+ #, fuzzy
+--- /dev/null
++++ b/sc/uiconfig/scalc/popupmenu/hstautosum.xml
+@@ -0,0 +1,16 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++-->
++<!-- HST Office: the arrow of "Tự tính tổng" on the Sheets ribbon (Home, Formulas); labels come from CalcCommands.xcu. -->
++<menu:menupopup xmlns:menu="http://openoffice.org/2001/menu">
++  <menu:menuitem menu:id=".uno:AutoSum?Function:string=sum"/>
++  <menu:menuitem menu:id=".uno:AutoSum?Function:string=average"/>
++  <menu:menuitem menu:id=".uno:AutoSum?Function:string=count"/>
++  <menu:menuitem menu:id=".uno:AutoSum?Function:string=max"/>
++  <menu:menuitem menu:id=".uno:AutoSum?Function:string=min"/>
++  <menu:menuseparator/>
++  <menu:menuitem menu:id=".uno:FunctionDialog"/>
++</menu:menupopup>
+--- /dev/null
++++ b/sc/uiconfig/scalc/popupmenu/hstmergecells.xml
+@@ -0,0 +1,12 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++-->
++<!-- HST Office: the arrow of "Gộp và căn giữa" on the Sheets ribbon (Home ▸ Alignment). -->
++<menu:menupopup xmlns:menu="http://openoffice.org/2001/menu">
++  <menu:menuitem menu:id=".uno:ToggleMergeCells"/>
++  <menu:menuitem menu:id=".uno:MergeCells"/>
++  <menu:menuitem menu:id=".uno:SplitCell"/>
++</menu:menupopup>

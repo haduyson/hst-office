@@ -1,0 +1,233 @@
+HST PDF: say why signing failed - token or key not found, PIN cancelled, wrong PIN - and log it.
+
+Every signing failure showed one message, "check that the USB token is plugged in and the PIN is
+correct", even when token and PIN were fine; release builds have no SAL_LOG, so nothing told what
+failed. The Windows signer (svl, hst-windows-csp-token-keys.patch) now records the failing step
+and its Windows error code (svl::crypto::GetLastSigningError). After a failed signature the viewer
+shows the matching message - token or private key not found, PIN prompt cancelled, wrong or
+blocked PIN, or the general message - with "Technical details: <step> 0x<code>" as secondary text,
+and appends an entry to the HST log (<profile>/user/hst-office/hst-office.log, the file the Python
+components write, same format): "<UTC> ERROR pdf-sign: signing failed: <kind> at <step> 0x<code>".
+Only the step and code are logged: no names, paths or PINs. Other platforms record nothing and
+keep the general message.
+
+License: MPL-2.0 (modified LibreOffice files keep their license).
+Test: needs a Windows build and a token; the strings and the log entry are not covered by a unit test.
+---
+--- a/xmlsecurity/inc/strings.hrc
++++ b/xmlsecurity/inc/strings.hrc
+@@ -119,6 +119,10 @@
+ #define STR_HSTPDF_IMAGE_UNREADABLE                 NC_("STR_HSTPDF_IMAGE_UNREADABLE", "The file cannot be read as a PNG or JPEG image.")
+ #define STR_HSTPDF_REASON                           NC_("STR_HSTPDF_REASON", "Reason: %1")
+ #define STR_HSTPDF_SIGN_FAILED                      NC_("STR_HSTPDF_SIGN_FAILED", "The PDF could not be signed. Check that the USB token is plugged in and the PIN is correct, then try again.")
++#define STR_HSTPDF_SIGN_NO_KEY                      NC_("STR_HSTPDF_SIGN_NO_KEY", "The PDF could not be signed: the USB token or the private key of the certificate was not found. Plug in the USB token, wait a few seconds, then try again.")
++#define STR_HSTPDF_SIGN_CANCELLED                   NC_("STR_HSTPDF_SIGN_CANCELLED", "Signing was cancelled: the PIN was not entered. The PDF is not signed.")
++#define STR_HSTPDF_SIGN_WRONG_PIN                   NC_("STR_HSTPDF_SIGN_WRONG_PIN", "The PDF could not be signed: the PIN is not correct or the USB token is locked. Enter the PIN again; if the token is locked, contact the provider of your certificate.")
++#define STR_HSTPDF_SIGN_DETAILS                     NC_("STR_HSTPDF_SIGN_DETAILS", "Technical details: %1")
+ #define STR_HSTPDF_SIGN_UNSUPPORTED                 NC_("STR_HSTPDF_SIGN_UNSUPPORTED", "HST PDF cannot add a signature to this file: its internal structure or its kind of encryption cannot be updated. The file is unchanged.")
+ #define STR_HSTPDF_SIGN_NOT_PERMITTED               NC_("STR_HSTPDF_SIGN_NOT_PERMITTED", "The sender's file does not allow digital signing: its security settings forbid changing it and adding signature fields. The file is unchanged. Ask the sender for a copy that allows signing, or enter the permissions password.")
+ #define STR_HSTPDF_SIGN_PERMISSIONS_PASSWORD        NC_("STR_HSTPDF_SIGN_PERMISSIONS_PASSWORD", "Enter Permissions Password")
+--- a/translations/source/vi/xmlsecurity/messages.po
++++ b/translations/source/vi/xmlsecurity/messages.po
+@@ -268,6 +268,30 @@
+ 
+ #. hstPDF
+ #: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIGN_NO_KEY"
++msgid "The PDF could not be signed: the USB token or the private key of the certificate was not found. Plug in the USB token, wait a few seconds, then try again."
++msgstr "Không ký được tệp PDF: không tìm thấy USB Token hoặc khóa bí mật của chứng thư số. Hãy cắm USB Token, chờ vài giây rồi thử lại."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIGN_CANCELLED"
++msgid "Signing was cancelled: the PIN was not entered. The PDF is not signed."
++msgstr "Đã hủy ký: chưa nhập mã PIN. Tệp PDF chưa được ký."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIGN_WRONG_PIN"
++msgid "The PDF could not be signed: the PIN is not correct or the USB token is locked. Enter the PIN again; if the token is locked, contact the provider of your certificate."
++msgstr "Không ký được tệp PDF: mã PIN không đúng hoặc USB Token đã bị khóa. Hãy nhập lại mã PIN; nếu USB Token đã bị khóa, hãy liên hệ nhà cung cấp chứng thư số."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_SIGN_DETAILS"
++msgid "Technical details: %1"
++msgstr "Thông tin kỹ thuật: %1"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
+ msgctxt "STR_HSTPDF_SIGN_UNSUPPORTED"
+ msgid "HST PDF cannot add a signature to this file: its internal structure or its kind of encryption cannot be updated. The file is unchanged."
+ msgstr "HST PDF không thêm được chữ ký vào tệp này vì không cập nhật được cấu trúc bên trong hoặc kiểu mã hóa của tệp. Tệp không bị thay đổi."
+--- a/xmlsecurity/source/hstpdf/pdfviewersigning.hxx
++++ b/xmlsecurity/source/hstpdf/pdfviewersigning.hxx
+@@ -124,6 +124,21 @@
+              const css::uno::Reference<css::security::XCertificate>& xCertificate,
+              const OUString& rReason, const std::optional<SignaturePlacement>& oPlacement,
+              std::vector<sal_uInt8>& rSigned, const OString& rPassword = OString());
++
++/// Why signing failed, for the message box: the text, and the step and error code below it.
++struct SignFailure
++{
++    OUString aText;
++    OUString aDetails; ///< empty when the platform signer recorded nothing
++};
++
++/**
++ * After signPdf() returned SignResult::Failed: explains the failure recorded by the signer
++ * (svl::crypto::GetLastSigningError, Windows) - token or key not found, PIN cancelled, wrong or
++ * blocked PIN, or another failure with its step and error code - and adds an entry with the step
++ * and code to the HST log (<profile>/user/hst-office/hst-office.log). Nothing personal is logged.
++ */
++XMLSECURITY_DLLPUBLIC SignFailure describeSignFailure();
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/xmlsecurity/source/hstpdf/pdfviewersigning.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewersigning.cxx
+@@ -10,6 +10,7 @@
+ #include "pdfviewersigning.hxx"
+ 
+ #include <algorithm>
++#include <cstdio>
+ 
+ #include <documentsignaturemanager.hxx>
+ #include <pdfsignaturehelper.hxx>
+@@ -19,12 +20,15 @@
+ #include <com/sun/star/security/CertificateKind.hpp>
+ #include <com/sun/star/security/CertificateValidity.hpp>
+ #include <com/sun/star/security/DocumentDigitalSignatures.hpp>
++#include <com/sun/star/util/PathSubstitution.hpp>
+ #include <com/sun/star/xml/crypto/SecurityOperationStatus.hpp>
+ #include <comphelper/configuration.hxx>
+ #include <comphelper/diagnose_ex.hxx>
+ #include <comphelper/processfactory.hxx>
+ #include <comphelper/xmlsechelper.hxx>
+ #include <o3tl/safeint.hxx>
++#include <osl/file.hxx>
++#include <osl/time.h>
+ #include <officecfg/Office/HSTPdfViewer.hxx>
+ #include <rtl/ustrbuf.hxx>
+ #include <sal/log.hxx>
+@@ -573,6 +577,88 @@
+     rSigned.assign(pData, pData + aOutput.TellEnd());
+     return SignResult::Signed;
+ }
++
++namespace
++{
++/// Appends one entry to the HST log, the file HST's Python components write, in their format
++/// ("<UTC time> <LEVEL> <component>: <message>"). Never throws; a failure only loses the entry.
++void appendHstLog(const char* pLevel, const OString& rMessage)
++{
++    try
++    {
++        const uno::Reference<util::XStringSubstitution> xSubstitution
++            = util::PathSubstitution::create(comphelper::getProcessComponentContext());
++        const OUString aDir = xSubstitution->substituteVariables(u"$(user)"_ustr, true)
++                              + "/hst-office";
++        osl::Directory::createPath(aDir); // E_EXIST when the folder is there already
++        osl::File aLog(aDir + "/hst-office.log");
++        osl::FileBase::RC eRC = aLog.open(osl_File_OpenFlag_Write | osl_File_OpenFlag_Create);
++        if (eRC == osl::FileBase::E_EXIST)
++        {
++            eRC = aLog.open(osl_File_OpenFlag_Write);
++            if (eRC == osl::FileBase::E_None)
++                eRC = aLog.setPos(osl_Pos_End, 0);
++        }
++        if (eRC != osl::FileBase::E_None)
++            return;
++        TimeValue aNow;
++        oslDateTime aTime;
++        char aStamp[32] = "";
++        if (osl_getSystemTime(&aNow) && osl_getDateTimeFromTimeValue(&aNow, &aTime))
++            std::snprintf(aStamp, sizeof(aStamp), "%04d-%02d-%02dT%02d:%02d:%02dZ",
++                          static_cast<int>(aTime.Year), static_cast<int>(aTime.Month),
++                          static_cast<int>(aTime.Day), static_cast<int>(aTime.Hours),
++                          static_cast<int>(aTime.Minutes), static_cast<int>(aTime.Seconds));
++        const OString aLine = OString(aStamp) + " " + pLevel + " pdf-sign: " + rMessage + "\n";
++        sal_uInt64 nWritten = 0;
++        aLog.write(aLine.getStr(), aLine.getLength(), nWritten);
++        aLog.close();
++    }
++    catch (const uno::Exception&)
++    {
++    }
++}
++}
++
++SignFailure describeSignFailure()
++{
++    const svl::crypto::SigningError aError = svl::crypto::GetLastSigningError();
++    TranslateId aText = STR_HSTPDF_SIGN_FAILED;
++    const char* pKind = "other";
++    switch (aError.eKind)
++    {
++        case svl::crypto::SigningFailure::KeyNotFound:
++            aText = STR_HSTPDF_SIGN_NO_KEY;
++            pKind = "token-or-key-not-found";
++            break;
++        case svl::crypto::SigningFailure::Cancelled:
++            aText = STR_HSTPDF_SIGN_CANCELLED;
++            pKind = "pin-cancelled";
++            break;
++        case svl::crypto::SigningFailure::WrongPin:
++            aText = STR_HSTPDF_SIGN_WRONG_PIN;
++            pKind = "wrong-or-blocked-pin";
++            break;
++        case svl::crypto::SigningFailure::None:
++            pKind = "not-recorded";
++            break;
++        case svl::crypto::SigningFailure::Other:
++            break;
++    }
++    SignFailure aFailure{ XsResId(aText), OUString() };
++    char aCode[16];
++    std::snprintf(aCode, sizeof(aCode), "0x%08X", static_cast<unsigned>(aError.nCode));
++    const OString aDetails = aError.aStep + " " + OString(aCode);
++    if (aError.eKind != svl::crypto::SigningFailure::None)
++        aFailure.aDetails = XsResId(STR_HSTPDF_SIGN_DETAILS)
++                                .replaceFirst("%1", OStringToOUString(aDetails, RTL_TEXTENCODING_ASCII_US));
++    const OString aWhere = aError.eKind != svl::crypto::SigningFailure::None
++                               ? OString(" at " + aDetails)
++                               : OString();
++    appendHstLog(aError.eKind == svl::crypto::SigningFailure::Cancelled ? "WARNING" : "ERROR",
++                 OString::Concat("signing failed: ") + pKind + aWhere);
++    return aFailure;
++}
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
+@@ -1115,14 +1115,22 @@
+     }
+     if (!bSigned)
+     {
+-        const OUString aMessage = XsResId(eResult == SignResult::Unsupported
+-                                              ? STR_HSTPDF_SIGN_UNSUPPORTED
+-                                          : eResult == SignResult::NeedsPassword
+-                                              ? STR_HSTPDF_SIGN_NEEDS_PASSWORD
+-                                              : STR_HSTPDF_SIGN_FAILED);
+-        setInfo(aMessage);
++        // a failed signature says why: token or key not found, PIN cancelled, wrong PIN, or the
++        // failing step and its error code (also written to the HST log)
++        SignFailure aFailure;
++        if (eResult == SignResult::Failed)
++            aFailure = describeSignFailure();
++        else
++            aFailure.aText = XsResId(eResult == SignResult::Unsupported
++                                         ? STR_HSTPDF_SIGN_UNSUPPORTED
++                                     : eResult == SignResult::NeedsPassword
++                                         ? STR_HSTPDF_SIGN_NEEDS_PASSWORD
++                                         : STR_HSTPDF_SIGN_FAILED);
++        setInfo(aFailure.aText);
+         std::unique_ptr<weld::MessageDialog> xBox(Application::CreateMessageDialog(
+-            GetFrameWeld(), VclMessageType::Error, VclButtonsType::Ok, aMessage));
++            GetFrameWeld(), VclMessageType::Error, VclButtonsType::Ok, aFailure.aText));
++        if (!aFailure.aDetails.isEmpty())
++            xBox->set_secondary_text(aFailure.aDetails);
+         xBox->run();
+         return false;
+     }

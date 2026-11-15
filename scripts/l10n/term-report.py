@@ -16,7 +16,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-WRONG = {"Redo": "Đỏ", "Copy": "Sao ", "Good": "Vàng", "Pivot Table": "Bộ lọc", "Index": "Số mũ",
+WRONG = {"Redo": "Đỏ", "Copy": "Sao ", "Good": "Vàng", "Pivot Table": "Bộ lọc", "Index": "Số mũ", "Menubar": "Thanh menu",
          "Plain Text": "Nhập thô", "Insert Table": "Chèn tệp tin"}
 
 

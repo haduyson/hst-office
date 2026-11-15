@@ -1,0 +1,41 @@
+Threaded calculation: a long calculation no longer aborts the office after 10 minutes.
+
+comphelper::ThreadTaskTag::waitUntilDone() threw std::runtime_error("timeout waiting for threadpool
+tasks") in release builds when the tasks of a tag had not finished after 10 minutes. The waiting
+caller owns the data those tasks still work on: ScFormulaCell::InterpretFormulaGroupThreading keeps
+the interpreters, their contexts and the formula tokens (reference counting switched off) on its own
+stack, and parallel sort and the .xlsx import/export pools do the same. Unwinding that frame while the
+workers run cannot be recovered from, and the exception ended in std::terminate: opening a large
+.xlsx of filled-down SUMIF columns on a 4-core Windows PC aborted the office (exit 0xC0000409) after
+10 minutes, through the optimal row height pass at the end of the import, which calculates every
+dirty formula cell (also a file whose cached results are all 0 or missing, or a manual recalculation
+of such a workbook).
+
+Release builds now keep waiting and write a warning every 10 minutes. Debug builds keep their
+assertion (10, 30 or 300 minutes).
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: tests/unit/test_large_file_open_patches.py; runtime: scripts/perf/large-file-open.sh with the
+calc-formulas-noresults.xlsx fixture (see docs/PERFORMANCE_LARGE_FILES.md).
+
+--- a/comphelper/source/misc/threadpool.cxx
++++ b/comphelper/source/misc/threadpool.cxx
+@@ -382,10 +382,16 @@
+             aGuard, std::chrono::seconds( maxTimeout ));
+         assert(result != std::cv_status::timeout);
+ #else
+-        // 10 minute timeout in production so the app eventually throws some kind of error
++        // No timeout in production. The caller owns the data its tasks work on (for example the
++        // interpreter contexts of a threaded formula group calculation in
++        // ScFormulaCell::InterpretFormulaGroupThreading), so leaving this frame by an exception
++        // while those tasks still run cannot be recovered from: the former 10 minute throw turned
++        // a long but legitimate calculation (opening a large workbook on a 4-core PC) into an
++        // abort of the whole office. Keep waiting, and leave a trace for a real hang.
+         if (maTasksComplete.wait_for(
+                 aGuard, std::chrono::seconds( 10 * 60 )) == std::cv_status::timeout)
+-            throw std::runtime_error("timeout waiting for threadpool tasks");
++            SAL_WARN("comphelper", "still waiting for " << mnTasksWorking
++                                       << " threadpool tasks after another 10 minutes");
+ #endif
+     }
+ }

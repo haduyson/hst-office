@@ -1,0 +1,37 @@
+HST Office: HST Draw's classic menu bar can be shown and hidden from the View menu and the "≡" menu.
+
+HST Draw opens with the HST ribbon and no classic menu bar ("Thanh trình đơn"), like Writer, Sheets and Slides
+(hst-ribbon-draw.patch). As hst-menubar-toggle.patch does for those three, .uno:Menubar is added to Draw's View
+menu, after Giao diện người dùng, and becomes the first item of the "≡" menu at the right end of the tab row. The
+"≡" menu loses Mới, Gần đây and Đóng (the File tab has them) and the user-interface and toolbar choosers (the View
+menu and the ribbon's View tab keep them), as the project owner decided on 2026-11-13. The toggle itself, which
+does nothing without a ribbon, and the Alt/F10 handling while the menu bar shows are in hst-menubar-toggle.patch.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/sd/uiconfig/sdraw/menubar/menubar.xml
++++ b/sd/uiconfig/sdraw/menubar/menubar.xml
+@@ -115,6 +115,7 @@
+       <menu:menuitem menu:id=".uno:MasterPage" menu:style="radio"/>
+       <menu:menuseparator/>
+       <menu:menuitem menu:id=".uno:UIPicker" menu:style="text"/>
++      <menu:menuitem menu:id=".uno:Menubar" menu:style="text"/>
+       <menu:menuitem menu:id=".uno:AvailableToolbars" menu:style="text"/>
+       <menu:menuseparator/>
+       <menu:menuitem menu:id=".uno:StatusBarVisible" menu:style="text"/>
+--- a/sd/uiconfig/sdraw/popupmenu/notebookbar.xml
++++ b/sd/uiconfig/sdraw/popupmenu/notebookbar.xml
+@@ -8,12 +8,7 @@
+  *
+ -->
+ <menu:menupopup xmlns:menu="http://openoffice.org/2001/menu">
+-  <menu:menuitem menu:id=".uno:AddDirect"/>
+-  <menu:menuitem menu:id=".uno:RecentFileList"/>
+-  <menu:menuitem menu:id=".uno:CloseDoc"/>
+-  <menu:menuseparator/>
+-  <menu:menuitem menu:id=".uno:UIPicker" menu:style="text"/>
+-  <menu:menuitem menu:id=".uno:AvailableToolbars"/>
++  <menu:menuitem menu:id=".uno:Menubar" menu:style="text"/>
+   <menu:menuitem menu:id=".uno:ConfigureDialog"/>
+   <menu:menuitem menu:id=".uno:OptionsTreeDialog"/>
+   <menu:menuseparator/>

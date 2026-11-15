@@ -152,12 +152,12 @@ print("uno-ok")
 PYC
 chmod 644 /tmp/uno-check.py
 su tester -c "$PY /tmp/uno-check.py" | grep -q uno-ok && echo "PASS bundled-python-uno-session" || { echo "FAIL uno session"; exit 35; }
-pkill -x soffice.bin || true
+pkill -u tester -x soffice.bin || true  # only the offices this check started (as tester), never other users'
 step gui-launch
 # Real GTK3 start (not the headless plugin) under a virtual X server: missing GTK/X
 # runtime libraries show up here. Xvfb is a test tool, not a package dependency.
 apt-get install -y -qq xvfb xauth >/tmp/xvfb.log 2>&1 || { tail -5 /tmp/xvfb.log; echo "FAIL install xvfb"; exit 36; }
-su tester -c "xvfb-run -a -s '-screen 0 1280x800x24' bash -c 'hst-office --writer --norestore >/tmp/gui.log 2>&1 & sleep 25; pgrep -x soffice.bin >/dev/null && echo GUI-ALIVE; pkill -x soffice.bin; true'" 2>&1 | grep -q GUI-ALIVE \
+su tester -c "xvfb-run -a -s '-screen 0 1280x800x24' bash -c 'hst-office --writer --norestore >/tmp/gui.log 2>&1 & sleep 25; pgrep -u tester -x soffice.bin >/dev/null && echo GUI-ALIVE; pkill -u tester -x soffice.bin; true'" 2>&1 | grep -q GUI-ALIVE \
   && echo "PASS gui-launch (GTK3 window process stays up)" || { echo "FAIL gui launch"; tail -5 /tmp/gui.log; exit 36; }
 step no-libreoffice-ui
 # Installed Vietnamese UI strings must not name the upstream project (same allow-list as

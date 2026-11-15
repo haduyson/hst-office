@@ -1,0 +1,199 @@
+HST Office: the classic menu bar can be shown and hidden from the View menu and the "≡" menu, and owns Alt+letter
+and F10 while it is shown.
+
+The Tabbed UI hides the classic menu bar ("Thanh trình đơn"). It could be shown from the ribbon's View tab, but the
+classic View menu had no item to hide it again, and the feature search (Alt+Q), which indexes the menu bar, did not
+find the toggle. .uno:Menubar is now in the View menu of Writer, Calc and Impress, after Giao diện người dùng, and in
+the "≡" menu at the right end of the tab row. In a mode without a ribbon the command is hidden and does nothing:
+there the menu bar is the only way to the commands.
+
+The "≡" menu loses Mới, Gần đây and Đóng (the File tab has them) and the user-interface and toolbar choosers (the
+View menu and the ribbon's View tab keep them), as the project owner decided on 2026-11-13.
+
+KeyTips (hst-ribbon-keytips.patch) took every Alt+letter that matches a tab, even when the menu bar was shown, so
+its mnemonics did not work. With the menu bar shown, Alt+letter and F10 now go on to it (VCL and GTK open its
+menus); Alt pressed and released alone still shows the ribbon tips. With the menu bar hidden, F10 shows the tips
+as Alt does, and closes them again.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/sfx2/source/appl/appserv.cxx
++++ b/sfx2/source/appl/appserv.cxx
+@@ -1288,7 +1288,11 @@
+         }
+         case SID_MENUBAR:
+         {
+-            sfx2::SfxNotebookBar::ToggleMenubar();
++            // HST Office: the toggle belongs to the ribbon (the View menu, the ribbon's View tab and its
++            // "≡" menu offer it). In a mode without a ribbon the menu bar is the only way to the
++            // commands, so it is not hidden there.
++            if (sfx2::SfxNotebookBar::IsActive())
++                sfx2::SfxNotebookBar::ToggleMenubar();
+             bDone = true;
+             break;
+         }
+@@ -1467,6 +1471,12 @@
+ 
+                 case SID_MENUBAR:
+                 {
++                    // HST Office: only with the ribbon; the classic modes always show the menu bar
++                    if (!sfx2::SfxNotebookBar::IsActive())
++                    {
++                        rSet.Put(SfxVisibilityItem(nWhich, false));
++                        break;
++                    }
+                     Reference < XDesktop2 > xDesktop = Desktop::create ( ::comphelper::getProcessComponentContext() );
+                     Reference< XFrame > xFrame = xDesktop->getActiveFrame();
+ 
+--- a/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
++++ b/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
+@@ -13,6 +13,7 @@
+ #include <vcl/commandevent.hxx>
+ #include <vcl/event.hxx>
+ #include <vcl/dialoghelper.hxx>
++#include <vcl/menu.hxx>
+ #include <vcl/notebookbar/notebookbar.hxx>
+ #include <vcl/settings.hxx>
+ #include <vcl/svapp.hxx>
+@@ -115,6 +116,15 @@
+                && !vcl::IsInPopupMenuExecute();
+     }
+ 
++    /// Whether the classic menu bar of the window is shown (its toggle is in the View menu, the View tab and
++    /// the "≡" menu). Its Alt+letter mnemonics and F10 then belong to it; the ribbon keeps Alt alone.
++    bool MenubarShown() const
++    {
++        const SystemWindow* pSystem = m_xTabs ? m_xTabs->GetSystemWindow() : nullptr;
++        const MenuBar* pMenuBar = pSystem ? pSystem->GetMenuBar() : nullptr;
++        return pMenuBar && pMenuBar->IsDisplayable();
++    }
++
+     void Clear()
+     {
+         for (Target& rTarget : m_aTargets)
+@@ -347,6 +357,12 @@
+         return true;
+     }
+ 
++    /// F10 without modifiers; VCL delivers it as KEY_F10, or as KEY_MENU when it retries the key for a menu bar.
++    static bool IsF10(const vcl::KeyCode& rKey)
++    {
++        return (rKey.GetCode() == KEY_F10 || rKey.GetCode() == KEY_MENU) && !rKey.GetModifier();
++    }
++
+     static char LetterOf(const vcl::KeyCode& rKey)
+     {
+         const sal_uInt16 nCode = rKey.GetCode();
+@@ -420,8 +436,20 @@
+ 
+     if (m_eLevel == Level::None)
+     {
+-        // Alt+letter: the tab with that letter, then its commands. Other Alt keys are shortcuts.
+-        const char cLetter = rCode.IsMod2() && !rCode.IsMod1() && !rCode.IsShift() ? LetterOf(rCode) : 0;
++        const bool bMenubar = MenubarShown();
++        // F10 alone: the shown menu bar takes it (VCL and GTK select its first menu); without one it shows
++        // the tips, as in Office.
++        if (IsF10(rCode))
++        {
++            if (bMenubar)
++                return false;
++            ShowTabs();
++            return true;
++        }
++        // Alt+letter: the tab with that letter, then its commands. Other Alt keys are shortcuts. A shown
++        // menu bar keeps its mnemonics (Alt+T opens Tệp tin), so the letter goes on to it.
++        const char cLetter
++            = rCode.IsMod2() && !rCode.IsMod1() && !rCode.IsShift() && !bMenubar ? LetterOf(rCode) : 0;
+         if (!cLetter || cLetter == 'F') // Alt+F has its own accelerator, the File view
+             return false;
+         ShowTabs();
+@@ -453,6 +481,11 @@
+         default:
+             break;
+     }
++    if (IsF10(rCode)) // F10 again closes the tips, as Alt does
++    {
++        Close();
++        return true;
++    }
+     if (rCode.IsMod1())
+     {
+         Close();
+--- a/sw/uiconfig/swriter/menubar/menubar.xml
++++ b/sw/uiconfig/swriter/menubar/menubar.xml
+@@ -192,6 +192,7 @@
+       </menu:menu>
+       <menu:menuseparator/>
+       <menu:menuitem menu:id=".uno:UIPicker" menu:style="text"/>
++      <menu:menuitem menu:id=".uno:Menubar" menu:style="text"/>
+       <menu:menuitem menu:id=".uno:AvailableToolbars" menu:style="text"/>
+       <menu:menuitem menu:id=".uno:StatusBarVisible" menu:style="text"/>
+       <menu:menuseparator/>
+--- a/sc/uiconfig/scalc/menubar/menubar.xml
++++ b/sc/uiconfig/scalc/menubar/menubar.xml
+@@ -151,6 +151,7 @@
+       <menu:menuitem menu:id=".uno:PagebreakMode"  menu:style="radio"/>
+       <menu:menuseparator/>
+       <menu:menuitem menu:id=".uno:UIPicker" menu:style="text"/>
++      <menu:menuitem menu:id=".uno:Menubar" menu:style="text"/>
+       <menu:menuitem menu:id=".uno:AvailableToolbars" menu:style="text"/>
+       <menu:menuitem menu:id=".uno:InputLineVisible" menu:style="text"/>
+       <menu:menuitem menu:id=".uno:StatusBarVisible" menu:style="text"/>
+--- a/sd/uiconfig/simpress/menubar/menubar.xml
++++ b/sd/uiconfig/simpress/menubar/menubar.xml
+@@ -120,6 +120,7 @@
+       <menu:menuitem menu:id=".uno:HandoutMode" menu:style="radio"/>
+       <menu:menuseparator/>
+       <menu:menuitem menu:id=".uno:UIPicker" menu:style="text"/>
++      <menu:menuitem menu:id=".uno:Menubar" menu:style="text"/>
+       <menu:menuitem menu:id=".uno:AvailableToolbars" menu:style="text"/>
+       <menu:menuseparator/>
+       <menu:menuitem menu:id=".uno:StatusBarVisible" menu:style="text"/>
+--- a/sw/uiconfig/swriter/popupmenu/notebookbar.xml
++++ b/sw/uiconfig/swriter/popupmenu/notebookbar.xml
+@@ -8,12 +8,7 @@
+  *
+ -->
+ <menu:menupopup xmlns:menu="http://openoffice.org/2001/menu">
+-  <menu:menuitem menu:id=".uno:AddDirect"/>
+-  <menu:menuitem menu:id=".uno:RecentFileList"/>
+-  <menu:menuitem menu:id=".uno:CloseDoc"/>
+-  <menu:menuseparator/>
+-  <menu:menuitem menu:id=".uno:UIPicker" menu:style="text"/>
+-  <menu:menuitem menu:id=".uno:AvailableToolbars"/>
++  <menu:menuitem menu:id=".uno:Menubar" menu:style="text"/>
+   <menu:menuitem menu:id=".uno:ConfigureDialog"/>
+   <menu:menuitem menu:id=".uno:OptionsTreeDialog"/>
+   <menu:menuseparator/>
+--- a/sc/uiconfig/scalc/popupmenu/notebookbar.xml
++++ b/sc/uiconfig/scalc/popupmenu/notebookbar.xml
+@@ -8,12 +8,7 @@
+  *
+ -->
+ <menu:menupopup xmlns:menu="http://openoffice.org/2001/menu">
+-  <menu:menuitem menu:id=".uno:AddDirect"/>
+-  <menu:menuitem menu:id=".uno:RecentFileList"/>
+-  <menu:menuitem menu:id=".uno:CloseDoc"/>
+-  <menu:menuseparator/>
+-  <menu:menuitem menu:id=".uno:UIPicker" menu:style="text"/>
+-  <menu:menuitem menu:id=".uno:AvailableToolbars"/>
++  <menu:menuitem menu:id=".uno:Menubar" menu:style="text"/>
+   <menu:menuitem menu:id=".uno:ConfigureDialog"/>
+   <menu:menuitem menu:id=".uno:OptionsTreeDialog"/>
+   <menu:menuseparator/>
+--- a/sd/uiconfig/simpress/popupmenu/notebookbar.xml
++++ b/sd/uiconfig/simpress/popupmenu/notebookbar.xml
+@@ -8,12 +8,7 @@
+  *
+ -->
+ <menu:menupopup xmlns:menu="http://openoffice.org/2001/menu">
+-  <menu:menuitem menu:id=".uno:AddDirect"/>
+-  <menu:menuitem menu:id=".uno:RecentFileList"/>
+-  <menu:menuitem menu:id=".uno:CloseDoc"/>
+-  <menu:menuseparator/>
+-  <menu:menuitem menu:id=".uno:UIPicker" menu:style="text"/>
+-  <menu:menuitem menu:id=".uno:AvailableToolbars"/>
++  <menu:menuitem menu:id=".uno:Menubar" menu:style="text"/>
+   <menu:menuitem menu:id=".uno:ConfigureDialog"/>
+   <menu:menuitem menu:id=".uno:OptionsTreeDialog"/>
+   <menu:menuseparator/>

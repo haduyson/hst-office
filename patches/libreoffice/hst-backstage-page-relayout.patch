@@ -1,0 +1,33 @@
+HST Office: File panel pages other than Home are laid out when they are shown.
+
+The File panel (hst-file-dropdown.patch) is a weld::Popover. On Windows, macOS and gen it is a
+floating popup window (SalInstancePopover) whose content is laid out when it pops up, on its Home
+page. ShowPage only switches the visibility of the page boxes, and a page shown while the panel is
+open got no allocation: New, Open, Info and Save As stayed blank, Home showed again. Reported on
+test PC HST4 (Windows 11, trial of main 24696ac: Info empty, no USB Token or "Phiên bản trước"
+button) and reproduced with the Linux build of 24696ac under the gen plugin: every page but Home
+blank, also with the "Phiên bản trước" button hidden or the Info page visible from the start, so
+neither that button nor the profile is the cause.
+
+ShowPage lays the open panel out again (resize_to_request) after switching pages. GTK lays out its
+own popover and is left alone.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: gen under Xvfb (SAL_USE_VCLPLUGIN=gen), File panel ▸ Mới, Mở, Thông tin, Lưu thành show
+their content; Windows the same; GTK unchanged.
+---
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -639,6 +639,12 @@
+         FillInfoPage();
+     else if (ePage == Page::SaveAs)
+         FillSaveAsPage();
++
++    // The floating popup of the other plugins (SalInstancePopover: Windows, macOS, gen) lays its
++    // content out only when it pops up, so a page shown afterwards kept no size and stayed blank
++    // (every page but Home, the page of the popup): lay the panel out again for the new page.
++    if (m_bOpen && m_xPopover->get_visible() && !Application::GetToolkitName().startsWith("gtk"))
++        m_xPopover->resize_to_request();
+ }
+ 
+ void BackstageWindow::FillRecentLists()

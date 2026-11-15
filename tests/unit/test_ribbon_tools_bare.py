@@ -40,7 +40,8 @@ class BlocksTable(unittest.TestCase):
 
     def test_paragraph_in_writer_and_slides_only(self):
         named = {ladder["app"]: ladder.get("bare_block_before") for ladder in DATA["ladders"]}
-        self.assertEqual(named, {"writer": "gdHomeParagraph", "calc": None, "impress": "gdHomeParagraph"})
+        # Draw's ribbon has no right-hand Tools block, so no bare rung either
+        self.assertEqual(named, {"writer": "gdHomeParagraph", "calc": None, "impress": "gdHomeParagraph", "draw": None})
 
     def test_the_named_group_must_collapse(self):
         data = copy.deepcopy(DATA)

@@ -123,13 +123,13 @@ class AnimationGalleryContract(unittest.TestCase):
 
     def test_vietnamese_labels_and_tooltip(self):
         po = added(STRINGS, "translations/source/vi/sd/messages.po")
-        for label in ("Hiệu ứng hoạt hình", "Các hiệu ứng trước", "Các hiệu ứng tiếp theo",
+        for label in ("Kiểu hiệu ứng", "Các hiệu ứng trước", "Các hiệu ứng tiếp theo",
                       "Tất cả hiệu ứng và tùy chọn", "Tất cả hiệu ứng"):
             self.assertIn(f'msgstr "{label}"', po)
         po = added(STRINGS, "translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po")
-        self.assertIn('msgid "Animation Styles"\nmsgstr "Hiệu ứng hoạt hình"', po)
+        self.assertIn('msgid "Animation Styles"\nmsgstr "Kiểu hiệu ứng"', po)
         self.assertIn('msgid "Applies an animation to the selected objects"\n'
-                      'msgstr "Áp dụng hiệu ứng hoạt hình cho các đối tượng đã chọn"', po)
+                      'msgstr "Áp dụng hiệu ứng cho các đối tượng đã chọn"', po)
 
 
 class AnimationGalleryPlacement(unittest.TestCase):

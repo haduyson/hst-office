@@ -26,7 +26,7 @@ from office_parity_ui import (ITEM_CLASSES, LAUNCHER_PREFIX, Translator, clean_l
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SPEC = os.path.join(ROOT, "data", "ribbon", "office-parity.json")
-MODULES = {"writer": ("swriter", "sw"), "calc": ("scalc", "sc"), "impress": ("simpress", "sd")}
+MODULES = {"writer": ("swriter", "sw"), "calc": ("scalc", "sc"), "impress": ("simpress", "sd"), "draw": ("sdraw", "sd")}
 
 
 def command_status(entry, target, pages):
@@ -75,7 +75,8 @@ def ui_paths(app, instdir=None, src=None):
         ui = os.path.join(instdir, "share", "config", "soffice.cfg", "modules", module, "ui", "notebookbar.ui")
         translate = Translator(mo_path=os.path.join(instdir, "program", "resource", "vi", "LC_MESSAGES", f"{catalog}.mo"))
     else:
-        folder = {"swriter": "sw/uiconfig/swriter", "scalc": "sc/uiconfig/scalc", "simpress": "sd/uiconfig/simpress"}[module]
+        folder = {"swriter": "sw/uiconfig/swriter", "scalc": "sc/uiconfig/scalc", "simpress": "sd/uiconfig/simpress",
+                  "sdraw": "sd/uiconfig/sdraw"}[module]
         ui = os.path.join(src, folder, "ui", "notebookbar.ui")
         translate = Translator(po_path=os.path.join(src, "translations", "source", "vi", catalog, "messages.po"))
     return ui, translate

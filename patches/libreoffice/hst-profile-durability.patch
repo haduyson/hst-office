@@ -1,0 +1,184 @@
+HST Office: registrymodifications.xcu survives a power cut and repairs itself.
+
+- configmgr writemodfile.cxx TempFile::closeAndRename: fsync of the new file before the rename and of the
+  user folder after it. Before, a power cut shortly after a write left the file with 0 bytes (XFS) and every
+  setting and the recovery list were lost.
+- configmgr components.cxx parseModificationLayer: a user registrymodifications.xcu that is empty or cannot
+  be parsed is copied to registrymodifications.xcu.hong-<yyyymmdd-hhmmss>, replaced by the copy the office
+  keeps in user/pack at every normal exit (or left to the defaults when there is none) and read again. A
+  marker registrymodifications.xcu.hst-repaired ("restored" / "reset") makes the bundled extension tell the
+  user at the next start (hst_office/profile_notice.py).
+- desktop lockfile.cxx Lockfile::isStale: a profile lock a power cut left empty (it is written at start without
+  fsync) names no other instance and is taken over, instead of asking "another instance is accessing your
+  profile" before the recovery dialog (seen on XFS).
+- comphelper BackupFileHelper::tryPopRegistryModifications: restores only registrymodifications from
+  user/pack; the other profile parts the Safe Mode restore covers stay as they are.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_recovery_durability_patches.py; tests/runtime/check-profile-corruption.py.
+---
+--- a/comphelper/source/misc/backupfilehelper.cxx
++++ b/comphelper/source/misc/backupfilehelper.cxx
+@@ -1707,6 +1707,14 @@ namespace comphelper
+         }
+     }
+ 
++    bool BackupFileHelper::tryPopRegistryModifications()
++    {
++        if (!mbActive)
++            return false;
++
++        return tryPop_file(maUserConfigWorkURL, getPackURL(), maRegModName, maExt);
++    }
++
+     bool BackupFileHelper::isPopPossibleExtensionInfo() const
+     {
+         bool bPopPossible(false);
+--- a/configmgr/source/components.cxx
++++ b/configmgr/source/components.cxx
+@@ -52,7 +52,10 @@
+ #include <sal/log.hxx>
+ #include <sal/types.h>
+ #include <salhelper/thread.hxx>
++#include <comphelper/backupfilehelper.hxx>
+ #include <comphelper/diagnose_ex.hxx>
++#include <comphelper/hstdurablefile.hxx>
++#include <osl/time.h>
+ #include <o3tl/string_view.hxx>
+ 
+ #include "additions.hxx"
+@@ -106,6 +109,43 @@ void parseXcsFile(
+     (void) ok; // avoid warnings
+ }
+ 
++// HST Office: registrymodifications.xcu that is empty or cannot be parsed (a power cut between
++// the rename and the data reaching the disk) is kept as <name>.hong-<time> for diagnosis, replaced by
++// the copy the office keeps in user/pack at every normal exit, and a marker file tells the bundled
++// extension to inform the user (registrymodifications.xcu.hst-repaired: "restored" or "reset").
++bool hstIsEmptyFile(OUString const & url) {
++    osl::DirectoryItem item;
++    osl::FileStatus status(osl_FileStatus_Mask_FileSize);
++    return osl::DirectoryItem::get(url, item) == osl::FileBase::E_None
++        && item.getFileStatus(status) == osl::FileBase::E_None
++        && status.getFileSize() == 0;
++}
++
++bool hstRepairModificationFile(OUString const & url) {
++    TimeValue now;
++    TimeValue local;
++    oslDateTime dt{};
++    osl_getSystemTime(&now);
++    if (osl_getLocalTimeFromSystemTime(&now, &local)) {
++        osl_getDateTimeFromTimeValue(&local, &dt);
++    }
++    OUString stamp(OUString::number(dt.Year * 10000 + dt.Month * 100 + dt.Day) + "-"
++                   + OUString(OUString::number(1000000 + dt.Hours * 10000 + dt.Minutes * 100 + dt.Seconds)).copy(1));
++    osl::File::copy(url, url + ".hong-" + stamp);
++    bool restored = false;
++    try {
++        restored = comphelper::BackupFileHelper().tryPopRegistryModifications();
++    } catch (css::uno::Exception &) {
++        TOOLS_WARN_EXCEPTION("configmgr", "restoring registrymodifications.xcu");
++    }
++    SAL_WARN(
++        "configmgr",
++        "damaged " << url << (restored ? " restored from user/pack" : " reset to defaults"));
++    comphelper::hst::writeFileAtomically(
++        url + ".hst-repaired", restored ? "restored\n"_ostr : "reset\n"_ostr);
++    return restored;
++}
++
+ void parseXcuFile(
+     OUString const & url, int layer, Data & data, Partial const * partial,
+     Modifications * modifications, Additions * additions)
+@@ -870,7 +910,21 @@ void Components::parseResLayer(int layer, std::u16string_view url) {
+ 
+ void Components::parseModificationLayer(int layer, OUString const & url) {
+     try {
+-        parseFileLeniently(&parseXcuFile, url, layer, nullptr, nullptr, nullptr);
++        // HST Office: only the writable user layer is repaired (see hstRepairModificationFile)
++        bool damaged = layer == Data::NO_LAYER && url == modificationFileUrl_ && hstIsEmptyFile(url);
++        if (!damaged) {
++            try {
++                parseXcuFile(url, layer, data_, nullptr, nullptr, nullptr);
++            } catch (css::container::NoSuchElementException &) {
++                throw;
++            } catch (css::uno::Exception &) {
++                TOOLS_WARN_EXCEPTION("configmgr", "error reading \"" << url << "\"");
++                damaged = layer == Data::NO_LAYER && url == modificationFileUrl_;
++            }
++        }
++        if (damaged && hstRepairModificationFile(url)) {
++            parseFileLeniently(&parseXcuFile, url, layer, nullptr, nullptr, nullptr);
++        }
+     } catch (css::container::NoSuchElementException &) {
+         SAL_INFO(
+             "configmgr", "user registrymodifications.xcu does not (yet) exist");
+--- a/configmgr/source/writemodfile.cxx
++++ b/configmgr/source/writemodfile.cxx
+@@ -27,6 +27,7 @@
+ #include <com/sun/star/uno/Any.hxx>
+ #include <com/sun/star/uno/RuntimeException.hpp>
+ #include <com/sun/star/uno/Sequence.hxx>
++#include <comphelper/hstdurablefile.hxx>
+ #include <o3tl/safeint.hxx>
+ #include <osl/file.h>
+ #include <osl/file.hxx>
+@@ -108,6 +109,12 @@ void TempFile::closeAndRename(const OUString &_url) {
+         throw css::uno::RuntimeException(
+             "cannot write to " + url);
+     }
++    // HST Office: the data must be on disk before the rename publishes it, otherwise a power cut
++    // can leave registrymodifications.xcu empty (seen on XFS) and every setting is lost.
++    e = osl_syncFile(handle);
++    if (e != osl_File_E_None) {
++        SAL_WARN("configmgr", "osl_syncFile failed with " << +e);
++    }
+     e = osl_closeFile(handle);
+     closed = true;
+     if (e != osl_File_E_None) {
+@@ -119,6 +126,7 @@ void TempFile::closeAndRename(const OUString &_url) {
+             "cannot move " + url);
+     }
+     handle = nullptr;
++    comphelper::hst::syncParentDirectory(_url); // HST Office: the rename itself
+ }
+ 
+ oslFileError TempFile::flush() {
+--- a/desktop/source/deployment/misc/lockfile.cxx
++++ b/desktop/source/deployment/misc/lockfile.cxx
+@@ -155,12 +155,17 @@ namespace desktop {
+         Config aConfig(aLockname);
+         aConfig.SetGroup(LOCKFILE_GROUP ""_ostr);
+         OString aIPCserver  = aConfig.ReadKey( LOCKFILE_IPCKEY ""_ostr );
+-        if (!aIPCserver.equalsIgnoreAsciiCase("true"))
+-            return false;
+-
+         OString aHost = aConfig.ReadKey( LOCKFILE_HOSTKEY ""_ostr );
+         OString aUser = aConfig.ReadKey( LOCKFILE_USERKEY ""_ostr );
+ 
++        // HST Office: the lock is written at start without fsync; a power cut can leave it empty.
++        // An empty lock names no other instance, so it is stale (an instance always writes all keys).
++        if (aIPCserver.isEmpty() && aHost.isEmpty() && aUser.isEmpty())
++            return true;
++
++        if (!aIPCserver.equalsIgnoreAsciiCase("true"))
++            return false;
++
+         // lockfile from same host?
+         OString myHost( impl_getHostname() );
+         if (aHost == myHost) {
+--- a/include/comphelper/backupfilehelper.hxx
++++ b/include/comphelper/backupfilehelper.hxx
+@@ -141,6 +141,11 @@ namespace comphelper
+          * tryPopExtensionInfo is the specialized version for ExtensionInfo
+          */
+         void tryPop();
++
++        /** HST Office: restores only registrymodifications from the newest copy in user/pack (written at
++            the last normal exit), for a file a power cut left empty or unreadable. Other profile parts
++            stay as they are. True when a copy was restored. */
++        bool tryPopRegistryModifications();
+         void tryPopExtensionInfo();
+ 
+         /** tries to iterate the extensions and to disable all of them

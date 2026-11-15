@@ -1,0 +1,22 @@
+HST Office: XTextDocument.findAll() aborted the whole office (signal 6 after a SIGSEGV in
+SwXTextRangesImpl::MakeRanges) whenever the search had no match, on any document (.odt, .docx).
+SwXTextRangesImpl::GetCursor() returned &(*m_pUnoCursor); with no match the cursor is null and,
+since a reference cannot be null, the optimiser removed the `if (!GetCursor())` guard. Backport of
+upstream tdf#173585 (core d0d4b02157, 2026-09-22): return m_pUnoCursor.get().
+
+Test: tests/runtime/check-docx-word-interop.py (findAll with and without a match).
+---
+--- a/sw/source/core/unocore/unoobj2.cxx
++++ b/sw/source/core/unocore/unoobj2.cxx
+@@ -1646,8 +1646,10 @@
+         SolarMutexGuard g;
+         OWeakObject::release();
+     }
++    // HST Office: backport of tdf#173585. findAll() without a match passes no cursor; taking the
++    // address of the dereferenced null cursor let the optimiser drop MakeRanges()' null check.
+     virtual SwUnoCursor* GetCursor() override
+-        { return &(*m_pUnoCursor); };
++        { return m_pUnoCursor.get(); };
+     void MakeRanges();
+     std::vector< rtl::Reference<SwXTextRange> > m_Ranges;
+     sw::UnoCursorPointer m_pUnoCursor;

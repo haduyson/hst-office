@@ -1,0 +1,955 @@
+HST PDF: an optional scanned signature and/or organisation seal image in the visible signature box.
+
+The "Ký số" panel gets "Chèn ảnh chữ ký/con dấu" (off by default), "Ảnh chữ ký…", "Ảnh con dấu…"
+with thumbnails, a layout choice ("Ảnh bên trái, chữ bên phải" by default, or "Ảnh phía trên, chữ
+phía dưới") and "Không dùng ảnh". Choosing an image switches the option on. The choices and the file
+URLs are kept only in the user profile (org.openoffice.Office.HSTPdfViewer/Signing); the images go
+nowhere but into the PDFs the user signs.
+
+- readSignatureImage: PNG (transparency kept) or JPEG; refuses files over 5 MB and, from the header
+  before any decoding, images over 6000 pixels a side.
+- createAppearance: the images keep their aspect ratio in at most 45 % of the box width on the left,
+  or in its upper half; the text (layout B rules) shrinks into the rest. With both images the seal is
+  printed over the left third of the signature, as on administrative documents (Nghị định 30/2020,
+  Phụ lục I), the signature at 60 % of the seal's height. Each image is drawn once (one image
+  XObject, its alpha as an SMask), reduced to 300 dpi at the drawn size.
+- The default box grows with images to keep the text legible: 240 x 90 pt with the images on the
+  left, 200 x 120 pt with them above. A box of a default size follows the image settings; one the
+  user drew keeps its size.
+- testSignatureImages: the limits, and a signature with both images that verifies and keeps /SMask.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/officecfg/registry/schema/org/openoffice/Office/HSTPdfViewer.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/HSTPdfViewer.xcs
+@@ -36,6 +36,30 @@
+         </info>
+         <value/>
+       </prop>
++      <prop oor:name="UseImages" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>Draw the chosen signature and seal images in the visible signature box.</desc>
++        </info>
++        <value>false</value>
++      </prop>
++      <prop oor:name="SignatureImageURL" oor:type="xs:string" oor:nillable="false">
++        <info>
++          <desc>File URL of the user's scanned signature image (PNG or JPEG); empty for none.</desc>
++        </info>
++        <value/>
++      </prop>
++      <prop oor:name="SealImageURL" oor:type="xs:string" oor:nillable="false">
++        <info>
++          <desc>File URL of the organisation's seal image (PNG or JPEG); empty for none.</desc>
++        </info>
++        <value/>
++      </prop>
++      <prop oor:name="ImagesAbove" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>Place the images above the text instead of on its left.</desc>
++        </info>
++        <value>false</value>
++      </prop>
+     </group>
+   </component>
+ </oor:component-schema>
+--- a/translations/source/vi/xmlsecurity/messages.po
++++ b/translations/source/vi/xmlsecurity/messages.po
+@@ -1456,3 +1456,93 @@
+ msgctxt "viewcertdialog|path"
+ msgid "Certificate Path"
+ msgstr ""
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_CHOOSE_SIGNATURE_IMAGE"
++msgid "Choose a Signature Image"
++msgstr "Chọn ảnh chữ ký"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_CHOOSE_SEAL_IMAGE"
++msgid "Choose a Seal Image"
++msgstr "Chọn ảnh con dấu"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_IMAGE_FILTER"
++msgid "Images (PNG, JPEG)"
++msgstr "Ảnh (PNG, JPEG)"
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_IMAGE_FILE_TOO_LARGE"
++msgid "The image file is larger than 5 MB. Choose a smaller image."
++msgstr "Tệp ảnh lớn hơn 5 MB. Hãy chọn ảnh nhỏ hơn."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_IMAGE_TOO_MANY_PIXELS"
++msgid "The image is too large: at most %1 × %1 pixels. Choose a smaller image."
++msgstr "Ảnh quá lớn: tối đa %1 × %1 điểm ảnh. Hãy chọn ảnh nhỏ hơn."
++
++#. hstPDF
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HSTPDF_IMAGE_UNREADABLE"
++msgid "The file cannot be read as a PNG or JPEG image."
++msgstr "Không đọc được tệp này dưới dạng ảnh PNG hoặc JPEG."
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|useimages"
++msgid "_Add a signature or seal image"
++msgstr "Chèn ả_nh chữ ký/con dấu"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|choosesignatureimage"
++msgid "_Signature Image…"
++msgstr "Ảnh _chữ ký…"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|choosesealimage"
++msgid "S_eal Image…"
++msgstr "Ảnh con _dấu…"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|imagelayout"
++msgid "Image on the left, text on the right"
++msgstr "Ảnh bên trái, chữ bên phải"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|imagelayout"
++msgid "Image above, text below"
++msgstr "Ảnh phía trên, chữ phía dưới"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|imagelayout-atkobject"
++msgid "Image layout"
++msgstr "Bố cục ảnh"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|noimages"
++msgid "_Do Not Use Images"
++msgstr "_Không dùng ảnh"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|signatureimage-atkobject"
++msgid "Signature image"
++msgstr "Ảnh chữ ký"
++
++#. hstPDF
++#: xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++msgctxt "hstpdfviewer|sealimage-atkobject"
++msgid "Seal image"
++msgstr "Ảnh con dấu"
+--- a/xmlsecurity/inc/strings.hrc
++++ b/xmlsecurity/inc/strings.hrc
+@@ -111,6 +111,12 @@
+ #define STR_HSTPDF_SIGNED_BY                        NC_("STR_HSTPDF_SIGNED_BY", "Signed by: %1")
+ #define STR_HSTPDF_SIGNER_ORG                       NC_("STR_HSTPDF_SIGNER_ORG", "Organization: %1")
+ #define STR_HSTPDF_SIGNED_ON                        NC_("STR_HSTPDF_SIGNED_ON", "Signing time: %1")
++#define STR_HSTPDF_CHOOSE_SIGNATURE_IMAGE           NC_("STR_HSTPDF_CHOOSE_SIGNATURE_IMAGE", "Choose a Signature Image")
++#define STR_HSTPDF_CHOOSE_SEAL_IMAGE                NC_("STR_HSTPDF_CHOOSE_SEAL_IMAGE", "Choose a Seal Image")
++#define STR_HSTPDF_IMAGE_FILTER                     NC_("STR_HSTPDF_IMAGE_FILTER", "Images (PNG, JPEG)")
++#define STR_HSTPDF_IMAGE_FILE_TOO_LARGE             NC_("STR_HSTPDF_IMAGE_FILE_TOO_LARGE", "The image file is larger than 5 MB. Choose a smaller image.")
++#define STR_HSTPDF_IMAGE_TOO_MANY_PIXELS            NC_("STR_HSTPDF_IMAGE_TOO_MANY_PIXELS", "The image is too large: at most %1 × %1 pixels. Choose a smaller image.")
++#define STR_HSTPDF_IMAGE_UNREADABLE                 NC_("STR_HSTPDF_IMAGE_UNREADABLE", "The file cannot be read as a PNG or JPEG image.")
+ #define STR_HSTPDF_REASON                           NC_("STR_HSTPDF_REASON", "Reason: %1")
+ #define STR_HSTPDF_SIGN_FAILED                      NC_("STR_HSTPDF_SIGN_FAILED", "The PDF could not be signed. Check that the USB token is plugged in and the PIN is correct, then try again.")
+ #define STR_HSTPDF_SIGN_UNSUPPORTED                 NC_("STR_HSTPDF_SIGN_UNSUPPORTED", "HST PDF cannot add a signature to this file: its internal structure or its kind of encryption cannot be updated. The file is unchanged.")
+--- a/xmlsecurity/qa/unit/pdfsigning/pdfsigning.cxx
++++ b/xmlsecurity/qa/unit/pdfsigning/pdfsigning.cxx
+@@ -31,6 +31,7 @@
+ #include <unotest/macros_test.hxx>
+ #include <tools/datetime.hxx>
+ #include <unotools/streamwrap.hxx>
++#include <unotools/tempfile.hxx>
+ #include <unotools/ucbstreamhelper.hxx>
+ #include <vcl/filter/pdfdocument.hxx>
+ #include <vcl/filter/PDFiumLibrary.hxx>
+@@ -1217,6 +1218,79 @@
+     CPPUNIT_ASSERT_EQUAL(size_t(1), pSigned->GetSignatureWidgets().size());
+ }
+ 
++namespace
++{
++/// Writes the bytes to rFile and returns its URL.
++OUString writeFile(utl::TempFileNamed& rFile, const void* pData, std::size_t nSize)
++{
++    rFile.EnableKillingFile();
++    SvStream* pStream = rFile.GetStream(StreamMode::WRITE);
++    pStream->WriteBytes(pData, nSize);
++    rFile.CloseStream();
++    return rFile.GetURL();
++}
++}
++
++/// Signature and seal images: a PNG or JPEG of at most 5 MB and 6000 pixels a side, the pixel size
++/// read from the header before decoding; a signature with both images stays valid and embeds them
++/// with their transparency.
++CPPUNIT_TEST_FIXTURE(PDFSigningTest, testSignatureImages)
++{
++    // a 4 x 2 RGBA PNG
++    uno::Sequence<sal_Int8> aPng;
++    comphelper::Base64::decode(
++        aPng, u"iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAFElEQVR42mMQ0VjwnwEXuCQpdwIAPY8DrcSnDecAAAAASUVORK5CYII="_ustr);
++    utl::TempFileNamed aPngFile;
++    Graphic aImage;
++    CPPUNIT_ASSERT_EQUAL(int(hstpdf::SignatureImageError::None),
++                         int(hstpdf::readSignatureImage(
++                             writeFile(aPngFile, aPng.getConstArray(), aPng.getLength()), aImage)));
++    CPPUNIT_ASSERT_EQUAL(tools::Long(4), aImage.GetSizePixel().Width());
++    CPPUNIT_ASSERT_EQUAL(tools::Long(2), aImage.GetSizePixel().Height());
++
++    // only the header of a PNG 7000 pixels wide: refused without decoding a bitmap
++    const unsigned char aHuge[] = { 0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n', 0, 0, 0, 13,
++                                    'I', 'H', 'D', 'R', 0, 0, 0x1b, 0x58, 0, 0, 0, 10,
++                                    8, 6, 0, 0, 0, 0, 0, 0, 0 };
++    utl::TempFileNamed aHugeFile;
++    Graphic aRefused;
++    CPPUNIT_ASSERT_EQUAL(int(hstpdf::SignatureImageError::TooManyPixels),
++                         int(hstpdf::readSignatureImage(writeFile(aHugeFile, aHuge, sizeof(aHuge)),
++                                                        aRefused)));
++    const std::vector<char> aBig(hstpdf::MAX_SIGNATURE_IMAGE_BYTES + 1, 0);
++    utl::TempFileNamed aBigFile;
++    CPPUNIT_ASSERT_EQUAL(int(hstpdf::SignatureImageError::FileTooLarge),
++                         int(hstpdf::readSignatureImage(writeFile(aBigFile, aBig.data(), aBig.size()),
++                                                        aRefused)));
++    utl::TempFileNamed aTextFile;
++    CPPUNIT_ASSERT_EQUAL(int(hstpdf::SignatureImageError::Unreadable),
++                         int(hstpdf::readSignatureImage(writeFile(aTextFile, "not an image", 12),
++                                                        aRefused)));
++    CPPUNIT_ASSERT(aRefused.IsNone());
++
++    if (!vcl::pdf::PDFiumLibrary::get())
++        return;
++    uno::Reference<xml::crypto::XSEInitializer> xSEInitializer
++        = xml::crypto::SEInitializer::create(m_xContext);
++    uno::Reference<xml::crypto::XXMLSecurityContext> xSecurityContext
++        = xSEInitializer->createSecurityContext(OUString());
++    uno::Reference<security::XCertificate> xCertificate = signingCertificate(xSecurityContext);
++    if (!xCertificate.is())
++        return;
++    SvFileStream aFile(m_directories.getURLFromSrc(DATA_DIRECTORY) + "no.pdf", StreamMode::READ);
++    std::vector<sal_uInt8> aData(aFile.TellEnd());
++    aFile.ReadBytes(aData.data(), aData.size());
++    hstpdf::SignaturePlacement aWithImages{ 0, basegfx::B2DRectangle(40, 40, 280, 130),
++                                            basegfx::B2DSize(595, 842) };
++    aWithImages.aSignatureImage = aImage;
++    aWithImages.aSealImage = aImage;
++    std::vector<sal_uInt8> aSigned;
++    CPPUNIT_ASSERT_EQUAL(int(hstpdf::SignResult::Signed),
++                         int(hstpdf::signPdf(aData, xCertificate, OUString(), aWithImages, aSigned)));
++    CPPUNIT_ASSERT_EQUAL(size_t(1), verifyEncrypted(aSigned).size());
++    CPPUNIT_ASSERT(contains(aSigned, "/SMask"));
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/xmlsecurity/source/hstpdf/pdfviewersigning.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewersigning.cxx
+@@ -38,8 +38,12 @@
+ #include <tools/stream.hxx>
+ #include <tools/urlobj.hxx>
+ #include <unotools/tempfile.hxx>
++#include <unotools/ucbstreamhelper.hxx>
+ #include <vcl/filter/pdfdocument.hxx>
+ #include <vcl/gdimtf.hxx>
++#include <vcl/graph.hxx>
++#include <vcl/graphic/GraphicMetadata.hxx>
++#include <vcl/graphicfilter.hxx>
+ #include <vcl/lineinfo.hxx>
+ #include <vcl/pdfwriter.hxx>
+ #include <vcl/virdev.hxx>
+@@ -91,6 +95,58 @@
+     return OUString();
+ }
+ 
++/// The images of the box in units of the group height: the seal is printed over the left third of
++/// the signature, as on administrative documents (Nghị định 30/2020, Phụ lục I), and the signature
++/// is 60 % of the seal's height, centred on it. fWidth is 0 without images.
++struct ImageGroup
++{
++    double fWidth = 0;
++    double fSignatureX = 0;
++    double fSignatureY = 0;
++    double fSignatureWidth = 0;
++    double fSignatureHeight = 1;
++    double fSealX = 0;
++    double fSealWidth = 0;
++};
++
++double aspectRatio(const Graphic& rGraphic)
++{
++    if (rGraphic.IsNone())
++        return 0;
++    const Size aPixels = rGraphic.GetSizePixel();
++    return aPixels.Height() > 0 ? double(aPixels.Width()) / aPixels.Height() : 0;
++}
++
++ImageGroup imageGroup(const SignaturePlacement& rPlacement)
++{
++    ImageGroup aGroup;
++    aGroup.fSignatureWidth = aspectRatio(rPlacement.aSignatureImage);
++    aGroup.fSealWidth = aspectRatio(rPlacement.aSealImage);
++    if (aGroup.fSignatureWidth > 0 && aGroup.fSealWidth > 0)
++    {
++        aGroup.fSignatureHeight = 0.6;
++        aGroup.fSignatureY = 0.2;
++        aGroup.fSignatureWidth *= aGroup.fSignatureHeight;
++        aGroup.fSignatureX = std::max(0.0, aGroup.fSealWidth - aGroup.fSignatureWidth / 3);
++        aGroup.fSealX = aGroup.fSignatureX + aGroup.fSignatureWidth / 3 - aGroup.fSealWidth;
++    }
++    aGroup.fWidth = std::max(aGroup.fSignatureX + aGroup.fSignatureWidth,
++                             aGroup.fSealX + aGroup.fSealWidth);
++    return aGroup;
++}
++
++/// Draws an image into rRect (twips) with its transparency; a large scan is first reduced to
++/// 300 dpi at the drawn size, so that it does not make every signed copy big.
++void drawImage(OutputDevice& rDevice, const Graphic& rGraphic, const tools::Rectangle& rRect)
++{
++    Bitmap aBitmap = rGraphic.GetBitmap();
++    const Size aMax(rRect.GetWidth() * 300 / 1440 + 1, rRect.GetHeight() * 300 / 1440 + 1);
++    const Size aPixels = aBitmap.GetSizePixel();
++    if (aPixels.Width() > aMax.Width() || aPixels.Height() > aMax.Height())
++        aBitmap.Scale(aMax, BmpScaleFlag::BestQuality);
++    rDevice.DrawBitmap(rRect.TopLeft(), rRect.GetSize(), aBitmap);
++}
++
+ /// The serif family of the signature box. Liberation Serif comes with the suite on every platform,
+ /// has the metrics of Times New Roman (the font of administrative documents), covers Vietnamese and
+ /// allows embedding. A family is taken only when it is installed and has every glyph of the text:
+@@ -195,11 +251,51 @@
+         pDevice->SetTextColor(COL_BLACK);
+         const OUString aFamily = serifFamily(*pDevice, aLines);
+         // padding 6 pt left and right, 3 pt top and bottom (twips)
+-        tools::Rectangle aTextBox(aBox);
+-        aTextBox.AdjustLeft(120);
+-        aTextBox.AdjustRight(-120);
+-        aTextBox.AdjustTop(60);
+-        aTextBox.AdjustBottom(-60);
++        tools::Rectangle aInner(aBox);
++        aInner.AdjustLeft(120);
++        aInner.AdjustRight(-120);
++        aInner.AdjustTop(60);
++        aInner.AdjustBottom(-60);
++        tools::Rectangle aTextBox(aInner);
++        const ImageGroup aGroup = imageGroup(rPlacement);
++        if (aGroup.fWidth > 0)
++        {
++            // the images keep their aspect ratio in at most 45 % of the width on the left, or in
++            // the upper half; the text takes the rest of the box
++            tools::Rectangle aArea(aInner);
++            if (rPlacement.bImageAbove)
++            {
++                aArea.SetBottom(aInner.Top() + aInner.GetHeight() / 2);
++                aTextBox.SetTop(aArea.Bottom() + 60);
++            }
++            else
++            {
++                aArea.SetRight(aInner.Left()
++                               + std::min<tools::Long>(aInner.GetWidth() * 45 / 100,
++                                                       aInner.GetHeight() * aGroup.fWidth));
++                aTextBox.SetLeft(aArea.Right() + 120);
++            }
++            const double fHeight = std::min(aArea.GetWidth() / aGroup.fWidth,
++                                            double(aArea.GetHeight()));
++            const double fLeft = rPlacement.bImageAbove
++                                     ? aArea.Left() + (aArea.GetWidth() - aGroup.fWidth * fHeight) / 2
++                                     : aArea.Left();
++            const double fTop = aArea.Top() + (aArea.GetHeight() - fHeight) / 2;
++            const auto place = [&](double fX, double fY, double fWidth, double fImageHeight) {
++                return tools::Rectangle(Point(static_cast<tools::Long>(fLeft + fX * fHeight),
++                                              static_cast<tools::Long>(fTop + fY * fHeight)),
++                                        Size(static_cast<tools::Long>(fWidth * fHeight),
++                                             static_cast<tools::Long>(fImageHeight * fHeight)));
++            };
++            // the seal last: it is printed over the signature
++            if (aGroup.fSignatureWidth > 0)
++                drawImage(*pDevice, rPlacement.aSignatureImage,
++                          place(aGroup.fSignatureX, aGroup.fSignatureY, aGroup.fSignatureWidth,
++                                aGroup.fSignatureHeight));
++            if (aGroup.fSealWidth > 0)
++                drawImage(*pDevice, rPlacement.aSealImage,
++                          place(aGroup.fSealX, 0, aGroup.fSealWidth, 1));
++        }
+         // the largest font, 10 down to 5 points, at which the lines as wrapped fit the box: long
+         // names and a reason wrap to more lines than the fields, which overflowed a fixed size
+         const DrawTextFlags nFlags = DrawTextFlags::Left | DrawTextFlags::VCenter
+@@ -230,6 +326,32 @@
+ }
+ }
+ 
++SignatureImageError readSignatureImage(const OUString& rURL, Graphic& rGraphic)
++{
++    std::unique_ptr<SvStream> pStream = utl::UcbStreamHelper::CreateStream(rURL, StreamMode::READ);
++    if (!pStream || pStream->GetError() != ERRCODE_NONE)
++        return SignatureImageError::Unreadable;
++    if (pStream->TellEnd() > MAX_SIGNATURE_IMAGE_BYTES)
++        return SignatureImageError::FileTooLarge;
++    // the header first: a small file can still decode to a huge bitmap
++    GraphicDescriptor aDescriptor(*pStream, nullptr);
++    if (!aDescriptor.Detect(true)
++        || (aDescriptor.GetFileFormat() != GraphicFileFormat::PNG
++            && aDescriptor.GetFileFormat() != GraphicFileFormat::JPG))
++        return SignatureImageError::Unreadable;
++    const Size aPixels = aDescriptor.GetSizePixel();
++    if (aPixels.Width() > MAX_SIGNATURE_IMAGE_SIDE || aPixels.Height() > MAX_SIGNATURE_IMAGE_SIDE)
++        return SignatureImageError::TooManyPixels;
++    pStream->Seek(0);
++    Graphic aGraphic;
++    if (GraphicFilter::GetGraphicFilter().ImportGraphic(aGraphic, u"", *pStream) != ERRCODE_NONE
++        || aGraphic.GetType() != GraphicType::Bitmap || aspectRatio(aGraphic) <= 0)
++        return SignatureImageError::Unreadable;
++    aGraphic.makeAvailable();
++    rGraphic = aGraphic;
++    return SignatureImageError::None;
++}
++
+ CertificateDescription
+ describeCertificate(const uno::Reference<security::XCertificate>& xCertificate)
+ {
+--- a/xmlsecurity/source/hstpdf/pdfviewersigning.hxx
++++ b/xmlsecurity/source/hstpdf/pdfviewersigning.hxx
+@@ -20,6 +20,7 @@
+ #include <com/sun/star/awt/XWindow.hpp>
+ #include <com/sun/star/security/XCertificate.hpp>
+ #include <rtl/ustring.hxx>
++#include <vcl/graph.hxx>
+ 
+ #include <optional>
+ #include <vector>
+@@ -76,8 +77,28 @@
+     int nPage = 0;
+     PointRect aRect; ///< points, origin top-left of the page
+     basegfx::B2DSize aPageSize; ///< points
++    /// optional images in the box: a scanned signature, and the organisation's seal printed over
++    /// the left third of the signature
++    Graphic aSignatureImage;
++    Graphic aSealImage;
++    bool bImageAbove = false; ///< the images above the text instead of on its left
+ };
+ 
++/// Signature and seal images: PNG (with transparency) or JPEG, at most 5 MB and 6000 pixels a side.
++constexpr sal_uInt64 MAX_SIGNATURE_IMAGE_BYTES = 5 * 1024 * 1024;
++constexpr tools::Long MAX_SIGNATURE_IMAGE_SIDE = 6000;
++
++enum class SignatureImageError
++{
++    None,
++    Unreadable, ///< missing, not a PNG or JPEG, or damaged
++    FileTooLarge,
++    TooManyPixels,
++};
++
++/// Reads a signature or seal image chosen by the user (see the limits above).
++XMLSECURITY_DLLPUBLIC SignatureImageError readSignatureImage(const OUString& rURL, Graphic& rGraphic);
++
+ enum class SignResult
+ {
+     Signed,
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.cxx
+@@ -27,6 +27,8 @@
+ #include <rtl/ustrbuf.hxx>
+ #include <comphelper/propertyvalue.hxx>
+ #include <officecfg/Office/Common.hxx>
++#include <officecfg/Office/HSTPdfViewer.hxx>
++#include <comphelper/configuration.hxx>
+ #include <rtl/math.hxx>
+ #include <sfx2/filedlghelper.hxx>
+ #include <sfx2/passwd.hxx>
+@@ -231,6 +233,13 @@
+     , m_xChooseCert(m_xBuilder->weld_button(u"choosecert"_ustr))
+     , m_xReason(m_xBuilder->weld_entry(u"reason"_ustr))
+     , m_xVisible(m_xBuilder->weld_check_button(u"visiblesig"_ustr))
++    , m_xUseImages(m_xBuilder->weld_check_button(u"useimages"_ustr))
++    , m_xSignatureImage(m_xBuilder->weld_image(u"signatureimage"_ustr))
++    , m_xChooseSignatureImage(m_xBuilder->weld_button(u"choosesignatureimage"_ustr))
++    , m_xSealImage(m_xBuilder->weld_image(u"sealimage"_ustr))
++    , m_xChooseSealImage(m_xBuilder->weld_button(u"choosesealimage"_ustr))
++    , m_xImageLayout(m_xBuilder->weld_combo_box(u"imagelayout"_ustr))
++    , m_xNoImages(m_xBuilder->weld_button(u"noimages"_ustr))
+     , m_xExisting(m_xBuilder->weld_label(u"existing"_ustr))
+     , m_xSignSave(m_xBuilder->weld_button(u"signsave"_ustr))
+     , m_xStatusPage(m_xBuilder->weld_label(u"statuspage"_ustr))
+@@ -242,8 +251,12 @@
+     m_xZoom->set_entry_width_chars(6);
+     for (weld::Button* pButton : { m_xOpen.get(), m_xPrint.get(), m_xZoomOut.get(), m_xZoomIn.get(),
+                                    m_xFitPage.get(), m_xFindPrev.get(), m_xFindNext.get(),
+-                                   m_xEdit.get(), m_xChooseCert.get(), m_xSignSave.get() })
++                                   m_xEdit.get(), m_xChooseCert.get(), m_xSignSave.get(),
++                                   m_xChooseSignatureImage.get(), m_xChooseSealImage.get(),
++                                   m_xNoImages.get() })
+         pButton->connect_clicked(LINK(this, PdfViewerWindow, ButtonHdl));
++    m_xUseImages->connect_toggled(LINK(this, PdfViewerWindow, UseImagesToggleHdl));
++    m_xImageLayout->connect_changed(LINK(this, PdfViewerWindow, ImageLayoutHdl));
+     m_xSign->connect_toggled(LINK(this, PdfViewerWindow, SignToggleHdl));
+     m_xVisible->connect_toggled(LINK(this, PdfViewerWindow, VisibleToggleHdl));
+     m_xPage->connect_activate(LINK(this, PdfViewerWindow, PageActivateHdl));
+@@ -302,6 +315,13 @@
+     m_xStatusPage.reset();
+     m_xSignSave.reset();
+     m_xExisting.reset();
++    m_xNoImages.reset();
++    m_xImageLayout.reset();
++    m_xChooseSealImage.reset();
++    m_xSealImage.reset();
++    m_xChooseSignatureImage.reset();
++    m_xSignatureImage.reset();
++    m_xUseImages.reset();
+     m_xVisible.reset();
+     m_xReason.reset();
+     m_xChooseCert.reset();
+@@ -597,6 +617,8 @@
+         weld::WaitObject aWait(GetFrameWeld());
+         m_xCertificate = lastUsedCertificate();
+     }
++    if (bShow && !m_bImageSettingsLoaded)
++        loadImageSettings();
+     if (bShow && m_xVisible->get_active() && !m_xPages->getPlacement())
+         defaultPlacement();
+     m_xPages->setPlacementMode(bShow && m_xVisible->get_active());
+@@ -606,6 +628,153 @@
+     m_xPages->Invalidate();
+ }
+ 
++namespace
++{
++/// The default signature box (points). With images it is larger, so that the text beside or under
++/// them stays at a legible size: 240 x 90 with the images on the left, 200 x 120 with them above.
++basegfx::B2DSize defaultBoxSize(bool bImages, bool bImagesAbove)
++{
++    if (!bImages)
++        return basegfx::B2DSize(200.0, 70.0);
++    return bImagesAbove ? basegfx::B2DSize(200.0, 120.0) : basegfx::B2DSize(240.0, 90.0);
++}
++
++/// A thumbnail of at most 64 x 40 pixels for the panel.
++uno::Reference<graphic::XGraphic> thumbnail(const Graphic& rGraphic)
++{
++    if (rGraphic.IsNone())
++        return {};
++    Bitmap aBitmap = rGraphic.GetBitmap();
++    const Size aPixels = aBitmap.GetSizePixel();
++    const double fScale = std::min({ 64.0 / aPixels.Width(), 40.0 / aPixels.Height(), 1.0 });
++    aBitmap.Scale(Size(std::max<tools::Long>(1, aPixels.Width() * fScale),
++                       std::max<tools::Long>(1, aPixels.Height() * fScale)),
++                  BmpScaleFlag::BestQuality);
++    return Graphic(aBitmap).GetXGraphic();
++}
++}
++
++bool PdfViewerWindow::usingImages() const
++{
++    return m_xUseImages->get_active() && (!m_aSignatureImage.IsNone() || !m_aSealImage.IsNone());
++}
++
++void PdfViewerWindow::loadImageSettings()
++{
++    m_bImageSettingsLoaded = true;
++    using Signing = officecfg::Office::HSTPdfViewer::Signing;
++    m_aSignatureImageURL = Signing::SignatureImageURL::get();
++    m_aSealImageURL = Signing::SealImageURL::get();
++    // an image moved or deleted since: its slot is empty again
++    if (!m_aSignatureImageURL.isEmpty()
++        && readSignatureImage(m_aSignatureImageURL, m_aSignatureImage) != SignatureImageError::None)
++        m_aSignatureImageURL.clear();
++    if (!m_aSealImageURL.isEmpty()
++        && readSignatureImage(m_aSealImageURL, m_aSealImage) != SignatureImageError::None)
++        m_aSealImageURL.clear();
++    m_xUseImages->set_active(Signing::UseImages::get());
++    m_xImageLayout->set_active(Signing::ImagesAbove::get() ? 1 : 0);
++    updateImageWidgets();
++}
++
++void PdfViewerWindow::saveImageSettings()
++{
++    try
++    {
++        using Signing = officecfg::Office::HSTPdfViewer::Signing;
++        std::shared_ptr<comphelper::ConfigurationChanges> xChanges
++            = comphelper::ConfigurationChanges::create();
++        Signing::UseImages::set(m_xUseImages->get_active(), xChanges);
++        Signing::SignatureImageURL::set(m_aSignatureImageURL, xChanges);
++        Signing::SealImageURL::set(m_aSealImageURL, xChanges);
++        Signing::ImagesAbove::set(m_xImageLayout->get_active() == 1, xChanges);
++        xChanges->commit();
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("xmlsecurity.hstpdf", "could not remember the signature images");
++    }
++}
++
++void PdfViewerWindow::updateImageWidgets()
++{
++    // choosing an image switches the option on, so the buttons stay usable
++    m_xImageLayout->set_sensitive(m_xUseImages->get_active());
++    m_xSignatureImage->set_image(thumbnail(m_aSignatureImage));
++    m_xSealImage->set_image(thumbnail(m_aSealImage));
++    m_xSignatureImage->set_visible(!m_aSignatureImage.IsNone());
++    m_xSealImage->set_visible(!m_aSealImage.IsNone());
++    m_xNoImages->set_sensitive(m_xUseImages->get_active() || !m_aSignatureImage.IsNone()
++                               || !m_aSealImage.IsNone());
++}
++
++void PdfViewerWindow::chooseImage(bool bSeal)
++{
++    sfx2::FileDialogHelper aDialog(ui::dialogs::TemplateDescription::FILEOPEN_SIMPLE,
++                                   FileDialogFlags::NONE, GetFrameWeld());
++    aDialog.SetTitle(XsResId(bSeal ? STR_HSTPDF_CHOOSE_SEAL_IMAGE : STR_HSTPDF_CHOOSE_SIGNATURE_IMAGE));
++    aDialog.AddFilter(XsResId(STR_HSTPDF_IMAGE_FILTER), u"*.png;*.jpg;*.jpeg"_ustr);
++    if (aDialog.Execute() != ERRCODE_NONE)
++        return;
++    const OUString aURL = aDialog.GetPath();
++    Graphic aGraphic;
++    const SignatureImageError eError = readSignatureImage(aURL, aGraphic);
++    if (eError != SignatureImageError::None)
++    {
++        const OUString aMessage
++            = eError == SignatureImageError::FileTooLarge ? XsResId(STR_HSTPDF_IMAGE_FILE_TOO_LARGE)
++              : eError == SignatureImageError::TooManyPixels
++                  ? XsResId(STR_HSTPDF_IMAGE_TOO_MANY_PIXELS)
++                        .replaceAll("%1", OUString::number(MAX_SIGNATURE_IMAGE_SIDE))
++                  : XsResId(STR_HSTPDF_IMAGE_UNREADABLE);
++        std::unique_ptr<weld::MessageDialog> xBox(Application::CreateMessageDialog(
++            GetFrameWeld(), VclMessageType::Warning, VclButtonsType::Ok, aMessage));
++        xBox->run();
++        return;
++    }
++    (bSeal ? m_aSealImage : m_aSignatureImage) = aGraphic;
++    (bSeal ? m_aSealImageURL : m_aSignatureImageURL) = aURL;
++    m_xUseImages->set_active(true);
++    saveImageSettings();
++    updateImageWidgets();
++    resizeDefaultPlacement();
++}
++
++void PdfViewerWindow::clearImages()
++{
++    m_aSignatureImage.Clear();
++    m_aSealImage.Clear();
++    m_aSignatureImageURL.clear();
++    m_aSealImageURL.clear();
++    m_xUseImages->set_active(false);
++    m_xImageLayout->set_active(0);
++    saveImageSettings();
++    updateImageWidgets();
++    resizeDefaultPlacement();
++}
++
++void PdfViewerWindow::resizeDefaultPlacement()
++{
++    // only a box of a default size follows the image settings: one the user drew stays
++    const auto& oPlacement = m_xPages->getPlacement();
++    if (!oPlacement)
++        return;
++    const PointRect& rBox = oPlacement->second;
++    for (const basegfx::B2DSize& rSize : { defaultBoxSize(false, false), defaultBoxSize(true, false),
++                                           defaultBoxSize(true, true) })
++    {
++        if (std::abs(rBox.getHeight() - rSize.getHeight()) < 0.5
++            && (std::abs(rBox.getWidth() - rSize.getWidth()) < 0.5
++                || std::abs(rBox.getWidth()
++                            - m_xDocument->getPageSize(oPlacement->first).getWidth() / 2) < 0.5))
++        {
++            defaultPlacement();
++            m_xPages->Invalidate();
++            return;
++        }
++    }
++}
++
+ void PdfViewerWindow::defaultPlacement()
+ {
+     if (!m_xDocument)
+@@ -613,8 +782,9 @@
+     // bottom right of the page in view, where Vietnamese documents put the signature
+     const int nPage = m_xPages->getCurrentPage();
+     const basegfx::B2DSize aSize = m_xDocument->getPageSize(nPage);
+-    const double fWidth = std::min(200.0, aSize.getWidth() / 2);
+-    const double fHeight = 70.0;
++    const basegfx::B2DSize aBoxSize = defaultBoxSize(usingImages(), m_xImageLayout->get_active() == 1);
++    const double fWidth = std::min(aBoxSize.getWidth(), aSize.getWidth() / 2);
++    const double fHeight = aBoxSize.getHeight();
+     const double fX = std::max(0.0, aSize.getWidth() - 56.0 - fWidth);
+     // a further signer's box goes above the earlier ones instead of over them (their widgets
+     // cover the whole page, so the earlier boxes are not known: each one is stacked one box up)
+@@ -720,6 +890,12 @@
+         const auto& rPlacement = *m_xPages->getPlacement();
+         oPlacement = SignaturePlacement{ rPlacement.first, rPlacement.second,
+                                          m_xDocument->getPageSize(rPlacement.first) };
++        if (usingImages())
++        {
++            oPlacement->aSignatureImage = m_aSignatureImage;
++            oPlacement->aSealImage = m_aSealImage;
++            oPlacement->bImageAbove = m_xImageLayout->get_active() == 1;
++        }
+     }
+     std::vector<sal_uInt8> aSigned;
+     OString aPassword = m_aPassword;
+@@ -820,6 +996,12 @@
+         chooseCertificate();
+     else if (&rButton == m_xSignSave.get())
+         sign(OUString());
++    else if (&rButton == m_xChooseSignatureImage.get())
++        chooseImage(false);
++    else if (&rButton == m_xChooseSealImage.get())
++        chooseImage(true);
++    else if (&rButton == m_xNoImages.get())
++        clearImages();
+ }
+ 
+ IMPL_LINK_NOARG(PdfViewerWindow, SignToggleHdl, weld::Toggleable&, void)
+@@ -837,6 +1019,19 @@
+         m_xPages->setPlacement(std::nullopt);
+ }
+ 
++IMPL_LINK_NOARG(PdfViewerWindow, UseImagesToggleHdl, weld::Toggleable&, void)
++{
++    saveImageSettings();
++    updateImageWidgets();
++    resizeDefaultPlacement();
++}
++
++IMPL_LINK_NOARG(PdfViewerWindow, ImageLayoutHdl, weld::ComboBox&, void)
++{
++    saveImageSettings();
++    resizeDefaultPlacement();
++}
++
+ IMPL_LINK_NOARG(PdfViewerWindow, PageActivateHdl, weld::Entry&, bool)
+ {
+     const sal_Int32 nPage = m_xPage->get_text().trim().toInt32();
+--- a/xmlsecurity/source/hstpdf/pdfviewerwindow.hxx
++++ b/xmlsecurity/source/hstpdf/pdfviewerwindow.hxx
+@@ -24,6 +24,7 @@
+ #include <vcl/weld/CheckButton.hxx>
+ #include <vcl/weld/ComboBox.hxx>
+ #include <vcl/weld/Entry.hxx>
++#include <vcl/weld/Image.hxx>
+ #include <vcl/weld/Label.hxx>
+ #include <vcl/weld/ToggleButton.hxx>
+ 
+@@ -74,6 +75,14 @@
+     void showSignPanel(bool bShow);
+     void updateSignPanel();
+     void defaultPlacement();
++    /// signature and seal images: settings in the user profile, previews, the box size
++    bool usingImages() const;
++    void loadImageSettings();
++    void saveImageSettings();
++    void updateImageWidgets();
++    void chooseImage(bool bSeal);
++    void clearImages();
++    void resizeDefaultPlacement();
+     bool chooseCertificate();
+     bool sign(const OUString& rTargetURL);
+     void startSignatureCheck();
+@@ -81,6 +90,8 @@
+     DECL_LINK(ButtonHdl, weld::Button&, void);
+     DECL_LINK(SignToggleHdl, weld::Toggleable&, void);
+     DECL_LINK(VisibleToggleHdl, weld::Toggleable&, void);
++    DECL_LINK(UseImagesToggleHdl, weld::Toggleable&, void);
++    DECL_LINK(ImageLayoutHdl, weld::ComboBox&, void);
+     DECL_LINK(PageActivateHdl, weld::Entry&, bool);
+     DECL_LINK(SearchActivateHdl, weld::Entry&, bool);
+     DECL_LINK(SearchKeyHdl, const KeyEvent&, bool);
+@@ -112,6 +123,11 @@
+ 
+     css::uno::Reference<css::security::XCertificate> m_xCertificate;
+     bool m_bCertificateLookedUp = false;
++    bool m_bImageSettingsLoaded = false;
++    Graphic m_aSignatureImage;
++    Graphic m_aSealImage;
++    OUString m_aSignatureImageURL;
++    OUString m_aSealImageURL;
+     SignatureSummary m_aSignatures;
+     bool m_bSignaturesChecked = false;
+ 
+@@ -143,6 +159,13 @@
+     std::unique_ptr<weld::Button> m_xChooseCert;
+     std::unique_ptr<weld::Entry> m_xReason;
+     std::unique_ptr<weld::CheckButton> m_xVisible;
++    std::unique_ptr<weld::CheckButton> m_xUseImages;
++    std::unique_ptr<weld::Image> m_xSignatureImage;
++    std::unique_ptr<weld::Button> m_xChooseSignatureImage;
++    std::unique_ptr<weld::Image> m_xSealImage;
++    std::unique_ptr<weld::Button> m_xChooseSealImage;
++    std::unique_ptr<weld::ComboBox> m_xImageLayout;
++    std::unique_ptr<weld::Button> m_xNoImages;
+     std::unique_ptr<weld::Label> m_xExisting;
+     std::unique_ptr<weld::Button> m_xSignSave;
+ 
+--- a/xmlsecurity/uiconfig/ui/hstpdfviewer.ui
++++ b/xmlsecurity/uiconfig/ui/hstpdfviewer.ui
+@@ -585,6 +585,132 @@
+               </packing>
+             </child>
+             <child>
++              <object class="GtkCheckButton" id="useimages">
++                <property name="label" translatable="yes" context="hstpdfviewer|useimages">_Add a signature or seal image</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="use-underline">True</property>
++                <property name="draw-indicator">True</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">8</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkBox" id="imageoptions">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="orientation">vertical</property>
++                <property name="spacing">4</property>
++                <property name="margin-start">18</property>
++                <child>
++                  <object class="GtkGrid" id="imagegrid">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="row-spacing">4</property>
++                    <property name="column-spacing">6</property>
++                  <child>
++                      <object class="GtkButton" id="choosesignatureimage">
++                        <property name="label" translatable="yes" context="hstpdfviewer|choosesignatureimage">_Signature Image…</property>
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="receives-default">False</property>
++                        <property name="focus-on-click">False</property>
++                        <property name="use-underline">True</property>
++                        <property name="hexpand">True</property>
++                      </object>
++                    <packing>
++                      <property name="left-attach">0</property>
++                      <property name="top-attach">0</property>
++                    </packing>
++                  </child>
++                  <child>
++                      <object class="GtkImage" id="signatureimage">
++                        <property name="visible">False</property>
++                        <property name="can-focus">False</property>
++                        <child internal-child="accessible"><object class="AtkObject" id="signatureimage-atkobject"><property name="AtkObject::accessible-name" translatable="yes" context="hstpdfviewer|signatureimage-atkobject">Signature image</property></object></child>
++                      </object>
++                    <packing>
++                      <property name="left-attach">1</property>
++                      <property name="top-attach">0</property>
++                    </packing>
++                  </child>
++                  <child>
++                      <object class="GtkButton" id="choosesealimage">
++                        <property name="label" translatable="yes" context="hstpdfviewer|choosesealimage">S_eal Image…</property>
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="receives-default">False</property>
++                        <property name="focus-on-click">False</property>
++                        <property name="use-underline">True</property>
++                        <property name="hexpand">True</property>
++                      </object>
++                    <packing>
++                      <property name="left-attach">0</property>
++                      <property name="top-attach">1</property>
++                    </packing>
++                  </child>
++                  <child>
++                      <object class="GtkImage" id="sealimage">
++                        <property name="visible">False</property>
++                        <property name="can-focus">False</property>
++                        <child internal-child="accessible"><object class="AtkObject" id="sealimage-atkobject"><property name="AtkObject::accessible-name" translatable="yes" context="hstpdfviewer|sealimage-atkobject">Seal image</property></object></child>
++                      </object>
++                    <packing>
++                      <property name="left-attach">1</property>
++                      <property name="top-attach">1</property>
++                    </packing>
++                  </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">0</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkComboBoxText" id="imagelayout">
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <items>
++                      <item translatable="yes" context="hstpdfviewer|imagelayout">Image on the left, text on the right</item>
++                      <item translatable="yes" context="hstpdfviewer|imagelayout">Image above, text below</item>
++                    </items>
++                    <child internal-child="accessible"><object class="AtkObject" id="imagelayout-atkobject"><property name="AtkObject::accessible-name" translatable="yes" context="hstpdfviewer|imagelayout-atkobject">Image layout</property></object></child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">1</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="noimages">
++                    <property name="label" translatable="yes" context="hstpdfviewer|noimages">_Do Not Use Images</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="focus-on-click">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="hexpand">True</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                    <property name="position">2</property>
++                  </packing>
++                </child>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++                <property name="position">9</property>
++              </packing>
++            </child>
++            <child>
+               <object class="GtkLabel" id="existing">
+                 <property name="label"></property>
+                 <property name="visible">True</property>
+@@ -596,7 +722,7 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">8</property>
++                <property name="position">10</property>
+               </packing>
+             </child>
+             <child>
+@@ -607,7 +733,7 @@
+               <packing>
+                 <property name="expand">True</property>
+                 <property name="fill">True</property>
+-                <property name="position">9</property>
++                <property name="position">11</property>
+               </packing>
+             </child>
+             <child>
+@@ -622,7 +748,7 @@
+               <packing>
+                 <property name="expand">False</property>
+                 <property name="fill">True</property>
+-                <property name="position">10</property>
++                <property name="position">12</property>
+               </packing>
+             </child>
+           </object>

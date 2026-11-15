@@ -36,6 +36,10 @@ EXPECTED = {
     "org.openoffice.Office.Common/Misc/NotebookbarColorTransparency": 255,
     "org.openoffice.Office.Common/Misc/SymbolStyle": "auto",
     "org.openoffice.Office.Writer/DefaultFont/Standard": "Times New Roman",
+    # East Asian basic fonts follow the Latin ones, so Word keeps Vietnamese letters in one run
+    # (hst-writer-cjk-default-font.patch, tests/runtime/check-docx-word-interop.py).
+    "org.openoffice.Office.Writer/DefaultFontCJK/Standard": "Times New Roman",
+    "org.openoffice.Office.Writer/DefaultFontCJK/Heading": "Times New Roman",
     # Both rulers, for aligning lines and margins (hst-writer-rulers-default.patch, tests/runtime/check-writer-rulers.py).
     "org.openoffice.Office.Writer/Layout/Window/ShowRulers": True,
     "org.openoffice.Office.Writer/Layout/Window/HorizontalRuler": True,

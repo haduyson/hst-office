@@ -16,6 +16,7 @@ from com.sun.star.document import XDocumentEventListener
 from . import update_config
 from .office_proxy import proxy  # noqa: F401 - ui.proxy, used by the update check and its tests
 from . import update_installer as installer
+from .update_linux_install import install_platform
 from . import update_logic as logic
 from .update_fetch import release_info
 from .update_texts import texts
@@ -75,13 +76,13 @@ def open_url(ctx, url):
 
 
 def release_download(release):
-    return logic.download_url(release, logic.platform_key(platform.system(), platform.machine()))
+    return logic.download_url(release, install_platform(platform.system(), platform.machine()))
 
 
 def can_install(ctx, release):
     """"Cập nhật ngay" is offered when the administrator allows it and the signed manifest has an installer for this OS."""
     try:
-        return bool(update_config.settings(ctx)["AllowInstall"] and installer.choose_installer(release, logic.platform_key(platform.system(), platform.machine())))
+        return bool(update_config.settings(ctx)["AllowInstall"] and installer.choose_installer(release, install_platform(platform.system(), platform.machine())))
     except Exception:  # noqa: BLE001 - unreadable settings: manual download only
         return False
 

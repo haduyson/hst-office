@@ -137,6 +137,10 @@ jobs:
           set -eu
           HST_REPO="$GITHUB_WORKSPACE" bash scripts/macos/trial-build.sh --verify
           { echo '```'; cat "$HST_WORK/artifacts/dmg-verify.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$GITHUB_REF" != refs/heads/main ]; then
+            # The macos-signing environment admits only main; the sign job is skipped here so this run can pass.
+            echo "::notice title=Signing skipped::$GITHUB_REF is not main: the dmg stays unsigned (Developer ID signing and notarization run on main only)"
+          fi
       - name: Upload unsigned dmg
         if: ${{ inputs.mode == 'full' && success() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -179,8 +183,10 @@ jobs:
     # Optional Developer ID signing + notarization. Secrets live only here, behind the
     # "macos-signing" environment (the owner can require reviewers). Without the secrets the
     # gate step reports it and every later step is skipped, so the job stays green.
+    # Only main may deploy to macos-signing (owner decision); on other refs the job is skipped and the
+    # build's verify step leaves a "Signing skipped" notice, so release-candidate runs conclude success.
     needs: build
-    if: ${{ inputs.mode == 'full' }}
+    if: ${{ inputs.mode == 'full' && github.ref == 'refs/heads/main' }}
     environment: macos-signing
     strategy:
       fail-fast: false

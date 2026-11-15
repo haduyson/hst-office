@@ -1,15 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Home tab checks of check-ribbon-home-fit.py: the "Công cụ" group, Find & Replace in the paragraph group and the
-feature search in the "Trang đầu" menu (hst-ribbon-home-fit.patch). The feature search button left the Home tab for
-the search box of the tab row (hst-ribbon-feature-search.patch)."""
-import time
+"""Home tab checks of check-ribbon-home-fit.py for the 1.0.2 ribbon: Find & Replace is a button of the "Chỉnh sửa"
+(editing) group, as in the reference suite; the old "Công cụ" block and its "Trang đầu ▾" menu are gone and the
+feature search is the search box of the tab row (hst-ribbon-feature-search.patch), not a Home button."""
 
-TOOLS = "Công cụ"
-MENU = "Trang đầu"
+EDITING = "Chỉnh sửa"
+OLD_TOOLS = "Công cụ"
 SEARCH = "Tìm tính năng"
-FIND = "Tìm và thay thế"
-SECOND_ROW = {"writer": "Văn bản hành chính"}  # Sheets: sort and filter icons; Slides: the slide show icon
-PARAGRAPH = {"writer": "Đoạn văn", "calc": "Căn chỉnh", "impress": "Đoạn văn"}
+# the editing group's find button (Sheets: "Tìm và chọn", as the reference suite's spreadsheet)
+FIND = {"writer": "Thay thế", "calc": "Tìm và chọn", "impress": "Thay thế", "draw": "Thay thế"}
 ROLES = ("push button", "toggle button", "push button menu", "menu button")
 
 
@@ -25,7 +23,7 @@ def items(tabs):
         except Exception:  # noqa: BLE001  widgets come and go
             continue
         if 40 < box[1] < 200 and box[2] > 0:
-            found.append((name, box))
+            found.append((name.replace("\n", " "), box))  # a two-line label is one name
     return found
 
 
@@ -44,50 +42,26 @@ def group_range(captions, name):
     return left, right
 
 
-def check_tools_group(tabs, args, app, width, captions):
-    """At a width where nothing folds: the group "Công cụ" has its rows in order, and no feature search button."""
-    found = items(tabs)
+def check_wide_home(tabs, app, width, captions):
+    """Where nothing folds: no old "Công cụ" group, no feature search button on the page; the tab row has the box."""
     names = [c[0] for c in captions]
-    tabs.record(f"[{app} {width}] group '{TOOLS}' shows", TOOLS in names, names)
-    if TOOLS not in names:
-        return
-    left, right = group_range(captions, TOOLS)
-    inside = sorted((i for i in found if left <= i[1][0] < right), key=lambda i: (i[1][1], i[1][0]))
-    rows = [n for n, _b in inside]
-    ok = bool(rows) and rows[0] == MENU
-    if ok and app in SECOND_ROW:  # the next row of the first column, under the tab menu
-        menu = inside[0][1]
-        below = [n for n, b in inside if abs(b[0] - menu[0]) < 8 and b[1] >= menu[1] + menu[3]]
-        ok = below[:1] == [SECOND_ROW[app]]
-    tabs.record(f"[{app} {width}] '{TOOLS}' rows: {MENU}, …", ok, rows)
-    searches = [n for n, _b in found if n == SEARCH]
-    tabs.record(f"[{app} {width}] no '{SEARCH}' button on Home (the tab row has the box)", not searches, searches)
-
-
-def check_find_in_paragraph(tabs, app, width, captions):
-    group = PARAGRAPH[app]
-    if group not in [c[0] for c in captions]:
-        return
-    left, right = group_range(captions, group)
-    finds = [b for n, b in items(tabs) if n == FIND]
-    tabs.record(f"[{app} {width}] '{FIND}' is a button of '{group}'",
-                len(finds) == 1 and left <= finds[0][0] < right, (finds, left, right))
-
-
-def check_menu_has_search(tabs, args, app):
-    menu = [b for n, b in items(tabs) if n == MENU]
-    tabs.record(f"[{app}] '{MENU} ▾' menu button", len(menu) == 1, menu)
-    if len(menu) != 1:
-        return
-    tabs.click(args.display, menu[0])
-    time.sleep(1.5)
-    entries = []
+    tabs.record(f"[{app} {width}] no '{OLD_TOOLS}' group (its commands moved to '{EDITING}')", OLD_TOOLS not in names, names)
+    searches = [n for n, _b in items(tabs) if n.startswith(SEARCH)]
+    tabs.record(f"[{app} {width}] no '{SEARCH}' button on Home", not searches, searches)
+    row = []
     for node in tabs.walk(tabs.office_app()):
         try:
-            if node.getRoleName() in ("menu item", "check menu item") and node.getState().contains(_showing()):
-                entries.append(node.name or "")
-        except Exception:  # noqa: BLE001
+            if (node.name or "").startswith(SEARCH) and node.getState().contains(_showing()):
+                row.append(tabs.extents(node))
+        except Exception:  # noqa: BLE001  widgets come and go
             continue
-    tabs.record(f"[{app}] '{MENU}' menu offers '{SEARCH}'", any(e.startswith(SEARCH) for e in entries), entries)
-    tabs.xdo(args.display, "key", "Escape")
-    time.sleep(1)
+    tabs.record(f"[{app} {width}] the tab row has the '{SEARCH}' box", any(b[1] < 45 for b in row), row)
+
+
+def check_find_in_editing(tabs, app, width, captions):
+    if EDITING not in [c[0] for c in captions]:
+        return  # the group is its button at this width
+    left, right = group_range(captions, EDITING)
+    finds = [b for n, b in items(tabs) if n == FIND[app]]
+    tabs.record(f"[{app} {width}] '{FIND[app]}' is a button of '{EDITING}'",
+                len(finds) == 1 and left <= finds[0][0] < right, (finds, left, right))

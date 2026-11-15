@@ -1,0 +1,26 @@
+HST Office: closing a document over UNO (Linux, gtk3) crashed the office in ImplBorderWindow::Resize.
+
+ImplBorderWindow::dispose resets the border view and then disposes the ribbon banner (hst-banner-always-visible.patch),
+whose dispose joins the banner workers with the SolarMutex released. Meanwhile the main thread ran a posted user
+event that resized the border window: SIGSEGV on the null border view (gdb, check-nd30-insertion-point.py under CPU
+load: UNO thread SwXTextDocument::close -> ... -> ImplBorderWindow::dispose -> HstRibbonBanner::dispose ->
+SolarMutex::doAcquire; main thread ImplHandleUserEvent -> ImplBorderWindow::Resize). Resize would also have created a
+new banner on the dying window. A border window that is being disposed now ignores Resize.
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/vcl/source/window/brdwin.cxx
++++ b/vcl/source/window/brdwin.cxx
+@@ -1701,6 +1701,12 @@
+ 
+ void ImplBorderWindow::Resize()
+ {
++    // HST: dispose() resets the border view first and then disposes the ribbon banner, whose workers are joined
++    // with the SolarMutex released; the main thread may then run a posted event that resizes this window
++    // (null border view; a new banner would be created on a dying window). Nothing to lay out once disposing.
++    if (isDisposed())
++        return;
++
+     Size aSize = GetOutputSizePixel();
+ 
+     vcl::Window* pClientWindow = ImplGetClientWindow();

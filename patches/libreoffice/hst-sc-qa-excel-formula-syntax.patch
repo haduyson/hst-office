@@ -1,0 +1,79 @@
+HST Office: three upstream sc conditional format tests expect the Calc A1 formula syntax; they now expect HST's.
+
+hst-sheets-excel-formula-conventions.patch makes Excel A1 the default UI formula syntax, so the expressions
+that ScCondFormatHelper::GetExpression and ScConditionEntry::GetExpression print read Sheet1!$B2 and
+Sheet2!$A$2 instead of $Sheet1.$B2 and $Sheet2.$A$2 (testTdf104026, testCondFormatImportCellIs,
+testCondFormatExportCellIs). The references themselves are unchanged.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: make CppunitTest_sc_cond_format.
+---
+--- a/sc/qa/unit/cond_format.cxx
++++ b/sc/qa/unit/cond_format.cxx
+@@ -238,9 +238,10 @@
+     ScDocument* pDoc = getScDoc();
+ 
+     std::unordered_map<OUString, OUString> aExpectedValues
+-        = { { "A2", "Cell value != $Sheet1.$B2" }, { "A3", "Cell value != $Sheet1.$B3" },
+-            { "A4", "Cell value != $Sheet1.$B4" }, { "A5", "Cell value != $Sheet1.$B5" },
+-            { "A6", "Cell value != $Sheet1.$B6" }, { "A7", "Cell value != $Sheet1.$B7" } };
++        // HST Office: the UI formula syntax is Excel A1 (hst-sheets-excel-formula-conventions.patch)
++        = { { "A2", "Cell value != Sheet1!$B2" }, { "A3", "Cell value != Sheet1!$B3" },
++            { "A4", "Cell value != Sheet1!$B4" }, { "A5", "Cell value != Sheet1!$B5" },
++            { "A6", "Cell value != Sheet1!$B6" }, { "A7", "Cell value != Sheet1!$B7" } };
+ 
+     checkConditionalFormatList(*pDoc, aExpectedValues);
+ 
+@@ -248,11 +249,11 @@
+     dispatchCommand(mxComponent, u".uno:DeleteRows"_ustr, {});
+ 
+     std::unordered_map<OUString, OUString> aExpectedValues2
+-        = { { "A2", "Cell value != $Sheet1.$B2" },
+-            { "A3", "Cell value != $Sheet1.$B3" },
+-            { "A4", "Cell value != $Sheet1.$B4" },
+-            { "A5", "Cell value != $Sheet1.$B5" },
+-            { "A6", "Cell value != $Sheet1.$B6" } };
++        = { { "A2", "Cell value != Sheet1!$B2" },
++            { "A3", "Cell value != Sheet1!$B3" },
++            { "A4", "Cell value != Sheet1!$B4" },
++            { "A5", "Cell value != Sheet1!$B5" },
++            { "A6", "Cell value != Sheet1!$B6" } };
+     // Without the fix in place, this test would have failed with
+     // - Expected: Cell value != $Sheet1.$B2
+     // - Actual  : Cell value != $Sheet1.$B#REF!
+@@ -466,7 +467,7 @@
+     CPPUNIT_ASSERT_EQUAL(ScConditionMode::Equal, pCondition->GetOperation());
+ 
+     OUString aStr = pCondition->GetExpression(ScAddress(0, 0, 0), 0);
+-    CPPUNIT_ASSERT_EQUAL(u"$Sheet2.$A$2"_ustr, aStr);
++    CPPUNIT_ASSERT_EQUAL(u"Sheet2!$A$2"_ustr, aStr);
+ 
+     pEntry = pFormat->GetEntry(1);
+     CPPUNIT_ASSERT(pEntry);
+@@ -476,7 +477,7 @@
+     CPPUNIT_ASSERT_EQUAL(ScConditionMode::Equal, pCondition->GetOperation());
+ 
+     aStr = pCondition->GetExpression(ScAddress(0, 0, 0), 0);
+-    CPPUNIT_ASSERT_EQUAL(u"$Sheet2.$A$1"_ustr, aStr);
++    CPPUNIT_ASSERT_EQUAL(u"Sheet2!$A$1"_ustr, aStr);
+ }
+ 
+ CPPUNIT_TEST_FIXTURE(CondFormatTest, testCondFormatThemeColorXLSX)
+@@ -780,7 +781,7 @@
+     CPPUNIT_ASSERT_EQUAL(ScConditionMode::Equal, pCondition->GetOperation());
+ 
+     OUString aStr = pCondition->GetExpression(ScAddress(0, 0, 0), 0);
+-    CPPUNIT_ASSERT_EQUAL(u"$Sheet2.$A$2"_ustr, aStr);
++    CPPUNIT_ASSERT_EQUAL(u"Sheet2!$A$2"_ustr, aStr);
+ 
+     pEntry = pFormat->GetEntry(1);
+     CPPUNIT_ASSERT(pEntry);
+@@ -790,7 +791,7 @@
+     CPPUNIT_ASSERT_EQUAL(ScConditionMode::Equal, pCondition->GetOperation());
+ 
+     aStr = pCondition->GetExpression(ScAddress(0, 0, 0), 0);
+-    CPPUNIT_ASSERT_EQUAL(u"$Sheet2.$A$1"_ustr, aStr);
++    CPPUNIT_ASSERT_EQUAL(u"Sheet2!$A$1"_ustr, aStr);
+ }
+ 
+ CPPUNIT_TEST_FIXTURE(CondFormatTest, testConditionalFormatExportXLSX)

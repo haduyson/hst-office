@@ -1,0 +1,105 @@
+Calc: duplicate/unique/top/average conditional formats count their range block by block.
+
+ScConditionEntry::FillCache() counts the values of all cells of the format's ranges for the
+duplicate, unique, top/bottom N (and percent) and above/below average rules. The cache is dropped at
+the start and end of every paint (ScConditionalFormatList::startRendering/endRendering from
+ScDocument::FillInfo), so it is rebuilt for every repaint and row height pass, and it read each cell
+by address (ScRefCellValue(doc, address): a block lookup per cell). On a 300000-row sheet with a top 10
+rule and a duplicate rule every Enter cost about 3 s. The cells are now walked with ScCellIterator, which
+visits the non-empty cells of the range in block order; the counts do not depend on the order.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: CppunitTest_sc_ucalc_condformat testCondFormatDuplicateTopCacheCells; typing latency on the
+50 MB synthetic .xlsx before/after.
+---
+--- a/sc/source/core/data/conditio.cxx
++++ b/sc/source/core/data/conditio.cxx
+@@ -35,6 +35,7 @@
+ #include <rangeutl.hxx>
+ #include <colorscale.hxx>
+ #include <cellvalue.hxx>
++#include <dociter.hxx>
+ #include <editutil.hxx>
+ #include <tokenarray.hxx>
+ #include <fillinfo.hxx>
+@@ -981,10 +982,14 @@
+                     nCol, nRow, false);
+         }
+ 
+-        for( SCROW r = nRowStart; r <= nRow; r++ )
+-            for( SCCOL c = nColStart; c <= nCol; c++ )
+-            {
+-                ScRefCellValue aCell(mrDoc, ScAddress(c, r, nTab));
++        // HST Office: the cells are walked block by block (ScCellIterator) instead of looking every
++        // address up again; this cache is rebuilt for every paint (startRendering/endRendering), so
++        // with tens of thousands of rows each repaint after typing took seconds. The counts do not
++        // depend on the order the cells are visited in.
++        ScCellIterator aIter(mrDoc, ScRange(nColStart, nRowStart, nTab, nCol, nRow, nTab));
++        for (bool bHas = aIter.first(); bHas; bHas = aIter.next())
++            {
++                const ScRefCellValue& aCell = aIter.getRefCellValue();
+                 if (aCell.isEmpty())
+                     continue;
+ 
+--- a/sc/qa/unit/ucalc_condformat.cxx
++++ b/sc/qa/unit/ucalc_condformat.cxx
+@@ -1648,6 +1648,59 @@
+     m_pDoc->DeleteTab(0);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(TestCondformat, testCondFormatDuplicateTopCacheCells)
++{
++    // The value counts of duplicate/unique/top rules (ScConditionEntry::FillCache) take every
++    // non-empty cell of all ranges of the format once: numbers, formula results, strings without
++    // regard to case; empty cells and cells outside the ranges do not count.
++    m_pDoc->InsertTab(0, u"Test"_ustr);
++    m_pDoc->SetValue(ScAddress(0, 0, 0), 1.0);
++    m_pDoc->SetValue(ScAddress(0, 1, 0), 2.0);
++    m_pDoc->SetString(ScAddress(0, 2, 0), u"ab"_ustr);
++    m_pDoc->SetString(ScAddress(0, 4, 0), u"=1+1"_ustr);
++    m_pDoc->SetString(ScAddress(0, 5, 0), u"AB"_ustr);
++    m_pDoc->SetValue(ScAddress(0, 6, 0), 3.0);
++    m_pDoc->SetValue(ScAddress(2, 0, 0), 3.0);
++    m_pDoc->SetString(ScAddress(2, 1, 0), u"x"_ustr);
++    m_pDoc->SetValue(ScAddress(2, 2, 0), 5.0);
++    m_pDoc->SetValue(ScAddress(3, 0, 0), 1.0); // outside the ranges
++    m_pDoc->CalcAll();
++
++    ScRangeList aRanges(ScRange(0, 0, 0, 0, 9, 0));
++    aRanges.push_back(ScRange(2, 0, 0, 2, 4, 0));
++    auto lcl_format = [&](sal_uInt32 nKey, ScConditionMode eMode, const OUString& rExpr) {
++        auto pFormat = std::make_unique<ScConditionalFormat>(nKey, *m_pDoc);
++        pFormat->SetRange(aRanges);
++        auto* pEntry = new ScCondFormatEntry(eMode, rExpr, u""_ustr, *m_pDoc, ScAddress(0, 0, 0),
++                                             ScResId(STR_STYLENAME_RESULT));
++        pFormat->AddEntry(pEntry);
++        m_pDoc->AddCondFormat(std::move(pFormat), 0);
++        return static_cast<const ScConditionEntry*>(pEntry);
++    };
++    const ScConditionEntry* pDup = lcl_format(1, ScConditionMode::Duplicate, u""_ustr);
++    const ScConditionEntry* pUnique = lcl_format(2, ScConditionMode::NotDuplicate, u""_ustr);
++    const ScConditionEntry* pTop = lcl_format(3, ScConditionMode::Top10, u"2"_ustr);
++
++    struct Expect { SCCOL nCol; SCROW nRow; bool bDup; bool bTop; };
++    for (const Expect& r : { Expect{ 0, 0, false, false }, Expect{ 0, 1, true, false },
++                             Expect{ 0, 2, true, false }, Expect{ 0, 4, true, false },
++                             Expect{ 0, 5, true, false }, Expect{ 0, 6, true, true },
++                             Expect{ 2, 0, true, true }, Expect{ 2, 1, false, false },
++                             Expect{ 2, 2, false, true } })
++    {
++        const ScAddress aPos(r.nCol, r.nRow, 0);
++        ScRefCellValue aCell(*m_pDoc, aPos);
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aPos.Format(ScRefFlags::VALID).toUtf8().getStr(), r.bDup,
++                                     pDup->IsCellValid(aCell, aPos));
++        CPPUNIT_ASSERT_EQUAL(!r.bDup, pUnique->IsCellValid(aCell, aPos));
++        if (aCell.hasNumeric())
++            CPPUNIT_ASSERT_EQUAL_MESSAGE(aPos.Format(ScRefFlags::VALID).toUtf8().getStr(), r.bTop,
++                                         pTop->IsCellValid(aCell, aPos));
++    }
++
++    m_pDoc->DeleteTab(0);
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

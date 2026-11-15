@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """The one start-up dispatcher (Jobs.xcu, onFirstVisibleTask): at most ONE modal question per start.
 
-Order: macOS "move to Applications" (mac_app_location.offer_move_once), crash report question, welcome dialog,
+Order: macOS "move to Applications" (mac_app_location.offer_move_once), the notice that the settings file was repaired
+after a power cut (profile_notice: rare, and the user must know their settings changed), crash report question, welcome dialog,
 default-apps question, then the update notice. The move comes first (coordinator 2026-11-07): an app run from the
 .dmg or a translocated path would register the wrong copy as the default app and every other question is wasted until
 it moves; it returns False off macOS and once the app is in /Applications. The first step that shows a modal dialog
@@ -11,7 +12,9 @@ skipped behind the move question is not carried over: the recovery state is read
 itself is not modal (an infobar) and always runs last.
 
 Runs on the main thread after the Start Center has painted and after a document opened at start has loaded
-(welcome_job.run_later), never inside the job and never inside a document import.
+(welcome_job.run_later), never inside the job and never inside a document import. When the user has started working
+by then (startup_activity: documents opened or closed, a document modified), only the crash question still runs; the
+others wait for a later start, so no question lands on the user's work and holds closing a tab or quitting.
 """
 import platform
 
@@ -21,7 +24,7 @@ from com.sun.star.task import XJob
 from . import diag_log
 
 JOB_NAME = "org.hst.office.vi.StartupPromptsJob"
-ORDER = ("mac_move", "crash", "welcome", "default_apps", "update_outcome")
+ORDER = ("mac_move", "profile_repaired", "crash", "welcome", "default_apps", "update_outcome")
 
 
 def run_chain(steps):
@@ -45,6 +48,11 @@ def _parent(ctx):
 def _crash(ctx):
     from . import error_report_crash
     return error_report_crash.ask(ctx) is not None
+
+
+def _profile_repaired(ctx):
+    from . import profile_notice
+    return profile_notice.show_once(ctx, _parent(ctx))
 
 
 def offer_move_stub(ctx):
@@ -87,19 +95,49 @@ def _update_check(ctx):
 
 
 def steps_for(ctx):
-    table = {"crash": _crash, "mac_move": _mac_move, "welcome": _welcome, "default_apps": _default_apps,
+    table = {"crash": _crash, "mac_move": _mac_move, "profile_repaired": _profile_repaired, "welcome": _welcome, "default_apps": _default_apps,
              "update_outcome": _update_outcome}
     return [(name, (lambda fn=table[name]: fn(ctx))) for name in ORDER]
 
 
-def run(ctx, steps=None, after=None):
-    """The whole start: the modal chain, then the non-modal update check. Returns the name of the modal shown."""
-    shown = run_chain(steps if steps is not None else steps_for(ctx))
+def only_after_work(steps):
+    """The steps that still run once the user has started working: the crash question (read once per start). The
+    others keep their state until shown and wait for a calmer start (startup_activity)."""
+    return [(name, step) for name, step in steps if name == "crash"]
+
+
+def run(ctx, steps=None, after=None, before=None):
+    """The whole start: the modal chain, then the non-modal update check. Returns the name of the modal shown.
+
+    before: startup_activity.snapshot() taken when the questions were scheduled; when the user has started working
+    since, only the crash question may still open a modal."""
+    steps = steps if steps is not None else steps_for(ctx)
+    if before is not None and _started_working(ctx, before):
+        steps = only_after_work(steps)
+    shown = run_chain(steps)
     try:
         (after or _update_check)(ctx)
     except Exception:  # noqa: BLE001 - never break start-up
         diag_log.exception("startup_prompts")
     return shown
+
+
+def _safe_snapshot(ctx):
+    try:
+        from .startup_activity import snapshot
+        return snapshot(ctx)
+    except Exception:  # noqa: BLE001 - without a snapshot the questions run as before
+        diag_log.exception("startup_prompts")
+        return None
+
+
+def _started_working(ctx, before):
+    try:
+        from .startup_activity import started_working
+        return started_working(ctx, before)
+    except Exception:  # noqa: BLE001 - a broken check must not hide the questions for good
+        diag_log.exception("startup_prompts")
+        return False
 
 
 class StartupPromptsJob(unohelper.Base, XServiceInfo, XJob):
@@ -118,7 +156,8 @@ class StartupPromptsJob(unohelper.Base, XServiceInfo, XJob):
     def execute(self, arguments):
         try:
             from .welcome_job import run_later
-            run_later(self.ctx, lambda: run(self.ctx))
+            before = _safe_snapshot(self.ctx)
+            run_later(self.ctx, lambda: run(self.ctx, before=before))
         except Exception:  # noqa: BLE001 - never block start-up
             diag_log.exception("startup_prompts")
         return None

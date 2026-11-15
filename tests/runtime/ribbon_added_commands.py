@@ -3,7 +3,7 @@
 import os
 import re
 
-MODULES = {"writer": "swriter", "calc": "scalc", "impress": "simpress"}
+MODULES = {"writer": "swriter", "calc": "scalc", "impress": "simpress", "draw": "sdraw"}
 
 
 def added_commands(instdir, app):

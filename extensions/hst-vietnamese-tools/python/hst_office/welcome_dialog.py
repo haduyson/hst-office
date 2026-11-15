@@ -3,7 +3,8 @@
 
 Introductory content: always Vietnamese (welcome_job loads the "vi" strings in every UI language). Sections:
 logo and greeting with the "Miễn phí vĩnh viễn" badge, the three applications with their icons, the key HST
-features, the F1 guide tip, other HASON TECH solutions (names; tagline as tooltip), contact and website link,
+features, the F1 guide tip, the Alt+Q feature search tip with the "Xem hướng dẫn chuyển đổi nhanh" button (the
+"Lệnh quen thuộc ở đâu?" page of the offline guide, help_pages), other HASON TECH solutions (names; tagline as tooltip), contact and website link,
 "Không hiển thị lại" and Close. Images are the brand PNGs packaged in <extension>/icons (build-extensions.py).
 """
 import math
@@ -13,7 +14,7 @@ import unohelper
 from com.sun.star.awt import XActionListener, XWindowListener
 from com.sun.star.style.VerticalAlignment import MIDDLE
 
-from . import welcome_content
+from . import help_pages, welcome_content
 from .data_files import EXT_ROOT, load_data
 from .dialogs import Dialog, is_dark, PALETTES
 
@@ -23,6 +24,7 @@ BADGE_TEXT, BADGE_BACK = 0xFFFFFF, 0x0E7A36  # badge: owner's dark green, white 
 APPS = (("appWriter", "hst-writer-64.png"), ("appSheets", "hst-sheets-64.png"), ("appSlides", "hst-slides-64.png"))
 OPENED = []   # URLs handed to open_url (kept so the runtime check can see what a click produced)
 CURRENT = None  # the dialog being shown (runtime check hook)
+GUIDE = "WhereIsCommand"  # the guide button opens this page of the offline guide (a link with no URL)
 
 
 def open_url(ctx, url):
@@ -65,17 +67,7 @@ class _Shown(unohelper.Base, XWindowListener):
             self.done = True
             self.callback()
 
-    def windowResized(self, event):
-        pass
-
-    def windowMoved(self, event):
-        pass
-
-    def windowHidden(self, event):
-        pass
-
-    def disposing(self, event):
-        pass
+    windowResized = windowMoved = windowHidden = disposing = lambda self, event: None
 
 
 class Welcome:
@@ -91,8 +83,11 @@ class Welcome:
 
     def _click(self, url):
         try:
-            OPENED.append(url)
-            open_url(self.ctx, url)
+            OPENED.append(url or GUIDE)
+            if url is None:
+                help_pages.open_page(self.ctx, GUIDE)
+            else:
+                open_url(self.ctx, url)
         except Exception as exc:  # noqa: BLE001 - a missing browser must not close or crash the dialog
             self.d.model.getByName("status").Label = self.s["openError"] % exc
 
@@ -144,7 +139,10 @@ class Welcome:
             y += h + 1
         tip = d.label("helpTip", s["helpTip"], PAD, y + 2, TEXT_W, 10)
         tip.TextColor = self.colours["muted"]
-        y = self._rule("rule2", y + 15)
+        d.label("searchTip", s["searchTip"], PAD, y + 14, TEXT_W, 10).FontWeight = 150
+        d.button("guide", s["guideButton"], PAD, y + 26, 140, h=13)
+        self.links.append(("guide", None))
+        y = self._rule("rule2", y + 42)
         # Other HASON TECH solutions: one row each, the name as a link and its short description beside it.
         y = self._heading("solutionsHeading", s["solutions"], y)
         for i, sol in enumerate(m["solutions"]):

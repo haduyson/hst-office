@@ -1,0 +1,679 @@
+HST Office: feature search (Alt+Q, "Tìm tính năng…") ranks results, names their place on the ribbon and
+fills the empty box.
+
+- sfx2/source/commandpopup/CommandPopup.cxx, sfx2/inc/commandpopup/CommandPopup.hxx:
+  - Ranking: one score per entry instead of five passes (scoreMatch). The own label (menu or ribbon
+    button) counts most: the whole label, then the label starting with the text up to a word end, a
+    whole word, the label starting with it, a word starting with it; then the search keywords of
+    FeatureSearch.xcu (whole word before word start), then the menu/ribbon path, then every typed
+    word anywhere (the old last pass). A match inside a word ranks below every word-start match.
+    HST commands (+8) and commands with keywords, the often used ones (+5), move up within a rank,
+    so "tien" lists "Định dạng tiền VND" before "Ngôn ngữ giao diện ▸ Tiếng Việt". Equal ranks keep
+    the menu order. tests/unit/test_feature_search_ux.py mirrors the scoring.
+  - Ribbon location: when the window shows the ribbon (Tabbed notebookbar), the tabs are read when
+    the search opens (tab text and the command and text of every toolbox button, also inside groups
+    folded into a "Group ▾" button; regular tabs before contextual ones). A result on the ribbon
+    reads "Tab ▸ Button" ("Xem lại ▸ Đếm từ"); other results keep the menu path. Commands only on
+    the ribbon are indexed too. Nothing is hard-coded, so a reworked ribbon is picked up as is.
+  - Commands that have search keywords but are in no menu and on no ribbon tab (items of a popup
+    menu built at run time, e.g. Sheets "Định dạng có điều kiện ▸ Giá trị trùng lặp",
+    .uno:ConditionalFormatEasy?FormatRule:short=8) are indexed under their own label when the module
+    has a label for the command, so another application's commands stay out.
+  - Commands without an SFX slot (Slides ".uno:InsertSlide", "Trang chiếu mới") are offered when
+    the frame has a dispatcher for them, as add-on commands already were; they were dropped, so
+    "trang chieu moi" found nothing.
+  - Empty box: the 5 commands last run from the search in this module, then 5 suggestions of the
+    module (/org.hasontech.hstoffice.FeatureSearch: Recent, Suggestions; search.xcs and
+    FeatureSearch.xcu of the bundled HST extension). Nothing is selected, so Enter in the empty box
+    runs nothing. Without the extension the box stays empty as before.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_feature_search_ux.py (keywords and ranking, offline); runtime gate
+(Alt+Q: le trang, margin, word count, gop o, xoa trung, pivot, freeze, vlookup, trang chieu moi).
+---
+--- a/sfx2/inc/commandpopup/CommandPopup.hxx
++++ b/sfx2/inc/commandpopup/CommandPopup.hxx
+@@ -55,9 +55,26 @@
+     OUString m_aSearchableLabel;
+     OUString m_aSearchableTooltip;
+     OUString m_aSearchableKeywords;
++    // HST Office: "Tab ▸ Label" when the command is on the ribbon (shown instead of the menu path)
++    // and the folded label of the ribbon button
++    OUString m_aRibbonPath;
++    OUString m_aSearchableRibbonLabel;
+     std::vector<MenuContent> m_aSubMenuContent;
+ };
+ 
++// HST Office: a command of the ribbon and the tab that shows it
++struct RibbonCommand final
++{
++    OUString m_aCommandURL;
++    OUString m_aTab;
++    OUString m_aLabel;
++};
++
++namespace vcl
++{
++class Window;
++}
++
+ class MenuContentHandler final
+ {
+ private:
+@@ -73,6 +90,16 @@
+     std::unordered_set<OUString> m_aAdded;
+     // HST Office: command URL -> folded search keywords (org.hasontech.hstoffice.FeatureSearch)
+     std::unordered_map<OUString, OUString> m_aKeywords;
++    // HST Office: the commands of the ribbon in tab order, and command URL -> index in it
++    std::vector<RibbonCommand> m_aRibbon;
++    std::unordered_map<OUString, size_t> m_aRibbonIndex;
++    // HST Office: the commands the menus put in the index
++    std::unordered_set<OUString> m_aIndexed;
++
++    void gatherRibbonContent();
++    void gatherRibbonCommands(vcl::Window& rParent, OUString const& rTab);
++    void addRibbonOnlyContent();
++    void addKeywordOnlyContent();
+ 
+ public:
+     MenuContentHandler(css::uno::Reference<css::frame::XFrame> const& xFrame);
+@@ -87,11 +114,17 @@
+     void findInMenu(OUString const& rText, std::unique_ptr<weld::TreeView>& rpCommandTreeView,
+                     std::vector<CurrentEntry>& rCommandList);
+ 
++    // HST Office: the empty search box lists the 5 commands last run from it in this module, then
++    // 5 suggestions of the module (org.hasontech.hstoffice.FeatureSearch)
++    void addSuggestions(std::unique_ptr<weld::TreeView>& rpCommandTreeView,
++                        std::vector<CurrentEntry>& rCommandList);
++
++    OUString const& getModuleName() const { return m_sModuleLongName; }
++
+ private:
+-    void findInMenuRecursive(
+-        MenuContent const& rMenuContent, OUString const& rText,
+-        std::unique_ptr<weld::TreeView>& rpCommandTreeView, std::vector<CurrentEntry>& rCommandList,
+-        std::function<bool(MenuContent const&, OUString const&)> const& rSearchCriterium);
++    // HST Office: every entry matching rQuery with its rank (see scoreMatch)
++    void collectMatches(MenuContent const& rMenuContent, OUString const& rQuery,
++                        std::vector<std::pair<sal_Int32, MenuContent const*>>& rMatches);
+ 
+     void addCommandIfPossible(MenuContent const& rMenuContent,
+                               const std::unique_ptr<weld::TreeView>& rpCommandTreeView,
+@@ -122,6 +155,7 @@
+     void DispatchSelectedCommand();
+     void dispatchCommandAndClose(OUString const& rCommand, OUString const& rFindText);
+     void addFindInDocumentRow(OUString const& rText);
++    void showSuggestions();
+ 
+ public:
+     /** HST Office: pAnchor (in pParent coordinates) is the feature search box of the ribbon tab
+--- a/sfx2/source/commandpopup/CommandPopup.cxx
++++ b/sfx2/source/commandpopup/CommandPopup.cxx
+@@ -23,7 +23,12 @@
+ #include <comphelper/dispatchcommand.hxx>
+ #include <comphelper/propertysequence.hxx>
+ 
++#include <com/sun/star/beans/NamedValue.hpp>
+ #include <com/sun/star/configuration/ReadOnlyAccess.hpp>
++#include <com/sun/star/configuration/theDefaultProvider.hpp>
++#include <com/sun/star/container/XNameReplace.hpp>
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/util/XChangesBatch.hpp>
+ #include <com/sun/star/frame/XDispatchProvider.hpp>
+ #include <com/sun/star/ui/theModuleUIConfigurationManagerSupplier.hpp>
+ #include <com/sun/star/util/URL.hpp>
+@@ -37,6 +42,11 @@
+ #include <vcl/notebookbar/notebookbar.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/syswin.hxx>
++#include <vcl/tabctrl.hxx>
++#include <vcl/tabpage.hxx>
++#include <vcl/toolbox.hxx>
++#include <toolkit/helper/vclunohelper.hxx>
++#include <comphelper/sequence.hxx>
+ #include <i18nutil/transliteration.hxx>
+ #include <svl/itemset.hxx>
+ #include <svl/srchitem.hxx>
+@@ -51,6 +61,8 @@
+ #include <unicode/uchar.h>
+ #include <unicode/unistr.h>
+ 
++#include <algorithm>
++
+ using namespace css;
+ 
+ OUString foldForSearch(OUString const& rText)
+@@ -90,18 +102,6 @@
+ 
+ namespace
+ {
+-// rNeedle occurs in rHaystack at the start of a word
+-bool containsAtWordStart(OUString const& rHaystack, OUString const& rNeedle)
+-{
+-    for (sal_Int32 nPos = rHaystack.indexOf(rNeedle); nPos >= 0;
+-         nPos = rHaystack.indexOf(rNeedle, nPos + 1))
+-    {
+-        if (nPos == 0 || !u_isalnum(rHaystack[nPos - 1]))
+-            return true;
+-    }
+-    return false;
+-}
+-
+ // every white-space separated word of rQuery occurs in one of the texts
+ bool containsAllWords(OUString const& rQuery, OUString const& rText1, OUString const& rText2)
+ {
+@@ -129,6 +129,127 @@
+     return false;
+ }
+ 
++// HST Office: how rNeedle occurs in rHaystack: 6 the whole text, 5 at the start up to a word end,
++// 4 a whole word, 3 at the start inside the first word, 2 at a word start, 1 inside a word, 0 not
++sal_Int32 matchStrength(OUString const& rHaystack, OUString const& rNeedle)
++{
++    if (rHaystack.isEmpty() || rNeedle.isEmpty())
++        return 0;
++    if (rHaystack == rNeedle)
++        return 6;
++    sal_Int32 nBest = 0;
++    for (sal_Int32 nPos = rHaystack.indexOf(rNeedle); nPos >= 0 && nBest < 5;
++         nPos = rHaystack.indexOf(rNeedle, nPos + 1))
++    {
++        const sal_Int32 nEnd = nPos + rNeedle.getLength();
++        const bool bWordStart = nPos == 0 || !u_isalnum(rHaystack[nPos - 1]);
++        const bool bWordEnd = nEnd == rHaystack.getLength() || !u_isalnum(rHaystack[nEnd]);
++        sal_Int32 nStrength = 1;
++        if (nPos == 0)
++            nStrength = bWordEnd ? 5 : 3;
++        else if (bWordStart)
++            nStrength = bWordEnd ? 4 : 2;
++        nBest = std::max(nBest, nStrength);
++    }
++    return nBest;
++}
++
++/** HST Office: rank of a search result, 0 when it does not match. The own label (menu or ribbon)
++    counts most, from the whole label down to a word that starts with the text, then the search
++    keywords (FeatureSearch.xcu), then the menu or ribbon path, then every typed word anywhere.
++    HST commands and the commands that have keywords (the often used ones) rank a little higher,
++    so "tien" lists "Định dạng tiền VND" before "Ngôn ngữ giao diện ▸ Tiếng Việt".
++    tests/unit/test_feature_search_ux.py mirrors this function. */
++sal_Int32 scoreMatch(MenuContent const& rContent, OUString const& rQuery)
++{
++    static constexpr sal_Int32 aLabelScore[] = { 0, 30, 70, 80, 90, 95, 100 };
++    sal_Int32 nScore = aLabelScore[std::max(matchStrength(rContent.m_aSearchableLabel, rQuery),
++                                            matchStrength(rContent.m_aSearchableRibbonLabel, rQuery))];
++    const sal_Int32 nKeyword = matchStrength(rContent.m_aSearchableKeywords, rQuery);
++    nScore = std::max(nScore, nKeyword >= 4 ? sal_Int32(75) : nKeyword >= 2 ? sal_Int32(65) : 0);
++    const sal_Int32 nPath = matchStrength(rContent.m_aSearchableMenuLabel, rQuery);
++    nScore = std::max(nScore, nPath >= 4 ? sal_Int32(50)
++                              : nPath >= 2 ? sal_Int32(40)
++                              : nPath == 1 ? sal_Int32(25) : 0);
++    if (nScore == 0
++        && containsAllWords(rQuery, rContent.m_aSearchableMenuLabel,
++                            rContent.m_aSearchableTooltip + u" " + rContent.m_aSearchableKeywords))
++        nScore = 20;
++    if (nScore == 0)
++        return 0;
++    if (!rContent.m_aCommandURL.startsWith(".uno:"))
++        nScore += 8;
++    if (!rContent.m_aSearchableKeywords.isEmpty())
++        nScore += 5;
++    return nScore;
++}
++
++// HST Office: the first entry of the index that runs rCommand
++MenuContent const* findContent(MenuContent const& rMenuContent, OUString const& rCommand)
++{
++    for (MenuContent const& rSub : rMenuContent.m_aSubMenuContent)
++    {
++        if (rSub.m_aCommandURL == rCommand && rSub.m_aSubMenuContent.empty())
++            return &rSub;
++        if (MenuContent const* pFound = findContent(rSub, rCommand))
++            return pFound;
++    }
++    return nullptr;
++}
++
++// HST Office: the tab control of the notebookbar
++TabControl* findTabControl(vcl::Window* pWindow)
++{
++    for (vcl::Window* pChild = pWindow ? pWindow->GetWindow(GetWindowType::FirstChild) : nullptr;
++         pChild; pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (TabControl* pTabs = dynamic_cast<TabControl*>(pChild))
++            return pTabs;
++        if (TabControl* pFound = findTabControl(pChild))
++            return pFound;
++    }
++    return nullptr;
++}
++
++constexpr OUString aFeatureSearchNode = u"/org.hasontech.hstoffice.FeatureSearch"_ustr;
++constexpr size_t nRecentKept = 30;
++constexpr size_t nRecentShown = 5;
++constexpr size_t nSuggestionsShown = 5;
++
++// HST Office: put rCommand first in the list of commands run from the search ("module command")
++void rememberCommand(OUString const& rModule, OUString const& rCommand)
++{
++    if (rModule.isEmpty() || rCommand.isEmpty())
++        return;
++    try
++    {
++        uno::Reference<lang::XMultiServiceFactory> xProvider(
++            configuration::theDefaultProvider::get(comphelper::getProcessComponentContext()));
++        uno::Sequence<uno::Any> aArgs{ uno::Any(
++            beans::NamedValue(u"nodepath"_ustr, uno::Any(aFeatureSearchNode))) };
++        uno::Reference<container::XNameReplace> xNode(
++            xProvider->createInstanceWithArguments(
++                u"com.sun.star.configuration.ConfigurationUpdateAccess"_ustr, aArgs),
++            uno::UNO_QUERY_THROW);
++        uno::Sequence<OUString> aOld;
++        xNode->getByName(u"Recent"_ustr) >>= aOld;
++        const OUString aEntry = rModule + " " + rCommand;
++        std::vector<OUString> aNew{ aEntry };
++        for (OUString const& rOld : aOld)
++        {
++            if (rOld != aEntry && aNew.size() < nRecentKept)
++                aNew.push_back(rOld);
++        }
++        xNode->replaceByName(u"Recent"_ustr, uno::Any(comphelper::containerToSequence(aNew)));
++        uno::Reference<util::XChangesBatch>(xNode, uno::UNO_QUERY_THROW)->commitChanges();
++    }
++    catch (const uno::Exception&)
++    {
++        // the extension that declares the node is not installed: nothing to remember
++        TOOLS_WARN_EXCEPTION("sfx", "CommandPopup: remembering the command failed");
++    }
++}
++
+ template <typename T>
+ T getAddonProperty(uno::Reference<container::XNameAccess> const& xNode, OUString const& rName)
+ {
+@@ -183,6 +304,17 @@
+     {
+     }
+ 
++    // HST Office: the ribbon's tab of every command it shows, so results name the place on the
++    // ribbon ("Xem lại ▸ Đếm từ") instead of the classic menu path
++    try
++    {
++        gatherRibbonContent();
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx", "CommandPopup: reading the ribbon failed");
++    }
++
+     gatherMenuContent(xConfigData, m_aMenuContent);
+ 
+     // HST Office: the add-on menus (e.g. the HST menu of the bundled extension) are merged into
+@@ -196,6 +328,121 @@
+     {
+         TOOLS_WARN_EXCEPTION("sfx", "CommandPopup: reading the add-on menus failed");
+     }
++
++    addRibbonOnlyContent();
++    addKeywordOnlyContent();
++}
++
++void MenuContentHandler::gatherRibbonContent()
++{
++    VclPtr<vcl::Window> xWindow
++        = m_xFrame.is() ? VCLUnoHelper::GetWindow(m_xFrame->getContainerWindow()) : nullptr;
++    SystemWindow* pSystem = xWindow ? xWindow->GetSystemWindow() : nullptr;
++    NotebookBar* pBar = pSystem ? pSystem->GetNotebookBar().get() : nullptr;
++    if (!pBar || !pBar->IsVisible()) // classic menus and toolbars: the menu path stays
++        return;
++    TabControl* pTabs = findTabControl(pBar);
++    if (!pTabs)
++        return;
++    // the tabs that are always there first, then the contextual ones (table, image, ...)
++    for (const bool bContextual : { false, true })
++    {
++        for (sal_uInt16 nPos = 0; nPos < pTabs->GetPageCount(); ++nPos)
++        {
++            const sal_uInt16 nId = pTabs->GetPageId(nPos);
++            TabPage* pPage = pTabs->GetTabPage(nId);
++            if (!pPage || pPage->HasContext(vcl::EnumContext::Context::Any) == bContextual)
++                continue;
++            const OUString aTab = pTabs->GetPageText(nId).replaceAll("~", "");
++            if (!aTab.isEmpty())
++                gatherRibbonCommands(*pPage, aTab);
++        }
++    }
++}
++
++void MenuContentHandler::gatherRibbonCommands(vcl::Window& rParent, OUString const& rTab)
++{
++    // groups folded into a "Group ▾" button keep their content as hidden children
++    for (vcl::Window* pChild = rParent.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (ToolBox* pToolBox = dynamic_cast<ToolBox*>(pChild))
++        {
++            for (ToolBox::ImplToolItems::size_type nPos = 0; nPos < pToolBox->GetItemCount(); ++nPos)
++            {
++                if (pToolBox->GetItemType(nPos) != ToolBoxItemType::BUTTON)
++                    continue;
++                const ToolBoxItemId nId = pToolBox->GetItemId(nPos);
++                const OUString aCommand = pToolBox->GetItemCommand(nId);
++                if (aCommand.isEmpty() || !pToolBox->IsItemVisible(nId)
++                    || m_aRibbonIndex.contains(aCommand))
++                    continue;
++                m_aRibbonIndex.emplace(aCommand, m_aRibbon.size());
++                m_aRibbon.push_back(
++                    { aCommand, rTab, pToolBox->GetItemText(nId).replaceAll("~", "").trim() });
++            }
++        }
++        gatherRibbonCommands(*pChild, rTab);
++    }
++}
++
++// HST Office: commands with search keywords that neither the menus nor the ribbon list, e.g. the
++// items of a popup menu built at run time (Sheets "Định dạng có điều kiện ▸ Giá trị trùng lặp",
++// .uno:ConditionalFormatEasy?FormatRule:short=8). Only commands the module has a label for are
++// added, so the commands of another application stay out.
++void MenuContentHandler::addKeywordOnlyContent()
++{
++    std::vector<OUString> aCommands;
++    for (auto const& rKeywords : m_aKeywords)
++    {
++        if (rKeywords.first.startsWith(".uno:") && !m_aIndexed.contains(rKeywords.first))
++            aCommands.push_back(rKeywords.first);
++    }
++    std::sort(aCommands.begin(), aCommands.end()); // the same order at every opening
++    for (OUString const& rCommand : aCommands)
++    {
++        auto aCommandProperties
++            = vcl::CommandInfoProvider::GetCommandProperties(rCommand, m_sModuleLongName);
++        MenuContent aNewContent;
++        aNewContent.m_aCommandURL = rCommand;
++        aNewContent.m_aMenuLabel
++            = vcl::CommandInfoProvider::GetLabelForCommand(aCommandProperties).replaceAll("~", "");
++        if (aNewContent.m_aMenuLabel.isEmpty())
++            continue;
++        aNewContent.m_aFullLabelWithPath = aNewContent.m_aMenuLabel;
++        aNewContent.m_aTooltip = vcl::CommandInfoProvider::GetTooltipForCommand(
++            rCommand, aCommandProperties, m_xFrame);
++        setSearchKeys(aNewContent);
++        m_aMenuContent.m_aSubMenuContent.push_back(std::move(aNewContent));
++    }
++}
++
++void MenuContentHandler::addRibbonOnlyContent()
++{
++    std::u16string_view aSeparator = AllSettings::GetLayoutRTL() ? u" ◂ " : u" ▸ ";
++    for (RibbonCommand const& rRibbon : m_aRibbon)
++    {
++        if (m_aIndexed.contains(rRibbon.m_aCommandURL))
++            continue;
++        MenuContent aNewContent;
++        aNewContent.m_aCommandURL = rRibbon.m_aCommandURL;
++        aNewContent.m_aMenuLabel = rRibbon.m_aLabel;
++        if (rRibbon.m_aCommandURL.startsWith(".uno:"))
++        {
++            auto aCommandProperties = vcl::CommandInfoProvider::GetCommandProperties(
++                rRibbon.m_aCommandURL, m_sModuleLongName);
++            if (aNewContent.m_aMenuLabel.isEmpty())
++                aNewContent.m_aMenuLabel
++                    = vcl::CommandInfoProvider::GetLabelForCommand(aCommandProperties);
++            aNewContent.m_aTooltip = vcl::CommandInfoProvider::GetTooltipForCommand(
++                rRibbon.m_aCommandURL, aCommandProperties, m_xFrame);
++        }
++        if (aNewContent.m_aMenuLabel.isEmpty())
++            continue;
++        aNewContent.m_aFullLabelWithPath = rRibbon.m_aTab + aSeparator + aNewContent.m_aMenuLabel;
++        setSearchKeys(aNewContent);
++        m_aMenuContent.m_aSubMenuContent.push_back(std::move(aNewContent));
++    }
+ }
+ 
+ void MenuContentHandler::setSearchKeys(MenuContent& rContent)
+@@ -206,6 +453,19 @@
+     auto aKeywords = m_aKeywords.find(rContent.m_aCommandURL);
+     if (aKeywords != m_aKeywords.end())
+         rContent.m_aSearchableKeywords = aKeywords->second;
++    if (rContent.m_aCommandURL.isEmpty())
++        return;
++    m_aIndexed.insert(rContent.m_aCommandURL);
++    // HST Office: the place on the ribbon, when the command is there (popup menus are not)
++    auto aRibbon = m_aRibbonIndex.find(rContent.m_aCommandURL);
++    if (aRibbon == m_aRibbonIndex.end())
++        return;
++    RibbonCommand const& rRibbon = m_aRibbon[aRibbon->second];
++    std::u16string_view aSeparator = AllSettings::GetLayoutRTL() ? u" ◂ " : u" ▸ ";
++    rContent.m_aRibbonPath = rRibbon.m_aTab + aSeparator
++                             + (rRibbon.m_aLabel.isEmpty() ? rContent.m_aMenuLabel : rRibbon.m_aLabel);
++    rContent.m_aSearchableRibbonLabel = foldForSearch(rRibbon.m_aLabel);
++    rContent.m_aSearchableMenuLabel += u" " + foldForSearch(rContent.m_aRibbonPath);
+ }
+ 
+ void MenuContentHandler::gatherAddonMenuContent(uno::Reference<container::XNameAccess> const& xItems,
+@@ -316,59 +576,86 @@
+     if (aQuery.isEmpty())
+         return;
+ 
+-    // 1. the item's label starts with the searched text
+-    findInMenuRecursive(m_aMenuContent, aQuery, rpCommandTreeView, rCommandList,
+-                        [](MenuContent const& rContent, OUString const& rSearchText) {
+-                            return rContent.m_aSearchableLabel.startsWith(rSearchText);
+-                        });
+-
+-    // 2. a word of the item's label starts with the searched text
+-    findInMenuRecursive(m_aMenuContent, aQuery, rpCommandTreeView, rCommandList,
+-                        [](MenuContent const& rContent, OUString const& rSearchText) {
+-                            return containsAtWordStart(rContent.m_aSearchableLabel, rSearchText);
+-                        });
+-
+-    // 3. the menu path ("Menu ▸ Submenu ▸ Item") contains the searched text
+-    findInMenuRecursive(m_aMenuContent, aQuery, rpCommandTreeView, rCommandList,
+-                        [](MenuContent const& rContent, OUString const& rSearchText) {
+-                            return rContent.m_aSearchableMenuLabel.indexOf(rSearchText) >= 0;
+-                        });
+-
+-    // 4. a keyword of the command starts with the searched text
+-    findInMenuRecursive(m_aMenuContent, aQuery, rpCommandTreeView, rCommandList,
+-                        [](MenuContent const& rContent, OUString const& rSearchText) {
+-                            return containsAtWordStart(rContent.m_aSearchableKeywords, rSearchText);
+-                        });
+-
+-    // 5. every searched word occurs in the menu path, the tooltip or the keywords
+-    findInMenuRecursive(m_aMenuContent, aQuery, rpCommandTreeView, rCommandList,
+-                        [](MenuContent const& rContent, OUString const& rSearchText) {
+-                            return containsAllWords(rSearchText, rContent.m_aSearchableMenuLabel,
+-                                                    rContent.m_aSearchableTooltip + u" "
+-                                                        + rContent.m_aSearchableKeywords);
+-                        });
+-}
+-
+-void MenuContentHandler::findInMenuRecursive(
+-    MenuContent const& rMenuContent, OUString const& rText,
+-    std::unique_ptr<weld::TreeView>& rpCommandTreeView, std::vector<CurrentEntry>& rCommandList,
+-    std::function<bool(MenuContent const&, OUString const&)> const& rSearchCriterium)
++    // HST Office: best matches first (scoreMatch); equal ranks keep the order of the menus
++    std::vector<std::pair<sal_Int32, MenuContent const*>> aMatches;
++    collectMatches(m_aMenuContent, aQuery, aMatches);
++    std::stable_sort(aMatches.begin(), aMatches.end(),
++                     [](auto const& rA, auto const& rB) { return rA.first > rB.first; });
++    for (auto const& rMatch : aMatches)
++        addCommandIfPossible(*rMatch.second, rpCommandTreeView, rCommandList);
++}
++
++void MenuContentHandler::collectMatches(
++    MenuContent const& rMenuContent, OUString const& rQuery,
++    std::vector<std::pair<sal_Int32, MenuContent const*>>& rMatches)
+ {
+-    for (MenuContent const& aSubContent : rMenuContent.m_aSubMenuContent)
++    for (MenuContent const& rSubContent : rMenuContent.m_aSubMenuContent)
+     {
+-        if (rSearchCriterium(aSubContent, rText))
++        if (const sal_Int32 nScore = scoreMatch(rSubContent, rQuery))
++            rMatches.emplace_back(nScore, &rSubContent);
++        collectMatches(rSubContent, rQuery, rMatches);
++    }
++}
++
++void MenuContentHandler::addSuggestions(std::unique_ptr<weld::TreeView>& rpCommandTreeView,
++                                        std::vector<CurrentEntry>& rCommandList)
++{
++    m_aAdded.clear();
++    std::vector<OUString> aRecent;
++    std::vector<OUString> aSuggested;
++    try
++    {
++        auto xConfig = configuration::ReadOnlyAccess::create(m_xContext, u"*"_ustr);
++        uno::Sequence<OUString> aList;
++        xConfig->getByHierarchicalName(aFeatureSearchNode + "/Recent") >>= aList;
++        const OUString aPrefix = m_sModuleLongName + " ";
++        for (OUString const& rEntry : aList)
++        {
++            if (rEntry.startsWith(aPrefix))
++                aRecent.push_back(rEntry.copy(aPrefix.getLength()));
++        }
++        uno::Reference<container::XNameAccess> xSuggestions(
++            xConfig->getByHierarchicalName(aFeatureSearchNode + "/Suggestions"), uno::UNO_QUERY_THROW);
++        for (OUString const& rName : xSuggestions->getElementNames())
+         {
+-            addCommandIfPossible(aSubContent, rpCommandTreeView, rCommandList);
++            uno::Reference<container::XNameAccess> xEntry(xSuggestions->getByName(rName),
++                                                          uno::UNO_QUERY);
++            if (!xEntry.is()
++                || getAddonProperty<OUString>(xEntry, u"Module"_ustr) != m_sModuleLongName)
++                continue;
++            const uno::Sequence<OUString> aCommands
++                = getAddonProperty<uno::Sequence<OUString>>(xEntry, u"Commands"_ustr);
++            aSuggested.insert(aSuggested.end(), aCommands.begin(), aCommands.end());
+         }
+-        findInMenuRecursive(aSubContent, rText, rpCommandTreeView, rCommandList, rSearchCriterium);
+     }
++    catch (const uno::Exception&)
++    {
++        // the extension that declares the node is not installed: no suggestions
++    }
++
++    auto addRows = [&](std::vector<OUString> const& rCommands, size_t nMax) {
++        const size_t nStart = rCommandList.size();
++        for (OUString const& rCommand : rCommands)
++        {
++            if (rCommandList.size() - nStart >= nMax)
++                break;
++            if (MenuContent const* pContent = findContent(m_aMenuContent, rCommand))
++                addCommandIfPossible(*pContent, rpCommandTreeView, rCommandList);
++        }
++    };
++    addRows(aRecent, nRecentShown);
++    addRows(aSuggested, nSuggestionsShown);
+ }
+ 
+ void MenuContentHandler::addCommandIfPossible(
+     MenuContent const& rMenuContent, const std::unique_ptr<weld::TreeView>& rpCommandTreeView,
+     std::vector<CurrentEntry>& rCommandList)
+ {
+-    if (m_aAdded.find(rMenuContent.m_aFullLabelWithPath) != m_aAdded.end())
++    // HST Office: the place on the ribbon when the command is there, else the menu path
++    const OUString& rShown = rMenuContent.m_aRibbonPath.isEmpty()
++                                 ? rMenuContent.m_aFullLabelWithPath
++                                 : rMenuContent.m_aRibbonPath;
++    if (m_aAdded.find(rShown) != m_aAdded.end())
+         return;
+ 
+     OUString sCommandURL = rMenuContent.m_aCommandURL;
+@@ -382,13 +669,11 @@
+     if (!pViewFrame)
+         return;
+ 
++    const SfxSlot* pSlot = nullptr;
+     if (aCommandURL.Protocol == ".uno:")
++        pSlot = SfxSlotPool::GetSlotPool(pViewFrame).GetUnoSlot(aCommandURL.Path);
++    if (pSlot)
+     {
+-        SfxSlotPool& rSlotPool = SfxSlotPool::GetSlotPool(pViewFrame);
+-        const SfxSlot* pSlot = rSlotPool.GetUnoSlot(aCommandURL.Path);
+-        if (!pSlot)
+-            return;
+-
+         std::unique_ptr<SfxPoolItem> pState;
+         SfxItemState eState = pViewFrame->GetBindings().QueryState(pSlot->GetSlotId(), pState);
+         if (eState == SfxItemState::DISABLED)
+@@ -396,10 +681,12 @@
+     }
+     else
+     {
+-        // HST Office: add-on command (protocol handler of an extension): offered when the
+-        // frame has a dispatcher for it
++        // HST Office: add-on command (protocol handler of an extension), or a command without an
++        // SFX slot that another dispatcher of the frame runs (Slides ".uno:InsertSlide", "Trang
++        // chiếu mới"): offered when the frame has a dispatcher for it. Submenus are not commands.
+         uno::Reference<frame::XDispatchProvider> xProvider(m_xFrame, uno::UNO_QUERY);
+-        if (!xProvider.is() || !xProvider->queryDispatch(aCommandURL, OUString(), 0).is())
++        if (!rMenuContent.m_aSubMenuContent.empty() || !xProvider.is()
++            || !xProvider->queryDispatch(aCommandURL, OUString(), 0).is())
+             return;
+     }
+ 
+@@ -407,10 +694,9 @@
+     rCommandList.emplace_back(sCommandURL, rMenuContent.m_aTooltip);
+ 
+     auto pIter = rpCommandTreeView->make_iterator();
+-    rpCommandTreeView->insert(nullptr, -1, &rMenuContent.m_aFullLabelWithPath, nullptr, nullptr,
+-                              nullptr, false, pIter.get());
++    rpCommandTreeView->insert(nullptr, -1, &rShown, nullptr, nullptr, nullptr, false, pIter.get());
+     rpCommandTreeView->set_image(*pIter, xGraphic);
+-    m_aAdded.insert(rMenuContent.m_aFullLabelWithPath);
++    m_aAdded.insert(rShown);
+ }
+ 
+ OUString MenuContentHandler::toLower(OUString const& rString)
+@@ -451,6 +737,8 @@
+         mpEntry->set_position(-1);
+         ModifyHdl(*mpEntry);
+     }
++    else
++        showSuggestions();
+     mpEntry->grab_focus();
+ }
+ 
+@@ -520,7 +808,10 @@
+ 
+     OUString sText = mpEntry->get_text();
+     if (sText.isEmpty())
++    {
++        showSuggestions();
+         return;
++    }
+ 
+     mpCommandTreeView->freeze();
+     mpMenuContentHandler->findInMenu(sText, mpCommandTreeView, maCommandList);
+@@ -536,6 +827,17 @@
+     mpEntry->grab_focus();
+ }
+ 
++// HST Office: the empty box lists recent and suggested commands; none is selected, so Enter in
++// the empty box runs nothing
++void CommandListBox::showSuggestions()
++{
++    mpCommandTreeView->clear();
++    maCommandList.clear();
++    mpCommandTreeView->freeze();
++    mpMenuContentHandler->addSuggestions(mpCommandTreeView, maCommandList);
++    mpCommandTreeView->thaw();
++}
++
+ // HST Office: the last row, "Find “…” in the document", as the Office feature search offers it
+ void CommandListBox::addFindInDocumentRow(OUString const& rText)
+ {
+@@ -555,10 +857,13 @@
+     // the popover may delete this list box when it closes: only the arguments are used after it
+     const OUString aCommand = rCommand;
+     const OUString aFindText = rFindText;
++    const OUString aModule = mpMenuContentHandler->getModuleName();
+     mxPopover->popdown();
+ 
+     if (aCommand.isEmpty())
+         return;
++    if (aFindText.isEmpty()) // HST Office: listed in the empty box next time
++        rememberCommand(aModule, aCommand);
+     if (!aFindText.isEmpty())
+     {
+         // HST Office: go to the first match, which also makes it the text of Find & Replace

@@ -3,8 +3,9 @@
 import unohelper
 
 from . import diag_log
-from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_duplex, nd30_layout, nd30_open, nd30_writer,
-               blank_rows_calc, number_words_action, sheets, vba, vietnamese_calc)
+from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_duplex, nd30_insertion, nd30_layout,
+               nd30_open, nd30_writer, blank_rows_calc, number_words_action, sheets, vba, vietnamese_calc)
+from . import citation_command_names, open_in_hst_pdf
 from .dialogs import message_box
 from .wizard_convert import ConvertWizard
 from .wizard_csv import CsvWizard
@@ -38,10 +39,10 @@ class Host:
 def nd30_wizard(host):
     if not host.is_writer():
         return
-    cursor = host.controller.getViewCursor()
-    reasons = nd30_writer.check_insertion_point(host.doc, cursor)
+    reasons = nd30_insertion.insertion_point(host.doc, host.controller)["reasons"]  # never the view cursor's text methods
     if reasons:
         return host.refuse(reasons)
+    cursor = host.controller.getViewCursor()
     choice = Nd30Wizard(host.ctx, host.s).run(host.peer)
     if choice is None:
         return  # Cancel: nothing was written
@@ -54,7 +55,7 @@ def nd30_wizard(host):
         return host.refuse(result["blockers"])
     if nd30_duplex.applies_to(layout, choice):  # after the page layout: it decides left/right pages
         nd30_duplex.apply(host.doc, cursor, bool(choice.get("duplex")), layout.get("profile", "nd30"))
-    note = host.s["nd30"]["inserted"]
+    note = host.s["nd30"]["inserted"] + ("\n" + host.s["nd30"]["afterTable"] if result["afterTable"] else "")
     if result["page"] and result["page"]["headerSkipped"]:
         note += "\n" + host.s["nd30"]["headerSkipped"]
     if fonts.is_font_missing(host.ctx, "Times New Roman"):
@@ -77,7 +78,7 @@ def convert_encoding(host):
         return convert_calc_action.run(host)
     if not host.is_writer():
         return
-    rng, reasons = encoding_writer.check_selection(host.doc, host.controller.getSelection())
+    rng, reasons = encoding_writer.check_selection(host.doc, host.controller)
     if reasons:
         return host.refuse(reasons)
     items, skipped, protected = encoding_writer.collect(rng)
@@ -166,6 +167,14 @@ def previous_versions(host):
     run(host.ctx, host.frame)
 
 
+def citation_command(name):
+    """Trích dẫn commands: the citation code is imported only when one of them runs."""
+    def run(host):
+        from . import citation_actions
+        return citation_actions.COMMANDS[name](host)
+    return run
+
+
 COMMANDS = {
     "Nd30Wizard": nd30_wizard,
     "ToggleDuplex": toggle_duplex,
@@ -179,9 +188,11 @@ COMMANDS = {
     "ImportCsv": import_csv,
     "EditVba": vba.run,
     "NumberToWords": number_words_action.run,
+    "OpenInHstPdf": open_in_hst_pdf.run,  # Xuất/PDF ▸ Mở trong HST PDF (HST Draw's ribbon)
     "RemoveDiacritics": sheet_utility(vietnamese_calc.remove_diacritics),
     "SplitName": sheet_utility(vietnamese_calc.split_name),
     "SortByGivenName": sheet_utility(vietnamese_calc.sort_by_given_name),
     "DeleteBlankRows": sheet_utility(blank_rows_calc.delete_blank_rows),
     "PreviousVersions": previous_versions,
+    **{name: citation_command(name) for name in citation_command_names.NAMES},
 }

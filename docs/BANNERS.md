@@ -33,12 +33,16 @@ achieves at least 5.88:1. Its warm green hue is 80.60° away from eChatbot's blu
 blue-grey `#f3f6f9` tint (13.32:1 ink contrast); the logo sources document records
 its similarity to HST SEO blue and the visual-review recommendation. The eChatbot
 source update requires regeneration of the banner PNGs, manifests and preview.
-Its wide card also uses the optional `illustration` filename in `brands.json`, resolved
-under `banners/logos/`: the official chibi mascot occupies a 104px square at the right,
-with a 10px gap from the 230px text column. The complete tagline remains two lines;
-CTA and HASON TECH stay beside one another below it. The renderer checks text/mascot
-separation. The 160×104 compact card omits the illustration to preserve readable text.
-Other brands omit this field and retain their existing layout.
+Wide cards opt into artwork through the `illustration` filename in `brands.json`, resolved
+under `banners/logos/`. eChatbot keeps its official chibi mascot unchanged. The other six
+cards use original glossy 3D `<id>-illustration.png` assets: 312×312 RGBA PNGs with transparent
+backgrounds, each under 110 KB. Each illustration occupies a 104px square at the right,
+with a 10px gap from the 230px text column. The new illustrated cards balance tagline lines;
+the company CTA uses slightly tighter letter spacing to retain its footer gap.
+The renderer checks text/illustration separation. The 160×104 compact cards omit illustrations
+to preserve readable text. Regenerate the PNGs, manifests and previews after changing these inputs.
+AI Dễ Lắm's logo is the official “Ai + sparkle” mark extracted from its website's `og:image`; the logo
+sources document records the extraction.
 HST Post's full logo derives
 from the owner-supplied official 476×393 file, with extracted all-caps dark lettering.
 [Logo comparison](design/hst-post-logo-preview.png) shows the logo, square icon and original together.
@@ -56,7 +60,7 @@ python3 -m venv .venv
 
 The [renderer](../scripts/brand/render-banners.py) uses the committed
 [HTML template](../extensions/hst-vietnamese-tools/banners/template.html), logos,
-fonts and palette. Rendering itself is offline. It writes 21 PNGs, both previews,
+fonts and palette. Rendering itself is offline. It writes 42 PNGs (wide and compact), both previews,
 the bundled manifest and the complete online example. `--check` compares regeneration
 byte-for-byte (use the pinned Playwright Chromium on Linux for the reference output).
 `generatedAt` for bundled artwork is intentionally fixed in the renderer; update it when
@@ -116,6 +120,10 @@ copy `extensions/hst-vietnamese-tools/banners/*@?x.png` to the server's
 `/hst-office/banners/` directory, and use the example as `banners.json`.
 It lists all six current solutions followed by the company card; e.g. AIOS `image.2x.url` is
 `https://system.hasontech.vn/hst-office/banners/aios@2x.png`.
+The live feed names each image `<id>-<first 12 hex of sha256>@<scale>x.png` instead.
+The installed defaults must equal the live set (generation `2026-11-14T09:13:27Z` since 1.0.2):
+[test_banner_bundled_matches_live.py](../tests/unit/test_banner_bundled_matches_live.py) checks the bundled
+manifest and PNGs against a signed snapshot of the live feed (`HST_LIVE_BANNERS=1` also queries the server).
 To change a campaign, update images, hashes, sizes, copy, order and optional windows together;
 set `generatedAt` to the new UTC publication timestamp. Upload immutable images first,
 then publish the manifest/signature pair atomically. Serve raw bytes without compression
@@ -166,13 +174,15 @@ open one browser tab.
 
 Owner decision of 12/11/2026, from HST Office 1.0.2. The report below is contract v1 with the server.
 
-**What one display is.** A card is drawn in a visible window (not minimized, the banner slot of the ribbon shown, its
+**What one display is.** A card is drawn in a visible window (not minimized, the banner slot shown, its
 image decoded) and stays there for at least one second. Each rotation to another card is a new display; a window that
 keeps one card counts it once until the card changes. Redrawing the same card (rescaling, the switch between wide and
 compact artwork, a one-item rotation) does not count again; a card replaced within the second is not counted. The
 [widget](#ribbon-widget) checks at the start and at the end of the second, and again every second while a card waits
 in a hidden slot or a minimized window. It then calls `org.hst.office.BannerFeed` with `NamedValue("Shown", id)` on a
-short worker thread, so the UI thread never calls Python.
+short worker thread, so the UI thread never calls Python. Every placement (ribbon, window border, top docking area,
+HST PDF) counts through the same engine in the same way; each window's banner counts its own displays, from the one
+shared set of banners.
 
 **Local counts.** [banner_impressions.py](../extensions/hst-vietnamese-tools/python/hst_office/banner_impressions.py)
 adds the display in memory and merges the counts into `$(user)/hst-banners/impressions.json` at most every 60 seconds
@@ -180,7 +190,8 @@ adds the display in memory and merges the counts into `$(user)/hst-banners/impre
 banner id and a number: `{"schemaVersion":1,"days":{"2026-11-12":{"aios":34,"hst-post":12}}}`. It keeps at most 7 days
 (today − 6 … today + 1, so a clock that was set back leaves no far-future day), 24 ids per day and 5000 per id and day.
 Writes are atomic under the kernel lock `impressions.lock`, shared by every office process of the profile; a read-only
-profile keeps the counts in memory only. While `SendInstallId` is off nothing is counted.
+profile keeps the counts in memory only. Counting always runs: it does not depend on `SendInstallId` or any other
+setting and cannot be turned off (owner decision 2026-11-14).
 
 **Report.** [banner_impressions_report.py](../extensions/hst-vietnamese-tools/python/hst_office/banner_impressions_report.py)
 sends the stored counts within the feed's attempt of at most once per 86,400 seconds (the same stamp and lock, after
@@ -206,14 +217,14 @@ does not store the IP address. Answer handling:
 | 413 | the oldest sent day is removed |
 | 429, 5xx, any other status, no answer (DNS, TLS, timeout, redirect) | kept for the next daily attempt, until they are 7 days old |
 
-**When nothing is sent.** No report is made when `SendInstallId` is false, without a valid banner public key (the
+**When nothing is sent.** No report is made without a valid banner public key (the
 bundled-only path, which makes no banner requests at all), from test-stamped packages or with a `FeedURL` testing
 override (counts stay local and expire), or when there is nothing to send.
 
-**How to stop it.** Untick **Gửi mã máy ẩn danh khi kiểm tra cập nhật** in Công cụ ▸ Tùy chọn ▸ HST Office ▸ Cập nhật
-(`/org.openoffice.Office.HSTUpdate/SendInstallId` = `false`; administrators can lock it, [UPDATE_ADMIN](UPDATE_ADMIN.md)).
-Unticking stops counting and sending at once; ticking it again takes effect at the next start at the latest. Counts stored earlier
-stay in `impressions.json` and are not sent while the box is unticked; they expire after 7 days, or delete the file.
+**No opt-out.** The display report is always on (owner decision 2026-11-14). It is independent of the anonymous install
+ID box (**Gửi mã máy ẩn danh**, `/org.openoffice.Office.HSTUpdate/SendInstallId`), which affects only the update check
+and error reports: the report holds aggregate per-day, per-banner counts and no machine ID. Counts that were stored
+earlier expire after 7 days if they cannot be sent.
 
 ## Runtime, cache and privacy
 
@@ -243,7 +254,7 @@ manifest endpoint for testing. Empty, non-HTTPS, credentialed, nonstandard-port 
 values are ignored. A valid HTTPS override may use a testing origin outside the content
 allow-list, but signatures and every item/image URL still obey production rules.
 There are no environment overrides, hide keys, administrator disable keys, app-specific
-feeds or dependencies on update-check enable/disable preferences; only the display report follows `SendInstallId`
+feeds or dependencies on update-check enable/disable preferences, `SendInstallId` included
 ([Display counting](#display-counting)). Standard office proxy
 settings are reused solely for transport.
 
@@ -292,9 +303,31 @@ the response size for the same selected banner and scale.
 
 ## Ribbon widget
 
-Implemented by [hst-ribbon-banner.patch](../patches/libreoffice/hst-ribbon-banner.patch)
-(`sfx2/source/notebookbar/HstRibbonBanner.cxx`, `HstBannerGeometry.hxx`), a plain VCL control owned by
-`NotebookbarTabControl`, for `notebookbar.ui` of Writer, Calc and Impress only (not Draw or the compact variants).
+Every document window of Writer, Calc, Impress and Draw shows the banner in every user interface, and HST PDF
+shows it in its toolbar strip (owner decision 14/11/2026, [hst-banner-always-visible.patch](../patches/libreoffice/hst-banner-always-visible.patch)).
+There is no user or administrator setting to hide it, and choosing another user interface (View ▸ User
+Interface), hiding, customizing or locking toolbars does not remove it. It always draws its artwork, never a
+text card, at least 260 × 75 logical px (the artwork's 360:104 ratio); only its size changes, never its style.
+Full screen hides it with the rest of the window's chrome; the Start Center keeps its own banner.
+
+One engine, `hst::banner::Core` (`vcl/source/control/HstBannerCore.*`: content, rotation, display counting,
+click, painting), has two views (`include/vcl/HstBanner.hxx`): `HstRibbonBanner`, a VCL control, and
+`HstBannerWidget`, a weld drawing area. Where it sits:
+
+| User interface | Placement | Owner |
+|---|---|---|
+| Tabbed (`notebookbar.ui`), all four apps (Draw included since [hst-ribbon-banner.patch](../patches/libreoffice/hst-ribbon-banner.patch)) | right end of the tab page, beside the 2-row groups (rules below) | sfx2 `NotebookbarTabControl` |
+| Tabbed compact, Groupedbar compact, Contextual single | right end of the notebookbar's strip; the bar takes the width left of it, centred vertically; the strip is at least 79 logical px high | vcl `ImplBorderWindow` (the window border), unless `NotebookBar::HstHasOwnBanner()` |
+| Standard, Single, Sidebar (toolbars) | right end of the top docking area, at least 79 logical px high also without any toolbar; the toolbar rows take the width left of it, centred vertically beside it | framework `ToolbarLayoutManager` |
+| HST PDF | right end of the toolbar strip; the controls stand in two even rows on the left | `PdfViewerWindow` (`HstBannerWidget`) |
+
+The window border and the toolbar layout are not toolbars: View ▸ Toolbars, toolbar customization and locking
+do not reach them, and the banner shows even when no toolbar is shown. The docking-area banner belongs to the
+top-level windows of the four document modules only (not Base, Math, the Basic IDE or embedded objects).
+There is no ribbon collapse (double-click on a tab or Ctrl+F1) in HST Office; the one-row tabbed compact
+interface is the collapsed case and gets the strip above.
+
+Rules of the Tabbed ribbon slot:
 
 - **The slot adapts to the ribbon, never the reverse.** It is not part of the ribbon layout: height = height of
   the tab page that already holds the 2-row groups minus 2 px margins per scale step; width = height × 360/104,
@@ -302,8 +335,9 @@ Implemented by [hst-ribbon-banner.patch](../patches/libreoffice/hst-ribbon-banne
   width minus an 8 px gap, so groups fold into their `»` menu as usual; the right-hand block of the tab folds first (`hst-ribbon-fold.patch`). Ribbon and group heights do not change.
 - **Images never change the slot.** Any pixel size is aspect-fitted, centred, with a high-quality downscale cached
   per device size. The requested variant is the exact @1x/@2x/@3x for the device height, else the next larger one.
-  Device scale = VCL DPI factor × cairo surface scale on gtk; 2 on macOS, where it cannot be queried from sfx2.
-- **Hidden below 1280 logical px of window width**; the page gets its full width back and rotation stops.
+  Device scale = VCL DPI factor × cairo surface scale on gtk; 2 on macOS, where it cannot be queried from vcl.
+- **Never hidden on the two-row ribbon**: in narrow windows the slot narrows (ratio kept) down to 260 logical px
+  and the groups fold beside it ([hst-ribbon-banner-narrow.patch](../patches/libreoffice/hst-ribbon-banner-narrow.patch)).
 - **Data:** a worker thread reads the installed defaults once for the first paint, then calls
   `org.hst.office.BannerFeed`; the UI thread never touches Python, the cache or the network. Results are posted to
   the main thread, which decodes the image. If the service fails, the widget reads `data/banners.json`,
@@ -321,7 +355,16 @@ Implemented by [hst-ribbon-banner.patch](../patches/libreoffice/hst-ribbon-banne
   tabs of a tab control (`vclxaccessibletabcontrol.cxx`). The whole ribbon is now reachable by screen readers.
 - **Dark mode:** when the window or dialog colour is dark, the artwork sits on a light rounded card (`#F4F6F9`).
 
-Checks: `tests/unit/test_ribbon_banner_geometry.py` compiles the geometry header from the patch.
+Checks: `tests/unit/test_ribbon_banner_geometry.py` compiles the geometry header from the patch;
+`tests/unit/test_banner_always_visible.py` compiles the strip geometry and checks every placement.
+`tests/runtime/check-banner-everywhere.py` is the regression check: it chooses every user interface of every app
+and opens HST PDF, at 1366×768 and 1920×1080, and fails when a case shows no banner, two, one smaller than
+260 × 75 or one that is not a bundled artwork:
+
+```sh
+python3 tests/runtime/check-banner-everywhere.py --instdir /path/to/instdir --display :171 --shots DIR
+```
+
 `tests/runtime/check-ribbon-banner.py` drives the real GUI under Xvfb and gtk3 (needs a running display, and a second
 one of at least 3000×1820 for `--display-hidpi`; `--baseline-instdir` compares with a build without the banner):
 
@@ -334,7 +377,7 @@ python3 tests/runtime/check-ribbon-banner.py --baseline-instdir /path/to/instdir
 Use the already registered service **`org.hst.office.BannerFeed`**, implementing
 `com.sun.star.task.XJob`. No new IDL or Python script-provider installation is needed.
 Create it with the normal office component context and call `execute` on the main thread.
-It shares the same feed instance with the startup job and all Writer/Calc/Impress frames.
+It shares the same feed instance with the startup job and all Writer, Calc, Impress and Draw windows and HST PDF.
 
 ```cpp
 // With normal UNO headers and namespace alias css = com::sun::star.

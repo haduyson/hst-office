@@ -1,0 +1,2780 @@
+HST Office: the Sheets "Conditional Formatting" dropdown laid out like the familiar office suite.
+
+The Home ribbon button, Format > Conditional and the formatting toolbar dropdown read
+sc/uiconfig/scalc/popupmenu/conditional.xml (ResourceMenuController "conditional"), so all three show:
+- Highlight Cells Rules: Greater Than, Less Than, Between, Equal To, Text that Contains (the quick dialog,
+  .uno:ConditionalFormatEasy?FormatRule), A Date Occurring (the date rule dialog), Duplicate Values (new,
+  FormatRule 8: the quick dialog switches between duplicate and unique values).
+- Top/Bottom Rules: top/bottom 10 items and 10 %, above/below average (FormatRule 11, 13, 12, 14, 15, 16;
+  the count starts at 10).
+- Data Bars, Color Scales, Icon Sets: the ready-made presets of DataBarFormatDialog, ColorScaleFormatDialog,
+  IconSetFormatDialog?IconSet=n, and "More Rules" (IconSet=-1) opens the rule dialog of that kind. A preset on a
+  range that already has a format keeps its other rules and only replaces a rule of its own kind.
+- New Rule (ConditionalFormatDialog), Clear Rules from the selected cells or the entire sheet (new slot
+  .uno:HstConditionalFormatClear?Scope=0|1, with undo), Manage Rules.
+The quick dialog lists ready-made styles first ("Light Red Fill with Dark Red Text" by default, yellow, green);
+the chosen one becomes a cell style of the document on first use (one undo step with the rule), and .xlsx
+export writes it as the dxf of the rule. Its description no longer reads "values values".
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_calc_conditional_format_menu.py.
+---
+--- a/officecfg/registry/data/org/openoffice/Office/UI/CalcCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/CalcCommands.xcu
+@@ -744,7 +744,7 @@
+           <value xml:lang="en-US">Conditional Formatting: More Rules</value>
+         </prop>
+         <prop oor:name="ContextLabel" oor:type="xs:string">
+-          <value xml:lang="en-US">More rules...</value>
++          <value xml:lang="en-US">~New Rule...</value>
+         </prop>
+         <prop oor:name="Properties" oor:type="xs:int">
+           <value>1</value>
+@@ -806,12 +806,603 @@
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Manage...</value>
+         </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">~Manage Rules...</value>
++        </prop>
+       </node>
+       <node oor:name=".uno:CurrentConditionalFormatManagerDialog" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Manage Conditional Formatting...</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:ConditionalFormatEasy?FormatRule:short=8" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Conditional Formatting: Duplicate Values</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">~Duplicate Values...</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ConditionalFormatEasy?FormatRule:short=11" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Conditional Formatting: Top 10 Items</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">~Top 10 Items...</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ConditionalFormatEasy?FormatRule:short=13" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Conditional Formatting: Top 10%</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Top 1~0%...</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ConditionalFormatEasy?FormatRule:short=12" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Conditional Formatting: Bottom 10 Items</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">~Bottom 10 Items...</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ConditionalFormatEasy?FormatRule:short=14" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Conditional Formatting: Bottom 10%</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Bottom ~10%...</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ConditionalFormatEasy?FormatRule:short=15" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Conditional Formatting: Above Average</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">~Above Average...</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ConditionalFormatEasy?FormatRule:short=16" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Conditional Formatting: Below Average</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Be~low Average...</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataBarFormatDialog?IconSet:short=0" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data Bar: Blue, Gradient Fill</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Blue Gradient Fill</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataBarFormatDialog?IconSet:short=1" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data Bar: Green, Gradient Fill</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Green Gradient Fill</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataBarFormatDialog?IconSet:short=2" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data Bar: Red, Gradient Fill</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Red Gradient Fill</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataBarFormatDialog?IconSet:short=3" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data Bar: Orange, Gradient Fill</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Orange Gradient Fill</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataBarFormatDialog?IconSet:short=4" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data Bar: Light Blue, Gradient Fill</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Light Blue Gradient Fill</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataBarFormatDialog?IconSet:short=5" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data Bar: Purple, Gradient Fill</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Purple Gradient Fill</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataBarFormatDialog?IconSet:short=6" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data Bar: Blue, Solid Fill</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Blue Solid Fill</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataBarFormatDialog?IconSet:short=7" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data Bar: Green, Solid Fill</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Green Solid Fill</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataBarFormatDialog?IconSet:short=8" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data Bar: Red, Solid Fill</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Red Solid Fill</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataBarFormatDialog?IconSet:short=9" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data Bar: Orange, Solid Fill</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Orange Solid Fill</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataBarFormatDialog?IconSet:short=10" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data Bar: Light Blue, Solid Fill</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Light Blue Solid Fill</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataBarFormatDialog?IconSet:short=11" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data Bar: Purple, Solid Fill</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Purple Solid Fill</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:DataBarFormatDialog?IconSet:short=-1" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Data Bar: More Rules</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">~More Rules...</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ColorScaleFormatDialog?IconSet:short=0" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color Scale: green high, yellow middle, red low</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Green - Yellow - Red</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ColorScaleFormatDialog?IconSet:short=1" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color Scale: red high, yellow middle, green low</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Red - Yellow - Green</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ColorScaleFormatDialog?IconSet:short=2" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color Scale: green high, white middle, red low</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Green - White - Red</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ColorScaleFormatDialog?IconSet:short=3" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color Scale: red high, white middle, green low</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Red - White - Green</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ColorScaleFormatDialog?IconSet:short=4" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color Scale: blue high, white middle, red low</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Blue - White - Red</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ColorScaleFormatDialog?IconSet:short=5" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color Scale: red high, white middle, blue low</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Red - White - Blue</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ColorScaleFormatDialog?IconSet:short=6" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color Scale: white high, red low</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">White - Red</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ColorScaleFormatDialog?IconSet:short=7" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color Scale: red high, white low</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Red - White</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ColorScaleFormatDialog?IconSet:short=8" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color Scale: white high, green low</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">White - Green</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ColorScaleFormatDialog?IconSet:short=9" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color Scale: green high, white low</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Green - White</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ColorScaleFormatDialog?IconSet:short=10" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color Scale: yellow high, green low</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Yellow - Green</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ColorScaleFormatDialog?IconSet:short=11" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color Scale: green high, yellow low</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Green - Yellow</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:ColorScaleFormatDialog?IconSet:short=-1" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color Scale: More Rules</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">~More Rules...</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=0" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 3 Arrows (Colored)</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">3 Arrows (Colored)</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=1" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 3 Arrows (Gray)</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">3 Arrows (Gray)</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=10" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 3 Triangles</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">3 Triangles</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=12" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 4 Arrows (Colored)</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">4 Arrows (Colored)</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=17" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 5 Arrows (Colored)</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">5 Arrows (Colored)</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=3" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 3 Traffic Lights</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">3 Traffic Lights</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=5" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 3 Signs</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">3 Signs</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=16" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 4 Traffic Lights</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">4 Traffic Lights</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=14" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: Red To Black</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Red To Black</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=6" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 3 Symbols (Circled)</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">3 Symbols (Circled)</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=7" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 3 Symbols (Uncircled)</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">3 Symbols (Uncircled)</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=2" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 3 Flags</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">3 Flags</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=9" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 3 Stars</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">3 Stars</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=15" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 4 Ratings</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">4 Ratings</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=19" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 5 Ratings</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">5 Ratings</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=20" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 5 Quarters</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">5 Quarters</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=21" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: 5 Boxes</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">5 Boxes</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:IconSetFormatDialog?IconSet:short=-1" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Icon Set: More Rules</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">~More Rules...</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstConditionalFormatClear" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Clear Conditional Formatting Rules</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstConditionalFormatClear?Scope:short=0" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Clear Conditional Formatting Rules from Selected Cells</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Clear Rules from ~Selected Cells</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstConditionalFormatClear?Scope:short=1" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Clear Conditional Formatting Rules from Entire Sheet</value>
++        </prop>
++        <prop oor:name="ContextLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Clear Rules from ~Entire Sheet</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:Deselect" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Undo Selection</value>
+@@ -2696,6 +3287,36 @@
+           <value xml:lang="en-US">Delete Page ~Break</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HstConditionalFormatHighlightMenu" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">~Highlight Cells Rules</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstConditionalFormatTopBottomMenu" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">~Top/Bottom Rules</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstConditionalFormatDataBarMenu" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">~Data Bars</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstConditionalFormatColorScaleMenu" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Color ~Scales</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstConditionalFormatIconSetMenu" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">~Icon Sets</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstConditionalFormatClearMenu" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">~Clear Rules</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:FillCellsMenu" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">F~ill Cells</value>
+--- a/sc/inc/sc.hrc
++++ b/sc/inc/sc.hrc
+@@ -242,6 +242,7 @@
+ #define SID_SPARKLINE_DATA_RANGE_DIALOG     (SC_MESSAGE_START + 90)
+ #define SID_POPUP_EASY_CONDITIONAL_FORMAT   (SC_MESSAGE_START + 91)
+ #define SID_EASY_CONDITIONAL_FORMAT_DIALOG  (SC_MESSAGE_START + 92)
++#define SID_HST_CONDFORMAT_CLEAR            (SC_MESSAGE_START + 93)
+ 
+ // functions
+ 
+--- a/sc/inc/strings.hrc
++++ b/sc/inc/strings.hrc
+@@ -434,6 +434,10 @@
+ #define STR_CONDITION_THISYEAR                     NC_("STR_CONDITION_THISYEAR", "date is in this year")
+ #define STR_CONDITION_LASTYEAR                     NC_("STR_CONDITION_LASTYEAR", "date is in last year")
+ #define STR_CONDITION_NEXTYEAR                     NC_("STR_CONDITION_NEXTYEAR", "date is in next year")
++// HST: ready-made cell styles of the quick conditional formatting dialog, created on first use
++#define STR_HST_CONDFORMAT_STYLE_LIGHT_RED          NC_("STR_HST_CONDFORMAT_STYLE_LIGHT_RED", "Light Red Fill with Dark Red Text")
++#define STR_HST_CONDFORMAT_STYLE_YELLOW             NC_("STR_HST_CONDFORMAT_STYLE_YELLOW", "Yellow Fill with Dark Yellow Text")
++#define STR_HST_CONDFORMAT_STYLE_GREEN              NC_("STR_HST_CONDFORMAT_STYLE_GREEN", "Green Fill with Dark Green Text")
+ #define STR_DUPLICATERECORDSDLG_WARNING                NC_("STR_DUPLICATERECORDS_WARNING", "Warning!")
+ #define STR_DUPLICATERECORDSDLG_NODATAFOUND            NC_("STR_DUPLICATERECORDS_NODATAFOUND", "No data found to operate on.")
+ #define STR_DUPLICATERECORDS_DATACONATINSROWHEADERS    NC_("STR_DUPLICATERECORDS_DATACONATINSROWHEADERS", "Data contains row headers")
+--- a/sc/sdi/cellsh.sdi
++++ b/sc/sdi/cellsh.sdi
+@@ -228,6 +228,7 @@
+         ExecMethod = Execute;
+         StateMethod = GetState;
+     ]
++    SID_HST_CONDFORMAT_CLEAR            [ ExecMethod = Execute; ]
+     SID_COLUMN_OPERATIONS               [ ExecMethod = ExecuteEdit; StateMethod = GetBlockState; ]
+     SID_ROW_OPERATIONS                  [ ExecMethod = ExecuteEdit; StateMethod = GetBlockState; ]
+     SID_OPENDLG_CURRENTCONDFRMT         [ ExecMethod = ExecuteEdit; StateMethod = GetState; ]
+--- a/sc/sdi/scalc.sdi
++++ b/sc/sdi/scalc.sdi
+@@ -751,6 +751,23 @@
+     GroupId = SfxGroupId::Format;
+ ]
+ 
++SfxVoidItem HstConditionalFormatClear SID_HST_CONDFORMAT_CLEAR
++(SfxInt16Item Scope FN_PARAM_1)
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
+ SfxVoidItem ConditionalFormatDialog SID_OPENDLG_CONDFRMT
+ ()
+ [
+--- a/sc/source/ui/condformat/condformateasydlg.cxx
++++ b/sc/source/ui/condformat/condformateasydlg.cxx
+@@ -8,38 +8,58 @@
+  */
+ 
+ #include <docfunc.hxx>
++#include <docsh.hxx>
+ #include <condformateasydlg.hxx>
+ #include <stlpool.hxx>
+ #include <viewdata.hxx>
+ #include <reffact.hxx>
+ #include <scresid.hxx>
++#include <scitems.hxx>
++#include <tabvwsh.hxx>
++#include <undostyl.hxx>
++#include <patattr.hxx>
++#include <editeng/brushitem.hxx>
++#include <editeng/colritem.hxx>
+ #include <svl/style.hxx>
++#include <svl/undo.hxx>
+ #include <vcl/weld/Dialog.hxx>
++#include <globstr.hrc>
+ #include <strings.hrc>
+ 
++#include <algorithm>
++#include <iterator>
++#include <set>
++
+ namespace
+ {
+-void FillStyleListBox(const ScDocument* pDocument, weld::ComboBox& rCombo)
+-{
+-    std::set<OUString> aStyleNames;
+-    SfxStyleSheetIterator aStyleIter(pDocument->GetStyleSheetPool(), SfxStyleFamily::Para);
+-    for (SfxStyleSheetBase* pStyle = aStyleIter.First(); pStyle; pStyle = aStyleIter.Next())
+-    {
+-        aStyleNames.insert(pStyle->GetName());
+-    }
+-    for (const auto& rStyleName : aStyleNames)
+-    {
+-        rCombo.append_text(rStyleName);
+-    }
++// HST: the ready-made styles of the familiar office suite's quick rules. They become cell styles
++// of the document only when chosen; .xlsx export writes the style as the dxf of the rule.
++struct PresetStyle
++{
++    TranslateId aName;
++    Color aFill;
++    Color aText;
++};
++
++constexpr PresetStyle aPresetStyles[] = {
++    { STR_HST_CONDFORMAT_STYLE_LIGHT_RED, Color(0xFFC7CE), Color(0x9C0006) },
++    { STR_HST_CONDFORMAT_STYLE_YELLOW, Color(0xFFEB9C), Color(0x9C5700) },
++    { STR_HST_CONDFORMAT_STYLE_GREEN, Color(0xC6EFCE), Color(0x006100) },
++};
++
++const PresetStyle* FindPresetStyle(std::u16string_view rName)
++{
++    auto it = std::find_if(std::begin(aPresetStyles), std::end(aPresetStyles),
++                           [rName](const PresetStyle& rPreset) {
++                               return ScResId(rPreset.aName) == rName;
++                           });
++    return it == std::end(aPresetStyles) ? nullptr : &*it;
+ }
+ 
+-void UpdateStyleList(const ScDocument* pDocument, weld::ComboBox& rCombo)
++bool IsTopBottom(ScConditionMode eMode)
+ {
+-    OUString sSelectedStyle = rCombo.get_active_text();
+-    for (sal_Int32 i = rCombo.get_count(); i > 1; --i)
+-        rCombo.remove(i - 1);
+-    FillStyleListBox(pDocument, rCombo);
+-    rCombo.set_active_text(sSelectedStyle);
++    return eMode == ScConditionMode::Top10 || eMode == ScConditionMode::Bottom10
++           || eMode == ScConditionMode::TopPercent || eMode == ScConditionMode::BottomPercent;
+ }
+ }
+ 
+@@ -47,7 +67,7 @@
+ {
+ void ConditionalFormatEasyDialog::SetDescription(std::u16string_view rCondition)
+ {
+-    mxDescription->set_label(mxDescription->get_label().replaceAll("%1", rCondition));
++    mxDescription->set_label(msDescriptionTemplate.replaceAll("%1", rCondition));
+ }
+ 
+ ConditionalFormatEasyDialog::ConditionalFormatEasyDialog(SfxBindings* pBindings,
+@@ -59,6 +79,7 @@
+                             u"CondFormatEasyDlg"_ustr)
+     , mrViewData(rViewData)
+     , mrDocument(mrViewData.GetDocument())
++    , mxDuplicateMode(m_xBuilder->weld_combo_box(u"duplicateMode"_ustr))
+     , mxNumberEntry(m_xBuilder->weld_entry(u"entryNumber"_ustr))
+     , mxNumberEntry2(m_xBuilder->weld_entry(u"entryNumber2"_ustr))
+     , mxAllInputs(m_xBuilder->weld_container(u"allInputs"_ustr))
+@@ -70,6 +91,7 @@
+     , mxButtonCancel(m_xBuilder->weld_button(u"cancel"_ustr))
+ {
+     mxButtonRangeEdit->SetReferences(this, mxRangeEntry.get());
++    msDescriptionTemplate = mxDescription->get_label();
+     const ScConditionMode* pCurrentMode
+         = rViewData.GetDocument().GetEasyConditionalFormatDialogData();
+     if (!pCurrentMode)
+@@ -83,7 +105,42 @@
+     {
+         meMode = *pCurrentMode;
+     }
++    ApplyMode();
++    // HST: the familiar office suite starts its top/bottom rules at 10
++    if (IsTopBottom(meMode))
++        mxNumberEntry->set_text(u"10"_ustr);
++
++    mxButtonOk->connect_clicked(LINK(this, ConditionalFormatEasyDialog, ButtonPressed));
++    mxButtonCancel->connect_clicked(LINK(this, ConditionalFormatEasyDialog, ButtonPressed));
++    mxDuplicateMode->connect_changed(LINK(this, ConditionalFormatEasyDialog, DuplicateModeChanged));
++
++    ScRangeList aRange;
++    mrViewData.GetMarkData().FillRangeListWithMarks(&aRange, false);
++    if (aRange.empty())
++    {
++        ScAddress aPosition(mrViewData.GetCurX(), mrViewData.GetCurY(),
++                            mrViewData.CurrentTabForData());
++        aRange.push_back(ScRange(aPosition));
++    }
++    maPosition = aRange.GetTopLeftCorner();
++
++    OUString sRangeString;
++    aRange.Format(sRangeString, ScRefFlags::VALID, mrDocument, mrDocument.GetAddressConvention());
++    mxRangeEntry->SetText(sRangeString);
++
++    StartListening(*(mrDocument.GetStyleSheetPool()), DuplicateHandling::Prevent);
++    // HST: "Light Red Fill with Dark Red Text" is the first entry and the default, as in the
++    // familiar office suite (upstream picked the second style of the alphabetical list)
++    FillStyles();
++}
++
++ConditionalFormatEasyDialog::~ConditionalFormatEasyDialog() {}
++
++void ConditionalFormatEasyDialog::ApplyMode()
++{
++    mxNumberEntry->show();
+     mxNumberEntry2->hide();
++    mxDuplicateMode->hide();
+     switch (meMode)
+     {
+         case ScConditionMode::Equal:
+@@ -112,13 +169,16 @@
+             SetDescription(ScResId(STR_CONDITION_NOT_BETWEEN));
+             mxNumberEntry2->show();
+             break;
++        // HST: the value entries hide, the style choice stays; duplicate and unique switch here
+         case ScConditionMode::Duplicate:
+-            SetDescription(ScResId(STR_CONDITION_DUPLICATE));
+-            mxAllInputs->hide();
+-            break;
+         case ScConditionMode::NotDuplicate:
+-            SetDescription(ScResId(STR_CONDITION_NOT_DUPLICATE));
+-            mxAllInputs->hide();
++            SetDescription(ScResId(meMode == ScConditionMode::Duplicate
++                                       ? STR_CONDITION_DUPLICATE
++                                       : STR_CONDITION_NOT_DUPLICATE));
++            mxNumberEntry->hide();
++            mxDuplicateMode->set_active_id(
++                meMode == ScConditionMode::Duplicate ? u"duplicate"_ustr : u"unique"_ustr);
++            mxDuplicateMode->show();
+             break;
+         // TODO: Direct
+         case ScConditionMode::Top10:
+@@ -137,20 +197,20 @@
+ 
+         case ScConditionMode::AboveAverage:
+             SetDescription(ScResId(STR_CONDITION_ABOVE_AVERAGE));
+-            mxAllInputs->hide();
++            mxNumberEntry->hide();
+             break;
+         case ScConditionMode::BelowAverage:
+             SetDescription(ScResId(STR_CONDITION_BELOW_AVERAGE));
+-            mxAllInputs->hide();
++            mxNumberEntry->hide();
+             break;
+ 
+         case ScConditionMode::AboveEqualAverage:
+             SetDescription(ScResId(STR_CONDITION_ABOVE_OR_EQUAL_AVERAGE));
+-            mxAllInputs->hide();
++            mxNumberEntry->hide();
+             break;
+         case ScConditionMode::BelowEqualAverage:
+             SetDescription(ScResId(STR_CONDITION_BELOW_OR_EQUAL_AVERAGE));
+-            mxAllInputs->hide();
++            mxNumberEntry->hide();
+             break;
+         case ScConditionMode::Error:
+             SetDescription(ScResId(STR_CONDITION_ERROR));
+@@ -175,37 +235,65 @@
+                      "ConditionalFormatEasyDialog::ConditionalFormatEasyDialog: invalid format");
+             break;
+     }
++}
+ 
+-    mxButtonOk->connect_clicked(LINK(this, ConditionalFormatEasyDialog, ButtonPressed));
+-    mxButtonCancel->connect_clicked(LINK(this, ConditionalFormatEasyDialog, ButtonPressed));
++void ConditionalFormatEasyDialog::FillStyles()
++{
++    const OUString sSelected = mxStyles->get_active_text();
++    std::set<OUString> aStyleNames;
++    SfxStyleSheetIterator aStyleIter(mrDocument.GetStyleSheetPool(), SfxStyleFamily::Para);
++    for (SfxStyleSheetBase* pStyle = aStyleIter.First(); pStyle; pStyle = aStyleIter.Next())
++        aStyleNames.insert(pStyle->GetName());
+ 
+-    ScRangeList aRange;
+-    mrViewData.GetMarkData().FillRangeListWithMarks(&aRange, false);
+-    if (aRange.empty())
++    mxStyles->freeze();
++    mxStyles->clear();
++    for (const PresetStyle& rPreset : aPresetStyles)
+     {
+-        ScAddress aPosition(mrViewData.GetCurX(), mrViewData.GetCurY(),
+-                            mrViewData.CurrentTabForData());
+-        aRange.push_back(ScRange(aPosition));
++        const OUString sName = ScResId(rPreset.aName);
++        mxStyles->append_text(sName);
++        aStyleNames.erase(sName); // a preset made earlier is listed once
+     }
+-    maPosition = aRange.GetTopLeftCorner();
++    for (const OUString& rStyleName : aStyleNames)
++        mxStyles->append_text(rStyleName);
++    mxStyles->thaw();
+ 
+-    OUString sRangeString;
+-    aRange.Format(sRangeString, ScRefFlags::VALID, mrDocument, mrDocument.GetAddressConvention());
+-    mxRangeEntry->SetText(sRangeString);
++    if (!sSelected.isEmpty() && mxStyles->find_text(sSelected) != -1)
++        mxStyles->set_active_text(sSelected);
++    else
++        mxStyles->set_active(0);
++}
+ 
+-    StartListening(*(mrDocument.GetStyleSheetPool()), DuplicateHandling::Prevent);
+-    FillStyleListBox(&mrDocument, *mxStyles);
++bool ConditionalFormatEasyDialog::EnsurePresetStyle(const OUString& rName)
++{
++    ScStyleSheetPool* pPool = mrDocument.GetStyleSheetPool();
++    const PresetStyle* pPreset = FindPresetStyle(rName);
++    if (!pPreset || pPool->Find(rName, SfxStyleFamily::Para))
++        return false;
++
++    SfxStyleSheetBase& rStyle
++        = pPool->Make(rName, SfxStyleFamily::Para, SfxStyleSearchBits::UserDefined);
++    rStyle.SetParent(ScResId(STR_STYLENAME_STANDARD));
++    mrDocument.getCellAttributeHelper().CellStyleCreated(mrDocument, rName);
++    SfxItemSet& rSet = rStyle.GetItemSet();
++    rSet.Put(SvxBrushItem(pPreset->aFill, ATTR_BACKGROUND));
++    rSet.Put(SvxColorItem(pPreset->aText, ATTR_FONT_COLOR));
+ 
+-    mxStyles->set_active(1);
++    if (mrDocument.IsUndoEnabled())
++    {
++        ScDocShell* pDocShell = mrViewData.GetDocShell();
++        ScStyleSaveData aNewData;
++        aNewData.InitFromStyle(&rStyle);
++        pDocShell->GetUndoManager()->AddUndoAction(std::make_unique<ScUndoModifyStyle>(
++            *pDocShell, SfxStyleFamily::Para, ScStyleSaveData(), aNewData));
++    }
++    return true;
+ }
+ 
+-ConditionalFormatEasyDialog::~ConditionalFormatEasyDialog() {}
+-
+ void ConditionalFormatEasyDialog::Notify(SfxBroadcaster&, const SfxHint& rHint)
+ {
+     if (rHint.GetId() == SfxHintId::StyleSheetModified
+         || rHint.GetId() == SfxHintId::StyleSheetModifiedExtended)
+-        UpdateStyleList(&mrDocument, *mxStyles);
++        FillStyles();
+ }
+ 
+ void ConditionalFormatEasyDialog::SetReference(const ScRange& rRange, ScDocument&)
+@@ -233,47 +321,67 @@
+     DoClose(ConditionalFormatEasyDialogWrapper::GetChildWindowId());
+ }
+ 
++IMPL_LINK_NOARG(ConditionalFormatEasyDialog, DuplicateModeChanged, weld::ComboBox&, void)
++{
++    meMode = mxDuplicateMode->get_active_id() == "unique" ? ScConditionMode::NotDuplicate
++                                                           : ScConditionMode::Duplicate;
++    ApplyMode();
++}
++
+ IMPL_LINK(ConditionalFormatEasyDialog, ButtonPressed, weld::Button&, rButton, void)
+ {
+     if (&rButton == mxButtonOk.get())
+     {
+-        std::unique_ptr<ScConditionalFormat> pFormat(new ScConditionalFormat(0, mrDocument));
+-
+-        OUString sExpression1 = (mxNumberEntry->get_visible() && mxAllInputs->get_visible()
+-                                     ? mxNumberEntry->get_text()
+-                                     : u""_ustr);
+-        OUString sExpression2 = (mxNumberEntry2->get_visible() && mxAllInputs->get_visible()
+-                                     ? mxNumberEntry2->get_text()
+-                                     : u""_ustr);
+-
+-        switch (meMode)
+-        {
+-            case ScConditionMode::ContainsText:
+-            case ScConditionMode::NotContainsText:
+-            case ScConditionMode::BeginsWith:
+-            case ScConditionMode::EndsWith:
+-                sExpression1 = "\"" + sExpression1 + "\"";
+-                sExpression2 = "\"" + sExpression2 + "\"";
+-                break;
+-            default:
+-                break;
+-        }
+-
+-        std::unique_ptr<ScFormatEntry> pEntry
+-            = std::make_unique<ScCondFormatEntry>(meMode, sExpression1, sExpression2, mrDocument,
+-                                                  maPosition, mxStyles->get_active_text());
+-
+         ScRangeList aRange;
+         ScRefFlags nFlags
+             = aRange.Parse(mxRangeEntry->GetText(), mrViewData.GetDocument(),
+                            mrViewData.GetDocument().GetAddressConvention(), maPosition.Tab());
+-        if ((nFlags & ScRefFlags::VALID) && !aRange.empty())
++        // HST: a protected sheet takes no rule (ReplaceConditionalFormat refuses it), so no
++        // ready-made style is made for it either
++        if ((nFlags & ScRefFlags::VALID) && !aRange.empty()
++            && !mrDocument.IsTabProtected(maPosition.Tab()))
+         {
+-            pFormat->AddEntry(pEntry.release());
++            OUString sExpression1
++                = (mxNumberEntry->get_visible() ? mxNumberEntry->get_text() : u""_ustr);
++            OUString sExpression2
++                = (mxNumberEntry2->get_visible() ? mxNumberEntry2->get_text() : u""_ustr);
++
++            switch (meMode)
++            {
++                case ScConditionMode::ContainsText:
++                case ScConditionMode::NotContainsText:
++                case ScConditionMode::BeginsWith:
++                case ScConditionMode::EndsWith:
++                    sExpression1 = "\"" + sExpression1 + "\"";
++                    sExpression2 = "\"" + sExpression2 + "\"";
++                    break;
++                default:
++                    break;
++            }
++
++            const OUString sStyle = mxStyles->get_active_text();
++            // HST: a ready-made style made now and the rule are one undo step
++            SfxUndoManager* pUndoManager = mrViewData.GetDocShell()->GetUndoManager();
++            const bool bListAction
++                = mrDocument.IsUndoEnabled() && FindPresetStyle(sStyle)
++                  && !mrDocument.GetStyleSheetPool()->Find(sStyle, SfxStyleFamily::Para);
++            if (bListAction)
++            {
++                const OUString aUndo = ScResId(STR_UNDO_CONDFORMAT);
++                pUndoManager->EnterListAction(aUndo, aUndo, 0,
++                                              mrViewData.GetViewShell()->GetViewShellId());
++            }
++            EnsurePresetStyle(sStyle);
++
++            std::unique_ptr<ScConditionalFormat> pFormat(new ScConditionalFormat(0, mrDocument));
++            pFormat->AddEntry(new ScCondFormatEntry(meMode, sExpression1, sExpression2, mrDocument,
++                                                    maPosition, sStyle));
+             pFormat->SetRange(aRange);
+-            auto& rRangeList = pFormat->GetRange();
+             mrViewData.GetDocShell()->GetDocFunc().ReplaceConditionalFormat(
+-                0, std::move(pFormat), maPosition.Tab(), rRangeList);
++                0, std::move(pFormat), maPosition.Tab(), aRange);
++
++            if (bListAction)
++                pUndoManager->LeaveListAction();
+         }
+         m_xDialog->response(RET_OK);
+     }
+--- a/sc/source/ui/inc/condformateasydlg.hxx
++++ b/sc/source/ui/inc/condformateasydlg.hxx
+@@ -35,15 +35,25 @@
+     virtual void Notify(SfxBroadcaster&, const SfxHint&) override;
+ 
+     DECL_LINK(ButtonPressed, weld::Button&, void);
++    DECL_LINK(DuplicateModeChanged, weld::ComboBox&, void);
+ 
+ private:
+     void SetDescription(std::u16string_view rCondition);
++    // HST: the condition text, the value entries and the duplicate/unique switch of meMode
++    void ApplyMode();
++    // HST: the ready-made styles ("Light Red Fill with Dark Red Text"...) first, then the styles of
++    // the document; keeps the chosen entry
++    void FillStyles();
++    // HST: creates the chosen ready-made style when the document does not have it yet (with undo)
++    bool EnsurePresetStyle(const OUString& rName);
+ 
+     ScViewData& mrViewData;
+     ScDocument& mrDocument;
+     ScConditionMode meMode;
+     ScAddress maPosition;
++    OUString msDescriptionTemplate;
+ 
++    std::unique_ptr<weld::ComboBox> mxDuplicateMode;
+     std::unique_ptr<weld::Entry> mxNumberEntry;
+     std::unique_ptr<weld::Entry> mxNumberEntry2;
+     std::unique_ptr<weld::Container> mxAllInputs;
+--- a/sc/source/ui/view/cellsh1.cxx
++++ b/sc/source/ui/view/cellsh1.cxx
+@@ -2396,7 +2396,10 @@
+                 }
+ 
+                 // do we have a parameter with the conditional formatting type?
++                // HST: a negative preset opens the dialog of its kind ("More Rules" of the menu)
+                 const SfxInt16Item* pParam = rReq.GetArg<SfxInt16Item>(FN_PARAM_1);
++                if (pParam && pParam->GetValue() < 0)
++                    pParam = nullptr;
+                 if (pParam)
+                 {
+                     auto pFormat = std::make_unique<ScConditionalFormat>(0, rDoc);
+@@ -2546,8 +2549,31 @@
+                         }
+                     }
+ 
++                    // HST: an unknown preset adds nothing, rather than an empty format
++                    if (pFormat->size() != 1)
++                        break;
++
++                    // HST: a format with the same range keeps its other rules; only a rule of the
++                    // preset's kind is replaced (a data bar replaces a data bar), so a preset does
++                    // not drop e.g. a duplicate values rule of the same cells.
++                    const ScConditionalFormat* pExisting
++                        = bCondFormatDlg ? pList->GetFormat(nIndex) : nullptr;
++                    if (pExisting)
++                    {
++                        const ScFormatEntry* pNewEntry = pFormat->GetEntry(0);
++                        std::unique_ptr<ScConditionalFormat> pMerged = pExisting->Clone();
++                        for (size_t nEntry = pMerged->size(); nEntry > 0; --nEntry)
++                        {
++                            if (pMerged->GetEntry(nEntry - 1)->GetType() == pNewEntry->GetType())
++                                pMerged->RemoveEntry(nEntry - 1);
++                        }
++                        pMerged->AddEntry(pNewEntry->Clone(rDoc));
++                        pFormat = std::move(pMerged);
++                    }
++
+                     // use the new conditional formatting
+-                    GetViewData().GetDocShell()->GetDocFunc().ReplaceConditionalFormat(nIndex, std::move(pFormat), aPos.Tab(), aRangeList);
++                    GetViewData().GetDocShell()->GetDocFunc().ReplaceConditionalFormat(
++                        pExisting ? nIndex : 0, std::move(pFormat), aPos.Tab(), aRangeList);
+ 
+                     break;
+                 }
+--- a/sc/source/ui/view/cellsh3.cxx
++++ b/sc/source/ui/view/cellsh3.cxx
+@@ -52,6 +52,11 @@
+ #include <LibreOfficeKit/LibreOfficeKitEnums.h>
+ #include <inputwin.hxx>
+ #include <officecfg/Office/Calc.hxx>
++#include <conditio.hxx>
++#include <docfunc.hxx>
++#include <docsh.hxx>
++#include <rangelst.hxx>
++#include <svl/intitem.hxx>
+ 
+ #include <memory>
+ 
+@@ -359,6 +364,65 @@
+             }
+             break;
+ 
++        case SID_HST_CONDFORMAT_CLEAR:
++            {
++                // HST: "Clear Rules" of the conditional formatting menu. Scope 1 removes every
++                // conditional format of the current sheet; otherwise the selected cells (or the
++                // cursor cell) leave the ranges of the formats, which keep their other cells.
++                const SfxInt16Item* pScope = rReq.GetArg<SfxInt16Item>(FN_PARAM_1);
++                const bool bWholeSheet = pScope && pScope->GetValue() == 1;
++                ScViewData& rData = GetViewData();
++                ScDocument& rDoc = rData.GetDocument();
++                const SCTAB nTab = rData.CurrentTabForData();
++                if (rDoc.IsTabProtected(nTab))
++                {
++                    pTabViewShell->ErrorMessage(STR_ERR_CONDFORMAT_PROTECTED);
++                    break;
++                }
++
++                const ScConditionalFormatList* pOldList = rDoc.GetCondFormList(nTab);
++                ScRangeList aRanges;
++                rData.GetMarkData().FillRangeListWithMarks(&aRanges, false, nTab);
++                if (aRanges.empty())
++                    aRanges.push_back(ScRange(rData.GetCurX(), rData.GetCurY(), nTab));
++
++                bool bAffected = false;
++                if (pOldList)
++                {
++                    for (const auto& rxFormat : *pOldList)
++                    {
++                        const ScRangeList& rFormatRanges = rxFormat->GetRange();
++                        for (size_t i = 0; i < aRanges.size() && !bAffected; ++i)
++                            bAffected = bWholeSheet || rFormatRanges.Intersects(aRanges[i]);
++                        if (bAffected)
++                            break;
++                    }
++                }
++                if (!bAffected)
++                {
++                    rReq.Done();    // nothing to clear: no empty undo step
++                    break;
++                }
++
++                std::unique_ptr<ScConditionalFormatList> pNewList;
++                if (bWholeSheet)
++                    pNewList = std::make_unique<ScConditionalFormatList>();
++                else
++                {
++                    pNewList.reset(pOldList->Clone(rDoc));
++                    for (size_t i = 0; i < aRanges.size(); ++i)
++                    {
++                        const ScRange& rRange = aRanges[i];
++                        pNewList->DeleteArea(rRange.aStart.Col(), rRange.aStart.Row(),
++                                             rRange.aEnd.Col(), rRange.aEnd.Row());
++                    }
++                }
++                // takes the list over, with undo and repaint
++                rData.GetDocShell()->GetDocFunc().SetConditionalFormatList(pNewList.release(), nTab);
++                rReq.Done();
++            }
++            break;
++
+         case FID_CELL_FORMAT:
+             {
+                 if ( pReqArgs != nullptr )
+--- a/sc/uiconfig/scalc/popupmenu/conditional.xml
++++ b/sc/uiconfig/scalc/popupmenu/conditional.xml
+@@ -7,12 +7,102 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+  *
+ -->
++<!-- HST: laid out like the familiar office suite. The Home ribbon button, Format > Conditional and the
++     toolbar dropdown all read this resource (ResourceMenuController "conditional" in Controller.xcu). -->
+ <menu:menupopup xmlns:menu="http://openoffice.org/2001/menu">
+-  <menu:menuitem menu:id=".uno:ConditionalFormatConditionMenu"/>
+-  <menu:menuitem menu:id=".uno:ColorScaleFormatDialog"/>
+-  <menu:menuitem menu:id=".uno:DataBarFormatDialog"/>
+-  <menu:menuitem menu:id=".uno:IconSetFormatDialog"/>
+-  <menu:menuitem menu:id=".uno:CondDateFormatDialog"/>
++  <menu:menu menu:id=".uno:HstConditionalFormatHighlightMenu">
++    <menu:menupopup>
++      <menu:menuitem menu:id=".uno:ConditionalFormatEasy?FormatRule:short=2"/>
++      <menu:menuitem menu:id=".uno:ConditionalFormatEasy?FormatRule:short=1"/>
++      <menu:menuitem menu:id=".uno:ConditionalFormatEasy?FormatRule:short=6"/>
++      <menu:menuitem menu:id=".uno:ConditionalFormatEasy?FormatRule:short=0"/>
++      <menu:menuitem menu:id=".uno:ConditionalFormatEasy?FormatRule:short=23"/>
++      <menu:menuitem menu:id=".uno:CondDateFormatDialog"/>
++      <menu:menuitem menu:id=".uno:ConditionalFormatEasy?FormatRule:short=8"/>
++    </menu:menupopup>
++  </menu:menu>
++  <menu:menu menu:id=".uno:HstConditionalFormatTopBottomMenu">
++    <menu:menupopup>
++      <menu:menuitem menu:id=".uno:ConditionalFormatEasy?FormatRule:short=11"/>
++      <menu:menuitem menu:id=".uno:ConditionalFormatEasy?FormatRule:short=13"/>
++      <menu:menuitem menu:id=".uno:ConditionalFormatEasy?FormatRule:short=12"/>
++      <menu:menuitem menu:id=".uno:ConditionalFormatEasy?FormatRule:short=14"/>
++      <menu:menuseparator/>
++      <menu:menuitem menu:id=".uno:ConditionalFormatEasy?FormatRule:short=15"/>
++      <menu:menuitem menu:id=".uno:ConditionalFormatEasy?FormatRule:short=16"/>
++    </menu:menupopup>
++  </menu:menu>
++  <menu:menu menu:id=".uno:HstConditionalFormatDataBarMenu">
++    <menu:menupopup>
++      <menu:menuitem menu:id=".uno:DataBarFormatDialog?IconSet:short=0"/>
++      <menu:menuitem menu:id=".uno:DataBarFormatDialog?IconSet:short=1"/>
++      <menu:menuitem menu:id=".uno:DataBarFormatDialog?IconSet:short=2"/>
++      <menu:menuitem menu:id=".uno:DataBarFormatDialog?IconSet:short=3"/>
++      <menu:menuitem menu:id=".uno:DataBarFormatDialog?IconSet:short=4"/>
++      <menu:menuitem menu:id=".uno:DataBarFormatDialog?IconSet:short=5"/>
++      <menu:menuseparator/>
++      <menu:menuitem menu:id=".uno:DataBarFormatDialog?IconSet:short=6"/>
++      <menu:menuitem menu:id=".uno:DataBarFormatDialog?IconSet:short=7"/>
++      <menu:menuitem menu:id=".uno:DataBarFormatDialog?IconSet:short=8"/>
++      <menu:menuitem menu:id=".uno:DataBarFormatDialog?IconSet:short=9"/>
++      <menu:menuitem menu:id=".uno:DataBarFormatDialog?IconSet:short=10"/>
++      <menu:menuitem menu:id=".uno:DataBarFormatDialog?IconSet:short=11"/>
++      <menu:menuseparator/>
++      <menu:menuitem menu:id=".uno:DataBarFormatDialog?IconSet:short=-1"/>
++    </menu:menupopup>
++  </menu:menu>
++  <menu:menu menu:id=".uno:HstConditionalFormatColorScaleMenu">
++    <menu:menupopup>
++      <menu:menuitem menu:id=".uno:ColorScaleFormatDialog?IconSet:short=0"/>
++      <menu:menuitem menu:id=".uno:ColorScaleFormatDialog?IconSet:short=1"/>
++      <menu:menuitem menu:id=".uno:ColorScaleFormatDialog?IconSet:short=2"/>
++      <menu:menuitem menu:id=".uno:ColorScaleFormatDialog?IconSet:short=3"/>
++      <menu:menuitem menu:id=".uno:ColorScaleFormatDialog?IconSet:short=4"/>
++      <menu:menuitem menu:id=".uno:ColorScaleFormatDialog?IconSet:short=5"/>
++      <menu:menuseparator/>
++      <menu:menuitem menu:id=".uno:ColorScaleFormatDialog?IconSet:short=6"/>
++      <menu:menuitem menu:id=".uno:ColorScaleFormatDialog?IconSet:short=7"/>
++      <menu:menuitem menu:id=".uno:ColorScaleFormatDialog?IconSet:short=8"/>
++      <menu:menuitem menu:id=".uno:ColorScaleFormatDialog?IconSet:short=9"/>
++      <menu:menuitem menu:id=".uno:ColorScaleFormatDialog?IconSet:short=10"/>
++      <menu:menuitem menu:id=".uno:ColorScaleFormatDialog?IconSet:short=11"/>
++      <menu:menuseparator/>
++      <menu:menuitem menu:id=".uno:ColorScaleFormatDialog?IconSet:short=-1"/>
++    </menu:menupopup>
++  </menu:menu>
++  <menu:menu menu:id=".uno:HstConditionalFormatIconSetMenu">
++    <menu:menupopup>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=0"/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=1"/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=10"/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=12"/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=17"/>
++      <menu:menuseparator/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=3"/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=5"/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=16"/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=14"/>
++      <menu:menuseparator/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=6"/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=7"/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=2"/>
++      <menu:menuseparator/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=9"/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=15"/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=19"/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=20"/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=21"/>
++      <menu:menuseparator/>
++      <menu:menuitem menu:id=".uno:IconSetFormatDialog?IconSet:short=-1"/>
++    </menu:menupopup>
++  </menu:menu>
+   <menu:menuseparator/>
++  <menu:menuitem menu:id=".uno:ConditionalFormatDialog"/>
++  <menu:menu menu:id=".uno:HstConditionalFormatClearMenu">
++    <menu:menupopup>
++      <menu:menuitem menu:id=".uno:HstConditionalFormatClear?Scope:short=0"/>
++      <menu:menuitem menu:id=".uno:HstConditionalFormatClear?Scope:short=1"/>
++    </menu:menupopup>
++  </menu:menu>
+   <menu:menuitem menu:id=".uno:ConditionalFormatManagerDialog"/>
+ </menu:menupopup>
+--- a/sc/uiconfig/scalc/ui/conditionaleasydialog.ui
++++ b/sc/uiconfig/scalc/ui/conditionaleasydialog.ui
+@@ -106,6 +106,29 @@
+                         <property name="can-focus">False</property>
+                         <property name="spacing">12</property>
+                         <child>
++                          <object class="GtkComboBoxText" id="duplicateMode">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <items>
++                              <item id="duplicate" translatable="yes" context="conditionaleasydialog|duplicateMode">Duplicate</item>
++                              <item id="unique" translatable="yes" context="conditionaleasydialog|duplicateMode">Unique</item>
++                            </items>
++                            <accessibility>
++                              <relation type="labelled-by" target="description"/>
++                            </accessibility>
++                            <child internal-child="accessible">
++                              <object class="AtkObject" id="duplicateMode-atkobject">
++                                <property name="AtkObject::accessible-description" translatable="yes" context="conditionaleasydialog|extended_tip|duplicateMode">Highlight the values that occur more than once, or the values that occur only once.</property>
++                              </object>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="expand">False</property>
++                            <property name="fill">True</property>
++                            <property name="position">0</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="GtkEntry" id="entryNumber">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+@@ -122,7 +145,7 @@
+                           <packing>
+                             <property name="expand">False</property>
+                             <property name="fill">True</property>
+-                            <property name="position">0</property>
++                            <property name="position">1</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -142,7 +165,7 @@
+                           <packing>
+                             <property name="expand">False</property>
+                             <property name="fill">True</property>
+-                            <property name="position">1</property>
++                            <property name="position">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -157,7 +180,7 @@
+                           <packing>
+                             <property name="expand">False</property>
+                             <property name="fill">True</property>
+-                            <property name="position">2</property>
++                            <property name="position">3</property>
+                           </packing>
+                         </child>
+                       </object>
+@@ -203,12 +226,13 @@
+                 <child type="label">
+                   <object class="GtkLabel" id="description">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="label" translatable="yes" context="conditionaleasydialog|label">Highlight cells with values %1</property>
++                    <property name="label" translatable="yes" context="conditionaleasydialog|label">Highlight cells with %1</property>
+                     <accessibility>
+                       <relation type="label-for" target="entryNumber"/>
+                       <relation type="label-for" target="entryNumber2"/>
++                      <relation type="label-for" target="duplicateMode"/>
+                     </accessibility>
+                   </object>
+                 </child>
+               </object>
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -1497,13 +1497,13 @@
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=2\n"
+ "ContextLabel\n"
+ "value.text"
+ msgid "Greater than..."
+-msgstr ""
++msgstr "~Lớn hơn"
+ 
+ #. Ch5pB
+ #: CalcCommands.xcu
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=1\n"
+@@ -1517,13 +1517,13 @@
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=1\n"
+ "ContextLabel\n"
+ "value.text"
+ msgid "Less than..."
+-msgstr ""
++msgstr "~Nhỏ hơn"
+ 
+ #. FtfYm
+ #: CalcCommands.xcu
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=0\n"
+@@ -1537,33 +1537,33 @@
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=0\n"
+ "ContextLabel\n"
+ "value.text"
+ msgid "Equals..."
+-msgstr ""
++msgstr "~Bằng"
+ 
+ #. PRtyk
+ #: CalcCommands.xcu
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=6\n"
+ "Label\n"
+ "value.text"
+ msgid "Conditional Formatting: Between"
+-msgstr ""
++msgstr "Định dạng có điều kiện: Trong khoảng"
+ 
+ #. 8pCKp
+ #: CalcCommands.xcu
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=6\n"
+ "ContextLabel\n"
+ "value.text"
+ msgid "Between..."
+-msgstr ""
++msgstr "~Trong khoảng"
+ 
+ #. aXZBB
+ #: CalcCommands.xcu
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=23\n"
+@@ -1577,13 +1577,13 @@
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=23\n"
+ "ContextLabel\n"
+ "value.text"
+ msgid "Containing text..."
+-msgstr ""
++msgstr "~Văn bản chứa"
+ 
+ #. yQfgE
+ #: CalcCommands.xcu
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:ConditionalFormatDialog\n"
+@@ -1596,14 +1596,14 @@
+ #: CalcCommands.xcu
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:ConditionalFormatDialog\n"
+ "ContextLabel\n"
+ "value.text"
+-msgid "More rules..."
+-msgstr ""
++msgid "~New Rule..."
++msgstr "~Quy tắc mới"
+ 
+ #. qfECf
+ #: CalcCommands.xcu
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:CurrentConditionalFormatDialog\n"
+@@ -1691,34 +1691,1174 @@
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:CondDateFormatDialog\n"
+ "ContextLabel\n"
+ "value.text"
+ msgid "Date..."
+-msgstr ""
++msgstr "Ngày ~xảy ra"
+ 
+ #. K5t9E
+ #: CalcCommands.xcu
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:ConditionalFormatManagerDialog\n"
+ "Label\n"
+ "value.text"
+ msgid "Manage..."
+-msgstr "~Quản lý..."
++msgstr "Quản lý quy tắc định dạng có điều kiện"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatManagerDialog\n"
++"ContextLabel\n"
++"value.text"
++msgid "~Manage Rules..."
++msgstr "Quản ~lý quy tắc"
+ 
+ #. jsKhi
+ #: CalcCommands.xcu
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:CurrentConditionalFormatManagerDialog\n"
+ "Label\n"
+ "value.text"
+ msgid "Manage Conditional Formatting..."
+ msgstr ""
+ 
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=8\n"
++"Label\n"
++"value.text"
++msgid "Conditional Formatting: Duplicate Values"
++msgstr "Định dạng có điều kiện: Giá trị trùng lặp"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=8\n"
++"ContextLabel\n"
++"value.text"
++msgid "~Duplicate Values..."
++msgstr "~Giá trị trùng lặp"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=11\n"
++"Label\n"
++"value.text"
++msgid "Conditional Formatting: Top 10 Items"
++msgstr "Định dạng có điều kiện: 10 mục lớn nhất"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=11\n"
++"ContextLabel\n"
++"value.text"
++msgid "~Top 10 Items..."
++msgstr "10 ~mục lớn nhất"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=13\n"
++"Label\n"
++"value.text"
++msgid "Conditional Formatting: Top 10%"
++msgstr "Định dạng có điều kiện: 10% lớn nhất"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=13\n"
++"ContextLabel\n"
++"value.text"
++msgid "Top 1~0%..."
++msgstr "10% ~lớn nhất"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=12\n"
++"Label\n"
++"value.text"
++msgid "Conditional Formatting: Bottom 10 Items"
++msgstr "Định dạng có điều kiện: 10 mục nhỏ nhất"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=12\n"
++"ContextLabel\n"
++"value.text"
++msgid "~Bottom 10 Items..."
++msgstr "10 mục ~nhỏ nhất"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=14\n"
++"Label\n"
++"value.text"
++msgid "Conditional Formatting: Bottom 10%"
++msgstr "Định dạng có điều kiện: 10% nhỏ nhất"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=14\n"
++"ContextLabel\n"
++"value.text"
++msgid "Bottom ~10%..."
++msgstr "10% n~hỏ nhất"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=15\n"
++"Label\n"
++"value.text"
++msgid "Conditional Formatting: Above Average"
++msgstr "Định dạng có điều kiện: Trên trung bình"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=15\n"
++"ContextLabel\n"
++"value.text"
++msgid "~Above Average..."
++msgstr "~Trên trung bình"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=16\n"
++"Label\n"
++"value.text"
++msgid "Conditional Formatting: Below Average"
++msgstr "Định dạng có điều kiện: Dưới trung bình"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ConditionalFormatEasy?FormatRule:short=16\n"
++"ContextLabel\n"
++"value.text"
++msgid "Be~low Average..."
++msgstr "~Dưới trung bình"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=0\n"
++"Label\n"
++"value.text"
++msgid "Data Bar: Blue, Gradient Fill"
++msgstr "Thanh dữ liệu: xanh lam, chuyển màu"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=0\n"
++"ContextLabel\n"
++"value.text"
++msgid "Blue Gradient Fill"
++msgstr "Xanh lam (chuyển màu)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=1\n"
++"Label\n"
++"value.text"
++msgid "Data Bar: Green, Gradient Fill"
++msgstr "Thanh dữ liệu: xanh lục, chuyển màu"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=1\n"
++"ContextLabel\n"
++"value.text"
++msgid "Green Gradient Fill"
++msgstr "Xanh lục (chuyển màu)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=2\n"
++"Label\n"
++"value.text"
++msgid "Data Bar: Red, Gradient Fill"
++msgstr "Thanh dữ liệu: đỏ, chuyển màu"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=2\n"
++"ContextLabel\n"
++"value.text"
++msgid "Red Gradient Fill"
++msgstr "Đỏ (chuyển màu)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=3\n"
++"Label\n"
++"value.text"
++msgid "Data Bar: Orange, Gradient Fill"
++msgstr "Thanh dữ liệu: cam, chuyển màu"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=3\n"
++"ContextLabel\n"
++"value.text"
++msgid "Orange Gradient Fill"
++msgstr "Cam (chuyển màu)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=4\n"
++"Label\n"
++"value.text"
++msgid "Data Bar: Light Blue, Gradient Fill"
++msgstr "Thanh dữ liệu: xanh nhạt, chuyển màu"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=4\n"
++"ContextLabel\n"
++"value.text"
++msgid "Light Blue Gradient Fill"
++msgstr "Xanh nhạt (chuyển màu)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=5\n"
++"Label\n"
++"value.text"
++msgid "Data Bar: Purple, Gradient Fill"
++msgstr "Thanh dữ liệu: tím, chuyển màu"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=5\n"
++"ContextLabel\n"
++"value.text"
++msgid "Purple Gradient Fill"
++msgstr "Tím (chuyển màu)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=6\n"
++"Label\n"
++"value.text"
++msgid "Data Bar: Blue, Solid Fill"
++msgstr "Thanh dữ liệu: xanh lam, tô đặc"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=6\n"
++"ContextLabel\n"
++"value.text"
++msgid "Blue Solid Fill"
++msgstr "Xanh lam (tô đặc)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=7\n"
++"Label\n"
++"value.text"
++msgid "Data Bar: Green, Solid Fill"
++msgstr "Thanh dữ liệu: xanh lục, tô đặc"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=7\n"
++"ContextLabel\n"
++"value.text"
++msgid "Green Solid Fill"
++msgstr "Xanh lục (tô đặc)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=8\n"
++"Label\n"
++"value.text"
++msgid "Data Bar: Red, Solid Fill"
++msgstr "Thanh dữ liệu: đỏ, tô đặc"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=8\n"
++"ContextLabel\n"
++"value.text"
++msgid "Red Solid Fill"
++msgstr "Đỏ (tô đặc)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=9\n"
++"Label\n"
++"value.text"
++msgid "Data Bar: Orange, Solid Fill"
++msgstr "Thanh dữ liệu: cam, tô đặc"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=9\n"
++"ContextLabel\n"
++"value.text"
++msgid "Orange Solid Fill"
++msgstr "Cam (tô đặc)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=10\n"
++"Label\n"
++"value.text"
++msgid "Data Bar: Light Blue, Solid Fill"
++msgstr "Thanh dữ liệu: xanh nhạt, tô đặc"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=10\n"
++"ContextLabel\n"
++"value.text"
++msgid "Light Blue Solid Fill"
++msgstr "Xanh nhạt (tô đặc)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=11\n"
++"Label\n"
++"value.text"
++msgid "Data Bar: Purple, Solid Fill"
++msgstr "Thanh dữ liệu: tím, tô đặc"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=11\n"
++"ContextLabel\n"
++"value.text"
++msgid "Purple Solid Fill"
++msgstr "Tím (tô đặc)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=-1\n"
++"Label\n"
++"value.text"
++msgid "Data Bar: More Rules"
++msgstr "Thanh dữ liệu: quy tắc khác"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:DataBarFormatDialog?IconSet:short=-1\n"
++"ContextLabel\n"
++"value.text"
++msgid "~More Rules..."
++msgstr "~Quy tắc khác"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=0\n"
++"Label\n"
++"value.text"
++msgid "Color Scale: green high, yellow middle, red low"
++msgstr "Thang màu: cao xanh lục, giữa vàng, thấp đỏ"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=0\n"
++"ContextLabel\n"
++"value.text"
++msgid "Green - Yellow - Red"
++msgstr "Xanh lục – Vàng – Đỏ"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=1\n"
++"Label\n"
++"value.text"
++msgid "Color Scale: red high, yellow middle, green low"
++msgstr "Thang màu: cao đỏ, giữa vàng, thấp xanh lục"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=1\n"
++"ContextLabel\n"
++"value.text"
++msgid "Red - Yellow - Green"
++msgstr "Đỏ – Vàng – Xanh lục"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=2\n"
++"Label\n"
++"value.text"
++msgid "Color Scale: green high, white middle, red low"
++msgstr "Thang màu: cao xanh lục, giữa trắng, thấp đỏ"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=2\n"
++"ContextLabel\n"
++"value.text"
++msgid "Green - White - Red"
++msgstr "Xanh lục – Trắng – Đỏ"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=3\n"
++"Label\n"
++"value.text"
++msgid "Color Scale: red high, white middle, green low"
++msgstr "Thang màu: cao đỏ, giữa trắng, thấp xanh lục"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=3\n"
++"ContextLabel\n"
++"value.text"
++msgid "Red - White - Green"
++msgstr "Đỏ – Trắng – Xanh lục"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=4\n"
++"Label\n"
++"value.text"
++msgid "Color Scale: blue high, white middle, red low"
++msgstr "Thang màu: cao xanh lam, giữa trắng, thấp đỏ"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=4\n"
++"ContextLabel\n"
++"value.text"
++msgid "Blue - White - Red"
++msgstr "Xanh lam – Trắng – Đỏ"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=5\n"
++"Label\n"
++"value.text"
++msgid "Color Scale: red high, white middle, blue low"
++msgstr "Thang màu: cao đỏ, giữa trắng, thấp xanh lam"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=5\n"
++"ContextLabel\n"
++"value.text"
++msgid "Red - White - Blue"
++msgstr "Đỏ – Trắng – Xanh lam"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=6\n"
++"Label\n"
++"value.text"
++msgid "Color Scale: white high, red low"
++msgstr "Thang màu: cao trắng, thấp đỏ"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=6\n"
++"ContextLabel\n"
++"value.text"
++msgid "White - Red"
++msgstr "Trắng – Đỏ"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=7\n"
++"Label\n"
++"value.text"
++msgid "Color Scale: red high, white low"
++msgstr "Thang màu: cao đỏ, thấp trắng"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=7\n"
++"ContextLabel\n"
++"value.text"
++msgid "Red - White"
++msgstr "Đỏ – Trắng"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=8\n"
++"Label\n"
++"value.text"
++msgid "Color Scale: white high, green low"
++msgstr "Thang màu: cao trắng, thấp xanh lục"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=8\n"
++"ContextLabel\n"
++"value.text"
++msgid "White - Green"
++msgstr "Trắng – Xanh lục"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=9\n"
++"Label\n"
++"value.text"
++msgid "Color Scale: green high, white low"
++msgstr "Thang màu: cao xanh lục, thấp trắng"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=9\n"
++"ContextLabel\n"
++"value.text"
++msgid "Green - White"
++msgstr "Xanh lục – Trắng"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=10\n"
++"Label\n"
++"value.text"
++msgid "Color Scale: yellow high, green low"
++msgstr "Thang màu: cao vàng, thấp xanh lục"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=10\n"
++"ContextLabel\n"
++"value.text"
++msgid "Yellow - Green"
++msgstr "Vàng – Xanh lục"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=11\n"
++"Label\n"
++"value.text"
++msgid "Color Scale: green high, yellow low"
++msgstr "Thang màu: cao xanh lục, thấp vàng"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=11\n"
++"ContextLabel\n"
++"value.text"
++msgid "Green - Yellow"
++msgstr "Xanh lục – Vàng"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=-1\n"
++"Label\n"
++"value.text"
++msgid "Color Scale: More Rules"
++msgstr "Thang màu: quy tắc khác"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:ColorScaleFormatDialog?IconSet:short=-1\n"
++"ContextLabel\n"
++"value.text"
++msgid "~More Rules..."
++msgstr "~Quy tắc khác"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=0\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 3 Arrows (Colored)"
++msgstr "Bộ biểu tượng: 3 mũi tên (màu)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=0\n"
++"ContextLabel\n"
++"value.text"
++msgid "3 Arrows (Colored)"
++msgstr "3 mũi tên (màu)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=1\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 3 Arrows (Gray)"
++msgstr "Bộ biểu tượng: 3 mũi tên (xám)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=1\n"
++"ContextLabel\n"
++"value.text"
++msgid "3 Arrows (Gray)"
++msgstr "3 mũi tên (xám)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=10\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 3 Triangles"
++msgstr "Bộ biểu tượng: 3 tam giác"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=10\n"
++"ContextLabel\n"
++"value.text"
++msgid "3 Triangles"
++msgstr "3 tam giác"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=12\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 4 Arrows (Colored)"
++msgstr "Bộ biểu tượng: 4 mũi tên (màu)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=12\n"
++"ContextLabel\n"
++"value.text"
++msgid "4 Arrows (Colored)"
++msgstr "4 mũi tên (màu)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=17\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 5 Arrows (Colored)"
++msgstr "Bộ biểu tượng: 5 mũi tên (màu)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=17\n"
++"ContextLabel\n"
++"value.text"
++msgid "5 Arrows (Colored)"
++msgstr "5 mũi tên (màu)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=3\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 3 Traffic Lights"
++msgstr "Bộ biểu tượng: 3 đèn giao thông"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=3\n"
++"ContextLabel\n"
++"value.text"
++msgid "3 Traffic Lights"
++msgstr "3 đèn giao thông"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=5\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 3 Signs"
++msgstr "Bộ biểu tượng: 3 biển báo"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=5\n"
++"ContextLabel\n"
++"value.text"
++msgid "3 Signs"
++msgstr "3 biển báo"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=16\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 4 Traffic Lights"
++msgstr "Bộ biểu tượng: 4 đèn giao thông"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=16\n"
++"ContextLabel\n"
++"value.text"
++msgid "4 Traffic Lights"
++msgstr "4 đèn giao thông"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=14\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: Red To Black"
++msgstr "Bộ biểu tượng: Đỏ đến đen"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=14\n"
++"ContextLabel\n"
++"value.text"
++msgid "Red To Black"
++msgstr "Đỏ đến đen"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=6\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 3 Symbols (Circled)"
++msgstr "Bộ biểu tượng: 3 ký hiệu (có vòng tròn)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=6\n"
++"ContextLabel\n"
++"value.text"
++msgid "3 Symbols (Circled)"
++msgstr "3 ký hiệu (có vòng tròn)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=7\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 3 Symbols (Uncircled)"
++msgstr "Bộ biểu tượng: 3 ký hiệu (không vòng tròn)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=7\n"
++"ContextLabel\n"
++"value.text"
++msgid "3 Symbols (Uncircled)"
++msgstr "3 ký hiệu (không vòng tròn)"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=2\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 3 Flags"
++msgstr "Bộ biểu tượng: 3 lá cờ"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=2\n"
++"ContextLabel\n"
++"value.text"
++msgid "3 Flags"
++msgstr "3 lá cờ"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=9\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 3 Stars"
++msgstr "Bộ biểu tượng: 3 ngôi sao"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=9\n"
++"ContextLabel\n"
++"value.text"
++msgid "3 Stars"
++msgstr "3 ngôi sao"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=15\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 4 Ratings"
++msgstr "Bộ biểu tượng: 4 mức đánh giá"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=15\n"
++"ContextLabel\n"
++"value.text"
++msgid "4 Ratings"
++msgstr "4 mức đánh giá"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=19\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 5 Ratings"
++msgstr "Bộ biểu tượng: 5 mức đánh giá"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=19\n"
++"ContextLabel\n"
++"value.text"
++msgid "5 Ratings"
++msgstr "5 mức đánh giá"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=20\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 5 Quarters"
++msgstr "Bộ biểu tượng: 5 phần tư"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=20\n"
++"ContextLabel\n"
++"value.text"
++msgid "5 Quarters"
++msgstr "5 phần tư"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=21\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: 5 Boxes"
++msgstr "Bộ biểu tượng: 5 ô vuông"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=21\n"
++"ContextLabel\n"
++"value.text"
++msgid "5 Boxes"
++msgstr "5 ô vuông"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=-1\n"
++"Label\n"
++"value.text"
++msgid "Icon Set: More Rules"
++msgstr "Bộ biểu tượng: quy tắc khác"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:IconSetFormatDialog?IconSet:short=-1\n"
++"ContextLabel\n"
++"value.text"
++msgid "~More Rules..."
++msgstr "~Quy tắc khác"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstConditionalFormatClear\n"
++"Label\n"
++"value.text"
++msgid "Clear Conditional Formatting Rules"
++msgstr "Xóa quy tắc định dạng có điều kiện"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstConditionalFormatClear?Scope:short=0\n"
++"Label\n"
++"value.text"
++msgid "Clear Conditional Formatting Rules from Selected Cells"
++msgstr "Xóa quy tắc định dạng có điều kiện khỏi vùng chọn"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstConditionalFormatClear?Scope:short=0\n"
++"ContextLabel\n"
++"value.text"
++msgid "Clear Rules from ~Selected Cells"
++msgstr "Khỏi ~vùng chọn"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstConditionalFormatClear?Scope:short=1\n"
++"Label\n"
++"value.text"
++msgid "Clear Conditional Formatting Rules from Entire Sheet"
++msgstr "Xóa quy tắc định dạng có điều kiện khỏi cả trang tính"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstConditionalFormatClear?Scope:short=1\n"
++"ContextLabel\n"
++"value.text"
++msgid "Clear Rules from ~Entire Sheet"
++msgstr "Khỏi cả ~trang tính"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Popups..uno:HstConditionalFormatHighlightMenu\n"
++"Label\n"
++"value.text"
++msgid "~Highlight Cells Rules"
++msgstr "Quy tắc tô ~sáng ô"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Popups..uno:HstConditionalFormatTopBottomMenu\n"
++"Label\n"
++"value.text"
++msgid "~Top/Bottom Rules"
++msgstr "Quy tắc ~trên/dưới"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Popups..uno:HstConditionalFormatDataBarMenu\n"
++"Label\n"
++"value.text"
++msgid "~Data Bars"
++msgstr "Thanh ~dữ liệu"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Popups..uno:HstConditionalFormatColorScaleMenu\n"
++"Label\n"
++"value.text"
++msgid "Color ~Scales"
++msgstr "Thang ~màu"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Popups..uno:HstConditionalFormatIconSetMenu\n"
++"Label\n"
++"value.text"
++msgid "~Icon Sets"
++msgstr "~Bộ biểu tượng"
++
++#. hstCF
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Popups..uno:HstConditionalFormatClearMenu\n"
++"Label\n"
++"value.text"
++msgid "~Clear Rules"
++msgstr "~Xóa quy tắc"
++
+ #. qAuk5
+ #: CalcCommands.xcu
+ msgctxt ""
+ "CalcCommands.xcu\n"
+ "..CalcCommands.UserInterface.Commands..uno:Deselect\n"
+ "Label\n"
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -20863,6 +20863,24 @@
+ msgid "date is in next year"
+ msgstr ""
+ 
++#. hstCF
++#: sc/inc/strings.hrc
++msgctxt "STR_HST_CONDFORMAT_STYLE_LIGHT_RED"
++msgid "Light Red Fill with Dark Red Text"
++msgstr "Nền đỏ nhạt, chữ đỏ đậm"
++
++#. hstCF
++#: sc/inc/strings.hrc
++msgctxt "STR_HST_CONDFORMAT_STYLE_YELLOW"
++msgid "Yellow Fill with Dark Yellow Text"
++msgstr "Nền vàng, chữ vàng đậm"
++
++#. hstCF
++#: sc/inc/strings.hrc
++msgctxt "STR_HST_CONDFORMAT_STYLE_GREEN"
++msgid "Green Fill with Dark Green Text"
++msgstr "Nền xanh lục, chữ xanh lục đậm"
++
+ #. Xd9YB
+ #: sc/inc/strings.hrc:437
+ msgctxt "STR_DUPLICATERECORDS_WARNING"
+@@ -22104,8 +22122,26 @@
+ #. iDFcc
+ #: sc/uiconfig/scalc/ui/conditionaleasydialog.ui:207
+ msgctxt "conditionaleasydialog|label"
+-msgid "Highlight cells with values %1"
+-msgstr ""
++msgid "Highlight cells with %1"
++msgstr "Tô sáng các ô có %1"
++
++#. hstCF
++#: sc/uiconfig/scalc/ui/conditionaleasydialog.ui
++msgctxt "conditionaleasydialog|duplicateMode"
++msgid "Duplicate"
++msgstr "Trùng lặp"
++
++#. hstCF
++#: sc/uiconfig/scalc/ui/conditionaleasydialog.ui
++msgctxt "conditionaleasydialog|duplicateMode"
++msgid "Unique"
++msgstr "Duy nhất"
++
++#. hstCF
++#: sc/uiconfig/scalc/ui/conditionaleasydialog.ui
++msgctxt "conditionaleasydialog|extended_tip|duplicateMode"
++msgid "Highlight the values that occur more than once, or the values that occur only once."
++msgstr "Tô sáng các giá trị xuất hiện nhiều lần, hoặc các giá trị chỉ xuất hiện một lần."
+ 
+ #. sEZe7
+ #: sc/uiconfig/scalc/ui/conditionaleasydialog.ui:246

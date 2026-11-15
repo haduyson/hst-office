@@ -7,7 +7,7 @@ Usage: python3 tests/runtime/check-local-diagnostics.py [--instdir upstream/libr
 Uses a hard-linked instdir copy with the test package (error_report_gui.prepare_instdir) and the local fake server:
   1. a Python exception in an HST component (the dispatcher's test-package hook, HST_DIAG_TEST_RAISE) lands in
      <profile>/user/hst-office/hst-office.log with its traceback, filtered; the session start entry is there too;
-  2. the office is killed with SIGSEGV: faulthandler and the office's own fatal-signal handler write the signal and
+  2. the office is killed with SIGSEGV: the office's own fatal-signal handler writes the signal and
      the stack to last-session.err (kept as crashed-session.err in --out), the session marker stays;
   3. the next start asks once; Gửi opens the crash report with diagnostics ticked by default; the payload the server
      receives carries systemInfo, the log with the exception and the crash signature (the fatal signal, module +offset frames).
@@ -85,8 +85,7 @@ def first_session(office, diag, out):
     err = read(os.path.join(diag, "last-session.err"))
     with open(os.path.join(out, "crashed-session.err"), "w", encoding="utf-8") as handle:
         handle.write(err)  # kept for the report: the next start truncates it
-    record("last-session.err has the signal and stack", "Fatal Python error: Segmentation fault" in err
-           and "Fatal exception: Signal" in err and "Stack:" in err, err[-500:])
+    record("last-session.err has the signal and stack", "Fatal exception: Signal 11" in err and "Stack:" in err, err[-500:])
     record("session marker left after the crash", os.path.exists(os.path.join(diag, "session.json")))
     office.proc.wait(30)
 
@@ -123,7 +122,7 @@ def crash_report(office, server, out):
     record("payload: systemInfo", "VCL: gtk3" in diagnostics.get("systemInfo", ""), diagnostics.get("systemInfo"))
     record("payload: log with the exception", "diagnostics test hook" in diagnostics.get("log", ""), diagnostics.get("log"))
     crash = diagnostics.get("crash", "")
-    record("payload: crash signature", "Fatal signal: Segmentation fault" in crash and ".so " in crash, crash)
+    record("payload: crash signature", "Office handler: Signal 11 (SIGSEGV)" in crash and ".so " in crash, crash)
     raw = server.requests[-1]["body"].decode("utf-8") if len(server.requests) > before else ""
     record("payload: no profile path or build user", raw and office.workdir not in raw
            and hst_gui.BUILD_USER not in raw)

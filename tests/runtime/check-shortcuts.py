@@ -99,7 +99,7 @@ def run(args, lang):
     os.makedirs(work, exist_ok=True)
     bindir, log = xdg_stub(work)
     office = hst_gui.Office(args.instdir, work, PORT, display=args.display, lang=lang,
-                            config=[("/org.openoffice.Office.Impress/Misc", "StartWithTemplate", "false"),
+                            config=[("/org.openoffice.Office.Impress/Misc/NewDoc", "AutoPilot", "false"),
                                     ("/org.hasontech.hstoffice.UpdateCheck", "AutoCheck", "false")],
                             env={"PATH": bindir + ":/usr/local/bin:/usr/bin:/bin"})
     try:

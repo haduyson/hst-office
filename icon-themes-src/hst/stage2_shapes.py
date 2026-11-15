@@ -16,7 +16,7 @@ def shapes_and_slides():
     add('polygon_unfilled',p('M3 21 5 4l9 6 7-7-2 18z'),'Irregular polygon')
     add('starshapes',p('m12 2 3 7 8 1-6 5 2 8-7-4-7 4 2-8-6-5 8-1z'),'Five-point star')
     add('symbolshapes',c(12,12,10)+c(8,9,.7)+c(16,9,.7)+p('M7 15q5 6 10 0'),'Smiling symbol')
-    add('symbolshapes.moon',p('M17 3A10 10 0 1 0 21 17 10 10 0 0 1 17 3z'),'Crescent theme toggle')
+    add('symbolshapes.moon',p('M16.5 3A9.5 9.5 0 1 0 21 16.5 9.5 9.5 0 0 1 16.5 3z'),'Crescent theme toggle')
     add('calloutshapes',p('M3 3h18v14H12l-7 5v-5H3z'),'Speech callout shape')
     add('drawcaption',r(7,3,14,11,1)+p('M7 8H3v12h5m-3-3 3 3-3 3'),'Caption with elbow leader')
     add('flowchartshapes.flowchart-document',p('M3 3h18v16c-7-5-11 5-18 0z'),'Flowchart document with waved foot')
@@ -41,7 +41,7 @@ def shapes_and_slides():
     add('grafcontrast',c(12,12,9)+p('M12 3v18M15 5v14M18 8v8'),'Half-hatched contrast circle')
     add('grafgamma',p('M3 21h18M3 3v18M5 18C18 18 5 6 21 4'),'Gamma response curve')
     add('graftransparence',r(3,3,13,13)+r(10,10,11,11)+p('M10 13h3v-3'),'Transparent overlapping squares')
-    add('outputqualitygrayscale',r(3,3,18,18)+p('M7 3v18M11 3v18M15 3v18M18 3v18M20 3v18'),'Monochrome density swatches')
+    add('outputqualitygrayscale',r(3,3,18,18)+p('M8 3v18M13 3v18M17 3v18'),'Monochrome density swatches')
     add('autopilotmenu',p('m3 18 12-12 5 5L8 23zM5 2v6m-3-3h6M18 2v3m-1.5-1.5h3M20 17v5m-2.5-2.5h5'),'Wizard wand and sparkles')
     # Boolean operations draw the resulting boundaries, not identical stacked boxes.
     for name,body in [
@@ -62,7 +62,7 @@ def shapes_and_slides():
     add('selectobject',p('M5 2v19l5-6 4 7 4-2-4-7h8z'),'Selection cursor')
     add('mirror',p('M12 2v3m0 3v3m0 3v3m0 3v2M3 19V5l6 14zm18 0V5l-6 14z'),'Horizontal mirror across vertical guide')
     add('mirrorvert',transform(GLYPHS['mirror'][0],'rotate(90 12 12)'),'Vertical mirror across horizontal guide')
-    add('rotateright',r(5,10,10,10)+p('M4 6a9 9 0 0 1 17 5m-4-3 4 3 1-5'),'Rotate object clockwise')
+    add('rotateright',r(5,10,10,10)+p('M4 6a9 9 0 0 1 16 5m-4-3 4 3 1-5'),'Rotate object clockwise')
     add('shear',p('M8 4h13l-5 16H3zM2 3h18m-3-2 3 2-3 2'),'Shear parallelogram')
     add('crookslant',p('M3 20Q4 3 18 3l3 5Q9 8 8 21z'),'Bent shape strip')
     add('transformdialog',r(5,5,14,14)+r(2,2,5,5)+r(17,17,5,5)+p('M19 4h3v8M4 19v3h8'),'Transform bounding box handles')
@@ -89,7 +89,7 @@ def shapes_and_slides():
     add('framedialog',r(3,3,18,18)+p('M1 6h4M1 18h4M19 6h4M19 18h4M8 8h8M8 12h8M8 16h5'),'Frame borders and text')
     add('insertdraw',badge(pencil(),plus()),'Insert drawing')
     add('insertobject',badge(r(3,3,15,15)+r(6,6,9,9),plus()),'Insert embedded object')
-    add('inserthyperlink',transform(p('M9 8H6a4 4 0 0 0 0 8h3m6-8h3a4 4 0 0 1 0 8h-3M8 12h8'),'rotate(-45 12 12)'),'Two chain links')
+    add('inserthyperlink',p('M9 8H6a4 4 0 0 0 0 8h3m6-8h3a4 4 0 0 1 0 8h-3M8 12h8'),'Two chain links')
     # Slides, masters, view layouts and slideshow actions.
     for name,mark in [
         ('insertmasterpage',plus()),('deletemasterpage',cross()),('renamemasterpage',small_pen()),

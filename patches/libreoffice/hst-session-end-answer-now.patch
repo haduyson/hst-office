@@ -1,0 +1,71 @@
+HST Office: Windows log off / shut down: answer WM_QUERYENDSESSION at once when nothing is unsaved.
+
+The whole quit ran inside the WM_QUERYENDSESSION handler. Windows waits about 5 s for the answer,
+then shows that an application blocks the shut down and ends the process when the user goes on (or
+for an update restart). Measured on HST4 with 1.0.1 and rc/1.0.2-batch5, every document saved: the
+windows closed after 0.2 s but the answer never came within the 5 s, the office reached OnCloseApp
+only 98-115 s later (after the sender gave up).
+- vcl salframe.cxx: on WM_QUERYENDSESSION, when no open document holds unsaved changes, the office
+  answers "yes" first (ReplyMessage(TRUE), Windows goes on at once) and then quits as before.
+  With unsaved changes the save question still runs inside the call (unchanged).
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-session-end-windows-answer.py.
+---
+--- a/vcl/win/window/salframe.cxx
++++ b/vcl/win/window/salframe.cxx
+@@ -78,6 +78,10 @@
+ #include <vector>
+ 
+ #include <com/sun/star/uno/Exception.hpp>
++#include <com/sun/star/container/XEnumeration.hpp>
++#include <com/sun/star/frame/Desktop.hpp>
++#include <com/sun/star/util/XModifiable.hpp>
++#include <comphelper/processfactory.hxx>
+ 
+ #include <oleacc.h>
+ #include <com/sun/star/accessibility/XMSAAService.hpp>
+@@ -4417,12 +4421,44 @@
+     CloseHandle( hFile );
+ }
+ 
++// HST Office: true when an open document holds unsaved changes, so closing it may ask the user.
++// An error counts as "yes": the caller then keeps the path that can ask.
++static bool ImplHstAnyDocumentModified()
++{
++    try
++    {
++        css::uno::Reference<css::container::XEnumeration> xComponents
++            = css::frame::Desktop::create( comphelper::getProcessComponentContext() )
++                  ->getComponents()->createEnumeration();
++        while ( xComponents->hasMoreElements() )
++        {
++            css::uno::Reference<css::util::XModifiable> xModifiable( xComponents->nextElement(),
++                                                                     css::uno::UNO_QUERY );
++            if ( xModifiable.is() && xModifiable->isModified() )
++                return true;
++        }
++    }
++    catch ( const css::uno::Exception& )
++    {
++        TOOLS_WARN_EXCEPTION( "vcl", "session end: the open documents could not be checked" );
++        return true;
++    }
++    return false;
++}
++
+ static bool ImplHandleShutDownMsg( HWND hWnd )
+ {
+     bool nRet = false;
+     WinSalFrame* pFrame = ProcessOrDeferMessage( hWnd, 0, 0, DeferPolicy::Blocked );
+     if ( pFrame )
+     {
++        // HST Office: Windows waits about 5 s for the answer to WM_QUERYENDSESSION, then shows
++        // that an application blocks the shut down and ends it. Quitting inside the call took
++        // 98-115 s even with every document saved: it stalls while the call is pending. With
++        // nothing to ask, answer "yes" now (ReplyMessage releases the sender) and quit afterwards;
++        // with unsaved changes the save question still runs inside the call.
++        if ( InSendMessage() && !ImplHstAnyDocumentModified() )
++            ReplyMessage( TRUE );
+         nRet = pFrame->CallCallback( SalEvent::Shutdown, nullptr );
+         ImplSalYieldMutexRelease();
+     }

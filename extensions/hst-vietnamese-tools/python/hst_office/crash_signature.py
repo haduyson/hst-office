@@ -38,11 +38,12 @@ def crash_frames(frames):
 
 
 def from_linux_stderr(text):
-    """Signature from the stderr of a crashed session (pure): the first fatal signal (faulthandler's verdict), the
-    office handler's last "Fatal exception: Signal N" and the crashing frames of its stack."""
+    """Signature from the stderr of a crashed session (pure): Python's fatal error line when an older build wrote one,
+    the office handler's first "Fatal exception: Signal N" (the fault itself, printed before the emergency save; a
+    later one is the abort that follows) and the crashing frames of its stack."""
     text = text or ""
     lines = text.splitlines()
-    start = max((i for i, line in enumerate(lines) if _SIGNAL.search(line)), default=None)
+    start = min((i for i, line in enumerate(lines) if _SIGNAL.search(line)), default=None)
     python = _PY_FATAL.findall(text)
     if start is None and not python:
         return ""
@@ -90,15 +91,27 @@ def from_mac_reports(folder, since):
 _DATA = re.compile(r"<Data(?: Name='(\w+)')?>([^<]*)</Data>")
 _CREATED = re.compile(r"SystemTime='([^']+)'")
 EVENT_FIELDS = ("AppName", "AppVersion", "AppTimeStamp", "ModuleName", "ModuleVersion", "ModuleTimeStamp",
-                "ExceptionCode", "FaultingOffset")  # the fixed order of event 1000 when names are missing
+                "ExceptionCode", "FaultingOffset", "ProcessId")  # the fixed order of event 1000 when names are missing
 
 
-def from_event_xml(xml):
-    """One Windows "Application Error" event (XML) -> signature, or "" when it is not soffice's (pure)."""
+def same_process(fields, pid):
+    """True when the event's ProcessId (hex, "0x3640" or "3640") is `pid`, the session's own soffice.bin (pure).
+    Every LibreOffice-based suite runs a soffice.bin: without this, a crash of another office installed on the same PC
+    (or of a second HST Office) inside the session's time window was reported as ours. No pid: no filter."""
+    if not pid:
+        return True
+    try:
+        return int(fields.get("ProcessId", "").strip(), 16) == int(pid)
+    except ValueError:
+        return False
+
+
+def from_event_xml(xml, pid=None):
+    """One Windows "Application Error" event (XML) -> signature, or "" when it is not this session's soffice (pure)."""
     pairs = _DATA.findall(xml)
     fields = {name or (EVENT_FIELDS[i] if i < len(EVENT_FIELDS) else str(i)): value
               for i, (name, value) in enumerate(pairs)}
-    if fields.get("AppName", "").lower() not in ("soffice.bin", "soffice.exe"):
+    if fields.get("AppName", "").lower() not in ("soffice.bin", "soffice.exe") or not same_process(fields, pid):
         return ""
     return "Exception %s in %s %s at offset %s (soffice %s)" % (
         fields.get("ExceptionCode", "?"), fields.get("ModuleName", "?"), fields.get("ModuleVersion", ""),
@@ -116,8 +129,9 @@ def event_time(xml):
         return 0
 
 
-def from_windows_events(since, run=subprocess.run):
-    """The newest soffice Application Error event after `since`, via wevtutil (no window); "" when none."""
+def from_windows_events(since, run=subprocess.run, pid=None):
+    """The newest Application Error event of soffice (process `pid` when given) after `since`, via wevtutil (no
+    window); "" when none."""
     query = "*[System[Provider[@Name='Application Error'] and (EventID=1000)]]"
     try:
         out = run(["wevtutil", "qe", "Application", "/q:" + query, "/c:10", "/rd:true", "/f:xml"],
@@ -126,7 +140,56 @@ def from_windows_events(since, run=subprocess.run):
         return ""
     for event in re.findall(r"<Event .*?</Event>", out or "", re.S):
         if event_time(event) >= since - 60:
-            signature = from_event_xml(event)
+            signature = from_event_xml(event, pid)
             if signature:
                 return signature
     return ""
+
+
+# "Application Hang" 1002 carries unnamed <Data> in this order (its message: "The program %1 version %2 stopped
+# interacting with Windows and was closed ... Process ID %3 Start Time %4 Termination Time %5 Application Path %6
+# Report Id %7 ... Hang type %10").
+HANG_FIELDS = ("AppName", "AppVersion", "ProcessId", "StartTime", "TerminationTime", "AppPath", "ReportId",
+               "PackageFullName", "PackageRelativeAppId", "HangType")
+_HANG_REPORTS = ("AppHangB1", "AppHangXProcB1", "AppHangTransient")
+_OFFICE = ("soffice.bin", "soffice.exe")
+_EVENT_ID = re.compile(r"<EventID[^>]*>(\d+)</EventID>")
+
+
+def from_hang_xml(xml, pid=None):
+    """One "Application Hang" (1002) or WER hang report (1001 AppHangB1) event -> text, "" when not soffice's (pure).
+    With `pid`, only a 1002 of that process counts: a 1001 report names no process (the 1002 comes with it)."""
+    pairs = _DATA.findall(xml)
+    found = _EVENT_ID.search(xml)
+    if found and found.group(1) == "1001":
+        if pid:
+            return ""
+        fields = {name: value for name, value in pairs}
+        if fields.get("EventName") not in _HANG_REPORTS or fields.get("P1", "").lower() not in _OFFICE:
+            return ""
+        return "%s report for soffice %s" % (fields["EventName"], fields.get("P2", "?"))
+    fields = {name or (HANG_FIELDS[i] if i < len(HANG_FIELDS) else str(i)): value
+              for i, (name, value) in enumerate(pairs)}
+    if fields.get("AppName", "").lower() not in _OFFICE or not same_process(fields, pid):
+        return ""
+    kind = fields.get("HangType", "").strip()
+    return "Application Hang (soffice %s)%s" % (fields.get("AppVersion", "?"), ("; hang type: %s" % kind) if kind else "")
+
+
+def windows_hang(since, run=subprocess.run, pid=None):
+    """{"time": epoch, "text"} of the newest soffice hang event after `since` (the user or Windows closed a "not
+    responding" office), via wevtutil; None when none."""
+    query = ("*[System[(Provider[@Name='Application Hang'] and EventID=1002) or "
+             "(Provider[@Name='Windows Error Reporting'] and EventID=1001)]]")
+    try:
+        out = run(["wevtutil", "qe", "Application", "/q:" + query, "/c:50", "/rd:true", "/f:xml"],
+                  capture_output=True, text=True, timeout=15, creationflags=0x08000000).stdout
+    except Exception:  # noqa: BLE001 - no wevtutil, access denied, timeout
+        return None
+    for event in re.findall(r"<Event .*?</Event>", out or "", re.S):
+        when = event_time(event)
+        if when >= since - 60:
+            text = from_hang_xml(event, pid)
+            if text:
+                return {"time": when, "text": text}
+    return None

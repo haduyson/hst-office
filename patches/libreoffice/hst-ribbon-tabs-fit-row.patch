@@ -1,0 +1,124 @@
+HST Office: in a narrow window the ribbon's tabs never run under the menu button; every tab stays reachable.
+
+Below about 850 px the tab row was wider than the room before the ≡ button: the last tabs were drawn under it
+and the search box was pushed out. A tab that would end past the room the search box's magnifier needs is now
+left off the row (not drawn, no clicks). It stays one step away: the ≡ menu lists the tabs left off first, and
+the KeyTips (Alt) show their letters left of the ≡ button.
+
+--- a/include/vcl/tabctrl.hxx
++++ b/include/vcl/tabctrl.hxx
+@@ -213,6 +213,9 @@
+     bool HstShortcutsBelow() const { return m_nHstQatRow > 0; }
+     void HstCloseDrop();
+     bool HstIsDropped() const;
++    /// HST Office: whether the shown page nPageId has no tab on a narrow row (ImplPlaceTabs left it off): the menu
++    /// button's menu and the KeyTips still reach it
++    bool HstIsOffRow( sal_uInt16 nPageId ) const;
+ 
+     virtual Size        calculateRequisition() const override;
+ 
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -2572,6 +2572,13 @@
+     ImplPosCurTabPage();
+ }
+ 
++bool NotebookbarTabControlBase::HstIsOffRow( sal_uInt16 nPageId ) const
++{
++    const ImplTabItem* pItem = ImplGetItem(nPageId);
++    return pItem && pItem->m_bVisible && pItem->maRect.IsEmpty() && !mpTabCtrlData->maItemList.empty()
++           && !mpTabCtrlData->maItemList.front().maRect.IsEmpty(); // laid out, and this tab left off
++}
++
+ bool NotebookbarTabControlBase::ImplPlaceTabs( tools::Long nWidth )
+ {
+     nWidth -= m_nHstRowReserve; // HST Office: the compact ribbon's banner stands at the right end of the row
+@@ -2681,6 +2688,26 @@
+         nX += aSize.Width();
+     }
+ 
++    // HST Office: in a narrow window a tab that would run under the menu button (past the room the search box's
++    // magnifier needs) is left off the row: it is not drawn and takes no clicks (the menu button's menu and the KeyTips still reach it, HstIsOffRow).
++    // The search box follows the last tab shown.
++    if (pHstSearch)
++    {
++        const tools::Long nRowEnd = nMaxWidth - 2 * nHstGap - std::lround(32 * fHstDpi);
++        for (auto & item : mpTabCtrlData->maItemList)
++        {
++            if (item.m_bVisible && !item.maRect.IsEmpty() && item.maRect.Right() > nRowEnd)
++            {
++                item.maRect = tools::Rectangle();
++                item.mbFullVisible = false;
++            }
++        }
++        nX = nOffsetX;
++        for (auto & item : mpTabCtrlData->maItemList)
++            if (item.m_bVisible && !item.maRect.IsEmpty())
++                nX = std::max(nX, item.maRect.Right() + 1);
++    }
++
+     // we always have only one line of tabs
+     // tdf#127610 subtract width of shortcuts from width available for tab items
+     if (!pHstSearch) // with the search box the tabs stay left-aligned, the box fills the row
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -1036,6 +1036,17 @@
+         xPopupMenu->insertItem(HST_COMPACT_ITEM,
+                                SfxResId(m_pHstCompact->IsCompact() ? STR_HST_RIBBON_EXPAND : STR_HST_RIBBON_COLLAPSE),
+                                0, std::min<sal_Int16>(1, xPopupMenu->getItemCount()));
++    // HST Office: in a narrow window the tabs left off the row come first, so every tab is one click away
++    constexpr sal_Int16 HST_TAB_ITEM = 30100;
++    sal_Int16 nOffRow = 0;
++    for (sal_uInt16 nPos = 0; nPos < GetPageCount(); ++nPos)
++    {
++        const sal_uInt16 nId = GetPageId(nPos);
++        if (HstIsOffRow(nId))
++            xPopupMenu->insertItem(static_cast<sal_Int16>(HST_TAB_ITEM + nId), GetPageText(nId).replaceAll("~", ""), 0, nOffRow++);
++    }
++    if (nOffRow)
++        xPopupMenu->insertSeparator(nOffRow);
+     Control* pOpenMenuButton = GetOpenMenu();
+     assert(pOpenMenuButton);
+     Point aPos(pOpenMenuButton->GetSizePixel().getWidth(), pOpenMenuButton->GetSizePixel().getHeight());
+@@ -1048,6 +1059,12 @@
+         xComponent->dispose();
+     if (nChosen == HST_COMPACT_ITEM && m_pHstCompact)
+         HstSetCompact(!m_pHstCompact->IsCompact());
++    else if (nChosen > HST_TAB_ITEM)
++    {
++        const sal_uInt16 nTab = static_cast<sal_uInt16>(nChosen - HST_TAB_ITEM);
++        if (GetPagePos(nTab) != TAB_PAGE_NOTFOUND)
++            SelectTabPage(nTab);
++    }
+ }
+ 
+ Size NotebookbarTabControl::calculateRequisition() const
+--- a/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
++++ b/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
+@@ -208,12 +208,23 @@
+     {
+         std::vector<Target> aTargets;
+         std::vector<std::string> aPreferred;
++        tools::Long nOffRow = 0;
+         for (sal_uInt16 nPos = 0; nPos < m_xTabs->GetPageCount(); ++nPos)
+         {
+             const sal_uInt16 nId = m_xTabs->GetPageId(nPos);
+-            const tools::Rectangle aRect = m_xTabs->GetTabBounds(nId);
+-            if (aRect.GetWidth() <= 1) // pages hidden by the context have no tab
+-                continue;
++            tools::Rectangle aRect = m_xTabs->GetTabBounds(nId);
++            if (aRect.GetWidth() <= 1)
++            {
++                // HST Office: a tab left off a narrow row keeps its KeyTip, shown left of the menu button (one
++                // slot per such tab); pages hidden by the context have no tab and no KeyTip
++                auto* pBase = dynamic_cast<NotebookbarTabControlBase*>(m_xTabs.get());
++                Control* pMenu = pBase && pBase->HstIsOffRow(nId) ? pBase->GetOpenMenu() : nullptr;
++                if (!pMenu)
++                    continue;
++                const tools::Long nSlot = pMenu->GetSizePixel().Height();
++                aRect = tools::Rectangle(Point(pMenu->GetPosPixel().X() - nSlot * (1 + nOffRow++), pMenu->GetPosPixel().Y()),
++                                         Size(nSlot, nSlot));
++            }
+             const OString aName = m_xTabs->GetPageName(nId).toUtf8();
+             aPreferred.emplace_back(lookup(std::begin(TAB_KEYS), std::end(TAB_KEYS), std::string_view(aName)));
+             Target aTarget;

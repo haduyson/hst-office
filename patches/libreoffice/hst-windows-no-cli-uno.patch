@@ -1,0 +1,61 @@
+HST Office on Windows: no legacy CLI-UNO (.NET Framework) bridge assemblies in the MSI.
+
+The Windows build now configures with --disable-cli, so cli_ure, cli_basetypes, cli_uretypes,
+cli_cppuhelper and cli_oootypes are no longer built. scp2 still listed them, together with their
+publisher policy assemblies and .config files, as ASSEMBLY files, which the installer writes into
+the MsiAssembly tables and installs into the .NET Global Assembly Cache. Installing them failed on
+some machines (error 1304 writing cli_uretypes.dll; Smart App Control blocking the unsigned
+policy.1.0.cli_cppuhelper.dll at the GAC step) and only .NET programs that drive the office
+through the old CLI binding use them. Basic, VBA, the OLE automation bridge (HSTOffice.* COM
+names), Python and HST's extensions do not.
+
+The scp2 items are now built only when ENABLE_CLI is set (it is defined for scp2/ure and
+scp2/ooo), so a --disable-cli build packages none of them. The module file lists keep the item
+names; an undefined name there is ignored, as on Windows Arm64. An upgrade from HST Office 1.0.0
+or 1.0.1 removes the old product, its GAC assemblies included, in RemoveExistingProducts
+(sequence 675, before InstallInitialize).
+
+License: modified upstream files keep their license (MPL-2.0).
+
+--- a/scp2/InstallModule_ooo.mk
++++ b/scp2/InstallModule_ooo.mk
+@@ -21,6 +21,7 @@
+ ))
+ 
+ $(eval $(call gb_InstallModule_define_if_set,scp2/ooo,\
++	ENABLE_CLI \
+ 	ENABLE_MACOSX_SANDBOX \
+ 	ENABLE_ONLINE_UPDATE \
+ 	MPL_SUBSET \
+--- a/scp2/InstallModule_ure.mk
++++ b/scp2/InstallModule_ure.mk
+@@ -12,6 +12,7 @@
+ $(eval $(call gb_InstallModule_use_auto_install_libs,scp2/ure,ure))
+ 
+ $(eval $(call gb_InstallModule_define_if_set,scp2/ure,\
++	ENABLE_CLI \
+ 	ENABLE_MACOSX_SANDBOX \
+ ))
+ 
+--- a/scp2/source/ooo/file_library_ooo.scp
++++ b/scp2/source/ooo/file_library_ooo.scp
+@@ -26,7 +26,7 @@
+  ************************************************************************/
+ #include "macros.inc"
+ 
+-#if defined _MSC_VER && ! defined _ARM64_
++#if defined _MSC_VER && ! defined _ARM64_ && defined ENABLE_CLI
+ 
+ File gid_File_Lib_Cli_Oootypes_Assembly
+     TXT_FILE_BODY;
+--- a/scp2/source/ooo/ure.scp
++++ b/scp2/source/ooo/ure.scp
+@@ -29,7 +29,7 @@
+ 
+ // Private Dynamic Libraries:
+ 
+-#if defined _MSC_VER && ! defined _ARM64_
++#if defined _MSC_VER && ! defined _ARM64_ && defined ENABLE_CLI
+ File gid_File_Dl_Cli_Ure_Assembly
+     TXT_FILE_BODY;
+     Styles = (PACKED, ASSEMBLY);

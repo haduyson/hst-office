@@ -9,99 +9,24 @@ import shutil
 import unicodedata
 
 from . import update_helper_scripts as scripts
+from . import update_helper_scripts_linux as linux_scripts
 from . import update_helper_scripts_mac as mac_scripts
+from .update_helper_scripts_windows import POWERSHELL
 
 TEAM_ID = "74AT34P945"
 SCRIPT_PATH = "{script}"
 
-POWERSHELL = r'''# SPDX-License-Identifier: AGPL-3.0-only
-param(
-    [Parameter(Mandatory=$true)][int]$ProcessId,
-    [Parameter(Mandatory=$true)][string]$Installer,
-    [Parameter(Mandatory=$true)][string]$Soffice,
-    [Parameter(Mandatory=$true)][string]$Log,
-    [Parameter(Mandatory=$true)][string]$Sha256,
-    [switch]$DryRun
-)
-$ErrorActionPreference = 'Stop'
-function Write-Step([string]$Message) {
-    Add-Content -LiteralPath $Log -Encoding UTF8 -Value ((Get-Date -Format o) + ' ' + $Message)
-}
-$state = Join-Path (Split-Path -Parent $Log) 'update-result.json'
-# The start-up job shows this once (update_outcome.py); it stays on this machine.
-function Write-Failure([string]$Reason, [int]$ExitCode) {
-    try {
-        $json = @{schema=1; code=$Reason; exit=$ExitCode; from='@FROM_RELEASE@'; to='@TO_RELEASE@'} | ConvertTo-Json -Compress
-        Set-Content -LiteralPath "$state.tmp" -Encoding ASCII -Value $json
-        Move-Item -LiteralPath "$state.tmp" -Destination $state -Force
-        Write-Step ("Recorded failure: $Reason ($ExitCode)")
-    } catch { Write-Step 'Failure not recorded' }
-}
-$code = 1
-$fail = 'wait'
-try {
-    Write-Step "Waiting for process $ProcessId"
-    $seconds = 0
-    while (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
-        if ($seconds -ge 1800) {
-            Write-Step 'Timed out after 30 minutes; installation skipped'
-            throw 'wait-timeout'
-        }
-        Start-Sleep -Seconds 1
-        $seconds++
-    }
-    Write-Step 'Process exited'
-    Remove-Item -LiteralPath $state -ErrorAction SilentlyContinue
-    $fail = 'verify'
-    if (-not (Test-Path -LiteralPath $Installer -PathType Leaf)) {
-        throw 'SHA256 verification failed: installer missing'
-    }
-    $hash = Get-FileHash -Algorithm SHA256 -LiteralPath $Installer
-    if ($hash.Hash -ine $Sha256) { throw 'SHA256 mismatch; installation skipped' }
-    $fail = 'install'
-    if ($DryRun) {
-        Write-Step ('DRYRUN install: msiexec.exe /i "' + $Installer + '" /passive /norestart')
-        $code = 0
-    } else {
-        Write-Step 'Installing with msiexec'
-        try {
-            $result = Start-Process msiexec.exe -Verb RunAs -Wait -PassThru -ArgumentList '/i', "`"$Installer`"", '/passive', '/norestart'
-            Write-Step ("Installer exited with code " + $result.ExitCode)
-            if ($result.ExitCode -eq 0 -or $result.ExitCode -eq 3010) {
-                $code = 0
-                Remove-Item -LiteralPath $Installer
-                Write-Step 'Deleted installer'
-            } else {
-                $code = $result.ExitCode
-                if ($code -eq 1602) { $fail = 'cancel' }  # the installer's own Cancel button
-            }
-        } catch {
-            # Start-Process only fails here when the UAC question is declined: the user's choice.
-            Write-Step 'Installer failed or UAC was declined; exit code 1'
-            $code = 1
-            $fail = 'cancel'
-        }
-    }
-} catch {
-    Write-Step ('Helper failed; exit code 1: ' + $_.Exception.Message)
-} finally {
-    if ($code -ne 0 -and $fail -ne 'cancel') { Write-Failure $fail $code }
-    if ($DryRun) {
-        Write-Step ('DRYRUN relaunch: Start-Process "' + $Soffice + '"')
-    } elseif (Test-Path -LiteralPath $Soffice) {
-        Write-Step 'Relaunching HST Office'
-        try { Start-Process $Soffice | Out-Null }
-        catch { Write-Step 'Relaunch failed' }
-    } else { Write-Step 'Relaunch unavailable: executable missing' }
-}
-exit $code
-'''
+
+LINUX_KINDS = ("deb", "rpm", "appimage")  # update_linux_install.kind()
 
 
-def preflight(system, which=shutil.which):
+def preflight(system, which=shutil.which, linux_kind="deb"):
     """Return the missing-tool error, or None when installation is available."""
     if system == "Linux":
-        return None if (which("pkexec") and which("apt-get")) or which("pkcon") else "no-installer-tool"
+        if linux_kind == "appimage":  # a rename in the user's own directory: nothing to call
+            return None
+        manager = ("dnf", "zypper", "rpm") if linux_kind == "rpm" else ("apt-get",)
+        return None if (which("pkexec") and any(which(t) for t in manager)) or which("pkcon") else "no-installer-tool"
     if system == "Windows":
         return None if which("powershell.exe") or which("powershell") else "no-powershell"
     if system == "Darwin":
@@ -142,16 +67,19 @@ def mac_bundle(value):
 
 
 def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False, app_dest=None, release_from="", release_to="",
-                 app_origin=None):
+                 app_origin=None, linux_kind="deb"):
     """Build a script and argv template without inspecting or changing the filesystem.
 
     release_from / release_to go into the failure record, so that update_outcome can name the version and ignore a
     record made stale by an update installed some other way. macOS: app_dest is the bundle to replace or create;
-    app_origin, when it differs (the running copy on a .dmg, say), is reopened if the install fails."""
+    app_origin, when it differs (the running copy on a .dmg, say), is reopened if the install fails. Linux: linux_kind picks
+    the install step (LINUX_KINDS); for "appimage", soffice is the AppImage file the verified installer replaces."""
     if system not in ("Windows", "Darwin", "Linux"):
         raise ValueError("unsupported system")
     if type(pid) is not int or pid <= 0 or pid > 2147483647:
         raise ValueError("pid must be a positive process ID")
+    if system == "Linux" and linux_kind not in LINUX_KINDS:
+        raise ValueError("unknown Linux install kind")
     if type(dry_run) is not bool:
         raise ValueError("dry_run must be a bool")
     if not isinstance(sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", sha256):
@@ -182,10 +110,16 @@ def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False,
     text += scripts.SETUP + "FROM_RELEASE=" + shlex.quote(release_from) + "\nTO_RELEASE=" + shlex.quote(release_to) + "\n"
     text += "RELAUNCH=" + shlex.quote(relaunch) + "\n" + ("ORIGIN=" + shlex.quote(origin) + "\nSCRIPT_SHA256=${7-}\n" if system == "Darwin" else "")
     text += "HASH_TOOLS=" + shlex.quote("shasum" if system == "Darwin" else "sha256sum shasum openssl") + "\n"
-    if system == "Linux":
+    if system == "Linux" and linux_kind == "deb":
         text += "APT_COMMAND=" + shlex.quote("pkexec env DEBIAN_FRONTEND=noninteractive apt-get install -y " + shlex.quote(installer)) + "\n"
         text += "PKCON_COMMAND=" + shlex.quote("pkcon install-local " + shlex.quote(installer)) + "\n"
-    text += mac_scripts.MAC_INSTALL if system == "Darwin" else scripts.LINUX
+    if system == "Linux" and linux_kind == "rpm":
+        text += "PKCON_COMMAND=" + shlex.quote("pkcon install-local " + shlex.quote(installer)) + "\n"
+    if system == "Darwin":
+        text += mac_scripts.MAC_INSTALL
+    else:
+        text += scripts.LINUX + {"deb": scripts.LINUX_DEB, "rpm": linux_scripts.LINUX_RPM,
+                                 "appimage": linux_scripts.LINUX_APPIMAGE}[linux_kind]
     text += scripts.RUN
     # macOS: the root step runs only a copy of the script with this digest (admin_command).
     extra = ["--dry-run" if dry_run else "", hashlib.sha256(text.encode("utf-8")).hexdigest()] if system == "Darwin" else ["--dry-run"] * dry_run

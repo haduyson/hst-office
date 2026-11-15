@@ -115,8 +115,9 @@ class ArithmeticTest(unittest.TestCase):
         self.assertEqual(dims["D3"], 1.0)
         self.assertEqual(dims["D4"], 0.5)
         self.assertEqual(dims["D5"], round(5 / 20, 4))
-        self.assertEqual(dims["D6"], round(2 / 8, 4))  # previews + Writer's Paste; Sheets and Slides not measured
-        expected = 0.35 * 0.8 + 0.15 + 0.20 + 0.10 * 0.5 + 0.15 * 0.25 + 0.05 * 0.25
+        # previews + Writer's Paste: only the scored apps count (a Writer-only run is not failed for the others)
+        self.assertEqual(dims["D6"], round(2 / 6, 4))
+        expected = 0.35 * 0.8 + 0.15 + 0.20 + 0.10 * 0.5 + 0.15 * 0.25 + 0.05 * round(2 / 6, 4)
         self.assertAlmostEqual(result["total"], round(expected, 4))
         self.assertEqual(result["below_floor"], ["D1", "D4", "D5", "D6"])
         again = card.score(copy.deepcopy(per_app), parity_report, pages, spec, CONFIG, apps=("writer",))

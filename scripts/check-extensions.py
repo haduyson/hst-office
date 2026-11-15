@@ -15,7 +15,7 @@ import zipfile
 
 from extension_content import (ROOT, BANNER_FETCH, BANNER_DEADLINE, UPDATE_FETCH, UPDATE_DOWNLOAD,
                                UPDATE_LAUNCH, USB_TOKEN_WORKER, USB_TOKEN_NSS,
-                               check_zip, check_registration, check_content)
+                               check_zip, check_registration, check_content, check_citation_styles)
 from extension_contract import check_banners, check_labels, banner_key
 
 
@@ -26,6 +26,7 @@ def check_oxt(path, require_banner_key=False):
             names = check_zip(zf, errors)
             check_registration(zf, names, errors)
             check_content(zf, names, errors)
+            check_citation_styles(zf, names, errors)
             check_labels(zf, names, errors)
             check_banners(zf, names, errors)
             if require_banner_key:

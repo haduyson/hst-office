@@ -7,7 +7,8 @@ import re
 import stat
 import urllib.parse
 
-_EXTENSIONS = {"windows": ".msi", "macos-arm": ".dmg", "macos-intel": ".dmg", "linux": ".deb"}
+_EXTENSIONS = {"windows": ".msi", "macos-arm": ".dmg", "macos-intel": ".dmg", "linux": ".deb", "linux-rpm": ".rpm",
+               "linux-appimage": ".AppImage"}
 _NAME = re.compile(r"[A-Za-z0-9._-]+")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _GITHUB_PATH = "/haduyson/hst-office/releases/download/"

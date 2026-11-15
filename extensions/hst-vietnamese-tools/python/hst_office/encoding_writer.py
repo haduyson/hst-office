@@ -7,26 +7,23 @@ character attributes, and the old text is then deleted (setString would reset bo
 font is a legacy one (.VnTime, VNI-Times ...) get a Unicode font so the result is legible. Refused before
 any write: read-only documents, tracked changes, no/multiple/non-text selections, protected sections.
 """
+from . import writer_selection
 from .encoding import Converter, font_policy
 from .undo import undo_step
 
 
-def check_selection(doc, selection):
-    """Return (range_or_None, reasons). Reasons are machine-readable strings."""
+def check_selection(doc, controller):
+    """Return (range_or_None, reasons) for the view's selection. Reasons are machine-readable strings."""
     reasons = []
     if doc.isReadonly():
         reasons.append("read-only")
     if doc.RecordChanges or doc.getRedlines().hasElements():
         reasons.append("tracked-changes")
-    rng = None
-    if selection is None or not selection.supportsService("com.sun.star.text.TextRanges"):
-        reasons.append("unsupported-selection")
-    elif selection.getCount() != 1:
-        reasons.append("multiple-selections")
-    else:
-        rng = selection.getByIndex(0)
-        if not rng.getString():
-            reasons.append("no-selection")
+    rng, why = writer_selection.single_text_range(controller)  # cells, picture, shape, comment, several ranges
+    if why:
+        reasons.append(why)
+    elif not rng.getString():
+        reasons.append("no-selection")
     return (rng if not reasons else None), reasons
 
 

@@ -5,6 +5,7 @@ import re
 from .nd30 import format_issue_date, format_number, format_symbol, parse_date_input
 from .nd30_blocks import lines_of, para, run
 from .nd30_metrics import ASCENT_EM, rule_for, text_width_mm
+from .nd30_rule_length import FIELD as RULE_FIELD, agency_rule_mm
 
 
 def value_of(fields, key, ph):
@@ -29,12 +30,16 @@ def number_text(t, fields, d):
 
 def agency_cell(t, fields, d, cell_mm):
     ph, T, R = d["placeholders"], d["typography"], d["ruleWidthMm"]
-    cell = []
+    cell, parent = [], ""
     typed_parent = str(fields.get("parentAgency") or "").strip()
     if typed_parent or ("_template" in fields and not t.get("noParent")):
-        cell.append(para([run(value_of(fields, "parentAgency", ph).upper(), T["parentAgency"])], role="ParentAgency"))
+        parent = value_of(fields, "parentAgency", ph).upper()
+        cell.append(para([run(parent, T["parentAgency"])], role="ParentAgency"))
     agency = value_of(fields, "agency", ph).upper()
-    cell.append(para([run(agency, T["agency"], bold=True)], role="Agency", rule_mm=rule_for(agency, T["agency"], True, cell_mm, R["agencyFraction"])))
+    # the length the user chose in the wizard (nd30_rule_length); without a choice the profile's fraction
+    rule_mm = (agency_rule_mm(fields[RULE_FIELD], agency, parent, T, cell_mm, R["agencyFraction"]) if fields.get(RULE_FIELD)
+               else rule_for(agency, T["agency"], True, cell_mm, R["agencyFraction"]))
+    cell.append(para([run(agency, T["agency"], bold=True)], role="Agency", rule_mm=rule_mm))
     return cell
 
 

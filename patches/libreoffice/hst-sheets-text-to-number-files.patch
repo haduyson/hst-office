@@ -1,0 +1,185 @@
+HST Office: "Bỏ qua lỗi" of numbers stored as text is saved in .xlsx and .ods.
+
+- xlsx import (worksheetfragment): <ignoredErrors><ignoredError sqref numberStoredAsText="1"/> adds its
+  cells to the document's ignored ranges, so files from the leading suite keep ignored cells unmarked.
+- xlsx export (excdoc): the ranges of each sheet are written in the same element, after the page
+  settings and before <drawing> (CT_Worksheet order), clipped to the sheet limits of the format.
+- ods: the document setting "HstIgnoredTextNumbers" (settings.xml, ScDocumentConfiguration) holds
+  "sheet!A1:B2 ..." with sheets by index; it is read before the sheets exist and resolved on first use.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_sheets_text_to_number_patch.py.
+---
+--- a/sc/source/filter/inc/worksheetfragment.hxx
++++ b/sc/source/filter/inc/worksheetfragment.hxx
+@@ -143,6 +143,8 @@
+     void                importHyperlink( const AttributeList& rAttribs );
+     /** Imports individual break that is either within row or column break context. */
+     void                importBrk( const AttributeList& rAttribs, bool bRowBreak );
++    /** Imports the numberStoredAsText cells of an ignoredError element (HST). */
++    void                importHstIgnoredError( const AttributeList& rAttribs );
+     /** Imports the relation identifier for the DrawingML part. */
+     void                importDrawing( const AttributeList& rAttribs );
+     /** Imports the relation identifier for the legacy VML drawing part. */
+--- a/sc/source/filter/oox/worksheetfragment.cxx
++++ b/sc/source/filter/oox/worksheetfragment.cxx
+@@ -44,6 +44,8 @@
+ #include <viewsettings.hxx>
+ #include <worksheetsettings.hxx>
+ #include <NamedSheetViewFragment.hxx>
++#include <document.hxx>
++#include <hsttextnumber.hxx>
+ 
+ namespace oox::xls {
+ 
+@@ -393,6 +395,7 @@
+                 case XLS_TOKEN( rowBreaks ):
+                 case XLS_TOKEN( colBreaks ):
+                 case XLS_TOKEN( oleObjects ):
++                case XLS_TOKEN( ignoredErrors ):
+                 case XLS_TOKEN( controls ):         return this;
+ 
+                 case XLS_TOKEN( sheetPr ):          getWorksheetSettings().importSheetPr( rAttribs );               return this;
+@@ -451,6 +454,9 @@
+         case XLS_TOKEN( colBreaks ):
+             if( nElement == XLS_TOKEN( brk ) ) importBrk( rAttribs, false );
+         break;
++        case XLS_TOKEN( ignoredErrors ):
++            if( nElement == XLS_TOKEN( ignoredError ) ) importHstIgnoredError( rAttribs );
++        break;
+ 
+         case XLS_TOKEN( protectedRanges ):
+             switch( nElement )
+@@ -725,6 +731,17 @@
+     }
+ }
+ 
++void WorksheetFragment::importHstIgnoredError( const AttributeList& rAttribs )
++{
++    // HST: cells where "Ignore Error" was chosen for a number stored as text (no triangle, no button)
++    if( !rAttribs.getBool( XML_numberStoredAsText, false ) )
++        return;
++    ScRangeList aRanges;
++    getAddressConverter().convertToCellRangeList( aRanges, rAttribs.getString( XML_sqref, OUString() ), getSheetIndex(), true );
++    if( !aRanges.empty() )
++        getScDocument().GetHstIgnoredTextNumbers().Add( aRanges );
++}
++
+ void WorksheetFragment::importBrk( const AttributeList& rAttribs, bool bRowBreak )
+ {
+     PageBreakModel aModel;
+--- a/sc/source/filter/excel/excdoc.cxx
++++ b/sc/source/filter/excel/excdoc.cxx
+@@ -22,6 +22,7 @@
+ 
+ #include <document.hxx>
+ #include <docsh.hxx>
++#include <hsttextnumber.hxx>
+ #include <scextopt.hxx>
+ #include <docoptio.hxx>
+ #include <tabprotection.hxx>
+@@ -40,6 +41,7 @@
+ #include <xepage.hxx>
+ #include <xeview.hxx>
+ #include <xecontent.hxx>
++#include <xehelper.hxx>
+ #include <xeescher.hxx>
+ #include <xepivot.hxx>
+ #include <export/SparklineExt.hxx>
+@@ -84,6 +86,32 @@
+     OUString maName;
+ };
+ 
++/// HST: <ignoredErrors> with the cells of a sheet where "Ignore Error" was chosen for a number stored as text.
++class XclExpHstIgnoredErrors : public XclExpRecordBase, protected XclExpRoot
++{
++public:
++    XclExpHstIgnoredErrors( const XclExpRoot& rRoot, SCTAB nScTab ) : XclExpRoot( rRoot )
++    {
++        if( ScHstIgnoredTextNumbers* pIgnored = GetDoc().GetHstIgnoredTextNumbersIfAny() )
++        {
++            ScRangeList aRanges = pIgnored->GetRanges( nScTab );
++            GetAddressConverter().ConvertRangeList( maRanges, aRanges, false );
++        }
++    }
++    virtual void SaveXml( XclExpXmlStream& rStrm ) override
++    {
++        if( maRanges.empty() )
++            return;
++        sax_fastparser::FSHelperPtr& rWorksheet = rStrm.GetCurrentStream();
++        rWorksheet->startElement( XML_ignoredErrors );
++        rWorksheet->singleElement( XML_ignoredError, XML_sqref, XclXmlUtils::ToOString( GetDoc(), maRanges ),
++                                   XML_numberStoredAsText, "1" );
++        rWorksheet->endElement( XML_ignoredErrors );
++    }
++private:
++    XclRangeList maRanges;
++};
++
+ }
+ 
+ static void lcl_AddBookviews( XclExpRecordList<>& aRecList, const ExcTable& self )
+@@ -656,6 +684,9 @@
+ 
+     aRecList.AppendRecord( xPageSett );
+ 
++    // <ignoredErrors> after the page settings (up to <colBreaks>) and before <drawing>
++    aRecList.AppendNewRecord( new XclExpHstIgnoredErrors( GetRoot(), mnScTab ) );
++
+     std::unique_ptr<XclExpImgData> pImgData(xPageSett->getGraphicExport());
+     // all MSODRAWING and OBJ stuff of this sheet goes here
+     aRecList.AppendRecord( GetObjectManager().ProcessDrawing( GetSdrPage( mnScTab ), std::move(pImgData) ) );
+--- a/sc/inc/unonames.hxx
++++ b/sc/inc/unonames.hxx
+@@ -553,6 +553,8 @@
+ inline constexpr OUString SC_UNO_RECORDCHANGES            = u"RecordChanges"_ustr;
+ inline constexpr OUString SC_UNO_ISRECORDCHANGESPROTECTED = u"IsRecordChangesProtected"_ustr;
+ inline constexpr OUString SC_UNO_SYNTAXSTRINGREF          = u"SyntaxStringRef"_ustr;
++// HST: cells where "Ignore Error" was chosen for a number stored as text (ODF settings)
++inline constexpr OUString SC_UNO_HST_IGNORED_TEXT_NUMBERS = u"HstIgnoredTextNumbers"_ustr;
+ 
+ 
+ //  document properties from FormModel
+--- a/sc/source/ui/unoobj/confuno.cxx
++++ b/sc/source/ui/unoobj/confuno.cxx
+@@ -26,6 +26,7 @@
+ #include <confuno.hxx>
+ #include <unonames.hxx>
+ #include <docsh.hxx>
++#include <hsttextnumber.hxx>
+ #include <miscuno.hxx>
+ #include <forbiuno.hxx>
+ #include <appoptio.hxx>
+@@ -93,6 +94,7 @@
+         { SC_UNO_EMBED_FONT_SCRIPT_COMPLEX, 0,  cppu::UnoType<bool>::get(), 0, 0},
+         { SC_UNO_IMAGE_PREFERRED_DPI,       0,  cppu::UnoType<sal_Int32>::get(), 0, 0},
+         { SC_UNO_SYNTAXSTRINGREF, 0,  cppu::UnoType<sal_Int16>::get(),     0, 0},
++        { SC_UNO_HST_IGNORED_TEXT_NUMBERS, 0, cppu::UnoType<OUString>::get(), 0, 0},
+     };
+     return aConfigPropertyMap_Impl;
+ }
+@@ -379,6 +381,12 @@
+         bool bVal = aValue.has<bool>() && aValue.get<bool>();
+         rDoc.SetEmbedFontScriptComplex(bVal);
+     }
++    else if (aPropertyName == SC_UNO_HST_IGNORED_TEXT_NUMBERS)
++    {
++        OUString aIgnored;
++        if ((aValue >>= aIgnored) && (!aIgnored.isEmpty() || rDoc.GetHstIgnoredTextNumbersIfAny()))
++            rDoc.GetHstIgnoredTextNumbers().SetSettings(aIgnored);
++    }
+     else if ( aPropertyName == SC_UNO_SYNTAXSTRINGREF )
+     {
+         ScCalcConfig aCalcConfig = rDoc.GetCalcConfig();
+@@ -576,6 +584,11 @@
+         aRet <<= rDoc.IsEmbedFontScriptAsian();
+     else if (aPropertyName == SC_UNO_EMBED_FONT_SCRIPT_COMPLEX)
+         aRet <<= rDoc.IsEmbedFontScriptComplex();
++    else if (aPropertyName == SC_UNO_HST_IGNORED_TEXT_NUMBERS)
++    {
++        ScHstIgnoredTextNumbers* pIgnored = rDoc.GetHstIgnoredTextNumbersIfAny();
++        aRet <<= pIgnored ? pIgnored->ToSettings() : OUString();
++    }
+     else if ( aPropertyName == SC_UNO_SYNTAXSTRINGREF )
+     {
+         ScCalcConfig aCalcConfig = rDoc.GetCalcConfig();

@@ -55,5 +55,47 @@ class NeverSilent(unittest.TestCase):
             self.assertIsNone(install.start(mock.Mock(), None))
 
 
+class WindowsElevation(unittest.TestCase):
+    RESULT = {"path": r"C:\Users\u\AppData\Local\HSTOffice\update\HSTOffice_1.0.2_Win_x86-64_en-US_vi.msi",
+              "entry": {"sha256": "a" * 64}, "release": {"version": "1.0.2"}}
+
+    def launch(self, info):
+        with mock.patch.object(install.platform, "system", return_value="Windows"), \
+                mock.patch.object(install.installer, "cache_dir", return_value=r"C:\Users\u\AppData\Local\HSTOffice\update"), \
+                mock.patch.object(install, "office_paths", return_value=(r"C:\Program Files\HSTOffice\program\soffice.exe", None)), \
+                mock.patch.object(install.update_config, "settings", return_value={"AllowInstall": True}), \
+                mock.patch.object(install.launch, "write_helper", return_value=r"C:\Users\u\AppData\Local\HSTOffice\update\hst-update.ps1"), \
+                mock.patch.object(install.launch, "elevate_and_quit") as elevate, \
+                mock.patch.object(install.launch, "spawn_and_quit") as spawn, \
+                mock.patch.dict(install.os.environ, {install.DRY_RUN_ENV: "1"}):
+            install.launch_and_quit(mock.Mock(), self.RESULT, info)
+        return elevate, spawn
+
+    def test_release_builds_start_the_helper_elevated_before_closing(self):
+        elevate, spawn = self.launch(INFO)
+        elevate.assert_called_once()
+        spawn.assert_not_called()
+        self.assertEqual(elevate.call_args.args[1][0], "powershell.exe")
+        self.assertNotIn("-DryRun", elevate.call_args.args[1])
+
+    def test_test_mode_dry_run_keeps_the_unelevated_helper(self):
+        elevate, spawn = self.launch(dict(INFO, test_mode=True))
+        elevate.assert_not_called()
+        spawn.assert_called_once()
+
+    def test_declined_elevation_is_reported_and_the_office_stays_open(self):
+        result = {"result": self.RESULT}
+        with mock.patch.object(install.ui, "release_info_for", return_value=INFO), \
+                mock.patch.object(install.update_config, "settings", return_value={"AllowInstall": True}), \
+                mock.patch.object(install.cmd, "preflight", return_value=None), \
+                mock.patch.object(install, "_download_dialog", return_value=result), \
+                mock.patch.object(install, "_ask", return_value="install"), \
+                mock.patch.object(install, "texts", return_value={"install_title": "t", "ready": "%s", "install": "i", "later": "l"}), \
+                mock.patch.object(install, "launch_and_quit", side_effect=install.launch.ElevationDeclined()), \
+                mock.patch.object(install, "fail") as fail:
+            self.assertIsNone(install.start(mock.Mock(), "peer"))
+        fail.assert_called_once_with(mock.ANY, "peer", "err_elevation")
+
+
 if __name__ == "__main__":
     unittest.main()

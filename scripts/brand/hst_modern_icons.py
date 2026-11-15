@@ -109,3 +109,39 @@ def recolour(svg, colours, dark):
     if not dark:
         return svg
     return HEX.sub(lambda m: colours.get(m.group().upper(), m.group()), svg)
+
+
+@lru_cache(maxsize=None)
+def harmony(source=MODERN):
+    """{LIGHT_HEX of a palette token: {"fill": (light, dark), "line": (light, dark)}} in Colibre's colours."""
+    tokens = json.loads((source / "metadata/palette.json").read_text(encoding="utf-8"))
+    data = json.loads((source / "metadata/colibre-harmony.json").read_text(encoding="utf-8"))
+    result = {}
+    for token, values in tokens.items():
+        if token == "ink":
+            continue
+        pairs = {kind: tuple(data[kind][token]) for kind in ("fill", "line")}
+        for light, dark in pairs.values():
+            if not (HEX.fullmatch(light) and (HEX.fullmatch(dark) or dark == "none")):
+                raise ValueError(f"colibre-harmony.json: {token} needs #RRGGBB values (dark may be none)")
+        result[values["light"].upper()] = pairs
+    return result
+
+
+def harmonise(text, dark):
+    """A master (or hand-tuned master) in Colibre's colours: palette fills become pale Colibre tints,
+    coloured strokes and state bars its accents; ink stays currentColor."""
+    colours = harmony()
+
+    def element(match):
+        attributes = match.group(2)
+        line = "data-state=" in attributes
+
+        def swap(attribute):
+            name, value = attribute.group(1), attribute.group(2).upper()
+            if value not in colours:
+                return attribute.group()
+            pair = colours[value]["line" if line or name == "stroke" else "fill"]
+            return f'{name}="{pair[1] if dark else pair[0]}"'
+        return "<" + match.group(1) + re.sub(r'\b(fill|stroke)="(#[0-9A-Fa-f]{6})"', swap, attributes) + ">"
+    return re.sub(r"<([A-Za-z]+)(\s[^<>]*)>", element, text)

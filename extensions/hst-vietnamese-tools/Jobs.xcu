@@ -25,6 +25,11 @@
     <node oor:name="org.hst.office.vi.PreviousVersionsJob" oor:op="replace">
       <prop oor:name="Service"><value>org.hst.office.vi.PreviousVersionsJob</value></prop>
     </node>
+    <!-- Trích dẫn: before a save, renumber the HST citations and rebuild the bibliography; documents without the
+         HSTCitationStyle property are left alone at once (hst_office/citation_save_job.py) -->
+    <node oor:name="org.hst.office.vi.CitationSaveJob" oor:op="replace">
+      <prop oor:name="Service"><value>org.hst.office.vi.CitationSaveJob</value></prop>
+    </node>
   </node>
   <node oor:name="Events">
     <node oor:name="onFirstVisibleTask" oor:op="fuse">
@@ -50,7 +55,13 @@
     </node>
     <node oor:name="OnSave" oor:op="fuse">
       <node oor:name="JobList">
+        <node oor:name="org.hst.office.vi.CitationSaveJob" oor:op="replace"/>
         <node oor:name="org.hst.office.vi.PreviousVersionsJob" oor:op="replace"/>
+      </node>
+    </node>
+    <node oor:name="OnSaveAs" oor:op="fuse">
+      <node oor:name="JobList">
+        <node oor:name="org.hst.office.vi.CitationSaveJob" oor:op="replace"/>
       </node>
     </node>
     <node oor:name="OnUnload" oor:op="fuse">

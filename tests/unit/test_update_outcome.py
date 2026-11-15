@@ -139,7 +139,11 @@ class HelperTemplates(unittest.TestCase):
         for part in ("'update-result.json'", "from='1.0.0-beta.5'", "to='1.0.0'", "$fail = 'verify'", "$fail = 'wait'",
                      "$code -eq 1602", "$fail = 'cancel'", "Move-Item -LiteralPath \"$state.tmp\"", "Write-Failure $fail $code"):
             self.assertIn(part, text)
-        self.assertLess(text.index("Write-Failure $fail $code"), text.index("Start-Process $Soffice"))
+        self.assertLess(text.index("Write-Failure $fail $code"), text.index("Start-Process explorer.exe"))
+        # Stopped through the cancel marker (quit cancelled at a save prompt): no record and no relaunch.
+        stopped = text.index("if ($stopped) {")
+        self.assertLess(stopped, text.index("Write-Failure $fail $code"))
+        self.assertLess(text.index("Test-Path -LiteralPath $cancel"), text.index("Write-Step 'Process exited'"))
         self.assertNotIn("@FROM_RELEASE@", text)
 
     def test_mac_treats_the_cancelled_password_dialog_as_a_cancel(self):

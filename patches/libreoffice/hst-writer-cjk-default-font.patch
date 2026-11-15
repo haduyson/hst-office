@@ -1,0 +1,60 @@
+HST Office: Vietnamese .docx files from HST Writer came back from Word about 8 times slower to open.
+
+New documents took their East Asian basic fonts from the CJK default of the platform (Noto Serif
+CJK SC on Linux, NSimSun or SimSun on Windows) while the Latin fonts are Times New Roman. Word then
+stores every precomposed Vietnamese letter of the Latin Extended Additional block (U+1E00-U+1EFF:
+ế, ả, ứ, ệ ...) in a run of its own when it saves the document: a 400-paragraph plain Vietnamese
+text grew from 400 to 50,830 runs and its document.xml from 0.26 MB to 1.47 MB, and a 300-citation
+thesis from 4,146 to 204,224 runs. Measured with Word 16.0.15601: no split when the East Asian
+font is Times New Roman, also with Arial as the Latin font of a run; split with Noto Serif CJK SC,
+SimSun or Arial as the East Asian font, whatever the East Asian language and compatibility mode.
+
+The East Asian basic fonts (Tools > Options > Writer > Basic Fonts (Asian)) default to the Latin
+ones, Times New Roman. Documents without East Asian text look the same; East Asian text still gets
+its glyphs through font fallback, and the options page can set another font.
+
+Test: tests/runtime/check-defaults.py, tests/runtime/check-docx-word-interop.py (East Asian font of
+a new document's .docx).
+---
+--- a/officecfg/registry/schema/org/openoffice/Office/Writer.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Writer.xcs
+@@ -1683,6 +1683,7 @@
+           <desc>Specifies the font type to be used for the Standard paragraph style.</desc>
+           <label>Standard</label>
+         </info>
++        <value>Times New Roman</value>
+       </prop>
+       <prop oor:name="StandardHeight" oor:type="xs:int">
+         <!-- UIHints: Tools - Options - Text document  Default Fonts (CJK) -->
+@@ -1697,6 +1698,7 @@
+           <desc>Specifies the font type to be used for the paragraph's headings.</desc>
+           <label>Heading</label>
+         </info>
++        <value>Times New Roman</value>
+       </prop>
+       <prop oor:name="HeadingHeight" oor:type="xs:int">
+         <!-- UIHints: Tools - Options - Text document  Default Fonts (CJK) -->
+@@ -1711,6 +1713,7 @@
+           <desc>Specifies the font to be used in the paragraph styles for lists and numbering.</desc>
+           <label>List</label>
+         </info>
++        <value>Times New Roman</value>
+       </prop>
+       <prop oor:name="ListHeight" oor:type="xs:int">
+         <!-- UIHints: Tools - Options - Text document  Default Fonts (CJK) -->
+@@ -1725,6 +1728,7 @@
+           <desc>Specifies the font to be used for the labels of images and tables.</desc>
+           <label>Caption</label>
+         </info>
++        <value>Times New Roman</value>
+       </prop>
+       <prop oor:name="CaptionHeight" oor:type="xs:int">
+         <!-- UIHints: Tools - Options - Text document  Default Fonts (CJK) -->
+@@ -1739,6 +1743,7 @@
+           <desc>Specifies the fonts to be applied to the paragraph styles for user-defined indexes, alphabetical indexes, tables of contents and to all of the paragraph styles derived from this.</desc>
+           <label>Index</label>
+         </info>
++        <value>Times New Roman</value>
+       </prop>
+       <prop oor:name="IndexHeight" oor:type="xs:int">
+         <!-- UIHints: Tools - Options - Text document  Default Fonts (CJK) -->

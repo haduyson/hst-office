@@ -7,7 +7,9 @@ after "Add-in" in the Function Wizard and in the Functions sidebar list; an add-
 other category still falls back to "Add-in". Built-in functions are unchanged.
 
 License: these upstream files remain under their original license (MPL-2.0).
-Test: tests/runtime/check-vietnamese-utilities.py.
+Test: tests/runtime/check-vietnamese-utilities.py. CppunitTest_sc_ucalc testFunctionLists expects the extra
+category (its fixed table ended at "Add-in", so the 12th category read past the table and crashed the test;
+the Function Wizard and the Functions sidebar deck list the category and its functions correctly).
 ---
 --- a/sc/inc/compiler.hrc
 +++ b/sc/inc/compiler.hrc
@@ -101,3 +103,14 @@ Test: tests/runtime/check-vietnamese-utilities.py.
  #. uYn9C
  #: sc/uiconfig/scalc/ui/functionpanel.ui:86
  msgctxt "functionpanel|category-atkobject"
+--- a/sc/qa/unit/ucalc.cxx
++++ b/sc/qa/unit/ucalc.cxx
+@@ -3228,6 +3228,8 @@
+         { "Spreadsheet",  aSpreadsheet },
+         { "Text",         aText },
+         { "Add-in",       nullptr },
++        // HST Office: category of the bundled extension's functions (none registered in this test)
++        { "Vietnamese",   nullptr },
+         { nullptr, nullptr }
+     };
+ 

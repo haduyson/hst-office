@@ -12,6 +12,7 @@ Bản dịch giao diện gồm bản dịch tiếng Việt có sẵn của lõi,
 | Tiếng Anh | Tiếng Việt | Ghi chú |
 |---|---|---|
 | Spreadsheet | Bảng tính | tài liệu/ứng dụng (HST Sheets) |
+| Calc / Impress (tên ứng dụng) | Sheets / Slides | trong ứng dụng dùng tên ngắn, cả tiếng Anh ([`hst-app-names-en-us.patch`](../patches/libreoffice/hst-app-names-en-us.patch), đổi chuỗi gốc thì thêm `msgid_new` cho dòng tiếng Việt); lối tắt, bộ cài và báo cáo lỗi dùng tên đầy đủ HST Sheets / HST Slides; giữ nguyên tên bộ lọc, định dạng cũ và định danh |
 | Sheet | Trang tính | một thẻ trong bảng tính; không dùng "trang" trơn |
 | Cell / Row / Column | Ô / Hàng / Cột | "dòng" dành cho dòng chữ (Line) |
 | Slide | Trang chiếu | không dùng "ảnh chiếu", "hình chiếu" |
@@ -20,7 +21,7 @@ Bản dịch giao diện gồm bản dịch tiếng Việt có sẵn của lõi,
 | Save / Save As | Lưu / Lưu thành | không dùng "Cất", "Lưu mới" |
 | Undo / Redo | Hoàn tác / Làm lại | |
 | Copy / Cut / Paste | Sao chép / Cắt / Dán | "Chép" chỉ khi chỗ hẹp (đã có trong bản gốc) |
-| Comment | Chú thích | không dùng "bình luận", "đánh giá" |
+| Comment | Chú thích | không dùng "bình luận", "đánh giá" (quyết định 2026-11-13: cả hộp thoại, thanh công cụ, "Trả lời chú thích"; "bình luận" chỉ còn là từ khóa tìm) |
 | Pivot Table | Bảng tổng hợp | không dùng "Bộ lọc" |
 | Format | Định dạng | |
 | Style / Paragraph Styles | Kiểu dáng / Kiểu dáng đoạn văn | |
@@ -30,7 +31,15 @@ Bản dịch giao diện gồm bản dịch tiếng Việt có sẵn của lõi,
 | Home (thẻ ribbon) | Trang đầu | |
 | File / file (menu, thẻ ribbon, mọi chuỗi) | Tệp tin / tệp tin | quyết định của chủ dự án (2026-11-06): thay cho "tập tin" ở mọi chỗ, giữ chữ hoa và phím tắt (T). Lõi và lớp AI được đổi khi build bằng `replacements` trong [`vi-glossary.json`](../data/l10n/vi-glossary.json) ([`vi_terms.py`](../scripts/l10n/vi_terms.py), chạy trong `apply-overrides.py`); chuỗi do patch HST thêm phải tự viết "Tệp tin". "Tệp" trơn vẫn dùng được trong câu ("Mở tệp") |
 | Certificate | Chứng thư số | quyết định của chủ dự án (2026-11-01): thuật ngữ pháp lý của Luật Giao dịch điện tử và cách gọi của VNPT-CA, Viettel-CA. Nhãn ngắn được viết "chứng thư" khi đã rõ là chứng thư số ("Lựa chọn chứng thư", "Xem chứng thư", "Cấp bởi"); câu đầy đủ dùng "chứng thư số". Không dùng "chứng chỉ", "chứng nhận" trong ký số. Chứng chỉ SSL của trang web (uui) chưa đổi |
-| Thẻ ribbon theo Microsoft (2026-11-04) | Bố cục (Layout, Writer), Bố trí Trang (Page Layout, Sheets), Công thức, Dữ liệu, Tham khảo (References), Gửi thư, Thiết kế, Chuyển tiếp, Hoạt hình, Nhà phát triển | nguồn: support.microsoft.com/vi-vn trang phím tắt Word, Excel, PowerPoint; `Tệp` và `Trang chủ` của Microsoft vẫn giữ `Tệp tin`, `Trang đầu` của HST. Tên nhóm chưa tìm thấy trong trang vi-vn mang `UNVERIFIED` trong `reason` của `l10n/vi-overrides.jsonl` |
+| Thẻ ribbon theo Microsoft (2026-11-04) | Bố cục (Layout, Writer), Bố trí trang (Page Layout, Sheets), Công thức, Dữ liệu, Tham khảo (References), Gửi thư, Thiết kế, Chuyển tiếp, Hiệu ứng, Nhà phát triển | nguồn: support.microsoft.com/vi-vn trang phím tắt Word, Excel, PowerPoint; thẻ Animations của Slides là `Hiệu ứng`, không theo "Hoạt hình" của Microsoft (quyết định của chủ dự án 2026-11-14, thay quyết định 2026-11-13); `Tệp` và `Trang chủ` của Microsoft vẫn giữ `Tệp tin`, `Trang đầu` của HST. Tên nhóm chưa tìm thấy trong trang vi-vn mang `UNVERIFIED` trong `reason` của `l10n/vi-overrides.jsonl` |
+| Tên thẻ và tên nhóm ribbon | Viết hoa chữ đầu | quyết định của chủ dự án (2026-11-13): chỉ viết hoa chữ đầu, như mọi nhãn tiếng Việt khác: "Bố trí trang", "Thiết kế bảng", "Định dạng ảnh", "Định dạng hình dạng", "Bố trí bảng", "Đầu trang & chân trang", "Thiết lập trang", "Sắp xếp & lọc". Tên riêng và chữ viết tắt giữ nguyên (HST, VBA, 3D). Thay cho cách viết hoa từng chữ chép theo bộ office thương mại (2026-11-04). [`test_vi_ribbon_terms.py`](../tests/unit/test_vi_ribbon_terms.py) kiểm tra các dòng `Tabbed*` trong `l10n/` và nhãn HST trong `data/ribbon/` |
+| Menu bar (Menubar) | Thanh trình đơn | quyết định của chủ dự án (2026-11-13): không dùng "Thanh menu". Mục bật/tắt có trong trình đơn Xem cổ điển, nút ≡ và thẻ Xem; "menu HST", "menu Tệp tin" vẫn viết như cũ |
+| Media | Đa phương tiện | quyết định của chủ dự án (2026-11-13): thẻ ngữ cảnh, nhóm của thẻ Chèn, trình đơn Chèn; không dùng "Phương tiện" trơn |
+| Audio or Video (lệnh chèn), Media Playback | Âm thanh và video, Phát âm thanh và video | quyết định của chủ dự án (2026-11-13): thay "Nhạc", "nhạc/ảnh", "phim/nhạc"; "âm nhạc" (ký hiệu âm nhạc, emoji) giữ nguyên |
+| Macro | Macro | quyết định của chủ dự án (2026-11-13): mọi nhãn ("Chạy macro", "Ghi macro", "Trình quản lý macro"); không dùng "Vĩ lệnh", không dùng "Basic" làm nhãn (nút Basic là "Quản lý macro"). "vĩ lệnh" chỉ còn là từ khóa của Tìm tính năng. `corrections` của `vi-glossary.json` còn ghi "Vĩ lệnh", cần sửa theo quyết định này |
+| Mail Merge | Trộn thư | quyết định của chủ dự án (2026-11-13): không dùng "Phối thư" ("phối thư" là từ khóa tìm). Bản ghi của nguồn dữ liệu: "Bản ghi đầu/trước/sau/cuối" |
+| Align / Alignment | Căn, căn chỉnh | quyết định của chủ dự án (2026-11-13): "Căn trái", "Căn trên", "Gộp và căn giữa"; không dùng "Canh", "chỉnh canh" |
+| Animation, Animations | Hiệu ứng | quyết định của chủ dự án (2026-11-14), thay "Hoạt hình" của quyết định 2026-11-13: thẻ ribbon và nhóm của HST Slides, ngăn bên, trình đơn, hộp thoại, chú giải; không dùng "Hoạt hình", "Hoạt ảnh", "Hoạt họa" ("hoạt hình" chỉ còn là từ khóa của Tìm tính năng). Tránh lặp chữ khi tiếng Anh đã có Effect: "Animation Effect" là "Hiệu ứng", "Custom Animation" là "Hiệu ứng tùy chỉnh", "Animation Pane" là "Ngăn hiệu ứng", "Animation Styles" là "Kiểu hiệu ứng", "Text Animation" là "Hiệu ứng chữ". Animated Image và hộp thoại Animation dựng ảnh động của nó: "Ảnh động"; Transition (trang chiếu): "Chuyển tiếp" |
 | KeyTips | Mẹo phím | nguồn: support.microsoft.com/vi-vn trang phím tắt Word, Excel |
 | Search Commands (Shift+Esc) | Tìm tính năng | quyết định của chủ dự án (2026-11-04): ô tìm lệnh theo tên, gõ không dấu cũng được; có ở Trợ giúp, menu HST và thẻ Trang đầu. Ô nhập ghi "Gõ tên tính năng, không dấu cũng được". Không dùng "Tìm lệnh" |
 | Dấu "..." / "…" cuối nhãn | không dùng | quyết định của chủ dự án (2026-11-06): "chỗ nào không bị cắt bớt chữ thì đừng hiện '...'". Nhãn mở hộp thoại cũng viết trơn ("Thuộc tính", "Lưu thành", "Chữ ký số"). Giữ "…" ở chữ báo đang làm ("Đang tải…", "Đợi…"), câu và thông báo, chỗ "…" thay phần bị lược ("1, 2, 3, ..."). Áp khi build bằng [`vi_ellipsis.py`](../scripts/l10n/vi_ellipsis.py) (ngoại lệ: [`vi-ellipsis-keep.json`](../data/l10n/vi-ellipsis-keep.json)); tiếng Anh giữ nguyên |
@@ -39,6 +48,46 @@ Bản dịch giao diện gồm bản dịch tiếng Việt có sẵn của lõi,
 
 Giữ nguyên ký tự phím tắt (`~`, `_`), biến (`%PRODUCTNAME`, `$(ARG1)`, `%1`, `%s`) và số dạng số nhiều;
 `python3 scripts/l10n/check-translations.py <tệp.jsonl> --strict` kiểm tra các điểm này.
+
+## Nhãn lệnh theo bản rà soát giao diện 2026-11-13 (đã sửa)
+
+Các dòng của `l10n/vi-overrides.jsonl` có `reason` "owner 2026-11-13" hoặc "Owner terms 2026-11-13" (bảng thuật ngữ
+của bản rà soát ribbon, chỉ nhãn lệnh trong `UI.po` và chuỗi giao diện; nhãn riêng của ribbon do các bản vá ribbon đặt):
+
+| Trước | Sau | | Trước | Sau |
+|---|---|---|---|---|
+| Tiêu đề trang | Trang bìa | | Siêu liên kết | Liên kết |
+| Đối tượng công thức | Công thức toán | | Chèn mục nhập chỉ mục | Đánh dấu mục chỉ mục |
+| Cập nhật chỉ mục | Cập nhật mục lục | | Cơ sở dữ liệu thư tịch | Quản lý nguồn |
+| Phụ đề (lệnh chèn) | Chú thích hình | | Trợ lý trộn thư | Trộn thư |
+| Đổ bóng trường | Tô nền trường | | Mục trộn thư đầu tiên/trước/kế tiếp/cuối cùng | Bản ghi đầu/trước/sau/cuối |
+| Mở ngăn Kiểm tra trợ năng | Kiểm tra trợ năng | | Trả lời bình luận | Trả lời chú thích |
+| Trộn (tài liệu) | Gộp tài liệu | | Bộ điều hướng | Ngăn dẫn hướng |
+| Xem chuẩn / Khung xem web / Xem trước bản in | Bố trí in / Bố trí web / Xem trước khi in | | Hiện khoảng trắng | Hiện khoảng cách giữa các trang |
+| Đính lưới | Bám lưới | | Kiểu dáng trang (lệnh của HST Writer) | Thiết lập trang |
+| Xẻ bảng | Tách bảng | | Xén | Cắt xén |
+| Có điều kiện | Định dạng có điều kiện | | Gộp và chỉnh giữa ô | Gộp và căn giữa |
+| Canh lề trên / dưới | Căn trên / dưới | | Hàm / Tổng | Chèn hàm / Tự tính tổng |
+| Tạo tên | Tạo từ vùng chọn | | Theo vết tiền lệ / phụ thuộc, Bỏ mọi vết | Truy vết ô nguồn / ô phụ thuộc, Xóa mũi tên |
+| Nhãn dữ liệu sai | Khoanh dữ liệu sai | | Tự động lọc / Lọc chuẩn / Lọc cấp cao / Đặt lại bộ lọc | Lọc / Lọc tùy chỉnh / Lọc nâng cao / Xóa lọc |
+| Văn bản thành cột | Tách văn bản thành cột | | Trùng lặp | Xóa trùng lặp |
+| Tính hợp lệ | Xác thực dữ liệu | | Kết hợp | Hợp nhất dữ liệu |
+| Giải phương trình | Bộ giải (Solver) | | Chèn Ngắt Hàng / Cột | Chèn ngắt hàng / cột |
+| Xem đường lưới / Xem tiêu đề | Đường lưới / Tiêu đề hàng, cột | | Bắt đầu từ trang chiếu đầu / hiện tại | Từ đầu / Từ trang hiện tại |
+| Thử thời gian | Diễn tập thời gian | | Thu gọn bản trình chiếu | Nén bản trình chiếu |
+| Khung xem chuẩn / bộ sắp xếp trang chiếu / Phác thảo | Thường / Sắp xếp trang chiếu / Dàn bài | | Trang chiếu mẫu / Ghi chú mẫu / Tài liệu phát tay mẫu / Chủ | Trang chiếu cái / Ghi chú cái / Bản phát tay cái / Trang cái |
+| Đổi trang chiếu mẫu / Nền mẫu / Đối tượng mẫu | Đổi trang chiếu cái / Nền trang cái / Đối tượng trang cái | | Gam xám | Thang xám |
+| Che mờ | Che thông tin | | Chèn đối tượng OLE | Đối tượng khác |
+| Ô trang (Draw) | Ngăn trang | | Basic | Quản lý macro |
+
+Zoom: tên nhóm trên ribbon là "Phóng to/thu nhỏ" ở mọi ứng dụng (thẻ Xem và Xem trước khi in; quyết định 13/11/2026), để
+không trùng nút "Thu phóng" (co bản in, `.uno:PrintScaleMenu`) cạnh nó trong Xem trước khi in của Sheets; lệnh Zoom vẫn là
+"Thu phóng".
+
+Bookmark: "Đánh dấu trang" ở mọi nơi (quyết định của chủ dự án 13/11/2026 15:12; thay "Liên kết lưu", "Dấu trang", "Thẻ
+đánh dấu"; "Chèn đánh dấu trang", "Đi tới đánh dấu trang"). Dấu trang của cơ sở dữ liệu (vị trí dòng) giữ nguyên. Tên quen bằng tiếng Anh ("pivot", "freeze", "vlookup", "word count", "margin") là từ khóa ẩn của Tìm
+tính năng ([`FeatureSearch.xcu`](../extensions/hst-vietnamese-tools/FeatureSearch.xcu)), không hiện trên nhãn. Nhãn và trang
+hướng dẫn không ghi tên sản phẩm của hãng khác.
 
 ## Đợt rà soát 2026-10-30 (đã sửa)
 
@@ -139,14 +188,14 @@ Thẻ dùng chung (`include/vcl/tabs.hrc`) đổi một chỗ là đổi ở m�
 
 ## Cần người duyệt (chưa sửa, cần quyết định)
 
-1. **Bookmark**: lõi dùng "Liên kết lưu" khắp nơi, bảng thuật ngữ ghi "Dấu trang". Đổi toàn bộ (~30 chuỗi) hay giữ?
+1. ~~**Bookmark**~~: đã chốt "Đánh dấu trang" (13/11/2026).
 2. **Clipboard**: "Bảng nháp" và "Bảng tạm" lẫn lộn (lõi và lớp AI, ~25 chuỗi). Đề xuất "Bảng tạm".
 3. ~~**Certificate**~~: đã chốt "chứng thư số" (xem bảng thuật ngữ cốt lõi).
 4. **Layout** (thẻ ribbon): Writer/Impress "Bố trí", Calc "Bố cục". Chọn một.
 5. **Home**: một số thanh Impress còn "Trang chủ" thay vì "Trang đầu".
 6. ~~**File**~~: đã chốt "Tệp tin" (chủ dự án, 2026-11-06; xem bảng thuật ngữ cốt lõi).
 7. **Chart**: đã thống nhất "Biểu đồ" ở mọi `.po` có tiếng Anh là Chart, cả menu Chèn (`Biể~u đồ`) và ribbon. "Đồ thị" chỉ còn cho nghĩa khác (đồ thị của hàm, bản đồ ảnh dịch cũ).
-8. **Selection / Master / Copy / Alignment**: `term-report.py` liệt kê ~400 khác biệt trong lớp AI, phần lớn là biến thể chấp nhận được ("Lựa chọn"/"Vùng chọn", "Trang chiếu mẫu"/"Trang cái", "Căn"/"Canh"). Cần người bản ngữ chốt từng cặp.
+8. **Selection / Master / Copy / Alignment**: `term-report.py` liệt kê ~400 khác biệt trong lớp AI, phần lớn là biến thể chấp nhận được ("Lựa chọn"/"Vùng chọn"). "Căn"/"Canh" và "Trang chiếu mẫu"/"Trang chiếu cái" đã chốt (2026-11-13). Cần người bản ngữ chốt từng cặp.
 9. Văn phong chung các hộp thoại Định dạng ô, Đoạn văn, Tìm và thay thế, In: chưa đọc lại toàn bộ bằng mắt người.
 
 Báo cáo đầy đủ: `python3 scripts/l10n/term-report.py l10n/vi --json <tệp>`.
