@@ -131,6 +131,22 @@ class MockupGeometry(unittest.TestCase):
         self.assertIn('{ u"gdHomeParagraph", GroupSmall, 3, 3,', ladder)
         self.assertIn("rToolBox.IsVisible() || hiddenByLayout().count(&rToolBox)", ladder)
 
+    def test_writer_style_gallery_is_shown_at_every_size(self):
+        # Writer's Styles gallery shares Sheets' id bxHomeStylesPreview but has no Cell Styles button: the per-size
+        # visibility applies only where both are in the group, so Writer keeps 6/4/3 tiles at L/M/S
+        ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
+        self.assertIn('{ u"bxHomeStylesPreview", u"btnHomeHstCellStyles", 1 << GroupLarge },', ladder)
+        self.assertIn("if (hasId(rWindow, rShown.id) && hasSibling(rWindow, rShown.sibling))", ladder)
+        writer = os.path.join(os.path.dirname(__file__), "..", "..", "patches", "libreoffice",
+                              "hst-ribbon-mockup-writer.patch")
+        if os.path.exists(writer):
+            with open(writer, encoding="utf-8") as handle:
+                self.assertNotIn("btnHomeHstCellStyles", handle.read())
+
+    def test_menu_buttons_use_the_tool_font(self):
+        ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
+        self.assertIn("rButton.SetControlFont(rToolFont);", ladder)
+
     def test_folded_button_contract(self):
         header = added(PATCH, "include/vcl/HstRibbonPaint.hxx")
         self.assertIn("VCL_DLLPUBLIC Size FoldedButtonSize(const OutputDevice& rDev", header)
