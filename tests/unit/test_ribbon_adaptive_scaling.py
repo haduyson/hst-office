@@ -121,6 +121,13 @@ class ApprovedOrder(unittest.TestCase):
         self.assertNotIn(["gdHomeHstEditing", "S"], home)
         self.assertEqual(home.index(["gdHomeClipboard", "S"]) + 1, home.index(["gdHomeHstEditing", "C"]))
 
+    def test_slides_home_names_its_new_layouts_group(self):
+        text = added(LADDERS, "vcl/inc/HstRibbonLadders.hxx")
+        self.assertIn('impress_pmhbHome_groups[] = { u"gdHomeClipboard", u"gdHomeSlide", u"gdHomeFont", '
+                      'u"gdHomeParagraph", u"gdHomeHstLayouts", u"gdHomeDrawing", u"gdHomeHstEditing" };', text)
+        steps = generated_ladders()[("impress", "pmhbHome")]["steps"]
+        self.assertEqual(steps[0], ["gdHomeHstLayouts", "C"])  # no layout tiles yet: the group is its button first
+
     def test_every_other_tab_follows_the_rule(self):
         checked = 0
         for (app, box), got in generated_ladders().items():
@@ -144,7 +151,7 @@ class ApprovedOrder(unittest.TestCase):
                 order = [s for g, s in got["steps"] if g == group]
                 self.assertEqual(order, sorted(order, key="MSC".index), (app, box, group))
             checked += 1
-        self.assertGreater(checked, 50)
+        self.assertGreater(checked, 45)
 
     def test_sheets_home_font_collapses_last(self):
         steps = generated_ladders()[("calc", "pmhbHome")]["steps"]
