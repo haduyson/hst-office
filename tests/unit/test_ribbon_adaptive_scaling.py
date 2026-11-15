@@ -143,7 +143,17 @@ class ApprovedOrder(unittest.TestCase):
     def test_sheets_home_font_collapses_last(self):
         steps = generated_ladders()[("calc", "pmhbHome")]["steps"]
         self.assertEqual(steps[-1], ["gdHomeFont", "C"])
-        self.assertEqual(steps[:2], [["gdHomeStyles", "M"], ["gdHomeStyles", "S"]])
+        # the reference suite's labels: Clipboard's small buttons lose theirs before Cells and Alignment; Alignment
+        # (Wrap Text, Merge & Center) keeps them longest
+        self.assertEqual(steps[:3], [["gdHomeStyles", "M"], ["gdHomeClipboard", "S"], ["gdHomeCells", "M"]])
+        self.assertEqual([s for s in steps if s[1] == "S"][-1], ["gdHomeAlignment", "S"])
+
+    def test_sheets_reference_labels_first_to_go(self):
+        ladders = generated_ladders()
+        self.assertEqual(ladders[("calc", "pmhbInsert")]["steps"][:4], [["gdInsertText", "S"], ["gdInsertShapes", "C"],
+                                                                       ["gdInsertText", "C"], ["gdInsertSymbols", "C"]])
+        self.assertEqual(ladders[("calc", "pmhbFunctions")]["steps"][0], ["gdFunctionsCalculation", "S"])
+        self.assertEqual(ladders[("calc", "pmhbData")]["steps"][0], ["gdDataExamination", "S"])
 
 
 if __name__ == "__main__":
