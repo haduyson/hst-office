@@ -202,6 +202,21 @@ tarball đã ghim của máy dev, nên đầu ra giống hệt. Dựng máy: `ss
   2 slot (~13–21 GB mỗi slot), chroot, tarball và ccache 10 GB, cộng ngưỡng trống 15 GB.
   `status` cho biết `host`/`slot` (ví dụ `vm103:1`). Tắt máy: `"enabled": false`.
 
+### Ký gói Linux của bản phát hành (dev server)
+
+Job Linux của integrator (không phải build train hay build xác nhận) có `.rpm` được ký trên dev server sau khi đầu ra
+chép về, trước khi job được đánh dấu xong ([queue_sign.py](../scripts/build_infra/queue_sign.py)). Dispatcher lấy
+`scripts/linux/sign-linux-packages.sh` và khóa công khai `data/hst/RPM-GPG-KEY-hasontech` từ chính commit được build;
+khóa riêng được xuất từ bản sao tạm của `/root/.config/hst-office/linux-signing-gnupg` (`linux_signing_gnupg`) và chỉ
+nằm trong môi trường của tiến trình con: không ghi ra đĩa, không vào log, không rời dev server (VM103 không bao giờ giữ
+khóa). Sau khi ký, `rpm -K` với khóa đã commit (CSDL rpm tạm) phải báo `digests signatures OK` cho mọi `.rpm`, nếu
+không job thất bại. Đầu ra có thêm `.asc` của AppImage, `HSTOffice_<release>_Linux_x86-64.SHA256SUMS(.asc)` và
+`RPM-GPG-KEY-hasontech`. Tắt: `"linux_signing": false` trong `config.json`.
+
+Gói cài trên dev server cho việc này (16/11/2026, chủ dự án duyệt; bỏ việc ký thì gỡ bằng `apt-get remove rpm`):
+`rpm`, `rpm-common`, `rpm2cpio`, `librpm9t64`, `librpmio9t64`, `librpmbuild9t64`, `librpmsign9t64`, `libfsverity0`,
+`liblua5.3-0` (Ubuntu 24.04, rpm 4.18.2).
+
 ### `--test`: chạy test LibreOffice trong slot (không cần cây riêng)
 
 ```bash
