@@ -91,6 +91,7 @@ class SignJobTest(unittest.TestCase):
         names = sorted(os.path.basename(p) for p in output)
         self.assertIn("HSTOffice_1.0.2_Linux_x86-64.rpm", names)
         self.assertIn("HSTOffice_1.0.2_Linux_x86-64.SHA256SUMS.asc", names)
+        self.assertIn("RPM-GPG-KEY-hasontech", names)
         log = "".join(self.logged)
         self.assertIn("digests signatures OK", log)
         self.assertNotIn("PRIVATE KEY", log)

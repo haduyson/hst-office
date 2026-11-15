@@ -117,4 +117,5 @@ def sign_job(job, out, cfg, log, git=None, workroot=None):
             log(f"rpm -K {name}: {line}\n")
     if subprocess.run(["sha256sum", "-c", "--quiet", "SHA256SUMS"], cwd=out, check=False).returncode != 0:
         raise SignError("SHA256SUMS does not match the signed files")
-    return sorted(os.path.join(out, n) for n in os.listdir(out) if n.endswith(OUTPUT_SUFFIXES))
+    return sorted(os.path.join(out, n) for n in os.listdir(out)
+                  if n.endswith(OUTPUT_SUFFIXES) or n == os.path.basename(PUBLIC_KEY))
