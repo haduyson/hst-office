@@ -5,7 +5,7 @@ Usage: python3 tests/runtime/check-vba-editor.py [--instdir upstream/libreoffice
        [--out tests/output/vba-editor] [--display :91] [--port 22979] [--shots DIR]
 
 The X display must already run (e.g. Xvfb :91 -screen 0 1600x1000x24 -nolisten tcp).
-  - org.hst.office.vi:EditVba (HST menu / ribbon command) in a new document of each app: the Basic
+  - org.hst.office.vi:EditVba (menu/ribbon in Sheets and Writer, Alt+F11 only in Slides and Draw): the Basic
     IDE opens and the document gets Module1 = Option VBASupport 1 + Vietnamese template, in a
     VBA-mode project (VBAProject / Project) in Calc and Writer, in a Basic-mode VBAProject library
     in Slides and Draw; a second call reuses the module.

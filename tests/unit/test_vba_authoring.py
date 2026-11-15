@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""VBA authoring ("Macro VBA"): module template, shortcuts, ribbon button (Writer/Sheets), menu item (four apps).
+"""VBA authoring ("Macro VBA"): module template, Alt+F11 (four apps), ribbon button and menu item (Writer/Sheets).
 
 The runtime behaviour (modules run, .xlsm/.docm keep the code) is checked by tests/runtime/check-vba.py.
 """
@@ -174,7 +174,8 @@ class SaveCheck(unittest.TestCase):
 
 
 class Menu(unittest.TestCase):
-    def test_menu_item_for_all_four_apps(self):
+    def test_menu_item_for_writer_and_sheets_only(self):
+        # Owner decision 2026-11-16: Slides and Draw have no "Macro VBA" menu item, only Alt+F11.
         root = ET.parse(os.path.join(EXT, "Addons.xcu")).getroot()
         top = next(n for n in root.iter("node") if n.get(NAME) == "org.hst.office.vi")
         items = [n for n in child(top, "Submenu")]
@@ -182,7 +183,7 @@ class Menu(unittest.TestCase):
         self.assertEqual(len(vba), 1)
         props = {p.get(NAME): p for p in vba[0]}
         self.assertEqual({v.text for v in props["Title"].findall("value")}, {"Macro VBA"})
-        self.assertEqual(set(props["Context"].find("value").text.split(",")), ALL_APPS)
+        self.assertEqual(set(props["Context"].find("value").text.split(",")), CONTEXT)
 
 
 if __name__ == "__main__":

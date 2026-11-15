@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """"Macro VBA" (HST menu, ribbon, Alt+F11): open the Basic IDE on the VBA module of the current document.
 
-Works in HST Writer, Sheets, Slides and Draw. The document's VBA module is the first normal module
+Works in HST Writer and Sheets (menu, ribbon, Alt+F11) and in HST Slides and Draw (Alt+F11 only: macros
+are mainly for Sheets and Writer, so their HST menu has no "Macro VBA", owner decision 2026-11-16). The document's VBA module is the first normal module
 that runs in VBA mode (an Excel/Word/PowerPoint file's own modules, or one HST created earlier).
 Without one, HST creates Module<n> from vba_template and opens the editor on its example Sub.
 In Writer and Sheets a document without any Basic code yet is switched to VBA mode (project
@@ -106,7 +107,7 @@ def open_editor(ctx, frame, doc, library, module, line):
 
 
 def run(host):
-    """HST command EditVba (HST menu, Alt+F11) in Writer, Sheets, Slides and Draw; elsewhere it does nothing."""
+    """HST command EditVba: menu/ribbon/Alt+F11 in Writer and Sheets, Alt+F11 in Slides and Draw; elsewhere nothing."""
     app = app_of(host.doc)
     if app is None:
         return
