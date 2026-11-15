@@ -234,7 +234,15 @@ the target is taken off its request, once when it is made and once more after it
              for (const OUString& sStyleName : aCalcStyles)
 --- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
 +++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
-@@ -64,6 +64,9 @@
+@@ -29,6 +29,7 @@
+ #include <utility>
+ #include <vcl/svapp.hxx>
+ #include <sfx2/objsh.hxx>
++#include <svl/itempool.hxx>
+ #include <svl/itemset.hxx>
+ #include <sfx2/tbxctrl.hxx>
+ #include <sfx2/sfxsids.hrc>
+@@ -64,6 +65,9 @@
  #include <comphelper/lok.hxx>
  #include <cppuhelper/implbase.hxx>
  #include <officecfg/Office/HSTRibbon.hxx>
@@ -244,7 +252,7 @@ the target is taken off its request, once when it is made and once more after it
  
  #include <editeng/editids.hrc>
  #include <editeng/fontitem.hxx>
-@@ -94,6 +97,32 @@
+@@ -94,6 +98,32 @@
  
  #include <vcl/commandevent.hxx>
  
@@ -277,7 +285,7 @@ the target is taken off its request, once when it is made and once more after it
  namespace
  {
  class StylePreviewCache
-@@ -370,7 +399,11 @@
+@@ -370,7 +400,11 @@
      if (pFontItem && pFontHeightItem)
      {
          Size aFontSize(0, pFontHeightItem->GetHeight());
@@ -290,7 +298,7 @@ the target is taken off its request, once when it is made and once more after it
          // HST Office: a long name takes two lines of the preview; big headings are capped so two fit
          if (aPixelSize.Height() > MAX_PREVIEW_FONT_HEIGHT)
              aPixelSize.setHeight(MAX_PREVIEW_FONT_HEIGHT);
-@@ -402,6 +435,17 @@
+@@ -402,6 +436,17 @@
          }
      }
  
@@ -308,7 +316,7 @@ the target is taken off its request, once when it is made and once more after it
      if (aFontHighlight != COL_AUTO)
          DrawHighlight(rRenderContext, aFontHighlight);
  
-@@ -420,53 +464,32 @@
+@@ -420,53 +465,32 @@
      rRenderContext.DrawRect(rContentRect);
  }
  
@@ -380,7 +388,7 @@ the target is taken off its request, once when it is made and once more after it
  }
  
  StylesPreviewWindow_Base::StylesPreviewWindow_Base(
-@@ -489,7 +512,6 @@
+@@ -489,7 +513,6 @@
      m_xStylesView->connect_item_activated(LINK(this, StylesPreviewWindow_Base, DoubleClick));
      m_xStylesView->connect_key_press(LINK(this, StylesPreviewWindow_Base, HstKeyPressHdl));
      m_xStylesView->connect_command(LINK(this, StylesPreviewWindow_Base, DoCommand));
@@ -388,7 +396,7 @@ the target is taken off its request, once when it is made and once more after it
      m_xPrevButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, PageHdl));
      m_xNextButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, PageHdl));
      m_xMoreButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, MoreHdl));
-@@ -935,28 +957,45 @@
+@@ -935,28 +958,45 @@
      return Command(rPos);
  }
  
@@ -452,7 +460,7 @@ the target is taken off its request, once when it is made and once more after it
  }
  
  // HST Office: on a narrow ribbon the view holds one preview; it is the current style's, so the
-@@ -1099,21 +1138,23 @@
+@@ -1099,21 +1139,23 @@
  
  Bitmap StylesPreviewWindow_Base::GetCachedPreview(const StylePreviewDescriptor& rStyle)
  {
@@ -482,7 +490,7 @@ the target is taken off its request, once when it is made and once more after it
  
          return aBitmap;
      }
-@@ -1242,6 +1283,12 @@
+@@ -1242,6 +1284,12 @@
              lcl_AppendParaStyles(m_aAllStyles, pStyleSheetPool,
                                   SfxStyleSearchBits::Favourite | SfxStyleSearchBits::UserDefined);
      }
@@ -495,7 +503,7 @@ the target is taken off its request, once when it is made and once more after it
  
      ShowPage();
  }
-@@ -1253,22 +1300,36 @@
+@@ -1253,22 +1301,36 @@
      , StylesPreviewWindow_Base(*m_xBuilder, rDefaultStyles, xFrame)
      , m_xHstScroll(m_xBuilder->weld_scrolled_window(u"stylesscroll"_ustr))
  {
