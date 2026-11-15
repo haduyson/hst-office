@@ -50,6 +50,14 @@ class Defaults(unittest.TestCase):
                         ".uno:PrintPreview", ".uno:SendMail", ".uno:Undo", ".uno:Redo"):
             self.assertIn(f'u"{command}"_ustr', qat)
 
+    def test_new_is_a_plain_button(self):
+        # the mockup's Mới has no ▾: the NewToolbarController's document type list is dropped for AddDirect only
+        qat = added(MOCKUP_PATCH, "sfx2/source/notebookbar/HstQuickAccess.cxx")
+        self.assertIn('if (m_xQat->GetItemCommand(nId) == ".uno:AddDirect")', qat)
+        self.assertIn("GetItemBits(nId) & ~ToolBoxItemBits::DROPDOWNONLY", qat)
+        self.assertIn("VclEventId::ToolboxItemAdded", qat)
+        self.assertIn("Application::RemoveUserEvent(m_pPlainEvent);", qat)
+
     def test_mockup_patch_follows_the_qat_patch(self):
         with open(os.path.join(ROOT, "patches", "libreoffice", "series"), encoding="utf-8") as handle:
             series = handle.read().split()

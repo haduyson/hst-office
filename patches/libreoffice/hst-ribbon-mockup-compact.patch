@@ -8,7 +8,9 @@ gives (W - 276 with the banner 8 px from both sides), the groups choosing their 
 ˅ at its lower right brings the full ribbon back; Esc, a click outside, a command or the same tab close it; a
 click on another tab drops that tab's page. The quick access toolbar shows New, Open, Save, Undo, Redo and
 Print (owner decision D3, replacing the three-button default of 14/11) in the four apps, KeyTips 1 to 6 by
-position; profiles with a customised toolbar keep it.
+position; New (.uno:AddDirect, Ctrl+N) is a plain button without its document type ▾; profiles with a
+customised toolbar keep it.
+
 --- a/sfx2/source/notebookbar/HstRibbonCompact.hxx
 +++ b/sfx2/source/notebookbar/HstRibbonCompact.hxx
 @@ -18,6 +18,7 @@
@@ -240,6 +242,86 @@ position; profiles with a customised toolbar keep it.
  };
  }
  
+--- a/sfx2/source/notebookbar/HstQuickAccess.hxx
++++ b/sfx2/source/notebookbar/HstQuickAccess.hxx
+@@ -18,6 +18,7 @@
+ #include <vector>
+ 
+ class Menu;
++class VclWindowEvent;
+ class ToolBox;
+ struct ImplSVEvent;
+ 
+@@ -61,6 +62,8 @@
+     DECL_LINK(MenuButtonHdl, ToolBox*, void);
+     DECL_LINK(MenuSelectHdl, Menu*, bool);
+     DECL_LINK(CustomizeHdl, void*, void);
++    DECL_LINK(QatEventHdl, VclWindowEvent&, void);
++    DECL_LINK(PlainNewHdl, void*, void);
+ 
+     bool IsShown(const OUString& rCommand) const;
+ 
+@@ -70,6 +73,10 @@
+     css::uno::Reference<css::frame::XFrame> m_xFrame;
+     bool m_bBelow;
+     ImplSVEvent* m_pCustomizeEvent = nullptr;
++    // Mới (.uno:AddDirect) is a plain button, as in the approved mockup and the reference suite: its controller's
++    // ▾ (a document type list) goes once the toolbar is filled
++    VclPtr<ToolBox> m_xQat; // keeps the toolbox alive for removing the listener
++    ImplSVEvent* m_pPlainEvent = nullptr;
+ };
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/notebookbar/HstQuickAccess.cxx
++++ b/sfx2/source/notebookbar/HstQuickAccess.cxx
+@@ -17,6 +17,7 @@
+ #include <vcl/menu.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/toolbox.hxx>
++#include <vcl/vclevent.hxx>
+ 
+ #include <algorithm>
+ 
+@@ -42,12 +43,39 @@
+     m_rQat.SetMenuButtonHdl(LINK(this, HstQuickAccess, MenuButtonHdl));
+     if (PopupMenu* pMenu = m_rQat.GetMenu())
+         pMenu->SetSelectHdl(LINK(this, HstQuickAccess, MenuSelectHdl));
++    m_xQat = &m_rQat;
++    m_xQat->AddEventListener(LINK(this, HstQuickAccess, QatEventHdl));
++    m_pPlainEvent = Application::PostUserEvent(LINK(this, HstQuickAccess, PlainNewHdl)); // already filled
+ }
+ 
+ HstQuickAccess::~HstQuickAccess()
+ {
+     if (m_pCustomizeEvent)
+         Application::RemoveUserEvent(m_pCustomizeEvent);
++    if (m_pPlainEvent)
++        Application::RemoveUserEvent(m_pPlainEvent);
++    m_xQat->RemoveEventListener(LINK(this, HstQuickAccess, QatEventHdl));
++}
++
++// the toolbar manager inserts the items, then each controller sets its item's ▾: the change waits for both
++IMPL_LINK(HstQuickAccess, QatEventHdl, VclWindowEvent&, rEvent, void)
++{
++    if ((rEvent.GetId() == VclEventId::ToolboxItemAdded || rEvent.GetId() == VclEventId::ToolboxAllItemsChanged)
++        && !m_pPlainEvent)
++        m_pPlainEvent = Application::PostUserEvent(LINK(this, HstQuickAccess, PlainNewHdl));
++}
++
++IMPL_LINK_NOARG(HstQuickAccess, PlainNewHdl, void*, void)
++{
++    m_pPlainEvent = nullptr;
++    if (m_xQat->isDisposed())
++        return;
++    for (ToolBox::ImplToolItems::size_type i = 0; i < m_xQat->GetItemCount(); ++i)
++    {
++        const ToolBoxItemId nId = m_xQat->GetItemId(i);
++        if (m_xQat->GetItemCommand(nId) == ".uno:AddDirect")
++            m_xQat->SetItemBits(nId, m_xQat->GetItemBits(nId) & ~ToolBoxItemBits::DROPDOWNONLY);
++    }
+ }
+ 
+ std::vector<OUString> HstQuickAccess::Checklist(std::u16string_view rApp)
 --- a/vcl/source/control/HstRibbonDrop.cxx
 +++ b/vcl/source/control/HstRibbonDrop.cxx
 @@ -11,7 +11,9 @@
