@@ -24,7 +24,8 @@ follows one geometry, the mockup's (plans/261115-2225-ribbon-mockup-1-0-2/refere
   label; large tool boxes stand at the top, medium and small ones at their column's left edge (Find over Replace);
   every group's frame is the mockup's whatever its .ui: 4 px padding, 2 px between columns and rows, the caption
   band 18 px high at the bottom with its text centred (one caption line in every tab of every application), the
-  separator 1 px wide, 6 px from the body's top and bottom, 4 px after the content. The caption row of a group is
+  separator 1 px wide, 6 px from the body's top and bottom, 3 px after the content (8 px from content to content,
+  the first group's content 4 px inside the page). The caption row of a group is
   its lowest row (2, or 3 for the 3-row columns), holding a label or the box of the label and the launcher.
 - HstRibbonPaint: FoldedButtonSize and DrawFoldedButton measure and draw a folded group's "Caption ▾" button for
   PriorityMergedHBox::HstGroupButton (the contract is in HstRibbonPaint.hxx).
@@ -66,7 +67,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  inline constexpr OUString FILE_TAB_NAME = u"FileLabel"_ustr;
 --- /dev/null
 +++ b/vcl/inc/HstRibbonGeometry.hxx
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,175 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -103,7 +104,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +constexpr long LAUNCHER = 15; // the dialog launcher, at the right end of the caption band
 +constexpr long LAUNCHER_ROOM = 18; // the caption keeps this much room for the launcher on its right
 +
-+constexpr long LARGE_ICON_SLOT = 32; // a large button's icon (24 px) is centred in a 32 px slot
++constexpr long LARGE_ICON = 24; // a large button's icon (lc_), centred in a 32 px slot
++constexpr long LARGE_ICON_SLOT = 32; // a larger icon (Paste's 32 px) fills the slot
 +constexpr long LARGE_SLOT_TOP = 6; // the slot's top: 1 px border and 5 px padding
 +constexpr long LARGE_MIN_WIDTH = 42;
 +constexpr long LARGE_LABEL_PAD = 4; // left and right of the label: 1 px border and 3 px padding
@@ -189,10 +191,14 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    aButton.width = std::max({ px(LARGE_MIN_WIDTH, fScale), nLabel + 2 * px(LARGE_LABEL_PAD, fScale),
 +                               nIcon + 2 * px(LARGE_LABEL_PAD, fScale) });
 +    aButton.height = px(CONTENT, fScale);
-+    const long nRoom = aButton.height - px(LARGE_BOTTOM_PAD, fScale) - 2 * nTextHeight - imageTextGap(nTextHeight) - nIcon;
-+    aButton.iconY = std::max(0L, std::min(px(LARGE_SLOT_TOP, fScale) + std::max(0L, px(LARGE_ICON_SLOT, fScale) - nIcon) / 2,
-+                                          nRoom));
-+    aButton.textY = aButton.iconY + nIcon + imageTextGap(nTextHeight);
++    // the label's line comes from a LARGE_ICON icon whatever the icon's size (the mockup's label starts under the
++    // slot), so Paste's 32 px icon does not push its label under the others; a larger icon shares the centre
++    const long nNominal = px(LARGE_ICON, fScale);
++    const long nRoom = aButton.height - px(LARGE_BOTTOM_PAD, fScale) - 2 * nTextHeight - imageTextGap(nTextHeight) - nNominal;
++    const long nNominalY = std::max(
++        0L, std::min(px(LARGE_SLOT_TOP, fScale) + std::max(0L, px(LARGE_ICON_SLOT, fScale) - nNominal) / 2, nRoom));
++    aButton.iconY = std::max(0L, nNominalY - (nIcon - nNominal) / 2);
++    aButton.textY = nNominalY + nNominal + imageTextGap(nTextHeight);
 +    aButton.linePitch = nTextHeight;
 +    return aButton;
 +}
@@ -420,7 +426,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      };
      static std::map<const vcl::Window*, Label>& labels()
      {
-@@ -198,6 +232,66 @@
+@@ -198,6 +232,69 @@
      return OUString::Concat(rLabel.subView(0, nBest)) + "\n" + rLabel.subView(nBest + 1) + " " + aArrow;
  }
  
@@ -448,8 +454,11 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            = rButton.IsNativeControlSupported(ControlType::Pushbutton, ControlPart::Entire) ? 4 : 2;
 +        nStyle = (rLabel.nStyle & ~(WB_VCENTER | WB_BOTTOM | WB_LEFT | WB_RIGHT)) | WB_TOP | WB_CENTER | WB_WORDBREAK;
 +        eVAlign = VclAlign::Start;
-+        nMarginTop = static_cast<sal_Int32>(std::max<tools::Long>(0, aLarge.iconY - nInner));
-+        nWidth = static_cast<sal_Int32>(aLarge.width);
++        // the label on the large buttons' label line whatever the image's size (PushButton puts it under the image)
++        nMarginTop = static_cast<sal_Int32>(std::max<tools::Long>(
++            0, aLarge.textY - geometry::imageTextGap(rButton.GetTextHeight()) - aImage.Height() - nInner));
++        // with a little room: PushButton breaks its label again where a line fills its text area to the pixel
++        nWidth = static_cast<sal_Int32>(aLarge.width + geometry::px(geometry::ARROW_GAP, rButton.GetDPIScaleFactor()));
 +        nHeight = static_cast<sal_Int32>(aLarge.height - nMarginTop);
 +    }
 +    else if (!!rButton.GetModeImage() && rLabel.nHeightRequest < 0)
@@ -487,7 +496,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  void applyToMenuButton(MenuButton& rButton, int nState)
  {
      auto& rLabels = MenuButtonLabels::labels();
-@@ -205,8 +299,25 @@
+@@ -205,8 +302,25 @@
      if (it == rLabels.end())
      {
          if (rButton.GetText().isEmpty())
@@ -515,7 +524,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          rButton.AddEventListener(LINK(nullptr, MenuButtonLabels, ButtonEventHdl));
          // the name of the authored label, whatever the button shows
          rButton.SetAccessibleName(it->second.aText.replaceAll("~", "").replace('\n', ' '));
-@@ -228,12 +339,14 @@
+@@ -228,12 +342,14 @@
          rLabel.bTip = false;
      }
      rButton.SetDropDown(eArrow); // no change when it is already so
@@ -536,7 +545,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  /// Grid attachments of a group's children as authored, kept while the window lives.
-@@ -247,10 +360,97 @@
+@@ -247,10 +363,110 @@
      DECL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, void);
  };
  
@@ -590,6 +599,12 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            { u"bxHomeAlign", 0, 1, 3 },
 +            { u"bxHomeIndent", 0, 2, 1 }, { u"bxHomeLineSpacing", 1, 2, 1 }, { u"bxHomeShading", 2, 2, 1 },
 +            { u"bxHomeHanging", 0, 0, 0 }, { u"bxHstSort", 0, 0, 0 }, { u"bxHstBorders", 0, 0, 0 } } },
++        // Sheets ▸ Home ▸ Alignment at the small size: three rows of icons (vertical alignment and Wrap Text |
++        // horizontal alignment and Justified | indents and Merge and Center)
++        { u"gdHomeAlignment", GroupSmall, 3, 2,
++          { { u"bxHomeVAlign", 0, 0, 1 }, { u"bxHomeWrapRTL", 1, 0, 1 },
++            { u"boxHomeHAlign", 0, 1, 1 }, { u"bxHomeAlignBlock", 1, 1, 1 },
++            { u"bxHomeSpacingIndentation", 0, 2, 1 }, { u"bxHomeMergeCells", 1, 2, 1 } } },
 +    };
 +    return aLayouts;
 +}
@@ -603,6 +618,13 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    for (const AlternativeLayout& rLayout : alternativeLayouts())
 +        if (rLayout.state == nState && rGrid.get_id() == OUString(rLayout.group))
 +            pLayout = &rLayout;
++    // only for the group it was written for: every child it names is there (another application may use the
++    // same grid id)
++    if (pLayout)
++        for (const LayoutCell& rCell : pLayout->cells)
++            if (std::none_of(rChildren.begin(), rChildren.end(),
++                             [&rCell](const vcl::Window* p) { return p->get_id() == OUString(rCell.id); }))
++                pLayout = nullptr;
 +    auto& rHidden = hiddenByLayout();
 +    for (std::size_t i = 0; i < rChildren.size(); ++i)
 +    {
@@ -634,7 +656,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  GroupCell authoredCell(vcl::Window& rChild)
-@@ -259,10 +459,8 @@
+@@ -259,10 +475,8 @@
      auto it = rCells.find(&rChild);
      if (it == rCells.end())
      {
@@ -647,7 +669,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,37 +479,147 @@
+@@ -281,37 +495,158 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -678,7 +700,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    whatever the .ui says: GROUP_PADDING above and under the grid, COLUMN_GAP between its columns, CAPTION_GAP
 +    between the content and the caption band, the caption band CAPTION_ROW high at the bottom with its text centred
 +    (one caption line for every group), the separator 1 px wide, SEPARATOR_INSET from the body's top and bottom and
-+    4 px after the content (with the next group's 3 px margin, 8 px from content to content). */
++    3 px after the content, the next group's content 4 px after it: 8 px from content to content, and the first
++    group's content 4 px inside the page (with the page's own 4 px, 8 px from its edge, as the mockup). */
 +void normaliseGroupFrame(VclGrid& rGrid, const std::vector<vcl::Window*>& rChildren, const std::vector<GroupCell>& rCells)
 +{
 +    const double fScale = rGrid.GetDPIScaleFactor();
@@ -688,7 +711,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                                        [&rGrid](sal_Int32 n) { rGrid.set_margin_top(n); });
 +    bChanged |= setIfChanged<sal_Int32>(rGrid.get_margin_bottom(), px(geometry::GROUP_PADDING),
 +                                        [&rGrid](sal_Int32 n) { rGrid.set_margin_bottom(n); });
-+    bChanged |= setIfChanged<sal_Int32>(rGrid.get_margin_start(), px(geometry::GROUP_PADDING) - px(geometry::SEPARATOR),
++    bChanged |= setIfChanged<sal_Int32>(rGrid.get_margin_start(), px(geometry::GROUP_PADDING),
 +                                        [&rGrid](sal_Int32 n) { rGrid.set_margin_start(n); });
 +    bChanged |= setIfChanged<sal_Int32>(rGrid.get_margin_end(), 0, [&rGrid](sal_Int32 n) { rGrid.set_margin_end(n); });
 +    bChanged |= setIfChanged<int>(rGrid.get_row_spacing(), px(geometry::SMALL_ROW_GAP),
@@ -699,6 +722,15 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    // content's height (a group of two rows with combo boxes is lower than one of large buttons)
 +    bChanged |= setIfChanged<VclAlign>(rGrid.get_valign(), VclAlign::Fill, [&rGrid](VclAlign e) { rGrid.set_valign(e); });
 +    bChanged |= setIfChanged<bool>(rGrid.get_vexpand(), true, [&rGrid](bool b) { rGrid.set_vexpand(b); });
++    // and so do the boxes holding the groups up to the tab's page (a tab's box is authored centred: a tab of
++    // lower groups put its captions higher than a tab of large buttons)
++    for (vcl::Window* pBox = rGrid.GetParent(); dynamic_cast<VclBox*>(pBox); pBox = pBox->GetParent())
++    {
++        bool bBox = setIfChanged<VclAlign>(pBox->get_valign(), VclAlign::Fill, [pBox](VclAlign e) { pBox->set_valign(e); });
++        bBox |= setIfChanged<bool>(pBox->get_vexpand(), true, [pBox](bool b) { pBox->set_vexpand(b); });
++        if (bBox)
++            pBox->queue_resize();
++    }
 +    for (std::size_t i = 0; i < rChildren.size(); ++i)
 +    {
 +        vcl::Window& rChild = *rChildren[i];
@@ -729,7 +761,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_bottom(), nInset,
 +                                                [pLine](sal_Int32 n) { pLine->set_margin_bottom(n); });
 +            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_start(),
-+                                                px(geometry::GROUP_PADDING) - px(geometry::COLUMN_GAP),
++                                                px(geometry::GROUP_PADDING) - px(geometry::COLUMN_GAP)
++                                                    - px(geometry::SEPARATOR),
 +                                                [pLine](sal_Int32 n) { pLine->set_margin_start(n); });
 +            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_end(), 0,
 +                                                [pLine](sal_Int32 n) { pLine->set_margin_end(n); });
@@ -806,7 +839,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
-@@ -377,8 +685,11 @@
+@@ -377,8 +712,11 @@
      }
      const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
      for (ToolBox* pToolBox : aToolBoxes)
@@ -820,7 +853,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // the menu buttons of every group drop their labels at the small state only (their image stays where it
      // is: above the label in a group of few commands)
      forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
-@@ -408,7 +719,8 @@
+@@ -408,7 +746,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {
