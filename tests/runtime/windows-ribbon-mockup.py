@@ -4,15 +4,16 @@
 
 Run in the console session (under C:\\hst-test\\console-lock.txt) with the office's python.exe:
   "<install>\\program\\python.exe" tests/runtime/windows-ribbon-mockup.py --install DIR --out DIR [--sweep-step 10]
-The checks are those of check-ribbon-mockup.py (rules in ribbon_mockup_rules.py): ladder vectors, the 106 px body, the
-147 px row, the banner rule, the font and size boxes, and optionally a monotonic sweep. The window is resized through
-UNO (setPosSize on the frame's container window); the ribbon is read from the UNO accessibility tree. Only 100 %
-scaling is measured here: set the display to 100 % before the run (windows_dpi.set_scale(100)).
-Evidence: <out>/results.json, <out>/measured.json, <out>/writer-<tab>-<width>.bmp.
+The checks are those of check-ribbon-mockup.py (rules in ribbon_mockup_rules.py). The window is resized through UNO
+(setPosSize on the frame's container window); the tab is selected and the ribbon is read through MSAA with
+windows-msaa-ribbon.ps1 (select-tab) and windows-ribbon-nodes.ps1 (the node dump), the same tree the keytips tools read.
+Only 100 % scaling is measured here: set the display to 100 % before the run.
+Evidence: <out>/results.json, <out>/measured.json, <out>/nodes-<tab>-<width>.tsv (the dump of each measured width).
 """
 import argparse
 import json
 import os
+import subprocess
 import sys
 import time
 
@@ -21,51 +22,39 @@ if hasattr(sys.stdout, "reconfigure"):
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import windows_gui as wg  # noqa: E402
-import windows_gui_a11y as a11y  # noqa: E402
 import ribbon_mockup_geometry as geo  # noqa: E402
-import ribbon_mockup_uno as uno_nodes  # noqa: E402
+import ribbon_mockup_msaa as msaa  # noqa: E402
 from ribbon_mockup_rules import monotonic_findings, width_findings  # noqa: E402
 
 EXPECTED = os.path.join(HERE, "ribbon-mockup-expected.json")
 TAB_NAMES = {"home": "Trang đầu", "insert": "Chèn"}
 HEIGHT = 900
+POWERSHELL = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
+OUT = [""]  # the evidence folder, set by main
 
 
-def find_tab(windows, name):
-    """The page tab named `name` in the ribbon of the office windows (its accessibility context), or None."""
-    import uno
-    tab_role = uno.getConstantByName("com.sun.star.accessibility.AccessibleRole.PAGE_TAB")
-    for window in windows:
-        for context, _depth in a11y.walk(window, limit=20):
-            try:
-                if context.getAccessibleRole() == tab_role and context.getAccessibleName() == name:
-                    return context
-            except Exception:  # noqa: BLE001
-                continue
-    return None
+def _run(script, *args):
+    result = subprocess.run(POWERSHELL + [os.path.join(HERE, script), *args], capture_output=True, check=False)
+    return result.stdout.decode("utf-8", errors="replace")
 
 
-def dump_tree(windows, path):
-    """Writes the accessibility nodes of the windows (role, name, showing) for a missing tab: a diagnosis aid."""
-    with open(path, "w", encoding="utf-8") as handle:
-        handle.write(f"top windows: {len(windows)}\n")
-        for window in windows:
-            count = 0
-            for context, depth in a11y.walk(window, limit=20):
-                count += 1
-                try:
-                    handle.write(f"{'  ' * depth}{context.getAccessibleRole()} | {context.getAccessibleName()!r} | "
-                                 f"{a11y.showing(context)}\n")
-                except Exception as error:  # noqa: BLE001
-                    handle.write(f"{'  ' * depth}error {error!r}\n")
-            handle.write(f"window nodes: {count}\n")
+def select_tab(pids, name):
+    """Selects the shown ribbon tab `name` through MSAA; True when the tool reports OK."""
+    for pid in pids:
+        if _run("windows-msaa-ribbon.ps1", "-Action", "select-tab", "-OfficePid", str(pid), "-Name", name).startswith("OK"):
+            return True
+    return False
 
 
-def measure(windows, tab):
-    nodes = uno_nodes.ribbon_nodes(windows)
-    tab_top, strip = geo.tab_geometry(nodes)
-    return {"groups": geo.groups(nodes, tab), "tab_top": tab_top, "strip": strip, "banner": geo.banner(nodes),
-            "font_box": geo.named_box(nodes, "Tên phông"), "size_box": geo.named_box(nodes, "Kích cỡ phông")}
+def dump_nodes(pids, tab, width):
+    """The ribbon band nodes of the first office process whose tree holds page tabs; keeps the raw dump as evidence."""
+    for pid in pids:
+        text = _run("windows-ribbon-nodes.ps1", "-OfficePid", str(pid))
+        if "\t37\t" in text or "\t37\r" in text:  # MSAA PAGETAB
+            with open(os.path.join(OUT[0], f"nodes-{tab}-{width}.tsv"), "w", encoding="utf-8") as handle:
+                handle.write(text)
+            return msaa.parse(text)
+    return []
 
 
 def set_width(office, width):
@@ -74,26 +63,26 @@ def set_width(office, width):
     time.sleep(3)
 
 
-OUT = [""]  # the evidence folder, set by main
+def measure(nodes, tab):
+    tab_top, strip = geo.tab_geometry(nodes)
+    return {"groups": geo.groups(nodes, tab), "tab_top": tab_top, "strip": strip, "banner": geo.banner(nodes),
+            "font_box": geo.named_box(nodes, "Tên phông"), "size_box": geo.named_box(nodes, "Kích cỡ phông")}
 
 
 def run_tab(res, office, tab, widths, expected, measured):
     levels = {}
-    a11y_name = TAB_NAMES[tab]
     for width in widths:
         set_width(office, width)
-        windows = office.top_windows()
-        tab_context = find_tab(windows, a11y_name)
-        if tab_context is None:
-            dump_tree(windows, os.path.join(OUT[0], f"tree-{tab}-{width}.txt"))
-            res(f"[writer {tab} {width}] tab '{a11y_name}' found", False, "no page tab")
+        pids = sorted(office.bin_pids_of_profile())
+        if not select_tab(pids, TAB_NAMES[tab]):
+            res(f"[writer {tab} {width}] tab '{TAB_NAMES[tab]}' selected through MSAA", False, "no shown tab")
             continue
-        a11y.press(tab_context)
         time.sleep(2)
-        got = measure(windows, tab)
+        nodes = dump_nodes(pids, tab, width)
+        got = measure(nodes, tab)
         states = {k: v["state"] for k, v in got["groups"].items()}
-        measured[f"{tab}-{width}"] = {"states": states, "banner": got["banner"], "font_box": got["font_box"]}
         key = f"{tab}-{width}"
+        measured[key] = {"states": states, "banner": got["banner"], "font_box": got["font_box"], "nodes": len(nodes)}
         if key in expected:
             for name, ok, detail in width_findings(tab, width, expected[key]["states"], got):
                 res(name, ok, detail)

@@ -42,11 +42,15 @@ def width_findings(tab, width, want_states, got):
     if got.get("tab_top") is not None and got.get("strip") is not None:
         span = got["strip"][1] - got["tab_top"]
         out.append((f"{tag} tab row to document strip is 147 px", abs(span - 147) <= TOLERANCE, span))
+    else:  # a missing measurement is a failure, not a silent pass
+        out.append((f"{tag} tab row and document strip measured", False, "not in the accessible tree"))
+    ew, eh = expected_banner(width)
     banner = got.get("banner")
     if banner is not None:
-        ew, eh = expected_banner(width)
         out.append((f"{tag} banner {ew}x{eh}",
                     abs(banner[2] - ew) <= TOLERANCE and abs(banner[3] - eh) <= TOLERANCE, list(banner[2:])))
+    else:
+        out.append((f"{tag} banner {ew}x{eh} measured", False, "not in the accessible tree"))
     if got["groups"].get("font", {}).get("state") == "L":
         fb, sb = got.get("font_box"), got.get("size_box")
         out.append((f"{tag} font box 128 px", fb is not None and abs(fb[2] - 128) <= TOLERANCE, fb and fb[2]))
