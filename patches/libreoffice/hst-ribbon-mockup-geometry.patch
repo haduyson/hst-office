@@ -365,7 +365,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <utility>
  #include <vector>
  
-@@ -71,8 +76,28 @@
+@@ -71,8 +76,29 @@
  /// buttons filling the group's height)
  constexpr int FEW_COMMANDS = 3;
  
@@ -380,13 +380,14 @@ License: these upstream files remain under their original license (MPL-2.0).
 +}
 +
 +/// Buttons that keep their large labelled look at every size until their group folds, as Paste does, where the
-+/// reference suite keeps them so (Sheets: Sort and Filter, Find and Select, Text Box, Text to Columns, Automatic
-+/// Calculation). Ids of the .ui files (VclBuilder passes no custom property on to the window).
++/// reference suite keeps them so (Writer and Sheets: Text Box; Sheets: Sort and Filter, Find and Select, Text to
++/// Columns, Automatic Calculation). Ids of the .ui files: VclBuilder hands an unknown .ui property to
++/// Window::set_property, which drops it, so the data lives here.
 +bool keepsLarge(const vcl::Window& rWindow)
 +{
 +    static constexpr std::u16string_view aIds[]
 +        = { u"btnHomeHstEditingSortFilter", u"btnHomeHstEditingFindSelect", u"bxInsertTextBox",
-+            u"bxDataTextToColumns", u"bxHstAutomaticCalculation12" };
++            u"bxUxInsertDrawText", u"bxDataTextToColumns", u"bxHstAutomaticCalculation12" };
 +    return std::any_of(std::begin(aIds), std::end(aIds),
 +                       [&rWindow](std::u16string_view aId) { return hasId(rWindow, aId); });
 +}
@@ -396,7 +397,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  {
      ImplToolBoxPrivateData& rData = *rToolBox.ImplGetToolBoxPrivateData();
      if (!rData.mbHstAuthored)
-@@ -82,9 +107,16 @@
+@@ -82,16 +108,23 @@
          rData.meHstAuthoredSize = rToolBox.GetToolboxButtonSize();
          rData.meHstAuthoredTextPosition = rData.meHstTextPosition;
          // Paste, and the Zoom group's large buttons, stay large with their labels, as in Office
@@ -414,7 +415,15 @@ License: these upstream files remain under their original license (MPL-2.0).
      // HST Office: a group of few large commands (Insert's Comments, Review's Protect, Sheets' Cells) keeps
      // them large, filling the group's height, at every width, so the groups look alike: as small icons
      // under a longer caption they saved almost nothing and left the group looking empty. At the small
-@@ -129,6 +161,22 @@
+     // state only their labels go (kept as tooltip and accessible name, as for every toolbox), so the ladder
+     // has a step before it folds the group into its "Caption ▾" button
+     const bool bKeep = rData.mbHstKeepLarge || nState == GroupLarge
+-                       || (bFewCommands && rData.meHstAuthoredSize == ToolBoxButtonSize::Large);
++                       || (bFewCommands && nState != GroupMedium && rData.meHstAuthoredSize == ToolBoxButtonSize::Large);
+     const bool bLabels = rData.mbHstKeepLarge || nState < GroupSmall;
+     const ButtonType eType = bLabels ? rData.meHstAuthoredType : ButtonType::SYMBOLONLY;
+     const ToolBoxButtonSize eSize
+@@ -129,6 +162,22 @@
          rToolBox.HstSetGridRows(nGridRows);
          bChanged = true;
      }
@@ -437,7 +446,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // HST Office: a gallery in the toolbox (Slides' themes) shows fewer columns at the smaller states, so the
      // group narrows before it folds; a window that does not know the property ignores it
      const OUString aGalleryState = OUString::number(std::min(nState, int(GroupSmall)));
-@@ -163,6 +211,12 @@
+@@ -163,6 +212,12 @@
      {
          OUString aText; // the label as authored
          bool bTip = false; // the tooltip was set from the label (the label is hidden)
@@ -450,7 +459,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      };
      static std::map<const vcl::Window*, Label>& labels()
      {
-@@ -198,6 +252,69 @@
+@@ -198,6 +253,69 @@
      return OUString::Concat(rLabel.subView(0, nBest)) + "\n" + rLabel.subView(nBest + 1) + " " + aArrow;
  }
  
@@ -520,7 +529,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  void applyToMenuButton(MenuButton& rButton, int nState)
  {
      auto& rLabels = MenuButtonLabels::labels();
-@@ -205,15 +322,32 @@
+@@ -205,15 +323,32 @@
      if (it == rLabels.end())
      {
          if (rButton.GetText().isEmpty())
@@ -556,7 +565,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      const bool bLarge = !bHide && bImage && rButton.GetImageAlign() == ImageAlign::Top;
      const OUString aText = bHide ? OUString() : bLarge ? largeMenuLabel(rLabel.aText) : rLabel.aText;
      const PushButtonDropdownStyle eArrow = bLarge ? PushButtonDropdownStyle::NONE : PushButtonDropdownStyle::MenuButton;
-@@ -228,12 +362,14 @@
+@@ -228,12 +363,14 @@
          rLabel.bTip = false;
      }
      rButton.SetDropDown(eArrow); // no change when it is already so
@@ -577,7 +586,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  /// Grid attachments of a group's children as authored, kept while the window lives.
-@@ -247,10 +383,142 @@
+@@ -247,10 +384,194 @@
      DECL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, void);
  };
  
@@ -588,11 +597,83 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    return aHidden;
 +}
 +
-+/// The authored image position of the menu buttons an alternative layout shows with their image on the left.
-+std::map<const vcl::Window*, ImageAlign>& imageAlignsByLayout()
++/// The authored image (position and image) of the menu buttons shown as medium buttons (image on the left, the
++/// small image) by an alternative layout or in a 3-row column of the medium size.
++struct MenuLook
 +{
-+    static std::map<const vcl::Window*, ImageAlign> aAligns;
++    ImageAlign eAlign;
++    Image aImage;
++};
++std::map<const vcl::Window*, MenuLook>& imageAlignsByLayout()
++{
++    static std::map<const vcl::Window*, MenuLook> aAligns;
 +    return aAligns;
++}
++
++/// rButton as a medium button (bLeft: image left of the label, the small image of its icon) or as authored
++void setMenuButtonMedium(MenuButton& rButton, bool bLeft)
++{
++    auto& rLooks = imageAlignsByLayout();
++    const auto it = rLooks.find(&rButton);
++    if (bLeft == (it != rLooks.end()))
++        return;
++    if (bLeft)
++    {
++        rLooks.emplace(&rButton, MenuLook{ rButton.GetImageAlign(), rButton.GetModeImage() });
++        rButton.SetImageAlign(ImageAlign::Left);
++        // the 16 px image of a stock icon (cmd/lc_x.png -> cmd/sc_x.png)
++        const OUString aStock = rButton.GetModeImage().GetStock();
++        if (aStock.indexOf("/lc_") >= 0)
++            rButton.SetModeImage(Image(StockImage::Yes, aStock.replaceFirst("/lc_", "/sc_")));
++    }
++    else
++    {
++        rButton.SetImageAlign(it->second.eAlign);
++        rButton.SetModeImage(it->second.aImage);
++        rLooks.erase(it);
++    }
++    rButton.queue_resize();
++}
++
++/// The authored image position of a menu button, whatever the ladder shows now
++ImageAlign authoredImageAlign(const MenuButton& rButton)
++{
++    const auto it = imageAlignsByLayout().find(&rButton);
++    return it == imageAlignsByLayout().end() ? rButton.GetImageAlign() : it->second.eAlign;
++}
++
++/// Children of groups shown at some sizes only (the bits of their states, 1 << GroupLarge ...): a group shows
++/// one widget at its large size and another in its place at the others (Sheets' Styles: the cell style gallery
++/// at the large size, "Cell Styles ▾" at the medium and small ones). The ids of the .ui files.
++int statesShown(const vcl::Window& rWindow)
++{
++    struct Shown
++    {
++        std::u16string_view id;
++        int states;
++    };
++    static constexpr Shown aShown[] = {
++        { u"bxHomeStylesPreview", 1 << GroupLarge },
++        { u"btnHomeHstCellStyles", (1 << GroupMedium) | (1 << GroupSmall) },
++    };
++    for (const Shown& rShown : aShown)
++        if (hasId(rWindow, rShown.id))
++            return rShown.states;
++    return (1 << GroupLarge) | (1 << GroupMedium) | (1 << GroupSmall);
++}
++
++/// Hide or show a child of a group for the ladder (alternative layouts, statesShown); a child the ladder hid
++/// counts as shown in GroupContentKey
++void setHiddenByLadder(vcl::Window& rChild, bool bHide)
++{
++    auto& rHidden = hiddenByLayout();
++    if (bHide && rChild.IsVisible())
++    {
++        rChild.Hide();
++        rHidden.insert(&rChild);
++    }
++    else if (!bHide && rHidden.erase(&rChild))
++        rChild.Show();
 +}
 +
  IMPL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, rEvent, void)
@@ -640,6 +721,12 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            { u"bxHomeAlign", 0, 1, 3 },
 +            { u"bxHomeIndent", 0, 2, 1 }, { u"bxHomeLineSpacing", 1, 2, 1 }, { u"bxHomeShading", 2, 2, 1 },
 +            { u"bxHomeHanging", 0, 0, 0 }, { u"bxHstSort", 0, 0, 0 }, { u"bxHstBorders", 0, 0, 0 } } },
++        // Writer ▸ Insert ▸ Illustrations at the medium size, as the reference suite: Pictures stays large, Shapes,
++        // Chart, Gallery and Audio and Video as medium buttons in two columns of two
++        { u"gdInsertGraphic", GroupMedium, 3, 3,
++          { { u"bxInsertInsertGraphic", 0, 0, 1, 3 }, { u"btnInsertHstShapes", 1, 0, 1, 1, true },
++            { u"bxInsertInsertObjectChart", 1, 1, 1, 1 }, { u"bxInsertGallery", 2, 0, 1, 1 },
++            { u"bxInsertInsertAVMedia", 2, 1, 1, 1 } } },
 +        // Sheets ▸ Home ▸ Cells at the medium size: Insert, Delete and Format as medium buttons in one column
 +        { u"gdHomeCells", GroupMedium, 3, 1,
 +          { { u"btnHomeHstCellsInsert", 0, 0, 1, 1, true }, { u"btnHomeHstCellsDelete", 0, 1, 1, 1, true },
@@ -654,10 +741,11 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    return aLayouts;
 +}
 +
-+/** Lay rGrid's children out by the alternative layout of nState, if its group has one; the children it hid at
-+    another state are shown again. Returns whether a layout applied (rCells then hold its cells). */
++/** Lay rGrid's children out by the alternative layout of nState, if its group has one. Returns whether a layout
++    applied (rCells then hold its cells, rHide the children it hides, rLeft the menu buttons it shows as medium
++    buttons). */
 +bool applyAlternativeLayout(const VclGrid& rGrid, int nState, const std::vector<vcl::Window*>& rChildren,
-+                            std::vector<GroupCell>& rCells)
++                            std::vector<GroupCell>& rCells, std::vector<bool>& rHide, std::vector<bool>& rLeft)
 +{
 +    const AlternativeLayout* pLayout = nullptr;
 +    for (const AlternativeLayout& rLayout : alternativeLayouts())
@@ -670,44 +758,17 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            if (std::none_of(rChildren.begin(), rChildren.end(),
 +                             [&rCell](const vcl::Window* p) { return hasId(*p, rCell.id); }))
 +                pLayout = nullptr;
-+    auto& rHidden = hiddenByLayout();
-+    for (std::size_t i = 0; i < rChildren.size(); ++i)
++    for (std::size_t i = 0; pLayout && i < rChildren.size(); ++i)
 +    {
 +        vcl::Window& rChild = *rChildren[i];
 +        const LayoutCell* pCell = nullptr;
-+        if (pLayout)
-+            for (const LayoutCell& rCell : pLayout->cells)
-+                if (hasId(rChild, rCell.id))
-+                    pCell = &rCell;
-+        const bool bHide = pCell && pCell->width == 0;
-+        if (bHide && rChild.IsVisible())
-+        {
-+            rChild.Hide();
-+            rHidden.insert(&rChild);
-+        }
-+        else if (!bHide && rHidden.erase(&rChild))
-+            rChild.Show();
-+        if (MenuButton* pButton = dynamic_cast<MenuButton*>(&rChild))
-+        {
-+            // its image beside its label in this layout (a medium button), as authored elsewhere
-+            auto& rAligns = imageAlignsByLayout();
-+            const auto it = rAligns.find(pButton);
-+            const bool bLeft = pCell && pCell->imageLeft;
-+            if (bLeft && it == rAligns.end())
-+            {
-+                rAligns.emplace(pButton, pButton->GetImageAlign());
-+                pButton->SetImageAlign(ImageAlign::Left);
-+                pButton->queue_resize();
-+            }
-+            else if (!bLeft && it != rAligns.end())
-+            {
-+                pButton->SetImageAlign(it->second);
-+                rAligns.erase(it);
-+                pButton->queue_resize();
-+            }
-+        }
-+        if (!pLayout)
-+            continue;
++        for (const LayoutCell& rCell : pLayout->cells)
++            if (hasId(rChild, rCell.id))
++                pCell = &rCell;
++        if (pCell && pCell->width == 0)
++            rHide[i] = true;
++        if (pCell && pCell->imageLeft)
++            rLeft[i] = true;
 +        GroupCell& rOut = rCells[i];
 +        if (pCell && pCell->width > 0)
 +            rOut = GroupCell{ pCell->left, pCell->top, pCell->width, pCell->height, false, false };
@@ -720,7 +781,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  GroupCell authoredCell(vcl::Window& rChild)
-@@ -259,10 +527,8 @@
+@@ -259,10 +580,8 @@
      auto it = rCells.find(&rChild);
      if (it == rCells.end())
      {
@@ -733,7 +794,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,37 +547,158 @@
+@@ -281,37 +600,180 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -872,52 +933,83 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    for (std::size_t i = 0; i < aChildren.size(); ++i)
 +        aCells[i].caption = aCells[i].top >= 2 && aCells[i].top == nBottom && holdsCaption(*aChildren[i]);
 +    const int nContentRows = contentRows(aCells);
++    // a group of few commands stacks its large buttons at the medium size too, as the reference suite does when
++    // its tab's ladder has that step (Writer's Pages, Links, Header and Footer); it keeps them at the small size
++    const bool bStack = !bFewCommands || nState == GroupMedium;
 +    for (std::size_t i = 0; i < aChildren.size(); ++i)
 +    {
++        const bool bFill = aCells[i].top == 0 && aCells[i].height == nContentRows && !keepsLarge(*aChildren[i]);
 +        if (ToolBox* pToolBox = dynamic_cast<ToolBox*>(aChildren[i]))
          {
              const ImplToolBoxPrivateData& rData = *pToolBox->ImplGetToolBoxPrivateData();
 -            aCell.stackable = !bFewCommands && rData.mbHstAuthored && !rData.mbHstKeepLarge
 -                              && rData.meHstAuthoredSize == ToolBoxButtonSize::Large && commandCount(*pToolBox) == 1
 -                              && aCell.top == 0 && aCell.height == 2;
-+            aCells[i].stackable = !bFewCommands && rData.mbHstAuthored && !rData.mbHstKeepLarge
++            aCells[i].stackable = bStack && bFill && rData.mbHstAuthored && !rData.mbHstKeepLarge
 +                                  && rData.meHstAuthoredSize == ToolBoxButtonSize::Large
-+                                  && commandCount(*pToolBox) == 1 && aCells[i].top == 0
-+                                  && aCells[i].height == nContentRows;
++                                  && commandCount(*pToolBox) == 1;
          }
 -        aChildren.push_back(pChild);
 -        aCells.push_back(aCell);
++        else if (MenuButton* pButton = dynamic_cast<MenuButton*>(aChildren[i]))
++            // a large menu button (Shapes ▾) stacks as the large tool buttons do, as a medium button
++            aCells[i].stackable = bStack && bFill && authoredImageAlign(*pButton) == ImageAlign::Top
++                                  && !!pButton->GetModeImage();
++    }
++    normaliseGroupFrame(*pGrid, aChildren, aCells);
++    // the children shown at this size only (statesShown); a folded group's content stays large
++    const int nShown = 1 << (nState == GroupCollapsed ? int(GroupLarge) : nState);
++    std::vector<bool> aHide(aChildren.size()), aLeft(aChildren.size());
++    for (std::size_t i = 0; i < aChildren.size(); ++i)
++        aHide[i] = !(statesShown(*aChildren[i]) & nShown);
++    if (!applyAlternativeLayout(*pGrid, nState, aChildren, aCells, aHide, aLeft)
++        && (nState == GroupMedium || nState == GroupSmall) && stackGroup(aCells))
++    {
++        // stackGroup makes a stacked button one row high
++        for (std::size_t i = 0; i < aChildren.size(); ++i)
++            if (aCells[i].stackable && aCells[i].height == 1 && dynamic_cast<MenuButton*>(aChildren[i]))
++                aLeft[i] = true;
      }
 -    if (nState == GroupMedium || nState == GroupSmall)
-+    normaliseGroupFrame(*pGrid, aChildren, aCells);
-+    if (!applyAlternativeLayout(*pGrid, nState, aChildren, aCells) && (nState == GroupMedium || nState == GroupSmall))
-         stackGroup(aCells);
+-        stackGroup(aCells);
      for (std::size_t i = 0; i < aChildren.size(); ++i)
 +    {
++        setHiddenByLadder(*aChildren[i], aHide[i]);
++        if (MenuButton* pButton = dynamic_cast<MenuButton*>(aChildren[i]))
++            setMenuButtonMedium(*pButton, aLeft[i]);
          attach(*aChildren[i], aCells[i]);
-+        // stackGroup makes a stacked button one row high; one still filling the rows was not stacked
-+        if (nState == GroupMedium && aCells[i].stackable && aCells[i].height >= nContentRows)
++        // a stackable tool button still filling the rows was not stacked (or an alternative layout keeps it so)
++        if (nState == GroupMedium && aCells[i].stackable && aCells[i].height >= nContentRows
++            && dynamic_cast<ToolBox*>(aChildren[i]))
 +            aLone.insert(static_cast<const ToolBox*>(aChildren[i]));
 +    }
 +    return aLone;
  }
  
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
-@@ -377,8 +764,11 @@
+@@ -375,10 +837,18 @@
+         if (nCommands > FEW_COMMANDS)
+             break;
      }
-     const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
-     for (ToolBox* pToolBox : aToolBoxes)
--        applyToToolBox(*pToolBox, nState, bFewCommands);
--    stackLargeButtons(rGroup, nState, bFewCommands);
+-    const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
++    // a group with a button named to stay large (keepsLarge) lets its other buttons follow the ladder (Sheets'
++    // Calculation: Calculate Now an icon beside a large Calculation Options at the small size)
++    bool bNamedLarge = std::any_of(aToolBoxes.begin(), aToolBoxes.end(),
++                                   [](const ToolBox* pToolBox) { return keepsLarge(*pToolBox); });
++    forMenuButtons(rGroup, [&bNamedLarge](MenuButton& rButton) { bNamedLarge = bNamedLarge || keepsLarge(rButton); });
++    const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS && !bNamedLarge;
++    for (ToolBox* pToolBox : aToolBoxes)
 +        rememberAuthored(*pToolBox);
 +    // the grid first: a large button it leaves alone at the medium size stays large
 +    const std::set<const ToolBox*> aLone = stackLargeButtons(rGroup, nState, bFewCommands);
-+    for (ToolBox* pToolBox : aToolBoxes)
+     for (ToolBox* pToolBox : aToolBoxes)
+-        applyToToolBox(*pToolBox, nState, bFewCommands);
+-    stackLargeButtons(rGroup, nState, bFewCommands);
 +        applyToToolBox(*pToolBox, aLone.count(pToolBox) ? int(GroupLarge) : nState, bFewCommands);
      // the menu buttons of every group drop their labels at the small state only (their image stays where it
      // is: above the label in a group of few commands)
      forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
-@@ -408,7 +798,8 @@
+@@ -408,7 +878,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {

@@ -121,7 +121,7 @@ class MockupGeometry(unittest.TestCase):
         self.assertIn("placeLargeMenuButton(rButton, rLabel, bLarge);", ladder)
         self.assertIn("normaliseGroupFrame(*pGrid, aChildren, aCells);", ladder)
         self.assertIn("aCells[i].caption = aCells[i].top >= 2 && aCells[i].top == nBottom", ladder)
-        self.assertIn("&& aCells[i].height == nContentRows;", ladder)
+        self.assertIn("aCells[i].height == nContentRows && !keepsLarge(*aChildren[i]);", ladder)
         # the alternative layout of Writer's Paragraph at the small size, and its hidden boxes kept in the key
         self.assertIn('{ u"gdHomeParagraph", GroupSmall, 3, 3,', ladder)
         self.assertIn("rToolBox.IsVisible() || hiddenByLayout().count(&rToolBox)", ladder)
