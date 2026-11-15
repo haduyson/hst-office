@@ -6,8 +6,11 @@ B I U S, sub- and superscript, border, fill and font colour); Styles is Conditio
 Table and the cell styles gallery (.uno:StylesPreview, which shows Calc's cell styles with
 hst-ribbon-mockup-gallery-combos.patch; it replaces the Cell Styles ▾ menu); Alignment drops the hidden right-to-left and
 left-to-right buttons (owner decision) and puts Decrease Indent before Increase Indent; Cells and Editing
-fill three rows (AutoSum ▾, a column of Fill ▾ and Clear ▾, Sort and Filter ▾, Find and Select ▾). Insert: the
-chart types stand in one 3-row column between Chart and Sparkline (now large); Text is Text Box and Header and
+fill three rows (AutoSum ▾, a column of Fill ▾ and Clear ▾, Sort and Filter ▾, Find and Select ▾). Insert: Charts
+is Chart (the wizard) large, then icon-only drop-downs per chart family as in the reference suite (Column or Bar,
+Line or Area, Pie or Doughnut, Scatter or Bubble, Stock or Radar, Combo), each item opening the wizard on that chart
+type (.uno:InsertObjectChart with a chart2 template name; fuins2.cxx accepts those names), with the colibre
+chart-type icons, and Sparkline large; Text is Text Box and Header and
 Footer large beside two 3-row columns (Fontwork, Signature Line, Object / Vertical Text, Date, Time). Extensions
 groups the HST tools as the mockup does: Text (administrative document, Remove Diacritics, Split Name, Sort by
 Given Name), Vietnamese Formats (VND, date, percent), Data (Import CSV, Delete Blank Rows), Vietnamese Tools
@@ -15,7 +18,8 @@ Given Name), Vietnamese Formats (VND, date, percent), Data (Import CSV, Delete B
 the three rows and small buttons stand in even 3-row columns (the mockup's grid()), captions under the rows,
 separators 4 rows high. The ribbon's root box has no margin above, below or right of it (frame geometry, P4).
 Every group keeps its id (the adaptive ladders apply); every command keeps its KeyTip except Cell Styles ▾ (J),
-which the regenerated KeyTip table gives to the gallery. Needs hst-ribbon-mockup-gallery-combos.patch before it.
+which the regenerated KeyTip table gives to the gallery; the chart drop-downs are keyed by widget id
+(btnHstInsertChartColumn, ...Line, ...Pie, ...Scatter, ...Other, ...Combo) for the reference letters C, N1, Q, D, I1, SD. Needs hst-ribbon-mockup-gallery-combos.patch before it.
 
 License: these upstream files remain under their original license (MPL-2.0).
 ---
@@ -136,7 +140,292 @@ License: these upstream files remain under their original license (MPL-2.0).
    <object class="GtkImage" id="imgHstUILanguage">
      <property name="visible">True</property>
      <property name="can-focus">False</property>
-@@ -4043,9 +3935,9 @@
+@@ -4035,6 +3927,284 @@
+       </object>
+     </child>
+   </object>
++  <object class="GtkImage" id="imgHstInsertChartColumn">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">chart2/res/typecolumn_16.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstInsertChartColumn">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Column</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Clustered Column</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StackedColumn</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Stacked Column</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=PercentStackedColumn</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">100% Stacked Column</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=ThreeDColumnDeep</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">3-D Column</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-4">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Bar</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Clustered Bar</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-5">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StackedBar</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Stacked Bar</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-6">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=PercentStackedBar</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">100% Stacked Bar</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstInsertChartLine">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">chart2/res/typepointline_16.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstInsertChartLine">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartLine-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Line</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Line</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartLine-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=LineSymbol</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Line with Markers</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartLine-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StackedLine</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Stacked Line</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartLine-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Area</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Area</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartLine-4">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StackedArea</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Stacked Area</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartLine-5">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=PercentStackedArea</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">100% Stacked Area</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstInsertChartPie">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">chart2/res/typepie_16.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstInsertChartPie">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartPie-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Pie</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Pie</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartPie-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=PieAllExploded</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Exploded Pie</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartPie-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=ThreeDPie</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">3-D Pie</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartPie-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Donut</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Doughnut</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstInsertChartScatter">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">chart2/res/typexy_16.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstInsertChartScatter">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartScatter-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=ScatterSymbol</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Scatter</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartScatter-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=ScatterLineSymbol</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Scatter with Lines and Markers</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartScatter-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=ScatterLine</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Scatter with Straight Lines</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartScatter-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Bubble</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Bubble</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstInsertChartOther">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">chart2/res/typestock_16.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstInsertChartOther">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartOther-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StockLowHighClose</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">High-Low-Close</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartOther-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StockOpenLowHighClose</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Open-High-Low-Close</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartOther-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Net</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Radar</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartOther-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=NetSymbol</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Radar with Markers</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartOther-4">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=FilledNet</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Filled Radar</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstInsertChartCombo">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">chart2/res/typecolumnline_16.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstInsertChartCombo">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartCombo-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=ColumnWithLine</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Clustered Column - Line</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartCombo-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StackedColumnWithLine</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Stacked Column - Line</property>
++      </object>
++    </child>
++  </object>
+   <object class="GtkGrid" id="NotebookBar">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -4043,9 +4213,9 @@
          <property name="visible">True</property>
          <property name="can-focus">False</property>
          <property name="margin-start">6</property>
@@ -149,7 +438,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          <property name="orientation">vertical</property>
          <child>
            <object class="sfxlo-NotebookbarTabControl" id="ContextContainer">
-@@ -4852,8 +4744,8 @@
+@@ -4852,8 +5022,8 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -160,7 +449,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -4881,7 +4773,7 @@
+@@ -4881,7 +5051,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -169,7 +458,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -4933,19 +4825,17 @@
+@@ -4933,19 +5103,17 @@
                            </packing>
                          </child>
                          <child>
@@ -195,7 +484,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                </object>
                                <packing>
                                  <property name="expand">False</property>
-@@ -4954,9 +4844,8 @@
+@@ -4954,9 +5122,8 @@
                              </child>
                            </object>
                            <packing>
@@ -207,7 +496,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -4966,9 +4855,9 @@
+@@ -4966,9 +5133,9 @@
                              <property name="orientation">vertical</property>
                            </object>
                            <packing>
@@ -219,7 +508,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -5063,33 +4952,7 @@
+@@ -5063,33 +5230,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">2</property>
@@ -254,7 +543,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -5113,8 +4976,8 @@
+@@ -5113,8 +5254,8 @@
                              </child>
                            </object>
                            <packing>
@@ -265,7 +554,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -5137,9 +5000,8 @@
+@@ -5137,9 +5278,8 @@
                              </child>
                            </object>
                            <packing>
@@ -276,7 +565,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -5196,7 +5058,7 @@
+@@ -5196,7 +5336,7 @@
                              </child>
                            </object>
                            <packing>
@@ -285,7 +574,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">1</property>
                            </packing>
                          </child>
-@@ -5220,7 +5082,7 @@
+@@ -5220,7 +5360,7 @@
                              </child>
                            </object>
                            <packing>
@@ -294,7 +583,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">0</property>
                            </packing>
                          </child>
-@@ -5268,7 +5130,7 @@
+@@ -5268,7 +5408,7 @@
                              </child>
                            </object>
                            <packing>
@@ -303,7 +592,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">1</property>
                              <property name="width">2</property>
                            </packing>
-@@ -5304,7 +5166,7 @@
+@@ -5304,7 +5444,7 @@
                              </child>
                            </object>
                            <packing>
@@ -312,7 +601,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">1</property>
                            </packing>
                          </child>
-@@ -5339,7 +5201,7 @@
+@@ -5339,7 +5479,7 @@
                              </child>
                            </object>
                            <packing>
@@ -321,7 +610,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">0</property>
                            </packing>
                          </child>
-@@ -5350,7 +5212,7 @@
+@@ -5350,7 +5490,7 @@
                              <property name="orientation">vertical</property>
                            </object>
                            <packing>
@@ -330,7 +619,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">0</property>
                              <property name="height">3</property>
                            </packing>
-@@ -5568,19 +5430,6 @@
+@@ -5568,19 +5708,6 @@
                                </packing>
                              </child>
                              <child>
@@ -350,7 +639,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                <object class="GtkToolButton" id="btnHomeDecrementIndent">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
-@@ -5594,9 +5443,11 @@
+@@ -5594,9 +5721,11 @@
                                </packing>
                              </child>
                              <child>
@@ -364,7 +653,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                  <property name="use-underline">True</property>
                                </object>
                                <packing>
-@@ -5654,17 +5505,6 @@
+@@ -5654,17 +5783,6 @@
                                  <property name="homogeneous">True</property>
                                </packing>
                              </child>
@@ -382,7 +671,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </object>
                            <packing>
                              <property name="left-attach">2</property>
-@@ -6010,7 +5850,7 @@
+@@ -6010,7 +6128,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -391,7 +680,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">3</property>
                            </packing>
                          </child>
-@@ -6040,7 +5880,7 @@
+@@ -6040,7 +6158,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -400,7 +689,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6069,24 +5909,33 @@
+@@ -6069,24 +6187,33 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -443,7 +732,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6098,7 +5947,7 @@
+@@ -6098,7 +6225,7 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -452,7 +741,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -6136,7 +5985,7 @@
+@@ -6136,7 +6263,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -461,7 +750,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">3</property>
                            </packing>
                          </child>
-@@ -6156,7 +6005,7 @@
+@@ -6156,7 +6283,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -470,7 +759,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6175,7 +6024,7 @@
+@@ -6175,7 +6302,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -479,7 +768,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6194,7 +6043,7 @@
+@@ -6194,7 +6321,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -488,7 +777,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6206,7 +6055,7 @@
+@@ -6206,7 +6333,7 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -497,7 +786,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -6243,7 +6092,7 @@
+@@ -6243,7 +6370,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -506,7 +795,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">4</property>
                            </packing>
                          </child>
-@@ -6274,7 +6123,7 @@
+@@ -6274,7 +6401,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -515,7 +804,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6327,7 +6176,7 @@
+@@ -6327,7 +6454,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -524,7 +813,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6346,7 +6195,7 @@
+@@ -6346,7 +6473,7 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -533,7 +822,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6358,7 +6207,7 @@
+@@ -6358,7 +6485,7 @@
                            <packing>
                              <property name="left-attach">4</property>
                              <property name="top-attach">0</property>
@@ -542,7 +831,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -6437,7 +6286,7 @@
+@@ -6437,7 +6564,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -551,7 +840,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">2</property>
                            </packing>
                          </child>
-@@ -6468,7 +6317,7 @@
+@@ -6468,7 +6595,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -560,7 +849,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6497,7 +6346,7 @@
+@@ -6497,7 +6624,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -569,7 +858,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6509,7 +6358,7 @@
+@@ -6509,7 +6636,7 @@
                                <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -578,7 +867,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -6548,7 +6397,7 @@
+@@ -6548,7 +6675,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -587,7 +876,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">3</property>
                            </packing>
                          </child>
-@@ -6577,7 +6426,7 @@
+@@ -6577,7 +6704,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -596,7 +885,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6596,7 +6445,7 @@
+@@ -6596,7 +6723,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -605,7 +894,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6623,7 +6472,7 @@
+@@ -6623,7 +6750,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -614,7 +903,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6635,7 +6484,7 @@
+@@ -6635,7 +6762,7 @@
                                <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -623,16 +912,18 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -6672,7 +6521,7 @@
+@@ -6672,8 +6799,8 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
 -                            <property name="top-attach">2</property>
+-                            <property name="width">3</property>
 +                            <property name="top-attach">3</property>
-                             <property name="width">3</property>
++                            <property name="width">4</property>
                            </packing>
                          </child>
-@@ -6701,7 +6550,7 @@
+                         <child>
+@@ -6701,29 +6828,20 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -641,17 +932,159 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6778,16 +6627,19 @@
-                             </child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxInsertHstChartColumn">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstInsertChartColumn:Menu HstInsertChartColumn">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnInsertHstChartColumn">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="hst-ribbon-label" translatable="yes" context="TabbedCalc|btnInsertHstChartColumn">Column</property>
+-                                <property name="action-name">.uno:InsertObjectChart?ChartType:string=Column</property>
+-                                <property name="icon-name">chart2/res/typecolumn_16.png</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="tooltip-text" translatable="yes" context="TabbedCalc|hstChartTypeTip">Insert Column or Bar Chart</property>
++                            <property name="valign">center</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstInsertChartColumn</property>
++                            <property name="image-position">left</property>
                            </object>
                            <packing>
--                            <property name="left-attach">2</property>
--                            <property name="top-attach">0</property>
-+                            <property name="left-attach">1</property>
-+                            <property name="top-attach">2</property>
+                             <property name="left-attach">1</property>
+@@ -6731,25 +6849,16 @@
                            </packing>
                          </child>
                          <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxInsertHstChartLine">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstInsertChartLine:Menu HstInsertChartLine">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnInsertHstChartLine">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="hst-ribbon-label" translatable="yes" context="TabbedCalc|btnInsertHstChartLine">Line</property>
+-                                <property name="action-name">.uno:InsertObjectChart?ChartType:string=Line</property>
+-                                <property name="icon-name">chart2/res/typepointline_16.png</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="tooltip-text" translatable="yes" context="TabbedCalc|hstChartTypeTip">Insert Line or Area Chart</property>
++                            <property name="valign">center</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstInsertChartLine</property>
++                            <property name="image-position">left</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+@@ -6757,25 +6866,33 @@
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxInsertHstChartPie">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstInsertChartPie:Menu HstInsertChartPie">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnInsertHstChartPie">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="hst-ribbon-label" translatable="yes" context="TabbedCalc|btnInsertHstChartPie">Pie</property>
+-                                <property name="action-name">.uno:InsertObjectChart?ChartType:string=Pie</property>
+-                                <property name="icon-name">chart2/res/typepie_16.png</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="tooltip-text" translatable="yes" context="TabbedCalc|hstChartTypeTip">Insert Pie or Doughnut Chart</property>
++                            <property name="valign">center</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstInsertChartPie</property>
++                            <property name="image-position">left</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="svtlo-ManagedMenuButton" id="btnHstInsertChartScatter:Menu HstInsertChartScatter">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="tooltip-text" translatable="yes" context="TabbedCalc|hstChartTypeTip">Insert Scatter (X, Y) or Bubble Chart</property>
++                            <property name="valign">center</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstInsertChartScatter</property>
++                            <property name="image-position">left</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+@@ -6783,11 +6900,48 @@
+                           </packing>
+                         </child>
+                         <child>
++                          <object class="svtlo-ManagedMenuButton" id="btnHstInsertChartOther:Menu HstInsertChartOther">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="tooltip-text" translatable="yes" context="TabbedCalc|hstChartTypeTip">Insert Stock or Radar Chart</property>
++                            <property name="valign">center</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstInsertChartOther</property>
++                            <property name="image-position">left</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="svtlo-ManagedMenuButton" id="btnHstInsertChartCombo:Menu HstInsertChartCombo">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="tooltip-text" translatable="yes" context="TabbedCalc|hstChartTypeTip">Insert Combo Chart</property>
++                            <property name="valign">center</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstInsertChartCombo</property>
++                            <property name="image-position">left</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
                            <object class="sfxlo-NotebookbarToolBox" id="bxHstInsertSparkline4">
                              <property name="visible">True</property>
                              <property name="can-focus">True</property>
@@ -664,26 +1097,31 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <child>
                                <object class="GtkToolButton" id="btnHstInsertSparkline4">
                                  <property name="visible">True</property>
-@@ -6803,7 +6655,8 @@
+@@ -6802,8 +6956,9 @@
+                             </child>
                            </object>
                            <packing>
-                             <property name="left-attach">2</property>
+-                            <property name="left-attach">2</property>
 -                            <property name="top-attach">1</property>
++                            <property name="left-attach">3</property>
 +                            <property name="top-attach">0</property>
 +                            <property name="height">3</property>
                            </packing>
                          </child>
                          <child>
-@@ -6815,7 +6668,7 @@
+@@ -6813,9 +6968,9 @@
+                             <property name="orientation">vertical</property>
+                           </object>
                            <packing>
-                             <property name="left-attach">3</property>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">4</property>
                              <property name="top-attach">0</property>
 -                            <property name="height">3</property>
 +                            <property name="height">4</property>
                            </packing>
                          </child>
                          <accessibility>
-@@ -6852,7 +6705,7 @@
+@@ -6852,7 +7007,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -692,7 +1130,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6881,7 +6734,7 @@
+@@ -6881,7 +7036,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -701,7 +1139,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6893,7 +6746,7 @@
+@@ -6893,7 +7048,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -710,7 +1148,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -6930,7 +6783,7 @@
+@@ -6930,7 +7085,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -719,7 +1157,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6959,7 +6812,7 @@
+@@ -6959,7 +7114,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -728,7 +1166,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -6971,7 +6824,7 @@
+@@ -6971,7 +7126,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -737,7 +1175,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -7010,7 +6863,7 @@
+@@ -7010,7 +7165,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -746,7 +1184,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">4</property>
                            </packing>
                          </child>
-@@ -7033,7 +6886,7 @@
+@@ -7033,7 +7188,7 @@
                              </child>
                            </object>
                            <packing>
@@ -755,7 +1193,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">0</property>
                            </packing>
                          </child>
-@@ -7056,7 +6909,7 @@
+@@ -7056,7 +7211,7 @@
                              </child>
                            </object>
                            <packing>
@@ -764,7 +1202,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">1</property>
                            </packing>
                          </child>
-@@ -7069,7 +6922,7 @@
+@@ -7069,7 +7224,7 @@
                            <packing>
                              <property name="left-attach">4</property>
                              <property name="top-attach">0</property>
@@ -773,7 +1211,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7092,6 +6945,19 @@
+@@ -7092,6 +7247,19 @@
                                  <property name="homogeneous">True</property>
                                </packing>
                              </child>
@@ -793,7 +1231,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <child>
                                <object class="GtkToolButton" id="btnInsertVerticalText">
                                  <property name="visible">True</property>
-@@ -7105,9 +6971,8 @@
+@@ -7105,9 +7273,8 @@
                              </child>
                            </object>
                            <packing>
@@ -804,7 +1242,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7129,8 +6994,8 @@
+@@ -7129,8 +7296,8 @@
                              </child>
                            </object>
                            <packing>
@@ -815,7 +1253,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7153,8 +7018,8 @@
+@@ -7153,8 +7320,8 @@
                              </child>
                            </object>
                            <packing>
@@ -826,7 +1264,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7163,8 +7028,9 @@
+@@ -7163,8 +7330,9 @@
                              <property name="can-focus">True</property>
                              <property name="valign">center</property>
                              <property name="vexpand">True</property>
@@ -837,7 +1275,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <child>
                                <object class="GtkToolButton" id="btnHstEditHeaderAndFooter6">
                                  <property name="visible">True</property>
-@@ -7179,8 +7045,9 @@
+@@ -7179,8 +7347,9 @@
                              </child>
                            </object>
                            <packing>
@@ -848,7 +1286,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7204,7 +7071,7 @@
+@@ -7204,7 +7373,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">2</property>
@@ -857,7 +1295,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -7241,7 +7108,7 @@
+@@ -7241,7 +7410,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -866,7 +1304,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">2</property>
                            </packing>
                          </child>
-@@ -7269,7 +7136,7 @@
+@@ -7269,7 +7438,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -875,7 +1313,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7296,7 +7163,7 @@
+@@ -7296,7 +7465,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -884,7 +1322,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7308,7 +7175,7 @@
+@@ -7308,7 +7477,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -893,7 +1331,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -7381,7 +7248,7 @@
+@@ -7381,7 +7550,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -902,7 +1340,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7408,7 +7275,7 @@
+@@ -7408,7 +7577,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -911,7 +1349,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7420,7 +7287,7 @@
+@@ -7420,7 +7589,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -920,7 +1358,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -7514,7 +7381,7 @@
+@@ -7514,7 +7683,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -929,7 +1367,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">7</property>
                            </packing>
                          </child>
-@@ -7534,7 +7401,7 @@
+@@ -7534,7 +7703,7 @@
                                <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -938,7 +1376,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                </packing>
                              </child>
                          <child>
-@@ -7553,7 +7420,7 @@
+@@ -7553,7 +7722,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -947,7 +1385,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7572,7 +7439,7 @@
+@@ -7572,7 +7741,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -956,7 +1394,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7591,7 +7458,7 @@
+@@ -7591,7 +7760,7 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -965,7 +1403,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7610,7 +7477,7 @@
+@@ -7610,7 +7779,7 @@
                            <packing>
                              <property name="left-attach">4</property>
                              <property name="top-attach">0</property>
@@ -974,7 +1412,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7638,7 +7505,7 @@
+@@ -7638,7 +7807,7 @@
                            <packing>
                              <property name="left-attach">5</property>
                              <property name="top-attach">0</property>
@@ -983,7 +1421,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7669,7 +7536,7 @@
+@@ -7669,7 +7838,7 @@
                            <packing>
                              <property name="left-attach">6</property>
                              <property name="top-attach">0</property>
@@ -992,7 +1430,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7681,7 +7548,7 @@
+@@ -7681,7 +7850,7 @@
                                <packing>
                              <property name="left-attach">7</property>
                              <property name="top-attach">0</property>
@@ -1001,7 +1439,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -7774,7 +7641,7 @@
+@@ -7774,7 +7943,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1010,7 +1448,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">2</property>
                            </packing>
                          </child>
-@@ -7804,7 +7671,7 @@
+@@ -7804,7 +7973,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1019,7 +1457,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7833,7 +7700,7 @@
+@@ -7833,7 +8002,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -1028,7 +1466,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7845,7 +7712,7 @@
+@@ -7845,7 +8014,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -1037,7 +1475,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -7884,8 +7751,8 @@
+@@ -7884,8 +8053,8 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1048,7 +1486,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7941,8 +7808,8 @@
+@@ -7941,8 +8110,8 @@
                              <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|hstG10Tip">Line up the selected objects with each other or with the page.</property>
                            </object>
                            <packing>
@@ -1059,7 +1497,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7961,7 +7828,7 @@
+@@ -7961,7 +8130,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">1</property>
@@ -1068,7 +1506,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -7979,8 +7846,8 @@
+@@ -7979,8 +8148,8 @@
                              <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|hstG10Tip">Rotate the selected object freely or flip it.</property>
                            </object>
                            <packing>
@@ -1079,7 +1517,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8002,8 +7869,8 @@
+@@ -8002,8 +8171,8 @@
                              </child>
                            </object>
                            <packing>
@@ -1090,7 +1528,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8028,9 +7895,9 @@
+@@ -8028,9 +8197,9 @@
                              </child>
                            </object>
                            <packing>
@@ -1102,7 +1540,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8040,9 +7907,9 @@
+@@ -8040,9 +8209,9 @@
                              <property name="orientation">vertical</property>
                            </object>
                            <packing>
@@ -1114,7 +1552,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -8114,8 +7981,8 @@
+@@ -8114,8 +8283,8 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1125,7 +1563,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8145,7 +8012,7 @@
+@@ -8145,7 +8314,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1134,7 +1572,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8207,8 +8074,8 @@
+@@ -8207,8 +8376,8 @@
                              <property name="label" translatable="yes" context="TabbedCalc|btnFunctionsHstFinancial">Financial</property>
                            </object>
                            <packing>
@@ -1145,7 +1583,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8223,7 +8090,7 @@
+@@ -8223,7 +8392,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">2</property>
@@ -1154,7 +1592,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8237,8 +8104,8 @@
+@@ -8237,8 +8406,8 @@
                              <property name="label" translatable="yes" context="TabbedCalc|btnFunctionsHstText">Text</property>
                            </object>
                            <packing>
@@ -1165,7 +1603,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8252,8 +8119,8 @@
+@@ -8252,8 +8421,8 @@
                              <property name="label" translatable="yes" context="TabbedCalc|btnFunctionsHstDateTime">Date and Time</property>
                            </object>
                            <packing>
@@ -1176,7 +1614,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8267,7 +8134,7 @@
+@@ -8267,7 +8436,7 @@
                              <property name="label" translatable="yes" context="TabbedCalc|btnFunctionsHstLookup">Lookup</property>
                            </object>
                            <packing>
@@ -1185,7 +1623,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">0</property>
                            </packing>
                          </child>
-@@ -8282,7 +8149,7 @@
+@@ -8282,7 +8451,7 @@
                              <property name="label" translatable="yes" context="TabbedCalc|btnFunctionsHstMath">Math</property>
                            </object>
                            <packing>
@@ -1194,7 +1632,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">1</property>
                            </packing>
                          </child>
-@@ -8313,9 +8180,9 @@
+@@ -8313,9 +8482,9 @@
                              </child>
                            </object>
                            <packing>
@@ -1206,7 +1644,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8325,9 +8192,9 @@
+@@ -8325,9 +8494,9 @@
                              <property name="orientation">vertical</property>
                            </object>
                            <packing>
@@ -1218,7 +1656,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -8366,7 +8233,7 @@
+@@ -8366,7 +8535,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1227,7 +1665,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">3</property>
                            </packing>
                          </child>
-@@ -8396,7 +8263,7 @@
+@@ -8396,7 +8565,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1236,7 +1674,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8472,7 +8339,7 @@
+@@ -8472,7 +8641,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -1245,7 +1683,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8484,7 +8351,7 @@
+@@ -8484,7 +8653,7 @@
                                <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -1254,7 +1692,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -8525,8 +8392,8 @@
+@@ -8525,8 +8694,8 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1265,7 +1703,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8599,8 +8466,8 @@
+@@ -8599,8 +8768,8 @@
                              </child>
                            </object>
                            <packing>
@@ -1276,7 +1714,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8625,7 +8492,7 @@
+@@ -8625,7 +8794,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">1</property>
@@ -1285,7 +1723,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8648,8 +8515,8 @@
+@@ -8648,8 +8817,8 @@
                              </child>
                            </object>
                            <packing>
@@ -1296,7 +1734,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8672,8 +8539,8 @@
+@@ -8672,8 +8841,8 @@
                              </child>
                            </object>
                            <packing>
@@ -1307,7 +1745,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8683,9 +8550,9 @@
+@@ -8683,9 +8852,9 @@
                              <property name="orientation">vertical</property>
                            </object>
                            <packing>
@@ -1319,7 +1757,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -8722,7 +8589,7 @@
+@@ -8722,7 +8891,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1328,7 +1766,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">2</property>
                            </packing>
                          </child>
-@@ -8751,7 +8618,7 @@
+@@ -8751,7 +8920,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1337,7 +1775,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8779,7 +8646,7 @@
+@@ -8779,7 +8948,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -1346,7 +1784,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8791,7 +8658,7 @@
+@@ -8791,7 +8960,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -1355,7 +1793,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -8864,7 +8731,7 @@
+@@ -8864,7 +9033,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1364,7 +1802,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">3</property>
                            </packing>
                          </child>
-@@ -8896,7 +8763,7 @@
+@@ -8896,7 +9065,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1373,7 +1811,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8915,7 +8782,7 @@
+@@ -8915,7 +9084,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -1382,7 +1820,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8943,7 +8810,7 @@
+@@ -8943,7 +9112,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -1391,7 +1829,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -8955,7 +8822,7 @@
+@@ -8955,7 +9124,7 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -1400,7 +1838,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -8996,7 +8863,7 @@
+@@ -8996,7 +9165,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1409,7 +1847,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">5</property>
                            </packing>
                          </child>
-@@ -9026,7 +8893,7 @@
+@@ -9026,7 +9195,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1418,7 +1856,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -9035,7 +8902,7 @@
+@@ -9035,7 +9204,7 @@
                              <property name="can-focus">True</property>
                              <property name="valign">center</property>
                              <property name="vexpand">True</property>
@@ -1427,7 +1865,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="show-arrow">False</property>
                              <child>
                                <object class="GtkToolButton" id="btnDataSortAscending">
-@@ -9060,7 +8927,7 @@
+@@ -9060,7 +9229,7 @@
                              <property name="can-focus">True</property>
                              <property name="valign">center</property>
                              <property name="vexpand">True</property>
@@ -1436,7 +1874,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="show-arrow">False</property>
                              <child>
                                <object class="GtkToolButton" id="btnDataSortDescending">
-@@ -9105,7 +8972,7 @@
+@@ -9105,7 +9274,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -1445,7 +1883,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -9220,7 +9087,7 @@
+@@ -9220,7 +9389,7 @@
                            <packing>
                              <property name="left-attach">5</property>
                              <property name="top-attach">0</property>
@@ -1454,7 +1892,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -9261,7 +9128,7 @@
+@@ -9261,7 +9430,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1463,7 +1901,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">3</property>
                            </packing>
                          </child>
-@@ -9396,7 +9263,7 @@
+@@ -9396,7 +9565,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -1472,7 +1910,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -9408,7 +9275,7 @@
+@@ -9408,7 +9577,7 @@
                                <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -1481,7 +1919,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -9441,7 +9308,7 @@
+@@ -9441,7 +9610,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -1490,7 +1928,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -9461,7 +9328,7 @@
+@@ -9461,7 +9630,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1499,7 +1937,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">2</property>
                            </packing>
                          </child>
-@@ -9491,7 +9358,7 @@
+@@ -9491,7 +9660,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1508,7 +1946,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -9519,7 +9386,7 @@
+@@ -9519,7 +9688,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -1517,7 +1955,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -9552,7 +9419,7 @@
+@@ -9552,7 +9721,7 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -1526,7 +1964,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -9572,7 +9439,7 @@
+@@ -9572,7 +9741,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1535,7 +1973,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">3</property>
                            </packing>
                          </child>
-@@ -9602,7 +9469,7 @@
+@@ -9602,7 +9771,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1544,7 +1982,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -9747,8 +9614,7 @@
+@@ -9747,8 +9916,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1554,7 +1992,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -9768,7 +9634,7 @@
+@@ -9768,7 +9936,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1563,7 +2001,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -9780,7 +9646,7 @@
+@@ -9780,7 +9948,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -1572,7 +2010,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -9853,7 +9719,7 @@
+@@ -9853,7 +10021,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1581,7 +2019,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">2</property>
                            </packing>
                          </child>
-@@ -9893,7 +9759,7 @@
+@@ -9893,7 +10061,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1590,7 +2028,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -9920,7 +9786,7 @@
+@@ -9920,7 +10088,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -1599,7 +2037,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -9932,7 +9798,7 @@
+@@ -9932,7 +10100,7 @@
                                <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -1608,7 +2046,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -9976,7 +9842,7 @@
+@@ -9976,7 +10144,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1617,7 +2055,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -9996,7 +9862,7 @@
+@@ -9996,7 +10164,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1626,7 +2064,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">2</property>
                            </packing>
                          </child>
-@@ -10014,7 +9880,7 @@
+@@ -10014,7 +10182,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -1635,7 +2073,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10029,7 +9895,7 @@
+@@ -10029,7 +10197,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -1644,7 +2082,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -10068,7 +9934,7 @@
+@@ -10068,7 +10236,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1653,7 +2091,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">3</property>
                            </packing>
                          </child>
-@@ -10081,7 +9947,7 @@
+@@ -10081,7 +10249,7 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -1662,7 +2100,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10119,7 +9985,7 @@
+@@ -10119,7 +10287,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1671,7 +2109,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10258,7 +10124,7 @@
+@@ -10258,7 +10426,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1680,7 +2118,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">2</property>
                            </packing>
                          </child>
-@@ -10271,7 +10137,7 @@
+@@ -10271,7 +10439,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -1689,7 +2127,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10313,7 +10179,7 @@
+@@ -10313,7 +10481,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1698,7 +2136,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10399,7 +10265,7 @@
+@@ -10399,7 +10567,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1707,7 +2145,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">3</property>
                            </packing>
                          </child>
-@@ -10429,7 +10295,7 @@
+@@ -10429,7 +10597,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1716,7 +2154,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10458,7 +10324,7 @@
+@@ -10458,7 +10626,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -1725,7 +2163,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10517,7 +10383,7 @@
+@@ -10517,7 +10685,7 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -1734,7 +2172,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -10589,7 +10455,7 @@
+@@ -10589,7 +10757,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1743,7 +2181,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">3</property>
                            </packing>
                          </child>
-@@ -10620,7 +10486,7 @@
+@@ -10620,7 +10788,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1752,7 +2190,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10650,7 +10516,7 @@
+@@ -10650,7 +10818,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -1761,7 +2199,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10678,7 +10544,7 @@
+@@ -10678,7 +10846,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -1770,7 +2208,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10690,7 +10556,7 @@
+@@ -10690,7 +10858,7 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -1779,7 +2217,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -10729,8 +10595,8 @@
+@@ -10729,8 +10897,8 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1790,7 +2228,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10740,9 +10606,9 @@
+@@ -10740,9 +10908,9 @@
                              <property name="orientation">vertical</property>
                            </object>
                            <packing>
@@ -1802,7 +2240,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10817,8 +10683,8 @@
+@@ -10817,8 +10985,8 @@
                              </child>
                            </object>
                            <packing>
@@ -1813,7 +2251,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10844,7 +10710,7 @@
+@@ -10844,7 +11012,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">1</property>
@@ -1822,7 +2260,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10866,8 +10732,8 @@
+@@ -10866,8 +11034,8 @@
                              </child>
                            </object>
                            <packing>
@@ -1833,7 +2271,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10889,8 +10755,8 @@
+@@ -10889,8 +11057,8 @@
                              </child>
                            </object>
                            <packing>
@@ -1844,7 +2282,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -10912,7 +10778,7 @@
+@@ -10912,7 +11080,7 @@
                              </child>
                            </object>
                            <packing>
@@ -1853,7 +2291,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">0</property>
                            </packing>
                          </child>
-@@ -10937,7 +10803,7 @@
+@@ -10937,7 +11105,7 @@
                              </child>
                            </object>
                            <packing>
@@ -1862,7 +2300,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="top-attach">1</property>
                            </packing>
                          </child>
-@@ -10963,9 +10829,9 @@
+@@ -10963,9 +11131,9 @@
                              </child>
                            </object>
                            <packing>
@@ -1874,7 +2312,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -11004,7 +10870,7 @@
+@@ -11004,7 +11172,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1883,7 +2321,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">4</property>
                            </packing>
                          </child>
-@@ -11032,7 +10898,7 @@
+@@ -11032,7 +11200,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -1892,7 +2330,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11059,7 +10925,7 @@
+@@ -11059,7 +11227,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -1901,7 +2339,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11109,7 +10975,7 @@
+@@ -11109,7 +11277,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1910,7 +2348,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11144,7 +11010,7 @@
+@@ -11144,7 +11312,7 @@
                            <packing>
                              <property name="left-attach">4</property>
                              <property name="top-attach">0</property>
@@ -1919,7 +2357,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -11183,7 +11049,7 @@
+@@ -11183,7 +11351,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1928,7 +2366,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">3</property>
                            </packing>
                          </child>
-@@ -11213,7 +11079,7 @@
+@@ -11213,7 +11381,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1937,7 +2375,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11324,7 +11190,7 @@
+@@ -11324,7 +11492,7 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -1946,7 +2384,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -11396,7 +11262,7 @@
+@@ -11396,7 +11564,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1955,7 +2393,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">4</property>
                            </packing>
                          </child>
-@@ -11424,7 +11290,7 @@
+@@ -11424,7 +11592,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -1964,7 +2402,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11452,7 +11318,7 @@
+@@ -11452,7 +11620,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -1973,7 +2411,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11526,7 +11392,7 @@
+@@ -11526,7 +11694,7 @@
                            <packing>
                              <property name="left-attach">3</property>
                              <property name="top-attach">0</property>
@@ -1982,7 +2420,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11538,7 +11404,7 @@
+@@ -11538,7 +11706,7 @@
                            <packing>
                              <property name="left-attach">4</property>
                              <property name="top-attach">0</property>
@@ -1991,7 +2429,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -11616,7 +11482,8 @@
+@@ -11616,7 +11784,8 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -2001,7 +2439,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11646,7 +11513,85 @@
+@@ -11646,7 +11815,85 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -2088,7 +2526,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11656,9 +11601,9 @@
+@@ -11656,9 +11903,9 @@
                              <property name="orientation">vertical</property>
                            </object>
                            <packing>
@@ -2100,7 +2538,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -11699,7 +11644,7 @@
+@@ -11699,7 +11946,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -2109,7 +2547,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11712,13 +11657,13 @@
+@@ -11712,13 +11959,13 @@
                              <property name="show-arrow">False</property>
                              <property name="icon_size">5</property>
                              <child>
@@ -2128,7 +2566,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                </object>
                                <packing>
                                  <property name="expand">False</property>
-@@ -11726,13 +11671,13 @@
+@@ -11726,13 +11973,13 @@
                                </packing>
                              </child>
                              <child>
@@ -2147,7 +2585,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                </object>
                                <packing>
                                  <property name="expand">False</property>
-@@ -11757,7 +11702,7 @@
+@@ -11757,7 +12004,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -2156,7 +2594,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11769,7 +11714,7 @@
+@@ -11769,7 +12016,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -2165,7 +2603,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -11810,7 +11755,8 @@
+@@ -11810,7 +12057,8 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -2175,7 +2613,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11840,7 +11786,37 @@
+@@ -11840,7 +12088,37 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -2214,7 +2652,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11850,9 +11826,9 @@
+@@ -11850,9 +12128,9 @@
                              <property name="orientation">vertical</property>
                            </object>
                            <packing>
@@ -2226,7 +2664,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -11893,7 +11869,7 @@
+@@ -11893,7 +12171,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -2235,7 +2673,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -11920,62 +11896,6 @@
+@@ -11920,62 +12198,6 @@
                                </packing>
                              </child>
                              <child>
@@ -2298,7 +2736,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                <object class="GtkToolButton" id="btnExtensionHstConvertEncoding">
                                  <property name="visible">True</property>
                                  <property name="can-focus">False</property>
-@@ -11993,7 +11913,7 @@
+@@ -11993,7 +12215,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -2307,7 +2745,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12005,7 +11925,7 @@
+@@ -12005,7 +12227,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -2316,7 +2754,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -12046,7 +11966,7 @@
+@@ -12046,7 +12268,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -2325,7 +2763,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12072,11 +11992,25 @@
+@@ -12072,11 +12294,25 @@
                                  <property name="homogeneous">False</property>
                                </packing>
                              </child>
@@ -2352,7 +2790,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12088,7 +12022,7 @@
+@@ -12088,7 +12324,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -2361,7 +2799,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -12128,7 +12062,7 @@
+@@ -12128,7 +12364,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -2370,7 +2808,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              <property name="width">2</property>
                            </packing>
                          </child>
-@@ -12156,7 +12090,7 @@
+@@ -12156,7 +12392,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -2379,7 +2817,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12183,7 +12117,7 @@
+@@ -12183,7 +12419,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -2388,7 +2826,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12195,7 +12129,7 @@
+@@ -12195,7 +12431,7 @@
                            <packing>
                              <property name="left-attach">2</property>
                              <property name="top-attach">0</property>
@@ -2397,7 +2835,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
-@@ -12236,8 +12170,8 @@
+@@ -12236,8 +12472,8 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -2408,7 +2846,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12268,7 +12202,7 @@
+@@ -12268,7 +12504,7 @@
                            <packing>
                              <property name="left-attach">0</property>
                              <property name="top-attach">0</property>
@@ -2417,7 +2855,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12296,7 +12230,7 @@
+@@ -12296,7 +12532,7 @@
                            <packing>
                              <property name="left-attach">1</property>
                              <property name="top-attach">0</property>
@@ -2426,7 +2864,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12366,8 +12300,8 @@
+@@ -12366,8 +12602,8 @@
                              </child>
                            </object>
                            <packing>
@@ -2437,7 +2875,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12391,7 +12325,7 @@
+@@ -12391,7 +12627,7 @@
                            </object>
                            <packing>
                              <property name="left-attach">3</property>
@@ -2446,7 +2884,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12424,8 +12358,8 @@
+@@ -12424,8 +12660,8 @@
                              </child>
                            </object>
                            <packing>
@@ -2457,7 +2895,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12459,8 +12393,8 @@
+@@ -12459,8 +12695,8 @@
                              </child>
                            </object>
                            <packing>
@@ -2468,7 +2906,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12486,9 +12420,9 @@
+@@ -12486,9 +12722,9 @@
                              </child>
                            </object>
                            <packing>
@@ -2480,7 +2918,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <child>
-@@ -12498,9 +12432,9 @@
+@@ -12498,9 +12734,9 @@
                              <property name="orientation">vertical</property>
                            </object>
                            <packing>
@@ -2492,3 +2930,251 @@ License: these upstream files remain under their original license (MPL-2.0).
                            </packing>
                          </child>
                          <accessibility>
+--- a/sc/source/ui/drawfunc/fuins2.cxx
++++ b/sc/source/ui/drawfunc/fuins2.cxx
+@@ -55,6 +55,9 @@
+ #include <com/sun/star/beans/PropertyValue.hpp>
+ #include <com/sun/star/chart2/data/XDataReceiver.hpp>
+ #include <com/sun/star/chart2/XChartDocument.hpp>
++#include <algorithm>
++#include <iterator>
++#include <string_view>
+ #include <com/sun/star/chart2/XChartTypeTemplate.hpp>
+ #include <com/sun/star/lang/XMultiServiceFactory.hpp>
+ #include <com/sun/star/ui/dialogs/XAsynchronousExecutableDialog.hpp>
+@@ -84,11 +87,23 @@
+ namespace
+ {
+ 
+-/// HST Office: the ribbon's chart buttons (ChartType=Column, Line or Pie) give the new chart that type before
++/// HST Office: the chart types of the ribbon's Insert ▸ Charts drop-downs (chart2 template names, as in
++/// chart2/source/model/template/ChartTypeManager.cxx): Column or Bar, Line or Area, Pie or Doughnut, Scatter or
++/// Bubble, Stock or Radar, Combo
++constexpr std::u16string_view HST_CHART_TYPES[]
++    = { u"Column", u"StackedColumn", u"PercentStackedColumn", u"ThreeDColumnDeep", u"Bar", u"StackedBar",
++        u"PercentStackedBar", u"Line", u"LineSymbol", u"StackedLine", u"Area", u"StackedArea",
++        u"PercentStackedArea", u"Pie", u"PieAllExploded", u"ThreeDPie", u"Donut", u"ScatterSymbol",
++        u"ScatterLineSymbol", u"ScatterLine", u"Bubble", u"StockLowHighClose", u"StockOpenLowHighClose",
++        u"Net", u"NetSymbol", u"FilledNet", u"ColumnWithLine", u"StackedColumnWithLine" };
++
++/// HST Office: the ribbon's chart buttons (ChartType=one of HST_CHART_TYPES) give the new chart that type before
+ /// the wizard opens, so the wizard starts on it; any other value keeps the default.
+ void lcl_HstSetChartType(const uno::Reference<chart2::XChartDocument>& xChartDoc, const OUString& rType)
+ {
+-    if (!xChartDoc.is() || (rType != "Column" && rType != "Line" && rType != "Pie"))
++    if (!xChartDoc.is()
++        || std::none_of(std::begin(HST_CHART_TYPES), std::end(HST_CHART_TYPES),
++                        [&rType](std::u16string_view aType) { return rType == aType; }))
+         return;
+     try
+     {
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -40336,3 +40336,207 @@
+ msgctxt "hsttextnumberbutton|options"
+ msgid "Error Checking _Options..."
+ msgstr "Tùy chọn _kiểm tra lỗi"
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeTip"
++msgid "Insert Column or Bar Chart"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Clustered Column"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Stacked Column"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "100% Stacked Column"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "3-D Column"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Clustered Bar"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Stacked Bar"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "100% Stacked Bar"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeTip"
++msgid "Insert Line or Area Chart"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Line"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Line with Markers"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Stacked Line"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Area"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Stacked Area"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "100% Stacked Area"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeTip"
++msgid "Insert Pie or Doughnut Chart"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Pie"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Exploded Pie"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "3-D Pie"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Doughnut"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeTip"
++msgid "Insert Scatter (X, Y) or Bubble Chart"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Scatter"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Scatter with Lines and Markers"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Scatter with Straight Lines"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Bubble"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeTip"
++msgid "Insert Stock or Radar Chart"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "High-Low-Close"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Open-High-Low-Close"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Radar"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Radar with Markers"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Filled Radar"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeTip"
++msgid "Insert Combo Chart"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Clustered Column - Line"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Stacked Column - Line"
++msgstr ""
