@@ -22,3 +22,43 @@ def compare_states(expected, measured):
 def is_monotonic(levels):
     """True when, as the window widens, no group moves to a larger ladder level (a smaller letter's rank)."""
     return all(LEVEL[levels[i]] <= LEVEL[levels[i + 1]] for i in range(len(levels) - 1))
+
+
+TOLERANCE = 1  # px, for sizes (the plan's ±1 px)
+
+
+def width_findings(tab, width, want_states, got):
+    """[(check name, ok, detail)] of one tab at one width: ladder vector, 106 px body, 147 px row, banner, font boxes.
+
+    `got` is {"groups": geometry.groups(...), "tab_top", "strip", "banner", "font_box", "size_box"}."""
+    tag = f"[writer {tab} {width}]"
+    out = []
+    states = {k: v["state"] for k, v in got["groups"].items()}
+    diff = compare_states(want_states, {k: {"state": s} for k, s in states.items()})
+    out.append((f"{tag} ladder states equal the mockup vector", not diff, diff or states))
+    bodies = {k: v["caption_bottom"] - v["box"][1] for k, v in got["groups"].items() if v["state"] != "C"}
+    off = {k: b for k, b in bodies.items() if abs(b - 106) > TOLERANCE}
+    out.append((f"{tag} group body is 106 px", bool(bodies) and not off, off or bodies))
+    if got.get("tab_top") is not None and got.get("strip") is not None:
+        span = got["strip"][1] - got["tab_top"]
+        out.append((f"{tag} tab row to document strip is 147 px", abs(span - 147) <= TOLERANCE, span))
+    banner = got.get("banner")
+    if banner is not None:
+        ew, eh = expected_banner(width)
+        out.append((f"{tag} banner {ew}x{eh}",
+                    abs(banner[2] - ew) <= TOLERANCE and abs(banner[3] - eh) <= TOLERANCE, list(banner[2:])))
+    if got["groups"].get("font", {}).get("state") == "L":
+        fb, sb = got.get("font_box"), got.get("size_box")
+        out.append((f"{tag} font box 128 px", fb is not None and abs(fb[2] - 128) <= TOLERANCE, fb and fb[2]))
+        out.append((f"{tag} size box 46 px", sb is not None and abs(sb[2] - 46) <= TOLERANCE, sb and sb[2]))
+    return out
+
+
+def monotonic_findings(levels, tab):
+    """[(check name, ok, detail)]: each group's ladder level never drops as the window widens."""
+    out = []
+    for key, series in levels.items():
+        states = [s for _w, s in sorted(series)]
+        ok = is_monotonic(states) if all(s in LEVEL for s in states) else False
+        out.append((f"[writer {tab}] {key} is monotonic from 1100 to 1920", ok, "" if ok else states))
+    return out

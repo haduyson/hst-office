@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
 
-from quick_access_config import CALC, DEFAULTS, MANY, WRITER, set_commands, shown  # noqa: E402,F401
+from quick_access_config import CALC, MANY, WRITER, defaults, set_commands, shown  # noqa: E402,F401
 
 ADD = "Thêm vào thanh truy cập nhanh"
 
@@ -77,14 +77,14 @@ def main():
         office.close_welcome()
         time.sleep(2)
         names = shown(office, WRITER)
-        record("defaults", names == DEFAULTS, names)
+        record("defaults", names == defaults(WRITER), names)
         problem = right_click_add(args.display, "Dán")
         names = shown(office, WRITER)
         record("add-from-ribbon", not problem and names[-1:] == [".uno:Paste"], problem or names)
         office.load("private:factory/scalc")
         time.sleep(8)
         names = shown(office, CALC)
-        record("per-app", names == DEFAULTS, names)
+        record("per-app", names == defaults(CALC), names)
         office.stop()
         office.start(fresh=False)
         time.sleep(10)

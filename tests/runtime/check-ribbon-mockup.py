@@ -23,11 +23,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
+import ribbon_mockup_atspi as atspi  # noqa: E402
 import ribbon_mockup_geometry as geo  # noqa: E402
-from ribbon_mockup_rules import LEVEL, expected_banner, is_monotonic  # noqa: E402
+from ribbon_mockup_rules import monotonic_findings, width_findings  # noqa: E402
 
 EXPECTED = os.path.join(HERE, "ribbon-mockup-expected.json")
-TOLERANCE = 1  # px, for sizes (the plan's ±1 px)
 ROWS = []
 WINDOW = [None]  # AT-SPI window id of the office under test, set by main
 
@@ -39,7 +39,7 @@ def record(name, ok, detail=""):
 
 def measure(tab, width):
     """States, body, tab row, banner and font boxes at one width of one tab."""
-    nodes = geo.ribbon_nodes()
+    nodes = atspi.ribbon_nodes()
     tab_top, strip = geo.tab_geometry(nodes)
     return {"groups": geo.groups(nodes, tab), "tab_top": tab_top, "strip": strip, "banner": geo.banner(nodes),
             "font_box": geo.named_box(nodes, "Tên phông"), "size_box": geo.named_box(nodes, "Kích cỡ phông"),
@@ -47,26 +47,8 @@ def measure(tab, width):
 
 
 def check_width(tab, width, want, got):
-    tag = f"[writer {tab} {width}]"
-    states = {k: v["state"] for k, v in got["groups"].items()}
-    diff = geo.compare_states(want["states"], {k: {"state": s} for k, s in states.items()})
-    record(f"{tag} ladder states equal the mockup vector", not diff, diff or states)
-    bodies = {k: v["caption_bottom"] - v["box"][1] for k, v in got["groups"].items() if v["state"] != "C"}
-    off = {k: b for k, b in bodies.items() if abs(b - 106) > TOLERANCE}
-    record(f"{tag} group body is 106 px", bool(bodies) and not off, off or bodies)
-    if got["tab_top"] is not None and got["strip"] is not None:
-        span = got["strip"][1] - got["tab_top"]
-        record(f"{tag} tab row to document strip is 147 px", abs(span - 147) <= TOLERANCE, span)
-    banner = got["banner"]
-    if banner is not None:
-        ew, eh = expected_banner(width)
-        record(f"{tag} banner {ew}x{eh}", abs(banner[2] - ew) <= TOLERANCE and abs(banner[3] - eh) <= TOLERANCE,
-               list(banner[2:]))
-    if got["groups"].get("font", {}).get("state") == "L":
-        fb = got["font_box"]
-        record(f"{tag} font box 128 px", fb is not None and abs(fb[2] - 128) <= TOLERANCE, fb and fb[2])
-        sb = got["size_box"]
-        record(f"{tag} size box 46 px", sb is not None and abs(sb[2] - 46) <= TOLERANCE, sb and sb[2])
+    for name, ok, detail in width_findings(tab, width, want["states"], got):
+        record(name, ok, detail)
 
 
 def run_tab(display, tab, widths, expected, measured):
@@ -89,11 +71,8 @@ def run_tab(display, tab, widths, expected, measured):
 
 
 def monotonic(levels, tab):
-    """Each group's ladder level never drops as the window widens: the mockup's ladder only grows with the window."""
-    for key, series in levels.items():
-        states = [s for _w, s in sorted(series)]
-        ok = is_monotonic(states) if all(s in LEVEL for s in states) else False
-        record(f"[writer {tab}] {key} is monotonic from 1100 to 1920", ok, states if not ok else "")
+    for name, ok, detail in monotonic_findings(levels, tab):
+        record(name, ok, detail)
 
 
 def main():
