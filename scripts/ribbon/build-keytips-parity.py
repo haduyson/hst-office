@@ -41,6 +41,25 @@ ALIASES = {"Show/Hide": "Show All", "Online Videos": "Online Videos...", "Footno
            "Chart types (Column/Line/Pie/Bar/Area/Scatter...)": "Insert Column or Bar Chart"}
 # controls the spec does not list (group launchers): (reference app, tab) -> {control name: [HST commands]}
 EXTRA = {("excel", "Page Layout"): {"Page Setup": ["PageFormatDialog"]}}
+# menu buttons ("Caption ▾") that hold the commands of a control of the suite: module -> tab -> {widget id: [letter,
+# control]}. They take their letter before the tab's commands. Draw's Arrange tab and the Data Analysis add-in have no
+# captured counterpart: the letters of the same controls on the suite's other tabs.
+MENU_KEYS = {
+    "swriter": {"LayoutLabel": {"btnHstLayoutPositionMenu": ["PO", "Position"], "btnHstLayoutWrapMenu": ["TW", "Wrap Text"],
+                                "btnHstLayoutForwardMenu": ["AF", "Bring Forward"],
+                                "btnHstLayoutBackwardMenu": ["AE", "Send Backward"],
+                                "btnHstLayoutAlignMenu": ["AA", "Align"], "btnHstLayoutGroupMenu": ["AG", "Group"],
+                                "btnHstLayoutRotateMenu": ["AY", "Rotate"]},
+                "ReviewLabel": {"btnHstReviewAcceptMenu": ["A2", "Accept"], "btnHstReviewRejectMenu": ["J", "Reject"]}},
+    "scalc": {"LayoutLabel": {"btnHstLayoutForwardMenu": ["AF", "Bring Forward"],
+                              "btnHstLayoutBackwardMenu": ["AE", "Send Backward"],
+                              "btnHstLayoutAlignMenu": ["AA", "Align"], "btnHstLayoutGroupMenu": ["AG", "Group"],
+                              "btnHstLayoutRotateMenu": ["AY", "Rotate"]},
+              "DataLabel": {"btnHstDataAnalysisMenu": ["DA", "Data Analysis"]}},
+    "sdraw": {"ArrangeLabel": {"btnHstArrangeForwardMenu": ["AF", "Bring Forward"],
+                               "btnHstArrangeBackwardMenu": ["AE", "Send Backward"],
+                               "btnHstArrangeRotateMenu": ["AY", "Rotate"]}},
+}
 
 
 def norm(text):
@@ -76,11 +95,12 @@ def candidates(reference, spec_app, app):
     return found
 
 
-def pick(tab, items, found, general):
+def pick(tab, items, found, general, menus=None):
     """{ident: [letter, control]} of one tab. One control's letter goes to one command only (a split button of the
     suite can stand for several HST commands): first to a command whose general letter it already is, then in ribbon
-    order; a letter that clashes with one already given (prefix) is skipped. The menu buttons of the tab ("Lề ▾") keep
-    the letters the general table gives them by widget id: those were chosen from the suite's tabs."""
+    order; a letter that clashes with one already given (prefix) is skipped. A menu button of MENU_KEYS (`menus`)
+    takes its letter before all of them. The other menu buttons of the tab ("Lề ▾") keep the letters the general table
+    gives them by widget id: those were chosen from the suite's tabs."""
     given = {}
     used = [general[i] for i in items if i.startswith("btn") and general.get(i)]
 
@@ -89,6 +109,9 @@ def pick(tab, items, found, general):
             given[ident] = [letter, control]
             used.append(letter)
 
+    for ident in items:
+        if ident in (menus or {}):
+            take(ident, *menus[ident])
     for ident in items:
         for letter, control in found.get((tab, ident), []):
             if letter == general.get(ident):
@@ -127,7 +150,8 @@ def build(tree):
             if extra in tab_keys and any(tab == extra for tab, _items in pages):
                 table["tabs"][app][extra] = tab_keys[extra]
         table["commands"][module] = {tab: picked for tab, items in pages
-                                     if (picked := pick(tab, list(dict.fromkeys(items)), found, general))}
+                                     if (picked := pick(tab, list(dict.fromkeys(items)), found, general,
+                                                       MENU_KEYS.get(module, {}).get(tab)))}
     return table
 
 
