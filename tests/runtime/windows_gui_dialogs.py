@@ -11,6 +11,7 @@ from windows_gui_input import screenshot
 from windows_gui_win32 import office_windows
 
 SYSTEM_WIN32 = 1  # com.sun.star.lang.SystemDependent.SYSTEM_WIN32
+WS_POPUP, WS_THICKFRAME, WS_MAXIMIZEBOX = 0x80000000, 0x00040000, 0x00010000
 
 
 def window_title(window):
@@ -58,6 +59,19 @@ def dialog_hwnd(window):
     return matches[0] if len(matches) == 1 else None
 
 
+def is_frame_window(hwnd, api=None):
+    """A document or Start Center frame, never to be closed as a dialog. VCL creates a frame without an owner and
+    sizeable: class SALFRAME with WS_THICKFRAME | WS_MAXIMIZEBOX and without WS_POPUP, what
+    vcl/win/window/salframe.cxx itself treats as a document window (measured on HST5: style 0x15CF0000). Dialogs and
+    message boxes are owned popups (SALSUBFRAME, WS_POPUP). Decided by class and style only: a new document's frame
+    has an empty title while it loads."""
+    api = api or guard.win32()
+    if not hwnd or api.class_name(hwnd) != "SALFRAME":
+        return False
+    style, _exstyle = api.styles(hwnd)
+    return (style & (WS_POPUP | WS_THICKFRAME | WS_MAXIMIZEBOX)) == (WS_THICKFRAME | WS_MAXIMIZEBOX)
+
+
 def close_hwnd(hwnd, timeout=5.0):
     """Post WM_CLOSE to the office window `hwnd` and wait until it is gone; False when it is not ours or stayed."""
     return bool(hwnd) and guard.close_window(hwnd) and guard.wait_gone(hwnd, timeout)
@@ -65,8 +79,11 @@ def close_hwnd(hwnd, timeout=5.0):
 
 def close_dialog(window, timeout=5.0):
     """End a dialog: WM_CLOSE to its own HWND (twice), endExecute only when that did not close it. Never sends a key.
-    Returns how it was closed ("wm_close", "endExecute") or "open" when neither worked."""
+    Returns how it was closed ("wm_close", "endExecute"), "open" when neither worked, or "frame" for a document
+    or Start Center frame, which is left alone (is_frame_window)."""
     hwnd = dialog_hwnd(window)
+    if hwnd and is_frame_window(hwnd):
+        return "frame"
     for _attempt in range(2):  # a dialog still building its pages may let the first WM_CLOSE pass
         if hwnd and close_hwnd(hwnd, timeout):
             return "wm_close"
