@@ -56,15 +56,17 @@ License: these upstream files remain under their original license (MPL-2.0).
  // HST Office: a group whose only command is a gallery without an image (Writer's Kiểu: the style
  // gallery) shows the icon of its caption's dialog launcher (Styles) on its "Caption ▾" button
  Image PriorityMergedHBox::HstGroupImage(const vcl::Window& rGroup)
-@@ -336,16 +368,11 @@
+@@ -336,16 +368,12 @@
      VclPtr<PushButton>& rButton = m_aHstGroupButtons[&rGroup];
      if (!rButton)
      {
 -        // the caption and an arrow, as tall as the groups, as Office shows a collapsed group
 -        rButton = VclPtr<PushButton>::Create(this, WB_FLATBUTTON | WB_CENTER | WB_VCENTER);
 +        // the caption and an arrow, as tall as the groups, as Office shows a collapsed group; a large icon above
-+        // the caption, never bare text (HstFoldedButton draws both)
-         const OUString aCaption = hst::ribbon::GroupCaption(rGroup);
++        // the caption, never bare text (HstFoldedButton draws both); the caption's mnemonic mark ("~Kiểu") is not
++        // shown: the KeyTips give the group's keys
+-        const OUString aCaption = hst::ribbon::GroupCaption(rGroup);
++        const OUString aCaption = hst::ribbon::GroupCaption(rGroup).replaceAll(u"~", u"");
 -        rButton->SetText(aCaption + u" \u25BE"); // ▾, as the gallery buttons
 -        // a large icon above the caption, as Office shows a collapsed group, never bare text
 -        if (const Image aImage = HstGroupImage(rGroup); aImage.GetSizePixel().Width() > 0)
