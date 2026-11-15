@@ -355,7 +355,32 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <utility>
  #include <vector>
  
-@@ -129,6 +134,22 @@
+@@ -71,8 +76,8 @@
+ /// buttons filling the group's height)
+ constexpr int FEW_COMMANDS = 3;
+ 
+-/// bFewCommands: the group holds at most FEW_COMMANDS commands and no control
+-void applyToToolBox(ToolBox& rToolBox, int nState, bool bFewCommands)
++/// The toolbox's authored look, remembered the first time the ladder sees it
++void rememberAuthored(ToolBox& rToolBox)
+ {
+     ImplToolBoxPrivateData& rData = *rToolBox.ImplGetToolBoxPrivateData();
+     if (!rData.mbHstAuthored)
+@@ -85,6 +90,13 @@
+         rData.mbHstKeepLarge = holdsPaste(rToolBox)
+                                || (rData.meHstAuthoredSize == ToolBoxButtonSize::Large && inZoomGroup(rToolBox));
+     }
++}
++
++/// bFewCommands: the group holds at most FEW_COMMANDS commands and no control
++void applyToToolBox(ToolBox& rToolBox, int nState, bool bFewCommands)
++{
++    rememberAuthored(rToolBox);
++    ImplToolBoxPrivateData& rData = *rToolBox.ImplGetToolBoxPrivateData();
+     // HST Office: a group of few large commands (Insert's Comments, Review's Protect, Sheets' Cells) keeps
+     // them large, filling the group's height, at every width, so the groups look alike: as small icons
+     // under a longer caption they saved almost nothing and left the group looking empty. At the small
+@@ -129,6 +141,22 @@
          rToolBox.HstSetGridRows(nGridRows);
          bChanged = true;
      }
@@ -378,7 +403,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // HST Office: a gallery in the toolbox (Slides' themes) shows fewer columns at the smaller states, so the
      // group narrows before it folds; a window that does not know the property ignores it
      const OUString aGalleryState = OUString::number(std::min(nState, int(GroupSmall)));
-@@ -163,6 +184,12 @@
+@@ -163,6 +191,12 @@
      {
          OUString aText; // the label as authored
          bool bTip = false; // the tooltip was set from the label (the label is hidden)
@@ -391,7 +416,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      };
      static std::map<const vcl::Window*, Label>& labels()
      {
-@@ -198,6 +225,59 @@
+@@ -198,6 +232,66 @@
      return OUString::Concat(rLabel.subView(0, nBest)) + "\n" + rLabel.subView(nBest + 1) + " " + aArrow;
  }
  
@@ -399,7 +424,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    largeButton): as high as the group's content from its top, its image and the first line of its label at the
 +    height of theirs. VCL's PushButton draws its image at the top of its content area (WB_TOP), 4 px inside its
 +    native frame (2 px without one), and its label under the image after the gap imageTextGap() repeats; the top
-+    margin moves the image down to the large buttons' icon line. Otherwise the authored layout comes back. */
++    margin moves the image down to the large buttons' icon line. A menu button with its image beside its label (or
++    alone) is one SMALL_ROW high. Otherwise the authored layout comes back. */
 +void placeLargeMenuButton(MenuButton& rButton, const MenuButtonLabels::Label& rLabel, bool bLarge)
 +{
 +    WinBits nStyle = rLabel.nStyle;
@@ -421,6 +447,12 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        nMarginTop = static_cast<sal_Int32>(std::max<tools::Long>(0, aLarge.iconY - nInner));
 +        nWidth = static_cast<sal_Int32>(aLarge.width);
 +        nHeight = static_cast<sal_Int32>(aLarge.height - nMarginTop);
++    }
++    else if (!!rButton.GetModeImage() && rLabel.nHeightRequest < 0)
++    {
++        // a medium or small menu button (icon, label or not, ▾) is one row of the 3-row grid high, as the medium
++        // and small tool buttons (VCL's PushButton asks 12 px more than its 16 px icon)
++        nHeight = static_cast<sal_Int32>(geometry::px(geometry::SMALL_ROW, rButton.GetDPIScaleFactor()));
 +    }
 +    bool bChanged = false;
 +    if (rButton.GetStyle() != nStyle)
@@ -451,11 +483,25 @@ License: these upstream files remain under their original license (MPL-2.0).
  void applyToMenuButton(MenuButton& rButton, int nState)
  {
      auto& rLabels = MenuButtonLabels::labels();
-@@ -206,7 +286,12 @@
+@@ -205,8 +299,25 @@
+     if (it == rLabels.end())
      {
          if (rButton.GetText().isEmpty())
-             return; // an image-only button: nothing to lay out
+-            return; // an image-only button: nothing to lay out
 -        it = rLabels.emplace(&rButton, MenuButtonLabels::Label{ rButton.GetText() }).first;
++        {
++            // an image-only button (Text Effects ▾): one row of the grid high, its icon and VCL's arrow column
++            // (twice half the text height) inside the 4 px of its frame; set once, kept at every state
++            if (!!rButton.GetModeImage() && rButton.get_height_request() < 0)
++            {
++                const double fScale = rButton.GetDPIScaleFactor();
++                rButton.set_height_request(static_cast<sal_Int32>(geometry::px(geometry::SMALL_ROW, fScale)));
++                rButton.set_width_request(static_cast<sal_Int32>(
++                    8 + rButton.GetModeImage().GetSizePixel().Width() + 2 * (rButton.GetTextHeight() / 2 + 1)));
++                rButton.queue_resize();
++            }
++            return;
++        }
 +        it = rLabels
 +                 .emplace(&rButton, MenuButtonLabels::Label{ rButton.GetText(), false, rButton.GetStyle(),
 +                                                             rButton.get_valign(), rButton.get_margin_top(),
@@ -465,7 +511,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          rButton.AddEventListener(LINK(nullptr, MenuButtonLabels, ButtonEventHdl));
          // the name of the authored label, whatever the button shows
          rButton.SetAccessibleName(it->second.aText.replaceAll("~", "").replace('\n', ' '));
-@@ -228,12 +313,14 @@
+@@ -228,12 +339,14 @@
          rLabel.bTip = false;
      }
      rButton.SetDropDown(eArrow); // no change when it is already so
@@ -486,7 +532,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  /// Grid attachments of a group's children as authored, kept while the window lives.
-@@ -247,10 +334,97 @@
+@@ -247,10 +360,97 @@
      DECL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, void);
  };
  
@@ -584,7 +630,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  GroupCell authoredCell(vcl::Window& rChild)
-@@ -259,10 +433,8 @@
+@@ -259,10 +459,8 @@
      auto it = rCells.find(&rChild);
      if (it == rCells.end())
      {
@@ -597,7 +643,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,9 +453,96 @@
+@@ -281,37 +479,143 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -690,13 +736,21 @@ License: these upstream files remain under their original license (MPL-2.0).
  /** The large buttons of a group that stand alone in their columns (one toolbox each) form Office's 3-row
      columns at the medium and small size (HstRibbonGrid.hxx stackGroup); the large size restores the authored
 -    grid. Paste and the buttons of a group of few commands stay large. */
+-void stackLargeButtons(vcl::Window& rGroup, int nState, bool bFewCommands)
 +    grid. Paste and the buttons of a group of few commands stay large. A group authored with three rows (the
-+    mockup's 3-row columns at the large size) keeps its caption in row 3. */
- void stackLargeButtons(vcl::Window& rGroup, int nState, bool bFewCommands)
++    mockup's 3-row columns at the large size) keeps its caption in row 3.
++    Returns the stackable buttons left alone in their column at the medium size (no stackable neighbour): they
++    stay large, since a one-line medium button would be wider than the large one with its 2-line label. */
++std::set<const ToolBox*> stackLargeButtons(vcl::Window& rGroup, int nState, bool bFewCommands)
  {
++    std::set<const ToolBox*> aLone;
      VclGrid* pGrid = dynamic_cast<VclGrid*>(&rGroup);
-@@ -294,21 +553,31 @@
-         return;
+     for (vcl::Window* pChild = rGroup.GetWindow(GetWindowType::FirstChild); !pGrid && pChild;
+          pChild = pChild->GetWindow(GetWindowType::Next))
+         pGrid = dynamic_cast<VclGrid*>(pChild);
+     if (!pGrid)
+-        return;
++        return aLone;
      std::vector<vcl::Window*> aChildren;
      std::vector<GroupCell> aCells;
 +    int nBottom = 0; // the lowest authored row of anything but a separator
@@ -734,8 +788,31 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    if (!applyAlternativeLayout(*pGrid, nState, aChildren, aCells) && (nState == GroupMedium || nState == GroupSmall))
          stackGroup(aCells);
      for (std::size_t i = 0; i < aChildren.size(); ++i)
++    {
          attach(*aChildren[i], aCells[i]);
-@@ -408,7 +677,8 @@
++        // stackGroup makes a stacked button one row high; one still filling the rows was not stacked
++        if (nState == GroupMedium && aCells[i].stackable && aCells[i].height >= nContentRows)
++            aLone.insert(static_cast<const ToolBox*>(aChildren[i]));
++    }
++    return aLone;
+ }
+ 
+ template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
+@@ -377,8 +681,11 @@
+     }
+     const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
+     for (ToolBox* pToolBox : aToolBoxes)
+-        applyToToolBox(*pToolBox, nState, bFewCommands);
+-    stackLargeButtons(rGroup, nState, bFewCommands);
++        rememberAuthored(*pToolBox);
++    // the grid first: a large button it leaves alone at the medium size stays large
++    const std::set<const ToolBox*> aLone = stackLargeButtons(rGroup, nState, bFewCommands);
++    for (ToolBox* pToolBox : aToolBoxes)
++        applyToToolBox(*pToolBox, aLone.count(pToolBox) ? int(GroupLarge) : nState, bFewCommands);
+     // the menu buttons of every group drop their labels at the small state only (their image stays where it
+     // is: above the label in a group of few commands)
+     forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
+@@ -408,7 +715,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {
