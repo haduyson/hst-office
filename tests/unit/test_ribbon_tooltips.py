@@ -95,14 +95,14 @@ class GeneratedPatch(unittest.TestCase):
     def test_table_and_catalogue_match_the_data(self):
         rows = gen.entries(DATA)
         self.assertIn("\n".join("+" + line for line in gen.hrc_lines(rows)) + "\n", self.patch)
-        self.assertTrue(self.patch.endswith("\n".join("+" + line for line in gen.po_lines(rows)) + "\n"))
+        self.assertIn("\n".join("+" + line for line in gen.po_lines(rows)) + "\n", self.patch)
         self.assertEqual(len({(gen.context(c, a), en) for c, a, en, _vi in rows}), len(rows))
 
-    def test_po_hunk_appends_after_the_last_upstream_entry(self):
-        hunk = self.patch.split("--- a/translations/source/vi/sfx2/messages.po\n", 1)[1]
-        context = [line for line in hunk.splitlines()[2:5]]
-        self.assertEqual(context[0], ' msgctxt "versionsofdialog|extended_tip|VersionsOfDialog"')
-        self.assertEqual(context[2], ' msgstr ""')
+    def test_po_hunk_sits_before_the_anchor_with_context_on_both_sides(self):
+        hunk = self.patch.split("--- a/translations/source/vi/sfx2/messages.po\n", 1)[1].splitlines()[2:]
+        self.assertTrue(all(line.startswith(" ") for line in hunk[:3] + hunk[-3:]), (hunk[:3], hunk[-3:]))
+        self.assertEqual(hunk[-1], " " + gen.ANCHOR)
+        self.assertTrue(hunk[-3].startswith(" #. "))
 
 
 class Wiring(unittest.TestCase):

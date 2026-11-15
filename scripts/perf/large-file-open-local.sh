@@ -10,6 +10,9 @@
 # display :$LFO_DISPLAY (default 73; a display already in use stops the run). Windows: the .msi is unpacked as an
 # administrative image (msiexec /a, nothing installed) under D:\hst-test\large-open on the host, and the harness runs
 # there in the SSH session (no desktop: use --mode headless or cli) through $HST_REMOTE (remote.py of tests/realwin).
+# LFO_WIN_SESSION=1 runs it in the kiemtra account's own desktop session instead (tests/runtime/windows-own-session-
+# task.ps1; the account must have logged on once): only there "Not responding" (hung_s) is measured. LFO_WIN_ROOT
+# overrides the test root (it gets a .hst-owner tag from LFO_OWNER).
 # Summary: <out-dir>/summary.md (large-file-open-summary.py). See docs/PERFORMANCE_LARGE_FILES.md.
 set -Eeuo pipefail
 target="$1"; pkg="$2"; out="$(mkdir -p "$3" && cd "$3" && pwd)"; shift 3
@@ -30,7 +33,7 @@ fi
 sha256sum "$pkg" > "$out/package.sha256"
 
 if [ "$target" = linux ]; then
-  inst="$out/inst"
+  inst="${LFO_INST:-$out/inst}"  # LFO_INST: one shared unpacked package for several runs
   if ! cmp -s "$out/package.sha256" "$inst/.package.sha256" 2>/dev/null; then
     rm -rf "$inst"; dpkg-deb -x "$pkg" "$inst"; cp "$out/package.sha256" "$inst/.package.sha256"
   fi
@@ -48,8 +51,11 @@ if [ "$target" = linux ]; then
     --python "$(dirname "$soffice")/python" --files "$fixtures" --out "$out" --label "$label" "$@" || true
 else
   remote="${HST_REMOTE:-/home/wt-realwin-102/tests/realwin/remote.py}"
-  root='D:\hst-test\large-open'
-  python3 "$remote" "$target" push "$here"/large*file*.py "$here/large-file-open-windows.ps1" "$root\\scripts"
+  root="${LFO_WIN_ROOT:-D:\hst-test\large-open}"
+  owner="$out/.hst-owner"; echo "${LFO_OWNER:-large-file-open harness}" > "$owner"
+  python3 "$remote" "$target" push "$owner" "$root"
+  python3 "$remote" "$target" push "$here"/large*file*.py "$here/large-file-open-windows.ps1" \
+    "$here/../../tests/runtime/windows-own-session-task.ps1" "$root\\scripts"
   python3 "$remote" "$target" push "$pkg" "$root\\pkg\\$label"
   # the fixtures this run opens (all of them without --only)
   if [ -n "$only" ]; then
@@ -58,10 +64,20 @@ else
   else
     python3 "$remote" "$target" push "$fixtures" "$root"
   fi
+  runner=("$here/large-file-open-windows.ps1" "$root" "$label" "$(basename "$pkg")" "$@")
+  if [ "${LFO_WIN_SESSION:-0}" = 1 ]; then  # unpack in the SSH session, then the run in the account's own session
+    python3 "$remote" "$target" ps "$here/large-file-open-windows.ps1" "$root" "$label" "$(basename "$pkg")" --prepare
+    printf '@echo off\r\npowershell -NoProfile -ExecutionPolicy Bypass -File "%s\\scripts\\large-file-open-windows.ps1" "%s" "%s" "%s" %s > "%s\\out\\%s.session.log" 2>&1\r\n' \
+      "$root" "$root" "$label" "$(basename "$pkg")" "$*" "$root" "$label" > "$out/session-$label.cmd"
+    python3 "$remote" "$target" push "$out/session-$label.cmd" "$root\\scripts"
+    runner=("$here/../../tests/runtime/windows-own-session-task.ps1" -CommandLine "call $root\\scripts\\session-$label.cmd"
+            -WorkDir "$root\\out" -TimeoutSec 21000)
+  fi
   python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); import remote
 done = remote.run_ps(sys.argv[2], sys.argv[3], *sys.argv[4:], timeout=6 * 3600, check=False)
 print(done.stdout[-4000:]); print(done.stderr[-2000:], file=sys.stderr)' "$(dirname "$remote")" "$target" \
-    "$here/large-file-open-windows.ps1" "$root" "$label" "$(basename "$pkg")" "$@" | tee "$out/remote.log" || true
+    "${runner[@]}" | tee "$out/remote.log" || true
+  [ "${LFO_WIN_SESSION:-0}" = 1 ] && python3 "$remote" "$target" pull "$root\\out\\$label.session.log" "$out" || true
   python3 "$remote" "$target" pull "$root\\out\\$label\\$label.jsonl" "$out" || true
   python3 "$remote" "$target" pull "$root\\out\\$label\\machine.txt" "$out" || true
 fi

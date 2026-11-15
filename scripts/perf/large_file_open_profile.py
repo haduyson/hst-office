@@ -3,10 +3,12 @@
 
 Seeds: default (automatic spell checking off, as in HST), spell (automatic spell checking on, as in a profile where the
 user turned it on), toolbar / tabbed (standard toolbars / the tabbed bar in Writer, Calc and Impress), nothreads
-(threaded formula-group calculation off), norowheight (optimal row heights not recalculated on load)."""
+(threaded formula-group calculation off), norowheight (optimal row heights not recalculated on load), autosave
+(AutoRecovery on, every minute, for large documents too: the AutoRecovery freeze)."""
 import os
+import re
 
-SEEDS = ("default", "spell", "toolbar", "tabbed", "nothreads", "norowheight")
+SEEDS = ("default", "spell", "toolbar", "tabbed", "nothreads", "norowheight", "autosave")
 APPS = ("Writer", "Calc", "Impress")
 
 
@@ -14,13 +16,17 @@ def seed_items(seed):
     items = [("/org.openoffice.Office.Common/Misc", "FirstRun", "false"),
              ("/org.openoffice.Office.Common/Misc", "ShowTipOfTheDay", "false"),
              ("/org.openoffice.Office.Linguistic/General", "IsSpellAuto", "true" if seed == "spell" else "false"),
-             ("/org.openoffice.Office.Recovery/AutoSave", "Enabled", "false"),
+             ("/org.openoffice.Office.Recovery/AutoSave", "Enabled", "true" if seed == "autosave" else "false"),
              ("/org.hasontech.hstoffice.Welcome", "Shown", "true"),
              ("/org.hasontech.hstoffice.ErrorReport", "AskAfterCrash", "false"),
              ("/org.hasontech.hstoffice.DefaultApps", "Ask", "false"),
              ("/org.hasontech.hstoffice.UpdateCheck", "AutoCheck", "false"),
              ("/org.openoffice.Office.Jobs/Jobs/org.openoffice.Office.Jobs:Job['UpdateCheck']/Arguments",
               "AutoCheckEnabled", "false")]
+    if seed == "autosave":  # HstLargeDocumentTimeIntervall: 1.0.2's longer interval for large documents
+        items += [("/org.openoffice.Office.Recovery/AutoSave", name, "1")
+                  for name in ("TimeIntervall", "HstLargeDocumentTimeIntervall")]
+        items.append(("/org.openoffice.Office.Recovery/AutoSave", "UserAutoSaveEnabled", "false"))
     if seed == "nothreads":
         items.append(("/org.openoffice.Office.Calc/Formula/Calculation", "UseThreadedCalculationForFormulaGroups",
                       "false"))
@@ -54,6 +60,11 @@ def reseed(profile, seed):
     with open(xcu, encoding="utf-8") as f:
         text = f.read()
     body = seed_items(seed).split("\n", 2)[2].rsplit("</oor:items>", 1)[0]
+    if seed == "autosave":  # started without --norestore: no recovery of an earlier (killed) open
+        text = re.sub(r'<item oor:path="/org.openoffice.Office.Recovery/RecoveryList[^\n]*\n', "", text)
+        backup = os.path.join(profile, "user", "backup")
+        for name in os.listdir(backup) if os.path.isdir(backup) else []:
+            os.remove(os.path.join(backup, name))
     with open(xcu, "w", encoding="utf-8") as f:
         f.write(text.replace("</oor:items>", body + "</oor:items>", 1))
 
