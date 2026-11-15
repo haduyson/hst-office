@@ -251,6 +251,9 @@ function Export-Msi([datetime]$Since) {
     $script:Info.out = $out
 }
 
+# Reset-StaleWinRes, Test-FileVersions (deployed next to this script; the checkout may predate them).
+. (Join-Path $PSScriptRoot 'hst4-winres.ps1')
+
 if ($Status) { Show-Status; exit 0 }
 
 New-Item -ItemType Directory -Force -Path $Root, (Join-Path $Root 'tmp') | Out-Null
@@ -282,6 +285,7 @@ try {
     Invoke-Step 'tree' { Sync-Tree }
     Invoke-Step 'configure' { Invoke-Trial 'configure' $Root }
     Invoke-Step 'fetch' { Invoke-Trial 'fetch' $Root }
+    Invoke-Step 'winres' { Reset-StaleWinRes $Lo }
     if ($Modules -and -not (Test-Path -LiteralPath (Join-Path $Lo 'instdir\program\soffice.exe'))) {
         throw "no complete build in $Root yet; -Modules needs one full build in this slot first"
     }
@@ -292,6 +296,7 @@ try {
     } else {
         Invoke-Step 'build' { Invoke-Build }
         Invoke-Step 'translations' { Test-Translations }
+        Invoke-Step 'versions' { Test-FileVersions $Lo $Repo $Python }
         Invoke-Step 'collect' { Export-Msi $buildStart }
     }
     $script:Info.seconds['total'] = [int]((Get-Date) - $t0).TotalSeconds

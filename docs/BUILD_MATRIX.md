@@ -149,6 +149,18 @@ HST1 (máy kế toán dùng hằng ngày): `{"open": "18:00", "close": "07:30", 
 đến thứ Hai 07:30), giờ Asia/Saigon (UTC+7, không đổi giờ mùa hè, nên không cần cơ sở dữ liệu múi giờ).
 Job còn chạy lúc 07:30 bị dừng và đưa lại hàng đợi; máy phải rảnh trước 08:00.
 
+### Phiên bản trong exe/dll của build Windows
+
+Tệp phụ thuộc `workdir/Dep/WinResTarget/*.d` (makedepend tạo) trên slot Windows luôn rỗng, nên `make` không dựng lại
+`.res` khi header mà `.rc` include thay đổi. Tài nguyên phiên bản của mọi exe/dll HST là `include/default.rc`, include
+`hst_version.h` (sinh từ `/VERSION`) và `version.hrc` → `config_host/config_version.h`. Vì vậy slot build tăng dần từng
+đóng gói 1.0.2 với FileVersion 1.0.1 (bản MSI 1.0.2 đầu tiên, q261115-214050-71b7). Bước `winres` của
+[hst4-build.ps1](../scripts/windows/hst4-build.ps1) ([hst4-winres.ps1](../scripts/windows/hst4-winres.ps1)) băm mọi
+header mà các `.rc` của cây include (lần theo include lồng nhau), và khi khác lần build trước thì xoá mọi `.res` để
+`make` dựng lại và link lại. Bước `versions` (trước khi lấy MSI) dừng build nếu một exe/dll mang tài nguyên "HST Office"
+có FileVersion khác `VERSION.build` hoặc ProductVersion khác mã phát hành (`write-hst-version.py`), hoặc nếu có ít
+hơn 100 tệp như vậy.
+
 ### Đĩa của máy Windows
 
 Thiếu đĩa (`D: has … GiB free, below … GiB`, `disk-stop` trên Linux) là lỗi hạ tầng: job được đưa lại hàng đợi và
