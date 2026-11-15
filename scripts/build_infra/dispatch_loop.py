@@ -22,6 +22,7 @@ import time
 from .dispatch_linux_pool import LinuxPool
 from .dispatch_paths import log
 from .dispatch_windows import WindowsRunner
+from .queue_sign import SignError, sign_job, wants_signing
 
 RETENTION_SECONDS = 600
 _last_retention = [0.0]
@@ -56,6 +57,23 @@ def requeue_if_infra(store, core, job, error):
     return True
 
 
+def sign_output(store, job, fields, cfg):
+    """An integrator Linux release build: GPG-sign its .rpm/.AppImage (queue_sign.py); a failure fails the job."""
+    def to_log(text):
+        with open(job["log"], "a", encoding="utf-8") as f:
+            f.write(text)
+    to_log(f"\n[{time.strftime('%F %T')}] signing the Linux packages (dispatcher, packaging key)\n")
+    try:
+        output = sign_job(job, store.job_out(job["id"]), cfg, to_log, workroot=store.work_dir)
+    except SignError as exc:
+        to_log(f"[{time.strftime('%F %T')}] signing FAILED: {exc}\n")
+        log(f"{job['id']}: signing failed: {exc}")
+        return "failed", {"error": f"dispatcher: signing: {exc}"}
+    to_log(f"[{time.strftime('%F %T')}] signed; rpm -K: digests signatures OK\n")
+    log(f"{job['id']}: Linux packages signed")
+    return "done", dict(fields, output=output, signed=True)
+
+
 def tick(store, runners, core):
     cfg = store.config()
     jobs = store.all()
@@ -78,6 +96,8 @@ def tick(store, runners, core):
             t = time.time()
             if state == "failed" and requeue_if_infra(store, core, job, fields.get("error", "")):
                 continue
+            if state == "done" and wants_signing(dict(job, **fields), cfg):
+                state, fields = sign_output(store, job, fields, cfg)
             store.update(job["id"], state=state, finished=t, finished_at=core.now_iso(t), **fields)
             log(f"{job['id']}: {state} {fields}")
             finished = True
