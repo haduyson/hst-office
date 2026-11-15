@@ -3,7 +3,9 @@ HST Office: Writer's Styles gallery as in the approved 1.0.2 mockup, and the rib
 The gallery was a blank strip on gtk3 whenever it showed (2400 px, rc 3f3a7555): HstApplyPreviews() set the
 scrolled window's size request to (width, -1), which drops the .ui's height-request, and with external scroll bars
 the view kept only its 2 px frame, so its previews were cut away (seen in the accessibility tree: the scroll pane
-784 x 2 px holding 7 previews). Windows' VCL widgets keep the height, so the bug showed on Linux only.
+784 x 2 px holding 7 previews). On Windows vcl's builder makes the icon view its own scrolled window, so
+"stylesscroll" does not exist there and the gallery kept the .ui's one preview: the view takes the size itself
+now, and a preview's image leaves vcl's own 5 px around it (86 x 64; gtk: 92 x 70 and the item padding 2).
 
 Now the gallery has one-line previews of 96 x 74 px in a 1 px frame, and a 16 px column of ˄ ˅ ▾ (previous row, next
 row, all styles); it keeps 6, 4 or 3 previews at the large, medium and small ribbon state, n x 96 + 2 + 16 px, and
@@ -242,7 +244,7 @@ the target is taken off its request, once when it is made and once more after it
  
  #include <editeng/editids.hrc>
  #include <editeng/fontitem.hxx>
-@@ -94,6 +97,23 @@
+@@ -94,6 +97,32 @@
  
  #include <vcl/commandevent.hxx>
  
@@ -250,9 +252,18 @@ the target is taken off its request, once when it is made and once more after it
 +
 +namespace
 +{
-+// HST Office: the image of a preview in the ribbon gallery; with the icon view's item padding 2 it is 96 x 74
-+constexpr tools::Long HST_PREVIEW_IMAGE_WIDTH = 92;
-+constexpr tools::Long HST_PREVIEW_IMAGE_HEIGHT = 70;
++// HST Office: a preview of the ribbon gallery is a 96 x 74 tile: its image and the icon view's room around it,
++// the item padding 2 on each side in gtk (92 x 70) or vcl's own 5 px (86 x 64; vcl's builder makes the
++// icon view its own scrolled window, so "stylesscroll" does not exist there)
++constexpr tools::Long HST_TILE_WIDTH = 96;
++constexpr tools::Long HST_TILE_HEIGHT = 74;
++bool g_bHstVclIconView = false;
++
++Size lcl_HstPreviewImageSize(double fScale)
++{
++    const tools::Long nRoom = g_bHstVclIconView ? 10 : 4;
++    return Size(std::lround(HST_TILE_WIDTH * fScale) - nRoom, std::lround(HST_TILE_HEIGHT * fScale) - nRoom);
++}
 +
 +// HST Office: the module of the current document ("swriter", "scalc"...): Writer's gallery shows paragraph
 +// styles with short names, Calc's (the same control, whose style family Para is Calc's cell styles) cell styles
@@ -266,7 +277,7 @@ the target is taken off its request, once when it is made and once more after it
  namespace
  {
  class StylePreviewCache
-@@ -370,7 +390,11 @@
+@@ -370,7 +399,11 @@
      if (pFontItem && pFontHeightItem)
      {
          Size aFontSize(0, pFontHeightItem->GetHeight());
@@ -279,7 +290,7 @@ the target is taken off its request, once when it is made and once more after it
          // HST Office: a long name takes two lines of the preview; big headings are capped so two fit
          if (aPixelSize.Height() > MAX_PREVIEW_FONT_HEIGHT)
              aPixelSize.setHeight(MAX_PREVIEW_FONT_HEIGHT);
-@@ -402,6 +426,17 @@
+@@ -402,6 +435,17 @@
          }
      }
  
@@ -297,7 +308,7 @@ the target is taken off its request, once when it is made and once more after it
      if (aFontHighlight != COL_AUTO)
          DrawHighlight(rRenderContext, aFontHighlight);
  
-@@ -420,53 +455,32 @@
+@@ -420,53 +464,32 @@
      rRenderContext.DrawRect(rContentRect);
  }
  
@@ -369,7 +380,7 @@ the target is taken off its request, once when it is made and once more after it
  }
  
  StylesPreviewWindow_Base::StylesPreviewWindow_Base(
-@@ -489,7 +503,6 @@
+@@ -489,7 +512,6 @@
      m_xStylesView->connect_item_activated(LINK(this, StylesPreviewWindow_Base, DoubleClick));
      m_xStylesView->connect_key_press(LINK(this, StylesPreviewWindow_Base, HstKeyPressHdl));
      m_xStylesView->connect_command(LINK(this, StylesPreviewWindow_Base, DoCommand));
@@ -377,7 +388,7 @@ the target is taken off its request, once when it is made and once more after it
      m_xPrevButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, PageHdl));
      m_xNextButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, PageHdl));
      m_xMoreButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, MoreHdl));
-@@ -935,28 +948,45 @@
+@@ -935,28 +957,45 @@
      return Command(rPos);
  }
  
@@ -441,7 +452,7 @@ the target is taken off its request, once when it is made and once more after it
  }
  
  // HST Office: on a narrow ribbon the view holds one preview; it is the current style's, so the
-@@ -1099,21 +1129,24 @@
+@@ -1099,21 +1138,23 @@
  
  Bitmap StylesPreviewWindow_Base::GetCachedPreview(const StylePreviewDescriptor& rStyle)
  {
@@ -458,10 +469,9 @@ the target is taken off its request, once when it is made and once more after it
 -        // HST Office: taller previews, one row fills the Tabbed ribbon (see stylespreview.ui:
 -        // row = 52 + 2 x item-padding 3 = 58, plus the 1px frame = height-request 60).
 -        const Size aSize(100, 52);
-+        // HST Office: a 96 x 74 preview of the ribbon gallery is 92 x 70 and the icon view's item padding 2
-+        // (stylespreview.ui; the padding is the 2 px frame of the selected preview), plus its 1 px frame = 76
-+        const double fScale = Application::GetDefaultDevice()->GetDPIScaleFactor();
-+        const Size aSize(std::lround(HST_PREVIEW_IMAGE_WIDTH * fScale), std::lround(HST_PREVIEW_IMAGE_HEIGHT * fScale));
++        // HST Office: the image of a 96 x 74 tile (lcl_HstPreviewImageSize); the room around it is the frame
++        // of the selected preview, and the gallery's 1 px frame makes it 76 tall
++        const Size aSize(lcl_HstPreviewImageSize(Application::GetDefaultDevice()->GetDPIScaleFactor()));
          pImg->SetOutputSizePixel(aSize);
  
          StyleItemController aStyleController(rStyle);
@@ -472,7 +482,7 @@ the target is taken off its request, once when it is made and once more after it
  
          return aBitmap;
      }
-@@ -1242,6 +1275,12 @@
+@@ -1242,6 +1283,12 @@
              lcl_AppendParaStyles(m_aAllStyles, pStyleSheetPool,
                                   SfxStyleSearchBits::Favourite | SfxStyleSearchBits::UserDefined);
      }
@@ -485,7 +495,14 @@ the target is taken off its request, once when it is made and once more after it
  
      ShowPage();
  }
-@@ -1259,16 +1298,24 @@
+@@ -1253,22 +1300,36 @@
+     , StylesPreviewWindow_Base(*m_xBuilder, rDefaultStyles, xFrame)
+     , m_xHstScroll(m_xBuilder->weld_scrolled_window(u"stylesscroll"_ustr))
+ {
++    g_bHstVclIconView = !m_xHstScroll;
+     HstApplyPreviews();
+     SetOptimalSize();
+ }
  
  namespace
  {
@@ -495,7 +512,6 @@ the target is taken off its request, once when it is made and once more after it
 +// from 6 to 4 to 3 before it folds. The group needs n x 96 + 2 (frame) + 16 (button column) px.
  constexpr int HST_PREVIEWS[] = { 6, 4, 3 };
 -constexpr tools::Long HST_PREVIEW_WIDTH = 106;
-+constexpr tools::Long HST_TILE_WIDTH = 96;
 +constexpr tools::Long HST_GALLERY_HEIGHT = 76;
  }
  
@@ -504,12 +520,18 @@ the target is taken off its request, once when it is made and once more after it
 +    const double fScale = GetDPIScaleFactor();
 +    const int nTiles = HST_PREVIEWS[m_nHstState];
 +    // set the height as well: -1 dropped the .ui's height-request on gtk3, the view (whose scroll bars are
-+    // external) was then 2 px tall and the gallery a blank strip
++    // external) was then 2 px tall and the gallery a blank strip. Without "stylesscroll" (vcl) the view is
++    // the framed, scrolling widget and takes the size itself; its frame may be 2 px (vcl's 3D border), so it
++    // gets 2 px more to keep n columns.
++    const int nWidth = static_cast<int>(std::lround((nTiles * HST_TILE_WIDTH + (m_xHstScroll ? 2 : 4)) * fScale));
++    const int nHeight = static_cast<int>(std::lround(HST_GALLERY_HEIGHT * fScale));
      if (m_xHstScroll)
 -        m_xHstScroll->set_size_request(HST_PREVIEWS[m_nHstState] * HST_PREVIEW_WIDTH * GetDPIScaleFactor(), -1);
-+        m_xHstScroll->set_size_request(std::lround((nTiles * HST_TILE_WIDTH + 2) * fScale),
-+                                       std::lround(HST_GALLERY_HEIGHT * fScale));
-+    m_xStylesView->set_item_width(std::lround(HST_PREVIEW_IMAGE_WIDTH * fScale));
++        m_xHstScroll->set_size_request(nWidth, nHeight);
++    else
++        m_xStylesView->set_size_request(nWidth, nHeight);
++    m_xStylesView->set_item_width(static_cast<int>(g_bHstVclIconView ? std::lround(HST_TILE_WIDTH * fScale)
++                                                                     : lcl_HstPreviewImageSize(fScale).Width()));
 +    HstSetTiles(nTiles);
  }
  
