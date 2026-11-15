@@ -17,5 +17,16 @@ class TabsFitRow(unittest.TestCase):
         self.assertIn("nX = std::max(nX, item.maRect.Right() + 1);", code)
 
 
+    def test_a_tab_left_off_stays_reachable(self):
+        # the menu button's menu lists the tabs left off first and selects the chosen one
+        menu = added(PATCH, "sfx2/source/notebookbar/NotebookbarTabControl.cxx")
+        self.assertIn("if (HstIsOffRow(nId))", menu)
+        self.assertIn("SelectTabPage(nTab);", menu)
+        # the KeyTips keep a letter for it, left of the menu button
+        tips = added(PATCH, "sfx2/source/notebookbar/HstRibbonKeyTips.cxx")
+        self.assertIn("pBase && pBase->HstIsOffRow(nId) ? pBase->GetOpenMenu() : nullptr", tips)
+        self.assertIn("bool HstIsOffRow( sal_uInt16 nPageId ) const;", added(PATCH, "include/vcl/tabctrl.hxx"))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -101,8 +101,17 @@ class ApprovedOrder(unittest.TestCase):
             rest = groups[1:][::-1]
             want = [[g, s] for s in "MSC" for g in rest] + [[groups[0], s] for s in "MSC"]
             self.assertEqual(ladder["steps"], want, (ladder["app"], ladder["box"]))
+            # the regrow priority (reverse of the fold) follows the same rule: HstRibbonRegrow lays the row out by it
+            self.assertEqual(ladder.get("fold"), rest + [groups[0]], (ladder["app"], ladder["box"]))
             checked += 1
         self.assertGreater(checked, 40)
+
+
+    def test_sheets_home_grows_its_clipboard_first_and_font_last(self):
+        # G10: Cut, Copy and Format Painter keep their labels at 1920; owner 13/11: Font gives up its labels first
+        text = added(LADDERS, "vcl/inc/HstRibbonLadders.hxx")
+        self.assertIn('calc_pmhbHome_grow[] = { u"gdHomeClipboard", u"gdHomeEditing", u"gdHomeCells", u"gdHomeStyles", '
+                      'u"gdHomeAlignment", u"gdHomeNumber", u"gdHomeFont" };', text)
 
 
 if __name__ == "__main__":

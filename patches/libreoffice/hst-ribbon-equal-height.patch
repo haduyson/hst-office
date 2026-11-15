@@ -1,0 +1,26 @@
+HST Office: one ribbon height in Writer, Sheets, Slides and Draw.
+
+Gap list G06 (coordinator 15/11/2026): Sheets' ribbon was 3 px lower than the other apps' (its tallest tab page is
+shorter), so its document started higher and its group captions sat higher. The full ribbon's tab control now
+requests at least 165 logical px, the height of the other three apps; the compact ribbon and the quick access
+toolbar's own row are unchanged. A fixed 106 px body is left for 1.0.3.
+
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -1067,9 +1067,16 @@
+     }
+ }
+ 
++// HST Office: the tab row and the tallest tab page of the full ribbon, in logical px (gap list G06: one height and
++// one caption row for Writer, Sheets, Slides and Draw)
++constexpr double HST_RIBBON_HEIGHT = 165;
++
+ Size NotebookbarTabControl::calculateRequisition() const
+ {
+     Size aSize = NotebookbarTabControlBase::calculateRequisition();
++    // HST Office: one ribbon height in every app (Sheets' tallest page was 3 px lower); the compact ribbon below sets
++    // its own height
++    aSize.setHeight(std::max<tools::Long>(aSize.Height(), std::lround(HST_RIBBON_HEIGHT * GetDPIScaleFactor())));
+ 
+     for (int i = 0; i < GetPageCount(); i++)
+     {

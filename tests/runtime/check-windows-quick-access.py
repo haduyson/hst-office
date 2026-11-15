@@ -30,7 +30,8 @@ APPS = {  # app -> (factory, UI configuration module, window title)
     "impress": ("private:factory/simpress", "com.sun.star.presentation.PresentationDocument", "HST Slides"),
     "draw": ("private:factory/sdraw", "com.sun.star.drawing.DrawingDocument", "HST Draw"),
 }
-TEXT = "Kiểm tra thanh truy cập nhanh"
+TEXT = "qat"  # typed with the gated input: an API edit does not reach the undo stack
+OUT_DIR = [""]  # set by main
 
 
 def window_shot(hwnd, path):
@@ -68,19 +69,38 @@ def text_of(doc):
     return doc.getText().getString()
 
 
-def keys_undo_redo(office, doc, hwnd, res):
-    """Alt+2 (Hoàn tác) and Alt+3 (Làm lại), the 2nd and 3rd buttons of the default toolbar."""
-    doc.getText().insertString(doc.getText().getEnd(), TEXT, False)  # an undoable API edit
+def type_text(hwnd):
+    for char in TEXT:
+        wg.chord(ord(char.upper()), target=hwnd, front=False)
+        time.sleep(0.2)
     time.sleep(1)
-    front(hwnd)
-    wg.chord(VK_ALT, ord("2"), target=hwnd, front=False)
+
+
+def keys_undo_redo(office, doc, hwnd, res):
+    """The 2nd and 3rd buttons of the default toolbar (Hoàn tác, Làm lại) from the keyboard: Alt, then the digit (the
+    KeyTips), and Alt+digit pressed together; the reference suite takes both."""
+    for label, together in (("Alt, 2", False), ("Alt+2", True)):
+        front(hwnd)
+        type_text(hwnd)
+        for digit, wanted in (("2", False), ("3", True)):
+            if together:
+                wg.chord(VK_ALT, ord(digit), target=hwnd, front=False)
+            else:
+                wg.chord(VK_ALT, target=hwnd, front=False)
+                time.sleep(0.8)
+                wg.screenshot(os.path.join(OUT_DIR[0], f"keytips-{digit}.png"))
+                wg.chord(ord(digit), target=hwnd, front=False)
+            time.sleep(1.5)
+            text = text_of(doc)
+            name = "Hoàn tác" if digit == "2" else "Làm lại"
+            res(f"[writer] {label.replace('2', digit)} runs {name}", (TEXT in text) == wanted, repr(text[-40:]))
+        doc.getText().setString("")
+    # control: Ctrl+Z undoes the same edit (else the keys or the undo stack are the problem, not the toolbar)
+    type_text(hwnd)
+    wg.chord(0x11, ord("Z"), target=hwnd, front=False)
     time.sleep(1.5)
-    undone = text_of(doc)
-    res("[writer] Alt+2 runs Hoàn tác", TEXT not in undone, repr(undone[:60]))
-    wg.chord(VK_ALT, ord("3"), target=hwnd, front=False)
-    time.sleep(1.5)
-    redone = text_of(doc)
-    res("[writer] Alt+3 runs Làm lại", TEXT in redone, repr(redone[:60]))
+    res.note("[writer] Ctrl+Z control", repr(text_of(doc)[-40:]))
+    doc.getText().setString("")
 
 
 def main():
@@ -91,6 +111,7 @@ def main():
     parser.add_argument("--keys", action="store_true", help="also Alt+2/Alt+3 (console session only)")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
+    OUT_DIR[0] = args.out
     profile = os.path.join(args.out, "profile")
     res = wg.Results(args.out, profile)
     office = wg.WinOffice(args.install, profile, args.port, args.out, nodefault=True)

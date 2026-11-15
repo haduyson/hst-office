@@ -6,6 +6,7 @@ import threading
 import time
 import traceback
 
+import uno_main_thread_load
 from windows_smoke_report import ROWS, record
 
 def top_windows(toolkit):
@@ -94,12 +95,9 @@ def pump(toolkit, work, wait_for_window):
 
 def open_document(ctx, desktop, kind):
     """Open a visible document from a thread: the first-start welcome dialog blocks the load until it is closed."""
-    from com.sun.star.beans import PropertyValue
     toolkit = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
     box = {}
-    flag = PropertyValue()
-    flag.Name, flag.Value = "Hidden", False
-    titles, error = pump(toolkit, lambda: box.update(doc=desktop.loadComponentFromURL("private:factory/" + kind, "_blank", 0, (flag,))), False)
+    titles, error = pump(toolkit, lambda: box.update(doc=uno_main_thread_load.load(desktop, "private:factory/" + kind, Hidden=False)), False)
     record("open %s (windows during load: %s)" % (kind, titles), "doc" in box and not error, error)
     return box.get("doc")
 
