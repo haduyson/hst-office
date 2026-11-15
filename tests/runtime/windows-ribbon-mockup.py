@@ -146,6 +146,11 @@ def main():
         office.stop()
     with open(os.path.join(args.out, "measured.json"), "w", encoding="utf-8") as handle:
         json.dump({"measured": measured, "skipped": SKIPS}, handle, ensure_ascii=False, indent=1, default=str)
+    # results.json is written even when no check ran (every finding was a skip): the evidence of the run
+    with open(os.path.join(args.out, "results.json"), "w", encoding="utf-8") as handle:
+        json.dump({"profile": profile, "results": res.rows,
+                   "failed": sum(r["status"] == "FAIL" for r in res.rows), "skipped": SKIPS},
+                  handle, ensure_ascii=False, indent=1)
     return res.exit_code()
 
 
