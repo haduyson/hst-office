@@ -51,10 +51,12 @@ def check_tabs(table, tab_keys, errors):
 def check_commands(table, errors):
     for module, tabs in table["commands"].items():
         for tab, commands in tabs.items():
-            letters = [(ident, letter) for ident, (letter, _control) in commands.items()]
-            for i, (a, la) in enumerate(letters):
-                for b, lb in letters[i + 1:]:
-                    if model.prefix_clash(la, lb):
+            letters = [(ident, letter, control) for ident, (letter, control) in commands.items()]
+            for i, (a, la, ca) in enumerate(letters):
+                for b, lb, cb in letters[i + 1:]:
+                    # twins (one control of the suite, widgets shown at different sizes) share their letter: the
+                    # KeyTips only reach visible widgets (HstRibbonKeyTips.cxx CollectCommands)
+                    if model.prefix_clash(la, lb) and not (la == lb and ca == cb):
                         errors.append(f"{module}/{tab}: {a} {la!r} and {b} {lb!r} cannot both have their letter")
     generator = importlib.import_module("generate-keytips-office-parity")
     with open(generator.PATCH, encoding="utf-8") as handle:
@@ -124,7 +126,8 @@ def check_tree(tree, table, rows, errors):
                 if ident not in got:
                     errors.append(f"{app} {tab}: {ident} ({control}, {letter!r}) has no button on the tab: "
                                   "regenerate scripts/ribbon/build-keytips-parity.py")
-                elif got[ident] != letter:
+                elif got[ident] != letter and not any(o != ident and c == [letter, control] and got.get(o) == letter
+                                                      for o, c in commands.items()):
                     errors.append(f"{app} {tab}: {ident} ({control}) gets {got[ident]!r}, the suite uses {letter!r}")
     bindings = accel.load([os.path.join(tree, accel.ACCELERATORS), os.path.join(ROOT, accel.EXTENSION)])
     for row in rows:

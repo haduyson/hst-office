@@ -65,6 +65,10 @@ def replaced(text, data):
         if not groups:
             raise LadderError(f"no ladder {name} in {HEADER}")
         known = re.findall(r'u"([^"]+)"', groups.group(1))
+        if "groups" in ladder:  # a box whose groups a later patch changes (a new group): the ladder names them
+            known = list(ladder["groups"])
+            line = f"inline constexpr std::u16string_view {name}_groups[] = {{ {', '.join(f'u{chr(34)}{g}{chr(34)}' for g in known)} }};"
+            text = text[:groups.start()] + line + text[groups.end():]
         if ladder.get("rule"):
             ladder = dict(ladder)
             ladder["steps"], ladder["fold"] = rule_chain(known)

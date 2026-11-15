@@ -20,6 +20,11 @@ under them. The rules, on the authored (largest) state:
 import xml.etree.ElementTree as ET
 
 FEW_COMMANDS = 3
+# buttons kept large at every size (keepsLarge() of vcl/source/control/HstRibbonLadder.cxx); their group is no "few"
+KEEP_LARGE = {"btnHomeHstEditingSortFilter", "btnHomeHstEditingFindSelect", "bxInsertTextBox", "bxUxInsertDrawText",
+              "bxHstEditHeaderAndFooter6", "bxDataTextToColumns", "bxHstAutomaticCalculation12", "bxHstUXHomeSlide1",
+              "btnHstHomeShapes", "bxHstUXInsertSlide9", "btnHstInsertShapes", "bxInsertInsertGraphic",
+              "bxHstUXInsertText12", "bxHstUXInsertText16", "bxHstUXInsertText13"}
 # the Tabbed ribbons of the four apps (the other notebookbar variants are not offered)
 RIBBONS = {
     "Writer": "sw/uiconfig/swriter/ui/notebookbar.ui",
@@ -115,8 +120,9 @@ class Group:
         self.rows = 3 if any(item.top + item.height > 2 for item in self.items) else 2
 
     @property
-    def few(self):
-        return 0 < self.commands <= FEW_COMMANDS and all(item.kind != "control" for item in self.items)
+    def few(self):  # not a 3-row group: its large button beside a column of small labelled ones is the mockup's
+        return self.rows == 2 and 0 < self.commands <= FEW_COMMANDS and all(
+            item.kind != "control" and item.id.split(":")[0] not in KEEP_LARGE for item in self.items)
 
     def occupant(self, left, row):
         return next((item for item in self.items if left in item.columns() and row in item.rows()), None)

@@ -43,8 +43,11 @@ int main()
     l = largeButton(24, 30, 40, false, 18, 1.0);
     CHECK(l.iconY == 7 && l.textY == 7 + 24 + 5 && l.textY + 2 * 18 == 76 - 4);
     // medium: 4 + icon + 5 + label + 4; small: 22; split: + 12
-    CHECK(smallButtonWidth(16, 40, false, 1.0) == 69 && smallButtonWidth(16, 0, false, 1.0) == 22);
-    CHECK(smallButtonWidth(16, 0, true, 1.0) == 34 && smallButtonWidth(24, 0, false, 1.5) == 34);
+    // the icon at (4, 4) whether the button has a label or not: an icon-only button is 4 + 16 + 4
+    CHECK(smallButtonWidth(16, 40, false, 1.0) == 69 && smallButtonWidth(16, 0, false, 1.0) == 24);
+    CHECK(smallButtonWidth(16, 0, true, 1.0) == 36 && smallButtonWidth(24, 0, false, 1.5) == 36);
+    // two rows spread over the 76 px content: icons at 9 + 4 = 13 and 9 + 24 + 9 + 4 = 46 (mockup 13.3, 46.7)
+    CHECK(twoRowGap(1.0) == 9 && twoRowGap(1.5) == 14);
     // folded: 98 high, the name's last line 4 px over the bottom
     FoldedButton f = foldedButton(24, 20, 20, 1, 17, 1.0);
     CHECK(f.height == 98 && f.width == 48 && f.iconY == 6 && f.textY == 98 - 4 - 17 && f.arrowWidth == 11);
@@ -112,6 +115,10 @@ class MockupGeometry(unittest.TestCase):
         self.assertIn("item.maItemSize = item.maContentSize = Size( aLarge.width, aLarge.height );", toolbox)
         self.assertIn("&& ( meTextPosition == ToolBoxTextPosition::Right ) && !mpData->mbHstOwnerDraw )", toolbox)
         self.assertIn("nImageOffY = pItem->maRect.Top() + aHstLarge.iconY;", toolbox)
+        # a ribbon toolbox's rows are as high as its buttons and visible item windows, not a native combo box
+        self.assertIn("if ( mpData->mbHstOwnerDraw )\n        mnWinHeight = 0;", toolbox)
+        # the icon of a medium and of a small button at the same (4, 4)
+        self.assertIn("nImageOffX = pItem->maRect.Left() + hst::ribbon::geometry::px(hst::ribbon::geometry::SMALL_PAD", toolbox)
 
     def test_ladder_places_menu_buttons_and_frames_groups(self):
         ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
@@ -119,7 +126,7 @@ class MockupGeometry(unittest.TestCase):
         self.assertIn("placeLargeMenuButton(rButton, rLabel, bLarge);", ladder)
         self.assertIn("normaliseGroupFrame(*pGrid, aChildren, aCells);", ladder)
         self.assertIn("aCells[i].caption = aCells[i].top >= 2 && aCells[i].top == nBottom", ladder)
-        self.assertIn("&& aCells[i].height == nContentRows;", ladder)
+        self.assertIn("aCells[i].height == nContentRows && !keepsLarge(*aChildren[i]);", ladder)
         # the alternative layout of Writer's Paragraph at the small size, and its hidden boxes kept in the key
         self.assertIn('{ u"gdHomeParagraph", GroupSmall, 3, 3,', ladder)
         self.assertIn("rToolBox.IsVisible() || hiddenByLayout().count(&rToolBox)", ladder)

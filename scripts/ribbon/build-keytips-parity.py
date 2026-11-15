@@ -52,7 +52,7 @@ MENU_KEYS = {
                                 "btnHstLayoutAlignMenu": ["AA", "Align"], "btnHstLayoutGroupMenu": ["AG", "Group"],
                                 "btnHstLayoutRotateMenu": ["AY", "Rotate"]},
                 "ReviewLabel": {"btnHstReviewAcceptMenu": ["A2", "Accept"], "btnHstReviewRejectMenu": ["J", "Reject"]}},
-    "scalc": {"HomeLabel": {"StylesPreview": ["J", "Cell Styles"]},
+    "scalc": {"HomeLabel": {"StylesPreview": ["J", "Cell Styles"], "btnHomeHstCellStyles": ["J", "Cell Styles"]},
               "LayoutLabel": {"btnHstLayoutForwardMenu": ["AF", "Bring Forward"],
                               "btnHstLayoutBackwardMenu": ["AE", "Send Backward"],
                               "btnHstLayoutAlignMenu": ["AA", "Align"], "btnHstLayoutGroupMenu": ["AG", "Group"],
@@ -64,6 +64,7 @@ MENU_KEYS = {
                               "btnHstInsertChartOther": ["I1", "Insert Waterfall, Funnel, Stock, Surface, or Radar Chart"],
                               "btnHstInsertChartCombo": ["SD", "Insert Combo Chart"]},
               "DataLabel": {"btnHstDataAnalysisMenu": ["DA", "Data Analysis"]}},
+    "simpress": {"HomeLabel": {"btnHstHomeArrangeMenu": ["G", "Arrange"], "btnHstHomeAlignTextMenu": ["AT", "Align Text"]}},
     "sdraw": {"ArrangeLabel": {"btnHstArrangeForwardMenu": ["AF", "Bring Forward"],
                                "btnHstArrangeBackwardMenu": ["AE", "Send Backward"],
                                "btnHstArrangeRotateMenu": ["AY", "Rotate"]}},
@@ -107,7 +108,7 @@ def pick(tab, items, found, general, menus=None):
     """{ident: [letter, control]} of one tab. One control's letter goes to one command only (a split button of the
     suite can stand for several HST commands): first to a command whose general letter it already is, then in ribbon
     order; a letter that clashes with one already given (prefix) is skipped. A menu button of MENU_KEYS (`menus`)
-    takes its letter before all of them. The other menu buttons of the tab ("Lề ▾") keep the letters the general table
+    takes its letter before all of them (widgets sharing one control share it). The other menu buttons of the tab ("Lề ▾") keep the letters the general table
     gives them by widget id: those were chosen from the suite's tabs."""
     given = {}
     used = [general[i] for i in items if i.startswith("btn") and general.get(i)]
@@ -119,7 +120,15 @@ def pick(tab, items, found, general, menus=None):
 
     for ident in items:
         if ident in (menus or {}):
-            take(ident, *menus[ident])
+            letter, control = menus[ident]
+            # widgets of MENU_KEYS with the same control are one control shown at different sizes (Sheets' cell
+            # styles gallery at L, its "Kiểu ô ▾" button at M and S): only one is visible, they share the letter
+            twin = any(o != ident and menus.get(o) == menus[ident] for o in items)
+            if twin or general.get(ident) == letter:
+                given[ident] = [letter, control]
+                used.append(letter)
+            else:
+                take(ident, letter, control)
     for ident in items:
         for letter, control in found.get((tab, ident), []):
             if letter == general.get(ident):
