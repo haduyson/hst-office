@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""hst-ribbon-sheets-caption-row.patch: Sheets' tab boxes fill the ribbon height, as Writer's do (gap list G06)."""
+"""hst-ribbon-sheets-caption-row.patch: Sheets' tab boxes take Writer's geometry (gap list G06)."""
 import unittest
 
 from patch_sections import sections
@@ -13,7 +13,11 @@ class SheetsCaptionRow(unittest.TestCase):
         removed = [line for line in lines if line.startswith("-")]
         self.assertEqual(len(removed), 19)
         self.assertTrue(all('<property name="valign">center</property>' in line for line in removed))
-        self.assertFalse([line for line in lines if line.startswith("+")])
+        added = [line for line in lines if line.startswith("+")]
+        # Writer's geometry: 2 px above and below the tab box (its groups at y 52, captions at 141 for 1485 px)
+        self.assertEqual(sum('<property name="margin-top">2</property>' in line for line in added), 19)
+        self.assertEqual(sum('<property name="margin-bottom">2</property>' in line for line in added), 19)
+        self.assertEqual(len(added), 38)
 
 
 if __name__ == "__main__":
