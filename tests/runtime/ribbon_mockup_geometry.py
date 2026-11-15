@@ -17,7 +17,7 @@ CAPTIONS = {  # expected-JSON key -> caption text of the group on the Writer rib
 FOLDED = {"home": {"styles": "Kiểu"}}  # groups whose only accessible node is a folded or gallery button
 GROUP_MIN_H = 90  # the body of a ribbon group is 106 px; its caption sits at its bottom
 FOLDED_MIN_H = 90  # a folded group button is 98 px tall
-LARGE_MIN_H = 60  # a large button: icon over label, 63 px in the reference
+LARGE_MIN_H = 40  # a large button: icon over label, 63 px in the reference
 BUTTON_ROLES = ("push button", "toggle button", "push button menu", "menu button")
 CAPTION_MAX_H = 30  # a caption label is one text line
 

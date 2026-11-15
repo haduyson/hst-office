@@ -1,0 +1,131 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+"""Compact ribbon and quick access keys of Writer on a real GUI (gtk3, Xvfb, vi_VN): ready for the P5 build.
+
+Usage: python3 tests/runtime/check-ribbon-compact-gui.py --instdir DIR [--display :281] [--out DIR]
+Run it as the build user under dbus-run-session (the script re-executes itself so, as root). Checks:
+  - Ctrl+F1 (HstToggleRibbon, accelerator F1_MOD1 of shortcuts-office-parity.json) collapses the ribbon: the tab page
+    is gone and the tab row stays; a second Ctrl+F1 shows the page again;
+  - in the compact state the quick command row (data/ribbon/quick-rows.json, Writer Trang đầu) shows as buttons in
+    the band under the tab row, and their count equals the commands of that row (separators excluded);
+  - the quick access toolbar keys are positional: Alt+4 undoes (Hoàn tác) and Alt+5 redoes (Làm lại) text typed in
+    the document (the six defaults Mới, Mở, Lưu, Hoàn tác, Làm lại, In of the owner's decision D3);
+  - in the compact state Alt+<the Home tab's letter> drops the Home page over the document (the floating page).
+Writes <out>/results.json; exit 1 on any FAIL. A check whose target the build lacks FAILS with its reason; nothing is
+skipped silently.
+"""
+import argparse
+import json
+import os
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import hst_gui  # noqa: E402
+import ribbon_tabs_gui as gui  # noqa: E402
+import ribbon_mockup_atspi as atspi  # noqa: E402
+import ribbon_mockup_geometry as geo  # noqa: E402
+
+ROOT = os.path.dirname(os.path.dirname(HERE))
+QUICK_ROWS = os.path.join(ROOT, "data", "ribbon", "quick-rows.json")
+HOME_LETTER = "H"  # Trang đầu's KeyTip in the Office table (keytips-office-parity.json); checked against the table below
+ROWS = []
+
+
+def record(name, ok, detail=""):
+    ROWS.append({"check": name, "status": "PASS" if ok else "FAIL", "detail": str(detail)})
+    print(f"{'PASS' if ok else 'FAIL'}  {name}  {detail}", flush=True)
+
+
+def quick_row_count(tab_app="writer", box="pmhbHome"):
+    with open(QUICK_ROWS, encoding="utf-8") as handle:
+        rows = json.load(handle)["rows"]
+    row = next(r for r in rows if r["app"] == tab_app and r["box"] == box)
+    return sum(1 for c in row["commands"] if c != "|")
+
+
+def page_shown(nodes):
+    """The Trang đầu page is shown when its page panel is in the ribbon band (the body of the tab)."""
+    return geo.page_box(nodes, geo.tab_geometry(nodes)[0]) is not None
+
+
+def quick_buttons(nodes):
+    """Buttons in the band under the tab row (the compact quick row), by their accessible names."""
+    tab_top, _strip = geo.tab_geometry(nodes)
+    if tab_top is None:
+        return []
+    return [n for n in nodes if n[0] in geo.BUTTON_ROLES and tab_top + 36 <= n[2][1] < tab_top + 36 + 45]
+
+
+def key(display, *keys):
+    gui.xdo(display, "key", "--clearmodifiers", *keys)
+    time.sleep(1.5)
+
+
+def type_text(display, text):
+    gui.xdo(display, "type", "--delay", "80", text)
+    time.sleep(1)
+
+
+def text_of(office):
+    return office.desktop.getCurrentFrame().getController().getModel().getText().getString()
+
+
+def check(args):
+    office, wid, _ = gui.start(args.instdir, "writer", args.display, os.path.join(args.out, "work"), 7701)
+    try:
+        gui.open_tab(args.display, "Trang đầu")
+        time.sleep(2)
+        base = atspi.ribbon_nodes()
+        record("Trang đầu page shown before Ctrl+F1", page_shown(base), "")
+        key(args.display, "ctrl+F1")
+        compact = atspi.ribbon_nodes()
+        record("Ctrl+F1 collapses the ribbon (page hidden, tab row kept)",
+               not page_shown(compact) and geo.tab_geometry(compact)[0] is not None, "")
+        want = quick_row_count()
+        got = len(quick_buttons(compact))
+        record("compact quick row shows the Writer Trang đầu commands", got == want,
+               f"{got} buttons, row has {want} commands")
+        key(args.display, "ctrl+F1")
+        record("second Ctrl+F1 shows the page again", page_shown(atspi.ribbon_nodes()), "")
+        gui.click(args.display, (700, 500, 10, 10))  # the document: its text takes the keys
+        type_text(args.display, "qat")
+        key(args.display, "alt+4")
+        record("Alt+4 undoes (Hoàn tác, positional)", "qat" not in text_of(office), repr(text_of(office)[-20:]))
+        key(args.display, "alt+5")
+        record("Alt+5 redoes (Làm lại, positional)", "qat" in text_of(office), repr(text_of(office)[-20:]))
+        key(args.display, "ctrl+F1")
+        key(args.display, "alt", HOME_LETTER.lower())
+        record("Alt+letter drops the Home page over the document in the compact state",
+               page_shown(atspi.ribbon_nodes()), "")
+    finally:
+        office.stop()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--instdir", required=True)
+    parser.add_argument("--display", default=":281")
+    parser.add_argument("--out", default=os.path.join(hst_gui.ROOT, "tests/output/ribbon-compact"))
+    args = parser.parse_args()
+    if os.geteuid() == 0:
+        os.makedirs(args.out, exist_ok=True)
+        subprocess.run(["chown", "-R", hst_gui.BUILD_USER, args.out], check=False)
+        os.execvp("runuser", ["runuser", "-u", hst_gui.BUILD_USER, "--", "env", "NO_AT_BRIDGE=0",
+                              "GTK_MODULES=gail:atk-bridge", "dbus-run-session", "--", sys.executable] + sys.argv)
+    args.instdir, args.out = os.path.abspath(args.instdir), os.path.abspath(args.out)
+    hst_gui.setup_uno(args.instdir)
+    try:
+        check(args)
+    except Exception as error:  # noqa: BLE001 - a missing feature must show as FAIL with its reason
+        record("compact checks ran", False, repr(error))
+    with open(os.path.join(args.out, "results.json"), "w", encoding="utf-8") as handle:
+        json.dump(ROWS, handle, ensure_ascii=False, indent=1)
+    failed = sum(r["status"] == "FAIL" for r in ROWS)
+    print(f"{len(ROWS)} checks, {failed} failed")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -24,16 +24,23 @@ class Defaults(unittest.TestCase):
         for module, open_command in APPS.items():
             items = toolbar(module)
             self.assertEqual([c for c, shown in items if shown],
-                             [".uno:New", open_command, ".uno:Save", ".uno:Undo", ".uno:Redo", ".uno:Print"], module)
+                             [".uno:AddDirect", open_command, ".uno:Save", ".uno:Undo", ".uno:Redo", ".uno:Print"], module)
             hidden = {c for c, shown in items if not shown}
             for command in (".uno:AddDirect", ".uno:PrintPreview", ".uno:SendMail"):
                 self.assertIn(command, hidden, module)
 
     def test_checklist_matches_the_defaults(self):
         qat = added(PATCH, "sfx2/source/notebookbar/HstQuickAccess.cxx")
-        for command in (".uno:AddDirect", ".uno:OpenFromWriter", ".uno:OpenFromCalc", ".uno:New", ".uno:Save",
+        for command in (".uno:AddDirect", ".uno:OpenFromWriter", ".uno:OpenFromCalc", ".uno:Save",
                         ".uno:Print", ".uno:PrintPreview", ".uno:SendMail", ".uno:Undo", ".uno:Redo"):
             self.assertIn(f'u"{command}"_ustr', qat)
+
+
+class NewButton(unittest.TestCase):
+    def test_mới_is_add_direct_without_a_dropdown(self):
+        # the mockup's Mới is a plain button: .uno:AddDirect with no ▾ (its controller is not the dropdown one)
+        qat = added(PATCH, "sfx2/source/notebookbar/HstQuickAccess.cxx")
+        self.assertNotIn("NewToolbarController", qat)
 
 
 class Behaviour(unittest.TestCase):
