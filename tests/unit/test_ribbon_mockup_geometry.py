@@ -112,6 +112,8 @@ class MockupGeometry(unittest.TestCase):
         self.assertIn("item.maItemSize = item.maContentSize = Size( aLarge.width, aLarge.height );", toolbox)
         self.assertIn("&& ( meTextPosition == ToolBoxTextPosition::Right ) && !mpData->mbHstOwnerDraw )", toolbox)
         self.assertIn("nImageOffY = pItem->maRect.Top() + aHstLarge.iconY;", toolbox)
+        # a ribbon toolbox's rows are as high as its buttons and visible item windows, not a native combo box
+        self.assertIn("if ( mpData->mbHstOwnerDraw )\n        mnWinHeight = 0;", toolbox)
 
     def test_ladder_places_menu_buttons_and_frames_groups(self):
         ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
@@ -119,7 +121,7 @@ class MockupGeometry(unittest.TestCase):
         self.assertIn("placeLargeMenuButton(rButton, rLabel, bLarge);", ladder)
         self.assertIn("normaliseGroupFrame(*pGrid, aChildren, aCells);", ladder)
         self.assertIn("aCells[i].caption = aCells[i].top >= 2 && aCells[i].top == nBottom", ladder)
-        self.assertIn("&& aCells[i].height == nContentRows;", ladder)
+        self.assertIn("aCells[i].height == nContentRows && !keepsLarge(*aChildren[i]);", ladder)
         # the alternative layout of Writer's Paragraph at the small size, and its hidden boxes kept in the key
         self.assertIn('{ u"gdHomeParagraph", GroupSmall, 3, 3,', ladder)
         self.assertIn("rToolBox.IsVisible() || hiddenByLayout().count(&rToolBox)", ladder)
