@@ -43,6 +43,11 @@ class MockupGallery(unittest.TestCase):
         self.assertIn("constexpr tools::Long HST_TILE_HEIGHT = 74;", code)
         self.assertIn("return std::max<size_t>(1, m_nHstTiles); }", code)
         self.assertIn("connect_size_allocate", removed(MOCKUP, GALLERY))
+        # the item window's preferred size is its content's cached requisition: invalidated before measuring,
+        # or the ladder measured the large gallery (602 px) at every state
+        self.assertIn("    HstApplyPreviews();\n    // the window's preferred size", after(MOCKUP, GALLERY))
+        self.assertIn("InvalidateChildSizeCache();\n    SetOptimalSize();", after(MOCKUP, GALLERY))
+        self.assertEqual(added(MOCKUP, "svx/source/inc/HstRibbonCombos.hxx").count("rWindow.InvalidateChildSizeCache();"), 2)
         self.assertNotIn("ViewSizeHdl", after(MOCKUP, "svx/source/inc/StylesPreviewWindow.hxx"))
         # the image leaves gtk's item padding 2 (92 x 70) or vcl's own 5 px (86 x 64) of the 96 x 74 tile
         self.assertIn("const tools::Long nRoom = g_bHstVclIconView ? 10 : 4;", code)

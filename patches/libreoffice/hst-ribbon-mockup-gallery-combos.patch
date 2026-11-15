@@ -9,7 +9,9 @@ now, and a preview's image leaves vcl's own 5 px around it (86 x 64; gtk: 92 x 7
 
 Now the gallery has one-line previews of 96 x 74 px in a 1 px frame, and a 16 px column of ˄ ˅ ▾ (previous row, next
 row, all styles); it keeps 6, 4 or 3 previews at the large, medium and small ribbon state, n x 96 + 2 + 16 px, and
-never takes the room the ribbon leaves (the page no longer follows the view width). A common Writer style shows its
+never takes the room the ribbon leaves (the page no longer follows the view width). After a state change the
+item window's cached content requisition is invalidated before it is measured, or the ladder saw the large
+gallery's width at every state. A common Writer style shows its
 short name (Thường, Văn bản, Tiêu đề 1, Tiêu đề 2, Tựa đề, Trích dẫn; svx/inc/hststylesshortnames.hrc) in its own
 font and colour, and those six come first; the styles keep their names in the document, and the tooltip and the
 accessible name stay the full name. In Calc the same gallery (.uno:StylesPreview; the style family Para is
@@ -28,7 +30,7 @@ boxes, widths and the theme's padding.
 --- /dev/null
 --- /dev/null
 +++ b/svx/source/inc/HstRibbonCombos.hxx
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,109 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -42,6 +44,7 @@ boxes, widths and the theme's padding.
 +
 +#include <rtl/ustring.hxx>
 +#include <tools/long.hxx>
++#include <vcl/InterimItemWindow.hxx>
 +#include <vcl/idle.hxx>
 +#include <vcl/notebookbar/notebookbar.hxx>
 +#include <vcl/toolbox.hxx>
@@ -88,13 +91,18 @@ boxes, widths and the theme's padding.
 +/// Make the box of the item window rWindow nLogical px wide: the part of its preferred width over the target
 +/// (gtk3's ▾ button once the box is shown) is taken off the request. A theme whose entry and button need
 +/// more keeps its minimum.
-+template <class Box> void FitRibbonWidth(const vcl::Window& rWindow, Box& rBox, tools::Long nLogical)
++/// (The item window's preferred size is the cached requisition of its content, so it is invalidated first.)
++template <class Box> void FitRibbonWidth(InterimItemWindow& rWindow, Box& rBox, tools::Long nLogical)
 +{
 +    const int nTarget = RibbonPixels(rWindow, nLogical);
 +    rBox.set_size_request(nTarget, -1);
++    rWindow.InvalidateChildSizeCache();
 +    const tools::Long nOver = rWindow.get_preferred_size().Width() - nTarget;
 +    if (nOver > 0)
++    {
 +        rBox.set_size_request(std::max<int>(1, nTarget - nOver), -1);
++        rWindow.InvalidateChildSizeCache();
++    }
 +}
 +
 +/// Its toolbox lays the item window rWindow out again at the window's new size
@@ -655,6 +663,16 @@ boxes, widths and the theme's padding.
  }
  
  bool StylesPreviewWindow_Impl::set_property(const OUString& rKey, const OUString& rValue)
+@@ -1280,6 +1342,9 @@
+         return false; // nothing changed: the ladder need not lay the toolbox out again
+     m_nHstState = nState;
+     HstApplyPreviews();
++    // the window's preferred size is the cached requisition of its content: without this the ladder measured
++    // the large gallery at every state (602 px) and skipped the gallery's steps
++    InvalidateChildSizeCache();
+     SetOptimalSize();
+     return true;
+ }
 --- a/svx/source/tbxctrls/tbcontrl.cxx
 +++ b/svx/source/tbxctrls/tbcontrl.cxx
 @@ -120,6 +120,7 @@
