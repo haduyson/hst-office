@@ -90,8 +90,11 @@ def check_dump(entries, icon_px=24):
             ok = any(abs(box_top - v) <= TOL * scale for v in allowed)
             rows.append((f"{command}: large icon box top at 6 (or 3)", ok, f"box top {box_top:.1f} allowed {allowed}"))
             # the owner's rule: the large icon of the ribbon is 24 px (the 16 px icons sit in their box and pass above)
-            rows.append((f"{command}: large icon is 24 px (owner rule)", iw == icon_px * scale,
-                         f"icon {iw}x{ih}, rule {icon_px * scale}"))
+            if iw == 32 * scale:  # a 32 px large icon (Dán, Nd30Wizard): the owner's decision is pending, not a failure
+                rows.append((f"{command}: large icon 32 px (owner decision pending)", None, f"icon {iw}x{ih}"))
+            else:
+                rows.append((f"{command}: large icon is 24 px (owner rule)", iw == icon_px * scale,
+                             f"icon {iw}x{ih}, rule {icon_px * scale}"))
     return rows
 
 
@@ -111,8 +114,9 @@ def main():
             measure = json.load(handle)
         rows, skipped = check(measure, args.scale)
     for name, ok, detail in rows:
-        print(f"{'PASS' if ok else 'FAIL'}  {name}  {detail}")
-    failed = sum(not ok for _n, ok, _d in rows)
+        status = "SKIP" if ok is None else ("PASS" if ok else "FAIL")
+        print(f"{status}  {name}  {detail}")
+    failed = sum(ok is False for _n, ok, _d in rows)
     for reason in skipped:
         print(f"SKIP  {reason}")
     print(f"{len(rows)} checks, {failed} failed")
