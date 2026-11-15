@@ -38,7 +38,7 @@ DRAW_TABS = {"HomeLabel", "InsertLabel", "ReviewLabel", "ViewLabel", "HelpLabel"
              "ImageLabel", "ChartDesignLabel", "ChartFormatLabel"}
 # spec names that the suite's controls call differently: spec name -> control name
 ALIASES = {"Show/Hide": "Show All", "Online Videos": "Online Videos...", "Footnote": "Insert Footnote",
-           "Chart types (Column/Line/Pie/Bar/Area/Scatter...)": "Insert Column or Bar Chart"}
+           "Chart types (Column/Line/Pie/Bar/Area/Scatter...)": "Recommended Charts"}
 # controls the spec does not list (group launchers): (reference app, tab) -> {control name: [HST commands]}
 EXTRA = {("excel", "Page Layout"): {"Page Setup": ["PageFormatDialog"]}}
 # menu buttons ("Caption ▾") that hold the commands of a control of the suite: module -> tab -> {widget id: [letter,
@@ -57,6 +57,12 @@ MENU_KEYS = {
                               "btnHstLayoutBackwardMenu": ["AE", "Send Backward"],
                               "btnHstLayoutAlignMenu": ["AA", "Align"], "btnHstLayoutGroupMenu": ["AG", "Group"],
                               "btnHstLayoutRotateMenu": ["AY", "Rotate"]},
+              "InsertLabel": {"btnHstInsertChartColumn": ["C", "Insert Column or Bar Chart"],
+                              "btnHstInsertChartLine": ["N1", "Insert Line or Area Chart"],
+                              "btnHstInsertChartPie": ["Q", "Insert Pie or Doughnut Chart"],
+                              "btnHstInsertChartScatter": ["D", "Insert Scatter (X, Y) or Bubble Chart"],
+                              "btnHstInsertChartOther": ["I1", "Insert Waterfall, Funnel, Stock, Surface, or Radar Chart"],
+                              "btnHstInsertChartCombo": ["SD", "Insert Combo Chart"]},
               "DataLabel": {"btnHstDataAnalysisMenu": ["DA", "Data Analysis"]}},
     "sdraw": {"ArrangeLabel": {"btnHstArrangeForwardMenu": ["AF", "Bring Forward"],
                                "btnHstArrangeBackwardMenu": ["AE", "Send Backward"],
