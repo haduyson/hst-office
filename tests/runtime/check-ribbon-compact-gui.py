@@ -89,6 +89,8 @@ def check(args):
                f"{got} buttons, row has {want} commands")
         key(args.display, "ctrl+F1")
         record("second Ctrl+F1 shows the page again", page_shown(atspi.ribbon_nodes()), "")
+        mo_roles = sorted({n[0] for n in atspi.ribbon_nodes() if n[1] == "Mới"})
+        record("QAT Mới is a plain button without a dropdown", mo_roles == ["push button"], mo_roles)
         gui.click(args.display, (700, 500, 10, 10))  # the document: its text takes the keys
         type_text(args.display, "qat")
         key(args.display, "alt+4")
