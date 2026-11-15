@@ -1,0 +1,31 @@
+HST Office: sw_ooxmlexport12 testTdf99631 expects the row height of Sheets' default font.
+
+The two embedded spreadsheets of tdf99631.docx get Sheets' 11 pt default font instead of upstream's 10 pt
+(hst-sheets-default-font-size.patch): their rows are 4.87 mm high instead of 4.50 mm, so the original
+size written to w:object/@dyaOrig is 553 and 829 twips instead of 513 and 769 (20 twips per row). The
+displayed size of the objects (v:shape style) is the same as upstream. The test ran only once saving a
+.docx with an embedded spreadsheet stopped crashing (hst-filter-clipboard-format-ids.patch).
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: make CppunitTest_sw_ooxmlexport12.
+---
+--- a/sw/qa/extras/ooxmlexport/ooxmlexport12.cxx
++++ b/sw/qa/extras/ooxmlexport/ooxmlexport12.cxx
+@@ -999,12 +999,15 @@
+ 
+     assertXPath(pXmlDoc, "//w:object", 2);
+     assertXPath(pXmlDoc, "/w:document/w:body/w:p[2]/w:r/w:object", 2);
++    // HST Office: the embedded spreadsheets get Sheets' 11 pt default font instead of 10 pt
++    // (hst-sheets-default-font-size.patch), so each row is 20 twips taller: 553 and 829 instead of
++    // upstream's 513 and 769. The displayed size of the objects (v:shape style) is unchanged.
+     // first XSLX OLE object (1:1 scale)
+     assertXPath(pXmlDoc, "/w:document/w:body/w:p[2]/w:r[1]/w:object[1]", "dxaOrig", u"2561");
+-    assertXPath(pXmlDoc, "/w:document/w:body/w:p[2]/w:r[1]/w:object[1]", "dyaOrig", u"513");
++    assertXPath(pXmlDoc, "/w:document/w:body/w:p[2]/w:r[1]/w:object[1]", "dyaOrig", u"553");
+     // second XLSX OLE object (same content + 1 row, but zoomed)
+     assertXPath(pXmlDoc, "/w:document/w:body/w:p[2]/w:r[2]/w:object[1]", "dxaOrig", u"2561");
+-    assertXPath(pXmlDoc, "/w:document/w:body/w:p[2]/w:r[2]/w:object[1]", "dyaOrig", u"769");
++    assertXPath(pXmlDoc, "/w:document/w:body/w:p[2]/w:r[2]/w:object[1]", "dyaOrig", u"829");
+ }
+ 
+ CPPUNIT_TEST_FIXTURE(Test, testTdf138899)
