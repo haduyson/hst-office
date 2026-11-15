@@ -3,7 +3,7 @@
 small group (gap list G05), through the ribbon ladder's "hst-gallery-state" property."""
 import unittest
 
-from patch_sections import added, after, po_entries, removed
+from patch_sections import added, after, po_entries, removed, sections
 
 PATCH = "hst-ribbon-styles-gallery-states.patch"
 
@@ -95,18 +95,16 @@ class MockupFontBoxes(unittest.TestCase):
         # gtk3 sizes the entry and puts the ▾ button on top: the overshoot is taken off the request
         self.assertIn("rWindow.get_preferred_size().Width() - nTarget;", helper)
 
-    def test_ribbon_boxes_have_a_narrow_button(self):
-        self.assertIn('hst::ribbon::BoxUIFile(pParent, u"fontnamebox")', added(MOCKUP, "svx/source/tbxctrls/tbcontrl.cxx"))
-        self.assertIn('hst::ribbon::BoxUIFile(pParent, u"fontsizebox")',
-                      added(MOCKUP, "svx/source/tbxctrls/tbunocontroller.cxx"))
-        mk = added(MOCKUP, "svx/UIConfig_svx.mk")
-        for name in ("fontnameboxribbon", "fontsizeboxribbon"):
-            self.assertIn(f"svx/uiconfig/ui/{name}", mk)
-            ui = added(MOCKUP, f"svx/uiconfig/ui/{name}.ui")
-            self.assertIn('<class name="small-button"/>', ui)  # vcl gtk3: no padding on the box's button
-            # same ids and translation contexts as the toolbar's box
-            base = name.replace("ribbon", "")
-            self.assertIn(f'context="{base}|{base.replace("box", "combobox")}|accessible_name"', ui)
+    def test_fit_again_once_shown(self):
+        # gtk3 counts the box's ▾ button only once it is shown: 128 px became 165
+        helper = added(MOCKUP, "svx/source/inc/HstRibbonCombos.hxx")
+        self.assertIn("class RibbonRefit final : public Idle", helper)
+        self.assertIn("pBox->SetItemWindow(nId, &rWindow); // the item takes the window's new size", helper)
+        for path in ("svx/source/tbxctrls/tbcontrl.cxx", "svx/source/tbxctrls/tbunocontroller.cxx"):
+            code = added(MOCKUP, path)
+            self.assertIn("nStateChange == StateChangedType::InitShow && !m_xHstRefit", code)
+            self.assertIn("m_xHstRefit.reset();", code)  # stopped before the window goes
+        self.assertNotIn("svx/UIConfig_svx.mk", sections(MOCKUP))  # no padding-free variant: it lost its frame
 
 
 class CalcCellStylesGallery(unittest.TestCase):
