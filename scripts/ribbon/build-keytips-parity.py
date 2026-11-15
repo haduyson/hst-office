@@ -65,7 +65,10 @@ MENU_KEYS = {
                               "btnHstInsertChartCombo": ["SD", "Insert Combo Chart"]},
               "DataLabel": {"btnHstDataAnalysisMenu": ["DA", "Data Analysis"]}},
     "simpress": {"HomeLabel": {"btnHstHomeArrangeMenu": ["G", "Arrange"], "btnHstHomeAlignTextMenu": ["AT", "Align Text"]}},
-    "sdraw": {"ArrangeLabel": {"btnHstArrangeForwardMenu": ["AF", "Bring Forward"],
+    "sdraw": {"HomeLabel": {"btnHstHomeLineSpacingMenu": ["K", "Line Spacing"], "btnHstHomeArrangeMenu": ["G", "Arrange"],
+                            "btnHstHomeTextDirectionMenu": ["AX", "Text Direction"],
+                            "btnHstHomeAlignTextMenu": ["AT", "Align Text"]},
+              "ArrangeLabel": {"btnHstArrangeForwardMenu": ["AF", "Bring Forward"],
                                "btnHstArrangeBackwardMenu": ["AE", "Send Backward"],
                                "btnHstArrangeRotateMenu": ["AY", "Rotate"]}},
 }
