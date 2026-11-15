@@ -1,0 +1,450 @@
+HST Office: Ctrl+Shift+C / Ctrl+Shift+V copy and paste formatting in HST Slides, as in the reference suite (owner
+decision 2026-11-15).
+
+- .uno:HstCopyFormat (SID_HST_COPY_FORMAT) takes the formats of the selected shape, or of the selected text while
+  editing, with the Clone Formatting brush's core (SdrObjEditView::TakeFormatPaintBrush) but without its mouse mode.
+  .uno:HstPasteFormat (SID_HST_PASTE_FORMAT) applies them (ApplyFormatPaintBrush) to every selected shape, or to the
+  selected text (the word at the cursor without a selection; paragraph formats only for whole paragraphs, as the
+  brush), as one undo action. The copy stays until the next copy and belongs to its document: it is dropped when
+  that document closes, and pasting into another document does nothing (as Writer's keys).
+- sd/source/ui/{inc,func}/HstFormatCopyPaste: the commands; DrawViewShell::FuSupport runs them (not FuTemporary,
+  which would end text editing) and GetMenuState disables them without a selection, without a copy of this
+  document's formats, or (paste) for a read-only document. app.hrc, sdraw.sdi, drviewsh.sdi, Library_sd.mk;
+  DrawImpressCommands.xcu labels and their Vietnamese in UI.po.
+- Keys, HST Slides only (macOS Cmd+Shift+C / Cmd+Shift+V, the Mac edition's keys too): Ctrl+Shift+V was Paste
+  Special, which stays on Ctrl+Alt+V, the ribbon and the Edit menu.
+License: modified upstream files keep their license (MPL-2.0); new files MPL-2.0 like the module.
+Test: scripts/check-keytips-parity.py, tests/runtime/check-shortcut-parity-runtime.py.
+--- a/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
+@@ -3419,10 +3419,12 @@
+             <value xml:lang="en-US">.uno:Copy</value>
+           </prop>
+         </node>
++        <!-- HST Office: Ctrl+Shift+C copies the formatting, as the reference suite -->
+         <node oor:name="C_SHIFT_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+             <value xml:lang="de">.uno:Combine</value>
++            <value xml:lang="en-US">.uno:HstCopyFormat</value>
+           </prop>
+         </node>
+         <node oor:name="C_SHIFT_MOD1_MOD2" oor:op="replace">
+@@ -3848,10 +3850,11 @@
+             <value xml:lang="en-US">.uno:Paste</value>
+           </prop>
+         </node>
++        <!-- HST Office: Ctrl+Shift+V pastes the copied formatting, as the reference suite (was Paste Special, still Ctrl+Alt+V) -->
+         <node oor:name="V_SHIFT_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:PasteSpecial</value>
++            <value xml:lang="en-US">.uno:HstPasteFormat</value>
+           </prop>
+         </node>
+         <node oor:name="V_SHIFT_MOD1_MOD2" oor:op="replace">
+--- a/officecfg/registry/data/org/openoffice/Office/UI/DrawImpressCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/DrawImpressCommands.xcu
+@@ -528,6 +528,22 @@
+           <value xml:lang="en-US">Turns the selected pages and their content 90° to the right</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HstCopyFormat" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Copy Formatting</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstPasteFormat" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Paste Formatting</value>
++        </prop>
++        <prop oor:name="Properties" oor:type="xs:int">
++          <value>1</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:MasterSlidesPanel" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Master Slides</value>
+--- a/sd/Library_sd.mk
++++ b/sd/Library_sd.mk
+@@ -336,6 +336,7 @@
+ 	sd/source/ui/func/fuprobjs \
+ 	sd/source/ui/func/fuscale \
+ 	sd/source/ui/func/fusearch \
++	sd/source/ui/func/HstFormatCopyPaste \
+ 	sd/source/ui/func/HstRotatePage \
+ 	sd/source/ui/func/fusel \
+ 	sd/source/ui/func/fusldlg \
+--- a/sd/inc/app.hrc
++++ b/sd/inc/app.hrc
+@@ -448,5 +448,8 @@
+ // HST Office: HST Draw's "Xoay trang" (HstRotatePage.hxx)
+ #define SID_HST_ROTATE_PAGE_LEFT            (SID_SD_START+465)
+ #define SID_HST_ROTATE_PAGE_RIGHT           (SID_SD_START+466)
++// HST Office: Ctrl+Shift+C / Ctrl+Shift+V copy and paste formatting (HstFormatCopyPaste.hxx)
++#define SID_HST_COPY_FORMAT                 (SID_SD_START+467)
++#define SID_HST_PASTE_FORMAT                (SID_SD_START+468)
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sd/sdi/drviewsh.sdi
++++ b/sd/sdi/drviewsh.sdi
+@@ -161,6 +161,16 @@
+         ExecMethod = FuTemporary ;
+         StateMethod = GetMenuState ;
+     ]
++    SID_HST_COPY_FORMAT
++    [
++        ExecMethod = FuSupport ;
++        StateMethod = GetMenuState ;
++    ]
++    SID_HST_PASTE_FORMAT
++    [
++        ExecMethod = FuSupport ;
++        StateMethod = GetMenuState ;
++    ]
+     SID_REMOTE_DLG
+     [
+         ExecMethod = FuTemporary ;
+--- a/sd/sdi/sdraw.sdi
++++ b/sd/sdi/sdraw.sdi
+@@ -2892,6 +2892,40 @@
+     GroupId = SfxGroupId::Modify;
+ ]
+ 
++SfxVoidItem HstCopyFormat SID_HST_COPY_FORMAT
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = TRUE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
++SfxVoidItem HstPasteFormat SID_HST_PASTE_FORMAT
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Format;
++]
++
+ SfxVoidItem Remote SID_REMOTE_DLG
+ ()
+ [
+--- /dev/null
++++ b/sd/source/ui/func/HstFormatCopyPaste.cxx
+@@ -0,0 +1,185 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <HstFormatCopyPaste.hxx>
++
++#include <memory>
++#include <utility>
++#include <vector>
++
++#include <editeng/editview.hxx>
++#include <editeng/outliner.hxx>
++#include <sfx2/request.hxx>
++#include <svl/itemset.hxx>
++#include <svl/lstner.hxx>
++#include <svx/svdmark.hxx>
++#include <svx/svdmodel.hxx>
++#include <svx/svdotable.hxx>
++#include <svx/svdundo.hxx>
++
++#include <app.hrc>
++#include <DrawDocShell.hxx>
++#include <DrawViewShell.hxx>
++#include <View.hxx>
++#include <ViewShellBase.hxx>
++#include <drawdoc.hxx>
++
++namespace
++{
++/** What .uno:HstCopyFormat took: the formats in the item pool of their document, so the copy is
++    dropped when that document goes (SdDrawDocument broadcasts ModelCleared while its pool lives). */
++class FormatCopy final : public SfxListener
++{
++public:
++    void Set(SdDrawDocument& rDoc, std::shared_ptr<SfxItemSet> xSet, sal_Int16 nDepth)
++    {
++        Clear();
++        mpDoc = &rDoc;
++        StartListening(rDoc);
++        mxSet = std::move(xSet);
++        mnDepth = nDepth;
++    }
++
++    void Clear()
++    {
++        if (mpDoc)
++            EndListening(*mpDoc);
++        mpDoc = nullptr;
++        mxSet.reset();
++        mnDepth = -1;
++    }
++
++    // The copy for rDoc, or null: formats of another document's pool are not pasted.
++    SfxItemSet* For(const SdDrawDocument* pDoc) const
++    {
++        return (pDoc && pDoc == mpDoc) ? mxSet.get() : nullptr;
++    }
++
++    sal_Int16 Depth() const { return mnDepth; }
++
++    void Notify(SfxBroadcaster&, const SfxHint& rHint) override
++    {
++        if (rHint.GetId() == SfxHintId::Dying
++            || (rHint.GetId() == SfxHintId::ThisIsAnSdrHint
++                && static_cast<const SdrHint&>(rHint).GetKind() == SdrHintKind::ModelCleared))
++            Clear();
++    }
++
++private:
++    SdDrawDocument* mpDoc = nullptr;
++    std::shared_ptr<SfxItemSet> mxSet;
++    sal_Int16 mnDepth = -1;
++};
++
++FormatCopy& theFormatCopy()
++{
++    static FormatCopy aCopy;
++    return aCopy;
++}
++
++// As the Clone Formatting brush: paragraph formats only when whole paragraphs are selected.
++bool PasteParagraphFormats(const OutlinerView* pOLV)
++{
++    if (!pOLV || !pOLV->GetEditView().HasSelection())
++        return true;
++    if (!pOLV->GetEditView().IsSelectionWithinSinglePara())
++        return false;
++    return pOLV->GetEditView().IsSelectionFullPara();
++}
++
++void Paste(sd::DrawViewShell& rShell, sd::View& rView, SdDrawDocument& rDoc, SfxItemSet& rSet)
++{
++    const sal_Int16 nDepth = theFormatCopy().Depth();
++    OutlinerView* pOLV = rView.GetTextEditOutlinerView();
++    if (pOLV)
++    {
++        // Editing text: the outliner records the undo action, as for the brush.
++        rView.ApplyFormatPaintBrush(rSet, nDepth, false, !PasteParagraphFormats(pOLV));
++        return;
++    }
++
++    // Shapes: every selected shape, one at a time (the brush applies to the first marked shape).
++    std::vector<std::pair<SdrObject*, SdrPageView*>> aShapes;
++    const SdrMarkList& rMarkList = rView.GetMarkedObjectList();
++    for (size_t i = 0; i < rMarkList.GetMarkCount(); ++i)
++    {
++        const SdrMark* pMark = rMarkList.GetMark(i);
++        aShapes.emplace_back(pMark->GetMarkedSdrObj(), pMark->GetPageView());
++    }
++    if (aShapes.empty())
++        return;
++
++    const bool bUndo = rDoc.IsUndoEnabled();
++    if (bUndo)
++    {
++        rDoc.BegUndo(rShell.GetViewShellBase().RetrieveLabelFromCommand(u".uno:HstPasteFormat"_ustr));
++        for (const auto& [pObj, pPV] : aShapes)
++        {
++            if (dynamic_cast<sdr::table::SdrTableObj*>(pObj) == nullptr)
++                rDoc.AddUndo(rDoc.GetSdrUndoFactory().CreateUndoAttrObject(*pObj, false, true));
++        }
++    }
++    if (aShapes.size() == 1)
++        rView.ApplyFormatPaintBrush(rSet, nDepth, false, false);
++    else
++    {
++        for (const auto& [pObj, pPV] : aShapes)
++        {
++            rView.UnmarkAllObj();
++            rView.MarkObj(pObj, pPV);
++            rView.ApplyFormatPaintBrush(rSet, nDepth, false, false);
++        }
++        rView.UnmarkAllObj();
++        for (const auto& [pObj, pPV] : aShapes)
++            rView.MarkObj(pObj, pPV);
++    }
++    if (bUndo)
++        rDoc.EndUndo();
++}
++}
++
++namespace sd::hst
++{
++void ExecuteFormatCopyPaste(DrawViewShell& rShell, SfxRequest& rRequest)
++{
++    View* pView = rShell.GetView();
++    SdDrawDocument* pDoc = rShell.GetDoc();
++    if (!pView || !pDoc || pView->GetMarkedObjectList().GetMarkCount() == 0)
++        return;
++
++    if (rRequest.GetSlot() == SID_HST_COPY_FORMAT)
++    {
++        std::shared_ptr<SfxItemSet> xSet;
++        const sal_Int32 nDepth = pView->TakeFormatPaintBrush(xSet);
++        if (xSet)
++            theFormatCopy().Set(*pDoc, std::move(xSet), static_cast<sal_Int16>(nDepth));
++        rRequest.Done();
++        return;
++    }
++
++    SfxItemSet* pSet = theFormatCopy().For(pDoc);
++    if (!pSet || rShell.GetDocSh()->IsReadOnly())
++        return;
++    Paste(rShell, *pView, *pDoc, *pSet);
++    rRequest.Done();
++}
++
++void GetFormatCopyPasteState(DrawViewShell& rShell, SfxItemSet& rSet)
++{
++    const View* pView = rShell.GetView();
++    const bool bMarked = pView && pView->GetMarkedObjectList().GetMarkCount() != 0;
++    if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_COPY_FORMAT) && !bMarked)
++        rSet.DisableItem(SID_HST_COPY_FORMAT);
++    if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_PASTE_FORMAT)
++        && (!bMarked || !theFormatCopy().For(rShell.GetDoc()) || rShell.GetDocSh()->IsReadOnly()))
++        rSet.DisableItem(SID_HST_PASTE_FORMAT);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sd/source/ui/inc/HstFormatCopyPaste.hxx
+@@ -0,0 +1,33 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++#pragma once
++
++class SfxItemSet;
++class SfxRequest;
++
++namespace sd
++{
++class DrawViewShell;
++}
++
++/** HST Office: copy and paste formatting with the keys of the reference suite (Ctrl+Shift+C,
++    Ctrl+Shift+V in HST Slides): .uno:HstCopyFormat (SID_HST_COPY_FORMAT) takes the formats of the
++    selected shape, or of the selected text while editing, as the Clone Formatting brush does
++    (SdrObjEditView::TakeFormatPaintBrush), without entering the brush's mouse mode;
++    .uno:HstPasteFormat (SID_HST_PASTE_FORMAT) applies them to every selected shape, or to the selected
++    text (the word at the cursor without a selection), as one undo action. The copy stays until the next
++    copy, and belongs to its document: it is dropped when the document closes and pasting into another
++    document does nothing. */
++namespace sd::hst
++{
++void ExecuteFormatCopyPaste(DrawViewShell& rShell, SfxRequest& rRequest);
++void GetFormatCopyPasteState(DrawViewShell& rShell, SfxItemSet& rSet);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sd/source/ui/view/drviews7.cxx
++++ b/sd/source/ui/view/drviews7.cxx
+@@ -70,6 +70,7 @@
+ #include <HstAnimationApply.hxx>
+ #include <HstSlideEffectCommands.hxx>
+ #include <HstRotatePage.hxx>
++#include <HstFormatCopyPaste.hxx>
+ 
+ #include <PresentationViewShell.hxx>
+ 
+@@ -1057,6 +1058,10 @@
+         || SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_ROTATE_PAGE_RIGHT))
+         sd::hst::GetRotatePageState(*this, rSet);
+ 
++    if (SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_COPY_FORMAT)
++        || SfxItemState::DEFAULT == rSet.GetItemState(SID_HST_PASTE_FORMAT))
++        sd::hst::GetFormatCopyPasteState(*this, rSet);
++
+     if( SfxItemState::DEFAULT == rSet.GetItemState( SID_REMOTE_DLG ) )
+     {
+ 
+--- a/sd/source/ui/view/drviewse.cxx
++++ b/sd/source/ui/view/drviewse.cxx
+@@ -106,6 +106,7 @@
+ #include <SlideSorterViewShell.hxx>
+ #include <controller/SlideSorterController.hxx>
+ #include <controller/SlsClipboard.hxx>
++#include <HstFormatCopyPaste.hxx>
+ 
+ using namespace ::com::sun::star;
+ using namespace ::com::sun::star::uno;
+@@ -939,6 +940,12 @@
+         }
+         break;
+ 
++        // HST Office: Ctrl+Shift+C / Ctrl+Shift+V, here and not in FuTemporary so that text editing goes on
++        case SID_HST_COPY_FORMAT:
++        case SID_HST_PASTE_FORMAT:
++            sd::hst::ExecuteFormatCopyPaste(*this, rReq);
++        break;
++
+         case SID_PASTE:
+         {
+             weld::WaitObject aWait(GetFrameWeld());
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -10796,6 +10796,26 @@
+ msgid "Rotate Page Right"
+ msgstr "Xoay trang phải 90°"
+ 
++#. hstCF
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstCopyFormat\n"
++"Label\n"
++"value.text"
++msgid "Copy Formatting"
++msgstr "Sao chép định dạng"
++
++#. hstPF
++#: DrawImpressCommands.xcu
++msgctxt ""
++"DrawImpressCommands.xcu\n"
++"..DrawImpressCommands.UserInterface.Commands..uno:HstPasteFormat\n"
++"Label\n"
++"value.text"
++msgid "Paste Formatting"
++msgstr "Dán định dạng"
++
+ #. hstHstRotatePageRightTooltipLabel
+ #: DrawImpressCommands.xcu
+ msgctxt ""

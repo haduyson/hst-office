@@ -136,6 +136,7 @@ Phím đổi sau ngày 15/11 (quy tắc 100 % của chủ dự án): `patches/li
 | Sheets | Ctrl+Shift+F | Định dạng ô, thẻ Phông chữ (15/11) | Tìm tiếp (Win/Linux) |
 | Sheets | Ctrl+Alt+L | Áp dụng lại lọc và sắp xếp của vùng (`.uno:DataAreaRefresh`, 15/11) | không có |
 | Slides, PDF | Ctrl+F2 | Trang In có xem trước, như Ctrl+P (15/11) | không có |
+| Slides | Ctrl+Shift+C / Ctrl+Shift+V | Sao chép / dán định dạng hình hoặc chữ (`.uno:HstCopyFormat` / `.uno:HstPasteFormat`, `hst-slides-copy-paste-format.patch`, 15/11) | không có / Dán đặc biệt |
 | Sheets | Ctrl+F2 | Xem trước khi in | Hàm (hộp thoại) |
 | Sheets | Shift+F3 | Chèn hàm | Xoay vòng kiểu chữ |
 | Sheets | Shift+F9 | Tính lại | Theo dấu ô tham chiếu |
@@ -185,6 +186,7 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 | Writer | Shift+F12 / Ctrl+F12 / Ctrl+Shift+F12 | Dấu đầu dòng / Chèn bảng / Tắt đánh số | Ctrl+Shift+L / thẻ Chèn ▸ Bảng / ribbon |
 | Sheets | Ctrl+Shift+F (Win/Linux) | Tìm tiếp | thanh Tìm, Tìm và thay thế |
 | Writer | Ctrl+Shift+A | Đoạn trái-sang-phải | menu Định dạng, ribbon |
+| Slides | Ctrl+Shift+V | Dán đặc biệt | Ctrl+Alt+V, ribbon, menu Sửa |
 | Writer | Ctrl+Q (Win/Linux) | Thoát | Alt+F4, Tệp tin ▸ Thoát |
 | Writer | F4 | Thuộc tính hình ảnh | menu chuột phải |
 | Writer | F12 (Win/Linux) | Bật/tắt đánh số | ribbon, Định dạng ▸ Dấu đầu dòng và đánh số |
@@ -228,7 +230,7 @@ trên máy Mac M2.
 ## Chưa xác minh
 
 - Alt+F4 đi qua trình quản lý cửa sổ / Windows nên máy kiểm tra (Xvfb, không có trình quản lý cửa sổ) không thử được.
-  Slides chưa có Ctrl+Shift+C/V của PowerPoint (sao chép / dán định dạng đối tượng); `Ctrl+Alt+C/V` chỉ có ở Writer.
+  Slides: Ctrl+Shift+C/V chép định dạng trong cùng tài liệu; dán sang tài liệu khác không làm gì (như Writer).
 - macOS: mọi phím `install:module="macosx"` và phím ký hiệu (`Cmd+Shift+>`, `Control+Shift+#`,
   `Control+Shift+~`) chưa thử trên máy Mac; Option+Return trong Sheets đi qua cùng mã như Alt+Enter.
 - Windows: phím ký hiệu (`Ctrl+Shift+>`/`<`, `Ctrl+Shift+#`/`~`, `Ctrl+Shift+=`, `Ctrl+Shift+:`)
