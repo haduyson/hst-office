@@ -8,7 +8,9 @@ optionally stores the document again, closes it and prints one JSON line:
 {"connect": s, "load": s, "idle": s, "layout": s, "pages": n, "save": s, "kind": ..., "modified": bool, "error": ...}
 (probe_median/probe_max: with LFO_PROBE=<s>, the wait of a call that needs the office's main lock, every 0.5 s for <s>
 seconds after the load; layout/pages: Writer with LFO_FULL_LAYOUT=1 only, the time until the whole document is laid out; idle layout
-may still be running when the office first becomes idle).
+may still be running when the office first becomes idle; freeze_load/freeze_after: with LFO_FREEZE=1, the longest frozen
+user interface until idle and after it; LFO_INTERACT=1 adds scroll/typing latencies, LFO_AUTOSAVE=1 the AutoRecovery
+timer's save and its freeze; see large_file_open_interact.py).
 """
 import json
 import os
@@ -44,6 +46,9 @@ def main():
     smgr = ctx.ServiceManager
     desktop = smgr.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
     toolkit = smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import large_file_open_interact as interact
+    freeze = interact.Probe(smgr, ctx) if os.environ.get("LFO_FREEZE") == "1" else None
     if sys.argv[3] != "cli":
         toolkit.processEventsToIdle()  # the office's own start-up work first
     url = uno.systemPathToFileUrl(path)
@@ -64,6 +69,8 @@ def main():
             doc = desktop.loadComponentFromURL(url, "_blank", 0, (prop("Hidden", hidden),))
         res["load"] = round(time.monotonic() - t0, 2)
         print(json.dumps(dict(res, stage="loaded")), flush=True)  # kept by the controller if idle never comes
+        if os.environ.get("LFO_INTERACT_EARLY") == "1" and not hidden:  # while the layout still runs
+            res.update(interact.interact(smgr, ctx, doc, "early_"))
         probe = float(os.environ.get("LFO_PROBE", "0"))
         if probe and not hidden:  # responsiveness while the office works on: a call that needs the main lock
             window, waits, end = doc.getCurrentController().getFrame().getContainerWindow(), [], time.monotonic() + probe
@@ -77,7 +84,17 @@ def main():
         if not hidden:
             toolkit.processEventsToIdle()
             res["idle"] = round(time.monotonic() - t0, 2)
+            t_idle = time.monotonic()
+            if freeze:
+                res["freeze_load"] = freeze.longest(0, t_idle)
             print(json.dumps(dict(res, stage="idle")), flush=True)
+            if os.environ.get("LFO_INTERACT") == "1":
+                res.update(interact.interact(smgr, ctx, doc))
+            if freeze:
+                res["freeze_after"] = freeze.longest(t_idle)
+            if freeze and os.environ.get("LFO_AUTOSAVE") == "1":
+                res.update(interact.autosave(doc, freeze))
+            print(json.dumps(dict(res, stage="interact")), flush=True)
             if os.environ.get("LFO_FULL_LAYOUT") == "1" and doc.supportsService("com.sun.star.text.TextDocument"):
                 # the page count needs the whole document laid out: idle layout may still be running
                 res["pages"] = doc.getCurrentController().PageCount
@@ -102,9 +119,12 @@ def main():
                 res["save_odf"] = round(time.monotonic() - t2, 2)
     except Exception as e:  # noqa: BLE001 - reported, the controller decides
         res["error"] = "%s: %s" % (type(e).__name__, getattr(e, "Message", str(e))[:200])
+    if freeze:
+        freeze.finish()
     print(json.dumps(res), flush=True)
     try:
         if doc is not None:
+            doc.setModified(False)  # typed into by --interact: closing must not ask to save
             doc.close(True)
         print(json.dumps(dict(res, terminated=bool(desktop.terminate()))), flush=True)
     except Exception:  # noqa: BLE001 - the bridge goes away with the office
