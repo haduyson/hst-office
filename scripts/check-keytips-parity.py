@@ -121,7 +121,10 @@ def check_tree(tree, table, rows, errors):
         for tab, commands in table["commands"].get(module, {}).items():
             got = dict(reversed(simulated.get(app, {}).get(tab, [])))  # the first item of a command counts
             for ident, (letter, control) in commands.items():
-                if ident in got and got[ident] != letter:
+                if ident not in got:
+                    errors.append(f"{app} {tab}: {ident} ({control}, {letter!r}) has no button on the tab: "
+                                  "regenerate scripts/ribbon/build-keytips-parity.py")
+                elif got[ident] != letter:
                     errors.append(f"{app} {tab}: {ident} ({control}) gets {got[ident]!r}, the suite uses {letter!r}")
     bindings = accel.load([os.path.join(tree, accel.ACCELERATORS), os.path.join(ROOT, accel.EXTENSION)])
     for row in rows:

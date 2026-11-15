@@ -45,13 +45,15 @@ EXTRA = {("excel", "Page Layout"): {"Page Setup": ["PageFormatDialog"]}}
 # control]}. They take their letter before the tab's commands. Draw's Arrange tab and the Data Analysis add-in have no
 # captured counterpart: the letters of the same controls on the suite's other tabs.
 MENU_KEYS = {
-    "swriter": {"LayoutLabel": {"btnHstLayoutPositionMenu": ["PO", "Position"], "btnHstLayoutWrapMenu": ["TW", "Wrap Text"],
+    "swriter": {"HomeLabel": {"btnHstHomeTextEffectsMenu": ["FT", "Text Effects and Typography"]},
+                "LayoutLabel": {"btnHstLayoutPositionMenu": ["PO", "Position"], "btnHstLayoutWrapMenu": ["TW", "Wrap Text"],
                                 "btnHstLayoutForwardMenu": ["AF", "Bring Forward"],
                                 "btnHstLayoutBackwardMenu": ["AE", "Send Backward"],
                                 "btnHstLayoutAlignMenu": ["AA", "Align"], "btnHstLayoutGroupMenu": ["AG", "Group"],
                                 "btnHstLayoutRotateMenu": ["AY", "Rotate"]},
                 "ReviewLabel": {"btnHstReviewAcceptMenu": ["A2", "Accept"], "btnHstReviewRejectMenu": ["J", "Reject"]}},
-    "scalc": {"LayoutLabel": {"btnHstLayoutForwardMenu": ["AF", "Bring Forward"],
+    "scalc": {"HomeLabel": {"StylesPreview": ["J", "Cell Styles"]},
+              "LayoutLabel": {"btnHstLayoutForwardMenu": ["AF", "Bring Forward"],
                               "btnHstLayoutBackwardMenu": ["AE", "Send Backward"],
                               "btnHstLayoutAlignMenu": ["AA", "Align"], "btnHstLayoutGroupMenu": ["AG", "Group"],
                               "btnHstLayoutRotateMenu": ["AY", "Rotate"]},
