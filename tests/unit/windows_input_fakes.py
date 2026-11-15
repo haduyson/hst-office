@@ -33,9 +33,10 @@ class FakeApi:
         self.under_pointer = DOC
         self.posted, self.grants = [], set()
         self.closed_on_post = True
-        # GWL_STYLE / GWL_EXSTYLE: a document frame (sizeable, no WS_POPUP, WS_EX_APPWINDOW) and an owned dialog
-        self.style = {DOC: (0x16CF0000, 0x00040100), OTHER_OFFICE: (0x16CF0000, 0x00040100),
-                      DIALOG: (0x96C80000, 0x00010101)}
+        # GWL_STYLE / GWL_EXSTYLE as measured on HST5: a document frame (SALFRAME, sizeable, no WS_POPUP) and an
+        # owned dialog (SALSUBFRAME, WS_POPUP)
+        self.style = {DOC: (0x15CF0000, 0x00000100), OTHER_OFFICE: (0x15CF0000, 0x00000100),
+                      DIALOG: (0x84CD0000, 0x00000101)}
 
     def foreground(self):
         return self.foreground_window

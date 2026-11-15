@@ -134,8 +134,8 @@ class SendInputTests(unittest.TestCase):
         window.endExecute.assert_not_called()
         self.assertEqual((self.api.posted, self.user32.sent), ([], []))
         self.assertFalse(self.dialogs.is_frame_window(DIALOG))
-        self.api.style[DIALOG] = (0x16CF0000, 0x00000101)   # an ownerless sizeable dialog: no WS_EX_APPWINDOW
-        self.api.windows[DIALOG] = ("SALFRAME", "Tùy chọn", fakes.OFFICE_PID)
+        self.api.windows[DIALOG] = ("SALFRAME", "Tùy chọn", fakes.OFFICE_PID)   # ownerless, not sizeable
+        self.api.style[DIALOG] = (0x14CA0000, 0x00000101)
         self.assertFalse(self.dialogs.is_frame_window(DIALOG))
 
     def test_close_dialog_falls_back_to_end_execute_never_to_keys(self):
