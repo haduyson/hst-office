@@ -1,0 +1,156 @@
+HST Office: a Writer document's number formats aggregate is created once, also when two threads ask for it.
+
+SwXTextDocument::queryInterface, getTypes and getSomething create the aggregated number formats
+supplier (m_xNumFormatAgg) on first use and are called without the SolarMutex. A UNO bridge thread
+(a script or converter driving the office over a pipe or socket) and the main thread (an extension
+inspecting the document, here the session heartbeat and the "Phiên bản trước" job on OnModifyChanged)
+asked a newly loaded document at the same moment: both saw no aggregate, both created one, one
+reference was assigned over the other while it was still in use, and the heap broke later at unrelated
+places ("malloc(): unsorted double linked list corrupted", SIGSEGV releasing a freed document over
+the bridge). Converting 1602 .docx files in one office with the bundled extension crashed in every
+run; with the creation serialised by a lock no run crashed. The lock is recursive because setting the
+delegator may query the document again, and Invalidate/InitNewDoc take it so the doc shell and the
+aggregate are never read half reset.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: CppunitTest_sw_uibase_uno (testNumberFormatsSupplierConcurrentQuery).
+---
+--- a/sw/source/uibase/uno/unotxdoc.cxx
++++ b/sw/source/uibase/uno/unotxdoc.cxx
+@@ -186,6 +186,8 @@
+ #include <unoxstyle.hxx>
+ #include <SwXTextDefaults.hxx>
+ 
++#include <mutex>
++
+ using namespace ::com::sun::star;
+ using namespace ::com::sun::star::text;
+ using namespace ::com::sun::star::i18n;
+@@ -196,6 +198,20 @@
+ using namespace ::com::sun::star::document;
+ using ::osl::FileBase;
+ 
++namespace
++{
++// HST Office: queryInterface, getTypes and getSomething create the number formats aggregate on first
++// use without the SolarMutex. UNO bridge threads call them on a document that a script on the main
++// thread inspects at the same moment; both created an aggregate, one was assigned over the other
++// while the second thread still used it, and the heap broke later at random places. Recursive: the
++// delegator set while it is held may query the document again.
++std::recursive_mutex& NumFormatAggMutex()
++{
++    static std::recursive_mutex aMutex;
++    return aMutex;
++}
++}
++
+ static std::unique_ptr<SwPrintUIOptions> lcl_GetPrintUIOptions(
+     SwDocShell * pDocShell,
+     const SfxViewShell * pView )
+@@ -440,15 +456,17 @@
+ 
+ void SwXTextDocument::GetNumberFormatter()
+ {
+-    if (!m_pDocShell)
++    std::scoped_lock aGuard(NumFormatAggMutex());
++    SwDocShell* const pDocShell = m_pDocShell;
++    if (!pDocShell)
+         return;
+ 
+     if(!m_xNumFormatAgg.is())
+     {
+-        if ( m_pDocShell->GetDoc() )
++        if ( pDocShell->GetDoc() )
+         {
+             m_xNumFormatAgg = new SvNumberFormatsSupplierObj(
+-                                m_pDocShell->GetDoc()->GetNumberFormatter());
++                                pDocShell->GetDoc()->GetNumberFormatter());
+         }
+         if(m_xNumFormatAgg.is())
+             m_xNumFormatAgg->setDelegator(getXWeak());
+@@ -1437,7 +1455,10 @@
+ 
+ void SwXTextDocument::Invalidate()
+ {
+-    m_pDocShell = nullptr;
++    {
++        std::scoped_lock aGuard(NumFormatAggMutex());
++        m_pDocShell = nullptr;
++    }
+     InitNewDoc();
+     lang::EventObject const ev(getXWeak());
+     std::unique_lock aGuard(m_pImpl->m_Mutex);
+@@ -1453,6 +1474,7 @@
+ 
+ void    SwXTextDocument::InitNewDoc()
+ {
++    std::unique_lock aNumFormatGuard(NumFormatAggMutex());
+     if (auto xNumTunnel = comphelper::query_aggregation<XUnoTunnel>(m_xNumFormatAgg))
+     {
+         auto pNumFormat = comphelper::getFromUnoTunnel<SvNumberFormatsSupplierObj>(xNumTunnel);
+@@ -1460,6 +1482,7 @@
+         if (pNumFormat)
+             pNumFormat->SetNumberFormatter(nullptr);
+     }
++    aNumFormatGuard.unlock();
+ 
+     // first invalidate all collections, then delete references and Set to zero
+     if(mxXTextTables.is())
+--- a/sw/qa/uibase/uno/uno.cxx
++++ b/sw/qa/uibase/uno/uno.cxx
+@@ -14,6 +14,7 @@
+ #include <com/sun/star/frame/XModel2.hpp>
+ #include <com/sun/star/text/XTextViewTextRangeSupplier.hpp>
+ #include <com/sun/star/util/XCloseable.hpp>
++#include <com/sun/star/util/XNumberFormatsSupplier.hpp>
+ #include <com/sun/star/text/XTextDocument.hpp>
+ #include <com/sun/star/beans/PropertyAttribute.hpp>
+ 
+@@ -34,6 +35,9 @@
+ #include <fmtanchr.hxx>
+ #include <unotxdoc.hxx>
+ 
++#include <atomic>
++#include <thread>
++
+ /// Covers sw/source/uibase/uno/ fixes.
+ class SwUibaseUnoTest : public SwModelTestBase
+ {
+@@ -620,6 +624,37 @@
+     CPPUNIT_ASSERT_EQUAL(std::string("2"), aTree.get<std::string>("mode"));
+ }
+ 
++CPPUNIT_TEST_FIXTURE(SwUibaseUnoTest, testNumberFormatsSupplierConcurrentQuery)
++{
++    // HST Office: a UNO bridge thread and a script on the main thread asking a new document for its
++    // number formats at the same moment must get the same object. Without a lock each created its
++    // own number formats aggregate, one replaced the other while still in use, and the heap broke.
++    for (int nRound = 0; nRound < 40; ++nRound)
++    {
++        if (mxComponent.is())
++        {
++            mxComponent->dispose();
++            mxComponent.clear();
++        }
++        createSwDoc();
++        uno::Reference<uno::XInterface> xDocument(mxComponent, uno::UNO_QUERY_THROW);
++        std::atomic<int> nReady(0);
++        uno::Reference<util::XNumberFormatsSupplier> aSuppliers[2];
++        auto query = [&](int nIndex) {
++            ++nReady;
++            while (nReady.load() < 2)
++                std::this_thread::yield();
++            aSuppliers[nIndex].set(xDocument, uno::UNO_QUERY);
++        };
++        std::thread aOther(query, 1);
++        query(0);
++        aOther.join();
++        CPPUNIT_ASSERT(aSuppliers[0].is());
++        // Without the fix, the two threads could get the interfaces of two different aggregates.
++        CPPUNIT_ASSERT_EQUAL(aSuppliers[0].get(), aSuppliers[1].get());
++    }
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
