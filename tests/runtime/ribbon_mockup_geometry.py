@@ -81,7 +81,8 @@ def named_box(nodes, name, roles=("panel", "push button", "toggle button", "labe
 
 def banner(nodes):
     """Box of the banner link: a link wider than 100 px in the ribbon band."""
-    node = next((n for n in nodes if n[0] == "link" and n[2][2] > 100), None)
+    # the document title button of the Tệp tin page (P4: id hst-file-title, a push button) is not the banner
+    node = next((n for n in nodes if n[0] == "link" and n[2][2] > 100 and "— Tệp tin" not in n[1]), None)
     return node[2] if node else None
 
 
