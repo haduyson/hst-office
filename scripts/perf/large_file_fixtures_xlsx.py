@@ -9,8 +9,9 @@ from large_file_fixtures_xlsx_parts import (CF_RULES, CORE, CT, HEAD, LOOKUP_ROW
                                            app_xml, many_styles_xml)
 
 
-def write_xlsx(path, rows, formulas, generator, many_styles=False, shared=True, results=True):
-    """results=False: formulas without cached results (as some exporters write them), all calculated on load."""
+def write_xlsx(path, rows, formulas, generator, many_styles=False, shared=True, results=True, countif=False):
+    """results=False: formulas without cached results (as some exporters write them), all calculated on load;
+    countif: one more column COUNTIF(B:B,B{r}) over the whole code column."""
     rnd = random.Random(7)
     strings, index = [], {}
 
@@ -22,7 +23,7 @@ def write_xlsx(path, rows, formulas, generator, many_styles=False, shared=True, 
 
     names = [sentence(rnd, 3) for _ in range(LOOKUP_ROWS)]
     notes = [sentence(rnd, 6) for _ in range(20000)]
-    ncols = 15 if formulas else 10
+    ncols = (16 if countif else 15) if formulas else 10
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
         with z.open("xl/worksheets/sheet1.xml", "w", force_zip64=True) as fh:
             w = lambda t: fh.write(t.encode("utf-8"))  # noqa: E731
@@ -32,13 +33,14 @@ def write_xlsx(path, rows, formulas, generator, many_styles=False, shared=True, 
               '<cols><col min="1" max="%d" width="14" customWidth="1"/></cols><sheetData>' % (col(ncols - 1), rows + 1, ncols))
             w('<row r="1">' + "".join('<c r="%s1" s="1" t="s"><v>%d</v></c>' % (col(i), s(HEAD[i])) for i in range(ncols)) + "</row>")
             last = rows + 1
-            qty_by_code = {}
+            qty_by_code, n_by_code = {}, {}
             data = []
             for r in range(2, last + 1):
                 code = rnd.randrange(1, LOOKUP_ROWS + 1)
                 qty, price, disc = rnd.randrange(1, 500), rnd.randrange(1000, 5_000_000), rnd.choice((0, 0.05, 0.1))
                 data.append((code, qty, price, disc))
                 qty_by_code[code] = qty_by_code.get(code, 0) + qty * price
+                n_by_code[code] = n_by_code.get(code, 0) + 1
             for r, (code, qty, price, disc) in enumerate(data, start=2):
                 c = ['<c r="A%d" s="3"><v>%d</v></c>' % (r, 45000 + r % 900),
                      '<c r="B%d" s="4" t="s"><v>%d</v></c>' % (r, s("MH%05d" % code)),
@@ -71,6 +73,8 @@ def write_xlsx(path, rows, formulas, generator, many_styles=False, shared=True, 
                           f("N", 3, "SUMIF(B:B,B{r},K:K)", qty_by_code[code]),
                           f("O", 4, 'IF(L{r}>1000000,"Lớn","Nhỏ")', "Lớn" if amount * (1 - disc) > 1e6 else "Nhỏ",
                             ' t="str"')]
+                    if countif:
+                        c.append(f("P", 5, "COUNTIF(B:B,B{r})", n_by_code[code]))
                 if many_styles:  # every cell its own style out of a few thousand
                     c = [x.replace(' s="2"', ' s="%d"' % rnd.randrange(5, 5 + MANY_XF), 1) if ' s="2"' in x
                          else x.replace('<c r=', '<c s="%d" r=' % rnd.randrange(5, 5 + MANY_XF), 1) if ' s="' not in x

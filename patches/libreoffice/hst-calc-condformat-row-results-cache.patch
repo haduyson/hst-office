@@ -1,0 +1,353 @@
+Calc: row heights evaluate a conditional format formula once per row when it cannot depend on the column.
+
+The optimal row height pass (GetOptimalHeightsInColumn) asks every cell of every column for its
+conditional format result, so an expression rule over many columns like `$F2>0.05` on A2:O60000 was
+evaluated once per cell although its result is the same in every column of the row. While the pass
+runs (ScDocument::CondRowCacheScope), ScConditionEntry::Interpret keeps the results of its relative
+formulas per (sheet, row) when the formula has only absolute-column references, values, operators and
+functions: names, labels, table/database/external references, ROW, COLUMN, CELL, OFFSET, INDIRECT,
+SHEET, INFO, CURRENT, MULTIPLE.OPERATIONS and volatile formulas keep the per-cell evaluation. The cache
+is dropped when the pass ends (a new pass id) and wherever the compiled formula is dropped.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: CppunitTest_sc_ucalc_condformat testCondFormatRowResultsInRowHeightPass, CppunitTest_sc_condformats;
+the row heights of the synthetic .xlsx files are byte-identical with and without the patch.
+---
+--- a/sc/inc/document.hxx
++++ b/sc/inc/document.hxx
+@@ -655,6 +655,7 @@
+ 
+     bool                mbTrackFormulasPending  : 1;
+     bool                mbFinalTrackFormulas    : 1;
++    sal_uInt32          mnCondRowCacheId = 0; //< HST Office: see GetCondRowCacheId
+     // This indicates if a ScDocShell::DoRecalc() or ScDocShell::DoHardRecalc() is in progress.
+     bool                mbDocShellRecalc        : 1;
+     // This indicates if a ScOutputData::LayoutStrings() is in progress.
+@@ -2707,6 +2708,27 @@
+     void                InvalidateLastTableOpParams() { aLastTableOpParams.bValid = false; }
+     ScRecursionHelper&  GetRecursionHelper();
+     bool                IsInDtorClear() const { return bInDtorClear; }
++
++    /// HST Office: non-zero while row heights are calculated; conditional format entries keep the
++    /// per-row results of column independent formulas for that long (ScConditionEntry::Interpret)
++    sal_uInt32          GetCondRowCacheId() const { return mnCondRowCacheId; }
++    class CondRowCacheScope
++    {
++        ScDocument& mrDoc;
++        sal_uInt32 mnOld;
++    public:
++        explicit CondRowCacheScope(ScDocument& rDoc) : mrDoc(rDoc), mnOld(rDoc.mnCondRowCacheId)
++        {
++            if (!mnOld) // nested passes share the outer one
++            {
++                static sal_uInt32 nLastId = 0;
++                if (++nLastId == 0)
++                    ++nLastId;
++                rDoc.mnCondRowCacheId = nLastId;
++            }
++        }
++        ~CondRowCacheScope() { mrDoc.mnCondRowCacheId = mnOld; }
++    };
+     void                SetExpandRefs( bool bVal );
+     bool                IsExpandRefs() const { return bExpandRefs; }
+ 
+--- a/sc/inc/conditio.hxx
++++ b/sc/inc/conditio.hxx
+@@ -38,6 +38,7 @@
+ #include <optional>
+ #include <map>
+ #include <memory>
++#include <unordered_map>
+ #include <set>
+ 
+ class RepaintInIdle;
+@@ -327,6 +328,14 @@
+     // with relative references (only formulas whose RPN does not depend on the position)
+     std::unique_ptr<ScTokenArray>   mpRelCode1;
+     std::unique_ptr<ScTokenArray>   mpRelCode2;
++    // HST Office: results of the relative formulas per (sheet, row) during one row height pass
++    // (ScDocument::GetCondRowCacheId), for formulas whose result cannot depend on the column
++    struct RowResult { double fVal; OUString aStr; bool bStr; };
++    std::unordered_map<sal_uInt64, RowResult> maRowResults1;
++    std::unordered_map<sal_uInt64, RowResult> maRowResults2;
++    sal_uInt32          mnRowCacheId = 0;
++    sal_Int8            mnColumnFree1 = -1; // -1 not known yet, 0 no, 1 yes
++    sal_Int8            mnColumnFree2 = -1;
+     bool                bRelRef1;
+     bool                bRelRef2;
+     bool                bFirstRun;
+--- a/sc/source/core/data/conditio.cxx
++++ b/sc/source/core/data/conditio.cxx
+@@ -458,9 +458,9 @@
+ void ScConditionEntry::CompileAll()
+ {
+     pFCell1.reset();
+-    mpRelCode1.reset();
++    mpRelCode1.reset(); mnColumnFree1 = -1; maRowResults1.clear();
+     pFCell2.reset();
+-    mpRelCode2.reset();
++    mpRelCode2.reset(); mnColumnFree2 = -1; maRowResults2.clear();
+ }
+ 
+ void ScConditionEntry::CompileXML()
+@@ -556,7 +556,7 @@
+ 
+         if (aRes.mbReferenceModified || bChangedPos)
+             pFCell1.reset();       // is created again in IsValid
+-            mpRelCode1.reset();
++            mpRelCode1.reset(); mnColumnFree1 = -1; maRowResults1.clear();
+     }
+ 
+     if (pFormula2)
+@@ -576,7 +576,7 @@
+ 
+         if (aRes.mbReferenceModified || bChangedPos)
+             pFCell2.reset();       // is created again in IsValid
+-            mpRelCode2.reset();
++            mpRelCode2.reset(); mnColumnFree2 = -1; maRowResults2.clear();
+     }
+ 
+     StartListening();
+@@ -588,14 +588,14 @@
+     {
+         pFormula1->AdjustReferenceOnInsertedTab(rCxt, aSrcPos);
+         pFCell1.reset();
+-        mpRelCode1.reset();
++        mpRelCode1.reset(); mnColumnFree1 = -1; maRowResults1.clear();
+     }
+ 
+     if (pFormula2)
+     {
+         pFormula2->AdjustReferenceOnInsertedTab(rCxt, aSrcPos);
+         pFCell2.reset();
+-        mpRelCode2.reset();
++        mpRelCode2.reset(); mnColumnFree2 = -1; maRowResults2.clear();
+     }
+ 
+     ScRangeUpdater::UpdateInsertTab(aSrcPos, rCxt);
+@@ -607,14 +607,14 @@
+     {
+         pFormula1->AdjustReferenceOnDeletedTab(rCxt, aSrcPos);
+         pFCell1.reset();
+-        mpRelCode1.reset();
++        mpRelCode1.reset(); mnColumnFree1 = -1; maRowResults1.clear();
+     }
+ 
+     if (pFormula2)
+     {
+         pFormula2->AdjustReferenceOnDeletedTab(rCxt, aSrcPos);
+         pFCell2.reset();
+-        mpRelCode2.reset();
++        mpRelCode2.reset(); mnColumnFree2 = -1; maRowResults2.clear();
+     }
+ 
+     ScRangeUpdater::UpdateDeleteTab(aSrcPos, rCxt);
+@@ -631,7 +631,7 @@
+         if (aRes.mbValueChanged)
+             aResFinal.mnTab = aRes.mnTab;
+         pFCell1.reset();
+-        mpRelCode1.reset();
++        mpRelCode1.reset(); mnColumnFree1 = -1; maRowResults1.clear();
+     }
+ 
+     if (pFormula2)
+@@ -640,7 +640,7 @@
+         if (aRes.mbValueChanged)
+             aResFinal.mnTab = aRes.mnTab;
+         pFCell2.reset();
+-        mpRelCode2.reset();
++        mpRelCode2.reset(); mnColumnFree2 = -1; maRowResults2.clear();
+     }
+ 
+     if (aResFinal.mnTab != aSrcPos.Tab())
+@@ -743,6 +743,63 @@
+     return rCache->GetCodeLen() ? *rCache : rFormula;
+ }
+ 
++/* HST Office: during a row height pass (ScDocument::CondRowCacheScope) the cells of one row ask every
++   conditional format entry for their result, one column after the other, and a formula with relative
++   references was evaluated again for every cell. When the formula cannot give another result in
++   another column of the same row, its result is kept per row for the rest of the pass: only references
++   with absolute columns (like $F2), values, operators and functions; no names, labels, table, database
++   or external references, no functions that look at the position or the interpreter state (ROW,
++   COLUMN, CELL, OFFSET, INDIRECT, SHEET, INFO, CURRENT, MULTIPLE.OPERATIONS) and nothing volatile. */
++static bool lcl_IsColumnIndependentCode( const ScTokenArray& rArr )
++{
++    if (rArr.IsRecalcModeAlways() || rArr.GetCodeError() != FormulaError::NONE)
++        return false;
++    for (const formula::FormulaToken* t : rArr.Tokens())
++    {
++        switch (t->GetType())
++        {
++            case formula::svByte:
++            case formula::svDouble:
++            case formula::svString:
++            case formula::svMissing:
++            case formula::svSep:
++            case formula::svJump:
++                break;
++            case formula::svSingleRef:
++                if (static_cast<const ScSingleRefToken*>(t)->GetSingleRef().IsColRel())
++                    return false;
++                break;
++            case formula::svDoubleRef:
++                if (static_cast<const ScDoubleRefToken*>(t)->GetDoubleRef().Ref1.IsColRel()
++                    || static_cast<const ScDoubleRefToken*>(t)->GetDoubleRef().Ref2.IsColRel())
++                    return false;
++                break;
++            default:
++                return false;
++        }
++        switch (t->GetOpCode())
++        {
++            case ocName: case ocColRowName: case ocTableRef: case ocDBArea: case ocMacro:
++            case ocExternal: case ocDde: case ocWebservice: case ocFilterXML:
++            case ocTableRefOpen: case ocTableRefClose: case ocTableRefItemAll:
++            case ocRow: case ocColumn: case ocCell: case ocOffset: case ocIndirect: case ocSheet:
++            case ocInfo: case ocCurrent: case ocTableOp:
++            case ocRandom: case ocGetActDate: case ocGetActTime:
++                return false;
++            default:
++                break;
++        }
++    }
++    return true;
++}
++
++static bool lcl_IsColumnFree( sal_Int8& rKnown, const ScTokenArray* pFormula )
++{
++    if (rKnown < 0)
++        rKnown = (pFormula && lcl_IsColumnIndependentCode(*pFormula)) ? 1 : 0;
++    return rKnown == 1;
++}
++
+ void ScConditionEntry::Interpret( const ScAddress& rPos )
+ {
+     // Create formula cells
+@@ -753,9 +810,29 @@
+     // Evaluate formulas
+     bool bDirty = false; // 1 and 2 separate?
+ 
++    const sal_uInt32 nCacheId = ScGlobal::bThreadedGroupCalcInProgress ? 0 : mrDoc.GetCondRowCacheId();
++    if (nCacheId != mnRowCacheId)
++    {
++        maRowResults1.clear();
++        maRowResults2.clear();
++        mnRowCacheId = nCacheId;
++    }
++    const sal_uInt64 nRowKey = (sal_uInt64(sal_uInt32(rPos.Tab())) << 32) | sal_uInt32(rPos.Row());
++    const bool bCache1 = nCacheId && bRelRef1 && lcl_IsColumnFree(mnColumnFree1, pFormula1.get());
++    const bool bCache2 = nCacheId && bRelRef2 && lcl_IsColumnFree(mnColumnFree2, pFormula2.get());
++    auto itHit1 = bCache1 ? maRowResults1.find(nRowKey) : maRowResults1.end();
++    auto itHit2 = bCache2 ? maRowResults2.find(nRowKey) : maRowResults2.end();
++
+     std::optional<ScFormulaCell> oTemp;
+     ScFormulaCell* pEff1 = pFCell1.get();
+-    if ( bRelRef1 )
++    if (itHit1 != maRowResults1.end())
++    {
++        nVal1 = itHit1->second.fVal;
++        aStrVal1 = itHit1->second.aStr;
++        bIsStr1 = itHit1->second.bStr;
++        pEff1 = nullptr;
++    }
++    else if ( bRelRef1 )
+     {
+         if (pFormula1)
+             oTemp.emplace(mrDoc, rPos, GetRelCode(mpRelCode1, *pFormula1, rPos));
+@@ -783,12 +860,21 @@
+                 aStrVal1 = pEff1->GetString().getString();
+                 nVal1 = 0.0;
+             }
++            if (bCache1)
++                maRowResults1[nRowKey] = RowResult{ nVal1, aStrVal1, bIsStr1 };
+         }
+     }
+     oTemp.reset();
+ 
+     ScFormulaCell* pEff2 = pFCell2.get(); //@ 1!=2
+-    if ( bRelRef2 )
++    if (itHit2 != maRowResults2.end())
++    {
++        nVal2 = itHit2->second.fVal;
++        aStrVal2 = itHit2->second.aStr;
++        bIsStr2 = itHit2->second.bStr;
++        pEff2 = nullptr;
++    }
++    else if ( bRelRef2 )
+     {
+         if (pFormula2)
+             oTemp.emplace(mrDoc, rPos, GetRelCode(mpRelCode2, *pFormula2, rPos));
+@@ -815,6 +901,8 @@
+                 aStrVal2 = pEff2->GetString().getString();
+                 nVal2 = 0.0;
+             }
++            if (bCache2)
++                maRowResults2[nRowKey] = RowResult{ nVal2, aStrVal2, bIsStr2 };
+         }
+     }
+     oTemp.reset();
+--- a/sc/source/core/data/table1.cxx
++++ b/sc/source/core/data/table1.cxx
+@@ -91,6 +91,8 @@
+     ScProgress* pProgress, sal_uLong nProgressStart )
+ {
+     assert(nStartRow <= nEndRow);
++    // HST Office: conditional formats evaluate a formula of a row only once for all columns
++    ScDocument::CondRowCacheScope aCondRowCache(rCol.back().GetDoc());
+ 
+     //  first, one time over the whole range
+     //  (with the last column in the hope that they most likely still are
+--- a/sc/qa/unit/ucalc_condformat.cxx
++++ b/sc/qa/unit/ucalc_condformat.cxx
+@@ -1604,6 +1604,50 @@
+     m_pDoc->DeleteTab(0);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(TestCondformat, testCondFormatRowResultsInRowHeightPass)
++{
++    // During a row height pass a formula whose result cannot change with the column is evaluated
++    // once per row; formulas that depend on the column keep the per-cell evaluation.
++    m_pDoc->InsertTab(0, u"Test"_ustr);
++    for (SCROW nRow = 0; nRow < 20; ++nRow)
++        for (SCCOL nCol : { 0, 2 })
++            m_pDoc->SetValue(ScAddress(nCol, nRow, 0), 1.0);
++    auto lcl_entry = [this](const OUString& rFormula) {
++        return std::make_unique<ScConditionEntry>(ScConditionMode::Direct, rFormula, u""_ustr, *m_pDoc,
++                                                  ScAddress(0, 0, 0), u""_ustr, u""_ustr,
++                                                  formula::FormulaGrammar::GRAM_DEFAULT,
++                                                  formula::FormulaGrammar::GRAM_DEFAULT);
++    };
++    auto pAbsolute = lcl_entry(u"$B1>9"_ustr);          // kept per row
++    auto pAbsRange = lcl_entry(u"SUM($B1:$B2)>9"_ustr); // kept per row
++    auto pRelative = lcl_entry(u"B1>9"_ustr);           // B in column A, D in column C
++    auto pColumn = lcl_entry(u"$B1+COLUMN()>10"_ustr);  // depends on the column
++    for (SCROW nOffset : { 0, 5 })
++    {
++        for (SCROW nRow = 0; nRow < 20; ++nRow)
++        {
++            m_pDoc->SetValue(ScAddress(1, nRow, 0), nRow + nOffset);
++            m_pDoc->SetValue(ScAddress(3, nRow, 0), 100.0);
++        }
++        ScDocument::CondRowCacheScope aScope(*m_pDoc); // a new pass sees the changed values
++        CPPUNIT_ASSERT(m_pDoc->GetCondRowCacheId() != 0);
++        for (SCCOL nCol : { 0, 2 })
++            for (SCROW nRow = 0; nRow < 19; ++nRow)
++            {
++                const ScAddress aPos(nCol, nRow, 0);
++                ScRefCellValue aCell(*m_pDoc, aPos);
++                const double fB = nRow + nOffset;
++                CPPUNIT_ASSERT_EQUAL(fB > 9, pAbsolute->IsCellValid(aCell, aPos));
++                CPPUNIT_ASSERT_EQUAL(2 * fB + 1 > 9, pAbsRange->IsCellValid(aCell, aPos));
++                CPPUNIT_ASSERT_EQUAL(nCol == 2 || fB > 9, pRelative->IsCellValid(aCell, aPos));
++                CPPUNIT_ASSERT_EQUAL(fB + nCol + 1 > 10, pColumn->IsCellValid(aCell, aPos));
++            }
++    }
++    CPPUNIT_ASSERT_EQUAL(sal_uInt32(0), m_pDoc->GetCondRowCacheId());
++
++    m_pDoc->DeleteTab(0);
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

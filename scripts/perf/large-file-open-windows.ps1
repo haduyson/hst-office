@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 # Windows side of scripts/perf/large-file-open-local.sh: unpack the MSI as an administrative image (nothing is
 # installed) and run large-file-open.py with the image's own Python. Everything stays under the test root.
-#   large-file-open-windows.ps1 <root> <label> <msi file name> [harness options...]
+#   large-file-open-windows.ps1 <root> <label> <msi file name> [harness options... | --prepare (unpack only)]
 # No param() block: harness options such as --label would otherwise bind to a script parameter.
 $ErrorActionPreference = 'Stop'
 if ($args.Count -lt 3) { throw 'usage: large-file-open-windows.ps1 <root> <label> <msi file name> [options]' }
@@ -16,6 +16,7 @@ if (-not (Test-Path "$img\.package.sha256") -or (Get-Content "$img\.package.sha2
     if ($p.ExitCode -ne 0) { throw "msiexec /a exit $($p.ExitCode)" }
     Set-Content "$img\.package.sha256" $hash
 }
+if ($Rest -contains '--prepare') { "unpacked: $img"; exit 0 }  # the run itself follows in another session
 $soffice = Get-ChildItem $img -Recurse -Filter soffice.exe | Where-Object { $_.DirectoryName -like '*\program' } |
     Select-Object -First 1
 $python = Join-Path $soffice.DirectoryName 'python.exe'

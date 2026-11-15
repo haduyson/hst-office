@@ -60,7 +60,7 @@ def app_xml(generator):
 
 LOOKUP_ROWS = 5000
 HEAD = ("Ngày", "Mã hàng", "Diễn giải", "Số lượng", "Đơn giá", "Chiết khấu", "Kho", "Nhân viên", "Ghi chú", "Mã KH",
-        "Thành tiền", "Sau CK", "Tên hàng", "Tổng theo mã", "Loại")
+        "Thành tiền", "Sau CK", "Tên hàng", "Tổng theo mã", "Loại", "Số lần")
 
 
 MANY_XF = 4000
