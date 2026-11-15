@@ -365,19 +365,43 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <utility>
  #include <vector>
  
-@@ -71,8 +76,8 @@
+@@ -71,8 +76,28 @@
  /// buttons filling the group's height)
  constexpr int FEW_COMMANDS = 3;
  
 -/// bFewCommands: the group holds at most FEW_COMMANDS commands and no control
 -void applyToToolBox(ToolBox& rToolBox, int nState, bool bFewCommands)
++/// Whether rWindow has the .ui id aId; a menu button's id ("btnX:Menu Y") is compared without its menu
++bool hasId(const vcl::Window& rWindow, std::u16string_view aId)
++{
++    auto strip = [](std::u16string_view a) { return a.substr(0, std::min(a.size(), a.find(u':'))); };
++    const OUString& rOwn = rWindow.get_id();
++    return strip(std::u16string_view(rOwn)) == strip(aId);
++}
++
++/// Buttons that keep their large labelled look at every size until their group folds, as Paste does, where the
++/// reference suite keeps them so (Sheets: Sort and Filter, Find and Select, Text Box, Text to Columns, Automatic
++/// Calculation). Ids of the .ui files (VclBuilder passes no custom property on to the window).
++bool keepsLarge(const vcl::Window& rWindow)
++{
++    static constexpr std::u16string_view aIds[]
++        = { u"btnHomeHstEditingSortFilter", u"btnHomeHstEditingFindSelect", u"bxInsertTextBox",
++            u"bxDataTextToColumns", u"bxHstAutomaticCalculation12" };
++    return std::any_of(std::begin(aIds), std::end(aIds),
++                       [&rWindow](std::u16string_view aId) { return hasId(rWindow, aId); });
++}
++
 +/// The toolbox's authored look, remembered the first time the ladder sees it
 +void rememberAuthored(ToolBox& rToolBox)
  {
      ImplToolBoxPrivateData& rData = *rToolBox.ImplGetToolBoxPrivateData();
      if (!rData.mbHstAuthored)
-@@ -85,6 +90,13 @@
-         rData.mbHstKeepLarge = holdsPaste(rToolBox)
+@@ -82,9 +107,16 @@
+         rData.meHstAuthoredSize = rToolBox.GetToolboxButtonSize();
+         rData.meHstAuthoredTextPosition = rData.meHstTextPosition;
+         // Paste, and the Zoom group's large buttons, stay large with their labels, as in Office
+-        rData.mbHstKeepLarge = holdsPaste(rToolBox)
++        rData.mbHstKeepLarge = holdsPaste(rToolBox) || keepsLarge(rToolBox)
                                 || (rData.meHstAuthoredSize == ToolBoxButtonSize::Large && inZoomGroup(rToolBox));
      }
 +}
@@ -390,7 +414,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // HST Office: a group of few large commands (Insert's Comments, Review's Protect, Sheets' Cells) keeps
      // them large, filling the group's height, at every width, so the groups look alike: as small icons
      // under a longer caption they saved almost nothing and left the group looking empty. At the small
-@@ -129,6 +141,22 @@
+@@ -129,6 +161,22 @@
          rToolBox.HstSetGridRows(nGridRows);
          bChanged = true;
      }
@@ -413,7 +437,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // HST Office: a gallery in the toolbox (Slides' themes) shows fewer columns at the smaller states, so the
      // group narrows before it folds; a window that does not know the property ignores it
      const OUString aGalleryState = OUString::number(std::min(nState, int(GroupSmall)));
-@@ -163,6 +191,12 @@
+@@ -163,6 +211,12 @@
      {
          OUString aText; // the label as authored
          bool bTip = false; // the tooltip was set from the label (the label is hidden)
@@ -426,7 +450,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      };
      static std::map<const vcl::Window*, Label>& labels()
      {
-@@ -198,6 +232,69 @@
+@@ -198,6 +252,69 @@
      return OUString::Concat(rLabel.subView(0, nBest)) + "\n" + rLabel.subView(nBest + 1) + " " + aArrow;
  }
  
@@ -496,7 +520,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  void applyToMenuButton(MenuButton& rButton, int nState)
  {
      auto& rLabels = MenuButtonLabels::labels();
-@@ -205,8 +302,25 @@
+@@ -205,15 +322,32 @@
      if (it == rLabels.end())
      {
          if (rButton.GetText().isEmpty())
@@ -524,7 +548,15 @@ License: these upstream files remain under their original license (MPL-2.0).
          rButton.AddEventListener(LINK(nullptr, MenuButtonLabels, ButtonEventHdl));
          // the name of the authored label, whatever the button shows
          rButton.SetAccessibleName(it->second.aText.replaceAll("~", "").replace('\n', ' '));
-@@ -228,12 +342,14 @@
+     }
+     MenuButtonLabels::Label& rLabel = it->second;
+     const bool bImage = !!rButton.GetModeImage();
+-    const bool bHide = nState == GroupSmall && bImage;
++    const bool bHide = nState == GroupSmall && bImage && !keepsLarge(rButton);
+     const bool bLarge = !bHide && bImage && rButton.GetImageAlign() == ImageAlign::Top;
+     const OUString aText = bHide ? OUString() : bLarge ? largeMenuLabel(rLabel.aText) : rLabel.aText;
+     const PushButtonDropdownStyle eArrow = bLarge ? PushButtonDropdownStyle::NONE : PushButtonDropdownStyle::MenuButton;
+@@ -228,12 +362,14 @@
          rLabel.bTip = false;
      }
      rButton.SetDropDown(eArrow); // no change when it is already so
@@ -545,7 +577,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  /// Grid attachments of a group's children as authored, kept while the window lives.
-@@ -247,10 +363,110 @@
+@@ -247,10 +383,142 @@
      DECL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, void);
  };
  
@@ -556,12 +588,20 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    return aHidden;
 +}
 +
++/// The authored image position of the menu buttons an alternative layout shows with their image on the left.
++std::map<const vcl::Window*, ImageAlign>& imageAlignsByLayout()
++{
++    static std::map<const vcl::Window*, ImageAlign> aAligns;
++    return aAligns;
++}
++
  IMPL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, rEvent, void)
  {
      if (rEvent.GetId() == VclEventId::ObjectDying)
 +    {
          AuthoredCells::cells().erase(rEvent.GetWindow());
 +        hiddenByLayout().erase(rEvent.GetWindow());
++        imageAlignsByLayout().erase(rEvent.GetWindow());
 +    }
 +}
 +
@@ -573,6 +613,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    int top = 0;
 +    int width = 0;
 +    int height = 1;
++    bool imageLeft = false; // a menu button with its image above its label shows it beside the label here
 +};
 +
 +/** A group laid out differently at one state than the generic ladder does (stackGroup): the cells of the
@@ -599,6 +640,10 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            { u"bxHomeAlign", 0, 1, 3 },
 +            { u"bxHomeIndent", 0, 2, 1 }, { u"bxHomeLineSpacing", 1, 2, 1 }, { u"bxHomeShading", 2, 2, 1 },
 +            { u"bxHomeHanging", 0, 0, 0 }, { u"bxHstSort", 0, 0, 0 }, { u"bxHstBorders", 0, 0, 0 } } },
++        // Sheets ▸ Home ▸ Cells at the medium size: Insert, Delete and Format as medium buttons in one column
++        { u"gdHomeCells", GroupMedium, 3, 1,
++          { { u"btnHomeHstCellsInsert", 0, 0, 1, 1, true }, { u"btnHomeHstCellsDelete", 0, 1, 1, 1, true },
++            { u"btnHomeHstCellsFormat", 0, 2, 1, 1, true } } },
 +        // Sheets ▸ Home ▸ Alignment at the small size: three rows of icons (vertical alignment and Wrap Text |
 +        // horizontal alignment and Justified | indents and Merge and Center)
 +        { u"gdHomeAlignment", GroupSmall, 3, 2,
@@ -623,7 +668,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    if (pLayout)
 +        for (const LayoutCell& rCell : pLayout->cells)
 +            if (std::none_of(rChildren.begin(), rChildren.end(),
-+                             [&rCell](const vcl::Window* p) { return p->get_id() == OUString(rCell.id); }))
++                             [&rCell](const vcl::Window* p) { return hasId(*p, rCell.id); }))
 +                pLayout = nullptr;
 +    auto& rHidden = hiddenByLayout();
 +    for (std::size_t i = 0; i < rChildren.size(); ++i)
@@ -632,7 +677,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        const LayoutCell* pCell = nullptr;
 +        if (pLayout)
 +            for (const LayoutCell& rCell : pLayout->cells)
-+                if (rChild.get_id() == OUString(rCell.id))
++                if (hasId(rChild, rCell.id))
 +                    pCell = &rCell;
 +        const bool bHide = pCell && pCell->width == 0;
 +        if (bHide && rChild.IsVisible())
@@ -642,6 +687,25 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        }
 +        else if (!bHide && rHidden.erase(&rChild))
 +            rChild.Show();
++        if (MenuButton* pButton = dynamic_cast<MenuButton*>(&rChild))
++        {
++            // its image beside its label in this layout (a medium button), as authored elsewhere
++            auto& rAligns = imageAlignsByLayout();
++            const auto it = rAligns.find(pButton);
++            const bool bLeft = pCell && pCell->imageLeft;
++            if (bLeft && it == rAligns.end())
++            {
++                rAligns.emplace(pButton, pButton->GetImageAlign());
++                pButton->SetImageAlign(ImageAlign::Left);
++                pButton->queue_resize();
++            }
++            else if (!bLeft && it != rAligns.end())
++            {
++                pButton->SetImageAlign(it->second);
++                rAligns.erase(it);
++                pButton->queue_resize();
++            }
++        }
 +        if (!pLayout)
 +            continue;
 +        GroupCell& rOut = rCells[i];
@@ -656,7 +720,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  GroupCell authoredCell(vcl::Window& rChild)
-@@ -259,10 +475,8 @@
+@@ -259,10 +527,8 @@
      auto it = rCells.find(&rChild);
      if (it == rCells.end())
      {
@@ -669,7 +733,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,37 +495,158 @@
+@@ -281,37 +547,158 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -839,7 +903,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
-@@ -377,8 +712,11 @@
+@@ -377,8 +764,11 @@
      }
      const bool bFewCommands = nCommands > 0 && nCommands <= FEW_COMMANDS;
      for (ToolBox* pToolBox : aToolBoxes)
@@ -853,7 +917,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // the menu buttons of every group drop their labels at the small state only (their image stays where it
      // is: above the label in a group of few commands)
      forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
-@@ -408,7 +746,8 @@
+@@ -408,7 +798,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {
