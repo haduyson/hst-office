@@ -35,6 +35,10 @@ WINDOW = [None]  # AT-SPI window id of the office under test, set by main
 
 
 def record(name, ok, detail=""):
+    if ok is None:  # information or a measurement this tree cannot make: listed, never a failure
+        ROWS.append({"check": name, "status": "SKIP", "detail": str(detail)})
+        print(f"SKIP  {name}  {detail}", flush=True)
+        return
     ROWS.append({"check": name, "status": "PASS" if ok else "FAIL", "detail": str(detail)})
     print(f"{'PASS' if ok else 'FAIL'}  {name}  {detail}", flush=True)
 

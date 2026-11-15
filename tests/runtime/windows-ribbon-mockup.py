@@ -36,6 +36,18 @@ POWERSHELL = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
 OUT = [""]  # the evidence folder, set by main
 
 
+SKIPS = []  # (name, detail) of the checks that are information or not measurable through MSAA
+
+
+def emit(res, name, ok, detail):
+    """A result to the Results log; a None result is a SKIP with its reason (kept in measured.json)."""
+    if ok is None:
+        SKIPS.append({"check": name, "detail": str(detail)})
+        print(f"SKIP  {name}  {detail}", flush=True)
+        return
+    res(name, ok, detail)
+
+
 def _run(script, *args):
     result = subprocess.run(POWERSHELL + [os.path.join(HERE, script), *args], capture_output=True, check=False)
     return result.stdout.decode("utf-8", errors="replace")
@@ -89,7 +101,7 @@ def run_tab(res, office, tab, widths, expected, measured):
         measured[key] = {"states": states, "banner": got["banner"], "font_box": got["font_box"], "nodes": len(nodes)}
         if key in expected:
             for name, ok, detail in width_findings(tab, width, expected[key]["states"], got):
-                res(name, ok, detail)
+                emit(res, name, ok, detail)
         for group, value in got["groups"].items():
             levels.setdefault(group, []).append((width, value["state"]))
     return levels
@@ -129,11 +141,11 @@ def main():
                 widths = list(range(1100, 1921, args.sweep_step))
             levels = run_tab(res, office, tab, widths, expected, measured)
             for name, ok, detail in monotonic_findings(levels, tab):
-                res(name, ok, detail)
+                emit(res, name, ok, detail)
     finally:
         office.stop()
     with open(os.path.join(args.out, "measured.json"), "w", encoding="utf-8") as handle:
-        json.dump(measured, handle, ensure_ascii=False, indent=1, default=str)
+        json.dump({"measured": measured, "skipped": SKIPS}, handle, ensure_ascii=False, indent=1, default=str)
     return res.exit_code()
 
 

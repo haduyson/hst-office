@@ -69,7 +69,7 @@ def type_text(display, text):
 
 
 def text_of(office):
-    return office.desktop.getCurrentFrame().getController().getModel().getText().getString()
+    return office.desktop().getCurrentFrame().getController().getModel().getText().getString()
 
 
 def check(args):
@@ -81,6 +81,7 @@ def check(args):
         record("Trang đầu page shown before Ctrl+F1", page_shown(base), "")
         key(args.display, "ctrl+F1")
         compact = atspi.ribbon_nodes()
+        hst_gui.screenshot(os.path.join(args.out, "compact-collapsed.png"), args.display)
         record("Ctrl+F1 collapses the ribbon (page hidden, tab row kept)",
                not page_shown(compact) and geo.tab_geometry(compact)[0] is not None, "")
         want = quick_row_count()
@@ -99,6 +100,7 @@ def check(args):
         record("Alt+5 redoes (Làm lại, positional)", "qat" in text_of(office), repr(text_of(office)[-20:]))
         key(args.display, "ctrl+F1")
         key(args.display, "alt", HOME_LETTER.lower())
+        hst_gui.screenshot(os.path.join(args.out, "compact-alt-h.png"), args.display)
         record("Alt+letter drops the Home page over the document in the compact state",
                page_shown(atspi.ribbon_nodes()), "")
     finally:
