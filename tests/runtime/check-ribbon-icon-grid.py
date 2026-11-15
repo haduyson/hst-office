@@ -64,7 +64,7 @@ def parse_dump(lines):
         flag, command = parts[1], parts[2]
         icon = tuple(int(v) for v in parts[4:8])
         button = tuple(int(v) for v in parts[9:13])
-        last[command] = (flag, command, icon, button, float(parts[14]))
+        last[command] = (flag, command, icon, button, float(parts[14].replace(",", ".")))
     return list(last.values())
 
 
@@ -84,10 +84,14 @@ def check_dump(entries, icon_px=24):
             want_x = bx + (bw - iw) / 2
             ok = abs(ix - want_x) <= TOL * scale
             rows.append((f"{command}: large icon centred", ok, f"icon x {ix} want {want_x:.1f}"))
-            dy = iy - by
-            allowed = [v * scale for v in (10, 7, 6, 3)] if iw == icon_px else [v * scale for v in (6, 3)]
-            ok = any(abs(dy - v) <= TOL * scale for v in allowed)
-            rows.append((f"{command}: large icon top at iconY", ok, f"top offset {dy} allowed {allowed}"))
+            # the top of the 32 px box, as the layout places it: icon.y - button.y - (32*scale - icon.h) / 2
+            box_top = iy - by - (32 * scale - ih) / 2
+            allowed = [6 * scale, 3 * scale]  # 6 normally, 3 when a tall font pushes the box up (P2, HstRibbonGeometry)
+            ok = any(abs(box_top - v) <= TOL * scale for v in allowed)
+            rows.append((f"{command}: large icon box top at 6 (or 3)", ok, f"box top {box_top:.1f} allowed {allowed}"))
+            # the owner's rule: the large icon of the ribbon is 24 px (the 16 px icons sit in their box and pass above)
+            rows.append((f"{command}: large icon is 24 px (owner rule)", iw == icon_px * scale,
+                         f"icon {iw}x{ih}, rule {icon_px * scale}"))
     return rows
 
 
