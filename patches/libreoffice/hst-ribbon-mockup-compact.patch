@@ -13,7 +13,9 @@ position; New (.uno:AddDirect, Ctrl+N) is a plain button without its document ty
 customised toolbar keep it. The quick row's Tìm is the find bar (Ctrl+F) as on the ribbon; the find bar and HST
 commands take the 16 px icon their ribbon button shows (data/ribbon/quick-rows.json "icons"). In the compact
 state the tab row narrows the feature search box down to its magnifier before any quick access button goes
-into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's row is unchanged.
+into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's row is unchanged. The quick row, the
+quick access toolbar on the tab row and the chevrons follow the tabs in the accessibility tree (buttons named by
+their labels), where assistive technology and the checks reach them.
 
 --- a/sfx2/source/notebookbar/HstRibbonCompact.hxx
 +++ b/sfx2/source/notebookbar/HstRibbonCompact.hxx
@@ -519,6 +521,29 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
          // its items and the ▾/» menu button at the end (the toolbox's size request leaves that button out)
          const Size aWant(m_pShortcuts->GetOptimalSize().Width() + std::lround(16 * fHstDpi),
                           m_pShortcuts->GetOptimalSize().Height());
+--- a/vcl/source/accessibility/vclxaccessibletabcontrol.cxx
++++ b/vcl/source/accessibility/vclxaccessibletabcontrol.cxx
+@@ -308,8 +308,8 @@
+ 
+ 
+ // HST Office: windows placed on the tab control itself after the page tabs, the ribbon's feature
+-// search box and banner link, follow the page tabs in visual order, otherwise assistive technology
+-// could never reach them.
++// search box and banner link, the quick access toolbar, the compact ribbon's quick row and its chevron
++// buttons, follow the page tabs in visual order, otherwise assistive technology could never reach them.
+ static std::vector<vcl::Window*> lcl_getExtraChildren(const TabControl* pTabControl)
+ {
+     std::vector<vcl::Window*> aChildren;
+@@ -320,7 +320,8 @@
+     {
+         if (pChild->IsVisible()
+             && (pChild->GetAccessibleRole() == AccessibleRole::HYPER_LINK
+-                || pChild->get_id() == u"hst-tab-search"))
++                || pChild->get_id() == u"hst-tab-search" || pChild->GetType() == WindowType::TOOLBOX
++                || pChild->GetAccessibleRole() == AccessibleRole::PUSH_BUTTON))
+             aChildren.push_back(pChild);
+     }
+     std::stable_sort(aChildren.begin(), aChildren.end(), [](vcl::Window* a, vcl::Window* b) {
 --- a/sw/uiconfig/swriter/toolbar/notebookbarshortcuts.xml
 +++ b/sw/uiconfig/swriter/toolbar/notebookbarshortcuts.xml
 @@ -8,14 +8,15 @@

@@ -60,6 +60,14 @@ class MockupGeometry(unittest.TestCase):
         self.assertIn("MouseEvent(m_aClickPos, 1, MouseEventModifiers::SIMPLECLICK, MOUSE_LEFT)", drop)
 
 
+class Accessibility(unittest.TestCase):
+    def test_quick_row_qat_and_chevrons_are_in_the_tree(self):
+        # children of the tab control other than the pages are hidden from assistive technology unless listed
+        code = added(MOCKUP_PATCH, "vcl/source/accessibility/vclxaccessibletabcontrol.cxx")
+        self.assertIn("pChild->GetType() == WindowType::TOOLBOX", code)
+        self.assertIn("pChild->GetAccessibleRole() == AccessibleRole::PUSH_BUTTON", code)
+
+
 class CompactKeyTips(unittest.TestCase):
     def test_tab_tip_drops_the_page_and_tips_follow_in_the_popup(self):
         code = added(KEYTIPS_PATCH, "sfx2/source/notebookbar/HstRibbonKeyTips.cxx")
