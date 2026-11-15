@@ -26,7 +26,10 @@ import ribbon_mockup_geometry as geo  # noqa: E402
 import ribbon_mockup_msaa as msaa  # noqa: E402
 from ribbon_mockup_rules import monotonic_findings, width_findings  # noqa: E402
 
-EXPECTED = os.path.join(HERE, "ribbon-mockup-expected.json")
+EXPECTED = {"writer": os.path.join(HERE, "ribbon-mockup-expected.json"),
+            "calc": os.path.join(HERE, "ribbon-mockup-expected-sheets.json")}  # by app
+FACTORY = {"writer": "private:factory/swriter", "calc": "private:factory/scalc"}
+APP = ["writer"]  # set by main
 TAB_NAMES = {"home": "Trang đầu", "insert": "Chèn"}
 HEIGHT = 900
 POWERSHELL = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
@@ -65,7 +68,7 @@ def set_width(office, width):
 
 def measure(nodes, tab):
     tab_top, strip = geo.tab_geometry(nodes)
-    return {"groups": geo.groups(nodes, tab), "tab_top": tab_top, "strip": strip, "banner": geo.banner(nodes),
+    return {"groups": geo.groups(nodes, tab, APP[0]), "tab_top": tab_top, "strip": strip, "banner": geo.banner(nodes),
             "page": geo.page_box(nodes, tab_top),
             "font_box": geo.named_box(nodes, "Tên phông"), "size_box": geo.named_box(nodes, "Kích cỡ phông")}
 
@@ -98,11 +101,16 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--port", type=int, default=2391)
     parser.add_argument("--sweep-step", type=int, default=0)
+    parser.add_argument("--app", default="writer", choices=sorted(EXPECTED))
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
     OUT[0] = args.out
-    with open(EXPECTED, encoding="utf-8") as handle:
+    APP[0] = args.app
+    with open(EXPECTED[args.app], encoding="utf-8") as handle:
         expected = json.load(handle)["states"]
+    if args.app == "calc":  # Sheets: the cell styles are part of Kiểu (owner decision)
+        for value in expected.values():
+            value["states"].pop("cellstyles", None)
     profile = os.path.join(args.out, "profile")
     res = wg.Results(args.out, profile)
     office = wg.WinOffice(args.install, profile, args.port, args.out, nodefault=True)
@@ -112,7 +120,7 @@ def main():
         time.sleep(15)
         office.ctx = office._connect()
         wg.dismiss_startup(office, os.path.join(args.out, "startup.png"))
-        office.load("private:factory/swriter")
+        office.load(FACTORY[args.app])
         time.sleep(6)
         wg.dismiss_startup(office, os.path.join(args.out, "doc-startup.png"), timeout=8, settle=2)
         for tab in ("home", "insert"):
