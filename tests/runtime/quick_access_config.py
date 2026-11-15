@@ -2,8 +2,21 @@
 """Quick access toolbar of the HST ribbon over UNO, shared by the Linux and Windows checks: the default and test
 command lists, the commands a module shows, and replacing them (from the caller's thread, as a UNO client does)."""
 
-DEFAULTS = [".uno:Save", ".uno:Undo", ".uno:Redo"]
 WRITER, CALC = "com.sun.star.text.TextDocument", "com.sun.star.sheet.SpreadsheetDocument"
+IMPRESS, DRAW = "com.sun.star.presentation.PresentationDocument", "com.sun.star.drawing.DrawingDocument"
+# the 1.0.2 quick access toolbar: six buttons, Mới, Mở ▾, Lưu ▾, Hoàn tác ▾, Làm lại ▾, In (owner decision D3); the
+# open command of Writer and Sheets is their own (OpenFromWriter, OpenFromCalc)
+OPEN_COMMAND = {WRITER: ".uno:OpenFromWriter", CALC: ".uno:OpenFromCalc"}
+# KeyTips are positional: 1 Mới, 2 Mở, 3 Lưu, 4 Hoàn tác, 5 Làm lại, 6 In
+UNDO_KEY, REDO_KEY = "4", "5"
+
+
+def defaults(module):
+    """The six default buttons of the quick access toolbar of `module` (a document service name), in order."""
+    return [".uno:New", OPEN_COMMAND.get(module, ".uno:Open"), ".uno:Save", ".uno:Undo", ".uno:Redo", ".uno:Print"]
+
+
+DEFAULTS = defaults(WRITER)
 MANY = [".uno:Paste", ".uno:Cut", ".uno:Copy", ".uno:Bold", ".uno:Italic", ".uno:Underline", ".uno:CenterPara",
         ".uno:DefaultBullet", ".uno:InsertTable", ".uno:InsertGraphic", ".uno:SearchDialog", ".uno:Print",
         ".uno:PrintPreview"]

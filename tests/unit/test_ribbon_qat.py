@@ -23,15 +23,16 @@ class Defaults(unittest.TestCase):
     def test_save_undo_redo_shown_the_checklist_waits_hidden(self):
         for module, open_command in APPS.items():
             items = toolbar(module)
-            self.assertEqual([c for c, shown in items if shown], [".uno:Save", ".uno:Undo", ".uno:Redo"], module)
+            self.assertEqual([c for c, shown in items if shown],
+                             [".uno:New", open_command, ".uno:Save", ".uno:Undo", ".uno:Redo", ".uno:Print"], module)
             hidden = {c for c, shown in items if not shown}
-            for command in (".uno:AddDirect", open_command, ".uno:Print", ".uno:PrintPreview", ".uno:SendMail"):
+            for command in (".uno:AddDirect", ".uno:PrintPreview", ".uno:SendMail"):
                 self.assertIn(command, hidden, module)
 
     def test_checklist_matches_the_defaults(self):
         qat = added(PATCH, "sfx2/source/notebookbar/HstQuickAccess.cxx")
-        for command in (".uno:AddDirect", ".uno:OpenFromWriter", ".uno:OpenFromCalc", ".uno:Save", ".uno:Print",
-                        ".uno:PrintPreview", ".uno:SendMail", ".uno:Undo", ".uno:Redo"):
+        for command in (".uno:AddDirect", ".uno:OpenFromWriter", ".uno:OpenFromCalc", ".uno:New", ".uno:Save",
+                        ".uno:Print", ".uno:PrintPreview", ".uno:SendMail", ".uno:Undo", ".uno:Redo"):
             self.assertIn(f'u"{command}"_ustr', qat)
 
 

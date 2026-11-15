@@ -22,7 +22,7 @@ if hasattr(sys.stdout, "reconfigure"):
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import windows_gui as wg  # noqa: E402
-from quick_access_config import MANY, WRITER, set_commands, shown  # noqa: E402
+from quick_access_config import MANY, UNDO_KEY, REDO_KEY, WRITER, defaults, set_commands, shown  # noqa: E402
 from windows_keytips_keys import VK_ALT, front  # noqa: E402
 
 APPS = {  # app -> (factory, UI configuration module, window title)
@@ -31,10 +31,6 @@ APPS = {  # app -> (factory, UI configuration module, window title)
     "impress": ("private:factory/simpress", "com.sun.star.presentation.PresentationDocument", "HST Slides"),
     "draw": ("private:factory/sdraw", "com.sun.star.drawing.DrawingDocument", "HST Draw"),
 }
-# the quick access toolbar of the 1.0.2 ribbon: six buttons, Mới, Mở ▾, Lưu ▾, Hoàn tác ▾, Làm lại ▾, In (owner decision D3)
-QAT_DEFAULTS = [".uno:New", ".uno:Open", ".uno:Save", ".uno:Undo", ".uno:Redo", ".uno:Print"]
-# KeyTips are positional: 1 Mới, 2 Mở, 3 Lưu, 4 Hoàn tác, 5 Làm lại, 6 In
-UNDO_KEY, REDO_KEY = "4", "5"
 TEXT = "qat"  # typed with the gated input: an API edit does not reach the undo stack
 OUT_DIR = [""]  # set by main
 
@@ -130,7 +126,7 @@ def main():
             if not res(f"[{app}] window found", bool(hwnd), APPS[app][2]):
                 continue
             window_shot(hwnd, os.path.join(args.out, f"{app}-defaults.bmp"))
-            res(f"[{app}] defaults Mới, Mở, Lưu, Hoàn tác, Làm lại, In", shown(office, APPS[app][1]) == QAT_DEFAULTS,
+            res(f"[{app}] defaults Mới, Mở, Lưu, Hoàn tác, Làm lại, In", shown(office, APPS[app][1]) == defaults(APPS[app][1]),
                 shown(office, APPS[app][1]))
             if app == "writer" and args.keys:
                 try:
@@ -143,7 +139,7 @@ def main():
                 names = shown(office, WRITER)
                 alive = office.proc.poll() is None
                 res("[writer] 13 more commands set from a UNO thread: the office keeps running",
-                    alive and len(names) == len(QAT_DEFAULTS) + len(MANY), {"alive": alive, "commands": len(names)})
+                    alive and len(names) == len(defaults(WRITER)) + len(MANY), {"alive": alive, "commands": len(names)})
                 if alive:
                     window_shot(hwnd, os.path.join(args.out, "writer-16-commands.bmp"))
             if office.proc.poll() is None:
