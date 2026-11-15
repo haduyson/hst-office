@@ -37,10 +37,11 @@ class Defaults(unittest.TestCase):
 
 
 class NewButton(unittest.TestCase):
-    def test_mới_is_add_direct_without_a_dropdown(self):
-        # the mockup's Mới is a plain button: .uno:AddDirect with no ▾ (its controller is not the dropdown one)
-        qat = added(PATCH, "sfx2/source/notebookbar/HstQuickAccess.cxx")
-        self.assertNotIn("NewToolbarController", qat)
+    def test_mới_drops_the_dropdown_bit_of_add_direct(self):
+        # the mockup's Mới is a plain button: HstQuickAccess clears DROPDOWNONLY on .uno:AddDirect after each change
+        qat = added("hst-ribbon-mockup-compact.patch", "sfx2/source/notebookbar/HstQuickAccess.cxx")
+        self.assertIn(".uno:AddDirect", qat)
+        self.assertIn("DROPDOWNONLY", qat)
 
 
 class Behaviour(unittest.TestCase):
