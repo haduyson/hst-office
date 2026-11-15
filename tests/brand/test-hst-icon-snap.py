@@ -14,8 +14,6 @@ import hst_icon_snap as snap  # noqa: E402
 
 SOURCE = ROOT / "icon-themes-src/hst"
 NS = "{http://www.w3.org/2000/svg}"
-EXTENSION_TAB = {"convertencoding", "numbertowords", "formatdate", "formatvnd", "importcsv", "removediacritics",
-                 "splitname", "sortbygivenname", "deleteblankrows", "showsolutions"}
 
 
 def master(body):
@@ -112,8 +110,9 @@ class SnapTest(unittest.TestCase):
 
     def test_home_and_quick_access_families_have_hand_tuned_16_px_masters(self):
         families = json.loads((SOURCE / "metadata/families.json").read_text())
+        # Extension tab commands (Vietnamese tools, citations) are flagged in the metadata and have no 16 px master.
         home = {f["glyph"] for f in families if f["stage"] == 1 and not f.get("skip") and not f.get("trademark")
-                and f["glyph"] not in EXTENSION_TAB}
+                and not f.get("extension_tab")}
         tuned = {p.stem for p in (SOURCE / "glyphs/stage-1-16").glob("*.svg")}
         self.assertEqual(len(home), 78)
         self.assertEqual(tuned, home)
