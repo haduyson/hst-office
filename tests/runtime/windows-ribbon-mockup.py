@@ -45,6 +45,22 @@ def find_tab(windows, name):
     return None
 
 
+def dump_tree(windows, path):
+    """Writes the accessibility nodes of the windows (role, name, showing) for a missing tab: a diagnosis aid."""
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(f"top windows: {len(windows)}\n")
+        for window in windows:
+            count = 0
+            for context, depth in a11y.walk(window, limit=20):
+                count += 1
+                try:
+                    handle.write(f"{'  ' * depth}{context.getAccessibleRole()} | {context.getAccessibleName()!r} | "
+                                 f"{a11y.showing(context)}\n")
+                except Exception as error:  # noqa: BLE001
+                    handle.write(f"{'  ' * depth}error {error!r}\n")
+            handle.write(f"window nodes: {count}\n")
+
+
 def measure(windows, tab):
     nodes = uno_nodes.ribbon_nodes(windows)
     tab_top, strip = geo.tab_geometry(nodes)
@@ -53,9 +69,12 @@ def measure(windows, tab):
 
 
 def set_width(office, width):
-    frame = office.desktop().getCurrentFrame()
+    frame = office.desktop.getCurrentFrame()
     frame.getContainerWindow().setPosSize(0, 0, width, HEIGHT, 12)  # POSSIZE_WIDTH | POSSIZE_HEIGHT
     time.sleep(3)
+
+
+OUT = [""]  # the evidence folder, set by main
 
 
 def run_tab(res, office, tab, widths, expected, measured):
@@ -66,6 +85,7 @@ def run_tab(res, office, tab, widths, expected, measured):
         windows = office.top_windows()
         tab_context = find_tab(windows, a11y_name)
         if tab_context is None:
+            dump_tree(windows, os.path.join(OUT[0], f"tree-{tab}-{width}.txt"))
             res(f"[writer {tab} {width}] tab '{a11y_name}' found", False, "no page tab")
             continue
         a11y.press(tab_context)
@@ -90,6 +110,7 @@ def main():
     parser.add_argument("--sweep-step", type=int, default=0)
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
+    OUT[0] = args.out
     with open(EXPECTED, encoding="utf-8") as handle:
         expected = json.load(handle)["states"]
     profile = os.path.join(args.out, "profile")
