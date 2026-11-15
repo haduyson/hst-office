@@ -11,8 +11,9 @@
 #   -Action other-tab  -Hwnd <dialog> -Name <tab>   select the first tab of the dialog not named <tab>
 #   -Action state      -Name <button name>  print the MSAA states of the shown buttons of that name (0x8 pressed)
 #   -Action dump                            print the shown tab and button names
+#   -Action rects                           one line per shown ribbon tab: RECT x y w h name (screen pixels)
 param(
-    [Parameter(Mandatory = $true)][ValidateSet('select-tab', 'press', 'selected', 'other-tab', 'dump', 'tabs', 'state')][string]$Action,
+    [Parameter(Mandatory = $true)][ValidateSet('select-tab', 'press', 'selected', 'other-tab', 'dump', 'tabs', 'state', 'rects')][string]$Action,
     [int]$OfficePid = 0,
     [long]$Hwnd = 0,
     [string]$Name = ''
@@ -29,7 +30,7 @@ public static class HstMsaa {
   [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc f, IntPtr l);
   [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
-  public class Node { public int Role; public string Name; public int State; public int Area; public IAccessible Acc; public object Id; }
+  public class Node { public int Role; public string Name; public int State; public int Area; public int X, Y, W, H; public IAccessible Acc; public object Id; }
   public static List<IntPtr> Windows(uint pid) {
     var r = new List<IntPtr>();
     EnumWindows((h, l) => { uint p; GetWindowThreadProcessId(h, out p); if (p == pid && IsWindowVisible(h)) r.Add(h); return true; }, IntPtr.Zero);
@@ -45,7 +46,7 @@ public static class HstMsaa {
     try { n.Name = a.get_accName(id); } catch {}
     try { n.Role = Convert.ToInt32(a.get_accRole(id)); } catch {}
     try { n.State = Convert.ToInt32(a.get_accState(id)); } catch {}
-    try { int x, y, w, hh; a.accLocation(out x, out y, out w, out hh, id); n.Area = w * hh; } catch {}
+    try { int x, y, w, hh; a.accLocation(out x, out y, out w, out hh, id); n.Area = w * hh; n.X = x; n.Y = y; n.W = w; n.H = hh; } catch {}
     return n;
   }
   static void Rec(IAccessible a, int depth, List<Node> r) {
@@ -125,6 +126,9 @@ switch ($Action) {
             'WINDOW ' + $h + ' ' + (([HstMsaa]::Walk($h) | Select-Object -First 150 |
                 ForEach-Object { '{0}:{1}[0x{2:x}]' -f $_.Role, $_.Name, $_.State }) -join ' | ')
         }
+    }
+    'rects' {
+        foreach ($t in (Shown $PAGETAB $null)) { 'RECT {0} {1} {2} {3} {4}' -f $t.X, $t.Y, $t.W, $t.H, $t.Name }
     }
     'dump' {
         'TABS ' + ((Shown $PAGETAB $null | ForEach-Object { '{0}[0x{1:x}]' -f $_.Name, $_.State }) -join ' | ')
