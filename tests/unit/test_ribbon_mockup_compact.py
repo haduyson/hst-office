@@ -33,7 +33,9 @@ class MockupGeometry(unittest.TestCase):
     def test_dropped_page_is_106_between_3_px_strips_with_the_pin(self):
         drop = added(MOCKUP_PATCH, "vcl/source/control/HstRibbonDrop.cxx")
         self.assertIn("SetOutputSizePixel(Size(nWidth, nStrip + nPage + nStrip));", drop)
-        self.assertIn("nStrip = px(3, fDpi), nPage = px(106, fDpi);", drop)
+        self.assertIn("const tools::Long nStrip = px(3, fDpi);", drop)
+        # 106 px as the mockup, more only when the page's content needs it: the popup never cuts the groups
+        self.assertIn("std::max(px(106, fDpi), m_xPage->GetOptimalSize().Height());", drop)
         self.assertIn("Point(nWidth - px(4, fDpi) - aPin.Width(), nPage - nStrip - aPin.Height())", drop)
         self.assertNotIn("ImplCalculateRequisition", drop)
         # one id on both sides of the module boundary

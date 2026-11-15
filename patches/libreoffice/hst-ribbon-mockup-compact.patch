@@ -3,7 +3,8 @@ access toolbar as the mockup draws them.
 
 Quick row: 30 px buttons (icon 16 and the label beside it), 1 x 22 px separators with 4 px on each side, the
 first button 6 px from the left edge, centred in the 45 px row; ˅ (18 x 16) 4 px from the row's lower right.
-Dropped page (a tab clicked in the compact state): 106 px between two 3 px strips, the width the tab control
+Dropped page (a tab clicked in the compact state): 106 px (more only when the page's content needs it)
+between two 3 px strips, the width the tab control
 gives (W - 276 with the banner 8 px from both sides), the groups choosing their state for that width; the pin
 ˅ at its lower right brings the full ribbon back; Esc, a click outside, a command or the same tab close it; a
 click on another tab drops that tab's page. The quick access toolbar shows New, Open, Save, Undo, Redo and
@@ -376,9 +377,9 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
  // The page itself moves into the popup (as the folded groups' popup, NotebookbarPopup, moves its content)
  // and returns, hidden, to the tab control when the popup ends: Esc, a click outside, a command run from it,
 -// or the control going away.
-+// or the control going away. As the approved 1.0.2 mockup: the page's 106 px between two 3 px strips, the
-+// pin ˅ (18 x 16) 4 px from its right edge and 3 px above its bottom; a click on another tab ends the popup
-+// and drops that tab's page.
++// or the control going away. As the approved 1.0.2 mockup: the page's 106 px (more only when its content
++// needs it) between two 3 px strips, the pin ˅ (18 x 16) 4 px from its right edge and 3 px above its
++// bottom; a click on another tab ends the popup and drops that tab's page.
  
  #include <vcl/event.hxx>
  #include <vcl/settings.hxx>
@@ -417,7 +418,7 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
          GiveBack();
          m_xTabs.reset();
          FloatingWindow::dispose();
-@@ -60,9 +68,37 @@
+@@ -60,9 +68,39 @@
      void PopupModeEnd() override
      {
          GiveBack();
@@ -437,7 +438,9 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
 +    void Lay(tools::Long nWidth)
 +    {
 +        const double fDpi = GetDPIScaleFactor();
-+        const tools::Long nStrip = px(3, fDpi), nPage = px(106, fDpi);
++        // the mockup's 106 px body, or what the page needs when its content is taller (it is never cut)
++        const tools::Long nStrip = px(3, fDpi);
++        const tools::Long nPage = std::max(px(106, fDpi), m_xPage->GetOptimalSize().Height());
 +        SetOutputSizePixel(Size(nWidth, nStrip + nPage + nStrip));
 +        m_xPage->SetPosSizePixel(Point(0, nStrip), Size(nWidth, nPage));
 +        for (vcl::Window* pChild = m_xPage->GetWindow(GetWindowType::FirstChild); pChild;
@@ -455,7 +458,7 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
      bool HasPage() const { return m_xPage && m_xPage->GetParent() == this; }
  
      // a right-click on a dropped button reaches the tab control as it does in place (its owner offers
-@@ -89,10 +125,13 @@
+@@ -89,10 +127,13 @@
      // after the command has been dispatched
      DECL_LINK(EventHdl, VclSimpleEvent&, void);
      DECL_LINK(CloseHdl, void*, void);
@@ -470,7 +473,7 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
  };
  
  IMPL_LINK(HstRibbonDrop, EventHdl, VclSimpleEvent&, rEvent, void)
-@@ -110,6 +149,17 @@
+@@ -110,6 +151,17 @@
      if (IsInPopupMode())
          EndPopupMode();
  }
@@ -488,7 +491,7 @@ into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's ro
  }
  
  bool NotebookbarTabControlBase::HstDropPage(tools::Long nWidth)
-@@ -118,15 +168,10 @@
+@@ -118,15 +170,10 @@
      TabPage* pPage = GetTabPage(GetCurPageId());
      if (!pPage || nWidth <= 0 || !IsReallyVisible())
          return false;
