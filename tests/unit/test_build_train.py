@@ -10,7 +10,7 @@ from build_train_fixtures import BASE, GitWorld, override
 from build_infra import queue_train as qt  # noqa: E402
 from build_infra import queue_train_git as qg  # noqa: E402
 
-CFG = {"train_min_branches": 4, "train_interval_minutes": 90}
+CFG = {"train_min_branches": 4, "train_interval_minutes": 20}
 
 
 def cand(name, since=0, carry=False, files=()):
@@ -22,7 +22,7 @@ class StartAndSelectTest(unittest.TestCase):
         now = 10_000
         self.assertFalse(qt.should_start([], now, CFG, forced=True))
         self.assertFalse(qt.should_start([cand("a", now - 60)], now, CFG))
-        self.assertTrue(qt.should_start([cand("a", now - 90 * 60)], now, CFG))
+        self.assertTrue(qt.should_start([cand("a", now - 20 * 60)], now, CFG))
         self.assertTrue(qt.should_start([cand(c, now) for c in "abcd"], now, CFG))
         self.assertTrue(qt.should_start([cand("a", now, carry=True)], now, CFG))
         self.assertTrue(qt.should_start([cand("a", now)], now, CFG, forced=True))
@@ -36,6 +36,22 @@ class StartAndSelectTest(unittest.TestCase):
         self.assertEqual([c["branch"] for c in chosen], ["a", "c", "d"])
         self.assertIn("same LibreOffice files as a: sw/x.cxx", deferred["b"])
         self.assertIn("train full", deferred["e"])
+
+    def test_files_of_trains_in_flight_are_busy(self):
+        trains = [{"name": "t/1", "state": "building", "kind": "train", "members": [{"lo_files": ["sw/x.cxx"]}]},
+                  {"name": "t/2", "state": "bisecting", "kind": "train", "members": [{"lo_files": ["sc/y.cxx"]}]},
+                  {"name": "t/3", "state": "building", "kind": "bisect", "parent": "t/2",
+                   "members": [{"lo_files": ["sc/y.cxx"]}]},
+                  {"name": "t/0", "state": "passed", "kind": "train", "members": [{"lo_files": ["sd/z.cxx"]}]}]
+        busy = qt.in_flight_files(trains, ("merging", "building", "bisecting"))
+        self.assertEqual(busy, {"sw/x.cxx": "t/1", "sc/y.cxx": "t/2"})
+        chosen, deferred = qt.select_members(
+            [cand("a", files=["sw/x.cxx"]), cand("b", files=["sd/z.cxx"]), cand("c", files=["sd/z.cxx"])], 8, busy)
+        self.assertEqual([c["branch"] for c in chosen], ["b"])
+        self.assertIn("same LibreOffice files as t/1, still building: sw/x.cxx", deferred["a"])
+        self.assertIn("same LibreOffice files as b: sd/z.cxx", deferred["c"])
+        old = [{"name": "t/9", "state": "building", "kind": "train", "members": [{"branch": "x"}]}]
+        self.assertIsNone(qt.in_flight_files(old, ("building",)))   # no file list: nothing is provably disjoint
 
 
 class OutcomeAndAttributionTest(unittest.TestCase):

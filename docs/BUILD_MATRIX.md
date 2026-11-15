@@ -98,8 +98,10 @@ scripts/build-queue.sh train start --integrator          # integrator: dựng tr
 ```
 
 - **Khi nào:** dispatcher dựng một train khi đủ `train_min_branches` (4) nhánh sẵn sàng, khi nhánh sẵn sàng lâu nhất
-  đã chờ `train_interval_minutes` (90 phút), hoặc ngay khi có nhánh được chuyển tiếp từ train hỏng. Mỗi lúc chỉ một
-  train (kể cả các nửa bisect) đang chạy.
+  đã chờ `train_interval_minutes` (20 phút), hoặc ngay khi có nhánh được chuyển tiếp từ train hỏng. Tối đa
+  `train_max_concurrent` (2) train chạy song song (các nửa bisect tính vào train cha), mỗi train merge lên ảnh chụp
+  batch5 riêng của nó; train mới chỉ nhận nhánh không đụng tệp LibreOffice nào của các train đang chạy, nhánh đụng
+  thì chờ (ghi chú "still building"). Giới hạn slot và bộ nhớ của từng máy build giữ nguyên.
 - **Dựng:** `train/1.0.2-NNN` = `origin/rc/1.0.2-batch5` + đầu nhánh của từng nhánh sẵn sàng, merge lần lượt (theo
   thứ tự: nhánh chuyển tiếp trước, rồi nhánh chờ lâu nhất), tối đa `train_max_branches` (8). `patches/libreoffice/series`
   và `l10n/vi-overrides.jsonl` merge kiểu union như integrator làm: series nối theo thứ tự merge, dòng trùng bị bỏ;

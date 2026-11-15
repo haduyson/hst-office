@@ -5,7 +5,9 @@
      failed -> attribution (queue_train.decide_failure): blamed members ejected with a confirmation build, the
      others carried to the next train, or a bisect into two half trains;
   3. bisected trains whose halves are all decided: closed;
-  4. no train active and the start rule holds (queue_train.should_start): a new train from the ready branches;
+  4. fewer than train_max_concurrent trains in flight and the start rule holds (queue_train.should_start): a new
+     train from the ready branches whose LibreOffice files are disjoint from each other and from every train in
+     flight (each train merges onto its own snapshot of the integration branch);
   5. train branches older than train_keep_days whose builds are over: deleted from origin.
 Every step is idempotent: a restart (or a crash between two steps) redoes the step from the saved records.
 """
@@ -14,7 +16,7 @@ import os
 import time
 
 from .queue_store import PLATFORMS, QueueError, now_iso
-from .queue_train import ready_order, select_members, should_start
+from .queue_train import in_flight_files, ready_order, select_members, should_start
 from .queue_train_git import TrainGitError, TrainRepo
 from .queue_train_judge import TrainJudge
 from .queue_train_ops import note
@@ -22,7 +24,9 @@ from .queue_train_store import TRAIN_ACTIVE, TRAIN_FINAL, TrainStore, read_json
 
 GIT_RETRY_SECONDS = 60
 GIT_MAX_TRIES = 30
-_backoff = {"start": 0.0}   # a failing train start (no network) is retried once a minute, not every tick
+# A failing train start (no network), or ready branches that all wait for a train in flight, is retried once a
+# minute, not every tick.
+_backoff = {"start": 0.0}
 
 
 def _print_log(msg):
@@ -155,6 +159,9 @@ class TrainStep(TrainJudge):
         ready = sorted((c for c in self.branches.values() if c["state"] == "ready"), key=ready_order)
         if not should_start(ready, self.now, self.cfg, forced):
             return None
+        busy = in_flight_files(self.ts.trains(), TRAIN_ACTIVE)
+        if busy is None:
+            return None   # a train in flight has no file list: wait for it
         self.repo.ensure()
         self.repo.fetch()
         base_sha = self.repo.rev(self.cfg["integration_branch"])
@@ -179,12 +186,16 @@ class TrainStep(TrainJudge):
                     continue
                 cands.append({"branch": cand["branch"], "sha": sha, "platforms": cand["platforms"],
                               "patches": patches, "lo_files": files, "carry": cand.get("carry")})
-        chosen, deferred = select_members(cands, self.cfg["train_max_branches"])
+        chosen, deferred = select_members(cands, self.cfg["train_max_branches"], busy)
         for branch, reason in deferred.items():
-            note(self.branches[branch], f"ready, waiting for the next train: {reason}", self.now)
+            text = f"ready, waiting for the next train: {reason}"
+            if self.branches[branch].get("note") != text:   # re-checked every minute: one note per reason
+                note(self.branches[branch], text, self.now)
         if not chosen:
-            if os.path.exists(flag):
+            waits = any("still building" in why for why in deferred.values())
+            if os.path.exists(flag) and not waits:   # a forced start waiting for a train in flight stays requested
                 os.remove(flag)
+            _backoff["start"] = self.now + GIT_RETRY_SECONDS
             return None
         members = [{k: c[k] for k in ("branch", "sha", "platforms", "patches", "lo_files")} for c in chosen]
         rec = self.new_record(self.next_number(), members, list(PLATFORMS), base_sha)
@@ -261,7 +272,8 @@ class TrainStep(TrainJudge):
                             fn(rec)
                             self.save_if_changed(rec, before)
                 self.reconcile()
-                if not any(r["state"] in TRAIN_ACTIVE for r in self.ts.trains()) and self.now >= _backoff["start"]:
+                flying = sum(1 for r in self.ts.trains() if r["state"] in TRAIN_ACTIVE and r["kind"] == "train")
+                if flying < self.cfg["train_max_concurrent"] and self.now >= _backoff["start"]:
                     try:
                         rec = self.maybe_start()
                     except TrainGitError as exc:

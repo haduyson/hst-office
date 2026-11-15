@@ -7,8 +7,9 @@
   train wait <branch> [--timeout S]                    until the branch has a result: exit 0 passed (prints the
                                                        outputs), 1 ejected/failed, 2 timeout
   train start --integrator                             integrator: build a train at the next tick, below the thresholds
-A train starts every train_interval_minutes (90) or as soon as train_min_branches (4) are ready, as
-train/<prefix>NNN = the integration branch + the ready branches, with one Linux and one Windows build.
+A train starts every train_interval_minutes (20) or as soon as train_min_branches (4) are ready, as
+train/<prefix>NNN = the integration branch + the ready branches, with one Linux and one Windows build. Up to
+train_max_concurrent (2) trains build side by side when they share no LibreOffice file.
 """
 import json
 import sys
@@ -101,7 +102,8 @@ def status(store, what, as_json, out):
         return 0
     cfg = store.config()
     print(f"train: {'enabled' if cfg['train_enabled'] else 'DISABLED'}; base {cfg['integration_branch']}; starts every "
-          f"{cfg['train_interval_minutes']} min or at {cfg['train_min_branches']} ready branches", file=out)
+          f"{cfg['train_interval_minutes']} min or at {cfg['train_min_branches']} ready branches; up to "
+          f"{cfg['train_max_concurrent']} trains side by side on disjoint files", file=out)
     order = {"in-train": 0, "ready": 1}
     for cand in sorted(branches.values(), key=lambda c: (order.get(c["state"], 2), c["branch"])):
         print(f"  {cand['state']:<9} {cand['branch']}: {cand.get('note', '')}", file=out)

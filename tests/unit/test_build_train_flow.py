@@ -13,6 +13,7 @@ from build_infra.queue_git import Git
 from build_infra import queue_train_ops as ops
 from build_infra.queue_train_git import TrainRepo
 from build_infra.queue_train_store import TrainStore
+from build_infra import queue_train_tick
 from build_infra.queue_train_tick import TrainStep
 
 T0 = 1_800_000_000
@@ -31,6 +32,7 @@ class TrainFlowTest(QueueTestCase):
         self.cfg = dict(bq.DEFAULT_CONFIG)
         self.now = T0
         self.logs = []
+        queue_train_tick._backoff["start"] = 0.0   # module state of the dispatcher process, not of one test
 
     def add(self, *names, platform="both"):
         for name in names:
@@ -108,9 +110,9 @@ class TrainFlowTest(QueueTestCase):
     def test_interval_and_restart_idempotency(self):
         self.world.member("fix/a", "hst-a.patch", "sw/a.cxx")
         self.add("fix/a", platform="linux")
-        self.step(30)
+        self.step(10)
         self.assertEqual(self.ts.trains(), [])
-        self.step(61)                                  # the oldest ready branch waited 90 minutes
+        self.step(11)                                  # the oldest ready branch waited 20 minutes
         rec = self.train(1)
         self.assertEqual(rec["platforms"], ["linux"])
         # A crash after the push: the record goes back to "merging"; the redo gives the same commit and job.
@@ -187,7 +189,8 @@ class TrainFlowTest(QueueTestCase):
         self.step()   # train 2 (the carry-overs) is still building: fix/a waits as a carry-over, nothing counted
         cand = self.cand("fix/a")
         self.assertEqual((cand["state"], cand["carry"], cand["attempts"]), ("ready", True, 1))
-        self.assertIn("ended without a result", cand["note"])
+        self.assertIn("ended without a result", cand["history"][-2][1])
+        self.assertIn("as train/1.0.2-002, still building", cand["note"])   # never in two trains at once
 
     def test_confirmation_build_survives_the_agents_next_submit_and_results_are_protected(self):
         self.world.member("fix/a", "hst-a.patch", "sw/a.cxx")
@@ -301,6 +304,37 @@ class TrainFlowTest(QueueTestCase):
         self.world.branch(BASE, {"scripts/fix.py": "ok\n"}, base=BASE)
         self.step()
         self.assertEqual(self.train(2)["state"], "building")   # a new base commit: trains resume
+
+    def test_two_trains_build_side_by_side_only_on_disjoint_files(self):
+        self.world.member("fix/a", "hst-a.patch", "sw/a.cxx")
+        self.add("fix/a", platform="linux")
+        ops.start(self.store)
+        self.step()
+        first = self.train(1)
+        self.assertEqual(first["state"], "building")
+        self.world.member("fix/b", "hst-b.patch", "sw/a.cxx")      # shares a file with the train in flight
+        self.world.member("fix/c", "hst-c.patch", "sc/c.cxx")
+        self.world.member("fix/d", "hst-d.patch", "sd/d.cxx")
+        self.world.branch(BASE, {"scripts/newer.py": "n\n"}, base=BASE)   # the base moves meanwhile
+        self.add("fix/b", "fix/c", platform="linux")
+        self.step(21)
+        second = self.train(2)
+        self.assertEqual((second["state"], self.members(2)), ("building", ["fix/c"]))
+        self.assertNotEqual(second["base_sha"], first["base_sha"])   # each train has its own base snapshot
+        self.assertEqual((self.cand("fix/b")["state"], self.train(1)["state"]), ("ready", "building"))
+        self.assertIn("same LibreOffice files as train/1.0.2-001, still building", self.cand("fix/b")["note"])
+        history = len(self.cand("fix/b")["history"])
+        self.add("fix/d", platform="linux")
+        ops.start(self.store)
+        self.step(30)
+        self.assertEqual(len(self.ts.trains()), 2)                    # at most two trains in flight
+        self.assertEqual(len(self.cand("fix/b")["history"]), history)  # the wait is noted once
+        self.finish(first["jobs"]["linux"])
+        self.step()
+        self.assertEqual(self.train(1)["state"], "passed")
+        self.step()
+        self.assertEqual(sorted(self.members(3)), ["fix/b", "fix/d"])   # the file is free again
+        self.assertEqual(self.train(2)["state"], "building")
 
     def test_remove_and_old_train_branches_are_deleted(self):
         self.world.member("fix/a", "hst-a.patch", "sw/a.cxx")

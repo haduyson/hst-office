@@ -57,7 +57,7 @@ class TrainCliTest(unittest.TestCase):
         self.assertIn("ready     fix/a", overview)
         self.assertNotIn("fix/c", overview)
 
-        self.cli("dispatch", "--once")   # 2 ready < 4 and nobody waited 90 min: no train yet
+        self.cli("dispatch", "--once")   # 2 ready < 4 and nobody waited 20 min: no train yet
         self.assertNotIn("train/1.0.2-001", self.world.remote_heads())
         self.cli("train", "start", ok=(2,))   # --integrator is required
         self.assertIn("next dispatcher tick", self.cli("train", "start", "--integrator").stdout)

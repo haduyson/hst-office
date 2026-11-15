@@ -37,7 +37,9 @@ DEFAULT_CONFIG = {
     # Build train (queue_train*.py): batch5 + ready branches merged into train/<prefix>NNN, one build per platform.
     "train_enabled": True,
     "train_prefix": "train/1.0.2-",
-    "train_interval_minutes": 90,
+    "train_interval_minutes": 20,
+    # Trains built side by side (each on its own base snapshot) when no LibreOffice file is shared between them.
+    "train_max_concurrent": 2,
     "train_min_branches": 4,
     "train_max_branches": 8,
     "train_priority": 70,

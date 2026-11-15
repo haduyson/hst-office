@@ -33,24 +33,48 @@ def should_start(ready, now, cfg, forced=False):
     return now - min(c.get("ready_since", now) for c in ready) >= cfg["train_interval_minutes"] * 60
 
 
-def select_members(ready, max_members):
+def select_members(ready, max_members, busy=None):
     """Greedy in ready order: a branch whose patches touch a LibreOffice file another chosen branch touches waits
     for the next train (two patches on one file may apply in any order without a git conflict, and the compile
-    attribution needs disjoint files). Returns (chosen, {branch: reason})."""
+    attribution needs disjoint files). `busy` maps the files of trains still in flight to their train: a branch
+    touching one of them waits as well, so trains built side by side never share a file. Returns
+    (chosen, {branch: reason})."""
     chosen, deferred, owner = [], {}, {}
+    busy = busy or {}
     for cand in ready:
         if len(chosen) >= max_members:
             deferred[cand["branch"]] = f"train full ({max_members} branches)"
             continue
-        clash = sorted(f for f in cand.get("lo_files", []) if f in owner)
+        files = cand.get("lo_files", [])
+        clash = sorted(f for f in files if f in busy)
+        if clash:
+            deferred[cand["branch"]] = (f"touches the same LibreOffice files as {busy[clash[0]]}, still building: "
+                                        + ", ".join(clash[:5]))
+            continue
+        clash = sorted(f for f in files if f in owner)
         if clash:
             deferred[cand["branch"]] = (f"touches the same LibreOffice files as {owner[clash[0]]}: "
                                         + ", ".join(clash[:5]))
             continue
         chosen.append(cand)
-        for f in cand.get("lo_files", []):
+        for f in files:
             owner[f] = cand["branch"]
     return chosen, deferred
+
+
+def in_flight_files(trains, active_states):
+    """{LibreOffice file: train} for the members of every train still in flight (a bisect half's files are its
+    parent's). None when a member predates the recorded file list: nothing can be proven disjoint from it."""
+    busy = {}
+    for rec in trains:
+        if rec["state"] not in active_states:
+            continue
+        for m in rec["members"]:
+            if "lo_files" not in m:
+                return None
+            for f in m["lo_files"]:
+                busy.setdefault(f, rec.get("parent") or rec["name"])
+    return busy
 
 
 def job_outcome(job, infra_failure, log_text=""):
