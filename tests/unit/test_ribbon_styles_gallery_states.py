@@ -3,7 +3,7 @@
 small group (gap list G05), through the ribbon ladder's "hst-gallery-state" property."""
 import unittest
 
-from patch_sections import added, after, po_entries, removed, sections
+from patch_sections import added, after, po_entries, removed
 
 PATCH = "hst-ribbon-styles-gallery-states.patch"
 
@@ -107,7 +107,25 @@ class MockupFontBoxes(unittest.TestCase):
             code = added(MOCKUP, path)
             self.assertIn("nStateChange == StateChangedType::InitShow && !m_xHstRefit", code)
             self.assertIn("m_xHstRefit.reset();", code)  # stopped before the window goes
-        self.assertNotIn("svx/UIConfig_svx.mk", sections(MOCKUP))  # no padding-free variant: it lost its frame
+
+    def test_ribbon_boxes_narrow_their_padding_on_gtk3(self):
+        # owner's decision D9: 46 px on gtk3 too, frame kept ("small-button" took the frame away)
+        self.assertIn('hst::ribbon::BoxUIFile(pParent, u"fontnamebox")', added(MOCKUP, "svx/source/tbxctrls/tbcontrl.cxx"))
+        self.assertIn('hst::ribbon::BoxUIFile(pParent, u"fontsizebox")',
+                      added(MOCKUP, "svx/source/tbxctrls/tbunocontroller.cxx"))
+        mk = added(MOCKUP, "svx/UIConfig_svx.mk")
+        for name in ("fontnameboxribbon", "fontsizeboxribbon"):
+            self.assertIn(f"svx/uiconfig/ui/{name}", mk)
+            ui = added(MOCKUP, f"svx/uiconfig/ui/{name}.ui")
+            self.assertIn('<class name="hst-ribbon-combo"/>', ui)
+            self.assertNotIn("small-button", ui)
+            base = name.replace("ribbon", "")
+            self.assertIn(f'context="{base}|{base.replace("box", "combobox")}|accessible_name"', ui)
+        gtk = added(MOCKUP, "vcl/unx/gtk3/gtkinst.cxx")
+        self.assertIn('"hst-ribbon-combo"))', gtk)
+        self.assertIn('"entry { padding-left: 4px; padding-right: 2px; min-width: 0; }"', gtk)
+        self.assertIn('"button { padding-left: 2px; padding-right: 2px; min-width: 0; }"', gtk)
+        self.assertNotIn("border", gtk)  # the frames stay
 
 
 class CalcCellStylesGallery(unittest.TestCase):

@@ -19,13 +19,16 @@ order: Default, Good, Neutral, Bad, Warning, Heading 1, then Heading 2, Note, Ac
 pool's unit (Calc's twips, not the shell's 1/100 mm). In a notebookbar the font name box is 128 px
 and the font size box 46 px (svx/source/inc/HstRibbonCombos.hxx): the part of the box's preferred width over
 the target is taken off its request, once when it is made and once more after it is first shown (on gtk3 the
-▾ button is counted only then: 128 px became 165). A theme whose entry and button need more keeps its minimum
-(gtk3 Adwaita: the size box about 68 px, its entry two characters wide so "12" stays readable). Toolbars and the sidebar keep their widths.
+▾ button is counted only then: 128 px became 165). In the ribbon both boxes are made from fontnameboxribbon.ui /
+fontsizeboxribbon.ui, whose combo box has the class "hst-ribbon-combo": vcl gtk3 then narrows the side padding of
+its entry (4 / 2 px) and drop-down button (2 px), frames kept, so Adwaita's size box reaches 46 px with "12" still
+readable (its entry keeps two characters; the owner's decision D9). Toolbars, the sidebar and dialogs keep their
+boxes, widths and the theme's padding.
 
 --- /dev/null
 --- /dev/null
 +++ b/svx/source/inc/HstRibbonCombos.hxx
-@@ -0,0 +1,93 @@
+@@ -0,0 +1,103 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -37,6 +40,7 @@ the target is taken off its request, once when it is made and once more after it
 +
 +#pragma once
 +
++#include <rtl/ustring.hxx>
 +#include <tools/long.hxx>
 +#include <vcl/idle.hxx>
 +#include <vcl/notebookbar/notebookbar.hxx>
@@ -46,6 +50,7 @@ the target is taken off its request, once when it is made and once more after it
 +#include <algorithm>
 +#include <cmath>
 +#include <functional>
++#include <string_view>
 +#include <utility>
 +
 +// HST Office: the font name and font size boxes of the ribbon (Tabbed notebookbar) are as wide as in
@@ -64,6 +69,14 @@ the target is taken off its request, once when it is made and once more after it
 +            return true;
 +    }
 +    return false;
++}
++
++/// The .ui of a box made in pParent: in the ribbon "<name>ribbon.ui", whose combo box has the class
++/// "hst-ribbon-combo" (vcl gtk3 narrows its entry and button padding); elsewhere "<name>.ui"
++inline OUString BoxUIFile(const vcl::Window* pParent, std::u16string_view aName)
++{
++    const bool bRibbon = pParent && InNotebookbar(*pParent);
++    return OUString::Concat(u"svx/ui/") + aName + (bRibbon ? std::u16string_view(u"ribbon.ui") : std::u16string_view(u".ui"));
 +}
 +
 +/// nLogical px at the window's scale
@@ -148,6 +161,104 @@ the target is taken off its request, once when it is made and once more after it
 +#define RID_HST_STYLE_SHORT_QUOTATIONS      NC_("RID_HST_STYLE_SHORT_QUOTATIONS", "Quote")
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/uiconfig/ui/fontnameboxribbon.ui
+@@ -0,0 +1,41 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- Generated with glade 3.40.0 -->
++<!-- HST Office: fontnamebox.ui for the ribbon (Tabbed notebookbar): "hst-ribbon-combo" makes vcl gtk3 narrow
++     the side padding of the entry and the drop-down button, so the box is as narrow as in Office. -->
++<interface domain="svx">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkBox" id="FontNameBox">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="spacing">6</property>
++    <child>
++      <object class="GtkComboBoxText" id="fontnamecombobox">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="has-entry">True</property>
++        <property name="popup-fixed-width">False</property>
++        <child internal-child="entry">
++          <object class="GtkEntry">
++            <property name="can-focus">True</property>
++            <property name="truncate-multiline">True</property>
++          </object>
++        </child>
++        <child internal-child="accessible">
++          <object class="AtkObject" id="fontnamecombobox-atkobject">
++            <property name="AtkObject::accessible-name" translatable="yes" context="fontnamebox|fontnamecombobox|accessible_name">Font Name</property>
++          </object>
++        </child>
++        <style>
++          <class name="hst-ribbon-combo"/>
++        </style>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">0</property>
++      </packing>
++    </child>
++  </object>
++</interface>
+--- /dev/null
++++ b/svx/uiconfig/ui/fontsizeboxribbon.ui
+@@ -0,0 +1,40 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- Generated with glade 3.40.0 -->
++<!-- HST Office: fontsizebox.ui for the ribbon (Tabbed notebookbar): "hst-ribbon-combo" makes vcl gtk3 narrow
++     the side padding of the entry and the drop-down button, so the box is as narrow as in Office. -->
++<interface domain="svx">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkBox" id="FontSizeBox">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="spacing">6</property>
++    <child>
++      <object class="GtkComboBoxText" id="fontsizecombobox">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="has-entry">True</property>
++        <child internal-child="entry">
++          <object class="GtkEntry">
++            <property name="can-focus">True</property>
++            <property name="truncate-multiline">True</property>
++          </object>
++        </child>
++        <child internal-child="accessible">
++          <object class="AtkObject" id="fontsizecombobox-atkobject">
++            <property name="AtkObject::accessible-name" translatable="yes" context="fontsizebox|fontsizecombobox|accessible_name">Font Size</property>
++          </object>
++        </child>
++        <style>
++          <class name="hst-ribbon-combo"/>
++        </style>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">0</property>
++      </packing>
++    </child>
++  </object>
++</interface>
+--- a/svx/UIConfig_svx.mk
++++ b/svx/UIConfig_svx.mk
+@@ -68,6 +68,8 @@
+ 	svx/uiconfig/ui/fontworkspacingdialog \
+ 	svx/uiconfig/ui/fontsizebox \
+ 	svx/uiconfig/ui/fontnamebox \
++	svx/uiconfig/ui/fontnameboxribbon \
++	svx/uiconfig/ui/fontsizeboxribbon \
+ 	svx/uiconfig/ui/formdatamenu \
+ 	svx/uiconfig/ui/formfielddialog \
+ 	svx/uiconfig/ui/formlinkwarndialog \
 --- a/svx/source/inc/StylesPreviewWindow.hxx
 +++ b/svx/source/inc/StylesPreviewWindow.hxx
 @@ -68,8 +68,8 @@
@@ -586,6 +697,15 @@ the target is taken off its request, once when it is made and once more after it
          InterimItemWindow::StateChanged(nStateChange);
      }
  
+@@ -1734,7 +1746,7 @@
+ 
+ SvxFontNameBox_Impl::SvxFontNameBox_Impl(vcl::Window* pParent, const Reference<XFrame>& rFrame,
+                                          SvxFontNameToolBoxControl& rCtrl)
+-    : InterimItemWindow(pParent, u"svx/ui/fontnamebox.ui"_ustr, u"FontNameBox"_ustr, true)
++    : InterimItemWindow(pParent, hst::ribbon::BoxUIFile(pParent, u"fontnamebox"), u"FontNameBox"_ustr, true)
+     , SvxFontNameBox_Base(m_xBuilder->weld_combo_box(u"fontnamecombobox"_ustr), rFrame, rCtrl)
+ {
+     set_id(u"fontnamecombobox"_ustr);
 @@ -1896,6 +1908,9 @@
      // tdf#132338 purely using this calculation to keep things their traditional width
      Size aSize(LogicToPixel(Size((COMBO_WIDTH_IN_CHARS +5) * 4, 0), MapMode(MapUnit::MapAppFont)));
@@ -639,7 +759,7 @@ the target is taken off its request, once when it is made and once more after it
          InterimItemWindow::StateChanged(nStateChange);
      }
  
-@@ -304,6 +317,15 @@
+@@ -304,13 +317,22 @@
  
  void SvxFontSizeBox_Impl::SetOptimalSize()
  {
@@ -655,6 +775,14 @@ the target is taken off its request, once when it is made and once more after it
      SetSizePixel(get_preferred_size());
  }
  
+ SvxFontSizeBox_Impl::SvxFontSizeBox_Impl(vcl::Window* pParent,
+                                          const uno::Reference<frame::XFrame>& rFrame,
+                                          FontHeightToolBoxControl& rCtrl)
+-    : InterimItemWindow(pParent, u"svx/ui/fontsizebox.ui"_ustr, u"FontSizeBox"_ustr, true)
++    : InterimItemWindow(pParent, hst::ribbon::BoxUIFile(pParent, u"fontsizebox"), u"FontSizeBox"_ustr, true)
+     , SvxFontSizeBox_Base(m_xBuilder->weld_combo_box(u"fontsizecombobox"_ustr), rFrame, rCtrl)
+ {
+     InitControlBase(m_xWidget->getWidget());
 --- a/svx/uiconfig/ui/stylespreview.ui
 +++ b/svx/uiconfig/ui/stylespreview.ui
 @@ -16,7 +16,7 @@
@@ -823,3 +951,30 @@ the target is taken off its request, once when it is made and once more after it
 +msgctxt "RID_HST_STYLE_SHORT_QUOTATIONS"
 +msgid "Quote"
 +msgstr "Trích dẫn"
+--- a/vcl/unx/gtk3/gtkinst.cxx
++++ b/vcl/unx/gtk3/gtkinst.cxx
+@@ -21740,6 +21740,24 @@
+             gtk_style_context_add_class(gtk_widget_get_style_context(GTK_WIDGET(getContainer())), "small-button");
+         if (gtk_style_context_has_class(gtk_widget_get_style_context(GTK_WIDGET(m_pComboBox)), "novertpad"))
+             gtk_style_context_add_class(gtk_widget_get_style_context(GTK_WIDGET(getContainer())), "novertpad");
++        // HST Office: the ribbon's font name and size boxes ("hst-ribbon-combo": svx fontnameboxribbon.ui and
++        // fontsizeboxribbon.ui) are as narrow as in Office's Home tab, 128 and 46 px: less side padding in the
++        // entry and the ▾ button, their frames kept. Toolbars, the sidebar and dialogs keep the theme's padding.
++        if (gtk_style_context_has_class(gtk_widget_get_style_context(GTK_WIDGET(m_pComboBox)), "hst-ribbon-combo"))
++        {
++            static const gchar aEntryCss[] = "entry { padding-left: 4px; padding-right: 2px; min-width: 0; }";
++            static const gchar aButtonCss[] = "button { padding-left: 2px; padding-right: 2px; min-width: 0; }";
++            const std::pair<GtkWidget*, const gchar*> aNarrow[] = { { m_pEntry, aEntryCss },
++                                                                    { m_pToggleButton, aButtonCss } };
++            for (const auto& [pWidget, pCss] : aNarrow)
++            {
++                GtkCssProvider* pProvider = gtk_css_provider_new();
++                css_provider_load_from_data(pProvider, pCss, -1);
++                gtk_style_context_add_provider(gtk_widget_get_style_context(pWidget), GTK_STYLE_PROVIDER(pProvider),
++                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
++                g_object_unref(pProvider); // the style context keeps it
++            }
++        }
+ 
+         if (gtk_widget_get_has_tooltip(GTK_WIDGET(m_pComboBox)))
+         {
