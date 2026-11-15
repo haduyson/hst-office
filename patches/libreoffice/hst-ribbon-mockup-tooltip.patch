@@ -7,6 +7,8 @@ HST Office: the ribbon tooltips of the reference design (1.0.2) and the toolbar 
   the display scale. Such a tip is always VCL's HelpTextWindow, also on gtk3, whose native tooltips follow the
   pointer; on a toolkit that places popups itself (Wayland) its frame is positioned by the toolkit at that point
   (SalFrame::PositionByToolkit, as menus are), and it is made anew for another button rather than moved.
+- Look: a light card with the theme's menu colours and a grey border (dark in a dark theme), not the system
+  tooltip look.
 - Width: at most 300 px with its margins; the description wraps, a wider title keeps its width.
 - Menu buttons ("Wrap Text ▾", tip "label\ndescription") and folded groups' buttons of the ribbon get the same tip,
   first line in bold (Help::ShowQuickHelp upgrades their plain tip).
@@ -136,7 +138,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                                         rToolBox.OutputToScreenPixel(aItemRect.BottomRight()));
 --- a/vcl/source/app/help.cxx
 +++ b/vcl/source/app/help.cxx
-@@ -30,10 +30,15 @@
+@@ -30,19 +30,25 @@
  #include <vcl/wrkwin.hxx>
  #include <vcl/help.hxx>
  #include <vcl/settings.hxx>
@@ -152,7 +154,21 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <utility>
  #include <salframe.hxx>
  #include <svdata.hxx>
-@@ -50,6 +55,92 @@
+ 
+-// HST Office: a ribbon tip (RichTitle) in a dark theme takes the theme's menu colours instead of the system tooltip
+-// look, which stays light on Windows
+-static bool ImplIsRichDark(QuickHelpFlags nStyle, const StyleSettings& rStyleSettings)
++// HST Office: a ribbon tip (RichTitle) takes the theme's menu colours (the reference design: a light card with a grey
++// border, dark in a dark theme) instead of the system tooltip look, whose text colour does not always match the
++// native tooltip background VCL draws (gtk3)
++static bool ImplIsRichDark(QuickHelpFlags nStyle, const StyleSettings& /*rStyleSettings*/)
+ {
+-    return (nStyle & QuickHelpFlags::RichTitle) && rStyleSettings.GetFaceColor().IsDark();
++    return bool(nStyle & QuickHelpFlags::RichTitle);
+ }
+ 
+ #define HELPTEXTMARGIN_QUICK    3
+@@ -50,6 +56,92 @@
  
  #define HELPTEXTMAXLEN        100
  
@@ -245,7 +261,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  static void ImplShowHelpWindow(vcl::Window* pParent, HelpWinStyle eHelpWinStyle,
                                 QuickHelpFlags nStyle, const OUString& rHelpText,
                                 const Point& rScreenPos, const tools::Rectangle& rHelpArea);
-@@ -187,6 +278,8 @@
+@@ -187,6 +279,8 @@
                            const OUString& rHelpText,
                            QuickHelpFlags nStyle )
  {
@@ -254,7 +270,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      HelpWinStyle eHelpWinStyle = (nStyle & QuickHelpFlags::TipStyleBalloon) ? HelpWinStyle::Balloon : HelpWinStyle::Quick;
      Point aScreenPos = nStyle & QuickHelpFlags::NoAutoPos
                             ? Point()
-@@ -427,12 +520,15 @@
+@@ -427,12 +521,15 @@
          const tools::Long nOneLine = rDev.GetTextWidth(OUString::Concat(RepeatedUChar('x', 60)));
          // one line when short, or when the title is nearly as wide (two lines would leave an orphan word)
          const bool bOneLine = nBodyWidth <= nOneLine || nBodyWidth <= nTitleWidth * 5 / 4;
@@ -273,7 +289,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                  break;
          }
          mnRichTitleHeight = nTitleHeight + nTitleHeight / 3;
-@@ -581,10 +677,16 @@
+@@ -581,10 +678,16 @@
                                 QuickHelpFlags nStyle, const OUString& rHelpText,
                                 const Point& rScreenPos, const tools::Rectangle& rHelpArea)
  {
@@ -294,7 +310,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      if (bNative)
      {
          //tooltips are handled natively, return early
-@@ -601,8 +703,11 @@
+@@ -601,8 +704,11 @@
      {
          SAL_WARN_IF( pHelpWin == pParent, "vcl", "HelpInHelp ?!" );
  
@@ -307,7 +323,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                              && aHelpData.mbRequestingHelp;
  
          if (!bRemoveHelp && pHelpWin->GetParent() == pParent)
-@@ -688,6 +793,27 @@
+@@ -688,6 +794,27 @@
      // get mouse screen coords
      AbsoluteScreenPixelPoint aMousePos(pWindow->OutputToAbsoluteScreenPixel(pWindow->GetPointerPosPixel()));
  
