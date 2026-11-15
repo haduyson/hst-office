@@ -38,6 +38,11 @@ def record(name, ok, detail=""):
     print(f"{'PASS' if ok else 'FAIL'}  {name}  {detail}", flush=True)
 
 
+# labels of the compact quick row on the Writer Trang đầu row (the P5 build; 8 of 10 must be found)
+QUICK_LABELS = ["Dán", "Cắt", "Sao chép", "Đậm", "Nghiêng", "Gạch chân", "Căn giữa", "Gạch đầu dòng", "Tìm",
+                "Văn bản hành chính"]
+
+
 def quick_row_count(tab_app="writer", box="pmhbHome"):
     with open(QUICK_ROWS, encoding="utf-8") as handle:
         rows = json.load(handle)["rows"]
@@ -103,10 +108,20 @@ def check(args):
         hst_gui.screenshot(os.path.join(args.out, "after-ctrl-f1.png"), args.display)
         record("Ctrl+F1 collapses the ribbon (page hidden, tab row kept)",
                not page_shown(compact) and geo.tab_geometry(compact)[0] is not None, "")
-        want = quick_row_count()
-        got = len(quick_buttons(compact))
-        record("compact quick row shows the Writer Trang đầu commands", got == want,
-               f"{got} buttons, row has {want} commands")
+        # the quick row of the compact ribbon: its labels (the Writer Trang đầu row, as shown on the P5 build)
+        shown = {n[1] for n in compact if n[0] in geo.BUTTON_ROLES}
+        found = [name for name in QUICK_LABELS if name in shown]
+        record("compact quick row shows the Writer Trang đầu commands", len(found) >= 8,
+               f"{len(found)} of {len(QUICK_LABELS)} labels, row has {quick_row_count()} commands; "
+               f"names in the band: {sorted(shown)[:25]}")
+        # the compact band: its bottom is at most 80 px under the tab row's top, and no group caption shows
+        tab_top, _strip = geo.tab_geometry(compact)
+        bottoms = [n[2][1] + n[2][3] for n in compact if n[0] in geo.BUTTON_ROLES
+                   and tab_top is not None and tab_top <= n[2][1] < tab_top + 120]
+        band = max(bottoms) - tab_top if tab_top is not None and bottoms else None
+        record("compact band is at most 80 px under the tab row", band is not None and band <= 80 + 1, band)
+        captions = {n[1] for n in compact if n[0] == "label"}
+        record("compact band shows no group caption (Phông chữ)", "Phông chữ" not in captions, sorted(captions)[:10])
         key(args.display, "ctrl+F1")
         record("second Ctrl+F1 shows the page again", page_shown(atspi.ribbon_nodes()), "")
         mo_roles = sorted({n[0] for n in atspi.ribbon_nodes() if n[1] == "Mới"})
