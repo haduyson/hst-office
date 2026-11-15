@@ -3,7 +3,7 @@
 Chủ dự án (2026-11-04): HST Office dùng phím tắt của Microsoft Office vì phần lớn người dùng
 Việt Nam đã quen; khi trùng thì phím của Microsoft Office được ưu tiên hơn phím của LibreOffice.
 Giữ nguyên các phím riêng của HST: `Shift+Esc` / macOS `Option+Cmd+K` (Tìm tính năng,
-`hst-feature-search.patch`), `Alt+F11` (Macro VBA), `Alt+F8` (hộp thoại Macro), `Alt+Shift+I` (HST Writer: Chèn lại trích dẫn) —
+`hst-feature-search.patch`), `Alt+F11` (Macro VBA, cả bốn ứng dụng từ 15/11), `Alt+F8` (hộp thoại Macro, cả HST PDF từ 15/11; macro của Slides và PDF lưu trong `.odp`/`.odg`, lưu `.pptm` không giữ mã viết mới), `Alt+Shift+I` (HST Writer: Chèn lại trích dẫn) —
 `extensions/hst-vietnamese-tools/Accelerators.xcu`; `Ctrl+Alt+.` / `Ctrl+Alt+,` (thẻ tài liệu), `Ctrl+Alt+Shift+N` (tách thẻ ra cửa sổ mới, `hst-module-window-groups.patch`). `Alt+F` mở Tệp tin (`hst-file-backstage.patch`, như thẻ File của Office) không bị patch này đụng tới.
 
 - Cài đặt: `patches/libreoffice/hst-msoffice-shortcuts.patch` (officecfg `Accelerators.xcu`,
