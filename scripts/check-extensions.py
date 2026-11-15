@@ -72,6 +72,7 @@ def self_test():
         "subprocess in update_download": lambda d: d.update({UPDATE_DOWNLOAD: d.get(UPDATE_DOWNLOAD, b"") + b"\nimport subprocess\n"}),
         "urllib in update_launch": lambda d: d.update({UPDATE_LAUNCH: d.get(UPDATE_LAUNCH, b"") + b"\nimport urllib.request\n"}),
         "network in USB worker": lambda d: d.update({USB_TOKEN_WORKER: d[USB_TOKEN_WORKER] + b"\nimport socket\n"}),
+        "network in local system tool": lambda d: d.update({"python/hst_office/system_boot.py": d["python/hst_office/system_boot.py"] + b"\nimport socket\n"}),
         "network in USB setup": lambda d: d.update({USB_TOKEN_NSS: d[USB_TOKEN_NSS] + b"\nimport urllib.request\n"}),
         "update test mode": lambda d: d.update({"data/release.json": b'{"release": "1.0.0", "update_test_mode": true}'}),
         "remote link in guide": lambda d: d.update({"help/index.html": d["help/index.html"] + b'<a href="https://evil.example/">x</a>'}),
