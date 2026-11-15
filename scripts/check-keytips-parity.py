@@ -14,7 +14,9 @@ Offline (CI), from the committed tables data/ribbon/keytips-office-parity.json a
      to another command.
 With --tree (a fresh apply of the series, scripts/l10n merge applied for 3): the KeyTip assignment is replayed over
 the notebookbar.ui files, every table letter must win on its tab, and every shortcut row must hold in Accelerators.xcu
-(macOS rows with the macOS values; a "vcl" row's key must stay free; a planned row's key free or already right).
+(macOS rows with the macOS values; a "vcl" row's key must stay free; a planned row's key free or already right); a
+matching row must also match on macOS, with its "mac" key (the suite's Mac edition) or Cmd for Ctrl, unless it has a
+"mac_exception".
 """
 import argparse
 import importlib
@@ -144,6 +146,12 @@ def check_tree(tree, table, rows, errors):
         if actual not in expected:
             errors.append(f"{row['app']} {row['office']} ({row['key']}): HST runs {actual or 'nothing'}, "
                           f"the table says {'/'.join(x or 'nothing' for x in expected)}")
+        if row["status"] == "match" and platform == "unxwnt" and not row.get("handler") and not row.get("mac_exception"):
+            key = row.get("mac", row["key"])  # the suite's Mac key, else Cmd for Ctrl
+            on_mac = accel.effective(bindings["macosx"], row["app"], key)
+            if on_mac not in row["uno"]:
+                errors.append(f"{row['app']} {row['office']} on macOS ({key}): HST runs {on_mac or 'nothing'}, "
+                              f"the table says {'/'.join(row['uno'])}")
 
 
 def main(argv=None):

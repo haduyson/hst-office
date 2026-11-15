@@ -209,6 +209,20 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 | Sheets | Shift+F9 | Theo dấu ô tham chiếu | thẻ Công thức |
 | Sheets | Ctrl+5 | Giãn dòng 1,5 (khi sửa chữ trong ô) | hộp thoại Đoạn văn |
 
+## macOS theo bản Mac của bộ tham chiếu (15/11)
+
+Dòng có `mac` trong `data/ribbon/shortcuts-office-parity.json` ghi phím của bản Mac (trang phím tắt Word, Excel, PowerPoint
+cho Mac, đọc 2026-11-15) khi phím đó không chỉ là Cmd thay Ctrl; dòng không có `mac` dùng Cmd thay Ctrl.
+`scripts/check-keytips-parity.py --tree` kiểm cả hai nền tảng. Phím mới trên macOS (cuối
+`hst-msoffice-shortcuts-parity-legacy-keys.patch`): Writer Control+H Tìm và thay thế, Cmd+Option+F chú thích cuối trang
+(trước là Tìm và thay thế), Cmd+Option+E chú thích cuối văn bản (trước là Quản lý phần mở rộng); Sheets Control+H, F7,
+Cmd+Shift+F lọc, Cmd+Shift+K / Cmd+Shift+J nhóm / bỏ nhóm; Slides Cmd+Shift+H, F7, Cmd+T Phông chữ (trước là Kiểu dáng),
+Cmd+Control+V Dán đặc biệt; PDF Cmd+Shift+H, F7.
+
+Ngoại lệ macOS (`mac_exception`, bản Mac không có phím hoặc hệ điều hành giữ phím): Writer Ctrl+Q (Cmd+Q là Thoát),
+Writer Ctrl+Space (Cmd+Space là Spotlight), Sheets Ctrl+Shift+F (bản Mac dùng Cmd+Shift+F cho lọc). Chủ dự án kiểm
+trên máy Mac M2.
+
 ## Chưa xác minh
 
 - Alt+F4 đi qua trình quản lý cửa sổ / Windows nên máy kiểm tra (Xvfb, không có trình quản lý cửa sổ) không thử được.
