@@ -1,0 +1,551 @@
+HST Office: the 1.0.2 ribbon mockup's frame: a 106 px body, the banner 8 px from the window's edge, ⌘⌥R on macOS.
+
+- The ribbon with the banner (Tabbed notebookbar of Writer, Sheets, Slides and Draw) is the tab row, 3 px, a body of
+  exactly 106 logical px and 3 px in every tab (35 + 112 = 147 px with the 35 px tab row). It was at least 165 px and
+  grew with the tallest page (198 px in Writer at 1920 px); content taller than the body is a .ui to fix. Other
+  notebookbar files keep the 165 px minimum.
+- slotFor() no longer takes 2 px above and below the slot: in the 106 px body the banner is w x w*104/360, centred
+  (360 x 104 at 1920 px, 269 x 78 at 1485, 260 x 75 up to 1440, 390 x 113 at 150 %), instead of 353 x 102. Its width follows the document
+  window's frame (windowSlotWidth got the SystemWindow's narrower client: 357 px at 1920), its right edge is 8 px
+  from the window's right edge and the groups stop 8 px before it.
+- Compact ribbon: the banner is 260 x 75 (compactSlot) centred in the 80 px band, 8 px from the window's edge; the
+  tab row, the quick row and the dropped page stop 8 px before it (W - 276 px).
+- macOS (owner decision D10): ⌘⌥R switches the compact ribbon as Ctrl+F1 does; Ctrl+F1 also works there.
+- File page (mockup reference/mockup-writer-backstage-1366.png): while the panel is open, a title band covers the
+  ribbon's body left of the banner: a round back button (closes the panel, as Esc does), the greeting and
+  "Tệp tin · <document title>" (the File tab's label and the model's XTitle, no new string). The panel still starts
+  below the document tab strip (owner, 14/11/2026) and no longer repeats the greeting; the banner is unchanged. The
+  band is a child of the ribbon's tab control, on top of its page, and is disposed before the tab control goes.
+
+--- a/include/vcl/HstBannerGeometry.hxx
++++ b/include/vcl/HstBannerGeometry.hxx
+@@ -105,26 +105,42 @@
+     return eMode == Mode::Wide ? ART_WIDTH : eMode == Mode::Compact ? COMPACT_ART_WIDTH : 0;
+ }
+ 
++/** HST Office (1.0.2 ribbon mockup): the logical height of the full ribbon's body (the tab page holding the
++    groups) in every tab of every app, and the gap between the banner and the window's right edge. */
++constexpr long RIBBON_BODY_HEIGHT = 106;
++constexpr long RIGHT_GAP = 8;
++
+ /** Banner slot at the right end of the full tab page rectangle rPage (pixels), for artwork
+     nArtWidth logical px wide: the largest rectangle with the artwork's ratio that fits the page
+-    height (minus margins) and the artwork's logical size, centred vertically on the page. */
+-inline Rect slotFor(const Rect& rPage, double fDpi, long nArtWidth = ART_WIDTH, long nMaxWidth = 0)
++    height and the artwork's logical size (nMaxWidth > 0: at most that wide), centred vertically on
++    the page. Its right edge is nRight (pixels; < 0: 4 logical px inside the page's right end). There
++    are no fixed vertical margins: in the 106 px body the 360 px slot is 360 x 104, 1 px from the top
++    and the bottom, and the 260 px slot 260 x 75 (heights rounded to the nearest pixel). */
++inline Rect slotFor(const Rect& rPage, double fDpi, long nArtWidth = ART_WIDTH, long nMaxWidth = 0, long nRight = -1)
+ {
+-    const long nVMargin = scaled(2, fDpi);
+-    const long nRightMargin = scaled(4, fDpi);
+-    const long nRoom = std::max(0L, rPage.h - 2 * nVMargin);
++    if (nRight < 0)
++        nRight = rPage.x + rPage.w - scaled(4, fDpi);
++    const long nRoom = std::max(0L, rPage.h);
+     Rect aSlot;
+     if (nArtWidth <= 0)
+-        return Rect{ rPage.x + rPage.w - nRightMargin, rPage.y + nVMargin, 0, 0 };
++        return Rect{ nRight, rPage.y, 0, 0 };
+     aSlot.w = std::min(scaled(nArtWidth, fDpi), nRoom * nArtWidth / ART_HEIGHT);
+     if (nMaxWidth > 0)
+-        aSlot.w = std::min(aSlot.w, nMaxWidth); // a narrowed wide slot (wideSlotWidth)
+-    aSlot.h = std::min(nRoom, aSlot.w * ART_HEIGHT / nArtWidth);
+-    aSlot.x = rPage.x + rPage.w - nRightMargin - aSlot.w;
+-    aSlot.y = rPage.y + nVMargin + (SLOT_CENTRED ? (nRoom - aSlot.h) / 2 : 0);
++        aSlot.w = std::min(aSlot.w, nMaxWidth); // the window's banner width (windowSlotWidth)
++    aSlot.h = std::min(nRoom, (aSlot.w * ART_HEIGHT + nArtWidth / 2) / nArtWidth); // rounded: 390 x 113 at 150 %
++    aSlot.x = nRight - aSlot.w;
++    aSlot.y = rPage.y + (SLOT_CENTRED ? (nRoom - aSlot.h) / 2 : 0);
+     return aSlot;
+ }
+ 
++/** HST Office (1.0.2 ribbon mockup): the banner of the compact ribbon, MIN_WIDE_ART_WIDTH wide with the
++    artwork's ratio (260 x 75 logical px) at every window width. */
++inline StripSlot compactSlot(double fDpi)
++{
++    const long nW = scaled(MIN_WIDE_ART_WIDTH, fDpi);
++    return StripSlot{ nW, (nW * ART_HEIGHT + ART_WIDTH / 2) / ART_WIDTH };
++}
++
+ /** Width left to the groups of the page when the banner occupies rSlot. */
+ inline long pageWidthBeside(const Rect& rPage, const Rect& rSlot, double fDpi)
+ {
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -58,6 +58,8 @@
+     void HstSetCompact( bool bCompact );
+     void HstDrop();
+     tools::Long HstCompactReserve() const;
++    /// x in px where the banner ends: 8 logical px before the document window's right edge, never past this control
++    tools::Long HstBannerRight() const;
+     DECL_LINK(HstToggleHdl, LinkParamNone*, void);
+     DECL_LINK(HstKeyHdl, VclWindowEvent&, bool);
+     DECL_LINK(HstTabEventHdl, VclWindowEvent&, void);
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -562,16 +562,17 @@
+     TabPage* pPage = GetTabPage(GetCurPageId());
+     if (m_pHstCompact && m_pHstCompact->IsCompact())
+     {
+-        // the compact ribbon: the banner (260 x 75) stands across the tab row and the quick row, the
+-        // tab row's search box and menu button stop before it and so does the quick row
++        // the compact ribbon: the banner (260 x 75, 8 px from the window's right edge) stands across the tab
++        // row and the quick row, centred in the band; the tab row's search box and menu button stop 8 px
++        // before it and so does the quick row
+         const double fDpi = GetDPIScaleFactor();
+         const tools::Long nHeader = HstHeaderHeight();
+         const tools::Long nBand = nHeader + HstRibbonCompact::QuickHeight(nHeader, fDpi);
+-        const hst::banner::StripSlot aSlot = hst::banner::stripSlot(HstRibbonCompact::BandHeight(fDpi), fDpi);
++        const hst::banner::StripSlot aSlot = hst::banner::compactSlot(fDpi);
+         const tools::Long nWidth = GetOutputSizePixel().Width();
+         const tools::Long nReserve = HstCompactReserve();
+-        m_pHstBanner->Place(tools::Rectangle(
+-            Point(nWidth - hst::banner::scaled(4, fDpi) - aSlot.w, (nBand - aSlot.h) / 2), Size(aSlot.w, aSlot.h)));
++        m_pHstBanner->Place(tools::Rectangle(Point(HstBannerRight() - aSlot.w, std::max<tools::Long>(0, (nBand - aSlot.h) / 2)),
++                                             Size(aSlot.w, aSlot.h)));
+         HstSetRowReserve(nReserve);
+         const tools::Long nLeft = hst::banner::scaled(4, fDpi);
+         m_pHstCompact->Place(tools::Rectangle(Point(nLeft, nHeader),
+@@ -598,12 +599,15 @@
+         {
+             // HST Office (1.0.2 ribbon, owner decision 14/11/2026): the banner's width follows the window, not
+             // the tab: 260 logical px up to 1440 px, then linearly up to 360 px at 1920 (windowSlotWidth); the
+-            // groups scale beside it (Office-style ladder) and the banner never moves between tabs
+-            const SystemWindow* pWindow = GetSystemWindow();
++            // groups scale beside it (Office-style ladder) and the banner never moves between tabs. The width is
++            // the document window's (its frame), not the SystemWindow's client, which is narrower than the window
++            // (a 1920 px window got a 357 px banner); 1.0.2 mockup: 8 px from the window's right edge, w x w*104/360
++            // centred in the 106 px body (360 x 104 at 1920, 260 x 75 up to 1440)
++            const vcl::Window* pFrame = GetFrameWindow();
+             const long nMaxWidth = hst::banner::windowSlotWidth(
+-                pWindow ? pWindow->GetSizePixel().Width() : GetOutputSizePixel().Width(), fDpi);
++                pFrame ? pFrame->GetOutputSizePixel().Width() : GetOutputSizePixel().Width(), fDpi);
+             const hst::banner::Rect aSlot
+-                = hst::banner::slotFor(aPage, fDpi, hst::banner::artWidth(eMode), nMaxWidth);
++                = hst::banner::slotFor(aPage, fDpi, hst::banner::artWidth(eMode), nMaxWidth, HstBannerRight());
+             nPageWidth = hst::banner::pageWidthBeside(aPage, aSlot, fDpi);
+             m_pHstBanner->Place(tools::Rectangle(Point(aSlot.x, aSlot.y), Size(aSlot.w, aSlot.h)));
+         }
+@@ -668,11 +672,30 @@
+     HstLayoutBanner();
+ }
+ 
++tools::Long NotebookbarTabControl::HstBannerRight() const
++{
++    // the document window's right edge in this control's pixels (this control may stop before it: the margins of
++    // the notebookbar's .ui), never past this control, less the 8 px gap of the mockup
++    const tools::Long nOwn = GetOutputSizePixel().Width();
++    tools::Long nEdge = nOwn;
++    const vcl::Window* pFrame = GetFrameWindow();
++    if (pFrame && !IsRTLEnabled())
++    {
++        const Point aEdge = ScreenToOutputPixel(pFrame->OutputToScreenPixel(Point(pFrame->GetOutputSizePixel().Width(), 0)));
++        if (aEdge.X() > 0)
++            nEdge = std::min(nOwn, aEdge.X());
++    }
++    return nEdge - hst::banner::scaled(hst::banner::RIGHT_GAP, GetDPIScaleFactor());
++}
++
+ tools::Long NotebookbarTabControl::HstCompactReserve() const
+ {
+-    // the banner of the compact ribbon, its 4 px right margin and an 8 px gap before it
++    // everything right of 8 px before the compact ribbon's banner: 260 + 16 logical px when this control reaches
++    // the window's right edge (the dropped page is then W - 276 px wide)
+     const double fDpi = GetDPIScaleFactor();
+-    return hst::banner::stripSlot(HstRibbonCompact::BandHeight(fDpi), fDpi).w + hst::banner::scaled(12, fDpi);
++    const tools::Long nBannerLeft = HstBannerRight() - hst::banner::compactSlot(fDpi).w;
++    return std::max<tools::Long>(0, GetOutputSizePixel().Width() - nBannerLeft
++                                        + hst::banner::scaled(hst::banner::RIGHT_GAP, fDpi));
+ }
+ 
+ void NotebookbarTabControl::HstSetCompact( bool bCompact )
+@@ -764,7 +787,7 @@
+     HstSetCompact(true);
+ }
+ 
+-// Ctrl+F1 anywhere in this document window (its dropped page included) switches the ribbon's state
++// Ctrl+F1 (macOS: also ⌘⌥R) anywhere in this document window (its dropped page included) switches the ribbon's state
+ IMPL_LINK(NotebookbarTabControl, HstKeyHdl, VclWindowEvent&, rEvent, bool)
+ {
+     if (rEvent.GetId() != VclEventId::WindowKeyInput || !m_pHstCompact || !IsReallyVisible())
+@@ -773,7 +796,16 @@
+     // vcl hands the key listeners the frame window of the key (a document window's border window, above
+     // this window's SystemWindow), so frames are compared; a popup of this control (the dropped page) counts
+     const vcl::Window* pWindow = rEvent.GetWindow();
+-    if (!pKey || pKey->GetKeyCode().GetFullCode() != (KEY_F1 | KEY_MOD1) || !pWindow
++    const sal_uInt16 nFull = pKey ? pKey->GetKeyCode().GetFullCode() : 0;
++#ifdef MACOSX
++    // macOS (owner decision D10): ⌘⌥R as in the reference suite on the Mac, and Ctrl+F1 when the system leaves it
++    // to the application (KEY_MOD1 is ⌘, KEY_MOD2 ⌥, KEY_MOD3 Ctrl)
++    const bool bToggle = nFull == (KEY_R | KEY_MOD1 | KEY_MOD2) || nFull == (KEY_F1 | KEY_MOD3)
++                         || nFull == (KEY_F1 | KEY_MOD1);
++#else
++    const bool bToggle = nFull == (KEY_F1 | KEY_MOD1);
++#endif
++    if (!bToggle || !pWindow
+         || (pWindow->GetFrameWindow() != GetFrameWindow() && !IsWindowOrChild(pWindow, true)))
+         return false;
+     HstSetCompact(!m_pHstCompact->IsCompact());
+@@ -1067,16 +1099,24 @@
+     }
+ }
+ 
+-// HST Office: the tab row and the tallest tab page of the full ribbon, in logical px (gap list G06: one height and
+-// one caption row for Writer, Sheets, Slides and Draw)
++// HST Office: the tab row and the tallest tab page of a full ribbon without the banner (another notebookbar file), in
++// logical px (gap list G06)
+ constexpr double HST_RIBBON_HEIGHT = 165;
++// the tab control's insets above and below the page, in px at every scale (TAB_OFFSET of vcl/source/control/tabctrl.cxx)
++constexpr tools::Long HST_PAGE_INSETS = 2 * 3;
+ 
+ Size NotebookbarTabControl::calculateRequisition() const
+ {
+     Size aSize = NotebookbarTabControlBase::calculateRequisition();
+-    // HST Office: one ribbon height in every app (Sheets' tallest page was 3 px lower); the compact ribbon below sets
+-    // its own height
+-    aSize.setHeight(std::max<tools::Long>(aSize.Height(), std::lround(HST_RIBBON_HEIGHT * GetDPIScaleFactor())));
++    const double fDpi = GetDPIScaleFactor();
++    // HST Office (1.0.2 ribbon mockup): the ribbon of Writer, Sheets, Slides and Draw (the one with the banner) is the
++    // tab row, 3 px, a body of exactly 106 logical px (rounded once) and 3 px in every tab: never taller for a page
++    // whose content asks for more (a .ui to fix) nor lower for a shorter one. The compact ribbon below sets its own
++    // height.
++    if (m_pHstBanner && HstHeaderHeight() > 0)
++        aSize.setHeight(HstHeaderHeight() + HST_PAGE_INSETS + hst::banner::scaled(hst::banner::RIBBON_BODY_HEIGHT, fDpi));
++    else
++        aSize.setHeight(std::max<tools::Long>(aSize.Height(), std::lround(HST_RIBBON_HEIGHT * fDpi)));
+ 
+     for (int i = 0; i < GetPageCount(); i++)
+     {
+@@ -1094,7 +1134,7 @@
+     if (aSize.Width() < 400)
+         aSize.setWidth( 400 );
+     if (m_pHstCompact && m_pHstCompact->IsCompact()) // the tab row and the quick row
+-        aSize.setHeight(HstHeaderHeight() + HstRibbonCompact::QuickHeight(HstHeaderHeight(), GetDPIScaleFactor()));
++        aSize.setHeight(HstHeaderHeight() + HstRibbonCompact::QuickHeight(HstHeaderHeight(), fDpi));
+     aSize.AdjustHeight(HstQatRow()); // the quick access toolbar's own row below the ribbon
+ 
+     return aSize;
+--- a/sfx2/source/backstage/hstbackstagewindow.hxx
++++ b/sfx2/source/backstage/hstbackstagewindow.hxx
+@@ -23,6 +23,7 @@
+ #include <tools/link.hxx>
+ #include <vcl/font.hxx>
+ #include <vcl/image.hxx>
++#include <vcl/vclptr.hxx>
+ #include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/Button.hxx>
+ #include <vcl/weld/Container.hxx>
+@@ -45,6 +46,8 @@
+ 
+ namespace sfx2::hst
+ {
++class FileTitleBand;
++
+ /* HST Office: the File panel ("Tệp tin") of one document frame, a drop-down panel.
+ 
+    The panel is a popover: its own floating window (a popup window under X11, Windows and macOS),
+@@ -206,6 +209,9 @@
+     std::unique_ptr<weld::Container> m_xPageExport;
+ 
+     std::unique_ptr<weld::Label> m_xGreeting;
++    /// HST Office (1.0.2 ribbon mockup): the File page's title band over the ribbon's body while the panel is open
++    VclPtr<FileTitleBand> m_xTitleBand;
++    void ShowTitleBand(bool bShow);
+     std::vector<TemplateTile> m_aTiles;
+     std::unique_ptr<weld::LinkButton> m_xMoreTemplates;
+     std::unique_ptr<weld::Notebook> m_xRecentTabs;
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -11,6 +11,7 @@
+ #include "hstbackstagedata.hxx"
+ 
+ #include <algorithm>
++#include <functional>
+ #include <climits>
+ #include <cmath>
+ 
+@@ -23,6 +24,8 @@
+ #include <com/sun/star/frame/XController.hpp>
+ #include <com/sun/star/frame/XDispatchProvider.hpp>
+ #include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/frame/XTitle.hpp>
++#include <com/sun/star/accessibility/AccessibleRole.hpp>
+ #include <com/sun/star/lang/XServiceInfo.hpp>
+ #include <com/sun/star/task/InteractionHandler.hpp>
+ #include <com/sun/star/ui/dialogs/TemplateDescription.hpp>
+@@ -43,6 +46,11 @@
+ #include <vcl/commandinfoprovider.hxx>
+ #include <vcl/event.hxx>
+ #include <vcl/HstBanner.hxx>
++#include <vcl/HstRibbonPaint.hxx>
++#include <vcl/ctrl.hxx>
++#include <vcl/lineinfo.hxx>
++#include <vcl/ptrstyle.hxx>
++#include <vcl/vclevent.hxx>
+ #include <vcl/notebookbar/notebookbar.hxx>
+ #include <vcl/tabctrl.hxx>
+ #include <vcl/tabpage.hxx>
+@@ -411,6 +419,7 @@
+         m_bOpen = false;
+         m_xPopover->popdown();
+     }
++    m_xTitleBand.disposeAndClear();
+     if (m_pPendingSaveAs)
+     {
+         Application::RemoveUserEvent(m_pPendingSaveAs);
+@@ -774,6 +783,15 @@
+     }
+ }
+ 
++/// The ribbon's tab control and banner of the document window holding pContainer (none without a shown ribbon).
++void lcl_findRibbonOf(vcl::Window* pContainer, const TabControl*& rpTabs, const vcl::Window*& rpBanner)
++{
++    SystemWindow* pSysWin = pContainer ? pContainer->GetSystemWindow() : nullptr;
++    NotebookBar* pRibbon = pSysWin ? pSysWin->GetNotebookBar().get() : nullptr;
++    if (pRibbon && pRibbon->IsReallyVisible())
++        lcl_findRibbonParts(*pRibbon, rpTabs, rpBanner);
++}
++
+ /// The document tab strip of the window (framework DocumentTabBar, id "hst-document-tabs") when it shows.
+ const vcl::Window* lcl_findDocumentTabs(const vcl::Window& rParent)
+ {
+@@ -789,6 +807,203 @@
+ }
+ }
+ 
++/** HST Office (1.0.2 ribbon mockup): the File page's title band. While the panel is open it covers the ribbon's body
++    left of the banner (the banner stays): a round back button, the greeting and "File · <document>". The panel itself
++    starts below the document tab strip, which stays where it is (owner, 14/11/2026). A click on the button closes the
++    panel as Esc does. The band is a child of the ribbon's tab control and goes with it. */
++class FileTitleBand final : public Control
++{
++public:
++    FileTitleBand(vcl::Window* pParent, std::function<void()> aBack)
++        : Control(pParent, WB_NOBORDER)
++        , m_aBack(std::move(aBack))
++    {
++        SetAccessibleRole(css::accessibility::AccessibleRole::PANEL);
++        pParent->AddEventListener(LINK(this, FileTitleBand, ParentEventHdl));
++    }
++
++    virtual ~FileTitleBand() override { disposeOnce(); }
++
++    virtual void dispose() override
++    {
++        if (vcl::Window* pParent = GetParent(); pParent && !pParent->isDisposed())
++            pParent->RemoveEventListener(LINK(this, FileTitleBand, ParentEventHdl));
++        Control::dispose();
++    }
++
++    void SetTexts(const OUString& rGreeting, const OUString& rSubtitle)
++    {
++        m_aGreeting = rGreeting;
++        m_aSubtitle = rSubtitle;
++        SetAccessibleName(rSubtitle.isEmpty() ? rGreeting : OUString(rGreeting + u", " + rSubtitle));
++        Invalidate();
++    }
++
++    virtual void Paint(vcl::RenderContext& rDev, const tools::Rectangle&) override
++    {
++        const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++        const double fDpi = GetDPIScaleFactor();
++        const Size aOut = GetOutputSizePixel();
++        const Color aBack = rStyle.GetWindowColor();
++        const Color aText = rStyle.GetWindowTextColor();
++        Color aSoft(aText);
++        aSoft.Merge(aBack, 110); // the subtitle and the button's ring: a grey between text and window
++        rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR | vcl::PushFlags::FONT
++                  | vcl::PushFlags::TEXTCOLOR);
++        rDev.SetLineColor();
++        rDev.SetFillColor(aBack);
++        rDev.DrawRect(tools::Rectangle(Point(), aOut));
++        // the back button: a ring with a left arrow, the accent ring while hovered
++        const tools::Rectangle aButton = ButtonRect();
++        rDev.SetFillColor(m_bHover ? rStyle.GetFaceColor() : aBack);
++        rDev.SetLineColor(m_bHover ? rStyle.GetHighlightColor() : aSoft);
++        rDev.DrawEllipse(aButton);
++        const Point aCenter = aButton.Center();
++        const tools::Long nArm = std::lround(6 * fDpi), nHead = std::lround(4 * fDpi);
++        const LineInfo aLine(LineStyle::Solid, std::max<tools::Long>(1, std::lround(1.5 * fDpi)));
++        const Point aTip(aCenter.X() - nArm, aCenter.Y());
++        rDev.SetLineColor(aText);
++        rDev.DrawLine(aTip, Point(aCenter.X() + nArm, aCenter.Y()), aLine);
++        rDev.DrawLine(aTip, Point(aTip.X() + nHead, aTip.Y() - nHead), aLine);
++        rDev.DrawLine(aTip, Point(aTip.X() + nHead, aTip.Y() + nHead), aLine);
++        // the greeting (as large as the panel's page titles) and the subtitle below it, centred as one block
++        vcl::Font aTitleFont(rStyle.GetLabelFont());
++        aTitleFont.SetFontHeight(aTitleFont.GetFontHeight() * 1.6);
++        aTitleFont.SetWeight(WEIGHT_SEMIBOLD);
++        const vcl::Font aSubFont(rStyle.GetLabelFont());
++        rDev.SetFont(aTitleFont);
++        const tools::Long nTitle = rDev.GetTextHeight();
++        rDev.SetFont(aSubFont);
++        const tools::Long nSub = m_aSubtitle.isEmpty() ? 0 : rDev.GetTextHeight();
++        const tools::Long nGap = m_aSubtitle.isEmpty() ? 0 : std::lround(2 * fDpi);
++        const tools::Long nX = aButton.Right() + std::lround(16 * fDpi);
++        const tools::Long nWidth = std::max<tools::Long>(0, aOut.Width() - nX - std::lround(8 * fDpi));
++        const tools::Long nY = (aOut.Height() - nTitle - nGap - nSub) / 2;
++        const DrawTextFlags nFlags = DrawTextFlags::Left | DrawTextFlags::Top | DrawTextFlags::EndEllipsis;
++        rDev.SetFont(aTitleFont);
++        rDev.SetTextColor(aText);
++        rDev.DrawText(tools::Rectangle(Point(nX, nY), Size(nWidth, nTitle)), m_aGreeting, nFlags);
++        if (nSub)
++        {
++            rDev.SetFont(aSubFont);
++            rDev.SetTextColor(aSoft);
++            rDev.DrawText(tools::Rectangle(Point(nX, nY + nTitle + nGap), Size(nWidth, nSub)), m_aSubtitle, nFlags);
++        }
++        rDev.Pop();
++    }
++
++    virtual void MouseMove(const MouseEvent& rEvt) override
++    {
++        const bool bHover = !rEvt.IsLeaveWindow() && ButtonRect().Contains(rEvt.GetPosPixel());
++        if (bHover != m_bHover)
++        {
++            m_bHover = bHover;
++            SetPointer(bHover ? PointerStyle::RefHand : PointerStyle::Arrow);
++            Invalidate(ButtonRect());
++        }
++        Control::MouseMove(rEvt);
++    }
++
++    virtual void MouseButtonUp(const MouseEvent& rEvt) override
++    {
++        if (rEvt.IsLeft() && ButtonRect().Contains(rEvt.GetPosPixel()))
++        {
++            m_aBack(); // only hides this band: it stays alive
++            return;
++        }
++        Control::MouseButtonUp(rEvt);
++    }
++
++private:
++    tools::Rectangle ButtonRect() const
++    {
++        const double fDpi = GetDPIScaleFactor();
++        const tools::Long nSize = std::lround(32 * fDpi);
++        return tools::Rectangle(Point(std::lround(18 * fDpi), (GetOutputSizePixel().Height() - nSize) / 2),
++                                Size(nSize, nSize));
++    }
++
++    DECL_LINK(ParentEventHdl, VclWindowEvent&, void);
++
++    std::function<void()> m_aBack;
++    OUString m_aGreeting;
++    OUString m_aSubtitle;
++    bool m_bHover = false;
++};
++
++// the tab control goes (a closed document window, a rebuilt ribbon): the band goes first, never a live child
++IMPL_LINK(FileTitleBand, ParentEventHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        disposeOnce();
++}
++
++void BackstageWindow::ShowTitleBand(bool bShow)
++{
++    if (!bShow)
++    {
++        if (m_xTitleBand && !m_xTitleBand->isDisposed())
++            m_xTitleBand->Hide();
++        m_xGreeting->set_visible(true);
++        return;
++    }
++    const TabControl* pFound = nullptr;
++    const vcl::Window* pBanner = nullptr;
++    lcl_findRibbonOf(VCLUnoHelper::GetWindow(m_xFrame->getContainerWindow()), pFound, pBanner);
++    // the band is a child window of the ribbon's tab control (the lookup only reads, the band is added to it)
++    TabControl* pTabs = const_cast<TabControl*>(pFound);
++    const TabPage* pPage = pTabs ? pTabs->GetTabPage(pTabs->GetCurPageId()) : nullptr;
++    if (!pPage || !pPage->IsVisible()) // no ribbon, or the compact ribbon: the greeting stays in the panel
++    {
++        ShowTitleBand(false);
++        return;
++    }
++    if (m_xTitleBand && (m_xTitleBand->isDisposed() || m_xTitleBand->GetParent() != pTabs))
++        m_xTitleBand.disposeAndClear();
++    if (!m_xTitleBand)
++        m_xTitleBand = VclPtr<FileTitleBand>::Create(pTabs, [this]() { Close(); });
++    // the whole body (the page and the tab control's 3 px above and below it), left of the banner and its 8 px gap
++    constexpr tools::Long PAGE_INSET = 3; // TAB_OFFSET of vcl/source/control/tabctrl.cxx, in px at every scale
++    const Point aPage = pPage->GetPosPixel();
++    tools::Long nRight = pTabs->GetOutputSizePixel().Width();
++    if (pBanner && pBanner->IsVisible() && pBanner->GetParent() == pTabs)
++        nRight = pBanner->GetPosPixel().X() - Scaled(8);
++    const tools::Long nTop = std::max<tools::Long>(0, aPage.Y() - PAGE_INSET);
++    const tools::Long nBottom = std::min(pTabs->GetOutputSizePixel().Height(),
++                                         aPage.Y() + pPage->GetSizePixel().Height() + PAGE_INSET);
++    if (nRight <= 0 || nBottom <= nTop)
++    {
++        ShowTitleBand(false);
++        return;
++    }
++    // "File · <document>": the File tab's own label and the document's title
++    OUString aFile;
++    for (sal_uInt16 nPos = 0; nPos < pTabs->GetPageCount(); ++nPos)
++        if (pTabs->GetPageName(pTabs->GetPageId(nPos)) == ::hst::ribbon::FILE_TAB_NAME)
++            aFile = pTabs->GetPageText(pTabs->GetPageId(nPos)).replaceAll("~", "");
++    OUString aTitle;
++    try
++    {
++        const uno::Reference<frame::XController> xController = m_xFrame->getController();
++        uno::Reference<frame::XTitle> xTitle;
++        if (xController.is())
++            xTitle.set(xController->getModel(), uno::UNO_QUERY);
++        if (xTitle.is())
++            aTitle = xTitle->getTitle();
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.backstage", "File title band: no document title");
++    }
++    const OUString aSubtitle = aFile.isEmpty() || aTitle.isEmpty() ? OUString(aFile + aTitle)
++                                                                    : OUString(aFile + u" · " + aTitle);
++    m_xTitleBand->SetPosSizePixel(Point(0, nTop), Size(nRight, nBottom - nTop));
++    m_xTitleBand->SetTexts(m_xGreeting->get_label(), aSubtitle);
++    m_xTitleBand->SetZOrder(nullptr, ZOrderFlags::First); // above the tab page and the ribbon's other children
++    m_xTitleBand->Show();
++    m_xGreeting->set_visible(false); // the greeting is in the band now
++}
++
+ bool BackstageWindow::GetPlacement(tools::Rectangle& rAnchor, Size& rSize) const
+ {
+     vcl::Window* pContainer = VCLUnoHelper::GetWindow(m_xFrame->getContainerWindow());
+@@ -803,8 +1018,7 @@
+     NotebookBar* pRibbon = pSysWin ? pSysWin->GetNotebookBar().get() : nullptr;
+     const TabControl* pTabs = nullptr;
+     const vcl::Window* pBanner = nullptr;
+-    if (pRibbon && pRibbon->IsReallyVisible())
+-        lcl_findRibbonParts(*pRibbon, pTabs, pBanner);
++    lcl_findRibbonOf(pContainer, pTabs, pBanner);
+     const TabPage* pPage = pTabs ? pTabs->GetTabPage(pTabs->GetCurPageId()) : nullptr;
+     const AbsoluteScreenPixelPoint aEdge
+         = pPage ? pTabs->OutputToAbsoluteScreenPixel(Point(0, pPage->GetPosPixel().Y()))
+@@ -885,6 +1099,7 @@
+     m_xRecentTabs->set_current_page(0);
+ 
+     m_xPanel->set_size_request(aSize.Width(), aSize.Height());
++    ShowTitleBand(true);
+     m_xPopover->popup_at_rect(m_pFrameWeld, aAnchor, weld::Placement::Under);
+     m_aNav[m_nSelectedNav].xButton->grab_focus();
+     return true;
+@@ -897,6 +1112,7 @@
+     m_bOpen = false;
+     m_xPrintPage->Deactivate(); // a print job waiting on the Print page is cancelled
+     m_xPopover->popdown();
++    ShowTitleBand(false);
+     FocusDocument();
+ }
+ 
+@@ -921,6 +1137,7 @@
+         return; // closed by Close()
+     m_bOpen = false;
+     m_xPrintPage->Deactivate();
++    ShowTitleBand(false);
+     FocusDocument();
+ }
+ 
