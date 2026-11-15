@@ -11,7 +11,9 @@
 - hst-writer-table-name-cache.patch: GetUniqueTableName keeps its scan during a writerfilter import and checks only
   the newest table format, with a fallback to the full scan.
 - hst-calc-condformat-row-results-cache.patch: during a row height pass, column independent condition formulas are
-  evaluated once per row."""
+  evaluated once per row.
+- hst-calc-condformat-fill-cache-iterator.patch: duplicate/top rules count their range with ScCellIterator.
+- hst-sc-qa-excel-formula-syntax.patch: sc_cond_format expects the Excel A1 UI syntax."""
 from pathlib import Path
 import unittest
 
@@ -90,6 +92,16 @@ class LargeOfficeOpenPatches(unittest.TestCase):
                          cond.count("mpRelCode1.reset();"))
         self.assertIn("ScDocument::CondRowCacheScope aCondRowCache(", "\n".join(ch["sc/source/core/data/table1.cxx"][1]))
         self.assertIn("testCondFormatRowResultsInRowHeightPass", "\n".join(ch["sc/qa/unit/ucalc_condformat.cxx"][1]))
+
+    def test_condformat_fill_cache_iterator(self):
+        ch = changes("hst-calc-condformat-fill-cache-iterator.patch")
+        removed, added, _ = ch["sc/source/core/data/conditio.cxx"]
+        self.assertIn("ScRefCellValue aCell(mrDoc, ScAddress(c, r, nTab));", "\n".join(removed))
+        self.assertIn("for (bool bHas = aIter.first(); bHas; bHas = aIter.next())", "\n".join(added))
+        self.assertIn("testCondFormatDuplicateTopCacheCells", "\n".join(ch["sc/qa/unit/ucalc_condformat.cxx"][1]))
+        qa = changes("hst-sc-qa-excel-formula-syntax.patch")
+        self.assertEqual(set(qa), {"sc/qa/unit/cond_format.cxx"})
+        self.assertNotIn("$Sheet", "\n".join(qa["sc/qa/unit/cond_format.cxx"][1]))
 
 
 if __name__ == "__main__":
