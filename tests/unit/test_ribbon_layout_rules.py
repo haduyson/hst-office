@@ -62,6 +62,10 @@ class RulesTest(unittest.TestCase):
         [(group, rule, items, _)] = R.check_root(root)
         self.assertEqual((group.id, rule, [i.id for i in items]), ("gdTest", "few", ["bxB", "bxC"]))
 
+    def test_group_with_a_kept_large_button_is_not_few(self):
+        root = ribbon(toolbox("bxHstUXHomeSlide1", 0, 0, height=2, big=True), toolbox("bxB", 1, 0), toolbox("bxC", 1, 1))
+        self.assertEqual(R.check_root(root), [])
+
     def test_controls_and_many_commands_are_not_few(self):
         combo = toolbox("bxFont", 0, 0, commands=(".uno:CharFontName",))
         self.assertEqual(R.check_root(ribbon(combo, toolbox("bxB", 1, 0), toolbox("bxC", 1, 1))), [])
