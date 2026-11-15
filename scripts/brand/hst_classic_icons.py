@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """The "Cổ điển" icon style (hst_classic / hst_classic_dark): upstream Colibre with HST glyphs on top
-only for what Colibre does not draw.
+only for what Colibre does not draw, and for the few requests of FORCED.
 
 The archive is an overlay. It holds the HST glyphs for every icon request that the SVG Colibre of
 the same LibreOffice tree cannot resolve (the org.hst.office.vi commands, the statistics dialogs and
@@ -19,6 +19,10 @@ CLASSIC = {
     "hst_classic_dark": ("hst_dark", "colibre_dark_svg", "#FAFAFA"),
 }
 PREFIX = "hst/"
+# Requests the HST glyph answers although Colibre draws them: the ribbon's Find and Replace stand one above the
+# other in Writer's Editing group, and Colibre's pair differs in ink and weight (a thin blue magnifier beside a
+# dark one with letters). The HST 16 px pair is drawn with the same 1 px pen (owner decision of 15/11/2026).
+FORCED = frozenset({"cmd/sc_recsearch", "cmd/sc_searchdialog"})
 EXTRA = ("links.txt", "LICENSE-CC-BY-4.0.txt", "COPYING.txt")
 
 
@@ -88,7 +92,7 @@ def overlay(files, coverage, notice):
             variants.setdefault(name.split("@")[0], []).append(name)
     result, aliases = {}, {}
     for request in sorted(requests):
-        if coverage.covers(request):
+        if coverage.covers(request) and request not in FORCED:
             continue
         target = links.get(request + ".png") or links.get(request + ".svg")
         if target is None:
