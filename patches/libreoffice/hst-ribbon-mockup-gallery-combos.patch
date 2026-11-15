@@ -14,14 +14,15 @@ accessible name stay the full name. In Calc the same gallery (.uno:StylesPreview
 Calc's cell styles) shows cell styles as cells, their fill or white in a light grey frame, in the Sheets mockup's
 order: Default, Good, Neutral, Bad, Warning, Heading 1, then Heading 2, Note, Accent 1-3, Result
 (StylesPreviewToolBoxControl.cxx); previews are cached per module. In a notebookbar the font name box is 128 px
-and the font size box 46 px (svx/source/inc/HstRibbonCombos.hxx): the box takes off what gtk3 adds for its ▾
-button, and is made from fontnameboxribbon.ui / fontsizeboxribbon.ui, whose button has no padding (vcl's gtk3
-"small-button" class). Toolbars and the sidebar keep their boxes and widths.
+and the font size box 46 px (svx/source/inc/HstRibbonCombos.hxx): the part of the box's preferred width over
+the target is taken off its request, once when it is made and once more after it is first shown (on gtk3 the
+▾ button is counted only then: 128 px became 165). A theme whose entry and button need more keeps its minimum
+(gtk3 Adwaita: the size box 61 px). Toolbars and the sidebar keep their widths.
 
 --- /dev/null
 --- /dev/null
 +++ b/svx/source/inc/HstRibbonCombos.hxx
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,93 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -33,14 +34,16 @@ button, and is made from fontnameboxribbon.ui / fontsizeboxribbon.ui, whose butt
 +
 +#pragma once
 +
-+#include <rtl/ustring.hxx>
 +#include <tools/long.hxx>
++#include <vcl/idle.hxx>
 +#include <vcl/notebookbar/notebookbar.hxx>
++#include <vcl/toolbox.hxx>
 +#include <vcl/window.hxx>
 +
 +#include <algorithm>
 +#include <cmath>
-+#include <string_view>
++#include <functional>
++#include <utility>
 +
 +// HST Office: the font name and font size boxes of the ribbon (Tabbed notebookbar) are as wide as in
 +// Office's Home tab: 128 and 46 px at 100 %. Toolbars and the sidebar keep their own widths.
@@ -60,23 +63,15 @@ button, and is made from fontnameboxribbon.ui / fontsizeboxribbon.ui, whose butt
 +    return false;
 +}
 +
-+/// The .ui of a box made in pParent: in the ribbon its variant "<name>ribbon.ui", whose ▾ button has no
-+/// padding (gtk3 "small-button"), so the box gets as narrow as Office's
-+inline OUString BoxUIFile(const vcl::Window* pParent, std::u16string_view aName)
-+{
-+    return OUString::Concat(u"svx/ui/") + aName
-+           + (pParent && InNotebookbar(*pParent) ? std::u16string_view(u"ribbon.ui") : std::u16string_view(u".ui"));
-+}
-+
 +/// nLogical px at the window's scale
 +inline int RibbonPixels(const vcl::Window& rWindow, tools::Long nLogical)
 +{
 +    return static_cast<int>(std::lround(nLogical * rWindow.GetDPIScaleFactor()));
 +}
 +
-+/// Make the box of the item window rWindow nLogical px wide. On gtk3 the request sizes the entry and the
-+/// ▾ button comes on top of it, so the part over the target is taken off the request; elsewhere the request
-+/// is the whole box. A theme whose entry and button need more keeps its minimum.
++/// Make the box of the item window rWindow nLogical px wide: the part of its preferred width over the target
++/// (gtk3's ▾ button once the box is shown) is taken off the request. A theme whose entry and button need
++/// more keeps its minimum.
 +template <class Box> void FitRibbonWidth(const vcl::Window& rWindow, Box& rBox, tools::Long nLogical)
 +{
 +    const int nTarget = RibbonPixels(rWindow, nLogical);
@@ -85,6 +80,39 @@ button, and is made from fontnameboxribbon.ui / fontsizeboxribbon.ui, whose butt
 +    if (nOver > 0)
 +        rBox.set_size_request(std::max<int>(1, nTarget - nOver), -1);
 +}
++
++/// Its toolbox lays the item window rWindow out again at the window's new size
++inline void RelayoutItem(vcl::Window& rWindow)
++{
++    ToolBox* pBox = dynamic_cast<ToolBox*>(rWindow.GetParent());
++    if (!pBox)
++        return;
++    for (ToolBox::ImplToolItems::size_type i = 0; i < pBox->GetItemCount(); ++i)
++    {
++        const ToolBoxItemId nId = pBox->GetItemId(i);
++        if (pBox->GetItemWindow(nId) == &rWindow)
++        {
++            pBox->SetItemWindow(nId, &rWindow); // the item takes the window's new size
++            break;
++        }
++    }
++    pBox->queue_resize();
++}
++
++/// Fits a ribbon box once more after it is first shown: on gtk3 the box measured when it is made does not
++/// yet count the width its ▾ button takes on screen (128 px became 165)
++class RibbonRefit final : public Idle
++{
++    std::function<void()> m_aRefit;
++
++public:
++    explicit RibbonRefit(std::function<void()> aRefit)
++        : Idle("svx ribbon box refit")
++        , m_aRefit(std::move(aRefit))
++    {
++    }
++    void Invoke() override { m_aRefit(); }
++};
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -117,104 +145,6 @@ button, and is made from fontnameboxribbon.ui / fontsizeboxribbon.ui, whose butt
 +#define RID_HST_STYLE_SHORT_QUOTATIONS      NC_("RID_HST_STYLE_SHORT_QUOTATIONS", "Quote")
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
---- /dev/null
-+++ b/svx/uiconfig/ui/fontnameboxribbon.ui
-@@ -0,0 +1,41 @@
-+<?xml version="1.0" encoding="UTF-8"?>
-+<!-- Generated with glade 3.40.0 -->
-+<!-- HST Office: fontnamebox.ui for the ribbon (Tabbed notebookbar): the box and its ▾ button without
-+     padding (vcl gtk3 small-button), so it is as narrow as Office's Home tab. -->
-+<interface domain="svx">
-+  <requires lib="gtk+" version="3.24"/>
-+  <object class="GtkBox" id="FontNameBox">
-+    <property name="visible">True</property>
-+    <property name="can-focus">False</property>
-+    <property name="hexpand">True</property>
-+    <property name="spacing">6</property>
-+    <child>
-+      <object class="GtkComboBoxText" id="fontnamecombobox">
-+        <property name="visible">True</property>
-+        <property name="can-focus">False</property>
-+        <property name="hexpand">True</property>
-+        <property name="has-entry">True</property>
-+        <property name="popup-fixed-width">False</property>
-+        <child internal-child="entry">
-+          <object class="GtkEntry">
-+            <property name="can-focus">True</property>
-+            <property name="truncate-multiline">True</property>
-+          </object>
-+        </child>
-+        <child internal-child="accessible">
-+          <object class="AtkObject" id="fontnamecombobox-atkobject">
-+            <property name="AtkObject::accessible-name" translatable="yes" context="fontnamebox|fontnamecombobox|accessible_name">Font Name</property>
-+          </object>
-+        </child>
-+        <style>
-+          <class name="small-button"/>
-+        </style>
-+      </object>
-+      <packing>
-+        <property name="expand">False</property>
-+        <property name="fill">True</property>
-+        <property name="position">0</property>
-+      </packing>
-+    </child>
-+  </object>
-+</interface>
---- /dev/null
-+++ b/svx/uiconfig/ui/fontsizeboxribbon.ui
-@@ -0,0 +1,40 @@
-+<?xml version="1.0" encoding="UTF-8"?>
-+<!-- Generated with glade 3.40.0 -->
-+<!-- HST Office: fontsizebox.ui for the ribbon (Tabbed notebookbar): the box and its ▾ button without
-+     padding (vcl gtk3 small-button), so it is as narrow as Office's Home tab. -->
-+<interface domain="svx">
-+  <requires lib="gtk+" version="3.24"/>
-+  <object class="GtkBox" id="FontSizeBox">
-+    <property name="visible">True</property>
-+    <property name="can-focus">False</property>
-+    <property name="hexpand">True</property>
-+    <property name="spacing">6</property>
-+    <child>
-+      <object class="GtkComboBoxText" id="fontsizecombobox">
-+        <property name="visible">True</property>
-+        <property name="can-focus">False</property>
-+        <property name="hexpand">True</property>
-+        <property name="has-entry">True</property>
-+        <child internal-child="entry">
-+          <object class="GtkEntry">
-+            <property name="can-focus">True</property>
-+            <property name="truncate-multiline">True</property>
-+          </object>
-+        </child>
-+        <child internal-child="accessible">
-+          <object class="AtkObject" id="fontsizecombobox-atkobject">
-+            <property name="AtkObject::accessible-name" translatable="yes" context="fontsizebox|fontsizecombobox|accessible_name">Font Size</property>
-+          </object>
-+        </child>
-+        <style>
-+          <class name="small-button"/>
-+        </style>
-+      </object>
-+      <packing>
-+        <property name="expand">False</property>
-+        <property name="fill">True</property>
-+        <property name="position">0</property>
-+      </packing>
-+    </child>
-+  </object>
-+</interface>
---- a/svx/UIConfig_svx.mk
-+++ b/svx/UIConfig_svx.mk
-@@ -68,6 +68,8 @@
- 	svx/uiconfig/ui/fontworkspacingdialog \
- 	svx/uiconfig/ui/fontsizebox \
- 	svx/uiconfig/ui/fontnamebox \
-+	svx/uiconfig/ui/fontnameboxribbon \
-+	svx/uiconfig/ui/fontsizeboxribbon \
- 	svx/uiconfig/ui/formdatamenu \
- 	svx/uiconfig/ui/formfielddialog \
- 	svx/uiconfig/ui/formlinkwarndialog \
 --- a/svx/source/inc/StylesPreviewWindow.hxx
 +++ b/svx/source/inc/StylesPreviewWindow.hxx
 @@ -68,8 +68,8 @@
@@ -580,16 +510,39 @@ button, and is made from fontnameboxribbon.ui / fontsizeboxribbon.ui, whose butt
  
  #define MAX_MRU_FONTNAME_ENTRIES    5
  
-@@ -1734,7 +1735,7 @@
- 
- SvxFontNameBox_Impl::SvxFontNameBox_Impl(vcl::Window* pParent, const Reference<XFrame>& rFrame,
-                                          SvxFontNameToolBoxControl& rCtrl)
--    : InterimItemWindow(pParent, u"svx/ui/fontnamebox.ui"_ustr, u"FontNameBox"_ustr, true)
-+    : InterimItemWindow(pParent, hst::ribbon::BoxUIFile(pParent, u"fontnamebox"), u"FontNameBox"_ustr, true)
-     , SvxFontNameBox_Base(m_xBuilder->weld_combo_box(u"fontnamecombobox"_ustr), rFrame, rCtrl)
+@@ -421,6 +422,7 @@
+                                 , public SvxFontNameBox_Base
  {
-     set_id(u"fontnamecombobox"_ustr);
-@@ -1896,6 +1897,9 @@
+ private:
++    std::unique_ptr<hst::ribbon::RibbonRefit> m_xHstRefit;
+     virtual void DataChanged( const DataChangedEvent& rDCEvt ) override;
+     virtual void GetFocus() override
+     {
+@@ -439,6 +441,7 @@
+ 
+     virtual void dispose() override
+     {
++        m_xHstRefit.reset();
+         m_xWidget.reset();
+         InterimItemWindow::dispose();
+     }
+@@ -454,6 +457,15 @@
+     {
+         if (nStateChange == StateChangedType::Enable)
+             m_xWidget->set_sensitive(IsEnabled());
++        // HST Office: fit the ribbon's box again once it is on screen (HstRibbonCombos.hxx)
++        else if (nStateChange == StateChangedType::InitShow && !m_xHstRefit && hst::ribbon::InNotebookbar(*this))
++        {
++            m_xHstRefit.reset(new hst::ribbon::RibbonRefit([this] {
++                SetOptimalSize();
++                hst::ribbon::RelayoutItem(*this);
++            }));
++            m_xHstRefit->Start();
++        }
+         InterimItemWindow::StateChanged(nStateChange);
+     }
+ 
+@@ -1896,6 +1908,9 @@
      // tdf#132338 purely using this calculation to keep things their traditional width
      Size aSize(LogicToPixel(Size((COMBO_WIDTH_IN_CHARS +5) * 4, 0), MapMode(MapUnit::MapAppFont)));
      m_xWidget->set_size_request(aSize.Width(), -1);
@@ -609,7 +562,40 @@ button, and is made from fontnameboxribbon.ui / fontsizeboxribbon.ui, whose butt
  
  using namespace ::com::sun::star;
  
-@@ -304,13 +305,21 @@
+@@ -130,6 +131,8 @@
+ class SvxFontSizeBox_Impl final : public InterimItemWindow
+                                 , public SvxFontSizeBox_Base
+ {
++    std::unique_ptr<hst::ribbon::RibbonRefit> m_xHstRefit;
++
+ public:
+     SvxFontSizeBox_Impl(vcl::Window* pParent,
+                         const uno::Reference< frame::XFrame >& _xFrame,
+@@ -137,6 +140,7 @@
+ 
+     virtual void dispose() override
+     {
++        m_xHstRefit.reset();
+         m_xWidget.reset();
+         InterimItemWindow::dispose();
+     }
+@@ -154,6 +158,15 @@
+     {
+         if (nStateChange == StateChangedType::Enable)
+             m_xWidget->set_sensitive(IsEnabled());
++        // HST Office: fit the ribbon's box again once it is on screen (HstRibbonCombos.hxx)
++        else if (nStateChange == StateChangedType::InitShow && !m_xHstRefit && hst::ribbon::InNotebookbar(*this))
++        {
++            m_xHstRefit.reset(new hst::ribbon::RibbonRefit([this] {
++                SetOptimalSize();
++                hst::ribbon::RelayoutItem(*this);
++            }));
++            m_xHstRefit->Start();
++        }
+         InterimItemWindow::StateChanged(nStateChange);
+     }
+ 
+@@ -304,6 +317,14 @@
  
  void SvxFontSizeBox_Impl::SetOptimalSize()
  {
@@ -624,14 +610,6 @@ button, and is made from fontnameboxribbon.ui / fontsizeboxribbon.ui, whose butt
      SetSizePixel(get_preferred_size());
  }
  
- SvxFontSizeBox_Impl::SvxFontSizeBox_Impl(vcl::Window* pParent,
-                                          const uno::Reference<frame::XFrame>& rFrame,
-                                          FontHeightToolBoxControl& rCtrl)
--    : InterimItemWindow(pParent, u"svx/ui/fontsizebox.ui"_ustr, u"FontSizeBox"_ustr, true)
-+    : InterimItemWindow(pParent, hst::ribbon::BoxUIFile(pParent, u"fontsizebox"), u"FontSizeBox"_ustr, true)
-     , SvxFontSizeBox_Base(m_xBuilder->weld_combo_box(u"fontsizecombobox"_ustr), rFrame, rCtrl)
- {
-     InitControlBase(m_xWidget->getWidget());
 --- a/svx/uiconfig/ui/stylespreview.ui
 +++ b/svx/uiconfig/ui/stylespreview.ui
 @@ -16,7 +16,7 @@
