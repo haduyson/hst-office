@@ -79,6 +79,33 @@ class RulesTest(unittest.TestCase):
         self.assertEqual(R.check_root(spanned), [])
 
 
+class ThreeRowTest(unittest.TestCase):
+    """The mockup's 3-row columns of small labelled buttons at the large state (Clipboard, Editing, Text)."""
+
+    def rules(self, *cells):
+        return [(r, [i.id for i in items]) for _, r, items, _ in R.check_root(ribbon(*cells, caption_top=3))]
+
+    def test_three_rows_beside_a_large_button(self):
+        paste = toolbox("bxP", 0, 0, ("Paste", "X", "Y", "Z"), height=3, big=True)
+        cells = [paste] + [toolbox(f"bx{c}", 1, row) for row, c in enumerate("CDE")]
+        self.assertEqual(self.rules(*cells), [])
+        self.assertEqual(R.groups(ribbon(*cells, caption_top=3))[0].rows, 3)
+
+    def test_stagger_and_uneven_columns(self):
+        many = toolbox("bxM", 0, 0, ("A", "B", "C", "D"), height=3, big=True)
+        gap = [many, toolbox("bxC", 1, 0), toolbox("bxD", 1, 2)]  # an empty middle cell
+        self.assertIn(("stagger", ["bxD"]), self.rules(*gap))
+        uneven = [many, toolbox("bxC", 1, 0)] + [toolbox(f"bx{c}", 2, row) for row, c in enumerate("DEF")]
+        self.assertEqual([r for r, _ in self.rules(*uneven)], ["lone", "stagger"])
+        even = [many] + [toolbox(f"bx{c}{row}", col, row) for col, c in ((1, "C"), (2, "D")) for row in range(2)]
+        self.assertEqual(self.rules(*even), [])
+
+    def test_large_button_fills_three_rows(self):
+        cells = [toolbox("bxP", 0, 0, ("A", "B", "C", "D"), height=2, big=True)]
+        cells += [toolbox(f"bx{c}", 1, row) for row, c in enumerate("CDE")]
+        self.assertEqual(self.rules(*cells), [("tall", ["bxP"])])
+
+
 class GeneratorTest(unittest.TestCase):
     def test_few_commands_become_one_row_of_large_buttons(self):
         root = ribbon(toolbox("bxB", 0, 1), toolbox("bxA", 0, 0), toolbox("bxC", 1, 0), caption_top=1)
