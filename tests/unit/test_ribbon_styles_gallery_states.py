@@ -92,6 +92,39 @@ class MockupFontBoxes(unittest.TestCase):
         size = added(MOCKUP, "svx/source/tbxctrls/tbunocontroller.cxx")
         self.assertIn("pCombo->set_entry_width_chars(1);", size)  # FontSizeBox asks for "105 pt" otherwise
         self.assertIn("hst::ribbon::FONT_SIZE_BOX_WIDTH", size)
+        # gtk3 sizes the entry and puts the ▾ button on top: the overshoot is taken off the request
+        self.assertIn("rWindow.get_preferred_size().Width() - nTarget;", helper)
+
+    def test_ribbon_boxes_have_a_narrow_button(self):
+        self.assertIn('hst::ribbon::BoxUIFile(pParent, u"fontnamebox")', added(MOCKUP, "svx/source/tbxctrls/tbcontrl.cxx"))
+        self.assertIn('hst::ribbon::BoxUIFile(pParent, u"fontsizebox")',
+                      added(MOCKUP, "svx/source/tbxctrls/tbunocontroller.cxx"))
+        mk = added(MOCKUP, "svx/UIConfig_svx.mk")
+        for name in ("fontnameboxribbon", "fontsizeboxribbon"):
+            self.assertIn(f"svx/uiconfig/ui/{name}", mk)
+            ui = added(MOCKUP, f"svx/uiconfig/ui/{name}.ui")
+            self.assertIn('<class name="small-button"/>', ui)  # vcl gtk3: no padding on the box's button
+            # same ids and translation contexts as the toolbar's box
+            base = name.replace("ribbon", "")
+            self.assertIn(f'context="{base}|{base.replace("box", "combobox")}|accessible_name"', ui)
+
+
+class CalcCellStylesGallery(unittest.TestCase):
+    def test_mockup_order(self):
+        code = added(MOCKUP, "svx/source/tbxctrls/StylesPreviewToolBoxControl.cxx")
+        order = ['u"Default"', 'u"Good"', 'u"Neutral"', 'u"Bad"', 'u"Warning"', 'u"Heading 1"', 'u"Heading 2"']
+        positions = [code.index(name) for name in order]
+        self.assertEqual(positions, sorted(positions))
+
+    def test_cell_look_and_writer_unchanged(self):
+        code = added(MOCKUP, GALLERY)
+        self.assertIn('if (lcl_HstModuleIs(u"scalc"))', code)
+        self.assertIn("pItemSet->GetItem<SvxBrushItem>(SID_ATTR_BRUSH)", code)
+        self.assertIn("rRenderContext.SetLineColor(Color(0xd6, 0xd6, 0xd6));", code)
+        self.assertIn('if (lcl_HstModuleIs(u"swriter"))', code)  # the short-name order is Writer's only
+        self.assertIn('const size_t nRank = lcl_HstModuleIs(u"swriter") ? lcl_HstShortRank(rStyle)', code)
+        # Writer's and Calc's "Heading 1" are different previews
+        self.assertIn('(lcl_HstModuleIs(u"scalc") ? u"scalc:"_ustr : OUString()) + rStyle.translatedName;', code)
 
 
 class CompactPixelsOnWindows(unittest.TestCase):
