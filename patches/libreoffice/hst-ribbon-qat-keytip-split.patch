@@ -4,8 +4,6 @@ The KeyTips ran a toolbar button with ToolBox::TriggerItem, which clicks it firs
 Redo with their ▾ history) opens its list, so Alt, 2 showed Undo's history and undid nothing (Linux and Windows,
 15/11/2026). On the quick access toolbar a split button's KeyTip now dispatches the button's command, as in the
 reference suite; on the ribbon a split button's KeyTip still opens its list (Alt, H, V opens Paste's menu).
-The quick access KeyTips also close before their command runs, as the reference suite's do: they stayed on
-after a command, so the next Alt closed them instead of showing them (Alt, 2 then Alt, 3 typed the 3).
 
 --- a/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
 +++ b/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
@@ -19,27 +17,17 @@ after a command, so the next Alt closed them instead of showing them (Alt, 2 the
  #include <rtl/ustrbuf.hxx>
  #include <vcl/commandevent.hxx>
  #include <vcl/event.hxx>
-@@ -245,8 +248,18 @@
+@@ -245,7 +248,8 @@
              int nDigit = 1;
              // HST Office: 1, 2, 3... without gaps; separators and buttons folded into the » menu get no digit
              for (ToolBox::ImplToolItems::size_type i = 0; i < m_xQuick->GetItemCount() && nDigit < 10; ++i)
 -                if (AddToolBoxItem(*m_xQuick, m_xQuick->GetItemId(i), aTargets, aPreferred, std::to_string(nDigit)))
 +                if (AddToolBoxItem(*m_xQuick, m_xQuick->GetItemId(i), aTargets, aPreferred, std::to_string(nDigit),
 +                                   true))
-+                {
-+                    // the tips close before the command runs, as in Office: a tip of this level opens the next
-+                    // level only for a tab, so the tips of a command run from here stayed on, and the next Alt
-+                    // closed them instead of showing them (Alt, 2 then Alt, 3 typed the 3)
-+                    aTargets.back().aRun = [this, aRun = aTargets.back().aRun] {
-+                        Close();
-+                        aRun();
-+                    };
                      ++nDigit;
-+                }
          }
          // the feature search box of the tab row: Q, as Office's Search box
-         for (vcl::Window* pChild = m_xTabs->GetWindow(GetWindowType::FirstChild); pChild;
-@@ -271,8 +284,10 @@
+@@ -271,8 +275,10 @@
          Show(std::move(aTargets), aPreferred);
      }
  
@@ -51,7 +39,7 @@ after a command, so the next Alt closed them instead of showing them (Alt, 2 the
      {
          const tools::Rectangle aRect = rBox.GetItemRect(nId);
          if (rBox.GetItemType(rBox.GetItemPos(nId)) != ToolBoxItemType::BUTTON || !rBox.IsItemVisible(nId)
-@@ -284,10 +299,16 @@
+@@ -284,10 +290,16 @@
          aTarget.bEnabled = rBox.IsItemEnabled(nId);
          aTarget.bInput = rBox.GetItemWindow(nId) != nullptr;
          VclPtr<ToolBox> xBox(&rBox);

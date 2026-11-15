@@ -21,7 +21,7 @@ class QatKeyTipSplit(unittest.TestCase):
     def test_quick_access_tips_close_before_their_command(self):
         # the tips of the tab level open the next level for a tab only: a quick access command closes them first,
         # else the next Alt closes them instead of showing them (Alt, 2 then Alt, 3 typed the 3; Windows, 15/11)
-        code = added(PATCH, "sfx2/source/notebookbar/HstRibbonKeyTips.cxx")
+        code = added("hst-ribbon-qat-keytips-close.patch", "sfx2/source/notebookbar/HstRibbonKeyTips.cxx")
         start = code.index("aTargets.back().aRun = [this, aRun = aTargets.back().aRun] {")
         self.assertLess(code.index("Close();", start), code.index("aRun();", start))
 
