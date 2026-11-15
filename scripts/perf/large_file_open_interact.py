@@ -151,8 +151,14 @@ def autosave(doc, probe, timeout=240.0):
     t0, wall0, first, last_size, stable = time.monotonic(), time.time() - 1, None, -1, 0
     while time.monotonic() - t0 < timeout:
         files = [os.path.join(backup, n) for n in os.listdir(backup)] if os.path.isdir(backup) else []
-        files = [f for f in files if os.path.isfile(f) and os.path.getmtime(f) >= wall0]
-        size = sum(os.path.getsize(f) for f in files)
+        def stat(f):  # AutoRecovery writes through temporary files that may vanish meanwhile
+            try:
+                return os.stat(f)
+            except OSError:
+                return None
+        stats = [(f, stat(f)) for f in files]
+        files = [f for f, st in stats if st and st.st_mtime >= wall0]
+        size = sum(st.st_size for f, st in stats if st and st.st_mtime >= wall0)
         if size > 4096 and first is None:
             first = time.monotonic()
         stable = stable + 1 if first and size == last_size else 0
