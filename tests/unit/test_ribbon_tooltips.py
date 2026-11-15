@@ -113,12 +113,17 @@ class ReferenceDesign(unittest.TestCase):
         self.assertGreaterEqual(len(rows), 30)
         self.assertEqual([r["msgid"] for r in rows if r["msgid"] not in described], [])
         self.assertIn("Căn đều cả hai lề, thường dùng cho văn bản hành chính.", [r["msgstr"] for r in rows])
+        # short bold names of the design: no full stop, no shortcut (added at run time), Writer only for now
+        for cmd, app, en, vi in gen.titles(DATA):
+            self.assertTrue(app in APPS and 0 < len(vi) <= 30 and not vi.endswith(".") and "(" not in vi, (cmd, vi))
+            self.assertEqual(fix_tone(vi), vi)
+        self.assertEqual(DATA["app_titles"]["writer"][".uno:Underline"]["vi"], "Gạch chân")
 
     def test_tip_goes_under_the_ribbon(self):
         patch = open(os.path.join(PATCHES, "hst-ribbon-mockup-tooltip.patch"), encoding="utf-8").read()
         for needle in ("constexpr tools::Long RIBBON_TIP_GAP = 2;", "constexpr tools::Long RIBBON_TIP_INSET = 4;",
                        "constexpr tools::Long RIBBON_TIP_MAX_WIDTH = 300;", "dynamic_cast<NotebookBar*>(pWin)",
-                       "PositionByToolkit(", "eType == WindowType::MENUBUTTON",
+                       "PositionByToolkit(", "eType == WindowType::MENUBUTTON", "Lookup(aHstRibbonTitles,",
                        "const bool bNative = !bPlaced"):
             self.assertIn(needle, patch)
         series = open(os.path.join(PATCHES, "series"), encoding="utf-8").read().split()
@@ -131,9 +136,9 @@ class GeneratedPatch(unittest.TestCase):
             self.patch = handle.read()
 
     def test_table_and_catalogue_match_the_data(self):
-        rows = gen.entries(DATA)
-        self.assertIn("\n".join("+" + line for line in gen.hrc_lines(rows)) + "\n", self.patch)
-        self.assertIn("\n".join("+" + line for line in gen.po_lines(rows)) + "\n", self.patch)
+        rows, titles = gen.entries(DATA), gen.titles(DATA)
+        self.assertIn("\n".join("+" + line for line in gen.hrc_lines(rows, titles)) + "\n", self.patch)
+        self.assertIn("\n".join("+" + line for line in gen.po_lines(rows, titles)) + "\n", self.patch)
         self.assertEqual(len({(gen.context(c, a), en) for c, a, en, _vi in rows}), len(rows))
 
     def test_po_hunk_sits_before_the_anchor_with_context_on_both_sides(self):

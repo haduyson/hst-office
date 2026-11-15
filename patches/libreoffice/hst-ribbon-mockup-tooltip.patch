@@ -10,6 +10,9 @@ HST Office: the ribbon tooltips of the reference design (1.0.2) and the toolbar 
 - Width: at most 300 px with its margins; the description wraps, a wider title keeps its width.
 - Menu buttons ("Wrap Text ▾", tip "label\ndescription") and folded groups' buttons of the ribbon get the same tip,
   first line in bold (Help::ShowQuickHelp upgrades their plain tip).
+- Title: where an app's design names a command differently from its label ("app_titles" of
+  data/ribbon/tooltip-descriptions.json, table aHstRibbonTitles of hst-ribbon-tooltip-descriptions.patch), the bold
+  line is that name and the command's shortcut in brackets; the .ui's or the table's sentence stays under it.
 - The delay stays HelpSettings::GetTipDelay() (500 ms; the design's 450 ms is within its ±100 ms tolerance).
 - STR_HST_RIBBON_PIN: "Pin the Toolbar (Ctrl+F1)", the pin button of the compact ribbon's dropped page
   (hst-ribbon-mockup-compact.patch), with its Vietnamese translation. User-facing Vietnamese text says
@@ -43,6 +46,94 @@ License: these upstream files remain under their original license (MPL-2.0).
  #. uPc29
  #: include/sfx2/strings.hrc:285
  msgctxt "STR_GET_INVOLVED_TEXT"
+--- a/sfx2/source/notebookbar/HstRibbonTooltip.cxx
++++ b/sfx2/source/notebookbar/HstRibbonTooltip.cxx
+@@ -33,10 +33,11 @@
+     return 0;
+ }
+ 
+-const HstRibbonTip* Find(std::u16string_view rCommand, sal_uInt8 nApp)
++template <size_t N>
++const HstRibbonTip* Find(const HstRibbonTip (&rTable)[N], std::u16string_view rCommand, sal_uInt8 nApp)
+ {
+     const HstRibbonTip* pCommon = nullptr;
+-    for (const HstRibbonTip& rTip : aHstRibbonTips)
++    for (const HstRibbonTip& rTip : rTable)
+     {
+         if (rCommand != rTip.pCommand)
+             continue;
+@@ -49,15 +50,39 @@
+ }
+ }
+ 
+-OUString GetTooltipDescription(std::u16string_view rModule, std::u16string_view rCommand)
++namespace
++{
++// the entry of rTable for rCommand in the module rModule: for the exact call first (".uno:StyleApply?Style:string=..."),
++// then for the command
++template <size_t N>
++OUString Lookup(const HstRibbonTip (&rTable)[N], std::u16string_view rModule, std::u16string_view rCommand)
+ {
+     const sal_uInt8 nApp = AppBit(rModule);
+-    const HstRibbonTip* pTip = Find(rCommand, nApp);
+-    // ".uno:StyleApply?Style:string=..." etc.: a sentence for the exact call first, then for the command
++    const HstRibbonTip* pTip = Find(rTable, rCommand, nApp);
+     const size_t nArgs = rCommand.find(u'?');
+     if (pTip == nullptr && nArgs != std::u16string_view::npos)
+-        pTip = Find(rCommand.substr(0, nArgs), nApp);
+-    return pTip ? SfxResId(pTip->aText) : OUString();
++        pTip = Find(rTable, rCommand.substr(0, nArgs), nApp);
++    return pTip && pTip->aText ? SfxResId(pTip->aText) : OUString();
++}
++}
++
++OUString GetTooltipDescription(std::u16string_view rModule, std::u16string_view rCommand)
++{
++    return Lookup(aHstRibbonTips, rModule, rCommand);
++}
++
++namespace
++{
++// "Name (Shortcut)" with an app's short name from the table (the reference design), else the toolbox's first line
++OUString TitleLine(const OUString& rFirstLine, std::u16string_view rModule, const OUString& rCommand,
++                   const css::uno::Reference<css::frame::XFrame>& rxFrame)
++{
++    const OUString aName = Lookup(aHstRibbonTitles, rModule, rCommand);
++    if (aName.isEmpty())
++        return rFirstLine;
++    const OUString aShortcut = vcl::CommandInfoProvider::GetCommandShortcut(rCommand, rxFrame);
++    return aShortcut.isEmpty() ? aName : OUString(aName + " (" + aShortcut + ")");
++}
+ }
+ 
+ bool RequestRichHelp(ToolBox& rToolBox, const HelpEvent& rHEvt,
+@@ -86,13 +111,20 @@
+         aText = MnemonicGenerator::EraseAllMnemonicChars(rToolBox.GetItemText(nItemId)).replace('\n', ' ');
+     if (aText.isEmpty())
+         return false;
+-    // a second line already set by the .ui (hst-ribbon-description) wins over the table
+-    if (aText.indexOf('\n') < 0 && rxFrame.is())
++    if (rxFrame.is())
+     {
+-        const OUString aDescription = GetTooltipDescription(
+-            vcl::CommandInfoProvider::GetModuleIdentifier(rxFrame), rToolBox.GetItemCommand(nItemId));
+-        if (!aDescription.isEmpty())
+-            aText += "\n" + aDescription;
++        const OUString aModule = vcl::CommandInfoProvider::GetModuleIdentifier(rxFrame);
++        const OUString aCommand = rToolBox.GetItemCommand(nItemId);
++        const sal_Int32 nBreak = aText.indexOf('\n');
++        aText = TitleLine(nBreak < 0 ? aText : aText.copy(0, nBreak), aModule, aCommand, rxFrame)
++                + (nBreak < 0 ? OUString() : aText.copy(nBreak));
++        // a second line already set by the .ui (hst-ribbon-description) wins over the table
++        if (nBreak < 0)
++        {
++            const OUString aDescription = GetTooltipDescription(aModule, aCommand);
++            if (!aDescription.isEmpty())
++                aText += "\n" + aDescription;
++        }
+     }
+     const tools::Rectangle aScreenRect(rToolBox.OutputToScreenPixel(aItemRect.TopLeft()),
+                                        rToolBox.OutputToScreenPixel(aItemRect.BottomRight()));
 --- a/vcl/source/app/help.cxx
 +++ b/vcl/source/app/help.cxx
 @@ -30,10 +30,15 @@
