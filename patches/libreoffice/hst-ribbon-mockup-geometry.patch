@@ -67,7 +67,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  inline constexpr OUString FILE_TAB_NAME = u"FileLabel"_ustr;
 --- /dev/null
 +++ b/vcl/inc/HstRibbonGeometry.hxx
-@@ -0,0 +1,175 @@
+@@ -0,0 +1,184 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -121,7 +121,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +constexpr long SMALL_ROW_GAP = 2;
 +constexpr long SMALL_PAD = 4; // left and right of a medium button's icon and label
 +constexpr long SMALL_ICON_GAP = 5; // between a medium button's icon and its label
-+constexpr long SMALL_ICON_ONLY = 22; // a small button: its icon only
++constexpr long SMALL_ICON_ONLY = 24; // a small button: its icon only, at the same (4, 4) as a medium button's
 +constexpr long SMALL_SPLIT = 12; // the ▾ part of a medium or small split button
 +
 +constexpr long FOLDED_HEIGHT = 98; // a folded group's button: the content, the gap and the caption band
@@ -204,13 +204,22 @@ License: these upstream files remain under their original license (MPL-2.0).
 +}
 +
 +/** A medium button (icon and label, nText > 0) or a small one (icon only, nText 0), one row of the grid high;
-+    bSplit: its ▾ part follows. */
++    bSplit: its ▾ part follows. The icon is SMALL_PAD from the left in both, so the icons of a column and of a row
++    line up whether a button has a label, ▾ or neither. */
 +inline long smallButtonWidth(long nIcon, long nText, bool bSplit, double fScale)
 +{
 +    const long nMain = nText > 0
 +                           ? 2 * px(SMALL_PAD, fScale) + nIcon + px(SMALL_ICON_GAP, fScale) + nText
-+                           : std::max(px(SMALL_ICON_ONLY, fScale), nIcon + 2 * px(3, fScale));
++                           : std::max(px(SMALL_ICON_ONLY, fScale), nIcon + 2 * px(SMALL_PAD, fScale));
 +    return nMain + (bSplit ? px(SMALL_SPLIT, fScale) : 0);
++}
++
++/** The rows of a group of two rows of small buttons (the mockup's rows2, Font and Paragraph): spread evenly over
++    the content, (CONTENT - 2 rows) / 3 above, between and under them. Returns the gap above the first row; the
++    second row's gap over the row spacing is the same minus SMALL_ROW_GAP. */
++inline long twoRowGap(double fScale)
++{
++    return std::lround((CONTENT - 2 * SMALL_ROW) * fScale / 3.0);
 +}
 +
 +/** Where a folded group's button (C, "Caption ▾") draws its parts, from its top left corner, in device px. */
@@ -447,7 +456,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // HST Office: a gallery in the toolbox (Slides' themes) shows fewer columns at the smaller states, so the
      // group narrows before it folds; a window that does not know the property ignores it
      const OUString aGalleryState = OUString::number(std::min(nState, int(GroupSmall)));
-@@ -163,6 +213,12 @@
+@@ -163,6 +213,13 @@
      {
          OUString aText; // the label as authored
          bool bTip = false; // the tooltip was set from the label (the label is hidden)
@@ -457,10 +466,11 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        sal_Int32 nMarginTop = 0;
 +        sal_Int32 nWidthRequest = -1;
 +        sal_Int32 nHeightRequest = -1;
++        bool bLargeMargin = false; // the top margin is the large button's (else the authored or the 2-row one)
      };
      static std::map<const vcl::Window*, Label>& labels()
      {
-@@ -198,6 +254,69 @@
+@@ -198,6 +255,72 @@
      return OUString::Concat(rLabel.subView(0, nBest)) + "\n" + rLabel.subView(nBest + 1) + " " + aArrow;
  }
  
@@ -470,11 +480,14 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    native frame (2 px without one), and its label under the image after the gap imageTextGap() repeats; the top
 +    margin moves the image down to the large buttons' icon line. A menu button with its image beside its label (or
 +    alone) is one SMALL_ROW high. Otherwise the authored layout comes back. */
-+void placeLargeMenuButton(MenuButton& rButton, const MenuButtonLabels::Label& rLabel, bool bLarge)
++void placeLargeMenuButton(MenuButton& rButton, MenuButtonLabels::Label& rLabel, bool bLarge)
 +{
 +    WinBits nStyle = rLabel.nStyle;
 +    VclAlign eVAlign = rLabel.eVAlign;
-+    sal_Int32 nMarginTop = rLabel.nMarginTop, nWidth = rLabel.nWidthRequest, nHeight = rLabel.nHeightRequest;
++    // the top margin: the large button's, back to the authored one after it, else left to the group's rows
++    sal_Int32 nMarginTop = rLabel.bLargeMargin ? rLabel.nMarginTop : rButton.get_margin_top();
++    sal_Int32 nWidth = rLabel.nWidthRequest, nHeight = rLabel.nHeightRequest;
++    rLabel.bLargeMargin = bLarge;
 +    if (bLarge)
 +    {
 +        const OUString aText = rButton.GetText().replaceAll("~", "");
@@ -530,7 +543,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  void applyToMenuButton(MenuButton& rButton, int nState)
  {
      auto& rLabels = MenuButtonLabels::labels();
-@@ -205,15 +324,32 @@
+@@ -205,15 +328,32 @@
      if (it == rLabels.end())
      {
          if (rButton.GetText().isEmpty())
@@ -566,7 +579,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      const bool bLarge = !bHide && bImage && rButton.GetImageAlign() == ImageAlign::Top;
      const OUString aText = bHide ? OUString() : bLarge ? largeMenuLabel(rLabel.aText) : rLabel.aText;
      const PushButtonDropdownStyle eArrow = bLarge ? PushButtonDropdownStyle::NONE : PushButtonDropdownStyle::MenuButton;
-@@ -228,12 +364,14 @@
+@@ -228,12 +368,14 @@
          rLabel.bTip = false;
      }
      rButton.SetDropDown(eArrow); // no change when it is already so
@@ -587,10 +600,17 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  /// Grid attachments of a group's children as authored, kept while the window lives.
-@@ -247,10 +385,194 @@
+@@ -247,10 +389,202 @@
      DECL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, void);
  };
  
++/// The authored top margin of the children of 2-row groups, whose rows the ladder spreads (twoRowGap)
++std::map<const vcl::Window*, sal_Int32>& authoredMarginTops()
++{
++    static std::map<const vcl::Window*, sal_Int32> aMargins;
++    return aMargins;
++}
++
 +/// The children of groups hidden by an alternative layout (alternativeLayouts), shown again when it ends.
 +std::set<const vcl::Window*>& hiddenByLayout()
 +{
@@ -684,6 +704,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          AuthoredCells::cells().erase(rEvent.GetWindow());
 +        hiddenByLayout().erase(rEvent.GetWindow());
 +        imageAlignsByLayout().erase(rEvent.GetWindow());
++        authoredMarginTops().erase(rEvent.GetWindow());
 +    }
 +}
 +
@@ -782,7 +803,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  GroupCell authoredCell(vcl::Window& rChild)
-@@ -259,10 +581,8 @@
+@@ -259,10 +593,8 @@
      auto it = rCells.find(&rChild);
      if (it == rCells.end())
      {
@@ -795,7 +816,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,37 +601,180 @@
+@@ -281,37 +613,211 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -970,10 +991,41 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        for (std::size_t i = 0; i < aChildren.size(); ++i)
 +            if (aCells[i].stackable && aCells[i].height == 1 && dynamic_cast<MenuButton*>(aChildren[i]))
 +                aLeft[i] = true;
++    }
++    // two rows of small buttons (Font, Paragraph): spread evenly over the content as the mockup's rows2, so their
++    // icons sit at the same height in every such group; not when an item spans the rows (a large button)
++    bool bTwoRows = true;
++    int nRowsUsed = 0;
++    for (std::size_t i = 0; i < aChildren.size(); ++i)
++    {
++        if (aCells[i].caption || aHide[i] || dynamic_cast<FixedLine*>(aChildren[i]) || !aChildren[i]->IsVisible())
++            continue;
++        bTwoRows = bTwoRows && aCells[i].height == 1 && aCells[i].top < 2;
++        nRowsUsed = std::max(nRowsUsed, aCells[i].top + 1);
      }
 -    if (nState == GroupMedium || nState == GroupSmall)
 -        stackGroup(aCells);
++    bTwoRows = bTwoRows && nRowsUsed == 2;
++    const sal_Int32 nGap = static_cast<sal_Int32>(geometry::twoRowGap(pGrid->GetDPIScaleFactor()));
++    const sal_Int32 nRowGap = static_cast<sal_Int32>(geometry::px(geometry::SMALL_ROW_GAP, pGrid->GetDPIScaleFactor()));
++    auto& rMargins = authoredMarginTops();
      for (std::size_t i = 0; i < aChildren.size(); ++i)
++    {
++        vcl::Window& rChild = *aChildren[i];
++        if (aCells[i].caption || dynamic_cast<FixedLine*>(&rChild))
++            continue;
++        const auto it = rMargins.find(&rChild);
++        const bool bSpread = bTwoRows && aCells[i].top < 2 && aCells[i].height == 1;
++        if (bSpread && it == rMargins.end())
++            rMargins.emplace(&rChild, rChild.get_margin_top());
++        const sal_Int32 nWanted
++            = bSpread ? (aCells[i].top == 0 ? nGap : nGap - nRowGap) : it == rMargins.end() ? rChild.get_margin_top() : it->second;
++        if (!bSpread && it != rMargins.end())
++            rMargins.erase(it);
++        if (rChild.get_margin_top() != nWanted)
++            rChild.set_margin_top(nWanted);
++    }
++    for (std::size_t i = 0; i < aChildren.size(); ++i)
 +    {
 +        setHiddenByLadder(*aChildren[i], aHide[i]);
 +        if (MenuButton* pButton = dynamic_cast<MenuButton*>(aChildren[i]))
@@ -988,7 +1040,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
-@@ -375,10 +838,18 @@
+@@ -375,10 +881,18 @@
          if (nCommands > FEW_COMMANDS)
              break;
      }
@@ -1010,7 +1062,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // the menu buttons of every group drop their labels at the small state only (their image stays where it
      // is: above the label in a group of few commands)
      forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
-@@ -408,7 +879,8 @@
+@@ -408,7 +922,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {
@@ -1314,7 +1366,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      {
          // make sure all vertical toolbars have the same width and horizontal have the same height
          // this depends on the used button sizes
-@@ -2800,6 +2883,15 @@
+@@ -2800,6 +2883,13 @@
      if (bDropDown)
          aDropDownRect = pItem->GetDropDownRect(mbHorz);
  
@@ -1324,13 +1376,11 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    const OUString aHstLabel = bText ? ImplHstLabel(*this, *mpData, pItem->maText, meTextPosition) : OUString();
 +    const hst::ribbon::geometry::LargeButton aHstLarge
 +        = eHst == HstKind::Large ? ImplHstLargeButton(*this, *pItem, aHstLabel) : hst::ribbon::geometry::LargeButton();
-+    // the main part of a medium or small button, left of its ▾ part
-+    const tools::Long nHstMain = aBtnSize.Width() - (bDropDown && eHst == HstKind::Small ? aDropDownRect.getOpenWidth() : 0);
 +
      if ( bImage )
      {
          const Image* pImage = &(pItem->maImage);
-@@ -2811,7 +2903,20 @@
+@@ -2811,7 +2901,18 @@
          // draw the image
          nImageOffX = nOffX;
          nImageOffY = nOffY;
@@ -1342,17 +1392,15 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        }
 +        else if ( eHst == HstKind::Small )
 +        {
-+            // a medium button's icon at its left padding, a small button's centred
-+            nImageOffX = pItem->maRect.Left()
-+                         + (bText ? hst::ribbon::geometry::px(hst::ribbon::geometry::SMALL_PAD, fHstScale)
-+                                  : (nHstMain - aImageSize.Width()) / 2);
++            // the icon at the same (4, 4) in a medium and a small button: ▾ or a label follow it, never move it
++            nImageOffX = pItem->maRect.Left() + hst::ribbon::geometry::px(hst::ribbon::geometry::SMALL_PAD, fHstScale);
 +            nImageOffY = pItem->maRect.Top() + (aBtnSize.Height() - aImageSize.Height()) / 2;
 +        }
 +        else if ( ( (pItem->mnBits & (ToolBoxItemBits::LEFT|ToolBoxItemBits::DROPDOWN)) || bText )
              && ( meTextPosition == ToolBoxTextPosition::Right ) )
          {
              // left align also to leave space for drop down arrow
-@@ -2856,9 +2961,51 @@
+@@ -2856,9 +2957,51 @@
      // draw the text
      bool bRotate = false;
      tools::Rectangle aHstArrowRect; // HST Office: where ▾ of a split large button goes
@@ -1406,7 +1454,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          const bool bLines = ImplHasLabelLines(aHstLabel, meTextPosition);
          const Size aTxtSize(bLines ? ImplLabelLinesSize(*GetOutDev(), aHstLabel)
                                     : Size(GetOutDev()->GetCtrlTextWidth(pItem->maText), GetTextHeight()));
-@@ -2959,7 +3106,17 @@
+@@ -2959,7 +3102,17 @@
      {
          // HST Office: only ▾ after the label; the label part is not erased (it holds the label)
          if (!aHstArrowRect.IsEmpty())
