@@ -131,17 +131,16 @@ def apply_mode(office, app, mode, to_all=False):
     time.sleep(3)
 
 
-def switch_and_judge(office, check, label, modes, switches=4, menubar=True):
-    """Switch tabs `switches` times; every shown Writer/Sheets tab must show modes[app]. menubar=False: the menubar
-    is not judged (known open case: a tab parked while its own module went through ribbon modes comes back to a
-    toolbar mode with its toolbars but without the menubar; 1.0.1 does the same)."""
+def switch_and_judge(office, check, label, modes, switches=4):
+    """Switch tabs `switches` times; every shown Writer/Sheets tab must show modes[app], menubar included (a tab
+    parked while its own module went through ribbon modes came back without its menubar before
+    hst-menubar-parked-tab.patch; 1.0.1 did the same)."""
     bad = []
     for n in range(switches):
         office.dispatch(shown(office.desktop), ".uno:NextDocumentTab")
         time.sleep(2.5)
         state = tab_state(shown(office.desktop))
-        judged = state if menubar else dict(state, menubar=True)
-        if state["app"] in modes and not matches(judged, modes[state["app"]]):
+        if state["app"] in modes and not matches(state, modes[state["app"]]):
             bad.append("switch %d: %s" % (n + 1, state))
     return check(label, not bad, "; ".join(bad) or "every tab showed its mode")
 
@@ -186,6 +185,6 @@ def run_after_open(office, check, folder):
         state = tab_state(shown(office.desktop))
         check("modes in turn on %s, Standard Toolbar for all, locked, new %s tab" % (app, other),
               state["app"] == other and matches(state, "Default"), str(state))
-        # the second pass cycles a module whose other tab is parked: its menubar is the known open case
+        # the second pass cycles a module whose other tab is parked: it must come back with its menubar
         switch_and_judge(office, check, "after the new %s tab: every tab Standard Toolbar" % other,
-                         {"Writer": "Default", "Calc": "Default"}, switches=6, menubar=(app == "Writer"))
+                         {"Writer": "Default", "Calc": "Default"}, switches=6)

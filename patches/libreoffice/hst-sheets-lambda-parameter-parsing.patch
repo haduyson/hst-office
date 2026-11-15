@@ -1,0 +1,176 @@
+HST Office: HST Sheets reads LAMBDA and LET parameter lists typed with either separator, and keeps typed
+optional LAMBDA parameters ([b]) optional through .xlsx and .ods.
+
+- ScCompiler::GetPossibleParaCount() counted only the configured separator, while ';' is accepted as a
+  parameter separator in every grammar but OOXML. With English settings (',' separator) a typed
+  =LAMBDA(x;x*2)(21) or =LET(f;LAMBDA(x;x+1);f(2)) took its first name for a body reference and gave
+  #VALUE!/#NAME?. The count now takes ';' where ParseOpCode() does, skips string literals and stops at the
+  binding's closing parenthesis (it also counted the separators of a following call, LAMBDA(p;q;p+q)(1;2)).
+  The same code is in LibreOffice master.
+- A typed [b] stayed as separate bracket tokens and only the compiled code knew it was optional: .xlsx got
+  [_xlpm.b], which the .xlsx reader takes for an external reference, and .ods (ODFF has no bracket symbol)
+  got _xlpm.b, a required parameter. The tokenizer now drops the brackets and marks the name token as
+  optional (as for _xlop.b); the writer gives _xlop.b in OOXML and ODFF and [b] in the UI grammars.
+  ODFF reads _xlop. (hst-sheets-lambda-functions.patch).
+
+Test: CppunitTest_sc_excelcompat_functions_test (its document uses ',' as separator; ';' formulas, the
+_xlop.b text in .xlsx, a call after a LAMBDA, ';' inside a string), tests/runtime/check-sheets-excel-functions.py.
+---
+--- a/formula/source/core/api/FormulaCompiler.cxx
++++ b/formula/source/core/api/FormulaCompiler.cxx
+@@ -3038,12 +3038,13 @@
+     else if (eOp == ocStringName)
+     {
+         // A lambda parameter. An optional parameter, whose byte is set, takes
+-        // the _xlop. prefix in OOXML and is wrapped in square brackets in the
+-        // other grammars. A required parameter or a body reference takes the
+-        // grammar's plain prefix, which is _xlpm. for the formats that use one
+-        // and empty otherwise.
++        // the _xlop. prefix in OOXML and ODFF (ODFF has no square bracket
++        // symbol) and is wrapped in square brackets in the other grammars. A
++        // required parameter or a body reference takes the grammar's plain
++        // prefix, which is _xlpm. for the formats that use one and empty
++        // otherwise.
+         const bool bOptional = static_cast<const FormulaStringOpToken*>(t)->GetByte() != 0;
+-        if (bOptional && FormulaGrammar::isOOXML(meGrammar))
++        if (bOptional && (FormulaGrammar::isOOXML(meGrammar) || FormulaGrammar::isODFF(meGrammar)))
+             rBuffer.append(u"_xlop.");
+         else if (bOptional)
+         {
+--- a/sc/qa/unit/functions_excelcompat.cxx
++++ b/sc/qa/unit/functions_excelcompat.cxx
+@@ -250,6 +250,11 @@
+     { "=SUM(BYCOL(J2:J6;SUM))", "15" },
+     { "=SUM(MAKEARRAY(2;3;LAMBDA(r;c;r*c)))", "18" },
+     { "=LAMBDA(a;[b];IF(ISOMITTED(b);a;a+b))(5)", "5" },
++    // The parameter count of a LAMBDA stops at its closing parenthesis and
++    // skips string literals; this fixture's native separator is ',' and ';'
++    // still separates parameters.
++    { "=LAMBDA(p;q;p+q)(1;2)", "3" },
++    { "=LAMBDA(p;\"a;b\")(1)", "a;b" },
+ };
+ }
+ 
+@@ -281,6 +286,10 @@
+                        u"ROWS(_xlfn.GROUPBY(H2:H6,J2:J6,_xleta.SUM))");
+     assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[@r='14']/x:c[@r='A14']/x:f",
+                        u"INDEX(_xlfn.GROUPBY(H2:H6,J2:J6,_xleta.PERCENTOF,0,0),1,2)");
++    // A typed optional parameter [b] is written with the _xlop. prefix.
++    assertXPathContent(
++        pSheet, "/x:worksheet/x:sheetData/x:row[@r='33']/x:c[@r='A33']/x:f",
++        u"_xlfn.LAMBDA(_xlpm.a,_xlop.b,IF(_xlfn.ISOMITTED(_xlpm.b),_xlpm.a,_xlpm.a+_xlpm.b))(5)");
+     saveAndReload(TestFilter::ODS);
+     check("after ODS round trip");
+ }
+--- a/sc/source/core/tool/compiler.cxx
++++ b/sc/source/core/tool/compiler.cxx
+@@ -4709,30 +4709,47 @@
+ 
+ short ScCompiler::GetPossibleParaCount( std::u16string_view rBindingFormula ) const
+ {
++    // rBindingFormula starts at the opening parenthesis of a LET or LAMBDA.
++    // Count the parameter separators at its own level, up to its closing
++    // parenthesis, outside string literals. ';' separates parameters wherever
++    // ParseOpCode() accepts it as ocSep, also when the configured separator
++    // differs (',' under an English locale).
+     sal_Unicode cSep = mxSymbols->getSymbolChar(ocSep);
+     sal_Unicode cOpen = mxSymbols->getSymbolChar(ocOpen);
+     sal_Unicode cClose = mxSymbols->getSymbolChar(ocClose);
+     sal_Unicode cArrayOpen = mxSymbols->getSymbolChar(ocArrayOpen);
+     sal_Unicode cArrayClose = mxSymbols->getSymbolChar(ocArrayClose);
++    bool bSemicolonIsSep = false;
++    switch (FormulaGrammar::extractFormulaLanguage(meGrammar))
++    {
++        case css::sheet::FormulaLanguage::NATIVE:
++        case css::sheet::FormulaLanguage::ENGLISH:
++        case css::sheet::FormulaLanguage::ODFF:
++        case css::sheet::FormulaLanguage::ODF_11:
++            bSemicolonIsSep = true;
++            break;
++        default:
++            break;
++    }
+     short nBrackets = 0;
+-
+-    short nCount = std::count_if(rBindingFormula.begin(), rBindingFormula.end(),
+-        [&](sal_Unicode c) {
+-            if (c == cOpen || c == cArrayOpen || c == '[') {
+-                nBrackets++;
+-                return false;
+-            }
+-            else if (c == cClose || c == cArrayClose || c == ']') {
+-                nBrackets--;
+-                return false;
+-            }
+-            else {
+-                if (nBrackets == 1)
+-                    return c == cSep;
+-                else
+-                    return false;
+-            }
+-        });
++    short nCount = 0;
++    bool bInString = false;
++    for (sal_Unicode c : rBindingFormula)
++    {
++        if (c == '"')
++            bInString = !bInString;
++        else if (bInString)
++            continue;
++        else if (c == cOpen || c == cArrayOpen || c == '[')
++            ++nBrackets;
++        else if (c == cClose || c == cArrayClose || c == ']')
++        {
++            if (--nBrackets <= 0)
++                break;
++        }
++        else if (nBrackets == 1 && (c == cSep || (bSemicolonIsSep && c == ';')))
++            ++nCount;
++    }
+ 
+     return static_cast<short>(nCount + 1);
+ }
+@@ -5227,6 +5244,8 @@
+     size_t nHighWatermark = 0;
+     short nBrackets = 0;
+     bool bInArray = false;
++    // Set between the [ and ] around an optional LAMBDA parameter name.
++    bool bLambdaOptionalParam = false;
+     meLastOp = ocOpen;
+     while( NextNewToken( bInArray ) )
+     {
+@@ -5234,6 +5253,21 @@
+         if (eOp == ocSkip)
+             continue;
+ 
++        // In a LAMBDA parameter list, [name] declares an optional parameter.
++        // The brackets are not kept as tokens: the name token's byte marks it
++        // optional, as for an _xlop. name, so each grammar writes it in its own
++        // form (_xlop.name in OOXML and ODFF, [name] elsewhere) and reads it back.
++        if ((eOp == ocTableRefOpen || eOp == ocTableRefClose)
++            && mIsInBinding
++            && maBindings.front().eOpCode == ocLambda
++            && maBindings.front().nParaPos < maBindings.front().nParaCount)
++        {
++            bLambdaOptionalParam = (eOp == ocTableRefOpen);
++            if ( mbAutoCorrect )
++                maCorrectedFormula += maCorrectedSymbol;
++            continue;
++        }
++
+         switch (eOp)
+         {
+             case ocOpen:
+@@ -5444,9 +5478,11 @@
+         // A lambda parameter written with the _xlop. prefix is optional. Its
+         // byte records that, keeping an optional parameter distinct from a
+         // required _xlpm. one.
+-        if (pNewToken && mbOptionalLocalName && pNewToken->GetOpCode() == ocStringName)
++        if (pNewToken && (mbOptionalLocalName || bLambdaOptionalParam)
++            && pNewToken->GetOpCode() == ocStringName)
+             static_cast<FormulaStringOpToken*>(pNewToken)->SetByte(1);
+         mbOptionalLocalName = false;
++        bLambdaOptionalParam = false;
+         if (!pNewToken && eOp == ocArrayClose && mpArr->OpCodeBefore( mpArr->GetLen()) == ocArrayClose)
+         {
+             // Nested inline array or non-value/non-string in array. The
