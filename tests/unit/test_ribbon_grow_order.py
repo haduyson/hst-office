@@ -59,7 +59,7 @@ def regrow_header(tmp):
     """HstRibbonRegrow.hxx as the series leaves it."""
     return apply(tmp, "vcl/inc/HstRibbonRegrow.hxx",
                  added_file("hst-ribbon-ux-engine.patch", "vcl/inc/HstRibbonRegrow.hxx"),
-                 [PATCH, "hst-ribbon-ux-folded-groups.patch"])
+                 [PATCH, "hst-ribbon-ux-folded-groups.patch", "hst-ribbon-regrow-keep-labels.patch"])
 
 
 
@@ -82,15 +82,24 @@ int main()
     const std::vector<std::size_t> growth = { 6, 5, 4, 2, 3, 0, 1 };
     CHECK((growthOrder(7, priority, {}) == priority));
     CHECK((growthOrder(4, { 2, 9, 0 }, { 3, 1, 3 }) == std::vector<std::size_t>{ 3, 1, 2, 0 }));
-    // room for every group at its largest but Font: by priority Font grows and Cells stays small; by the
-    // growth order every other group grows and Font gives up its labels
-    const long nRoom = 110 + 415 + 265 + 230 + 130 + 190 + 340 + 60;
-    const Layout byPriority = fitByPriority(home, priority, nRoom);
-    CHECK(byPriority.fits && byPriority.states[1] == 0 && byPriority.states[5] == 2);
-    const Layout byGrowth = fitByPriority(home, priority, nRoom, growth);
-    CHECK(byGrowth.fits && byGrowth.states[1] == 2 && byGrowth.width <= nRoom);
-    for (std::size_t i : { 0, 2, 3, 4, 5, 6 })
-        CHECK(byGrowth.states[i] == 0);
+    // labels stay while there is room (owner 15/11/2026, replacing the 13/11 rule that Font gives its labels up
+    // first): 50 px short of every label, Styles loses its labels (first in the fixed order, saving 60 px) and Font
+    // keeps its own, with or without a growth order
+    const long nRoom = 110 + 525 + 265 + 230 + 130 + 190 + 340 - 50;
+    for (const Layout& l : { fitByPriority(home, priority, nRoom), fitByPriority(home, priority, nRoom, growth) })
+    {
+        CHECK(l.fits && l.width <= nRoom && l.states[4] == 2);
+        for (std::size_t i : { 0, 1, 2, 3, 5, 6 })
+            CHECK(l.states[i] == 0);
+    }
+    // about 1400 px for the groups, 390 px short of every label: labels go in the tab's fixed order, the least room
+    // saved first (Styles 60, Cells 80, Alignment 90, Font 110, Editing 140; Number's cost 5 px, so it keeps them
+    // last), until the row fits: only Clipboard and Number keep their labels
+    {
+        const Layout l = fitByPriority(home, priority, 1400);
+        CHECK(l.fits && l.width == 1310);
+        CHECK((l.states == std::vector<std::size_t>{ 0, 2, 2, 0, 2, 2, 2 }));
+    }
     // the growth order never changes which groups collapse: the least used, Font last
     for (long nWidth = 300; nWidth <= 2000; nWidth += 7)
     {
@@ -128,7 +137,7 @@ class RibbonGrowOrderTest(unittest.TestCase):
             regrow = regrow_header(os.path.join(tmp, "tree"))
             self.assertIn("const std::vector<std::size_t>& rGrowth = {}", regrow)
             includes = re.findall(r"^#include\s+[<\"]([^>\"]+)[>\"]", regrow, re.M)
-            self.assertEqual(sorted(includes), ["HstRibbonScaling.hxx", "cstddef", "vector"])
+            self.assertEqual(sorted(includes), ["HstRibbonScaling.hxx", "algorithm", "cstddef", "vector"])
             compile_and_run(self, tmp, {
                 "HstRibbonScaling.hxx": added_file("hst-ribbon-scaling-helper.patch", "vcl/inc/HstRibbonScaling.hxx"),
                 "HstRibbonRegrow.hxx": regrow}, REGROW_DRIVER)

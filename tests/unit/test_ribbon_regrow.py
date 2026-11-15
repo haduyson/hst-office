@@ -63,22 +63,28 @@ static Layout layoutFor(const std::vector<Group>& rGroups, const std::vector<std
 static void sweep(const std::vector<Group>& rGroups, const std::vector<std::size_t>& rPriority, long nFrom, long nTo)
 {
     const long nIdeal = rowWidth(rGroups, std::vector<std::size_t>(rGroups.size(), 0));
+    std::vector<std::size_t> aBefore; // the states at the previous width (empty after an overflow)
     for (long nWidth = nFrom; nWidth <= nTo; nWidth += 3)
     {
         const Layout aLayout = layoutFor(rGroups, rPriority, nWidth);
         if (!aLayout.overflow.empty())
+        {
+            aBefore.clear();
             continue;
+        }
         CHECK(aLayout.width <= nWidth);
         CHECK(aLayout.width == rowWidth(rGroups, aLayout.states));
         if (nWidth >= nIdeal)
             for (std::size_t s : aLayout.states)
                 CHECK(s == 0);
-        // no group is a button beside room enough to show it (owner decision: folded groups open again out of
-        // the usage order, so folding is no longer monotonic as the window widens)
-        for (std::size_t i = 0; i < rGroups.size(); ++i)
-            if (aLayout.states[i] == 3
-                && aLayout.width - widthOf(rGroups[i], 3) + widthOf(rGroups[i], smallestShownState(rGroups[i])) <= nWidth)
-                std::printf("FAIL room: group %zu a button at %ld with room to show it\n", i, nWidth), ++failures;
+        // owner decision 15/11/2026: groups collapse in a fixed order, least used first, so a wider window never
+        // collapses a group that a narrower one shows (replacing the 13/11 rule that reopened them out of order)
+        if (!aBefore.empty())
+            for (std::size_t i = 0; i < rGroups.size(); ++i)
+                if (aBefore[i] != 3 && aLayout.states[i] == 3)
+                    std::printf("FAIL monotonic: group %zu shown at %ld, a button at %ld\n", i, nWidth - 3, nWidth),
+                        ++failures;
+        aBefore = aLayout.states;
     }
 }
 
@@ -102,10 +108,11 @@ int main()
         for (std::size_t s : l.states)
             CHECK(s != 3);
     }
-    // the room goes to the most used groups first; Hiện, the least used, stays small
+    // labels stay while there is room (owner 15/11/2026): every group but one keeps its labels; the one whose labels
+    // save the least room that is enough (50 px, group 2) loses them, not Hiện, the least used
     {
         const Layout l = fitByPriority(view, viewPriority, 230 + 560 + 160 + 400 + 90);
-        CHECK(l.fits && l.states[3] == 0 && l.states[0] == 0 && l.states[1] == 2);
+        CHECK(l.fits && l.states[3] == 0 && l.states[0] == 0 && l.states[1] == 1 && l.states[2] == 2);
     }
     // narrow: the least used group (Hiện) is the first to become its button
     {
@@ -114,14 +121,14 @@ int main()
         for (std::size_t i : { 0, 2, 3, 4 })
             CHECK(l.states[i] != 3);
     }
-    // the room left after folding opens a smaller, less used group again (out of the usage order): with
-    // 300 px for Dạng xem (most used, 150 at its smallest), a large group (400) and a small one (60), the large
-    // one folds first by usage, then the small one, and the small one comes back into the room left
+    // groups collapse least used first and do not reopen out of order (owner decision 15/11/2026): with 300 px for
+    // Dạng xem (most used, 150), a large group (400) and a small one (60), the small one collapses first, then the
+    // large one, and the small one stays its button
     {
         const std::vector<Group> row = { { { 150, 150, 150, 70 }, false }, { { 400, 400, 400, 70 }, false },
                                          { { 60, 60, 60, 50 }, false } };
         const Layout l = fitByPriority(row, { 0, 1, 2 }, 300);
-        CHECK(l.fits && l.states[0] == 0 && l.states[1] == 3 && l.states[2] == 0 && l.width == 280);
+        CHECK(l.fits && l.states[0] == 0 && l.states[1] == 3 && l.states[2] == 3 && l.width == 270);
     }
     // too narrow for every button: no fit, select() and its overflow popup decide
     CHECK(!fitByPriority(view, viewPriority, 200).fits);

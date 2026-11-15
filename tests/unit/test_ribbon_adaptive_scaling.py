@@ -107,12 +107,11 @@ class ApprovedOrder(unittest.TestCase):
         self.assertGreater(checked, 40)
 
 
-    def test_sheets_home_grows_its_clipboard_first_and_font_last(self):
-        # G10: Cut, Copy and Format Painter keep their labels at 1920; owner 13/11: Font gives up its labels first
+    def test_sheets_home_grows_in_its_priority_order(self):
+        # owner 15/11/2026: labels stay while there is room on every tab; Sheets' Home has no special growth order
         text = added(LADDERS, "vcl/inc/HstRibbonLadders.hxx")
-        self.assertIn('calc_pmhbHome_grow[] = { u"gdHomeClipboard", u"gdHomeEditing", u"gdHomeCells", u"gdHomeStyles", '
-                      'u"gdHomeAlignment", u"gdHomeNumber", u"gdHomeFont" };', text)
-
+        self.assertIn('calc_pmhbHome_grow[] = { u"gdHomeClipboard", u"gdHomeFont", u"gdHomeAlignment", u"gdHomeNumber", '
+                      'u"gdHomeStyles", u"gdHomeCells", u"gdHomeEditing" };', text)
 
 if __name__ == "__main__":
     unittest.main()
