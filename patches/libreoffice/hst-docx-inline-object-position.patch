@@ -33,7 +33,7 @@ diff --git a/sw/source/filter/ww8/docxattributeoutput.cxx b/sw/source/filter/ww8
      // Merge the marks for the ordered elements
      m_pSerializer->mergeTopMarks(Tag_InitCollectedRunProperties);
  
-@@ -6861,6 +6868,24 @@
+@@ -6861,6 +6868,28 @@
  
      if (rFrame.IsInline())
      {
@@ -50,15 +50,19 @@ diff --git a/sw/source/filter/ww8/docxattributeoutput.cxx b/sw/source/filter/ww8
 +                auto xObj(const_cast<SwOLENode*>(pOLENode)->GetOLEObj().GetOleRef());
 +                bMath = xObj.is() && SotExchange::IsMath(xObj->getClassID());
 +            }
-+            const sal_Int32 nPosition = static_cast<sal_Int32>(
-+                round(-(rInlineVert.GetPos() + rInlineFormat.GetFrameSize().GetHeight()) / 10.0));
++            // drawing objects have no frame size of their own: take the shape's
++            const SwTwips nHeight = rInlineFormat.Which() == RES_DRAWFRMFMT
++                                        ? rFrame.GetSize().Height()
++                                        : rInlineFormat.GetFrameSize().GetHeight();
++            const sal_Int32 nPosition
++                = static_cast<sal_Int32>(round(-(rInlineVert.GetPos() + nHeight) / 10.0));
 +            if (!bMath && nPosition)
 +                m_oInlineObjectPosition = nPosition;
 +        }
          m_nEmbedFlyLevel++;
          WriteFlyFrame(rFrame);
          m_nEmbedFlyLevel--;
-@@ -8416,7 +8441,9 @@
+@@ -8416,7 +8445,9 @@
      const SvxFontHeightItem& rItem = m_rExport.GetItem(RES_CHRATR_FONTSIZE);
      float fHeight = rItem.GetHeight();
      OString sPos = OString::number( round(( fHeight * nEsc ) / 1000) );
