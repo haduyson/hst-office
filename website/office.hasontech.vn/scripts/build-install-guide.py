@@ -3,7 +3,7 @@
 
 Chạy từ thư mục gốc website:  python3 scripts/build-install-guide.py
 - Nội dung từng trang: scripts/install-guide/<trang>.html (phần trong <article>). {VERSION}, {MSI}, {DMG_ARM},
-  {DMG_INTEL}, {DEB} được thay theo phiên bản trong config.js, nên khi ra bản mới chỉ cần chạy lại.
+  {DMG_INTEL}, {DEB}, {RPM}, {APPIMAGE} được thay theo phiên bản trong config.js, nên khi ra bản mới chỉ cần chạy lại.
 - Ảnh: đặt ảnh gốc ở scripts/install-guide/images/<tên>.png và viết <img src="images/<tên>.png" alt="…"> trong nội
   dung. Script thu nhỏ (tối đa 1200 px), ghi cai-dat/images/<tên>.png + .webp, gắn ?v=<sha256[:8]> vì ảnh được cache
   một năm, thêm width/height chống xô lệch trang. Thiếu ảnh gốc thì dừng với lỗi (không để khung ảnh trống).
@@ -138,6 +138,12 @@ def release_version():
     return m.group(1)
 
 
+def mac_version(version):
+    """macOS có thể tạm giữ bản cũ (macVersion trong config.js) khi .dmg bản mới chưa sẵn sàng."""
+    m = re.search(r'macVersion:\s*"([^"]+)"', read(os.path.join(SITE, "config.js")))
+    return m.group(1) if m else version
+
+
 def sidebar(current_url):
     parts = []
     for heading, links in SIDEBAR:
@@ -238,9 +244,11 @@ def jsonld(page, version):
 
 
 def build(page, version, versions, snippets):
+    mac = mac_version(version)
     names = {"VERSION": version, "MSI": f"HSTOffice_{version}_Win_x86-64_en-US_vi.msi",
-             "DMG_ARM": f"HSTOffice_{version}_macOS_arm64.dmg", "DMG_INTEL": f"HSTOffice_{version}_macOS_x86_64.dmg",
-             "DEB": f"HSTOffice_{version}_Linux_x86-64.deb"}
+             "DMG_ARM": f"HSTOffice_{mac}_macOS_arm64.dmg", "DMG_INTEL": f"HSTOffice_{mac}_macOS_x86_64.dmg",
+             "DEB": f"HSTOffice_{version}_Linux_x86-64.deb", "RPM": f"HSTOffice_{version}_Linux_x86-64.rpm",
+             "APPIMAGE": f"HSTOffice_{version}_Linux_x86-64.AppImage"}
     content = read(os.path.join(SRC, page["src"]))
     for key, value in names.items():
         content = content.replace("{" + key + "}", value)

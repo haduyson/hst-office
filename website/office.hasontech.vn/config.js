@@ -3,21 +3,25 @@
  * HTML là bản dự phòng không JS của bản phát hành hiện tại.
  */
 window.HST_OFFICE_CONFIG = {
-  version: "1.0.1",
+  version: "1.0.2",
+  /* macOS tạm giữ 1.0.1 cho tới khi có .dmg 1.0.2 đã ký: xóa dòng này cùng lúc đổi 2 dòng macOS trong .htaccess. */
+  macVersion: "1.0.1",
   releaseLabel: "Bản chính thức",
-  tag: "v1.0.1",
+  tag: "v1.0.2",
   platforms: {
     windows: { available: true, path: "/tai/windows", label: "Windows" },
     "macos-arm": { available: true, path: "/tai/macos-arm", label: "macOS Apple Silicon" },
     "macos-intel": { available: true, path: "/tai/macos-intel", label: "macOS Intel" },
-    linux: { available: true, path: "/tai/linux", label: "Linux" }
+    linux: { available: true, path: "/tai/linux", label: "Linux" },
+    "linux-rpm": { available: true, path: "/tai/linux-rpm", label: "Linux (.rpm)" },
+    "linux-appimage": { available: true, path: "/tai/linux-appimage", label: "Linux (AppImage)" }
   },
   checksum: { available: true, path: "/tai/sha256" },
-  linuxArchive: "HSTOffice_1.0.1_Linux_x86-64.deb"
+  linuxArchive: "HSTOffice_1.0.2_Linux_x86-64.deb"
 };
 
 /* Khi ra bản mới:
  * Đổi tag ở trên, cập nhật nhãn phiên bản trong index.html (bản dự phòng không JS).
  * Đổi tag trong các RewriteRule /tai/* của .htaccess và thay tệp tai/SHA256SUMS.
- * Không đổi /tai/windows, /tai/macos-arm, /tai/macos-intel, /tai/linux, /tai/sha256.
+ * Không đổi /tai/windows, /tai/macos-arm, /tai/macos-intel, /tai/linux, /tai/linux-rpm, /tai/linux-appimage, /tai/sha256.
  */

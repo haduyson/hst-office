@@ -8,7 +8,7 @@
 <tbody>
 <tr><td>Windows</td><td>Windows 10 hoặc Windows 11, bản 64-bit</td><td><code>{MSI}</code></td></tr>
 <tr><td>macOS</td><td>Máy Mac chip Apple (M1 trở lên) hoặc chip Intel; mỗi loại chip một bộ cài riêng</td><td><code>{DMG_ARM}</code><br><code>{DMG_INTEL}</code></td></tr>
-<tr><td>Linux</td><td>Ubuntu 22.04 trở lên, Debian 13, Linux Mint 21/22, bản 64-bit</td><td><code>{DEB}</code></td></tr>
+<tr><td>Linux</td><td>Bản 64-bit, glibc 2.35 trở lên. Gói .deb: Ubuntu 22.04 trở lên, Debian 13, Linux Mint 21/22. Gói .rpm: Fedora 36 trở lên, openSUSE Leap 15.6 và Tumbleweed. AppImage: mọi bản Linux kể trên, cả Arch</td><td><code>{DEB}</code><br><code>{RPM}</code><br><code>{APPIMAGE}</code></td></tr>
 </tbody>
 </table></div>
 <p>Chỉ tải bộ cài từ trang <a href="/#tai-ve">Tải về</a> của office.hasontech.vn. Máy đang dùng HST Office bản cũ (kể cả bản thử nghiệm) thì cứ cài bản mới đè lên, không cần gỡ trước; tài liệu và thiết lập của bạn được giữ nguyên.</p>
@@ -75,25 +75,53 @@
 <figure><img src="images/mac-03-first-launch.png" alt="Hộp HST Office chào đón bạn trên macOS, có nút Đóng."><figcaption>Hộp chào đón ở lần mở đầu tiên.</figcaption></figure>
 <p>Nếu bạn mở HST Office thẳng từ tệp <code>.dmg</code> hoặc thư mục Tải về, HST Office hỏi <strong>Chuyển HST Office vào thư mục Ứng dụng?</strong>: chọn <strong>Chuyển</strong>. Chạy từ thư mục Ứng dụng thì mới cập nhật được bản mới. Sau khi cài xong, có thể đẩy đĩa <code>.dmg</code> ra (<span lang="en">Eject</span>).</p>
 
-<h2 id="linux">Cài đặt trên Linux (Ubuntu, Debian, Linux Mint)</h2>
-<h3>Bước 1. Tải gói cài</h3>
-<p>Bấm <strong>Tải cho Linux</strong> bên dưới để tải tệp <code>{DEB}</code>.</p>
+<h2 id="linux">Cài đặt trên Linux</h2>
+<p>HST Office cho Linux có ba loại gói, chọn theo bản Linux của máy:</p>
+<ul>
+<li><strong>.deb</strong> cho Ubuntu, Debian, Linux&nbsp;Mint: xem <a href="#linux-deb">Gói .deb</a>.</li>
+<li><strong>.rpm</strong> cho Fedora, openSUSE: xem <a href="#linux-rpm">Gói .rpm</a>.</li>
+<li><strong>AppImage</strong> chạy trên mọi bản Linux, không cần cài và không cần quyền quản trị: xem <a href="#linux-appimage">AppImage</a>.</li>
+</ul>
+<p>Rocky, Alma và RHEL&nbsp;9 chưa được hỗ trợ.</p>
 {CARD_LINUX}
-<h3>Bước 2. Cài gói</h3>
+<h3 id="linux-deb">Gói .deb (Ubuntu, Debian, Linux Mint)</h3>
+<p>Bấm <strong>Tải cho Linux (.deb)</strong> ở trên để tải tệp <code>{DEB}</code>.</p>
 <p><strong>Cách 1:</strong> nhấn đúp vào tệp <code>.deb</code>, chọn <strong>Cài đặt</strong> trong App&nbsp;Center, Software hoặc gdebi, rồi nhập mật khẩu máy khi được hỏi.</p>
 <p><strong>Cách 2:</strong> mở cửa sổ dòng lệnh trong thư mục chứa tệp vừa tải và chạy:</p>
 <div class="code-block"><code id="linux-command">sudo apt install ./{DEB}</code><button class="copy-button" type="button" data-copy="linux-command" hidden><svg class="icon" aria-hidden="true"><use href="#i-copy"/></svg><span>Sao chép</span></button></div>
 <p id="copy-status" class="copy-status" role="status" aria-live="polite"></p>
 <p>Máy đã cài bản trước sẽ được nâng cấp; tài liệu và thiết lập giữ nguyên.</p>
-<h3>Bước 3. Mở HST Office</h3>
-<p>Mở <strong>HST Office</strong> trong menu ứng dụng, hoặc gõ <code>hst-office</code> trong cửa sổ dòng lệnh.</p>
+<h3 id="linux-rpm">Gói .rpm (Fedora, openSUSE)</h3>
+<p>Bấm <strong>Gói .rpm</strong> ở trên để tải tệp <code>{RPM}</code>, rồi mở cửa sổ dòng lệnh trong thư mục chứa tệp.</p>
+<p>Gói được HASON&nbsp;TECH ký số. Lần đầu, cho máy tin khóa ký của HASON&nbsp;TECH:</p>
+<pre><code>sudo rpm --import https://office.hasontech.vn/tai/RPM-GPG-KEY-hasontech</code></pre>
+<p><strong>Fedora:</strong></p>
+<pre><code>sudo dnf install ./{RPM}</code></pre>
+<p><strong>openSUSE:</strong></p>
+<pre><code>sudo zypper install ./{RPM}</code></pre>
+<p>Kiểm tra chữ ký trước khi cài (không bắt buộc): <code>rpm -K {RPM}</code> phải báo <code>digests signatures OK</code>. Trình quản lý gói tự cài các thư viện còn thiếu.</p>
+<p>HST Office cài trong <code>/opt/hst-office1.0</code> và dùng được song song với bộ văn phòng có sẵn của bản Linux; tài liệu và thiết lập của bạn giữ nguyên khi gỡ hay nâng cấp.</p>
+<h3 id="linux-appimage">AppImage (mọi bản Linux)</h3>
+<p>Một tệp chạy được ngay, không cần quyền quản trị và không cài vào hệ thống. Cần máy có giao diện đồ họa.</p>
+<ol>
+<li>Bấm <strong>AppImage</strong> ở trên để tải tệp <code>{APPIMAGE}</code>, rồi đặt tệp vào một thư mục của bạn.</li>
+<li>Cho phép chạy: bấm chuột phải vào tệp ▸ <strong>Thuộc tính</strong> ▸ <strong>Quyền</strong> ▸ <strong>Cho phép chạy như chương trình</strong>, hoặc chạy <code>chmod +x {APPIMAGE}</code>.</li>
+<li>Nhấn đúp vào tệp. Lần đầu, HST Office tự thêm HST Writer, HST Sheets, HST Slides vào menu ứng dụng và liên kết các loại tệp văn phòng (chỉ cho tài khoản của bạn).</li>
+</ol>
+<p>Máy báo thiếu <code>fusermount</code> hoặc FUSE: cài gói <code>fuse3</code> (ví dụ <code>sudo apt install fuse3</code>), hoặc chạy không cần FUSE: <code>./{APPIMAGE} --appimage-extract-and-run</code>.</p>
+<p>Kiểm tra chữ ký (không bắt buộc): tải thêm tệp <a href="/tai/{VERSION}/{APPIMAGE}.asc">{APPIMAGE}.asc</a> và <a href="/tai/RPM-GPG-KEY-hasontech">khóa ký</a>, rồi chạy <code>gpg --import RPM-GPG-KEY-hasontech &amp;&amp; gpg --verify {APPIMAGE}.asc</code>.</p>
+<p>Khi có bản mới, nút <strong>Cập nhật ngay</strong> thay đúng tệp AppImage này, không hỏi mật khẩu.</p>
+<h3>Mở HST Office</h3>
+<p>Mở <strong>HST Office</strong> trong menu ứng dụng, hoặc gõ <code>hst-office</code> trong cửa sổ dòng lệnh (gói .deb, .rpm).</p>
 
 <h2 id="go-cai-dat">Gỡ cài đặt</h2>
 <p>Gỡ HST Office không xóa các tài liệu bạn đã lưu.</p>
 <ul>
 <li><strong>Windows:</strong> mở <strong>Cài đặt ▸ Ứng dụng</strong> (<span lang="en">Settings ▸ Apps</span>), tìm <strong>HST Office</strong> rồi chọn <strong>Gỡ cài đặt</strong> (<span lang="en">Uninstall</span>).</li>
 <li><strong>macOS:</strong> thoát HST Office, rồi kéo <strong>HST Office</strong> từ thư mục Ứng dụng vào Thùng rác.</li>
-<li><strong>Linux:</strong> mở App&nbsp;Center ▸ HST&nbsp;Office ▸ <strong>Gỡ</strong>, hoặc chạy <code>sudo apt remove hst-office</code>.</li>
+<li><strong>Linux (.deb):</strong> mở App&nbsp;Center ▸ HST&nbsp;Office ▸ <strong>Gỡ</strong>, hoặc chạy <code>sudo apt remove hst-office</code>.</li>
+<li><strong>Linux (.rpm):</strong> chạy <code>sudo dnf remove hst-office</code> (Fedora) hoặc <code>sudo zypper remove hst-office</code> (openSUSE).</li>
+<li><strong>AppImage:</strong> bấm chuột phải vào biểu tượng HST&nbsp;Office trong menu ▸ <strong>Gỡ khỏi menu ứng dụng</strong>, rồi xóa tệp AppImage.</li>
 </ul>
 
 <h2 id="kiem-tra-bo-cai">Kiểm tra bộ cài (không bắt buộc)</h2>
@@ -101,6 +129,6 @@
 <ul>
 <li><strong>Windows</strong> (Command Prompt): <code>certutil -hashfile {MSI} SHA256</code></li>
 <li><strong>macOS:</strong> <code>shasum -a 256 {DMG_ARM}</code> (thay bằng tên tệp bạn tải)</li>
-<li><strong>Linux:</strong> <code>sha256sum {DEB}</code></li>
+<li><strong>Linux:</strong> <code>sha256sum {DEB}</code> (thay bằng tên tệp bạn tải)</li>
 </ul>
 <p>Đã cài xong? Xem <a href="/huong-dan/">Hướng dẫn sử dụng</a> và cách <a href="/huong-dan/cap-nhat/">cập nhật HST Office</a> khi có bản mới.</p>
