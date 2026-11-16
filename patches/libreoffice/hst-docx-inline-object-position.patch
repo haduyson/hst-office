@@ -84,15 +84,24 @@ diff --git a/sw/source/filter/ww8/docxattributeoutput.hxx b/sw/source/filter/ww8
 diff --git a/sw/source/filter/ww8/wrtww8gr.cxx b/sw/source/filter/ww8/wrtww8gr.cxx
 --- a/sw/source/filter/ww8/wrtww8gr.cxx
 +++ b/sw/source/filter/ww8/wrtww8gr.cxx
-@@ -42,6 +42,7 @@
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <cmath>
+ #include <memory>
+ #include <com/sun/star/embed/XEmbedPersist.hpp>
+ #include <com/sun/star/embed/Aspects.hpp>
+@@ -42,6 +43,8 @@
  #include <frmfmt.hxx>
  #include <grfatr.hxx>
  #include <ndole.hxx>
 +#include <sot/exchange.hxx>
++#include <tools/globname.hxx>
  #include <fmtfsize.hxx>
  #include <fmtornt.hxx>
  
-@@ -429,6 +430,24 @@
+@@ -429,6 +432,24 @@
                  Set_UInt16( pArr, - static_cast<sal_Int16>(nHeight));
              }
          }
@@ -106,7 +115,7 @@ diff --git a/sw/source/filter/ww8/wrtww8gr.cxx b/sw/source/filter/ww8/wrtww8gr.c
 +                auto xObj(const_cast<SwOLENode*>(pOLENode)->GetOLEObj().GetOleRef());
 +                bMath = xObj.is() && SotExchange::IsMath(xObj->getClassID());
 +            }
-+            const sal_Int16 nPosition = static_cast<sal_Int16>(round(
++            const sal_Int16 nPosition = static_cast<sal_Int16>(std::round(
 +                -(rFlyFormat.GetVertOrient().GetPos() + rFlyFormat.GetFrameSize().GetHeight()) / 10.0));
 +            if (!bMath && nPosition)
 +            {
