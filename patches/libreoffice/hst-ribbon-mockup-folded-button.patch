@@ -79,3 +79,14 @@ License: these upstream files remain under their original license (MPL-2.0).
          rButton->SetAccessibleName(aCaption);
          rButton->SetQuickHelpText(aCaption);
          rButton->set_valign(VclAlign::Fill);
+--- a/vcl/source/control/DropdownBox.cxx
++++ b/vcl/source/control/DropdownBox.cxx
+@@ -66,7 +66,7 @@
+         OUString aCaption;
+         for (int i = 0; i < GetChildCount() && aCaption.isEmpty(); i++)
+             if (GetChild(i) != m_pButton)
+-                aCaption = hst::ribbon::GroupCaption(*GetChild(i));
++                aCaption = hst::ribbon::GroupCaption(*GetChild(i)).replaceAll(u"~", u""); // no mnemonic mark on the button
+         if (!aCaption.isEmpty() && m_pButton->GetAccessibleName() != aCaption)
+         {
+             m_pButton->SetSymbol(SymbolType::DONTKNOW);
