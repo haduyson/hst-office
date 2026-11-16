@@ -1,0 +1,204 @@
+HST Office: inline objects (MathType formulas above all) ignored the run's <w:position>.
+
+Word puts an inline object's bottom on the baseline and then raises or lowers the whole run by
+w:position (half-points). MathType writes that value on every inline formula run (Equation.DSMT4
+OLE objects, usually -2 pt to -18 pt) so the formula's own baseline meets the text baseline.
+Writer import deferred w:position until the run's text is appended, which never happens for a
+run that only holds an object, so the value was dropped: every formula sat raised by that amount,
+lines with formulas grew taller and a 6-page worksheet became 7 pages.
+
+Import (writerfilter, shared by .docx and .rtf): an as-character OLE object, DrawingML picture or
+VML shape in a run with w:position gets VertOrient NONE at -height - position * 2540 / 144
+(the object's top relative to the baseline, downwards).
+Export: an as-character object with VertOrient NONE writes the run's w:position (.docx) or
+sprmCHpsPos (.doc) as -(position + height) in half-points; Math formulas keep their own
+alignment. The .docx run never gets two w:position elements.
+
+Test: tests/runtime/check-docx-word-interop.py (docx_inline_object_position.py).
+
+diff --git a/sw/source/filter/ww8/docxattributeoutput.cxx b/sw/source/filter/ww8/docxattributeoutput.cxx
+--- a/sw/source/filter/ww8/docxattributeoutput.cxx
++++ b/sw/source/filter/ww8/docxattributeoutput.cxx
+@@ -3803,6 +3803,13 @@
+ 
+     WriteCollectedRunProperties();
+ 
++    if (m_oInlineObjectPosition)
++    {
++        m_pSerializer->singleElementNS(XML_w, XML_position, FSNS(XML_w, XML_val),
++                                       OString::number(*m_oInlineObjectPosition));
++        m_oInlineObjectPosition.reset();
++    }
++
+     // Merge the marks for the ordered elements
+     m_pSerializer->mergeTopMarks(Tag_InitCollectedRunProperties);
+ 
+@@ -6861,6 +6868,24 @@
+ 
+     if (rFrame.IsInline())
+     {
++        // Word puts an inline object's bottom on the baseline and moves the whole run with
++        // w:position; an explicit vertical position from the baseline is exported that way.
++        // Formulas are skipped: their baseline alignment is handled by Math/OMML.
++        const SwFrameFormat& rInlineFormat = rFrame.GetFrameFormat();
++        const SwFormatVertOrient& rInlineVert = rInlineFormat.GetVertOrient();
++        if (rInlineVert.GetVertOrient() == text::VertOrientation::NONE)
++        {
++            bool bMath = false;
++            if (const SwOLENode* pOLENode = rFrame.GetContent() ? rFrame.GetContent()->GetOLENode() : nullptr)
++            {
++                auto xObj(const_cast<SwOLENode*>(pOLENode)->GetOLEObj().GetOleRef());
++                bMath = xObj.is() && SotExchange::IsMath(xObj->getClassID());
++            }
++            const sal_Int32 nPosition = static_cast<sal_Int32>(
++                round(-(rInlineVert.GetPos() + rInlineFormat.GetFrameSize().GetHeight()) / 10.0));
++            if (!bMath && nPosition)
++                m_oInlineObjectPosition = nPosition;
++        }
+         m_nEmbedFlyLevel++;
+         WriteFlyFrame(rFrame);
+         m_nEmbedFlyLevel--;
+@@ -8416,7 +8441,9 @@
+     const SvxFontHeightItem& rItem = m_rExport.GetItem(RES_CHRATR_FONTSIZE);
+     float fHeight = rItem.GetHeight();
+     OString sPos = OString::number( round(( fHeight * nEsc ) / 1000) );
+-    m_pSerializer->singleElementNS(XML_w, XML_position, FSNS(XML_w, XML_val), sPos);
++    // an inline object in this run already brings the run's w:position
++    if (!m_oInlineObjectPosition)
++        m_pSerializer->singleElementNS(XML_w, XML_position, FSNS(XML_w, XML_val), sPos);
+ 
+     if( ( 100 != nProp || sIss.match( "baseline" ) ) && !m_oFontSize )
+     {
+diff --git a/sw/source/filter/ww8/docxattributeoutput.hxx b/sw/source/filter/ww8/docxattributeoutput.hxx
+--- a/sw/source/filter/ww8/docxattributeoutput.hxx
++++ b/sw/source/filter/ww8/docxattributeoutput.hxx
+@@ -915,6 +915,8 @@
+     /// The second frame what is anchored to the previous in, is 1
+     /// The third anchored inside the second is the 2 etc.
+     sal_uInt32 m_nEmbedFlyLevel;
++    /// w:position (half-points) of the as-character object in the current run, written in its rPr.
++    std::optional<sal_Int32> m_oInlineObjectPosition;
+ 
+     /// Stores the flys what are anchored inside a fly
+     std::vector<ww8::Frame> m_vPostponedFlys;
+diff --git a/sw/source/filter/ww8/wrtww8gr.cxx b/sw/source/filter/ww8/wrtww8gr.cxx
+--- a/sw/source/filter/ww8/wrtww8gr.cxx
++++ b/sw/source/filter/ww8/wrtww8gr.cxx
+@@ -42,6 +42,7 @@
+ #include <frmfmt.hxx>
+ #include <grfatr.hxx>
+ #include <ndole.hxx>
++#include <sot/exchange.hxx>
+ #include <fmtfsize.hxx>
+ #include <fmtornt.hxx>
+ 
+@@ -429,6 +430,24 @@
+                 Set_UInt16( pArr, - static_cast<sal_Int16>(nHeight));
+             }
+         }
++        else if (eVert == text::VertOrientation::NONE)
++        {
++            // Explicit position from the baseline: Word puts the object's bottom on the baseline
++            // and moves the run by sprmCHpsPos (half-points). Formulas keep their own alignment.
++            bool bMath = false;
++            if (const SwOLENode* pOLENode = rFrame.GetContent() ? rFrame.GetContent()->GetOLENode() : nullptr)
++            {
++                auto xObj(const_cast<SwOLENode*>(pOLENode)->GetOLEObj().GetOleRef());
++                bMath = xObj.is() && SotExchange::IsMath(xObj->getClassID());
++            }
++            const sal_Int16 nPosition = static_cast<sal_Int16>(round(
++                -(rFlyFormat.GetVertOrient().GetPos() + rFlyFormat.GetFrameSize().GetHeight()) / 10.0));
++            if (!bMath && nPosition)
++            {
++                Set_UInt16( pArr, NS_sprm::CHpsPos::val );
++                Set_UInt16( pArr, nPosition );
++            }
++        }
+     }
+ 
+     // sprmCFSpec
+diff --git a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
+--- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
++++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
+@@ -3817,6 +3817,7 @@
+             m_aTextAppendStack.pop();
+ 
+         appendTextContent( xOLE, uno::Sequence< beans::PropertyValue >() );
++        applyRunPositionToInlineObject(xOLE, aSize.Height);
+ 
+         if (!aCLSID.isEmpty())
+             pOLEHandler->importStream(m_xComponentContext, GetTextDocument(), xOLE);
+@@ -5171,6 +5172,7 @@
+             }
+             else if (nAnchorType == text::TextContentAnchorType_AS_CHARACTER)
+             {
++                applyRunPositionToInlineObject(xShapePropertySet, xShape->getSize().Height);
+                 // Fix spacing for as-character objects. If the paragraph has CT_Spacing_after set,
+                 // it needs to be set on the object too, as that's what object placement code uses.
+                 PropertyMapPtr paragraphContext = GetTopContextOfType( CONTEXT_PARAGRAPH );
+@@ -9832,6 +9834,18 @@
+         if ( bAppend )
+             appendTextContent( xTextContent, uno::Sequence< beans::PropertyValue >() );
+ 
++        if (m_eGraphicImportType == IMPORT_AS_DETECTED_INLINE)
++        {
++            uno::Reference<beans::XPropertySet> xObject(xTextContent, uno::UNO_QUERY);
++            uno::Reference<drawing::XShape> xObjectShape(xTextContent, uno::UNO_QUERY);
++            sal_Int32 nHeight = 0;
++            if (xObjectShape.is())
++                nHeight = xObjectShape->getSize().Height;
++            else if (xObject.is())
++                xObject->getPropertyValue(getPropertyName(PROP_HEIGHT)) >>= nHeight;
++            applyRunPositionToInlineObject(xObject, nHeight);
++        }
++
+         if (m_eGraphicImportType == IMPORT_AS_DETECTED_ANCHOR && !m_aTextAppendStack.empty())
+         {
+             // Remember this object is anchored to the current paragraph.
+@@ -10219,6 +10233,32 @@
+     m_StreamStateStack.top().deferredCharacterProperties[ id ] = value;
+ }
+ 
++void DomainMapper_Impl::applyRunPositionToInlineObject(
++    const uno::Reference<beans::XPropertySet>& xObject, sal_Int32 nHeight)
++{
++    const auto& rDeferred = m_StreamStateStack.top().deferredCharacterProperties;
++    auto it = rDeferred.find(NS_ooxml::LN_EG_RPrBase_position);
++    sal_Int32 nPosition = 0; // half-points, positive raises
++    if (!xObject.is() || it == rDeferred.end() || !(it->second >>= nPosition) || !nPosition)
++        return;
++    try
++    {
++        text::TextContentAnchorType eAnchor = text::TextContentAnchorType_AT_PARAGRAPH;
++        xObject->getPropertyValue(getPropertyName(PROP_ANCHOR_TYPE)) >>= eAnchor;
++        if (eAnchor != text::TextContentAnchorType_AS_CHARACTER)
++            return;
++        // VertOrient NONE: VertOrientPosition is the object's top relative to the baseline, downwards.
++        xObject->setPropertyValue(getPropertyName(PROP_VERT_ORIENT),
++                                  uno::Any(text::VertOrientation::NONE));
++        xObject->setPropertyValue(getPropertyName(PROP_VERT_ORIENT_POSITION),
++                                  uno::Any(sal_Int32(-nHeight - nPosition * 2540 / 144)));
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("writerfilter.dmapper", "applyRunPositionToInlineObject");
++    }
++}
++
+ void DomainMapper_Impl::processDeferredCharacterProperties(bool bCharContext)
+ {
+     // Actually process in DomainMapper, so that it's the same source file like normal processing.
+diff --git a/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx b/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx
+--- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx
++++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx
+@@ -1180,6 +1180,10 @@
+      CONTEXT_CHARACTER is going to be used (e.g. by appendText()).
+     */
+     void processDeferredCharacterProperties(bool bCharContext = true);
++    /// Applies the current run's w:position (deferred, in half-points) to an as-character object:
++    /// Word puts the object's bottom on the baseline and then raises/lowers the whole run.
++    void applyRunPositionToInlineObject(const css::uno::Reference<css::beans::XPropertySet>& xObject,
++                                        sal_Int32 nHeight);
+ 
+     sal_Int32 getNumberingProperty(const sal_Int32 nListId, sal_Int32 nListLevel, const OUString& aProp);
+     /// Get a property of the current numbering style's current level.
