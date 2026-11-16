@@ -4,8 +4,11 @@
 # auto-removed Ubuntu 22.04 container (the CI image), so the pipeline is proven before the owner creates the real key.
 #   tests/runtime/check-linux-signing.sh <installer-dir> <out-dir>
 # Copies the .rpm, .AppImage and their SHA256SUMS lines from <installer-dir> to <out-dir> (copies: rpmsign rewrites
-# the .rpm), then checks: no key -> skipped; wrong fingerprint -> refused; signing -> rpmkeys --checksig OK, the
-# AppImage .asc and the Linux SHA256SUMS.asc verify with ONLY the exported public key, sha256sum -c OK.
+# the .rpm), then checks: no key -> skipped; the repository's script refuses the throwaway key because it is not the
+# committed data/hst/RPM-GPG-KEY-hasontech; wrong fingerprint / wrong secret key -> refused; signing -> rpmkeys
+# --checksig OK, the AppImage .asc and the Linux SHA256SUMS.asc verify with ONLY the exported public key, sha256sum -c OK.
+# The signing runs use an unmodified copy of the script in a scratch tree whose data/hst/RPM-GPG-KEY-hasontech is the
+# throwaway public key: the script reads the committed key relative to itself, so no test switch exists in it.
 # <out-dir> keeps the signed packages and the throwaway RPM-GPG-KEY-hasontech, for
 #   RPM_KEY=<out-dir>/RPM-GPG-KEY-hasontech tests/runtime/check-rpm-install.sh <out-dir>/HSTOffice_*.rpm
 # The throwaway secret key never leaves the container.
@@ -31,10 +34,21 @@ export GNUPGHOME=/tmp/throwaway; mkdir -m 700 $GNUPGHOME; printf "%s" throwaway-
 gpg --batch --quiet --pinentry-mode loopback --passphrase-file /tmp/pw --quick-gen-key "Throwaway HST test <test@invalid>" rsa4096 sign 1d 2>/dev/null
 FPR=$(gpg --with-colons --list-secret-keys | awk -F: "\$1==\"fpr\"{print \$10; exit}")
 KEY=$(gpg --batch --pinentry-mode loopback --passphrase-file /tmp/pw --armor --export-secret-keys "$FPR")
+gpg --batch --quiet --passphrase "" --pinentry-mode loopback --quick-gen-key "Other HST test <other@invalid>" ed25519 sign 1d 2>/dev/null
+OTHER=$(gpg --batch --armor --export-secret-keys "Other HST test")
+mkdir -p /tmp/tree/scripts/linux /tmp/tree/data/hst; cp $S /tmp/tree/scripts/linux/
+gpg --batch --armor --export "$FPR" > /tmp/tree/data/hst/RPM-GPG-KEY-hasontech
 unset GNUPGHOME
+T=/tmp/tree/scripts/linux/sign-linux-packages.sh
+before=$(sha256sum /out/*.rpm)
+HST_LINUX_GPG_PRIVATE_KEY="$KEY" HST_LINUX_GPG_PASSPHRASE=throwaway-pass HST_LINUX_GPG_FINGERPRINT="$FPR" bash $S /out 2>&1 >/dev/null \
+  | grep -q "is not the key $FPR" && [ "$(sha256sum /out/*.rpm)" = "$before" ] \
+  && pass "committed key: a key other than data/hst/RPM-GPG-KEY-hasontech refused, nothing signed" || fail "committed-key check"
 HST_LINUX_GPG_PRIVATE_KEY="$KEY" HST_LINUX_GPG_PASSPHRASE=throwaway-pass HST_LINUX_GPG_FINGERPRINT=0000000000000000000000000000000000000000 \
-  bash $S /out >/dev/null 2>&1 && fail "wrong fingerprint accepted" || pass "wrong fingerprint refused"
-HST_LINUX_GPG_PRIVATE_KEY="$KEY" HST_LINUX_GPG_PASSPHRASE=throwaway-pass HST_LINUX_GPG_FINGERPRINT="$FPR" bash $S /out | tail -1 | grep -q "OK ($FPR)" \
+  bash $T /out >/dev/null 2>&1 && fail "wrong fingerprint accepted" || pass "wrong fingerprint refused"
+HST_LINUX_GPG_PRIVATE_KEY="$OTHER" HST_LINUX_GPG_FINGERPRINT="$FPR" bash $T /out 2>&1 >/dev/null | grep -q "imported key is not $FPR" \
+  && pass "secret key other than the fingerprint refused" || fail "wrong secret key"
+HST_LINUX_GPG_PRIVATE_KEY="$KEY" HST_LINUX_GPG_PASSPHRASE=throwaway-pass HST_LINUX_GPG_FINGERPRINT="$FPR" bash $T /out | tail -1 | grep -q "OK ($FPR)" \
   && pass "signed with throwaway key $FPR" || fail "signing"
 cd /out
 export GNUPGHOME=/tmp/verify; mkdir -m 700 $GNUPGHOME; gpg --batch --quiet --import RPM-GPG-KEY-hasontech 2>/dev/null

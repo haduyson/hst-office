@@ -1,0 +1,640 @@
+HST Office (1.0.2 ribbon, approved mockup): the compact ribbon (Ctrl+F1), its dropped page and the quick
+access toolbar as the mockup draws them.
+
+Quick row: 30 px buttons (icon 16 and the label beside it), 1 x 22 px separators with 4 px on each side, the
+first button 6 px from the left edge, centred in the 45 px row; ˅ (18 x 16) 4 px from the row's lower right.
+Dropped page (a tab clicked in the compact state): 106 px (more only when the page's content needs it)
+between two 3 px strips, the width the tab control
+gives (W - 276 with the banner 8 px from both sides), the groups choosing their state for that width; the pin
+˅ at its lower right brings the full ribbon back; Esc, a click outside, a command or the same tab close it; a
+click on another tab drops that tab's page. The quick access toolbar shows New, Open, Save, Undo, Redo and
+Print (owner decision D3, replacing the three-button default of 14/11) in the four apps, KeyTips 1 to 6 by
+position; New (.uno:AddDirect, Ctrl+N) is a plain button without its document type ▾; profiles with a
+customised toolbar keep it. The quick row's Tìm is the find bar (Ctrl+F) as on the ribbon; the find bar and HST
+commands take the 16 px icon their ribbon button shows (data/ribbon/quick-rows.json "icons"). In the compact
+state the tab row narrows the feature search box down to its magnifier before any quick access button goes
+into its » menu, so the six buttons stay whole at 1366 px; the full ribbon's row is unchanged. The quick row, the
+quick access toolbar on the tab row and the chevrons follow the tabs in the accessibility tree (buttons named by
+their labels), where assistive technology and the checks reach them.
+
+--- a/sfx2/source/notebookbar/HstRibbonCompact.hxx
++++ b/sfx2/source/notebookbar/HstRibbonCompact.hxx
+@@ -18,6 +18,7 @@
+ #include <cmath>
+ 
+ class Control;
++struct ImplSVEvent;
+ class TabPage;
+ class ToolBox;
+ namespace vcl { class Window; }
+@@ -25,6 +26,9 @@
+ namespace hst::ribbon::compact
+ {
+ inline tools::Long px(tools::Long nLogical, double fDpi) { return std::llround(nLogical * fDpi); }
++/// the id of the pin button (˅), a hidden child of the tab control that HstRibbonDrop.cxx (vcl) shows in the
++/// popup of the dropped page
++inline constexpr OUString PIN_ID = u"hstribbonpin"_ustr;
+ /// a flat chevron button (˄ when bUp, else ˅) with the tooltip and accessible name rTip
+ VclPtr<Control> CreateChevron(vcl::Window* pParent, bool bUp, const OUString& rTip,
+                               const Link<LinkParamNone*, void>& rClick);
+@@ -44,7 +48,11 @@
+     Ctrl+F1, a double-click on a tab or the small chevron buttons switch between the full ribbon and the
+     compact one: the tab row and, below it, a row of the current tab's main commands (data/ribbon/
+     quick-rows.json, generated into HstRibbonQuickRows.hxx), 80 logical px together, the banner standing
+-    across both rows. NotebookbarTabControl owns this helper; it keeps the widgets of both states (the
++    across both rows. The approved 1.0.2 mockup sets the quick row's look: 30 px buttons with a 16 px icon and
++    the label beside it, 1 x 22 px separators with 4 px on each side, the first button 6 px from the left edge
++    and ˅ (18 x 16) 4 px from the row's lower right corner. A tab clicked in the compact state drops its page
++    over the document (HstRibbonDrop.cxx) with the pin ˅ at its lower right, which brings the full ribbon back.
++    NotebookbarTabControl owns this helper; it keeps the widgets of both states (the
+     quick row with real toolbar controllers, the chevrons) and remembers the state per app in
+     HSTRibbon/CompactApps. */
+ class HstRibbonCompact
+@@ -72,6 +80,8 @@
+ 
+ private:
+     DECL_LINK(ChevronHdl, LinkParamNone*, void);
++    DECL_LINK(PinHdl, LinkParamNone*, void);
++    DECL_LINK(PinToggleHdl, void*, void);
+ 
+     vcl::Window& m_rTabs;
+     OUString m_aApp;
+@@ -81,6 +91,8 @@
+     VclPtr<ToolBox> m_xQuick;
+     VclPtr<Control> m_xCollapse; // ˄ at the lower right end of the full page
+     VclPtr<Control> m_xExpand; // ˅ at the right end of the quick row
++    VclPtr<Control> m_xPin; // ˅ of the dropped page: HstRibbonDrop.cxx moves it into the popup while it is open
++    ImplSVEvent* m_pPinEvent = nullptr; // the pin switches after its click, as the popup it sits in closes
+ };
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/notebookbar/HstRibbonCompact.cxx
++++ b/sfx2/source/notebookbar/HstRibbonCompact.cxx
+@@ -20,6 +20,8 @@
+ #include <sfx2/sfxresid.hxx>
+ #include <sfx2/strings.hrc>
+ #include <vcl/ctrl.hxx>
++#include <vcl/image.hxx>
++#include <vcl/svapp.hxx>
+ #include <vcl/tabpage.hxx>
+ #include <vcl/toolbox.hxx>
+ 
+@@ -39,12 +41,21 @@
+                                              LINK(this, HstRibbonCompact, ChevronHdl));
+     m_xExpand = CreateChevron(&m_rTabs, false, SfxResId(STR_HST_RIBBON_EXPAND),
+                                            LINK(this, HstRibbonCompact, ChevronHdl));
++    m_xPin = CreateChevron(&m_rTabs, false, SfxResId(STR_HST_RIBBON_PIN), LINK(this, HstRibbonCompact, PinHdl));
++    m_xPin->set_id(PIN_ID);
++    m_xPin->Hide();
+ }
+ 
+ HstRibbonCompact::~HstRibbonCompact() { dispose(); }
+ 
+ void HstRibbonCompact::dispose()
+ {
++    if (m_pPinEvent)
++    {
++        Application::RemoveUserEvent(m_pPinEvent);
++        m_pPinEvent = nullptr;
++    }
++    m_xPin.disposeAndClear();
+     m_xQuick.disposeAndClear();
+     m_xCollapse.disposeAndClear();
+     m_xExpand.disposeAndClear();
+@@ -52,6 +63,20 @@
+ 
+ IMPL_LINK_NOARG(HstRibbonCompact, ChevronHdl, LinkParamNone*, void) { m_aToggle.Call(nullptr); }
+ 
++// the pin sits in the popup that switching the state closes: it switches once its own click is over
++IMPL_LINK_NOARG(HstRibbonCompact, PinHdl, LinkParamNone*, void)
++{
++    if (!m_pPinEvent)
++        m_pPinEvent = Application::PostUserEvent(LINK(this, HstRibbonCompact, PinToggleHdl));
++}
++
++IMPL_LINK_NOARG(HstRibbonCompact, PinToggleHdl, void*, void)
++{
++    m_pPinEvent = nullptr;
++    if (m_bCompact)
++        m_aToggle.Call(nullptr);
++}
++
+ tools::Long HstRibbonCompact::BandHeight(double fDpi) { return px(80, fDpi); }
+ 
+ tools::Long HstRibbonCompact::QuickHeight(tools::Long nHeaderHeight, double fDpi)
+@@ -115,6 +140,7 @@
+     {
+         m_xQuick->Hide();
+         m_xExpand->Hide();
++        m_xPin->Hide();
+     }
+     else
+         m_xCollapse->Hide();
+@@ -129,6 +155,9 @@
+         return;
+     m_aFilledBox = aBox;
+     m_xQuick->Clear();
++    const double fDpi = m_rTabs.GetDPIScaleFactor();
++    const tools::Long nButton = px(30, fDpi); // the mockup's quick buttons are 30 px high
++    const auto nSeparator = static_cast<sal_uInt16>(px(9, fDpi)); // a 1 px line with 4 px on each side
+     for (const hst::ribbon::quick::Row& rRow : hst::ribbon::quick::all)
+     {
+         if (rRow.app != m_aApp || rRow.box != aBox)
+@@ -138,12 +167,17 @@
+             const OUString aCommand(rRow.commands[i]);
+             if (aCommand == "|")
+             {
+-                m_xQuick->InsertSeparator();
++                m_xQuick->InsertSeparator(ToolBox::APPEND, nSeparator);
+                 continue;
+             }
+-            m_xQuick->InsertItem(aCommand, xFrame, ToolBoxItemBits::NONE, Size());
++            m_xQuick->InsertItem(aCommand, xFrame, ToolBoxItemBits::NONE, Size(0, nButton));
++            const ToolBoxItemId nId = m_xQuick->GetItemId(aCommand);
+             if (OUString aLabel = ribbonLabel(*pPage, aCommand); !aLabel.isEmpty())
+-                m_xQuick->SetItemText(m_xQuick->GetItemId(aCommand), aLabel);
++                m_xQuick->SetItemText(nId, aLabel);
++            // the find bar and HST commands have no icon of their own: the one their ribbon button shows
++            for (const hst::ribbon::quick::Icon& rIcon : hst::ribbon::quick::icons)
++                if (aCommand == rIcon.command)
++                    m_xQuick->SetItemImage(nId, Image(StockImage::Yes, OUString(rIcon.icon)));
+         }
+     }
+ }
+@@ -155,21 +189,35 @@
+     const tools::Long nInset = px(4, fDpi);
+     if (m_bCompact && !rQuick.IsEmpty())
+     {
+-        const tools::Long nRoom = rQuick.GetWidth() - aChevron.Width() - 2 * nInset;
+-        const Size aWant = m_xQuick->CalcWindowSizePixel();
+-        const tools::Long nHeight = std::min<tools::Long>(aWant.Height(), rQuick.GetHeight());
+-        m_xQuick->SetPosSizePixel(Point(rQuick.Left(), rQuick.Top() + (rQuick.GetHeight() - nHeight) / 2),
+-                                  Size(std::max<tools::Long>(0, std::min<tools::Long>(aWant.Width(), nRoom)), nHeight));
+-        m_xQuick->Show(m_xQuick->GetItemCount() > 0);
+-        m_xExpand->SetPosSizePixel(Point(rQuick.Right() - nInset - aChevron.Width(),
+-                                         rQuick.Bottom() - nInset - aChevron.Height()), aChevron);
++        // ˅ 4 px from the row's lower right corner (rQuick ends 8 px before the banner)
++        const Point aEnd(rQuick.Left() + rQuick.GetWidth(), rQuick.Top() + rQuick.GetHeight());
++        m_xExpand->SetPosSizePixel(Point(aEnd.X() - nInset - aChevron.Width(), aEnd.Y() - nInset - aChevron.Height()),
++                                   aChevron);
+         m_xExpand->Show();
+         m_xExpand->SetZOrder(nullptr, ZOrderFlags::First);
++        // the buttons: the first one 6 px from the ribbon's left edge, centred in the row's height
++        const tools::Long nLeft = std::min(rQuick.Left(), px(6, fDpi));
++        const tools::Long nRoom = aEnd.X() - nLeft - aChevron.Width() - 2 * nInset;
++        const Size aWant = m_xQuick->CalcWindowSizePixel();
++        const Size aSize(std::max<tools::Long>(0, std::min(aWant.Width(), nRoom)),
++                         std::min<tools::Long>(aWant.Height(), rQuick.GetHeight()));
++        m_xQuick->SetPosSizePixel(Point(nLeft, rQuick.Top() + (rQuick.GetHeight() - aSize.Height()) / 2), aSize);
++        if (m_xQuick->GetItemCount() > 0)
++        {
++            const tools::Rectangle aFirst = m_xQuick->GetItemPosRect(0);
++            const Point aAt(px(6, fDpi) - aFirst.Left(),
++                            rQuick.Top() + (rQuick.GetHeight() - aFirst.GetHeight()) / 2 - aFirst.Top());
++            const tools::Long nFit = aEnd.X() - aChevron.Width() - 2 * nInset - aAt.X();
++            m_xQuick->SetPosSizePixel(aAt, Size(std::max<tools::Long>(0, std::min(aWant.Width(), nFit)), aSize.Height()));
++        }
++        m_xQuick->Show(m_xQuick->GetItemCount() > 0);
+     }
+     else if (!m_bCompact && !rPage.IsEmpty())
+     {
+-        m_xCollapse->SetPosSizePixel(Point(rPage.Right() - nInset - aChevron.Width(),
+-                                           rPage.Bottom() - px(3, fDpi) - aChevron.Height()), aChevron);
++        // ˄ 4 px from the page's right edge and 3 px above its bottom, as in the mockup
++        m_xCollapse->SetPosSizePixel(Point(rPage.Left() + rPage.GetWidth() - nInset - aChevron.Width(),
++                                           rPage.Top() + rPage.GetHeight() - px(3, fDpi) - aChevron.Height()),
++                                     aChevron);
+         m_xCollapse->Show();
+         m_xCollapse->SetZOrder(nullptr, ZOrderFlags::First); // over the page's last group
+     }
+--- a/sfx2/source/notebookbar/HstRibbonCompactWidgets.cxx
++++ b/sfx2/source/notebookbar/HstRibbonCompactWidgets.cxx
+@@ -99,6 +99,25 @@
+         SetButtonType(ButtonType::SYMBOLTEXT);
+         hst::ribbon::SetOwnerDraw(*this, true);
+     }
++
++    // the mockup's separators: a 1 x 22 px line (the toolbox draws a quarter of the item's height shorter at
++    // each end), centred in the 9 px the row gives each separator
++    void Paint(vcl::RenderContext& rDev, const tools::Rectangle& rRect) override
++    {
++        sfx2::sidebar::SidebarToolBox::Paint(rDev, rRect);
++        const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++        const tools::Long nHalf = px(22, GetDPIScaleFactor()) / 2;
++        auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR);
++        rDev.SetLineColor(hst::ribbon::ownerDrawAllowed(rStyle) ? hst::ribbon::paletteFor(rStyle).aSeparator
++                                                                : rStyle.GetSeparatorColor());
++        for (ImplToolItems::size_type i = 0; i < GetItemCount(); ++i)
++        {
++            if (GetItemType(i) != ToolBoxItemType::SEPARATOR)
++                continue;
++            const Point aMid = GetItemPosRect(i).Center();
++            rDev.DrawLine(Point(aMid.X(), aMid.Y() - nHalf), Point(aMid.X(), aMid.Y() + nHalf - 1));
++        }
++    }
+ };
+ }
+ 
+--- a/sfx2/source/notebookbar/HstRibbonQuickRows.hxx
++++ b/sfx2/source/notebookbar/HstRibbonQuickRows.hxx
+@@ -26,11 +26,17 @@
+     std::size_t count;
+ };
+ 
+-inline constexpr std::u16string_view row0[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u".uno:DefaultBullet", u"|", u".uno:SearchDialog", u"org.hst.office.vi:Nd30Wizard" }; // writer pmhbHome
++struct Icon
++{
++    std::u16string_view command;
++    std::u16string_view icon; // a 16 px icon of the theme, for a command without one of its own
++};
++
++inline constexpr std::u16string_view row0[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u".uno:DefaultBullet", u"|", u"vnd.sun.star.findbar:FocusToFindbar", u"org.hst.office.vi:Nd30Wizard" }; // writer pmhbHome
+ inline constexpr std::u16string_view row1[] = { u".uno:TitlePageDialog", u".uno:InsertPagebreak", u"|", u".uno:InsertTable", u".uno:InsertGraphic", u".uno:BasicShapes", u".uno:InsertObjectChart", u"|", u".uno:HyperlinkDialog", u".uno:InsertAnnotation", u"|", u".uno:InsertPageHeader", u".uno:PageNumberWizard", u"|", u".uno:DrawText", u".uno:CharmapControl" }; // writer pmhbInsert
+ inline constexpr std::u16string_view row2[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:AlignHorizontalCenter", u"|", u".uno:AutoSum", u"org.hst.office.vi:FormatVnd", u"|", u".uno:SearchDialog" }; // calc pmhbHome
+-inline constexpr std::u16string_view row3[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:InsertPage", u".uno:AssignLayout", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u"|", u".uno:SearchDialog" }; // impress pmhbHome
+-inline constexpr std::u16string_view row4[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u"|", u".uno:Text", u".uno:InsertGraphic", u"|", u".uno:SearchDialog" }; // draw pmhbHome
++inline constexpr std::u16string_view row3[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:InsertPage", u".uno:AssignLayout", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u"|", u"vnd.sun.star.findbar:FocusToFindbar" }; // impress pmhbHome
++inline constexpr std::u16string_view row4[] = { u".uno:Paste", u".uno:Cut", u".uno:Copy", u"|", u".uno:Bold", u".uno:Italic", u".uno:Underline", u"|", u".uno:CenterPara", u"|", u".uno:Text", u".uno:InsertGraphic", u"|", u"vnd.sun.star.findbar:FocusToFindbar" }; // draw pmhbHome
+ inline constexpr std::u16string_view row5[] = { u".uno:ThemeDialog", u".uno:Watermark", u".uno:FillPageColor", u".uno:BorderDialog?Page:string=hstpageborder", u".uno:PageDialog" }; // writer pmhbDesign Tab
+ inline constexpr std::u16string_view row6[] = { u".uno:PageMargin", u".uno:TransformDialog", u".uno:Orientation", u".uno:AttributePageSize", u".uno:PageColumnType" }; // writer pmhbLayout
+ inline constexpr std::u16string_view row7[] = { u".uno:InsertMultiIndex", u".uno:InsertFootnote", u"org.hst.office.vi:CitationInsert", u".uno:InsertCaptionDialog", u".uno:InsertIndexesEntry", u".uno:InsertEndnote", u"org.hst.office.vi:CitationLibrary", u".uno:InsertReferenceField" }; // writer pmhbReferences
+@@ -193,6 +199,11 @@
+     { u"draw", u"pmhbMaster", row80, std::size(row80) },
+     { u"draw", u"pmhb3D", row81, std::size(row81) },
+ };
++
++inline constexpr Icon icons[] = {
++    { u"vnd.sun.star.findbar:FocusToFindbar", u"cmd/sc_recsearch.png" },
++    { u"org.hst.office.vi:Nd30Wizard", u"cmd/sc_nd30wizard.png" },
++};
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/notebookbar/HstQuickAccess.hxx
++++ b/sfx2/source/notebookbar/HstQuickAccess.hxx
+@@ -18,6 +18,7 @@
+ #include <vector>
+ 
+ class Menu;
++class VclWindowEvent;
+ class ToolBox;
+ struct ImplSVEvent;
+ 
+@@ -61,6 +62,8 @@
+     DECL_LINK(MenuButtonHdl, ToolBox*, void);
+     DECL_LINK(MenuSelectHdl, Menu*, bool);
+     DECL_LINK(CustomizeHdl, void*, void);
++    DECL_LINK(QatEventHdl, VclWindowEvent&, void);
++    DECL_LINK(PlainNewHdl, void*, void);
+ 
+     bool IsShown(const OUString& rCommand) const;
+ 
+@@ -70,6 +73,10 @@
+     css::uno::Reference<css::frame::XFrame> m_xFrame;
+     bool m_bBelow;
+     ImplSVEvent* m_pCustomizeEvent = nullptr;
++    // Mới (.uno:AddDirect) is a plain button, as in the approved mockup and the reference suite: its controller's
++    // ▾ (a document type list) goes once the toolbar is filled
++    VclPtr<ToolBox> m_xQat; // keeps the toolbox alive for removing the listener
++    ImplSVEvent* m_pPlainEvent = nullptr;
+ };
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/notebookbar/HstQuickAccess.cxx
++++ b/sfx2/source/notebookbar/HstQuickAccess.cxx
+@@ -17,6 +17,7 @@
+ #include <vcl/menu.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/toolbox.hxx>
++#include <vcl/vclevent.hxx>
+ 
+ #include <algorithm>
+ 
+@@ -42,12 +43,39 @@
+     m_rQat.SetMenuButtonHdl(LINK(this, HstQuickAccess, MenuButtonHdl));
+     if (PopupMenu* pMenu = m_rQat.GetMenu())
+         pMenu->SetSelectHdl(LINK(this, HstQuickAccess, MenuSelectHdl));
++    m_xQat = &m_rQat;
++    m_xQat->AddEventListener(LINK(this, HstQuickAccess, QatEventHdl));
++    m_pPlainEvent = Application::PostUserEvent(LINK(this, HstQuickAccess, PlainNewHdl)); // already filled
+ }
+ 
+ HstQuickAccess::~HstQuickAccess()
+ {
+     if (m_pCustomizeEvent)
+         Application::RemoveUserEvent(m_pCustomizeEvent);
++    if (m_pPlainEvent)
++        Application::RemoveUserEvent(m_pPlainEvent);
++    m_xQat->RemoveEventListener(LINK(this, HstQuickAccess, QatEventHdl));
++}
++
++// the toolbar manager inserts the items, then each controller sets its item's ▾: the change waits for both
++IMPL_LINK(HstQuickAccess, QatEventHdl, VclWindowEvent&, rEvent, void)
++{
++    if ((rEvent.GetId() == VclEventId::ToolboxItemAdded || rEvent.GetId() == VclEventId::ToolboxAllItemsChanged)
++        && !m_pPlainEvent)
++        m_pPlainEvent = Application::PostUserEvent(LINK(this, HstQuickAccess, PlainNewHdl));
++}
++
++IMPL_LINK_NOARG(HstQuickAccess, PlainNewHdl, void*, void)
++{
++    m_pPlainEvent = nullptr;
++    if (m_xQat->isDisposed())
++        return;
++    for (ToolBox::ImplToolItems::size_type i = 0; i < m_xQat->GetItemCount(); ++i)
++    {
++        const ToolBoxItemId nId = m_xQat->GetItemId(i);
++        if (m_xQat->GetItemCommand(nId) == ".uno:AddDirect")
++            m_xQat->SetItemBits(nId, m_xQat->GetItemBits(nId) & ~ToolBoxItemBits::DROPDOWNONLY);
++    }
+ }
+ 
+ std::vector<OUString> HstQuickAccess::Checklist(std::u16string_view rApp)
+--- a/vcl/source/control/HstRibbonDrop.cxx
++++ b/vcl/source/control/HstRibbonDrop.cxx
+@@ -11,7 +11,9 @@
+ // page over the document, below the tab row and left of the banner, as Office does with a collapsed ribbon.
+ // The page itself moves into the popup (as the folded groups' popup, NotebookbarPopup, moves its content)
+ // and returns, hidden, to the tab control when the popup ends: Esc, a click outside, a command run from it,
+-// or the control going away.
++// or the control going away. As the approved 1.0.2 mockup: the page's 106 px (more only when its content
++// needs it) between two 3 px strips, the pin ˅ (18 x 16) 4 px from its right edge and 3 px above its
++// bottom; a click on another tab ends the popup and drops that tab's page.
+ 
+ #include <vcl/event.hxx>
+ #include <vcl/settings.hxx>
+@@ -26,10 +28,17 @@
+ 
+ namespace
+ {
++// the pin button of the compact ribbon (sfx2 HstRibbonCompact, PIN_ID), a hidden child of the tab control: it
++// stands in the popup while the popup is open (not on the page: a tab page lays its content out only while
++// that is its one child)
++constexpr OUString PIN_ID = u"hstribbonpin"_ustr;
++
++tools::Long px(tools::Long nLogical, double fDpi) { return std::lround(nLogical * fDpi); }
++
+ class HstRibbonDrop final : public FloatingWindow
+ {
+ public:
+-    HstRibbonDrop(vcl::Window* pTabs, TabPage* pPage)
++    HstRibbonDrop(TabControl* pTabs, TabPage* pPage)
+         : FloatingWindow(pTabs, WB_BORDER | WB_SYSTEMWINDOW)
+         , m_xTabs(pTabs)
+         , m_xPage(pPage)
+@@ -47,11 +56,12 @@
+     void dispose() override
+     {
+         Application::RemoveEventListener(LINK(this, HstRibbonDrop, EventHdl));
+-        if (m_pCloseEvent)
+-        {
+-            Application::RemoveUserEvent(m_pCloseEvent);
+-            m_pCloseEvent = nullptr;
+-        }
++        for (ImplSVEvent** ppEvent : { &m_pCloseEvent, &m_pClickEvent })
++            if (*ppEvent)
++            {
++                Application::RemoveUserEvent(*ppEvent);
++                *ppEvent = nullptr;
++            }
+         GiveBack();
+         m_xTabs.reset();
+         FloatingWindow::dispose();
+@@ -60,9 +70,41 @@
+     void PopupModeEnd() override
+     {
+         GiveBack();
++        // a left click on another tab ended it: that click goes on to the tab (the popup took it)
++        if (m_xTabs && IsPopupModeCanceled()
++            && (m_xTabs->GetPointerState().mnState & MOUSE_LEFT) && !m_pClickEvent)
++        {
++            m_aClickPos = m_xTabs->GetPointerPosPixel();
++            const sal_uInt16 nTab = m_xTabs->GetPageId(m_aClickPos);
++            if (nTab && nTab != m_xTabs->GetCurPageId())
++                m_pClickEvent = Application::PostUserEvent(LINK(this, HstRibbonDrop, ClickHdl));
++        }
+         FloatingWindow::PopupModeEnd();
+     }
+ 
++    /// the page at its place in the popup, the pin at the page's lower right
++    void Lay(tools::Long nWidth)
++    {
++        const double fDpi = GetDPIScaleFactor();
++        // the mockup's 106 px body, or what the page needs when its content is taller (it is never cut)
++        const tools::Long nStrip = px(3, fDpi);
++        const tools::Long nPage = std::max(px(106, fDpi), m_xPage->GetOptimalSize().Height());
++        SetOutputSizePixel(Size(nWidth, nStrip + nPage + nStrip));
++        m_xPage->SetPosSizePixel(Point(0, nStrip), Size(nWidth, nPage));
++        for (vcl::Window* pChild = m_xTabs->GetWindow(GetWindowType::FirstChild); pChild && !m_xPin;
++             pChild = pChild->GetWindow(GetWindowType::Next))
++            if (pChild->get_id() == PIN_ID)
++                m_xPin = pChild;
++        if (!m_xPin)
++            return; // not the compact ribbon of sfx2 (no pin)
++        // 4 px from the right edge, 3 px above the page's bottom
++        const Size aPin(px(18, fDpi), px(16, fDpi));
++        m_xPin->SetParent(this);
++        m_xPin->SetPosSizePixel(Point(nWidth - px(4, fDpi) - aPin.Width(), nPage - aPin.Height()), aPin);
++        m_xPin->Show();
++        m_xPin->SetZOrder(nullptr, ZOrderFlags::First); // over the page's last group
++    }
++
+     bool HasPage() const { return m_xPage && m_xPage->GetParent() == this; }
+ 
+     // a right-click on a dropped button reaches the tab control as it does in place (its owner offers
+@@ -83,16 +125,26 @@
+             m_xPage->SetParent(m_xTabs);
+         }
+         m_xPage.reset();
++        if (m_xPin && m_xPin->GetParent() == this)
++        {
++            m_xPin->Hide();
++            m_xPin->SetParent(m_xTabs);
++        }
++        m_xPin.reset();
+     }
+ 
+     // a command run from the dropped page (a toolbox item's own command, not its menu) closes the popup,
+     // after the command has been dispatched
+     DECL_LINK(EventHdl, VclSimpleEvent&, void);
+     DECL_LINK(CloseHdl, void*, void);
++    DECL_LINK(ClickHdl, void*, void);
+ 
+-    VclPtr<vcl::Window> m_xTabs;
++    VclPtr<TabControl> m_xTabs;
+     VclPtr<TabPage> m_xPage;
++    VclPtr<vcl::Window> m_xPin; // the pin while it stands in the popup
+     ImplSVEvent* m_pCloseEvent = nullptr;
++    ImplSVEvent* m_pClickEvent = nullptr;
++    Point m_aClickPos; // where the click that ended the popup hit the tab row
+ };
+ 
+ IMPL_LINK(HstRibbonDrop, EventHdl, VclSimpleEvent&, rEvent, void)
+@@ -110,6 +162,17 @@
+     if (IsInPopupMode())
+         EndPopupMode();
+ }
++
++// the tab control's own click handling switches the tab, and the compact ribbon drops the new page: that
++// replaces (disposes) this popup, so it is kept alive until the handler returns
++IMPL_LINK_NOARG(HstRibbonDrop, ClickHdl, void*, void)
++{
++    m_pClickEvent = nullptr;
++    VclPtr<HstRibbonDrop> xKeep(this);
++    VclPtr<TabControl> xTabs = m_xTabs;
++    if (xTabs && !xTabs->isDisposed() && xTabs->IsReallyVisible())
++        xTabs->MouseButtonDown(MouseEvent(m_aClickPos, 1, MouseEventModifiers::SIMPLECLICK, MOUSE_LEFT));
++}
+ }
+ 
+ bool NotebookbarTabControlBase::HstDropPage(tools::Long nWidth)
+@@ -118,15 +181,10 @@
+     TabPage* pPage = GetTabPage(GetCurPageId());
+     if (!pPage || nWidth <= 0 || !IsReallyVisible())
+         return false;
+-    // as high as the pages of the full ribbon (the tallest page's request; the tab row aside)
+-    sal_uInt16 nHeader = m_nHeaderHeight;
+-    const tools::Long nHeight = std::max<tools::Long>(
+-        ImplCalculateRequisition(nHeader).Height() - m_nHeaderHeight, std::lround(60 * GetDPIScaleFactor()));
+     VclPtr<HstRibbonDrop> xDrop = VclPtr<HstRibbonDrop>::Create(this, pPage);
+     m_xHstDrop = xDrop;
+-    xDrop->SetOutputSizePixel(Size(nWidth, nHeight));
+     pPage->SetParent(xDrop);
+-    pPage->SetPosSizePixel(Point(0, 0), Size(nWidth, nHeight));
++    xDrop->Lay(nWidth); // as the full ribbon's body: 3 + 106 + 3 logical px
+     pPage->Show();
+     // below the tab row, from the control's left edge
+     xDrop->StartPopupMode(tools::Rectangle(Point(0, 0), Size(1, m_nHeaderHeight)),
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -2619,8 +2619,11 @@
+                 nTabs += hst::ribbon::FileTabExtraWidth(*GetOutDev()); // as the tabs are placed below
+         }
+         // the search box keeps the width at which it shows its text (below that it is only a magnifier), with
+-        // its gaps before and after it; the row's start offset (2 px) and the toolbox's 1 px follow below
+-        const tools::Long nSearch = pHstSearch ? 2 * nHstGap + std::lround(120 * fHstDpi) : 0;
++        // its gaps before and after it; the row's start offset (2 px) and the toolbox's 1 px follow below.
++        // The compact ribbon (its banner beside the row, m_nHstRowReserve) keeps the quick access buttons
++        // whole, as the approved 1.0.2 mockup: the box narrows down to its magnifier first.
++        const tools::Long nSearchBox = std::lround((m_nHstRowReserve > 0 ? 32 : 120) * fHstDpi);
++        const tools::Long nSearch = pHstSearch ? 2 * nHstGap + nSearchBox : 0;
+         // its items and the ▾/» menu button at the end (the toolbox's size request leaves that button out)
+         const Size aWant(m_pShortcuts->GetOptimalSize().Width() + std::lround(16 * fHstDpi),
+                          m_pShortcuts->GetOptimalSize().Height());
+--- a/vcl/source/accessibility/vclxaccessibletabcontrol.cxx
++++ b/vcl/source/accessibility/vclxaccessibletabcontrol.cxx
+@@ -308,8 +308,9 @@
+ 
+ 
+ // HST Office: windows placed on the tab control itself after the page tabs, the ribbon's feature
+-// search box, banner link and (while the File panel is open) the File page's title band, follow the
+-// page tabs in visual order, otherwise assistive technology could never reach them.
++// search box, banner link and (while the File panel is open) the File page's title band, the quick
++// access toolbar, the compact ribbon's quick row and its chevron buttons, follow the page tabs in visual
++// order, otherwise assistive technology could never reach them.
+ static std::vector<vcl::Window*> lcl_getExtraChildren(const TabControl* pTabControl)
+ {
+     std::vector<vcl::Window*> aChildren;
+@@ -321,7 +322,9 @@
+         if (pChild->IsVisible()
+             && (pChild->GetAccessibleRole() == AccessibleRole::HYPER_LINK
+                 || pChild->get_id() == u"hst-tab-search"
+-                || pChild->get_id() == u"hst-file-title")) // the File page's title band over the ribbon's body
++                || pChild->get_id() == u"hst-file-title" // the File page's title band over the ribbon's body
++                || pChild->GetType() == WindowType::TOOLBOX // the quick access toolbar, the compact quick row
++                || pChild->GetAccessibleRole() == AccessibleRole::PUSH_BUTTON)) // the compact ribbon's ˄ ˅
+             aChildren.push_back(pChild);
+     }
+     std::stable_sort(aChildren.begin(), aChildren.end(), [](vcl::Window* a, vcl::Window* b) {
+--- a/sw/uiconfig/swriter/toolbar/notebookbarshortcuts.xml
++++ b/sw/uiconfig/swriter/toolbar/notebookbarshortcuts.xml
+@@ -8,14 +8,15 @@
+  *
+ -->
+ <toolbar:toolbar xmlns:toolbar="http://openoffice.org/2001/toolbar" xmlns:xlink="http://www.w3.org/1999/xlink">
+-  <!-- HST Office: the quick access toolbar shows Save, Undo and Redo; the other common commands wait,
+-       hidden, in its ▾ checklist -->
++  <!-- HST Office (approved 1.0.2 mockup): the quick access toolbar shows New, Open, Save, Undo, Redo and
++       Print, its KeyTips 1 to 6 in that order; the other common commands wait, hidden, in its ▾ checklist.
++       A toolbar the user already customised is kept in the profile and stays as it was -->
++  <toolbar:toolbaritem xlink:href=".uno:AddDirect"/>
++  <toolbar:toolbaritem xlink:href=".uno:OpenFromWriter"/>
+   <toolbar:toolbaritem xlink:href=".uno:Save"/>
+   <toolbar:toolbaritem xlink:href=".uno:Undo"/>
+   <toolbar:toolbaritem xlink:href=".uno:Redo"/>
+-  <toolbar:toolbaritem xlink:href=".uno:AddDirect" toolbar:visible="false"/>
+-  <toolbar:toolbaritem xlink:href=".uno:OpenFromWriter" toolbar:visible="false"/>
+-  <toolbar:toolbaritem xlink:href=".uno:Print" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Print"/>
+   <toolbar:toolbaritem xlink:href=".uno:PrintPreview" toolbar:visible="false"/>
+   <toolbar:toolbaritem xlink:href=".uno:SendMail" toolbar:visible="false"/>
+   <toolbar:toolbaritem xlink:href=".uno:Menubar" toolbar:visible="false"/>
+--- a/sc/uiconfig/scalc/toolbar/notebookbarshortcuts.xml
++++ b/sc/uiconfig/scalc/toolbar/notebookbarshortcuts.xml
+@@ -8,14 +8,15 @@
+  *
+ -->
+ <toolbar:toolbar xmlns:toolbar="http://openoffice.org/2001/toolbar" xmlns:xlink="http://www.w3.org/1999/xlink">
+-  <!-- HST Office: the quick access toolbar shows Save, Undo and Redo; the other common commands wait,
+-       hidden, in its ▾ checklist -->
++  <!-- HST Office (approved 1.0.2 mockup): the quick access toolbar shows New, Open, Save, Undo, Redo and
++       Print, its KeyTips 1 to 6 in that order; the other common commands wait, hidden, in its ▾ checklist.
++       A toolbar the user already customised is kept in the profile and stays as it was -->
++  <toolbar:toolbaritem xlink:href=".uno:AddDirect"/>
++  <toolbar:toolbaritem xlink:href=".uno:OpenFromCalc"/>
+   <toolbar:toolbaritem xlink:href=".uno:Save"/>
+   <toolbar:toolbaritem xlink:href=".uno:Undo"/>
+   <toolbar:toolbaritem xlink:href=".uno:Redo"/>
+-  <toolbar:toolbaritem xlink:href=".uno:AddDirect" toolbar:visible="false"/>
+-  <toolbar:toolbaritem xlink:href=".uno:OpenFromCalc" toolbar:visible="false"/>
+-  <toolbar:toolbaritem xlink:href=".uno:Print" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Print"/>
+   <toolbar:toolbaritem xlink:href=".uno:PrintPreview" toolbar:visible="false"/>
+   <toolbar:toolbaritem xlink:href=".uno:SendMail" toolbar:visible="false"/>
+   <toolbar:toolbaritem xlink:href=".uno:Menubar" toolbar:visible="false"/>
+--- a/sd/uiconfig/simpress/toolbar/notebookbarshortcuts.xml
++++ b/sd/uiconfig/simpress/toolbar/notebookbarshortcuts.xml
+@@ -8,14 +8,15 @@
+  *
+ -->
+ <toolbar:toolbar xmlns:toolbar="http://openoffice.org/2001/toolbar" xmlns:xlink="http://www.w3.org/1999/xlink">
+-  <!-- HST Office: the quick access toolbar shows Save, Undo and Redo; the other common commands wait,
+-       hidden, in its ▾ checklist -->
++  <!-- HST Office (approved 1.0.2 mockup): the quick access toolbar shows New, Open, Save, Undo, Redo and
++       Print, its KeyTips 1 to 6 in that order; the other common commands wait, hidden, in its ▾ checklist.
++       A toolbar the user already customised is kept in the profile and stays as it was -->
++  <toolbar:toolbaritem xlink:href=".uno:AddDirect"/>
++  <toolbar:toolbaritem xlink:href=".uno:Open"/>
+   <toolbar:toolbaritem xlink:href=".uno:Save"/>
+   <toolbar:toolbaritem xlink:href=".uno:Undo"/>
+   <toolbar:toolbaritem xlink:href=".uno:Redo"/>
+-  <toolbar:toolbaritem xlink:href=".uno:AddDirect" toolbar:visible="false"/>
+-  <toolbar:toolbaritem xlink:href=".uno:Open" toolbar:visible="false"/>
+-  <toolbar:toolbaritem xlink:href=".uno:Print" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Print"/>
+   <toolbar:toolbaritem xlink:href=".uno:PrintPreview" toolbar:visible="false"/>
+   <toolbar:toolbaritem xlink:href=".uno:SendMail" toolbar:visible="false"/>
+   <toolbar:toolbaritem xlink:href=".uno:Presentation" toolbar:visible="false"/>
+--- a/sd/uiconfig/sdraw/toolbar/notebookbarshortcuts.xml
++++ b/sd/uiconfig/sdraw/toolbar/notebookbarshortcuts.xml
+@@ -8,14 +8,15 @@
+  *
+ -->
+ <toolbar:toolbar xmlns:toolbar="http://openoffice.org/2001/toolbar" xmlns:xlink="http://www.w3.org/1999/xlink">
+-  <!-- HST Office: the quick access toolbar shows Save, Undo and Redo; the other common commands wait,
+-       hidden, in its ▾ checklist -->
++  <!-- HST Office (approved 1.0.2 mockup): the quick access toolbar shows New, Open, Save, Undo, Redo and
++       Print, its KeyTips 1 to 6 in that order; the other common commands wait, hidden, in its ▾ checklist.
++       A toolbar the user already customised is kept in the profile and stays as it was -->
++  <toolbar:toolbaritem xlink:href=".uno:AddDirect"/>
++  <toolbar:toolbaritem xlink:href=".uno:Open"/>
+   <toolbar:toolbaritem xlink:href=".uno:Save"/>
+   <toolbar:toolbaritem xlink:href=".uno:Undo"/>
+   <toolbar:toolbaritem xlink:href=".uno:Redo"/>
+-  <toolbar:toolbaritem xlink:href=".uno:AddDirect" toolbar:visible="false"/>
+-  <toolbar:toolbaritem xlink:href=".uno:Open" toolbar:visible="false"/>
+-  <toolbar:toolbaritem xlink:href=".uno:Print" toolbar:visible="false"/>
++  <toolbar:toolbaritem xlink:href=".uno:Print"/>
+   <toolbar:toolbaritem xlink:href=".uno:PrintPreview" toolbar:visible="false"/>
+   <toolbar:toolbaritem xlink:href=".uno:SendMail" toolbar:visible="false"/>
+   <toolbar:toolbaritem xlink:href=".uno:Menubar" toolbar:visible="false"/>

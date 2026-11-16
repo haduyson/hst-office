@@ -92,6 +92,10 @@ class Win32:
     def post(self, hwnd, message):
         return bool(user32.PostMessageW(hwnd, message, 0, 0))
 
+    def styles(self, hwnd):
+        """(GWL_STYLE, GWL_EXSTYLE) of `hwnd` as unsigned ints."""
+        return user32.GetWindowLongW(hwnd, -16) & 0xFFFFFFFF, user32.GetWindowLongW(hwnd, -20) & 0xFFFFFFFF
+
     def alive(self, hwnd):
         return bool(user32.IsWindow(hwnd) and user32.IsWindowVisible(hwnd))
 

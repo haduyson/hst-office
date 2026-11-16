@@ -1,0 +1,222 @@
+HST Office: a ribbon tab with a collapse chain of its own shows exactly the chain's states, as the approved 1.0.2 mockup.
+
+Ribbon 1.0.2 plan (phase 1, owner decision 15/11/2026): the mockup picks every group's state with one walk along the
+tab's chain (hst::ribbon::select: steps in order, a step that does not move a group down or saves no width is passed
+over, the first fit stops). The box then laid the row out again by usage (fitByPriority), reserved three previews
+of the Styles gallery at its large state and one at medium, and let the gallery stretch into free room: Kiểu became
+"Kiểu ▾" at 1920 px and labels came and went against the chain. With HSTRibbon/FixedChain (default true) a tab with
+its own ladder keeps the chain's states, grown back into the room the first fitting step left (hst::ribbon::growBack,
+owner decision 16/11) (also for the groups left beside the chevron, and for the block beside the box), a gallery is measured and laid out at its real width, and the dump of HST_RIBBON_DUMP_WIDTHS says so. Tabs
+without a ladder of their own, and FixedChain=false, behave as before.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- /dev/null
++++ b/vcl/inc/HstRibbonFixedChain.hxx
+@@ -0,0 +1,54 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include "HstRibbonScaling.hxx"
++
++#include <vector>
++
++namespace hst::ribbon
++{
++/// HST Office (1.0.2 ribbon, owner decision 16/11/2026): select() stops at the first step that fits, and that step
++/// may free far more room than was missing. The groups grow back into that room by undoing the chain's applied
++/// steps from the last one: a step is undone when its group still has that step's state and the row then fits.
++/// rStates are select()'s states for the same groups, steps and width; other states are returned unchanged.
++inline std::vector<std::size_t> growBack(const std::vector<Group>& rGroups, const std::vector<Step>& rSteps,
++                                         long nAvailable, const std::vector<std::size_t>& rStates)
++{
++    struct Applied
++    {
++        std::size_t group, before, state;
++    };
++    std::vector<std::size_t> aStates(rGroups.size(), 0);
++    std::vector<Applied> aApplied;
++    for (const Step& rStep : rSteps)
++    {
++        if (rowWidth(rGroups, aStates) <= nAvailable)
++            break;
++        if (rStep.group >= rGroups.size() || rStep.state >= rGroups[rStep.group].widths.size()
++            || rStep.state <= aStates[rStep.group]
++            || widthOf(rGroups[rStep.group], rStep.state) >= widthOf(rGroups[rStep.group], aStates[rStep.group]))
++            continue;
++        aApplied.push_back(Applied{ rStep.group, aStates[rStep.group], rStep.state });
++        aStates[rStep.group] = rStep.state;
++    }
++    if (aStates != rStates || rowWidth(rGroups, aStates) > nAvailable)
++        return rStates;
++    for (auto it = aApplied.rbegin(); it != aApplied.rend(); ++it)
++    {
++        if (aStates[it->group] != it->state)
++            continue;
++        aStates[it->group] = it->before;
++        if (rowWidth(rGroups, aStates) > nAvailable)
++            aStates[it->group] = it->state;
++    }
++    return aStates;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -77,6 +77,11 @@
+     // of its own (HstRibbonLadders.hxx); empty: the priority's
+     std::vector<size_t> m_aHstPlanGrowth;
+     size_t m_nHstBareBefore = SIZE_MAX;
++    // HST Office (1.0.2 mockup): the tab has a ladder of its own and the fixed chain is on
++    // (HSTRibbon/FixedChain): the states are exactly those of the chain, hst::ribbon::select()
++    bool m_bHstFixedChain = false;
++    // the gallery groups (Styles) of the box: under the fixed chain they no longer stretch into free room
++    std::vector<const vcl::Window*> m_aHstGalleries;
+ 
+     DECL_LINK(PBClickHdl, Button*, void);
+     DECL_LINK(HstGroupClickHdl, Button*, void);
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -24,6 +24,8 @@
+ #include <PriorityHBox.hxx>
+ #include <PriorityMergedHBox.hxx>
+ #include <comphelper/lok.hxx>
++#include <officecfg/Office/HSTRibbon.hxx>
++#include <HstRibbonFixedChain.hxx>
+ #include <HstRibbonLadder.hxx>
+ #include <HstRibbonScaling.hxx>
+ #include <HstRibbonRegrow.hxx>
+@@ -379,6 +381,30 @@
+                                  | FloatWinPopupFlags::AllMouseButtonClose);
+ }
+ 
++namespace
++{
++/// HST Office (1.0.2 mockup, HSTRibbon/FixedChain): a tab with a ladder of its own shows exactly the states of its
++/// chain, as the approved mockup does: every group starts large, the steps apply in order, a step that does not
++/// move a group down or saves no width is passed over, and the first fit stops (hst::ribbon::select). No regrow by
++/// usage (fitByPriority), and a gallery gets no reserved previews. Off: the batch5 behaviour.
++bool lcl_HstFixedChainEnabled()
++{
++    static const bool bEnabled = [] {
++        if (comphelper::LibreOfficeKit::isActive())
++            return false;
++        try
++        {
++            return officecfg::Office::HSTRibbon::FixedChain::get();
++        }
++        catch (...)
++        {
++            return true; // no configuration (unit tests): the shipped default
++        }
++    }();
++    return bEnabled;
++}
++}
++
+ void PriorityMergedHBox::HstApplyLadder(tools::Long nWidth)
+ {
+     if (m_bHstLadder)
+@@ -431,6 +457,7 @@
+         break;
+     }
+ #endif
++    m_bHstFixedChain = bOwnLadder && lcl_HstFixedChainEnabled();
+     if (!bOwnLadder)
+     {
+         // HST Office: every group of such a tab can show as its button, except a merged box inside this
+@@ -475,7 +502,15 @@
+             }
+             const int nCurrent = m_aHstStates[pChild];
+             hst::ribbon::SetGroupState(*pChild, nCurrent == hst::ribbon::GroupCollapsed ? hst::ribbon::GroupLarge : nCurrent);
+-            if (pChild->get_hexpand())
++            if (m_bHstFixedChain && pChild->get_hexpand())
++            {
++                // the fixed chain measures a gallery at its real width per state (its own preview count) and
++                // lays it out at that width: it no longer stretches into the room the other groups leave
++                if (std::find(m_aHstGalleries.begin(), m_aHstGalleries.end(), pChild) == m_aHstGalleries.end())
++                    m_aHstGalleries.push_back(pChild);
++                pChild->set_hexpand(false);
++            }
++            else if (pChild->get_hexpand())
+             {
+                 // a gallery group (Styles) takes the room the others leave; its large and medium states
+                 // reserve room for more previews, so the ladder gives it four previews (large) or two
+@@ -533,7 +568,11 @@
+     for (vcl::Window* pGroup : m_aHstFoldOrder)
+         aFoldIndexes.push_back(std::find(aWindows.begin(), aWindows.end(), pGroup) - aWindows.begin());
+     m_aHstPlanPriority = hst::ribbon::priorityFromFold(aWindows.size(), aFoldIndexes);
+-    if (aLayout.overflow.empty())
++    // HST Office (1.0.2, owner decision 16/11): the first fitting step may free more room than was missing;
++    // under the fixed chain the groups grow back into it, the chain undone from its last applied step
++    if (aLayout.overflow.empty() && m_bHstFixedChain)
++        aLayout.states = hst::ribbon::growBack(aGroups, aSteps, nWidth, aLayout.states);
++    if (aLayout.overflow.empty() && !m_bHstFixedChain)
+     {
+         const hst::ribbon::Layout aFit
+             = hst::ribbon::fitByPriority(aGroups, m_aHstPlanPriority, nWidth, m_aHstPlanGrowth);
+@@ -566,15 +605,18 @@
+                             + " dpi=" + OString::number(GetDPIScaleFactor()) + " own=" + OString::number(int(bOwnLadder)));
+         for (size_t i = 0; i < aWindows.size(); ++i)
+         {
+-            const bool bGallery = aWindows[i]->get_hexpand();
++            const bool bGallery = aWindows[i]->get_hexpand()
++                                  || std::find(m_aHstGalleries.begin(), m_aHstGalleries.end(), aWindows[i])
++                                         != m_aHstGalleries.end();
+             aLine.append(" " + aWindows[i]->get_id().toUtf8());
+             aLine.append(bGallery ? "*=" : "=");
+             for (size_t n = 0; n < aGroups[i].widths.size(); ++n)
+             {
+                 tools::Long nGroupWidth = aGroups[i].widths[n];
+-                if (bGallery && n == hst::ribbon::GroupLarge)
++                // under the fixed chain a gallery's widths have no reserved previews in them
++                if (bGallery && !m_bHstFixedChain && n == hst::ribbon::GroupLarge)
+                     nGroupWidth -= 3 * nPreview;
+-                else if (bGallery && n == hst::ribbon::GroupMedium)
++                else if (bGallery && !m_bHstFixedChain && n == hst::ribbon::GroupMedium)
+                     nGroupWidth -= nPreview;
+                 if (n)
+                     aLine.append(',');
+@@ -673,7 +715,8 @@
+             }
+             const hst::ribbon::Layout aShownFit
+                 = hst::ribbon::fitByPriority(aShownGroups, aShownPriority, nRoom, aShownGrowth);
+-            if (aRefill.overflow.empty() && aShownFit.fits)
++            // the fixed chain keeps the chain's states for the groups that stay (no regrow by usage)
++            if (aRefill.overflow.empty() && aShownFit.fits && !m_bHstFixedChain)
+                 aRefill = aShownFit;
+             for (size_t j = 0; j < aShown.size(); ++j)
+                 aLayout.states[aShown[j]] = aRefill.states[j];
+@@ -733,6 +776,8 @@
+         hst::ribbon::Layout aLayout = hst::ribbon::select(m_aHstPlanGroups, m_aHstPlanSteps, nAvailable, 0);
+         if (!aLayout.overflow.empty())
+             return false;
++        if (m_bHstFixedChain)
++            return aLayout.states[m_nHstBareBefore] != static_cast<size_t>(hst::ribbon::GroupCollapsed);
+         const hst::ribbon::Layout aFit = hst::ribbon::fitByPriority(m_aHstPlanGroups, m_aHstPlanPriority, nAvailable,
+                                                                     m_aHstPlanGrowth);
+         if (aFit.fits)
+--- a/officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs
+@@ -22,6 +22,14 @@
+       </info>
+       <value>true</value>
+     </prop>
++    <prop oor:name="FixedChain" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>A tab with a collapse chain of its own shows exactly the states of that chain, as the approved 1.0.2
++          mockup does: groups shrink only in the chain's order, without growing back by usage. When false, the
++          groups regrow by usage as in earlier builds.</desc>
++      </info>
++      <value>true</value>
++    </prop>
+     <prop oor:name="OwnerDraw" oor:type="xs:boolean" oor:nillable="false">
+       <info>
+         <desc>Ribbon buttons and tabs are drawn with the HST ribbon colours on every platform. When false, or in

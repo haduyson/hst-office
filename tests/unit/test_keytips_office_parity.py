@@ -99,12 +99,19 @@ class OfflineCheck(unittest.TestCase):
         CHECK.later_conflicts(self.rows, {"hst-later.patch": bound}, errors)
         self.assertTrue(any("hst-later.patch binds F5 to Navigator" in e for e in errors), errors)
 
-    def test_changed_rows_are_in_the_patch(self):
-        changed = [r for r in self.rows if r["status"] == "changed"]
-        self.assertGreater(len(changed), 20)
-        self.assertTrue(all(r.get("was") is not None or r["key"] for r in changed))
-        deviations = [r for r in self.rows if r["status"] == "deviation"]
-        self.assertTrue(all(r["reason"] for r in deviations))
+    def test_patched_rows_name_their_patch_and_reason(self):
+        self.assertEqual({r["status"] for r in self.rows} - {"match", "planned", "deviation", "handler"}, set())
+        patched = [r for r in self.rows if r.get("via")]
+        self.assertGreater(len(patched), 30)
+        self.assertTrue(all(r["status"] == "match" and r["reason"] for r in patched))
+        self.assertTrue(all(r["reason"] for r in self.rows if r["status"] != "match" or r.get("handler")))
+
+    def test_a_row_its_patch_does_not_bind_fails(self):
+        row = dict(next(r for r in self.rows if r.get("via") == "hst-msoffice-shortcuts-parity-legacy-keys.patch"))
+        row["key"] = "Q_SHIFT_MOD1_MOD2"
+        errors = []
+        CHECK.check_shortcut_patches([row], errors)
+        self.assertTrue(any("does not bind Q_SHIFT_MOD1_MOD2" in e for e in errors), errors)
 
 
 class Accelerators(unittest.TestCase):

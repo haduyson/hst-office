@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Quick access toolbar of hst-ribbon-adaptive-qat.patch: defaults, the ▾ menu, add/remove from the ribbon, per-app
 storage apart from the placement, overflow inside the tab row, and the row below the ribbon."""
+import os
 import re
 import unittest
+
+from _paths import ROOT
 
 from patch_sections import added, po_entries, sections
 
@@ -11,28 +14,68 @@ APPS = {"sw/uiconfig/swriter": ".uno:OpenFromWriter", "sc/uiconfig/scalc": ".uno
         "sd/uiconfig/simpress": ".uno:Open", "sd/uiconfig/sdraw": ".uno:Open"}
 
 
-def toolbar(module):
+MOCKUP_PATCH = "hst-ribbon-mockup-compact.patch"
+
+
+def toolbar(module, patch=MOCKUP_PATCH):
     """[(command, visible)] of a module's notebookbarshortcuts.xml after the patch."""
-    lines = [line[1:] for line in sections(PATCH)[f"{module}/toolbar/notebookbarshortcuts.xml"]
+    lines = [line[1:] for line in sections(patch)[f"{module}/toolbar/notebookbarshortcuts.xml"]
              if line[:1] in (" ", "+")]
     return [(m.group(1), m.group(2) is None) for m in
             re.finditer(r'xlink:href="([^"]+)"( toolbar:visible="false")?', "\n".join(lines))]
 
 
 class Defaults(unittest.TestCase):
-    def test_save_undo_redo_shown_the_checklist_waits_hidden(self):
+    def test_six_buttons_of_the_mockup_in_its_order(self):
+        # New, Open ▾, Save ▾, Undo ▾, Redo ▾, Print (owner decision D3); KeyTips 1-6 follow this order
         for module, open_command in APPS.items():
             items = toolbar(module)
-            self.assertEqual([c for c, shown in items if shown], [".uno:Save", ".uno:Undo", ".uno:Redo"], module)
+            self.assertEqual([c for c, shown in items if shown],
+                             [".uno:AddDirect", open_command, ".uno:Save", ".uno:Undo", ".uno:Redo", ".uno:Print"],
+                             module)
             hidden = {c for c, shown in items if not shown}
-            for command in (".uno:AddDirect", open_command, ".uno:Print", ".uno:PrintPreview", ".uno:SendMail"):
+            for command in (".uno:PrintPreview", ".uno:SendMail"):
                 self.assertIn(command, hidden, module)
+        self.assertIn(".uno:Presentation", {c for c, shown in toolbar("sd/uiconfig/simpress") if not shown})
+
+    def test_earlier_default_was_save_undo_redo(self):
+        # the patch the mockup default replaces; a profile customised since keeps its own toolbar
+        for module in APPS:
+            self.assertEqual([c for c, shown in toolbar(module, PATCH) if shown],
+                             [".uno:Save", ".uno:Undo", ".uno:Redo"], module)
 
     def test_checklist_matches_the_defaults(self):
         qat = added(PATCH, "sfx2/source/notebookbar/HstQuickAccess.cxx")
-        for command in (".uno:AddDirect", ".uno:OpenFromWriter", ".uno:OpenFromCalc", ".uno:Save", ".uno:Print",
-                        ".uno:PrintPreview", ".uno:SendMail", ".uno:Undo", ".uno:Redo"):
+        for command in (".uno:AddDirect", ".uno:OpenFromWriter", ".uno:OpenFromCalc", ".uno:Save",
+                        ".uno:Print", ".uno:PrintPreview", ".uno:SendMail", ".uno:Undo", ".uno:Redo"):
             self.assertIn(f'u"{command}"_ustr', qat)
+
+    def test_new_is_a_plain_button(self):
+        # the mockup's Mới has no ▾: the NewToolbarController's document type list is dropped for AddDirect only
+        qat = added(MOCKUP_PATCH, "sfx2/source/notebookbar/HstQuickAccess.cxx")
+        self.assertIn('if (m_xQat->GetItemCommand(nId) == ".uno:AddDirect")', qat)
+        self.assertIn("GetItemBits(nId) & ~ToolBoxItemBits::DROPDOWNONLY", qat)
+        self.assertIn("VclEventId::ToolboxItemAdded", qat)
+        self.assertIn("Application::RemoveUserEvent(m_pPlainEvent);", qat)
+
+    def test_compact_row_keeps_the_six_buttons_whole(self):
+        # compact state only: the search box narrows to its magnifier before a button goes into the » menu
+        row = added(MOCKUP_PATCH, "vcl/source/control/tabctrl.cxx")
+        self.assertIn("std::lround((m_nHstRowReserve > 0 ? 32 : 120) * fHstDpi);", row)
+        self.assertIn("const tools::Long nSearch = pHstSearch ? 2 * nHstGap + nSearchBox : 0;", row)
+
+    def test_mockup_patch_follows_the_qat_patch(self):
+        with open(os.path.join(ROOT, "patches", "libreoffice", "series"), encoding="utf-8") as handle:
+            series = handle.read().split()
+        self.assertLess(series.index(PATCH), series.index(MOCKUP_PATCH))
+
+
+class NewButton(unittest.TestCase):
+    def test_mới_drops_the_dropdown_bit_of_add_direct(self):
+        # the mockup's Mới is a plain button: HstQuickAccess clears DROPDOWNONLY on .uno:AddDirect after each change
+        qat = added("hst-ribbon-mockup-compact.patch", "sfx2/source/notebookbar/HstQuickAccess.cxx")
+        self.assertIn(".uno:AddDirect", qat)
+        self.assertIn("DROPDOWNONLY", qat)
 
 
 class Behaviour(unittest.TestCase):

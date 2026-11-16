@@ -8,7 +8,8 @@ Usage: scripts/patches/generate-ribbon-quick-rows.py --tree DIR [--fill] [--head
 each group's main command (its first large button, else its first labelled item; fine-tuning items aside), taken from that app's own notebookbar.ui, so a row never brings a
 command into an app that does not have it. Rows already in the file (Writer's Home and Insert from the approved
 mockup, or the owner's edits) are kept. --header writes sfx2/source/notebookbar/HstRibbonQuickRows.hxx.
---check only validates: every command of a row must be one of its app's notebookbar.ui ("|" is a separator).
+--check only validates: every command of a row must be one of its app's notebookbar.ui ("|" is a separator), and
+every command of "icons" (the 16 px icon of a command that has none of its own) must be in a row.
 """
 import argparse
 import json
@@ -90,6 +91,8 @@ def validate(data, tree):
         known = known_commands(os.path.join(tree, UI[row["app"]]))
         errors += [f"{row['app']}/{row['box']}: {c} is not a command of {row['app']}" for c in row["commands"]
                    if c != "|" and c not in known]
+    used = {c for row in data["rows"] for c in row["commands"]}
+    errors += [f"icons: {c} is in no row" for c in data.get("icons", {}) if c not in used]
     return errors
 
 
@@ -106,13 +109,15 @@ def header(data):
              "#include <cstddef>", "#include <iterator>", "#include <string_view>", "",
              "namespace hst::ribbon::quick", "{", "struct Row", "{", "    std::u16string_view app;",
              "    std::u16string_view box; // the tab's merged group box", "    const std::u16string_view* commands; // u\"|\": a separator",
-             "    std::size_t count;", "};", ""]
+             "    std::size_t count;", "};", "", "struct Icon", "{", "    std::u16string_view command;",
+             "    std::u16string_view icon; // a 16 px icon of the theme, for a command without one of its own", "};", ""]
     entries = []
     for index, row in enumerate(data["rows"]):
         name = f"row{index}"  # box ids may hold spaces ("pmhbTable Design Tab")
         lines.append(f"inline constexpr std::u16string_view {name}[] = {{ {ids(row['commands'])} }}; // {row['app']} {row['box']}")
         entries.append(f'    {{ u"{row["app"]}", u"{row["box"]}", {name}, std::size({name}) }},')
-    lines += ["", "inline constexpr Row all[] = {", *entries, "};", "}", "", "/* vim:set shiftwidth=4 softtabstop=4 expandtab: */"]
+    icons = [f'    {{ u"{c}", u"{i}" }},' for c, i in data.get("icons", {}).items()]
+    lines += ["", "inline constexpr Row all[] = {", *entries, "};", "", "inline constexpr Icon icons[] = {", *icons, "};", "}", "", "/* vim:set shiftwidth=4 softtabstop=4 expandtab: */"]
     return "\n".join(lines) + "\n"
 
 

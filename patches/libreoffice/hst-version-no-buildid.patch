@@ -1,0 +1,18 @@
+HST Office: `soffice --version` (and the version line of --help) shows "HST Office <release>" only.
+
+A build from the release tarball has no git commit, so the installer writes the upstream fallback buildid
+"680(Build:1)" into version.ini, and the version line printed it after the release.
+
+--- a/desktop/source/app/cmdlinehelp.cxx
++++ b/desktop/source/app/cmdlinehelp.cxx
+@@ -37,7 +37,9 @@
+ namespace desktop
+ {
+     constexpr OUString aCmdLineHelp_version =
+-        u"%PRODUCTNAME " HST_RELEASE " %BUILDID\n"
++        // HST Office: the version only. A tarball build has no git commit, so the installer's buildid is
++        // the old upstream "680(Build:1)", which means nothing to a user.
++        u"%PRODUCTNAME " HST_RELEASE "\n"
+         "\n"_ustr;
+     constexpr OUStringLiteral aCmdLineHelp =
+         u"Usage: %CMDNAME [argument...]\n"

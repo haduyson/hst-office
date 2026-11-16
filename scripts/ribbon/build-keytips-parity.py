@@ -38,28 +38,43 @@ DRAW_TABS = {"HomeLabel", "InsertLabel", "ReviewLabel", "ViewLabel", "HelpLabel"
              "ImageLabel", "ChartDesignLabel", "ChartFormatLabel"}
 # spec names that the suite's controls call differently: spec name -> control name
 ALIASES = {"Show/Hide": "Show All", "Online Videos": "Online Videos...", "Footnote": "Insert Footnote",
-           "Chart types (Column/Line/Pie/Bar/Area/Scatter...)": "Insert Column or Bar Chart"}
+           "Chart types (Column/Line/Pie/Bar/Area/Scatter...)": "Recommended Charts"}
 # controls the spec does not list (group launchers): (reference app, tab) -> {control name: [HST commands]}
 EXTRA = {("excel", "Page Layout"): {"Page Setup": ["PageFormatDialog"]}}
 # menu buttons ("Caption ▾") that hold the commands of a control of the suite: module -> tab -> {widget id: [letter,
 # control]}. They take their letter before the tab's commands. Draw's Arrange tab and the Data Analysis add-in have no
 # captured counterpart: the letters of the same controls on the suite's other tabs.
 MENU_KEYS = {
-    "swriter": {"LayoutLabel": {"btnHstLayoutPositionMenu": ["PO", "Position"], "btnHstLayoutWrapMenu": ["TW", "Wrap Text"],
+    "swriter": {"HomeLabel": {"btnHstHomeTextEffectsMenu": ["FT", "Text Effects and Typography"]},
+                "LayoutLabel": {"btnHstLayoutPositionMenu": ["PO", "Position"], "btnHstLayoutWrapMenu": ["TW", "Wrap Text"],
                                 "btnHstLayoutForwardMenu": ["AF", "Bring Forward"],
                                 "btnHstLayoutBackwardMenu": ["AE", "Send Backward"],
                                 "btnHstLayoutAlignMenu": ["AA", "Align"], "btnHstLayoutGroupMenu": ["AG", "Group"],
                                 "btnHstLayoutRotateMenu": ["AY", "Rotate"]},
                 "ReviewLabel": {"btnHstReviewAcceptMenu": ["A2", "Accept"], "btnHstReviewRejectMenu": ["J", "Reject"]}},
-    "scalc": {"LayoutLabel": {"btnHstLayoutForwardMenu": ["AF", "Bring Forward"],
+    "scalc": {"HomeLabel": {"StylesPreview": ["J", "Cell Styles"], "btnHomeHstCellStyles": ["J", "Cell Styles"]},
+              "LayoutLabel": {"btnHstLayoutForwardMenu": ["AF", "Bring Forward"],
                               "btnHstLayoutBackwardMenu": ["AE", "Send Backward"],
                               "btnHstLayoutAlignMenu": ["AA", "Align"], "btnHstLayoutGroupMenu": ["AG", "Group"],
                               "btnHstLayoutRotateMenu": ["AY", "Rotate"]},
+              "InsertLabel": {"btnHstInsertChartColumn": ["C", "Insert Column or Bar Chart"],
+                              "btnHstInsertChartLine": ["N1", "Insert Line or Area Chart"],
+                              "btnHstInsertChartPie": ["Q", "Insert Pie or Doughnut Chart"],
+                              "btnHstInsertChartScatter": ["D", "Insert Scatter (X, Y) or Bubble Chart"],
+                              "btnHstInsertChartOther": ["I1", "Insert Waterfall, Funnel, Stock, Surface, or Radar Chart"],
+                              "btnHstInsertChartCombo": ["SD", "Insert Combo Chart"]},
               "DataLabel": {"btnHstDataAnalysisMenu": ["DA", "Data Analysis"]}},
-    "sdraw": {"ArrangeLabel": {"btnHstArrangeForwardMenu": ["AF", "Bring Forward"],
+    "simpress": {"HomeLabel": {"btnHstHomeArrangeMenu": ["G", "Arrange"], "btnHstHomeAlignTextMenu": ["AT", "Align Text"]}},
+    "sdraw": {"HomeLabel": {"btnHstHomeLineSpacingMenu": ["K", "Line Spacing"], "btnHstHomeArrangeMenu": ["G", "Arrange"],
+                            "btnHstHomeAlignTextMenu": ["AT", "Align Text"]},
+              "ArrangeLabel": {"btnHstArrangeForwardMenu": ["AF", "Bring Forward"],
                                "btnHstArrangeBackwardMenu": ["AE", "Send Backward"],
                                "btnHstArrangeRotateMenu": ["AY", "Rotate"]}},
 }
+
+# KeyTips of the suite HST has no button for, accepted by the owner: module -> tab -> {control: [letter, decision]}
+APPROVED = {m: {"HomeLabel": {"Text Direction": ["AX", "owner 2026-11-16: HST's text direction needs Asian text support, "
+                                                 "so Slides and Draw have no such button"]}} for m in ("simpress", "sdraw")}
 
 
 def norm(text):
@@ -99,7 +114,7 @@ def pick(tab, items, found, general, menus=None):
     """{ident: [letter, control]} of one tab. One control's letter goes to one command only (a split button of the
     suite can stand for several HST commands): first to a command whose general letter it already is, then in ribbon
     order; a letter that clashes with one already given (prefix) is skipped. A menu button of MENU_KEYS (`menus`)
-    takes its letter before all of them. The other menu buttons of the tab ("Lề ▾") keep the letters the general table
+    takes its letter before all of them (widgets sharing one control share it). The other menu buttons of the tab ("Lề ▾") keep the letters the general table
     gives them by widget id: those were chosen from the suite's tabs."""
     given = {}
     used = [general[i] for i in items if i.startswith("btn") and general.get(i)]
@@ -111,7 +126,15 @@ def pick(tab, items, found, general, menus=None):
 
     for ident in items:
         if ident in (menus or {}):
-            take(ident, *menus[ident])
+            letter, control = menus[ident]
+            # widgets of MENU_KEYS with the same control are one control shown at different sizes (Sheets' cell
+            # styles gallery at L, its "Kiểu ô ▾" button at M and S): only one is visible, they share the letter
+            twin = any(o != ident and menus.get(o) == menus[ident] for o in items)
+            if twin or general.get(ident) == letter:
+                given[ident] = [letter, control]
+                used.append(letter)
+            else:
+                take(ident, letter, control)
     for ident in items:
         for letter, control in found.get((tab, ident), []):
             if letter == general.get(ident):
@@ -137,7 +160,8 @@ def build(tree):
              "about": "Generated by scripts/ribbon/build-keytips-parity.py. tabs: the suite's tab letters by HST tab "
                       "label id; commands: module -> HST tab id -> command or widget id -> [letter, the suite's control]. "
                       "Source of HstKeyTipOffice.hxx; checked by scripts/check-keytips-parity.py.",
-             "reference": "data/ribbon/office-keytips-reference.json", "tabs": {}, "commands": {}}
+             "reference": "data/ribbon/office-keytips-reference.json", "tabs": {}, "commands": {},
+             "approved": APPROVED}
     for app, (module, ui) in MODULES.items():
         ref = reference["apps"][REFERENCE_APP[app]]
         found = candidates(ref, spec["apps"][SPEC_APP[app]], app)

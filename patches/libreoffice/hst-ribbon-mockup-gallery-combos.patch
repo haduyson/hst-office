@@ -1,0 +1,1054 @@
+HST Office: Writer's Styles gallery as in the approved 1.0.2 mockup, and the ribbon's font boxes 128 and 46 px wide.
+
+The gallery was a blank strip on gtk3 whenever it showed (2400 px, rc 3f3a7555): HstApplyPreviews() set the
+scrolled window's size request to (width, -1), which drops the .ui's height-request, and with external scroll bars
+the view kept only its 2 px frame, so its previews were cut away (seen in the accessibility tree: the scroll pane
+784 x 2 px holding 7 previews). On Windows vcl's builder makes the icon view its own scrolled window, so
+"stylesscroll" does not exist there and the gallery kept the .ui's one preview: the view takes the size itself
+now, and a preview's image leaves vcl's own 5 px around it (86 x 64; gtk: 92 x 70 and the item padding 2).
+
+Now the gallery has one-line previews of 96 x 74 px in a 1 px frame, and a 16 px column of ˄ ˅ ▾ (previous row, next
+row, all styles); it keeps 6, 4 or 3 previews at the large, medium and small ribbon state, n x 96 + 2 + 16 px, and
+never takes the room the ribbon leaves (the page no longer follows the view width). After a state change the
+item window's cached content requisition is invalidated before it is measured, or the ladder saw the large
+gallery's width at every state. A common Writer style shows its
+short name (Thường, Văn bản, Tiêu đề 1, Tiêu đề 2, Tựa đề, Trích dẫn; svx/inc/hststylesshortnames.hrc) in its own
+font and colour, and those six come first; the styles keep their names in the document, and the tooltip and the
+accessible name stay the full name. In Calc the same gallery (.uno:StylesPreview; the style family Para is
+Calc's cell styles) shows cell styles as cells, their fill or white in a light grey frame, in the Sheets mockup's
+order: Default, Good, Neutral, Bad, Warning, Heading 1, then Heading 2, Note, Accent 1-3, Result
+(StylesPreviewToolBoxControl.cxx); previews are cached per module, and a preview's font height is read in its
+pool's unit (Calc's twips, not the shell's 1/100 mm). In a notebookbar the font name box is 128 px
+and the font size box 46 px (svx/source/inc/HstRibbonCombos.hxx): the part of the box's preferred width over
+the target is taken off its request, once when it is made and once more after it is first shown (on gtk3 the
+▾ button is counted only then: 128 px became 165). In the ribbon both boxes are made from fontnameboxribbon.ui /
+fontsizeboxribbon.ui, whose combo box has the class "hst-ribbon-combo": vcl gtk3 then narrows the side padding of
+its entry (4 / 2 px) and drop-down button (2 px), frames kept, so Adwaita's size box reaches 46 px with "12" still
+readable (its entry keeps two characters; the owner's decision D9). Toolbars, the sidebar and dialogs keep their
+boxes, widths and the theme's padding. The ribbon's size box shows "12", not "12 pt" (owner's decision): svtools
+FontSizeBox::set_show_unit(false), a flag in the byte of its other flags so the class keeps its layout; typing
+"12" or "12 pt" still works, and dialogs, the sidebar and toolbars keep the unit.
+
+--- /dev/null
+--- /dev/null
++++ b/svx/source/inc/HstRibbonCombos.hxx
+@@ -0,0 +1,109 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <tools/long.hxx>
++#include <vcl/InterimItemWindow.hxx>
++#include <vcl/idle.hxx>
++#include <vcl/notebookbar/notebookbar.hxx>
++#include <vcl/toolbox.hxx>
++#include <vcl/window.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <functional>
++#include <string_view>
++#include <utility>
++
++// HST Office: the font name and font size boxes of the ribbon (Tabbed notebookbar) are as wide as in
++// Office's Home tab: 128 and 46 px at 100 %. Toolbars and the sidebar keep their own widths.
++namespace hst::ribbon
++{
++constexpr tools::Long FONT_NAME_BOX_WIDTH = 128;
++constexpr tools::Long FONT_SIZE_BOX_WIDTH = 46;
++
++/// True when rWindow is (inside) a notebookbar (the ribbon); its parents are set when the box is made
++inline bool InNotebookbar(const vcl::Window& rWindow)
++{
++    for (const vcl::Window* pParent = &rWindow; pParent; pParent = pParent->GetParent())
++    {
++        if (dynamic_cast<const NotebookBar*>(pParent))
++            return true;
++    }
++    return false;
++}
++
++/// The .ui of a box made in pParent: in the ribbon "<name>ribbon.ui", whose combo box has the class
++/// "hst-ribbon-combo" (vcl gtk3 narrows its entry and button padding); elsewhere "<name>.ui"
++inline OUString BoxUIFile(const vcl::Window* pParent, std::u16string_view aName)
++{
++    const bool bRibbon = pParent && InNotebookbar(*pParent);
++    return OUString::Concat(u"svx/ui/") + aName + (bRibbon ? std::u16string_view(u"ribbon.ui") : std::u16string_view(u".ui"));
++}
++
++/// nLogical px at the window's scale
++inline int RibbonPixels(const vcl::Window& rWindow, tools::Long nLogical)
++{
++    return static_cast<int>(std::lround(nLogical * rWindow.GetDPIScaleFactor()));
++}
++
++/// Make the box of the item window rWindow nLogical px wide: the part of its preferred width over the target
++/// (gtk3's ▾ button once the box is shown) is taken off the request. A theme whose entry and button need
++/// more keeps its minimum.
++/// (The item window's preferred size is the cached requisition of its content, so it is invalidated first.)
++template <class Box> void FitRibbonWidth(InterimItemWindow& rWindow, Box& rBox, tools::Long nLogical)
++{
++    const int nTarget = RibbonPixels(rWindow, nLogical);
++    rBox.set_size_request(nTarget, -1);
++    rWindow.InvalidateChildSizeCache();
++    const tools::Long nOver = rWindow.get_preferred_size().Width() - nTarget;
++    if (nOver > 0)
++    {
++        rBox.set_size_request(std::max<int>(1, nTarget - nOver), -1);
++        rWindow.InvalidateChildSizeCache();
++    }
++}
++
++/// Its toolbox lays the item window rWindow out again at the window's new size
++inline void RelayoutItem(vcl::Window& rWindow)
++{
++    ToolBox* pBox = dynamic_cast<ToolBox*>(rWindow.GetParent());
++    if (!pBox)
++        return;
++    for (ToolBox::ImplToolItems::size_type i = 0; i < pBox->GetItemCount(); ++i)
++    {
++        const ToolBoxItemId nId = pBox->GetItemId(i);
++        if (pBox->GetItemWindow(nId) == &rWindow)
++        {
++            pBox->SetItemWindow(nId, &rWindow); // the item takes the window's new size
++            break;
++        }
++    }
++    pBox->queue_resize();
++}
++
++/// Fits a ribbon box once more after it is first shown: on gtk3 the box measured when it is made does not
++/// yet count the width its ▾ button takes on screen (128 px became 165)
++class RibbonRefit final : public Idle
++{
++    std::function<void()> m_aRefit;
++
++public:
++    explicit RibbonRefit(std::function<void()> aRefit)
++        : Idle("svx ribbon box refit")
++        , m_aRefit(std::move(aRefit))
++    {
++    }
++    void Invoke() override { m_aRefit(); }
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/inc/hststylesshortnames.hrc
+@@ -0,0 +1,26 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: the short names Writer's Styles gallery shows on its previews (StylesPreviewWindow.cxx).
++// They are labels only: the styles keep their names in the document.
++
++#include <unotools/resmgr.hxx>
++
++#define NC_(Context, String) TranslateId(Context, u8##String)
++
++#define RID_HST_STYLE_SHORT_STANDARD        NC_("RID_HST_STYLE_SHORT_STANDARD", "Normal")
++#define RID_HST_STYLE_SHORT_TEXT_BODY       NC_("RID_HST_STYLE_SHORT_TEXT_BODY", "Body Text")
++#define RID_HST_STYLE_SHORT_HEADING_1       NC_("RID_HST_STYLE_SHORT_HEADING_1", "Heading 1")
++#define RID_HST_STYLE_SHORT_HEADING_2       NC_("RID_HST_STYLE_SHORT_HEADING_2", "Heading 2")
++#define RID_HST_STYLE_SHORT_TITLE           NC_("RID_HST_STYLE_SHORT_TITLE", "Title")
++#define RID_HST_STYLE_SHORT_QUOTATIONS      NC_("RID_HST_STYLE_SHORT_QUOTATIONS", "Quote")
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/uiconfig/ui/fontnameboxribbon.ui
+@@ -0,0 +1,41 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- Generated with glade 3.40.0 -->
++<!-- HST Office: fontnamebox.ui for the ribbon (Tabbed notebookbar): "hst-ribbon-combo" makes vcl gtk3 narrow
++     the side padding of the entry and the drop-down button, so the box is as narrow as in Office. -->
++<interface domain="svx">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkBox" id="FontNameBox">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="spacing">6</property>
++    <child>
++      <object class="GtkComboBoxText" id="fontnamecombobox">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="has-entry">True</property>
++        <property name="popup-fixed-width">False</property>
++        <child internal-child="entry">
++          <object class="GtkEntry">
++            <property name="can-focus">True</property>
++            <property name="truncate-multiline">True</property>
++          </object>
++        </child>
++        <child internal-child="accessible">
++          <object class="AtkObject" id="fontnamecombobox-atkobject">
++            <property name="AtkObject::accessible-name" translatable="yes" context="fontnamebox|fontnamecombobox|accessible_name">Font Name</property>
++          </object>
++        </child>
++        <style>
++          <class name="hst-ribbon-combo"/>
++        </style>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">0</property>
++      </packing>
++    </child>
++  </object>
++</interface>
+--- /dev/null
++++ b/svx/uiconfig/ui/fontsizeboxribbon.ui
+@@ -0,0 +1,40 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- Generated with glade 3.40.0 -->
++<!-- HST Office: fontsizebox.ui for the ribbon (Tabbed notebookbar): "hst-ribbon-combo" makes vcl gtk3 narrow
++     the side padding of the entry and the drop-down button, so the box is as narrow as in Office. -->
++<interface domain="svx">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkBox" id="FontSizeBox">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="spacing">6</property>
++    <child>
++      <object class="GtkComboBoxText" id="fontsizecombobox">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="has-entry">True</property>
++        <child internal-child="entry">
++          <object class="GtkEntry">
++            <property name="can-focus">True</property>
++            <property name="truncate-multiline">True</property>
++          </object>
++        </child>
++        <child internal-child="accessible">
++          <object class="AtkObject" id="fontsizecombobox-atkobject">
++            <property name="AtkObject::accessible-name" translatable="yes" context="fontsizebox|fontsizecombobox|accessible_name">Font Size</property>
++          </object>
++        </child>
++        <style>
++          <class name="hst-ribbon-combo"/>
++        </style>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++        <property name="position">0</property>
++      </packing>
++    </child>
++  </object>
++</interface>
+--- a/include/svtools/ctrlbox.hxx
++++ b/include/svtools/ctrlbox.hxx
+@@ -451,6 +451,7 @@
+     bool m_bRelative : 1;
+     bool m_bPtRelative : 1;
+     bool m_bStdSize : 1;
++    bool m_bHstShowUnit : 1; // HST Office: false in the ribbon's box (set_show_unit), in the same byte as the flags above
+     Link<weld::ComboBox&, void> m_aChangeHdl;
+     Link<weld::Widget&, void> m_aFocusOutHdl;
+     std::unique_ptr<weld::ComboBox> m_xComboBox;
+@@ -508,6 +509,9 @@
+     bool has_focus() const { return m_xComboBox->has_focus(); }
+     void connect_entry_activate(const Link<weld::ComboBox&, bool>& rLink) { m_xComboBox->connect_entry_activate(rLink); }
+     void disable_entry_completion() { m_xComboBox->set_entry_completion(false, false); }
++    /// HST Office: show sizes without their unit ("12", not "12 pt"), as the ribbon's box does in Office; typing
++    /// "12" or "12 pt" still works. Call it before Fill, which lists the sizes.
++    void set_show_unit(bool bShow) { m_bHstShowUnit = bShow; }
+ 
+     weld::Widget* getWidget() { return m_xComboBox.get(); }
+ 
+--- a/svtools/source/control/ctrlbox.cxx
++++ b/svtools/source/control/ctrlbox.cxx
+@@ -1115,6 +1115,7 @@
+     , m_bRelative(false)
+     , m_bPtRelative(false)
+     , m_bStdSize(false)
++    , m_bHstShowUnit(true)
+     , m_xComboBox(std::move(p))
+ {
+     m_xComboBox->set_entry_width_chars(std::ceil(m_xComboBox->get_pixel_size(format_number(105)).Width() /
+@@ -1377,10 +1378,14 @@
+         const SvtSysLocale aSysLocale;
+         const LocaleDataWrapper& rLocaleData = aSysLocale.GetLocaleData();
+         sRet = rLocaleData.getNum(nValue, m_nDecimalDigits, true, false);
+-        if (m_eUnit != FieldUnit::NONE && m_eUnit != FieldUnit::DEGREE)
+-            sRet += " ";
+         assert(m_eUnit != FieldUnit::PERCENT);
+-        sRet += weld::MetricSpinButton::MetricToString(m_eUnit);
++        // HST Office: the ribbon's box shows the bare size (set_show_unit); relative sizes keep their unit
++        if (m_bHstShowUnit || m_bRelative)
++        {
++            if (m_eUnit != FieldUnit::NONE && m_eUnit != FieldUnit::DEGREE)
++                sRet += " ";
++            sRet += weld::MetricSpinButton::MetricToString(m_eUnit);
++        }
+     }
+ 
+     if (m_bRelativeMode && m_bPtRelative && (0 <= nValue) && !sRet.isEmpty())
+--- a/svx/UIConfig_svx.mk
++++ b/svx/UIConfig_svx.mk
+@@ -68,6 +68,8 @@
+ 	svx/uiconfig/ui/fontworkspacingdialog \
+ 	svx/uiconfig/ui/fontsizebox \
+ 	svx/uiconfig/ui/fontnamebox \
++	svx/uiconfig/ui/fontnameboxribbon \
++	svx/uiconfig/ui/fontsizeboxribbon \
+ 	svx/uiconfig/ui/formdatamenu \
+ 	svx/uiconfig/ui/formfielddialog \
+ 	svx/uiconfig/ui/formlinkwarndialog \
+--- a/svx/source/inc/StylesPreviewWindow.hxx
++++ b/svx/source/inc/StylesPreviewWindow.hxx
+@@ -68,8 +68,8 @@
+ 
+ class StyleItemController
+ {
+-    static constexpr unsigned LEFT_MARGIN = 8;
+-    // HST Office: highest font of a preview, in pixels, so a two-line name fits its 52 px
++    static constexpr unsigned LEFT_MARGIN = 4;
++    // HST Office: highest font of a preview, in pixels: the name is one line of a 70 px preview
+     static constexpr tools::Long MAX_PREVIEW_FONT_HEIGHT = 20;
+ 
+     SfxStyleFamily m_eStyleFamily;
+@@ -82,6 +82,8 @@
+ 
+ private:
+     void DrawEntry(vcl::RenderContext& rRenderContext);
++    /// HST Office: the rectangle of the one-line name, centred in the preview
++    tools::Rectangle HstTextRect(vcl::RenderContext& rRenderContext, const OUString& rLabel) const;
+     void DrawText(vcl::RenderContext& rRenderContext);
+     void DrawHighlight(vcl::RenderContext& rRenderContext, Color aFontBack);
+     static void DrawContentBackground(vcl::RenderContext& rRenderContext,
+@@ -118,7 +120,8 @@
+     std::unique_ptr<weld::Button> m_xMoreButton;
+     size_t m_nFirstVisible = 0;
+     size_t m_nPageSize = 0;
+-    tools::Long m_nViewWidth = 0;
++    // HST Office: previews in the row, set by the ribbon state (6, 4, 3), never by the view width
++    size_t m_nHstTiles = 6;
+ 
+     StylesListUpdateTask m_aUpdateTask;
+ 
+@@ -146,7 +149,6 @@
+     DECL_LINK(DoCommand, const CommandEvent&, bool);
+     DECL_LINK(PageHdl, weld::Button&, void);
+     DECL_LINK(MoreHdl, weld::Button&, void);
+-    DECL_LINK(ViewSizeHdl, const Size&, void);
+ 
+ public:
+     StylesPreviewWindow_Base(weld::Builder& xBuilder, const StylePreviewList& rDefaultStyles,
+@@ -156,6 +158,13 @@
+     void Select(const OUString& rStyleName);
+     void RequestStylesListUpdate();
+     static Bitmap GetCachedPreview(const StylePreviewDescriptor& rStyle);
++    /// HST Office: the short name a preview shows ("Normal" for "Default Paragraph Style"), or the
++    /// style's own name; the style keeps its name in the document
++    static OUString HstTileLabel(const StylePreviewDescriptor& rStyle);
++
++protected:
++    /// HST Office: show nTiles previews in the row (the ribbon state of the group)
++    void HstSetTiles(size_t nTiles);
+ 
+ private:
+     void UpdateStylesList();
+@@ -178,8 +187,8 @@
+     void SetOptimalSize();
+ 
+     /// HST Office: "hst-gallery-state" (sent by the ribbon ladder, vcl HstRibbonLadder.cxx): 0, 1, 2 for the
+-    /// large, medium and small group; the gallery keeps 6, 4 or 3 previews in its row before the group becomes
+-    /// its "Kiểu ▾" button. True when the width changed.
++    /// large, medium and small group; the gallery keeps 6, 4 or 3 previews of 96 px in its row (and no more,
++    /// however wide the ribbon) before the group becomes its "Kiểu ▾" button. True when the width changed.
+     bool set_property(const OUString& rKey, const OUString& rValue) override;
+ 
+ private:
+--- a/svx/source/tbxctrls/StylesPreviewToolBoxControl.cxx
++++ b/svx/source/tbxctrls/StylesPreviewToolBoxControl.cxx
+@@ -89,10 +89,12 @@
+         }
+         else if (xServices->supportsService(u"com.sun.star.sheet.SpreadsheetDocument"_ustr))
+         {
+-            static constexpr OUString aCalcStyles[]{ u"Default"_ustr,   u"Accent 1"_ustr,
+-                                                     u"Accent 2"_ustr,  u"Accent 3"_ustr,
+-                                                     u"Heading 1"_ustr, u"Heading 2"_ustr,
+-                                                     u"Result"_ustr };
++            // HST Office: the order of the Sheets mockup's "Kiểu ô" gallery (Default, Good, Neutral, Bad,
++            // Warning, Heading 1), then the other common cell styles
++            static constexpr OUString aCalcStyles[]{ u"Default"_ustr,   u"Good"_ustr,      u"Neutral"_ustr,
++                                                     u"Bad"_ustr,       u"Warning"_ustr,   u"Heading 1"_ustr,
++                                                     u"Heading 2"_ustr, u"Note"_ustr,      u"Accent 1"_ustr,
++                                                     u"Accent 2"_ustr,  u"Accent 3"_ustr,  u"Result"_ustr };
+             css::uno::Reference<css::container::XNameAccess> xCellStyles;
+             xStylesSupplier->getStyleFamilies()->getByName(u"CellStyles"_ustr) >>= xCellStyles;
+             for (const OUString& sStyleName : aCalcStyles)
+--- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
++++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
+@@ -29,6 +29,7 @@
+ #include <utility>
+ #include <vcl/svapp.hxx>
+ #include <sfx2/objsh.hxx>
++#include <svl/itempool.hxx>
+ #include <svl/itemset.hxx>
+ #include <sfx2/tbxctrl.hxx>
+ #include <sfx2/sfxsids.hrc>
+@@ -64,6 +65,9 @@
+ #include <comphelper/lok.hxx>
+ #include <cppuhelper/implbase.hxx>
+ #include <officecfg/Office/HSTRibbon.hxx>
++#include <sfx2/docfac.hxx>
++#include <svx/dialmgr.hxx>
++#include <hststylesshortnames.hrc>
+ 
+ #include <editeng/editids.hrc>
+ #include <editeng/fontitem.hxx>
+@@ -94,6 +98,32 @@
+ 
+ #include <vcl/commandevent.hxx>
+ 
++#include <cmath>
++
++namespace
++{
++// HST Office: a preview of the ribbon gallery is a 96 x 74 tile: its image and the icon view's room around it,
++// the item padding 2 on each side in gtk (92 x 70) or vcl's own 5 px (86 x 64; vcl's builder makes the
++// icon view its own scrolled window, so "stylesscroll" does not exist there)
++constexpr tools::Long HST_TILE_WIDTH = 96;
++constexpr tools::Long HST_TILE_HEIGHT = 74;
++bool g_bHstVclIconView = false;
++
++Size lcl_HstPreviewImageSize(double fScale)
++{
++    const tools::Long nRoom = g_bHstVclIconView ? 10 : 4;
++    return Size(std::lround(HST_TILE_WIDTH * fScale) - nRoom, std::lround(HST_TILE_HEIGHT * fScale) - nRoom);
++}
++
++// HST Office: the module of the current document ("swriter", "scalc"...): Writer's gallery shows paragraph
++// styles with short names, Calc's (the same control, whose style family Para is Calc's cell styles) cell styles
++bool lcl_HstModuleIs(std::u16string_view aModule)
++{
++    const SfxObjectShell* pShell = SfxObjectShell::Current();
++    return pShell && pShell->GetFactory().GetFactoryName().startsWith(aModule);
++}
++}
++
+ namespace
+ {
+ class StylePreviewCache
+@@ -370,7 +400,11 @@
+     if (pFontItem && pFontHeightItem)
+     {
+         Size aFontSize(0, pFontHeightItem->GetHeight());
+-        Size aPixelSize(rRenderContext.LogicToPixel(aFontSize, MapMode(pShell->GetMapUnit())));
++        // HST Office: the font height is in the unit of the style's pool (twips in Calc, whose shell
++        // unit is 1/100 mm: the cell styles' previews were a third of their size)
++        const MapUnit eUnit = pItemSet->GetPool() ? pItemSet->GetPool()->GetMetric(pFontHeightItem->Which())
++                                                  : pShell->GetMapUnit();
++        Size aPixelSize(rRenderContext.LogicToPixel(aFontSize, MapMode(eUnit)));
+         // HST Office: a long name takes two lines of the preview; big headings are capped so two fit
+         if (aPixelSize.Height() > MAX_PREVIEW_FONT_HEIGHT)
+             aPixelSize.setHeight(MAX_PREVIEW_FONT_HEIGHT);
+@@ -402,6 +436,17 @@
+         }
+     }
+ 
++    // HST Office: a cell style looks like a cell (Sheets mockup): its fill, or white, in a light grey frame
++    // 4 px inside the preview (6 px inside the 96 x 74 tile)
++    if (lcl_HstModuleIs(u"scalc"))
++    {
++        const SvxBrushItem* pBrush = pItemSet->GetItem<SvxBrushItem>(SID_ATTR_BRUSH);
++        const Color aFill = pBrush && !pBrush->GetColor().IsTransparent() ? pBrush->GetColor() : COL_WHITE;
++        rRenderContext.SetLineColor(Color(0xd6, 0xd6, 0xd6));
++        rRenderContext.SetFillColor(aFill);
++        rRenderContext.DrawRect(tools::Rectangle(Point(4, 4), Size(aSize.Width() - 8, aSize.Height() - 8)));
++    }
++
+     if (aFontHighlight != COL_AUTO)
+         DrawHighlight(rRenderContext, aFontHighlight);
+ 
+@@ -420,53 +465,32 @@
+     rRenderContext.DrawRect(rContentRect);
+ }
+ 
+-void StyleItemController::DrawHighlight(vcl::RenderContext& rRenderContext, Color aFontBack)
++tools::Rectangle StyleItemController::HstTextRect(vcl::RenderContext& rRenderContext,
++                                                 const OUString& rLabel) const
+ {
+-    tools::Rectangle aTextRect;
+-    rRenderContext.GetTextBoundRect(aTextRect, m_aStyleName.translatedName);
+-
+-    Size aSize = aTextRect.GetSize();
+-    aSize.AdjustHeight(aSize.getHeight());
+-    aTextRect.SetSize(aSize);
+-
+-    Point aPos(0, 0);
+-    aPos.AdjustX(LEFT_MARGIN);
+-    aPos.AdjustY((rRenderContext.GetOutputHeightPixel() - aTextRect.Bottom()) / 2);
+-    aTextRect.SetPos(aPos);
++    const Size aOut(rRenderContext.GetOutputSizePixel());
++    const tools::Long nInner = aOut.Width() - 2 * LEFT_MARGIN;
++    const Size aText(std::min(nInner, rRenderContext.GetTextWidth(rLabel)), rRenderContext.GetTextHeight());
++    return tools::Rectangle(Point((aOut.Width() - aText.Width()) / 2, (aOut.Height() - aText.Height()) / 2),
++                            aText);
++}
+ 
++void StyleItemController::DrawHighlight(vcl::RenderContext& rRenderContext, Color aFontBack)
++{
+     rRenderContext.SetLineColor(aFontBack);
+     rRenderContext.SetFillColor(aFontBack);
+-
+-    rRenderContext.DrawRect(aTextRect);
++    rRenderContext.DrawRect(HstTextRect(rRenderContext, StylesPreviewWindow_Base::HstTileLabel(m_aStyleName)));
+ }
+ 
++// HST Office: the name is one centred line in the style's font (Office's gallery); a name wider than
++// the preview ends with "…". The gallery shows the short name of a common style (HstTileLabel).
+ void StyleItemController::DrawText(vcl::RenderContext& rRenderContext)
+ {
+-    // HST Office: a name wider than the preview (Vietnamese style names are long, e.g. "Kiểu dáng đoạn
+-    // văn mặc định") wraps to centred lines instead of being cut off.
+-    const tools::Long nInner = rRenderContext.GetOutputSizePixel().Width() - 2 * LEFT_MARGIN;
+-    if (rRenderContext.GetTextWidth(m_aStyleName.translatedName) > nInner)
+-    {
+-        const tools::Rectangle aRect(Point(LEFT_MARGIN, 0),
+-                                     Size(nInner, rRenderContext.GetOutputSizePixel().Height()));
+-        rRenderContext.DrawText(aRect, m_aStyleName.translatedName,
+-                                DrawTextFlags::MultiLine | DrawTextFlags::WordBreak
+-                                    | DrawTextFlags::Center | DrawTextFlags::VCenter
+-                                    | DrawTextFlags::EndEllipsis);
+-        return;
+-    }
+-    const SalLayoutGlyphs* layoutGlyphs = SalLayoutGlyphsCache::self()->GetLayoutGlyphs(
+-        &rRenderContext, m_aStyleName.translatedName);
+-    tools::Rectangle aTextRect;
+-    rRenderContext.GetTextBoundRect(aTextRect, m_aStyleName.translatedName, 0, 0, -1, 0, {}, {},
+-                                    layoutGlyphs);
+-
+-    Point aPos(0, 0);
+-    aPos.AdjustX(LEFT_MARGIN);
+-    aPos.AdjustY((rRenderContext.GetOutputHeightPixel() - aTextRect.Bottom()) / 2);
+-
+-    rRenderContext.DrawText(aPos, m_aStyleName.translatedName, 0, -1, nullptr, nullptr,
+-                            layoutGlyphs);
++    const OUString aLabel = StylesPreviewWindow_Base::HstTileLabel(m_aStyleName);
++    const Size aOut(rRenderContext.GetOutputSizePixel());
++    const tools::Rectangle aRect(Point(LEFT_MARGIN, 0), Size(aOut.Width() - 2 * LEFT_MARGIN, aOut.Height()));
++    rRenderContext.DrawText(aRect, aLabel,
++                            DrawTextFlags::Center | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
+ }
+ 
+ StylesPreviewWindow_Base::StylesPreviewWindow_Base(
+@@ -489,7 +513,6 @@
+     m_xStylesView->connect_item_activated(LINK(this, StylesPreviewWindow_Base, DoubleClick));
+     m_xStylesView->connect_key_press(LINK(this, StylesPreviewWindow_Base, HstKeyPressHdl));
+     m_xStylesView->connect_command(LINK(this, StylesPreviewWindow_Base, DoCommand));
+-    m_xStylesView->connect_size_allocate(LINK(this, StylesPreviewWindow_Base, ViewSizeHdl));
+     m_xPrevButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, PageHdl));
+     m_xNextButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, PageHdl));
+     m_xMoreButton->connect_clicked(LINK(this, StylesPreviewWindow_Base, MoreHdl));
+@@ -935,28 +958,45 @@
+     return Command(rPos);
+ }
+ 
+-// HST Office: one row per page, sized from the view width, so no row is ever cut off.
+-size_t StylesPreviewWindow_Base::CalcPageSize() const
++// HST Office: one row per page, as many previews as the ribbon state keeps (HstSetTiles). The page
++// no longer follows the view width: a wide ribbon stretched the view and left it without previews.
++size_t StylesPreviewWindow_Base::CalcPageSize() const { return std::max<size_t>(1, m_nHstTiles); }
++
++void StylesPreviewWindow_Base::HstSetTiles(size_t nTiles)
+ {
+-    // An item is the preview plus the icon view's item padding on both sides.
+-    constexpr tools::Long nItemWidth = 100 + 2 * 3;
+-    if (m_nViewWidth <= 0)
+-        return 1;
+-    return std::max<size_t>(1, m_nViewWidth / nItemWidth);
++    if (nTiles == m_nHstTiles)
++        return;
++    m_nHstTiles = nTiles;
++    RequestStylesListUpdate(); // refill after the size allocation, not while the view is allocated
+ }
+ 
+-IMPL_LINK(StylesPreviewWindow_Base, ViewSizeHdl, const Size&, rSize, void)
++namespace
+ {
+-    if (rSize.Width() == m_nViewWidth)
+-        return;
+-    m_nViewWidth = rSize.Width();
+-    if (CalcPageSize() != m_nPageSize)
+-    {
+-        ShowCurrentStyleInSingleView();
+-        // HST Office: refill after this size allocation; changing the items while the view is being
+-        // allocated left it empty when the ribbon grew from one preview to several.
+-        RequestStylesListUpdate();
+-    }
++// HST Office: the short names the gallery shows for the common Writer styles, in the order of the gallery
++// (Office's Normal, Body Text, Heading 1, Heading 2, Title, Quote); keyed by the programmatic name.
++struct HstShortName
++{
++    std::u16string_view aStyle;
++    TranslateId aLabel;
++};
++constexpr HstShortName HST_SHORT_NAMES[] = {
++    { u"Standard", RID_HST_STYLE_SHORT_STANDARD },     { u"Text body", RID_HST_STYLE_SHORT_TEXT_BODY },
++    { u"Heading 1", RID_HST_STYLE_SHORT_HEADING_1 },   { u"Heading 2", RID_HST_STYLE_SHORT_HEADING_2 },
++    { u"Title", RID_HST_STYLE_SHORT_TITLE },           { u"Quotations", RID_HST_STYLE_SHORT_QUOTATIONS },
++};
++
++size_t lcl_HstShortRank(const StylePreviewDescriptor& rStyle)
++{
++    const auto it = std::find_if(std::begin(HST_SHORT_NAMES), std::end(HST_SHORT_NAMES),
++                                 [&rStyle](const HstShortName& r) { return r.aStyle == rStyle.commonName; });
++    return it - std::begin(HST_SHORT_NAMES);
++}
++}
++
++OUString StylesPreviewWindow_Base::HstTileLabel(const StylePreviewDescriptor& rStyle)
++{
++    const size_t nRank = lcl_HstModuleIs(u"swriter") ? lcl_HstShortRank(rStyle) : std::size(HST_SHORT_NAMES);
++    return nRank < std::size(HST_SHORT_NAMES) ? SvxResId(HST_SHORT_NAMES[nRank].aLabel) : rStyle.translatedName;
+ }
+ 
+ // HST Office: on a narrow ribbon the view holds one preview; it is the current style's, so the
+@@ -1099,21 +1139,23 @@
+ 
+ Bitmap StylesPreviewWindow_Base::GetCachedPreview(const StylePreviewDescriptor& rStyle)
+ {
+-    auto aFound = StylePreviewCache::Get().find(rStyle.translatedName);
++    // HST Office: Writer's "Heading 1" and Calc's are different previews of the same name
++    const OUString aKey = (lcl_HstModuleIs(u"scalc") ? u"scalc:"_ustr : OUString()) + rStyle.translatedName;
++    auto aFound = StylePreviewCache::Get().find(aKey);
+     if (aFound != StylePreviewCache::Get().end())
+-        return StylePreviewCache::Get()[rStyle.translatedName];
++        return aFound->second;
+     else
+     {
+         ScopedVclPtrInstance<VirtualDevice> pImg;
+-        // HST Office: taller previews, one row fills the Tabbed ribbon (see stylespreview.ui:
+-        // row = 52 + 2 x item-padding 3 = 58, plus the 1px frame = height-request 60).
+-        const Size aSize(100, 52);
++        // HST Office: the image of a 96 x 74 tile (lcl_HstPreviewImageSize); the room around it is the frame
++        // of the selected preview, and the gallery's 1 px frame makes it 76 tall
++        const Size aSize(lcl_HstPreviewImageSize(Application::GetDefaultDevice()->GetDPIScaleFactor()));
+         pImg->SetOutputSizePixel(aSize);
+ 
+         StyleItemController aStyleController(rStyle);
+         aStyleController.Paint(*pImg);
+         Bitmap aBitmap(pImg->GetBitmap(Point(0, 0), aSize));
+-        StylePreviewCache::Get()[rStyle.translatedName] = aBitmap;
++        StylePreviewCache::Get()[aKey] = aBitmap;
+ 
+         return aBitmap;
+     }
+@@ -1242,6 +1284,12 @@
+             lcl_AppendParaStyles(m_aAllStyles, pStyleSheetPool,
+                                  SfxStyleSearchBits::Favourite | SfxStyleSearchBits::UserDefined);
+     }
++    // HST Office: in Writer the styles with a short name come first, in the gallery's order (Heading 3 and 4
++    // follow); Calc's list keeps the order of StylesPreviewToolBoxControl (Sheets mockup)
++    if (lcl_HstModuleIs(u"swriter"))
++        std::stable_sort(m_aAllStyles.begin(), m_aAllStyles.end(),
++                         [](const StylePreviewDescriptor& a, const StylePreviewDescriptor& b)
++                         { return lcl_HstShortRank(a) < lcl_HstShortRank(b); });
+ 
+     ShowPage();
+ }
+@@ -1253,22 +1301,36 @@
+     , StylesPreviewWindow_Base(*m_xBuilder, rDefaultStyles, xFrame)
+     , m_xHstScroll(m_xBuilder->weld_scrolled_window(u"stylesscroll"_ustr))
+ {
++    g_bHstVclIconView = !m_xHstScroll;
+     HstApplyPreviews();
+     SetOptimalSize();
+ }
+ 
+ namespace
+ {
+-// HST Office: previews kept in the row at the large, medium and small group (one preview with the icon view's
+-// padding is 106 px, stylespreview.ui), as Office's Styles gallery narrows from 6 to 4 to 3 before it folds
++// HST Office: previews kept in the row at the large, medium and small group, as Office's Styles gallery narrows
++// from 6 to 4 to 3 before it folds. The group needs n x 96 + 2 (frame) + 16 (button column) px.
+ constexpr int HST_PREVIEWS[] = { 6, 4, 3 };
+-constexpr tools::Long HST_PREVIEW_WIDTH = 106;
++constexpr tools::Long HST_GALLERY_HEIGHT = 76;
+ }
+ 
+ void StylesPreviewWindow_Impl::HstApplyPreviews()
+ {
++    const double fScale = GetDPIScaleFactor();
++    const int nTiles = HST_PREVIEWS[m_nHstState];
++    // set the height as well: -1 dropped the .ui's height-request on gtk3, the view (whose scroll bars are
++    // external) was then 2 px tall and the gallery a blank strip. Without "stylesscroll" (vcl) the view is
++    // the framed, scrolling widget and takes the size itself; its frame may be 2 px (vcl's 3D border), so it
++    // gets 2 px more to keep n columns.
++    const int nWidth = static_cast<int>(std::lround((nTiles * HST_TILE_WIDTH + (m_xHstScroll ? 2 : 4)) * fScale));
++    const int nHeight = static_cast<int>(std::lround(HST_GALLERY_HEIGHT * fScale));
+     if (m_xHstScroll)
+-        m_xHstScroll->set_size_request(HST_PREVIEWS[m_nHstState] * HST_PREVIEW_WIDTH * GetDPIScaleFactor(), -1);
++        m_xHstScroll->set_size_request(nWidth, nHeight);
++    else
++        m_xStylesView->set_size_request(nWidth, nHeight);
++    m_xStylesView->set_item_width(static_cast<int>(g_bHstVclIconView ? std::lround(HST_TILE_WIDTH * fScale)
++                                                                     : lcl_HstPreviewImageSize(fScale).Width()));
++    HstSetTiles(nTiles);
+ }
+ 
+ bool StylesPreviewWindow_Impl::set_property(const OUString& rKey, const OUString& rValue)
+@@ -1280,6 +1342,9 @@
+         return false; // nothing changed: the ladder need not lay the toolbox out again
+     m_nHstState = nState;
+     HstApplyPreviews();
++    // the window's preferred size is the cached requisition of its content: without this the ladder measured
++    // the large gallery at every state (602 px) and skipped the gallery's steps
++    InvalidateChildSizeCache();
+     SetOptimalSize();
+     return true;
+ }
+--- a/svx/source/tbxctrls/tbcontrl.cxx
++++ b/svx/source/tbxctrls/tbcontrl.cxx
+@@ -120,6 +120,7 @@
+ 
+ #include <editeng/editeng.hxx>
+ #include <tools/debug.hxx>
++#include <HstRibbonCombos.hxx>
+ 
+ #define MAX_MRU_FONTNAME_ENTRIES    5
+ 
+@@ -421,6 +422,7 @@
+                                 , public SvxFontNameBox_Base
+ {
+ private:
++    std::unique_ptr<hst::ribbon::RibbonRefit> m_xHstRefit;
+     virtual void DataChanged( const DataChangedEvent& rDCEvt ) override;
+     virtual void GetFocus() override
+     {
+@@ -439,6 +441,7 @@
+ 
+     virtual void dispose() override
+     {
++        m_xHstRefit.reset();
+         m_xWidget.reset();
+         InterimItemWindow::dispose();
+     }
+@@ -454,6 +457,15 @@
+     {
+         if (nStateChange == StateChangedType::Enable)
+             m_xWidget->set_sensitive(IsEnabled());
++        // HST Office: fit the ribbon's box again once it is on screen (HstRibbonCombos.hxx)
++        else if (nStateChange == StateChangedType::InitShow && !m_xHstRefit && hst::ribbon::InNotebookbar(*this))
++        {
++            m_xHstRefit.reset(new hst::ribbon::RibbonRefit([this] {
++                SetOptimalSize();
++                hst::ribbon::RelayoutItem(*this);
++            }));
++            m_xHstRefit->Start();
++        }
+         InterimItemWindow::StateChanged(nStateChange);
+     }
+ 
+@@ -1734,7 +1746,7 @@
+ 
+ SvxFontNameBox_Impl::SvxFontNameBox_Impl(vcl::Window* pParent, const Reference<XFrame>& rFrame,
+                                          SvxFontNameToolBoxControl& rCtrl)
+-    : InterimItemWindow(pParent, u"svx/ui/fontnamebox.ui"_ustr, u"FontNameBox"_ustr, true)
++    : InterimItemWindow(pParent, hst::ribbon::BoxUIFile(pParent, u"fontnamebox"), u"FontNameBox"_ustr, true)
+     , SvxFontNameBox_Base(m_xBuilder->weld_combo_box(u"fontnamecombobox"_ustr), rFrame, rCtrl)
+ {
+     set_id(u"fontnamecombobox"_ustr);
+@@ -1896,6 +1908,9 @@
+     // tdf#132338 purely using this calculation to keep things their traditional width
+     Size aSize(LogicToPixel(Size((COMBO_WIDTH_IN_CHARS +5) * 4, 0), MapMode(MapUnit::MapAppFont)));
+     m_xWidget->set_size_request(aSize.Width(), -1);
++    // HST Office: 128 px in the ribbon, as in Office's Home tab (HstRibbonCombos.hxx)
++    if (hst::ribbon::InNotebookbar(*this))
++        hst::ribbon::FitRibbonWidth(*this, *m_xWidget, hst::ribbon::FONT_NAME_BOX_WIDTH);
+ 
+     SetSizePixel(get_preferred_size());
+ }
+--- a/svx/source/tbxctrls/tbunocontroller.cxx
++++ b/svx/source/tbxctrls/tbunocontroller.cxx
+@@ -47,6 +47,7 @@
+ #include <memory>
+ 
+ #include <vcl/InterimItemWindow.hxx>
++#include <HstRibbonCombos.hxx>
+ 
+ using namespace ::com::sun::star;
+ 
+@@ -130,6 +131,8 @@
+ class SvxFontSizeBox_Impl final : public InterimItemWindow
+                                 , public SvxFontSizeBox_Base
+ {
++    std::unique_ptr<hst::ribbon::RibbonRefit> m_xHstRefit;
++
+ public:
+     SvxFontSizeBox_Impl(vcl::Window* pParent,
+                         const uno::Reference< frame::XFrame >& _xFrame,
+@@ -137,6 +140,7 @@
+ 
+     virtual void dispose() override
+     {
++        m_xHstRefit.reset();
+         m_xWidget.reset();
+         InterimItemWindow::dispose();
+     }
+@@ -154,6 +158,15 @@
+     {
+         if (nStateChange == StateChangedType::Enable)
+             m_xWidget->set_sensitive(IsEnabled());
++        // HST Office: fit the ribbon's box again once it is on screen (HstRibbonCombos.hxx)
++        else if (nStateChange == StateChangedType::InitShow && !m_xHstRefit && hst::ribbon::InNotebookbar(*this))
++        {
++            m_xHstRefit.reset(new hst::ribbon::RibbonRefit([this] {
++                SetOptimalSize();
++                hst::ribbon::RelayoutItem(*this);
++            }));
++            m_xHstRefit->Start();
++        }
+         InterimItemWindow::StateChanged(nStateChange);
+     }
+ 
+@@ -304,16 +317,28 @@
+ 
+ void SvxFontSizeBox_Impl::SetOptimalSize()
+ {
++    // HST Office: 46 px in the ribbon, as in Office's Home tab (HstRibbonCombos.hxx). The entry asks for
++    // "105 pt" (FontSizeBox), so it is set to two characters first ("12" stays readable) or the request
++    // would not stick.
++    if (hst::ribbon::InNotebookbar(*this))
++    {
++        if (auto pCombo = dynamic_cast<weld::ComboBox*>(m_xWidget->getWidget()))
++            pCombo->set_entry_width_chars(2);
++        hst::ribbon::FitRibbonWidth(*this, *m_xWidget, hst::ribbon::FONT_SIZE_BOX_WIDTH);
++    }
+     SetSizePixel(get_preferred_size());
+ }
+ 
+ SvxFontSizeBox_Impl::SvxFontSizeBox_Impl(vcl::Window* pParent,
+                                          const uno::Reference<frame::XFrame>& rFrame,
+                                          FontHeightToolBoxControl& rCtrl)
+-    : InterimItemWindow(pParent, u"svx/ui/fontsizebox.ui"_ustr, u"FontSizeBox"_ustr, true)
++    : InterimItemWindow(pParent, hst::ribbon::BoxUIFile(pParent, u"fontsizebox"), u"FontSizeBox"_ustr, true)
+     , SvxFontSizeBox_Base(m_xBuilder->weld_combo_box(u"fontsizecombobox"_ustr), rFrame, rCtrl)
+ {
+     InitControlBase(m_xWidget->getWidget());
++    // HST Office: "12", not "12 pt", in the ribbon, as in Office's Home tab
++    if (hst::ribbon::InNotebookbar(*pParent))
++        m_xWidget->set_show_unit(false);
+ }
+ 
+ void SvxFontSizeBox_Impl::DataChanged( const DataChangedEvent& rDCEvt )
+--- a/svx/uiconfig/ui/stylespreview.ui
++++ b/svx/uiconfig/ui/stylespreview.ui
+@@ -16,7 +16,7 @@
+   </object>
+   <object class="GtkBox" id="ApplyStyleBox">
+     <property name="can-focus">False</property>
+-    <property name="hexpand">True</property>
++    <property name="halign">start</property>
+     <property name="spacing">6</property>
+     <property name="visible">True</property>
+     <child>
+@@ -27,25 +27,26 @@
+         <!-- HST Office: one row of style previews, exactly as tall as the row (no clipped
+              second row, no scrollbar); the buttons on the right page through the styles
+              and open the Styles deck. Rows/pages are filled by StylesPreviewWindow.cxx.
+-             The view needs one preview and takes the width the ribbon has left (more
+-             previews); the buttons are a narrow column, as in Office. -->
++             A preview is 96 x 74 (92 x 70 and the item padding 2); the gallery keeps
++             6, 4 or 3 of them (StylesPreviewWindow.cxx sets the width) and never takes
++             the room the ribbon leaves; the buttons are a 16 px column, as in Office. -->
+         <child>
+           <object class="GtkScrolledWindow" id="stylesscroll">
+             <property name="can-focus">True</property>
+-            <property name="height-request">60</property>
++            <property name="height-request">76</property>
+             <property name="hscrollbar-policy">external</property>
+-            <property name="min-content-width">106</property>
++            <property name="min-content-width">96</property>
+             <property name="shadow-type">in</property>
+             <property name="valign">center</property>
+             <property name="visible">True</property>
+             <property name="vscrollbar-policy">external</property>
+-            <property name="width-request">106</property>
++            <property name="width-request">98</property>
+             <child>
+               <object class="GtkIconView" id="stylesview">
+                 <property name="can-focus">True</property>
+                 <property name="column-spacing">0</property>
+-                <property name="item-padding">3</property>
+-                <property name="item-width">100</property>
++                <property name="item-padding">2</property>
++                <property name="item-width">92</property>
+                 <property name="margin">0</property>
+                 <property name="model">liststore1</property>
+                 <property name="pixbuf-column">0</property>
+@@ -56,7 +57,7 @@
+             </child>
+           </object>
+           <packing>
+-            <property name="expand">True</property>
++            <property name="expand">False</property>
+             <property name="fill">True</property>
+             <property name="position">0</property>
+           </packing>
+@@ -70,14 +71,14 @@
+             <property name="visible">True</property>
+             <child>
+               <object class="GtkButton" id="prevstyles">
+-                <property name="label">◂</property>
++                <property name="label">˄</property>
+                 <property name="can-focus">False</property>
+                 <property name="receives-default">False</property>
+                 <property name="relief">none</property>
+                 <property name="tooltip-text" translatable="yes" context="stylespreview|prevstyles">Previous Styles</property>
+                 <property name="valign">center</property>
+-                <property name="height-request">20</property>
+-                <property name="width-request">18</property>
++                <property name="height-request">25</property>
++                <property name="width-request">16</property>
+                 <property name="visible">True</property>
+                 <style>
+                   <class name="small-button"/>
+@@ -91,14 +92,14 @@
+             </child>
+             <child>
+               <object class="GtkButton" id="nextstyles">
+-                <property name="label">▸</property>
++                <property name="label">˅</property>
+                 <property name="can-focus">False</property>
+                 <property name="receives-default">False</property>
+                 <property name="relief">none</property>
+                 <property name="tooltip-text" translatable="yes" context="stylespreview|nextstyles">Next Styles</property>
+                 <property name="valign">center</property>
+-                <property name="height-request">20</property>
+-                <property name="width-request">18</property>
++                <property name="height-request">25</property>
++                <property name="width-request">16</property>
+                 <property name="visible">True</property>
+                 <style>
+                   <class name="small-button"/>
+@@ -118,8 +119,8 @@
+                 <property name="relief">none</property>
+                 <property name="tooltip-text" translatable="yes" context="stylespreview|morestyles">All Styles</property>
+                 <property name="valign">center</property>
+-                <property name="height-request">20</property>
+-                <property name="width-request">18</property>
++                <property name="height-request">25</property>
++                <property name="width-request">16</property>
+                 <property name="visible">True</property>
+                 <style>
+                   <class name="small-button"/>
+@@ -140,7 +141,7 @@
+         </child>
+       </object>
+       <packing>
+-        <property name="expand">True</property>
++        <property name="expand">False</property>
+         <property name="fill">True</property>
+         <property name="position">0</property>
+       </packing>
+--- a/translations/source/vi/svx/messages.po
++++ b/translations/source/vi/svx/messages.po
+@@ -22669,16 +22669,52 @@
+ #: svx/uiconfig/ui/stylespreview.ui
+ msgctxt "stylespreview|prevstyles"
+ msgid "Previous Styles"
+-msgstr "Kiểu dáng trước"
++msgstr "Hàng trước"
+ 
+ #. hstDT
+ #: svx/uiconfig/ui/stylespreview.ui
+ msgctxt "stylespreview|nextstyles"
+ msgid "Next Styles"
+-msgstr "Kiểu dáng tiếp theo"
++msgstr "Hàng sau"
+ 
+ #. hstDT
+ #: svx/uiconfig/ui/stylespreview.ui
+ msgctxt "stylespreview|morestyles"
+ msgid "All Styles"
+-msgstr "Tất cả kiểu dáng"
++msgstr "Xem hết các kiểu"
++
++#. hstStyleShort
++#: svx/inc/hststylesshortnames.hrc
++msgctxt "RID_HST_STYLE_SHORT_STANDARD"
++msgid "Normal"
++msgstr "Thường"
++
++#. hstStyleShort
++#: svx/inc/hststylesshortnames.hrc
++msgctxt "RID_HST_STYLE_SHORT_TEXT_BODY"
++msgid "Body Text"
++msgstr "Văn bản"
++
++#. hstStyleShort
++#: svx/inc/hststylesshortnames.hrc
++msgctxt "RID_HST_STYLE_SHORT_HEADING_1"
++msgid "Heading 1"
++msgstr "Tiêu đề 1"
++
++#. hstStyleShort
++#: svx/inc/hststylesshortnames.hrc
++msgctxt "RID_HST_STYLE_SHORT_HEADING_2"
++msgid "Heading 2"
++msgstr "Tiêu đề 2"
++
++#. hstStyleShort
++#: svx/inc/hststylesshortnames.hrc
++msgctxt "RID_HST_STYLE_SHORT_TITLE"
++msgid "Title"
++msgstr "Tựa đề"
++
++#. hstStyleShort
++#: svx/inc/hststylesshortnames.hrc
++msgctxt "RID_HST_STYLE_SHORT_QUOTATIONS"
++msgid "Quote"
++msgstr "Trích dẫn"
+--- a/vcl/unx/gtk3/gtkinst.cxx
++++ b/vcl/unx/gtk3/gtkinst.cxx
+@@ -21740,6 +21740,24 @@
+             gtk_style_context_add_class(gtk_widget_get_style_context(GTK_WIDGET(getContainer())), "small-button");
+         if (gtk_style_context_has_class(gtk_widget_get_style_context(GTK_WIDGET(m_pComboBox)), "novertpad"))
+             gtk_style_context_add_class(gtk_widget_get_style_context(GTK_WIDGET(getContainer())), "novertpad");
++        // HST Office: the ribbon's font name and size boxes ("hst-ribbon-combo": svx fontnameboxribbon.ui and
++        // fontsizeboxribbon.ui) are as narrow as in Office's Home tab, 128 and 46 px: less side padding in the
++        // entry and the ▾ button, their frames kept. Toolbars, the sidebar and dialogs keep the theme's padding.
++        if (gtk_style_context_has_class(gtk_widget_get_style_context(GTK_WIDGET(m_pComboBox)), "hst-ribbon-combo"))
++        {
++            static const gchar aEntryCss[] = "entry { padding-left: 4px; padding-right: 2px; min-width: 0; }";
++            static const gchar aButtonCss[] = "button { padding-left: 2px; padding-right: 2px; min-width: 0; }";
++            const std::pair<GtkWidget*, const gchar*> aNarrow[] = { { m_pEntry, aEntryCss },
++                                                                    { m_pToggleButton, aButtonCss } };
++            for (const auto& [pWidget, pCss] : aNarrow)
++            {
++                GtkCssProvider* pProvider = gtk_css_provider_new();
++                css_provider_load_from_data(pProvider, pCss, -1);
++                gtk_style_context_add_provider(gtk_widget_get_style_context(pWidget), GTK_STYLE_PROVIDER(pProvider),
++                                               GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
++                g_object_unref(pProvider); // the style context keeps it
++            }
++        }
+ 
+         if (gtk_widget_get_has_tooltip(GTK_WIDGET(m_pComboBox)))
+         {
