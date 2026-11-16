@@ -1,0 +1,3467 @@
+HST Office: the Sheets ribbon takes the layout of the approved 1.0.2 mockup (hinh-mau-sheets.html, owner 15/11/2026).
+
+Home: Clipboard is a large Paste beside a 3-row column of labelled Cut, Copy and Format Paintbrush (Paste Special
+is in Paste's ▾ menu, so its separate button goes); Font is two rows (font, size, grow/shrink, clear formatting /
+B I U S, sub- and superscript, border, fill and font colour); Styles is Conditional Formatting ▾, Format as
+Table and the cell styles gallery (.uno:StylesPreview, which shows Calc's cell styles with
+hst-ribbon-mockup-gallery-combos.patch) at the large size and a large Cell Styles ▾ (now with an icon) at
+the medium and small sizes (owner decision 16/11/2026; the ladder shows one or the other); Alignment drops the hidden right-to-left and
+left-to-right buttons (owner decision) and puts Decrease Indent before Increase Indent; Cells and Editing
+fill three rows (AutoSum ▾, a column of Fill ▾ and Clear ▾, Sort and Filter ▾, Find and Select ▾). Insert: Charts
+is Chart (the wizard) large, then icon-only drop-downs per chart family as in the reference suite (Column or Bar,
+Line or Area, Pie or Doughnut, Scatter or Bubble, Stock or Radar, Combo; only types the chart wizard offers, so
+no Hierarchy, Statistic, Waterfall, Funnel, Surface, Maps or PivotChart), each item opening the wizard on that chart
+type (.uno:InsertObjectChart with a chart2 template name; fuins2.cxx accepts those names, and Calc's own
+definition of the slot in tabvwsh.sdi now declares the ChartType argument, which the dispatcher dropped before), with the colibre
+chart-type icons, and Sparkline large; Text is Text Box and Header and
+Footer large beside two 3-row columns (Fontwork, Signature Line, Object / Vertical Text, Date, Time). Extensions
+groups the HST tools as the mockup does: Text (administrative document, Remove Diacritics, Split Name, Sort by
+Given Name), Vietnamese Formats (VND, date, percent), Data (Import CSV, Delete Blank Rows), Vietnamese Tools
+(Number to Words, Convert Encoding), HASON TECH (Solutions, USB Token setup). Data ▸ Data Tools has Text to Columns
+large beside the other tools, Review ▸ Comments has Delete large and View ▸ Window has New Window
+large, as in the reference suite. Every other tab: large buttons fill
+the three rows and small buttons stand in even 3-row columns (the mockup's grid()), captions under the rows,
+separators 4 rows high. The ribbon's root box has no margin above, below or right of it and the tabs' group boxes no margin above or
+below them, as in the other apps, so the separators and captions sit at the same height.
+Every group keeps its id (the adaptive ladders apply); every command keeps its KeyTip (Cell Styles ▾ keeps J, which the
+regenerated KeyTip table also gives to the gallery); the chart drop-downs are keyed by widget id
+(btnHstInsertChartColumn, ...Line, ...Pie, ...Scatter, ...Other, ...Combo) for the reference letters C, N1, Q, D, I1, SD. Needs hst-ribbon-mockup-gallery-combos.patch before it.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sc/uiconfig/scalc/ui/notebookbar.ui
++++ b/sc/uiconfig/scalc/ui/notebookbar.ui
+@@ -4035,6 +4035,305 @@
+       </object>
+     </child>
+   </object>
++  <object class="GtkImage" id="imgHomeHstCellStyles">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/lc_designerdialog.png</property>
++  </object>
++  <object class="GtkImage" id="imgHstInsertChartColumn">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">chart2/res/typecolumn_16.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstInsertChartColumn">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Column</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Clustered Column</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StackedColumn</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Stacked Column</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=PercentStackedColumn</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">100% Stacked Column</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=ThreeDColumnDeep</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">3-D Column</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-4">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Bar</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Clustered Bar</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-5">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StackedBar</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Stacked Bar</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartColumn-6">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=PercentStackedBar</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">100% Stacked Bar</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstInsertChartLine">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">chart2/res/typepointline_16.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstInsertChartLine">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartLine-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Line</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Line</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartLine-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=LineSymbol</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Line with Markers</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartLine-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StackedLine</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Stacked Line</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartLine-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Area</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Area</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartLine-4">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StackedArea</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Stacked Area</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartLine-5">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=PercentStackedArea</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">100% Stacked Area</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstInsertChartPie">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">chart2/res/typepie_16.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstInsertChartPie">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartPie-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Pie</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Pie</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartPie-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=PieOfPie</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Pie of Pie</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartPie-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=BarOfPie</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Bar of Pie</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartPie-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=PieAllExploded</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Exploded Pie</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartPie-4">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=ThreeDPie</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">3-D Pie</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartPie-5">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Donut</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Doughnut</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstInsertChartScatter">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">chart2/res/typexy_16.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstInsertChartScatter">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartScatter-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=ScatterSymbol</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Scatter</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartScatter-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=ScatterLineSymbol</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Scatter with Lines and Markers</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartScatter-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=ScatterLine</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Scatter with Straight Lines</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartScatter-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Bubble</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Bubble</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstInsertChartOther">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">chart2/res/typestock_16.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstInsertChartOther">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartOther-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StockLowHighClose</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">High-Low-Close</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartOther-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StockOpenLowHighClose</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Open-High-Low-Close</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartOther-2">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=Net</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Radar</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartOther-3">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=NetSymbol</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Radar with Markers</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartOther-4">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=FilledNet</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Filled Radar</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkImage" id="imgHstInsertChartCombo">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">chart2/res/typecolumnline_16.png</property>
++  </object>
++  <object class="GtkMenu" id="Menu HstInsertChartCombo">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartCombo-0">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=ColumnWithLine</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Clustered Column - Line</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="MenuHstInsertChartCombo-1">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="action-name">.uno:InsertObjectChart?ChartType:string=StackedColumnWithLine</property>
++        <property name="label" translatable="yes" context="TabbedCalc|hstChartTypeItem">Stacked Column - Line</property>
++      </object>
++    </child>
++  </object>
+   <object class="GtkGrid" id="NotebookBar">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -4043,9 +4342,9 @@
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="margin-start">6</property>
+-        <property name="margin-end">6</property>
+-        <property name="margin-top">6</property>
+-        <property name="margin-bottom">6</property>
++        <property name="margin-end">0</property>
++        <property name="margin-top">0</property>
++        <property name="margin-bottom">0</property>
+         <property name="orientation">vertical</property>
+         <child>
+           <object class="sfxlo-NotebookbarTabControl" id="ContextContainer">
+@@ -4061,8 +4360,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbFile">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <child>
+                       <!-- n-columns=3 n-rows=3 -->
+                       <object class="GtkGrid" id="gdFileNew">
+@@ -4825,8 +5122,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbHome">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <child>
+                       <!-- n-columns=3 n-rows=3 -->
+                       <object class="GtkGrid" id="gdHomeClipboard">
+@@ -4852,8 +5147,8 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
+-                            <property name="width">3</property>
++                            <property name="top-attach">3</property>
++                            <property name="width">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -4881,7 +5176,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -4933,19 +5228,17 @@
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHstPasteSpecial">
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHomeFormatPaintbrush">
+                             <property name="visible">True</property>
+-                            <property name="can-focus">False</property>
+-                            <property name="valign">center</property>
+-                            <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both</property>
++                            <property name="can-focus">True</property>
++                            <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+-                            <property name="icon_size">3</property>
+                             <child>
+-                              <object class="GtkToolButton" id="btnHstPasteSpecial">
++                              <object class="GtkToolButton" id="btnHomeFormatPaintbrush">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:PasteSpecial</property>
++                                <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|btnHomeFormatPaintbrush">Copy the formatting of the selection to other cells.</property>
++                                <property name="action-name">.uno:FormatPaintbrush</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+@@ -4954,9 +5247,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -4966,9 +5258,9 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -5063,33 +5355,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">2</property>
+-                            <property name="width">5</property>
+-                          </packing>
+-                        </child>
+-                        <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxHomeFormatPaintbrush">
+-                            <property name="visible">True</property>
+-                            <property name="can-focus">True</property>
+-                            <property name="valign">center</property>
+-                            <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnHomeFormatPaintbrush">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|btnHomeFormatPaintbrush">Copy the formatting of the selection to other cells.</property>
+-                                <property name="action-name">.uno:FormatPaintbrush</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                          </object>
+-                          <packing>
+-                            <property name="left-attach">0</property>
+-                            <property name="top-attach">0</property>
++                            <property name="width">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -5113,8 +5379,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">3</property>
++                            <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -5137,9 +5403,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="width">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -5196,7 +5461,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">0</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -5220,7 +5485,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -5268,7 +5533,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">1</property>
+                             <property name="width">2</property>
+                           </packing>
+@@ -5304,7 +5569,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -5339,7 +5604,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -5350,7 +5615,7 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">5</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+                             <property name="height">3</property>
+                           </packing>
+@@ -5568,19 +5833,6 @@
+                               </packing>
+                             </child>
+                             <child>
+-                              <object class="GtkToolButton" id="btnHomeIncrementIndent">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="is-important">True</property>
+-                                <property name="action-name">.uno:IncrementIndent</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+                               <object class="GtkToolButton" id="btnHomeDecrementIndent">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+@@ -5594,9 +5846,11 @@
+                               </packing>
+                             </child>
+                             <child>
+-                              <object class="GtkToolButton" id="btnHomeParaLeftToRight">
++                              <object class="GtkToolButton" id="btnHomeIncrementIndent">
++                                <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ParaLeftToRight</property>
++                                <property name="is-important">True</property>
++                                <property name="action-name">.uno:IncrementIndent</property>
+                                 <property name="use-underline">True</property>
+                               </object>
+                               <packing>
+@@ -5654,17 +5908,6 @@
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnHomeParaRightToLeft">
+-                                <property name="can-focus">False</property>
+-                                <property name="action-name">.uno:ParaRightToLeft</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+@@ -6010,8 +6253,8 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
+-                            <property name="width">3</property>
++                            <property name="top-attach">3</property>
++                            <property name="width">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6040,7 +6283,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6069,7 +6312,33 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHomeStylesPreview">
++                            <property name="visible">True</property>
++                            <property name="can-focus">False</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">icons</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnHomeStylesPreview">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label" translatable="yes" context="TabbedCalc|btnHstCellStyles">Cell Styles</property>
++                                <property name="action-name">.uno:StylesPreview</property>
++                              </object>
++                              <packing>
++                                <property name="expand">True</property>
++                                <property name="homogeneous">True</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6082,11 +6351,13 @@
+                             <property name="relief">none</property>
+                             <property name="label" translatable="yes" context="TabbedCalc|btnHstCellStyles">Cell Styles</property>
+                             <property name="vexpand">True</property>
++                            <property name="image">imgHomeHstCellStyles</property>
++                            <property name="image-position">top</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6096,9 +6367,9 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -6136,7 +6407,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">3</property>
+                           </packing>
+                         </child>
+@@ -6156,7 +6427,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6175,7 +6446,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6194,7 +6465,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6206,7 +6477,7 @@
+                           <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -6243,7 +6514,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">4</property>
+                           </packing>
+                         </child>
+@@ -6274,7 +6545,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6327,7 +6598,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6346,7 +6617,7 @@
+                           <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6358,7 +6629,7 @@
+                           <packing>
+                             <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -6409,8 +6680,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbInsert">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <child>
+                       <!-- n-columns=3 n-rows=3 -->
+                       <object class="GtkGrid" id="gdInsertPivotTable">
+@@ -6437,7 +6706,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">2</property>
+                           </packing>
+                         </child>
+@@ -6468,7 +6737,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6497,7 +6766,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6509,7 +6778,7 @@
+                               <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -6548,7 +6817,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">3</property>
+                           </packing>
+                         </child>
+@@ -6577,7 +6846,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6596,7 +6865,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6623,7 +6892,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6635,7 +6904,7 @@
+                               <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -6672,8 +6941,8 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
+-                            <property name="width">3</property>
++                            <property name="top-attach">3</property>
++                            <property name="width">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6701,29 +6970,20 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxInsertHstChartColumn">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstInsertChartColumn:Menu HstInsertChartColumn">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnInsertHstChartColumn">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="hst-ribbon-label" translatable="yes" context="TabbedCalc|btnInsertHstChartColumn">Column</property>
+-                                <property name="action-name">.uno:InsertObjectChart?ChartType:string=Column</property>
+-                                <property name="icon-name">chart2/res/typecolumn_16.png</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="tooltip-text" translatable="yes" context="TabbedCalc|hstChartTypeTip">Insert Column or Bar Chart</property>
++                            <property name="valign">center</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstInsertChartColumn</property>
++                            <property name="image-position">left</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+@@ -6731,25 +6991,16 @@
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxInsertHstChartLine">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstInsertChartLine:Menu HstInsertChartLine">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnInsertHstChartLine">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="hst-ribbon-label" translatable="yes" context="TabbedCalc|btnInsertHstChartLine">Line</property>
+-                                <property name="action-name">.uno:InsertObjectChart?ChartType:string=Line</property>
+-                                <property name="icon-name">chart2/res/typepointline_16.png</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="tooltip-text" translatable="yes" context="TabbedCalc|hstChartTypeTip">Insert Line or Area Chart</property>
++                            <property name="valign">center</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstInsertChartLine</property>
++                            <property name="image-position">left</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+@@ -6757,25 +7008,33 @@
+                           </packing>
+                         </child>
+                         <child>
+-                          <object class="sfxlo-NotebookbarToolBox" id="bxInsertHstChartPie">
++                          <object class="svtlo-ManagedMenuButton" id="btnHstInsertChartPie:Menu HstInsertChartPie">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
+-                            <property name="show-arrow">False</property>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnInsertHstChartPie">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="hst-ribbon-label" translatable="yes" context="TabbedCalc|btnInsertHstChartPie">Pie</property>
+-                                <property name="action-name">.uno:InsertObjectChart?ChartType:string=Pie</property>
+-                                <property name="icon-name">chart2/res/typepie_16.png</property>
+-                                <property name="use-underline">True</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">True</property>
+-                              </packing>
+-                            </child>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="tooltip-text" translatable="yes" context="TabbedCalc|hstChartTypeTip">Insert Pie or Doughnut Chart</property>
++                            <property name="valign">center</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstInsertChartPie</property>
++                            <property name="image-position">left</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="svtlo-ManagedMenuButton" id="btnHstInsertChartScatter:Menu HstInsertChartScatter">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="tooltip-text" translatable="yes" context="TabbedCalc|hstChartTypeTip">Insert Scatter (X, Y) or Bubble Chart</property>
++                            <property name="valign">center</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstInsertChartScatter</property>
++                            <property name="image-position">left</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+@@ -6783,11 +7042,48 @@
+                           </packing>
+                         </child>
+                         <child>
++                          <object class="svtlo-ManagedMenuButton" id="btnHstInsertChartOther:Menu HstInsertChartOther">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="tooltip-text" translatable="yes" context="TabbedCalc|hstChartTypeTip">Insert Stock or Radar Chart</property>
++                            <property name="valign">center</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstInsertChartOther</property>
++                            <property name="image-position">left</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="svtlo-ManagedMenuButton" id="btnHstInsertChartCombo:Menu HstInsertChartCombo">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="focus-on-click">False</property>
++                            <property name="receives-default">False</property>
++                            <property name="tooltip-text" translatable="yes" context="TabbedCalc|hstChartTypeTip">Insert Combo Chart</property>
++                            <property name="valign">center</property>
++                            <property name="relief">none</property>
++                            <property name="image">imgHstInsertChartCombo</property>
++                            <property name="image-position">left</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxHstInsertSparkline4">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
+                             <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHstInsertSparkline4">
+                                 <property name="visible">True</property>
+@@ -6802,8 +7098,9 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">3</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6813,9 +7110,9 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -6852,7 +7149,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6881,7 +7178,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6893,7 +7190,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -6930,7 +7227,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6959,7 +7256,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -6971,7 +7268,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -7010,7 +7307,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">4</property>
+                           </packing>
+                         </child>
+@@ -7033,7 +7330,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -7056,7 +7353,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -7069,7 +7366,7 @@
+                           <packing>
+                             <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7092,6 +7389,19 @@
+                                 <property name="homogeneous">True</property>
+                               </packing>
+                             </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstInsertVerticalText">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnInsertVerticalText">
+                                 <property name="visible">True</property>
+@@ -7105,9 +7415,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7129,8 +7438,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">0</property>
++                            <property name="left-attach">3</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7153,8 +7462,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">3</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7163,8 +7472,9 @@
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
++                            <property name="toolbar-style">both</property>
+                             <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHstEditHeaderAndFooter6">
+                                 <property name="visible">True</property>
+@@ -7179,8 +7489,9 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7204,7 +7515,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+-                            <property name="top-attach">1</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -7241,7 +7552,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">2</property>
+                           </packing>
+                         </child>
+@@ -7269,7 +7580,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7296,7 +7607,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7308,7 +7619,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -7355,8 +7666,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbLayout">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <child>
+                       <object class="GtkGrid" id="gdLayoutThemes">
+                         <property name="visible">True</property>
+@@ -7381,7 +7690,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7408,7 +7717,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7420,7 +7729,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -7514,7 +7823,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">7</property>
+                           </packing>
+                         </child>
+@@ -7534,7 +7843,7 @@
+                               <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                               </packing>
+                             </child>
+                         <child>
+@@ -7553,7 +7862,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7572,7 +7881,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7591,7 +7900,7 @@
+                           <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7610,7 +7919,7 @@
+                           <packing>
+                             <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7638,7 +7947,7 @@
+                           <packing>
+                             <property name="left-attach">5</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7669,7 +7978,7 @@
+                           <packing>
+                             <property name="left-attach">6</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7681,7 +7990,7 @@
+                               <packing>
+                             <property name="left-attach">7</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -7774,7 +8083,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">2</property>
+                           </packing>
+                         </child>
+@@ -7804,7 +8113,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7833,7 +8142,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7845,7 +8154,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -7884,8 +8193,8 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
+-                            <property name="width">4</property>
++                            <property name="top-attach">3</property>
++                            <property name="width">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7941,8 +8250,8 @@
+                             <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|hstG10Tip">Line up the selected objects with each other or with the page.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">0</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7961,7 +8270,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+-                            <property name="top-attach">1</property>
++                            <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -7979,8 +8288,8 @@
+                             <property name="hst-ribbon-description" translatable="yes" context="TabbedCalc|hstG10Tip">Rotate the selected object freely or flip it.</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8002,8 +8311,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8028,9 +8337,9 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8040,9 +8349,9 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -8087,8 +8396,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbFunctions">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <property name="vexpand">True</property>
+                     <child>
+                       <object class="GtkGrid" id="gdFunctionsLibrary">
+@@ -8114,8 +8421,8 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
+-                            <property name="width">6</property>
++                            <property name="top-attach">3</property>
++                            <property name="width">5</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8145,7 +8452,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8207,8 +8514,8 @@
+                             <property name="label" translatable="yes" context="TabbedCalc|btnFunctionsHstFinancial">Financial</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8223,7 +8530,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+-                            <property name="top-attach">1</property>
++                            <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8237,8 +8544,8 @@
+                             <property name="label" translatable="yes" context="TabbedCalc|btnFunctionsHstText">Text</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
+-                            <property name="top-attach">0</property>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8252,8 +8559,8 @@
+                             <property name="label" translatable="yes" context="TabbedCalc|btnFunctionsHstDateTime">Date and Time</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8267,7 +8574,7 @@
+                             <property name="label" translatable="yes" context="TabbedCalc|btnFunctionsHstLookup">Lookup</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -8282,7 +8589,7 @@
+                             <property name="label" translatable="yes" context="TabbedCalc|btnFunctionsHstMath">Math</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -8313,9 +8620,9 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">5</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8325,9 +8632,9 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">6</property>
++                            <property name="left-attach">5</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -8366,7 +8673,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">3</property>
+                           </packing>
+                         </child>
+@@ -8396,7 +8703,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8472,7 +8779,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8484,7 +8791,7 @@
+                               <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -8525,8 +8832,8 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
+-                            <property name="width">3</property>
++                            <property name="top-attach">3</property>
++                            <property name="width">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8599,8 +8906,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">0</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8625,7 +8932,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+-                            <property name="top-attach">1</property>
++                            <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8648,8 +8955,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8672,8 +8979,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8683,9 +8990,9 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -8722,7 +9029,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">2</property>
+                           </packing>
+                         </child>
+@@ -8751,7 +9058,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8779,7 +9086,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8791,7 +9098,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -8836,8 +9143,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbData">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <child>
+                       <!-- n-columns=5 n-rows=3 -->
+                       <object class="GtkGrid" id="gdDataSources">
+@@ -8864,7 +9169,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">3</property>
+                           </packing>
+                         </child>
+@@ -8896,7 +9201,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8915,7 +9220,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8943,7 +9248,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -8955,7 +9260,7 @@
+                           <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -8996,7 +9301,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">5</property>
+                           </packing>
+                         </child>
+@@ -9026,7 +9331,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9035,7 +9340,7 @@
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+-                            <property name="toolbar-style">icons</property>
++                            <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnDataSortAscending">
+@@ -9060,7 +9365,7 @@
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+-                            <property name="toolbar-style">icons</property>
++                            <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnDataSortDescending">
+@@ -9105,7 +9410,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9220,7 +9525,7 @@
+                           <packing>
+                             <property name="left-attach">5</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -9261,7 +9566,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">3</property>
+                           </packing>
+                         </child>
+@@ -9271,8 +9576,9 @@
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
++                            <property name="toolbar-style">both</property>
+                             <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnDataTextToColumns">
+                                 <property name="visible">True</property>
+@@ -9290,6 +9596,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9315,8 +9622,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9341,7 +9648,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+-                            <property name="top-attach">0</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9367,19 +9674,16 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="sfxlo-NotebookbarToolBox" id="bxDataDataConsolidate">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
+-                            <property name="valign">center</property>
+-                            <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both</property>
++                            <property name="toolbar-style">both-horiz</property>
+                             <property name="show-arrow">False</property>
+-                            <property name="icon_size">3</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnDataDataConsolidate">
+                                 <property name="visible">True</property>
+@@ -9395,8 +9699,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9408,7 +9711,7 @@
+                               <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -9441,7 +9744,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9461,7 +9764,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">2</property>
+                           </packing>
+                         </child>
+@@ -9491,7 +9794,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9519,7 +9822,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -9552,7 +9855,7 @@
+                           <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9572,7 +9875,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">3</property>
+                           </packing>
+                         </child>
+@@ -9602,7 +9905,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9747,8 +10050,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
+-                            <property name="width">1</property>
++                            <property name="top-attach">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9768,7 +10070,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9780,7 +10082,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -9825,8 +10127,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbReview">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <child>
+                       <!-- n-columns=3 n-rows=3 -->
+                       <object class="GtkGrid" id="gdReviewSpelling">
+@@ -9853,7 +10153,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">2</property>
+                           </packing>
+                         </child>
+@@ -9893,7 +10193,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9920,7 +10220,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9932,7 +10232,7 @@
+                               <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -9976,7 +10276,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -9996,7 +10296,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">2</property>
+                           </packing>
+                         </child>
+@@ -10014,7 +10314,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10029,7 +10329,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -10068,7 +10368,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">3</property>
+                           </packing>
+                         </child>
+@@ -10081,7 +10381,7 @@
+                           <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10119,7 +10419,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10143,7 +10443,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -10169,7 +10469,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10193,7 +10493,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -10203,8 +10503,9 @@
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
++                            <property name="toolbar-style">both</property>
+                             <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnReviewDeleteNote">
+                                 <property name="visible">True</property>
+@@ -10218,8 +10519,9 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -10258,7 +10560,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">2</property>
+                           </packing>
+                         </child>
+@@ -10271,7 +10573,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10313,7 +10615,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10399,7 +10701,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">3</property>
+                           </packing>
+                         </child>
+@@ -10429,7 +10731,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10458,7 +10760,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10517,7 +10819,7 @@
+                           <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -10562,8 +10864,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbView">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <property name="vexpand">True</property>
+                     <child>
+                       <object class="GtkGrid" id="gdViewWorkbook">
+@@ -10589,7 +10889,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">3</property>
+                           </packing>
+                         </child>
+@@ -10620,7 +10920,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10650,7 +10950,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10678,7 +10978,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10690,7 +10990,7 @@
+                           <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -10729,8 +11029,8 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
+-                            <property name="width">5</property>
++                            <property name="top-attach">3</property>
++                            <property name="width">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10740,9 +11040,9 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">5</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10817,8 +11117,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">0</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10844,7 +11144,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+-                            <property name="top-attach">1</property>
++                            <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10866,8 +11166,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10889,8 +11189,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">2</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -10912,7 +11212,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -10937,7 +11237,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+@@ -10963,9 +11263,9 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
++                            <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -11004,7 +11304,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">4</property>
+                           </packing>
+                         </child>
+@@ -11032,7 +11332,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11059,7 +11359,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11109,7 +11409,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11144,7 +11444,7 @@
+                           <packing>
+                             <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -11183,7 +11483,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">3</property>
+                           </packing>
+                         </child>
+@@ -11211,9 +11511,9 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">0</property>
++                            <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11237,7 +11537,7 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+@@ -11247,8 +11547,9 @@
+                             <property name="can-focus">True</property>
+                             <property name="valign">center</property>
+                             <property name="vexpand">True</property>
+-                            <property name="toolbar-style">both-horiz</property>
++                            <property name="toolbar-style">both</property>
+                             <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
+                             <child>
+                               <object class="GtkToolButton" id="btnHstNewWindow15">
+                                 <property name="visible">True</property>
+@@ -11263,8 +11564,9 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11288,7 +11590,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+-                            <property name="top-attach">0</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11312,7 +11614,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+-                            <property name="top-attach">1</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11324,7 +11626,7 @@
+                           <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -11396,7 +11698,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">4</property>
+                           </packing>
+                         </child>
+@@ -11424,7 +11726,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11452,7 +11754,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11526,7 +11828,7 @@
+                           <packing>
+                             <property name="left-attach">3</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11538,7 +11840,7 @@
+                           <packing>
+                             <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -11582,8 +11884,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbExtension">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <property name="vexpand">True</property>
+                     <child>
+                       <!-- HST Office: authored Extensions tab (layout A). Large buttons, 32 px icon and two-line label, for
+@@ -11616,7 +11916,8 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
++                            <property name="width">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11646,7 +11947,85 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstExtSortByGivenName">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstSortByGivenName">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Sắp xếp theo tên</property>
++                                <property name="tooltip-text">Sắp xếp danh sách theo tên, không theo họ</property>
++                                <property name="action-name">org.hst.office.vi:SortByGivenName</property>
++                                <property name="icon-name">cmd/32/sortbygivenname.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstExtSplitName">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstSplitName">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Tách họ tên</property>
++                                <property name="tooltip-text">Tách họ và tên thành các cột riêng</property>
++                                <property name="action-name">org.hst.office.vi:SplitName</property>
++                                <property name="icon-name">cmd/32/splitname.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstExtRemoveDiacritics">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="toolbar-style">both-horiz</property>
++                            <property name="show-arrow">False</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstRemoveDiacritics">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Bỏ dấu</property>
++                                <property name="tooltip-text">Bỏ dấu tiếng Việt trong vùng chọn</property>
++                                <property name="action-name">org.hst.office.vi:RemoveDiacritics</property>
++                                <property name="icon-name">cmd/32/removediacritics.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11656,9 +12035,9 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -11699,7 +12078,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11712,13 +12091,13 @@
+                             <property name="show-arrow">False</property>
+                             <property name="icon_size">5</property>
+                             <child>
+-                              <object class="GtkMenuToolButton" id="btnExtensionHstFormatDate">
++                              <object class="GtkToolButton" id="btnExtensionHstFormatVnd">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="label">Định dạng&#10;ngày tháng</property>
+-                                <property name="tooltip-text">Định dạng ngày tháng dd/mm/yyyy; mũi tên: các kiểu ngày khác</property>
+-                                <property name="action-name">org.hst.office.vi:FormatDate</property>
+-                                <property name="icon-name">cmd/32/formatdate.png</property>
++                                <property name="label">Tiền&#10;VND</property>
++                                <property name="tooltip-text">Định dạng tiền VND</property>
++                                <property name="action-name">org.hst.office.vi:FormatVnd</property>
++                                <property name="icon-name">cmd/32/formatvnd.png</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+@@ -11726,13 +12105,13 @@
+                               </packing>
+                             </child>
+                             <child>
+-                              <object class="GtkToolButton" id="btnExtensionHstFormatVnd">
++                              <object class="GtkMenuToolButton" id="btnExtensionHstFormatDate">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="label">Tiền&#10;VND</property>
+-                                <property name="tooltip-text">Định dạng tiền VND</property>
+-                                <property name="action-name">org.hst.office.vi:FormatVnd</property>
+-                                <property name="icon-name">cmd/32/formatvnd.png</property>
++                                <property name="label">Định dạng&#10;ngày tháng</property>
++                                <property name="tooltip-text">Định dạng ngày tháng dd/mm/yyyy; mũi tên: các kiểu ngày khác</property>
++                                <property name="action-name">org.hst.office.vi:FormatDate</property>
++                                <property name="icon-name">cmd/32/formatdate.png</property>
+                               </object>
+                               <packing>
+                                 <property name="expand">False</property>
+@@ -11757,7 +12136,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11769,7 +12148,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -11810,7 +12189,8 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
++                            <property name="width">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11840,7 +12220,37 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="sfxlo-NotebookbarToolBox" id="bxHstExtDeleteBlankRows">
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="valign">center</property>
++                            <property name="vexpand">True</property>
++                            <property name="toolbar-style">both</property>
++                            <property name="show-arrow">False</property>
++                            <property name="icon_size">3</property>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstDeleteBlankRows">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Xóa dòng&#10;trống</property>
++                                <property name="tooltip-text">Xóa các dòng trống trong vùng chọn</property>
++                                <property name="action-name">org.hst.office.vi:DeleteBlankRows</property>
++                                <property name="icon-name">cmd/32/deleteblankrows.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11850,9 +12260,9 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">1</property>
++                            <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -11893,7 +12303,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -11920,62 +12330,6 @@
+                               </packing>
+                             </child>
+                             <child>
+-                              <object class="GtkToolButton" id="btnExtensionHstRemoveDiacritics">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="label">Bỏ&#10;dấu</property>
+-                                <property name="tooltip-text">Bỏ dấu tiếng Việt trong vùng chọn</property>
+-                                <property name="action-name">org.hst.office.vi:RemoveDiacritics</property>
+-                                <property name="icon-name">cmd/32/removediacritics.png</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">False</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnExtensionHstSplitName">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="label">Tách&#10;họ tên</property>
+-                                <property name="tooltip-text">Tách họ và tên thành các cột riêng</property>
+-                                <property name="action-name">org.hst.office.vi:SplitName</property>
+-                                <property name="icon-name">cmd/32/splitname.png</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">False</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnExtensionHstSortByGivenName">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="label">Sắp xếp&#10;theo tên</property>
+-                                <property name="tooltip-text">Sắp xếp danh sách theo tên, không theo họ</property>
+-                                <property name="action-name">org.hst.office.vi:SortByGivenName</property>
+-                                <property name="icon-name">cmd/32/sortbygivenname.png</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">False</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+-                              <object class="GtkToolButton" id="btnExtensionHstDeleteBlankRows">
+-                                <property name="visible">True</property>
+-                                <property name="can-focus">False</property>
+-                                <property name="label">Xóa dòng&#10;trống</property>
+-                                <property name="tooltip-text">Xóa các dòng trống trong vùng chọn</property>
+-                                <property name="action-name">org.hst.office.vi:DeleteBlankRows</property>
+-                                <property name="icon-name">cmd/32/deleteblankrows.png</property>
+-                              </object>
+-                              <packing>
+-                                <property name="expand">False</property>
+-                                <property name="homogeneous">False</property>
+-                              </packing>
+-                            </child>
+-                            <child>
+                               <object class="GtkToolButton" id="btnExtensionHstConvertEncoding">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+@@ -11993,7 +12347,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12005,7 +12359,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -12046,7 +12400,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12072,11 +12426,25 @@
+                                 <property name="homogeneous">False</property>
+                               </packing>
+                             </child>
++                            <child>
++                              <object class="GtkToolButton" id="btnExtensionHstSetupUsbToken">
++                                <property name="visible">True</property>
++                                <property name="can-focus">False</property>
++                                <property name="label">Thiết lập&#10;USB Token</property>
++                                <property name="tooltip-text">Thiết lập USB Token để ký số</property>
++                                <property name="action-name">org.hst.office.vi:SetupUsbToken</property>
++                                <property name="icon-name">cmd/32/signature.png</property>
++                              </object>
++                              <packing>
++                                <property name="expand">False</property>
++                                <property name="homogeneous">False</property>
++                              </packing>
++                            </child>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12088,7 +12456,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -12128,7 +12496,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
++                            <property name="top-attach">3</property>
+                             <property name="width">2</property>
+                           </packing>
+                         </child>
+@@ -12156,7 +12524,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12183,7 +12551,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12195,7 +12563,7 @@
+                           <packing>
+                             <property name="left-attach">2</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -12236,8 +12604,8 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">2</property>
+-                            <property name="width">6</property>
++                            <property name="top-attach">3</property>
++                            <property name="width">5</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12268,7 +12636,7 @@
+                           <packing>
+                             <property name="left-attach">0</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12296,7 +12664,7 @@
+                           <packing>
+                             <property name="left-attach">1</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12366,8 +12734,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">3</property>
+-                            <property name="top-attach">0</property>
++                            <property name="left-attach">2</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12391,7 +12759,7 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">3</property>
+-                            <property name="top-attach">1</property>
++                            <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12424,8 +12792,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
+-                            <property name="top-attach">0</property>
++                            <property name="left-attach">3</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12459,8 +12827,8 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">4</property>
+-                            <property name="top-attach">1</property>
++                            <property name="left-attach">3</property>
++                            <property name="top-attach">2</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12486,9 +12854,9 @@
+                             </child>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">5</property>
++                            <property name="left-attach">4</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">2</property>
++                            <property name="height">3</property>
+                           </packing>
+                         </child>
+                         <child>
+@@ -12498,9 +12866,9 @@
+                             <property name="orientation">vertical</property>
+                           </object>
+                           <packing>
+-                            <property name="left-attach">6</property>
++                            <property name="left-attach">5</property>
+                             <property name="top-attach">0</property>
+-                            <property name="height">3</property>
++                            <property name="height">4</property>
+                           </packing>
+                         </child>
+                         <accessibility>
+@@ -12519,8 +12887,6 @@
+                       <object class="sfxlo-PriorityMergedHBox" id="pmhbExtensionAddons">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+-                        <property name="margin-top">2</property>
+-                        <property name="margin-bottom">2</property>
+                         <property name="vexpand">True</property>
+                         <child>
+                           <object class="NotebookBarAddonsToolMergePoint" id="AddonCommand">
+@@ -12658,8 +13024,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbphbTableDesign">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <property name="vexpand">True</property>
+                     <child>
+                       <object class="GtkGrid" id="gdTableDesignMain">
+@@ -13538,8 +13902,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmbhImage">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <property name="vexpand">True</property>
+                     <child>
+                       <!-- n-columns=4 n-rows=3 -->
+@@ -14687,8 +15049,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbphbChartDesign">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <property name="vexpand">True</property>
+                     <child>
+                       <object class="GtkGrid" id="gdChartDataDesign">
+@@ -15160,8 +15520,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbphbChartFormat">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <property name="vexpand">True</property>
+                     <child>
+                       <object class="GtkGrid" id="gdChartFormatFormat">
+@@ -15560,8 +15918,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbDraw">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <property name="vexpand">True</property>
+                     <child>
+                       <!-- n-columns=3 n-rows=3 -->
+@@ -16655,8 +17011,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbObject">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <property name="vexpand">True</property>
+                     <child>
+                       <!-- n-columns=3 n-rows=3 -->
+@@ -17397,8 +17751,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbMedia">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <property name="vexpand">True</property>
+                     <child>
+                       <!-- n-columns=5 n-rows=3 -->
+@@ -17926,8 +18278,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbPrint">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <property name="vexpand">True</property>
+                     <child>
+                       <!-- n-columns=3 n-rows=3 -->
+@@ -18378,8 +18728,6 @@
+                   <object class="sfxlo-PriorityMergedHBox" id="pmhbForm">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-top">2</property>
+-                    <property name="margin-bottom">2</property>
+                     <property name="vexpand">True</property>
+                     <child>
+                       <!-- n-columns=3 n-rows=3 -->
+--- a/sc/source/ui/drawfunc/fuins2.cxx
++++ b/sc/source/ui/drawfunc/fuins2.cxx
+@@ -55,6 +55,9 @@
+ #include <com/sun/star/beans/PropertyValue.hpp>
+ #include <com/sun/star/chart2/data/XDataReceiver.hpp>
+ #include <com/sun/star/chart2/XChartDocument.hpp>
++#include <algorithm>
++#include <iterator>
++#include <string_view>
+ #include <com/sun/star/chart2/XChartTypeTemplate.hpp>
+ #include <com/sun/star/lang/XMultiServiceFactory.hpp>
+ #include <com/sun/star/ui/dialogs/XAsynchronousExecutableDialog.hpp>
+@@ -84,11 +87,24 @@
+ namespace
+ {
+ 
+-/// HST Office: the ribbon's chart buttons (ChartType=Column, Line or Pie) give the new chart that type before
++/// HST Office: the chart types of the ribbon's Insert ▸ Charts drop-downs (chart2 template names, as in
++/// chart2/source/model/template/ChartTypeManager.cxx), only types the chart wizard offers: Column or Bar, Line or
++/// Area, Pie or Doughnut, Scatter or Bubble, Stock or Radar, Combo
++constexpr std::u16string_view HST_CHART_TYPES[]
++    = { u"Column", u"StackedColumn", u"PercentStackedColumn", u"ThreeDColumnDeep", u"Bar", u"StackedBar",
++        u"PercentStackedBar", u"Line", u"LineSymbol", u"StackedLine", u"Area", u"StackedArea",
++        u"PercentStackedArea", u"Pie", u"PieOfPie", u"BarOfPie", u"PieAllExploded", u"ThreeDPie", u"Donut",
++        u"ScatterSymbol",
++        u"ScatterLineSymbol", u"ScatterLine", u"Bubble", u"StockLowHighClose", u"StockOpenLowHighClose",
++        u"Net", u"NetSymbol", u"FilledNet", u"ColumnWithLine", u"StackedColumnWithLine" };
++
++/// HST Office: the ribbon's chart buttons (ChartType=one of HST_CHART_TYPES) give the new chart that type before
+ /// the wizard opens, so the wizard starts on it; any other value keeps the default.
+ void lcl_HstSetChartType(const uno::Reference<chart2::XChartDocument>& xChartDoc, const OUString& rType)
+ {
+-    if (!xChartDoc.is() || (rType != "Column" && rType != "Line" && rType != "Pie"))
++    if (!xChartDoc.is()
++        || std::none_of(std::begin(HST_CHART_TYPES), std::end(HST_CHART_TYPES),
++                        [&rType](std::u16string_view aType) { return rType == aType; }))
+         return;
+     try
+     {
+--- a/sc/sdi/tabvwsh.sdi
++++ b/sc/sdi/tabvwsh.sdi
+@@ -69,7 +69,8 @@
+     SfxVoidItem InsertObjectChart SID_INSERT_DIAGRAM
+     (
+         SfxBoolItem InNewTable FN_PARAM_4,
+-        SfxStringItem RangeList FN_PARAM_5
++        SfxStringItem RangeList FN_PARAM_5,
++        SfxStringItem ChartType FN_PARAM_6
+     )
+     [
+         ExecMethod = ExecDrawIns ;
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -40336,3 +40336,219 @@
+ msgctxt "hsttextnumberbutton|options"
+ msgid "Error Checking _Options..."
+ msgstr "Tùy chọn _kiểm tra lỗi"
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeTip"
++msgid "Insert Column or Bar Chart"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Clustered Column"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Stacked Column"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "100% Stacked Column"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "3-D Column"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Clustered Bar"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Stacked Bar"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "100% Stacked Bar"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeTip"
++msgid "Insert Line or Area Chart"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Line"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Line with Markers"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Stacked Line"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Area"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Stacked Area"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "100% Stacked Area"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeTip"
++msgid "Insert Pie or Doughnut Chart"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Pie"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Pie of Pie"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Bar of Pie"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Exploded Pie"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "3-D Pie"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Doughnut"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeTip"
++msgid "Insert Scatter (X, Y) or Bubble Chart"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Scatter"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Scatter with Lines and Markers"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Scatter with Straight Lines"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Bubble"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeTip"
++msgid "Insert Stock or Radar Chart"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "High-Low-Close"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Open-High-Low-Close"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Radar"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Radar with Markers"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Filled Radar"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeTip"
++msgid "Insert Combo Chart"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Clustered Column - Line"
++msgstr ""
++
++#. hstChartType
++#: sc/uiconfig/scalc/ui/notebookbar.ui
++msgctxt "TabbedCalc|hstChartTypeItem"
++msgid "Stacked Column - Line"
++msgstr ""

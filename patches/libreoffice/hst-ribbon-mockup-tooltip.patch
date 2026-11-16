@@ -1,0 +1,353 @@
+HST Office: the ribbon tooltips of the reference design (1.0.2) and the toolbar strings.
+
+- Place: a ribbon tip (QuickHelpFlags::RichTitle) hangs 2 px under the ribbon's bottom edge (the notebookbar, or
+  the popup that shows part of it: the compact ribbon's dropped page, an unfolded group), its left edge at the
+  button's and at least 4 px inside the document window, instead of next to the pointer over the group captions;
+  a tip of the tab row hangs under the tab row. With no room under it, it goes above the button. Lengths follow
+  the display scale. Such a tip is always VCL's HelpTextWindow, also on gtk3, whose native tooltips follow the
+  pointer; on a toolkit that places popups itself (Wayland) its frame is positioned by the toolkit at that point
+  (SalFrame::PositionByToolkit, as menus are), and it is made anew for another button rather than moved.
+- Look: a light card with the theme's menu colours and a grey border (dark in a dark theme), not the system
+  tooltip look.
+- Width: at most 300 px with its margins; the description wraps, a wider title keeps its width.
+- Menu buttons ("Wrap Text ▾", tip "label\ndescription") and folded groups' buttons of the ribbon get the same tip,
+  first line in bold (Help::ShowQuickHelp upgrades their plain tip).
+- Title: where an app's design names a command differently from its label ("app_titles" of
+  data/ribbon/tooltip-descriptions.json, table aHstRibbonTitles of hst-ribbon-tooltip-descriptions.patch), the bold
+  line is that name and the command's shortcut in brackets; the .ui's or the table's sentence stays under it.
+- The delay stays HelpSettings::GetTipDelay() (500 ms; the design's 450 ms is within its ±100 ms tolerance).
+- STR_HST_RIBBON_PIN: "Pin the Toolbar (Ctrl+F1)", the pin button of the compact ribbon's dropped page
+  (hst-ribbon-mockup-compact.patch), with its Vietnamese translation. User-facing Vietnamese text says
+  "thanh công cụ", never "ribbon"; the vi text of the other ribbon strings is set in l10n/vi-overrides.jsonl.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/include/sfx2/strings.hrc
++++ b/include/sfx2/strings.hrc
+@@ -301,6 +301,8 @@
+ #define STR_NEW_FROM_TEMPLATE                   NC_("STR_NEW_FROM_TEMPLATE", "New From Template")
+ #define STR_REPAIREDDOCUMENT                    NC_("STR_REPAIREDDOCUMENT", " (repaired document)")
+ #define STR_NONCHECKEDOUT_DOCUMENT              NC_("STR_NONCHECKEDOUT_DOCUMENT", "This document is not checked out on the server.")
++// HST Office: the pin button of the compact ribbon's dropped page: keep the full ribbon shown
++#define STR_HST_RIBBON_PIN                      NC_("STR_HST_RIBBON_PIN", "Pin the Toolbar (Ctrl+F1)")
+ #define STR_GET_INVOLVED_TEXT                   NC_("STR_GET_INVOLVED_TEXT", "Help us make %PRODUCTNAME even better!")
+ #define STR_GET_INVOLVED_BUTTON                 NC_("STR_GET_INVOLVED_BUTTON", "Get involved")
+ #define STR_DONATE_TEXT                         NC_("STR_DONATE_TEXT", "Support the development of %PRODUCTNAME.")
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -1572,6 +1572,12 @@
+ msgid "This document is not checked out on the server."
+ msgstr "Tài liệu này chưa được kiểm xuất trên máy chủ."
+ 
++#. hstRibbonPin
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_RIBBON_PIN"
++msgid "Pin the Toolbar (Ctrl+F1)"
++msgstr "Ghim thanh công cụ (Ctrl+F1)"
++
+ #. uPc29
+ #: include/sfx2/strings.hrc:285
+ msgctxt "STR_GET_INVOLVED_TEXT"
+--- a/sfx2/source/notebookbar/HstRibbonTooltip.cxx
++++ b/sfx2/source/notebookbar/HstRibbonTooltip.cxx
+@@ -33,10 +33,11 @@
+     return 0;
+ }
+ 
+-const HstRibbonTip* Find(std::u16string_view rCommand, sal_uInt8 nApp)
++template <size_t N>
++const HstRibbonTip* Find(const HstRibbonTip (&rTable)[N], std::u16string_view rCommand, sal_uInt8 nApp)
+ {
+     const HstRibbonTip* pCommon = nullptr;
+-    for (const HstRibbonTip& rTip : aHstRibbonTips)
++    for (const HstRibbonTip& rTip : rTable)
+     {
+         if (rCommand != rTip.pCommand)
+             continue;
+@@ -49,15 +50,39 @@
+ }
+ }
+ 
+-OUString GetTooltipDescription(std::u16string_view rModule, std::u16string_view rCommand)
++namespace
++{
++// the entry of rTable for rCommand in the module rModule: for the exact call first (".uno:StyleApply?Style:string=..."),
++// then for the command
++template <size_t N>
++OUString Lookup(const HstRibbonTip (&rTable)[N], std::u16string_view rModule, std::u16string_view rCommand)
+ {
+     const sal_uInt8 nApp = AppBit(rModule);
+-    const HstRibbonTip* pTip = Find(rCommand, nApp);
+-    // ".uno:StyleApply?Style:string=..." etc.: a sentence for the exact call first, then for the command
++    const HstRibbonTip* pTip = Find(rTable, rCommand, nApp);
+     const size_t nArgs = rCommand.find(u'?');
+     if (pTip == nullptr && nArgs != std::u16string_view::npos)
+-        pTip = Find(rCommand.substr(0, nArgs), nApp);
+-    return pTip ? SfxResId(pTip->aText) : OUString();
++        pTip = Find(rTable, rCommand.substr(0, nArgs), nApp);
++    return pTip && pTip->aText ? SfxResId(pTip->aText) : OUString();
++}
++}
++
++OUString GetTooltipDescription(std::u16string_view rModule, std::u16string_view rCommand)
++{
++    return Lookup(aHstRibbonTips, rModule, rCommand);
++}
++
++namespace
++{
++// "Name (Shortcut)" with an app's short name from the table (the reference design), else the toolbox's first line
++OUString TitleLine(const OUString& rFirstLine, std::u16string_view rModule, const OUString& rCommand,
++                   const css::uno::Reference<css::frame::XFrame>& rxFrame)
++{
++    const OUString aName = Lookup(aHstRibbonTitles, rModule, rCommand);
++    if (aName.isEmpty())
++        return rFirstLine;
++    const OUString aShortcut = vcl::CommandInfoProvider::GetCommandShortcut(rCommand, rxFrame);
++    return aShortcut.isEmpty() ? aName : OUString(aName + " (" + aShortcut + ")");
++}
+ }
+ 
+ bool RequestRichHelp(ToolBox& rToolBox, const HelpEvent& rHEvt,
+@@ -86,13 +111,20 @@
+         aText = MnemonicGenerator::EraseAllMnemonicChars(rToolBox.GetItemText(nItemId)).replace('\n', ' ');
+     if (aText.isEmpty())
+         return false;
+-    // a second line already set by the .ui (hst-ribbon-description) wins over the table
+-    if (aText.indexOf('\n') < 0 && rxFrame.is())
++    if (rxFrame.is())
+     {
+-        const OUString aDescription = GetTooltipDescription(
+-            vcl::CommandInfoProvider::GetModuleIdentifier(rxFrame), rToolBox.GetItemCommand(nItemId));
+-        if (!aDescription.isEmpty())
+-            aText += "\n" + aDescription;
++        const OUString aModule = vcl::CommandInfoProvider::GetModuleIdentifier(rxFrame);
++        const OUString aCommand = rToolBox.GetItemCommand(nItemId);
++        const sal_Int32 nBreak = aText.indexOf('\n');
++        aText = TitleLine(nBreak < 0 ? aText : aText.copy(0, nBreak), aModule, aCommand, rxFrame)
++                + (nBreak < 0 ? OUString() : aText.copy(nBreak));
++        // a second line already set by the .ui (hst-ribbon-description) wins over the table
++        if (nBreak < 0)
++        {
++            const OUString aDescription = GetTooltipDescription(aModule, aCommand);
++            if (!aDescription.isEmpty())
++                aText += "\n" + aDescription;
++        }
+     }
+     const tools::Rectangle aScreenRect(rToolBox.OutputToScreenPixel(aItemRect.TopLeft()),
+                                        rToolBox.OutputToScreenPixel(aItemRect.BottomRight()));
+--- a/vcl/source/app/help.cxx
++++ b/vcl/source/app/help.cxx
+@@ -30,19 +30,25 @@
+ #include <vcl/wrkwin.hxx>
+ #include <vcl/help.hxx>
+ #include <vcl/settings.hxx>
++#include <vcl/notebookbar/notebookbar.hxx>
++#include <vcl/tabctrl.hxx>
++#include <vcl/tabpage.hxx>
+ 
+ #include <helpwin.hxx>
+ 
+ #include <algorithm>
++#include <cmath>
++#include <optional>
+ #include <utility>
+ #include <salframe.hxx>
+ #include <svdata.hxx>
+ 
+-// HST Office: a ribbon tip (RichTitle) in a dark theme takes the theme's menu colours instead of the system tooltip
+-// look, which stays light on Windows
+-static bool ImplIsRichDark(QuickHelpFlags nStyle, const StyleSettings& rStyleSettings)
++// HST Office: a ribbon tip (RichTitle) takes the theme's menu colours (the reference design: a light card with a grey
++// border, dark in a dark theme) instead of the system tooltip look, whose text colour does not always match the
++// native tooltip background VCL draws (gtk3)
++static bool ImplIsRichDark(QuickHelpFlags nStyle, const StyleSettings& /*rStyleSettings*/)
+ {
+-    return (nStyle & QuickHelpFlags::RichTitle) && rStyleSettings.GetFaceColor().IsDark();
++    return bool(nStyle & QuickHelpFlags::RichTitle);
+ }
+ 
+ #define HELPTEXTMARGIN_QUICK    3
+@@ -50,6 +56,92 @@
+ 
+ #define HELPTEXTMAXLEN        100
+ 
++namespace
++{
++// HST Office: where a ribbon tip goes (the reference design: under the ribbon, not next to the pointer over the
++// group captions). A tip of the ribbon hangs RIBBON_TIP_GAP px under the ribbon's bottom edge with its left edge
++// at the button's, at least RIBBON_TIP_INSET px inside the document window; a tip of the tab row (tabs, search box,
++// chevron) hangs under the tab row; a tip in a popup that shows part of the ribbon (the compact ribbon's dropped
++// page, an unfolded group) hangs under that popup. Lengths are at 100 % and follow the display scale.
++constexpr tools::Long RIBBON_TIP_GAP = 2;
++constexpr tools::Long RIBBON_TIP_INSET = 4;
++// widest tip: wider titles keep their width, descriptions wrap
++constexpr tools::Long RIBBON_TIP_MAX_WIDTH = 300;
++
++struct RibbonTipPlace
++{
++    AbsoluteScreenPixelPoint maTopLeft; // where the tip's top left corner goes
++    AbsoluteScreenPixelRectangle maBounds; // the document window
++};
++
++tools::Long Scaled(const vcl::Window& rWindow, tools::Long nPixels)
++{
++    return std::lround(nPixels * rWindow.GetDPIScaleFactor());
++}
++
++AbsoluteScreenPixelRectangle AbsoluteRect(const vcl::Window& rWindow)
++{
++    const Size aSize(rWindow.GetOutputSizePixel());
++    return AbsoluteScreenPixelRectangle(rWindow.OutputToAbsoluteScreenPixel(Point()),
++                                        AbsoluteScreenPixelSize(aSize.Width(), aSize.Height()));
++}
++
++/// The place of the tip of an item of the ribbon; rArea is the item in the coordinates of pParent's frame (as
++/// Help::ShowQuickHelp has it). False when pParent is not in a notebookbar or the layout is right to left: the tip
++/// then goes where VCL puts any tip.
++bool ImplRibbonTipPlace(vcl::Window* pParent, const tools::Rectangle& rArea, RibbonTipPlace& rPlace)
++{
++    if (!pParent || rArea.IsEmpty() || AllSettings::GetLayoutRTL())
++        return false;
++    std::optional<tools::Long> oEdge; // the bottom edge the tip hangs from, absolute
++    bool bInPage = false;
++    for (vcl::Window* pWin = pParent; pWin; pWin = pWin->GetParent())
++    {
++        if (pWin->GetType() == WindowType::TABPAGE)
++            bInPage = true;
++        if (NotebookBar* pBar = dynamic_cast<NotebookBar*>(pWin))
++        {
++            if (!oEdge)
++                oEdge = AbsoluteRect(*pBar).Bottom() + 1;
++            vcl::Window* pDocument = pBar->ImplGetFrameWindow();
++            rPlace.maBounds = AbsoluteRect(pDocument ? *pDocument : *pBar);
++            const vcl::Window* pFrame = pParent->ImplGetFrameWindow();
++            rPlace.maTopLeft = AbsoluteScreenPixelPoint(pFrame->OutputToAbsoluteScreenPixel(rArea.TopLeft()).X(),
++                                                        *oEdge + Scaled(*pParent, RIBBON_TIP_GAP));
++            return true;
++        }
++        if (oEdge)
++            continue;
++        if (pWin->IsSystemWindow()) // a popup showing part of the ribbon: its outer edge
++        {
++            vcl::Window* pFrame = pWin->ImplGetFrameWindow();
++            oEdge = AbsoluteRect(pFrame ? *pFrame : *pWin).Bottom() + 1;
++        }
++        else if (TabControl* pTabs = !bInPage ? dynamic_cast<TabControl*>(pWin) : nullptr)
++        {
++            // an item of the tab row: under the row, i.e. at the top of the shown page (none in the compact
++            // ribbon, whose tab row items then hang under the quick command row like the rest)
++            const TabPage* pPage = pTabs->GetTabPage(pTabs->GetCurPageId());
++            if (pPage && pPage->IsReallyVisible())
++                oEdge = pPage->OutputToAbsoluteScreenPixel(Point()).Y();
++        }
++    }
++    return false;
++}
++
++/// A button of the ribbon with a plain tip (a menu button "Wrap Text ▾" whose tip is "label\ndescription", a
++/// folded group's button): it gets the ribbon's tip too, the first line in bold.
++bool ImplIsRibbonButton(vcl::Window* pParent, const tools::Rectangle& rArea, QuickHelpFlags nStyle)
++{
++    if (nStyle & (QuickHelpFlags::RichTitle | QuickHelpFlags::NoAutoPos | QuickHelpFlags::TipStyleBalloon))
++        return false;
++    const WindowType eType = pParent ? pParent->GetType() : WindowType::NONE;
++    RibbonTipPlace aPlace;
++    return (eType == WindowType::MENUBUTTON || eType == WindowType::PUSHBUTTON)
++           && ImplRibbonTipPlace(pParent, rArea, aPlace);
++}
++}
++
+ static void ImplShowHelpWindow(vcl::Window* pParent, HelpWinStyle eHelpWinStyle,
+                                QuickHelpFlags nStyle, const OUString& rHelpText,
+                                const Point& rScreenPos, const tools::Rectangle& rHelpArea);
+@@ -187,6 +279,8 @@
+                           const OUString& rHelpText,
+                           QuickHelpFlags nStyle )
+ {
++    if (ImplIsRibbonButton(pParent, rScreenRect, nStyle))
++        nStyle = (nStyle & ~QuickHelpFlags::CtrlText) | QuickHelpFlags::RichTitle;
+     HelpWinStyle eHelpWinStyle = (nStyle & QuickHelpFlags::TipStyleBalloon) ? HelpWinStyle::Balloon : HelpWinStyle::Quick;
+     Point aScreenPos = nStyle & QuickHelpFlags::NoAutoPos
+                            ? Point()
+@@ -427,12 +521,15 @@
+         const tools::Long nOneLine = rDev.GetTextWidth(OUString::Concat(RepeatedUChar('x', 60)));
+         // one line when short, or when the title is nearly as wide (two lines would leave an orphan word)
+         const bool bOneLine = nBodyWidth <= nOneLine || nBodyWidth <= nTitleWidth * 5 / 4;
+-        tools::Long nWrap = std::max(nTitleWidth, bOneLine ? nBodyWidth : nBodyWidth * 11 / 20);
++        // at most RIBBON_TIP_MAX_WIDTH wide with the margins, unless the title alone is wider
++        const tools::Long nMax = std::max(
++            nTitleWidth, Scaled(*this, RIBBON_TIP_MAX_WIDTH) - 2 * HELPTEXTMARGIN_BALLOON);
++        tools::Long nWrap = std::min(nMax, std::max(nTitleWidth, bOneLine ? nBodyWidth : nBodyWidth * 11 / 20));
+         tools::Rectangle aBodyRect;
+-        for (int nTry = 0; nTry < 4; ++nTry, nWrap += nWrap / 10)
++        for (int nTry = 0; nTry < 4; ++nTry, nWrap = std::min(nMax, nWrap + nWrap / 10))
+         {
+             aBodyRect = rDev.GetTextRect(tools::Rectangle(Point(), Size(nWrap, 0x7FFFFFFF)), aBody, RICH_BODY_FLAGS);
+-            if (aBodyRect.GetHeight() <= 2 * rDev.GetTextHeight())
++            if (aBodyRect.GetHeight() <= 2 * rDev.GetTextHeight() || nWrap >= nMax)
+                 break;
+         }
+         mnRichTitleHeight = nTitleHeight + nTitleHeight / 3;
+@@ -581,10 +678,16 @@
+                                QuickHelpFlags nStyle, const OUString& rHelpText,
+                                const Point& rScreenPos, const tools::Rectangle& rHelpArea)
+ {
+-    // HST Office: a ribbon tooltip (RichTitle) has its first line in bold, natively where the back end can
+-    const bool bNative = (nStyle & QuickHelpFlags::RichTitle)
+-                             ? pParent->ImplGetFrame()->ShowRichTooltip(rHelpText, rHelpArea)
+-                             : pParent->ImplGetFrame()->ShowTooltip(rHelpText, rHelpArea);
++    // HST Office: a ribbon tooltip (RichTitle) has its first line in bold, natively where the back end can; one
++    // that goes under the ribbon is always VCL's own window: native tips (gtk3) follow the pointer
++    RibbonTipPlace aPlace;
++    const bool bPlaced = (nStyle & QuickHelpFlags::RichTitle) && ImplRibbonTipPlace(pParent, rHelpArea, aPlace);
++    if (bPlaced)
++        pParent->ImplGetFrame()->ShowTooltip(OUString(), rHelpArea); // hide a native tip still shown
++    const bool bNative = !bPlaced
++                         && ((nStyle & QuickHelpFlags::RichTitle)
++                                 ? pParent->ImplGetFrame()->ShowRichTooltip(rHelpText, rHelpArea)
++                                 : pParent->ImplGetFrame()->ShowTooltip(rHelpText, rHelpArea));
+     if (bNative)
+     {
+         //tooltips are handled natively, return early
+@@ -601,8 +704,11 @@
+     {
+         SAL_WARN_IF( pHelpWin == pParent, "vcl", "HelpInHelp ?!" );
+ 
++        // a tip under the ribbon is made anew for another button: a toolkit that places popups itself
++        // (Wayland) does not move a shown one
+         bool bRemoveHelp = (rHelpText.isEmpty() || (pHelpWin->GetWinStyle() != eHelpWinStyle)
+-                            || ((pHelpWin->GetStyle() ^ nStyle) & QuickHelpFlags::RichTitle))
++                            || ((pHelpWin->GetStyle() ^ nStyle) & QuickHelpFlags::RichTitle)
++                            || (bPlaced && pHelpWin->GetHelpArea() != rHelpArea))
+                             && aHelpData.mbRequestingHelp;
+ 
+         if (!bRemoveHelp && pHelpWin->GetParent() == pParent)
+@@ -688,6 +794,27 @@
+     // get mouse screen coords
+     AbsoluteScreenPixelPoint aMousePos(pWindow->OutputToAbsoluteScreenPixel(pWindow->GetPointerPosPixel()));
+ 
++    RibbonTipPlace aPlace;
++    if ((nStyle & QuickHelpFlags::RichTitle) && ImplRibbonTipPlace(pHelpWin->GetParent(), rHelpArea, aPlace))
++    {
++        // HST Office: under the ribbon, left aligned with the button, inside the document window and the screen
++        const tools::Long nInset = Scaled(*pHelpWin, RIBBON_TIP_INSET);
++        tools::Long nX = std::min(aPlace.maTopLeft.X(), aPlace.maBounds.Right() + 1 - nInset - aSz.Width());
++        nX = std::max(nX, aPlace.maBounds.Left() + nInset);
++        nX = std::clamp(nX, aScreenRect.Left(), std::max(aScreenRect.Left(), aScreenRect.Right() - aSz.Width()));
++        tools::Long nY = aPlace.maTopLeft.Y();
++        if (nY + aSz.Height() > aScreenRect.Bottom()) // no room below: above the button instead
++            nY = std::max(aScreenRect.Top(), pWindow->OutputToAbsoluteScreenPixel(rHelpArea.TopLeft()).Y()
++                                                 - aSz.Height() - Scaled(*pHelpWin, RIBBON_TIP_GAP));
++        const Point aPosOut = pWindow->AbsoluteScreenToOutputPixel(AbsoluteScreenPixelPoint(nX, nY));
++        pHelpWin->SetPosPixel(aPosOut);
++        // a toolkit without absolute positions (Wayland) puts the tip's top left corner at the bottom left
++        // corner of this rectangle of the parent frame
++        pHelpWin->ImplGetFrame()->PositionByToolkit(tools::Rectangle(Point(aPosOut.X(), aPosOut.Y() - 1), Size(1, 1)),
++                                                    FloatWinPopupFlags::Down);
++        return;
++    }
++
+     if ( nStyle & QuickHelpFlags::NoAutoPos )
+     {
+         // convert help area to screen coords

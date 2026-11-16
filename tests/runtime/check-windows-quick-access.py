@@ -4,11 +4,12 @@
 check-quick-access.py).
 
 Own session (tests/runtime/windows-own-session-task.ps1; nothing is typed): per app (HST Writer, Sheets, Slides, Draw)
-the defaults Lưu, Hoàn tác, Làm lại; 16 commands set from this UNO client's thread while the window shows (the office
+the six defaults Mới, Mở, Lưu, Hoàn tác, Làm lại, In; 13 more commands set from this UNO client's thread while the window shows (the office
 keeps running: the toolbar's configuration listener takes the SolarMutex); the list survives a restart. Evidence:
 PrintWindow shots of each window (<out>/<app>-*.bmp) and <out>/results.json.
---keys (console session only, under C:\\hst-test\\console-lock.txt): Alt+2 undoes and Alt+3 redoes text typed into
-HST Writer, sent with the gated input to the verified document window only.
+--keys (console session only, under C:\\hst-test\\console-lock.txt): Alt+4 undoes and Alt+5 redoes text typed into
+HST Writer, sent with the gated input to the verified document window only. The KeyTips are positional: Alt+4 undoes
+(Hoàn tác) and Alt+5 redoes (Làm lại), because Mới, Mở, Lưu come first.
 Usage: "<install>\\program\\python.exe" tests/runtime/check-windows-quick-access.py --install DIR --out DIR [--keys]
 """
 import argparse
@@ -21,7 +22,7 @@ if hasattr(sys.stdout, "reconfigure"):
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import windows_gui as wg  # noqa: E402
-from quick_access_config import DEFAULTS, MANY, WRITER, set_commands, shown  # noqa: E402
+from quick_access_config import MANY, UNDO_KEY, REDO_KEY, WRITER, defaults, set_commands, shown  # noqa: E402
 from windows_keytips_keys import VK_ALT, front  # noqa: E402
 
 APPS = {  # app -> (factory, UI configuration module, window title)
@@ -77,12 +78,12 @@ def type_text(hwnd):
 
 
 def keys_undo_redo(office, doc, hwnd, res):
-    """The 2nd and 3rd buttons of the default toolbar (Hoàn tác, Làm lại) from the keyboard: Alt, then the digit (the
+    """The 4th and 5th buttons of the default toolbar (Hoàn tác, Làm lại) from the keyboard: Alt, then the digit (the
     KeyTips), and Alt+digit pressed together; the reference suite takes both."""
-    for label, together in (("Alt, 2", False), ("Alt+2", True)):
+    for label, together in ((f"Alt, {UNDO_KEY}", False), (f"Alt+{UNDO_KEY}", True)):
         front(hwnd)
         type_text(hwnd)
-        for digit, wanted in (("2", False), ("3", True)):
+        for digit, wanted in ((UNDO_KEY, False), (REDO_KEY, True)):
             if together:
                 wg.chord(VK_ALT, ord(digit), target=hwnd, front=False)
             else:
@@ -92,8 +93,8 @@ def keys_undo_redo(office, doc, hwnd, res):
                 wg.chord(ord(digit), target=hwnd, front=False)
             time.sleep(1.5)
             text = text_of(doc)
-            name = "Hoàn tác" if digit == "2" else "Làm lại"
-            res(f"[writer] {label.replace('2', digit)} runs {name}", (TEXT in text) == wanted, repr(text[-40:]))
+            name = "Hoàn tác" if digit == UNDO_KEY else "Làm lại"
+            res(f"[writer] Alt{'+' if together else ', '}{digit} runs {name}", (TEXT in text) == wanted, repr(text[-40:]))
         doc.getText().setString("")
     # control: Ctrl+Z undoes the same edit (else the keys or the undo stack are the problem, not the toolbar)
     type_text(hwnd)
@@ -108,7 +109,7 @@ def main():
     parser.add_argument("--install", required=True)
     parser.add_argument("--out", required=True)
     parser.add_argument("--port", type=int, default=2377)
-    parser.add_argument("--keys", action="store_true", help="also Alt+2/Alt+3 (console session only)")
+    parser.add_argument("--keys", action="store_true", help="also Alt+4/Alt+5 (console session only)")
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
     OUT_DIR[0] = args.out
@@ -125,7 +126,7 @@ def main():
             if not res(f"[{app}] window found", bool(hwnd), APPS[app][2]):
                 continue
             window_shot(hwnd, os.path.join(args.out, f"{app}-defaults.bmp"))
-            res(f"[{app}] defaults Lưu, Hoàn tác, Làm lại", shown(office, APPS[app][1]) == DEFAULTS,
+            res(f"[{app}] defaults Mới, Mở, Lưu, Hoàn tác, Làm lại, In", shown(office, APPS[app][1]) == defaults(APPS[app][1]),
                 shown(office, APPS[app][1]))
             if app == "writer" and args.keys:
                 try:
@@ -137,8 +138,8 @@ def main():
                 time.sleep(4)
                 names = shown(office, WRITER)
                 alive = office.proc.poll() is None
-                res("[writer] 16 commands set from a UNO thread: the office keeps running",
-                    alive and len(names) == len(DEFAULTS) + len(MANY), {"alive": alive, "commands": len(names)})
+                res("[writer] 13 more commands set from a UNO thread: the office keeps running",
+                    alive and len(names) == len(defaults(WRITER)) + len(MANY), {"alive": alive, "commands": len(names)})
                 if alive:
                     window_shot(hwnd, os.path.join(args.out, "writer-16-commands.bmp"))
             if office.proc.poll() is None:

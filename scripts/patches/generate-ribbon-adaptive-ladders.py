@@ -36,6 +36,28 @@ class LadderError(Exception):
     pass
 
 
+# Ribbon 1.0.2 mockup (plan 261115-2225, phase 1, owner default D1): a ladder marked "rule" gets the chain of the
+# mockup's rule from its groups (tab order): (a) the gallery to M, then to S; (b) the other groups to M from the
+# right, the formatting groups last; (c) the same to S; (d) to their buttons from the right, the gallery first,
+# the tab's first group and then the formatting groups last (Font the very last). The fold (least used first,
+# HstRibbonRegrow's priority) is the order of (d).
+GALLERIES = {"gdHomeStyle", "gdHomeStyles", "gdDesignTheme", "gdTransitionsSlide", "gdAnimationsMain"}
+FORMATTING = re.compile(r"Font|Paragraph|Alignment|Number")
+
+
+def rule_chain(groups):
+    galleries = [g for g in groups if g in GALLERIES]
+    formatting = [g for g in reversed(groups) if FORMATTING.search(g) and g not in galleries]
+    formatting.sort(key=lambda g: "Font" in g)  # Font after the other formatting groups
+    others = [g for g in reversed(groups) if g not in galleries and g not in formatting]
+    steps = [[g, s] for s in "MS" for g in galleries]
+    for state in "MS":
+        steps += [[g, state] for g in others + formatting]
+    first = groups[0] if groups[0] in others else None
+    fold = galleries + [g for g in others if g != first] + ([first] if first else []) + formatting
+    return steps + [[g, "C"] for g in fold], fold
+
+
 def replaced(text, data):
     for ladder in data["ladders"]:
         name = f"{ladder['app']}_{re.sub(r'\W', '_', ladder['box'])}"
@@ -43,6 +65,13 @@ def replaced(text, data):
         if not groups:
             raise LadderError(f"no ladder {name} in {HEADER}")
         known = re.findall(r'u"([^"]+)"', groups.group(1))
+        if "groups" in ladder:  # a box whose groups a later patch changes (a new group): the ladder names them
+            known = list(ladder["groups"])
+            line = f"inline constexpr std::u16string_view {name}_groups[] = {{ {', '.join(f'u{chr(34)}{g}{chr(34)}' for g in known)} }};"
+            text = text[:groups.start()] + line + text[groups.end():]
+        if ladder.get("rule"):
+            ladder = dict(ladder)
+            ladder["steps"], ladder["fold"] = rule_chain(known)
         for group, state in ladder["steps"]:
             if group not in known or state not in STATES:
                 raise LadderError(f"{name}: bad step {group!r} {state!r} (groups: {known})")
