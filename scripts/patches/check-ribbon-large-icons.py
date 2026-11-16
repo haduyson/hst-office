@@ -6,7 +6,8 @@ Usage: scripts/patches/check-ribbon-large-icons.py --tree DIR   (a LibreOffice t
 
 A large button is a tool button in a toolbox drawn large (icon_size 3 or 5, or toolbar-style "both"). It breaks
 the rule when its toolbox asks for 32 px images (icon_size 5) or the button names an image other than a 24 px one
-(icon-name not cmd/lc_...). Exit code 0 when every ribbon holds, 1 otherwise, 2 on a usage or read error.
+(icon-name not cmd/lc_...), and when a large menu button (image above its label) shows a GtkImage other than a
+24 px one. Exit code 0 when every ribbon holds, 1 otherwise, 2 on a usage or read error.
 """
 import argparse
 import os
@@ -20,6 +21,7 @@ RIBBONS = {
     "Draw": "sd/uiconfig/sdraw/ui/notebookbar.ui",
 }
 BUTTONS = ("GtkToolButton", "GtkMenuToolButton", "GtkToggleToolButton", "GtkRadioToolButton")
+MENU_BUTTONS = ("svtlo-ManagedMenuButton", "GtkMenuButton")  # large when their image sits above the label
 EXEMPT = {".uno:Paste"}  # Paste keeps its 32 px image, as in the reference suite
 
 
@@ -46,6 +48,14 @@ def violations(root):
         icon = own.get("icon-name")
         if icon and not icon.startswith("cmd/lc_"):
             out.append((button.get("id"), own.get("action-name"), f"names {icon}, not a 24 px cmd/lc_ image"))
+    images = {obj.get("id"): properties(obj) for obj in root.iter("object") if obj.get("class") == "GtkImage"}
+    for button in root.iter("object"):
+        own = properties(button)
+        if button.get("class") not in MENU_BUTTONS or own.get("image-position") != "top":
+            continue
+        icon = images.get(own.get("image"), {}).get("icon-name")
+        if icon and not icon.startswith("cmd/lc_"):
+            out.append((button.get("id"), own.get("image"), f"image {icon}, not a 24 px cmd/lc_ image"))
     return out
 
 

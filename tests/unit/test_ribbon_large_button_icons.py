@@ -42,6 +42,19 @@ class RuleTest(unittest.TestCase):
                       ({"toolbar-style": "icons"}, "GtkToolButton", {"action-name": ".uno:E", "icon-name": "cmd/sc_e.png"}))
         self.assertEqual([button for button, _, _ in large_icons.violations(root)], ["btn1", "btn2", "btn3"])
 
+    def test_large_menu_buttons_show_24px_images(self):
+        root = ET.fromstring(
+            '<interface><object class="GtkImage" id="imgBig"><property name="icon-name">cmd/32/x.png</property></object>'
+            '<object class="GtkImage" id="imgOk"><property name="icon-name">cmd/lc_x.png</property></object>'
+            '<object class="GtkImage" id="imgSmall"><property name="icon-name">cmd/sc_x.png</property></object>'
+            '<object class="svtlo-ManagedMenuButton" id="btnBig"><property name="image">imgBig</property>'
+            '<property name="image-position">top</property></object>'
+            '<object class="svtlo-ManagedMenuButton" id="btnOk"><property name="image">imgOk</property>'
+            '<property name="image-position">top</property></object>'
+            '<object class="svtlo-ManagedMenuButton" id="btnSmall"><property name="image">imgSmall</property>'
+            '<property name="image-position">left</property></object></interface>')
+        self.assertEqual([button for button, _, _ in large_icons.violations(root)], ["btnBig"])
+
     def test_paste_keeps_its_32px_image(self):
         root = ribbon(({"toolbar-style": "both", "icon_size": "5"}, "GtkMenuToolButton", {"action-name": ".uno:Paste"}))
         self.assertEqual(large_icons.violations(root), [])
@@ -65,6 +78,10 @@ class PatchTest(unittest.TestCase):
         # glyphs no HST style draws, replaced by the nearest one every style draws
         self.assertIn("cmd/lc_helpindex.png", added(patch, WRITER))
         self.assertIn("cmd/lc_presentationcurrentslide.png", added(patch, large_icons.RIBBONS["Slides"]))
+        # the large Shapes and Snap menu buttons of Slides and Draw
+        for app in ("Slides", "Draw"):
+            self.assertIn("cmd/lc_basicshapes.diamond.png", added(patch, large_icons.RIBBONS[app]))
+        self.assertIn("cmd/lc_snapborder.png", added(patch, large_icons.RIBBONS["Draw"]))
 
 
 @unittest.skipUnless(os.environ.get("HST_LO_TREE"), "HST_LO_TREE: a tree with the whole series applied")
