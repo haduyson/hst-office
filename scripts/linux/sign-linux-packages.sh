@@ -79,9 +79,12 @@ done
 ( cd "$DIR"
   # The .rpm bytes changed: the published Linux list, then its signature, then the artifact list of everything.
   linux="HSTOffice_${release}_Linux_x86-64.SHA256SUMS"
+  # The list is complete before "$linux" is opened for writing, so it never races its own output file.
+  files=()
   for f in HSTOffice_*_Linux_x86-64.* RPM-GPG-KEY-hasontech; do
-    case "$f" in "$linux"|"$linux.asc") ;; *) printf '%s\n' "$f" ;; esac
-  done | xargs -r -d '\n' sha256sum -- > "$linux"
+    case "$f" in "$linux"|"$linux.asc") ;; *) files+=("$f") ;; esac
+  done
+  sha256sum -- "${files[@]}" > "$linux"
   sha256sum -c --quiet "$linux" )
 sign_detached "$DIR/HSTOffice_${release}_Linux_x86-64.SHA256SUMS"
 ( cd "$DIR"

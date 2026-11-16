@@ -118,17 +118,17 @@ class MockupGeometry(unittest.TestCase):
         # a ribbon toolbox's rows are as high as its buttons and visible item windows, not a native combo box
         self.assertIn("if ( mpData->mbHstOwnerDraw )\n        mnWinHeight = 0;", toolbox)
         # the icon of a medium and of a small button at the same (4, 4)
-        self.assertIn("nImageOffX = pItem->maRect.Left() + hst::ribbon::geometry::px(hst::ribbon::geometry::SMALL_PAD", toolbox)
+        self.assertIn(": hst::ribbon::geometry::px(hst::ribbon::geometry::SMALL_PAD, fHstScale));", toolbox)
 
     def test_ladder_places_menu_buttons_and_frames_groups(self):
         ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
         self.assertIn("aLarge.textY - geometry::imageTextGap(rButton.GetTextHeight()) - aImage.Height() - nInner", ladder)
         self.assertIn("placeLargeMenuButton(rButton, rLabel, bLarge);", ladder)
-        self.assertIn("normaliseGroupFrame(*pGrid, aChildren, aCells);", ladder)
+        self.assertIn("normaliseGroupFrame(*pGrid, aChildren, aCells, pLayout && pLayout->packed ? 0 : geometry::COLUMN_GAP);", ladder)
         self.assertIn("aCells[i].caption = aCells[i].top >= 2 && aCells[i].top == nBottom", ladder)
         self.assertIn("aCells[i].height == nContentRows && !keepsLarge(*aChildren[i]);", ladder)
         # the alternative layout of Writer's Paragraph at the small size, and its hidden boxes kept in the key
-        self.assertIn('{ u"gdHomeParagraph", GroupSmall, 3, 3,', ladder)
+        self.assertIn('{ u"gdHomeParagraph", GroupSmall, 3, 4,', ladder)
         self.assertIn("rToolBox.IsVisible() || hiddenByLayout().count(&rToolBox)", ladder)
 
     def test_writer_style_gallery_is_shown_at_every_size(self):
@@ -152,6 +152,20 @@ class MockupGeometry(unittest.TestCase):
         ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
         self.assertIn("setIfChanged<bool>(rChild.get_vexpand(), false", ladder)
         self.assertIn("eSize == ToolBoxButtonSize::Size32", ladder)
+
+    def test_dialog_launcher_on_the_caption_line(self):
+        ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
+        self.assertIn("pLauncher->HstSetLauncher(true);", ladder)
+        self.assertIn("(holdsCaption(*aChildren[i]) || (pLauncher && commandCount(*pLauncher) == 1))", ladder)
+        toolbox = added(PATCH, "vcl/source/window/toolbox.cxx")
+        self.assertIn("hst::ribbon::geometry::px( hst::ribbon::geometry::CAPTION_ROW, fHstScale ) );", toolbox)
+
+    def test_writer_paragraph_small_is_packed(self):
+        ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
+        self.assertIn('{ u"bxHomeList", 0, 0, 3 }, { u"bxHomeMarks", 3, 0, 1 },', ladder)
+        self.assertIn('{ u"bxHomeShading", 2, 2, 2, 1, false, true },', ladder)
+        self.assertIn("pLayout && pLayout->packed ? 0 : geometry::COLUMN_GAP", ladder)
+        self.assertIn("packedByLayout().erase(rEvent.GetWindow());", ladder)
 
     def test_icon_dump_is_opt_in(self):
         toolbox = added(PATCH, "vcl/source/window/toolbox.cxx")
