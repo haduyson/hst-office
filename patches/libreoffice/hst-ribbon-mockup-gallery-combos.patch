@@ -25,7 +25,9 @@ the target is taken off its request, once when it is made and once more after it
 fontsizeboxribbon.ui, whose combo box has the class "hst-ribbon-combo": vcl gtk3 then narrows the side padding of
 its entry (4 / 2 px) and drop-down button (2 px), frames kept, so Adwaita's size box reaches 46 px with "12" still
 readable (its entry keeps two characters; the owner's decision D9). Toolbars, the sidebar and dialogs keep their
-boxes, widths and the theme's padding.
+boxes, widths and the theme's padding. The ribbon's size box shows "12", not "12 pt" (owner's decision): svtools
+FontSizeBox::set_show_unit(false), a flag in the byte of its other flags so the class keeps its layout; typing
+"12" or "12 pt" still works, and dialogs, the sidebar and toolbars keep the unit.
 
 --- /dev/null
 --- /dev/null
@@ -256,6 +258,54 @@ boxes, widths and the theme's padding.
 +    </child>
 +  </object>
 +</interface>
+--- a/include/svtools/ctrlbox.hxx
++++ b/include/svtools/ctrlbox.hxx
+@@ -451,6 +451,7 @@
+     bool m_bRelative : 1;
+     bool m_bPtRelative : 1;
+     bool m_bStdSize : 1;
++    bool m_bHstShowUnit : 1; // HST Office: false in the ribbon's box (set_show_unit), in the same byte as the flags above
+     Link<weld::ComboBox&, void> m_aChangeHdl;
+     Link<weld::Widget&, void> m_aFocusOutHdl;
+     std::unique_ptr<weld::ComboBox> m_xComboBox;
+@@ -508,6 +509,9 @@
+     bool has_focus() const { return m_xComboBox->has_focus(); }
+     void connect_entry_activate(const Link<weld::ComboBox&, bool>& rLink) { m_xComboBox->connect_entry_activate(rLink); }
+     void disable_entry_completion() { m_xComboBox->set_entry_completion(false, false); }
++    /// HST Office: show sizes without their unit ("12", not "12 pt"), as the ribbon's box does in Office; typing
++    /// "12" or "12 pt" still works. Call it before Fill, which lists the sizes.
++    void set_show_unit(bool bShow) { m_bHstShowUnit = bShow; }
+ 
+     weld::Widget* getWidget() { return m_xComboBox.get(); }
+ 
+--- a/svtools/source/control/ctrlbox.cxx
++++ b/svtools/source/control/ctrlbox.cxx
+@@ -1115,6 +1115,7 @@
+     , m_bRelative(false)
+     , m_bPtRelative(false)
+     , m_bStdSize(false)
++    , m_bHstShowUnit(true)
+     , m_xComboBox(std::move(p))
+ {
+     m_xComboBox->set_entry_width_chars(std::ceil(m_xComboBox->get_pixel_size(format_number(105)).Width() /
+@@ -1377,10 +1378,14 @@
+         const SvtSysLocale aSysLocale;
+         const LocaleDataWrapper& rLocaleData = aSysLocale.GetLocaleData();
+         sRet = rLocaleData.getNum(nValue, m_nDecimalDigits, true, false);
+-        if (m_eUnit != FieldUnit::NONE && m_eUnit != FieldUnit::DEGREE)
+-            sRet += " ";
+         assert(m_eUnit != FieldUnit::PERCENT);
+-        sRet += weld::MetricSpinButton::MetricToString(m_eUnit);
++        // HST Office: the ribbon's box shows the bare size (set_show_unit); relative sizes keep their unit
++        if (m_bHstShowUnit || m_bRelative)
++        {
++            if (m_eUnit != FieldUnit::NONE && m_eUnit != FieldUnit::DEGREE)
++                sRet += " ";
++            sRet += weld::MetricSpinButton::MetricToString(m_eUnit);
++        }
+     }
+ 
+     if (m_bRelativeMode && m_bPtRelative && (0 <= nValue) && !sRet.isEmpty())
 --- a/svx/UIConfig_svx.mk
 +++ b/svx/UIConfig_svx.mk
 @@ -68,6 +68,8 @@
@@ -777,7 +827,7 @@ boxes, widths and the theme's padding.
          InterimItemWindow::StateChanged(nStateChange);
      }
  
-@@ -304,13 +317,22 @@
+@@ -304,16 +317,28 @@
  
  void SvxFontSizeBox_Impl::SetOptimalSize()
  {
@@ -801,6 +851,12 @@ boxes, widths and the theme's padding.
      , SvxFontSizeBox_Base(m_xBuilder->weld_combo_box(u"fontsizecombobox"_ustr), rFrame, rCtrl)
  {
      InitControlBase(m_xWidget->getWidget());
++    // HST Office: "12", not "12 pt", in the ribbon, as in Office's Home tab
++    if (hst::ribbon::InNotebookbar(*pParent))
++        m_xWidget->set_show_unit(false);
+ }
+ 
+ void SvxFontSizeBox_Impl::DataChanged( const DataChangedEvent& rDCEvt )
 --- a/svx/uiconfig/ui/stylespreview.ui
 +++ b/svx/uiconfig/ui/stylespreview.ui
 @@ -16,7 +16,7 @@
