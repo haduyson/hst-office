@@ -39,6 +39,11 @@ CRASH_SIGNATURE = "python/hst_office/crash_signature.py"  # wevtutil (Windows ev
 # Local OS tools only (xdg-mime, LaunchServices, defaults/killall Dock, gio), never the network.
 DEFAULT_APPS = ("python/hst_office/default_apps_linux.py", "python/hst_office/default_apps_os.py",
                 "python/hst_office/app_shortcuts.py")
+# Local OS queries, never the network (same import rule as DEFAULT_APPS: subprocess/ctypes allowed, network refused).
+LOCAL_SYSTEM = ("python/hst_office/screen_work_area.py",  # ctypes user32 SystemParametersInfoW: the taskbar-free work area
+                "python/hst_office/system_boot.py",  # boot time: ctypes GetTickCount64 (Windows), `sysctl -n kern.boottime` (macOS)
+                "python/hst_office/update_linux_install.py",  # `dpkg-query -S` / `rpm -qf` on its own soffice: deb, rpm or AppImage
+                "python/hst_office/windows_fault_note.py")  # ctypes kernel32 SetEnvironmentVariableW: the crash note's path
 UPDATE_LAUNCH_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|ctypes)\b", re.M)
 LOCAL_TOOL_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc)\b", re.M)
 USB_WORKER_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess)\b", re.M)
@@ -139,7 +144,7 @@ def check_content(zf, names, errors):
                 errors.append("%s: not an ASCII Windows .reg file" % name)
         if name.endswith(".py"):
             text = data.decode("utf-8")
-            if (LOCAL_TOOL_IMPORT if name in DEFAULT_APPS else USB_WORKER_IMPORT if name in (USB_TOKEN_WORKER, UPDATE_ELEVATE) else UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD, BANNER_FETCH, ERROR_REPORT_HTTP, CITATION_LOOKUP_HTTP) else UPDATE_LAUNCH_IMPORT
+            if (LOCAL_TOOL_IMPORT if name in DEFAULT_APPS + LOCAL_SYSTEM else USB_WORKER_IMPORT if name in (USB_TOKEN_WORKER, UPDATE_ELEVATE) else UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD, BANNER_FETCH, ERROR_REPORT_HTTP, CITATION_LOOKUP_HTTP) else UPDATE_LAUNCH_IMPORT
                     if name in (UPDATE_LAUNCH, USB_TOKEN_NSS, BANNER_DEADLINE, CRASH_SIGNATURE) else NETWORK_IMPORT).search(text):
                 errors.append("network/process module imported in %s" % name)
             if text.count("\n") + 1 > MAX_LINES:
