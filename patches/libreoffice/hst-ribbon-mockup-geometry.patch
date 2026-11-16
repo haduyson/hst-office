@@ -696,7 +696,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  /// Grid attachments of a group's children as authored, kept while the window lives.
-@@ -247,10 +447,213 @@
+@@ -247,10 +447,274 @@
      DECL_STATIC_LINK(AuthoredCells, DyingHdl, VclWindowEvent&, void);
  };
  
@@ -705,6 +705,44 @@ License: these upstream files remain under their original license (MPL-2.0).
 +{
 +    static std::map<const vcl::Window*, sal_Int32> aMargins;
 +    return aMargins;
++}
++
++/// The authored horizontal margins and expansion of the children of a group packed by an alternative layout
++/// (AlternativeLayout::packed), given back when it ends
++struct PackedLook
++{
++    sal_Int32 nStart;
++    sal_Int32 nEnd;
++    bool bExpand;
++};
++std::map<const vcl::Window*, PackedLook>& packedByLayout()
++{
++    static std::map<const vcl::Window*, PackedLook> aLooks;
++    return aLooks;
++}
++
++/// rChild packed in its row (nStart before it, nothing after it, bExpand: its columns take a spanning cell's extra
++/// width) or as authored
++void setPackedByLayout(vcl::Window& rChild, bool bPacked, sal_Int32 nStart, bool bExpand)
++{
++    auto& rLooks = packedByLayout();
++    const auto it = rLooks.find(&rChild);
++    if (!bPacked && it == rLooks.end())
++        return;
++    const PackedLook aWanted = bPacked ? PackedLook{ nStart, 0, bExpand } : it->second;
++    if (bPacked && it == rLooks.end())
++        rLooks.emplace(&rChild, PackedLook{ rChild.get_margin_start(), rChild.get_margin_end(), rChild.get_hexpand() });
++    if (rChild.get_margin_start() != aWanted.nStart)
++        rChild.set_margin_start(aWanted.nStart);
++    if (rChild.get_margin_end() != aWanted.nEnd)
++        rChild.set_margin_end(aWanted.nEnd);
++    if (rChild.get_hexpand() != aWanted.bExpand)
++    {
++        rChild.set_hexpand(aWanted.bExpand);
++        rChild.queue_resize(); // set_hexpand does not
++    }
++    if (!bPacked)
++        rLooks.erase(&rChild);
 +}
 +
 +/// The children of groups hidden by an alternative layout (alternativeLayouts), shown again when it ends.
@@ -804,6 +842,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        hiddenByLayout().erase(rEvent.GetWindow());
 +        imageAlignsByLayout().erase(rEvent.GetWindow());
 +        authoredMarginTops().erase(rEvent.GetWindow());
++        packedByLayout().erase(rEvent.GetWindow());
 +    }
 +}
 +
@@ -816,6 +855,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    int width = 0;
 +    int height = 1;
 +    bool imageLeft = false; // a menu button with its image above its label shows it beside the label here
++    bool expand = false; // in a packed layout: the columns of this cell take the extra width of the cells spanning them
 +};
 +
 +/** A group laid out differently at one state than the generic ladder does (stackGroup): the cells of the
@@ -829,19 +869,27 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    int rows = 3;
 +    int columns = 1;
 +    std::vector<LayoutCell> cells;
++    /** The children packed in their rows as the mockup's rows: COLUMN_GAP before every child but a row's first,
++        no authored gap after one, and no column spacing in the grid (a cell spanning columns would reserve it
++        once more: VclGrid measures a spanning cell against its columns without their spacing). */
++    bool packed = false;
 +};
 +
 +const std::vector<AlternativeLayout>& alternativeLayouts()
 +{
 +    static const std::vector<AlternativeLayout> aLayouts{
-+        // Writer ▸ Home ▸ Paragraph at the small size, as the approved mockup: three rows of four icons
-+        // (Lists and Formatting Marks | the four alignments | Indents, Line Spacing and Shading); Hanging Indent,
-+        // Sort and Borders stay in the paragraph dialog (↘)
-+        { u"gdHomeParagraph", GroupSmall, 3, 3,
-+          { { u"bxHomeList", 0, 0, 1 }, { u"bxHomeMarks", 1, 0, 2 },
-+            { u"bxHomeAlign", 0, 1, 3 },
-+            { u"bxHomeIndent", 0, 2, 1 }, { u"bxHomeLineSpacing", 1, 2, 1 }, { u"bxHomeShading", 2, 2, 1 },
-+            { u"bxHomeHanging", 0, 0, 0 }, { u"bxHstSort", 0, 0, 0 }, { u"bxHstBorders", 0, 0, 0 } } },
++        // Writer ▸ Home ▸ Paragraph at the small size, as the approved mockup (143 px): three rows of four icons
++        // packed from the left (Lists and Formatting Marks | the four alignments | Indents, Line Spacing and
++        // Shading); Hanging Indent, Sort and Borders stay in the paragraph dialog (↘). Four columns: Indents |
++        // Line Spacing | the rest of Lists, Shading's first part | Formatting Marks, the rest of Shading; the third
++        // takes Lists' extra width, so that the group is as wide as its widest row
++        { u"gdHomeParagraph", GroupSmall, 3, 4,
++          { { u"bxHomeList", 0, 0, 3 }, { u"bxHomeMarks", 3, 0, 1 },
++            { u"bxHomeAlign", 0, 1, 4 },
++            { u"bxHomeIndent", 0, 2, 1 }, { u"bxHomeLineSpacing", 1, 2, 1 },
++            { u"bxHomeShading", 2, 2, 2, 1, false, true },
++            { u"bxHomeHanging", 0, 0, 0 }, { u"bxHstSort", 0, 0, 0 }, { u"bxHstBorders", 0, 0, 0 } },
++          true },
 +        // Writer ▸ Insert ▸ Illustrations at the medium size, as the reference suite: Pictures stays large, Shapes,
 +        // Chart, Gallery and Audio and Video as medium buttons in two columns of two
 +        { u"gdInsertGraphic", GroupMedium, 3, 3,
@@ -871,8 +919,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +/** Lay rGrid's children out by the alternative layout of nState, if its group has one. Returns whether a layout
 +    applied (rCells then hold its cells, rHide the children it hides, rLeft the menu buttons it shows as medium
 +    buttons). */
-+bool applyAlternativeLayout(const VclGrid& rGrid, int nState, const std::vector<vcl::Window*>& rChildren,
-+                            std::vector<GroupCell>& rCells, std::vector<bool>& rHide, std::vector<bool>& rLeft)
++/// The alternative layout of rGrid at nState, nullptr for none
++const AlternativeLayout* findAlternativeLayout(const VclGrid& rGrid, int nState, const std::vector<vcl::Window*>& rChildren)
 +{
 +    const AlternativeLayout* pLayout = nullptr;
 +    for (const AlternativeLayout& rLayout : alternativeLayouts())
@@ -885,6 +933,15 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            if (std::none_of(rChildren.begin(), rChildren.end(),
 +                             [&rCell](const vcl::Window* p) { return hasId(*p, rCell.id); }))
 +                pLayout = nullptr;
++    return pLayout;
++}
++
++/// Lays rChildren out in pLayout (none: as authored); rPacked: the packed children (setPackedByLayout), whose
++/// columns expand (rExpand)
++bool applyAlternativeLayout(const AlternativeLayout* pLayout, const std::vector<vcl::Window*>& rChildren,
++                            std::vector<GroupCell>& rCells, std::vector<bool>& rHide, std::vector<bool>& rLeft,
++                            std::vector<bool>& rPacked, std::vector<bool>& rExpand)
++{
 +    for (std::size_t i = 0; pLayout && i < rChildren.size(); ++i)
 +    {
 +        vcl::Window& rChild = *rChildren[i];
@@ -898,7 +955,11 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            rLeft[i] = true;
 +        GroupCell& rOut = rCells[i];
 +        if (pCell && pCell->width > 0)
++        {
 +            rOut = GroupCell{ pCell->left, pCell->top, pCell->width, pCell->height, false, false };
++            rPacked[i] = pLayout->packed;
++            rExpand[i] = pLayout->packed && pCell->expand;
++        }
 +        else if (rOut.caption && dynamic_cast<ToolBox*>(&rChild))
 +            rOut = GroupCell{ pLayout->columns - 1, pLayout->rows, 1, 1, false, true }; // the launcher, at the right
 +        else if (rOut.caption)
@@ -910,7 +971,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  GroupCell authoredCell(vcl::Window& rChild)
-@@ -259,10 +662,8 @@
+@@ -259,10 +723,8 @@
      auto it = rCells.find(&rChild);
      if (it == rCells.end())
      {
@@ -923,7 +984,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          it = rCells.emplace(&rChild, aCell).first;
          rChild.AddEventListener(LINK(nullptr, AuthoredCells, DyingHdl));
      }
-@@ -281,37 +682,235 @@
+@@ -281,37 +743,242 @@
          rChild.set_grid_height(rCell.height);
  }
  
@@ -956,7 +1017,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    (one caption line for every group), the separator 1 px wide, SEPARATOR_INSET from the body's top and bottom and
 +    3 px after the content, the next group's content 4 px after it: 8 px from content to content, and the first
 +    group's content 4 px inside the page (with the page's own 4 px, 8 px from its edge, as the mockup). */
-+void normaliseGroupFrame(VclGrid& rGrid, const std::vector<vcl::Window*>& rChildren, const std::vector<GroupCell>& rCells)
++void normaliseGroupFrame(VclGrid& rGrid, const std::vector<vcl::Window*>& rChildren, const std::vector<GroupCell>& rCells,
++                         long nColumnGap)
 +{
 +    const double fScale = rGrid.GetDPIScaleFactor();
 +    auto px = [fScale](long nLogical) { return static_cast<sal_Int32>(geometry::px(nLogical, fScale)); };
@@ -970,7 +1032,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    bChanged |= setIfChanged<sal_Int32>(rGrid.get_margin_end(), 0, [&rGrid](sal_Int32 n) { rGrid.set_margin_end(n); });
 +    bChanged |= setIfChanged<int>(rGrid.get_row_spacing(), px(geometry::SMALL_ROW_GAP),
 +                                  [&rGrid](int n) { rGrid.set_row_spacing(n); });
-+    bChanged |= setIfChanged<int>(rGrid.get_column_spacing(), px(geometry::COLUMN_GAP),
++    bChanged |= setIfChanged<int>(rGrid.get_column_spacing(), px(nColumnGap),
 +                                  [&rGrid](int n) { rGrid.set_column_spacing(n); });
 +    // the whole height of the ribbon body, its content at the top and its caption at the bottom, whatever its
 +    // content's height (a group of two rows with combo boxes is lower than one of large buttons)
@@ -1034,7 +1096,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_bottom(), nInset,
 +                                                [pLine](sal_Int32 n) { pLine->set_margin_bottom(n); });
 +            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_start(),
-+                                                px(geometry::GROUP_PADDING) - px(geometry::COLUMN_GAP)
++                                                px(geometry::GROUP_PADDING) - px(nColumnGap)
 +                                                    - px(geometry::SEPARATOR),
 +                                                [pLine](sal_Int32 n) { pLine->set_margin_start(n); });
 +            bChanged |= setIfChanged<sal_Int32>(pLine->get_margin_end(), 0,
@@ -1108,14 +1170,19 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            // a large menu button (Shapes ▾) stacks as the large tool buttons do, as a medium button
 +            aCells[i].stackable = bStack && bFill && authoredImageAlign(*pButton) == ImageAlign::Top
 +                                  && !!pButton->GetModeImage();
-+    }
-+    normaliseGroupFrame(*pGrid, aChildren, aCells);
+     }
+-    if (nState == GroupMedium || nState == GroupSmall)
+-        stackGroup(aCells);
++    const AlternativeLayout* pLayout = findAlternativeLayout(*pGrid, nState, aChildren);
++    // a packed layout's children keep COLUMN_GAP between them by their own margins (setPackedByLayout)
++    normaliseGroupFrame(*pGrid, aChildren, aCells, pLayout && pLayout->packed ? 0 : geometry::COLUMN_GAP);
 +    // the children shown at this size only (statesShown); a folded group's content stays large
 +    const int nShown = 1 << (nState == GroupCollapsed ? int(GroupLarge) : nState);
-+    std::vector<bool> aHide(aChildren.size()), aLeft(aChildren.size());
-+    for (std::size_t i = 0; i < aChildren.size(); ++i)
++    std::vector<bool> aHide(aChildren.size()), aLeft(aChildren.size()), aPacked(aChildren.size()),
++        aExpand(aChildren.size());
+     for (std::size_t i = 0; i < aChildren.size(); ++i)
 +        aHide[i] = !(statesShown(*aChildren[i]) & nShown);
-+    if (!applyAlternativeLayout(*pGrid, nState, aChildren, aCells, aHide, aLeft)
++    if (!applyAlternativeLayout(pLayout, aChildren, aCells, aHide, aLeft, aPacked, aExpand)
 +        && (nState == GroupMedium || nState == GroupSmall) && stackGroup(aCells))
 +    {
 +        // stackGroup makes a stacked button one row high
@@ -1133,14 +1200,12 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            continue;
 +        bTwoRows = bTwoRows && aCells[i].height == 1 && aCells[i].top < 2;
 +        nRowsUsed = std::max(nRowsUsed, aCells[i].top + 1);
-     }
--    if (nState == GroupMedium || nState == GroupSmall)
--        stackGroup(aCells);
++    }
 +    bTwoRows = bTwoRows && nRowsUsed == 2;
 +    const sal_Int32 nGap = static_cast<sal_Int32>(geometry::twoRowGap(pGrid->GetDPIScaleFactor()));
 +    const sal_Int32 nRowGap = static_cast<sal_Int32>(geometry::px(geometry::SMALL_ROW_GAP, pGrid->GetDPIScaleFactor()));
 +    auto& rMargins = authoredMarginTops();
-     for (std::size_t i = 0; i < aChildren.size(); ++i)
++    for (std::size_t i = 0; i < aChildren.size(); ++i)
 +    {
 +        vcl::Window& rChild = *aChildren[i];
 +        if (aCells[i].caption || dynamic_cast<FixedLine*>(&rChild))
@@ -1162,6 +1227,9 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        if (MenuButton* pButton = dynamic_cast<MenuButton*>(aChildren[i]))
 +            setMenuButtonMedium(*pButton, aLeft[i]);
          attach(*aChildren[i], aCells[i]);
++        setPackedByLayout(*aChildren[i], aPacked[i],
++                          aCells[i].left > 0 ? static_cast<sal_Int32>(geometry::px(geometry::COLUMN_GAP, pGrid->GetDPIScaleFactor())) : 0,
++                          aExpand[i]);
 +        // a stackable tool button still filling the rows was not stacked (or an alternative layout keeps it so)
 +        if (nState == GroupMedium && aCells[i].stackable && aCells[i].height >= nContentRows
 +            && dynamic_cast<ToolBox*>(aChildren[i]))
@@ -1171,7 +1239,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
-@@ -375,10 +974,18 @@
+@@ -375,10 +1042,18 @@
          if (nCommands > FEW_COMMANDS)
              break;
      }
@@ -1193,7 +1261,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // the menu buttons of every group drop their labels at the small state only (their image stays where it
      // is: above the label in a group of few commands)
      forMenuButtons(rGroup, [nState](MenuButton& rButton) { applyToMenuButton(rButton, nState); });
-@@ -408,7 +1015,8 @@
+@@ -408,7 +1083,8 @@
  {
      sal_uInt32 nKey = 0; // unsigned: the hash wraps around by design
      forToolBoxes(rGroup, [&nKey](ToolBox& rToolBox) {

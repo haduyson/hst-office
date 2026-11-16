@@ -124,7 +124,7 @@ class MockupGeometry(unittest.TestCase):
         ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
         self.assertIn("aLarge.textY - geometry::imageTextGap(rButton.GetTextHeight()) - aImage.Height() - nInner", ladder)
         self.assertIn("placeLargeMenuButton(rButton, rLabel, bLarge);", ladder)
-        self.assertIn("normaliseGroupFrame(*pGrid, aChildren, aCells);", ladder)
+        self.assertIn("normaliseGroupFrame(*pGrid, aChildren, aCells, pLayout && pLayout->packed ? 0 : geometry::COLUMN_GAP);", ladder)
         self.assertIn("aCells[i].caption = aCells[i].top >= 2 && aCells[i].top == nBottom", ladder)
         self.assertIn("aCells[i].height == nContentRows && !keepsLarge(*aChildren[i]);", ladder)
         # the alternative layout of Writer's Paragraph at the small size, and its hidden boxes kept in the key
@@ -159,6 +159,13 @@ class MockupGeometry(unittest.TestCase):
         self.assertIn("(holdsCaption(*aChildren[i]) || (pLauncher && commandCount(*pLauncher) == 1))", ladder)
         toolbox = added(PATCH, "vcl/source/window/toolbox.cxx")
         self.assertIn("hst::ribbon::geometry::px( hst::ribbon::geometry::CAPTION_ROW, fHstScale ) );", toolbox)
+
+    def test_writer_paragraph_small_is_packed(self):
+        ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
+        self.assertIn('{ u"bxHomeList", 0, 0, 3 }, { u"bxHomeMarks", 3, 0, 1 },', ladder)
+        self.assertIn('{ u"bxHomeShading", 2, 2, 2, 1, false, true },', ladder)
+        self.assertIn("pLayout && pLayout->packed ? 0 : geometry::COLUMN_GAP", ladder)
+        self.assertIn("packedByLayout().erase(rEvent.GetWindow());", ladder)
 
     def test_icon_dump_is_opt_in(self):
         toolbox = added(PATCH, "vcl/source/window/toolbox.cxx")
