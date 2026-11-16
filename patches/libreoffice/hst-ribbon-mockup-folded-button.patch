@@ -19,7 +19,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  #if __has_include(<HstRibbonLadders.hxx>)
  #include <HstRibbonLadders.hxx>
  #define HST_HAVE_RIBBON_LADDERS 1
-@@ -323,6 +325,36 @@
+@@ -323,6 +325,38 @@
  }
  }
  
@@ -32,6 +32,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +class HstFoldedButton final : public PushButton
 +{
 +    Image maImage;
++    // the drawn caption: VCL may give the button an automatic mnemonic ("Chỉnh sử~a"), drawn here as plain text
++    OUString Caption() const { return GetText().replaceAll(u"~", u""); }
 +
 +public:
 +    HstFoldedButton(vcl::Window* pParent, const Image& rImage)
@@ -41,13 +43,13 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    }
 +    Size GetOptimalSize() const override
 +    {
-+        return hst::ribbon::FoldedButtonSize(*GetOutDev(), GetText(), maImage);
++        return hst::ribbon::FoldedButtonSize(*GetOutDev(), Caption(), maImage);
 +    }
 +    void Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle&) override
 +    {
 +        const sal_uInt16 nHighlight = (GetButtonState() & DrawButtonFlags::Pressed) || IsPressed() ? 1
 +                                      : IsMouseOver() ? 2 : 0;
-+        hst::ribbon::DrawFoldedButton(rRenderContext, tools::Rectangle(Point(), GetOutputSizePixel()), GetText(),
++        hst::ribbon::DrawFoldedButton(rRenderContext, tools::Rectangle(Point(), GetOutputSizePixel()), Caption(),
 +                                      maImage, nHighlight, IsEnabled());
 +    }
 +};
@@ -56,7 +58,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  // HST Office: a group whose only command is a gallery without an image (Writer's Kiểu: the style
  // gallery) shows the icon of its caption's dialog launcher (Styles) on its "Caption ▾" button
  Image PriorityMergedHBox::HstGroupImage(const vcl::Window& rGroup)
-@@ -336,16 +368,12 @@
+@@ -336,16 +370,12 @@
      VclPtr<PushButton>& rButton = m_aHstGroupButtons[&rGroup];
      if (!rButton)
      {
