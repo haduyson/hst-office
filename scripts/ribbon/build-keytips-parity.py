@@ -66,7 +66,6 @@ MENU_KEYS = {
               "DataLabel": {"btnHstDataAnalysisMenu": ["DA", "Data Analysis"]}},
     "simpress": {"HomeLabel": {"btnHstHomeArrangeMenu": ["G", "Arrange"], "btnHstHomeAlignTextMenu": ["AT", "Align Text"]}},
     "sdraw": {"HomeLabel": {"btnHstHomeLineSpacingMenu": ["K", "Line Spacing"], "btnHstHomeArrangeMenu": ["G", "Arrange"],
-                            "btnHstHomeTextDirectionMenu": ["AX", "Text Direction"],
                             "btnHstHomeAlignTextMenu": ["AT", "Align Text"]},
               "ArrangeLabel": {"btnHstArrangeForwardMenu": ["AF", "Bring Forward"],
                                "btnHstArrangeBackwardMenu": ["AE", "Send Backward"],
@@ -74,9 +73,8 @@ MENU_KEYS = {
 }
 
 # KeyTips of the suite HST has no button for, accepted by the owner: module -> tab -> {control: [letter, decision]}
-APPROVED = {module: {"HomeLabel": {"Text Direction": ["AX", "owner 2026-11-16: the text direction commands of HST "
-                                                     "Slides/Draw need Asian text support, so the button is removed"]}}
-            for module in ("simpress", "sdraw")}
+APPROVED = {m: {"HomeLabel": {"Text Direction": ["AX", "owner 2026-11-16: HST's text direction needs Asian text support, "
+                                                 "so Slides and Draw have no such button"]}} for m in ("simpress", "sdraw")}
 
 
 def norm(text):
