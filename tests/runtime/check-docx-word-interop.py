@@ -26,6 +26,7 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from docx_word_interop_samples import check_east_asian_export, check_split_runs  # noqa: E402
+from docx_inline_object_position import check_inline_object_position  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DOCX = "MS Word 2007 XML"
@@ -120,9 +121,9 @@ def run_checks(ctx, out, expect):
     expect("section collecting endnotes: not as a footnote placement",
            bool(re.search(r'<w:footnotePr><w:pos ', settings)), False)
 
-    # 3. Split runs import; East Asian font of documents without and with CJK text.
-    check_split_runs(desktop, out, expect, prop)
-    check_east_asian_export(desktop, out, expect, prop)
+    # 3. Split runs import; East Asian font without and with CJK text; inline object position.
+    for check in (check_split_runs, check_east_asian_export, check_inline_object_position):
+        check(desktop, out, expect, prop)
 
     # 4. findAll() with and without a match, on a document loaded hidden.
     doc = desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, hidden)
