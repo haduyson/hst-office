@@ -128,7 +128,7 @@ class MockupGeometry(unittest.TestCase):
         self.assertIn("aCells[i].caption = aCells[i].top >= 2 && aCells[i].top == nBottom", ladder)
         self.assertIn("aCells[i].height == nContentRows && !keepsLarge(*aChildren[i]);", ladder)
         # the alternative layout of Writer's Paragraph at the small size, and its hidden boxes kept in the key
-        self.assertIn('{ u"gdHomeParagraph", GroupSmall, 3, 3,', ladder)
+        self.assertIn('{ u"gdHomeParagraph", GroupSmall, 3, 4,', ladder)
         self.assertIn("rToolBox.IsVisible() || hiddenByLayout().count(&rToolBox)", ladder)
 
     def test_writer_style_gallery_is_shown_at_every_size(self):
