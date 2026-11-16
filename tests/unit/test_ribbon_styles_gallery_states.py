@@ -133,6 +133,25 @@ class MockupFontBoxes(unittest.TestCase):
         self.assertNotIn("border", gtk)  # the frames stay
 
 
+class RibbonSizeWithoutUnit(unittest.TestCase):
+    def test_bare_size_in_the_ribbon_only(self):
+        header = added(MOCKUP, "include/svtools/ctrlbox.hxx")
+        self.assertIn("bool m_bHstShowUnit : 1;", header)  # in the byte of the other flags: same class layout
+        self.assertIn("void set_show_unit(bool bShow) { m_bHstShowUnit = bShow; }", header)
+        code = added(MOCKUP, "svtools/source/control/ctrlbox.cxx")
+        self.assertIn("if (m_bHstShowUnit || m_bRelative)", code)
+        self.assertIn(", m_bHstShowUnit(true)", code)  # every other box keeps "pt"
+        size = added(MOCKUP, "svx/source/tbxctrls/tbunocontroller.cxx")
+        self.assertIn("if (hst::ribbon::InNotebookbar(*pParent))\n        m_xWidget->set_show_unit(false);", size)
+
+
+class ThemeGalleryWidthPerState(unittest.TestCase):
+    def test_measured_after_the_cache_goes(self):
+        code = added("hst-ribbon-ux-gallery-fit.patch", "svx/source/tbxctrls/ThemeColorsToolBoxControl.cxx")
+        self.assertIn("HstApplyColumns();\n    // the window's preferred size", code)
+        self.assertIn("InvalidateChildSizeCache();\n    SetOptimalSize();\n    return true;", code)
+
+
 class CalcCellStylesGallery(unittest.TestCase):
     def test_mockup_order(self):
         code = added(MOCKUP, "svx/source/tbxctrls/StylesPreviewToolBoxControl.cxx")
