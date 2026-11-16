@@ -118,6 +118,46 @@ class MockupStates(unittest.TestCase):
             self.assertEqual("".join(STATES[s] for s in states), "".join(STATES[s] for s in want), f"{tab} {window}")
 
 
+GROW_DRIVER = r"""
+#include "HstRibbonFixedChain.hxx"
+#include <cstdio>
+using namespace hst::ribbon;
+int main()
+{
+    // Writer Home at 1485 px (1193 px for the groups), widths measured on the 1.0.2 build with Paragraph at the
+    // mockup's 143 px: select() stops at Clipboard S with 113 px free; the Vietnamese group grows back to L
+    const std::vector<Group> aGroups{ { { 190, 190, 76, 81 } }, { { 324, 324, 324, 89 } }, { { 262, 262, 143, 80 } },
+                                      { { 602, 410, 314, 49 } }, { { 85, 85, 65, 83 } }, { { 216, 159, 138, 94 } } };
+    const std::vector<Step> aSteps{ { 3, 1 }, { 3, 2 }, { 5, 1 }, { 2, 2 }, { 5, 2 }, { 0, 2 }, { 4, 3 } };
+    for (long nWidth : { 1193L, 1083L, 2000L })
+    {
+        const Layout aLayout = select(aGroups, aSteps, nWidth, 0);
+        const std::vector<std::size_t> aGrown = growBack(aGroups, aSteps, nWidth, aLayout.states);
+        for (std::size_t n : aGrown)
+            std::printf("%zu", n);
+        std::printf(" %ld\n", rowWidth(aGroups, aGrown));
+    }
+}
+"""
+
+
+class GrowBack(unittest.TestCase):
+    def test_groups_grow_back_into_the_room_and_still_fit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, patch in (("HstRibbonScaling.hxx", "hst-ribbon-scaling-helper.patch"),
+                                ("HstRibbonFixedChain.hxx", "hst-ribbon-mockup-chain.patch")):
+                with open(os.path.join(tmp, name), "w", encoding="utf-8") as handle:
+                    handle.write(added_file(patch, "vcl/inc/" + name))
+            with open(os.path.join(tmp, "g.cxx"), "w", encoding="utf-8") as handle:
+                handle.write(GROW_DRIVER)
+            subprocess.run(["g++", "-std=c++17", "-I", tmp, "-o", os.path.join(tmp, "g"), os.path.join(tmp, "g.cxx")],
+                           check=True)
+            got = subprocess.run([os.path.join(tmp, "g")], capture_output=True, text=True, check=True).stdout.split()
+        # 1485: Clipboard S, Paragraph S, Styles S, Vietnamese back to L (select gave S); 1366: as select;
+        # 2000: nothing applied, all large
+        self.assertEqual(got, ["202200", "1158", "202202", "1080", "000000", "1679"])
+
+
 class EngineWiring(unittest.TestCase):
     def setUp(self):
         self.patch = open(os.path.join(PATCHES, "hst-ribbon-mockup-chain.patch"), encoding="utf-8").read()
