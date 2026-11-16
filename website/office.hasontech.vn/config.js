@@ -4,8 +4,6 @@
  */
 window.HST_OFFICE_CONFIG = {
   version: "1.0.2",
-  /* macOS tạm giữ 1.0.1 cho tới khi có .dmg 1.0.2 đã ký: xóa dòng này cùng lúc đổi 2 dòng macOS trong .htaccess. */
-  macVersion: "1.0.1",
   releaseLabel: "Bản chính thức",
   tag: "v1.0.2",
   platforms: {
