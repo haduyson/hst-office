@@ -24,7 +24,7 @@
 ## Cập nhật baseline
 
 1. Tải tarball bản mới + `.asc`, kiểm SHA-256 công bố và chữ ký bằng khóa ghim, cập nhật lock. Chạy `python3 scripts/check-source-lock.py --tarballs <thư-mục-tarball> --remote`.
-2. Áp lại `patches/libreoffice/series`; sửa patch xung đột.
+2. Áp lại `patches/libreoffice/series`; sửa patch xung đột. Kiểm thêm mọi patch `external/*/...patch*` mà series tạo hoặc sửa: lấy tarball theo `download.lst`, xác minh SHA-256 rồi dry-run và áp từng patch với `--fuzz=0` theo thứ tự trong `UnpackedTarball_*.mk`, kể cả patch upstream đứng trước. Kiểm series trên cây LibreOffice chưa kiểm được lớp patch tarball này.
 3. Build lại, chạy toàn bộ QA runtime và đo độ trễ menu.
 
 Chạy `scripts/apply-patches.sh --check` trên cây sạch trước overlay tiếng Việt.

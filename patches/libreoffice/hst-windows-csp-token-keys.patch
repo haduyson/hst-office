@@ -41,12 +41,11 @@ diff -ruN a/external/xmlsec/UnpackedTarball_xmlsec.mk b/external/xmlsec/Unpacked
 +))
 +
  # vim: set noet sw=4 ts=4:
---- a/external/xmlsec/hst-mscng-capi-token-keys.patch.1	1970-01-01 08:00:00.000000000 +0800
-+++ b/external/xmlsec/hst-mscng-capi-token-keys.patch.1	2026-11-12 18:18:53.996480475 +0700
-@@ -0,0 +1,225 @@
-+diff -ru a/src/mscng/certkeys.c b/src/mscng/certkeys.c
-+--- a/src/mscng/certkeys.c	2026-11-12 18:16:27.187953011 +0700
-++++ b/src/mscng/certkeys.c	2026-11-12 18:17:05.625152995 +0700
+--- /dev/null
++++ b/external/xmlsec/hst-mscng-capi-token-keys.patch.1
+@@ -0,0 +1,222 @@
++--- a/src/mscng/certkeys.c
+++++ b/src/mscng/certkeys.c
 +@@ -39,6 +39,9 @@
 +     NCRYPT_KEY_HANDLE privkey;
 +     BCRYPT_KEY_HANDLE pubkey;
@@ -57,8 +56,8 @@ diff -ruN a/external/xmlsec/UnpackedTarball_xmlsec.mk b/external/xmlsec/Unpacked
 +     BCRYPT_KEY_HANDLE bcryptPrivkey; /* BCrypt DH private key (loaded from DER/PKCS8) */
 +     xmlSecBuffer dhQ;
 + };
-+@@ -126,6 +129,53 @@
-+     return(-1);
++@@ -119,6 +122,53 @@
++     return(0);
 + }
 + 
 ++/* HST Office: some smart card / USB token middleware registers only a CryptoAPI CSP (no CNG key
@@ -111,7 +110,7 @@ diff -ruN a/external/xmlsec/UnpackedTarball_xmlsec.mk b/external/xmlsec/Unpacked
 + /**
 +  * @brief Sets the value of key data.
 +  * @param data the pointer to MSCng pccert data.
-+@@ -156,13 +206,16 @@
++@@ -149,13 +199,16 @@
 +         BOOL needsFree = TRUE;
 + 
 +         ret = xmlSecMSCngKeyDataCertGetPrivkey(cert, &hPrivKey, &needsFree);
@@ -134,7 +133,7 @@ diff -ruN a/external/xmlsec/UnpackedTarball_xmlsec.mk b/external/xmlsec/Unpacked
 +     }
 + 
 +     ret = xmlSecMSCngKeyDataCertGetPubkey(&(cert->pCertInfo->SubjectPublicKeyInfo), &hPubKey);
-+@@ -445,6 +498,10 @@
++@@ -438,6 +491,10 @@
 +         }
 +     }
 + 
@@ -145,7 +144,7 @@ diff -ruN a/external/xmlsec/UnpackedTarball_xmlsec.mk b/external/xmlsec/Unpacked
 +     if(ctx->pubkey != 0) {
 +         status = BCryptDestroyKey(ctx->pubkey);
 +         if(status != STATUS_SUCCESS) {
-+@@ -514,6 +571,17 @@
++@@ -507,6 +564,17 @@
 +         }
 +     }
 + 
@@ -163,7 +162,7 @@ diff -ruN a/external/xmlsec/UnpackedTarball_xmlsec.mk b/external/xmlsec/Unpacked
 +     if(dstCtx->cert != NULL) {
 +         /* avoid BCryptDuplicateKey() here as that works for symmetric keys only */
 +         ret = xmlSecMSCngKeyDataCertGetPubkey(&(dstCtx->cert->pCertInfo->SubjectPublicKeyInfo), &dstCtx->pubkey);
-+@@ -700,6 +768,10 @@
++@@ -693,6 +761,10 @@
 +         return(xmlSecKeyDataTypePrivate | xmlSecKeyDataTypePublic);
 +     }
 + 
@@ -174,9 +173,8 @@ diff -ruN a/external/xmlsec/UnpackedTarball_xmlsec.mk b/external/xmlsec/Unpacked
 +     if(ctx->bcryptPrivkey != 0) {
 +         return(xmlSecKeyDataTypePrivate | xmlSecKeyDataTypePublic);
 +     }
-+diff -ru a/src/mscng/private.h b/src/mscng/private.h
-+--- a/src/mscng/private.h	2026-11-12 18:16:27.200953419 +0700
-++++ b/src/mscng/private.h	2026-11-12 18:17:05.620152840 +0700
++--- a/src/mscng/private.h
+++++ b/src/mscng/private.h
 +@@ -64,6 +64,9 @@
 + int                 xmlSecMSCngKeyDataAdoptBCryptPrivKey            (xmlSecKeyDataPtr data,
 +                                                                      BCRYPT_KEY_HANDLE hKey);
@@ -187,9 +185,8 @@ diff -ruN a/external/xmlsec/UnpackedTarball_xmlsec.mk b/external/xmlsec/Unpacked
 + 
 + 
 + xmlSecSize         xmlSecMSCngCertKeyDataGetSize                    (xmlSecKeyDataPtr data);
-+diff -ru a/src/mscng/signatures.c b/src/mscng/signatures.c
-+--- a/src/mscng/signatures.c	2026-11-12 18:16:27.193953200 +0700
-++++ b/src/mscng/signatures.c	2026-11-12 18:17:05.626153026 +0700
++--- a/src/mscng/signatures.c
+++++ b/src/mscng/signatures.c
 +@@ -895,6 +895,66 @@
 +     return(0);
 + }
