@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build HST Office (LibreOffice 26.8.1.1 + HST patches/branding) on Linux x86_64.
+# Build HST Office (LibreOffice 26.8.3.1 + HST patches/branding) on Linux x86_64.
 #   scripts/build-linux.sh --preflight | --configure | --build | --package | --rpm-appimage
 # --rpm-appimage repacks dist/linux/*.deb as .rpm and .AppImage (needs rpmbuild and readelf; docs/LINUX_PACKAGES.md).
 # Runs upstream commands as the unprivileged build user $HST_BUILD_USER
@@ -13,7 +13,7 @@ LOGS="$ROOT/build/logs"
 BUILD_USER="${HST_BUILD_USER:-hstbuild}"
 export CCACHE_DIR="$ROOT/upstream/ccache"
 mkdir -p "$LOGS"
-# HST Office release version: /VERSION is the single source (engine version stays 26.8.1.1).
+# HST Office release version: /VERSION is the single source (engine version stays 26.8.3.1).
 eval "$(python3 "$ROOT/scripts/write-hst-version.py" --env)"
 
 as_builder() {

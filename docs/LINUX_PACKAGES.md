@@ -14,7 +14,7 @@ và Tumbleweed (và các bản dựa trên chúng: Linux Mint 21+, ...). **RHEL 
 (glibc 2.34, GCC 11), xem [glibc và thư viện](#glibc-và-thư-viện).
 
 `<release>` là mã bản phát hành của [data/hst/release.json](../data/hst/release.json) (ví dụ `1.0.2`, `1.0.2-beta.1`);
-phiên bản lõi 26.8.1.1 không xuất hiện ở tên hay siêu dữ liệu gói.
+phiên bản lõi 26.8.3.1 không xuất hiện ở tên hay siêu dữ liệu gói.
 
 ## Cách tạo (không build lại)
 

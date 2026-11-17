@@ -51,10 +51,10 @@ extract_one() { # extract_one <tarball> <dest>; all three tarballs share one top
 
 do_extract() {
   # errexit is suppressed inside phase(), so every step returns explicitly on failure.
-  echo "extract: main source"; extract_one libreoffice-26.8.1.1.tar.xz "$SRC" || return 1
+  echo "extract: main source"; extract_one libreoffice-26.8.3.1.tar.xz "$SRC" || return 1
   rm -rf "$SRC/translations" "$SRC/dictionaries"
-  echo "extract: translations"; extract_one libreoffice-translations-26.8.1.1.tar.xz "$SRC" || return 1
-  echo "extract: dictionaries"; extract_one libreoffice-dictionaries-26.8.1.1.tar.xz "$SRC" || return 1
+  echo "extract: translations"; extract_one libreoffice-translations-26.8.3.1.tar.xz "$SRC" || return 1
+  echo "extract: dictionaries"; extract_one libreoffice-dictionaries-26.8.3.1.tar.xz "$SRC" || return 1
   [ -f "$SRC/configure.ac" ] || { echo "extract: configure.ac missing"; return 1; }
   [ -d "$SRC/translations/source/vi" ] || { echo "extract: vi translations missing"; find "$SRC/translations" -maxdepth 1 | head; return 1; }
   # No src/ at the top of the tree: skia force-includes "src/utils/win/...", and clang-cl
@@ -132,7 +132,7 @@ do_fetch() { # download every external tarball (sha256-checked by gbuild) so pre
   # get-submodules re-fetches the core source tarballs without a checksum unless
   # they are already in TARFILE_LOCATION; reuse the copies verified against the lock.
   mkdir -p "$SRC/external/tarballs" || return 1
-  cp -n "$DL"/libreoffice-translations-26.8.1.1.tar.xz "$DL"/libreoffice-dictionaries-26.8.1.1.tar.xz \
+  cp -n "$DL"/libreoffice-translations-26.8.3.1.tar.xz "$DL"/libreoffice-dictionaries-26.8.3.1.tar.xz \
     "$SRC/external/tarballs/" || return 1
   (cd "$SRC" && "${LO_MAKE[@]}" fetch) 2>&1 | tee "$LOGS/fetch.log"
   local rc=${PIPESTATUS[0]}

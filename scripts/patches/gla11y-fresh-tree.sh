@@ -7,7 +7,7 @@
 # usage: scripts/patches/gla11y-fresh-tree.sh TREE TARBALL
 #   TREE     a LibreOffice tree with the series applied (e.g. from the fresh-apply script); missing upstream files
 #            of the checked modules (other .ui files, bin/gla11y, solenv/sanitizers) are taken from TARBALL
-#   TARBALL  libreoffice-26.8.1.1.tar.xz
+#   TARBALL  libreoffice-26.8.3.1.tar.xz
 # Then the layout check of the four ribbons (check-ribbon-layout.py --tree: few-command groups large, no lone
 # small button, small items on the two rows) and the 24 px images of their large buttons (check-ribbon-large-icons.py
 # --tree: Paste alone keeps a larger one).

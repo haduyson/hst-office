@@ -23,7 +23,7 @@ WORK="${HST_WORK:-/mnt/hst}"
 SRC="$WORK/lo"; LOGS="$WORK/logs"; METRICS="$WORK/metrics"; DL="${HST_DL:-$WORK/dl}"
 CONF="$REPO/build-config/linux-x86_64.conf"
 SUDO="${HST_SUDO-sudo}"
-LO_VER=26.8.1.1
+LO_VER=26.8.3.1
 # System tools only: hosted-runner tool caches (Python, Java, CMake) must not leak into
 # configure, or --enable-python=system would link against a non-distribution Python.
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin

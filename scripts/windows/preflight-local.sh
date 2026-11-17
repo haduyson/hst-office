@@ -38,7 +38,7 @@ fi
 "$TOOLS/actionlint" .github/workflows/desktop-windows.yml || bad actionlint
 
 TARBALLS="$ROOT/upstream/cache/libreoffice"
-if [ -f "$TARBALLS/libreoffice-26.8.1.1.tar.xz" ]; then
+if [ -f "$TARBALLS/libreoffice-26.8.3.1.tar.xz" ]; then
   echo "== simulate extract / options / patch / branding"
   tmp="$(mktemp -d "$ROOT/work/preflight.XXXXXX")"
   trap 'rm -rf "$tmp"' EXIT

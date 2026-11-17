@@ -4,9 +4,9 @@
 
 | Mục | Giá trị |
 |---|---|
-| Phiên bản | LibreOffice **26.8.1.1** (nhánh fresh 26.8) |
-| Git | tag `libreoffice-26.8.1.1`, commit `bf6ef2662401c7d6dce671ab4deb26ee0af3a7c1` |
-| Tarball | `libreoffice-26.8.1.1.tar.xz` SHA-256 `296ba78e…bfc`… (đầy đủ trong lock), kèm `translations` và `dictionaries` |
+| Phiên bản | LibreOffice **26.8.3.1** (nhánh fresh 26.8) |
+| Git | tag `libreoffice-26.8.3.1`, commit `861effc5289d539f15c4c18d1ba8579ffd78728b` |
+| Tarball | `libreoffice-26.8.3.1.tar.xz` SHA-256 `83006a81…de28`… (đầy đủ trong lock), kèm `translations`, `dictionaries` và `help` |
 | Chữ ký | GPG "Good signature", khóa `C2839ECAD9408FBE9531C3E9F434A1EFAFEEAEA3` |
 | Thư mục | `upstream/libreoffice/` (gitignored, sở hữu bởi user build `hstbuild`) |
 | Phương án so sánh | 26.2.6.3 (`8221e31b…`) — không chọn vì hết hỗ trợ 2026-11-30 |
@@ -23,6 +23,18 @@
 
 ## Cập nhật baseline
 
-1. Tải tarball bản mới + `.asc`, kiểm chữ ký, cập nhật lock.
+1. Tải tarball bản mới + `.asc`, kiểm SHA-256 công bố và chữ ký bằng khóa ghim, cập nhật lock. Chạy `python3 scripts/check-source-lock.py --tarballs <thư-mục-tarball> --remote`.
 2. Áp lại `patches/libreoffice/series`; sửa patch xung đột.
 3. Build lại, chạy toàn bộ QA runtime và đo độ trễ menu.
+
+Chạy `scripts/apply-patches.sh --check` trên cây sạch trước overlay tiếng Việt.
+Phép nhận diện patch đã áp chưa hỗ trợ đầy đủ cây sau overlay: các `msgstr` rỗng
+trong patch ribbon được điền bản dịch, làm kiểm tra vá ngược không khớp. Khi nâng
+lõi, kiểm tra và áp series từ nguồn pristine rồi mới chạy overlay và kiểm UI.
+
+## Đường lấy nguồn theo nền tảng
+
+- Linux VM103: hàng đợi gọi `scripts/linux/local-build.sh`; tarball được xác minh theo lock của SHA đã gửi. Hash lock đổi làm cache pristine được giải nén lại bằng `scripts/linux/ci-build.sh`.
+- Windows HST4: `scripts/windows/hst4-build.ps1` tải theo lock của checkout; `hst4-tree.sh` dùng hash tarball và script `trial-build.sh` làm khóa cache.
+- macOS: `desktop-macos.yml` tải qua `scripts/windows/fetch-sources.py` theo lock của nhánh, rồi `scripts/macos/trial-build.sh` giải nén trên cả arm64 và x86_64.
+- Khi nâng lõi, cập nhật cả lock và tên tarball trong các script giải nén; kiểm tra lock đối chiếu các điểm ghim này. Các phiên bản trong hồ sơ kiểm thử/lịch sử phát hành được giữ theo nguồn đã đo.

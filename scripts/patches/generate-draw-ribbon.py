@@ -4,7 +4,7 @@
 
 Usage: scripts/patches/generate-draw-ribbon.py --tree DIR [--out PATCH] [--check]
 
-DIR is a LibreOffice tree with the whole series applied (scripts/apply-patches.sh on the 26.8.1.1
+DIR is a LibreOffice tree with the whole series applied (scripts/apply-patches.sh on the 26.8.3.1
 tarballs, as the fresh-tree check builds it). HST Draw is what "Chỉnh sửa bằng HST Draw" of HST PDF
 opens, so its ribbon is the Slides ribbon (Draw and Slides share the sd code and their commands) with
 the slide-only tabs and groups left out and three tabs for editing PDFs:

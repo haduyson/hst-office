@@ -11,6 +11,7 @@ needed (hst-sheets-excel-formula-conventions.patch; runtime: tests/runtime/check
   English names users type in the leading application.
 """
 import json
+import os
 import re
 import tarfile
 import unittest
@@ -20,7 +21,7 @@ from test_vi_ui_default import new_side, series
 
 ROOT = Path(__file__).resolve().parents[2]
 PATCH = "hst-sheets-excel-formula-conventions.patch"
-TARBALL = Path("/home/office/upstream/cache/libreoffice/libreoffice-translations-26.8.1.1.tar.xz")
+TARBALL = Path(os.environ.get("HST_UPSTREAM_CACHE_ROOT", ROOT)) / "upstream/cache/libreoffice/libreoffice-translations-26.8.3.1.tar.xz"
 # Contexts of function names: built-in (formula), Analysis/DateFunc/Pricing add-ins (scaddins).
 NAME_CONTEXT = re.compile(r"^(RID_STRLIST_FUNCTION_NAMES|[A-Z]+_FUNCNAME_\w+)$")
 
@@ -103,7 +104,7 @@ class SheetsExcelFormulaConventions(unittest.TestCase):
     def test_upstream_vi_keeps_function_names_english(self):
         with tarfile.open(TARBALL) as tar:
             for member in ("formula/messages.po", "scaddins/messages.po"):
-                text = tar.extractfile(f"libreoffice-26.8.1.1/translations/source/vi/{member}").read().decode("utf-8")
+                text = tar.extractfile(f"libreoffice-26.8.3.1/translations/source/vi/{member}").read().decode("utf-8")
                 for ctx, msgid, msgstr in re.findall(r'msgctxt "([^"]*)"\nmsgid "([^"]*)"\nmsgstr "([^"]*)"', text):
                     if NAME_CONTEXT.match(ctx) and msgstr:
                         self.assertEqual(msgstr, msgid, f"{member} {ctx}")

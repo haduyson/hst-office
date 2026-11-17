@@ -14,7 +14,7 @@ REPO="${HST_REPO:?HST_REPO must point at the repository checkout}"
 WORK="${HST_WORK:-$HOME/hst}"
 SRC="$WORK/lo"; LOGS="$WORK/logs"; METRICS="$WORK/metrics"; DL="${HST_DL:-$WORK/dl}"
 CONF="$REPO/build-config/macos-$ARCH.conf"
-LO_VERSION=26.8.1.1
+LO_VERSION=26.8.3.1
 case "$ARCH" in arm64|x86_64) ;; *) echo "unsupported HST_ARCH $ARCH"; exit 64 ;; esac
 PY="${HST_PYTHON:-$(command -v python3)}"
 BREW="${HST_BREW:-$(command -v brew || true)}"
