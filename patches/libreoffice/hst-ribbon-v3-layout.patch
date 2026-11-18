@@ -313,12 +313,17 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
 --- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
 +++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
-@@ -105,16 +105,8 @@ namespace
- // HST Office: a preview of the ribbon gallery is a 96 x 74 tile: its image and the icon view's room around it,
- // the item padding 2 on each side in gtk (92 x 70) or vcl's own 5 px (86 x 64; vcl's builder makes the
- // icon view its own scrolled window, so "stylesscroll" does not exist there)
+@@ -102,19 +102,10 @@
+ 
+ namespace
+ {
+-// HST Office: a preview of the ribbon gallery is a 96 x 74 tile: its image and the icon view's room around it,
+-// the item padding 2 on each side in gtk (92 x 70) or vcl's own 5 px (86 x 64; vcl's builder makes the
+-// icon view its own scrolled window, so "stylesscroll" does not exist there)
 -constexpr tools::Long HST_TILE_WIDTH = 96;
 -constexpr tools::Long HST_TILE_HEIGHT = 74;
++// HST Office: whether the icon view is vcl's (vcl's builder makes the icon view its own scrolled window, so
++// "stylesscroll" does not exist there); its frame then takes 2 px more
  bool g_bHstVclIconView = false;
  
 -Size lcl_HstPreviewImageSize(double fScale)
@@ -330,7 +335,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  // HST Office: the module of the current document ("swriter", "scalc"...): Writer's gallery shows paragraph
  // styles with short names, Calc's (the same control, whose style family Para is Calc's cell styles) cell styles
  bool lcl_HstModuleIs(std::u16string_view aModule)
-@@ -122,6 +114,20 @@ bool lcl_HstModuleIs(std::u16string_view
+@@ -122,6 +113,22 @@ bool lcl_HstModuleIs(std::u16string_view
      const SfxObjectShell* pShell = SfxObjectShell::Current();
      return pShell && pShell->GetFactory().GetFactoryName().startsWith(aModule);
  }
@@ -343,15 +348,17 @@ License: these upstream files remain under their original license (MPL-2.0).
 +
 +tools::Long lcl_HstListWidth() { return lcl_HstModuleIs(u"scalc") ? 104 : 132; }
 +
++// the image of a list row: the row less the icon view's room around it, the .ui's item padding of 2 on each side in
++// gtk and in vcl (its builder sets the padding as the icon view's spacing); 10 here left vcl's rows 18 px high
 +Size lcl_HstPreviewImageSize(double fScale)
 +{
-+    const tools::Long nRoom = g_bHstVclIconView ? 10 : 4;
++    constexpr tools::Long nRoom = 4;
 +    return Size(std::lround(lcl_HstListWidth() * fScale) - nRoom, std::lround(HST_LIST_ROW * fScale) - nRoom);
 +}
  }
  
  namespace
-@@ -405,9 +411,10 @@ void StyleItemController::DrawEntry(vcl:
+@@ -405,9 +412,10 @@ void StyleItemController::DrawEntry(vcl:
          const MapUnit eUnit = pItemSet->GetPool() ? pItemSet->GetPool()->GetMetric(pFontHeightItem->Which())
                                                    : pShell->GetMapUnit();
          Size aPixelSize(rRenderContext.LogicToPixel(aFontSize, MapMode(eUnit)));
@@ -365,7 +372,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  
          SvxFont aFont = GetFontFromItems(pFontItem, aPixelSize, pItemSet);
          rRenderContext.SetFont(aFont);
-@@ -436,15 +443,16 @@ void StyleItemController::DrawEntry(vcl:
+@@ -436,15 +444,16 @@ void StyleItemController::DrawEntry(vcl:
          }
      }
  
@@ -385,7 +392,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      }
  
      if (aFontHighlight != COL_AUTO)
-@@ -465,14 +473,21 @@ void StyleItemController::DrawContentBac
+@@ -465,14 +474,21 @@ void StyleItemController::DrawContentBac
      rRenderContext.DrawRect(rContentRect);
  }
  
@@ -410,7 +417,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  void StyleItemController::DrawHighlight(vcl::RenderContext& rRenderContext, Color aFontBack)
-@@ -482,15 +497,16 @@ void StyleItemController::DrawHighlight(
+@@ -482,15 +498,16 @@ void StyleItemController::DrawHighlight(
      rRenderContext.DrawRect(HstTextRect(rRenderContext, StylesPreviewWindow_Base::HstTileLabel(m_aStyleName)));
  }
  
@@ -431,7 +438,18 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  StylesPreviewWindow_Base::StylesPreviewWindow_Base(
-@@ -1308,9 +1324,9 @@ StylesPreviewWindow_Impl::StylesPreviewW
+@@ -1147,8 +1164,8 @@ Bitmap StylesPreviewWindow_Base::GetCach
+     else
+     {
+         ScopedVclPtrInstance<VirtualDevice> pImg;
+-        // HST Office: the image of a 96 x 74 tile (lcl_HstPreviewImageSize); the room around it is the frame
+-        // of the selected preview, and the gallery's 1 px frame makes it 76 tall
++        // HST Office: the image of a list row (lcl_HstPreviewImageSize); the room around it is the frame of the
++        // selected style, three 24 px rows and the gallery's frame make it 76 tall
+         const Size aSize(lcl_HstPreviewImageSize(Application::GetDefaultDevice()->GetDPIScaleFactor()));
+         pImg->SetOutputSizePixel(aSize);
+ 
+@@ -1308,9 +1325,9 @@ StylesPreviewWindow_Impl::StylesPreviewW
  
  namespace
  {
@@ -444,7 +462,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  constexpr tools::Long HST_GALLERY_HEIGHT = 76;
  }
  
-@@ -1318,17 +1334,18 @@ void StylesPreviewWindow_Impl::HstApplyP
+@@ -1318,17 +1335,18 @@ void StylesPreviewWindow_Impl::HstApplyP
  {
      const double fScale = GetDPIScaleFactor();
      const int nTiles = HST_PREVIEWS[m_nHstState];

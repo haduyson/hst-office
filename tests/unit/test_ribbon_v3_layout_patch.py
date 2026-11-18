@@ -24,6 +24,18 @@ class LayoutTest(unittest.TestCase):
         # the caption is the child at row 3 (generate-ribbon-v3-ui.py)
         self.assertIn("return rChild.get_grid_top_attach() >= 3;", code)
 
+    def test_style_list_rows_are_24_px_in_gtk_and_vcl(self):
+        code = added(PATCH, "svx/source/tbxctrls/StylesPreviewWindow.cxx")
+        # vcl's builder sets the .ui's item padding 2 as the icon view's spacing: 4 px of room in both toolkits
+        self.assertIn("constexpr tools::Long nRoom = 4;", code)
+        self.assertIn("constexpr tools::Long HST_LIST_ROW = 24;", code)
+
+    def test_medium_menu_button_measured_as_painted(self):
+        code = added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx")
+        self.assertIn("std::max<tools::Long>(1, 1 + (nTextHeight - 10) / 2);", code)
+        self.assertIn("tools::Long nWidth = 2 * 4 + 2 * nSymbol;", code)
+        self.assertIn("it = rWidths.emplace(nKey, commandWidth(rCommand, cLook)).first;", code)
+
     def test_one_button_stretches_over_its_cell(self):
         code = added(PATCH, "vcl/source/window/toolbox.cxx")
         self.assertIn("if ( nButtons == 1 && !pOnly->maRect.IsEmpty() && nRight > pOnly->maRect.Right() + 1 )", code)
