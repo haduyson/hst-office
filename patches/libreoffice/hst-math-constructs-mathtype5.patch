@@ -10,6 +10,9 @@ In Equation Editor 3.0 objects (.doc/.xls/.ppt) the arc is the over-arc template
 one text is an arrow template, a second text makes it the main slot of a lower limit, and the
 equilibrium arrows are a centred pile of a right arrow over a left one: the format has no
 harpoons. It has no wide hat either: widehat becomes the hat over the (middle) character.
+Reading Equation Editor 3.0 back: a centred pile gets no "alignc" (a stack centres its lines,
+and alignc inside a line is a parse error), and a character with an embellishment after a run
+of text closes the run before its group (it read as the text "+a {").
 
 MathType::Parse hands MTEF version 5 ("Equation.DSMT4", MathType 4-7) to the HST reader
 (starmath/source/hst/mtef5*, written clean-room from a behaviour spec) and applies the
@@ -547,10 +550,10 @@ index 0000000..f9f276e
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
 new file mode 100644
-index 0000000..08a444c
+index 0000000..cd19684
 --- /dev/null
 +++ b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
-@@ -0,0 +1,252 @@
+@@ -0,0 +1,257 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -637,7 +640,7 @@ index 0000000..08a444c
 +    return aData;
 +}
 +
-+/// the formula a saved object reads back as, when the file is opened
++/// the formula a saved object reads back as, when the file is opened; it must parse cleanly
 +OUString Reopened(std::vector<sal_uInt8>& rSaved)
 +{
 +    SvMemoryStream aStream(rSaved.data(), rSaved.size(), StreamMode::READ);
@@ -645,7 +648,11 @@ index 0000000..08a444c
 +    OUStringBuffer aRead;
 +    MathType aImport(aRead);
 +    CPPUNIT_ASSERT(aImport.Parse(xStorage.get()));
-+    return aRead.makeStringAndClear();
++    const OUString aText = aRead.makeStringAndClear();
++    SmParser5 aParser;
++    aParser.Parse(aText);
++    CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), !aParser.NextError());
++    return aText;
 +}
 +
 +/// the MTEF records of a saved object
@@ -779,6 +786,7 @@ index 0000000..08a444c
 +        // Equation Editor 3.0 has no wide hat: the hat embellishment (9) goes on the character,
 +        // or on the middle one of a longer name; it was dropped
 +        constexpr sal_uInt8 CHAR_WITH_EMBELLISHMENT = 0x22, EMBEL = 6, HAT = 9;
++        // ("a" and "c" round the hat stay text, not a quoted "+a {": the run closes first)
 +        std::vector<sal_uInt8> aSaved = Saved(u"widehat {x} + widehat {abc}"_ustr);
 +        const std::vector<sal_uInt8> aRecords = Records(aSaved);
 +        // (each character record: tag, typeface, UTF-16 character)
@@ -4699,7 +4707,7 @@ index 1b28e4a..1ab9831 100644
              break;
      }
 diff --git a/starmath/source/mathtype.cxx b/starmath/source/mathtype.cxx
-index 2310f6b..993de2b 100644
+index 2310f6b..9eeb9e7 100644
 --- a/starmath/source/mathtype.cxx
 +++ b/starmath/source/mathtype.cxx
 @@ -19,6 +19,9 @@
@@ -4776,7 +4784,19 @@ index 2310f6b..993de2b 100644
      SmNode *pTemp;
      pS->WriteUChar( TMPL ); //Template
      if (pNode->GetToken().eType == TUNDERBRACE)
-@@ -2658,7 +2674,7 @@ bool MathType::HandleTemplate(int nLevel, sal_uInt8 &rSelector,
+@@ -2605,7 +2621,10 @@ bool MathType::HandlePile(int &rSetAlign, int nLevel, sal_uInt8 nSelector, sal_u
+     pS->ReadUChar( nHAlign );
+     pS->ReadUChar( nVAlign );
+ 
+-    HandleAlign(nHAlign, rSetAlign);
++    // HST Office: a stack centres its lines already, and "alignc" inside a line is an error (a
++    // pile of arrows in a reaction)
++    if (nHAlign != 2)
++        HandleAlign(nHAlign, rSetAlign);
+ 
+     rRet.append(" stack {\n");
+     bool bRet = HandleRecords( nLevel+1, nSelector, nVariation, -1, -1 );
+@@ -2658,7 +2677,7 @@ bool MathType::HandleTemplate(int nLevel, sal_uInt8 &rSelector,
      pS->ReadUChar( rSelector );
      pS->ReadUChar( rVariation );
      pS->ReadUChar( nOption );
@@ -4785,7 +4805,19 @@ index 2310f6b..993de2b 100644
      if ((rSelector >= 21) && (rSelector <=26))
      {
          OSL_ENSURE(nOption < 2,"Option out of range");
-@@ -3141,6 +3157,9 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+@@ -2850,9 +2869,10 @@ bool MathType::HandleChar(sal_Int32 &rTextStart, int &rSetSize, int nLevel,
+         sPost = "";
+         nPostSup = nPostlSup = 0;
+         int nOriglen=rRet.getLength()-rTextStart;
+-        rRet.append(" {");  // #i24340# make what would be "vec {A}_n" become "{vec {A}}_n"
++        // HST Office: close the text run before the group, not inside it ("+a {" hat b)
+         if ((!bSilent) && (nOriglen > 1))
+             rRet.append("\"");
++        rRet.append(" {");  // #i24340# make what would be "vec {A}_n" become "{vec {A}}_n"
+         bRet = HandleRecords( nLevel+1, nSelector, nVariation );
+         if (!bSilent)
+         {
+@@ -3141,6 +3161,9 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
              //we have to drop them
              nOldPending = StartTemplate(0x2f,0x01);
              break;
@@ -4795,7 +4827,7 @@ index 2310f6b..993de2b 100644
          case TWIDELVEC: //Not Exportable
          case TCHECK: //Not Exportable
          case TACUTE: //Not Exportable
-@@ -3149,8 +3168,8 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+@@ -3149,8 +3172,8 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
          case TWIDEHARPOON: //Not Exportable
          case TWIDELHARPOON: //Not Exportable
          case TWIDETILDE: //Not Exportable
@@ -4805,7 +4837,7 @@ index 2310f6b..993de2b 100644
          case TUNDERLINE:
              nOldPending = StartTemplate(0x10);
              break;
-@@ -3175,6 +3194,7 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+@@ -3175,6 +3198,7 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
          switch (pTemp->GetToken().eType)
          {
              case TWIDEVEC:
@@ -4813,7 +4845,7 @@ index 2310f6b..993de2b 100644
              case TUNDERLINE:
                  EndTemplate(nOldPending);
                  break;
-@@ -3218,6 +3238,7 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+@@ -3218,6 +3242,7 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
                  pS->WriteUChar( 8 );
                  break;
              case THAT:
@@ -4821,7 +4853,7 @@ index 2310f6b..993de2b 100644
                  pS->WriteUChar( 9 );
                  break;
              case TVEC:
-@@ -3236,12 +3257,12 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+@@ -3236,12 +3261,12 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
                  pS->WriteUChar( 20 );
                  break;
              case TWIDEVEC:
