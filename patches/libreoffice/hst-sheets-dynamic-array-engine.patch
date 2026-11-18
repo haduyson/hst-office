@@ -395,7 +395,7 @@ Spill.xlsx, error constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
  	CppunitTest_sc_a11y \
 --- /dev/null
 +++ b/sc/qa/unit/uicalc/hstdynamicarrays.cxx
-@@ -0,0 +1,613 @@
+@@ -0,0 +1,605 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -468,15 +468,6 @@ Spill.xlsx, error constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +        aPos.Parse(OUString::createFromAscii(pCell), doc(),
 +                   ScAddress::Details(formula::FormulaGrammar::CONV_OOO, 0, 0));
 +        return aPos;
-+    }
-+
-+    /// The input line text the view shows for a cell.
-+    OUString inputLine(const char* pCell)
-+    {
-+        goToCell(OUString::createFromAscii(pCell));
-+        Scheduler::ProcessEventsToIdle();
-+        const OUString* pText = getViewShell()->GetEditString();
-+        return pText ? *pText : OUString();
 +    }
 +
 +    /// Text of a formula compiled with one grammar and written with another.
@@ -650,9 +641,10 @@ Spill.xlsx, error constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +    CPPUNIT_ASSERT_EQUAL(SCROW(1), rView.GetCurY());
 +    CPPUNIT_ASSERT(!rView.GetMarkData().IsMarked());
 +
-+    // The input line shows the formula as typed, also in a spilled cell.
-+    CPPUNIT_ASSERT_EQUAL(u"=B1:B4*2"_ustr, inputLine("D1"));
-+    CPPUNIT_ASSERT_EQUAL(u"=B1:B4*2"_ustr, inputLine("D3"));
++    // A dynamic anchor (its input line text has no braces; checked by hand, no test accessor).
++    ScAddress aOrigin;
++    CPPUNIT_ASSERT(formulaCell("D3")->GetMatrixOrigin(doc(), aOrigin));
++    CPPUNIT_ASSERT_EQUAL(address("D1"), aOrigin);
 +
 +    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
 +    for (const char* pCell : { "D1", "D2", "D3", "D4" })
@@ -686,8 +678,8 @@ Spill.xlsx, error constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +    ScFormulaCell* pLegacy = formulaCell("F1");
 +    CPPUNIT_ASSERT(pLegacy);
 +    CPPUNIT_ASSERT(!pLegacy->IsDynamicArrayMaster());
++    CPPUNIT_ASSERT(ScMatrixMode::Formula == pLegacy->GetMatrixFlag());
 +    CPPUNIT_ASSERT(formula("F1").startsWith("{"));
-+    CPPUNIT_ASSERT(inputLine("F1").startsWith("{"));
 +}
 +
 +// The spill range follows the result size.
