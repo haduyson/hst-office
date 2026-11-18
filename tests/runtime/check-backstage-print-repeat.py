@@ -9,7 +9,7 @@ Writer, Sheets, Slides and Draw: .uno:Print (Ctrl+P) opens the page, the panel c
 Each opening: exactly one panel, its labels in Vietnamese. After all: no job printed (the generic PDF printer of the
 profile wrote nothing) and the office's memory grew by less than MAX_GROWTH_KIB. Exit 1 on a failure.
 """
-import argparse, importlib.util, json, os, subprocess, sys, tempfile, time  # noqa: E401
+import argparse, importlib.util, json, os, socket, subprocess, sys, tempfile, time  # noqa: E401
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -21,6 +21,13 @@ ATSPI = os.path.join(HERE, "backstage_print_atspi.py")
 APPS = ("swriter", "scalc", "simpress", "sdraw")
 # a cancelled job and its panel are freed; what stays per opening (caches, the preview's bitmaps) is small
 MAX_GROWTH_KIB = 150 * 1024
+
+
+def free_port():
+    """A port no other office listens on: with the base check's fixed port a run could attach to another office."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
 
 
 def atspi(*args):
@@ -82,18 +89,20 @@ def main():
     parser.add_argument("--soffice", required=True)
     parser.add_argument("--out", default=tempfile.mkdtemp(prefix="hst-bsrepeat-"))  # noqa
     parser.add_argument("--rounds", type=int, default=4)
+    parser.add_argument("--apps", default=",".join(APPS), help="comma separated, of " + ", ".join(APPS))
     parser.add_argument("--shot", help="screenshot command with {} for the file")
     args = parser.parse_args()
     out = os.path.abspath(args.out)
     printer_dir = os.path.join(out, "pdf")
     os.makedirs(printer_dir, exist_ok=True)
     shot = lambda name: args.shot and os.system(args.shot.format(os.path.join(out, name)))  # noqa: E731
+    base.PORT = free_port()  # VisibleOffice reads the module's port
     office = base.VisibleOffice(args.soffice, out, printer_dir)
     profile_url = office.uno.systemPathToFileUrl(os.path.join(out, "profile"))
     try:
         office.close_welcome()
         memory = {}
-        for app in APPS:
+        for app in args.apps.split(","):
             doc = make_doc(office, app)
             frame = doc.getCurrentController().getFrame()
             for round_ in range(1, args.rounds + 1):
