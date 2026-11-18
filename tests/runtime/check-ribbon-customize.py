@@ -16,8 +16,11 @@ HST_RIBBON_DUMP_LAYOUT so the generated tabs' layouts can be checked by check-ri
 Writes <work>/evidence.json; exit 1 on any failure.
 """
 import argparse
+import importlib.util
 import json
 import os
+import signal
+import subprocess
 import sys
 import time
 
@@ -86,6 +89,18 @@ def start(args, app, fresh, dumps):
     return office, work
 
 
+def unmodified(office):
+    """The commands changed the document: without this the office asks to save it and never quits."""
+    try:
+        office.desktop().getCurrentComponent().setModified(False)
+    except Exception:  # noqa: BLE001 - no document: nothing to ask about
+        pass
+
+
+def menu_items():
+    return [n for n in gui.walk(gui.office_app()) if n.getRoleName() == "menu item"]
+
+
 def shot(args, office, name):
     if args.shots:
         office.screenshot(os.path.join(args.shots, name))
@@ -116,6 +131,7 @@ def check_app(args, app):
         buttons = ribbon_buttons()
         record(f"[{app}] used commands on the recently used tab", EMPTY not in texts() and len(buttons) >= 3, buttons)
         shot(args, office, f"{app}-recent-used.png")
+        unmodified(office)
     finally:
         office.stop()  # the history is written at exit
 
@@ -125,7 +141,6 @@ def check_app(args, app):
     with open(os.path.join(folder, f"custom-{app}.json"), "w", encoding="utf-8") as handle:
         json.dump(customization(app), handle, ensure_ascii=False)
     if os.geteuid() == 0:
-        import subprocess
         subprocess.run(["chown", "-R", hst_gui.BUILD_USER, folder], check=False)
 
     office, work = start(args, app, False, dumps)
@@ -151,15 +166,28 @@ def check_app(args, app):
         time.sleep(2)
         record(f"[{app}] history kept over the restart", EMPTY not in texts() and len(ribbon_buttons()) >= 3,
                ribbon_buttons())
+        # a ribbon command's menu (quick access toolbar) has the item too
+        gui.open_tab(args.display, HOME)
+        time.sleep(1)
+        bold = [n for n in gui.ribbon_nodes(("push button", "toggle button")) if n[0] == "Đậm"]
+        if bold:
+            box = bold[0][2]
+            gui.xdo(args.display, "mousemove", str(box[0] + box[2] // 2), str(box[1] + box[3] // 2), "click", "3")
+            time.sleep(1.5)
+            items = [n.name for n in menu_items()]
+            record(f"[{app}] command menu: quick access and Tùy chỉnh ribbon…",
+                   "Tùy chỉnh ribbon…" in items and any("truy cập nhanh" in i for i in items), items)
+            gui.xdo(args.display, "key", "Escape")
+            time.sleep(1)
         # right-click on the tab row
         box = dict((t[0], t[1]) for t in gui.ribbon_tabs()).get(HOME)
         if box:
-            gui.xdo(args.display, "mousemove", str(box[0] + box[2] + 400), str(box[1] + box[3] // 2), "click", "3")
+            gui.xdo(args.display, "mousemove", str(box[0] + box[2] // 2), str(box[1] + box[3] // 2), "click", "3")
             time.sleep(1.5)
-            items = [n[0] for n in gui.ribbon_nodes(("menu item",), band=2000)]
+            items = [n.name for n in menu_items()]
             if record(f"[{app}] context menu offers Tùy chỉnh ribbon…", "Tùy chỉnh ribbon…" in items, items):
-                node = next(n for n in gui.ribbon_nodes(("menu item",), band=2000) if n[0] == "Tùy chỉnh ribbon…")
-                gui.click(args.display, node[2])
+                node = next(n for n in menu_items() if n.name == "Tùy chỉnh ribbon…")
+                gui.click(args.display, gui.extents(node))
                 time.sleep(3)
                 dialogs = [n for _w, n in hst_gui.toplevels(args.display, office.pid) if "Tùy chỉnh ribbon" in n]
                 record(f"[{app}] customize dialog opens", bool(dialogs), hst_gui.toplevels(args.display, office.pid))
@@ -178,6 +206,7 @@ def check_app(args, app):
         job.execute((NamedValue("Action", "setRecentEnabled"), NamedValue("Enabled", True)))
         time.sleep(4)
         record(f"[{app}] tab back after the switch", RECENT in gui.visible_names(), gui.visible_names())
+        unmodified(office)
     finally:
         office.stop()
 
@@ -190,6 +219,33 @@ def main():
     parser.add_argument("--shots")
     parser.add_argument("--apps", default="writer,calc,impress,draw")
     args = parser.parse_args()
+    if os.geteuid() == 0:  # as the build user under a session bus of its own (AT-SPI needs one)
+        for path in filter(None, (args.work, args.shots)):
+            os.makedirs(path, exist_ok=True)
+            subprocess.run(["chown", "-R", hst_gui.BUILD_USER, path], check=False)
+        os.execvp("runuser", ["runuser", "-u", hst_gui.BUILD_USER, "--", "dbus-run-session", "--", sys.executable]
+                  + sys.argv)
+    args.instdir, args.work = os.path.abspath(args.instdir), os.path.abspath(args.work)
+    address, launcher = private_atspi_bus()
+    os.environ.update(NO_AT_BRIDGE="0", GTK_MODULES="gail:atk-bridge", AT_SPI_BUS_ADDRESS=address)
+    try:
+        return run(args)
+    finally:
+        try:
+            os.kill(launcher, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+
+
+def private_atspi_bus():
+    """This run's own AT-SPI bus, as check-banner-everywhere.py sets it up (that file's name is not importable)."""
+    spec = importlib.util.spec_from_file_location("banner_everywhere", os.path.join(HERE, "check-banner-everywhere.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.private_atspi_bus()
+
+
+def run(args):
     hst_gui.setup_uno(args.instdir)
     if args.shots:
         os.makedirs(args.shots, exist_ok=True)

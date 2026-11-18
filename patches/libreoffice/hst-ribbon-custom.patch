@@ -2292,7 +2292,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/hst/ribbon/core/ribbon-usage-history.cxx
-@@ -0,0 +1,218 @@
+@@ -0,0 +1,220 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2341,6 +2341,8 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +    std::string_view("ToggleMenubar"), std::string_view("ActivateHelp"), std::string_view("NextTrackedChange"),
 +    std::string_view("Deselect"), std::string_view("SetDocumentModified"), std::string_view("AttributePageSize"),
 +    std::string_view("CellCursor"), std::string_view("SetInputMode"),
++    // Writer updates the input fields itself when a document opens
++    std::string_view("UpdateInputFields"),
 +};
 +
 +// Name prefixes: cursor movement, jumps, extending the selection by keys, deleting by words, scrolling, sidebar
@@ -2603,7 +2605,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/hst/ribbon/lo/ribbon-custom-controller.cxx
-@@ -0,0 +1,831 @@
+@@ -0,0 +1,847 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2791,6 +2793,15 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +    }
 +}
 +
++/// the document window of a frame
++SystemWindow* SystemOf(const css::uno::Reference<css::frame::XFrame>& xFrame)
++{
++    if (!xFrame.is())
++        return nullptr;
++    VclPtr<vcl::Window> xWindow = VCLUnoHelper::GetWindow(xFrame->getContainerWindow());
++    return xWindow ? xWindow->GetSystemWindow() : nullptr;
++}
++
 +OUString UiDirOf(const OUString& rFile)
 +{
 +    const sal_Int32 nSlash = rFile.lastIndexOf('/');
@@ -2824,7 +2835,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +            continue;
 +        std::string aApp;
 +        for (const auto& [pTabs, xController] : controllers())
-+            if (!pTabs->isDisposed() && pTabs->GetSystemWindow() == pSystem)
++            if (!pTabs->isDisposed() && xController->System() == pSystem)
 +                aApp = xController->App();
 +        if (!aApp.empty() && (aApps.count(std::string()) || aApps.count(aApp)))
 +            aTodo.emplace_back(pSystem, pView->GetFrame().GetFrameInterface());
@@ -2851,6 +2862,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +    : m_xTabs(&rTabs)
 +    , m_aApp(std::move(aApp))
 +    , m_xFrame(xFrame)
++    , m_xSystem(SystemOf(xFrame))
 +{
 +    rTabs.AddEventListener(LINK(this, RibbonController, TabsEventHdl));
 +}
@@ -2864,17 +2876,19 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +RibbonController* RibbonController::Of(const vcl::Window& rWindow)
 +{
 +    for (const vcl::Window* pWindow = &rWindow; pWindow; pWindow = pWindow->GetParent())
-+        if (const TabControl* pTabs = dynamic_cast<const TabControl*>(pWindow))
++    {
++        const TabControl* pTabs = dynamic_cast<const TabControl*>(pWindow);
++        // a window of the ribbon outside its tab control (the quick access toolbar): the notebookbar's tab control
++        if (!pTabs && dynamic_cast<const NotebookBar*>(pWindow))
++            pTabs = static_cast<const TabControl*>(FindDescendant(
++                *pWindow, [](const vcl::Window& r) { return dynamic_cast<const TabControl*>(&r) != nullptr; }));
++        if (pTabs)
 +        {
 +            const auto it = controllers().find(pTabs);
 +            if (it != controllers().end())
 +                return it->second.get();
 +        }
-+    // a window of the ribbon outside its tab control (the quick access toolbar): the ribbon of its window
-+    const SystemWindow* pSystem = rWindow.GetSystemWindow();
-+    for (const auto& [pTabs, xController] : controllers())
-+        if (pSystem && !pTabs->isDisposed() && pTabs->GetSystemWindow() == pSystem)
-+            return xController.get();
++    }
 +    return nullptr;
 +}
 +
@@ -2882,12 +2896,11 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +{
 +    if (!xFrame.is())
 +        return nullptr;
-+    VclPtr<vcl::Window> xWindow = VCLUnoHelper::GetWindow(xFrame->getContainerWindow());
-+    const SystemWindow* pSystem = xWindow ? xWindow->GetSystemWindow() : nullptr;
++    const SystemWindow* pSystem = SystemOf(xFrame);
 +    if (!pSystem)
 +        return nullptr;
 +    for (const auto& [pTabs, xController] : controllers())
-+        if (!pTabs->isDisposed() && pTabs->GetSystemWindow() == pSystem)
++        if (!pTabs->isDisposed() && xController->System() == pSystem)
 +            return xController.get();
 +    return nullptr;
 +}
@@ -2896,14 +2909,19 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +{
 +    if (css::uno::Reference<css::frame::XFrame> xFrame = m_xFrame)
 +        return xFrame;
-+    if (!m_xTabs || m_xTabs->isDisposed())
++    const SystemWindow* pSystem = System();
++    if (!pSystem)
 +        return {};
-+    const SystemWindow* pSystem = m_xTabs->GetSystemWindow();
 +    for (SfxViewFrame* pView = SfxViewFrame::GetFirst(nullptr, false); pView;
 +         pView = SfxViewFrame::GetNext(*pView, nullptr, false))
 +        if (pView->GetWindow().GetSystemWindow() == pSystem)
 +            return pView->GetFrame().GetFrameInterface();
 +    return {};
++}
++
++SystemWindow* RibbonController::System() const
++{
++    return m_xSystem && !m_xSystem->isDisposed() ? m_xSystem.get() : nullptr;
 +}
 +
 +TabControl* RibbonController::Tabs() const { return m_xTabs && !m_xTabs->isDisposed() ? m_xTabs.get() : nullptr; }
@@ -3437,7 +3455,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/hst/ribbon/lo/ribbon-custom-controller.hxx
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,128 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -3474,6 +3492,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +#include <string>
 +#include <vector>
 +
++class SystemWindow;
 +class TabControl;
 +class TabPage;
 +class VclBuilder;
@@ -3506,6 +3525,8 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +    const core::Layout& Effective() const { return m_aEffective; }
 +    css::uno::Reference<css::frame::XFrame> Frame() const;
 +    TabControl* Tabs() const;
++    /// the document window the ribbon belongs to (the notebookbar is not a child of it: it sits in its border)
++    SystemWindow* System() const;
 +
 +    /// reads the built ribbon and applies the customization and the recently used tab (once)
 +    void Apply();
@@ -3536,6 +3557,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +    VclPtr<TabControl> m_xTabs;
 +    std::string m_aApp;
 +    css::uno::WeakReference<css::frame::XFrame> m_xFrame;
++    VclPtr<SystemWindow> m_xSystem;
 +    core::Layout m_aDefaults;
 +    core::Layout m_aEffective;
 +    bool m_bApplied = false;
