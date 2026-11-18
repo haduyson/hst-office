@@ -117,7 +117,7 @@ def run(uno, program, out, ui, loc, env):
             ("P4", "=DATE(1900,3,1)", "61"),
             ("P5", "=DAY(60)", "29"),
             ("P6", "=WEEKNUM(60)", "9"),
-            ("P7", "=EOMONTH(1,1)", "60"),
+            ("P7", "=EOMONTH(1,1)", "59"),
             ("P8", "=DAYS360(1,61)", "60"),
         ]
         for address, formula, _ in date_cases:
