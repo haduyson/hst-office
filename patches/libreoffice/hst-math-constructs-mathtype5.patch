@@ -543,10 +543,10 @@ index 0000000..f9f276e
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
 new file mode 100644
-index 0000000..7ef392e
+index 0000000..d454e2b
 --- /dev/null
 +++ b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
-@@ -0,0 +1,170 @@
+@@ -0,0 +1,171 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -681,16 +681,17 @@ index 0000000..7ef392e
 +        // what a .doc/.xls/.ppt keeps of a formula, read back as when the file is opened
 +        OUStringBuffer aFormula(u"A {t^o} xrightarrow {} B {} xleftarrow {x} C + widearc {AB}"_ustr);
 +        auto pSaved = SmParser5().Parse(aFormula.toString());
++        // read back from the medium's own stream: committing would transfer the temporary file
++        // through UCB, which wants an interaction handler the test does not have
 +        utl::TempFileNamed aTemp;
 +        aTemp.EnableKillingFile();
-+        {
-+            SfxMedium aMedium(aTemp.GetURL(), StreamMode::STD_READWRITE | StreamMode::TRUNC);
-+            MathType aExport(aFormula, pSaved.get());
-+            CPPUNIT_ASSERT(aExport.ConvertFromStarMath(aMedium));
-+            aMedium.Commit();
-+        }
-+
-+        rtl::Reference<SotStorage> xStorage = new SotStorage(aTemp.GetURL(), StreamMode::STD_READ);
++        SfxMedium aMedium(aTemp.GetURL(), StreamMode::STD_READWRITE | StreamMode::TRUNC);
++        MathType aExport(aFormula, pSaved.get());
++        CPPUNIT_ASSERT(aExport.ConvertFromStarMath(aMedium));
++        SvStream* pStream = aMedium.GetOutStream();
++        CPPUNIT_ASSERT(pStream);
++        pStream->Seek(0);
++        rtl::Reference<SotStorage> xStorage = new SotStorage(*pStream);
 +        OUStringBuffer aRead;
 +        MathType aImport(aRead);
 +        CPPUNIT_ASSERT(aImport.Parse(xStorage.get()));
