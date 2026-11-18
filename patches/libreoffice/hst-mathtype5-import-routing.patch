@@ -18,6 +18,10 @@ An equation kept as an OLE object keeps its data when the document is saved as .
 \objdata with the compound file byte for byte, the picture in \result), so MathType can still
 edit it; LibreOffice's RTF export wrote only the picture (sw/source/core/hst/mathtypeoledata.cxx).
 That picture has the shown size at 100 %: the RTF import sizes an object by its picture's goal.
+The RTF import keeps the OLE data of equations (ProgID "Equation.*") in table cells too: the
+object is buffered with the cell (RTFBufferTypes::HstOleObject) and sent when the cell is
+replayed. LibreOffice read only the picture of objects in tables (fdo#53594), so saving again
+lost the equation; other OLE objects in tables are unchanged.
 diff --git a/filter/source/msfilter/msdffimp.cxx b/filter/source/msfilter/msdffimp.cxx
 index b3184b2..7cffec4 100644
 --- a/filter/source/msfilter/msdffimp.cxx
@@ -743,10 +747,10 @@ index cd5d59d..715618f 100644
      OUString const & GetVisAreaHeight() const;
 diff --git a/sw/source/writerfilter/hst/mathtypeole.cxx b/sw/source/writerfilter/hst/mathtypeole.cxx
 new file mode 100644
-index 0000000..da5b4fd
+index 0000000..25e97e0
 --- /dev/null
 +++ b/sw/source/writerfilter/hst/mathtypeole.cxx
-@@ -0,0 +1,96 @@
+@@ -0,0 +1,103 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -755,6 +759,8 @@ index 0000000..da5b4fd
 + */
 +
 +#include "mathtypeole.hxx"
++
++#include <o3tl/string_view.hxx>
 +
 +#include <hstformulashownsize.hxx>
 +#include <vcl/graph.hxx>
@@ -784,6 +790,11 @@ index 0000000..da5b4fd
 +{
 +    return rProgId == u"Equation.DSMT4"
 +           && officecfg::Office::Common::Filter::Microsoft::Import::MathType5ToMath::get();
++}
++
++bool KeepsOleInTable(std::u16string_view rProgId)
++{
++    return o3tl::starts_with(rProgId, u"Equation."); // Equation.DSMT4..6, Equation.3
 +}
 +
 +uno::Reference<embed::XEmbeddedObject>
@@ -845,10 +856,10 @@ index 0000000..da5b4fd
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sw/source/writerfilter/hst/mathtypeole.hxx b/sw/source/writerfilter/hst/mathtypeole.hxx
 new file mode 100644
-index 0000000..4f997bd
+index 0000000..157e9c0
 --- /dev/null
 +++ b/sw/source/writerfilter/hst/mathtypeole.hxx
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,39 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -874,6 +885,11 @@ index 0000000..4f997bd
 +/// True if the OLE data of an object with this ProgId should be kept for conversion
 +bool WantsMathType5Data(std::u16string_view rProgId);
 +
++/// True if an RTF object with this ProgId keeps its OLE data in a table cell too: MathType and
++/// Equation Editor equations. LibreOffice reads only the picture of objects in tables
++/// (fdo#53594); an equation saved again would lose its data.
++bool KeepsOleInTable(std::u16string_view rProgId);
++
 +/// A new Math object made from the OLE compound file data, or empty (keep the OLE object).
 +/// nShownHeight (mm100, 0 if unknown) and xPreview give the scale Word shows the equation at.
 +css::uno::Reference<css::embed::XEmbeddedObject>
@@ -883,3 +899,139 @@ index 0000000..4f997bd
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/writerfilter/rtftok/rtfdispatchdestination.cxx b/sw/source/writerfilter/rtftok/rtfdispatchdestination.cxx
+index 74f3c07..2f832dc 100644
+--- a/sw/source/writerfilter/rtftok/rtfdispatchdestination.cxx
++++ b/sw/source/writerfilter/rtftok/rtfdispatchdestination.cxx
+@@ -478,7 +478,13 @@ RTFError RTFDocumentImpl::dispatchDestination(RTFKeyword nKeyword)
+             break;
+             case RTFKeyword::OBJDATA:
+                 // check if the object is in a special container (e.g. a table)
+-                if (m_aStates.top().getCurrentBuffer())
++                if (m_aStates.top().getCurrentBuffer() && HstKeepsOleInTable())
++                {
++                    // HST Office: an equation keeps its OLE data, buffered with the cell
++                    m_bObject = true;
++                    m_aStates.top().setDestination(Destination::OBJDATA);
++                }
++                else if (m_aStates.top().getCurrentBuffer())
+                 {
+                     // the object is in a table or another container.
+                     // Use the \result (RTFKeyword::RESULT) element of the object instead,
+diff --git a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
+index 6ad758c..0b7cd2c 100644
+--- a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
++++ b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
+@@ -56,6 +56,7 @@
+ #include <vcl/svapp.hxx>
+ #include "rtfsdrimport.hxx"
+ #include "rtfreferenceproperties.hxx"
++#include "../hst/mathtypeole.hxx"
+ #include "rtfskipdestination.hxx"
+ #include "rtftokenizer.hxx"
+ #include "rtflookahead.hxx"
+@@ -2017,6 +2018,8 @@ void RTFDocumentImpl::replayBuffer(RTFBuffer_t& rBuffer, RTFSprms* const pSprms,
+         }
+         else if (std::get<0>(aTuple) == RTFBufferTypes::Picture)
+             m_aStates.top().getPicture() = std::get<1>(aTuple)->getPicture();
++        else if (std::get<0>(aTuple) == RTFBufferTypes::HstOleObject)
++            sendObject(std::get<1>(aTuple));
+         else if (std::get<0>(aTuple) == RTFBufferTypes::SetStyle)
+         {
+             if (!m_aStates.empty())
+@@ -2988,6 +2991,7 @@ RTFError RTFDocumentImpl::beforePopState(RTFParserState& rState)
+                 // if the object is in a special container we will use the \result
+                 // element instead of the \objdata
+                 // (see RTFKeyword::OBJECT in RTFDocumentImpl::dispatchDestination)
++                m_aOLEAttributes.clear(); // HST Office: not the class of the next object
+                 break;
+             }
+ 
+@@ -2995,23 +2999,14 @@ RTFError RTFDocumentImpl::beforePopState(RTFParserState& rState)
+             auto pOLEValue = new RTFValue(m_aOLEAttributes);
+             aObjectSprms.set(NS_ooxml::LN_OLEObject_OLEObject, pOLEValue);
+ 
+-            RTFSprms aObjAttributes;
+-            RTFSprms aObjSprms;
+             auto pValue = new RTFValue(m_aObjectAttributes, aObjectSprms);
+-            aObjSprms.set(NS_ooxml::LN_object, pValue);
+-            writerfilter::Reference<Properties>::Pointer_t pProperties
+-                = new RTFReferenceProperties(std::move(aObjAttributes), std::move(aObjSprms));
+-            uno::Reference<drawing::XShape> xShape;
+-            RTFValue::Pointer_t pShape = m_aObjectAttributes.find(NS_ooxml::LN_shape);
+-            OSL_ASSERT(pShape);
+-            if (pShape)
+-                pShape->getAny() >>= xShape;
+-            if (xShape.is())
+-            {
+-                Mapper().startShape(xShape);
+-                Mapper().props(pProperties);
+-                Mapper().endShape();
+-            }
++            OSL_ASSERT(m_aObjectAttributes.find(NS_ooxml::LN_shape));
++            // HST Office: in a table cell, sent when the cell is replayed
++            if (m_aStates.top().getCurrentBuffer())
++                m_aStates.top().getCurrentBuffer()->emplace_back(RTFBufferTypes::HstOleObject,
++                                                                 pValue, nullptr);
++            else
++                sendObject(pValue);
+             m_aObjectAttributes.clear();
+             m_aOLEAttributes.clear();
+             m_bObject = false;
+@@ -3929,6 +3924,30 @@ RTFError RTFDocumentImpl::popState()
+     return RTFError::OK;
+ }
+ 
++void RTFDocumentImpl::sendObject(const RTFValue::Pointer_t& pObject)
++{
++    RTFSprms aObjAttributes;
++    RTFSprms aObjSprms;
++    aObjSprms.set(NS_ooxml::LN_object, pObject);
++    writerfilter::Reference<Properties>::Pointer_t pProperties
++        = new RTFReferenceProperties(std::move(aObjAttributes), std::move(aObjSprms));
++    uno::Reference<drawing::XShape> xShape;
++    if (RTFValue::Pointer_t pShape = pObject->getAttributes().find(NS_ooxml::LN_shape))
++        pShape->getAny() >>= xShape;
++    if (xShape.is())
++    {
++        Mapper().startShape(xShape);
++        Mapper().props(pProperties);
++        Mapper().endShape();
++    }
++}
++
++bool RTFDocumentImpl::HstKeepsOleInTable()
++{
++    RTFValue::Pointer_t pProgId = m_aOLEAttributes.find(NS_ooxml::LN_CT_OLEObject_ProgID);
++    return pProgId && writerfilter::hst::KeepsOleInTable(pProgId->getString());
++}
++
+ RTFError RTFDocumentImpl::handleEmbeddedObject()
+ {
+     OUStringBuffer* pCurrentDestinationText = m_aStates.top().getCurrentDestinationText();
+diff --git a/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx b/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx
+index 0436f51..8929797 100644
+--- a/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx
++++ b/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx
+@@ -88,7 +88,9 @@ enum class RTFBufferTypes
+     EndShape,
+     ResolveSubstream,
+     /// Restores RTFParserState::aPicture.
+-    Picture
++    Picture,
++    /// HST Office: an OLE object in a table cell (its NS_ooxml::LN_object value)
++    HstOleObject
+ };
+ 
+ /// Form field types
+@@ -819,6 +821,10 @@ private:
+     void restoreTableRowProperties();
+     /// Turns the destination text into an input stream of the current OLE attributes.
+     RTFError handleEmbeddedObject();
++    /// Sends an OLE object (its NS_ooxml::LN_object value) to the domain mapper.
++    void sendObject(const RTFValue::Pointer_t& pObject);
++    /// HST Office: the OLE object being read keeps its data in a table cell (an equation).
++    bool HstKeepsOleInTable();
+ 
+     css::uno::Reference<css::uno::XComponentContext> const& m_xContext;
+     css::uno::Reference<css::io::XInputStream> const& m_xInputStream;

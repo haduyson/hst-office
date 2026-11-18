@@ -9,11 +9,11 @@ Usage:
         [--out DIR] [--port 2106]
 
 WORD.docx / WORD.doc are Word files with MathType 4-7 equations (files are never stored in the repository). The check
-also writes an .rtf holding the first equation of WORD.docx as RTF stores OLE objects (\\objdata, OLE 1.0 data).
-Each file is opened and saved in every format; every "Equation Native" stream of the source, with its ProgID and
-class ID, must be in the saved file, and the saved .rtf must reopen with the objects at their shown size. Equations in
-table cells come back as pictures: LibreOffice's RTF import reads only the picture of objects in tables. "Open with
-MathType" itself needs MathType, which is not installed anywhere.
+also writes .rtf files holding the first equation of WORD.docx as RTF stores OLE objects (\\objdata, OLE 1.0 data),
+one of them in a table cell. Each file is opened and saved in every format; every "Equation Native" stream of the
+source, with its ProgID and class ID, must be in the saved file, and the saved .rtf must reopen with the objects at
+their shown size. (LibreOffice's RTF import reads only the picture of other OLE objects in tables.) "Open with
+MathType" needs MathType, which is not installed anywhere.
 """
 import argparse
 import hashlib
@@ -100,8 +100,9 @@ def first_equation(docx):
     raise SystemExit("no MathType equation in " + docx)
 
 
-def write_rtf(docx, path):
-    """An .rtf holding the first equation of docx as Word writes it: OLE 1.0 data in \\objdata, picture in \\result."""
+def write_rtf(docx, path, in_table=False):
+    """An .rtf holding the first equation of docx as Word writes it: OLE 1.0 data in \\objdata, picture in \\result;
+    in_table puts it in a table cell."""
     name, native, keyword, picture = first_equation(docx)
     progid = name + b"\0"
     ole1 = struct.pack("<III", 0x501, 2, len(progid)) + progid + struct.pack("<III", 0, 0, len(native)) + native
@@ -109,8 +110,11 @@ def write_rtf(docx, path):
     result = b"{\\result {\\pict%s\\picwgoal600\\pichgoal300 %s}}" % (keyword, picture.hex().encode())
     body = b"{\\object\\objemb\\objw600\\objh300{\\*\\objclass %s}{\\*\\objdata %s}%s}" % (
         name, ole1.hex().encode(), result)
+    body = b"{\\f0\\fs24 A " + body + b" B}"
+    if in_table:
+        body = b"\\trowd\\cellx4000\\pard\\intbl " + body + b"\\cell\\row\\pard "
     with open(path, "wb") as stream:
-        stream.write(b"{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Times New Roman;}}{\\f0\\fs24 A " + body + b" B}\\par}")
+        stream.write(b"{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Times New Roman;}}" + body + b"\\par}")
 
 
 def object_sizes(doc):
@@ -138,6 +142,8 @@ def main():
     headless_office.import_uno(args.soffice)
     rtf = os.path.join(workdir, "one-equation.rtf")
     write_rtf(args.docx, rtf)
+    in_table = os.path.join(workdir, "one-equation-in-table.rtf")
+    write_rtf(args.docx, in_table, in_table=True)
     office = headless_office.Office(args.soffice, workdir, args.port)
     try:
         access = office.service("com.sun.star.configuration.ConfigurationProvider").createInstanceWithArguments(
@@ -145,7 +151,7 @@ def main():
             headless_office.props(nodepath="/org.openoffice.Office.Common/Filter/Microsoft/Import"))
         access.setPropertyValue("MathType5ToMath", False)
         access.commitChanges()
-        for source in [p for p in (args.docx, args.doc, rtf) if p]:
+        for source in [p for p in (args.docx, args.doc, rtf, in_table) if p]:
             before = equations(source)
             mathtype = [e for e in before if e[0].startswith("Equation.DSMT")]
             doc = office.load(office.url(source))
@@ -161,8 +167,9 @@ def main():
                     back = office.load(office.url(saved))
                     reopened = object_sizes(back)
                     back.close(True)
-                    record("%s -> .rtf reopens at the shown size" % os.path.basename(source),
-                           keeps_sizes(sizes, reopened), {"objects": len(reopened)})
+                    record("%s -> .rtf reopens every object at its shown size" % os.path.basename(source),
+                           len(reopened) == len(sizes) and keeps_sizes(sizes, reopened),
+                           {"objects": len(sizes), "reopened": len(reopened)})
             doc.close(True)
     finally:
         office.stop()
