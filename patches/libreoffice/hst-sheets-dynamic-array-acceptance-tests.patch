@@ -8,7 +8,8 @@ array, error constants untouched; a one-cell dynamic array is a spill range and 
 single-value formula is not), merged cells and a Sheets table block a spill (a database range without a
 table style does not), @ (implicit intersection, @SEQUENCE, #VALUE!), .xlsx export (cm, ref,
 _xlfn.ANCHORARRAY, _xlfn.SINGLE, metadata.xml, no cm on a Ctrl+Shift+Enter array) and import of a file written
-like the leading spreadsheet application writes it, and Spill.xlsx saved by that application.
+like the leading spreadsheet application writes it, Spill.xlsx saved by that application, and an .ods
+round trip keeping a dynamic array dynamic (the HST mark only on its anchor).
 ---
 --- /dev/null
 +++ b/sc/CppunitTest_sc_hst_dynamic_array_acceptance.mk
@@ -90,7 +91,7 @@ like the leading spreadsheet application writes it, and Spill.xlsx saved by that
  	CppunitTest_sc_subsequent_export_test2 \
 --- /dev/null
 +++ b/sc/qa/unit/uicalc/hstdynamicarrayacceptance.cxx
-@@ -0,0 +1,445 @@
+@@ -0,0 +1,471 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -100,7 +101,7 @@ like the leading spreadsheet application writes it, and Spill.xlsx saved by that
 +// HST Office: acceptance tests of the dynamic arrays of Sheets, written from the behaviour spec
 +// (independent of the engine's own tests): any array result spills when typed, #SPILL!, the spill
 +// range operator A1# (also of a one-cell result), the @ operator, merged cells and tables blocking a
-+// spill, .xlsx cm metadata, _xlfn.ANCHORARRAY and _xlfn.SINGLE. The
++// spill, .xlsx cm metadata, the HST .ods mark of dynamic arrays, _xlfn.ANCHORARRAY and _xlfn.SINGLE. The
 +// .xlsx fixture is written the way the leading spreadsheet application writes its files
 +// (ECMA-376 / MS-XLSX); Spill.xlsx was saved by that application.
 +
@@ -531,6 +532,32 @@ like the leading spreadsheet application writes it, and Spill.xlsx saved by that
 +        std::make_unique<ScDBData>(u"Plain"_ustr, 0, 7, 3, 7, 5)));
 +    insertStringToCell(u"H1"_ustr, u"=SEQUENCE(5)");
 +    CPPUNIT_ASSERT_EQUAL(5.0, val("H5"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArrayAcceptanceTest, testOdsKeepsDynamicArrays)
++{
++    createScDoc();
++    insertStringToCell(u"B1"_ustr, u"3");
++    insertStringToCell(u"A1"_ustr, u"=SEQUENCE(B1)");
++    insertStringToCell(u"C1"_ustr, u"=SUM(A1#)");
++    insertArrayToCell(u"G1:G2"_ustr, u"=B1:B2"); // Ctrl+Shift+Enter on a selection: legacy
++    CPPUNIT_ASSERT(dynamicAnchor("A1"));
++
++    saveAndReload(TestFilter::ODS);
++    // The HST mark, in its own namespace, on the dynamic anchor only.
++    xmlDocUniquePtr pContent = parseExport(u"content.xml"_ustr);
++    CPPUNIT_ASSERT(pContent);
++    assertXPath(pContent, "//table:table-cell[@*[local-name()='dynamic-array']='true']", 1);
++    assertXPath(pContent, "//table:table-cell[@table:number-matrix-rows-spanned]", 2);
++
++    CPPUNIT_ASSERT(dynamicAnchor("A1"));
++    CPPUNIT_ASSERT(!dynamicAnchor("G1"));
++    CPPUNIT_ASSERT_EQUAL(6.0, val("C1"));
++    // Still resizes with its result after reopening.
++    insertStringToCell(u"B1"_ustr, u"5");
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(5.0, val("A5"));
++    CPPUNIT_ASSERT_EQUAL(15.0, val("C1"));
 +}
 +
 +CPPUNIT_PLUGIN_IMPLEMENT();
