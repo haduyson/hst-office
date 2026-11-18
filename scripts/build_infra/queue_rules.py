@@ -56,6 +56,19 @@ def find_duplicate(jobs, key):
     return None
 
 
+def test_merge_target(jobs, platform, sha, package, modules):
+    """The oldest queued test job a new test run of the same commit, platform, package and modules can join: never
+    one that started before (dispatcher mark `starting`, or a requeue after an infrastructure failure), never a train
+    build, train base run or confirmation build."""
+    for job in sorted(jobs, key=lambda j: (j["submitted"], j["id"])):
+        if (job["state"] == "queued" and job.get("tests") and job["platform"] == platform and job["sha"] == sha
+                and job["package"] == package and sorted(job["modules"]) == sorted(modules)
+                and not job.get("starting") and not job.get("infra_retries") and not job.get("train")
+                and not job.get("confirm_for") and job.get("submitter") != "build-train"):
+            return job
+    return None
+
+
 def retention_group(job):
     """Retention group (platform, branch, kind); the builds of all trains share one group."""
     return job["platform"], ("train/*" if job.get("train") else job["label"]), job_kind(job)
@@ -91,7 +104,7 @@ def retention_victims(jobs, cfg, now, merged=None, protected=()):
         keep = cfg["retention_trains"] if label == "train/*" else cfg["retention_per_branch"]
         victims.extend((j, f"older than the newest {keep} of {label}") for j in group[keep:])
         if merged is None or label == "train/*" or group[0]["ref"].startswith("rc/") \
-                or is_integrator(group[0]["ref"], False, cfg):
+                or group[0]["ref"] == cfg["integration_branch"] or is_integrator(group[0]["ref"], False, cfg):
             continue
         for j in group[:keep]:
             if now - (j.get("finished") or j["submitted"]) >= merged_age and merged(j):

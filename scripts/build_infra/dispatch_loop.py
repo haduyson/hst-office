@@ -129,6 +129,11 @@ def tick(store, runners, core):
             current = store.load(job["id"])
             if current["state"] != "queued":
                 continue
+            # From here on a submit may no longer add tests to this job (queue_rules.test_merge_target), and the
+            # runner gets the record as it is now, not the copy read at the start of the tick.
+            current["starting"] = time.time()
+            store.save(current)
+            job = current
         try:
             fields = runner.start(job, slot)
         except Exception as exc:  # noqa: BLE001 - a job that cannot start fails visibly instead of looping

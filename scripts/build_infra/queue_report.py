@@ -72,6 +72,11 @@ def wait(store, job_id, timeout=None, interval=15, out=sys.stdout):
     start = time.time()
     while True:
         job = store.load(job_id)
+        if job["state"] in TERMINAL and job.get("merged_into"):
+            print(f"job {job_id} was merged into {job['merged_into']} (same commit, union of the tests); "
+                  "waiting for that job", file=out)
+            job_id = job["merged_into"]
+            continue
         if job["state"] in TERMINAL:
             break
         if timeout is not None and time.time() - start > timeout:

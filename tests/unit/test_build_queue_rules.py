@@ -85,6 +85,18 @@ class RetentionRulesTest(QueueTestCase):
             self.assertNotIn(job["id"], self.deleted())
 
 
+    def test_builds_of_the_integration_branch_itself_are_not_merged_builds(self):
+        tip = "f" * 40
+        self.git.tips["feat/lo-26.8.3.1"] = tip
+        base = self.build("feat/lo-26.8.3.1", "5" * 40)
+        branch = self.build("feat/sheets-1.0.3", "6" * 40)
+        for sha in ("5" * 40, "6" * 40):
+            self.git.ancestors.add((sha, tip))
+        self.retain(integration_branch="feat/lo-26.8.3.1")
+        self.assertEqual(self.deleted(), {branch["id"]: "merged into feat/lo-26.8.3.1"})
+        self.assertNotIn(base["id"], self.deleted())
+
+
 class SubmitRulesTest(QueueTestCase):
     def test_priority_is_capped_for_agents_but_not_the_integrator(self):
         err = io.StringIO()

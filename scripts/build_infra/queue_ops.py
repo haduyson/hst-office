@@ -8,7 +8,7 @@ import time
 
 from .queue_git import Git, is_docs_only
 from .queue_rules import (find_duplicate, is_integrator, job_key, job_kind, label_for, last_built, new_id, resolve_ref,
-                          superseded)
+                          superseded, test_merge_target)
 from .queue_store import PLATFORMS, QueueError, now_iso
 
 # ---------------------------------------------------------------- commands
@@ -20,7 +20,10 @@ def submit(store, platform, ref, priority=None, package=True, modules=(), resolv
       - a commit whose diff against the branch's last build (or, without one, its merge base with the integration
         branch) only touches tests/, docs/, plans/ or *.md is refused: that build is still valid (--force: integrator);
       - queued (not running) jobs of the same branch + platform + kind at an older commit are cancelled.
-    internal=True: jobs the build train submits itself (no checks; never supersedes anything)."""
+      - a test run (--test) whose commit, platform and modules match a queued job of another test run that has not
+        started yet joins that job: the job runs the union of both test lists (merge_test_job).
+    internal=True: jobs the build train submits itself (no checks; never supersedes or joins anything; a package
+    build may also run tests: the train's Linux build runs its test set before packaging)."""
     if platform not in PLATFORMS:
         raise QueueError(f"--platform must be one of {', '.join(PLATFORMS)}")
     if priority is not None and not -100 <= priority <= 100:
@@ -31,7 +34,7 @@ def submit(store, platform, ref, priority=None, package=True, modules=(), resolv
     tests = list(tests)
     if tests and platform != "linux":
         raise QueueError("--test runs on Linux slots only")
-    if modules or tests:
+    if modules or (tests and not internal):
         package = False
     cfg = store.config()
     integ = internal or is_integrator(ref, integrator, cfg)
@@ -54,6 +57,9 @@ def submit(store, platform, ref, priority=None, package=True, modules=(), resolv
         dup = find_duplicate(jobs, key)
         if dup:
             return dup, True
+        target = None if internal or not tests else test_merge_target(jobs, platform, sha, package, modules)
+        if target:
+            return merge_test_job(store, target, tests, priority, err), True
         if not internal and not force:
             refuse_docs_only(jobs, cfg, git, platform, ref, label, kind, sha)
         t = time.time()
@@ -80,6 +86,52 @@ def submit(store, platform, ref, priority=None, package=True, modules=(), resolv
         job["log"] = store.log_path(job["id"])
         store.save(job)
         return job, False
+
+
+def merge_test_job(store, target, tests, priority, err=None, merged_from=None):
+    """Add `tests` to the queued test job `target` (caller holds the store lock): one build runs the union of the
+    test lists, in the order they were asked for; the job keeps the higher priority."""
+    union = list(dict.fromkeys([*target["tests"], *tests]))
+    added = [t for t in union if t not in target["tests"]]
+    target.update(tests=union, priority=max(target["priority"], priority),
+                  key=job_key(target["platform"], target["sha"], target["package"], target["modules"], union))
+    target.setdefault("merged_tests", []).append({"at": now_iso(), "added": added, "from": merged_from or "submit"})
+    store.save(target)
+    print(f"joined queued job {target['id']} (same commit, platform and modules): it runs {len(union)} tests, "
+          f"{len(added)} added", file=err or sys.stderr)
+    return target
+
+
+def collapse_test_jobs(store, dry_run=False, out=None):
+    """Fold queued test jobs that only differ in their test list (same commit, platform, package and modules, not
+    started yet) into the oldest one; the others are cancelled with merged_into = the kept job. Returns
+    [(kept id, [folded ids])]."""
+    out = out or sys.stdout
+    done = []
+    with store.lock():
+        jobs = sorted(store.all(), key=lambda j: (j["submitted"], j["id"]))
+        folded = set()
+        for job in jobs:
+            if job["id"] in folded or not test_merge_target([job], job["platform"], job["sha"], job["package"],
+                                                             job["modules"]):
+                continue
+            group = [j for j in jobs if j is not job and j["id"] not in folded
+                     and test_merge_target([j], job["platform"], job["sha"], job["package"], job["modules"])]
+            if not group:
+                continue
+            for other in group:
+                folded.add(other["id"])
+                if dry_run:
+                    continue
+                merge_test_job(store, job, other["tests"], other["priority"], out, merged_from=other["id"])
+                t = time.time()
+                other.update(state="cancelled", finished=t, error=f"merged into {job['id']} (its test list now "
+                             f"includes all {len(other['tests'])} tests of this job)", merged_into=job["id"])
+                store.save(other)
+            done.append((job["id"], [o["id"] for o in group]))
+    for kept, others in done:
+        print(f"{'would fold' if dry_run else 'folded'} {', '.join(others)} into {kept}", file=out)
+    return done
 
 
 def refuse_docs_only(jobs, cfg, git, platform, ref, label, kind, sha):
