@@ -1,0 +1,307 @@
+Calc: the optimal row height pass determines the script type of a text once per string and number format.
+
+After loading, the optimal row height pass searches each range of equal cell formats for cells to measure as edit
+text (ScColumn::HasEditCells), which determines the script type (Latin, Asian, complex) of every text cell by
+formatting it and running the script detection over the whole text. A large workbook repeats the same strings a
+lot: on a sheet of 5.3 million text cells over 1.2 million strings this took about 9% of the loading time. For a
+text cell without a conditional format the result depends only on the pooled string and the number format, so one
+search keeps the results per (string, number format), holding a reference to each string, at most 131072 at a
+time. A formula cell or a cell with a conditional format is determined on its own as before. The environment
+variable HST_SC_SCRIPT_TYPE_MEMO_OFF (read once per process) determines every cell on its own.
+
+New logic in sc/inc/hstscripttypememo.hxx (HST). Hooks: column.hxx (two optional parameters), column.cxx (the
+memo in FindEditCellsHandler), column2.cxx (pass it on), column3.cxx (look up and store in UpdateScriptType).
+
+License: modified upstream files keep their license (MPL-2.0); the new header is HST-proprietary.
+Test: CppunitTest_sc_ucalc_condformat testScriptTypesOncePerStringAndFormat: after the row height pass every
+cell's script type equals that of its own formatted text (Latin, Asian, complex texts; the same digits shown
+plain and behind an Asian prefix format).
+---
+--- a/sc/inc/column.hxx
++++ b/sc/inc/column.hxx
+@@ -61,6 +61,7 @@ class CellValues;
+ class TableValues;
+ class RowHeightContext;
+ class HstTextHeightCache;
++class HstScriptTypeMemo;
+ class CompileFormulaContext;
+ struct SetFormulaDirtyContext;
+ class ColumnIterator;
+@@ -637,7 +638,7 @@ public:
+      * update script types on demand if they have not been determined.
+      */
+     SvtScriptType GetRangeScriptType( sc::CellTextAttrStoreType::iterator& itPos, SCROW nRow1, SCROW nRow2,
+-            const sc::CellStoreType::iterator& itr);
++            const sc::CellStoreType::iterator& itr, sc::HstScriptTypeMemo* pHstMemo = nullptr );
+ 
+     void SetScriptType( SCROW nRow, SvtScriptType nType );
+     void UpdateScriptTypes( SCROW nRow1, SCROW nRow2 );
+@@ -816,7 +817,8 @@ public:
+ 
+ private:
+     void BroadcastNewCell( SCROW nRow );
+-    bool UpdateScriptType( sc::CellTextAttr& rAttr, SCROW nRow, sc::CellStoreType::iterator& itr );
++    bool UpdateScriptType( sc::CellTextAttr& rAttr, SCROW nRow, sc::CellStoreType::iterator& itr,
++                           sc::HstScriptTypeMemo* pHstMemo = nullptr );
+ 
+     const ScFormulaCell* FetchFormulaCell( SCROW nRow ) const;
+ 
+--- /dev/null
++++ b/sc/inc/hstscripttypememo.hxx
+@@ -0,0 +1,90 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HST Office.
++ */
++
++#pragma once
++
++#include <cstdlib>
++#include <functional>
++#include <unordered_map>
++#include <vector>
++
++#include <rtl/ustring.hxx>
++#include <sal/types.h>
++
++enum class SvtScriptType : sal_uInt8;
++
++namespace sc
++{
++/** Script types of text cells already determined in one search of a column range for cells measured as edit text
++    (ScColumn::HasEditCells, run by the optimal row height pass for each range of equal cell formats).
++
++    The script type of a text cell (Latin, Asian, complex) is found by formatting the cell and running the script
++    detection over the whole text. After loading, the optimal row height pass determines it for every text cell of
++    the sheet, and a large workbook repeats the same strings a lot (codes, names, units): a sheet of 5.3 million
++    text cells over 1.2 million distinct strings spent about a tenth of its loading time there. For a text cell
++    without a conditional format the result depends only on the pooled string and the number format, so it is
++    determined once per (string, number format) in a pass and reused. The memo holds a reference to each string it keys. The environment variable HST_SC_SCRIPT_TYPE_MEMO_OFF determines every cell on its
++    own as before (read once per process). */
++class HstScriptTypeMemo
++{
++public:
++    HstScriptTypeMemo()
++        : mbEnabled(enabled())
++    {
++    }
++
++    bool isEnabled() const { return mbEnabled; }
++
++    const SvtScriptType* find(const rtl_uString* pString, sal_uInt32 nFormat) const
++    {
++        auto it = maTypes.find(Key{ pString, nFormat });
++        return it == maTypes.end() ? nullptr : &it->second;
++    }
++
++    void insert(const rtl_uString* pString, sal_uInt32 nFormat, SvtScriptType eType)
++    {
++        if (maTypes.size() >= MAX_ENTRIES)
++        {
++            maTypes.clear();
++            maStrings.clear();
++        }
++        if (maTypes.emplace(Key{ pString, nFormat }, eType).second)
++            maStrings.emplace_back(const_cast<rtl_uString*>(pString)); // a key never outlives its string
++    }
++
++private:
++    static bool enabled()
++    {
++        static const bool bEnabled = !std::getenv("HST_SC_SCRIPT_TYPE_MEMO_OFF");
++        return bEnabled;
++    }
++
++    static constexpr size_t MAX_ENTRIES = 1 << 17; // bounds the memory of a search over many distinct strings
++
++    struct Key
++    {
++        const rtl_uString* mpString;
++        sal_uInt32 mnFormat;
++        bool operator==(const Key& rOther) const
++        {
++            return mpString == rOther.mpString && mnFormat == rOther.mnFormat;
++        }
++    };
++    struct KeyHash
++    {
++        size_t operator()(const Key& rKey) const
++        {
++            return std::hash<const void*>()(rKey.mpString) ^ (static_cast<size_t>(rKey.mnFormat) * 0x9e3779b97f4a7c15ULL);
++        }
++    };
++
++    bool mbEnabled;
++    std::unordered_map<Key, SvtScriptType, KeyHash> maTypes;
++    std::vector<OUString> maStrings;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/qa/unit/ucalc_condformat.cxx
++++ b/sc/qa/unit/ucalc_condformat.cxx
+@@ -26,6 +26,9 @@
+ #include <undomanager.hxx>
+ 
+ #include <svl/sharedstringpool.hxx>
++#include <svl/intitem.hxx>
++#include <svl/numformat.hxx>
++#include <stringutil.hxx>
+ #include <editeng/fhgtitem.hxx>
+ #include <docsh.hxx>
+ #include <patattr.hxx>
+@@ -1803,6 +1806,46 @@ CPPUNIT_TEST_FIXTURE(TestCondformat, testCondFormatDuplicateTopCacheCells)
+     m_pDoc->DeleteTab(0);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(TestCondformat, testScriptTypesOncePerStringAndFormat)
++{
++    // The optimal row height pass searches each range of equal cell formats for cells to measure as edit text and
++    // determines the script type of a text cell once per pooled string and number format there. Every cell must
++    // get the script type of its own formatted text: Latin, Asian and complex texts repeated down a column, and
++    // digits stored as text, shown plain or through a format that puts an Asian character in front.
++    m_pDoc->InsertTab(0, u"Test"_ustr);
++    const OUString aTexts[] = { u"Tiếng Việt"_ustr, u"漢字"_ustr, u"مرحبا"_ustr };
++    ScSetStringParam aText;
++    aText.setTextInput();
++    constexpr SCROW nRows = 200;
++    for (SCROW nRow = 0; nRow < nRows; ++nRow)
++    {
++        m_pDoc->SetString(ScAddress(0, nRow, 0), nRow % 2 ? u"123"_ustr : u"456"_ustr, &aText);
++        m_pDoc->SetString(ScAddress(1, nRow, 0), aTexts[nRow % 3], &aText);
++    }
++    OUString aCode = u"\"漢\"@"_ustr;
++    sal_Int32 nCheckPos;
++    SvNumFormatType nType;
++    sal_uInt32 nFormat;
++    m_pDoc->GetFormatTable()->PutEntry(aCode, nCheckPos, nType, nFormat);
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(0), nCheckPos);
++    ScPatternAttr aPattern(m_pDoc->getCellAttributeHelper());
++    aPattern.ItemSetPut(SfxUInt32Item(ATTR_VALUE_FORMAT, nFormat));
++    m_pDoc->ApplyPatternAreaTab(0, 100, 0, 149, 0, aPattern);
++
++    m_xDocShell->AdjustRowHeight(0, nRows - 1, 0);
++    for (SCROW nRow = 0; nRow < nRows; ++nRow)
++        for (SCCOL nCol = 0; nCol < 2; ++nCol)
++            CPPUNIT_ASSERT_EQUAL_MESSAGE(
++                ScAddress(nCol, nRow, 0).Format(ScRefFlags::VALID).toUtf8().getStr(),
++                m_pDoc->GetStringScriptType(m_pDoc->GetString(nCol, nRow, 0)), m_pDoc->GetScriptType(nCol, nRow, 0));
++    // the same pooled string "123" has another script type behind the Asian prefix
++    CPPUNIT_ASSERT(m_pDoc->GetScriptType(0, 101, 0) != m_pDoc->GetScriptType(0, 99, 0));
++    CPPUNIT_ASSERT_EQUAL(SvtScriptType::ASIAN, m_pDoc->GetScriptType(1, 1, 0));
++    CPPUNIT_ASSERT_EQUAL(SvtScriptType::COMPLEX, m_pDoc->GetScriptType(1, 2, 0));
++
++    m_pDoc->DeleteTab(0);
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/core/data/column.cxx
++++ b/sc/source/core/data/column.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include <column.hxx>
++#include <hstscripttypememo.hxx>
+ #include <scitems.hxx>
+ #include <formulacell.hxx>
+ #include <docsh.hxx>
+@@ -2957,6 +2958,7 @@ class FindEditCellsHandler
+     ScColumn& mrColumn;
+     sc::CellTextAttrStoreType::iterator miAttrPos;
+     sc::CellStoreType::iterator miCellPos;
++    sc::HstScriptTypeMemo maHstMemo; // HST Office: script types once per string and format in this search
+ 
+ public:
+     explicit FindEditCellsHandler(ScColumn& rCol) :
+@@ -2974,7 +2976,7 @@ public:
+     {
+         // With a formula cell, it's considered an edit text cell when either
+         // the result is multi-line or it has more than one script types.
+-        SvtScriptType nScriptType = mrColumn.GetRangeScriptType(miAttrPos, nRow, nRow, miCellPos);
++        SvtScriptType nScriptType = mrColumn.GetRangeScriptType(miAttrPos, nRow, nRow, miCellPos, &maHstMemo);
+         if (IsAmbiguousScriptNonZero(nScriptType))
+             return true;
+ 
+@@ -2997,7 +2999,7 @@ public:
+         for (size_t i = 0; i < nDataSize; ++i)
+         {
+             SCROW nRow = node.position + i + nOffset;
+-            SvtScriptType nScriptType = mrColumn.GetRangeScriptType(miAttrPos, nRow, nRow, miCellPos);
++            SvtScriptType nScriptType = mrColumn.GetRangeScriptType(miAttrPos, nRow, nRow, miCellPos, &maHstMemo);
+             if (IsAmbiguousScriptNonZero(nScriptType))
+                 // Return the offset from the first row.
+                 return RetType(i+nOffset, true);
+--- a/sc/source/core/data/column2.cxx
++++ b/sc/source/core/data/column2.cxx
+@@ -2412,7 +2412,8 @@ SvtScriptType ScColumn::GetScriptType( SCROW nRow ) const
+ }
+ 
+ SvtScriptType ScColumn::GetRangeScriptType(
+-    sc::CellTextAttrStoreType::iterator& itPos, SCROW nRow1, SCROW nRow2, const sc::CellStoreType::iterator& itrCells_ )
++    sc::CellTextAttrStoreType::iterator& itPos, SCROW nRow1, SCROW nRow2, const sc::CellStoreType::iterator& itrCells_,
++    sc::HstScriptTypeMemo* pHstMemo )
+ {
+     if (!GetDoc().ValidRow(nRow1) || !GetDoc().ValidRow(nRow2) || nRow1 > nRow2)
+         return SvtScriptType::NONE;
+@@ -2437,7 +2438,7 @@ SvtScriptType ScColumn::GetRangeScriptType(
+                 return nScriptType;
+ 
+             sc::CellTextAttr& rVal = *it;
+-            if (UpdateScriptType(rVal, nRow, itrCells))
++            if (UpdateScriptType(rVal, nRow, itrCells, pHstMemo))
+                 bUpdated = true;
+             nScriptType |= rVal.mnScriptType;
+         }
+@@ -2469,7 +2470,7 @@ SvtScriptType ScColumn::GetRangeScriptType(
+                 return nScriptType;
+ 
+             sc::CellTextAttr& rVal = *it;
+-            if (UpdateScriptType(rVal, nRow, itrCells))
++            if (UpdateScriptType(rVal, nRow, itrCells, pHstMemo))
+                 bUpdated = true;
+ 
+             nScriptType |= rVal.mnScriptType;
+--- a/sc/source/core/data/column3.cxx
++++ b/sc/source/core/data/column3.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include <column.hxx>
++#include <hstscripttypememo.hxx>
+ 
+ #include <scitems.hxx>
+ #include <formulacell.hxx>
+@@ -840,7 +841,8 @@ void ScColumn::BroadcastNewCell( SCROW nRow )
+     Broadcast(nRow);
+ }
+ 
+-bool ScColumn::UpdateScriptType( sc::CellTextAttr& rAttr, SCROW nRow, sc::CellStoreType::iterator& itr )
++bool ScColumn::UpdateScriptType( sc::CellTextAttr& rAttr, SCROW nRow, sc::CellStoreType::iterator& itr,
++                                 sc::HstScriptTypeMemo* pHstMemo )
+ {
+     if (rAttr.mnScriptType != SvtScriptType::UNKNOWN)
+         // Already updated. Nothing to do.
+@@ -875,10 +877,20 @@ bool ScColumn::UpdateScriptType( sc::CellTextAttr& rAttr, SCROW nRow, sc::CellSt
+     pPattern = GetPattern(nRow);
+     const Color* pColor;
+     sal_uInt32 nFormat = pPattern->GetNumberFormat(pFormatter, pCondSet);
++    // HST Office: a text cell without a conditional format: once per (string, number format) in this pass
++    const rtl_uString* pHstString = (pHstMemo && pHstMemo->isEnabled() && !pCondSet
++        && aCell.getType() == CELLTYPE_STRING) ? aCell.getSharedString()->getData() : nullptr;
++    if (const SvtScriptType* pHstType = pHstString ? pHstMemo->find(pHstString, nFormat) : nullptr)
++    {
++        rAttr.mnScriptType = *pHstType;
++        return true;
++    }
+     OUString aStr = ScCellFormat::GetString(aCell, nFormat, &pColor, nullptr, rDocument);
+ 
+     // Store the real script type to the array.
+     rAttr.mnScriptType = rDocument.GetStringScriptType(aStr);
++    if (pHstString)
++        pHstMemo->insert(pHstString, nFormat, rAttr.mnScriptType);
+     return true;
+ }
+ 
