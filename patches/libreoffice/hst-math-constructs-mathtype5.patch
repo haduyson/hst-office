@@ -13,6 +13,8 @@ harpoons. It has no wide hat either: widehat becomes the hat over the (middle) c
 Reading Equation Editor 3.0 back: a centred pile gets no "alignc" (a stack centres its lines,
 and alignc inside a line is a parse error), and a character with an embellishment after a run
 of text closes the run before its group (it read as the text "+a {").
+The pile HST writes for the equilibrium arrows reads back as "{upper} xrightleftarrows {lower}",
+not as a tall stack of two arrows.
 
 MathType::Parse hands MTEF version 5 ("Equation.DSMT4", MathType 4-7) to the HST reader
 (starmath/source/hst/mtef5*, written clean-room from a behaviour spec) and applies the
@@ -550,10 +552,10 @@ index 0000000..f9f276e
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
 new file mode 100644
-index 0000000..cd19684
+index 0000000..500d26d
 --- /dev/null
 +++ b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
-@@ -0,0 +1,257 @@
+@@ -0,0 +1,272 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -772,13 +774,27 @@ index 0000000..cd19684
 +        // what follows limits is full size again, not the limits' small size
 +        // (it read back as "size 8{D}")
 +        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("size 8{D}") < 0);
-+        // the equilibrium arrows come back as a stack of two stretching arrows, labels kept
-+        const sal_Int32 nStack = aText.indexOf("stack");
-+        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), nStack >= 0);
-+        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("xrightarrow", nStack) > 0);
-+        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("xleftarrow", nStack) > 0);
-+        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("u", nStack) > 0);
-+        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("d", nStack) > 0);
++        // the equilibrium arrows (a pile of two stretching arrows) come back as one, labels kept
++        const sal_Int32 nPair = aText.indexOf("xrightleftarrows");
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), nPair > 0);
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("stack") < 0);
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.lastIndexOf("u", nPair) > 0);
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("d", nPair) > 0);
++    }
++
++    void testArrowPileJoined()
++    {
++        // the text LibreOffice's reader makes of the pile written for the equilibrium arrows
++        OUStringBuffer aText(u"A stack {\n {{t rSup { size 8{o} } } xrightarrow {}}  {} # \n"
++                             u" {{} xleftarrow { ital \"x{t\"}}  {} \n} "_ustr);
++        starmath::hst::JoinArrowPile(aText, 1);
++        CPPUNIT_ASSERT_EQUAL(u"A {t rSup { size 8{o} } } xrightleftarrows { ital \"x{t\"} "_ustr,
++                             aText.makeStringAndClear());
++        // any other pile stays a stack
++        const OUString aOther(u"A stack {\n {a} # \n {{} xleftarrow {b}}  {} \n} "_ustr);
++        aText.append(aOther);
++        starmath::hst::JoinArrowPile(aText, 1);
++        CPPUNIT_ASSERT_EQUAL(aOther, aText.makeStringAndClear());
 +    }
 +
 +    void testWideHatKept()
@@ -803,6 +819,7 @@ index 0000000..cd19684
 +    CPPUNIT_TEST(testWrittenAsArrowTemplates);
 +    CPPUNIT_TEST(testArrowTemplatesReadBack);
 +    CPPUNIT_TEST(testSavedAndReopened);
++    CPPUNIT_TEST(testArrowPileJoined);
 +    CPPUNIT_TEST(testWideHatKept);
 +    CPPUNIT_TEST_SUITE_END();
 +};
@@ -1554,10 +1571,10 @@ index 0000000..9f04d1d
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/source/hst/mathtypetextarrow.cxx b/starmath/source/hst/mathtypetextarrow.cxx
 new file mode 100644
-index 0000000..1934cef
+index 0000000..00985e5
 --- /dev/null
 +++ b/starmath/source/hst/mathtypetextarrow.cxx
-@@ -0,0 +1,163 @@
+@@ -0,0 +1,274 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1566,6 +1583,8 @@ index 0000000..1934cef
 + */
 +
 +#include "mathtypetextarrow.hxx"
++
++#include <string_view>
 +
 +#include <node.hxx>
 +#include <tools/stream.hxx>
@@ -1718,15 +1737,124 @@ index 0000000..1934cef
 +    else
 +        rOut.append("}} ");
 +}
++
++namespace
++{
++/// Reads StarMath text as LibreOffice's MathType reader writes it: words and {groups}.
++class TextReader
++{
++public:
++    explicit TextReader(std::u16string_view aText)
++        : m_aText(aText)
++    {
++    }
++
++    bool Word(std::u16string_view aWord)
++    {
++        SkipBlanks();
++        if (m_aText.substr(m_nPos, aWord.size()) != aWord)
++            return false;
++        m_nPos += aWord.size();
++        return true;
++    }
++
++    /// A group and what is inside it (quoted text may hold braces)
++    bool Group(std::u16string_view& rInside)
++    {
++        SkipBlanks();
++        if (m_nPos >= m_aText.size() || m_aText[m_nPos] != '{')
++            return false;
++        int nDepth = 0;
++        bool bQuoted = false;
++        for (size_t i = m_nPos; i < m_aText.size(); ++i)
++        {
++            const sal_Unicode c = m_aText[i];
++            if (c == '"')
++                bQuoted = !bQuoted;
++            else if (!bQuoted && c == '{')
++                ++nDepth;
++            else if (!bQuoted && c == '}' && --nDepth == 0)
++            {
++                rInside = m_aText.substr(m_nPos + 1, i - m_nPos - 1);
++                m_nPos = i + 1;
++                return true;
++            }
++        }
++        return false;
++    }
++
++    /// Empty groups ("{}") the reader leaves after a template
++    void SkipEmptyGroups()
++    {
++        for (;;)
++        {
++            const size_t nBefore = m_nPos;
++            std::u16string_view aInside;
++            if (!Group(aInside) || !TextReader(aInside).AtEnd())
++            {
++                m_nPos = nBefore;
++                return;
++            }
++        }
++    }
++
++    bool AtEnd()
++    {
++        SkipBlanks();
++        return m_nPos == m_aText.size();
++    }
++
++private:
++    void SkipBlanks()
++    {
++        while (m_nPos < m_aText.size() && (m_aText[m_nPos] == ' ' || m_aText[m_nPos] == '\n'))
++            ++m_nPos;
++    }
++
++    std::u16string_view m_aText;
++    size_t m_nPos = 0;
++};
++
++/// The label of one pile line, "{{label} xrightarrow {}}" (bOver) or "{{} xleftarrow {label}}"
++bool ArrowLine(TextReader& rPile, bool bOver, std::u16string_view& rLabel)
++{
++    std::u16string_view aLine, aOver, aUnder;
++    if (!rPile.Group(aLine))
++        return false;
++    TextReader aArrow(aLine);
++    if (!aArrow.Group(aOver) || !aArrow.Word(bOver ? u"xrightarrow" : u"xleftarrow")
++        || !aArrow.Group(aUnder) || !aArrow.AtEnd()
++        || !TextReader(bOver ? aUnder : aOver).AtEnd())
++        return false;
++    rLabel = bOver ? aOver : aUnder;
++    rPile.SkipEmptyGroups();
++    return true;
++}
++}
++
++void JoinArrowPile(OUStringBuffer& rOut, sal_Int32 nStart)
++{
++    const OUString aRead(rOut.subView(nStart));
++    TextReader aText(aRead);
++    std::u16string_view aPile, aUpper, aLower;
++    if (!aText.Word(u"stack") || !aText.Group(aPile) || !aText.AtEnd())
++        return;
++    TextReader aLines(aPile);
++    if (!ArrowLine(aLines, true, aUpper) || !aLines.Word(u"#")
++        || !ArrowLine(aLines, false, aLower) || !aLines.AtEnd())
++        return;
++    rOut.setLength(nStart);
++    rOut.append(OUString::Concat(u" {") + aUpper + u"} xrightleftarrows {" + aLower + u"} ");
++}
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/source/hst/mathtypetextarrow.hxx b/starmath/source/hst/mathtypetextarrow.hxx
 new file mode 100644
-index 0000000..a368e91
+index 0000000..e357c19
 --- /dev/null
 +++ b/starmath/source/hst/mathtypetextarrow.hxx
-@@ -0,0 +1,39 @@
+@@ -0,0 +1,44 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1763,6 +1891,11 @@ index 0000000..a368e91
 +
 +/// Closing the label slot that OpenArrowLabel opened (the others just close the group).
 +void CloseArrowLabel(OUStringBuffer& rOut, sal_uInt8 nSelector, sal_uInt8 nVariation);
++
++/// The pile read from nStart on in rOut: if it is the pile WriteTextArrow writes for the
++/// equilibrium arrows (a right arrow with the upper label over a left arrow with the lower one),
++/// it becomes "{upper} xrightleftarrows {lower}" again instead of a tall stack.
++void JoinArrowPile(OUStringBuffer& rOut, sal_Int32 nStart);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -4707,7 +4840,7 @@ index 1b28e4a..1ab9831 100644
              break;
      }
 diff --git a/starmath/source/mathtype.cxx b/starmath/source/mathtype.cxx
-index 2310f6b..9eeb9e7 100644
+index 2310f6b..74dc85c 100644
 --- a/starmath/source/mathtype.cxx
 +++ b/starmath/source/mathtype.cxx
 @@ -19,6 +19,9 @@
@@ -4784,7 +4917,7 @@ index 2310f6b..9eeb9e7 100644
      SmNode *pTemp;
      pS->WriteUChar( TMPL ); //Template
      if (pNode->GetToken().eType == TUNDERBRACE)
-@@ -2605,7 +2621,10 @@ bool MathType::HandlePile(int &rSetAlign, int nLevel, sal_uInt8 nSelector, sal_u
+@@ -2605,13 +2621,18 @@ bool MathType::HandlePile(int &rSetAlign, int nLevel, sal_uInt8 nSelector, sal_u
      pS->ReadUChar( nHAlign );
      pS->ReadUChar( nVAlign );
  
@@ -4794,9 +4927,17 @@ index 2310f6b..9eeb9e7 100644
 +    if (nHAlign != 2)
 +        HandleAlign(nHAlign, rSetAlign);
  
++    const sal_Int32 nPileStart = rRet.getLength(); // HST Office
      rRet.append(" stack {\n");
      bool bRet = HandleRecords( nLevel+1, nSelector, nVariation, -1, -1 );
-@@ -2658,7 +2677,7 @@ bool MathType::HandleTemplate(int nLevel, sal_uInt8 &rSelector,
+     int nRemoveFrom = rRet.getLength() >= 3 ? rRet.getLength() - 3 : 0;
+     rRet.remove(nRemoveFrom, 2);
+     rRet.append("} ");
++    starmath::hst::JoinArrowPile(rRet, nPileStart); // HST Office: equilibrium arrows HST wrote
+ 
+     while (rSetAlign)
+     {
+@@ -2658,7 +2679,7 @@ bool MathType::HandleTemplate(int nLevel, sal_uInt8 &rSelector,
      pS->ReadUChar( rSelector );
      pS->ReadUChar( rVariation );
      pS->ReadUChar( nOption );
@@ -4805,7 +4946,7 @@ index 2310f6b..9eeb9e7 100644
      if ((rSelector >= 21) && (rSelector <=26))
      {
          OSL_ENSURE(nOption < 2,"Option out of range");
-@@ -2850,9 +2869,10 @@ bool MathType::HandleChar(sal_Int32 &rTextStart, int &rSetSize, int nLevel,
+@@ -2850,9 +2871,10 @@ bool MathType::HandleChar(sal_Int32 &rTextStart, int &rSetSize, int nLevel,
          sPost = "";
          nPostSup = nPostlSup = 0;
          int nOriglen=rRet.getLength()-rTextStart;
@@ -4817,7 +4958,7 @@ index 2310f6b..9eeb9e7 100644
          bRet = HandleRecords( nLevel+1, nSelector, nVariation );
          if (!bSilent)
          {
-@@ -3141,6 +3161,9 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+@@ -3141,6 +3163,9 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
              //we have to drop them
              nOldPending = StartTemplate(0x2f,0x01);
              break;
@@ -4827,7 +4968,7 @@ index 2310f6b..9eeb9e7 100644
          case TWIDELVEC: //Not Exportable
          case TCHECK: //Not Exportable
          case TACUTE: //Not Exportable
-@@ -3149,8 +3172,8 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+@@ -3149,8 +3174,8 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
          case TWIDEHARPOON: //Not Exportable
          case TWIDELHARPOON: //Not Exportable
          case TWIDETILDE: //Not Exportable
@@ -4837,7 +4978,7 @@ index 2310f6b..9eeb9e7 100644
          case TUNDERLINE:
              nOldPending = StartTemplate(0x10);
              break;
-@@ -3175,6 +3198,7 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+@@ -3175,6 +3200,7 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
          switch (pTemp->GetToken().eType)
          {
              case TWIDEVEC:
@@ -4845,7 +4986,7 @@ index 2310f6b..9eeb9e7 100644
              case TUNDERLINE:
                  EndTemplate(nOldPending);
                  break;
-@@ -3218,6 +3242,7 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+@@ -3218,6 +3244,7 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
                  pS->WriteUChar( 8 );
                  break;
              case THAT:
@@ -4853,7 +4994,7 @@ index 2310f6b..9eeb9e7 100644
                  pS->WriteUChar( 9 );
                  break;
              case TVEC:
-@@ -3236,12 +3261,12 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+@@ -3236,12 +3263,12 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
                  pS->WriteUChar( 20 );
                  break;
              case TWIDEVEC:
