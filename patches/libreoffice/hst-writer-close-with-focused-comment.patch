@@ -60,3 +60,19 @@ Test: CppunitTest_sw_uibase_docvw testCloseWhileCommentHasFocus.
  CPPUNIT_PLUGIN_IMPLEMENT();
  
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/docvw/edtwin.cxx
++++ b/sw/source/uibase/docvw/edtwin.cxx
+@@ -5734,6 +5734,13 @@
+ 
+ void SwEditWin::GetFocus()
+ {
++    // The view has no comment manager while it is destroyed: a focused comment window that is
++    // disposed then gives the focus back to this window.
++    if (!m_rView.GetPostItMgr())
++    {
++        Window::GetFocus();
++        return;
++    }
+     if ( m_rView.GetPostItMgr()->HasActiveSidebarWin() )
+     {
+         m_rView.GetPostItMgr()->GrabFocusOnActiveSidebarWin();
