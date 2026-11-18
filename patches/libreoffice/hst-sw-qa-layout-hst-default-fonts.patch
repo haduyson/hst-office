@@ -9,10 +9,10 @@ maps Gentium Basic to the bundled Liberation Serif for its duration; the documen
 layout would hit the same guard), so the layout it checks is unchanged.
 
 testTdf108021, testTdf125334, testTdf127304 (CppunitTest_sw_layoutwriter2): a chart without fonts of its own takes the
-default spreadsheet font, Calibri in HST (hst-msoffice-defaults.patch), drawn with the narrower bundled Carlito, so its
-axis labels need fewer lines and no rotation (4 instead of 8 and 0 instead of 4 wrapped labels, no 90 degree labels).
-These tests check the label wrapping and rotation of documents made with upstream's Liberation Sans, so they draw
-Calibri with Liberation Sans for their duration.
+first available default spreadsheet font, Calibri or else the bundled, narrower Carlito in HST
+(hst-msoffice-defaults.patch), so its axis labels need fewer lines and no rotation (4 instead of 8 and 0 instead of 4
+wrapped labels, no 90 degree labels). These tests check the label wrapping and rotation of documents made with
+upstream's Liberation Sans, so they draw Calibri and Carlito with Liberation Sans for their duration.
 
 Both substitutions are removed, and the font caches cleared, when the test ends.
 
@@ -66,23 +66,25 @@ Test: make CppunitTest_sw_layoutwriter CppunitTest_sw_layoutwriter2.
  #include <vcl/scheduler.hxx>
  
  #include <rootfrm.hxx>
-@@ -31,6 +33,33 @@
+@@ -31,6 +33,35 @@
  #include <fmtanchr.hxx>
  #include <redline.hxx>
  
 +
 +namespace
 +{
-+/// HST Office: a chart without fonts of its own takes the default spreadsheet font, Calibri in HST
-+/// Office (hst-msoffice-defaults.patch), drawn with the narrower bundled Carlito, so its axis labels
-+/// need fewer lines and no rotation. These tests measure the label layout of documents made with
-+/// upstream's default, Liberation Sans, so they draw Calibri with it.
++/// HST Office: a chart without fonts of its own takes the first available default spreadsheet
++/// font, Calibri or else the bundled, narrower Carlito in HST Office (hst-msoffice-defaults.patch),
++/// so its axis labels need fewer lines and no rotation. These tests measure the label layout of
++/// documents made with upstream's default, Liberation Sans, so they draw those fonts with it.
 +struct HstChartsInLiberationSans
 +{
 +    HstChartsInLiberationSans()
 +    {
 +        OutputDevice::BeginFontSubstitution();
 +        OutputDevice::AddFontSubstitute(u"Calibri"_ustr, u"Liberation Sans"_ustr,
++                                        AddFontSubstituteFlags::ALWAYS);
++        OutputDevice::AddFontSubstitute(u"Carlito"_ustr, u"Liberation Sans"_ustr,
 +                                        AddFontSubstituteFlags::ALWAYS);
 +        OutputDevice::EndFontSubstitution();
 +    }
@@ -100,7 +102,7 @@ Test: make CppunitTest_sw_layoutwriter CppunitTest_sw_layoutwriter2.
  /// Test to assert layout / rendering result of Writer.
  class SwLayoutWriter2 : public SwModelTestBase
  {
-@@ -1980,6 +2009,7 @@ CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf115630)
+@@ -1980,6 +2011,7 @@ CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf115630)
  
  CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf108021)
  {
@@ -108,7 +110,7 @@ Test: make CppunitTest_sw_layoutwriter CppunitTest_sw_layoutwriter2.
      createSwDoc("tdf108021.odt");
      SwDocShell* pShell = getSwDocShell();
  
-@@ -1995,6 +2025,7 @@ CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf108021)
+@@ -1995,6 +2027,7 @@ CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf108021)
  
  CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf125334)
  {
@@ -116,7 +118,7 @@ Test: make CppunitTest_sw_layoutwriter CppunitTest_sw_layoutwriter2.
      createSwDoc("tdf125334.odt");
      SwDocShell* pShell = getSwDocShell();
  
-@@ -2080,6 +2111,7 @@ CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf126244)
+@@ -2080,6 +2113,7 @@ CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf126244)
  
  CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf127304)
  {
