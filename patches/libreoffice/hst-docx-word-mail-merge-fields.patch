@@ -1,0 +1,793 @@
+HST Office: Word mail-merge documents keep their fields. The DOCX import dropped every switch of a
+MERGEFIELD (\# "#,##0", \@ "dd/MM/yyyy", \* Upper, \b, \f) and turned an IF that compares a nested
+MERGEFIELD into a conditional text whose condition had lost the merge field ("FORMULA Nam"); saving
+the document again wrote those broken instructions, so Word merged wrong results as well.
+
+Such fields are now database fields whose column name is the Word instruction, nested fields written
+{ ... }: "MERGEFIELD Lương \# "#,##0"", "IF { MERGEFIELD Giới_tính } = "Nam" "Ông" "Bà"". The import
+keeps each field's instruction with its nested fields while it reads it (one member of FieldContext).
+The HST mail merge (hst-vietnamese-tools, mail_merge_word_*.py) gives the staging copy of the
+recipients one column per instruction, computed with Word's rules, so the engine merges Word's
+result. The DOCX export writes such a column back as the instruction with real nested fields; DOC
+and RTF, which cannot nest them here, write the shown text. A MERGEFIELD without switches stays a
+field named by its column, as before.
+
+When the HST mail merge names the recipient list in the document's InteropGrabBag
+"HSTMailMergeSource" (Path, Sheet), w:mailMerge is written the way Word links an Excel sheet or a
+text file (w:dataSource relationship, OLE DB connect string, query), so Word reconnects to the list;
+before, it wrote the internal data source name, which Word cannot open.
+
+The logic is in new HST files (sw/source/writerfilter/hst/hstwordmergeimport.*,
+sw/source/filter/ww8/hst/hstwordmergeexport.*); the LibreOffice files only call them.
+
+Test: CppunitTest_sw_hst_mailmerge_word (import, DOCX round trip with nested fields and the Word link
+of the list, mail merge of instruction-named columns from a Calc staging copy).
+---
+--- a/sw/Library_msword.mk
++++ b/sw/Library_msword.mk
+@@ -87,6 +87,7 @@
+     sw/source/filter/ww8/docxattributeoutput \
+     sw/source/filter/ww8/docxexport \
+     sw/source/filter/ww8/docxexportfilter \
++    sw/source/filter/ww8/hst/hstwordmergeexport \
+     sw/source/filter/ww8/docxsdrexport \
+     sw/source/filter/ww8/docxtableexport \
+     sw/source/filter/ww8/docxtablestyleexport \
+--- a/sw/Library_sw_writerfilter.mk
++++ b/sw/Library_sw_writerfilter.mk
+@@ -89,6 +89,7 @@
+     sw/source/writerfilter/dmapper/DomainMapperTableHandler \
+     sw/source/writerfilter/dmapper/DomainMapperTableManager \
+     sw/source/writerfilter/dmapper/DomainMapper_Impl \
++    sw/source/writerfilter/hst/hstwordmergeimport \
+ 	sw/source/writerfilter/dmapper/domainmapperfactory \
+     sw/source/writerfilter/dmapper/FFDataHandler \
+     sw/source/writerfilter/dmapper/FontTable \
+--- a/sw/Module_sw.mk
++++ b/sw/Module_sw.mk
+@@ -110,6 +110,7 @@
+     CppunitTest_sw_ooxmlexport_de_locale \
+     CppunitTest_sw_ooxmlexport_template \
+     CppunitTest_sw_ooxmlfieldexport \
++    CppunitTest_sw_hst_mailmerge_word \
+     CppunitTest_sw_ooxmllinks \
+     CppunitTest_sw_ooxmlw14export \
+     CppunitTest_sw_ooxmlencryption \
+--- a/sw/source/filter/ww8/docxattributeoutput.cxx
++++ b/sw/source/filter/ww8/docxattributeoutput.cxx
+@@ -19,6 +19,7 @@
+ 
+ #include <memory>
+ #include "docxattributeoutput.hxx"
++#include "hst/hstwordmergeexport.hxx"
+ #include <hstpageart.hxx>
+ #include "docxhelper.hxx"
+ #include "docxsdrexport.hxx"
+@@ -3176,7 +3177,10 @@ void DocxAttributeOutput::CmdField_Impl( const SwTextNode* pNode, sal_Int32 nPos
+         }
+ 
+         // Write the Field command
+-        DoWriteCmd( sToken );
++        if (!hst::wordmerge::SplitNestedCommand(sToken, [this](std::u16string_view aText) { DoWriteCmd(aText); },
++                [this](bool bBegin) { m_pSerializer->singleElementNS(XML_w, XML_fldChar,
++                    FSNS(XML_w, XML_fldCharType), bBegin ? "begin" : "end"); }))
++            DoWriteCmd( sToken );
+ 
+         // Replace tabs by </instrText><tab/><instrText>
+         if ( nIdx > 0 ) // Is another token expected?
+--- a/sw/source/filter/ww8/docxexport.cxx
++++ b/sw/source/filter/ww8/docxexport.cxx
+@@ -20,6 +20,7 @@
+ #include <config_wasm_strip.h>
+ 
+ #include "docxexport.hxx"
++#include "hst/hstwordmergeexport.hxx"
+ #include "docxexportfilter.hxx"
+ #include "docxattributeoutput.hxx"
+ #include "docxsdrexport.hxx"
+@@ -1433,7 +1434,8 @@ void DocxExport::WriteSettings()
+ 
+     // export current mail merge database and table names
+     SwDBData aData = m_rDoc.GetDBData();
+-    if ( !aData.sDataSource.isEmpty() && aData.nCommandType == css::sdb::CommandType::TABLE && !aData.sCommand.isEmpty() )
++    // HST mail merge: the recipient list as Word links it, else the data source as before
++    if ( !hst::wordmerge::WriteMailMergeSource(m_rFilter, pFS, aGrabBagPropMap) && !aData.sDataSource.isEmpty() && aData.nCommandType == css::sdb::CommandType::TABLE && !aData.sCommand.isEmpty() )
+     {
+         OUString sDataSource =
+             "SELECT * FROM " +
+--- a/sw/source/filter/ww8/ww8atr.cxx
++++ b/sw/source/filter/ww8/ww8atr.cxx
+@@ -143,6 +143,7 @@
+ #include "ww8par.hxx"
+ #include "ww8attributeoutput.hxx"
+ #include "fields.hxx"
++#include "hst/hstwordmergeexport.hxx"
+ #include <i18nlangtag/mslangid.hxx>
+ #include <i18nlangtag/languagetag.hxx>
+ #include <officecfg/Office/Common.hxx>
+@@ -3044,9 +3045,14 @@ void AttributeOutputBase::TextField( const SwFormatField& rField )
+         break;
+     case SwFieldIds::Database:
+         {
+-            OUString sStr = FieldString(ww::eMERGEFIELD)
+-                + EscapeToken(static_cast<SwDBFieldType *>(pField->GetTyp())->GetColumnName()) + " ";
+-            GetExport().OutputField(pField, ww::eMERGEFIELD, sStr);
++            const OUString& rColumn = static_cast<SwDBFieldType *>(pField->GetTyp())->GetColumnName();
++            OUString sStr = FieldString(ww::eMERGEFIELD) + EscapeToken(rColumn) + " ";
++            ww::eField eType = ww::eMERGEFIELD;
++            const auto eCode = hst::wordmerge::CodeOfColumn(rColumn, sStr, eType);
++            if (eCode == hst::wordmerge::CodeKind::Nested && GetExport().GetExportFormat() != MSWordExportBase::DOCX)
++                bWriteExpand = true; // DOC, RTF: the shown text rather than a broken instruction
++            else
++                GetExport().OutputField(pField, eType, sStr);
+         }
+         break;
+     case SwFieldIds::DatabaseName:
+--- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
++++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
+@@ -131,6 +131,7 @@
+ #include <comphelper/diagnose_ex.hxx>
+ #include <sal/log.hxx>
+ #include <o3tl/string_view.hxx>
++#include <hst/hstwordmergeimport.hxx>
+ #include <com/sun/star/drawing/FillStyle.hpp>
+ 
+ #include <docufld.hxx>
+@@ -6644,6 +6645,8 @@ void DomainMapper_Impl::AppendFieldCommand(OUString const & rPartOfCommand)
+             pContext->getProperties()->InsertProps(GetTopContextOfType(CONTEXT_CHARACTER));
+         }
+         pContext->AppendCommand( rPartOfCommand );
++        if (!m_bTextDeleted)
++            pContext->AppendWordCode(rPartOfCommand);
+     }
+ }
+ 
+@@ -8059,6 +8062,8 @@ void DomainMapper_Impl::CloseFieldCommand()
+             pContext->SetFieldId(aIt->second.eFieldId);
+             bool bCreateEnhancedField = false;
+             bool bCreateField = true;
++            const bool bWordMergeIf = aIt->second.eFieldId == FIELD_IF
++                                      && hst::wordmerge::IsMergeIf(pContext->GetWordCode());
+             switch (aIt->second.eFieldId)
+             {
+             case FIELD_HYPERLINK:
+@@ -8130,7 +8135,8 @@ void DomainMapper_Impl::CloseFieldCommand()
+                 }
+                 else
+                 {
+-                    sServiceName += "TextField." + OUString::createFromAscii(aIt->second.cFieldServiceName );
++                    sServiceName += "TextField." + OUString::createFromAscii(
++                        bWordMergeIf ? "Database" : aIt->second.cFieldServiceName);
+                     if (m_xTextDocument)
+                         xFieldInterface = m_xTextDocument->createTextField(sServiceName);
+                 }
+@@ -8432,6 +8438,13 @@ void DomainMapper_Impl::CloseFieldCommand()
+                 break;
+                 case FIELD_IF:
+                 {
++                    if (bWordMergeIf && xFieldInterface.is())
++                    {
++                        xFieldInterface->attachTextFieldMaster(FindOrCreateFieldMaster(
++                            "com.sun.star.text.FieldMaster.Database",
++                            hst::wordmerge::CodeColumn(pContext->GetWordCode())));
++                        break;
++                    }
+                     if (vArguments.size() < 3)
+                     {
+                         SAL_WARN("writerfilter.dmapper", "IF field requires at least 3 parameters!");
+@@ -8507,7 +8520,8 @@ void DomainMapper_Impl::CloseFieldCommand()
+                     //todo: create a database field and fieldmaster pointing to a column, only
+                     //create a user field and type
+                     rtl::Reference<SwXFieldMaster> xMaster =
+-                        FindOrCreateFieldMaster("com.sun.star.text.FieldMaster.Database", sFirstParam);
++                        FindOrCreateFieldMaster("com.sun.star.text.FieldMaster.Database",
++                            hst::wordmerge::MergeFieldColumn(pContext->GetWordCode(), sFirstParam, vSwitches));
+ 
+ //                    xFieldInterface->setPropertyValue(
+ //                             "FieldCode",
+@@ -9211,6 +9225,9 @@ void DomainMapper_Impl::PopFieldContext()
+     {
+         if( !pContext->IsCommandCompleted() )
+             CloseFieldCommand();
++        if (FieldContextPtr pOuter = GetParentFieldContext(m_StreamStateStack.top().m_aFieldStack);
++            pOuter && !pOuter->IsCommandCompleted())
++            pOuter->AppendWordCode(hst::wordmerge::NestedCode(pContext->GetWordCode()));
+ 
+         if (!pContext->GetResult().isEmpty())
+         {
+--- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx
++++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx
+@@ -342,6 +342,7 @@ private:
+     PropertyMapPtr m_pProperties;
+ 
+     std::vector<FieldParagraph> m_aParagraphsToFinish;
++    OUString m_sWordCode; // HST: the instruction with its nested fields (hst/hstwordmergeimport.hxx)
+ 
+ public:
+     explicit FieldContext(css::uno::Reference<css::text::XTextRange> xStart, sal_Int32 nTableDepth);
+@@ -358,6 +359,8 @@ public:
+     std::optional<FieldId> const & GetFieldId() const { return m_eFieldId; }
+ 
+     void AppendResult(std::u16string_view rResult) { m_sResult += rResult; }
++    void AppendWordCode(std::u16string_view rPart) { m_sWordCode += rPart; }
++    const OUString& GetWordCode() const { return m_sWordCode; }
+     const OUString&  GetResult() const { return m_sResult; }
+ 
+     void CacheVariableValue(const css::uno::Any& rAny);
+--- /dev/null
++++ b/sw/CppunitTest_sw_hst_mailmerge_word.mk
+@@ -0,0 +1,55 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (C) HASON TECH. HST Office.
++#
++# Word mail-merge fields: DOCX import and export of MERGEFIELD switches and IF fields, the Word link of the
++# recipient list, and the mail merge of columns named by Word instructions.
++
++$(eval $(call gb_CppunitTest_CppunitTest,sw_hst_mailmerge_word))
++
++$(eval $(call gb_CppunitTest_use_common_precompiled_header,sw_hst_mailmerge_word))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sw_hst_mailmerge_word, \
++    sw/qa/extras/hst/hstmailmergeword \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sw_hst_mailmerge_word, \
++    $(sw_ooxmlexport_libraries) \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,sw_hst_mailmerge_word,\
++    boost_headers \
++    libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sw_hst_mailmerge_word,\
++    -I$(SRCDIR)/sw/inc \
++    -I$(SRCDIR)/sw/source/core/inc \
++    -I$(SRCDIR)/sw/source/uibase/inc \
++    -I$(SRCDIR)/sw/qa/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_api,sw_hst_mailmerge_word,\
++    udkapi \
++    offapi \
++    oovbaapi \
++))
++
++$(eval $(call gb_CppunitTest_use_ure,sw_hst_mailmerge_word))
++$(eval $(call gb_CppunitTest_use_vcl,sw_hst_mailmerge_word))
++
++$(eval $(call gb_CppunitTest_use_rdb,sw_hst_mailmerge_word,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sw_hst_mailmerge_word))
++
++$(eval $(call gb_CppunitTest_use_uiconfigs,sw_hst_mailmerge_word,\
++    modules/swriter \
++))
++
++$(eval $(call gb_CppunitTest_use_packages,sw_hst_mailmerge_word,\
++    oox_generated \
++))
++
++# vim: set noet sw=4 ts=4:
+--- /dev/null
++++ b/sw/qa/extras/hst/hstmailmergeword.cxx
+@@ -0,0 +1,227 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <com/sun/star/beans/NamedValue.hpp>
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <com/sun/star/container/XNamed.hpp>
++#include <com/sun/star/frame/Desktop.hpp>
++#include <com/sun/star/frame/XStorable.hpp>
++#include <com/sun/star/sdb/CommandType.hpp>
++#include <com/sun/star/sheet/XCellRangeData.hpp>
++#include <com/sun/star/sheet/XSpreadsheet.hpp>
++#include <com/sun/star/sheet/XSpreadsheetDocument.hpp>
++#include <com/sun/star/task/XJob.hpp>
++#include <com/sun/star/text/MailMergeType.hpp>
++#include <com/sun/star/text/XDependentTextField.hpp>
++#include <com/sun/star/text/XTextDocument.hpp>
++#include <com/sun/star/text/XTextFieldsSupplier.hpp>
++
++#include <comphelper/base64.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <unotools/tempfile.hxx>
++
++#include <dbmgr.hxx>
++
++#include <map>
++
++namespace
++{
++/// A Word letter: IF { MERGEFIELD Giới_tính } = "Nam" "Ông" "Bà", MERGEFIELD Họ_và_tên and
++/// MERGEFIELD Lương \# "#,##0" (made by tests/runtime/mail_merge_word_samples.py, kept here as base64).
++constexpr char WORD_LETTER[] =
++        "UEsDBBQAAAAIAApgcl3MVIwQ4AAAAJwBAAATAAAAW0NvbnRlbnRfVHlwZXNdLnhtbH2Qy07DMBBFf8XyFsUTukAIJekC"
++        "yhJYlA+w7Eli4Zc8bil/z6QtXaDC0r6PM7rd+hC82GMhl2Ivb1UrBUaTrItTL9+3z829XA/d9isjCbZG6uVca34AIDNj"
++        "0KRSxsjKmErQlZ9lgqzNh54QVm17BybFirE2demQQ/eEo975KjYH/j5hC3qS4vFkXFi91Dl7Z3RlHfbR/qI0Z4Li5NFD"
++        "s8t0wwYJVwmL8jfgnHvlHYqzKN50qS86sAs+U7Fgk9kFTqr/a67cmcbRGbzkl7ZckkEiHjh4dVGCdvHnfjjOPXwDUEsD"
++        "BBQAAAAIAApgcl02V97cogAAABgBAAALAAAAX3JlbHMvLnJlbHONzzsOwjAMBuCrRN6pCwNCqGkXhNQVlQNEiZtGNA8l"
++        "4XV7MjBQxMBo+/dnuekedmY3isl4x2Fd1cDISa+M0xzOw3G1g65tTjSLXBJpMiGxsuIShynnsEdMciIrUuUDuTIZfbQi"
++        "lzJqDEJehCbc1PUW46cBS5P1ikPs1RrY8Az0j+3H0Ug6eHm15PKPE1+JIouoKXO4+6hQvdtVYQHbBhcvti9QSwMEFAAA"
++        "AAgACmByXXzAK8GgAQAA7AUAABEAAAB3b3JkL2RvY3VtZW50LnhtbL1UzUoDMRB+lZBe1WwVSl26LaitilVE602QdHe6"
++        "G9hNQhL74zt48+alXi2C995a8D36JmbrWn8LWmgvkwmZ+b5vZsKUKt0kRm1Qmgnu4fyGgxFwXwSMhx6+aNTWixhpQ3lA"
++        "Y8HBwz3QuFIuddxA+NcJcIMsANdux8ORMdIlRPsRJFRvCAncvrWESqixVxWSjlCBVMIHrS1+EpNNxymQhDKOMxj1FxjR"
++        "ajEf9jIBbyAKYmpsDTpiUuNUYFMEvfSUqVGpmWp1taS+LUQq0KDagMtH4yceoXAyfGIuKhEbV06tmuW14mA3ogrNvEZP"
++        "WoQmhFY4+RbMuDaqAd05ZOiwNuWYhS2T67h6tl+tHVbre2ifTYb37MpMa11AAPDg3/Qewic0wQiP73hoj51xHy/CrUFS"
++        "RQ38EDCHOKX7xxx/K21eSUv/Hp9GdjAZ3l61x307tEe+ir6NBl8oR8PlNHFtpV2svzy/PPAQXeYQzq3lcs5KvuBokPEu"
++        "3kSSrS4NvjmdZsnw/Mam2FWbz287BWz9yPqF4lYxS3uPJe/rj3ws6vIrUEsBAhQDFAAAAAgACmByXcxUjBDgAAAAnAEA"
++        "ABMAAAAAAAAAAAAAAIABAAAAAFtDb250ZW50X1R5cGVzXS54bWxQSwECFAMUAAAACAAKYHJdNlfe3KIAAAAYAQAACwAA"
++        "AAAAAAAAAAAAgAERAQAAX3JlbHMvLnJlbHNQSwECFAMUAAAACAAKYHJdfMArwaABAADsBQAAEQAAAAAAAAAAAAAAgAHc"
++        "AQAAd29yZC9kb2N1bWVudC54bWxQSwUGAAAAAAMAAwC5AAAAqwMAAAAA";
++
++constexpr OUString IF_COLUMN = u"IF { MERGEFIELD Giới_tính } = \"Nam\" \"Ông\" \"Bà\""_ustr;
++constexpr OUString SALARY_COLUMN = u"MERGEFIELD Lương \\# \"#,##0\""_ustr;
++
++class HstMailMergeWordTest : public SwModelTestBase
++{
++public:
++    HstMailMergeWordTest()
++        : SwModelTestBase(u"/sw/qa/extras/hst/data/"_ustr)
++    {
++    }
++
++    void loadWordLetter()
++    {
++        uno::Sequence<sal_Int8> aBytes;
++        comphelper::Base64::decode(aBytes, OUString::createFromAscii(WORD_LETTER));
++        SvStream* pStream = maTempFile.GetStream(StreamMode::WRITE | StreamMode::TRUNC);
++        pStream->WriteBytes(aBytes.getConstArray(), aBytes.getLength());
++        maTempFile.CloseStream();
++        loadFromURL(maTempFile.GetURL(), { comphelper::makePropertyValue(
++                                              u"FilterName"_ustr, u"Office Open XML Text"_ustr) });
++    }
++
++    /// Column name -> shown text of every database field.
++    std::map<OUString, OUString> databaseFields()
++    {
++        std::map<OUString, OUString> aFields;
++        uno::Reference<text::XTextFieldsSupplier> xSupplier(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<container::XEnumeration> xEnum
++            = xSupplier->getTextFields()->createEnumeration();
++        while (xEnum->hasMoreElements())
++        {
++            uno::Reference<text::XDependentTextField> xField(xEnum->nextElement(), uno::UNO_QUERY);
++            uno::Reference<lang::XServiceInfo> xInfo(xField, uno::UNO_QUERY);
++            if (!xInfo || !xInfo->supportsService(u"com.sun.star.text.TextField.Database"_ustr))
++                continue;
++            aFields[getProperty<OUString>(xField->getTextFieldMaster(), u"DataColumnName"_ustr)]
++                = getProperty<OUString>(xField, u"Content"_ustr);
++        }
++        return aFields;
++    }
++};
++}
++
++CPPUNIT_TEST_FIXTURE(HstMailMergeWordTest, testWordMergeFieldsImport)
++{
++    loadWordLetter();
++    std::map<OUString, OUString> aFields = databaseFields();
++    // The IF was a conditional text with a broken condition, and the switch of the MERGEFIELD was lost.
++    CPPUNIT_ASSERT_EQUAL(size_t(3), aFields.size());
++    CPPUNIT_ASSERT_EQUAL(u"Ông"_ustr, aFields[IF_COLUMN]);
++    CPPUNIT_ASSERT(aFields.count(SALARY_COLUMN));
++    CPPUNIT_ASSERT(aFields.count(u"Họ_và_tên"_ustr)); // without switches: the plain Word name, as before
++}
++
++CPPUNIT_TEST_FIXTURE(HstMailMergeWordTest, testWordMergeFieldsExport)
++{
++    loadWordLetter();
++    // the HST mail merge names the recipient list; DOCX writes it the way Word links it
++    uno::Sequence<beans::PropertyValue> aLink{
++        comphelper::makePropertyValue(u"Path"_ustr, u"C:\\Trộn thư\\danh-sách.xlsx"_ustr),
++        comphelper::makePropertyValue(u"Sheet"_ustr, u"Nhân viên"_ustr)
++    };
++    uno::Reference<beans::XPropertySet> xDoc(mxComponent, uno::UNO_QUERY_THROW);
++    xDoc->setPropertyValue(u"InteropGrabBag"_ustr,
++                           uno::Any(uno::Sequence<beans::PropertyValue>{ comphelper::makePropertyValue(
++                               u"HSTMailMergeSource"_ustr, aLink) }));
++    save(TestFilter::DOCX);
++
++    xmlDocUniquePtr pXml = parseExport(u"word/document.xml"_ustr);
++    CPPUNIT_ASSERT(pXml);
++    // the nested MERGEFIELD is a field of its own inside the IF instruction
++    static constexpr char NESTED[] = "//w:instrText[normalize-space(.)='MERGEFIELD Giới_tính']";
++    assertXPath(pXml, NESTED, 1);
++    assertXPath(pXml, OString::Concat(NESTED) + "/preceding-sibling::w:fldChar[1]", "fldCharType",
++                u"begin");
++    assertXPath(pXml, OString::Concat(NESTED) + "/following-sibling::w:fldChar[1]", "fldCharType",
++                u"end");
++    assertXPath(pXml, "//w:instrText[normalize-space(.)='IF']", 1);
++    assertXPath(pXml, "//w:instrText[normalize-space(.)='= \"Nam\" \"Ông\" \"Bà\"']", 1);
++    assertXPath(pXml, "//w:instrText[normalize-space(.)='MERGEFIELD Lương \\# \"#,##0\"']", 1);
++    assertXPath(pXml, "//w:instrText[normalize-space(.)='MERGEFIELD Họ_và_tên']", 1);
++
++    xmlDocUniquePtr pSettings = parseExport(u"word/settings.xml"_ustr);
++    CPPUNIT_ASSERT(pSettings);
++    assertXPath(pSettings, "/w:settings/w:mailMerge/w:dataType", "val", u"native");
++    assertXPath(pSettings, "/w:settings/w:mailMerge/w:query", "val", u"SELECT * FROM `Nhân viên$` ");
++    assertXPath(pSettings, "/w:settings/w:mailMerge/w:odso/w:table", "val", u"Nhân viên$");
++    const OUString aId = getXPath(pSettings, "/w:settings/w:mailMerge/w:dataSource", "id");
++    xmlDocUniquePtr pRels = parseExport(u"word/_rels/settings.xml.rels"_ustr);
++    CPPUNIT_ASSERT(pRels);
++    const OString aRel = "/rels:Relationships/rels:Relationship[@Id='" + aId.toUtf8() + "']";
++    assertXPath(pRels, aRel, "Target", u"file:///C:\\Trộn thư\\danh-sách.xlsx");
++    assertXPath(pRels, aRel, "TargetMode", u"External");
++
++    // and the instructions survive a second import
++    saveAndReload(TestFilter::DOCX);
++    std::map<OUString, OUString> aFields = databaseFields();
++    CPPUNIT_ASSERT(aFields.count(IF_COLUMN));
++    CPPUNIT_ASSERT(aFields.count(SALARY_COLUMN));
++}
++
++CPPUNIT_TEST_FIXTURE(HstMailMergeWordTest, testMergeWordInstructionColumns)
++{
++    // The staging copy the HST mail merge writes: a sheet with one column per Word instruction, holding Word's
++    // result for each recipient. The engine merges such columns like any other.
++    utl::TempFileNamed aTempDir(nullptr, true);
++    aTempDir.EnableKillingFile();
++    const OUString aWorkDir = aTempDir.GetURL();
++    const OUString aSourceUrl = aWorkDir + "/danh-sach.ods";
++    {
++        uno::Reference<frame::XDesktop2> xDesktop = frame::Desktop::create(m_xContext);
++        uno::Reference<lang::XComponent> xCalc = xDesktop->loadComponentFromURL(
++            u"private:factory/scalc"_ustr, u"_blank"_ustr, 0,
++            { comphelper::makePropertyValue(u"Hidden"_ustr, true) });
++        uno::Reference<sheet::XSpreadsheetDocument> xSpreadsheets(xCalc, uno::UNO_QUERY_THROW);
++        uno::Reference<container::XIndexAccess> xSheets(xSpreadsheets->getSheets(), uno::UNO_QUERY_THROW);
++        uno::Reference<sheet::XSpreadsheet> xSheet(xSheets->getByIndex(0), uno::UNO_QUERY_THROW);
++        uno::Reference<container::XNamed>(xSheet, uno::UNO_QUERY_THROW)->setName(u"DanhSach"_ustr);
++        uno::Reference<sheet::XCellRangeData> xData(xSheet->getCellRangeByPosition(0, 0, 2, 2),
++                                                    uno::UNO_QUERY_THROW);
++        xData->setDataArray(
++            { { uno::Any(u"Họ_và_tên"_ustr), uno::Any(IF_COLUMN), uno::Any(SALARY_COLUMN) },
++              { uno::Any(u"Nguyễn Văn An"_ustr), uno::Any(u"Ông"_ustr), uno::Any(u"15,000,000"_ustr) },
++              { uno::Any(u"Trần Thị Bích Ngọc"_ustr), uno::Any(u"Bà"_ustr), uno::Any(u"8,250,001"_ustr) } });
++        uno::Reference<frame::XStorable>(xCalc, uno::UNO_QUERY_THROW)
++            ->storeToURL(aSourceUrl, { comphelper::makePropertyValue(u"FilterName"_ustr, u"calc8"_ustr) });
++        xCalc->dispose();
++    }
++    const OUString aDBName = SwDBManager::LoadAndRegisterDataSource(aSourceUrl, &aWorkDir);
++    CPPUNIT_ASSERT(!aDBName.isEmpty());
++
++    createSwDoc();
++    uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XTextDocument> xTextDoc(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XText> xText = xTextDoc->getText();
++    for (const OUString& rColumn : { IF_COLUMN, u"Họ_và_tên"_ustr, SALARY_COLUMN })
++    {
++        uno::Reference<beans::XPropertySet> xMaster(
++            xFactory->createInstance(u"com.sun.star.text.FieldMaster.Database"_ustr), uno::UNO_QUERY_THROW);
++        xMaster->setPropertyValue(u"DataBaseName"_ustr, uno::Any(aDBName));
++        xMaster->setPropertyValue(u"DataTableName"_ustr, uno::Any(u"DanhSach"_ustr));
++        xMaster->setPropertyValue(u"DataCommandType"_ustr, uno::Any(sdb::CommandType::TABLE));
++        xMaster->setPropertyValue(u"DataColumnName"_ustr, uno::Any(rColumn));
++        uno::Reference<text::XDependentTextField> xField(
++            xFactory->createInstance(u"com.sun.star.text.TextField.Database"_ustr), uno::UNO_QUERY_THROW);
++        xField->attachTextFieldMaster(xMaster);
++        xText->insertTextContent(xText->getEnd(), xField, false);
++        xText->insertString(xText->getEnd(), u" "_ustr, false);
++    }
++    const OUString aTemplateUrl = aWorkDir + "/thu.odt";
++    uno::Reference<frame::XStorable>(mxComponent, uno::UNO_QUERY_THROW)
++        ->storeToURL(aTemplateUrl, { comphelper::makePropertyValue(u"FilterName"_ustr, u"writer8"_ustr) });
++
++    uno::Reference<task::XJob> xJob(
++        getMultiServiceFactory()->createInstance(u"com.sun.star.text.MailMerge"_ustr), uno::UNO_QUERY_THROW);
++    uno::Any aResult = xJob->execute(
++        { beans::NamedValue(u"OutputType"_ustr, uno::Any(text::MailMergeType::SHELL)),
++          beans::NamedValue(u"DocumentURL"_ustr, uno::Any(aTemplateUrl)),
++          beans::NamedValue(u"DataSourceName"_ustr, uno::Any(aDBName)),
++          beans::NamedValue(u"Command"_ustr, uno::Any(u"DanhSach"_ustr)),
++          beans::NamedValue(u"CommandType"_ustr, uno::Any(sdb::CommandType::TABLE)) });
++    uno::Reference<text::XTextDocument> xMerged(aResult, uno::UNO_QUERY_THROW);
++    const OUString aMerged = xMerged->getText()->getString();
++    uno::Reference<lang::XComponent>(xMerged, uno::UNO_QUERY_THROW)->dispose();
++    SwDBManager::RevokeDataSource(aDBName);
++
++    CPPUNIT_ASSERT_MESSAGE(aMerged.toUtf8().getStr(), aMerged.indexOf(u"Ông Nguyễn Văn An 15,000,000") >= 0);
++    CPPUNIT_ASSERT_MESSAGE(aMerged.toUtf8().getStr(), aMerged.indexOf(u"Bà Trần Thị Bích Ngọc 8,250,001") >= 0);
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/filter/ww8/hst/hstwordmergeexport.cxx
+@@ -0,0 +1,131 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++
++#include "hstwordmergeexport.hxx"
++
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <o3tl/string_view.hxx>
++#include <oox/core/xmlfilterbase.hxx>
++#include <oox/token/namespaces.hxx>
++#include <oox/token/tokens.hxx>
++#include <rtl/ustrbuf.hxx>
++
++using namespace css;
++using namespace oox;
++
++namespace hst::wordmerge
++{
++namespace
++{
++constexpr sal_Unicode NESTED_START = 0x13;
++constexpr sal_Unicode NESTED_END = 0x15;
++}
++
++CodeKind CodeOfColumn(std::u16string_view aColumn, OUString& rCode, ww::eField& rField)
++{
++    std::u16string_view aTrimmed = o3tl::trim(aColumn);
++    if (o3tl::matchIgnoreAsciiCase(aTrimmed, u"MERGEFIELD "))
++        rField = ww::eMERGEFIELD;
++    else if (o3tl::matchIgnoreAsciiCase(aTrimmed, u"IF "))
++        rField = ww::eIF;
++    else
++        return CodeKind::None;
++
++    OUStringBuffer aCode(" ");
++    sal_Int32 nDepth = 0;
++    bool bNested = false;
++    for (sal_Unicode c : aTrimmed)
++    {
++        if (c == '{')
++        {
++            ++nDepth;
++            bNested = true;
++            aCode.append(NESTED_START);
++        }
++        else if (c == '}')
++        {
++            if (--nDepth < 0)
++                return CodeKind::None;
++            aCode.append(NESTED_END);
++        }
++        else
++            aCode.append(c);
++    }
++    if (nDepth != 0)
++        return CodeKind::None;
++    rCode = aCode.append(" ").makeStringAndClear();
++    return bNested ? CodeKind::Nested : CodeKind::Flat;
++}
++
++bool SplitNestedCommand(std::u16string_view aCommand, const std::function<void(std::u16string_view)>& rText,
++                        const std::function<void(bool bBegin)>& rFieldChar)
++{
++    if (aCommand.find(NESTED_START) == std::u16string_view::npos)
++        return false;
++    size_t nStart = 0;
++    for (size_t i = 0; i < aCommand.size(); ++i)
++    {
++        if (aCommand[i] != NESTED_START && aCommand[i] != NESTED_END)
++            continue;
++        if (i > nStart)
++            rText(aCommand.substr(nStart, i - nStart));
++        rFieldChar(aCommand[i] == NESTED_START);
++        nStart = i + 1;
++    }
++    if (nStart < aCommand.size())
++        rText(aCommand.substr(nStart));
++    return true;
++}
++
++bool WriteMailMergeSource(oox::core::XmlFilterBase& rFilter, const sax_fastparser::FSHelperPtr& pFS,
++                          const comphelper::SequenceAsHashMap& rGrabBag)
++{
++    uno::Sequence<beans::PropertyValue> aSource;
++    if (!(rGrabBag.getValue(u"HSTMailMergeSource"_ustr) >>= aSource))
++        return false;
++    const comphelper::SequenceAsHashMap aMap(aSource);
++    OUString sPath, sSheet;
++    aMap.getValue(u"Path"_ustr) >>= sPath;
++    aMap.getValue(u"Sheet"_ustr) >>= sSheet;
++    if (sPath.isEmpty())
++        return false;
++
++    // Word: "file:///C:\folder\list.xlsx"; a POSIX path keeps its single leading slash
++    const bool bTextFile = sPath.endsWithIgnoreAsciiCase(".csv") || sPath.endsWithIgnoreAsciiCase(".txt");
++    const OUString sTarget = "file:///" + (sPath.startsWith("/") ? sPath.copy(1) : sPath);
++    const OUString sType = u"http://schemas.openxmlformats.org/officeDocument/2006/relationships/mailMergeSource"_ustr;
++    const OUString sSourceId = rFilter.addRelation(pFS->getOutputStream(), sType, sTarget, true);
++    const OUString sOdsoId = rFilter.addRelation(pFS->getOutputStream(), sType, sTarget, true);
++    const OUString sConnect = "Provider=Microsoft.ACE.OLEDB.12.0;User ID=Admin;Data Source=" + sPath
++                              + ";Mode=Read;Extended Properties=\"HDR=YES;IMEX=1;\";Jet OLEDB:Engine Type=37;";
++    const OUString sQuery = bTextFile ? OUString("SELECT * FROM " + sPath)
++                                      : OUString("SELECT * FROM `" + sSheet + "$` ");
++
++    pFS->startElementNS(XML_w, XML_mailMerge, FSNS(XML_xmlns, XML_r),
++                        rFilter.getNamespaceURL(OOX_NS(officeRel)));
++    pFS->singleElementNS(XML_w, XML_mainDocumentType, FSNS(XML_w, XML_val), "formLetters");
++    pFS->singleElementNS(XML_w, XML_linkToQuery);
++    pFS->singleElementNS(XML_w, XML_dataType, FSNS(XML_w, XML_val), bTextFile ? "textFile" : "native");
++    if (!bTextFile)
++        pFS->singleElementNS(XML_w, XML_connectString, FSNS(XML_w, XML_val), sConnect);
++    pFS->singleElementNS(XML_w, XML_query, FSNS(XML_w, XML_val), sQuery);
++    pFS->singleElementNS(XML_w, XML_dataSource, FSNS(XML_r, XML_id), sSourceId);
++    pFS->startElementNS(XML_w, XML_odso);
++    if (!bTextFile)
++    {
++        pFS->singleElementNS(XML_w, XML_udl, FSNS(XML_w, XML_val), sConnect);
++        pFS->singleElementNS(XML_w, XML_table, FSNS(XML_w, XML_val), OUString(sSheet + "$"));
++    }
++    pFS->singleElementNS(XML_w, XML_src, FSNS(XML_r, XML_id), sOdsoId);
++    pFS->singleElementNS(XML_w, XML_colDelim, FSNS(XML_w, XML_val), bTextFile ? "44" : "9");
++    pFS->singleElementNS(XML_w, XML_fHdr);
++    pFS->endElementNS(XML_w, XML_odso);
++    pFS->endElementNS(XML_w, XML_mailMerge);
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/filter/ww8/hst/hstwordmergeexport.hxx
+@@ -0,0 +1,48 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++#pragma once
++
++#include <comphelper/sequenceashashmap.hxx>
++#include <rtl/ustring.hxx>
++#include <sax/fshelper.hxx>
++
++#include <functional>
++#include <string_view>
++
++#include "../fields.hxx"
++
++namespace oox::core
++{
++class XmlFilterBase;
++}
++
++/** Word export of the Word mail-merge fields the DOCX import keeps as database fields named by their instruction
++    (sw/source/writerfilter/hst/hstwordmergeimport.hxx), and of the recipient list the HST mail merge links. */
++namespace hst::wordmerge
++{
++enum class CodeKind
++{
++    None, ///< an ordinary column: MERGEFIELD <column>
++    Flat, ///< an instruction without nested fields
++    Nested ///< an instruction with nested fields (only DOCX can write them)
++};
++
++/// The instruction to write for a database field reading `aColumn` (rCode: " <instruction> ", nested fields
++/// marked U+0013 ... U+0015) and its field type.
++CodeKind CodeOfColumn(std::u16string_view aColumn, OUString& rCode, ww::eField& rField);
++
++/// Walks a DOCX field command: rText for instruction text, rFieldChar(true/false) for a nested field's begin/end.
++/// Returns false (calling nothing) when the command has no nested field.
++bool SplitNestedCommand(std::u16string_view aCommand, const std::function<void(std::u16string_view)>& rText,
++                        const std::function<void(bool bBegin)>& rFieldChar);
++
++/// Writes w:mailMerge linking the recipient list the way Word links it, when the document's InteropGrabBag has
++/// "HSTMailMergeSource" (Path, Sheet); returns false (writing nothing) otherwise.
++bool WriteMailMergeSource(oox::core::XmlFilterBase& rFilter, const sax_fastparser::FSHelperPtr& pFS,
++                          const comphelper::SequenceAsHashMap& rGrabBag);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/writerfilter/hst/hstwordmergeimport.cxx
+@@ -0,0 +1,63 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++
++#include <hst/hstwordmergeimport.hxx>
++
++#include <o3tl/string_view.hxx>
++
++namespace hst::wordmerge
++{
++namespace
++{
++constexpr sal_Unicode NESTED_START = 0x13;
++constexpr sal_Unicode NESTED_END = 0x15;
++}
++
++OUString NestedCode(std::u16string_view aInnerCode)
++{
++    return OUStringChar(NESTED_START) + aInnerCode + OUStringChar(NESTED_END);
++}
++
++bool IsMergeIf(std::u16string_view aCode)
++{
++    std::u16string_view aTrimmed = o3tl::trim(aCode);
++    if (!o3tl::matchIgnoreAsciiCase(aTrimmed, u"IF") || aTrimmed.size() < 3
++        || (aTrimmed[2] != ' ' && aTrimmed[2] != NESTED_START && aTrimmed[2] != '"'))
++        return false;
++    for (size_t i = 0; i < aTrimmed.size(); ++i)
++    {
++        if (aTrimmed[i] == NESTED_START
++            && o3tl::matchIgnoreAsciiCase(o3tl::trim(aTrimmed.substr(i + 1)), u"MERGEFIELD"))
++            return true;
++    }
++    return false;
++}
++
++OUString CodeColumn(std::u16string_view aCode)
++{
++    return OUString(o3tl::trim(aCode)).replace(NESTED_START, '{').replace(NESTED_END, '}');
++}
++
++OUString MergeFieldColumn(std::u16string_view aCode, const OUString& rName,
++                          const std::vector<OUString>& rSwitches)
++{
++    for (size_t i = 0; i < rSwitches.size(); ++i)
++    {
++        const OUString& rSwitch = rSwitches[i];
++        if (!rSwitch.startsWith("\\") || rSwitch.equalsIgnoreAsciiCase("\\m")
++            || rSwitch.equalsIgnoreAsciiCase("\\v"))
++            continue;
++        if (rSwitch == "\\*" && i + 1 < rSwitches.size()
++            && (rSwitches[i + 1].equalsIgnoreAsciiCase("MERGEFORMAT")
++                || rSwitches[i + 1].equalsIgnoreAsciiCase("CHARFORMAT")))
++            continue;
++        return CodeColumn(aCode);
++    }
++    return rName;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/writerfilter/hst/hstwordmergeimport.hxx
+@@ -0,0 +1,35 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++#pragma once
++
++#include <rtl/ustring.hxx>
++
++#include <string_view>
++#include <vector>
++
++/** Word mail-merge fields Writer cannot evaluate itself: a MERGEFIELD with a number, date, case or text-before/after
++    switch, and an IF that compares or shows merge fields. The DOCX import makes them database fields whose column
++    name is the Word instruction, nested fields written as { ... }; the HST mail merge computes that column for each
++    recipient with Word's rules, and the Word export writes the column back as the instruction
++    (sw/source/filter/ww8/hst/hstwordmergeexport.hxx). */
++namespace hst::wordmerge
++{
++/// The instruction of a field nested in another one, as the outer field keeps it (U+0013 code U+0015).
++OUString NestedCode(std::u16string_view aInnerCode);
++
++/// An IF whose instruction (with its nested fields) holds a MERGEFIELD.
++bool IsMergeIf(std::u16string_view aCode);
++
++/// The column of an imported MERGEFIELD: its name, or its whole instruction when a switch changes the result
++/// (anything but \* MERGEFORMAT / CHARFORMAT, \m and \v).
++OUString MergeFieldColumn(std::u16string_view aCode, const OUString& rName,
++                          const std::vector<OUString>& rSwitches);
++
++/// The column of an IF that IsMergeIf(): the instruction with { ... } for its nested fields.
++OUString CodeColumn(std::u16string_view aCode);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
