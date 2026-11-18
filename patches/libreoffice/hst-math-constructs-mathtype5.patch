@@ -6,6 +6,11 @@ xrightleftharpoons (reaction conditions in chemistry); the arrow stretches with 
 They are written to and read from OMML and RTF. The OMML import also keeps a relation that
 starts a line ("= 105") and a single left script, which were lost on a .docx round trip.
 
+In Equation Editor 3.0 objects (.doc/.xls/.ppt) the arc is the over-arc template, an arrow with
+one text is an arrow template, a second text makes it the main slot of a lower limit, and the
+equilibrium arrows are a centred pile of a right arrow over a left one: the format has no
+harpoons. It has no wide hat either: widehat becomes the hat over the (middle) character.
+
 MathType::Parse hands MTEF version 5 ("Equation.DSMT4", MathType 4-7) to the HST reader
 (starmath/source/hst/mtef5*, written clean-room from a behaviour spec) and applies the
 equation's own base size. A failed conversion returns false, so callers keep the OLE object.
@@ -13,7 +18,6 @@ equation's own base size. A failed conversion returns false, so callers keep the
 The Elements panel gets the Mẫu Toán, Mẫu Vật lí and Mẫu Hoá học template categories (and opens
 on them for "Mẫu công thức"); the formula editor gets the "Mẫu công thức" template bar.
 The logic lives in HST-owned files under starmath/source/hst/.
-
 diff --git a/officecfg/registry/data/org/openoffice/Office/UI/MathWindowState.xcu b/officecfg/registry/data/org/openoffice/Office/UI/MathWindowState.xcu
 index 386dc8d..79600ea 100644
 --- a/officecfg/registry/data/org/openoffice/Office/UI/MathWindowState.xcu
@@ -543,10 +547,10 @@ index 0000000..f9f276e
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
 new file mode 100644
-index 0000000..9bdab74
+index 0000000..89f8c4b
 --- /dev/null
 +++ b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
-@@ -0,0 +1,175 @@
+@@ -0,0 +1,243 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -568,12 +572,15 @@ index 0000000..9bdab74
 +#include "../../source/hst/mathtypetextarrow.hxx"
 +#include "../../source/mathtype.hxx"
 +
++#include <algorithm>
 +#include <vector>
 +
-+// The arrows with text in Equation Editor 3.0 objects (files saved as .doc/.xls/.ppt)
++// The arrows with text and the wide hat in Equation Editor 3.0 objects (files saved as
++// .doc/.xls/.ppt)
 +namespace
 +{
-+constexpr sal_uInt8 END = 0, LINE = 1, CHAR = 2, TMPL = 3, NULL_LINE = 0x11, SYMBOL = 0x86;
++constexpr sal_uInt8 END = 0, LINE = 1, CHAR = 2, TMPL = 3, PILE = 4, NULL_LINE = 0x11;
++constexpr sal_uInt8 SYMBOL = 0x86;
 +constexpr sal_uInt8 SLOT = 0xEE; // stands for the records of a label
 +
 +SmVerticalBraceNode* FindTextArrow(SmNode* pNode)
@@ -601,6 +608,55 @@ index 0000000..9bdab74
 +    return std::vector<sal_uInt8>(pData, pData + aStream.TellEnd());
 +}
 +
++// the formula as a .doc/.xls/.ppt keeps it: an Equation Editor 3.0 object (an OLE storage).
++// Read back from the medium's own stream: committing would transfer the temporary file through
++// UCB, which wants an interaction handler the test does not have
++std::vector<sal_uInt8> Saved(const OUString& rFormula)
++{
++    OUStringBuffer aFormula(rFormula);
++    auto pTree = SmParser5().Parse(rFormula);
++    utl::TempFileNamed aTemp;
++    aTemp.EnableKillingFile();
++    SfxMedium aMedium(aTemp.GetURL(), StreamMode::STD_READWRITE | StreamMode::TRUNC);
++    MathType aExport(aFormula, pTree.get());
++    CPPUNIT_ASSERT(aExport.ConvertFromStarMath(aMedium));
++    SvStream* pStream = aMedium.GetOutStream();
++    CPPUNIT_ASSERT(pStream);
++    std::vector<sal_uInt8> aData(pStream->TellEnd());
++    pStream->Seek(0);
++    pStream->ReadBytes(aData.data(), aData.size());
++    return aData;
++}
++
++/// the formula a saved object reads back as, when the file is opened
++OUString Reopened(std::vector<sal_uInt8>& rSaved)
++{
++    SvMemoryStream aStream(rSaved.data(), rSaved.size(), StreamMode::READ);
++    rtl::Reference<SotStorage> xStorage = new SotStorage(aStream);
++    OUStringBuffer aRead;
++    MathType aImport(aRead);
++    CPPUNIT_ASSERT(aImport.Parse(xStorage.get()));
++    return aRead.makeStringAndClear();
++}
++
++/// the MTEF records of a saved object
++std::vector<sal_uInt8> Records(std::vector<sal_uInt8>& rSaved)
++{
++    SvMemoryStream aStream(rSaved.data(), rSaved.size(), StreamMode::READ);
++    rtl::Reference<SotStorage> xStorage = new SotStorage(aStream);
++    rtl::Reference<SotStorageStream> xNative
++        = xStorage->OpenSotStream(u"Equation Native"_ustr, StreamMode::READ);
++    std::vector<sal_uInt8> aData(xNative->TellEnd());
++    xNative->Seek(0);
++    xNative->ReadBytes(aData.data(), aData.size());
++    return aData;
++}
++
++bool Contains(const std::vector<sal_uInt8>& rData, const std::vector<sal_uInt8>& rPart)
++{
++    return std::search(rData.begin(), rData.end(), rPart.begin(), rPart.end()) != rData.end();
++}
++
 +class HstMathTypeTextArrowTest : public test::BootstrapFixture
 +{
 +public:
@@ -625,12 +681,17 @@ index 0000000..9bdab74
 +                                                END, CHAR, SYMBOL, 0x92, 0x21, END, END, 11, LINE,
 +                                                SLOT, END, NULL_LINE, END, 10 })
 +                       == Written(u"{t^o} xrightarrow {xt}"_ustr));
-+        // the equilibrium arrows have no template: the character with upper and lower limits
-+        CPPUNIT_ASSERT((std::vector<sal_uInt8>{ TMPL, 39, 0, 0, LINE, CHAR, SYMBOL, 0xCC, 0x21,
-+                                                END, 11, NULL_LINE, LINE, SLOT, END, END, 10 })
++        // the equilibrium arrows: a pile of a stretching right arrow over a left one (2 3: lines
++        // centred, pile centred on the axis); Equation Editor 3.0 has no harpoons
++        CPPUNIT_ASSERT((std::vector<sal_uInt8>{ PILE, 2, 3, LINE, TMPL, 19, 0, 0, LINE, SLOT, END,
++                                                CHAR, SYMBOL, 0x92, 0x21, END, END, LINE, TMPL, 18,
++                                                1, 0, NULL_LINE, CHAR, SYMBOL, 0x90, 0x21, END, END,
++                                                END })
 +                       == Written(u"{a} xrightleftharpoons {}"_ustr));
-+        CPPUNIT_ASSERT((std::vector<sal_uInt8>{ TMPL, 39, 2, 0, LINE, CHAR, SYMBOL, 0xC4, 0x21,
-+                                                END, 11, LINE, SLOT, END, LINE, SLOT, END, END, 10 })
++        CPPUNIT_ASSERT((std::vector<sal_uInt8>{ PILE, 2, 3, LINE, TMPL, 19, 0, 0, LINE, SLOT, END,
++                                                CHAR, SYMBOL, 0x92, 0x21, END, END, LINE, TMPL, 18,
++                                                1, 0, LINE, SLOT, END, CHAR, SYMBOL, 0x90, 0x21,
++                                                END, END, END })
 +                       == Written(u"{a} xrightleftarrows {b}"_ustr));
 +        // no label at all: just the arrow
 +        CPPUNIT_ASSERT((std::vector<sal_uInt8>{ CHAR, SYMBOL, 0x92, 0x21 })
@@ -679,24 +740,10 @@ index 0000000..9bdab74
 +    void testSavedAndReopened()
 +    {
 +        // what a .doc/.xls/.ppt keeps of a formula, read back as when the file is opened
-+        OUStringBuffer aFormula(u"A {t^o} xrightarrow {} B {} xleftarrow {x} C + widearc {AB}"
-+                                u" + {u} xrightleftharpoons {d} D"_ustr);
-+        auto pSaved = SmParser5().Parse(aFormula.toString());
-+        // read back from the medium's own stream: committing would transfer the temporary file
-+        // through UCB, which wants an interaction handler the test does not have
-+        utl::TempFileNamed aTemp;
-+        aTemp.EnableKillingFile();
-+        SfxMedium aMedium(aTemp.GetURL(), StreamMode::STD_READWRITE | StreamMode::TRUNC);
-+        MathType aExport(aFormula, pSaved.get());
-+        CPPUNIT_ASSERT(aExport.ConvertFromStarMath(aMedium));
-+        SvStream* pStream = aMedium.GetOutStream();
-+        CPPUNIT_ASSERT(pStream);
-+        pStream->Seek(0);
-+        rtl::Reference<SotStorage> xStorage = new SotStorage(*pStream);
-+        OUStringBuffer aRead;
-+        MathType aImport(aRead);
-+        CPPUNIT_ASSERT(aImport.Parse(xStorage.get()));
-+        const OUString aText = aRead.makeStringAndClear();
++        std::vector<sal_uInt8> aSaved
++            = Saved(u"A {t^o} xrightarrow {} B {} xleftarrow {x} C + widearc {AB}"
++                    u" + {u} xrightleftharpoons {d} D"_ustr);
++        const OUString aText = Reopened(aSaved);
 +        // not overbrace (the brace templates) and not a dot over the A (an embellishment)
 +        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("brace") < 0);
 +        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("dot") < 0);
@@ -709,12 +756,37 @@ index 0000000..9bdab74
 +        // what follows limits is full size again, not the limits' small size
 +        // (it read back as "size 8{D}")
 +        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("size 8{D}") < 0);
++        // the equilibrium arrows come back as a stack of two stretching arrows, labels kept
++        const sal_Int32 nStack = aText.indexOf("stack");
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), nStack >= 0);
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("xrightarrow", nStack) > 0);
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("xleftarrow", nStack) > 0);
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("u", nStack) > 0);
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("d", nStack) > 0);
++    }
++
++    void testWideHatKept()
++    {
++        // Equation Editor 3.0 has no wide hat: the hat embellishment (9) goes on the character,
++        // or on the middle one of a longer name; it was dropped
++        constexpr sal_uInt8 CHAR_WITH_EMBELLISHMENT = 0x22, EMBEL = 6, HAT = 9;
++        std::vector<sal_uInt8> aSaved = Saved(u"widehat {x} + widehat {abc}"_ustr);
++        const std::vector<sal_uInt8> aRecords = Records(aSaved);
++        // (each character record: tag, typeface, UTF-16 character)
++        CPPUNIT_ASSERT(Contains(aRecords, { 'x', 0, EMBEL, HAT, END, END }));
++        CPPUNIT_ASSERT(Contains(aRecords, { 'a', 0, CHAR_WITH_EMBELLISHMENT }));
++        CPPUNIT_ASSERT(Contains(aRecords, { 'b', 0, EMBEL, HAT, END, END, CHAR }));
++        const OUString aText = Reopened(aSaved);
++        const sal_Int32 nFirst = aText.indexOf("hat");
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), nFirst >= 0);
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("hat", nFirst + 3) > 0);
 +    }
 +
 +    CPPUNIT_TEST_SUITE(HstMathTypeTextArrowTest);
 +    CPPUNIT_TEST(testWrittenAsArrowTemplates);
 +    CPPUNIT_TEST(testArrowTemplatesReadBack);
 +    CPPUNIT_TEST(testSavedAndReopened);
++    CPPUNIT_TEST(testWideHatKept);
 +    CPPUNIT_TEST_SUITE_END();
 +};
 +
@@ -1465,10 +1537,10 @@ index 0000000..9f04d1d
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/source/hst/mathtypetextarrow.cxx b/starmath/source/hst/mathtypetextarrow.cxx
 new file mode 100644
-index 0000000..b7480cf
+index 0000000..1934cef
 --- /dev/null
 +++ b/starmath/source/hst/mathtypetextarrow.cxx
-@@ -0,0 +1,149 @@
+@@ -0,0 +1,163 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1486,13 +1558,14 @@ index 0000000..b7480cf
 +namespace
 +{
 +// MTEF 3 records, template selectors and variations (Design Science, "MathType MTEF v.3")
-+constexpr sal_uInt8 END = 0, LINE = 1, CHAR = 2, TMPL = 3, NULL_LINE = LINE | 0x10;
++constexpr sal_uInt8 END = 0, LINE = 1, CHAR = 2, TMPL = 3, PILE = 4, NULL_LINE = LINE | 0x10;
++constexpr sal_uInt8 PILE_CENTER = 2, PILE_AXIS = 3; // centred lines, centred vertically
 +constexpr sal_uInt8 SUBSCRIPT_SIZE = 11; // the slots of limits are set small
 +constexpr sal_uInt8 FULL_SIZE = 10; // and what follows the limits is full size again
 +constexpr sal_uInt8 SYMBOL_TYPEFACE = 6 + 128;
 +constexpr sal_uInt8 LEFT_ARROW = 18, RIGHT_ARROW = 19, LIMIT = 39;
 +constexpr sal_uInt8 BOX_ON_TOP = 0, BOX_BELOW = 1;
-+constexpr sal_uInt8 UPPER_LIMIT = 0, LOWER_LIMIT = 1, BOTH_LIMITS = 2;
++constexpr sal_uInt8 LOWER_LIMIT = 1;
 +
 +bool IsEmpty(const SmNode* pNode)
 +{
@@ -1563,34 +1636,47 @@ index 0000000..b7480cf
 +    const bool bOver = !IsEmpty(pOver);
 +    const bool bUnder = !IsEmpty(pUnder);
 +    const SmTokenType eType = rNode.GetToken().eType;
-+    const bool bStretches = eType == TXRIGHTARROW || eType == TXLEFTARROW;
-+    const bool bLimits = bStretches ? bOver && bUnder : bOver || bUnder;
-+
-+    if (bLimits)
++    if (!bOver && !bUnder)
 +    {
-+        const sal_uInt8 nVariation = bStretches || !bOver ? LOWER_LIMIT
-+                                     : bUnder           ? BOTH_LIMITS
-+                                                        : UPPER_LIMIT;
-+        StartTemplate(rStream, LIMIT, nVariation);
-+        rStream.WriteUChar(LINE);
-+    }
-+    if (bStretches && (bOver || bUnder))
-+    {
-+        StartTemplate(rStream, eType == TXLEFTARROW ? LEFT_ARROW : RIGHT_ARROW,
-+                      bOver ? BOX_ON_TOP : BOX_BELOW);
-+        WriteSlot(rStream, bOver ? pOver : pUnder, rWriteSlot);
 +        WriteChar(rStream, ArrowChar(eType));
-+        rStream.WriteUChar(END);
-+    }
-+    else
-+        WriteChar(rStream, ArrowChar(eType));
-+    if (!bLimits)
 +        return;
++    }
++    const auto WriteArrow = [&](sal_uInt8 nSelector, bool bTop, SmNode* pLabel, sal_Unicode cArrow) {
++        StartTemplate(rStream, nSelector, bTop ? BOX_ON_TOP : BOX_BELOW);
++        WriteSlot(rStream, pLabel, rWriteSlot);
++        WriteChar(rStream, cArrow);
++        rStream.WriteUChar(END);
++    };
 +
-+    rStream.WriteUChar(END); // the arrow, main slot of the limits
++    if (eType == TXRIGHTLEFTARROWS || eType == TXRIGHTLEFTHARPOONS)
++    {
++        // Equation Editor 3.0 has no stretching pair of arrows (nor harpoons): a pile of a
++        // stretching right arrow under the upper label over a left arrow above the lower one
++        rStream.WriteUChar(PILE).WriteUChar(PILE_CENTER).WriteUChar(PILE_AXIS);
++        rStream.WriteUChar(LINE);
++        WriteArrow(RIGHT_ARROW, true, pOver, 0x2192);
++        rStream.WriteUChar(END);
++        rStream.WriteUChar(LINE);
++        WriteArrow(LEFT_ARROW, false, pUnder, 0x2190);
++        rStream.WriteUChar(END);
++        rStream.WriteUChar(END);
++        return;
++    }
++
++    const sal_uInt8 nSelector = eType == TXLEFTARROW ? LEFT_ARROW : RIGHT_ARROW;
++    if (!(bOver && bUnder))
++    {
++        WriteArrow(nSelector, bOver, bOver ? pOver : pUnder, ArrowChar(eType));
++        return;
++    }
++    // a second label: the arrow over the first one is the main slot of a lower limit
++    StartTemplate(rStream, LIMIT, LOWER_LIMIT);
++    rStream.WriteUChar(LINE);
++    WriteArrow(nSelector, true, pOver, ArrowChar(eType));
++    rStream.WriteUChar(END);
 +    rStream.WriteUChar(SUBSCRIPT_SIZE);
-+    WriteSlot(rStream, bUnder ? pUnder : nullptr, rWriteSlot);
-+    WriteSlot(rStream, bStretches ? nullptr : pOver, rWriteSlot);
++    WriteSlot(rStream, pUnder, rWriteSlot);
++    rStream.WriteUChar(NULL_LINE);
 +    rStream.WriteUChar(END);
 +    rStream.WriteUChar(FULL_SIZE); // as LibreOffice's sub- and superscripts
 +}
@@ -1620,10 +1706,10 @@ index 0000000..b7480cf
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/source/hst/mathtypetextarrow.hxx b/starmath/source/hst/mathtypetextarrow.hxx
 new file mode 100644
-index 0000000..04eed02
+index 0000000..a368e91
 --- /dev/null
 +++ b/starmath/source/hst/mathtypetextarrow.hxx
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,39 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1649,8 +1735,9 @@ index 0000000..04eed02
 +/// Writes the contents of a slot (the records of a label) between its LINE and END records.
 +using WriteSlotContents = std::function<void(SmNode*)>;
 +
-+/// Equation Editor 3.0 stretches only the single arrows under or over one label (arrow
-+/// templates); a second label, and the labels of the equilibrium arrows, become limits.
++/// Equation Editor 3.0 stretches only single arrows under or over one label (arrow templates):
++/// a second label makes the arrow the main slot of a lower limit, and the equilibrium arrows are
++/// a pile of a right arrow over a left one (the format has no harpoons).
 +void WriteTextArrow(SvStream& rStream, SmVerticalBraceNode& rNode,
 +                    const WriteSlotContents& rWriteSlot);
 +
@@ -4603,7 +4690,7 @@ index 1b28e4a..1ab9831 100644
              break;
      }
 diff --git a/starmath/source/mathtype.cxx b/starmath/source/mathtype.cxx
-index 2310f6b..fd95c2f 100644
+index 2310f6b..993de2b 100644
 --- a/starmath/source/mathtype.cxx
 +++ b/starmath/source/mathtype.cxx
 @@ -19,6 +19,9 @@
@@ -4699,6 +4786,16 @@ index 2310f6b..fd95c2f 100644
          case TWIDELVEC: //Not Exportable
          case TCHECK: //Not Exportable
          case TACUTE: //Not Exportable
+@@ -3149,8 +3168,8 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+         case TWIDEHARPOON: //Not Exportable
+         case TWIDELHARPOON: //Not Exportable
+         case TWIDETILDE: //Not Exportable
+-        case TWIDEHAT: //Not Exportable
+             break;
++        // HST Office: Equation Editor 3.0 has no wide hat; the hat goes on a character (below)
+         case TUNDERLINE:
+             nOldPending = StartTemplate(0x10);
+             break;
 @@ -3175,6 +3194,7 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
          switch (pTemp->GetToken().eType)
          {
@@ -4707,7 +4804,15 @@ index 2310f6b..fd95c2f 100644
              case TUNDERLINE:
                  EndTemplate(nOldPending);
                  break;
-@@ -3236,6 +3256,7 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+@@ -3218,6 +3238,7 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+                 pS->WriteUChar( 8 );
+                 break;
+             case THAT:
++            case TWIDEHAT: // HST Office: over the middle character, the only hat of the format
+                 pS->WriteUChar( 9 );
+                 break;
+             case TVEC:
+@@ -3236,12 +3257,12 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
                  pS->WriteUChar( 20 );
                  break;
              case TWIDEVEC:
@@ -4715,6 +4820,12 @@ index 2310f6b..fd95c2f 100644
              case TWIDELVEC:
              case TWIDEHARPOON:
              case TWIDELHARPOON:
+             case TUNDERLINE:
+             case TWIDETILDE:
+-            case TWIDEHAT:
+                 break;
+             case TBAR:
+                 pS->WriteUChar( 17 );
 diff --git a/starmath/source/mathtype.hxx b/starmath/source/mathtype.hxx
 index cd06cfc..5746f95 100644
 --- a/starmath/source/mathtype.hxx
