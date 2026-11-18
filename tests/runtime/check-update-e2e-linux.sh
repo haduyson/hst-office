@@ -66,8 +66,8 @@ inside() {
   fi
   [ ! -e "$cache/update-result.json" ] && pass "no failure record" || fail "failure recorded: $(cat "$cache/update-result.json")"
   if [ -n "${EXPECT_REOPEN:-}" ]; then  # releases with update_resume reopen the document in the relaunched office
-    for _ in $(seq 1 30); do DISPLAY=:99 xwininfo -root -tree 2>/dev/null | grep -q 'probe.rtf' && break; sleep 3; done
-    DISPLAY=:99 xwininfo -root -tree 2>/dev/null | grep -q 'probe.rtf' && pass "document reopened after the update" || fail "document not reopened"
+    for _ in $(seq 1 30); do LC_ALL=C.UTF-8 DISPLAY=:99 xwininfo -root -tree 2>/dev/null | grep -q 'probe.rtf' && break; sleep 3; done
+    LC_ALL=C.UTF-8 DISPLAY=:99 xwininfo -root -tree 2>/dev/null | grep -q 'probe.rtf' && pass "document reopened after the update" || fail "document not reopened"
     [ ! -e /home/tester/.cache/hst-office/update/update-pending.json ] && pass "pending record consumed" || fail "pending record left"
   fi
   pkill -u tester soffice.bin || :; pkill Xvfb || :
