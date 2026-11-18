@@ -13,6 +13,25 @@ Test: CppunitTest_sw_rtfimport testObjectScaleSetsObjectSize (an object at 60 % 
 
 License: these upstream files remain under their original license (MPL-2.0).
 ---
+diff --git a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
+index 3598244..c56c074 100644
+--- a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
++++ b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
+@@ -1160,6 +1160,14 @@ void RTFDocumentImpl::resolvePict(bool const bInline, uno::Reference<drawing::XS
+         aSize.Height
+             = (m_aStates.top().getPicture().nGoalHeight ? m_aStates.top().getPicture().nGoalHeight
+                                                         : m_aStates.top().getPicture().nHeight);
++        // Word shows the object at its goal size times \picscalex / \picscaley (an equation resized
++        // in Word keeps its goal size and only changes the scale), as for a plain picture below.
++        if (m_aStates.top().getPicture().nScaleX > 0)
++            aSize.Width = static_cast<sal_Int32>(
++                sal_Int64(aSize.Width) * m_aStates.top().getPicture().nScaleX / 100);
++        if (m_aStates.top().getPicture().nScaleY > 0)
++            aSize.Height = static_cast<sal_Int32>(
++                sal_Int64(aSize.Height) * m_aStates.top().getPicture().nScaleY / 100);
+         xShape->setSize(aSize);
+ 
+         // Replacement graphic is inline by default, see oox::vml::SimpleShape::implConvertAndInsert().
 diff --git a/sw/qa/extras/rtfimport/rtfimport.cxx b/sw/qa/extras/rtfimport/rtfimport.cxx
 index 04e0997..0d18f8a 100644
 --- a/sw/qa/extras/rtfimport/rtfimport.cxx
