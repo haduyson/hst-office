@@ -1,5 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Design-around guardrails of the File panel, read through AT-SPI while it is open (see check-backstage.py)."""
+import os
+import subprocess
 import time
 
 from backstage_gui import ALL_ITEMS, nd30, record, showing, walk, xdo
@@ -25,8 +27,8 @@ def toplevel_of(node):
 
 
 def guardrails(label):
-    """While the panel is open: the ribbon and the document show, and the panel is a window of its own below the
-    ribbon (it covers no part of the ribbon and not all of the document). Returns the panel's box."""
+    """While the panel is open: the ribbon and the document show, and the panel is a part of the document's window
+    below the ribbon (it covers no part of the ribbon and not all of the document). Returns the panel's box."""
     found = showing(walk(nd30.office_app(), []))
     items = {name: node for role, name, node in found if role == "push button" and name in ALL_ITEMS}
     if "Thông tin" not in items:
@@ -35,8 +37,9 @@ def guardrails(label):
     panel = toplevel_of(items["Thông tin"])
     tabs = [node for role, name, node in found if role == "page tab" and name in FILE_TAB_NAMES]
     frame = toplevel_of(tabs[0]) if tabs else None
-    record(label + ": the panel is a separate floating window",
-           panel is not None and frame is not None and panel != frame and panel.getRoleName() != "frame",
+    # as in the reference suite the panel moves and resizes with the window (a window of its own was left behind and
+    # closed by a press on the title bar)
+    record(label + ": the panel is a part of the document's window", panel is not None and panel == frame,
            "%s / %s" % (panel.getRoleName() if panel else None, frame.getRoleName() if frame else None))
     in_frame = [(role, name, node) for role, name, node in found if frame is not None and toplevel_of(node) == frame]
     # the ribbon's tab control (tabs and the selected tab's groups) is at the top of the window; Sheets also has the
@@ -66,6 +69,35 @@ def guardrails(label):
     else:
         record(label + ": the document stays visible beside the panel", False, "no document node showing")
     return box
+
+
+def panel_box():
+    """The box of the open panel's left column (its "Thông tin" item), or None."""
+    found = showing(walk(nd30.office_app(), []))
+    items = [node for role, name, node in found if role == "push button" and name == "Thông tin"]
+    return extents(items[0]) if items else None
+
+
+def follows_window_move(label, display, window_id, dx=90, dy=70):
+    """Move the document's window: the open panel stays open and moves with it."""
+    before = panel_box()
+    geometry = subprocess.run(["xdotool", "getwindowgeometry", str(window_id)], env=dict(os.environ, DISPLAY=display),
+                              capture_output=True, text=True, timeout=20).stdout
+    position = [line for line in geometry.splitlines() if "Position:" in line]
+    if before is None or not position:
+        record(label + ": the panel follows the window", False, "panel %s, window %s" % (before, geometry.strip()))
+        return
+    x, y = (int(v) for v in position[0].split("Position:")[1].split("(")[0].strip().split(","))
+    xdo(display, "windowmove", str(window_id), str(x + dx), str(y + dy))
+    time.sleep(1.0)
+    after = panel_box()
+    record(label + ": the panel stays open when the window moves", after is not None)
+    if after is not None:
+        record(label + ": the panel moves with the window",
+               abs(after[0] - before[0] - dx) <= 2 and abs(after[1] - before[1] - dy) <= 2,
+               "%s -> %s, window moved by %d,%d" % (before[:2], after[:2], dx, dy))
+    xdo(display, "windowmove", str(window_id), str(x), str(y))
+    time.sleep(0.5)
 
 
 def click_file_tab(display):

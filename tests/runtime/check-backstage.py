@@ -9,8 +9,8 @@ Usage (needs a running X display; never started or stopped here; runs the office
 In HST Writer, HST Sheets and HST Slides, read through AT-SPI with a dispatch interceptor that records and swallows the
 commands of the left column (so no dialog or document close really happens):
   1. the File tab and Alt+F open the panel; Esc, a click outside and Alt+F close it;
-  2. guardrails while open: the ribbon shows, the panel starts at its bottom edge, the document shows beside it, and
-     the panel is a window of its own; 3. every item of the left column has its Vietnamese name and runs its command
+  2. guardrails while open: the ribbon shows, the panel starts at its bottom edge, the document shows beside it, the
+     panel is a part of the document's window and moves with it; the File tab closes the open panel; 3. every item of the left column has its Vietnamese name and runs its command
      (closing the panel) or shows its page; 4. arrows and Enter; 5. the recent list; 6. reopen under 150 ms.
 --shots DIR also keeps the approval screenshots. Exit status 1 on any FAIL. When started as root the script re-executes
 itself as the build user under dbus-run-session (AT-SPI needs a session bus).
@@ -29,7 +29,7 @@ import hst_gui  # noqa: E402
 from backstage_gui import (ALL_ITEMS, COMMAND, ROWS, close_document, dark_shot, expect_call, focused_name,  # noqa: E402
                            is_open, make_interceptor, nd30, open_ms, press, record, seed_recent, showing, view_items,
                            wait_state, walk, xdo)
-from backstage_guardrails import click_file_tab, extents, guardrails  # noqa: E402
+from backstage_guardrails import click_file_tab, extents, follows_window_move, guardrails  # noqa: E402
 
 OUT_DEFAULT = os.path.join(os.path.dirname(HERE), "output", "backstage")
 TARGET_MS = 150
@@ -86,8 +86,15 @@ def check_app(office, args, factory, label, recent_name, shots):
         box = guardrails(label)
         if shots and box:
             hst_gui.screenshot(os.path.join(shots, "bang-tep-tin-%s.png" % label.lower()), display)
+        if window:
+            follows_window_move(label, display, window[0][0])
         xdo(display, "key", "Escape")
         record(label + ": Esc returns to the document", wait_state(False))
+
+        # the File tab while the panel is open closes it (it does not open it again)
+        office.dispatch(frame, COMMAND)
+        if wait_state(True):
+            record(label + ": the File tab closes the open panel", click_file_tab(display) and wait_state(False))
 
         # a click outside the panel (on the document, right of it) closes it
         office.dispatch(frame, COMMAND)
