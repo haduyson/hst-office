@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Check the layout of the four HST ribbons (owner decision of 13/11/2026).
+"""Check the layout of the four HST ribbons (owner-locked 1.0.3 v3 design).
 
 Usage: scripts/patches/check-ribbon-layout.py --tree DIR      (a tree with the whole series applied)
        scripts/patches/check-ribbon-layout.py --shots DIR     (ribbon screenshots [win-]<app>-w<width>-<tab>.png)
 
---tree checks the Tabbed notebookbar.ui of Writer, Sheets, Slides and Draw against ribbon_layout_rules.py (few
-commands as large buttons, no lone or staggered small button, 2 or 3 rows). --shots measures every screenshot: a
-body of --body px (default 106), the groups' caption line at one height (+-1 px) in every shot, separators 1 px
-wide from 6 px under the body's top to 6 px over its bottom, the banner at least --min-banner px wide (default 200;
-260 logical px, a little less where its artwork is white), and warns where --warn-room px (default 150) stay empty
-right of the groups (a folded group there breaks the regrow rule, tests/unit/test_ribbon_regrow.py).
+--tree checks the Tabbed notebookbar.ui of Writer, Sheets, Slides and Draw against data/ribbon/ribbon-v3.json
+(ribbon_v3_tree_check.py: every tab, group and command of the design in its order and kind, each group's
+"hst-ribbon-layout" valid, one command per cell, one caption, the 82 / 329 / 1,604 totals); the layout rules of the
+running ribbon are checked on its dumps (tests/runtime/check-ribbon-v3-dumps.py). --shots measures every screenshot:
+a body of --body px (default 106), the groups' caption line at one height (+-1 px) in every shot, separators 1 px
+wide from 6 px under the body's top to 6 px over its bottom, the banner at least --min-banner px wide (default 340;
+360 logical px, a little less where its artwork is white), and warns where --warn-room px (default 150) stay empty
+right of the groups.
 Exit code 0 when everything holds, 1 otherwise, 2 on a usage or read error.
 """
 import argparse
@@ -19,21 +21,25 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import ribbon_layout_rules as R  # noqa: E402
+import ribbon_v3_tree_check as V3  # noqa: E402
 
 SHOT = re.compile(r"^(?:win-)?(?P<app>[a-z]+)-w(?P<width>\d+)-.+\.png$")  # win-: shots taken on Windows
 BAND = (62, 146)  # rows of the ribbon's group area in a screenshot of the window's top (tab row above)
 SEPARATOR_INSET = 6  # px between a separator and the top or bottom of the body (mockup geometry_px)
 
 
+EXPECTED_TOTALS = [82, 329, 1604]  # tabs, groups, commands of the v3 design
+
+
 def check_tree(tree):
-    failures = 0
-    for app, path in R.RIBBONS.items():
-        full = os.path.join(tree, path)
-        for group, rule, items, text in R.check_file(full):
-            failures += 1
-            print(f"{app} {group.tab} {group.id}: {rule}: {text} ({', '.join(item.id for item in items)})")
-    print(f"ribbon layout: {failures} broken rule(s) in {len(R.RIBBONS)} ribbons")
+    problems, totals = V3.check_tree(tree)
+    for app, tab, group, text in problems:
+        print(f"{app} {tab} {group}: {text}")
+    failures = len(problems)
+    if totals != EXPECTED_TOTALS:
+        failures += 1
+        print(f"v3 totals {totals} are not {EXPECTED_TOTALS} (tabs, groups, commands)")
+    print(f"ribbon layout (v3): {failures} problem(s); {totals[0]} tabs, {totals[1]} groups, {totals[2]} commands")
     return failures
 
 
@@ -172,7 +178,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--tree")
     parser.add_argument("--shots")
-    parser.add_argument("--min-banner", type=int, default=200)
+    parser.add_argument("--min-banner", type=int, default=340)
     parser.add_argument("--warn-room", type=int, default=150)
     parser.add_argument("--body", type=int, default=106)
     args = parser.parse_args()
