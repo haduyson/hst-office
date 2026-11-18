@@ -5,6 +5,9 @@
 latest-3.json (new clients) lists every platform, .rpm and AppImage included; latest-2.json and latest.json keep only
 the platforms that installed 1.0.x clients accept (update_logic.PLATFORMS), or those clients would reject the file.
 latest-3.json is written once the release has an .rpm/AppImage or the site already has one.
+latest-2.json carries no Windows installer (LEGACY_NO_INSTALL): the Windows clients that read it (1.0.0-beta.4 to
+1.0.1; 1.0.2 reads latest-3.json) start their updater in a way that never runs (DETACHED_PROCESS), so their
+"Cập nhật ngay" closed the office and installed nothing. Without the installer they offer only "Tải về".
 
 Local assets are verified against SHA256SUMS. With --gh-tag, hashes come from SHA256SUMS
 and sizes from GitHub; GitHub's asset digest is also checked when supplied by gh.
@@ -31,6 +34,7 @@ _NAME = re.compile(r"HSTOffice_(?P<release>\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-
                    r"(?:(?P<windows>Win_x86-64_[A-Za-z0-9_-]+\.msi)|(?P<macos_arm>macOS_arm64\.dmg)"
                    r"|(?P<macos_intel>macOS_x86_64\.dmg)|(?P<linux>Linux_x86-64\.deb)|(?P<linux_rpm>Linux_x86-64\.rpm)"
                    r"|(?P<linux_appimage>Linux_x86-64\.AppImage))")
+LEGACY_NO_INSTALL = ("windows",)  # platforms whose latest-2.json readers cannot run the updater (module docstring)
 KEYS = ("windows", "macos_arm", "macos_intel", "linux", "linux_rpm", "linux_appimage")
 DEFAULT_SITE = ROOT / "website" / "office.hasontech.vn" / "update"
 NOTES = "https://office.hasontech.vn/#tai-ve"
@@ -138,6 +142,13 @@ def _only(release, platforms):
                    if "installers" in release else {}))
 
 
+def _without_installers(release, platforms):
+    """The release without the installers of these platforms (their downloads stay)."""
+    if release is None or "installers" not in release:
+        return release
+    return dict(release, installers={k: v for k, v in release["installers"].items() if k not in platforms})
+
+
 def generate(args):
     version = args.tag[1:] if args.tag.startswith("v") else args.tag
     if version != version.strip():
@@ -151,7 +162,7 @@ def generate(args):
     channels[channel] = {"version": version, "date": date, "notes": args.notes,
                          "downloads": {p: "https://office.hasontech.vn/tai/" + p for p in logic.ALL_PLATFORMS},
                          "critical": args.critical, "installers": build_installers(args)}
-    modern = {key: _only(value, logic.PLATFORMS) for key, value in channels.items()}
+    modern = {key: _without_installers(_only(value, logic.PLATFORMS), LEGACY_NO_INSTALL) for key, value in channels.items()}
     legacy = {key: {k: v for k, v in value.items() if k != "installers"} if value is not None else None
               for key, value in modern.items()}
     files = [("latest-2.json", 2, modern), ("latest.json", 1, legacy)]

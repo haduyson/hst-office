@@ -39,11 +39,14 @@ drv="$work/driver.app"
 py="$(find "$drv/Contents" -path '*bin/python3*' -type f -perm -u+x ! -name '*-config' | head -1)"
 pyhome="$(dirname "$(find "$drv/Contents" -name 'pyuno*.so' -o -name 'pyuno*.dylib' | head -1)")"
 profile="$work/profile"; init_profile "$app" "$profile"; python3 "$here/probe-profile.py" "$profile" --shown true --no-tip
+printf '%s\n' '<item oor:path="/org.hasontech.hstoffice.DefaultApps"><prop oor:name="Ask" oor:op="fuse"><value>false</value></prop></item>' \
+  | perl -0pi -e 'BEGIN { $item = <STDIN> } s|</oor:items>|$item</oor:items>|' "$profile/user/registrymodifications.xcu"
 document="$work/probe.rtf"; printf '{\\rtf1\\ansi HST update probe\\par}\n' >"$document"
 code=""; case "$scenario" in branch*) code="$repo/extensions/hst-vietnamese-tools/python" ;; esac
 args=(--app "$app" --profile "$profile" --out "$out/$scenario.json" --pipe "hste2e$$" --pretend "${PRETEND:-}")
 [ -n "$code" ] && args+=(--code "$code")
 [ -n "$document" ] && args+=(--document "$document")
+[ -n "${CLOSE_WELCOME:-}" ] && args+=(--close-welcome)
 PYTHONDONTWRITEBYTECODE=1 URE_BOOTSTRAP="vnd.sun.star.pathname:$drv/Contents/Resources/fundamentalrc" \
   PYTHONPATH="$drv/Contents/Resources:$pyhome" perl -e 'alarm 900; exec @ARGV' "$py" "$here/update-e2e-probe.py" "${args[@]}" \
   >"$out/$scenario.log" 2>&1

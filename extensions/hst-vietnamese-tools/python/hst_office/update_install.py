@@ -20,6 +20,7 @@ from . import update_helper_cmd as cmd
 from . import update_installer as installer
 from . import update_launch as launch
 from . import update_linux_install as linux_install
+from . import update_resume as resume
 from . import update_ui as ui
 from .update_download import DownloadCancelled
 from .update_prepare import PrepareError, prepare
@@ -28,6 +29,7 @@ from . import diag_log
 
 DRY_RUN_ENV = "HST_UPDATE_DRY_RUN"  # test packages only (update_test_mode); release packages ignore it
 NOTES_FALLBACK = "https://office.hasontech.vn/#tai-ve"
+OWN_DIALOG_TURNS = 50  # main-thread turns to wait for ended dialogs to leave their modal loops
 
 
 def _size(n):
@@ -123,7 +125,11 @@ def office_paths(ctx, system):
 
 
 def launch_and_quit(ctx, result, info):
-    """Start the helper (it waits for this process to exit), then close the office the normal way."""
+    """Start the helper (it waits for this process to exit), then close the office the normal way.
+
+    True when the office is quitting; False when it stays open (Cancel at a save prompt, or a window that refused to
+    close); None when the administrator turned installing off meanwhile. Before quitting, update_resume's record names
+    the open documents, so the office that the helper starts again reopens them; it is removed when the office stays."""
     system = platform.system()
     cache = installer.cache_dir(system)
     soffice, bundle = office_paths(ctx, system)
@@ -138,13 +144,62 @@ def launch_and_quit(ctx, result, info):
                               dry_run=bool(dry), app_dest=target, app_origin=bundle if target != bundle else None,
                               release_from=info["release"], release_to=result["release"]["version"], linux_kind=linux_kind)
     if not update_config.settings(ctx)["AllowInstall"]:  # the policy may have changed since the click
-        return
-    # Cancel in a save prompt (or an error): nothing is updated, the file stays for later.
+        return None
     argv = cmd.argv(helper, launch.write_helper(helper, cache))
-    if system == "Windows" and not dry:  # elevated now, while the office is still the window the user looks at
-        launch.elevate_and_quit(ctx, argv, cache)
-    else:
-        launch.spawn_and_quit(ctx, argv, system)
+    try:
+        desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
+        resume.write(cache, info["release"], result["release"]["version"], resume.document_urls(desktop))
+    except Exception:  # noqa: BLE001 - without the record the update still runs; the documents are not reopened
+        diag_log.exception("update_install")
+    closing = False
+    try:
+        if system == "Windows" and not dry:  # elevated now, while the office is still the window the user looks at
+            closing = launch.elevate_and_quit(ctx, argv, cache)
+        else:
+            closing = launch.spawn_and_quit(ctx, argv, system)
+    finally:
+        if not closing:  # Cancel in a save prompt (or an error): nothing is updated, the file stays for later
+            resume.discard(cache)
+    return closing
+
+
+def _live_peer(ctx, peer):
+    """The window to parent a message to: the clicked one may have closed while the office tried to quit."""
+    try:
+        if peer is not None and peer.isVisible():
+            return peer
+    except Exception:  # noqa: BLE001 - disposed
+        pass
+    try:
+        frame = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).getCurrentFrame()
+        return frame.getContainerWindow() if frame else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def install(ctx, peer, result, info, turns=0):
+    """The user answered "Cập nhật ngay": close the extension's own modal dialogs, then the office.
+
+    A modal dialog left open in another window (the welcome dialog, say) keeps the office from closing. Those of this
+    extension are ended first and the quit waits for them to leave their modal loops (later main-thread turns). When
+    the office still does not close, the user is told and may try again: never a silent "nothing happened"."""
+    if launch.end_own_dialogs() and turns < OWN_DIALOG_TURNS:
+        ui.on_main_thread(ctx, lambda: install(ctx, peer, result, info, turns + 1))
+        return
+    try:
+        closing = launch_and_quit(ctx, result, info)
+    except launch.ElevationDeclined:  # No at the administrator question: the office stays open
+        diag_log.info("update_install", "administrator rights declined")
+        return fail(ctx, _live_peer(ctx, peer), "err_elevation")
+    except Exception:  # noqa: BLE001 - helper could not be written or started
+        diag_log.exception("update_install")
+        return fail(ctx, _live_peer(ctx, peer), "err_launch")
+    if closing is False:
+        diag_log.info("update_install", "the office did not close; nothing was installed")
+        TEXT = texts(ctx)
+        if _ask(ctx, _live_peer(ctx, peer), TEXT["install_title"], TEXT["err_quit"],
+                [(TEXT["retry"], "retry"), (TEXT["later"], "later")], text_height=40) == "retry":
+            install(ctx, peer, result, info)
 
 
 def start(ctx, peer):
@@ -165,14 +220,7 @@ def start(ctx, peer):
         version = outcome["result"]["release"]["version"]
         if _ask(ctx, peer, TEXT["install_title"], TEXT["ready"] % version,
                 [(TEXT["install"], "install"), (TEXT["later"], "later")]) == "install":
-            try:
-                launch_and_quit(ctx, outcome["result"], info)
-            except launch.ElevationDeclined:  # No at the administrator question: the office stays open
-                diag_log.info("update_install", "administrator rights declined")
-                fail(ctx, peer, "err_elevation")
-            except Exception:  # noqa: BLE001 - helper could not be written or started
-                diag_log.exception("update_install")
-                fail(ctx, peer, "err_launch")
+            install(ctx, peer, outcome["result"], info)
     except Exception:  # noqa: BLE001 - report instead of failing inside the UI thread
         diag_log.exception("update_install")
         try:  # never silent: the user clicked "Cập nhật ngay" and must learn that nothing was installed

@@ -38,6 +38,11 @@ TEXTS = {
         "move_progress": "Đang chuyển HST Office vào thư mục Ứng dụng…",
         "move_slow": "Việc chép HST Office vào thư mục Ứng dụng chưa xong sau 15 phút và có thể vẫn đang chạy. Hãy đợi một lúc rồi mở HST Office từ thư mục Ứng dụng; nếu không thấy, hãy kéo HST Office vào đó trong Finder.",
         "outcome_next": "Bạn vẫn đang dùng bản cũ. Hãy thử lại sau, hoặc bấm Tải về để cài thủ công.\nChi tiết trong nhật ký: %s",
+        "outcome_stopped": "Chưa cài được %s: trình cập nhật đã dừng trước khi cài.",
+        "err_quit": "HST Office chưa đóng được nên chưa cập nhật. Hãy lưu hoặc đóng các tài liệu và đóng các hộp thoại đang mở, rồi bấm Thử lại.",
+        "retry": "Thử lại",
+        "installed": "Đã cập nhật lên HST Office %s.",
+        "popup_text": "Đã có HST Office %s. Bạn đang dùng %s.",
     },
     "en": {
         "title": "Check for Updates",
@@ -75,6 +80,11 @@ TEXTS = {
         "move_progress": "Moving HST Office to the Applications folder…",
         "move_slow": "Copying HST Office to the Applications folder has not finished after 15 minutes and may still be running. Wait a while, then open HST Office from the Applications folder; if it is not there, drag HST Office there in Finder.",
         "outcome_next": "You are still using the old version. Try again later, or click Download to install manually.\nDetails in the log: %s",
+        "outcome_stopped": "%s was not installed: the updater stopped before installing.",
+        "err_quit": "HST Office could not close, so it was not updated. Save or close your documents and close any open dialogs, then click Try again.",
+        "retry": "Try again",
+        "installed": "HST Office has been updated to %s.",
+        "popup_text": "HST Office %s is available. You are using %s.",
     },
 }
 

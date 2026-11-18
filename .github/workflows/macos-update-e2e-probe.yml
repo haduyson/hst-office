@@ -19,10 +19,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {name: 101-shipped, installed: "1.0.1", scenario: shipped, pretend: ""}
-          - {name: 101-shipped-root, installed: "1.0.1", scenario: shipped-root, pretend: ""}
-          - {name: 102-shipped, installed: "1.0.2", scenario: shipped, pretend: "1.0.1"}
-          - {name: 102-branch, installed: "1.0.2", scenario: branch, pretend: "1.0.1"}
+          - {name: 101-shipped-welcome-open, installed: "1.0.1", scenario: shipped, pretend: "", close_welcome: ""}
+          - {name: 101-shipped-welcome-closed, installed: "1.0.1", scenario: shipped, pretend: "", close_welcome: "1"}
+          - {name: 101-shipped-root-welcome-closed, installed: "1.0.1", scenario: shipped-root, pretend: "", close_welcome: "1"}
     name: probe ${{ matrix.name }}
     runs-on: macos-15
     timeout-minutes: 45
@@ -50,6 +49,7 @@ jobs:
         shell: bash
         env:
           PRETEND: ${{ matrix.pretend }}
+          CLOSE_WELCOME: ${{ matrix.close_welcome }}
         run: |
           bash scripts/macos/update-e2e-probe.sh "$RUNNER_TEMP/dmg/${{ matrix.installed }}/HSTOffice_${{ matrix.installed }}_macOS_arm64.dmg" \
             "$RUNNER_TEMP/dmg/1.0.2/HSTOffice_1.0.2_macOS_arm64.dmg" "${{ matrix.scenario }}" "$RUNNER_TEMP/probe"

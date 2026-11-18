@@ -152,6 +152,7 @@ def main():
     p.add_argument("--pretend", default="")
     p.add_argument("--document", default="")
     p.add_argument("--watch", type=int, default=300)
+    p.add_argument("--close-welcome", action="store_true")
     a = p.parse_args()
     import uno
     report = {"app": a.app, "version_before": version(a.app), "inode_before": os.stat(a.app).st_ino,
@@ -177,6 +178,12 @@ def main():
     if ctx is None:
         raise SystemExit("UNO pipe did not open; offices: %s" % office_processes())
     time.sleep(20)  # let the document window and the start-up jobs settle
+    if a.close_welcome:  # releases up to 1.0.2: a modal welcome dialog left open makes the quit fail at once
+        time.sleep(10)
+        report_close = click("Đóng", int(subprocess.run(["pgrep", "-n", "-f", a.app + "/Contents/MacOS/soffice"],
+                                                         capture_output=True, text=True).stdout.split()[0]))
+        print("close welcome:", report_close, flush=True)
+        time.sleep(3)
     factory = ctx.ServiceManager.createInstanceWithContext("com.sun.star.script.provider.MasterScriptProviderFactory", ctx)
     script = factory.createScriptProvider("").getScript("vnd.sun.star.script:hst_update_e2e.py$run?language=Python&location=user")
     report["invoke"] = str(script.invoke((), (), ())[0])

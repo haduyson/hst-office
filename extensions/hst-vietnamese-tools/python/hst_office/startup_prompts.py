@@ -9,7 +9,8 @@ it moves; it returns False off macOS and once the app is in /Applications. The f
 ends the modal chain for this start; every later step waits for a later start, because each one keeps its own state
 until it is shown (welcome: Shown; default apps: Asked/LastAsked; update outcome: its state file). A crash question
 skipped behind the move question is not carried over: the recovery state is read once per start. The update check
-itself is not modal (an infobar) and always runs last.
+itself is not modal (a pop-up that does not block, or an infobar) and always runs last. Before the chain, the documents
+that "Cập nhật ngay" closed are reopened (update_resume), whatever question this start shows.
 
 Runs on the main thread after the Start Center has painted and after a document opened at start has loaded
 (welcome_job.run_later), never inside the job and never inside a document import. When the user has started working
@@ -89,6 +90,15 @@ def _update_outcome(ctx):
     return bool(update_outcome.show_pending(ctx))
 
 
+def _update_resume(ctx):
+    """First start after "Cập nhật ngay": reopen the documents, note the result (update_resume). Never modal here."""
+    try:
+        from . import update_resume
+        update_resume.start_up(ctx)
+    except Exception:  # noqa: BLE001 - never break start-up
+        diag_log.exception("startup_prompts")
+
+
 def _update_check(ctx):
     from . import update_job
     update_job.automatic_check(ctx)
@@ -111,6 +121,7 @@ def run(ctx, steps=None, after=None, before=None):
 
     before: startup_activity.snapshot() taken when the questions were scheduled; when the user has started working
     since, only the crash question may still open a modal."""
+    _update_resume(ctx)  # before every question: it reopens the documents an update closed
     steps = steps if steps is not None else steps_for(ctx)
     if before is not None and _started_working(ctx, before):
         steps = only_after_work(steps)
