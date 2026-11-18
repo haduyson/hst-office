@@ -12,7 +12,7 @@ range of AutoSum as the cell, =SUM(B13,B10) (testAutoSum), =TRUE and =FALSE with
 named range as Sheet1!$A$1 (testTdf94627), references to another sheet as Two!$A$2
 (testFormulaReferenceXLS), a formula typed as ='90''s Data'!B2 (testFormulaRefSheetNameODS) and CELL("Address") as
 Logical!$A$1 (information-functions.csv), an external reference as ['file:///...external.xls']Sheet1!A1
-(testSupBookVirtualPathXLS) and a sheet range as 'First:Last'!B1 (testTdf163554).
+(testSupBookVirtualPathXLS, filters-test testTdf90299) and a sheet range as 'First:Last'!B1 (testTdf163554).
 Links pasted with Paste as Link print as Sheet1!$A$1 (testPasteAsLink); AutoSum of two one-cell ranges prints
 =SUM(F13,F10) (testAutoSum); a copied range is parsed as Sheet1!A1:AMJ2 (copy_paste_test testTdf126421). Tests about
 Calc's own reference syntax ($Sheet1.A1, relative sheets, 'file'#$Sheet1.A1: uicalc testTdf103994, testTdf150219,
@@ -43,7 +43,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 Test: make CppunitTest_sc_cond_format CppunitTest_sc_subsequent_filters_test CppunitTest_sc_subsequent_filters_test2
 CppunitTest_sc_subsequent_filters_test3 CppunitTest_sc_subsequent_filters_test4 CppunitTest_sc_subsequent_filters_test5
 CppunitTest_sc_subsequent_export_test CppunitTest_sc_subsequent_export_test2 CppunitTest_sc_subsequent_export_test3
-CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 CppunitTest_sc_uicalc CppunitTest_sc_uicalc2 CppunitTest_sc_ucalc CppunitTest_sc_copypaste.
+CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 CppunitTest_sc_uicalc CppunitTest_sc_uicalc2 CppunitTest_sc_ucalc CppunitTest_sc_copypaste CppunitTest_sc_filters_test.
 ---
 --- a/sc/qa/unit/cond_format.cxx
 +++ b/sc/qa/unit/cond_format.cxx
@@ -184,6 +184,27 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  Hyperlink,http://www.example.org
  3,1
  1,3,5
+--- a/sc/qa/unit/filters-test.cxx
++++ b/sc/qa/unit/filters-test.cxx
+@@ -133,7 +133,8 @@ void ScFiltersTest::testTdf90299()
+             XLS_FORMAT_TYPE, SotClipboardFormatId::STARCALC_8);
+ 
+     ScDocument& rDoc = xShell->GetDocument();
+-    CPPUNIT_ASSERT_EQUAL(OUString("='" + aReferencedFileURL + "'#$Sheet1.A1"), rDoc.GetFormula(0, 0, 0));
++    // HST Office: the Excel A1 syntax (hst-sheets-excel-formula-conventions.patch)
++    CPPUNIT_ASSERT_EQUAL(OUString("=['" + aReferencedFileURL + "']Sheet1!A1"), rDoc.GetFormula(0, 0, 0));
+ 
+     aReferencingFileURL = aSavedFileURL;
+ 
+@@ -158,7 +159,7 @@ void ScFiltersTest::testTdf90299()
+     xShell = loadDoc(aReferencingFileURL, SC_XL97_FILTER_NAME, OUString(), OUString(),
+             XLS_FORMAT_TYPE, SotClipboardFormatId::STARCALC_8);
+     ScDocument& rDoc2 = xShell->GetDocument();
+-    CPPUNIT_ASSERT_EQUAL(OUString("='" + aReferencedFileURL + "'#$Sheet1.A1"), rDoc2.GetFormula(0, 0, 0));
++    CPPUNIT_ASSERT_EQUAL(OUString("=['" + aReferencedFileURL + "']Sheet1!A1"), rDoc2.GetFormula(0, 0, 0));
+ 
+     xShell->DoClose();
+ }
 --- a/sc/qa/unit/subsequent_export_test.cxx
 +++ b/sc/qa/unit/subsequent_export_test.cxx
 @@ -1821,9 +1821,11 @@ CPPUNIT_TEST_FIXTURE(ScExportTest, testFormulaRefSheetNameODS)
