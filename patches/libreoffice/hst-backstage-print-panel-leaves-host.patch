@@ -1,0 +1,29 @@
+HST Office: the Print page of the File panel shows one print panel however often it is opened (Linux).
+
+Each job on the Print page gets its own panel form of the print dialog (PrintDialog with a parent container,
+vcl::PrintJobPanel); when the job ends (the File panel closes, another page, "More Options..." cancelled) the panel
+is destroyed and the next job builds a new one. On gtk3 the widgets a builder put into a container stay in it after
+the builder is gone (GtkInstanceBuilder only drops its GtkBuilder), so every opening of the page added one more
+panel under the old ones, each with its printer box, settings and preview, about 20 MB a time; 1.0.2 showed 2, 3,
+... panels in Writer, Sheets, Slides and Draw. The VCL backends (Windows, macOS, gen) dispose the widgets and were
+not affected. The panel now leaves its host as it is destroyed, as SfxTabPage does.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-backstage-print-repeat.py (the page opened again and again in the four applications).
+---
+--- a/vcl/source/window/printdlg.cxx
++++ b/vcl/source/window/printdlg.cxx
+@@ -948,7 +948,13 @@
+ void PrintDialog::ImplDestroy()
+ {
+     if (!m_xDialog) // the panel expands both sections; the dialog keeps its own choice
++    {
++        // The panel leaves its host container: on gtk3 the widgets a builder put into a container
++        // stay there after the builder is gone, so the next job's panel was shown below this one.
++        if (std::unique_ptr<weld::Container> xHost = m_xPanel->weld_parent())
++            xHost->move(m_xPanel.get(), nullptr);
+         return;
++    }
+     std::shared_ptr<comphelper::ConfigurationChanges> batch(comphelper::ConfigurationChanges::create());
+     officecfg::Office::Common::Print::Dialog::RangeSectionExpanded::set(mxRangeExpander->get_expanded(), batch);
+     officecfg::Office::Common::Print::Dialog::LayoutSectionExpanded::set(mxLayoutExpander->get_expanded(), batch);

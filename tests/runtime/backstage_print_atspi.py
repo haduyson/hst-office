@@ -10,11 +10,16 @@ the atk bridge, as check-backstage.py does). Usage:
                                                  entries with Down: vcl's gtk3 box takes no AT-SPI selection)
     backstage_print_atspi.py dialog [cancel]  -> JSON {"dialog": name of a showing dialog or null}; "cancel" presses
                                                  its "Hủy" button
+    backstage_print_atspi.py panels           -> JSON {"panels": showing print panels, "pages": their "/ N" labels,
+                                                 "english": showing panel labels left in English}
+                                                 (each panel has one page count label next to its preview)
 """
 import json
 import sys
 
 import pyatspi
+
+ENGLISH = {"Printer", "Range and Copies", "Number of copies", "Page Setup", "More Options", "Whole Page", "Print"}
 
 def walk(node, out, depth=0):
     try:
@@ -73,6 +78,15 @@ def main():
     found = walk(office(), [])
     if sys.argv[1] == "dialog":
         return dialog(found, sys.argv[2:] == ["cancel"])
+    if sys.argv[1] == "panels":
+        pages = [name for role, name, node in found
+                 if role == "label" and name.startswith("/ ") and node.getState().contains(pyatspi.STATE_SHOWING)]
+        # labels of the panel that a Vietnamese UI must not show in English
+        english = sorted({name for role, name, node in found
+                          if role in ("label", "push button") and name.rstrip(".:…") in ENGLISH
+                          and node.getState().contains(pyatspi.STATE_SHOWING)})
+        print(json.dumps({"panels": len(pages), "pages": pages, "english": english}, ensure_ascii=False))
+        return 0
     combo = margins_box(found)
     if sys.argv[1] == "focus":
         ok = combo is not None and combo.queryComponent().grabFocus()
