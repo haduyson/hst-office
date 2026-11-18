@@ -5,7 +5,8 @@ format of its own (SwTableBox::ClaimFrameFormat): about 0.5 KB each with its att
 in Writer shares one format between equal cells, and SwTableBox::ClaimFrameFormat gives a cell its own format again
 as soon as it is changed. After a table is converted, HstShareEqualTableBoxFormats (new hsttableboxformats.cxx)
 moves every cell whose format has the same attribute set and parent as an earlier cell's onto that format
-(SwTableBox::ChgFrameFormat deletes the unused one). At most 64 distinct formats per table are compared, so the
+(SwTableBox::ChgFrameFormat deletes the unused one). Cells with a number format, value or formula keep their
+own format, since the core finds such a cell through its format. At most 64 distinct formats per table are compared, so the
 pass stays linear in the number of cells.
 
 Hook: sw/source/writerfilter/dmapper/DomainMapperTableHandler.cxx (one call after the table is converted),
@@ -43,13 +44,15 @@ its own format back); DOCX round trips of the upstream sw/qa files are unchanged
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sw/source/core/table/hsttableboxformats.cxx
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,77 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
 +
 +#include <hsttableboxformats.hxx>
 +
++#include <cellatr.hxx>
 +#include <frmfmt.hxx>
++#include <hintids.hxx>
 +#include <swtable.hxx>
 +#include <swtblfmt.hxx>
 +#include <unotbl.hxx>
@@ -61,6 +64,16 @@ its own format back); DOCX round trips of the upstream sw/qa files are unchanged
 +/// Distinct formats compared per table: a table whose cells are all formatted differently gains
 +/// nothing, and the search stays linear in the number of cells.
 +constexpr size_t HST_MAX_DISTINCT_BOX_FORMATS = 64;
++
++/// A cell with a number format, value or formula must keep a format of its own: the core finds the
++/// cell of such a format through the format (SwTableBoxFormat::GetTableBox, SwTableBox::CheckBoxFormat).
++bool HstHasOwnBoxContent(const SwTableBoxFormat& rFormat)
++{
++    const SwAttrSet& rSet = rFormat.GetAttrSet();
++    return rSet.GetItemState(RES_BOXATR_FORMAT, false) == SfxItemState::SET
++           || rSet.GetItemState(RES_BOXATR_FORMULA, false) == SfxItemState::SET
++           || rSet.GetItemState(RES_BOXATR_VALUE, false) == SfxItemState::SET;
++}
 +
 +bool HstSameBoxAttributes(const SwTableBoxFormat& rA, const SwTableBoxFormat& rB)
 +{
@@ -81,7 +94,7 @@ its own format back); DOCX round trips of the upstream sw/qa files are unchanged
 +    for (SwTableBox* pBox : aBoxes)
 +    {
 +        SwTableBoxFormat* pFormat = pBox->GetFrameFormat();
-+        if (!pFormat)
++        if (!pFormat || HstHasOwnBoxContent(*pFormat))
 +            continue;
 +        SwTableBoxFormat* pShared = nullptr;
 +        for (SwTableBoxFormat* pCandidate : aDistinct)
