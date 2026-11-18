@@ -14,7 +14,9 @@ Usage (needs a running X display; never started or stopped here; runs the office
   3. Save As: activating a format closes the panel and opens the save dialog;
   4. keyboard: the Alt, F KeyTip opens the panel; Right moves from the left column into the page;
   4b. Info shows "—" for an empty value; the .uno:HSTBackstage label reads "Bảng Tệp tin";
-  5. classic menu bar: its File menu opens with Alt+T as before.
+  5. classic menu bar: its File menu opens with Alt+T as before;
+  6. Export: "Xuất PDF dạng sách" exports with FilterData Booklet; Info: "Cập nhật HST Office" runs the extension's
+     update command and says when a new version is known.
 Screenshots stay in --out. Exit status 1 on any FAIL. When started as root the script re-executes itself as the build
 user under dbus-run-session (AT-SPI needs a session bus).
 """
@@ -29,6 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
 import backstage_gui as gui  # noqa: E402
+from backstage_entry_steps import STUBBED, check_booklet_and_update, check_extension_answers  # noqa: E402
 from backstage_flow_steps import ND30, check_info_and_label, check_keyboard, check_new, found, menu_items, named  # noqa: E402,E501
 from backstage_guardrails import FILE_TAB_NAMES  # noqa: E402
 from backstage_visual import check_hover  # noqa: E402
@@ -132,7 +135,8 @@ def main():
         frame = document.CurrentController.Frame
         time.sleep(3)
         office.raise_windows()
-        interceptor = gui.make_interceptor({ND30, ".uno:SaveAs", ".uno:NewDoc"})
+        check_extension_answers(office, frame)
+        interceptor = gui.make_interceptor({ND30, ".uno:SaveAs", ".uno:NewDoc"} | STUBBED)
         frame.registerDispatchProviderInterceptor(interceptor)
         for step in (lambda: check_hover(office, frame, args.out),
                      lambda: check_new(office, frame, interceptor, args.out),
@@ -140,6 +144,7 @@ def main():
                      lambda: check_format(office, frame, args.out),
                      lambda: check_keyboard(office, frame, args.out),
                      lambda: check_info_and_label(office, frame),
+                     lambda: check_booklet_and_update(office, frame, interceptor),
                      lambda: check_classic(office, frame, args.out)):
             try:
                 step()

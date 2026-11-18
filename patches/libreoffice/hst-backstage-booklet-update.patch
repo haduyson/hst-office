@@ -1,0 +1,281 @@
+From: HST Office
+Subject: [PATCH] File panel: "Xuất PDF dạng sách" and "Cập nhật HST Office"
+
+- Export page: "Export as PDF Booklet" ("Xuất PDF dạng sách") runs .uno:ExportDirectToPDF with
+  FilterData Booklet = true (filter side: hst-pdf-export-booklet.patch), so the user picks the file
+  and gets two pages on each sheet in fold order, the Word-like booklet print.
+- Info page: "Update HST Office" ("Cập nhật HST Office") runs the bundled extension's
+  org.hst.office.update:Available (install the release a check found, else check now), or :Check
+  with an extension that lacks it; the entry is hidden without the extension. The line "A new
+  version is ready to install." shows when that command's status (IsEnabled) says a newer release
+  is known; the dot on the File tab listens to the same status.
+- English and Vietnamese strings.
+
+License: MPL-2.0
+Test: tests/runtime/check-backstage-flows.py (booklet FilterData, update entry, status note);
+tests/unit/test_update_handler.py (the extension side)
+---
+diff --git a/sfx2/source/backstage/hstbackstagewindow.cxx b/sfx2/source/backstage/hstbackstagewindow.cxx
+index 4874e7a..54bdb4c 100644
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -23,12 +23,14 @@
+ #include <com/sun/star/frame/Desktop.hpp>
+ #include <com/sun/star/frame/XController.hpp>
+ #include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <com/sun/star/frame/XStatusListener.hpp>
+ #include <com/sun/star/frame/XModel.hpp>
+ #include <com/sun/star/frame/XTitle.hpp>
+ #include <com/sun/star/accessibility/AccessibleRole.hpp>
+ #include <com/sun/star/accessibility/XAccessibleAction.hpp>
+ #include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
+ #include <cppuhelper/implbase.hxx>
++#include <rtl/ref.hxx>
+ #include <vcl/accessibility/strings.hxx>
+ #include <vcl/accessibility/vclxaccessiblecomponent.hxx>
+ #include <com/sun/star/lang/XServiceInfo.hpp>
+@@ -197,6 +199,62 @@ void lcl_dispatchAsync(const uno::Reference<frame::XDispatchProvider>& rxProvide
+     }
+ }
+ 
++/// The bundled extension's update command: org.hst.office.update:Available tells in its status
++/// (IsEnabled) that a newer release is known, and installs it when dispatched; builds whose
++/// extension lacks it fall back to :Check, and without the extension the entry is hidden.
++constexpr OUString UPDATE_AVAILABLE = u"org.hst.office.update:Available"_ustr;
++constexpr OUString UPDATE_CHECK = u"org.hst.office.update:Check"_ustr;
++
++uno::Reference<frame::XDispatch> lcl_queryDispatch(const uno::Reference<frame::XFrame>& rxFrame,
++                                                   const OUString& rCommand, util::URL& rURL)
++{
++    uno::Reference<frame::XDispatchProvider> xProvider(rxFrame, uno::UNO_QUERY);
++    if (!xProvider.is())
++        return {};
++    try
++    {
++        rURL.Complete = rCommand;
++        util::URLTransformer::create(comphelper::getProcessComponentContext())->parseStrict(rURL);
++        return xProvider->queryDispatch(rURL, OUString(), 0);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.backstage", "querying " << rCommand);
++        return {};
++    }
++}
++
++/// Reads a command's state once: the extension answers in addStatusListener.
++class StatusProbe final : public cppu::WeakImplHelper<frame::XStatusListener>
++{
++public:
++    bool m_bEnabled = false;
++    void SAL_CALL statusChanged(const frame::FeatureStateEvent& rEvent) override
++    {
++        m_bEnabled = rEvent.IsEnabled;
++    }
++    void SAL_CALL disposing(const lang::EventObject&) override {}
++};
++
++bool lcl_updateAvailable(const uno::Reference<frame::XFrame>& rxFrame)
++{
++    util::URL aURL;
++    uno::Reference<frame::XDispatch> xDispatch = lcl_queryDispatch(rxFrame, UPDATE_AVAILABLE, aURL);
++    if (!xDispatch.is())
++        return false;
++    rtl::Reference<StatusProbe> xProbe(new StatusProbe);
++    try
++    {
++        xDispatch->addStatusListener(xProbe, aURL);
++        xDispatch->removeStatusListener(xProbe, aURL);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.backstage", "reading " << UPDATE_AVAILABLE);
++    }
++    return xProbe->m_bEnabled;
++}
++
+ /// Paint the page preview of a "create new" tile: a page with a thin border; the
+ /// administrative document also shows the national motto heading. A generic page, never an
+ /// image of the current document.
+@@ -363,6 +421,8 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+     , m_xInfoUsbToken(m_xBuilder->weld_button(u"infousbtoken"_ustr))
+     , m_xInfoVersions(m_xBuilder->weld_button(u"infoversions"_ustr))
+     , m_xInfoUnsaved(m_xBuilder->weld_button(u"infounsaved"_ustr))
++    , m_xInfoUpdate(m_xBuilder->weld_button(u"infoupdate"_ustr))
++    , m_xInfoUpdateNote(m_xBuilder->weld_label(u"infoupdatenote"_ustr))
+     , m_xSaveAsFolder(m_xBuilder->weld_label(u"saveasfolder"_ustr))
+     , m_xFormatList(m_xBuilder->weld_tree_view(u"formatlist"_ustr))
+     , m_xSaveAsBrowse(m_xBuilder->weld_button(u"saveasbrowse"_ustr))
+@@ -375,6 +435,7 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+     , m_xExportOther(m_xBuilder->weld_button(u"exportother"_ustr))
+     , m_xExportMinimize(m_xBuilder->weld_button(u"exportminimize"_ustr))
+     , m_xExportMinimizeNote(m_xBuilder->weld_label(u"exportminimizenote"_ustr))
++    , m_xExportBooklet(m_xBuilder->weld_button(u"exportbooklet"_ustr))
+     , m_pPendingSaveAs(nullptr)
+     , m_pPendingMenu(nullptr)
+ {
+@@ -409,7 +470,7 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+            m_xInfoProperties.get(), m_xInfoSign.get(), m_xInfoUsbToken.get(), m_xInfoVersions.get(),
+            m_xInfoUnsaved.get(), m_xSaveAsBrowse.get(), m_xPrintPrint.get(), m_xPrintPreview.get(),
+            m_xPrintDuplex.get(), m_xExportPdf.get(), m_xExportPdfDirect.get(), m_xExportOther.get(),
+-           m_xExportMinimize.get() })
++           m_xExportMinimize.get(), m_xExportBooklet.get(), m_xInfoUpdate.get() })
+         pButton->connect_clicked(LINK(this, BackstageWindow, ButtonClickHdl));
+     // "In hai mặt" sets the page layout of a Writer document; the minimizer is Slides' own
+     m_xPrintDuplex->set_visible(m_eApp == BackstageApp::Writer);
+@@ -785,6 +846,10 @@ void BackstageWindow::FillInfoPage()
+     m_xInfoModified->set_label(value(aInfo.aModified));
+     m_xInfoAuthor->set_label(value(aInfo.aAuthor));
+     m_xInfoSignature->set_label(value(aInfo.aSignature));
++
++    util::URL aURL;
++    m_xInfoUpdate->set_visible(lcl_queryDispatch(m_xFrame, UPDATE_CHECK, aURL).is());
++    m_xInfoUpdateNote->set_visible(m_xInfoUpdate->get_visible() && lcl_updateAvailable(m_xFrame));
+ }
+ 
+ void BackstageWindow::FillSaveAsPage()
+@@ -1549,6 +1614,18 @@ IMPL_LINK(BackstageWindow, ButtonClickHdl, weld::Button&, rButton, void)
+         CloseAndDispatch(u".uno:ExportTo"_ustr);
+     else if (&rButton == m_xExportMinimize.get())
+         CloseAndDispatch(u".uno:PresentationMinimizer"_ustr);
++    else if (&rButton == m_xExportBooklet.get()) // pages in fold order, two on a sheet
++        CloseAndDispatch(u".uno:ExportDirectToPDF"_ustr,
++                         { comphelper::makePropertyValue(
++                             u"FilterData"_ustr,
++                             uno::Sequence<beans::PropertyValue>{
++                                 comphelper::makePropertyValue(u"Booklet"_ustr, true) }) });
++    else if (&rButton == m_xInfoUpdate.get())
++    {
++        util::URL aURL;
++        CloseAndDispatch(lcl_queryDispatch(m_xFrame, UPDATE_AVAILABLE, aURL).is() ? UPDATE_AVAILABLE
++                                                                                  : UPDATE_CHECK);
++    }
+ }
+ 
+ IMPL_LINK(BackstageWindow, RecentActivatedHdl, const weld::TreeIter&, rIter, bool)
+diff --git a/sfx2/source/backstage/hstbackstagewindow.hxx b/sfx2/source/backstage/hstbackstagewindow.hxx
+index 009a78d..12d13d2 100644
+--- a/sfx2/source/backstage/hstbackstagewindow.hxx
++++ b/sfx2/source/backstage/hstbackstagewindow.hxx
+@@ -259,6 +259,8 @@ private:
+     std::unique_ptr<weld::Button> m_xInfoUsbToken;
+     std::unique_ptr<weld::Button> m_xInfoVersions;
+     std::unique_ptr<weld::Button> m_xInfoUnsaved; ///< "Tài liệu chưa lưu" of the bundled extension
++    std::unique_ptr<weld::Button> m_xInfoUpdate; ///< "Cập nhật HST Office" of the bundled extension
++    std::unique_ptr<weld::Label> m_xInfoUpdateNote; ///< shown when the extension knows a newer release
+ 
+     std::unique_ptr<weld::Label> m_xSaveAsFolder;
+     std::unique_ptr<weld::TreeView> m_xFormatList;
+@@ -273,6 +275,7 @@ private:
+     std::unique_ptr<weld::Button> m_xExportOther;
+     std::unique_ptr<weld::Button> m_xExportMinimize; // Slides
+     std::unique_ptr<weld::Label> m_xExportMinimizeNote;
++    std::unique_ptr<weld::Button> m_xExportBooklet; ///< PDF export with FilterData Booklet
+     OUString m_aPendingFilter;
+     ImplSVEvent* m_pPendingSaveAs;
+     ImplSVEvent* m_pPendingMenu;
+diff --git a/sfx2/uiconfig/ui/hstbackstage.ui b/sfx2/uiconfig/ui/hstbackstage.ui
+index f6d821b..84bd6c0 100644
+--- a/sfx2/uiconfig/ui/hstbackstage.ui
++++ b/sfx2/uiconfig/ui/hstbackstage.ui
+@@ -1514,6 +1514,32 @@
+                     <property name="fill">True</property>
+                   </packing>
+                 </child>
++                <child>
++                  <!-- the bundled extension's update check; hidden without it -->
++                  <object class="GtkButton" id="infoupdate">
++                    <property name="label" translatable="yes" context="hstbackstage|infoupdate">Update HST Office</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="infoupdatenote">
++                    <property name="label" translatable="yes" context="hstbackstage|infoupdatenote">A new version is ready to install.</property>
++                    <property name="visible">False</property>
++                    <property name="no-show-all">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="xalign">0</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+@@ -1932,6 +1958,32 @@
+                     <property name="top-attach">3</property>
+                   </packing>
+                 </child>
++                <child>
++                  <object class="GtkButton" id="exportbooklet">
++                    <property name="label" translatable="yes" context="hstbackstage|exportbooklet">Export as PDF Booklet</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">4</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkLabel" id="exportbookletnote">
++                    <property name="label" translatable="yes" context="hstbackstage|exportbookletnote">Two pages on each sheet in booklet order: print both sides, fold in the middle.</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="xalign">0</property>
++                    <property name="wrap">True</property>
++                    <property name="max-width-chars">52</property>
++                  </object>
++                  <packing>
++                    <property name="left-attach">1</property>
++                    <property name="top-attach">4</property>
++                  </packing>
++                </child>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+diff --git a/translations/source/vi/sfx2/messages.po b/translations/source/vi/sfx2/messages.po
+index c5c3f9c..4466484 100644
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -10156,6 +10156,30 @@ msgctxt "hstbackstage|exportminimize"
+ msgid "Compress Presentation…"
+ msgstr "Nén bản trình chiếu"
+ 
++#. hstBU
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|exportbooklet"
++msgid "Export as PDF Booklet"
++msgstr "Xuất PDF dạng sách"
++
++#. hstBU
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|exportbookletnote"
++msgid "Two pages on each sheet in booklet order: print both sides, fold in the middle."
++msgstr "Mỗi tờ hai trang theo thứ tự cuốn sách: in hai mặt rồi gập đôi ở giữa."
++
++#. hstBU
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|infoupdate"
++msgid "Update HST Office"
++msgstr "Cập nhật HST Office"
++
++#. hstBU
++#: sfx2/uiconfig/ui/hstbackstage.ui
++msgctxt "hstbackstage|infoupdatenote"
++msgid "A new version is ready to install."
++msgstr "Đã có phiên bản mới để cài đặt."
++
+ #. hstBS
+ #: sfx2/uiconfig/ui/hstbackstage.ui
+ msgctxt "hstbackstage|exportminimizenote"

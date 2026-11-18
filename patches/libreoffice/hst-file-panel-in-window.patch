@@ -39,7 +39,7 @@ index f90d826..2a19ab1 100644
  }
  
 diff --git a/sfx2/source/backstage/hstbackstagewindow.cxx b/sfx2/source/backstage/hstbackstagewindow.cxx
-index e095763..c61a0b5 100644
+index e095763..4874e7a 100644
 --- a/sfx2/source/backstage/hstbackstagewindow.cxx
 +++ b/sfx2/source/backstage/hstbackstagewindow.cxx
 @@ -60,6 +60,8 @@
@@ -143,7 +143,7 @@ index e095763..c61a0b5 100644
  }
  
  void BackstageWindow::FillRecentLists()
-@@ -1157,20 +1188,117 @@ bool BackstageWindow::OpenOn(Page ePage)
+@@ -1157,20 +1188,119 @@ bool BackstageWindow::OpenOn(Page ePage)
      ShowPage(ePage);
      m_xRecentTabs->set_current_page(0);
  
@@ -195,8 +195,10 @@ index e095763..c61a0b5 100644
 +                                        std::min(aWant.Height(), aRoom.Height())));
 +    m_xHost->SetZOrder(nullptr, ZOrderFlags::First); // above the document and the ribbon
 +    // VCL clips a child window out of its siblings only when they ask for it: without this the
-+    // document (and the document tab strip) painted over the panel. With the panel hidden the
-+    // flag changes nothing, so it stays.
++    // document (and the document tab strip) painted over the panel. The panel asks too, so that
++    // showing or moving it makes the windows after it compute their clip region again. With the
++    // panel hidden the flag changes nothing, so it stays.
++    m_xHost->EnableClipSiblings(true);
 +    for (vcl::Window* pSibling = pClient->GetWindow(GetWindowType::FirstChild); pSibling;
 +         pSibling = pSibling->GetWindow(GetWindowType::Next))
 +    {
@@ -264,7 +266,7 @@ index e095763..c61a0b5 100644
      ShowTitleBand(false);
      FocusDocument();
  }
-@@ -1189,17 +1317,6 @@ void BackstageWindow::FocusDocument()
+@@ -1189,17 +1319,6 @@ void BackstageWindow::FocusDocument()
      }
  }
  

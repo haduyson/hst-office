@@ -94,6 +94,8 @@ def make_interceptor(stubbed):
 
         def __init__(self):
             self.calls = []
+            self.args = {}  # command -> the arguments of its last call
+            self.states = {}  # command -> IsEnabled sent to the status listeners of a stubbed command
             self.slave = self.master = None
             self.stubbed = set(stubbed)
 
@@ -117,11 +119,16 @@ def make_interceptor(stubbed):
         def setMasterDispatchProvider(self, provider):
             self.master = provider
 
-        def dispatch(self, url, _args):
+        def dispatch(self, url, args):
             self.calls.append(url.Complete)
+            self.args[url.Complete] = args
 
-        def addStatusListener(self, _listener, _url):
-            pass
+        def addStatusListener(self, listener, url):
+            if url.Complete in self.states:
+                import uno
+                event = uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent")
+                event.FeatureURL, event.IsEnabled, event.Source = url, self.states[url.Complete], self
+                listener.statusChanged(event)
 
         def removeStatusListener(self, _listener, _url):
             pass
