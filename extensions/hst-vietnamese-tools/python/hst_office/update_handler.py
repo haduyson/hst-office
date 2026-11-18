@@ -14,11 +14,30 @@ from . import diag_log, update_config
 
 HANDLER_NAME = "org.hst.office.vi.UpdateDispatchProvider"
 PROTOCOL = "org.hst.office.update:"  # update_ui.PROTOCOL (tests/unit/test_component_lazy_registration.py)
-COMMANDS = ("Check", "Download", "Install", "Notes", "Skip")
+COMMANDS = ("Check", "Download", "Install", "Notes", "Skip", "Available")
+# org.hst.office.update:Available: its status (IsEnabled) says a newer release is known; the File panel's
+# "Cập nhật HST Office" entry and the dot on the File tab listen to it. The check modules call set_available().
+AVAILABLE = {"release": None, "listeners": []}
+
+
+def _send_available(control, feature_url):
+    event = uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent")
+    event.FeatureURL, event.IsEnabled, event.Requery = feature_url, AVAILABLE["release"] is not None, False
+    control.statusChanged(event)
+
+
+def set_available(release):
+    """A check found `release` (None: up to date). Runs on the main thread, like the infobar it goes with."""
+    AVAILABLE["release"] = release
+    for control, feature_url in list(AVAILABLE["listeners"]):
+        try:
+            _send_available(control, feature_url)
+        except Exception:  # noqa: BLE001 - a disposed listener: forget it
+            AVAILABLE["listeners"].remove((control, feature_url))
 
 
 class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, XDispatch):
-    """org.hst.office.update:Check | Download | Install | Notes | Skip."""
+    """org.hst.office.update:Check | Download | Install | Notes | Skip | Available."""
 
     def __init__(self, ctx):
         self.ctx, self.frame = ctx, None
@@ -77,6 +96,10 @@ class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProv
         if ui.STATE["release"]:
             ui.open_url(self.ctx, ui.STATE["release"]["notes"])
 
+    def _available(self):
+        """The File panel entry: install the release found, else check now."""
+        return self._install() if AVAILABLE["release"] is not None else self._check()
+
     def _skip(self):
         from . import update_ui as ui
         if ui.STATE["release"]:
@@ -86,6 +109,13 @@ class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProv
 
     def addStatusListener(self, control, url):
         """Menu entries of :Check are disabled when the administrator set ManualCheck = false."""
+        if url.Path == "Available":
+            AVAILABLE["listeners"].append((control, url))
+            try:
+                _send_available(control, url)
+            except Exception:  # noqa: BLE001 - the listener shows no dot
+                diag_log.exception("update_handler")
+            return
         if url.Path != "Check":
             return
         try:
@@ -97,4 +127,4 @@ class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProv
             diag_log.exception("update_handler")
 
     def removeStatusListener(self, control, url):
-        pass
+        AVAILABLE["listeners"] = [(c, u) for c, u in AVAILABLE["listeners"] if c != control]
