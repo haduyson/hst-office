@@ -149,31 +149,39 @@ class FeedWaitsForStartup(unittest.TestCase):
 
 
 class UiIdle(unittest.TestCase):
-    class Callback:
-        def __init__(self, delays):
-            self.delays = list(delays)
+    """ui_idle reads the office's CPU time; a fake clock advances with every sleep."""
 
-        def addCallback(self, ping, data):
-            delay = self.delays.pop(0) if self.delays else 0.0
-            threading.Timer(delay, ping.notify, (data,)).start()
+    def run_wait(self, share_at):
+        now = [0.0]
+        used = [0.0]
 
-    def ctx(self, callback):
-        smgr = type("Smgr", (), {"createInstanceWithContext": lambda self, name, ctx: callback})()
-        return type("Ctx", (), {"ServiceManager": smgr})()
+        def sleep(seconds):
+            used[0] += share_at(now[0]) * seconds
+            now[0] += seconds
 
-    def test_waits_through_a_busy_ui_thread(self):
-        busy = [0.3] * 5  # answers delayed by start-up work
-        started = time.monotonic()
-        with patch.object(ui_idle, "QUIET", 0.3), patch.object(ui_idle, "PING_GAP", 0.02):
-            self.assertTrue(ui_idle.wait(self.ctx(self.Callback(busy))))
-        self.assertGreater(time.monotonic() - started, 1.5 + 0.3)
+        return ui_idle.wait(None, clock=lambda: now[0], sleep=sleep, cpu=lambda: used[0]), now[0]
+
+    def test_waits_while_the_start_up_works(self):
+        idle, at = self.run_wait(lambda t: 1.0 if t < 9 else 0.05)  # one core busy for 9 s, then quiet
+        self.assertTrue(idle)
+        self.assertGreaterEqual(at, 9 + ui_idle.QUIET)
+        self.assertLess(at, 9 + ui_idle.QUIET + 1)
+
+    def test_never_before_the_first_seconds(self):
+        idle, at = self.run_wait(lambda t: 0.0)
+        self.assertTrue(idle)
+        self.assertGreaterEqual(at, ui_idle.FIRST + ui_idle.QUIET)
 
     def test_gives_up_after_the_limit(self):
-        with patch.object(ui_idle, "LIMIT", 0.5), patch.object(ui_idle, "PING_GAP", 0.02):
-            self.assertFalse(ui_idle.wait(self.ctx(self.Callback([0.2] * 100))))
+        idle, at = self.run_wait(lambda t: 0.9)
+        self.assertFalse(idle)
+        self.assertLess(at, ui_idle.LIMIT + 1)
 
-    def test_without_toolkit_returns_at_once(self):
-        self.assertFalse(ui_idle.wait(self.ctx(None)))
+    def test_never_calls_into_the_ui_thread(self):
+        with open(ui_idle.__file__, encoding="utf-8") as handle:
+            source = handle.read()
+        self.assertNotIn("AsyncCallback", source)  # a UI-thread probe stalled the start-up (GIL)
+        self.assertNotIn("import uno", source)
 
 
 if __name__ == "__main__":
