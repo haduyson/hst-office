@@ -109,6 +109,27 @@ def run(uno, program, out, ui, loc, env):
         for address, formula, want in cases:
             check(formula, cell(address).getString() == want, cell(address).getString())
 
+        # 1900 date system: serial 1 is 01/01/1900, serial 60 is 29/02/1900.
+        date_cases = [
+            ("P1", "=TEXT(1,\"yyyy-mm-dd\")", "1900-01-01"),
+            ("P2", "=TEXT(60,\"yyyy-mm-dd\")", "1900-02-29"),
+            ("P3", "=TEXT(61,\"yyyy-mm-dd\")", "1900-03-01"),
+            ("P4", "=DATE(1900,3,1)", "61"),
+            ("P5", "=DAY(60)", "29"),
+            ("P6", "=WEEKNUM(60)", "9"),
+            ("P7", "=EOMONTH(1,1)", "60"),
+            ("P8", "=DAYS360(1,61)", "60"),
+        ]
+        for address, formula, _ in date_cases:
+            enter(address, formula)
+        enter("P9", "1900-02-29")
+        doc.calculateAll()
+        for address, formula, want in date_cases:
+            # Numbers by value: a date result shows in a date format.
+            got = cell(address).getString() if "-" in want else cell(address).getValue()
+            check(formula, got == (want if "-" in want else float(want)), got)
+        check("typing 1900-02-29 gives serial 60", cell("P9").getValue() == 60, cell("P9").getValue())
+
         # .ods round trip of the dynamic array.
         path = os.path.join(out, "dynamic.ods")
         url = uno.systemPathToFileUrl(path)
