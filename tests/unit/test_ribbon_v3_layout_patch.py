@@ -33,7 +33,7 @@ class FitTest(unittest.TestCase):
     def test_mockup_fit_steps(self):
         code = added(PATCH, "vcl/source/control/HstRibbonV3MergedBox.cxx")
         self.assertIn("const bool bSparse = freeShare() > 0.4;", code)
-        self.assertIn("px(bWide ? 96 : std::clamp<long>((nLogical + 1) / 2 * 2, 52, 96))", code)
+        self.assertIn("px(std::max<long>(bWide ? 96 : 52, (nLogical + 1) / 2 * 2))", code)
         self.assertIn("for (const char cStep : { 'M', 'S', 'C' })", code)
         # galleries take more tiles while the tab is still more than 40 % free
         self.assertIn("for (int nExtra = 1; !aGalleries.empty() && nExtra <= 10 && freeShare() > 0.4; ++nExtra)", code)

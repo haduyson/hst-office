@@ -1253,7 +1253,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      int nCommands = 0;
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
-@@ -0,0 +1,573 @@
+@@ -0,0 +1,585 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1264,6 +1264,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +#include <HstRibbonLadder.hxx>
 +
 +#include <vcl/event.hxx>
++#include <vcl/image.hxx>
 +#include <vcl/layout.hxx>
 +#include <vcl/toolbox.hxx>
 +#include <vcl/toolkit/fixed.hxx>
@@ -1800,7 +1801,18 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                // a labelled command (large, or medium with its label) asks for more room than its cell gives it:
 +                // its label is cut (a box keeps the design's width, an icon-only command shows no label)
 +                Size aWant = VclContainer::getLayoutRequisition(rCommand);
-+                if (const MenuButton* pMenu = dynamic_cast<const MenuButton*>(&rCommand); pMenu && rCell.look == 'L')
++                const MenuButton* pMenu = dynamic_cast<const MenuButton*>(&rCommand);
++                if (pMenu && rCell.look == 'M')
++                {
++                    // a medium menu button: image, label and its ▾ (MenuArrowAfterLabel) with the frame's padding
++                    const tools::Long nSymbol = pMenu->GetTextHeight() / 2 + 1;
++                    const Image aImage = pMenu->GetModeImage();
++                    aWant = Size((!!aImage ? aImage.GetSizePixel().Width() + nSymbol : 0)
++                                     + pMenu->GetTextWidth(pMenu->GetText().replaceAll("~", "")) + 2 * nSymbol
++                                     + 2 * px(4, rCommand),
++                                 aRect.GetHeight());
++                }
++                if (pMenu && rCell.look == 'L')
 +                {
 +                    // a large menu button breaks its label at the spaces: cut when its longest word does not fit
 +                    tools::Long nWord = 0;
@@ -1829,7 +1841,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3MergedBox.cxx
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,339 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1902,10 +1914,11 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                aNatural.state = aStates[i];
 +                nLarge = std::max(nLarge, v3::LargeNatural(*aWindows[i], aNatural));
 +            }
-+        // the narrowest even width in logical px, 52 to 96, at which every large label of the tab fits (equalize())
++        // the narrowest even width in logical px, from 52, at which every large label of the tab fits (equalize());
++        // 96 on a sparse tab. A label wider than 96 (a large UI font: Windows at 125 % keeps the scale factor 1 but
++        // its text grows) widens the large buttons beyond it rather than being cut
 +        const long nLogical = static_cast<long>(std::ceil(nLarge / fScale - 0.01));
-+        const tools::Long nWanted
-+            = nLarge <= 0 ? 0 : px(bWide ? 96 : std::clamp<long>((nLogical + 1) / 2 * 2, 52, 96));
++        const tools::Long nWanted = nLarge <= 0 ? 0 : px(std::max<long>(bWide ? 96 : 52, (nLogical + 1) / 2 * 2));
 +        for (size_t i = 0; i < n; ++i)
 +        {
 +            aConfigs[i].state = aStates[i] == 'C' ? 'L' : aStates[i];
@@ -2256,6 +2269,19 @@ License: these upstream files remain under their original license (MPL-2.0).
  
          ImplDrawAlignedImage( pDev, aPos, aSize, nImageSep,
                                nTextStyle, nullptr, true );
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -2610,6 +2610,10 @@ void NotebookbarTabControlBase::HstSetPa
+         return;
+     m_nHstPageReserve = nWidth;
+     ImplPosCurTabPage();
++    // HST Office (1.0.3): the elastic banner changes the reserve on every tab and document switch; the tab row is
++    // laid out and painted again with it (at 125 % a partly repainted row showed tab labels twice)
++    mbFormat = true;
++    Invalidate();
+ }
+ 
+ bool NotebookbarTabControlBase::HstIsOffRow( sal_uInt16 nPageId ) const
 --- a/vcl/source/window/layout.cxx
 +++ b/vcl/source/window/layout.cxx
 @@ -56,6 +56,7 @@
