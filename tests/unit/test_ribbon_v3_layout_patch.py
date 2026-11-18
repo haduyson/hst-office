@@ -140,7 +140,7 @@ class MenuButtonMetricsTest(unittest.TestCase):
         self.assertIn(": rLabel.aText.replace('\\n', ' ');", added(PATCH, "vcl/source/control/HstRibbonLadder.cxx"))
         # a toolbox label right of its icon joins its authored break with a space
         tools = added(PATCH, "vcl/source/window/toolbox.cxx")
-        self.assertIn("ePosition == ToolBoxTextPosition::Right ? rText.replace('\\n', ' ') : rText;", tools)
+        self.assertIn("return rText.replaceAll(u\"/\\n\", u\"/\").replace('\\n', ' ');", tools)
         self.assertIn("GetCtrlTextWidth( ImplHstOneLine( *mpData, item.maText, meTextPosition ) )", tools)
 
     def test_new_files_are_hst_owned(self):

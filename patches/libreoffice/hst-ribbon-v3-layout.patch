@@ -3508,21 +3508,23 @@ License: these upstream files remain under their original license (MPL-2.0).
      return true;
 --- a/vcl/source/window/toolbox.cxx
 +++ b/vcl/source/window/toolbox.cxx
-@@ -127,6 +127,13 @@ OUString ImplHstLabel(const ToolBox& rTo
+@@ -127,6 +127,15 @@ OUString ImplHstLabel(const ToolBox& rTo
      return nFirst == 0 || nFirst >= aWords.size() ? rText : rText.replaceAt(aSpaces[nFirst - 1], 1, u"\n");
  }
  
 +// HST Office: a ribbon label right of its image is one line: an authored break ("Văn bản\nhành chính") joins with a
-+// space, which VCL drew and measured as nothing ("Văn bảnhành chính")
++// space, which VCL drew and measured as nothing ("Văn bảnhành chính"); after a slash without one ("Chấp nhận/Từ chối")
 +OUString ImplHstOneLine(const ImplToolBoxPrivateData& rData, const OUString& rText, ToolBoxTextPosition ePosition)
 +{
-+    return rData.mbHstOwnerDraw && ePosition == ToolBoxTextPosition::Right ? rText.replace('\n', ' ') : rText;
++    if (!rData.mbHstOwnerDraw || ePosition != ToolBoxTextPosition::Right)
++        return rText;
++    return rText.replaceAll(u"/\n", u"/").replace('\n', ' ');
 +}
 +
  // HST Office: how the ribbon draws a button at the approved mockup's geometry (HstRibbonGeometry.hxx): Large for
  // an image above its label (L), Small for an image with its label on the right or alone (M, S); None for every
  // other toolbox, item window and text-only button, drawn as before.
-@@ -1650,7 +1657,7 @@ bool ToolBox::ImplCalcItem()
+@@ -1650,7 +1659,7 @@ bool ToolBox::ImplCalcItem()
                      else
                      {
                          // we're drawing images and text
@@ -3531,7 +3533,7 @@ License: these upstream files remain under their original license (MPL-2.0).
                          item.maItemSize.setHeight( bText ? GetTextHeight() : 0 );
                          const OUString aHstLabel = bText ? ImplHstLabel(*this, *mpData, item.maText, meTextPosition)
                                                           : item.maText;
-@@ -2635,6 +2642,26 @@ void ToolBox::ImplFormat( bool bResize )
+@@ -2635,6 +2644,26 @@ void ToolBox::ImplFormat( bool bResize )
              item.maRect = item.maCalcRect;
      }
  
@@ -3558,7 +3560,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // indicate formatting is done
      mbFormat = false;
  }
-@@ -3018,7 +3045,8 @@ void ToolBox::ImplDrawItem(vcl::RenderCo
+@@ -3018,7 +3047,8 @@ void ToolBox::ImplDrawItem(vcl::RenderCo
              const tools::Long nX = nImageOffX + aImageSize.Width()
                                     + hst::ribbon::geometry::px(hst::ribbon::geometry::SMALL_ICON_GAP, fHstScale);
              const tools::Long nY = pItem->maRect.Top() + (aBtnSize.Height() - GetTextHeight()) / 2;
@@ -3568,7 +3570,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          }
          else
          {
-@@ -4221,6 +4249,14 @@ void ToolBox::HstSetLauncher( bool bLaun
+@@ -4221,6 +4251,14 @@ void ToolBox::HstSetLauncher( bool bLaun
      ImplInvalidate( true );
  }
  
