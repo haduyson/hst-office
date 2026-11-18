@@ -22,23 +22,35 @@ class Frame:
         return self.controller
 
 
-class Frames:
-    def __init__(self, frames):
-        self.frames = frames
+class Items:
+    def __init__(self, items):
+        self.items = list(items)
 
     def getCount(self):
-        return len(self.frames)
+        return len(self.items)
 
     def getByIndex(self, index):
-        return self.frames[index]
+        return self.items[index]
+
+    def createEnumeration(self):
+        return self
+
+    def hasMoreElements(self):
+        return bool(self.items)
+
+    def nextElement(self):
+        return self.items.pop(0)
 
 
 class Desktop:
-    def __init__(self, frames=()):
-        self.frames, self.listeners, self.terminated, self.loaded = list(frames), [], False, []
+    def __init__(self, frames=(), docs=()):
+        self.frames, self.docs, self.listeners, self.terminated, self.loaded = list(frames), list(docs), [], False, []
 
     def getFrames(self):
-        return Frames(self.frames)
+        return Items(self.frames)
+
+    def getComponents(self):
+        return Items(self.docs)
 
     def addTerminateListener(self, listener):
         self.listeners.append(listener)
@@ -49,16 +61,20 @@ class Desktop:
     def terminate(self):
         self.terminated = True
 
+    def open(self, controller="viewer", doc="pdf"):
+        self.frames.append(Frame(controller))
+        self.docs.append(doc)
+
 
 class Decision(unittest.TestCase):
-    def test_a_new_window_or_document_means_the_request_opened_files(self):
+    def test_a_new_window_document_or_tab_means_something_was_opened(self):
         start, doc = Frame(), Frame()
-        before = [(start, "start-center")]
-        self.assertFalse(pdf_open.opened_since(before, [(start, "start-center")]))
-        self.assertTrue(pdf_open.opened_since(before, [(start, "start-center"), (doc, "ctrl")]))
-        self.assertTrue(pdf_open.opened_since(before, [(start, "pdf viewer")]))
-        self.assertFalse(pdf_open.opened_since([], []))
-        self.assertTrue(pdf_open.opened_since([], [(doc, "ctrl")]))
+        before = ([(start, "start-center")], [])
+        self.assertFalse(pdf_open.opened_since(before, ([(start, "start-center")], [])))
+        self.assertTrue(pdf_open.opened_since(before, ([(start, "start-center"), (doc, "ctrl")], ["d"])))
+        self.assertTrue(pdf_open.opened_since(before, ([(start, "pdf viewer")], ["d"])))
+        self.assertTrue(pdf_open.opened_since(([(doc, "ctrl")], ["a"]), ([(doc, "ctrl")], ["a", "b"])))  # a tab
+        self.assertFalse(pdf_open.opened_since(([], []), ([], [])))
 
 
 class Run(unittest.TestCase):
@@ -71,38 +87,65 @@ class Run(unittest.TestCase):
             asked.append(language)
             return picked
         with mock.patch.object(pdf_open, "open_in_viewer", side_effect=lambda d, urls: d.loaded.extend(urls) or
-                               d.frames.append(Frame("viewer"))):
+                               d.open()):
             outcome = pdf_open.run(None, desktop, before, hold, choose, "vi")
-        self.assertEqual(desktop.listeners, [])  # the start-up hold is always released
+        self.assertEqual(desktop.listeners, [])  # the hold is always released
         return outcome, asked
 
     def test_cold_start_without_files_asks_and_quits_on_cancel(self):
         desktop = Desktop()
-        outcome, asked = self.go(desktop, [], [])
+        outcome, asked = self.go(desktop, ([], []), [])
         self.assertEqual((outcome, asked, desktop.terminated), ("cancelled", ["vi"], True))  # no Start Center
 
-    def test_cold_start_opens_the_chosen_files_in_the_viewer(self):
+    def test_the_chosen_files_open_in_the_viewer(self):
         desktop = Desktop()
-        outcome, _asked = self.go(desktop, [], ["file:///a.pdf", "file:///b.pdf"])
-        self.assertEqual((outcome, desktop.loaded, desktop.terminated), ("chosen", ["file:///a.pdf", "file:///b.pdf"],
-                                                                         False))
-
-    def test_files_on_the_command_line_need_no_dialog(self):
-        desktop = Desktop()
-        desktop.frames.append(Frame("viewer"))  # opened by the same request after trigger()
-        outcome, asked = self.go(desktop, [], ["never"])
-        self.assertEqual((outcome, asked, desktop.terminated), ("opened", [], False))
+        outcome, _asked = self.go(desktop, ([], []), ["file:///a.pdf", "file:///b.pdf"])
+        self.assertEqual((outcome, desktop.loaded, desktop.terminated),
+                         ("chosen", ["file:///a.pdf", "file:///b.pdf"], False))
 
     def test_running_office_keeps_its_windows_on_cancel(self):
         doc = Frame("ctrl")
-        desktop = Desktop([doc])
-        outcome, asked = self.go(desktop, [(doc, "ctrl")], [])
+        desktop = Desktop([doc], ["d"])
+        outcome, asked = self.go(desktop, ([(doc, "ctrl")], ["d"]), [])
         self.assertEqual((outcome, asked, desktop.terminated), ("cancelled", ["vi"], False))
 
     def test_the_hold_refuses_termination(self):
         from com.sun.star.frame import TerminationVetoException
         with self.assertRaises(TerminationVetoException):
             pdf_open._HoldStart().queryTermination(None)
+
+
+class CommandLine(unittest.TestCase):
+    """The launcher's arguments as the office handles them: begin, the files (loaded in turn), then the dialog step."""
+
+    def launch(self, desktop, files):
+        posted = []
+        pdf_open.handle(None, desktop, "begin", posted.append)
+        for _url in files:
+            desktop.open()
+        pdf_open.handle(None, desktop, "", posted.append)
+        self.assertEqual(len(posted), 1)
+        asked = []
+        with mock.patch.object(pdf_open, "choose", side_effect=lambda _c, lang: asked.append(lang) or []), \
+                mock.patch("hst_office.update_texts.ui_language", return_value="vi"):
+            posted[0]()
+        return asked
+
+    def test_files_from_the_file_manager_need_no_dialog(self):
+        desktop = Desktop()
+        self.assertEqual(self.launch(desktop, ["file:///a.pdf"]), [])
+        self.assertFalse(desktop.terminated)
+
+    def test_the_bare_launcher_asks(self):
+        desktop = Desktop()
+        self.assertEqual(self.launch(desktop, []), ["vi"])
+        self.assertTrue(desktop.terminated)
+
+    def test_without_begin_the_state_is_taken_at_the_dialog_step(self):
+        desktop, posted = Desktop([Frame("ctrl")], ["d"]), []
+        pdf_open.handle(None, desktop, "", posted.append)
+        self.assertEqual(desktop.listeners[0].__class__.__name__, "_HoldStart")
+        self.assertEqual(pdf_open._noted, [])
 
     def test_texts(self):
         self.assertIn("PDF", pdf_open.TEXTS["vi"]["title"])
