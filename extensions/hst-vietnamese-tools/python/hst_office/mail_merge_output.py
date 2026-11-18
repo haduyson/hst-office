@@ -73,11 +73,28 @@ def run(ctx, doc, session, request, words=None):
     pattern = request.pattern if request.action in (PDF, DOCX) else ""
     source_name = session.stage(ctx, request.indexes, pattern, words)
     work = tempfile.mkdtemp(prefix="hst-tron-thu-")
+    engine = None
     try:
-        merged = _execute(ctx, _engine(ctx, doc, source_name, work), request, work)
+        engine = _engine(ctx, doc, source_name, work)
+        merged = _execute(ctx, engine, request, work)
     finally:
+        _release(engine)
+        engine = None
         _remove_tree(work)
     return merged, len(request.indexes)
+
+
+def _release(engine):
+    """Dispose the engine as soon as it has run: it holds the document it merged, and an engine still alive when
+    the office quits closes that document after Writer is gone (a crash on exit). No reference is kept anywhere."""
+    dispose = getattr(engine, "dispose", None) if engine is not None else None
+    if dispose is None:
+        return
+    try:
+        dispose()
+    except Exception:  # noqa: BLE001 - already disposed or the office is going away: nothing left to release
+        from .diag_log import exception
+        exception("mail merge engine dispose")
 
 
 def _execute(ctx, merge, request, work):
