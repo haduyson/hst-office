@@ -22,7 +22,8 @@ hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$dmg" >/dev/n
 app="$mnt/HST Office.app"
 echo "## Launchers copied out of the bundle: signature and Gatekeeper" >> "$summary"
 signed=false
-codesign -dvv "$app" 2>&1 | tee -a "$log" | grep -q '^Authority=Developer ID Application' && signed=true
+identity="$(codesign -dvv "$app" 2>&1)"; echo "$identity" >>"$log"
+grep -q '^Authority=Developer ID Application' <<<"$identity" && signed=true
 echo "- dmg signature: $([ "$signed" = true ] && echo 'Developer ID' || echo 'ad-hoc (Gatekeeper not assessed)')" >> "$summary"
 found=0
 for launcher in "$app/Contents/Helpers/"*.app; do

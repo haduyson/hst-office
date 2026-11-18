@@ -47,7 +47,7 @@ hdiutil detach "$mnt" >/dev/null; rmdir "$mnt"
 echo "## Launchers in the bundle" >> "$summary"
 
 signed_dev_id=false
-codesign -dvv "$app" 2>&1 | grep -q '^Authority=Developer ID Application' && signed_dev_id=true
+grep -q '^Authority=Developer ID Application' <<<"$(codesign -dvv "$app" 2>&1)" && signed_dev_id=true
 plist_is() { [ "$(/usr/libexec/PlistBuddy -c "Print :$2" "$1/Contents/Info.plist")" = "$3" ]; }
 modules=(writer calc impress draw pdf)
 for i in "${!names[@]}"; do
