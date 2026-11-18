@@ -1,0 +1,171 @@
+Calc: inserting or deleting rows no longer searches every broadcast slot for listeners that do not exist.
+
+A Linux user reported that inserting a row in Sheets takes about 10 seconds. Workbooks where every row
+looks something up in whole columns (VLOOKUP(D5;DanhMuc!$A:$D;2;0), SUMIF($D:$D;D5;$I:$I), COUNTIF)
+reproduce it: on a synthetic 20 000-row ledger with such formulas, conditional formats, validation,
+a filter, a table and a chart, one Insert Rows took 7-13 s and one Delete Rows 8-17 s (1.0.2 and the
+26.8.3.1 base; 1.0.1: 5-10 s), and the VLOOKUP columns alone 2-5 s.
+
+perf on the 26.8.3.1 base: 60-68 % of the time is std::unordered_set::find under
+ScBroadcastAreaSlot::EndListeningArea <- ScBroadcastAreaSlotMachine::EndListeningArea <-
+ScFormulaCell::EndListeningTo <- ScColumn::UpdateReference <- ScDocument::InsertRow/DeleteRow.
+Formula groups made by the import listen to their range references as a group
+(SharedFormulaUtil::startListeningAsGroup, group area listener). When rows are inserted or deleted
+above a group, every cell of the group ends its listening one by one and, for each range reference,
+also asks the slot machine to end an individual listening of the cell that was never started. The slot
+machine then looked for that area in every slot the range covers: a whole column spans 896 slots
+(256 + 5 x 128 row slices up to 1 048 576 rows), so 20 000 cells x 3 lookups x 896 slots per insert.
+
+An area is always inserted into the slot of its range start first, and StartListeningArea() looks for
+an existing area only there. So when that first slot does not have the area, no slot has it, and
+when the area still has listeners after this listener left, the other slots have nothing to do (they
+only drop an area that has no listeners left). EndListeningArea now stops after the first slot in
+both cases; an area that lost its last listener is still removed from every slot as before.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: CppunitTest_sc_ucalc_sharedformula testSharedFormulaWholeColumnShiftEndListening (insert and
+delete rows above 20 000 grouped whole-column lookups vs. the same lookups into a bounded range, and
+the results still follow the catalogue afterwards); tests/runtime/check-sheets-insert-row-speed.py.
+---
+--- a/sc/source/core/data/bcaslot.cxx
++++ b/sc/source/core/data/bcaslot.cxx
+@@ -836,6 +836,10 @@
+             SCSIZE nBreak = nOff + nRowBreak;
+             ScBroadcastAreaSlot** pp = ppSlots + nOff;
+             ScBroadcastArea* pArea = nullptr;
++            // HST Office: an area always goes into the slot of its range start first, and
++            // StartListeningArea() looks for an existing area only there. If that slot does not
++            // have it, no slot has; if it still has listeners, the other slots have nothing to do.
++            auto bOtherSlotsIdle = [&pArea]() { return !pArea || pArea->GetBroadcaster().HasListeners(); };
+             if (nOff == 0 && nEnd == mnBcaSlots-1)
+             {
+                 // Slightly optimized for 0,0,MAXCOL,MAXROW calls as they
+@@ -845,6 +849,8 @@
+                 {
+                     if ( *pp )
+                         (*pp)->EndListeningArea( rRange, bGroupListening, pListener, pArea);
++                    if (pp == ppSlots && bOtherSlotsIdle())
++                        break;
+                 } while (++pp < pStop);
+             }
+             else
+@@ -853,6 +859,8 @@
+                 {
+                     if ( *pp )
+                         (*pp)->EndListeningArea( rRange, bGroupListening, pListener, pArea);
++                    if (nOff == nStart && bOtherSlotsIdle())
++                        break;
+                     ComputeNextSlot( nOff, nBreak, pp, nStart, ppSlots, nRowBreak, mnBcaSlotsCol);
+                 }
+             }
+--- a/sc/qa/unit/ucalc_sharedformula.cxx
++++ b/sc/qa/unit/ucalc_sharedformula.cxx
+@@ -20,9 +20,12 @@
+ #include <dbdata.hxx>
+ #include <bcaslot.hxx>
+ #include <undomanager.hxx>
++#include <documentimport.hxx>
+ 
+ #include <sfx2/docfile.hxx>
+ 
++#include <algorithm>
++#include <chrono>
+ #include <memory>
+ #include <string_view>
+ 
+@@ -2787,6 +2790,95 @@
+     m_pDoc->DeleteTab(0);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(TestSharedFormula, testSharedFormulaWholeColumnShiftEndListening)
++{
++    // Formula groups made by an import listen to their range references as a group. Inserting or
++    // deleting rows above such a group ends the listening cell by cell, and each cell also tries
++    // to end an individual listening it never started. For a whole-column reference that miss was
++    // looked up in every broadcast slot the column spans (about 900), so one inserted or deleted
++    // row in a workbook with 20 000 whole-column VLOOKUPs took seconds. The same lookups into a
++    // bounded range give the reference time.
++    sc::AutoCalcSwitch aACSwitch(*m_pDoc, true);
++    m_pDoc->InsertTab(0, u"Whole"_ustr);
++    m_pDoc->InsertTab(1, u"Bounded"_ustr);
++    m_pDoc->InsertTab(2, u"Cat"_ustr);
++
++    constexpr SCROW nCat = 50;
++    constexpr SCROW nRows = 20000;
++    for (SCROW i = 0; i < nCat; ++i)
++    {
++        m_pDoc->SetValue(ScAddress(0, i, 2), i);
++        m_pDoc->SetValue(ScAddress(1, i, 2), i * 10.0);
++    }
++    {
++        ScDocumentImport aImport(*m_pDoc);
++        for (SCROW i = 0; i < nRows; ++i)
++        {
++            const OUString aRow = OUString::number(i + 1);
++            for (SCTAB nTab : { 0, 1 })
++            {
++                aImport.setNumericCell(ScAddress(0, i, nTab), i % nCat);
++                aImport.setFormulaCell(ScAddress(1, i, nTab),
++                                       nTab == 0 ? "=VLOOKUP(A" + aRow + ";$Cat.$A:$B;2;0)"
++                                                 : "=VLOOKUP(A" + aRow + ";$Cat.$A$1:$B$50;2;0)",
++                                       formula::FormulaGrammar::GRAM_NATIVE);
++            }
++        }
++        aImport.finalize();
++    }
++    m_pDoc->CalcAll();
++
++    for (SCTAB nTab : { 0, 1 })
++    {
++        const ScFormulaCell* pFC = m_pDoc->GetFormulaCell(ScAddress(1, 100, nTab));
++        CPPUNIT_ASSERT(pFC);
++        CPPUNIT_ASSERT_MESSAGE("the lookups must form one group", pFC->IsShared());
++        CPPUNIT_ASSERT_EQUAL(nRows, pFC->GetSharedLength());
++        CPPUNIT_ASSERT_EQUAL(50.0, m_pDoc->GetValue(ScAddress(1, 105, nTab))); // key 5
++    }
++
++    ScDocFunc& rFunc = m_xDocShell->GetDocFunc();
++    auto shiftRows = [&](SCTAB nTab) {
++        ScMarkData aMark(m_pDoc->GetSheetLimits());
++        aMark.SelectOneTable(nTab);
++        const ScRange aRow(0, 10, nTab, m_pDoc->MaxCol(), 10, nTab);
++        const auto aStart = std::chrono::steady_clock::now();
++        for (int k = 0; k < 2; ++k)
++        {
++            rFunc.InsertCells(aRow, &aMark, INS_INSROWS_BEFORE, true, true);
++            rFunc.DeleteCells(aRow, &aMark, DelCellCmd::Rows, true);
++        }
++        return std::chrono::duration<double>(std::chrono::steady_clock::now() - aStart).count();
++    };
++    // the fastest of two runs each, so that a busy machine does not decide the result
++    double fBounded = shiftRows(1);
++    double fWhole = shiftRows(0);
++    fBounded = std::min(fBounded, shiftRows(1));
++    fWhole = std::min(fWhole, shiftRows(0));
++    std::cerr << "insert+delete rows above 20000 grouped lookups: whole columns " << fWhole
++              << " s, bounded range " << fBounded << " s" << std::endl;
++    CPPUNIT_ASSERT_LESS(3.0 * fBounded + 0.2, fWhole);
++
++    // the groups still listen to the catalogue after the shifts
++    m_pDoc->SetValue(ScAddress(1, 5, 2), 777.0);
++    for (SCTAB nTab : { 0, 1 })
++    {
++        CPPUNIT_ASSERT_EQUAL(777.0, m_pDoc->GetValue(ScAddress(1, 5, nTab)));
++        CPPUNIT_ASSERT_EQUAL(777.0, m_pDoc->GetValue(ScAddress(1, 105, nTab)));
++        CPPUNIT_ASSERT_EQUAL(777.0, m_pDoc->GetValue(ScAddress(1, nRows - 45, nTab))); // key 5
++    }
++    // a single cell listening individually to the same whole columns still stops listening
++    m_pDoc->SetString(ScAddress(3, 0, 0), u"=SUM($Cat.$B:$B)"_ustr);
++    CPPUNIT_ASSERT_EQUAL(12250.0 - 50.0 + 777.0, m_pDoc->GetValue(ScAddress(3, 0, 0)));
++    m_pDoc->DeleteRow(0, 0, m_pDoc->MaxCol(), 0, 0, 1);
++    m_pDoc->SetValue(ScAddress(1, 6, 2), 1.0);
++    CPPUNIT_ASSERT_EQUAL(1.0, m_pDoc->GetValue(ScAddress(1, 5, 0))); // former row 7 (key 6)
++
++    m_pDoc->DeleteTab(2);
++    m_pDoc->DeleteTab(1);
++    m_pDoc->DeleteTab(0);
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
