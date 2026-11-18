@@ -1,0 +1,90 @@
+HST Office: sw DOCX export tests expect the Latin font as the East Asian font of documents without CJK text.
+
+hst-docx-east-asian-font-without-cjk-text.patch writes the East Asian font (w:rFonts/@w:eastAsia) equal to the Latin
+font when a document has no Han, Kana or Hangul text, so that Word does not split precomposed Vietnamese letters into
+runs of their own. The upstream round-trip tests testDMLGroupShapeRunFonts (CppunitTest_sw_ooxmlexport10),
+testTdf130814model and testTdf130814ooxml (CppunitTest_sw_ooxmlexport14) use such documents and expected the stored
+East Asian font (MS Mincho, Arial Unicode MS) after saving. They now check the stored font after loading and the Latin
+font (Arial, Candara) after saving; every other assertion is unchanged.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: make CppunitTest_sw_ooxmlexport10 CppunitTest_sw_ooxmlexport14.
+---
+--- a/sw/qa/extras/ooxmlexport/ooxmlexport10.cxx
++++ b/sw/qa/extras/ooxmlexport/ooxmlexport10.cxx
+@@ -549,15 +549,24 @@ DECLARE_OOXMLEXPORT_TEST(testAnnotationFormatting, "annotation-formatting.docx")
+     CPPUNIT_ASSERT_EQUAL(awt::FontUnderline::SINGLE, getProperty<sal_Int16>(getRun(xParagraph, 1), u"CharUnderline"_ustr));
+ }
+ 
+-DECLARE_OOXMLEXPORT_TEST(testDMLGroupShapeRunFonts, "dml-groupshape-runfonts.docx")
++CPPUNIT_TEST_FIXTURE(Test, testDMLGroupShapeRunFonts)
+ {
+-    // Fonts defined by w:rFonts was not imported and so the font specified by a:fontRef was used.
+-    uno::Reference<container::XIndexAccess> xGroup(getShape(1), uno::UNO_QUERY);
+-    uno::Reference<text::XText> xText    = uno::Reference<text::XTextRange>(xGroup->getByIndex(1), uno::UNO_QUERY_THROW)->getText();
+-    uno::Reference<text::XTextRange> xRun = getRun(getParagraphOfText(1, xText),1);
+-    CPPUNIT_ASSERT_EQUAL(u"Arial"_ustr, getProperty<OUString>(xRun, u"CharFontName"_ustr));
+-    CPPUNIT_ASSERT_EQUAL(u"Arial Unicode MS"_ustr, getProperty<OUString>(xRun, u"CharFontNameComplex"_ustr));
+-    CPPUNIT_ASSERT_EQUAL(u"MS Mincho"_ustr, getProperty<OUString>(xRun, u"CharFontNameAsian"_ustr));
++    auto verify = [this](bool bIsExport) {
++        // Fonts defined by w:rFonts was not imported and so the font specified by a:fontRef was used.
++        uno::Reference<container::XIndexAccess> xGroup(getShape(1), uno::UNO_QUERY);
++        uno::Reference<text::XText> xText    = uno::Reference<text::XTextRange>(xGroup->getByIndex(1), uno::UNO_QUERY_THROW)->getText();
++        uno::Reference<text::XTextRange> xRun = getRun(getParagraphOfText(1, xText),1);
++        CPPUNIT_ASSERT_EQUAL(u"Arial"_ustr, getProperty<OUString>(xRun, u"CharFontName"_ustr));
++        CPPUNIT_ASSERT_EQUAL(u"Arial Unicode MS"_ustr, getProperty<OUString>(xRun, u"CharFontNameComplex"_ustr));
++        // HST Office: a document without Han, Kana or Hangul text is saved with its Latin font as
++        // the East Asian font (hst-docx-east-asian-font-without-cjk-text.patch)
++        CPPUNIT_ASSERT_EQUAL(bIsExport ? u"Arial"_ustr : u"MS Mincho"_ustr,
++                             getProperty<OUString>(xRun, u"CharFontNameAsian"_ustr));
++    };
++    createSwDoc("dml-groupshape-runfonts.docx");
++    verify(/*bIsExport*/ false);
++    saveAndReload(TestFilter::DOCX);
++    verify(/*bIsExport*/ true);
+ }
+ 
+ DECLARE_OOXMLEXPORT_TEST(testStrict, "strict.docx")
+--- a/sw/qa/extras/ooxmlexport/ooxmlexport14.cxx
++++ b/sw/qa/extras/ooxmlexport/ooxmlexport14.cxx
+@@ -226,13 +226,22 @@ CPPUNIT_TEST_FIXTURE(Test, Tdf133065)
+     CPPUNIT_ASSERT(aVal.indexOf("square") > -1);
+ }
+ 
+-DECLARE_OOXMLEXPORT_TEST(testTdf130814model, "tdf130814.docx")
++CPPUNIT_TEST_FIXTURE(Test, testTdf130814model)
+ {
+-    CPPUNIT_ASSERT_EQUAL(Color(0x1F497D), getProperty<Color>(getRun(getParagraph(2), 1), u"CharColor"_ustr));
+-    CPPUNIT_ASSERT_EQUAL(double(16), getProperty<double>(getRun(getParagraph(2), 1), u"CharHeight"_ustr));
+-    CPPUNIT_ASSERT_EQUAL(awt::FontUnderline::SINGLE, getProperty<sal_Int16>(getRun(getParagraph(2), 1), u"CharUnderline"_ustr));
+-    CPPUNIT_ASSERT_EQUAL(u"Candara"_ustr, getProperty<OUString>(getRun(getParagraph(2), 1), u"CharFontName"_ustr));
+-    CPPUNIT_ASSERT_EQUAL(u"Arial Unicode MS"_ustr, getProperty<OUString>(getRun(getParagraph(2), 1), u"CharFontNameAsian"_ustr));
++    auto verify = [this](bool bIsExport) {
++        CPPUNIT_ASSERT_EQUAL(Color(0x1F497D), getProperty<Color>(getRun(getParagraph(2), 1), u"CharColor"_ustr));
++        CPPUNIT_ASSERT_EQUAL(double(16), getProperty<double>(getRun(getParagraph(2), 1), u"CharHeight"_ustr));
++        CPPUNIT_ASSERT_EQUAL(awt::FontUnderline::SINGLE, getProperty<sal_Int16>(getRun(getParagraph(2), 1), u"CharUnderline"_ustr));
++        CPPUNIT_ASSERT_EQUAL(u"Candara"_ustr, getProperty<OUString>(getRun(getParagraph(2), 1), u"CharFontName"_ustr));
++        // HST Office: a document without Han, Kana or Hangul text is saved with its Latin font as
++        // the East Asian font (hst-docx-east-asian-font-without-cjk-text.patch)
++        CPPUNIT_ASSERT_EQUAL(bIsExport ? u"Candara"_ustr : u"Arial Unicode MS"_ustr,
++                             getProperty<OUString>(getRun(getParagraph(2), 1), u"CharFontNameAsian"_ustr));
++    };
++    createSwDoc("tdf130814.docx");
++    verify(/*bIsExport*/ false);
++    saveAndReload(TestFilter::DOCX);
++    verify(/*bIsExport*/ true);
+ }
+ 
+ CPPUNIT_TEST_FIXTURE(Test, testTdf107020)
+@@ -259,8 +268,10 @@ CPPUNIT_TEST_FIXTURE(Test, testTdf130814ooxml)
+     save(TestFilter::DOCX);
+     xmlDocUniquePtr p_XmlDoc = parseExport(u"word/document.xml"_ustr);
+     CPPUNIT_ASSERT(p_XmlDoc);
++    // HST Office: a document without Han, Kana or Hangul text is saved with its Latin font as the
++    // East Asian font (hst-docx-east-asian-font-without-cjk-text.patch)
+     assertXPath(
+-        p_XmlDoc, "/w:document/w:body/w:p[2]/w:r[1]/w:rPr/w:rFonts", "eastAsia", u"Arial Unicode MS");
++        p_XmlDoc, "/w:document/w:body/w:p[2]/w:r[1]/w:rPr/w:rFonts", "eastAsia", u"Candara");
+     assertXPath(
+         p_XmlDoc, "/w:document/w:body/w:p[2]/w:r[1]/w:rPr/w:rFonts", "ascii", u"Candara");
+     assertXPath(
