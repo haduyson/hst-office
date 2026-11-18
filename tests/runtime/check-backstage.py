@@ -27,8 +27,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
 from backstage_gui import (ALL_ITEMS, COMMAND, ROWS, close_document, dark_shot, expect_call, focused_name,  # noqa: E402
-                           is_open, make_interceptor, nd30, open_ms, press, record, seed_recent, showing, view_items,
-                           wait_state, walk, xdo)
+                           is_open, make_interceptor, nd30, open_ms, press, record, reopen, seed_recent, showing,
+                           view_items, wait_state, walk, xdo)
 from backstage_guardrails import click_file_tab, extents, follows_window_move, guardrails  # noqa: E402
 
 OUT_DEFAULT = os.path.join(os.path.dirname(HERE), "output", "backstage")
@@ -135,16 +135,16 @@ def check_app(office, args, factory, label, recent_name, shots):
         wait_state(False)
 
         # commands
+        # reopen only when closed: the command toggles, and a closed panel would leave the ribbon's button of the same
+        # name ("Lưu") to be pressed, which really saves
         for name, command in COMMAND_ITEMS.items():
-            office.dispatch(frame, COMMAND)
-            wait_state(True)
+            reopen(office, frame)
             press(view_items()[name])
             record("%s: %s runs %s" % (label, name, command), expect_call(interceptor, command))
             record("%s: %s closed the panel" % (label, name), wait_state(False))
         for page, button, command in (("Mở", "Duyệt", ".uno:Open"), ("Lưu thành", "Duyệt", ".uno:SaveAs"),
                                       ("Thông tin", "Thuộc tính", ".uno:SetDocumentProperties")):
-            office.dispatch(frame, COMMAND)
-            wait_state(True)
+            reopen(office, frame)
             press(view_items()[page])
             time.sleep(0.5)
             if shots and label == "Writer" and page in ("Lưu thành", "Thông tin"):

@@ -99,9 +99,12 @@ def check_classic(office, frame, out):
     time.sleep(3)
     gui.record("the classic menu bar has the File menu", any(named(name, "menu") for name in FILE_TAB_NAMES))
     gui.xdo(display, "key", "alt+t")
-    time.sleep(1.5)
+    deadline, items = time.time() + 4, []
+    while not items and time.time() < deadline:  # the menu can take more than a second to show under AT-SPI
+        time.sleep(0.5)
+        items = menu_items()
     hst_gui.screenshot(os.path.join(out, "menu-tap-tin.png"), display)
-    gui.record("Alt+T opens the File menu", bool(menu_items()), menu_items()[:5])
+    gui.record("Alt+T opens the File menu", bool(items), items[:5])
     gui.xdo(display, "key", "Escape")
     time.sleep(0.5)
 

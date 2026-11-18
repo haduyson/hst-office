@@ -16,6 +16,7 @@ _spec.loader.exec_module(nd30)
 
 ROWS = []
 COMMAND = ".uno:HSTBackstage"
+PANEL_NAMES = ("Tệp tin", "File")  # the accessible name of the panel's box
 ALL_ITEMS = ["Trang chủ", "Mới", "Mở", "Thông tin", "Lưu", "Lưu thành", "In", "Xuất", "Ký số", "Đóng",
              "Giới thiệu HST Office", "Tùy chọn"]
 
@@ -49,9 +50,15 @@ def showing(found):
 
 
 def view_items():
-    """Showing push buttons by name without a trailing ellipsis; the panel is open when the whole left column shows."""
+    """Showing push buttons by name without a trailing ellipsis; the panel is open when the whole left column shows.
+    The panel is a part of the document's window, so a ribbon or toolbar button of the same name ("Lưu") is found too:
+    the panel's own buttons win."""
     found = showing(walk(nd30.office_app(), []))
-    return {name.rstrip("…."): node for role, name, node in found if role == "push button" and name}
+    items = {name.rstrip("…."): node for role, name, node in found if role == "push button" and name}
+    for role, name, node in found:
+        if name in PANEL_NAMES and role not in ("page tab", "push button"):
+            items.update({n.rstrip("…."): b for r, n, b in showing(walk(node, [])) if r == "push button" and n})
+    return items
 
 
 def is_open():

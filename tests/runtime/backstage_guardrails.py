@@ -4,7 +4,7 @@ import os
 import subprocess
 import time
 
-from backstage_gui import ALL_ITEMS, nd30, record, showing, walk, xdo
+from backstage_gui import ALL_ITEMS, PANEL_NAMES, nd30, record, showing, walk, xdo
 
 # the ribbon's File tab (and the classic menu bar's File menu)
 FILE_TAB_NAMES = ("Tệp tin",)
@@ -27,9 +27,6 @@ def toplevel_of(node):
 
 
 # the accessible name of the panel's box ("panel" in hstbackstage.ui)
-PANEL_NAMES = ("Tệp tin", "File")
-
-
 def panel_of(node):
     """The File panel's box around `node`; the window of its own of the former drop-down."""
     while node is not None:
