@@ -22,7 +22,8 @@ Hook: sw/source/core/layout/laycache.cxx (filter check, paragraph estimate split
 dispatch), sw/source/core/layout/layhelp.hxx, sw/Library_sw.mk; logic in
 sw/source/core/inc/hstlargedocxpagination.hxx, sw/source/core/layout/hstlargedocxpagination.cxx.
 Test: CppunitTest_sw_core_layout testLargeDocxPaginationUnchanged (every page start equal to the
-start-to-end layout), testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
+start-to-end layout, and no page left holding the rest of the document after loading),
+testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
 ---
 --- a/sw/Library_sw.mk
 +++ b/sw/Library_sw.mk
@@ -165,7 +166,12 @@ start-to-end layout), testOtherFormatsNotPaginated (DOCX now paginated, ODT not)
              SwLayoutFrame* &rpL, std::unique_ptr<SwActualSection> &rpA,
 --- a/sw/qa/core/layout/laycache.cxx
 +++ b/sw/qa/core/layout/laycache.cxx
-@@ -13,7 +13,14 @@
+@@ -9,11 +9,19 @@
+ 
+ #include <swmodeltestbase.hxx>
+ 
++#include <algorithm>
+ #include <chrono>
  #include <iostream>
  #include <vector>
  
@@ -180,7 +186,7 @@ start-to-end layout), testOtherFormatsNotPaginated (DOCX now paginated, ODT not)
  #include <osl/process.h>
  #include <rtl/ustrbuf.hxx>
  #include <tools/stream.hxx>
-@@ -25,6 +32,8 @@
+@@ -25,6 +33,8 @@
  #include <rootfrm.hxx>
  #include <txtfrm.hxx>
  
@@ -189,7 +195,7 @@ start-to-end layout), testOtherFormatsNotPaginated (DOCX now paginated, ODT not)
  namespace
  {
  /// Covers sw/source/core/layout/laycache.cxx: pagination of a large plain text without layout cache.
-@@ -65,13 +74,26 @@
+@@ -65,14 +75,40 @@
      std::vector<std::pair<sal_Int32, sal_Int32>> layoutText(const OUString& rURL, bool bPaginate,
                                                              size_t& rLoadPages, sal_Int64& rMs)
      {
@@ -198,9 +204,12 @@ start-to-end layout), testOtherFormatsNotPaginated (DOCX now paginated, ODT not)
 +
 +    /// Opens rURL (as UTF-8 text when bText, else with the detected filter) and lays it out
 +    /// completely, as layoutText.
++    /// pLoadMaxFrames: the most body frames on one page right after loading (all frames that
++    /// the estimate did not put on a page are on one page).
 +    std::vector<std::pair<sal_Int32, sal_Int32>> layoutFile(const OUString& rURL, bool bText,
 +                                                            bool bPaginate, size_t& rLoadPages,
-+                                                            sal_Int64& rMs)
++                                                            sal_Int64& rMs,
++                                                            size_t* pLoadMaxFrames = nullptr)
 +    {
          osl_setEnvironment(u"HST_SW_TEXT_PAGINATION"_ustr.pData,
                             (bPaginate ? u"1"_ustr : u"0"_ustr).pData);
@@ -209,16 +218,28 @@ start-to-end layout), testOtherFormatsNotPaginated (DOCX now paginated, ODT not)
          const auto aStart = std::chrono::steady_clock::now();
 -        loadFromURL(rURL, { comphelper::makePropertyValue(u"FilterName"_ustr, u"Text (encoded)"_ustr),
 -                        comphelper::makePropertyValue(u"FilterOptions"_ustr, u"UTF8"_ustr) });
+-        rLoadPages = getSwDoc()->getIDocumentLayoutAccess().GetCurrentLayout()->GetPageNum();
 +        if (bText)
 +            loadFromURL(rURL,
 +                        { comphelper::makePropertyValue(u"FilterName"_ustr, u"Text (encoded)"_ustr),
 +                          comphelper::makePropertyValue(u"FilterOptions"_ustr, u"UTF8"_ustr) });
 +        else
 +            loadFromURL(rURL);
-         rLoadPages = getSwDoc()->getIDocumentLayoutAccess().GetCurrentLayout()->GetPageNum();
++        const SwRootFrame* pLoaded = getSwDoc()->getIDocumentLayoutAccess().GetCurrentLayout();
++        rLoadPages = pLoaded->GetPageNum();
++        for (const SwFrame* pPage = pLoaded->Lower(); pLoadMaxFrames && pPage; pPage = pPage->GetNext())
++        {
++            size_t nFrames = 0;
++            const SwLayoutFrame* pBody = static_cast<const SwPageFrame*>(pPage)->FindBodyCont();
++            for (const SwFrame* pFrame = pBody ? pBody->Lower() : nullptr; pFrame;
++                 pFrame = pFrame->GetNext())
++                ++nFrames;
++            *pLoadMaxFrames = std::max(*pLoadMaxFrames, nFrames);
++        }
          calcLayout();
          rMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-@@ -145,8 +167,8 @@
+                   std::chrono::steady_clock::now() - aStart)
+@@ -145,8 +181,8 @@
  
  CPPUNIT_TEST_FIXTURE(Test, testOtherFormatsNotPaginated)
  {
@@ -229,7 +250,7 @@ start-to-end layout), testOtherFormatsNotPaginated (DOCX now paginated, ODT not)
      utl::TempFileNamed aFile(u"large-text", true, u".txt");
      const OUString aURL = createText(aFile, 8000);
      size_t nLoadPages = 0;
-@@ -158,11 +180,83 @@
+@@ -158,11 +194,87 @@
          saveAndReload(eFilter);
          calcLayout();
          const SwRootFrame* pLayout = getSwDoc()->getIDocumentLayoutAccess().GetCurrentLayout();
@@ -291,17 +312,21 @@ start-to-end layout), testOtherFormatsNotPaginated (DOCX now paginated, ODT not)
 +    aDocx.EnableKillingFile();
 +    CPPUNIT_ASSERT_EQUAL(osl::FileBase::E_None, osl::File::copy(maTempFile.GetURL(), aDocx.GetURL()));
 +
-+    size_t nOffPages = 0, nOnPages = 0;
++    size_t nOffPages = 0, nOnPages = 0, nOffMax = 0, nOnMax = 0;
 +    sal_Int64 nOffMs = 0, nOnMs = 0;
-+    const auto aOff = layoutFile(aDocx.GetURL(), false, false, nOffPages, nOffMs);
-+    const auto aOn = layoutFile(aDocx.GetURL(), false, true, nOnPages, nOnMs);
++    const auto aOff = layoutFile(aDocx.GetURL(), false, false, nOffPages, nOffMs, &nOffMax);
++    const auto aOn = layoutFile(aDocx.GetURL(), false, true, nOnPages, nOnMs, &nOnMax);
 +    CPPUNIT_ASSERT(getSwDoc()->getIDocumentLayoutAccess().GetCurrentLayout()->IsLargeTextPagination());
 +    std::cerr << "large docx: " << aOff.size() << " pages; start-to-end " << nOffMs
 +              << " ms, paginated " << nOnMs << " ms; pages after load " << nOffPages << " / "
-+              << nOnPages << "\n";
++              << nOnPages << "; most frames on a page after load " << nOffMax << " / " << nOnMax
++              << "\n";
 +    CPPUNIT_ASSERT_GREATER(size_t(100), aOff.size());
-+    // The estimate ran to the end of the document (tables included) and is generous.
-+    CPPUNIT_ASSERT_GREATER(aOn.size(), nOnPages);
++    // Without the estimate the rest of the document waits on one page; with it, tables included,
++    // every page got about a page of frames (a table or paragraph longer than a page counts as one
++    // frame, so the page count after loading is no measure here).
++    CPPUNIT_ASSERT_GREATER(size_t(1000), nOffMax);
++    CPPUNIT_ASSERT_LESS(size_t(300), nOnMax);
 +    CPPUNIT_ASSERT_EQUAL(aOff.size(), aOn.size());
 +    for (size_t i = 0; i < aOff.size(); ++i)
 +    {
