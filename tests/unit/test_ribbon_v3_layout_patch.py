@@ -134,6 +134,7 @@ class MenuButtonMetricsTest(unittest.TestCase):
         metrics = added(PATCH, "vcl/source/control/HstRibbonMenuButtonMetrics.cxx")
         self.assertIn("if (cLook == 'M' && nPaintHeight > rInner.GetHeight())", metrics)
         self.assertIn("rDev.SetClipRegion(vcl::Region(aClip));", metrics)
+        self.assertIn(": rLabel.aText.replace('\\n', ' ');", added(PATCH, "vcl/source/control/HstRibbonLadder.cxx"))
 
     def test_new_files_are_hst_owned(self):
         for path in ("vcl/inc/HstRibbonMenuButtonMetrics.hxx", "vcl/source/control/HstRibbonMenuButtonMetrics.cxx"):

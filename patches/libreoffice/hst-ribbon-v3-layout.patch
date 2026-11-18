@@ -1898,7 +1898,19 @@ License: these upstream files remain under their original license (MPL-2.0).
          // with a little room: PushButton breaks its label again where a line fills its text area to the pixel
          nWidth = static_cast<sal_Int32>(aLarge.width + geometry::px(geometry::ARROW_GAP, rButton.GetDPIScaleFactor()));
          nHeight = static_cast<sal_Int32>(aLarge.height - nMarginTop);
-@@ -981,6 +984,31 @@ std::set<const ToolBox*> stackLargeButto
+@@ -413,7 +416,10 @@ void applyToMenuButton(MenuButton& rButt
+     const bool bImage = !!rButton.GetModeImage();
+     const bool bHide = nState == GroupSmall && bImage && !keepsLarge(rButton);
+     const bool bLarge = !bHide && bImage && rButton.GetImageAlign() == ImageAlign::Top;
+-    const OUString aText = bHide ? OUString() : bLarge ? largeMenuLabel(rLabel.aText) : rLabel.aText;
++    // beside its image a label is one line: an authored break ("Sort and\nFilter") put its second line under the row
++    const OUString aText = bHide    ? OUString()
++                           : bLarge ? largeMenuLabel(rLabel.aText)
++                                    : rLabel.aText.replace('\n', ' ');
+     const PushButtonDropdownStyle eArrow = bLarge ? PushButtonDropdownStyle::NONE : PushButtonDropdownStyle::MenuButton;
+     if (bHide && !rLabel.bTip && rButton.GetQuickHelpText().isEmpty())
+     {
+@@ -981,6 +987,31 @@ std::set<const ToolBox*> stackLargeButto
      return aLone;
  }
  
@@ -1930,7 +1942,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
  {
      for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
-@@ -1029,8 +1057,81 @@ bool collapseLadderEnabled()
+@@ -1029,8 +1060,81 @@ bool collapseLadderEnabled()
      return bEnabled;
  }
  
