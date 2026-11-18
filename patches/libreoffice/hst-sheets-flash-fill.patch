@@ -986,7 +986,7 @@ undo and numbers), scripts/check-keytips-parity.py (Ctrl+E row).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sc/source/ui/hst/hstflashfillcommand.cxx
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,148 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1000,6 +1000,7 @@ undo and numbers), scripts/check-keytips-parity.py (Ctrl+E row).
 +#include <document.hxx>
 +#include <editable.hxx>
 +#include <global.hxx>
++#include <scmod.hxx>
 +#include <hstflashfill.hxx>
 +#include <strings.hrc>
 +#include <tabvwsh.hxx>
@@ -1056,6 +1057,10 @@ undo and numbers), scripts/check-keytips-parity.py (Ctrl+E row).
 +
 +size_t FlashFill(ScTabViewShell& rViewShell)
 +{
++    // Ctrl+E while typing an example finishes the entry first.
++    if (ScModule* pScMod = ScModule::get(); pScMod && pScMod->IsInputMode())
++        pScMod->InputEnterHandler();
++
 +    ScViewData& rViewData = rViewShell.GetViewData();
 +    ScDocument& rDoc = rViewData.GetDocument();
 +    Region r;
