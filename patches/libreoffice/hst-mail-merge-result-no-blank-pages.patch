@@ -1,0 +1,347 @@
+HST: mail-merge results get no automatic blank pages where a recipient restarts the page numbering
+
+Each recipient of a merged document starts on a new page with the page number restarted at 1
+(Word writes pgNumType start=1 the same way). Writer treats an odd page number as a right page and
+inserts an automatic blank page when it would land on a left page, so three letters became five
+pages, and five printed sheets. Word keeps the page where it is.
+
+Documents produced by the HST mail merge carry the user-defined document property HSTMergeResult;
+for them, the side of a page that restarts the numbering follows its position, as in Word. A page
+style that is left-only or right-only still decides the side. Every other document keeps Writer's
+rule. The decision is in sw/source/core/layout/hst/hstmergeresultlayout (HST-owned); the four
+layout places that read the side from a page number ask it.
+
+Test: CppunitTest_sw_hst_merge_result_pages.
+
+diff --git sw/CppunitTest_sw_hst_merge_result_pages.mk sw/CppunitTest_sw_hst_merge_result_pages.mk
+new file mode 100644
+index 0000000..15e4976
+--- /dev/null
++++ b/sw/CppunitTest_sw_hst_merge_result_pages.mk
+@@ -0,0 +1,50 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (C) HASON TECH. HST Office.
++#
++# Mail-merge results: no automatic blank pages where each recipient restarts the page numbering at 1.
++
++$(eval $(call gb_CppunitTest_CppunitTest,sw_hst_merge_result_pages))
++
++$(eval $(call gb_CppunitTest_use_common_precompiled_header,sw_hst_merge_result_pages))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sw_hst_merge_result_pages, \
++    sw/qa/extras/hst/hstmergeresultpages \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sw_hst_merge_result_pages, \
++    $(sw_ooxmlexport_libraries) \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,sw_hst_merge_result_pages,\
++    boost_headers \
++    libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sw_hst_merge_result_pages,\
++    -I$(SRCDIR)/sw/inc \
++    -I$(SRCDIR)/sw/source/core/inc \
++    -I$(SRCDIR)/sw/source/uibase/inc \
++    -I$(SRCDIR)/sw/qa/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_api,sw_hst_merge_result_pages,\
++    udkapi \
++    offapi \
++    oovbaapi \
++))
++
++$(eval $(call gb_CppunitTest_use_ure,sw_hst_merge_result_pages))
++$(eval $(call gb_CppunitTest_use_vcl,sw_hst_merge_result_pages))
++
++$(eval $(call gb_CppunitTest_use_rdb,sw_hst_merge_result_pages,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sw_hst_merge_result_pages))
++
++$(eval $(call gb_CppunitTest_use_uiconfigs,sw_hst_merge_result_pages,\
++    modules/swriter \
++))
++
++# vim: set noet sw=4 ts=4:
+diff --git sw/Library_sw.mk sw/Library_sw.mk
+index 4be0f1f..002ab83 100644
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -356,6 +356,7 @@ $(eval $(call gb_Library_add_exception_objects,sw,\
+     sw/source/core/layout/hstpageart \
+     sw/source/core/layout/hstpageartsets \
+     sw/source/core/layout/hffrm \
++    sw/source/core/layout/hst/hstmergeresultlayout \
+     sw/source/core/layout/layact \
+     sw/source/core/layout/laycache \
+     sw/source/core/layout/layouter \
+diff --git sw/Module_sw.mk sw/Module_sw.mk
+index 7af7e72..a9e0f40 100644
+--- a/sw/Module_sw.mk
++++ b/sw/Module_sw.mk
+@@ -111,6 +111,7 @@ $(eval $(call gb_Module_add_slowcheck_targets,sw,\
+     CppunitTest_sw_ooxmlexport_template \
+     CppunitTest_sw_ooxmlfieldexport \
+     CppunitTest_sw_hst_mailmerge_word \
++    CppunitTest_sw_hst_merge_result_pages \
+     CppunitTest_sw_ooxmllinks \
+     CppunitTest_sw_ooxmlw14export \
+     CppunitTest_sw_ooxmlencryption \
+diff --git sw/qa/extras/hst/hstmergeresultpages.cxx sw/qa/extras/hst/hstmergeresultpages.cxx
+new file mode 100644
+index 0000000..a296d71
+--- /dev/null
++++ b/sw/qa/extras/hst/hstmergeresultpages.cxx
+@@ -0,0 +1,81 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <com/sun/star/beans/PropertyAttribute.hpp>
++#include <com/sun/star/beans/XPropertyContainer.hpp>
++#include <com/sun/star/document/XDocumentProperties.hpp>
++#include <com/sun/star/document/XDocumentPropertiesSupplier.hpp>
++#include <com/sun/star/text/ControlCharacter.hpp>
++#include <com/sun/star/text/XTextDocument.hpp>
++
++namespace
++{
++/// The pages of a merged document of three recipients: each one starts on a new page with the given page
++/// style and restarts the page numbering at 1, as the mail merge writes it (and Word, pgNumType start=1).
++class HstMergeResultPagesTest : public SwModelTestBase
++{
++public:
++    HstMergeResultPagesTest()
++        : SwModelTestBase(u"/sw/qa/extras/hst/data/"_ustr)
++    {
++    }
++
++protected:
++    int mergedPages(bool bMergeResult, const OUString& rPageStyle)
++    {
++        createSwDoc();
++        if (bMergeResult) // as the HST mail merge marks the documents it produces
++        {
++            uno::Reference<document::XDocumentPropertiesSupplier> xSupplier(mxComponent, uno::UNO_QUERY_THROW);
++            uno::Reference<beans::XPropertyContainer> xUser
++                = xSupplier->getDocumentProperties()->getUserDefinedProperties();
++            xUser->addProperty(u"HSTMergeResult"_ustr, beans::PropertyAttribute::REMOVABLE, uno::Any(true));
++        }
++        uno::Reference<text::XTextDocument> xDocument(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<text::XText> xText = xDocument->getText();
++        uno::Reference<text::XTextCursor> xCursor = xText->createTextCursor();
++        for (int nRecipient = 1; nRecipient <= 3; ++nRecipient)
++        {
++            if (nRecipient > 1)
++            {
++                xText->insertControlCharacter(xCursor, text::ControlCharacter::PARAGRAPH_BREAK, false);
++                uno::Reference<beans::XPropertySet> xParagraph(xCursor, uno::UNO_QUERY_THROW);
++                xParagraph->setPropertyValue(u"PageDescName"_ustr, uno::Any(rPageStyle));
++                xParagraph->setPropertyValue(u"PageNumberOffset"_ustr, uno::Any(sal_Int16(1)));
++            }
++            xText->insertString(xCursor, "Kính gửi người nhận " + OUString::number(nRecipient), false);
++        }
++        calcLayout();
++        return getPages();
++    }
++};
++
++CPPUNIT_TEST_FIXTURE(HstMergeResultPagesTest, testMergeResultHasNoBlankPages)
++{
++    // like Word: one page per recipient, page numbers 1, 1, 1
++    CPPUNIT_ASSERT_EQUAL(3, mergedPages(true, u"Standard"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstMergeResultPagesTest, testOtherDocumentsKeepWriterBlankPages)
++{
++    // without the mark: Writer's rule, page 1 is a right page, so a blank page before recipients 2 and 3
++    CPPUNIT_ASSERT_EQUAL(5, mergedPages(false, u"Standard"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstMergeResultPagesTest, testRightOnlyPageStyleUnchanged)
++{
++    // a right-only page style decides the side in a merge result too: the same pages as without the mark
++    const int nWriter = mergedPages(false, u"Right Page"_ustr);
++    CPPUNIT_ASSERT_EQUAL(nWriter, mergedPages(true, u"Right Page"_ustr));
++    CPPUNIT_ASSERT_EQUAL(5, nWriter);
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git sw/source/core/layout/flowfrm.cxx sw/source/core/layout/flowfrm.cxx
+index 4dd1647..82aafa4 100644
+--- a/sw/source/core/layout/flowfrm.cxx
++++ b/sw/source/core/layout/flowfrm.cxx
+@@ -65,6 +65,7 @@
+ #include <pam.hxx>
+ #include <ndtxt.hxx>
+ #include <flyfrms.hxx>
++#include "hst/hstmergeresultlayout.hxx"
+ 
+ bool SwFlowFrame::s_bMoveBwdJump = false;
+ 
+@@ -1027,7 +1028,8 @@ bool SwFrame::WrongPageDesc( SwPageFrame* pNew )
+     // Does the Content bring a Pagedesc or do we need the
+     // virtual page number of the new layout leaf?
+     // PageDesc isn't allowed with Follows
+-    const bool isRightPage = oTmp ? sw::IsRightPageByNumber(*mpRoot, *oTmp) : pNew->OnRightPage();
++    const bool isRightPage = oTmp && hst::layout::SideByPageNumber(*mpRoot) ? sw::IsRightPageByNumber(*mpRoot, *oTmp)
++                                                                            : pNew->OnRightPage();
+     if ( !pDesc )
+         pDesc = pNew->FindPageDesc();
+ 
+diff --git sw/source/core/layout/laycache.cxx sw/source/core/layout/laycache.cxx
+index 13f1314..07b9c59 100644
+--- a/sw/source/core/layout/laycache.cxx
++++ b/sw/source/core/layout/laycache.cxx
+@@ -40,6 +40,7 @@
+ #include <frmtool.hxx>
+ #include <dflyobj.hxx>
+ #include <dcontact.hxx>
++#include "hst/hstmergeresultlayout.hxx"
+ #include <viewopt.hxx>
+ #include <flyfrm.hxx>
+ #include <sortedobjs.hxx>
+@@ -845,7 +846,8 @@ bool SwLayHelper::CheckInsertPage(
+         bool bNextPageRight = !rpPage->OnRightPage();
+         bool bInsertEmpty = false;
+         assert(rpPage->GetUpper()->GetLower());
+-        if (oPgNum && bNextPageRight != IsRightPageByNumber(
++        if (oPgNum && hst::layout::SideByPageNumber(*static_cast<SwRootFrame*>(rpPage->GetUpper()))
++            && bNextPageRight != IsRightPageByNumber(
+                     *static_cast<SwRootFrame*>(rpPage->GetUpper()), *oPgNum))
+         {
+             bNextPageRight = !bNextPageRight;
+diff --git sw/source/core/layout/pagechg.cxx sw/source/core/layout/pagechg.cxx
+index 8a31f29..5468707 100644
+--- a/sw/source/core/layout/pagechg.cxx
++++ b/sw/source/core/layout/pagechg.cxx
+@@ -70,6 +70,7 @@
+ #include <frmatr.hxx>
+ #include <swfntcch.hxx>
+ #include <vcl/svapp.hxx>
++#include "hst/hstmergeresultlayout.hxx"
+ 
+ using namespace ::com::sun::star;
+ 
+@@ -1594,7 +1595,8 @@ SwPageFrame *SwFrame::InsertPage( SwPageFrame *pPrevPage, bool bFootnote )
+         if ( rDesc.GetNumOffset() )
+         {
+             ::std::optional<sal_uInt16> oNumOffset = rDesc.GetNumOffset();
+-            bWishedRightPage = sw::IsRightPageByNumber(*pRoot, *oNumOffset);
++            if (hst::layout::SideByPageNumber(*pRoot))
++                bWishedRightPage = sw::IsRightPageByNumber(*pRoot, *oNumOffset);
+             // use the opportunity to set the flag at root
+             pRoot->SetVirtPageNum( true );
+         }
+diff --git sw/source/core/layout/trvlfrm.cxx sw/source/core/layout/trvlfrm.cxx
+index 3233de6..beb64cc 100644
+--- a/sw/source/core/layout/trvlfrm.cxx
++++ b/sw/source/core/layout/trvlfrm.cxx
+@@ -55,6 +55,7 @@
+ #include <sectfrm.hxx>
+ 
+ #include <swselectionlist.hxx>
++#include "hst/hstmergeresultlayout.hxx"
+ #include <comphelper/lok.hxx>
+ #include <osl/diagnose.h>
+ 
+@@ -1812,7 +1813,7 @@ bool SwFrame::WannaRightPage() const
+     }
+     OSL_ENSURE( pDesc, "No pagedescriptor" );
+     bool isRightPage;
+-    if( oPgNum )
++    if( oPgNum && hst::layout::SideByPageNumber(*mpRoot) )
+         isRightPage = sw::IsRightPageByNumber(*mpRoot, *oPgNum);
+     else
+     {
+--- /dev/null
++++ b/sw/source/core/layout/hst/hstmergeresultlayout.hxx
+@@ -0,0 +1,27 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++
++class SwRootFrame;
++
++namespace hst::layout
++{
++/// User-defined document property set on the documents HST's mail merge produces ("Trộn thư").
++inline constexpr OUString MERGE_RESULT = u"HSTMergeResult"_ustr;
++
++/** Whether a page that restarts the page numbering is a right or left page by that number (Writer: an odd
++    number is a right page, so a blank page is inserted when it would land on a left page).
++
++    False for a mail-merge result (MERGE_RESULT true): there each recipient restarts at page 1, and like Word
++    the page then keeps its place, so no blank page is inserted between recipients. A page style that is
++    left-only or right-only still decides the side, as before. */
++bool SideByPageNumber(const SwRootFrame& rLayout);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/core/layout/hst/hstmergeresultlayout.cxx
+@@ -0,0 +1,45 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++
++#include "hstmergeresultlayout.hxx"
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/document/XDocumentProperties.hpp>
++
++#include <doc.hxx>
++#include <docsh.hxx>
++#include <frmfmt.hxx>
++#include <rootfrm.hxx>
++
++using namespace css;
++
++namespace hst::layout
++{
++bool SideByPageNumber(const SwRootFrame& rLayout)
++{
++    const SwFrameFormat* pFormat = rLayout.GetFormat();
++    const SwDocShell* pShell = pFormat ? pFormat->GetDoc().GetDocShell() : nullptr;
++    if (!pShell)
++        return true;
++    try
++    {
++        const uno::Reference<document::XDocumentProperties> xProperties = pShell->getDocProperties();
++        const uno::Reference<beans::XPropertySet> xUser(
++            xProperties.is() ? xProperties->getUserDefinedProperties() : nullptr, uno::UNO_QUERY);
++        if (!xUser.is() || !xUser->getPropertySetInfo()->hasPropertyByName(MERGE_RESULT))
++            return true;
++        bool bMergeResult = false;
++        xUser->getPropertyValue(MERGE_RESULT) >>= bMergeResult;
++        return !bMergeResult;
++    }
++    catch (const uno::Exception&)
++    {
++        return true; // properties not readable (document being built or closed): Writer's rule
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

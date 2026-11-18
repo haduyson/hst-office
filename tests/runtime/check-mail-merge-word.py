@@ -22,7 +22,7 @@ import time
 import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import mail_merge_word_samples as samples  # noqa: E402
+import mail_merge_word_pages as pages, mail_merge_word_samples as samples  # noqa: E401,E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 IF_COLUMN = 'IF { MERGEFIELD Giới_tính } = "Nam" "Ông" "Bà"'
@@ -68,8 +68,7 @@ def pdf_text(path):
 def run_checks(ctx, out, expect, list_kind, keep):
     import uno
     from com.sun.star.beans import PropertyValue
-    from hst_office import mail_merge_output as output
-    from hst_office import mail_merge_session as sessions
+    from hst_office import mail_merge_output as output, mail_merge_session as sessions
     prop = lambda name, value: PropertyValue(Name=name, Value=value)  # noqa: E731
     desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
     letter_dir = os.path.join(out, "thu")
@@ -107,6 +106,7 @@ def run_checks(ctx, out, expect, list_kind, keep):
     expect("merge: paragraph after the empty Chức vụ field", lines[lines.index(year) + 1] if year in lines else None,
            word[1][word[1].index(year) + 1])
     merged.storeToURL(uno.systemPathToFileUrl(os.path.join(out, "tron-thu.odt")), (prop("FilterName", "writer8"),))
+    pages.check(merged, out, expect, len(samples.EXPECTED))
     merged.close(True)
 
     pdf_dir = os.path.join(out, "pdf")

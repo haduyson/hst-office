@@ -1,7 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Trộn thư, "Hoàn tất và trộn": the engine (com.sun.star.text.MailMerge) is disposed right after it runs, also
 when it fails, so no engine outlives the merge (one still alive at quit closes its document after Writer is gone)."""
+import os
+import tempfile
 import unittest
+import zipfile
 from unittest import mock
 
 import _paths  # noqa: F401
@@ -60,6 +63,41 @@ class EngineRelease(unittest.TestCase):
         engine = Engine()
         run(engine)
         self.assertFalse([name for name, value in vars(output).items() if value is engine])
+
+
+
+def odt(folder, meta):
+    path = os.path.join(folder, "tron-thu.odt")
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as package:
+        package.writestr(zipfile.ZipInfo("mimetype"), "application/vnd.oasis.opendocument.text")
+        package.writestr("meta.xml", '<office:document-meta xmlns:office="o" xmlns:meta="m">%s'
+                                     '</office:document-meta>' % meta)
+        package.writestr("content.xml", "<office:document-content/>")
+    return path
+
+
+class MergeResultMark(unittest.TestCase):
+    """The merged document is marked before it is opened, so its layout has no blank page between recipients."""
+
+    def test_mark_added_and_package_kept(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = odt(folder, "<office:meta><meta:generator>HST</meta:generator></office:meta>")
+            output.mark_merge_result(path)
+            output.mark_merge_result(path)  # once only
+            with zipfile.ZipFile(path) as package:
+                first = package.infolist()[0]
+                meta = package.read("meta.xml").decode("utf-8")
+                self.assertEqual((first.filename, first.compress_type), ("mimetype", zipfile.ZIP_STORED))
+                self.assertEqual(package.namelist(), ["mimetype", "meta.xml", "content.xml"])
+            self.assertEqual(meta.count(output.META_FIELD), 1)
+            self.assertIn("<meta:generator>HST</meta:generator>" + output.META_FIELD + "</office:meta>", meta)
+
+    def test_empty_meta(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = odt(folder, "<office:meta/>")
+            output.mark_merge_result(path)
+            with zipfile.ZipFile(path) as package:
+                self.assertIn("<office:meta>" + output.META_FIELD + "</office:meta>", package.read("meta.xml").decode())
 
 
 if __name__ == "__main__":
