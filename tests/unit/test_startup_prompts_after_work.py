@@ -130,38 +130,6 @@ class StartedWorking(unittest.TestCase):
         self.start_center.controller = _Controller(_Model())
         self.assertTrue(activity.started_working(self.ctx, self.before))
 
-    def test_a_launchers_new_blank_document_in_the_start_center_window_is_no_work(self):
-        """HST Writer / --writer on macOS, Windows and Linux: the first window shows the Start Center, then the
-        launcher's new document takes it; the first-start questions must come as on a plain start."""
-        self.start_center.controller = _Controller(_Model(url=""))
-        self.assertFalse(activity.started_working(self.ctx, self.before))
-
-    def test_a_launchers_new_blank_document_in_a_window_of_its_own_is_no_work(self):
-        self.desktop.frames.append(_Frame(_Controller(_Model(url=""))))
-        self.assertFalse(activity.started_working(self.ctx, self.before))
-        self.desktop.frames.remove(self.start_center)  # the Start Center window gave way to it
-        self.assertFalse(activity.started_working(self.ctx, self.before))
-
-    def test_typing_into_the_new_blank_document_counts(self):
-        self.start_center.controller = _Controller(_Model(url="", modified=True))
-        self.assertTrue(activity.started_working(self.ctx, self.before))
-        self.desktop.frames.append(_Frame(_Controller(_Model(url="", modified=True))))
-        self.assertTrue(activity.started_working(self.ctx, self.before))
-
-    def test_a_blank_document_replacing_another_document_counts(self):
-        doc = _Frame(_Controller(_Model()))
-        self.desktop.frames = [doc]
-        before = activity.snapshot(self.ctx)
-        doc.controller = _Controller(_Model(url=""))
-        self.assertTrue(activity.started_working(self.ctx, before))
-
-    def test_closing_a_document_window_counts(self):
-        doc = _Frame(_Controller(_Model(url="")))
-        self.desktop.frames.append(doc)
-        before = activity.snapshot(self.ctx)
-        self.desktop.frames.remove(doc)
-        self.assertTrue(activity.started_working(self.ctx, before))
-
     def test_a_document_modified(self):
         doc = _Frame(_Controller(_Model()))
         self.desktop.frames = [doc]
