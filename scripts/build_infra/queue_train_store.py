@@ -108,7 +108,8 @@ class TrainStore:
         """Job ids retention never deletes: builds (and base test runs) an active train still evaluates, the train
         result of every candidate (passed or ejected) and confirmation builds of ejected branches."""
         jobs = {jid for rec in self.trains() if rec["state"] in TRAIN_ACTIVE
-                for jid in [*rec.get("jobs", {}).values(), *rec.get("baseline", {}).values()]}
+                for jid in [*rec.get("jobs", {}).values(), *rec.get("baseline", {}).values(),
+                                *rec.get("reruns", {}).values()]}
         for cand in self.branches().values():
             jobs |= set((cand.get("result") or {}).get("jobs", {}).values()) | set(cand.get("confirm", {}).values())
         return jobs

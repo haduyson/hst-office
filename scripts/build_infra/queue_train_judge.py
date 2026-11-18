@@ -4,8 +4,9 @@ branches, now and the helpers event/release/decide/new_record/next_number/build)
   pass (every build, and every test of the Linux build) -> members passed; cancelled/infra -> members retried without
   blame; the base itself broken -> no blame; failed -> queue_train.decide_failure: blamed members ejected with a
   confirmation build, the others carried to the next train, or a bisect into two half trains that build only the
-  failing platforms. Failing tests are first run on the base commit (one Linux test job, deduplicated across trains):
-  a target that fails there too is reported but never blamed on a branch.
+  failing platforms. Failing tests are run again twice, side by side, before anyone is blamed: on the base commit (one
+  Linux test job, deduplicated across trains; a target failing there too is reported, never blamed) and once more on
+  the train commit (a target that passes the second time is flaky: reported, never blamed or bisected).
 """
 import os
 import re
@@ -47,20 +48,21 @@ class TrainJudge:
                     lines += [ln.rstrip("\n") for ln in f if ASSERT_LINE_RE.search(ln)][:50]
         return "\n".join(lines)
 
-    def base_test_failures(self, rec, targets):
-        """Which of `targets` fail on the base commit too: a set, None while the base run is queued or running,
-        or an error text when the base run could not finish (then nobody is blamed)."""
+    def test_run_failures(self, rec, field, sha, targets, where):
+        """Run `targets` once more at `sha` (field "baseline": the base commit; "reruns": the train commit again, which
+        tells a flaky test from a broken one). Which of them fail there: a set, None while that run is queued or
+        running, or an error text when it could not finish (then nobody is blamed)."""
         key = ",".join(sorted(targets))
-        baseline = rec.setdefault("baseline", {})
-        if key not in baseline:
-            job, _dup = self.core.submit(self.store, "linux", rec["base_sha"], self.cfg["train_priority"],
-                                         package=False, resolver=lambda _ref, s=rec["base_sha"]: s,
-                                         submitter="build-train", internal=True, tests=sorted(targets))
-            baseline[key] = job["id"]
-            self.event(rec, f"tests failed: {', '.join(sorted(targets))}; running them on {rec['base_ref']}@"
-                       f"{rec['base_sha'][:10]} ({job['id']}) before blaming anyone")
+        runs = rec.setdefault(field, {})
+        if key not in runs:
+            job, _dup = self.core.submit(self.store, "linux", sha, self.cfg["train_priority"], package=False,
+                                         resolver=lambda _ref, s=sha: s, submitter="build-train", internal=True,
+                                         tests=sorted(targets))
+            runs[key] = job["id"]
+            self.event(rec, f"tests failed: {', '.join(sorted(targets))}; running them {where} ({job['id']}) before "
+                       "blaming anyone")
         try:
-            job = self.store.load(baseline[key])
+            job = self.store.load(runs[key])
         except QueueError:
             job = None
         tail = self.core.log_tail(job["log"], 80) if job and job["state"] == "failed" else ""
@@ -68,7 +70,7 @@ class TrainJudge:
         if outcome is None:
             return None
         if outcome != "pass":
-            return f"the base test run {baseline[key]} did not finish ({outcome})"
+            return f"the test run {runs[key]} {where} did not finish ({outcome})"
         return set(failed_tests(job))
 
     def evaluate(self, rec):
@@ -89,22 +91,32 @@ class TrainJudge:
                 tested[platform] = failed_tests(job)
         test_fails = {}
         if tested:
-            on_base = self.base_test_failures(rec, sorted({t for ts in tested.values() for t in ts}))
-            if on_base is None:
-                return   # the base run of the failing targets is still building
-            if isinstance(on_base, str):
+            # Both runs of the failing targets build side by side: on the base (fails there too: not this train's
+            # fault) and once more on the train commit (passes the second time: flaky, not blamed).
+            failing = sorted({t for ts in tested.values() for t in ts})
+            on_base = self.test_run_failures(rec, "baseline", rec["base_sha"], failing,
+                                             f"on {rec['base_ref']}@{rec['base_sha'][:10]}")
+            again = self.test_run_failures(rec, "reruns", rec["sha"], failing, f"again on {rec['name']}")
+            broken = next((r for r in (on_base, again) if isinstance(r, str)), None)
+            if broken is None and (on_base is None or again is None):
+                return   # a run of the failing targets is still building
+            if broken:
                 rec.update(state="error", results=outcomes)
-                self.event(rec, f"tests failed but {on_base}; members retried without blame")
+                self.event(rec, f"tests failed but {broken}; members retried without blame")
                 for m in rec["members"]:
-                    self.release(m["branch"], f"{rec['name']}: {on_base}", owner=rec["name"], count=True)
+                    self.release(m["branch"], f"{rec['name']}: {broken}", owner=rec["name"], count=True)
                 return
+            flaky = [t for t in failing if t not in on_base and t not in again]
+            if flaky:
+                rec["flaky_tests"] = flaky
+                self.event(rec, "passed when run again (flaky), not blamed: " + ", ".join(flaky))
             excused = sorted({t for ts in tested.values() for t in ts} & on_base)
             if excused:
                 rec["base_test_failures"] = excused
                 self.event(rec, f"also failing on {rec['base_ref']}@{rec['base_sha'][:10]}, not blamed: "
                            + ", ".join(excused))
             for platform, targets in tested.items():
-                real = [t for t in targets if t not in on_base]
+                real = [t for t in targets if t not in on_base and t in again]
                 if real:
                     outcomes[platform], test_fails[platform] = "fail", real
         rec["results"] = outcomes
@@ -127,6 +139,8 @@ class TrainJudge:
             tested_text = f"; {ntests - excused} of {ntests} tests passed" if ntests else "; build only, no tests ran"
             if excused:
                 tested_text += f" ({excused} failing on the base too, not counted)"
+            if rec.get("flaky_tests"):
+                tested_text += f" ({len(rec['flaky_tests'])} passed only when run again: {', '.join(rec['flaky_tests'])})"
             for m in members:
                 self.decide(m["branch"], "passed", f"passed in {rec['name']}{where} at {rec['sha'][:10]}{tested_text}",
                             owner=rec["name"], result={"train": rec["name"], "sha": rec["sha"], "jobs": result_jobs})

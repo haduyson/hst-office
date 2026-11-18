@@ -18,10 +18,14 @@ class TrainTestSetTest(TrainFlowCase):
         super().setUp()
         self.cfg["train_tests"] = [SMOKE]
 
-    def baseline(self, n):
+    def baseline(self, n, field="baseline"):
+        """The run of the failing targets on the base ("baseline") or again on the train commit ("reruns")."""
         rec = self.train(n)
-        self.assertEqual(len(rec.get("baseline", {})), 1, rec.get("events"))
-        return self.store.load(next(iter(rec["baseline"].values())))
+        self.assertEqual(len(rec.get(field, {})), 1, rec.get("events"))
+        return self.store.load(next(iter(rec[field].values())))
+
+    def rerun(self, n):
+        return self.baseline(n, "reruns")
 
     def test_linux_build_runs_the_fixed_and_declared_tests_and_still_packages(self):
         self.world.member("fix/a", "hst-a.patch", "sw/a.cxx")
@@ -61,7 +65,10 @@ class TrainTestSetTest(TrainFlowCase):
         self.assertEqual((base["sha"], base["tests"], base["package"]), (rec["base_sha"], [SMOKE], False))
         self.step()
         self.assertEqual(self.baseline(1)["id"], base["id"])   # submitted once
+        rerun = self.rerun(1)
+        self.assertEqual((rerun["sha"], rerun["tests"], rerun["package"]), (rec["sha"], [SMOKE], False))
         self.finish(base["id"], failing={SMOKE: "sw/qa/x.cxx:1:Assertion\n"})
+        self.finish(rerun["id"], failing={SMOKE: "sw/qa/x.cxx:1:Assertion\n"})
         self.step()
         rec = self.train(1)
         self.assertEqual((rec["state"], rec["base_test_failures"]), ("passed", [SMOKE]))
@@ -78,6 +85,7 @@ class TrainTestSetTest(TrainFlowCase):
         self.finish(self.train(1)["jobs"]["linux"], failing={SMOKE: log})
         self.step()
         self.finish(self.baseline(1)["id"])   # passes on the base: the train broke it
+        self.finish(self.rerun(1)["id"], failing={SMOKE: log})   # and fails again: not flaky
         self.step()
         rec = self.train(1)
         self.assertEqual((rec["state"], rec["attribution"]["method"], rec["attribution"]["blamed"]),
@@ -97,6 +105,7 @@ class TrainTestSetTest(TrainFlowCase):
         self.step()
         base = self.baseline(1)
         self.finish(base["id"])
+        self.finish(self.rerun(1)["id"], failing={SMOKE: "equality failed\n"})
         self.step()
         self.assertEqual(self.train(1)["state"], "bisecting")
         for n in (2, 3):
@@ -105,8 +114,32 @@ class TrainTestSetTest(TrainFlowCase):
         self.finish(self.train(3)["jobs"]["linux"], failing={SMOKE: "equality failed\n"})
         self.step()
         self.assertEqual(self.baseline(3)["id"], base["id"])   # the base run is shared
+        self.finish(self.rerun(3)["id"], failing={SMOKE: "equality failed\n"})
+        self.step()
         self.assertEqual((self.cand("fix/a")["state"], self.cand("fix/b")["state"]), ("passed", "ejected"))
         self.assertEqual(self.train(3)["attribution"]["method"], "single")
+
+    def test_a_test_that_passes_when_run_again_is_flaky_and_never_blamed_or_bisected(self):
+        self.world.member("fix/a", "hst-a.patch", "sw/qa/core/a.cxx")
+        self.world.member("fix/b", "hst-b.patch", "sw/b.cxx")
+        self.add("fix/a", "fix/b", platform="linux")
+        ops.start(self.store)
+        self.step()
+        log = "/data/hst-office-build/src/lo/sw/qa/core/a.cxx:42:Assertion\n"
+        self.finish(self.train(1)["jobs"]["linux"], failing={SMOKE: log})
+        self.step()
+        self.assertEqual(self.train(1)["state"], "building")   # both runs of the failing target are queued
+        self.finish(self.baseline(1)["id"])
+        self.step()
+        self.assertEqual(self.train(1)["state"], "building")   # the base passed; the rerun is still running
+        self.assertIn(self.rerun(1)["id"], self.ts.protected_jobs())   # retention keeps it while the train decides
+        self.finish(self.rerun(1)["id"])                        # passes the second time
+        self.step()
+        rec = self.train(1)
+        self.assertEqual((rec["state"], rec["flaky_tests"]), ("passed", [SMOKE]))
+        self.assertNotIn("attribution", rec)
+        self.assertEqual(len(self.ts.trains()), 1)              # no bisect halves
+        self.assertIn(f"1 passed only when run again: {SMOKE}", self.cand("fix/a")["note"])
 
     def test_a_base_run_that_cannot_finish_blames_nobody(self):
         self.world.member("fix/a", "hst-a.patch", "sw/a.cxx")

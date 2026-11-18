@@ -66,6 +66,8 @@ def print_train(store, rec, out):
         print(f"    tests    {len(rec['tests'])}: {' '.join(rec['tests'])}", file=out)
     for platform, targets in sorted(rec.get("test_failures", {}).items()):
         print(f"    failing  {platform}: {', '.join(targets)}", file=out)
+    if rec.get("flaky_tests"):
+        print(f"    flaky    passed when run again, not blamed: {', '.join(rec['flaky_tests'])}", file=out)
     if rec.get("base_test_failures"):
         print(f"    on base  also failing on {rec['base_ref']}, not blamed: {', '.join(rec['base_test_failures'])}",
               file=out)
