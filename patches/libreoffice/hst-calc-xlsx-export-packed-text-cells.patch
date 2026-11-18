@@ -1,0 +1,277 @@
+Calc: the .xlsx export keeps plain text cells as packed runs of their row (8 bytes per cell instead of a record).
+
+The export created one XclExpLabelCell record per text cell and held them all until the sheet was written. For a
+50 MB workbook with 5.3 million text cells that was about 480 MB at the peak of saving (with the record slots in
+the rows), on top of the loaded document. For .xlsx a finished text cell needs only its shared string index and
+its cell format identifier: that is all XclExpLabelCell::SaveXml writes.
+
+Each text cell is still created as an XclExpLabelCell, so the string table, fonts and cell formats are registered
+as before and in the same order; the finished record is then replaced by a run entry, and adjacent entries of a
+row merge through the existing TryMerge hook. The run writes, cell by cell, exactly the elements and attributes of
+XclExpLabelCell::SaveXml. The row finalisation treats a run as non-blank cells, like the single text cells, so the
+default row format, the blank cells and the dimensions are unchanged. Not used for the binary formats, for the
+base cell of a merged range or for formatted (edit) text.
+New logic in sc/source/filter/inc/hstxlsxpackedlabels.hxx; hooks: 7 lines in xetable.cxx and xetable.hxx.
+The environment variable HST_SC_XLSX_PACKED_LABELS_OFF keeps one record per text cell (used by the test to compare
+both paths).
+
+License: modified upstream files keep their license (MPL-2.0); the new file is LicenseRef-HST-Proprietary.
+Test: CppunitTest_sc_subsequent_export_test6 testXlsxPackedTextCellsWriteTheSameSheet saves one document on both
+paths (runs interrupted by numbers, a formula, an edit cell and a formatted blank cell, bold text, multi-line text,
+a merged range, a hidden row, a long row) and compares sheet1.xml, sharedStrings.xml, styles.xml and workbook.xml;
+the whole sc export suites (subsequent_export_test1..6) run on the new path; the large fixtures are saved on both
+paths and compared part by part.
+---
+--- a/sc/qa/unit/subsequent_export_test6.cxx
++++ b/sc/qa/unit/subsequent_export_test6.cxx
+@@ -10,6 +10,14 @@
+ #include "helper/qahelper.hxx"
+ 
+ #include <dbdata.hxx>
++#include <editutil.hxx>
++#include <patattr.hxx>
++#include <editeng/editobj.hxx>
++#include <editeng/eeitem.hxx>
++#include <editeng/wghtitem.hxx>
++#include <osl/process.h>
++#include <array>
++#include <vector>
+ #include <docsh.hxx>
+ #include <formulacell.hxx>
+ #include <tablestyle.hxx>
+@@ -270,6 +278,85 @@ CPPUNIT_TEST_FIXTURE(ScExportTest6, testPivotTablesWriteRowColumnItems)
+     assertXPath(pTable, "/x:pivotTableDefinition/x:colItems/x:i[3]", "r", u"2");
+ }
+ 
++namespace
++{
++/// The parsed part of the last export, serialized again: equal strings mean equal XML content.
++OString dumpExportedPart(xmlDocUniquePtr const& pDoc)
++{
++    CPPUNIT_ASSERT(pDoc);
++    xmlChar* pBuf = nullptr;
++    int nSize = 0;
++    xmlDocDumpMemory(pDoc.get(), &pBuf, &nSize);
++    OString aDump(reinterpret_cast<const char*>(pBuf), nSize);
++    xmlFree(pBuf);
++    return aDump;
++}
++}
++
++CPPUNIT_TEST_FIXTURE(ScExportTest6, testXlsxPackedTextCellsWriteTheSameSheet)
++{
++    // The .xlsx export keeps plain text cells as packed runs of their row. The sheet, the shared strings and the
++    // styles must be the same as with one record per text cell (the environment variable selects that path).
++    createScDoc();
++    ScDocument* pDoc = getScDoc();
++    // runs of text, interrupted by a number, a formula, a blank formatted cell and an edit cell
++    for (SCCOL nCol = 0; nCol < 5; ++nCol)
++        pDoc->SetString(ScAddress(nCol, 0, 0), u"Hàng "_ustr + OUString::number(nCol % 3));
++    pDoc->SetValue(ScAddress(5, 0, 0), 1.25);
++    pDoc->SetString(ScAddress(6, 0, 0), u"sau số"_ustr);
++    pDoc->SetString(ScAddress(7, 0, 0), u"=\"công\"&\"thức\""_ustr);
++    pDoc->SetString(ScAddress(8, 0, 0), u"Hàng 0"_ustr);
++    // formatted text cells next to each other and a formatted blank cell between two runs
++    ScPatternAttr aBold(pDoc->getCellAttributeHelper());
++    aBold.GetItemSet().Put(SvxWeightItem(WEIGHT_BOLD, ATTR_FONT_WEIGHT));
++    pDoc->ApplyPatternAreaTab(1, 1, 2, 3, 0, aBold);
++    for (SCROW nRow = 1; nRow <= 3; ++nRow)
++        for (SCCOL nCol = 0; nCol < 4; ++nCol)
++            if (!(nRow == 2 && nCol == 2))
++                pDoc->SetString(ScAddress(nCol, nRow, 0), u"Ô "_ustr + OUString::number(nRow * 10 + nCol));
++    // multi-line text, a merged range whose base holds text, a hidden row with text
++    pDoc->SetString(ScAddress(0, 5, 0), u"dòng 1\ndòng 2"_ustr);
++    pDoc->SetString(ScAddress(1, 5, 0), u"cạnh"_ustr);
++    pDoc->SetString(ScAddress(2, 6, 0), u"gộp"_ustr);
++    pDoc->DoMerge(2, 6, 3, 7, 0);
++    pDoc->SetString(ScAddress(4, 6, 0), u"sau ô gộp"_ustr);
++    pDoc->SetString(ScAddress(0, 9, 0), u"ẩn"_ustr);
++    pDoc->SetString(ScAddress(1, 9, 0), u"ẩn 2"_ustr);
++    pDoc->SetRowHidden(9, 9, 0, true);
++    // a formatted edit cell inside a run
++    pDoc->SetString(ScAddress(0, 11, 0), u"trước"_ustr);
++    ScFieldEditEngine& rEE = pDoc->GetEditEngine();
++    rEE.SetTextCurrentDefaults(u"đậm nhạt"_ustr);
++    SfxItemSet aSet(rEE.GetEmptyItemSet());
++    aSet.Put(SvxWeightItem(WEIGHT_BOLD, EE_CHAR_WEIGHT));
++    rEE.QuickSetAttribs(aSet, ESelection(0, 0, 0, 3));
++    pDoc->SetEditText(ScAddress(1, 11, 0), rEE.CreateTextObject());
++    pDoc->SetString(ScAddress(2, 11, 0), u"sau"_ustr);
++    // a long row of text far to the right
++    for (SCCOL nCol = 100; nCol < 140; ++nCol)
++        pDoc->SetString(ScAddress(nCol, 12, 0), u"x"_ustr + OUString::number(nCol));
++
++    static constexpr std::array<OUString, 4> aParts{ u"xl/worksheets/sheet1.xml"_ustr,
++                                                     u"xl/sharedStrings.xml"_ustr, u"xl/styles.xml"_ustr,
++                                                     u"xl/workbook.xml"_ustr };
++    osl_setEnvironment(u"HST_SC_XLSX_PACKED_LABELS_OFF"_ustr.pData, u"1"_ustr.pData);
++    save(TestFilter::XLSX);
++    std::vector<OString> aOld;
++    for (const OUString& rPart : aParts)
++        aOld.push_back(dumpExportedPart(parseExport(rPart)));
++    osl_clearEnvironment(u"HST_SC_XLSX_PACKED_LABELS_OFF"_ustr.pData);
++
++    save(TestFilter::XLSX);
++    for (size_t i = 0; i < aParts.size(); ++i)
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aParts[i].toUtf8().getStr(), aOld[i],
++                                     dumpExportedPart(parseExport(aParts[i])));
++
++    // the packed runs are really written: one <c t="s"> per text cell, with its shared string index
++    xmlDocUniquePtr pSheet = parseExport(u"xl/worksheets/sheet1.xml"_ustr);
++    assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[1]/x:c[@t='s']", 7);
++    assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[@r='13']/x:c[@t='s']", 40);
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/filter/excel/xetable.cxx
++++ b/sc/source/filter/excel/xetable.cxx
+@@ -50,6 +50,7 @@
+ #include <comphelper/threadpool.hxx>
+ #include <oox/token/tokens.hxx>
+ #include <oox/export/utils.hxx>
++#include <hstxlsxpackedlabels.hxx>
+ 
+ using namespace ::oox;
+ 
+@@ -2701,6 +2702,8 @@ XclExpCellTable::XclExpCellTable( const XclExpRoot& rRoot ) :
+     const std::vector< OUString > aHstValueFunctions = GetDocShell()
+         ? sfx2::GetHstValueFunctions( *GetDocShell() ) : std::vector< OUString >();
+ 
++    const bool bHstPackLabels = HstXlsxPackedLabels::IsEnabled( GetRoot() ); // HST Office
++
+     for( bool bIt = aIt.GetNext(); bIt; bIt = aIt.GetNext() )
+     {
+         SCCOL nScCol = aIt.GetStartCol();
+@@ -2831,6 +2834,10 @@ XclExpCellTable::XclExpCellTable( const XclExpRoot& rRoot ) :
+ 
+         assert(xCell && "can only reach here with xCell set");
+ 
++        // HST Office: keep a plain text cell of an .xlsx as 8 bytes in a run of its row
++        if( bHstPackLabels && !bIsMergedBase && rScCell.getType() == CELLTYPE_STRING )
++            xCell = new HstXlsxPackedLabels( static_cast< const XclExpLabelCell& >( *xCell ) );
++
+         // insert the cell into the current row
+         maRowBfr.AppendCell( xCell, bIsMergedBase );
+ 
+--- /dev/null
++++ b/sc/source/filter/inc/hstxlsxpackedlabels.hxx
+@@ -0,0 +1,106 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HST Office.
++ */
++
++#pragma once
++
++#include <cstdlib>
++#include <vector>
++
++#include <oox/token/tokens.hxx>
++#include <osl/diagnose.h>
++#include <sax/fshelper.hxx>
++
++#include "xestream.hxx"
++#include "xestyle.hxx"
++#include "xetable.hxx"
++#include "xltable.hxx"
++
++/** A run of text cells of one row, side by side, as the .xlsx export keeps them until it writes the sheet.
++
++    The export created one XclExpLabelCell record per text cell (about 90 bytes on the heap with its slot in the
++    row) and held all of them until the sheet was written: 5.3 million text cells took about 480 MB at the peak of
++    saving a 50 MB workbook. For .xlsx such a finished cell needs only its shared string index and its cell format
++    identifier (XclExpLabelCell::SaveXml writes nothing else), so the cells of a run are kept as 8 bytes each.
++
++    Each text cell is still created as an XclExpLabelCell first, so the string table, the fonts and the cell formats
++    are registered exactly as before and in the same order; only the finished record is replaced. SaveXml writes
++    the same elements and attributes as XclExpLabelCell::SaveXml, cell by cell. Not used for the binary formats,
++    for the base cell of a merged range (the row reads IsMultiLineText for it) or for formatted (edit) text. The
++    row's finalisation sees these runs as non-blank cells, as it saw the single text cells, so the default row
++    format, the blank cells and the dimensions are computed as before.
++
++    The environment variable HST_SC_XLSX_PACKED_LABELS_OFF keeps one record per text cell (used by a test to
++    compare both paths). */
++class HstXlsxPackedLabels final : public XclExpCellBase
++{
++public:
++    /** True when the text cells of an .xlsx export are packed into runs. */
++    static bool IsEnabled(const XclExpRoot& rRoot)
++    {
++        return rRoot.GetOutput() != EXC_OUTPUT_BINARY && !std::getenv("HST_SC_XLSX_PACKED_LABELS_OFF");
++    }
++
++    explicit HstXlsxPackedLabels(const XclExpLabelCell& rCell)
++        : XclExpCellBase(EXC_ID_LABELSST, 0, rCell.GetXclPos())
++    {
++        maEntries.push_back({ rCell.GetFirstXFId(), rCell.GetSstIndex() });
++    }
++
++    virtual sal_uInt16 GetLastXclCol() const override
++    {
++        return static_cast<sal_uInt16>(GetXclCol() + maEntries.size() - 1);
++    }
++    virtual sal_uInt32 GetFirstXFId() const override { return maEntries.front().mnXFId; }
++    virtual bool IsEmpty() const override { return false; }
++
++    /** Takes over a run that starts right after this one in the same row. */
++    virtual bool TryMerge(const XclExpCellBase& rCell) override
++    {
++        const HstXlsxPackedLabels* pRun = dynamic_cast<const HstXlsxPackedLabels*>(&rCell);
++        if (!pRun || pRun->GetXclRow() != GetXclRow() || pRun->GetXclCol() != GetLastXclCol() + 1)
++            return false;
++        maEntries.insert(maEntries.end(), pRun->maEntries.begin(), pRun->maEntries.end());
++        return true;
++    }
++
++    /** Nothing to convert: SaveXml looks the cell format index up from the identifier, as the single cells do. */
++    virtual void ConvertXFIndexes(const XclExpRoot&) override {}
++
++    virtual void Save(XclExpStream&) override
++    {
++        OSL_FAIL("HstXlsxPackedLabels::Save - text cells are packed for .xlsx only");
++    }
++
++    virtual void SaveXml(XclExpXmlStream& rStrm) override
++    {
++        sax_fastparser::FSHelperPtr& rWorksheet = rStrm.GetCurrentStream();
++        const XclExpXFBuffer& rXFBuffer = rStrm.GetRoot().GetXFBuffer();
++        XclAddress aPos(GetXclPos());
++        for (const Entry& rEntry : maEntries)
++        {
++            const sal_uInt16 nXFIndex = rXFBuffer.GetXFIndex(rEntry.mnXFId);
++            rWorksheet->startElement(::oox::XML_c,
++                ::oox::XML_r, XclXmlUtils::ToOString(rStrm.GetRoot().GetStringBuf(), aPos).getStr(),
++                ::oox::XML_s, OString::number(rXFBuffer.GetXmlCellIndex(nXFIndex)),
++                ::oox::XML_t, "s");
++            rWorksheet->startElement(::oox::XML_v);
++            rWorksheet->write(static_cast<sal_Int32>(rEntry.mnSstIndex));
++            rWorksheet->endElement(::oox::XML_v);
++            rWorksheet->endElement(::oox::XML_c);
++            ++aPos.mnCol;
++        }
++    }
++
++private:
++    struct Entry
++    {
++        sal_uInt32 mnXFId;
++        sal_uInt32 mnSstIndex;
++    };
++    std::vector<Entry> maEntries;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/filter/inc/xetable.hxx
++++ b/sc/source/filter/inc/xetable.hxx
+@@ -408,6 +408,8 @@ public:
+ 
+     /** Returns true if the cell contains multi-line text. */
+     virtual bool        IsMultiLineText() const override;
++    /** HST Office: index into the Shared String Table (BIFF8 and .xlsx). */
++    sal_uInt32          GetSstIndex() const { return mnSstIndex; }
+ 
+     virtual void        SaveXml( XclExpXmlStream& rStrm ) override;
+ private:
