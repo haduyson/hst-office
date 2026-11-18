@@ -490,10 +490,10 @@ index 0000000..6f8bdab
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/qa/cppunit/test_hst_mtef5.cxx b/starmath/qa/cppunit/test_hst_mtef5.cxx
 new file mode 100644
-index 0000000..ebcaff4
+index 0000000..83280d8
 --- /dev/null
 +++ b/starmath/qa/cppunit/test_hst_mtef5.cxx
-@@ -0,0 +1,352 @@
+@@ -0,0 +1,363 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -807,6 +807,17 @@ index 0000000..ebcaff4
 +        AssertStarMath(u"{sum {k}}",
 +                       StreamBuilder().Line().Template(16, 0).Line().Char(VARIABLE, 'k').End()
 +                           .NullLine().NullLine().End().End().End());
++        // big union and intersection are written with "oper"
++        AssertStarMath(u"{oper \u22C3 from {i} to {n} {A}}",
++                       StreamBuilder().Line().Template(19, 0).Line().Char(VARIABLE, 'A').End()
++                           .Line().Char(VARIABLE, 'i').End().Line().Char(VARIABLE, 'n').End()
++                           .End().End().End());
++        AssertStarMath(u"{oper \u22C2 {B}}",
++                       StreamBuilder().Line().Template(20, 0).Line().Char(VARIABLE, 'B').End()
++                           .NullLine().NullLine().End().End().End());
++        // a lone big-intersection character is quoted
++        AssertStarMath(u"\"\u22C2\" x",
++                       StreamBuilder().Line().Char(SYMBOL, 0x22C2).Char(VARIABLE, 'x').End().End());
 +        // operator given by the fourth slot
 +        AssertStarMath(u"{{T} csub {n} {x}}",
 +                       StreamBuilder().Line().Template(22, 0x40 | 0x10).Line().Char(VARIABLE, 'x')
@@ -2920,10 +2931,10 @@ index 0000000..e57883b
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/source/hst/mtef5symbols.cxx b/starmath/source/hst/mtef5symbols.cxx
 new file mode 100644
-index 0000000..a0034ac
+index 0000000..bccb306
 --- /dev/null
 +++ b/starmath/source/hst/mtef5symbols.cxx
-@@ -0,0 +1,402 @@
+@@ -0,0 +1,401 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2949,7 +2960,8 @@ index 0000000..a0034ac
 +};
 +
 +// Characters with a StarMath name or operator, and characters written as themselves. Every
-+// other printable character is quoted ("%" too: "%%" would start a StarMath comment).
++// other printable character is quoted ("%" too: "%%" would start a StarMath comment; and the
++// big union and intersection characters, which have no StarMath keyword).
 +constexpr SymbolEntry aSymbols[] = {
 +    { u'+', u"+" },
 +    { u'-', u"-" },
@@ -3039,8 +3051,6 @@ index 0000000..a0034ac
 +    { 0x2295, u"oplus" },
 +    { 0x2297, u"otimes" },
 +    { 0x22A5, u"ortho" },
-+    { 0x22C2, u"Intersection" },
-+    { 0x22C3, u"Union" },
 +    { 0x22C5, u"cdot" },
 +    { 0x22EE, u"dotsvert" },
 +    { 0x22EF, u"dotsaxis" },
@@ -3078,7 +3088,7 @@ index 0000000..a0034ac
 +};
 +
 +constexpr std::u16string_view aPrefixes[]
-+    = { u"+", u"-", u"+-", u"-+", u"neg", u"sum", u"prod", u"int", u"Union", u"Intersection" };
++    = { u"+", u"-", u"+-", u"-+", u"neg", u"sum", u"prod", u"int" };
 +
 +constexpr std::u16string_view aBareFunctions[] = {
 +    u"sin",    u"cos",    u"tan",    u"cot",    u"sinh",   u"cosh",   u"tanh",
@@ -3416,10 +3426,10 @@ index 0000000..2294cc8
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/source/hst/mtef5templates.cxx b/starmath/source/hst/mtef5templates.cxx
 new file mode 100644
-index 0000000..5cd7cfa
+index 0000000..57046c5
 --- /dev/null
 +++ b/starmath/source/hst/mtef5templates.cxx
-@@ -0,0 +1,255 @@
+@@ -0,0 +1,257 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -3529,10 +3539,12 @@ index 0000000..5cd7cfa
 +            return u"prod";
 +        case SEL_COPRODUCT:
 +            return u"coprod";
++        // StarMath has no big union or intersection keyword: "oper" takes the next
++        // character as the operator.
 +        case SEL_UNION:
-+            return u"Union";
++            return u"oper \u22C3";
 +        default:
-+            return u"Intersection";
++            return u"oper \u22C2";
 +    }
 +}
 +}
