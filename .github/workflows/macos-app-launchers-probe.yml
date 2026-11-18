@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 name: macOS app launchers probe
-# HST Writer, HST Sheets and HST Slides (HST Office.app/Contents/Helpers): each launcher opens HST Office in its own
-# module, from a stopped office and into a running one, "Thêm vào Dock" pins all three, HST Base is offered nowhere
-# but an .odb still opens. Needs a desktop-macos
-# build that contains the launchers (scripts/macos/make-app-launchers.py); the signed dmg is used when that run has one.
+# HST Writer, HST Sheets, HST Slides, HST Draw and HST PDF (HST Office.app/Contents/Helpers, copied to /Applications at
+# the first start): no copy from the .dmg, the one-time notice, no duplicate after a second start or an update, each
+# launcher opens its module from a stopped office and into a running one, removal and re-adding from the options, the
+# Trash offer when HST Office is gone, "Thêm vào Dock", and HST Base offered nowhere while an .odb still opens. Needs a
+# desktop-macos build that contains the launchers (scripts/macos/make-app-launchers.py); the signed dmg is used when
+# that run has one (Gatekeeper checks of the copies run only then).
 on:
   workflow_dispatch:
     inputs:
@@ -19,7 +21,7 @@ concurrency:
 jobs:
   probe:
     runs-on: macos-15
-    timeout-minutes: 45
+    timeout-minutes: 75
     permissions:
       contents: read
       actions: read

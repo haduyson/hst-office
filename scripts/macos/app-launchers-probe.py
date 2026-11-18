@@ -4,7 +4,14 @@
   app-launchers-probe.py seed <profile>                  (system python, stdlib) the default profile of the probe:
                                                           no welcome or default-apps question, UNO acceptor on a pipe
   app-launchers-probe.py wait <kinds> [--timeout S]      (bundled python, uno) until the open documents are exactly
-                                                          <kinds> (comma list of writer, calc, impress), one each
+                                                          <kinds> (comma list of writer, calc, impress, draw, base),
+                                                          one each
+  app-launchers-probe.py title <text> [--timeout S]      (bundled python, uno) until a frame's title contains <text>
+                                                          (HST PDF shows a PDF in a viewer frame, not a document model)
+  app-launchers-probe.py window <title> [--timeout S]    (bundled python, uno) until a visible top window has that title
+  app-launchers-probe.py icons remove|add <python dir>   (bundled python, uno) the options buttons "Gỡ biểu tượng ứng
+                                                          dụng" / "Thêm lại biểu tượng ứng dụng" of hst_office in
+                                                          <python dir>, every question answered with its first button
   app-launchers-probe.py frames                          (bundled python, uno) list frames and top windows (quit diagnostics)
   app-launchers-probe.py template true|false            (bundled python, uno) Impress's template dialog on or off
   app-launchers-probe.py window-gone <title>             (bundled python, uno) no visible top window of that title
@@ -22,7 +29,8 @@ from pathlib import Path
 
 PIPE = "hst-launcher-probe"
 KINDS = {"writer": "com.sun.star.text.TextDocument", "calc": "com.sun.star.sheet.SpreadsheetDocument",
-         "impress": "com.sun.star.presentation.PresentationDocument", "base": "com.sun.star.sdb.OfficeDatabaseDocument"}
+         "impress": "com.sun.star.presentation.PresentationDocument", "base": "com.sun.star.sdb.OfficeDatabaseDocument",
+         "draw": "com.sun.star.drawing.DrawingDocument"}
 SEED = (("/org.hasontech.hstoffice.Welcome", "Shown", "true"),
         ("/org.hasontech.hstoffice.DefaultApps", "Done", "true"),
         ("/org.openoffice.Office.Common/Misc", "ShowTipOfTheDay", "false"),
@@ -114,74 +122,24 @@ def wait(expected, timeout):
     return 1
 
 
-def frames():
-    """Diagnostic: title and document kind of each frame of the desktop (what a quit has to close)."""
-    desktop = connect(20)
-    rows = []
-    for index in range(desktop.Frames.getCount()):
-        frame = desktop.Frames.getByIndex(index)
-        controller = frame.getController()
-        model = controller.getModel() if controller is not None else None
-        kind = kinds_of([model]) if model is not None else {}
-        rows.append({"title": frame.Title, "kind": next(iter(kind), "none"),
-                     "modified": bool(model.isModified()) if model is not None and hasattr(model, "isModified")
-                     else None})
-    ctx = context(20)
-    toolkit = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-    windows = []
-    for index in range(toolkit.getTopWindowCount()):
-        window = toolkit.getTopWindow(index)
-        accessible = window.getAccessibleContext() if hasattr(window, "getAccessibleContext") else None
-        title = getattr(window, "Title", None) or (accessible.getAccessibleName() if accessible else "")
-        windows.append({"title": title, "visible": bool(window.isVisible()) if hasattr(window, "isVisible") else None,
-                        "role": accessible.getAccessibleRole() if accessible else None})
-    print(json.dumps({"frames": rows, "top_windows": windows}, ensure_ascii=False))
-    return 0
-
-
-def template(enabled):
-    """Impress's template dialog with every new presentation (Options ▸ Impress ▸ General), read when Impress loads."""
-    import uno
-    ctx = context(30)
-    arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
-    arg.Name, arg.Value = "nodepath", "/org.openoffice.Office.Impress/Misc/NewDoc"
-    node = ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)\
-        .createInstanceWithArguments("com.sun.star.configuration.ConfigurationUpdateAccess", (arg,))
-    node.setPropertyValue("AutoPilot", enabled)
-    node.commitChanges()
-    return 0
-
-
-def window_gone(title):
-    """0 when no visible top window of the office has this title."""
-    ctx = context(30)
-    toolkit = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx)
-    for index in range(toolkit.getTopWindowCount()):
-        window = toolkit.getTopWindow(index)
-        if getattr(window, "Title", "") == title and window.isVisible():
-            return 1
-    return 0
-
-
-def no_base_menu():
-    import uno
-    ctx = context(30)
-    arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
-    arg.Name, arg.Value = "nodepath", "/org.openoffice.Office.Common/Menus/New"
-    node = ctx.ServiceManager.createInstanceWithContext("com.sun.star.configuration.ConfigurationProvider", ctx)\
-        .createInstanceWithArguments("com.sun.star.configuration.ConfigurationAccess", (arg,))
-    urls = [node.getByName(name).getPropertyValue("URL") for name in node.getElementNames()]
-    print(json.dumps(urls))
-    return 1 if any("sdatabase" in url for url in urls) or not any("swriter" in url for url in urls) else 0
-
-
 def main(argv):
+    if argv[:1] and argv[0] not in ("seed", "wait"):  # the other commands: app_launchers_probe_office.py beside this file
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import app_launchers_probe_office as office
+        title, window, icons, frames, template, window_gone, no_base_menu = (
+            office.title, office.window, office.icons, office.frames, office.template, office.window_gone,
+            office.no_base_menu)
     if len(argv) >= 2 and argv[0] == "seed":
         seed(argv[1])
         return 0
     if len(argv) >= 2 and argv[0] == "wait":
         timeout = int(argv[3]) if len(argv) >= 4 and argv[2] == "--timeout" else 120
         return wait(argv[1], timeout)
+    if len(argv) >= 2 and argv[0] in ("title", "window"):
+        timeout = int(argv[3]) if len(argv) >= 4 and argv[2] == "--timeout" else 60
+        return (title if argv[0] == "title" else window)(argv[1], timeout)
+    if len(argv) >= 3 and argv[0] == "icons" and argv[1] in ("remove", "add"):
+        return icons(argv[1], argv[2])
     if argv[:1] == ["frames"]:
         return frames()
     if len(argv) >= 2 and argv[0] == "template" and argv[1] in ("true", "false"):

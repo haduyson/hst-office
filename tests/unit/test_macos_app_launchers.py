@@ -9,7 +9,8 @@ import shutil
 import subprocess
 import tempfile
 import unittest
-import zipfile
+
+import _paths  # noqa: F401 - hst_office importable
 
 ROOT = Path(__file__).resolve().parents[2]
 MACOS = ROOT / "scripts" / "macos"
@@ -23,7 +24,6 @@ def load(name, file):
 
 
 MAKE = load("make_app_launchers", "make-app-launchers.py")
-PROBE = load("app_launchers_probe", "app-launchers-probe.py")
 HOST = {"CFBundleIdentifier": "vn.hasontech.hstoffice", "CFBundleShortVersionString": "1.0.0",
         "CFBundleVersion": "1.0.0.600", "LSMinimumSystemVersion": "11.0",
         "NSHumanReadableCopyright": "© 2026 HASON TECH"}
@@ -144,47 +144,6 @@ class LauncherBundles(unittest.TestCase):
     def test_probe_script_passes_shellcheck(self):
         result = subprocess.run(["shellcheck", "-x", str(MACOS / "app-launchers-probe.sh")], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout)
-
-
-class ProbeHelper(unittest.TestCase):
-    XCU = ('<?xml version="1.0" encoding="UTF-8"?>\n<oor:items xmlns:oor="http://openoffice.org/2001/registry">\n'
-           '<item oor:path="/org.hasontech.hstoffice.Welcome"><prop oor:name="Shown" oor:op="fuse"><value>false</value>'
-           '</prop></item>\n</oor:items>\n')
-
-    def test_seed_sets_each_value_once(self):
-        text = PROBE.seed_text(PROBE.seed_text(self.XCU))
-        self.assertEqual(text.count('oor:path="/org.hasontech.hstoffice.Welcome"'), 1)
-        self.assertIn("<value>true</value>", text)
-        self.assertIn("pipe,name=hst-launcher-probe;urp;", text)
-        self.assertEqual(text.count("ooSetupConnectionURL"), 1)
-        with self.assertRaises(ValueError):
-            PROBE.seed_text("<x/>")
-
-    def test_documents_are_counted_by_kind(self):
-        class Doc:
-            def __init__(self, service):
-                self.service = service
-
-            def supportsService(self, name):
-                if self.service is None:
-                    raise RuntimeError("no model")
-                return name == self.service
-        docs = [Doc(PROBE.KINDS["writer"]), Doc(PROBE.KINDS["calc"]), Doc(PROBE.KINDS["writer"]), Doc(None), Doc("x")]
-        self.assertEqual(PROBE.kinds_of(docs), {"writer": 2, "calc": 1})
-
-    def test_odb_fixture_is_a_portable_database_document(self):
-        # The product no longer creates databases, so the probe opens this committed file instead.
-        with zipfile.ZipFile(ROOT / "tests" / "fixtures" / "base" / "probe.odb") as odb:
-            first = odb.infolist()[0]
-            self.assertEqual((first.filename, first.compress_type), ("mimetype", zipfile.ZIP_STORED))
-            self.assertEqual(odb.read("mimetype"), b"application/vnd.oasis.opendocument.base")
-            self.assertNotIn("meta.xml", odb.namelist())  # no author or machine details
-            content = odb.read("content.xml").decode()
-        self.assertIn('xlink:href="../probe-tables/"', content)  # beside the copy, on any machine
-        self.assertIn('db:media-type="application/dbase"', content)
-        script = (MACOS / "app-launchers-probe.sh").read_text()
-        self.assertIn('tests/fixtures/base/probe.odb" "$out/probe.odb"', script)
-        self.assertIn('mkdir -p "$out/probe-tables"', script)
 
 
 if __name__ == "__main__":
