@@ -141,15 +141,46 @@ def convert_one(ctx, doc, container, obj):
     return _replace_shape(ctx, doc, container, obj, data)
 
 
+def _progress(doc, text, count):
+    """The document window's progress bar, or None (hidden documents, tests)."""
+    try:
+        indicator = doc.getCurrentController().getFrame().createStatusIndicator()
+        indicator.start(text, count)
+        return indicator
+    except Exception:  # noqa: BLE001 - converting works without a progress bar
+        return None
+
+
+def _settle(ctx):
+    """Let the office finish the layout it deferred while the views were locked (Writer resizes each new formula
+    then), so those changes belong to the same undo step."""
+    try:
+        ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx).processEventsToIdle()
+    except Exception:  # noqa: BLE001 - an office without it lays out later, as usual
+        pass
+
+
 def convert_all(ctx, doc, undo_title, only=None):
-    """(converted, kept) for all MathType equations, or for the objects in `only`; one undo step."""
+    """(converted, kept) for all MathType equations, or for the objects in `only`; one undo step. The views are not
+    redrawn until the end, and a progress bar counts the objects."""
     from .undo import undo_step
     done = kept = 0
-    with undo_step(doc, undo_title):
-        for container, obj in candidates(doc):
-            if only is not None and obj not in only:
-                continue
-            result = convert_one(ctx, doc, container, obj)
-            if result is not None:
-                done, kept = (done + 1, kept) if result else (done, kept + 1)
+    found = [(c, o) for c, o in candidates(doc) if only is None or o in only]
+    indicator = _progress(doc, undo_title, len(found)) if len(found) > 5 else None
+    try:
+        with undo_step(doc, undo_title):  # the layout after unlocking resizes the objects: inside the same step
+            doc.lockControllers()
+            try:
+                for index, (container, obj) in enumerate(found):
+                    result = convert_one(ctx, doc, container, obj)
+                    if result is not None:
+                        done, kept = (done + 1, kept) if result else (done, kept + 1)
+                    if indicator is not None:
+                        indicator.setValue(index + 1)
+            finally:
+                doc.unlockControllers()
+            _settle(ctx)
+    finally:
+        if indicator is not None:
+            indicator.end()
     return done, kept
