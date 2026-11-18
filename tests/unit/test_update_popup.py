@@ -73,6 +73,16 @@ class Notify(unittest.TestCase):
         popup.notify(mock.Mock(), RELEASE, "1.0.3", now=NOW, tries=popup.WAIT_TRIES)
         popup.show.assert_called_once()
 
+    def test_no_second_popup_while_one_is_showing(self):
+        shown = mock.Mock()
+        with mock.patch.object(popup, "_CURRENT", [shown]):
+            popup.notify(mock.Mock(), RELEASE, "1.0.3", now=NOW)
+            popup.show.assert_not_called()
+            ui.notify.assert_not_called()
+            popup.close_all()
+            self.assertEqual(popup._CURRENT, [])
+        shown.close.assert_called_once_with()
+
     def test_error_falls_back_to_the_infobar(self):
         popup.show.side_effect = RuntimeError("no toolkit")
         with mock.patch("traceback.print_exc"):

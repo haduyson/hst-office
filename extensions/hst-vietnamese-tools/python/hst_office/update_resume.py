@@ -142,7 +142,7 @@ def reopen(ctx, urls):
 
 def start_up(ctx):
     """Called by the start-up dispatcher (startup_prompts.run) on every start: one stat when nothing is pending; the work runs on the main thread
-    after the start-up event. Must run before update_outcome.show_pending, which removes the failure record."""
+    during the start-up step itself. Must run before update_outcome.show_pending, which removes the failure record."""
     import platform
     from . import update_installer as installer
     from .update_fetch import release_info
@@ -152,8 +152,8 @@ def start_up(ctx):
         return False
     failure_recorded = os.path.lexists(os.path.join(cache, STATE_NAME))
     release = release_info()["release"]
-    from . import update_ui as ui
-    ui.on_main_thread(ctx, lambda: handle(ctx, cache, release, failure_recorded))
+    # Synchronously, on the main thread, before the start-up questions open their modal dialogs over the documents.
+    handle(ctx, cache, release, failure_recorded)
     return True
 
 

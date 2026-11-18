@@ -183,6 +183,17 @@ def install(ctx, peer, result, info, turns=0):
     A modal dialog left open in another window (the welcome dialog, say) keeps the office from closing. Those of this
     extension are ended first and the quit waits for them to leave their modal loops (later main-thread turns). When
     the office still does not close, the user is told and may try again: never a silent "nothing happened"."""
+    try:
+        _install(ctx, peer, result, info, turns)
+    except Exception:  # noqa: BLE001 - this may run from a later main-thread turn: never silent
+        diag_log.exception("update_install")
+        try:
+            fail(ctx, _live_peer(ctx, peer), "err_unexpected")
+        except Exception:  # noqa: BLE001 - not even the message could be shown
+            diag_log.exception("update_install")
+
+
+def _install(ctx, peer, result, info, turns):
     if launch.end_own_dialogs() and turns < OWN_DIALOG_TURNS:
         ui.on_main_thread(ctx, lambda: install(ctx, peer, result, info, turns + 1))
         return

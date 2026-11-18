@@ -120,6 +120,20 @@ class Handle(unittest.TestCase):
         self.assertIsNotNone(resume.read(self.cache))
 
 
+class StartUp(unittest.TestCase):
+    def test_runs_synchronously_and_sees_the_failure_record_first(self):
+        with tempfile.TemporaryDirectory() as cache:
+            resume.write(cache, "1.0.3", "1.0.4", DOCS, now=NOW)
+            open(os.path.join(cache, "update-result.json"), "w").close()
+            with mock.patch("hst_office.update_installer.cache_dir", return_value=cache), \
+                    mock.patch("hst_office.update_fetch.release_info", return_value={"release": "1.0.3"}), \
+                    mock.patch.object(resume, "handle") as handle:
+                self.assertTrue(resume.start_up("ctx"))
+            handle.assert_called_once_with("ctx", cache, "1.0.3", True)
+            with mock.patch("hst_office.update_installer.cache_dir", return_value=os.path.join(cache, "none")):
+                self.assertFalse(resume.start_up("ctx"))
+
+
 class Reopen(unittest.TestCase):
     def test_missing_files_are_skipped_and_the_first_frame_returned(self):
         with tempfile.TemporaryDirectory() as root:

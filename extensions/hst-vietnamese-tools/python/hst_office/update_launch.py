@@ -92,7 +92,8 @@ def end_own_dialogs():
     window; returns how many. A modal dialog keeps its frame from closing, so Desktop.terminate() would fail at once:
     the update was then abandoned in silence (the helper stopped, some windows already closed). The dialogs leave their
     loops only when the caller's stack unwinds, so quit after a later main-thread turn (update_install)."""
-    from . import dialogs
+    from . import dialogs, update_popup
+    update_popup.close_all()  # modeless: nothing to wait for, but it must not outlive the quit
     ended = 0
     for dialog in reversed(list(dialogs.OPEN)):
         try:

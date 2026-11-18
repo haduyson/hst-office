@@ -50,6 +50,12 @@ def remember(cache, version, now):
         diag_log.exception("update_popup")  # shown again at the next check rather than never
 
 
+def close_all():
+    """Remove the pop-ups being shown (update_launch, before the office quits for an update)."""
+    while _CURRENT:
+        _CURRENT.pop().close()
+
+
 def _cache():
     from . import update_installer as installer
     return installer.cache_dir(platform.system())
@@ -74,6 +80,8 @@ def notify(ctx, release, installed, now=None, tries=0):
     now = int(time.time() if now is None else now)
     try:
         cache = _cache()
+        if _CURRENT:  # still showing (an office left open for days): no second pop-up
+            return None
         if not due(load(cache), release["version"], now):
             return ui.notify(ctx, release, installed)
         if _busy(ctx) and tries < WAIT_TRIES:
@@ -113,6 +121,10 @@ def show(ctx, release, installed):
 
     def act(action):
         close()
+        # Later, from the main loop: not on the stack of the button of a dialog that has just been disposed.
+        ui.on_main_thread(ctx, lambda: run(action))
+
+    def run(action):
         try:
             if action == "install":
                 from .update_install import start
