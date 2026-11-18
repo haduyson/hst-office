@@ -110,6 +110,16 @@ class TreeCheckTest(unittest.TestCase):
         self.assertEqual(unit.key, item["k"])
         self.assertEqual([u.key for u in V.units_of(unit.toolbox, child)], ["SuperScript"])  # model untouched
 
+    def test_command_fills_its_cell(self):
+        from lxml import etree as ET
+        import ribbon_v3_ui as V
+        obj = ET.fromstring('<object class="svtlo-ManagedMenuButton" id="b"><property name="can-focus">True</property>'
+                            '<property name="valign">center</property><property name="halign">start</property>'
+                            '<property name="margin-top">6</property></object>')
+        V.fill_cell(obj)
+        props = [(p.get("name"), p.text) for p in obj.findall("property")]
+        self.assertEqual(props, [("can-focus", "True"), ("halign", "fill"), ("valign", "fill")])
+
 
 if __name__ == "__main__":
     unittest.main()

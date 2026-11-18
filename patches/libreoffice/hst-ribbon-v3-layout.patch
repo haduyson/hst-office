@@ -1188,7 +1188,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      int nCommands = 0;
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
-@@ -0,0 +1,527 @@
+@@ -0,0 +1,573 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1405,7 +1405,24 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            lookGallery(rCommand, cGallery, nExtra);
 +    }
 +    else if (MenuButton* pButton = dynamic_cast<MenuButton*>(&rCommand))
++    {
 +        SetMenuButtonLook(*pButton, cLook);
++        // the menu button takes its cell as the toolboxes do (a column's commands are equally wide); beside its
++        // image (medium, small) its content starts at the left like a toolbox button's
++        const WinBits nStyle
++            = (pButton->GetStyle() & ~(WB_LEFT | WB_CENTER | WB_RIGHT)) | (cLook == 'L' ? WB_CENTER : WB_LEFT);
++        // its frame spans the whole cell, top and bottom edges with the tool buttons' (the 1.0.2 look moved a large
++        // menu button down by a top margin to put its label on the label line)
++        if (pButton->get_halign() != VclAlign::Fill || pButton->get_valign() != VclAlign::Fill
++            || pButton->GetStyle() != nStyle || pButton->get_margin_top() != 0)
++        {
++            pButton->set_halign(VclAlign::Fill);
++            pButton->set_valign(VclAlign::Fill);
++            pButton->set_margin_top(0);
++            pButton->SetStyle(nStyle);
++            pButton->queue_resize();
++        }
++    }
 +}
 +
 +Input inputFor(const Group& rData, const Parts& rParts, const Config& rConfig)
@@ -1475,6 +1492,17 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        for (std::size_t i = 0; i < rParts.commands.size(); ++i)
 +            if (aNowLooks[i])
 +                setLook(rData, *rParts.commands[i], aNowLooks[i], rData.config.gallery, rData.config.extra);
++    }
++    else
++    {
++        // the looks shown now are measured live: a command's size changes after its first measure (its large image
++        // arrives later, Paste's 32 px one), and a stale width cut its label
++        const Input aNow = inputFor(rData, rParts, rData.config);
++        const std::vector<char> aNowLooks = looksFor(aNow);
++        for (std::size_t i = 0; i < rParts.commands.size(); ++i)
++            if (aNowLooks[i])
++                rData.naturals[rParts.commands[i]][lookKey(aNowLooks[i], rData.config.gallery, rData.config.extra)]
++                    = VclContainer::getLayoutRequisition(*rParts.commands[i]).Width();
 +    }
 +    const auto width = [&](std::size_t i, char cLook) -> long {
 +        return static_cast<long>(natural(rData, *rParts.commands[i], cLook, rConfig));
@@ -1642,10 +1670,13 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        VclContainer::setLayoutAllocation(*aParts.commands[rCell.item], Point(nPad + rCell.x, nTop + rCell.y),
 +                                          Size(rCell.w, rCell.h));
 +    const tools::Long nContent = contentHeight(pData->plan, rGrid);
-+    const tools::Long nCaption = captionHeight(aParts, rGrid);
++    // the caption band reaches the group's bottom less 2 px: every group of the tab has the page's height, so the
++    // captions (a label, or a label with its launcher, which may be taller) share one band, centred in it
++    const tools::Long nCaptionTop = nTop + nContent + px(4, rGrid);
++    const tools::Long nCaption
++        = std::max<tools::Long>(captionHeight(aParts, rGrid), rSize.Height() - px(2, rGrid) - nCaptionTop);
 +    if (aParts.caption)
-+        VclContainer::setLayoutAllocation(*aParts.caption, Point(nPad, nTop + nContent + px(4, rGrid)),
-+                                          Size(nContentWidth, nCaption));
++        VclContainer::setLayoutAllocation(*aParts.caption, Point(nPad, nCaptionTop), Size(nContentWidth, nCaption));
 +    if (aParts.separator)
 +    {
 +        const tools::Long nLine = std::max<tools::Long>(1, px(1, rGrid));
@@ -1701,10 +1732,25 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                            + OString::number(rCell.row) + ",\"rect\":");
 +                const tools::Rectangle aRect = rectIn(rCommand, rOrigin);
 +                appendRect(rOut, aRect);
-+                // the command asks for more room than its cell gives it: its label (or its box) is cut
-+                const Size aWant = VclContainer::getLayoutRequisition(rCommand);
++                // a labelled command (large, or medium with its label) asks for more room than its cell gives it:
++                // its label is cut (a box keeps the design's width, an icon-only command shows no label)
++                Size aWant = VclContainer::getLayoutRequisition(rCommand);
++                if (const MenuButton* pMenu = dynamic_cast<const MenuButton*>(&rCommand); pMenu && rCell.look == 'L')
++                {
++                    // a large menu button breaks its label at the spaces: cut when its longest word does not fit
++                    tools::Long nWord = 0;
++                    const OUString aText = pMenu->GetText().replaceAll("~", "");
++                    sal_Int32 nIndex = 0;
++                    do
++                        nWord = std::max(nWord, pMenu->GetTextWidth(aText.getToken(0, ' ', nIndex)));
++                    while (nIndex >= 0);
++                    aWant = Size(nWord + 2 * px(4, rCommand), aRect.GetHeight());
++                }
++                const bool bLabelled = rCell.look == 'L' || rCell.look == 'M';
 +                rOut.append(",\"label_cut\":");
-+                rOut.append(aWant.Width() > aRect.GetWidth() || aWant.Height() > aRect.GetHeight() ? "true" : "false");
++                rOut.append(bLabelled && (aWant.Width() > aRect.GetWidth() || aWant.Height() > aRect.GetHeight())
++                                ? "true"
++                                : "false");
 +                rOut.append("}");
 +                bFirst = false;
 +            }

@@ -169,6 +169,19 @@ def single_toolbox(unit, used_ids):
     return child
 
 
+def fill_cell(obj):
+    """A command takes its whole cell (the layout gives every command of a column one width): no 1.0.2 alignment
+    or margin is left on it."""
+    for prop in obj.findall("property"):
+        if prop.get("name") in ("halign", "valign") or prop.get("name", "").startswith("margin"):
+            obj.remove(prop)
+    anchor = next((p for p in obj.findall("property") if p.get("name") == "can-focus"), None)
+    for name in ("valign", "halign"):
+        prop = ET.Element("property", name=name)
+        prop.text = "fill"
+        anchor.addnext(prop) if anchor is not None else obj.insert(0, prop)
+
+
 def layout_spec(group, kinds):
     index = {item["k"]: i for i, item in enumerate(group["items"])}
     parts = ["kinds=" + "".join(kinds)]
@@ -189,6 +202,7 @@ def rewrite_group(grid, group, used_ids):
     n = len(ordered)
     for i, unit in enumerate(ordered):
         child = single_toolbox(unit, used_ids)
+        fill_cell(child.find("object"))
         packing(child, i, 0, 1, 3)
         grid.append(child)
     for child in captions:
@@ -197,8 +211,11 @@ def rewrite_group(grid, group, used_ids):
     for child in separators[:1]:  # a second separator (an authoring slip) goes
         packing(child, n, 0, 1, 4)
         grid.append(child)
+    # the v3 group has its padding and separator inside (HstRibbonV3Layout): groups abut, at the top of the page,
+    # as in the mockup, so the 1.0.2 margins go with the old spec
     for prop in grid.findall("property"):
-        if prop.get("name") == "hst-ribbon-layout":
+        if prop.get("name") in ("hst-ribbon-layout", "margin-start", "margin-end", "margin-top", "margin-bottom",
+                                "margin-left", "margin-right"):
             grid.remove(prop)
     kinds = [item["kind"] for item in group["items"]]
     spec = ET.Element("property", name="hst-ribbon-layout")

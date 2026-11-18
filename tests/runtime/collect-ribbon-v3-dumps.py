@@ -138,6 +138,10 @@ def collect_app(args, app):
             gui.xdo(args.display, "windowsize", window, str(width), str(args.height))
             time.sleep(3)
             names = [n for n in gui.visible_names() if n and n != "Tệp tin"]
+            if not names and args.shots:  # no ribbon tab found: keep the screen to see why
+                shot = os.path.join(args.out, "shots", f"{app}-w{width}-notabs.png")
+                os.makedirs(os.path.dirname(shot), exist_ok=True)
+                subprocess.run(["import", "-display", args.display, "-window", "root", shot], check=False)
             for index, name in enumerate(names):
                 if not gui.open_tab(args.display, name):
                     print(f"{app} w{width}: cannot open {name}", flush=True)

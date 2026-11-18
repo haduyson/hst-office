@@ -135,6 +135,19 @@ def drop_inner_labels(grid):
                 grid.remove(child)
 
 
+def expand_box(box):
+    """The tab's merged box takes the page's width: the v3 fit folds its groups down to the chevron, so a box packed
+    at its size request (the Help tab) got the chevron's width only and folded every group."""
+    pack = box.getparent().find("packing")
+    if pack is None:
+        return
+    prop = pack.find("property[@name='expand']")
+    if prop is None:
+        prop = ET.SubElement(pack, "property", name="expand")
+        pack.insert(0, prop)
+    prop.text = "True"
+
+
 def rewrite_app(path, app):
     tree = ET.parse(path)
     root = tree.getroot()
@@ -159,6 +172,7 @@ def rewrite_app(path, app):
             box = grid.getparent().getparent()
         if box is not None:
             reorder_tab(box, [g["id"] for g in tab["groups"]])
+            expand_box(box)
     text = ET.tostring(tree, encoding="UTF-8", xml_declaration=True).decode("utf-8")
     return text.replace("--><interface", "-->\n<interface", 1) + "\n", count
 
