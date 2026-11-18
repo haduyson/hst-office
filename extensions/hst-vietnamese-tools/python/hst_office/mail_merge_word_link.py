@@ -19,6 +19,7 @@ from . import mail_merge_word_source as word_source
 
 DB_FIELD = "com.sun.star.text.TextField.Database"
 GRAB_BAG = "HSTMailMergeSource"
+HIDES_EMPTY = "EmptyDbFieldHidesPara"  # document setting: a paragraph of empty database fields is hidden
 
 
 def field_columns(doc):
@@ -66,7 +67,9 @@ def set_link(doc, path, sheet):
     modified = doc.isModified()
     try:
         bag = [p for p in doc.getPropertyValue("InteropGrabBag") if p.Name != GRAB_BAG]
-        link = (PropertyValue(Name="Path", Value=path), PropertyValue(Name="Sheet", Value=sheet or ""))
+        keep = not _settings(doc).getPropertyValue(HIDES_EMPTY)  # written as w:doNotSuppressBlankLines
+        link = (PropertyValue(Name="Path", Value=path), PropertyValue(Name="Sheet", Value=sheet or ""),
+                PropertyValue(Name="DoNotSuppressBlankLines", Value=keep))
         import uno
         bag.append(PropertyValue(Name=GRAB_BAG, Value=uno.Any("[]com.sun.star.beans.PropertyValue", link)))
         uno.invoke(doc, "setPropertyValue", ("InteropGrabBag", uno.Any("[]com.sun.star.beans.PropertyValue",
@@ -74,6 +77,21 @@ def set_link(doc, path, sheet):
     except Exception:  # noqa: BLE001 - a document without a grab bag: Word keeps its own link only
         from .diag_log import exception
         exception("mail merge link")
+    finally:
+        if not modified:
+            doc.setModified(False)
+
+
+def _settings(doc):
+    return doc.createInstance("com.sun.star.text.DocumentSettings")
+
+
+def keep_blank_lines(doc):
+    """Like Word with w:doNotSuppressBlankLines: a paragraph whose merge fields all came out empty stays (the office
+    hides it by default, as Word does without that setting). The modified state is kept."""
+    modified = doc.isModified()
+    try:
+        _settings(doc).setPropertyValue(HIDES_EMPTY, False)
     finally:
         if not modified:
             doc.setModified(False)
@@ -96,6 +114,9 @@ def connect_on_load(ctx, doc):
     from . import mail_merge_session as sessions
     session = sessions.get(doc)
     folder = os.path.dirname(_document_path(doc))
+    link = link_of(doc)
+    if link is not None and link.keep_blank_lines:
+        keep_blank_lines(doc)
     if session.has_list and not session.meta["source"].startswith(book.PREFIX):
         wanted, sheet = session.meta["source"], session.meta["sheet"]
         if os.path.isfile(wanted):
@@ -104,7 +125,6 @@ def connect_on_load(ctx, doc):
     elif session.has_list:
         return False
     else:
-        link = link_of(doc)
         if link is None:
             return False
         wanted, sheet = link.path, link.sheet

@@ -3,11 +3,10 @@
 w:mailMerge settings name an Excel (or CSV) recipient list, MERGEFIELDs with \\# \\@ \\* \\b \\f switches and IF
 fields with nested MERGEFIELDs; the recipient list as .xlsx (dates, numbers, a Text-formatted column) and as .csv.
 
-EXPECTED holds, per recipient, the paragraph texts Word 2016 (vi-VN) produces when it merges the letter; the
-runtime check (check-mail-merge-word.py) and the unit tests compare with it.
-
-  python3 tests/runtime/mail_merge_word_samples.py <folder> [--source-path <path written into the .docx>]"""
-import argparse
+EXPECTED holds, per recipient, the paragraph texts Word 2016 (vi-VN) gives the letter's paragraphs when it merges
+it; word_output() the paragraphs of Word's merged document: like Word, a paragraph made only of merge fields that all
+came out empty is left out, unless the letter has w:doNotSuppressBlankLines (ECMA-376 17.14.12). The runtime check
+(check-mail-merge-word.py) and the unit tests compare with them."""
 import datetime
 import os
 import zipfile
@@ -131,24 +130,34 @@ def connect_string(path):
             'Extended Properties="HDR=YES;IMEX=1;";Jet OLEDB:System database="";Jet OLEDB:Engine Type=37;' % path)
 
 
-def settings_xml(source_path, sheet=SHEET):
-    """w:mailMerge as Word writes it for an Excel list (OLE DB) or a CSV file (text file)."""
+def word_output(keep_blank_lines=False):
+    """Per recipient, the paragraphs of Word's merged document (see the module text)."""
+    fields_only = [all(result is not None for _text, result in parts) for parts in PARAGRAPHS]
+    return tuple(tuple(text for text, only in zip(record, fields_only) if text or keep_blank_lines or not only)
+                 for record in EXPECTED)
+
+
+def settings_xml(source_path, sheet=SHEET, keep_blank_lines=False):
+    """w:mailMerge as Word writes it for an Excel list (OLE DB) or a CSV file (text file); `keep_blank_lines`:
+    Word's "do not suppress blank lines" (w:doNotSuppressBlankLines)."""
+    keep = "<w:doNotSuppressBlankLines/>" if keep_blank_lines else ""
     if source_path.lower().endswith(".csv"):
         merge = ('<w:mailMerge><w:mainDocumentType w:val="formLetters"/><w:linkToQuery/><w:dataType w:val="textFile"/>'
-                 '<w:query w:val=%s/><w:dataSource r:id="rId1"/><w:odso><w:src r:id="rId2"/><w:colDelim w:val="44"/>'
-                 '<w:fHdr/></w:odso></w:mailMerge>' % quoteattr("SELECT * FROM %s" % source_path))
+                 '<w:query w:val=%s/><w:dataSource r:id="rId1"/>%s<w:odso><w:src r:id="rId2"/>'
+                 '<w:colDelim w:val="44"/><w:fHdr/></w:odso></w:mailMerge>'
+                 % (quoteattr("SELECT * FROM %s" % source_path), keep))
     else:
         merge = ('<w:mailMerge><w:mainDocumentType w:val="formLetters"/><w:linkToQuery/><w:dataType w:val="native"/>'
-                 '<w:connectString w:val=%s/><w:query w:val=%s/><w:dataSource r:id="rId1"/><w:odso>'
+                 '<w:connectString w:val=%s/><w:query w:val=%s/><w:dataSource r:id="rId1"/>%s<w:odso>'
                  '<w:udl w:val=%s/><w:table w:val=%s/><w:src r:id="rId2"/><w:colDelim w:val="9"/><w:fHdr/></w:odso>'
                  '</w:mailMerge>' % (quoteattr(connect_string(source_path)),
-                                     quoteattr("SELECT * FROM `%s$` " % sheet),
+                                     quoteattr("SELECT * FROM `%s$` " % sheet), keep,
                                      quoteattr(connect_string(source_path)), quoteattr(sheet + "$")))
     return ('<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:settings xmlns:w="%s" xmlns:r="%s">%s'
             '<w:defaultTabStop w:val="720"/></w:settings>' % (W, R, merge))
 
 
-def write_docx(path, source_path, paragraphs=PARAGRAPHS):
+def write_docx(path, source_path, paragraphs=PARAGRAPHS, keep_blank_lines=False):
     with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as package:
         package.writestr("[Content_Types].xml",
                          '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
@@ -169,28 +178,17 @@ def write_docx(path, source_path, paragraphs=PARAGRAPHS):
                          '<Relationship Id="rId2" Type="%s" Target=%s TargetMode="External"/>'
                          '<Relationship Id="rId1" Type="%s" Target=%s TargetMode="External"/></Relationships>'
                          % (PKG, MAIL_MERGE_SOURCE, target, MAIL_MERGE_SOURCE, target))
-        package.writestr("word/settings.xml", settings_xml(source_path))
+        package.writestr("word/settings.xml", settings_xml(source_path, keep_blank_lines=keep_blank_lines))
         package.writestr("word/document.xml", document_xml(paragraphs))
 
 
-def write_all(folder, source_path=None):
+def write_all(folder, source_path=None, keep_blank_lines=False):
     from mail_merge_word_sample_lists import write_csv, write_xlsx
     """The list (.xlsx and .csv) and the letter in `folder`; the letter names `source_path` (default: the .xlsx in
     a Windows folder that does not exist here, so the office must find the list next to the letter)."""
     os.makedirs(folder, exist_ok=True)
     write_xlsx(os.path.join(folder, XLSX))
     write_csv(os.path.join(folder, CSV))
-    write_docx(os.path.join(folder, DOCX), source_path or "C:\\Users\\vanthu\\Documents\\Tron thu\\" + XLSX)
+    write_docx(os.path.join(folder, DOCX), source_path or "C:\\Users\\vanthu\\Documents\\Tron thu\\" + XLSX,
+               keep_blank_lines=keep_blank_lines)
     return os.path.join(folder, DOCX)
-
-
-def main():
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("folder")
-    parser.add_argument("--source-path", default=None)
-    args = parser.parse_args()
-    print(write_all(args.folder, args.source_path))
-
-
-if __name__ == "__main__":
-    main()

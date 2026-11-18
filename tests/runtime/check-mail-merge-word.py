@@ -2,14 +2,16 @@
 """Word-compatible mail merge on an installed HST Office: a Word-made letter (.docx with w:mailMerge naming an Excel
 list in a Windows folder that does not exist here, MERGEFIELD switches, IF fields) next to its list.
 
-  python3 tests/runtime/check-mail-merge-word.py --instdir <office folder> [--out <folder>] [--list csv]
+  check-mail-merge-word.py --instdir <office folder> [--out <folder>] [--list csv] [--keep-blank-lines]
 
 Checks: opening the letter connects it to the list next to it (job on OnLoad) without marking it modified; the
 fields are imported with their Word instructions; merging to one document gives Word's text for every recipient
-(mail_merge_word_samples.EXPECTED); merging to PDF gives one file per recipient with that text; saving as .docx
+(mail_merge_word_samples.word_output: the paragraph of the empty "Chức vụ" is left out, or kept with
+--keep-blank-lines, the letter then having w:doNotSuppressBlankLines); merging to PDF gives one file per recipient with that text; saving as .docx
 writes the nested MERGEFIELDs and Word's w:mailMerge link; the saved letter reads back the same instructions.
 Exit 1 when a check fails; evidence.json, the letter, the merged files and the saved .docx stay in --out."""
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -61,7 +63,7 @@ def pdf_text(path):
         return None
 
 
-def run_checks(ctx, out, expect, list_kind):
+def run_checks(ctx, out, expect, list_kind, keep):
     import uno
     from com.sun.star.beans import PropertyValue
     from hst_office import mail_merge_output as output
@@ -72,7 +74,7 @@ def run_checks(ctx, out, expect, list_kind):
     desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
     letter_dir = os.path.join(out, "thu")
     source = "C:\\Users\\vanthu\\Documents\\Tron thu\\" + (samples.CSV if list_kind == "csv" else samples.XLSX)
-    letter = samples.write_all(letter_dir, source)
+    letter = samples.write_all(letter_dir, source, keep)
     wanted_list = os.path.join(letter_dir, os.path.basename(source.replace("\\", "/")))
 
     # Not hidden: the office sends OnLoad, which runs the reconnect job, only for a document loaded visibly
@@ -92,13 +94,18 @@ def run_checks(ctx, out, expect, list_kind):
     bag = {p.Name: p.Value for p in doc.getPropertyValue("InteropGrabBag")}
     link = {p.Name: p.Value for p in bag.get("HSTMailMergeSource", ())}
     expect("open: Word link of the list", link.get("Path"), wanted_list)
+    settings = doc.createInstance("com.sun.star.text.DocumentSettings")
+    expect("open: paragraphs of empty fields hidden as in Word", settings.EmptyDbFieldHidesPara, not keep)
 
     session.load(ctx)
     merged, count = output.run(ctx, doc, session, output.Request(output.EDIT, session.checked()))
-    got = [line for line in merged.Text.String.splitlines() if line.strip()]  # \r\n on Windows
-    want = [line for record in samples.EXPECTED for line in record if line.strip()]
+    lines = merged.Text.String.splitlines()  # \r\n on Windows
+    word, year = samples.word_output(keep), samples.EXPECTED[1][4]  # recipient 2: no Chức vụ after the year
     expect("merge: recipients", count, len(samples.EXPECTED))
-    expect("merge: Word's text for every recipient", got, want)
+    expect("merge: Word's text for every recipient", [line for line in lines if line.strip()],
+           [line for record in word for line in record if line.strip()])
+    expect("merge: paragraph after the empty Chức vụ field", lines[lines.index(year) + 1] if year in lines else None,
+           word[1][word[1].index(year) + 1])
     merged.storeToURL(uno.systemPathToFileUrl(os.path.join(out, "tron-thu.odt")), (prop("FilterName", "writer8"),))
     merged.close(True)
 
@@ -124,6 +131,7 @@ def run_checks(ctx, out, expect, list_kind):
            or ' MERGEFIELD Lương \\# "#,##0" ' in body, True)
     expect("save: Word link of the list", "mailMergeSource" in rels and "<w:dataSource " in settings, True)
     expect("save: no internal data source name for Word", "HST_TronThu_" in settings, False)
+    expect("save: w:doNotSuppressBlankLines as in the letter", "<w:doNotSuppressBlankLines/>" in settings, keep)
     again = desktop.loadComponentFromURL(uno.systemPathToFileUrl(saved), "_blank", 0, (prop("Hidden", True),))
     expect("reopen: instructions read back", IF_COLUMN in columns(again), True)
     again.close(True)
@@ -135,6 +143,8 @@ def main():
     parser.add_argument("--out", default=os.path.join(ROOT, "tests/output/mail-merge-word"))
     parser.add_argument("--list", choices=("xlsx", "csv"), default="xlsx")
     parser.add_argument("--port", type=int, default=2117)
+    parser.add_argument("--keep-blank-lines", action="store_true",
+                        help="the letter has w:doNotSuppressBlankLines: the empty Chức vụ paragraph stays")
     args = parser.parse_args()
     out, instdir = os.path.abspath(args.out), os.path.abspath(args.instdir)
     program = os.path.join(instdir, "program")
@@ -166,11 +176,9 @@ def main():
 
     try:
         ctx = connect(args.port)
-        run_checks(ctx, out, expect, args.list)
-        try:
+        run_checks(ctx, out, expect, args.list, args.keep_blank_lines)
+        with contextlib.suppress(Exception):  # the bridge goes away with the office
             ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).terminate()
-        except Exception:  # noqa: BLE001 - the bridge goes away with the office
-            pass
     except Exception as error:  # noqa: BLE001 - recorded as a failed check
         import traceback
         traceback.print_exc()

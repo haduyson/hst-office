@@ -274,7 +274,7 @@ of the list, mail merge of instruction-named columns from a Calc staging copy).
 +# vim: set noet sw=4 ts=4:
 --- /dev/null
 +++ b/sw/qa/extras/hst/hstmailmergeword.cxx
-@@ -0,0 +1,227 @@
+@@ -0,0 +1,253 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -416,6 +416,8 @@ of the list, mail merge of instruction-named columns from a Calc staging copy).
 +    assertXPath(pSettings, "/w:settings/w:mailMerge/w:dataType", "val", u"native");
 +    assertXPath(pSettings, "/w:settings/w:mailMerge/w:query", "val", u"SELECT * FROM `Nhân viên$` ");
 +    assertXPath(pSettings, "/w:settings/w:mailMerge/w:odso/w:table", "val", u"Nhân viên$");
++    // Word's default: paragraphs of empty merge fields are left out
++    assertXPath(pSettings, "/w:settings/w:mailMerge/w:doNotSuppressBlankLines", 0);
 +    const OUString aId = getXPath(pSettings, "/w:settings/w:mailMerge/w:dataSource", "id");
 +    xmlDocUniquePtr pRels = parseExport(u"word/_rels/settings.xml.rels"_ustr);
 +    CPPUNIT_ASSERT(pRels);
@@ -428,6 +430,30 @@ of the list, mail merge of instruction-named columns from a Calc staging copy).
 +    std::map<OUString, OUString> aFields = databaseFields();
 +    CPPUNIT_ASSERT(aFields.count(IF_COLUMN));
 +    CPPUNIT_ASSERT(aFields.count(SALARY_COLUMN));
++}
++
++CPPUNIT_TEST_FIXTURE(HstMailMergeWordTest, testWordMergeKeepBlankLinesExport)
++{
++    loadWordLetter();
++    // the document keeps paragraphs of empty fields: Word is told not to suppress them either
++    uno::Sequence<beans::PropertyValue> aLink{
++        comphelper::makePropertyValue(u"Path"_ustr, u"C:\\Trộn thư\\danh-sách.csv"_ustr),
++        comphelper::makePropertyValue(u"Sheet"_ustr, OUString()),
++        comphelper::makePropertyValue(u"DoNotSuppressBlankLines"_ustr, true)
++    };
++    uno::Reference<beans::XPropertySet> xDoc(mxComponent, uno::UNO_QUERY_THROW);
++    xDoc->setPropertyValue(u"InteropGrabBag"_ustr,
++                           uno::Any(uno::Sequence<beans::PropertyValue>{ comphelper::makePropertyValue(
++                               u"HSTMailMergeSource"_ustr, aLink) }));
++    save(TestFilter::DOCX);
++
++    xmlDocUniquePtr pSettings = parseExport(u"word/settings.xml"_ustr);
++    CPPUNIT_ASSERT(pSettings);
++    assertXPath(pSettings, "/w:settings/w:mailMerge/w:dataType", "val", u"textFile");
++    assertXPath(pSettings, "/w:settings/w:mailMerge/w:doNotSuppressBlankLines", 1);
++    // in the order of CT_MailMerge: after w:dataSource, before w:odso
++    assertXPath(pSettings,
++                "/w:settings/w:mailMerge/w:dataSource/following-sibling::*[1][self::w:doNotSuppressBlankLines]", 1);
 +}
 +
 +CPPUNIT_TEST_FIXTURE(HstMailMergeWordTest, testMergeWordInstructionColumns)
@@ -504,7 +530,7 @@ of the list, mail merge of instruction-named columns from a Calc staging copy).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sw/source/filter/ww8/hst/hstwordmergeexport.cxx
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,135 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -597,6 +623,8 @@ of the list, mail merge of instruction-named columns from a Calc staging copy).
 +    OUString sPath, sSheet;
 +    aMap.getValue(u"Path"_ustr) >>= sPath;
 +    aMap.getValue(u"Sheet"_ustr) >>= sSheet;
++    bool bKeepBlankLines = false; // the document shows paragraphs whose database fields are all empty
++    aMap.getValue(u"DoNotSuppressBlankLines"_ustr) >>= bKeepBlankLines;
 +    if (sPath.isEmpty())
 +        return false;
 +
@@ -620,6 +648,8 @@ of the list, mail merge of instruction-named columns from a Calc staging copy).
 +        pFS->singleElementNS(XML_w, XML_connectString, FSNS(XML_w, XML_val), sConnect);
 +    pFS->singleElementNS(XML_w, XML_query, FSNS(XML_w, XML_val), sQuery);
 +    pFS->singleElementNS(XML_w, XML_dataSource, FSNS(XML_r, XML_id), sSourceId);
++    if (bKeepBlankLines)
++        pFS->singleElementNS(XML_w, XML_doNotSuppressBlankLines);
 +    pFS->startElementNS(XML_w, XML_odso);
 +    if (!bTextFile)
 +    {
@@ -681,7 +711,7 @@ of the list, mail merge of instruction-named columns from a Calc staging copy).
 +                        const std::function<void(bool bBegin)>& rFieldChar);
 +
 +/// Writes w:mailMerge linking the recipient list the way Word links it, when the document's InteropGrabBag has
-+/// "HSTMailMergeSource" (Path, Sheet); returns false (writing nothing) otherwise.
++/// "HSTMailMergeSource" (Path, Sheet, DoNotSuppressBlankLines); returns false (writing nothing) otherwise.
 +bool WriteMailMergeSource(oox::core::XmlFilterBase& rFilter, const sax_fastparser::FSHelperPtr& pFS,
 +                          const comphelper::SequenceAsHashMap& rGrabBag);
 +}

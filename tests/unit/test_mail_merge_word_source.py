@@ -34,6 +34,24 @@ class Settings(unittest.TestCase):
         found = ws.parse(samples.settings_xml("C:\\Thu\\ds.csv").encode())
         self.assertEqual((found.path, found.sheet), ("C:\\Thu\\ds.csv", None))
 
+    def test_blank_lines_suppressed_by_default(self):
+        self.assertFalse(ws.parse(samples.settings_xml("C:\\Thu\\ds.xlsx").encode()).keep_blank_lines)
+
+    def test_do_not_suppress_blank_lines(self):
+        for source in ("C:\\Thu\\ds.xlsx", "C:\\Thu\\ds.csv"):
+            xml = samples.settings_xml(source, keep_blank_lines=True)
+            self.assertTrue(ws.parse(xml.encode()).keep_blank_lines, source)
+        off = xml.replace("<w:doNotSuppressBlankLines/>", '<w:doNotSuppressBlankLines w:val="false"/>')
+        self.assertFalse(ws.parse(off.encode()).keep_blank_lines)
+
+    def test_word_output_leaves_out_empty_field_paragraphs(self):
+        # recipient 2 has no Chức vụ: the paragraph is only that MERGEFIELD, so Word leaves it out by default
+        suppressed, kept = samples.word_output(), samples.word_output(keep_blank_lines=True)
+        self.assertEqual(len(suppressed[1]), len(samples.EXPECTED[1]) - 1)
+        self.assertNotIn("", suppressed[1])
+        self.assertEqual(kept, samples.EXPECTED)
+        self.assertEqual(suppressed[0], samples.EXPECTED[0])
+
     def test_no_mail_merge(self):
         xml = '<w:settings xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"/>'
         self.assertIsNone(ws.parse(xml.encode()))

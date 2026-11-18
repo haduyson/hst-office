@@ -5,7 +5,8 @@ Pure Python (reads the .docx package itself).
 Word keeps the list in word/settings.xml w:mailMerge: w:dataSource (a relationship of settings.xml whose Target is
 "file:///C:\\folder\\list.xlsx"), the OLE DB w:connectString ("…;Data Source=C:\\folder\\list.xlsx;…"), and the
 w:query ("SELECT * FROM `Sheet1$`" for a sheet, "SELECT * FROM C:\\folder\\list.csv" for a text file). Like Word, the
-list is looked for at that path, then relative to the document, then by its name next to the document."""
+list is looked for at that path, then relative to the document, then by its name next to the document.
+w:doNotSuppressBlankLines keeps the paragraphs whose merge fields all came out empty (Word leaves them out otherwise)."""
 import ntpath
 import os
 import re
@@ -21,10 +22,11 @@ LISTS = (".xlsx", ".xls", ".xlsm", ".ods", ".csv", ".txt")
 
 
 class Link:
-    """The list a document names: `path` as written (may be a Windows path), `sheet` (None for a text file)."""
+    """The list a document names: `path` as written (may be a Windows path), `sheet` (None for a text file);
+    `keep_blank_lines`: w:doNotSuppressBlankLines."""
 
-    def __init__(self, path, sheet=None):
-        self.path, self.sheet = path, sheet
+    def __init__(self, path, sheet=None, keep_blank_lines=False):
+        self.path, self.sheet, self.keep_blank_lines = path, sheet, keep_blank_lines
 
     @property
     def name(self):
@@ -90,7 +92,9 @@ def parse(settings_xml, rels_xml=None):
         return None
     odso = merge.find(W + "odso")
     text_file = _value(merge, "dataType") == "textFile" or path.lower().endswith((".csv", ".txt"))
-    return Link(path, None if text_file else _sheet(query, _value(odso, "table")))
+    keep = merge.find(W + "doNotSuppressBlankLines")
+    keep = keep is not None and (keep.get(W + "val") or "true").lower() not in ("false", "0", "off")
+    return Link(path, None if text_file else _sheet(query, _value(odso, "table")), keep)
 
 
 def read(docx_path):
