@@ -10,7 +10,7 @@ DIR holds Word files with MathType equations, e.g. the STEM corpus (tests/corpus
 146 MathType 4-7 objects); files are never stored in the repository. For every .doc/.docx file:
   - option "tự chuyển khi mở" off: the file opens, nothing is converted (the OLE objects stay);
   - option on: the file opens without crashing, every MathType 4-7 object of a .docx/.doc becomes a Math formula or
-    stays an OLE object, and the page count is the one with the option off.
+    stays an OLE object, and the page count is within one page of the count with the option off.
 With --convert NAME: Chèn > Công thức > Chuyển công thức (org.hst.office.vi:ConvertFormulas) on that file, run on
 the office's main thread as from the menu: all equations converted, one undo step restores them, and the time.
 """
@@ -83,7 +83,9 @@ def check_open(args, workdir):
         record("open %s" % name, "error" not in off and "error" not in on, row)
         if "error" in off or "error" in on:
             continue
-        record("same pages %s" % name, off["pages"] == on["pages"], (off["pages"], on["pages"]))
+        # converted formulas sit on the Math baseline instead of Word's run position, so lines can get a little
+        # shorter or taller: one page more or less is expected in long papers, more is a layout regression
+        record("pages within one %s" % name, abs(off["pages"] - on["pages"]) <= 1, (off["pages"], on["pages"]))
         record("objects kept or converted %s" % name, off["ole"] + off["math"] == on["ole"] + on["math"]
                and on["math"] >= off["math"], (off, on))
     return result
