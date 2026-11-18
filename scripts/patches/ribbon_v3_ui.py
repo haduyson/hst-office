@@ -102,12 +102,17 @@ def new_unit(item, units, tab="Home"):
     for prop in obj.findall("property"):
         if prop.get("name") == "action-name":
             prop.text = item["k"] if protocol else ".uno:" + item["k"]
-    if protocol:
+    for prop in [p for p in obj.findall("property") if p.get("name") in ("icon-name", "label", "tooltip-text",
+                                                                   "hst-ribbon-label", "hst-ribbon-description")]:
+        obj.remove(prop)  # the neighbour's own image or texts, if it has any
+    anchor = next(p for p in obj.findall("property") if p.get("name") == "action-name")
+    if not protocol:
+        # as the .uno: buttons of the .ui files: the command's name, its label and image come from the command
+        prop = ET.Element("property", name="label")
+        prop.text = item["k"]
+        anchor.addprevious(prop)
+    else:
         # as the other HST extension buttons of the ribbon: its own label, tooltip and image (no command label)
-        for prop in [p for p in obj.findall("property") if p.get("name") in ("icon-name", "label", "tooltip-text",
-                                                                       "hst-ribbon-label", "hst-ribbon-description")]:
-            obj.remove(prop)  # the neighbour's own image or texts, if it has any
-        anchor = next(p for p in obj.findall("property") if p.get("name") == "action-name")
         for key, value in (("icon-name", item.get("icon")), ("label", item["t"]),
                            ("tooltip-text", item.get("tip", item["t"]))):
             if value:
@@ -117,13 +122,14 @@ def new_unit(item, units, tab="Home"):
     return Unit(item["k"], element, toolbox=model.toolbox, child=ET.Element("child"))
 
 
-def match_units(group, units):
-    """The unit of every item of the v3 group, in the group's order; raises when one is missing or left over."""
+def match_units(group, units, pool=()):
+    """The unit of every item of the v3 group, in the group's order; raises when one is missing or left over. A new
+    item copies its "clone" from the group's units or from pool (the other commands of its tab: a new group has none)."""
     left = list(units)
     out = []
     for item in group["items"]:
         if item.get("new"):
-            out.append(new_unit(item, units, re.match(r"gd([A-Z][a-z]+)", group["id"]).group(1)))
+            out.append(new_unit(item, list(units) + list(pool), re.match(r"gd([A-Z][a-z]+)", group["id"]).group(1)))
             continue
         found = next((u for u in left if u.key == item["k"]), None)
         if found is None:
@@ -193,10 +199,10 @@ def layout_spec(group, kinds):
     return ";".join(parts)
 
 
-def rewrite_group(grid, group, used_ids):
+def rewrite_group(grid, group, used_ids, pool=()):
     """Rebuild grid's children for the v3 group; returns the number of commands placed."""
     captions, separators, units = group_parts(grid)
-    ordered = match_units(group, units)
+    ordered = match_units(group, units, pool)
     for child in list(grid.findall("child")):
         grid.remove(child)
     n = len(ordered)

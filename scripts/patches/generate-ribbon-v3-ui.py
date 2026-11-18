@@ -15,6 +15,7 @@ per-group rewrite. Besides that rewrite:
 The command ids, menus, labels and images stay as they are: no command is added or lost (check-ribbon-v3-parity.py).
 """
 import argparse
+import copy
 import difflib
 import json
 import os
@@ -114,6 +115,43 @@ def borrow_units(root, grid, group, tab_grids):
             break
 
 
+def new_group(tab_grids, group, used):
+    """A group the 1.0.2 ribbon does not have ("new": an owner addition): the skeleton of a group of its tab with a
+    plain label caption (grid, caption, separator), its own ids and caption, after the tab's last group. The caption
+    is the item labels' language, as the other HST groups' ("Trợ lý AI"); the commands come from the rewrite."""
+    template = next((g for g in tab_grids if (lambda c: len(c) == 1 and c[0].find("object").get("class") == "GtkLabel")(
+        v3.group_parts(g)[0])), None)
+    if template is None:
+        raise KeyError(f"{group['id']}: no group with a plain caption in its tab to copy")
+    holder = copy.deepcopy(template.getparent())
+    grid = holder.find("object")
+    grid.set("id", group["id"])
+    captions, separators, units = v3.group_parts(grid)
+    for child in {id(u.child): u.child for u in units}.values():
+        grid.remove(child)
+    label = captions[0].find("object")
+    label_id = "lb" + group["id"][2:]
+    label.set("id", label_id)
+    text = label.find("property[@name='label']")
+    for attr in ("translatable", "context", "comments"):
+        text.attrib.pop(attr, None)
+    text.text = group["cap"]
+    for relation in grid.iter("relation"):  # the group is labelled by its caption, the caption labels the group
+        relation.set("target", group["id"] if relation.get("type") == "label-for" else label_id)
+    for child in separators:
+        sep = child.find("object")
+        if sep.get("id"):
+            sep.set("id", "sep" + group["id"][2:])
+    for obj in grid.iter("object"):
+        if obj.get("id") in used and obj is not grid and obj is not label:
+            raise KeyError(f"{group['id']}: copied id {obj.get('id')} would repeat")
+        used.add(obj.get("id"))
+    used.add(group["id"])
+    last = tab_grids[-1].getparent()
+    last.addnext(holder)
+    return grid
+
+
 def drop_inner_labels(grid):
     """Labels in a group's content (not its caption on the lowest row) are removed."""
     labels = []
@@ -175,12 +213,16 @@ def rewrite_app(path, app):
         box = None
         for group in tab["groups"]:
             found = [g for g in grids.get(group["id"], []) if tab_of(g) == tab["id"]]
+            if not found and group.get("new"):
+                found = [new_group(tab_grids, group, used)]
+                tab_grids.append(found[0])
             if len(found) != 1:
                 raise KeyError(f"{app['id']} {tab['id']} {group['id']}: {len(found)} grids")
             grid = found[0]
             borrow_units(root, grid, group, tab_grids)
             drop_inner_labels(grid)
-            count += v3.rewrite_group(grid, group, used)
+            pool = [u for g in tab_grids if g is not grid for u in v3.group_parts(g)[2]]
+            count += v3.rewrite_group(grid, group, used, pool)
             ET.indent(grid, space="  ", level=depth(grid))
             box = grid.getparent().getparent()
         if box is not None:
