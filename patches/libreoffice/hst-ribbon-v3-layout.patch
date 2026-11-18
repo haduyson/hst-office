@@ -541,22 +541,29 @@ License: these upstream files remain under their original license (MPL-2.0).
      vcl/source/control/PriorityMergedHBox \
 --- a/vcl/inc/HstRibbonLadder.hxx
 +++ b/vcl/inc/HstRibbonLadder.hxx
-@@ -17,6 +17,8 @@
+@@ -16,6 +16,10 @@
+ 
  #include <rtl/ustring.hxx>
  #include <sal/types.h>
- 
-+class MenuButton;
++#include <tools/gen.hxx>
 +
++class MenuButton;
++class PushButton;
+ 
  namespace vcl
  {
- class Window;
-@@ -44,6 +46,10 @@ bool collapseLadderEnabled();
+@@ -44,6 +48,15 @@ bool collapseLadderEnabled();
  /** Apply nState to every toolbox inside rGroup (authored styles are remembered on first use). */
  void SetGroupState(vcl::Window& rGroup, int nState);
  
 +/** A menu button of a v3 ribbon group (HstRibbonV3Layout.hxx) in a look: 'L' large (its image above its label on
 +    two lines, ▾ at the end), 'M' small with its label (its image beside it), 'S' its image only. */
 +void SetMenuButtonLook(MenuButton& rButton, char cLook);
++
++/** Where a menu button of a v3 group at its medium or small look draws its ▾: right after its image and label (the
++    button fills its column, so VCL's place at its right edge left the ▾ far from its label). rInner is the
++    button's content rectangle, nSymbol the symbol's size; an empty rectangle for every other button (VCL's place). */
++tools::Rectangle MenuArrowAfterLabel(const PushButton& rButton, const tools::Rectangle& rInner, tools::Long nSymbol);
 +
  /** The caption of a ribbon group: its "labelled-by" label, else its first label (no mnemonic). */
  OUString GroupCaption(vcl::Window& rGroup);
@@ -1143,7 +1150,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  
  #include <comphelper/lok.hxx>
  #include <officecfg/Office/HSTRibbon.hxx>
-@@ -981,6 +982,23 @@ std::set<const ToolBox*> stackLargeButto
+@@ -981,6 +982,31 @@ std::set<const ToolBox*> stackLargeButto
      return aLone;
  }
  
@@ -1155,6 +1162,12 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        static std::map<const vcl::Window*, OUString> aStocks;
 +        return aStocks;
 +    }
++    /// the look (L, M, S) each of them shows
++    static std::map<const vcl::Window*, char>& looks()
++    {
++        static std::map<const vcl::Window*, char> aLooks;
++        return aLooks;
++    }
 +    DECL_STATIC_LINK(MenuLookStocks, DyingHdl, VclWindowEvent&, void);
 +};
 +
@@ -1162,12 +1175,14 @@ License: these upstream files remain under their original license (MPL-2.0).
 +{
 +    if (rEvent.GetId() == VclEventId::ObjectDying)
 +        MenuLookStocks::stocks().erase(rEvent.GetWindow());
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        MenuLookStocks::looks().erase(rEvent.GetWindow());
 +}
 +
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
  {
      for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
-@@ -1029,8 +1047,52 @@ bool collapseLadderEnabled()
+@@ -1029,8 +1055,68 @@ bool collapseLadderEnabled()
      return bEnabled;
  }
  
@@ -1182,6 +1197,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        it = rStocks.emplace(&rButton, rButton.GetModeImage().GetStock()).first;
 +        rButton.AddEventListener(LINK(nullptr, MenuLookStocks, DyingHdl));
 +    }
++    MenuLookStocks::looks()[&rButton] = cLook;
 +    const bool bLarge = cLook == 'L';
 +    const ImageAlign eAlign = bLarge ? ImageAlign::Top : ImageAlign::Left;
 +    bool bChanged = false;
@@ -1203,6 +1219,21 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    if (bChanged)
 +        rButton.queue_resize();
 +    applyToMenuButton(rButton, cLook == 'S' ? GroupSmall : GroupLarge);
++}
++
++tools::Rectangle MenuArrowAfterLabel(const PushButton& rButton, const tools::Rectangle& rInner, tools::Long nSymbol)
++{
++    const auto it = MenuLookStocks::looks().find(&rButton);
++    if (it == MenuLookStocks::looks().end() || it->second == 'L')
++        return tools::Rectangle();
++    // the content starts at the left (WB_LEFT): image, the image-text gap, label, then the ▾ a symbol's width after
++    const Image aImage = rButton.GetModeImage();
++    const OUString aText = rButton.GetText().replaceAll("~", "");
++    tools::Long nRight = rInner.Left() + (!!aImage ? aImage.GetSizePixel().Width() : 0);
++    if (!aText.isEmpty())
++        nRight += (!!aImage ? nSymbol : 0) + rButton.GetTextWidth(aText);
++    const tools::Long nLeft = std::min(rInner.Right() - nSymbol, nRight + nSymbol / 2);
++    return tools::Rectangle(Point(nLeft, rInner.Top()), Size(nSymbol, rInner.GetHeight()));
 +}
 +
  void SetGroupState(vcl::Window& rGroup, int nState)
@@ -2201,6 +2232,30 @@ License: these upstream files remain under their original license (MPL-2.0).
      if (nMin >= 0)
      {
          Size aSize;
+--- a/vcl/source/control/button.cxx
++++ b/vcl/source/control/button.cxx
+@@ -55,6 +55,8 @@
+ #include <tools/mapunit.hxx>
+ #include <tools/stream.hxx>
+ 
++#include <HstRibbonLadder.hxx>
++
+ 
+ using namespace css;
+ 
+@@ -871,6 +873,12 @@ void PushButton::ImplDrawPushButtonConte
+         // center symbol rectangle in the separated area
+         aSymbolRect.AdjustRight( -(nSymbolSize/2) );
+         aSymbolRect.SetLeft( aSymbolRect.Right() - nSymbolSize );
++        // HST Office: a ribbon menu button filling its column draws its ▾ after its label (HstRibbonLadder.cxx)
++        if (const tools::Rectangle aHst = hst::ribbon::MenuArrowAfterLabel(*this, aInRect, nSymbolSize); !aHst.IsEmpty())
++        {
++            aSymbolRect = aHst;
++            nSeparatorX = 0;
++        }
+ 
+         ImplDrawAlignedImage( pDev, aPos, aSize, nImageSep,
+                               nTextStyle, nullptr, true );
 --- a/vcl/source/window/layout.cxx
 +++ b/vcl/source/window/layout.cxx
 @@ -56,6 +56,7 @@
