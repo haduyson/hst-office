@@ -288,7 +288,7 @@ dates, .xlsx round trip, an older .ods unchanged, .ods export of such a document
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sc/qa/unit/uicalc/hstexcel1900dates.cxx
-@@ -0,0 +1,374 @@
+@@ -0,0 +1,400 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -585,6 +585,32 @@ dates, .xlsx round trip, an older .ods unchanged, .ods export of such a document
 +                                                    &rFormatter, 0.0, 0.0),
 +                         aDayName);
 +    rFormatter.SetHstExcel1900Dates(true);
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcel1900DatesTest, testSerialZero)
++{
++    // A deliberate difference: serial 0 is 31/12/1899, the day before serial 1, so that a date
++    // typed before 1900 keeps its day. The leading spreadsheet application shows serial 0 as the
++    // day "00/01/1900" (DAY 0, MONTH 1, YEAR 1900, WEEKNUM 0) and has no earlier dates.
++    createScDoc();
++    CPPUNIT_ASSERT(excel1900());
++    ScDocument* pDoc = getScDoc();
++    const std::pair<const char*, const char*> aCases[] = {
++        { "=TEXT(0,\"yyyy-mm-dd\")", "1899-12-31" },
++        { "=DAY(0)", "31" },
++        { "=MONTH(0)", "12" },
++        { "=YEAR(0)", "1899" },
++        { "=WEEKDAY(0)", "7" },
++        { "=WEEKNUM(0)", "53" },
++        { "=WEEKNUM(0,2)", "53" },
++    };
++    for (size_t i = 0; i < std::size(aCases); ++i)
++    {
++        const ScAddress aPos(0, SCROW(i), 0);
++        pDoc->SetString(aPos, OUString::createFromAscii(aCases[i].first));
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCases[i].first, OUString::createFromAscii(aCases[i].second),
++                                     pDoc->GetString(aPos));
++    }
 +}
 +
 +CPPUNIT_TEST_FIXTURE(ScHstExcel1900DatesTest, testTypedDates)
