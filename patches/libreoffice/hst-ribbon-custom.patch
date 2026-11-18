@@ -2601,7 +2601,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/hst/ribbon/lo/ribbon-custom-controller.cxx
-@@ -0,0 +1,830 @@
+@@ -0,0 +1,831 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2626,6 +2626,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +#include <toolkit/helper/vclunohelper.hxx>
 +#include <vcl/EnumContext.hxx>
 +#include <vcl/builder.hxx>
++#include <vcl/commandevent.hxx>
 +#include <vcl/commandinfoprovider.hxx>
 +#include <vcl/event.hxx>
 +#include <vcl/layout.hxx>
@@ -3434,7 +3435,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/hst/ribbon/lo/ribbon-custom-controller.hxx
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,124 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -3463,6 +3464,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +#include <cppuhelper/weakref.hxx>
 +#include <rtl/ustring.hxx>
 +#include <tools/link.hxx>
++#include <tools/long.hxx>
 +#include <vcl/vclptr.hxx>
 +
 +#include <map>
@@ -4085,7 +4087,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +    const OUString aSelect = PathId(core::isValid(m_aLayout, rSelect) ? rSelect : core::Path{ 0 });
 +    m_xRibbon->all_foreach([this, &aSelect](weld::TreeIter& rIter) {
 +        const OUString aId = m_xRibbon->get_id(rIter);
-+        if (aId != aSelect && !aSelect.startsWith(aId + "."))
++        if (aId != aSelect && !aSelect.startsWith(OUString(aId + ".")))
 +            return false;
 +        if (aId == aSelect)
 +        {
@@ -4927,7 +4929,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/hst/ribbon/lo/ribbon-usage-recorder.cxx
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,242 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -4942,6 +4944,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +#include <comphelper/processfactory.hxx>
 +#include <comphelper/diagnose_ex.hxx>
 +#include <cppuhelper/implbase.hxx>
++#include <sal/log.hxx>
 +#include <sfx2/docfac.hxx>
 +#include <sfx2/objsh.hxx>
 +#include <sfx2/viewfrm.hxx>

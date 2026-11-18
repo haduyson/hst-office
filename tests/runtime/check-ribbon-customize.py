@@ -1,0 +1,209 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+"""Ribbon customization and the "Sử dụng gần đây" (recently used) tab on a real GUI (gtk3, vi_VN).
+
+Usage: python3 tests/runtime/check-ribbon-customize.py --instdir DIR --work DIR [--display :247] [--shots DIR]
+                                                        [--apps writer,calc,impress,draw]
+The X display must already run (this script never starts or stops it). Per app, at 1485x900, with
+HST_RIBBON_DUMP_LAYOUT so the generated tabs' layouts can be checked by check-ribbon-v3-dumps.py:
+  1. fresh profile: "Sử dụng gần đây" stands right after "Trang đầu" and shows its empty state;
+  2. commands dispatched to the document appear on it once it is shown again;
+  3. restart with a customization in <profile>/user/hst-ribbon/custom-<app>.json (a custom tab "Của tôi" after
+     Trang đầu, the first group of Trang đầu hidden, a broken entry): the custom tab and its commands are there, the
+     recently used tab still follows Trang đầu, the history survived the restart, the hidden group's caption is
+     gone, the other tabs are unchanged;
+  4. a right-click on the tab row offers "Tùy chỉnh ribbon…", which opens the dialog (closed with Escape);
+  5. Tùy chọn's service turns the tab off: after the reload the tab is gone.
+Writes <work>/evidence.json; exit 1 on any failure.
+"""
+import argparse
+import json
+import os
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import hst_gui  # noqa: E402
+import ribbon_tabs_gui as gui  # noqa: E402
+
+RECENT = "Sử dụng gần đây"
+HOME = "Trang đầu"
+EMPTY = "Các lệnh bạn dùng sẽ xuất hiện ở đây"
+CUSTOM_TAB = "Của tôi"
+CUSTOM_GROUP = "Nhóm của tôi"
+PORTS = {"writer": 7641, "calc": 7642, "impress": 7643, "draw": 7644}
+HOME_PAGE = "HomeLabel"
+FIRST_GROUP = "gdHomeClipboard"  # the first group of Trang đầu in every app, hidden by the customization
+USED = [".uno:Bold", ".uno:Bold", ".uno:Bold", ".uno:Italic", ".uno:Underline"]
+ADDED = [".uno:Bold", ".uno:Italic", ".uno:Strikeout"]
+ROWS = []
+
+
+def record(name, ok, detail=""):
+    ROWS.append({"check": name, "status": "PASS" if ok else "FAIL", "detail": str(detail)})
+    print(f"{'PASS' if ok else 'FAIL'}  {name}  {detail}", flush=True)
+    return ok
+
+
+def customization(app):
+    first_group = FIRST_GROUP
+    return {"format": "hst-ribbon-customization", "version": 1, "app": app, "tabs": [
+        {"id": HOME_PAGE, "groups": [{"id": first_group, "hidden": True}, {"id": "gdNoSuchGroup"}]},
+        {"id": "hst-tab-1", "custom": True, "label": CUSTOM_TAB, "after": HOME_PAGE, "groups": [
+            {"id": "hst-group-1", "custom": True, "label": CUSTOM_GROUP,
+             "commands": [{"id": c} for c in ADDED] + [{"id": "not a command"}]}]},
+        {"id": "NoSuchTab", "groups": []}]}
+
+
+def texts(roles=("label",)):
+    return [n[0] for n in gui.ribbon_nodes(roles)]
+
+
+def ribbon_buttons():
+    return [n[0] for n in gui.ribbon_nodes(("push button", "toggle button", "menu item", "push button menu"))]
+
+
+def reopen(display, name):
+    """Shows tab `name` after another one, so the tab's refresh on activation runs."""
+    others = [t for t in gui.visible_names() if t not in (name, "Tệp tin")]
+    if others:
+        gui.open_tab(display, others[-1])
+    return gui.open_tab(display, name)
+
+
+def start(args, app, fresh, dumps):
+    work = os.path.join(args.work, app)
+    office = hst_gui.Office(args.instdir, work, PORTS[app], display=args.display, extra_args=[f"--{app}"],
+                            nodefault=False, env={"HST_RIBBON_DUMP_LAYOUT": dumps},
+                            config=[("/org.openoffice.Office.Impress/Misc/NewDoc", "AutoPilot", "false")])
+    office.start(fresh=fresh)
+    time.sleep(8)
+    windows = [w for w, n in hst_gui.toplevels(args.display, office.pid) if gui.NAMES[app] in n]
+    if windows:
+        gui.xdo(args.display, "windowmove", windows[0], "0", "0")
+        gui.xdo(args.display, "windowsize", windows[0], "1485", "900")
+        time.sleep(4)
+    return office, work
+
+
+def shot(args, office, name):
+    if args.shots:
+        office.screenshot(os.path.join(args.shots, name))
+
+
+def check_app(args, app):
+    dumps = os.path.join(args.work, "dumps", app)
+    os.makedirs(dumps, exist_ok=True)
+    office, work = start(args, app, True, dumps)
+    try:
+        tabs = gui.visible_names()
+        default_tabs = [t for t in tabs if t != RECENT]
+        gui.open_tab(args.display, HOME)
+        time.sleep(1)
+        home_buttons = ribbon_buttons()
+        record(f"[{app}] recently used tab right after {HOME}",
+               HOME in tabs and tabs.index(HOME) + 1 < len(tabs) and tabs[tabs.index(HOME) + 1] == RECENT, tabs)
+        record(f"[{app}] empty state", gui.open_tab(args.display, RECENT) and EMPTY in texts(), texts())
+        shot(args, office, f"{app}-recent-empty.png")
+        frame = office.desktop().getCurrentFrame()
+        for command in USED:
+            office.dispatch(frame, command)
+            time.sleep(0.2)
+        office.dispatch(frame, ".uno:Undo")  # noise: never shown
+        time.sleep(1)
+        reopen(args.display, RECENT)
+        time.sleep(2)
+        buttons = ribbon_buttons()
+        record(f"[{app}] used commands on the recently used tab", EMPTY not in texts() and len(buttons) >= 3, buttons)
+        shot(args, office, f"{app}-recent-used.png")
+    finally:
+        office.stop()  # the history is written at exit
+
+    folder = os.path.join(work, "profile", "user", "hst-ribbon")
+    record(f"[{app}] history written to the profile", os.path.isfile(os.path.join(folder, f"usage-{app}.json")),
+           os.listdir(folder) if os.path.isdir(folder) else "no folder")
+    with open(os.path.join(folder, f"custom-{app}.json"), "w", encoding="utf-8") as handle:
+        json.dump(customization(app), handle, ensure_ascii=False)
+    if os.geteuid() == 0:
+        import subprocess
+        subprocess.run(["chown", "-R", hst_gui.BUILD_USER, folder], check=False)
+
+    office, work = start(args, app, False, dumps)
+    try:
+        tabs = gui.visible_names()
+        record(f"[{app}] custom tab, recently used tab after {HOME}",
+               tabs[tabs.index(HOME) + 1: tabs.index(HOME) + 3] == [RECENT, CUSTOM_TAB] if HOME in tabs else False, tabs)
+        record(f"[{app}] built-in tabs unchanged", [t for t in tabs if t not in (RECENT, CUSTOM_TAB)] == default_tabs,
+               tabs)
+        gui.open_tab(args.display, HOME)
+        time.sleep(1)
+        buttons = ribbon_buttons()
+        record(f"[{app}] hidden group gone from {HOME}",
+               "Dán" in home_buttons and "Dán" not in buttons and len(buttons) < len(home_buttons),
+               (len(home_buttons), len(buttons)))
+        shot(args, office, f"{app}-home-customized.png")
+        gui.open_tab(args.display, CUSTOM_TAB)
+        time.sleep(1)
+        record(f"[{app}] custom group and commands", CUSTOM_GROUP in texts() and len(ribbon_buttons()) >= len(ADDED),
+               (texts(), ribbon_buttons()))
+        shot(args, office, f"{app}-custom-tab.png")
+        gui.open_tab(args.display, RECENT)
+        time.sleep(2)
+        record(f"[{app}] history kept over the restart", EMPTY not in texts() and len(ribbon_buttons()) >= 3,
+               ribbon_buttons())
+        # right-click on the tab row
+        box = dict((t[0], t[1]) for t in gui.ribbon_tabs()).get(HOME)
+        if box:
+            gui.xdo(args.display, "mousemove", str(box[0] + box[2] + 400), str(box[1] + box[3] // 2), "click", "3")
+            time.sleep(1.5)
+            items = [n[0] for n in gui.ribbon_nodes(("menu item",), band=2000)]
+            if record(f"[{app}] context menu offers Tùy chỉnh ribbon…", "Tùy chỉnh ribbon…" in items, items):
+                node = next(n for n in gui.ribbon_nodes(("menu item",), band=2000) if n[0] == "Tùy chỉnh ribbon…")
+                gui.click(args.display, node[2])
+                time.sleep(3)
+                dialogs = [n for _w, n in hst_gui.toplevels(args.display, office.pid) if "Tùy chỉnh ribbon" in n]
+                record(f"[{app}] customize dialog opens", bool(dialogs), hst_gui.toplevels(args.display, office.pid))
+                shot(args, office, f"{app}-customize-dialog.png")
+                gui.xdo(args.display, "key", "Escape")
+                time.sleep(1.5)
+            else:
+                gui.xdo(args.display, "key", "Escape")
+        # Tùy chọn › HST Office › Ribbon: off
+        job = office.service("vn.hasontech.hst.RibbonCustomization")
+        from com.sun.star.beans import NamedValue
+        record(f"[{app}] service answers", job is not None and job.execute((NamedValue("Action", "getRecentEnabled"),)))
+        job.execute((NamedValue("Action", "setRecentEnabled"), NamedValue("Enabled", False)))
+        time.sleep(4)
+        record(f"[{app}] tab off after the switch", RECENT not in gui.visible_names(), gui.visible_names())
+        job.execute((NamedValue("Action", "setRecentEnabled"), NamedValue("Enabled", True)))
+        time.sleep(4)
+        record(f"[{app}] tab back after the switch", RECENT in gui.visible_names(), gui.visible_names())
+    finally:
+        office.stop()
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--instdir", required=True)
+    parser.add_argument("--work", required=True)
+    parser.add_argument("--display", default=":247")
+    parser.add_argument("--shots")
+    parser.add_argument("--apps", default="writer,calc,impress,draw")
+    args = parser.parse_args()
+    hst_gui.setup_uno(args.instdir)
+    if args.shots:
+        os.makedirs(args.shots, exist_ok=True)
+    for app in args.apps.split(","):
+        try:
+            check_app(args, app)
+        except Exception as error:  # noqa: BLE001 - the next app still runs
+            record(f"[{app}] run", False, repr(error))
+    with open(os.path.join(args.work, "evidence.json"), "w", encoding="utf-8") as handle:
+        json.dump(ROWS, handle, ensure_ascii=False, indent=1)
+    failed = [r for r in ROWS if r["status"] != "PASS"]
+    print(f"{len(ROWS) - len(failed)} pass, {len(failed)} fail")
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
