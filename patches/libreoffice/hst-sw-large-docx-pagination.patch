@@ -469,7 +469,7 @@ testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
 +/// First sibling that SwFrame::PrepareMake formats before rFrame: the first one of its upper, but for a
 +/// page of a large text or DOCX (SwRootFrame::IsLargeTextPagination) the page after the last page before
 +/// it that is already formatted. Walking all pages before every page made its layout O(pages^2).
-+SwFrame* HstFirstSiblingToFormat(const SwFrame& rFrame);
++SwFrame* HstFirstSiblingToFormat(SwFrame& rFrame);
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
@@ -583,14 +583,14 @@ testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
 +    return nTable;
 +}
 +
-+SwFrame* HstFirstSiblingToFormat(const SwFrame& rFrame)
++SwFrame* HstFirstSiblingToFormat(SwFrame& rFrame)
 +{
 +    SwFrame* pFirst = rFrame.GetUpper()->Lower();
 +    if (!rFrame.IsPageFrame() || !rFrame.getRootFrame()->IsLargeTextPagination())
 +        return pFirst;
 +    // Formatted pages before the last formatted one need no formatting; unformatted ones before it
 +    // are formatted by the layout in page order, as all pages are.
-+    SwFrame* pStart = const_cast<SwFrame&>(rFrame).GetPrev();
++    SwFrame* pStart = rFrame.GetPrev();
 +    while (pStart && !pStart->isFrameAreaDefinitionValid())
 +        pStart = pStart->GetPrev();
 +    return pStart ? pStart->GetNext() : pFirst;
