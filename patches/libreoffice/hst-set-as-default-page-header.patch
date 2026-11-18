@@ -10,10 +10,10 @@ License: these upstream files remain under their original license (MPL-2.0).
 Test: CppunitTest_sw_uiwriter9 testHstSetAsDefaultPageWithHeader
 ---
 diff --git a/sw/qa/extras/uiwriter/uiwriter9.cxx b/sw/qa/extras/uiwriter/uiwriter9.cxx
-index 8e39da5..7d070a0 100644
+index 8e39da5..def7b6c 100644
 --- a/sw/qa/extras/uiwriter/uiwriter9.cxx
 +++ b/sw/qa/extras/uiwriter/uiwriter9.cxx
-@@ -56,6 +56,12 @@
+@@ -56,6 +56,11 @@
  #include <edtwin.hxx>
  #include <view.hxx>
  #include <hstsetasdefault.hxx>
@@ -22,20 +22,19 @@ index 8e39da5..7d070a0 100644
 +#include <fmthdft.hxx>
 +#include <pagedesc.hxx>
 +#include <editeng/lrspitem.hxx>
-+#include <iostream>
  #include <svl/itemset.hxx>
  #include <fmtcol.hxx>
  #include <poolfmt.hxx>
-@@ -2029,6 +2035,64 @@ CPPUNIT_TEST_FIXTURE(SwUiWriterTest9, testHstSetAsDefaultThisDocument)
+@@ -2029,6 +2034,62 @@ CPPUNIT_TEST_FIXTURE(SwUiWriterTest9, testHstSetAsDefaultThisDocument)
      CPPUNIT_ASSERT(14.f != getProperty<float>(getParagraph(1), u"CharHeight"_ustr));
  }
  
 +// HST Office "Set As Default" in the Page Style dialog of a page style with a header: the dialog's own OK
-+// follows the default, and must neither attach a header format without content to the pages nor mix up the
++// follows the default, and must neither attach a header format without content to the pages nor lose the
 +// header contents
 +CPPUNIT_TEST_FIXTURE(SwUiWriterTest9, testHstSetAsDefaultPageWithHeader)
 +{
-+    // 0: the dialog's OK alone, 1: Set As Default alone, 2: Set As Default, then the dialog's OK
++    // 0: the dialog's OK alone, 1: Set As Default alone, 2: Set As Default, then the dialog's OK (the crash)
 +    for (int nCase = 0; nCase < 3; ++nCase)
 +    {
 +        if (nCase != 0)
@@ -55,16 +54,19 @@ index 8e39da5..7d070a0 100644
 +        auto* pSheet = static_cast<SwDocStyleSheet*>(pDoc->GetDocShell()->GetStyleSheetPool()->Find(
 +            pStandard->GetName().toString(), SfxStyleFamily::Page));
 +        CPPUNIT_ASSERT(pSheet);
-+        // what the dialog holds: the style's values, with a changed left margin
++        // what the dialog shows (Set As Default gets it), and what its OK applies: the user's change only
++        const SvxLRSpaceItem aMargins(SvxIndentValue::twips(1701), SvxIndentValue::twips(1134),
++                                      SvxIndentValue::zero(), RES_LR_SPACE);
 +        SfxItemSet aDialogSet(pSheet->GetItemSet());
-+        aDialogSet.Put(SvxLRSpaceItem(SvxIndentValue::twips(1701), SvxIndentValue::twips(1134),
-+                                      SvxIndentValue::zero(), RES_LR_SPACE));
++        aDialogSet.Put(aMargins);
++        SfxItemSet aOutputSet(*aDialogSet.GetPool(), aDialogSet.GetRanges());
++        aOutputSet.Put(aMargins);
 +
 +        if (nCase != 0)
 +            sw::hst::SetAsDefault(nullptr, *pDoc->GetDocShell(), sw::hst::DefaultKind::Page, aDialogSet,
 +                                  false);
 +        if (nCase != 1)
-+            pSheet->SetItemSet(aDialogSet);
++            pSheet->SetItemSet(aOutputSet, /*bBroadcast=*/false, /*bParam1=*/true);
 +        calcLayout();
 +
 +        for (const SwFrameFormat* pFormat : { &pStandard->GetMaster(), &pStandard->GetFirstMaster() })
@@ -77,45 +79,12 @@ index 8e39da5..7d070a0 100644
 +            = getProperty<uno::Reference<text::XText>>(xStyle, u"HeaderText"_ustr)->getString();
 +        const OUString aFirst
 +            = getProperty<uno::Reference<text::XText>>(xStyle, u"HeaderTextFirst"_ustr)->getString();
-+        std::cerr << "hst set as default page case " << nCase << ": header '" << aHeader << "' first '"
-+                  << aFirst << "'\n";
 +        CPPUNIT_ASSERT_EQUAL(sal_Int32(3000), getProperty<sal_Int32>(xStyle, u"LeftMargin"_ustr));
-+        CPPUNIT_ASSERT_EQUAL(u"First header"_ustr, aFirst);
-+        // the dialog's OK alone (case 0) shows what the dialog keeps; Set As Default must not change it
-+        if (nCase == 0)
-+            continue;
 +        CPPUNIT_ASSERT_EQUAL(u"Header"_ustr, aHeader);
++        CPPUNIT_ASSERT_EQUAL(u"First header"_ustr, aFirst);
 +    }
 +}
 +
  // HST Office "Set As Default" for all new documents: a per-user default template, updated by later changes
  CPPUNIT_TEST_FIXTURE(SwUiWriterTest9, testHstSetAsDefaultNewDocuments)
  {
-diff --git a/sw/source/uibase/app/hstsetasdefault.cxx b/sw/source/uibase/app/hstsetasdefault.cxx
-index 3fa14a0..f10892e 100644
---- a/sw/source/uibase/app/hstsetasdefault.cxx
-+++ b/sw/source/uibase/app/hstsetasdefault.cxx
-@@ -11,6 +11,7 @@
- #include <hstsetasdefault.hxx>
- 
- #include <IDocumentStylePoolAccess.hxx>
-+#include <IDocumentUndoRedo.hxx>
- #include <doc.hxx>
- #include <docsh.hxx>
- #include <fmtcol.hxx>
-@@ -124,7 +125,15 @@ void ApplyDefaults(SwDoc& rDoc, DefaultKind eKind, const SfxItemSet& rValues)
-     size_t nPos = 0;
-     if (!pStandard || !rDoc.FindPageDesc(pStandard->GetName(), &nPos))
-         return;
-+    // Change the page style the way its own dialog does (SwDocStyleSheet::SetItemSet): from a copy that owns
-+    // its header and footer formats and content. A plain copy shares them with the style it replaces; the
-+    // dialog's own OK that follows then attached a header format without content to the pages (crash in
-+    // SwHeadFootFrame when the style has a header).
-     SwPageDesc aDesc(*pStandard);
-+    {
-+        ::sw::UndoGuard const aNoUndo(rDoc.GetIDocumentUndoRedo());
-+        rDoc.CopyPageDesc(*pStandard, aDesc);
-+    }
-     ItemSetToPageDesc(aDefaults, aDesc);
-     rDoc.ChgPageDesc(nPos, aDesc);
- }
