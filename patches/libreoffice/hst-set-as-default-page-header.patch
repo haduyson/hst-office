@@ -10,10 +10,10 @@ License: these upstream files remain under their original license (MPL-2.0).
 Test: CppunitTest_sw_uiwriter9 testHstSetAsDefaultPageWithHeader
 ---
 diff --git a/sw/qa/extras/uiwriter/uiwriter9.cxx b/sw/qa/extras/uiwriter/uiwriter9.cxx
-index 8e39da5..1e465fc 100644
+index 8e39da5..7d070a0 100644
 --- a/sw/qa/extras/uiwriter/uiwriter9.cxx
 +++ b/sw/qa/extras/uiwriter/uiwriter9.cxx
-@@ -56,6 +56,11 @@
+@@ -56,6 +56,12 @@
  #include <edtwin.hxx>
  #include <view.hxx>
  #include <hstsetasdefault.hxx>
@@ -22,49 +22,70 @@ index 8e39da5..1e465fc 100644
 +#include <fmthdft.hxx>
 +#include <pagedesc.hxx>
 +#include <editeng/lrspitem.hxx>
++#include <iostream>
  #include <svl/itemset.hxx>
  #include <fmtcol.hxx>
  #include <poolfmt.hxx>
-@@ -2029,6 +2034,44 @@ CPPUNIT_TEST_FIXTURE(SwUiWriterTest9, testHstSetAsDefaultThisDocument)
+@@ -2029,6 +2035,64 @@ CPPUNIT_TEST_FIXTURE(SwUiWriterTest9, testHstSetAsDefaultThisDocument)
      CPPUNIT_ASSERT(14.f != getProperty<float>(getParagraph(1), u"CharHeight"_ustr));
  }
  
 +// HST Office "Set As Default" in the Page Style dialog of a page style with a header: the dialog's own OK
-+// follows the default, and must not attach a header format without content to the pages
++// follows the default, and must neither attach a header format without content to the pages nor mix up the
++// header contents
 +CPPUNIT_TEST_FIXTURE(SwUiWriterTest9, testHstSetAsDefaultPageWithHeader)
 +{
-+    createSwDoc();
-+    uno::Reference<beans::XPropertySet> xStyle(getStyles(u"PageStyles"_ustr)->getByName(u"Standard"_ustr),
-+                                               uno::UNO_QUERY_THROW);
-+    xStyle->setPropertyValue(u"HeaderIsOn"_ustr, uno::Any(true));
-+    xStyle->setPropertyValue(u"FirstIsShared"_ustr, uno::Any(false));
-+    getProperty<uno::Reference<text::XText>>(xStyle, u"HeaderText"_ustr)->setString(u"Header"_ustr);
-+    getProperty<uno::Reference<text::XText>>(xStyle, u"HeaderTextFirst"_ustr)->setString(u"First header"_ustr);
-+
-+    SwDoc* pDoc = getSwDoc();
-+    const SwPageDesc* pStandard
-+        = pDoc->getIDocumentStylePoolAccess().GetPageDescFromPool(SwPoolFormatId::PAGE_STANDARD);
-+    auto* pSheet = static_cast<SwDocStyleSheet*>(pDoc->GetDocShell()->GetStyleSheetPool()->Find(
-+        pStandard->GetName().toString(), SfxStyleFamily::Page));
-+    CPPUNIT_ASSERT(pSheet);
-+    // what the dialog holds: the style's values, with a changed left margin
-+    SfxItemSet aDialogSet(pSheet->GetItemSet());
-+    aDialogSet.Put(SvxLRSpaceItem(SvxIndentValue::twips(1701), SvxIndentValue::twips(1134),
-+                                  SvxIndentValue::zero(), RES_LR_SPACE));
-+
-+    // Set As Default for this document, then the dialog ends like OK
-+    sw::hst::SetAsDefault(nullptr, *pDoc->GetDocShell(), sw::hst::DefaultKind::Page, aDialogSet, false);
-+    pSheet->SetItemSet(aDialogSet);
-+    calcLayout();
-+
-+    for (const SwFrameFormat* pFormat : { &pStandard->GetMaster(), &pStandard->GetFirstMaster() })
++    // 0: the dialog's OK alone, 1: Set As Default alone, 2: Set As Default, then the dialog's OK
++    for (int nCase = 0; nCase < 3; ++nCase)
 +    {
-+        const SwFrameFormat* pHeader = pFormat->GetHeader().GetHeaderFormat();
-+        CPPUNIT_ASSERT(pHeader);
-+        CPPUNIT_ASSERT(pHeader->GetContent().GetContentIdx());
++        if (nCase != 0)
++            dispose();
++        createSwDoc();
++        uno::Reference<beans::XPropertySet> xStyle(
++            getStyles(u"PageStyles"_ustr)->getByName(u"Standard"_ustr), uno::UNO_QUERY_THROW);
++        xStyle->setPropertyValue(u"HeaderIsOn"_ustr, uno::Any(true));
++        xStyle->setPropertyValue(u"FirstIsShared"_ustr, uno::Any(false));
++        getProperty<uno::Reference<text::XText>>(xStyle, u"HeaderText"_ustr)->setString(u"Header"_ustr);
++        getProperty<uno::Reference<text::XText>>(xStyle, u"HeaderTextFirst"_ustr)
++            ->setString(u"First header"_ustr);
++
++        SwDoc* pDoc = getSwDoc();
++        const SwPageDesc* pStandard
++            = pDoc->getIDocumentStylePoolAccess().GetPageDescFromPool(SwPoolFormatId::PAGE_STANDARD);
++        auto* pSheet = static_cast<SwDocStyleSheet*>(pDoc->GetDocShell()->GetStyleSheetPool()->Find(
++            pStandard->GetName().toString(), SfxStyleFamily::Page));
++        CPPUNIT_ASSERT(pSheet);
++        // what the dialog holds: the style's values, with a changed left margin
++        SfxItemSet aDialogSet(pSheet->GetItemSet());
++        aDialogSet.Put(SvxLRSpaceItem(SvxIndentValue::twips(1701), SvxIndentValue::twips(1134),
++                                      SvxIndentValue::zero(), RES_LR_SPACE));
++
++        if (nCase != 0)
++            sw::hst::SetAsDefault(nullptr, *pDoc->GetDocShell(), sw::hst::DefaultKind::Page, aDialogSet,
++                                  false);
++        if (nCase != 1)
++            pSheet->SetItemSet(aDialogSet);
++        calcLayout();
++
++        for (const SwFrameFormat* pFormat : { &pStandard->GetMaster(), &pStandard->GetFirstMaster() })
++        {
++            const SwFrameFormat* pHeader = pFormat->GetHeader().GetHeaderFormat();
++            CPPUNIT_ASSERT(pHeader);
++            CPPUNIT_ASSERT(pHeader->GetContent().GetContentIdx());
++        }
++        const OUString aHeader
++            = getProperty<uno::Reference<text::XText>>(xStyle, u"HeaderText"_ustr)->getString();
++        const OUString aFirst
++            = getProperty<uno::Reference<text::XText>>(xStyle, u"HeaderTextFirst"_ustr)->getString();
++        std::cerr << "hst set as default page case " << nCase << ": header '" << aHeader << "' first '"
++                  << aFirst << "'\n";
++        CPPUNIT_ASSERT_EQUAL(sal_Int32(3000), getProperty<sal_Int32>(xStyle, u"LeftMargin"_ustr));
++        CPPUNIT_ASSERT_EQUAL(u"First header"_ustr, aFirst);
++        // the dialog's OK alone (case 0) shows what the dialog keeps; Set As Default must not change it
++        if (nCase == 0)
++            continue;
++        CPPUNIT_ASSERT_EQUAL(u"Header"_ustr, aHeader);
 +    }
-+    CPPUNIT_ASSERT_EQUAL(u"Header"_ustr, getProperty<uno::Reference<text::XText>>(xStyle, u"HeaderText"_ustr)->getString());
-+    CPPUNIT_ASSERT_EQUAL(sal_Int32(3000), getProperty<sal_Int32>(xStyle, u"LeftMargin"_ustr));
 +}
 +
  // HST Office "Set As Default" for all new documents: a per-user default template, updated by later changes
