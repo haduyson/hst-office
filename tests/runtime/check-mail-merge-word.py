@@ -26,7 +26,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 IF_COLUMN = 'IF { MERGEFIELD Giới_tính } = "Nam" "Ông" "Bà"'
 
 
-def connect(pipe, timeout=180):
+def connect(port, timeout=180):
     import uno
     local = uno.getComponentContext()
     deadline = time.time() + timeout
@@ -34,11 +34,13 @@ def connect(pipe, timeout=180):
     while True:
         try:
             resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)
-            return resolver.resolve(f"uno:pipe,name={pipe};urp;StarOffice.ComponentContext")
-        except Exception:  # NoConnectException until soffice listens
+            ctx = resolver.resolve(f"uno:socket,host=127.0.0.1,port={port};urp;StarOffice.ComponentContext")
+            ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).getComponents()
+            return ctx
+        except Exception:  # NoConnectException until soffice listens; a disposed bridge while it restarts
             if time.time() > deadline:
                 raise
-            time.sleep(1)
+            time.sleep(2)
 
 
 def columns(doc):
@@ -73,8 +75,14 @@ def run_checks(ctx, out, expect, list_kind):
     letter = samples.write_all(letter_dir, source)
     wanted_list = os.path.join(letter_dir, os.path.basename(source.replace("\\", "/")))
 
-    doc = desktop.loadComponentFromURL(uno.systemPathToFileUrl(letter), "_blank", 0, (prop("Hidden", True),))
+    # Not hidden: the office sends OnLoad, which runs the reconnect job, only for a document loaded visibly
+    # (SfxObjectShell::PostActivateEvent_Impl), as when a user opens the letter.
+    doc = desktop.loadComponentFromURL(uno.systemPathToFileUrl(letter), "_blank", 0, ())
+    deadline = time.time() + 60
     found = columns(doc)
+    while "" in found.values() and time.time() < deadline:
+        time.sleep(1)
+        found = columns(doc)
     expect("import: IF with a nested MERGEFIELD", IF_COLUMN in found, True)
     expect("import: MERGEFIELD switches kept", 'MERGEFIELD Lương \\# "#,##0"' in found, True)
     session = sessions.get(doc)
@@ -87,7 +95,7 @@ def run_checks(ctx, out, expect, list_kind):
 
     session.load(ctx)
     merged, count = output.run(ctx, doc, session, output.Request(output.EDIT, session.checked()))
-    got = [line for line in merged.Text.String.split("\n") if line.strip()]
+    got = [line for line in merged.Text.String.splitlines() if line.strip()]  # \r\n on Windows
     want = [line for record in samples.EXPECTED for line in record if line.strip()]
     expect("merge: recipients", count, len(samples.EXPECTED))
     expect("merge: Word's text for every recipient", got, want)
@@ -126,6 +134,7 @@ def main():
     parser.add_argument("--instdir", required=True, help="office folder (with program/ and share/extensions/)")
     parser.add_argument("--out", default=os.path.join(ROOT, "tests/output/mail-merge-word"))
     parser.add_argument("--list", choices=("xlsx", "csv"), default="xlsx")
+    parser.add_argument("--port", type=int, default=2117)
     args = parser.parse_args()
     out, instdir = os.path.abspath(args.out), os.path.abspath(args.instdir)
     program = os.path.join(instdir, "program")
@@ -133,15 +142,19 @@ def main():
     child_env = {k: v for k, v in os.environ.items() if k != "URE_BOOTSTRAP"}
     if os.path.exists(os.path.join(program, "uno.py")):
         sys.path.insert(0, program)
-        os.environ["URE_BOOTSTRAP"] = "vnd.sun.star.pathname:" + os.path.join(program, "fundamentalrc")
+        rc = "fundamental.ini" if os.name == "nt" else "fundamentalrc"  # the Windows office names it .ini
+        os.environ["URE_BOOTSTRAP"] = "vnd.sun.star.pathname:" + os.path.join(program, rc)
     profile = os.path.join(out, "profile")
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(profile)
     profile_url = "file:///" + profile.replace("\\", "/").lstrip("/")
     binary = os.path.join(program, "soffice.exe" if os.name == "nt" else "soffice")
-    pipe = f"hstmailmerge{os.getpid()}"
+    for _ in range(3):  # create the profile first: the office restarts itself once (exit code 81) while doing so
+        if subprocess.run([os.path.join(program, "soffice.bin"), "--headless", "--norestore", "--terminate_after_init",
+                           f"-env:UserInstallation={profile_url}"], env=child_env, timeout=300).returncode == 0:
+            break
     proc = subprocess.Popen([binary, "--headless", "--norestore", "--nologo", f"-env:UserInstallation={profile_url}",
-                             f"--accept=pipe,name={pipe};urp;"], env=child_env)
+                             f"--accept=socket,host=127.0.0.1,port={args.port};urp;"], env=child_env)
     rows, failed = [], 0
 
     def expect(name, actual, wanted):
@@ -152,13 +165,15 @@ def main():
         print(f"{'PASS' if ok else 'FAIL'}  {name}: {actual!r}", flush=True)
 
     try:
-        ctx = connect(pipe)
+        ctx = connect(args.port)
         run_checks(ctx, out, expect, args.list)
         try:
             ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).terminate()
         except Exception:  # noqa: BLE001 - the bridge goes away with the office
             pass
     except Exception as error:  # noqa: BLE001 - recorded as a failed check
+        import traceback
+        traceback.print_exc()
         expect("run completed", f"{type(error).__name__}: {error}", "completed")
     finally:
         try:
