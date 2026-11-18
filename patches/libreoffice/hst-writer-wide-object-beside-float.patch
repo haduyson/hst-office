@@ -15,6 +15,117 @@ testWideInlineObjectMovesBelowFloatOtherwise (minimal .docx in compatibility mod
 License: the new files sw/source/core/text/hstwideobjectbesidefly.{hxx,cxx} are LicenseRef-HST-Proprietary; the
 upstream files remain under their original license (MPL-2.0).
 ---
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -416,6 +416,7 @@
+     sw/source/core/text/porexp \
+     sw/source/core/text/porfld \
+     sw/source/core/text/porfly \
++    sw/source/core/text/hstwideobjectbesidefly \
+     sw/source/core/text/porglue \
+     sw/source/core/text/porlay \
+     sw/source/core/text/porlin \
+--- /dev/null
++++ b/sw/source/core/text/hstwideobjectbesidefly.hxx
+@@ -0,0 +1,27 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++class SwLinePortion;
++class SwTextFormatInfo;
++
++namespace hst::sw
++{
++/** Whether an as-character object that is wider than the room left in its line stays in that line.
++
++    Word (layouts imported with content allowed over the right margin: .doc, and .docx/.rtf before Word 2013)
++    keeps an inline object that is the first content beside a wrapping float next to that float and lets it run
++    over the right margin. Writer otherwise moves such a line below the float, which can cost a whole page in
++    documents with many pictures and wide formulas side by side.
++
++    True only when the document has DocumentSettingId::TAB_OVER_MARGIN, no further float follows in this line,
++    and everything before rPortion in the line is a float's room (fly portions), so rPortion starts the text
++    area beside the float. */
++bool KeepWideObjectBesideFly(const SwTextFormatInfo& rInf, const SwLinePortion& rPortion);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/core/text/hstwideobjectbesidefly.cxx
+@@ -0,0 +1,45 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#include "hstwideobjectbesidefly.hxx"
++
++#include <IDocumentSettingAccess.hxx>
++#include <doc.hxx>
++#include <txtfrm.hxx>
++
++#include "inftxt.hxx"
++#include "porlay.hxx"
++
++namespace hst::sw
++{
++bool KeepWideObjectBesideFly(const SwTextFormatInfo& rInf, const SwLinePortion& rPortion)
++{
++    // A float later in this line: the object must not run into it.
++    if (rInf.GetFly() || rInf.X() <= 0)
++        return false;
++
++    const SwTextFrame* pFrame = rInf.GetTextFrame();
++    if (!pFrame
++        || !pFrame->GetDoc().getIDocumentSettingAccess().get(DocumentSettingId::TAB_OVER_MARGIN))
++        return false;
++
++    const SwLineLayout* pRoot = rInf.GetRoot();
++    if (!pRoot || pRoot->GetLen())
++        return false; // the line itself already holds text
++
++    bool bBesideFly = false;
++    for (const SwLinePortion* pPor = pRoot->GetNextPortion(); pPor && pPor != &rPortion;
++         pPor = pPor->GetNextPortion())
++    {
++        if (!pPor->IsFlyPortion())
++            return false; // text, a field or another object comes first in this line
++        bBesideFly = true;
++    }
++    return bBesideFly;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/core/text/porfly.cxx
++++ b/sw/source/core/text/porfly.cxx
+@@ -34,6 +34,7 @@
+ #include <flyfrms.hxx>
+ #include <txatbase.hxx>
+ #include "porfly.hxx"
++#include "hstwideobjectbesidefly.hxx"
+ #include "porlay.hxx"
+ #include "inftxt.hxx"
+ 
+@@ -132,6 +133,12 @@
+             Width( rInf.Width() );
+             bFull = false; // so that notes can still be placed in this line
+         }
++        else if (hst::sw::KeepWideObjectBesideFly(rInf, *this))
++        {
++            // Word keeps it beside the float, running over the right margin
++            Width(rInf.Width() - rInf.X());
++            bFull = false;
++        }
+         else
+         {
+             if( !rInf.GetFly() )
 --- a/sw/qa/core/text/txtfly.cxx
 +++ b/sw/qa/core/text/txtfly.cxx
 @@ -11,6 +11,10 @@
