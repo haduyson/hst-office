@@ -40,7 +40,7 @@ index 386dc8d..79600ea 100644
          <prop oor:name="DockPos" oor:type="xs:string">
            <value>1,0</value>
 diff --git a/starmath/CppunitTest_starmath_qa_cppunit.mk b/starmath/CppunitTest_starmath_qa_cppunit.mk
-index b79aa71..4bf7071 100644
+index b79aa71..52a8b01 100644
 --- a/starmath/CppunitTest_starmath_qa_cppunit.mk
 +++ b/starmath/CppunitTest_starmath_qa_cppunit.mk
 @@ -55,6 +55,7 @@ $(eval $(call gb_CppunitTest_use_libraries,starmath_qa_cppunit,\
@@ -51,17 +51,18 @@ index b79aa71..4bf7071 100644
      $$(INCLUDE) \
  ))
  
-@@ -63,6 +64,8 @@ $(eval $(call gb_CppunitTest_add_exception_objects,starmath_qa_cppunit,\
+@@ -63,6 +64,9 @@ $(eval $(call gb_CppunitTest_add_exception_objects,starmath_qa_cppunit,\
      starmath/qa/cppunit/test_node \
      starmath/qa/cppunit/test_nodetotextvisitors \
      starmath/qa/cppunit/test_parse \
 +    starmath/qa/cppunit/test_hst_formula_constructs \
++    starmath/qa/cppunit/test_hst_mathtype_textarrow \
 +    starmath/qa/cppunit/test_hst_mtef5 \
      starmath/qa/cppunit/test_starmath \
  ))
  
 diff --git a/starmath/Library_sm.mk b/starmath/Library_sm.mk
-index 57a19e1..83c659e 100644
+index 57a19e1..973db3b 100644
 --- a/starmath/Library_sm.mk
 +++ b/starmath/Library_sm.mk
 @@ -18,6 +18,7 @@ $(eval $(call gb_Library_set_precompiled_header,sm,starmath/inc/pch/precompiled_
@@ -72,12 +73,13 @@ index 57a19e1..83c659e 100644
          -I$(WORKDIR)/SdiTarget/starmath/sdi \
          $$(INCLUDE) \
  ))
-@@ -81,6 +82,18 @@ $(eval $(call gb_Library_add_exception_objects,sm,\
+@@ -81,6 +82,19 @@ $(eval $(call gb_Library_add_exception_objects,sm,\
          starmath/source/smediteng \
          starmath/source/format \
          starmath/source/mathtype \
 +        starmath/source/hst/elementtemplates \
 +        starmath/source/hst/mathtypeglue \
++        starmath/source/hst/mathtypetextarrow \
 +        starmath/source/hst/mtef5converter \
 +        starmath/source/hst/mtef5emitter \
 +        starmath/source/hst/mtef5fonts \
@@ -339,10 +341,10 @@ index 0000000..d2601b1
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/qa/cppunit/test_hst_formula_constructs.cxx b/starmath/qa/cppunit/test_hst_formula_constructs.cxx
 new file mode 100644
-index 0000000..b247a99
+index 0000000..f9f276e
 --- /dev/null
 +++ b/starmath/qa/cppunit/test_hst_formula_constructs.cxx
-@@ -0,0 +1,189 @@
+@@ -0,0 +1,196 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -425,6 +427,13 @@ index 0000000..b247a99
 +        CPPUNIT_ASSERT_EQUAL(u"DejaVu Math TeX Gyre"_ustr, pArc->Attribute()->GetFont().GetFamilyName());
 +        // other attributes keep the math font
 +        CPPUNIT_ASSERT(pHat->Attribute()->GetFont().GetFamilyName() != pArc->Attribute()->GetFont().GetFamilyName());
++
++        // the arc rests on the letters like the hat: both boxes end at the same height over "AB",
++        // and the arc's box is its glyph (about 0.3 em), not the full line of its font (1 em plus
++        // leading), whose descent line left the drawn arc floating a third of an em too high
++        const SmNode* pArcGlyph = pArc->Attribute();
++        CPPUNIT_ASSERT_EQUAL(pHat->Attribute()->GetBottom(), pArcGlyph->GetBottom());
++        CPPUNIT_ASSERT_LESS(pArcGlyph->GetFont().GetFontSize().Height() / 2, pArcGlyph->GetHeight());
 +        xDocShell->DoClose();
 +    }
 +
@@ -529,6 +538,147 @@ index 0000000..b247a99
 +};
 +
 +CPPUNIT_TEST_SUITE_REGISTRATION(HstFormulaConstructsTest);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
+new file mode 100644
+index 0000000..6379223
+--- /dev/null
++++ b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
+@@ -0,0 +1,135 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <sal/config.h>
++#include <test/bootstrapfixture.hxx>
++
++#include <tools/stream.hxx>
++
++#include <node.hxx>
++#include <parse5.hxx>
++#include <smdll.hxx>
++#include "../../source/hst/mathtypetextarrow.hxx"
++
++#include <vector>
++
++// The arrows with text in Equation Editor 3.0 objects (files saved as .doc/.xls/.ppt)
++namespace
++{
++constexpr sal_uInt8 END = 0, LINE = 1, CHAR = 2, TMPL = 3, NULL_LINE = 0x11, SYMBOL = 0x86;
++constexpr sal_uInt8 SLOT = 0xEE; // stands for the records of a label
++
++SmVerticalBraceNode* FindTextArrow(SmNode* pNode)
++{
++    if (!pNode)
++        return nullptr;
++    if (pNode->GetType() == SmNodeType::VerticalBrace)
++        return static_cast<SmVerticalBraceNode*>(pNode);
++    for (size_t i = 0; i < pNode->GetNumSubNodes(); ++i)
++        if (SmVerticalBraceNode* pFound = FindTextArrow(pNode->GetSubNode(i)))
++            return pFound;
++    return nullptr;
++}
++
++std::vector<sal_uInt8> Written(const OUString& rFormula)
++{
++    auto pTree = SmParser5().Parse(rFormula);
++    SmVerticalBraceNode* pArrow = FindTextArrow(pTree.get());
++    CPPUNIT_ASSERT(pArrow);
++    SvMemoryStream aStream;
++    aStream.SetEndian(SvStreamEndian::LITTLE); // as MathType::ConvertFromStarMath
++    starmath::hst::WriteTextArrow(aStream, *pArrow,
++                                  [&aStream](SmNode*) { aStream.WriteUChar(SLOT); });
++    const auto* pData = static_cast<const sal_uInt8*>(aStream.GetData());
++    return std::vector<sal_uInt8>(pData, pData + aStream.TellEnd());
++}
++
++class HstMathTypeTextArrowTest : public test::BootstrapFixture
++{
++public:
++    void setUp() override
++    {
++        BootstrapFixture::setUp();
++        SmGlobals::ensure();
++    }
++
++    void testWrittenAsArrowTemplates()
++    {
++        // not as a horizontal brace template: the stretching arrow, its label box on top
++        // (right arrow, selector 19) or below (left arrow, selector 18), then the arrow character
++        CPPUNIT_ASSERT((std::vector<sal_uInt8>{ TMPL, 19, 0, 0, LINE, SLOT, END, CHAR, SYMBOL,
++                                                0x92, 0x21, END })
++                       == Written(u"{t^o} xrightarrow {}"_ustr));
++        CPPUNIT_ASSERT((std::vector<sal_uInt8>{ TMPL, 18, 1, 0, LINE, SLOT, END, CHAR, SYMBOL,
++                                                0x90, 0x21, END })
++                       == Written(u"{} xleftarrow {x}"_ustr));
++        // two labels: the arrow over its first one is the main slot of a lower limit (39)
++        CPPUNIT_ASSERT((std::vector<sal_uInt8>{ TMPL, 39, 1, 0, LINE, TMPL, 19, 0, 0, LINE, SLOT,
++                                                END, CHAR, SYMBOL, 0x92, 0x21, END, END, 11, LINE,
++                                                SLOT, END, NULL_LINE, END })
++                       == Written(u"{t^o} xrightarrow {xt}"_ustr));
++        // the equilibrium arrows have no template: the character with upper and lower limits
++        CPPUNIT_ASSERT((std::vector<sal_uInt8>{ TMPL, 39, 0, 0, LINE, CHAR, SYMBOL, 0xCC, 0x21,
++                                                END, 11, NULL_LINE, LINE, SLOT, END, END })
++                       == Written(u"{a} xrightleftharpoons {}"_ustr));
++        CPPUNIT_ASSERT((std::vector<sal_uInt8>{ TMPL, 39, 2, 0, LINE, CHAR, SYMBOL, 0xC4, 0x21,
++                                                END, 11, LINE, SLOT, END, LINE, SLOT, END, END })
++                       == Written(u"{a} xrightleftarrows {b}"_ustr));
++        // no label at all: just the arrow
++        CPPUNIT_ASSERT((std::vector<sal_uInt8>{ CHAR, SYMBOL, 0x92, 0x21 })
++                       == Written(u"{} xrightarrow {}"_ustr));
++    }
++
++    void testArrowTemplatesReadBack()
++    {
++        using starmath::hst::CloseArrowLabel;
++        using starmath::hst::OpenArrowLabel;
++        const struct
++        {
++            sal_uInt8 nSelector, nVariation;
++            SmTokenType eType;
++            bool bOver;
++        } aCases[] = { { 19, 0, TXRIGHTARROW, true },
++                       { 19, 1, TXRIGHTARROW, false },
++                       { 18, 0, TXLEFTARROW, true },
++                       { 18, 1, TXLEFTARROW, false } };
++        for (const auto& rCase : aCases)
++        {
++            OUStringBuffer aText("2H_2 + O_2");
++            CPPUNIT_ASSERT(OpenArrowLabel(aText, rCase.nSelector, rCase.nVariation));
++            aText.append("t^o");
++            CloseArrowLabel(aText, rCase.nSelector, rCase.nVariation);
++            aText.append("2H_2 O");
++            const OUString aFormula = aText.makeStringAndClear();
++
++            auto pTree = SmParser5().Parse(aFormula);
++            SmVerticalBraceNode* pArrow = FindTextArrow(pTree.get());
++            CPPUNIT_ASSERT_MESSAGE(aFormula.toUtf8().getStr(), pArrow);
++            CPPUNIT_ASSERT(rCase.eType == pArrow->GetToken().eType);
++            SmNode* pLabel = rCase.bOver ? pArrow->Body() : pArrow->Script();
++            CPPUNIT_ASSERT_MESSAGE(aFormula.toUtf8().getStr(),
++                                   pLabel->GetType() != SmNodeType::Expression
++                                       || pLabel->GetNumSubNodes() > 0);
++        }
++
++        // the double-headed arrow template keeps LibreOffice's reading
++        OUStringBuffer aText;
++        CPPUNIT_ASSERT(!OpenArrowLabel(aText, 20, 0));
++        CloseArrowLabel(aText, 20, 0);
++        CPPUNIT_ASSERT_EQUAL(u"} "_ustr, aText.makeStringAndClear());
++    }
++
++    CPPUNIT_TEST_SUITE(HstMathTypeTextArrowTest);
++    CPPUNIT_TEST(testWrittenAsArrowTemplates);
++    CPPUNIT_TEST(testArrowTemplatesReadBack);
++    CPPUNIT_TEST_SUITE_END();
++};
++
++CPPUNIT_TEST_SUITE_REGISTRATION(HstMathTypeTextArrowTest);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -1270,6 +1420,203 @@ index 0000000..9f04d1d
 +
 +/// Sets the formula's base font height (all font kinds) to nPt points; 0 leaves it alone.
 +void ApplyBaseHeight(SmFormat& rFormat, sal_uInt16 nPt);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/hst/mathtypetextarrow.cxx b/starmath/source/hst/mathtypetextarrow.cxx
+new file mode 100644
+index 0000000..bf2845d
+--- /dev/null
++++ b/starmath/source/hst/mathtypetextarrow.cxx
+@@ -0,0 +1,147 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "mathtypetextarrow.hxx"
++
++#include <node.hxx>
++#include <tools/stream.hxx>
++
++namespace starmath::hst
++{
++namespace
++{
++// MTEF 3 records, template selectors and variations (Design Science, "MathType MTEF v.3")
++constexpr sal_uInt8 END = 0, LINE = 1, CHAR = 2, TMPL = 3, NULL_LINE = LINE | 0x10;
++constexpr sal_uInt8 SUBSCRIPT_SIZE = 11; // the slots of limits are set small
++constexpr sal_uInt8 SYMBOL_TYPEFACE = 6 + 128;
++constexpr sal_uInt8 LEFT_ARROW = 18, RIGHT_ARROW = 19, LIMIT = 39;
++constexpr sal_uInt8 BOX_ON_TOP = 0, BOX_BELOW = 1;
++constexpr sal_uInt8 UPPER_LIMIT = 0, LOWER_LIMIT = 1, BOTH_LIMITS = 2;
++
++bool IsEmpty(const SmNode* pNode)
++{
++    if (!pNode)
++        return true;
++    if (pNode->GetNumSubNodes() == 0) // "{}" is an expression without parts
++        return pNode->GetType() == SmNodeType::Expression;
++    for (size_t i = 0; i < pNode->GetNumSubNodes(); ++i)
++        if (!IsEmpty(pNode->GetSubNode(i)))
++            return false;
++    return true;
++}
++
++sal_Unicode ArrowChar(SmTokenType eType)
++{
++    switch (eType)
++    {
++        case TXLEFTARROW:
++            return 0x2190;
++        case TXRIGHTLEFTARROWS:
++            return 0x21C4;
++        case TXRIGHTLEFTHARPOONS:
++            return 0x21CC;
++        default:
++            return 0x2192;
++    }
++}
++
++void StartTemplate(SvStream& rStream, sal_uInt8 nSelector, sal_uInt8 nVariation)
++{
++    rStream.WriteUChar(TMPL).WriteUChar(nSelector).WriteUChar(nVariation).WriteUChar(0);
++}
++
++void WriteSlot(SvStream& rStream, SmNode* pNode, const WriteSlotContents& rWriteSlot)
++{
++    if (IsEmpty(pNode))
++    {
++        rStream.WriteUChar(NULL_LINE);
++        return;
++    }
++    rStream.WriteUChar(LINE);
++    rWriteSlot(pNode);
++    rStream.WriteUChar(END);
++}
++
++void WriteChar(SvStream& rStream, sal_Unicode cChar)
++{
++    rStream.WriteUChar(CHAR).WriteUChar(SYMBOL_TYPEFACE).WriteUInt16(cChar);
++}
++
++OUString ArrowKeyword(sal_uInt8 nSelector)
++{
++    return nSelector == LEFT_ARROW ? u"xleftarrow"_ustr : u"xrightarrow"_ustr;
++}
++
++bool IsTextArrowTemplate(sal_uInt8 nSelector, sal_uInt8 nVariation)
++{
++    return (nSelector == LEFT_ARROW || nSelector == RIGHT_ARROW)
++           && (nVariation == BOX_ON_TOP || nVariation == BOX_BELOW);
++}
++}
++
++void WriteTextArrow(SvStream& rStream, SmVerticalBraceNode& rNode,
++                    const WriteSlotContents& rWriteSlot)
++{
++    SmNode* pOver = rNode.Body();
++    SmNode* pUnder = rNode.Script();
++    const bool bOver = !IsEmpty(pOver);
++    const bool bUnder = !IsEmpty(pUnder);
++    const SmTokenType eType = rNode.GetToken().eType;
++    const bool bStretches = eType == TXRIGHTARROW || eType == TXLEFTARROW;
++    const bool bLimits = bStretches ? bOver && bUnder : bOver || bUnder;
++
++    if (bLimits)
++    {
++        const sal_uInt8 nVariation = bStretches || !bOver ? LOWER_LIMIT
++                                     : bUnder           ? BOTH_LIMITS
++                                                        : UPPER_LIMIT;
++        StartTemplate(rStream, LIMIT, nVariation);
++        rStream.WriteUChar(LINE);
++    }
++    if (bStretches && (bOver || bUnder))
++    {
++        StartTemplate(rStream, eType == TXLEFTARROW ? LEFT_ARROW : RIGHT_ARROW,
++                      bOver ? BOX_ON_TOP : BOX_BELOW);
++        WriteSlot(rStream, bOver ? pOver : pUnder, rWriteSlot);
++        WriteChar(rStream, ArrowChar(eType));
++        rStream.WriteUChar(END);
++    }
++    else
++        WriteChar(rStream, ArrowChar(eType));
++    if (!bLimits)
++        return;
++
++    rStream.WriteUChar(END); // the arrow, main slot of the limits
++    rStream.WriteUChar(SUBSCRIPT_SIZE);
++    WriteSlot(rStream, bUnder ? pUnder : nullptr, rWriteSlot);
++    WriteSlot(rStream, bStretches ? nullptr : pOver, rWriteSlot);
++    rStream.WriteUChar(END);
++}
++
++bool OpenArrowLabel(OUStringBuffer& rOut, sal_uInt8 nSelector, sal_uInt8 nVariation)
++{
++    if (!IsTextArrowTemplate(nSelector, nVariation))
++        return false;
++    if (nVariation == BOX_ON_TOP)
++        rOut.append(" {{");
++    else
++        rOut.append(" {{} " + ArrowKeyword(nSelector) + " {");
++    return true;
++}
++
++void CloseArrowLabel(OUStringBuffer& rOut, sal_uInt8 nSelector, sal_uInt8 nVariation)
++{
++    if (!IsTextArrowTemplate(nSelector, nVariation))
++        rOut.append("} ");
++    else if (nVariation == BOX_ON_TOP)
++        rOut.append("} " + ArrowKeyword(nSelector) + " {}} ");
++    else
++        rOut.append("}} ");
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/hst/mathtypetextarrow.hxx b/starmath/source/hst/mathtypetextarrow.hxx
+new file mode 100644
+index 0000000..04eed02
+--- /dev/null
++++ b/starmath/source/hst/mathtypetextarrow.hxx
+@@ -0,0 +1,38 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <rtl/ustrbuf.hxx>
++#include <sal/types.h>
++
++#include <functional>
++
++class SmNode;
++class SmVerticalBraceNode;
++class SvStream;
++
++// The arrows with text ("{over} xrightarrow {under}") in Equation Editor 3.0 (MTEF 3) objects,
++// written when a formula is saved to .doc/.xls/.ppt and read back when such a file is opened.
++namespace starmath::hst
++{
++/// Writes the contents of a slot (the records of a label) between its LINE and END records.
++using WriteSlotContents = std::function<void(SmNode*)>;
++
++/// Equation Editor 3.0 stretches only the single arrows under or over one label (arrow
++/// templates); a second label, and the labels of the equilibrium arrows, become limits.
++void WriteTextArrow(SvStream& rStream, SmVerticalBraceNode& rNode,
++                    const WriteSlotContents& rWriteSlot);
++
++/// Opening the label slot of an arrow template; false for the templates without a text arrow.
++bool OpenArrowLabel(OUStringBuffer& rOut, sal_uInt8 nSelector, sal_uInt8 nVariation);
++
++/// Closing the label slot that OpenArrowLabel opened (the others just close the group).
++void CloseArrowLabel(OUStringBuffer& rOut, sal_uInt8 nSelector, sal_uInt8 nVariation);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -4061,10 +4408,10 @@ index 0000000..fb34841
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/source/hst/textarrow.cxx b/starmath/source/hst/textarrow.cxx
 new file mode 100644
-index 0000000..bd324ec
+index 0000000..7d58edc
 --- /dev/null
 +++ b/starmath/source/hst/textarrow.cxx
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,82 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -4076,6 +4423,7 @@ index 0000000..bd324ec
 +
 +#include <format.hxx>
 +#include <node.hxx>
++#include <rect.hxx>
 +#include <utility.hxx>
 +
 +#include <algorithm>
@@ -4137,15 +4485,21 @@ index 0000000..bd324ec
 +    rFace.SetFamilyName(ARC_FONT);
 +    rFace.SetCharSet(RTL_TEXTENCODING_UNICODE);
 +}
++
++void FitArcToGlyph(SmTokenType eType, SmRect& rRect)
++{
++    if (eType == TWIDEARC)
++        rRect = rRect.AsGlyphRect();
++}
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/source/hst/textarrow.hxx b/starmath/source/hst/textarrow.hxx
 new file mode 100644
-index 0000000..fd1c2f0
+index 0000000..5e7fb38
 --- /dev/null
 +++ b/starmath/source/hst/textarrow.hxx
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,37 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -4160,6 +4514,7 @@ index 0000000..fd1c2f0
 +class OutputDevice;
 +class SmFace;
 +class SmFormat;
++class SmRect;
 +class SmVerticalBraceNode;
 +
 +// "{over} xrightarrow {under}" and the other arrows with text (reaction conditions in chemistry)
@@ -4174,6 +4529,11 @@ index 0000000..fd1c2f0
 +/// The arc of "widearc" (U+2322) is not drawn by OpenSymbol, which maps it to an empty glyph, so
 +/// font fallback never happens: the arc symbol takes a font that has it (bundled with the office).
 +void UseArcFont(SmTokenType eType, SmFace& rFace);
++
++/// That font is not OpenSymbol, so the symbol's box keeps the full line height and its bottom
++/// (the descent line) is what rests on the letters, leaving the arc floating high above them.
++/// The arc's box is cut to the drawn glyph, like the accents of OpenSymbol (hat, vec, ...).
++void FitArcToGlyph(SmTokenType eType, SmRect& rRect);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -4201,18 +4561,20 @@ index 1b28e4a..1ab9831 100644
              break;
      }
 diff --git a/starmath/source/mathtype.cxx b/starmath/source/mathtype.cxx
-index 2310f6b..0fe9ba3 100644
+index 2310f6b..c790309 100644
 --- a/starmath/source/mathtype.cxx
 +++ b/starmath/source/mathtype.cxx
-@@ -19,6 +19,7 @@
+@@ -19,6 +19,9 @@
  
  #include "mathtype.hxx"
  #include "eqnolefilehdr.hxx"
 +#include "hst/mathtypeglue.hxx"
++#include "hst/mathtypetextarrow.hxx"
++#include "hst/textarrow.hxx"
  
  #include <filter/msfilter/classids.hxx>
  #include <osl/diagnose.h>
-@@ -556,6 +557,7 @@ bool MathType::Parse(SvStream* pStream)
+@@ -556,6 +559,7 @@ bool MathType::Parse(SvStream* pStream)
  {
      pS = pStream;
      pS->SetEndian( SvStreamEndian::LITTLE );
@@ -4220,7 +4582,7 @@ index 2310f6b..0fe9ba3 100644
  
      EQNOLEFILEHDR aHdr;
      aHdr.Read(pS);
-@@ -569,7 +571,12 @@ bool MathType::Parse(SvStream* pStream)
+@@ -569,7 +573,12 @@ bool MathType::Parse(SvStream* pStream)
      pS->ReadUChar( nProdVersion );
      pS->ReadUChar( nProdSubVersion );
  
@@ -4234,6 +4596,34 @@ index 2310f6b..0fe9ba3 100644
          return false;
  
      bool bRet = HandleRecords(0);
+@@ -824,7 +833,7 @@ bool MathType::HandleRecords(int nLevel, sal_uInt8 nSelector,
+                         case tmLARROW:
+                         case tmRARROW:
+                         case tmBARROW:
+-                            if (nPart == 0)
++                            if (nPart == 0 && !starmath::hst::OpenArrowLabel(rRet, nSelector, nVariation))
+                             {
+                                 if (nVariation == 0)
+                                     rRet.append(" widevec ");//arrow above
+@@ -1374,7 +1383,7 @@ bool MathType::HandleRecords(int nLevel, sal_uInt8 nSelector,
+                             if (nPart == 0)
+                             {
+                                 newline--;
+-                                rRet.append("} ");
++                                starmath::hst::CloseArrowLabel(rRet, nSelector, nVariation);
+                             }
+                             nPart++;
+                             break;
+@@ -2385,6 +2394,9 @@ void MathType::HandleBrace(SmNode *pNode,int nLevel)
+ 
+ void MathType::HandleVerticalBrace(SmNode *pNode,int nLevel)
+ {
++    if (starmath::hst::IsTextArrow(pNode->GetToken().eType))
++        return starmath::hst::WriteTextArrow(*pS, static_cast<SmVerticalBraceNode&>(*pNode),
++                                             [&](SmNode* p) { HandleNodes(p, nLevel + 1); });
+     SmNode *pTemp;
+     pS->WriteUChar( TMPL ); //Template
+     if (pNode->GetToken().eType == TUNDERBRACE)
 diff --git a/starmath/source/mathtype.hxx b/starmath/source/mathtype.hxx
 index cd06cfc..5746f95 100644
 --- a/starmath/source/mathtype.hxx
@@ -4256,7 +4646,7 @@ index cd06cfc..5746f95 100644
  
      enum MTOKENS {END,LINE,CHAR,TMPL,PILE,MATRIX,EMBEL,RULER,FONT,SIZE};
 diff --git a/starmath/source/node.cxx b/starmath/source/node.cxx
-index 89970e1..6ac1a75 100644
+index 89970e1..55beb2e 100644
 --- a/starmath/source/node.cxx
 +++ b/starmath/source/node.cxx
 @@ -21,6 +21,7 @@
@@ -4285,6 +4675,14 @@ index 89970e1..6ac1a75 100644
      // use same font size as is used for variables
      GetFont().SetSize( rFormat.GetFont( FNT_VARIABLE ).GetFontSize() );
  
+@@ -2144,6 +2149,7 @@ void SmMathSymbolNode::Arrange(OutputDevice &rDev, const SmFormat &rFormat)
+     aTmpDev.SetFont(GetFont());
+ 
+     SmRect::operator = (SmRect(aTmpDev, &rFormat, rText, GetFont().GetBorderWidth()));
++    starmath::hst::FitArcToGlyph(GetToken().eType, *this);
+ }
+ 
+ /**************************************************************************/
 diff --git a/starmath/source/ooxmlexport.cxx b/starmath/source/ooxmlexport.cxx
 index aed878f..6664d8f 100644
 --- a/starmath/source/ooxmlexport.cxx
