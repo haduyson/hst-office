@@ -45,14 +45,23 @@ def role(name):
     return uno.getConstantByName("com.sun.star.accessibility.AccessibleRole." + name)
 
 
-def window_of(office, title):
-    for window in office.top_windows():
-        try:
-            context = window.getAccessibleContext()
-            if title in (context.getAccessibleName() or ""):
-                return window
-        except Exception:  # noqa: BLE001 - a window going away
-            continue
+def accessible(window):
+    """The window's XAccessible: toolkit windows hand it out as their property "XAccessible" (VCLXWindow)."""
+    try:
+        return window.getAccessibleContext() and window
+    except AttributeError:
+        return window.getProperty("XAccessible")
+
+
+def window_of(doc):
+    """The accessible root of the document's window: the ribbon sits in the window's border, beside the frame's
+    container window, so the container's accessible is followed up to the top."""
+    node = accessible(doc.getCurrentController().getFrame().getContainerWindow())
+    while node is not None:
+        parent = node.getAccessibleContext().getAccessibleParent()
+        if parent is None:
+            return node
+        node = parent
     return None
 
 
@@ -88,8 +97,8 @@ def check_app(office, app, out, res):
     time.sleep(6)
     wg.dismiss_startup(office, os.path.join(out, f"{app}-startup.png"), timeout=8, settle=2)
     found = wg.find_window(lambda title: APPS[app][1] in title, timeout=30)
-    window = window_of(office, APPS[app][1])
-    if not res(f"[{app}] window found", bool(found) and window is not None, APPS[app][1]):
+    window = window_of(doc)
+    if not res(f"[{app}] window found", bool(found) and window is not None, found):
         return
     shot = wg.load_check("check-windows-quick-access").window_shot
     names = [n for n, _c in tabs(window)]
@@ -117,12 +126,12 @@ def check_app(office, app, out, res):
     job = office.service("vn.hasontech.hst.RibbonCustomization")
     job.execute((NamedValue("Action", "setRecentEnabled"), NamedValue("Enabled", False)))
     time.sleep(5)
-    window = window_of(office, APPS[app][1])
+    window = window_of(doc)
     names = [n for n, _c in tabs(window)] if window is not None else []
     res(f"[{app}] tab off after the switch", HOME in names and RECENT not in names, names)
     job.execute((NamedValue("Action", "setRecentEnabled"), NamedValue("Enabled", True)))
     time.sleep(5)
-    window = window_of(office, APPS[app][1])
+    window = window_of(doc)
     names = [n for n, _c in tabs(window)] if window is not None else []
     res(f"[{app}] tab back after the switch", RECENT in names, names)
     doc.setModified(False)
