@@ -26,7 +26,7 @@ state="$HOME/Library/Application Support/HSTOffice/app-launchers.json"
 names=("HST Writer" "HST Sheets" "HST Slides" "HST Draw" "HST PDF")
 mkdir -p "$out"
 summary="$out/summary.md"
-: > "$summary"
+touch "$summary"  # the signature check of the copies (launcher-copy-signature-check.sh) may have written first
 fails=0
 check() { # check <name> <command...>: one PASS/FAIL line per check
   local name="$1"; shift

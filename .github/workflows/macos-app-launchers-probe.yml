@@ -13,6 +13,11 @@ on:
         description: 'Desktop macOS run whose arm64 dmg is probed'
         type: string
         required: true
+      checks:
+        description: 'all = signature of the copied launchers, then the full probe; signature = only the first part (any build with launchers, e.g. a signed release)'
+        type: choice
+        options: [all, signature]
+        default: all
 permissions:
   contents: read
 concurrency:
@@ -45,7 +50,15 @@ jobs:
           if [ "$count" = 1 ]; then artifact="$signed"; fi
           echo "artifact: $artifact"
           gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$artifact" --dir "$RUNNER_TEMP/dmg"
+      - name: Signature of the launchers copied out of the bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)
+          [ -n "$dmg" ] || { echo "no dmg in the artifact" >&2; exit 1; }
+          bash scripts/macos/launcher-copy-signature-check.sh "$dmg" "$RUNNER_TEMP/launchers"
       - name: Probe the launchers
+        if: ${{ inputs.checks == 'all' && !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
