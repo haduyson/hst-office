@@ -7,10 +7,12 @@ normal Math object on the Math baseline; Word's run position shift only applies 
 objects that stay. The DOCX/RTF logic lives in sw/source/writerfilter/hst/.
 
 A converted equation keeps the scale Word shows it at: the shown size over the size of its
-preview picture, which MathType makes at 100 % (.docx shape, .rtf \objh/\pichgoal, .doc PICF).
-MathType's point sizes in the formula are multiplied by it unless it is within 5 % of 100 %
-(sw/source/core/hst/formulashownsize.cxx, shared by writerfilter and the ww8 reader). The shown
-size is not compared with the formula's: MathType's box is taller than Math's at the same size.
+preview picture, which MathType makes at 100 % (.docx shape, .rtf \objh/\pichgoal); in .doc the
+PICF vertical scale (my), as LibreOffice wrote the picture size of its own .doc files in twips
+where Word reads 1/100 mm. MathType's point sizes in the formula are multiplied by it unless it
+is within 5 % of 100 % (sw/source/core/hst/formulashownsize.cxx, shared by writerfilter and the
+ww8 reader). The shown size is not compared with the formula's: MathType's box is taller than
+Math's at the same size.
 
 An equation kept as an OLE object keeps its data when the document is saved as .rtf (OLE 1.0
 \objdata with the compound file byte for byte, the picture in \result), so MathType can still
@@ -529,6 +531,32 @@ index 5c1119f..ee6f3e9 100644
      /// Math export.
      bool FlyFrameOLEMath(const SwFlyFrameFormat* pFlyFrameFormat, SwOLENode& rOLENode,
                           const Size& rSize);
+diff --git a/sw/source/filter/ww8/ww8graf2.cxx b/sw/source/filter/ww8/ww8graf2.cxx
+index e90b0fc..e07cff8 100644
+--- a/sw/source/filter/ww8/ww8graf2.cxx
++++ b/sw/source/filter/ww8/ww8graf2.cxx
+@@ -389,7 +389,10 @@ SwFrameFormat* SwWW8ImplReader::MakeGrafInContent(const WW8_PIC& rPic,
+     SwFrameFormat* pFlyFormat = nullptr;
+ 
+     if (rFileName.isEmpty() && m_nObjLocFc)      // then it should be an OLE-Object
++    {
++        m_nHstShownScaleY = rPic.my; // HST Office
+         pFlyFormat = ImportOle(pGraph, &aFlySet, &rGrfSet);
++    }
+ 
+     if( !pFlyFormat )                          // then just as graphic
+     {
+@@ -664,7 +667,10 @@ SwFrameFormat* SwWW8ImplReader::ImportGraf(SdrTextObj const * pTextObj,
+                             const Graphic& rGraph = pGraphObject->GetGraphic();
+ 
+                             if (m_nObjLocFc)  // is it an OLE-Object?
++                            {
++                                m_nHstShownScaleY = aPic.my; // HST Office
+                                 pRet = ImportOle(&rGraph, &aAttrSet, &aGrSet, pObject->GetBLIPSizeRectangle());
++                            }
+ 
+                             if (!pRet)
+                             {
 diff --git a/sw/source/filter/ww8/ww8par.cxx b/sw/source/filter/ww8/ww8par.cxx
 index 59260bb..891acee 100644
 --- a/sw/source/filter/ww8/ww8par.cxx
@@ -542,27 +570,47 @@ index 59260bb..891acee 100644
      if (officecfg::Office::Common::Filter::Microsoft::Import::ExcelToCalc::get())
          nFlags |= OLE_EXCEL_2_STARCALC;
      if (officecfg::Office::Common::Filter::Microsoft::Import::PowerPointToImpress::get())
+diff --git a/sw/source/filter/ww8/ww8par.hxx b/sw/source/filter/ww8/ww8par.hxx
+index b90424e..db874a7 100644
+--- a/sw/source/filter/ww8/ww8par.hxx
++++ b/sw/source/filter/ww8/ww8par.hxx
+@@ -1326,6 +1326,8 @@ private:
+ 
+     sal_uLong m_nPicLocFc;            // Picture Location in File (FC)
+     sal_uLong m_nObjLocFc;            // Object Location in File (FC)
++    // HST Office: Word's vertical scale (PICF my, 1000 = 100 %) of the OLE object being read
++    sal_uInt16 m_nHstShownScaleY = 0;
+ 
+     sal_Int32 m_nIniFlyDx;            // X-offset of Flys
+     sal_Int32 m_nIniFlyDy;            // Y-offset of Flys
 diff --git a/sw/source/filter/ww8/ww8par4.cxx b/sw/source/filter/ww8/ww8par4.cxx
-index 1ea2f7c..8b238dc 100644
+index 1ea2f7c..6e5e4bd 100644
 --- a/sw/source/filter/ww8/ww8par4.cxx
 +++ b/sw/source/filter/ww8/ww8par4.cxx
 @@ -37,6 +37,8 @@
  
  #include <sot/exchange.hxx>
  #include <fmtanchr.hxx>
-+#include <fmtfsize.hxx>
 +#include <hstformulashownsize.hxx>
++#include <utility>
  #include <frmfmt.hxx>
  #include <pam.hxx>
  #include <docsh.hxx>
-@@ -283,6 +285,10 @@ SwFrameFormat* SwWW8ImplReader::ImportOle(const Graphic* pGrf,
+@@ -242,6 +244,7 @@ SwFrameFormat* SwWW8ImplReader::ImportOle(const Graphic* pGrf,
+ {
+     ::SetProgressState(m_nProgress, m_pDocShell);     // Update
+     SwFrameFormat* pFormat = nullptr;
++    const sal_uInt16 nShownScaleY = std::exchange(m_nHstShownScaleY, 0); // HST Office
+ 
+     GraphicCtor();
+ 
+@@ -283,6 +286,9 @@ SwFrameFormat* SwWW8ImplReader::ImportOle(const Graphic* pGrf,
      {
          if (SdrOle2Obj *pOleObj = dynamic_cast<SdrOle2Obj*>(pRet.get()))
          {
-+            // HST Office: a converted MathType equation keeps the scale Word shows it at
-+            if (const SwFormatFrameSize* pShown = pFlySet->GetItemIfSet(RES_FRM_SIZE, false))
-+                sw::hst::KeepWordScale(pOleObj->GetObjRef(),
-+                                       sw::hst::WordScale(pShown->GetHeight(), MapUnit::MapTwip, aGraph));
++            // HST Office: a converted equation keeps the scale Word shows it at. Not the shown
++            // size over the picture's: LibreOffice wrote the picture's size in the wrong unit
++            sw::hst::KeepWordScale(pOleObj->GetObjRef(), nShownScaleY / 1000.0);
              pFormat = InsertOle(*pOleObj, *pFlySet, pGrfSet);
              pRet.clear();     // we don't need this anymore
          }

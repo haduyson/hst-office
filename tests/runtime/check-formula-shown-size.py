@@ -12,7 +12,7 @@ with MathType equations, some resized (files are never stored in the repository)
 60 % and 140 % as Word does (\\objw/\\objh, \\picwgoal/\\pichgoal) and saves each as .docx with the option off. With
 the option on, and with the convert command on the .rtf files, the formula at 60 % / 140 % must be that share of the
 formula at 100 %, which stays as MathType made it. In the .doc files every converted formula must be drawn at the
-scale Word shows its equation at: shown size over the OLE object's own size (PICF scale), none near 100 %.
+scale Word shows its equation at (PICF scale), none near 100 %. A formula HST saves as .doc must reopen unscaled.
 """
 import argparse
 import importlib.util
@@ -137,6 +137,25 @@ def check_doc(office, path):
     return {"resized": scaled, "wrong": len(wrong)}
 
 
+def check_saved_doc(office, workdir):
+    """A formula HST saves as .doc reopens at its own size: no Word scale is read from HST's own pictures."""
+    doc = office.load("private:factory/swriter")
+    formula = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+    formula.CLSID = base.MATH
+    formula.AnchorType = office.uno.Enum("com.sun.star.text.TextContentAnchorType", "AS_CHARACTER")
+    doc.Text.insertTextContent(doc.Text.End, formula, False)
+    formula.ExtendedControlOverEmbeddedObject.changeState(1)
+    formula.ExtendedControlOverEmbeddedObject.getComponent().Formula = "x = {-b +- sqrt{b^2 - 4ac}} over {2a}"
+    path = os.path.join(workdir, "saved-by-hst.doc")
+    doc.storeToURL(office.url(path), headless_office.props(FilterName="MS Word 97"))
+    doc.close(True)
+    doc = office.load(office.url(path))
+    found = objects(doc)
+    doc.close(True)
+    unscaled = [f[0] for f in found] == [True] and scale_of(found[0][2]) == 1.0
+    base.record("formula saved as .doc reopens unscaled", unscaled, found)
+
+
 def check(args, workdir):
     result = {}
     office = headless_office.Office(args.soffice, workdir, args.port)
@@ -149,6 +168,7 @@ def check(args, workdir):
         result["convert rtf"] = compare("convert keeps Word's scale .rtf", formula_heights(office, paths, False, True))
         for path in args.doc:
             result[os.path.basename(path)] = check_doc(office, path)
+        check_saved_doc(office, workdir)
     finally:
         office.stop()
     return result
