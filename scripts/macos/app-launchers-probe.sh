@@ -199,13 +199,15 @@ spotlight() {
   echo "found $found"; mdfind "kMDItemCFBundleIdentifier == '$bundle_id.launcher.*'"; mdfind -name "HST PDF"
   mdls -name kMDItemCFBundleIdentifier -name kMDItemContentType "$apps/HST PDF.app"; return 1
 }
-sudo -n mdutil -i on / 2>&1 | tee -a "$out/checks.log" >/dev/null || true
-control="$(mdls -raw -name kMDItemCFBundleIdentifier /System/Applications/Calculator.app 2>/dev/null)"
-echo "Spotlight control (Calculator): $control" >> "$out/checks.log"
-if mdutil -s / 2>&1 | grep -q "Indexing enabled" && [ "$control" = "com.apple.calculator" ]; then
+# /Applications lives on the Data volume, which a runner may not index even when / reports "Indexing enabled".
+for volume in / /System/Volumes/Data; do sudo -n mdutil -i on "$volume" 2>&1 | tee -a "$out/checks.log" >/dev/null || true; done
+mdimport "$app" 2>>"$out/checks.log"; sleep 20
+control="$(mdls -raw -name kMDItemCFBundleIdentifier "$app" 2>/dev/null)"   # HST Office.app itself
+echo "Spotlight control (HST Office.app): $control; $(mdutil -s /System/Volumes/Data 2>&1 | tr '\n' ' ')" >> "$out/checks.log"
+if [ "$control" = "$bundle_id" ]; then
   check "Spotlight finds the five launchers in /Applications" spotlight
 else
-  skip "Spotlight: this runner's index is not populated (Calculator.app: ${control:-none})"
+  skip "Spotlight: this runner does not index /Applications (HST Office.app itself: ${control:-not indexed})"
 fi
 registered() {
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -dump \
