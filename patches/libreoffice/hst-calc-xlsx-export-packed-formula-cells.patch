@@ -1,0 +1,332 @@
+Calc: the .xlsx export keeps formula cells outside of a matrix as packed runs of their row (16 bytes per cell).
+
+The export created one XclExpFormulaCell record per formula cell (about 100 bytes with its slot in the row, plus a
+compiled binary token array for a formula that is not shared) and held them all until the sheet was written. For
+a 50 MB workbook of formulas (3.4 million formula cells) that was about 400 MB at the peak of saving, and a 200 MB
+workbook of formulas ran out of 8 GB while saving as .xlsx. For .xlsx, a finished formula cell outside of a matrix
+needs only its Calc cell, its cell format identifier and the "aca" (volatile) flag: SaveXml reads the formula text
+and the cached result from the Calc cell when the sheet is written.
+
+Each formula cell is still created as an XclExpFormulaCell, so cell formats, shared formulas, table operations and
+the formula compiler see the same calls in the same order; the finished record is then replaced by a run entry,
+and adjacent entries of a row merge through the existing TryMerge hook. The part of XclExpFormulaCell::SaveXml
+after the matrix handling moves unchanged into a static helper, which both the record and the run call, so a
+packed cell is written by the same code. Not used for the binary formats, for cells of a matrix or for the base
+cell of a merged range.
+New logic in sc/source/filter/inc/hstxlsxpackedformulas.hxx; hooks: the tail of XclExpFormulaCell::SaveXml split into a helper, 8 lines at the cell creation in xetable.cxx,
+5 declarations in xetable.hxx. The environment variable HST_SC_XLSX_PACKED_FORMULAS_OFF keeps one record per
+formula cell (used by the test to compare both paths).
+
+License: modified upstream files keep their license (MPL-2.0); the new file is LicenseRef-HST-Proprietary.
+Test: CppunitTest_sc_subsequent_export_test6 testXlsxPackedFormulaCellsWriteTheSameSheet saves one document on both
+paths (shared formula group, text, boolean and error results, a volatile function, bold formula cells, a matrix
+formula, a formula in a merged base, a hidden row) and compares sheet1.xml, sharedStrings.xml, styles.xml and
+workbook.xml; the sc export suites run on the new path; the large fixtures are saved on both paths and compared.
+---
+--- a/sc/qa/unit/subsequent_export_test6.cxx
++++ b/sc/qa/unit/subsequent_export_test6.cxx
+@@ -20,6 +20,7 @@
+ #include <vector>
+ #include <docsh.hxx>
+ #include <formulacell.hxx>
++#include <markdata.hxx>
+ #include <tablestyle.hxx>
+ 
+ #include <svtools/sfxecode.hxx>
+@@ -357,6 +358,64 @@ CPPUNIT_TEST_FIXTURE(ScExportTest6, testXlsxPackedTextCellsWriteTheSameSheet)
+     assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[@r='13']/x:c[@t='s']", 40);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(ScExportTest6, testXlsxPackedFormulaCellsWriteTheSameSheet)
++{
++    // The .xlsx export keeps formula cells outside of a matrix as packed runs of their row. The sheet, the shared
++    // strings and the styles must be the same as with one record per formula cell (the environment variable
++    // selects that path).
++    createScDoc();
++    ScDocument* pDoc = getScDoc();
++    for (SCROW nRow = 0; nRow < 6; ++nRow)
++    {
++        pDoc->SetValue(ScAddress(0, nRow, 0), nRow + 1);
++        pDoc->SetString(ScAddress(1, nRow, 0), u"chữ "_ustr + OUString::number(nRow));
++        // a group of shared formulas, a text result, a boolean, an error, a volatile function
++        pDoc->SetString(ScAddress(2, nRow, 0), u"=A"_ustr + OUString::number(nRow + 1) + u"*2"_ustr);
++        pDoc->SetString(ScAddress(3, nRow, 0), u"=B"_ustr + OUString::number(nRow + 1) + u"&\"!\""_ustr);
++        pDoc->SetString(ScAddress(4, nRow, 0), u"=A"_ustr + OUString::number(nRow + 1) + u">3"_ustr);
++        pDoc->SetString(ScAddress(5, nRow, 0), u"=1/(A"_ustr + OUString::number(nRow + 1) + u"-3)"_ustr);
++        pDoc->SetString(ScAddress(6, nRow, 0), u"=NOW()*0+A"_ustr + OUString::number(nRow + 1));
++        pDoc->SetString(ScAddress(8, nRow, 0), u"=SUM($A$1:A"_ustr + OUString::number(nRow + 1) + u")"_ustr);
++    }
++    // formatted formula cells, a matrix formula, a formula in the base of a merged range, a hidden row
++    ScPatternAttr aBold(pDoc->getCellAttributeHelper());
++    aBold.ItemSetPut(SvxWeightItem(WEIGHT_BOLD, ATTR_FONT_WEIGHT));
++    pDoc->ApplyPatternAreaTab(2, 1, 3, 2, 0, aBold);
++    ScMarkData aMark(pDoc->GetSheetLimits());
++    aMark.SelectOneTable(0);
++    pDoc->InsertMatrixFormula(10, 0, 11, 1, aMark, u"=A1:B2"_ustr);
++    pDoc->SetString(ScAddress(2, 8, 0), u"=A1+1"_ustr);
++    pDoc->DoMerge(2, 8, 3, 9, 0);
++    pDoc->SetString(ScAddress(4, 8, 0), u"=C9*3"_ustr);
++    pDoc->SetRowHidden(5, 5, 0, true);
++    pDoc->SetString(ScAddress(7, 0, 0), u"=ABS(A1)"_ustr);
++    pDoc->CalcAll();
++
++    static constexpr std::array<OUString, 4> aParts{ u"xl/worksheets/sheet1.xml"_ustr,
++                                                     u"xl/sharedStrings.xml"_ustr, u"xl/styles.xml"_ustr,
++                                                     u"xl/workbook.xml"_ustr };
++    osl_setEnvironment(u"HST_SC_XLSX_PACKED_FORMULAS_OFF"_ustr.pData, u"1"_ustr.pData);
++    save(TestFilter::XLSX);
++    std::vector<OString> aOld;
++    for (const OUString& rPart : aParts)
++        aOld.push_back(dumpExportedPart(parseExport(rPart)));
++    osl_clearEnvironment(u"HST_SC_XLSX_PACKED_FORMULAS_OFF"_ustr.pData);
++
++    save(TestFilter::XLSX);
++    for (size_t i = 0; i < aParts.size(); ++i)
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aParts[i].toUtf8().getStr(), aOld[i],
++                                     dumpExportedPart(parseExport(aParts[i])));
++
++    // the packed runs are really written: every formula of row 1 with its formula, the volatile one with aca
++    xmlDocUniquePtr pSheet = parseExport(u"xl/worksheets/sheet1.xml"_ustr);
++    assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[1]/x:c[x:f]", 8);
++    assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[1]/x:c[@r='G1']/x:f", "aca", u"true");
++    assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[1]/x:c[@r='D1']", "t", u"str");
++    assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[1]/x:c[@r='E1']", "t", u"b");
++    assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[1]/x:c[@r='F1']/x:v", u"-0.5");
++    assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[3]/x:c[@r='F3']", "t", u"e");
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/filter/excel/xetable.cxx
++++ b/sc/source/filter/excel/xetable.cxx
+@@ -51,6 +51,7 @@
+ #include <oox/token/tokens.hxx>
+ #include <oox/export/utils.hxx>
+ #include <hstxlsxpackedlabels.hxx>
++#include <hstxlsxpackedformulas.hxx>
+ 
+ using namespace ::oox;
+ 
+@@ -945,6 +946,10 @@ void XclExpFormulaCell::Save( XclExpStream& rStrm )
+         mxStringRec->Save( rStrm );
+ }
+ 
++static void lcl_SaveXmlFormulaAndValue( XclExpXmlStream& rStrm, sax_fastparser::FSHelperPtr& rWorksheet,
++        ScFormulaCell& rScFmlaCell, const char* sType, const OUString& sValue, bool bWriteFormula,
++        bool bTagStarted, bool bVolatile );
++
+ void XclExpFormulaCell::SaveXml( XclExpXmlStream& rStrm )
+ {
+     const char* sType = nullptr;
+@@ -1035,9 +1040,18 @@ void XclExpFormulaCell::SaveXml( XclExpXmlStream& rStrm )
+             break;
+     }
+ 
++    lcl_SaveXmlFormulaAndValue( rStrm, rWorksheet, mrScFmlaCell, sType, sValue, bWriteFormula, bTagStarted,
++        (mxTokArr && mxTokArr->IsVolatile()) || (mxAddRec && mxAddRec->IsVolatile()) );
++}
++
++// HST Office: the rest of SaveXml, also used for the packed formula cells (hstxlsxpackedformulas.hxx)
++static void lcl_SaveXmlFormulaAndValue( XclExpXmlStream& rStrm, sax_fastparser::FSHelperPtr& rWorksheet,
++        ScFormulaCell& rScFmlaCell, const char* sType, const OUString& sValue, bool bWriteFormula,
++        bool bTagStarted, bool bVolatile )
++{
+     if (bWriteFormula)
+     {
+-        ScTokenArray aTokenArray(*mrScFmlaCell.GetCode());
++        ScTokenArray aTokenArray(*rScFmlaCell.GetCode());
+         // HST: a formula kept with a syntax error (it never compiled, e.g. "=1+*2") is not
+         // written: the leading application refuses the whole file, also when asked to repair
+         // it. The cell keeps its error result.
+@@ -1099,13 +1113,12 @@ void XclExpFormulaCell::SaveXml( XclExpXmlStream& rStrm )
+             if (!bTagStarted)
+             {
+                 rWorksheet->startElement(XML_f, XML_aca,
+-                                         ToPsz((mxTokArr && mxTokArr->IsVolatile())
+-                                               || (mxAddRec && mxAddRec->IsVolatile())));
++                                         ToPsz(bVolatile));
+                 bTagStarted = true;
+             }
+             rWorksheet->writeEscaped(XclXmlUtils::ToOUString(
+-                rStrm.GetRoot().GetCompileFormulaContext(), mrScFmlaCell.aPos, &aTokenArray,
+-                mrScFmlaCell.GetErrCode()));
++                rStrm.GetRoot().GetCompileFormulaContext(), rScFmlaCell.aPos, &aTokenArray,
++                rScFmlaCell.GetErrCode()));
+         }
+     }
+ 
+@@ -1129,6 +1142,31 @@ void XclExpFormulaCell::SaveXml( XclExpXmlStream& rStrm )
+     rWorksheet->endElement( XML_c );
+ }
+ 
++void XclExpFormulaCell::HstSaveXmlPlain( XclExpXmlStream& rStrm, const XclAddress& rXclPos, sal_uInt32 nXFId,
++        ScFormulaCell& rScFmlaCell, bool bVolatile )
++{
++    // what SaveXml writes for a formula cell outside of a matrix
++    const char* sType = nullptr;
++    OUString sValue;
++    XclXmlUtils::GetFormulaTypeAndValue( rScFmlaCell, sType, sValue );
++    sax_fastparser::FSHelperPtr& rWorksheet = rStrm.GetCurrentStream();
++    rWorksheet->startElement( XML_c,
++            XML_r, XclXmlUtils::ToOString(rStrm.GetRoot().GetStringBuf(), rXclPos).getStr(),
++            XML_s, lcl_GetStyleId(rStrm, rStrm.GetRoot().GetXFBuffer().GetXFIndex(nXFId)),
++            XML_t, sType );
++    lcl_SaveXmlFormulaAndValue( rStrm, rWorksheet, rScFmlaCell, sType, sValue, true, false, bVolatile );
++}
++
++bool XclExpFormulaCell::HstIsPlainXml() const
++{
++    return mrScFmlaCell.GetMatrixFlag() == ScMatrixMode::NONE;
++}
++
++bool XclExpFormulaCell::HstIsVolatileXml() const
++{
++    return (mxTokArr && mxTokArr->IsVolatile()) || (mxAddRec && mxAddRec->IsVolatile());
++}
++
+ void XclExpFormulaCell::WriteContents( XclExpStream& rStrm )
+ {
+     FormulaError nScErrCode = mrScFmlaCell.GetErrCode();
+@@ -2727,6 +2765,7 @@ XclExpCellTable::XclExpCellTable( const XclExpRoot& rRoot ) :
+         ? sfx2::GetHstValueFunctions( *GetDocShell() ) : std::vector< OUString >();
+ 
+     const bool bHstPackLabels = HstXlsxPackedLabels::IsEnabled( GetRoot() ); // HST Office
++    const bool bHstPackFormulas = HstXlsxPackedFormulas::IsEnabled( GetRoot() ); // HST Office
+ 
+     for( bool bIt = aIt.GetNext(); bIt; bIt = aIt.GetNext() )
+     {
+@@ -2861,6 +2900,13 @@ XclExpCellTable::XclExpCellTable( const XclExpRoot& rRoot ) :
+         // HST Office: keep a plain text cell of an .xlsx as 8 bytes in a run of its row
+         if( bHstPackLabels && !bIsMergedBase && rScCell.getType() == CELLTYPE_STRING )
+             xCell = new HstXlsxPackedLabels( static_cast< const XclExpLabelCell& >( *xCell ) );
++        // HST Office: and a formula cell outside of a matrix as 16 bytes
++        else if( bHstPackFormulas && !bIsMergedBase && rScCell.getType() == CELLTYPE_FORMULA )
++        {
++            auto pFmla = dynamic_cast< const XclExpFormulaCell* >( xCell.get() );
++            if( pFmla && pFmla->HstIsPlainXml() )
++                xCell = new HstXlsxPackedFormulas( *pFmla );
++        }
+ 
+         // insert the cell into the current row
+         maRowBfr.AppendCell( xCell, bIsMergedBase );
+--- /dev/null
++++ b/sc/source/filter/inc/hstxlsxpackedformulas.hxx
+@@ -0,0 +1,98 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HST Office.
++ */
++
++#pragma once
++
++#include <cstdlib>
++#include <vector>
++
++#include <osl/diagnose.h>
++
++#include "xestream.hxx"
++#include "xetable.hxx"
++#include "xltable.hxx"
++
++class ScFormulaCell;
++
++/** A run of formula cells of one row, side by side, as the .xlsx export keeps them until it writes the sheet.
++
++    The export created one XclExpFormulaCell record per formula cell (about 100 bytes on the heap with its slot in
++    the row, plus a compiled binary token array for a formula that is not shared) and held all of them until the
++    sheet was written: 3.4 million formula cells took about 400 MB at the peak of saving a 50 MB workbook, and a
++    200 MB workbook of formulas ran out of 8 GB while saving. For .xlsx, a finished formula cell outside of a matrix
++    needs only its Calc cell, its cell format identifier and the "aca" (volatile) flag: XclExpFormulaCell::SaveXml
++    writes nothing else, it reads the formula text and the cached result from the Calc cell when the sheet is
++    written. So the cells of a run are kept as 16 bytes each.
++
++    Each formula cell is still created as an XclExpFormulaCell first, so the cell formats, shared formulas, table
++    operations and the formula compiler see exactly the same calls in the same order; only the finished record is
++    replaced. SaveXml writes each cell with XclExpFormulaCell::HstSaveXmlPlain, the code XclExpFormulaCell::SaveXml
++    uses for such a cell. Not used for the binary formats, for cells of a matrix or for the base cell of a merged
++    range. The row's finalisation sees these runs as non-blank cells, as it saw the single formula cells.
++
++    The environment variable HST_SC_XLSX_PACKED_FORMULAS_OFF keeps one record per formula cell (used by a test to
++    compare both paths). */
++class HstXlsxPackedFormulas final : public XclExpCellBase
++{
++public:
++    /** True when the formula cells of an .xlsx export are packed into runs. */
++    static bool IsEnabled(const XclExpRoot& rRoot)
++    {
++        return rRoot.GetOutput() != EXC_OUTPUT_BINARY && !std::getenv("HST_SC_XLSX_PACKED_FORMULAS_OFF");
++    }
++
++    explicit HstXlsxPackedFormulas(const XclExpFormulaCell& rCell)
++        : XclExpCellBase(EXC_ID2_FORMULA, 0, rCell.GetXclPos())
++    {
++        maEntries.push_back({ &rCell.HstGetScCell(), rCell.GetFirstXFId(), rCell.HstIsVolatileXml() });
++    }
++
++    virtual sal_uInt16 GetLastXclCol() const override
++    {
++        return static_cast<sal_uInt16>(GetXclCol() + maEntries.size() - 1);
++    }
++    virtual sal_uInt32 GetFirstXFId() const override { return maEntries.front().mnXFId; }
++    virtual bool IsEmpty() const override { return false; }
++
++    /** Takes over a run that starts right after this one in the same row. */
++    virtual bool TryMerge(const XclExpCellBase& rCell) override
++    {
++        const HstXlsxPackedFormulas* pRun = dynamic_cast<const HstXlsxPackedFormulas*>(&rCell);
++        if (!pRun || pRun->GetXclRow() != GetXclRow() || pRun->GetXclCol() != GetLastXclCol() + 1)
++            return false;
++        maEntries.insert(maEntries.end(), pRun->maEntries.begin(), pRun->maEntries.end());
++        return true;
++    }
++
++    /** Nothing to convert: SaveXml looks the cell format index up from the identifier, as the single cells do. */
++    virtual void ConvertXFIndexes(const XclExpRoot&) override {}
++
++    virtual void Save(XclExpStream&) override
++    {
++        OSL_FAIL("HstXlsxPackedFormulas::Save - formula cells are packed for .xlsx only");
++    }
++
++    virtual void SaveXml(XclExpXmlStream& rStrm) override
++    {
++        XclAddress aPos(GetXclPos());
++        for (const Entry& rEntry : maEntries)
++        {
++            XclExpFormulaCell::HstSaveXmlPlain(rStrm, aPos, rEntry.mnXFId, *rEntry.mpCell, rEntry.mbVolatile);
++            ++aPos.mnCol;
++        }
++    }
++
++private:
++    struct Entry
++    {
++        ScFormulaCell* mpCell;
++        sal_uInt32 mnXFId;
++        bool mbVolatile;
++    };
++    std::vector<Entry> maEntries;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/filter/inc/xetable.hxx
++++ b/sc/source/filter/inc/xetable.hxx
+@@ -442,6 +442,16 @@ public:
+     virtual void        Save( XclExpStream& rStrm ) override;
+     virtual void        SaveXml( XclExpXmlStream& rStrm ) override;
+ 
++    // HST Office: for the packed formula cells of an .xlsx export (hstxlsxpackedformulas.hxx)
++    /** True when SaveXml writes this cell as HstSaveXmlPlain does (not part of a matrix). */
++    bool                HstIsPlainXml() const;
++    /** The "aca" flag SaveXml writes. */
++    bool                HstIsVolatileXml() const;
++    ScFormulaCell&      HstGetScCell() const { return mrScFmlaCell; }
++    /** Writes the <c> element SaveXml writes for a formula cell outside of a matrix. */
++    static void         HstSaveXmlPlain( XclExpXmlStream& rStrm, const XclAddress& rXclPos, sal_uInt32 nXFId,
++                                         ScFormulaCell& rScFmlaCell, bool bVolatile );
++
+ private:
+     virtual void        WriteContents( XclExpStream& rStrm ) override;
+ 
