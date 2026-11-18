@@ -1,0 +1,155 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+"""HST Công thức: turn MathType equations (Equation Editor 3.x, MathType 4-7) into editable Math formulas.
+
+Works the same in Writer, Sheets, Slides and Draw, on one object or on all of them, as one undo step:
+  - the object's OLE data is read back from the object itself (storeToEntry into a temporary storage);
+  - a new Math object takes its place and reads that data with the office's MathType import
+    (com.sun.star.comp.Math.MathTypeFilter; MTEF 5 needs hst-math-constructs-mathtype5.patch);
+  - if the import fails, the new object is removed and the original equation stays untouched.
+In Writer a formula anchored as a character sits on the text baseline (as Writer aligns Math objects); Word's
+run position shift that the OLE picture carried is dropped. Elsewhere the formula keeps the picture's top left."""
+from . import formula_ole
+
+FILTER = "com.sun.star.comp.Math.MathTypeFilter"
+OLE_SHAPE = "com.sun.star.drawing.OLE2Shape"
+CONTENT = 1  # com.sun.star.embed.Aspects.MSOLE_CONTENT
+AS_CHARACTER = 1  # com.sun.star.text.TextContentAnchorType.AS_CHARACTER
+NONE = 0  # com.sun.star.text.VertOrientation.NONE
+KEEP_TEXT = ("AnchorType", "HoriOrient", "HoriOrientPosition", "HoriOrientRelation", "VertOrientRelation", "TextWrap")
+
+
+def ole_data(ctx, embedded):
+    """The bytes of an embedded OLE object's data, b"" when it cannot be stored."""
+    try:
+        storage = ctx.ServiceManager.createInstanceWithContext("com.sun.star.embed.StorageFactory", ctx).createInstance()
+        embedded.storeToEntry(storage, "ole", (), ())
+        stream = storage.openStreamElement("ole", 1).getInputStream()  # ElementModes.READ
+        chunks = []
+        while True:
+            count, data = stream.readBytes(None, 65536)
+            chunks.append(bytes(data.value))
+            if count < 65536:
+                return b"".join(chunks)
+    except Exception:  # noqa: BLE001 - an object that cannot be stored is simply not converted
+        return b""
+
+
+def import_formula(ctx, model, data):
+    """Fill a new formula's model from MathType OLE data; False when the import refuses it."""
+    import uno
+    from com.sun.star.beans import PropertyValue
+    stream = ctx.ServiceManager.createInstanceWithContext("com.sun.star.io.SequenceInputStream", ctx)
+    stream.initialize((uno.ByteSequence(data),))
+    importer = ctx.ServiceManager.createInstanceWithContext(FILTER, ctx)
+    importer.setTargetDocument(model)
+    value = PropertyValue()
+    value.Name, value.Value = "InputStream", stream
+    return bool(importer.filter((value,)))
+
+
+def _mathtype_data(ctx, embedded):
+    data = ole_data(ctx, embedded) if embedded is not None else b""
+    return data if formula_ole.is_mathtype(data) else b""
+
+
+def writer_objects(doc):
+    """Writer's embedded objects that are not formulas yet."""
+    objects = doc.getEmbeddedObjects()
+    found = (objects.getByName(name) for name in objects.getElementNames())
+    return [o for o in found if not formula_ole.is_math_clsid(o.CLSID)]
+
+
+def _replace_text_object(ctx, doc, old, data):
+    anchor = old.getAnchor()
+    new = doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+    new.CLSID = formula_ole.MATH
+    for name in KEEP_TEXT:
+        new.setPropertyValue(name, old.getPropertyValue(name))
+    anchor.getText().insertTextContent(anchor, new, False)
+    model = new.getEmbeddedObject()
+    if not import_formula(ctx, model, data):
+        new.dispose()
+        return False
+    size = new.EmbeddedObject.getVisualAreaSize(CONTENT)
+    new.Size = size
+    for name in ("LeftMargin", "RightMargin", "TopMargin", "BottomMargin"):
+        new.setPropertyValue(name, 0)
+    if new.AnchorType == AS_CHARACTER:  # formula baseline on the text baseline
+        new.VertOrient = NONE
+        new.VertOrientPosition = -int(model.BaseLine)
+    old.dispose()
+    return True
+
+
+def shape_pages(doc):
+    """Draw pages holding the shapes: one per sheet (Sheets), slides and masters (Slides, Draw)."""
+    if doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
+        sheets = doc.getSheets()
+        return [sheets.getByIndex(i).getDrawPage() for i in range(sheets.getCount())]
+    pages = []
+    for owner in (doc.getDrawPages(), doc.getMasterPages()):
+        pages += [owner.getByIndex(i) for i in range(owner.getCount())]
+    return pages
+
+
+def shape_objects(doc):
+    """(page, shape) of the OLE shapes that are not formulas yet, groups included."""
+    found = []
+
+    def walk(page, container):
+        for i in range(container.getCount()):
+            shape = container.getByIndex(i)
+            if shape.getShapeType() == "com.sun.star.drawing.GroupShape":
+                walk(page, shape)
+            elif shape.getShapeType() == OLE_SHAPE and not formula_ole.is_math_clsid(shape.CLSID):
+                found.append((container, shape))
+    for page in shape_pages(doc):
+        walk(page, page)
+    return found
+
+
+def _replace_shape(ctx, doc, container, old, data):
+    new = doc.createInstance(OLE_SHAPE)
+    container.add(new)
+    new.CLSID = formula_ole.MATH
+    if not import_formula(ctx, new.Model, data):
+        container.remove(new)
+        return False
+    new.Size = new.EmbeddedObject.getVisualAreaSize(CONTENT)
+    new.Position = old.Position
+    if old.getPropertySetInfo().hasPropertyByName("Anchor"):  # Sheets: same cell or page anchor
+        new.Anchor = old.Anchor
+        new.Position = old.Position
+    container.remove(old)
+    return True
+
+
+def candidates(doc):
+    """[(container or None, object)] that may be MathType equations, in document order."""
+    if doc.supportsService("com.sun.star.text.TextDocument"):
+        return [(None, o) for o in writer_objects(doc)]
+    return shape_objects(doc)
+
+
+def convert_one(ctx, doc, container, obj):
+    """None if the object is not a MathType equation, else True (converted) or False (kept as it was)."""
+    data = _mathtype_data(ctx, obj.EmbeddedObject)
+    if not data:
+        return None
+    if container is None:
+        return _replace_text_object(ctx, doc, obj, data)
+    return _replace_shape(ctx, doc, container, obj, data)
+
+
+def convert_all(ctx, doc, undo_title, only=None):
+    """(converted, kept) for all MathType equations, or for the objects in `only`; one undo step."""
+    from .undo import undo_step
+    done = kept = 0
+    with undo_step(doc, undo_title):
+        for container, obj in candidates(doc):
+            if only is not None and obj not in only:
+                continue
+            result = convert_one(ctx, doc, container, obj)
+            if result is not None:
+                done, kept = (done + 1, kept) if result else (done, kept + 1)
+    return done, kept
