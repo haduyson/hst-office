@@ -88,3 +88,31 @@ index 8e39da5..def7b6c 100644
  // HST Office "Set As Default" for all new documents: a per-user default template, updated by later changes
  CPPUNIT_TEST_FIXTURE(SwUiWriterTest9, testHstSetAsDefaultNewDocuments)
  {
+diff --git a/sw/source/uibase/app/hstsetasdefault.cxx b/sw/source/uibase/app/hstsetasdefault.cxx
+index 3fa14a0..f10892e 100644
+--- a/sw/source/uibase/app/hstsetasdefault.cxx
++++ b/sw/source/uibase/app/hstsetasdefault.cxx
+@@ -11,6 +11,7 @@
+ #include <hstsetasdefault.hxx>
+ 
+ #include <IDocumentStylePoolAccess.hxx>
++#include <IDocumentUndoRedo.hxx>
+ #include <doc.hxx>
+ #include <docsh.hxx>
+ #include <fmtcol.hxx>
+@@ -124,7 +125,15 @@ void ApplyDefaults(SwDoc& rDoc, DefaultKind eKind, const SfxItemSet& rValues)
+     size_t nPos = 0;
+     if (!pStandard || !rDoc.FindPageDesc(pStandard->GetName(), &nPos))
+         return;
++    // Change the page style the way its own dialog does (SwDocStyleSheet::SetItemSet): from a copy that owns
++    // its header and footer formats and content. A plain copy shares them with the style it replaces; the
++    // dialog's own OK that follows then attached a header format without content to the pages (crash in
++    // SwHeadFootFrame when the style has a header).
+     SwPageDesc aDesc(*pStandard);
++    {
++        ::sw::UndoGuard const aNoUndo(rDoc.GetIDocumentUndoRedo());
++        rDoc.CopyPageDesc(*pStandard, aDesc);
++    }
+     ItemSetToPageDesc(aDefaults, aDesc);
+     rDoc.ChgPageDesc(nPos, aDesc);
+ }
