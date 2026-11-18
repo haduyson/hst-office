@@ -90,8 +90,9 @@ các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u
 ### Build train: gộp nhánh sẵn sàng vào một build
 
 ```bash
-scripts/build-queue.sh train add fix/x [--platform linux|windows|both]   # nhánh đã push, sẵn sàng (mặc định both)
-scripts/build-queue.sh train status [fix/x | train/1.0.2-007] [--json]   # tổng quan / một nhánh / một train
+scripts/build-queue.sh train add fix/x [--platform linux|windows|both] [--test 'CppunitTest_sw_x ...']
+                                                         # nhánh đã push, sẵn sàng (mặc định both); --test: test chứng minh bản vá
+scripts/build-queue.sh train status [fix/x | train/1.0.3-007 | 7] [--json]   # tổng quan / một nhánh / một train
 scripts/build-queue.sh train wait fix/x [--timeout S]   # thoát 0: đạt, in đường dẫn .deb/.msi; 1: bị loại; 2: hết giờ
 scripts/build-queue.sh train remove fix/x                # rút nhánh (train đang build vẫn chạy xong)
 scripts/build-queue.sh train start --integrator          # integrator: dựng train ở tick sau, không chờ ngưỡng
@@ -100,40 +101,55 @@ scripts/build-queue.sh train start --integrator          # integrator: dựng tr
 - **Khi nào:** dispatcher dựng một train khi đủ `train_min_branches` (4) nhánh sẵn sàng, khi nhánh sẵn sàng lâu nhất
   đã chờ `train_interval_minutes` (20 phút), hoặc ngay khi có nhánh được chuyển tiếp từ train hỏng. Tối đa
   `train_max_concurrent` (2) train chạy song song (các nửa bisect tính vào train cha), mỗi train merge lên ảnh chụp
-  batch5 riêng của nó; train mới chỉ nhận nhánh không đụng tệp LibreOffice nào của các train đang chạy, nhánh đụng
+  `integration_branch` riêng của nó; train mới chỉ nhận nhánh không đụng tệp LibreOffice nào của các train đang chạy, nhánh đụng
   thì chờ (ghi chú "still building"). Giới hạn slot và bộ nhớ của từng máy build giữ nguyên.
-- **Dựng:** `train/1.0.2-NNN` = `origin/rc/1.0.2-batch5` + đầu nhánh của từng nhánh sẵn sàng, merge lần lượt (theo
+- **Dựng:** `<train_prefix>NNN` = `origin/<integration_branch>` + đầu nhánh của từng nhánh sẵn sàng (1.0.3:
+  `train/1.0.3-NNN` trên `feat/lo-26.8.3.1`; 1.0.2: `train/1.0.2-NNN` trên `rc/1.0.2-batch5`), merge lần lượt (theo
   thứ tự: nhánh chuyển tiếp trước, rồi nhánh chờ lâu nhất), tối đa `train_max_branches` (8). `patches/libreoffice/series`
   và `l10n/vi-overrides.jsonl` merge kiểu union như integrator làm: series nối theo thứ tự merge, dòng trùng bị bỏ;
   vi-overrides giữ dòng của nhánh merge sau cho mỗi khoá (file, msgctxt, msgid). Nhánh có patch đụng cùng tệp
-  LibreOffice với một nhánh đã chọn thì chờ train sau. Merge xung đột với batch5 → nhánh bị loại (rebase rồi
+  LibreOffice với một nhánh đã chọn thì chờ train sau. Merge xung đột với nền → nhánh bị loại (rebase rồi
   `train add` lại), không tốn build; xung đột với nhánh khác trong train → sang train sau. Merge có định danh, ngày
   giờ và thông điệp cố định, nên dựng lại sau khi khởi động lại cho đúng commit cũ.
 - **Push và build:** hàng đợi push nhánh `train/*` lên origin (chỉ tạo mới, không bao giờ force, không đụng nhánh
   khác; workflow GitHub không chạy khi push nhánh này) rồi gửi 1 job Linux + 1 job Windows (priority 70, nền tảng
-  theo yêu cầu của các nhánh). Nhánh `train/*` cũ hơn `train_keep_days` (2 ngày) mà không còn build nào chạy bị xoá
+  theo yêu cầu của các nhánh). Số NNN đếm riêng theo `train_prefix` (prefix mới bắt đầu từ 001); bản ghi
+  `trains/<tên>.json` (`train_1.0.3-001.json`), bản ghi cũ `trains/NNN.json` của 1.0.2 vẫn đọc được.
+- **Test của train:** job Linux build, chạy bộ test rồi mới đóng gói: `train_tests` (mặc định sw/sc/sd/starmath:
+  `CppunitTest_sw_core_layout`, `_sw_ooxmlexport`, `_sc_ucalc_formula`, `_sc_cond_format`, `_sd_import_tests`,
+  `_starmath_qa_cppunit`) cộng các test thành viên khai báo bằng `train add --test`. Train có bộ test luôn có job
+  Linux (kể cả khi mọi nhánh chỉ xin Windows). gla11y chạy sẵn trong `make` của build (lỗi `FATAL` làm build hỏng).
+  **Nhánh chỉ "passed" khi mọi build đạt và mọi test đạt.** Test hỏng thì hàng đợi chạy đúng các target đó trên
+  commit nền (1 job Linux, dùng chung giữa các train): target cũng hỏng trên nền được ghi `base_test_failures`, không
+  quy cho nhánh nào; target chỉ hỏng trên train làm train hỏng. Nhánh `train/*` cũ hơn `train_keep_days` (2 ngày) mà không còn build nào chạy bị xoá
   khỏi origin. Chỉ xoá nhánh do hàng đợi tạo.
 - **Khi train hỏng**, quy lỗi theo thứ tự:
   1. log có `does not apply: <patch>` → nhánh có commit thêm/sửa patch đó;
-  2. lỗi biên dịch, gla11y `FATAL` hoặc `make ***` nêu tệp LibreOffice → nhánh có patch đụng tệp đó;
+  2. lỗi biên dịch, gla11y `FATAL` hoặc `make ***` nêu tệp LibreOffice → nhánh có patch đụng tệp đó; với test
+     hỏng (build đạt): dòng `<tệp>:<dòng>:Assertion` trong log test nêu tệp một nhánh đụng → nhánh đó (method `test`;
+     dòng SAL_WARN không tính);
   3. train một nhánh → nhánh đó;
   4. còn lại: chia đôi, build lại từng nửa (chỉ nền tảng hỏng), tối đa `train_bisect_rounds` (2) vòng; sau vòng cuối
      còn nhiều nhánh thì loại cả nhóm.
-  Nhánh bị loại có một **build riêng để xác nhận** (priority 40, cùng commit; job id trong `train status`; submit
+  Nhánh bị loại có một **build riêng để xác nhận** (priority 40, cùng commit, chạy lại các test hỏng nếu lỗi là
+  test; job id trong `train status`; submit
   sau của agent không huỷ build này). Các nhánh còn lại sang train kế tiếp ngay. Nửa bisect đạt thì nhánh trong nửa
   đó đạt (bản Windows lấy từ train gốc nếu bản đó đạt). Hai nửa cùng đạt mà train gốc hỏng: các nhánh bị đánh dấu
   `ejected` với lý do "tương tác giữa các nhánh" (không nhánh nào báo đạt), báo integrator. Job bị huỷ hoặc lỗi hạ
   tầng: nhánh được thử lại, không bị quy lỗi; sau `train_max_attempts` (3) lần như vậy thì nhánh chuyển `failed`.
-  Batch5 tự build hỏng ở cùng commit: không quy lỗi ai, và không train nào chạy tới khi batch5 có commit mới.
+  Nền tự build hỏng ở cùng commit: không quy lỗi ai, và không train nào chạy tới khi nền có commit mới. Lượt test
+  trên nền bị huỷ/lỗi hạ tầng: không quy lỗi, nhánh được thử lại (tính một lần thử).
 - **Kết quả:** `train status <nhánh>` cho biết train chứa nhánh, job và đầu ra từng nền tảng, đạt/bị loại kèm lý
   do; `train status <train>` cho thành viên, sha, job, xung đột, nhánh chờ, quy lỗi và nhật ký sự kiện. Trạng thái nằm
   ở `/data/hst-build-queue/train/` (`branches.json`, `trains/NNN.json`, clone riêng `repo/`). Đầu ra của kết quả train và
   của build xác nhận không bị retention xoá khi nhánh còn trong danh sách. `train add|remove` có thể phải chờ vài chục
   giây khi dispatcher đang merge/push một train. Log dispatcher có dòng
-  `train train/1.0.2-NNN: …`. Integrator có thể fast-forward batch tiếp theo tới đúng commit của một train xanh: cùng
+  `train train/1.0.3-NNN: …`. `train status <train>` có thêm dòng `tests`, `failing` (target hỏng thật) và `on base`
+  (target hỏng cả trên nền). Integrator có thể fast-forward batch tiếp theo tới đúng commit của một train xanh: cùng
   sha nên hàng đợi dùng lại build đó.
 - **Tắt train:** `"train_enabled": false` trong `config.json` (agent quay lại submit theo nhánh). Base là
-  `integration_branch` trong `config.json`; đổi khi integrator chuyển sang batch mới.
+  `integration_branch`, tên là `train_prefix`, bộ test cố định là `train_tests` trong `config.json`; đổi khi
+  integrator chuyển sang batch/phiên bản mới (build của chính `integration_branch` không bị retention coi là "đã merge").
 
 ### Khung giờ build của slot Windows (HST1)
 
@@ -234,7 +250,10 @@ cùng các bảo vệ RAM/đĩa). Target hợp lệ: `CppunitTest_*`, `PythonTes
 subsequentcheck` (UITest cần màn hình nên không nhận). Kết quả nằm trong job (`status --json`: `test_results`) và
 `out/<id>/test-results.json`, log từng target ở `out/<id>/test-logs/<target>.log`. Test hỏng không làm job hỏng (job
 `done`, `wait` thoát 3); build hỏng thì job `failed` như thường. Muốn so với nền thì gửi cùng danh sách `--test` cho nhánh
-nền (ví dụ `rc/1.0.2-batch4`) rồi `compare`. Job giống hệt (cùng commit + cùng danh sách test) được dùng lại.
+nền (ví dụ `rc/1.0.2-batch4`) rồi `compare`. Job giống hệt (cùng commit + cùng danh sách test) được dùng lại. Submit
+`--test` cùng commit + nền tảng + `--modules` với một job test **đang chờ, chưa từng chạy** thì nhập vào job đó (một
+build, hợp các danh sách test, priority cao hơn); `submit` in `joined queued job <id>` và trả id đó. Job đã chạy, job
+train và build xác nhận không bao giờ bị nhập. `wait` trên job đã bị gộp (`merged_into`) đi theo job giữ lại.
 
 ### `--modules`: bản vá nhanh để thử (không dùng cho batch)
 

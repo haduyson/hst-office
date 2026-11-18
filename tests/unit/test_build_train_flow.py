@@ -19,7 +19,8 @@ from build_infra.queue_train_tick import TrainStep
 T0 = 1_800_000_000
 
 
-class TrainFlowTest(QueueTestCase):
+class TrainFlowCase(QueueTestCase):
+    """A scratch origin, the train's repository and helpers to add branches, run dispatcher steps and finish jobs."""
     def setUp(self):
         super().setUp()
         tmp = tempfile.TemporaryDirectory()
@@ -34,30 +35,40 @@ class TrainFlowTest(QueueTestCase):
         self.logs = []
         queue_train_tick._backoff["start"] = 0.0   # module state of the dispatcher process, not of one test
 
-    def add(self, *names, platform="both"):
+    def add(self, *names, platform="both", tests=()):
         for name in names:
             self.qgit.run("fetch", "-q", "origin")
-            ops.add(self.store, name, platform, resolver=self.qgit.rev, git=self.qgit, submitter="t", now=self.now)
+            ops.add(self.store, name, platform, resolver=self.qgit.rev, git=self.qgit, submitter="t", now=self.now,
+                    tests=tests)
 
     def step(self, minutes=1):
         self.now += minutes * 60
         TrainStep(self.store, bq, self.cfg, self.repo, self.now, log=self.logs.append).run()
 
     def train(self, n):
-        return self.ts.load(n)
+        return self.ts.load(n, self.cfg["train_prefix"])
 
     def cand(self, name):
         return self.ts.branches()[name]
 
-    def finish(self, job_id, state="done", log="", error="local-build.sh exit 2"):
+    def finish(self, job_id, state="done", log="", error="local-build.sh exit 2", failing=None):
+        """Finish a job like the dispatcher; a done test job gets a result per target: `failing` maps the targets
+        that fail to the text of their test log (every other target passes)."""
         job = self.store.load(job_id)
         Path(job["log"]).write_text(log)
         fields = {"state": state, "finished": self.now}
         if state == "done":
             out = self.store.job_out(job_id)
-            os.makedirs(out, exist_ok=True)
+            os.makedirs(os.path.join(out, "test-logs"), exist_ok=True)
             Path(out, "HSTOffice.pkg").write_text("x")
             fields["output"] = [os.path.join(out, "HSTOffice.pkg")]
+            if job.get("tests"):
+                failing = failing or {}
+                for t in job["tests"]:
+                    Path(out, "test-logs", t + ".log").write_text(failing.get(t, "OK (3)\n"))
+                fields["test_results"] = {t: {"result": "fail" if t in failing else "pass", "seconds": 1,
+                                              "exit": 2 if t in failing else 0, "log": f"test-logs/{t}.log"}
+                                          for t in job["tests"]}
         else:
             fields["error"] = error
         self.store.update(job_id, **fields)
@@ -65,6 +76,8 @@ class TrainFlowTest(QueueTestCase):
     def members(self, n):
         return [m["branch"] for m in self.train(n)["members"]]
 
+
+class TrainFlowTest(TrainFlowCase):
     # ------------------------------------------------------------------
     def test_validation_of_add(self):
         self.world.member("fix/a", "hst-a.patch", "sw/a.cxx")

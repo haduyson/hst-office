@@ -2,9 +2,13 @@
 """Pure rules of the build train (unit tested without git): when a train starts, which ready branches ride it,
 how a finished train build is judged, and which branch a failure is attributed to.
 
+A train passes only when every build passes AND the Linux build's test set (train_test_set) passes; a test that
+fails on the integration branch too (a base run of the failing targets) is not counted against the train.
+
 Attribution order (first that names a member wins):
   1. patch:   "does not apply: <patch>" in the log  -> the member whose commits add or change that patch;
   2. compile: error lines naming LibreOffice files  -> the members whose patches touch one of those files;
+     test:    (test failures only) the assertion lines of the failing tests name a file a member's patch touches;
   3. single:  a one-branch train failed             -> that branch;
   4. bisect:  split the members in halves and build each half (at most train_bisect_rounds rounds);
               still several members after the last round -> all of them (each gets a confirmation build).
@@ -13,6 +17,8 @@ import re
 
 PATCH_FAIL_RE = re.compile(r"does not apply: (\S+\.patch)")
 ERROR_LINE_RE = re.compile(r"\berror\b|\bFATAL\b|\*\*\*", re.I)
+# Where a CppUnit test failed: "<file>:<line>:Assertion" (or an uncaught exception); SAL_WARN noise is ignored.
+ASSERT_LINE_RE = re.compile(r"\.(?:cxx|cpp|hxx|h):\d+:\s*(?:Assertion|Exception)")
 SOURCE_RE = re.compile(r"((?:[A-Za-z]:)?[\w.+/\\-]*?[\w+-]+[/\\][\w.+/\\-]+\.(?:cxx|hxx|cpp|hpp|cc|c|h|hrc|mm|m|ui|xcu|xcs|"
                        r"xml|xhp|idl|sdi|mk|py|java|inc|src))(?=[:(\s,'\"]|$)")
 GENERATED = ("workdir/", "instdir/", "solenv/gbuild/", "external/tarballs/")
@@ -77,6 +83,18 @@ def in_flight_files(trains, active_states):
     return busy
 
 
+def train_test_set(cfg, members):
+    """Linux test targets of a train: the fixed set train_tests, then the targets the members declared with
+    `train add --test`, without duplicates."""
+    return list(dict.fromkeys([*cfg.get("train_tests", []), *(t for m in members for t in m.get("tests", []))]))
+
+
+def failed_tests(job):
+    """Test targets of a finished job that did not pass (a target without a recorded result counts as failed)."""
+    res = job.get("test_results") or {}
+    return sorted(t for t in job.get("tests", []) if (res.get(t) or {}).get("result") != "pass")
+
+
 def job_outcome(job, infra_failure, log_text=""):
     """'pass' | 'fail' | 'error' (cancelled, or a failure of the infrastructure) | None while the job runs."""
     if job is None:
@@ -96,11 +114,12 @@ def failed_patches(text):
     return sorted(set(PATCH_FAIL_RE.findall(text)))
 
 
-def error_files(text):
-    """LibreOffice-relative source paths named on error lines (gcc/clang, MSVC, gla11y FATAL, make ***)."""
+def error_files(text, line_re=ERROR_LINE_RE):
+    """LibreOffice-relative source paths named on error lines (gcc/clang, MSVC, gla11y FATAL, make ***), or on the
+    lines line_re picks (ASSERT_LINE_RE: where failing CppUnit tests stopped)."""
     found = set()
     for line in text.splitlines():
-        if line.startswith("[build ") or not ERROR_LINE_RE.search(line):
+        if line.startswith("[build ") or not line_re.search(line):
             continue   # gbuild progress lines name files that compile fine (e.g. "[build CXX] .../error.cxx")
         for raw in SOURCE_RE.findall(line):
             path = raw.replace("\\", "/")
@@ -113,19 +132,20 @@ def error_files(text):
     return found
 
 
-def attribute(members, log_text):
-    """(method, blamed branches, detail) from the failure text, or None when the log names no member."""
+def attribute(members, log_text, files_method="compile"):
+    """(method, blamed branches, detail) from the failure text, or None when the log names no member.
+    files_method names a blame by file ("compile"; "test" when the text holds the assertion lines of failing tests)."""
     bad = failed_patches(log_text)
     if bad:
         blamed = sorted(m["branch"] for m in members if set(m.get("patches", [])) & set(bad))
         if blamed:
             return "patch", blamed, "does not apply: " + ", ".join(bad)
-    files = error_files(log_text)
+    files = error_files(log_text, ASSERT_LINE_RE if files_method == "test" else ERROR_LINE_RE)
     if files:
         blamed = sorted(m["branch"] for m in members if files & set(m.get("lo_files", [])))
         if blamed:
             hit = sorted(files & {f for m in members if m["branch"] in blamed for f in m.get("lo_files", [])})
-            return "compile", blamed, "errors in " + ", ".join(hit[:5])
+            return files_method, blamed, "errors in " + ", ".join(hit[:5])
     return None
 
 
@@ -134,9 +154,9 @@ def split_halves(members):
     return members[:half], members[half:]
 
 
-def decide_failure(members, log_text, round_no, max_rounds):
+def decide_failure(members, log_text, round_no, max_rounds, files_method="compile"):
     """What to do with a failed train: ('blame', method, blamed, detail) or ('bisect', None, [], detail)."""
-    found = attribute(members, log_text)
+    found = attribute(members, log_text, files_method)
     if found:
         return ("blame",) + found
     if len(members) == 1:

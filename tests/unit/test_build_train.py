@@ -96,6 +96,25 @@ class OutcomeAndAttributionTest(unittest.TestCase):
         self.assertEqual(qt.split_halves(self.MEMBERS), (self.MEMBERS[:2], self.MEMBERS[2:]))
 
 
+    def test_test_set_and_failed_tests(self):
+        members = [{"tests": ["CppunitTest_sw_a", "CppunitTest_smoke"]}, {}, {"tests": ["CppunitTest_sc_c"]}]
+        self.assertEqual(qt.train_test_set({"train_tests": ["CppunitTest_smoke"]}, members),
+                         ["CppunitTest_smoke", "CppunitTest_sw_a", "CppunitTest_sc_c"])
+        self.assertEqual(qt.train_test_set({"train_tests": []}, [{}]), [])
+        ok = {"result": "pass"}
+        job = {"tests": ["T_a", "T_b", "T_c"], "test_results": {"T_a": ok, "T_b": {"result": "fail"}}}
+        self.assertEqual(qt.failed_tests(job), ["T_b", "T_c"])   # no result recorded counts as failed
+        self.assertEqual(qt.failed_tests({"tests": []}), [])
+
+    def test_test_failures_are_blamed_by_the_assertion_location_only(self):
+        noise = "warn:sw.core:1:1:/data/hst-office-build/src/lo/sc/source/ui/c.cxx:7: error while loading"
+        assertion = "/data/hst-office-build/src/lo/sw/source/core/a.cxx:42:Assertion"
+        self.assertEqual(qt.attribute(self.MEMBERS, noise + "\n" + assertion, "test")[:2], ("test", ["fix/a"]))
+        self.assertIsNone(qt.attribute(self.MEMBERS, noise, "test"))   # SAL_WARN lines never blame
+        self.assertEqual(qt.attribute(self.MEMBERS, noise)[:2], ("compile", ["fix/c"]))   # build logs: unchanged
+        self.assertEqual(qt.decide_failure(self.MEMBERS, "test T failed", 0, 2, "test")[0], "bisect")
+
+
 class DedupeTest(unittest.TestCase):
     def test_series_and_overrides(self):
         self.assertEqual(qg.dedupe_series("# c\na.patch\nb.patch\na.patch\n\n"), "# c\na.patch\nb.patch\n\n")

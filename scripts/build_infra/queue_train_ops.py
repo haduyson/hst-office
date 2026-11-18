@@ -29,8 +29,12 @@ def note(cand, text, t=None):
     del cand["history"][:-30]
 
 
-def add(store, branch, platform="both", resolver=resolve_ref, git=None, submitter=None, now=None):
+def add(store, branch, platform="both", resolver=resolve_ref, git=None, submitter=None, now=None, tests=()):
+    """The branch is ready for the next train. `tests`: the CppunitTest/PythonTest targets that prove the change;
+    the train's Linux build runs them with train_tests (a red/green pair or a module-only test build stays a plain
+    `submit`)."""
     cfg = store.config()
+    tests = list(dict.fromkeys(tests))
     now = time.time() if now is None else now
     if not REF_RE.match(branch) or ".." in branch or branch.startswith(("train/", "rc/")) \
             or is_integrator(branch, False, cfg):
@@ -53,14 +57,15 @@ def add(store, branch, platform="both", resolver=resolve_ref, git=None, submitte
             raise QueueError(f"{branch} is in {cand['train']} now; add it again when that train has a result "
                              f"(`build-queue.sh train status {branch}`)")
         if cand and cand["state"] == "ready":
-            cand["platforms"] = plats
-            note(cand, f"still ready (platforms {','.join(plats)})", now)
+            cand.update(platforms=plats, tests=tests)
+            note(cand, f"still ready (platforms {','.join(plats)}; {len(tests)} declared tests)", now)
         else:
-            cand = {"branch": branch, "state": "ready", "platforms": plats, "added": now, "added_at": now_iso(now),
+            cand = {"branch": branch, "state": "ready", "platforms": plats, "tests": tests, "added": now,
+                    "added_at": now_iso(now),
                     "ready_since": now, "attempts": 0, "carry": False, "history": (cand or {}).get("history", []),
                     "submitter": submitter or os.environ.get("SUDO_USER") or os.environ.get("USER", "?")}
-            note(cand, f"ready at {sha[:10]} (platforms {','.join(plats)}); the train merges the branch tip "
-                       "when it starts", now)
+            note(cand, f"ready at {sha[:10]} (platforms {','.join(plats)}; {len(tests)} declared tests); the "
+                       "train merges the branch tip when it starts", now)
         branches[branch] = cand
         ts.save_branches(branches)
         return cand

@@ -1,19 +1,24 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """`build-queue.sh train ...`: the build train from the command line.
 
-  train add <branch> [--platform linux|windows|both]   the branch is ready: it rides the next train (default both)
+  train add <branch> [--platform linux|windows|both] [--test 'T1 T2']
+                                                       the branch is ready: it rides the next train (default both);
+                                                       --test: the CppunitTest targets that prove it (added to the
+                                                       train's fixed test set train_tests)
   train remove <branch>                                drop it (a train already building finishes with it)
   train status [<branch>|<train>] [--json]             overview, one branch (its train, builds, result) or one train
   train wait <branch> [--timeout S]                    until the branch has a result: exit 0 passed (prints the
                                                        outputs), 1 ejected/failed, 2 timeout
   train start --integrator                             integrator: build a train at the next tick, below the thresholds
 A train starts every train_interval_minutes (20) or as soon as train_min_branches (4) are ready, as
-train/<prefix>NNN = the integration branch + the ready branches, with one Linux and one Windows build. Up to
+train/<prefix>NNN = the integration branch + the ready branches, with one Linux build (which also runs the test
+set) and one Windows build; a branch passes only when the builds and the tests pass. Up to
 train_max_concurrent (2) trains build side by side when they share no LibreOffice file.
 """
 import json
 import sys
 
+from .queue_rules import parse_tests
 from .queue_store import QueueError
 from .queue_train_ops import add, member_jobs, remove, start, wait
 from .queue_train_store import TRAIN_ACTIVE, TrainStore
@@ -25,6 +30,7 @@ def add_parser(sub):
     a = tsub.add_parser("add")
     a.add_argument("branch")
     a.add_argument("--platform", default="both", choices=("linux", "windows", "both"))
+    a.add_argument("--test", help="test targets that prove the branch (CppunitTest_*, PythonTest_*, <module>.check)")
     r = tsub.add_parser("remove")
     r.add_argument("branch")
     s = tsub.add_parser("status")
@@ -41,7 +47,13 @@ def job_line(platform, job):
     if job is None:
         return f"    {platform:<8} (job record missing)"
     out = ", ".join(job.get("output", [])) if job["state"] == "done" and not job.get("output_deleted") else ""
-    return f"    {platform:<8} {job['id']}  {job['state']:<9} {out or job.get('error', '')}"
+    tests = ""
+    if job.get("tests"):
+        res = job.get("test_results") or {}
+        bad = [t for t in job["tests"] if (res.get(t) or {}).get("result") != "pass"]
+        tests = f"  tests {len(job['tests'])}" + (f" ({len(bad)} not passed: {', '.join(bad[:5])})"
+                                                   if res and bad else " passed" if res else "")
+    return f"    {platform:<8} {job['id']}  {job['state']:<9} {out or job.get('error', '')}{tests}"
 
 
 def print_train(store, rec, out):
@@ -50,6 +62,13 @@ def print_train(store, rec, out):
           f"base {rec['base_ref']}@{rec['base_sha'][:10]}  sha {sha}  created {rec['created_at']}", file=out)
     for m in rec["members"]:
         print(f"    member   {m['branch']}@{m['sha'][:10]} ({','.join(m['platforms'])})", file=out)
+    if rec.get("tests"):
+        print(f"    tests    {len(rec['tests'])}: {' '.join(rec['tests'])}", file=out)
+    for platform, targets in sorted(rec.get("test_failures", {}).items()):
+        print(f"    failing  {platform}: {', '.join(targets)}", file=out)
+    if rec.get("base_test_failures"):
+        print(f"    on base  also failing on {rec['base_ref']}, not blamed: {', '.join(rec['base_test_failures'])}",
+              file=out)
     for platform, jid in sorted(rec.get("jobs", {}).items()):
         try:
             job = store.load(jid)
@@ -82,7 +101,7 @@ def status(store, what, as_json, out):
     branches, trains = ts.branches(), ts.trains()
     if what:
         cand = branches.get(what)
-        rec = None if cand else ts.load(what)
+        rec = None if cand else ts.load(what, store.config()["train_prefix"])
         if cand is None and rec is None:
             raise QueueError(f"{what} is neither a train candidate nor a train")
         if as_json:
@@ -101,7 +120,8 @@ def status(store, what, as_json, out):
         print(json.dumps({"branches": branches, "trains": trains[-10:]}, indent=1, sort_keys=True), file=out)
         return 0
     cfg = store.config()
-    print(f"train: {'enabled' if cfg['train_enabled'] else 'DISABLED'}; base {cfg['integration_branch']}; starts every "
+    print(f"train: {'enabled' if cfg['train_enabled'] else 'DISABLED'}; base {cfg['integration_branch']}; names "
+          f"{cfg['train_prefix']}NNN; {len(cfg['train_tests'])} fixed tests + declared ones; starts every "
           f"{cfg['train_interval_minutes']} min or at {cfg['train_min_branches']} ready branches; up to "
           f"{cfg['train_max_concurrent']} trains side by side on disjoint files", file=out)
     order = {"in-train": 0, "ready": 1}
@@ -114,7 +134,7 @@ def status(store, what, as_json, out):
 
 def run(store, args, out=sys.stdout):
     if args.train_cmd == "add":
-        cand = add(store, args.branch, args.platform)
+        cand = add(store, args.branch, args.platform, tests=parse_tests(args.test))
         print(f"{cand['branch']}: {cand['note']}", file=out)
         return 0
     if args.train_cmd == "remove":

@@ -36,9 +36,15 @@ DEFAULT_CONFIG = {
     "agent_max_priority": 50,
     # An integrator submit without --priority: above every agent job, below the trains.
     "integrator_priority": 60,
-    # Build train (queue_train*.py): batch5 + ready branches merged into train/<prefix>NNN, one build per platform.
+    # Build train (queue_train*.py): the integration branch + ready branches merged into train/<prefix>NNN, one build
+    # per platform. Numbers count per prefix (a new prefix starts at 001).
     "train_enabled": True,
     "train_prefix": "train/1.0.2-",
+    # Tests the Linux build of every train runs (plus the targets members declare with `train add --test`); a branch
+    # passes only when they pass. A target that also fails on the integration branch is reported, never blamed.
+    # Empty list and no declared tests: build-only trains.
+    "train_tests": ["CppunitTest_sw_core_layout", "CppunitTest_sw_ooxmlexport", "CppunitTest_sc_ucalc_formula",
+                    "CppunitTest_sc_cond_format", "CppunitTest_sd_import_tests", "CppunitTest_starmath_qa_cppunit"],
     "train_interval_minutes": 20,
     # Trains built side by side (each on its own base snapshot) when no LibreOffice file is shared between them.
     "train_max_concurrent": 2,

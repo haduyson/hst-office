@@ -42,6 +42,9 @@ class TrainCliTest(unittest.TestCase):
         out.mkdir(parents=True)
         (out / "HSTOffice.deb").write_text("x")
         data.update(state="done", finished=time.time(), output=[str(out / "HSTOffice.deb")])
+        if data.get("tests"):   # the Linux build of a train runs its test set: all pass here
+            data["test_results"] = {t: {"result": "pass", "exit": 0, "seconds": 1, "log": f"test-logs/{t}.log"}
+                                    for t in data["tests"]}
         path.write_text(json.dumps(data))
 
     def test_train_end_to_end(self):

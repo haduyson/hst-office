@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """The dispatcher's build train step (once per tick, under train.lock). In order:
-  1. trains being merged: merge (deterministic), push train/<prefix>NNN, submit one job per platform;
+  1. trains being merged: merge (deterministic), push train/<prefix>NNN, submit one job per platform (the Linux job
+     also runs the train's test set: train_tests + the tests the members declared, see train_test_set);
   2. trains being built whose jobs all finished: pass -> members passed; cancelled/infra -> members retried;
      failed -> attribution (queue_train.decide_failure): blamed members ejected with a confirmation build, the
      others carried to the next train, or a bisect into two half trains;
@@ -16,7 +17,7 @@ import os
 import time
 
 from .queue_store import PLATFORMS, QueueError, now_iso
-from .queue_train import in_flight_files, ready_order, select_members, should_start
+from .queue_train import in_flight_files, ready_order, select_members, should_start, train_test_set
 from .queue_train_git import TrainGitError, TrainRepo
 from .queue_train_judge import TrainJudge
 from .queue_train_ops import note
@@ -85,20 +86,22 @@ class TrainStep(TrainJudge):
         note(cand, text, self.now)
 
     def next_number(self):
-        nums = [r["number"] for r in self.ts.trains()]
+        """Numbers count per train_prefix: the first train of a new prefix is NNN = 001."""
         prefix = self.cfg["train_prefix"]
+        nums = [r["number"] for r in self.ts.trains() if r["name"].startswith(prefix)]
         for name in self.repo.remote_trains(prefix):
             tail = name[len(prefix):]
             if tail.isdigit():
                 nums.append(int(tail))
         return max(nums, default=0) + 1
 
-    def new_record(self, number, members, platforms, base_sha, kind="train", parent=None, round_no=0):
+    def new_record(self, number, members, platforms, base_sha, kind="train", parent=None, round_no=0, tests=None):
         name = f"{self.cfg['train_prefix']}{number:03d}"
+        tests = train_test_set(self.cfg, members) if tests is None else list(tests)
         return {"number": number, "name": name, "kind": kind, "parent": parent, "round": round_no,
                 "state": "merging", "base_ref": self.cfg["integration_branch"], "base_sha": base_sha,
                 "created": int(self.now), "created_at": now_iso(self.now), "platforms": platforms,
-                "members": members, "conflicts": {}, "jobs": {}, "results": {}, "tries": 0}
+                "members": members, "tests": tests, "conflicts": {}, "jobs": {}, "results": {}, "tries": 0}
 
     # ------------------------------------------------------------ 1. merge, push, submit
     def build(self, rec):
@@ -141,13 +144,15 @@ class TrainStep(TrainJudge):
                                  owner=rec["name"], count=True)
             return
         if rec["kind"] == "train":
-            wanted = {p for m in rec["members"] for p in m["platforms"]}
+            # Tests run on Linux only: a train with a test set always builds Linux, even for Windows-only members.
+            wanted = {p for m in rec["members"] for p in m["platforms"]} | ({"linux"} if rec.get("tests") else set())
             rec["platforms"] = [p for p in PLATFORMS if p in wanted]
         for platform in rec["platforms"]:
             if platform not in rec["jobs"]:
                 job, _dup = self.core.submit(self.store, platform, rec["name"], self.cfg["train_priority"],
                                              resolver=lambda _ref, s=sha: s, submitter="build-train",
-                                             internal=True, train=rec["name"])
+                                             internal=True, train=rec["name"],
+                                             tests=rec.get("tests", []) if platform == "linux" else ())
                 rec["jobs"][platform] = job["id"]
         rec["state"] = "building"
         self.event(rec, "building: " + ", ".join(f"{p} {j}" for p, j in sorted(rec["jobs"].items())))
@@ -185,7 +190,8 @@ class TrainStep(TrainJudge):
                                 f" ({exc}); fix the branch, then `train add` again")
                     continue
                 cands.append({"branch": cand["branch"], "sha": sha, "platforms": cand["platforms"],
-                              "patches": patches, "lo_files": files, "carry": cand.get("carry")})
+                              "patches": patches, "lo_files": files, "carry": cand.get("carry"),
+                              "tests": cand.get("tests", [])})
         chosen, deferred = select_members(cands, self.cfg["train_max_branches"], busy)
         for branch, reason in deferred.items():
             text = f"ready, waiting for the next train: {reason}"
@@ -197,7 +203,7 @@ class TrainStep(TrainJudge):
                 os.remove(flag)
             _backoff["start"] = self.now + GIT_RETRY_SECONDS
             return None
-        members = [{k: c[k] for k in ("branch", "sha", "platforms", "patches", "lo_files")} for c in chosen]
+        members = [{k: c[k] for k in ("branch", "sha", "platforms", "patches", "lo_files", "tests")} for c in chosen]
         rec = self.new_record(self.next_number(), members, list(PLATFORMS), base_sha)
         rec["deferred"] = deferred
         for m in members:
