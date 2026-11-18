@@ -338,10 +338,10 @@ index 0000000..d2601b1
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/qa/cppunit/test_hst_formula_constructs.cxx b/starmath/qa/cppunit/test_hst_formula_constructs.cxx
 new file mode 100644
-index 0000000..445bbd8
+index 0000000..6f8bdab
 --- /dev/null
 +++ b/starmath/qa/cppunit/test_hst_formula_constructs.cxx
-@@ -0,0 +1,143 @@
+@@ -0,0 +1,146 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -456,18 +456,21 @@ index 0000000..445bbd8
 +        CPPUNIT_ASSERT_EQUAL(0, starmath::hst::StartCategory(rAll.size()));
 +        // every template is a valid formula
 +        int nTemplates = 0;
++        OUString aFailed; // every template that does not parse, not only the first one
 +        for (int i = 0; starmath::hst::AddTemplateElements(
-+                 i, [&nTemplates](const OUString& rVisual, const OUString&, const OUString& rHelp)
++                 i, [&nTemplates, &aFailed](const OUString& rVisual, const OUString&,
++                                            const OUString& rHelp)
 +                 {
 +                     ++nTemplates;
 +                     SmParser5 aParser;
 +                     auto pTree = aParser.Parse(rVisual);
-+                     CPPUNIT_ASSERT_MESSAGE(rVisual.toUtf8().getStr(), aParser.GetError() == nullptr);
-+                     CPPUNIT_ASSERT(!rHelp.isEmpty());
++                     if (aParser.GetError() != nullptr || rHelp.isEmpty())
++                         aFailed += rVisual + "\n";
 +                 });
 +             ++i)
 +        {
 +        }
++        CPPUNIT_ASSERT_EQUAL(OUString(), aFailed);
 +        CPPUNIT_ASSERT(nTemplates >= 30);
 +        CPPUNIT_ASSERT(!starmath::hst::AddTemplateElements(-1, [](auto&, auto&, auto&) {}));
 +    }
@@ -927,7 +930,7 @@ index b6f68fe..c0d76ce 100644
                      }
 diff --git a/starmath/source/hst/elementtemplates.cxx b/starmath/source/hst/elementtemplates.cxx
 new file mode 100644
-index 0000000..56eba08
+index 0000000..f404138
 --- /dev/null
 +++ b/starmath/source/hst/elementtemplates.cxx
 @@ -0,0 +1,121 @@
@@ -994,12 +997,12 @@ index 0000000..56eba08
 +    { u"{t^o} xrightarrow {}", u"Mũi tên có điều kiện" },
 +    { u"{} xrightleftharpoons {}", u"Phản ứng thuận nghịch" },
 +    { u"2 \"H\"_2 + \"O\"_2 {t^o} xrightarrow {} 2 \"H\"_2 \"O\"", u"Phương trình phản ứng" },
-+    { u"\"Fe\"^{3+}", u"Ion" },
++    { u"\"Fe\"^{\"3+\"}", u"Ion" },
 +    { u"{\"C\"} lsub 6 lsup 14", u"Đồng vị" },
 +    { u"n = m over M", u"Số mol" },
 +    { u"C_M = n over V", u"Nồng độ mol" },
 +    { u"C \"%\" = {m_ct} over {m_dd} times 100 \"%\"", u"Nồng độ phần trăm" },
-+    { u"pH = -log[\"H\"^+]", u"pH" },
++    { u"pH = -log[\"H\"^\"+\"]", u"pH" },
 +};
 +
 +// TranslateId with no translation shows its text as it is: HST Office's interface is Vietnamese
