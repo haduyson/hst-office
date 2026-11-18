@@ -496,11 +496,12 @@ License: these upstream files remain under their original license (MPL-2.0).
  msgctxt "STR_HST_SET_DEFAULT"
 --- a/vcl/Library_vcl.mk
 +++ b/vcl/Library_vcl.mk
-@@ -264,6 +264,7 @@ $(eval $(call gb_Library_add_exception_o
+@@ -264,6 +264,8 @@ $(eval $(call gb_Library_add_exception_o
      vcl/source/control/HstRibbonDrop \
      vcl/source/control/HstRibbonLadder \
      vcl/source/control/HstRibbonPaint \
 +    vcl/source/control/HstRibbonV3Layout \
++    vcl/source/control/HstRibbonV3MergedBox \
      vcl/source/control/NotebookbarPopup \
      vcl/source/control/PriorityHBox \
      vcl/source/control/PriorityMergedHBox \
@@ -528,12 +529,10 @@ License: these upstream files remain under their original license (MPL-2.0).
  
 --- /dev/null
 +++ b/vcl/inc/HstRibbonV3Layout.hxx
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,74 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
-+ * This Source Code Form is subject to the terms of the Mozilla Public
-+ * License, v. 2.0. If a copy of the MPL was not distributed with this
-+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
 + */
 +
 +#pragma once
@@ -607,12 +606,10 @@ License: these upstream files remain under their original license (MPL-2.0).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/inc/HstRibbonV3Pack.hxx
-@@ -0,0 +1,369 @@
+@@ -0,0 +1,367 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
-+ * This Source Code Form is subject to the terms of the Mozilla Public
-+ * License, v. 2.0. If a copy of the MPL was not distributed with this
-+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
 + */
 +
 +#pragma once
@@ -1191,12 +1188,10 @@ License: these upstream files remain under their original license (MPL-2.0).
      int nCommands = 0;
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
-@@ -0,0 +1,529 @@
+@@ -0,0 +1,527 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
-+ * This Source Code Form is subject to the terms of the Mozilla Public
-+ * License, v. 2.0. If a copy of the MPL was not distributed with this
-+ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
 + */
 +
 +#include <HstRibbonV3Layout.hxx>
@@ -1721,76 +1716,36 @@ License: these upstream files remain under their original license (MPL-2.0).
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
---- a/vcl/source/control/PriorityMergedHBox.cxx
-+++ b/vcl/source/control/PriorityMergedHBox.cxx
-@@ -29,6 +29,9 @@
- #include <HstRibbonLadder.hxx>
- #include <HstRibbonScaling.hxx>
- #include <HstRibbonRegrow.hxx>
+--- /dev/null
++++ b/vcl/source/control/HstRibbonV3MergedBox.cxx
+@@ -0,0 +1,338 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++// HST Office: the 1.0.3 (v3) ribbon's fit of a tab's groups (the owner-locked mockup's fit()), the page's dump of
++// its layout and the banner's link to the groups' used width; members of PriorityMergedHBox (PriorityMergedHBox.hxx)
++// that the box's Resize() and calculateRequisition() call for a tab of v3 groups (HstRibbonV3Layout.hxx).
++
++#include <PriorityMergedHBox.hxx>
++#include <HstRibbonLadder.hxx>
 +#include <HstRibbonV3Layout.hxx>
 +#include <HstRibbonV3Pack.hxx>
++
++#include <comphelper/lok.hxx>
++#include <rtl/strbuf.hxx>
++#include <vcl/HstRibbonWidth.hxx>
++#include <vcl/layout.hxx>
 +#include <vcl/tabpage.hxx>
- #include <vcl/HstRibbonWidth.hxx>
- #include <vcl/HstRibbonPaint.hxx>
- #include <vcl/decoview.hxx>
-@@ -123,12 +126,18 @@ void PriorityMergedHBox::Resize()
-         if (VclGrid* pGrid = dynamic_cast<VclGrid*>(pChild))
-             pGrid->set_hst_centre_spanned(true);
- 
--    const tools::Long nWidth = GetSizePixel().Width();
-+    // HST Office (v3): the groups are fitted at the width they have beside the smallest banner
-+    const bool bV3 = HstIsV3();
-+    if (bV3 && get_spacing() != 0)
-+        set_spacing(0); // a v3 group has its padding and separator inside
-+    const tools::Long nWidth = GetSizePixel().Width() + (bV3 ? m_nHstSlack : 0);
-     const tools::Long nSpacing = get_spacing();
- 
-     // HST Office: groups first shrink step by step (large, medium, small); only what still does not
-     // fit folds into the chevron popup below, which stays the last rung
--    if (hst::ribbon::collapseLadderEnabled())
-+    if (bV3)
-+        HstApplyV3(nWidth);
-+    else if (hst::ribbon::collapseLadderEnabled())
-         HstApplyLadder(nWidth);
-     // the ladder may have made a group button: it goes right after its group
-     HstRestoreOrder();
-@@ -156,7 +165,7 @@ void PriorityMergedHBox::Resize()
-     const tools::Long nRoom
-         = bFold ? nWidth - getLayoutRequisition(*m_pButton).Width() - m_pButton->get_padding() * 2 - nSpacing
-                 : nWidth;
--    if (hst::ribbon::collapseLadderEnabled() && !m_aHstFoldOrder.empty())
-+    if ((bV3 || hst::ribbon::collapseLadderEnabled()) && !m_aHstFoldOrder.empty())
-     {
-         // HST Office: the tab's ladder says which groups fold first (core groups and Styles last)
-         std::vector<vcl::Window*> aHidden;
-@@ -865,7 +874,11 @@ void PriorityMergedHBox::DataChanged(con
-     // fonts, scale or theme change the widths: measure again
-     if (rEvent.GetType() == DataChangedEventType::SETTINGS || rEvent.GetType() == DataChangedEventType::FONTS
-         || rEvent.GetType() == DataChangedEventType::DISPLAY)
-+    {
-         m_aHstWidths.clear();
-+        for (vcl::Window* pGroup : HstGroups())
-+            hst::ribbon::v3::Forget(*pGroup);
-+    }
- }
- 
- void PriorityMergedHBox::dispose()
-@@ -920,7 +933,10 @@ Size PriorityMergedHBox::calculateRequis
-     // HST Office: with the collapse ladder the box can shrink to every group at its smallest state
-     // before anything folds; that is the width it asks for, so the block beside it in the tab (the
-     // Tools group) folds only when the groups could not make room for it by shrinking
--    const tools::Long nMin = m_bHstOwnLayout ? -1 : HstMinWidth();
-+    tools::Long nMin = m_bHstOwnLayout ? -1 : HstMinWidth();
-+    // HST Office (v3): the groups fold down to the chevron, so the box takes whatever its tab leaves it
-+    if (!m_bHstOwnLayout && HstIsV3())
-+        nMin = getLayoutRequisition(*m_pButton).Width() + m_pButton->get_padding() * 2;
-     if (nMin >= 0)
-     {
-         Size aSize;
-@@ -1003,4 +1019,314 @@ IMPL_LINK(PriorityMergedHBox, PBClickHdl
-                                         | FloatWinPopupFlags::AllMouseButtonClose);
- }
- 
++#include <vcl/toolkit/button.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <cstdio>
++#include <cstdlib>
++#include <vector>
++
 +bool PriorityMergedHBox::HstIsV3() const
 +{
 +    if (comphelper::LibreOfficeKit::isActive())
@@ -2101,7 +2056,71 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    }
 +}
 +
- /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -29,6 +29,7 @@
+ #include <HstRibbonLadder.hxx>
+ #include <HstRibbonScaling.hxx>
+ #include <HstRibbonRegrow.hxx>
++#include <HstRibbonV3Layout.hxx>
+ #include <vcl/HstRibbonWidth.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
+ #include <vcl/decoview.hxx>
+@@ -123,12 +124,18 @@ void PriorityMergedHBox::Resize()
+         if (VclGrid* pGrid = dynamic_cast<VclGrid*>(pChild))
+             pGrid->set_hst_centre_spanned(true);
+ 
+-    const tools::Long nWidth = GetSizePixel().Width();
++    // HST Office (v3): the groups are fitted at the width they have beside the smallest banner
++    const bool bV3 = HstIsV3();
++    if (bV3 && get_spacing() != 0)
++        set_spacing(0); // a v3 group has its padding and separator inside
++    const tools::Long nWidth = GetSizePixel().Width() + (bV3 ? m_nHstSlack : 0);
+     const tools::Long nSpacing = get_spacing();
+ 
+     // HST Office: groups first shrink step by step (large, medium, small); only what still does not
+     // fit folds into the chevron popup below, which stays the last rung
+-    if (hst::ribbon::collapseLadderEnabled())
++    if (bV3)
++        HstApplyV3(nWidth);
++    else if (hst::ribbon::collapseLadderEnabled())
+         HstApplyLadder(nWidth);
+     // the ladder may have made a group button: it goes right after its group
+     HstRestoreOrder();
+@@ -156,7 +163,7 @@ void PriorityMergedHBox::Resize()
+     const tools::Long nRoom
+         = bFold ? nWidth - getLayoutRequisition(*m_pButton).Width() - m_pButton->get_padding() * 2 - nSpacing
+                 : nWidth;
+-    if (hst::ribbon::collapseLadderEnabled() && !m_aHstFoldOrder.empty())
++    if ((bV3 || hst::ribbon::collapseLadderEnabled()) && !m_aHstFoldOrder.empty())
+     {
+         // HST Office: the tab's ladder says which groups fold first (core groups and Styles last)
+         std::vector<vcl::Window*> aHidden;
+@@ -865,7 +872,11 @@ void PriorityMergedHBox::DataChanged(con
+     // fonts, scale or theme change the widths: measure again
+     if (rEvent.GetType() == DataChangedEventType::SETTINGS || rEvent.GetType() == DataChangedEventType::FONTS
+         || rEvent.GetType() == DataChangedEventType::DISPLAY)
++    {
+         m_aHstWidths.clear();
++        for (vcl::Window* pGroup : HstGroups())
++            hst::ribbon::v3::Forget(*pGroup);
++    }
+ }
+ 
+ void PriorityMergedHBox::dispose()
+@@ -920,7 +931,10 @@ Size PriorityMergedHBox::calculateRequis
+     // HST Office: with the collapse ladder the box can shrink to every group at its smallest state
+     // before anything folds; that is the width it asks for, so the block beside it in the tab (the
+     // Tools group) folds only when the groups could not make room for it by shrinking
+-    const tools::Long nMin = m_bHstOwnLayout ? -1 : HstMinWidth();
++    tools::Long nMin = m_bHstOwnLayout ? -1 : HstMinWidth();
++    // HST Office (v3): the groups fold down to the chevron, so the box takes whatever its tab leaves it
++    if (!m_bHstOwnLayout && HstIsV3())
++        nMin = getLayoutRequisition(*m_pButton).Width() + m_pButton->get_padding() * 2;
+     if (nMin >= 0)
+     {
+         Size aSize;
 --- a/vcl/source/window/layout.cxx
 +++ b/vcl/source/window/layout.cxx
 @@ -56,6 +56,7 @@

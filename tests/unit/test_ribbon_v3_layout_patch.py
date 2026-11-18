@@ -31,7 +31,7 @@ class LayoutTest(unittest.TestCase):
 
 class FitTest(unittest.TestCase):
     def test_mockup_fit_steps(self):
-        code = added(PATCH, "vcl/source/control/PriorityMergedHBox.cxx")
+        code = added(PATCH, "vcl/source/control/HstRibbonV3MergedBox.cxx")
         self.assertIn("const bool bSparse = freeShare() > 0.4;", code)
         self.assertIn("px(bWide ? 96 : std::clamp<long>((nLogical + 1) / 2 * 2, 52, 96))", code)
         self.assertIn("for (const char cStep : { 'M', 'S', 'C' })", code)
@@ -40,7 +40,13 @@ class FitTest(unittest.TestCase):
         self.assertIn('set_property(u"hst-gallery-extra"_ustr, aExtra)',
                       added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx"))
         self.assertIn('if (rKey == "hst-gallery-extra")', added(PATCH, "svx/source/tbxctrls/HstStyleGalleryWindow.cxx"))
-        self.assertIn("HstApplyV3(nWidth);", code)
+        self.assertIn("HstApplyV3(nWidth);", added(PATCH, "vcl/source/control/PriorityMergedHBox.cxx"))
+
+    def test_new_files_are_hst_owned_and_the_box_keeps_hooks_only(self):
+        for path in ("vcl/inc/HstRibbonV3Pack.hxx", "vcl/inc/HstRibbonV3Layout.hxx",
+                     "vcl/source/control/HstRibbonV3Layout.cxx", "vcl/source/control/HstRibbonV3MergedBox.cxx"):
+            self.assertIn("SPDX-License-Identifier: LicenseRef-HST-Proprietary", added(PATCH, path), path)
+        self.assertLess(len(added(PATCH, "vcl/source/control/PriorityMergedHBox.cxx").splitlines()), 30)
 
 
 class BannerTest(unittest.TestCase):
