@@ -1,0 +1,53 @@
+HST Office: a PDF copy cut short still names its signer, as before 26.8.3.
+
+LibreOffice 26.8.3 made svl::crypto::Signing::Verify(SvStream&) return at once when a /ByteRange reaches past
+the end of the file, before the CMS signature is read. HST reports such a file as an incomplete copy
+(PDFSignatureProblem::Incomplete, hst-pdf-signature-reason.patch) and shows who signed it; with the early return
+the signer's certificate was gone (testSignatureProblems: X509Datas empty). The range check stays: only the bytes
+the file holds are read, the signature is parsed for its signer, and the result is always "not verified".
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: make CppunitTest_xmlsecurity_pdfsigning (testSignatureProblems).
+---
+--- a/svl/source/crypto/cryptosign.cxx
++++ b/svl/source/crypto/cryptosign.cxx
+@@ -2431,24 +2431,35 @@
+     std::vector<unsigned char> buffer;
+ 
+     const sal_uInt64 nStreamSize = rStream.TellEnd();
++    // HST Office: a range past the end (an incomplete copy) never verifies, but the signature is still read so the
++    // signer stays known to the user (PDFSignatureProblem::Incomplete names who signed).
++    bool bOutside = false;
+ 
+     // Copy the byte ranges into a single buffer.
+     for (const auto& rByteRange : aByteRanges)
+     {
+         // A signature covers a part of the file, so both ends of every range are inside it.
++        size_t nLength = rByteRange.second;
+         if (rByteRange.first > nStreamSize || rByteRange.second > nStreamSize - rByteRange.first)
+         {
+             SAL_WARN("svl.crypto", "Verify: byte range is outside the stream");
+-            return false;
++            bOutside = true;
++            if (rByteRange.first > nStreamSize)
++                continue;
++            nLength = nStreamSize - rByteRange.first; // read only what the stream holds
+         }
+ 
+         rStream.Seek(rByteRange.first);
+         const size_t size = buffer.size();
+-        buffer.resize(size + rByteRange.second);
+-        rStream.ReadBytes(buffer.data() + size, rByteRange.second);
++        buffer.resize(size + nLength);
++        rStream.ReadBytes(buffer.data() + size, nLength);
+     }
+ 
+-    return Verify(buffer, bNonDetached, aSignature, rInformation);
++    const bool bVerified = Verify(buffer, bNonDetached, aSignature, rInformation);
++    if (!bOutside)
++        return bVerified;
++    rInformation.nStatus = xml::crypto::SecurityOperationStatus_UNKNOWN;
++    return false;
+ 
+ #else
+     // Not implemented.
