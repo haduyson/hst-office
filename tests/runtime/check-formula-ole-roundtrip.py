@@ -29,6 +29,7 @@ import headless_office  # noqa: E402
 from vba_cfb import Cfb  # noqa: E402
 
 FILTERS = {".docx": "MS Word 2007 XML", ".doc": "MS Word 97", ".rtf": "Rich Text Format"}
+MATH_CLSID = "078B7ABA"
 PROGID = re.compile(rb"Equation\.(?:DSMT\d|3)")
 ROWS = []
 
@@ -113,9 +114,10 @@ def write_rtf(docx, path):
 
 
 def object_sizes(doc):
-    """(width, height) in 1/100 mm of every OLE object of a Writer document."""
-    objects = doc.getEmbeddedObjects()
-    return [(o.Size.Width, o.Size.Height) for o in (objects.getByIndex(i) for i in range(objects.getCount()))]
+    """(width, height) in 1/100 mm of the OLE objects of a Writer document that are not Math formulas (a formula, such
+    as a converted Equation 3.0, is sized by its own layout when it is opened)."""
+    objects = [doc.getEmbeddedObjects().getByIndex(i) for i in range(doc.getEmbeddedObjects().getCount())]
+    return [(o.Size.Width, o.Size.Height) for o in objects if not o.CLSID.upper().startswith(MATH_CLSID)]
 
 
 def keeps_sizes(source, reopened):
