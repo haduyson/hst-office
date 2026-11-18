@@ -4,7 +4,7 @@
 
 Usage (needs a running X display; never started or stopped here; runs the office as the build user):
     python3 tests/runtime/check-backstage-flows.py [--instdir upstream/libreoffice/instdir]
-        [--out tests/output/backstage-flows] [--display :93] [--port 2165]
+        [--out tests/output/backstage-flows] [--display :93] [--port N]
 
   0. the left column shows a hover highlight that ends when the pointer leaves;
   1. New: a compact list of this application's templates (upstream's language samples are not installed); a template
@@ -108,7 +108,8 @@ def main():
     parser.add_argument("--instdir", default=os.path.join(hst_gui.ROOT, "upstream", "libreoffice", "instdir"))
     parser.add_argument("--out", default=OUT_DEFAULT)
     parser.add_argument("--display", default=":93")
-    parser.add_argument("--port", type=int, default=2165)
+    parser.add_argument("--port", type=int, default=int(os.environ.get("HST_UNO_PORT") or 0) or hst_gui.free_port(),
+                        help="UNO port (default: HST_UNO_PORT, else a free one)")
     parser.add_argument("--dark", action="store_true", help="in the dark GTK theme")
     args = parser.parse_args()
     if os.geteuid() == 0:

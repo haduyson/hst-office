@@ -7,12 +7,23 @@ Linux profiles get a generic PDF printer (psprint "pdf=", default) writing into 
 (what Ctrl+P runs) must open the Print page with the document's page count; Writer then prints from the page and from
 the classic dialog ("More Options"): same pages and text. Closing the panel cancels the job. Exit 1 on a failure.
 """
-import argparse, glob, os, subprocess, sys, tempfile, time  # noqa: E401
+import argparse, glob, os, socket, subprocess, sys, tempfile, time  # noqa: E401
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from headless_office import import_uno  # noqa: E402
 
-PORT, failures = 22431, []
+
+
+def free_port():
+    """A free TCP port on 127.0.0.1 (or HST_UNO_PORT): a fixed port let another session's check drive this office."""
+    if os.environ.get("HST_UNO_PORT"):
+        return int(os.environ["HST_UNO_PORT"])
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+
+
+PORT, failures = free_port(), []
 
 
 def check(ok, text):

@@ -4,7 +4,7 @@
 
 Usage (needs a running X display; never started or stopped here; runs the office as the build user):
     python3 tests/runtime/check-backstage.py [--instdir upstream/libreoffice/instdir]
-        [--out tests/output/backstage] [--display :93] [--port 2163] [--shots DIR]
+        [--out tests/output/backstage] [--display :93] [--port N] [--shots DIR]
 
 In HST Writer, HST Sheets and HST Slides, read through AT-SPI with a dispatch interceptor that records and swallows the
 commands of the left column (so no dialog or document close really happens):
@@ -166,7 +166,8 @@ def main():
     parser.add_argument("--instdir", default=os.path.join(hst_gui.ROOT, "upstream", "libreoffice", "instdir"))
     parser.add_argument("--out", default=OUT_DEFAULT)
     parser.add_argument("--display", default=":93")
-    parser.add_argument("--port", type=int, default=2163)
+    parser.add_argument("--port", type=int, default=int(os.environ.get("HST_UNO_PORT") or 0) or hst_gui.free_port(),
+                        help="UNO port (default: HST_UNO_PORT, else a free one)")
     parser.add_argument("--shots")
     args = parser.parse_args()
     if os.geteuid() == 0:
