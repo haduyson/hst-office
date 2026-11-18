@@ -14,7 +14,8 @@ a lower code ("a single cell followed by a group") can not occur: a group is nev
 cell it did not join, nor below a cell that a plain formula of the sheet fills later; sheets with array formulas
 stay on the old path. Every cell that is not joined stays on the old path, so the final groups, their codes,
 dirty states and results are the same as before.
-New logic in sc/source/filter/inc/hstsharedformulajoin.hxx; hooks: 6 lines in formulabuffer.cxx.
+New logic in sc/source/filter/inc/hstsharedformulajoin.hxx; hooks: 6 lines in formulabuffer.cxx, and
+ScFormulaCell::CompareByTokenArray / SetCellGroup exported (SC_DLLPUBLIC) for the filter library.
 The environment variable HST_SC_XLSX_SHARED_FORMULA_GROUP_AT_END keeps every sheet on the old path (used by the
 test to compare both paths).
 
@@ -385,3 +386,17 @@ CppunitTest_sc_subsequent_filters_test4 testSharedFormulaXLSX, test2 testSharedF
  
      if (rItem.mpCellFormulas)
      {
+--- a/sc/inc/formulacell.hxx
++++ b/sc/inc/formulacell.hxx
+@@ -508,9 +508,9 @@ public:
+      */
+     SC_DLLPUBLIC ScFormulaCellGroupRef CreateCellGroup( SCROW nLen, bool bInvariant );
+     const ScFormulaCellGroupRef& GetCellGroup() const { return mxGroup;}
+-    void SetCellGroup( const ScFormulaCellGroupRef &xRef );
++    SC_DLLPUBLIC void SetCellGroup( const ScFormulaCellGroupRef &xRef );
+ 
+-    CompareState CompareByTokenArray( const ScFormulaCell& rOther ) const;
++    SC_DLLPUBLIC CompareState CompareByTokenArray( const ScFormulaCell& rOther ) const;
+ 
+     bool InterpretFormulaGroup(SCROW nStartOffset = -1, SCROW nEndOffset = -1);
+ 
