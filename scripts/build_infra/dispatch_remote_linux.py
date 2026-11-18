@@ -50,7 +50,7 @@ class RemoteLinuxRunner:
         self.fail_since = None
         self.next_probe = 0.0
         self.next_poll = {}
-        self.slot_cache = (0.0, None)
+        self.slot_cache = {}   # {complete-build-only: (time, slot)}: a --modules query never hides a full one
 
     # ------------------------------------------------------------ paths and environment
     def qpath(self, kind, job_id, ext=""):
@@ -189,7 +189,8 @@ class RemoteLinuxRunner:
             return None
         if not self.usable():
             return None
-        t, cached = self.slot_cache
+        complete = bool(job and job.get("modules"))   # a --modules build needs a slot with a complete build
+        t, cached = self.slot_cache.get(complete, (0.0, None))
         if self.now() - t < self.cfg.get("remote_poll_seconds", 30) and cached is None:
             return None
         busy = [str(j["slot"]).split(":")[1] for j in jobs if j["platform"] == "linux" and j["state"] == "running"
@@ -198,19 +199,19 @@ class RemoteLinuxRunner:
             d = self.ensure_deployed()
             argv = ["env", *(f"{k}={v}" for k, v in self.env().items()), "python3", "-I",
                     f"{d}/scripts/linux/build-slots.py", "free-slot", "--want", str(self.want(want)),
-                    "--exclude", ",".join(busy)]
+                    "--exclude", ",".join(busy), *(["--complete"] if complete else [])]
             done = self.host.run(argv, check=False)
             self.contact_ok()
         except RemoteError as exc:
             self.contact_failed(exc)
-            self.slot_cache = (self.now(), None)
+            self.slot_cache[complete] = (self.now(), None)
             return None
         slot = f"{self.name}:{done.stdout.strip()}" if done.returncode == 0 and done.stdout.strip().isdigit() else None
-        self.slot_cache = (self.now(), slot)
+        self.slot_cache[complete] = (self.now(), slot)
         return slot
 
     def start(self, job, slot):
-        self.slot_cache = (0.0, None)
+        self.slot_cache = {}
         n = slot.split(":", 1)[1]
         d = self.ensure_deployed()
         self.push(job["sha"], f"refs/q/{job['id']}")

@@ -204,15 +204,26 @@ class RemoteOnlyLinuxTest(RemoteTestCase):
                    {"ref": "train/1.0.2-009", "internal": True, "train": "train/1.0.2-009"}):
             self.shas.setdefault("train/1.0.2-009", "9" * 40)
             job, _ = self.submit(**kw)
-            self.remote.slot_cache = (0.0, None)
+            self.remote.slot_cache = {}
             self.assertEqual(pool.free_slot([], 20, job), "vm103:1", kw)
         avoided, _ = self.submit(ref="feat/x")
-        self.remote.slot_cache = (0.0, None)
+        self.remote.slot_cache = {}
         self.assertEqual(pool.free_slot([], 20, dict(avoided, avoid_hosts=["vm103"])), "vm103:1")   # only host
         self.host.slot = ""                                    # vm103 full: nothing goes to the dev server
-        self.remote.slot_cache = (0.0, None)
+        self.remote.slot_cache = {}
         self.assertIsNone(pool.free_slot([], 20, avoided))
         self.assertEqual(local.started, [])
+
+    def test_modules_jobs_ask_for_a_slot_with_a_complete_build(self):
+        pool = self.pool(FakeRunner([]))
+        mod, _ = self.submit(modules=["sw"])
+        full, _ = self.submit(ref="feat/x")
+        self.host.slot = ""                       # no complete slot is free for the --modules job
+        self.assertIsNone(pool.free_slot([], 20, mod))
+        self.assertIn("--complete", self.host.calls[-1])
+        self.host.slot = "4"                      # the cached refusal of the --modules query does not hide slot 4
+        self.assertEqual(pool.free_slot([], 20, full), "vm103:4")
+        self.assertNotIn("--complete", self.host.calls[-1])
 
     def test_a_local_job_already_running_finishes_normally(self):
         local = FakeRunner([])

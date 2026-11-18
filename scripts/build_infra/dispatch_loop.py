@@ -44,9 +44,22 @@ def run_retention(store, core, cfg):
 def requeue_if_infra(store, core, job, error):
     """Put a job that failed because of the infrastructure back in the queue (at most MAX_INFRA_RETRIES times)."""
     retries = job.get("infra_retries", 0)
-    if job.get("cancel_requested") or retries >= core.MAX_INFRA_RETRIES:
+    if job.get("cancel_requested"):
         return False
-    if not core.infra_failure(error, core.log_tail(job["log"], 80)):
+    tail = core.log_tail(job["log"], 80)
+    wrong_slot = job.get("incomplete_slot_retries", 0)
+    if core.INCOMPLETE_SLOT_RE.search(f"{error}\n{tail}") and wrong_slot < core.MAX_INCOMPLETE_SLOT_RETRIES:
+        with open(job["log"], "a", encoding="utf-8") as f:
+            f.write(f"\n[{time.strftime('%F %T')}] slot {job.get('slot')} has no complete build for --modules: "
+                    f"requeued, not counted against the job (retry {wrong_slot + 1}/"
+                    f"{core.MAX_INCOMPLETE_SLOT_RETRIES})\n")
+        store.update(job["id"], state="queued", incomplete_slot_retries=wrong_slot + 1, slot=None, pid=None,
+                     cancel_sent=False, last_infra_error=error)
+        log(f"{job['id']}: slot {job.get('slot')} has no complete build, requeued without charge")
+        return True
+    if retries >= core.MAX_INFRA_RETRIES:
+        return False
+    if not core.infra_failure(error, tail):
         return False
     with open(job["log"], "a", encoding="utf-8") as f:
         f.write(f"\n[{time.strftime('%F %T')}] infrastructure failure ({error}); requeued "
@@ -123,7 +136,10 @@ def tick(store, runners, core):
         runner = runners[platform]
         slot = runner.free_slot(jobs, runner.want(job), job) if platform == "linux" else runner.free_slot(jobs)
         if slot is None:
-            blocked.add(platform)
+            if not job.get("modules"):
+                # Strict priority per platform; a --modules job only waits for a slot with a complete build, so it
+                # does not hold back a full build that can use (and seed) a slot without one.
+                blocked.add(platform)
             continue
         with store.lock():
             current = store.load(job["id"])

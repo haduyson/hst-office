@@ -158,6 +158,29 @@ class InfraFailureTest(QueueTestCase):
         bqd.tick(self.store, runners, bq)
         self.assertEqual(self.store.load(job["id"])["state"], "failed")
 
+    def test_a_modules_job_on_a_slot_without_a_full_build_is_requeued_without_charge(self):
+        job, _ = self.submit(modules=["sw"])
+        full, _ = self.submit(ref="feat/x")
+        linux = FakeRunner(["4"])
+        runners = {"linux": linux, "windows": FakeRunner([])}
+        bqd.tick(self.store, runners, bq)
+        self.assertEqual(linux.started, [job["id"]])
+        Path(job["log"]).write_text("local-build: slot 4 has no complete build yet; --modules needs one full build "
+                                    "in the slot first\n")
+        linux.results[job["id"]] = ("failed", {"error": "local-build.sh exit 1"})
+        linux.slots = []                                    # no slot free after the failure
+        bqd.tick(self.store, runners, bq)
+        state = self.store.load(job["id"])
+        self.assertEqual((state["state"], state.get("infra_retries", 0), state["incomplete_slot_retries"]),
+                         ("queued", 0, 1))
+        self.assertIn("not counted against the job", Path(job["log"]).read_text())
+        # A --modules job without a usable slot does not hold back the full build behind it.
+        linux.slots = ["4"]
+        linux.free_slot = lambda jobs, want=None, job=None: None if job.get("modules") else "4"
+        bqd.tick(self.store, runners, bq)
+        self.assertEqual(linux.started[-1], full["id"])
+        self.assertEqual(self.store.load(job["id"])["state"], "queued")
+
     def test_build_failure_is_not_requeued(self):
         job, _ = self.submit()
         linux = FakeRunner(["1"])

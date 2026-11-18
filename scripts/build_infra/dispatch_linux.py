@@ -27,7 +27,7 @@ class LinuxRunner:
 
     def free_slot(self, jobs, want, job=None):
         cmd = [sys.executable, "-I", BUILD_SLOTS, "free-slot", "--want", str(want),
-               "--exclude", ",".join(self.busy_slots(jobs))]
+               "--exclude", ",".join(self.busy_slots(jobs)), *(["--complete"] if job and job.get("modules") else [])]
         done = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if done.returncode == 0 and done.stdout.strip().isdigit():
             return int(done.stdout.strip())

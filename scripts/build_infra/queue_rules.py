@@ -154,6 +154,10 @@ INFRA_PATTERNS = [
     )
 ]
 MAX_INFRA_RETRIES = 2
+# A --modules job that landed on a slot without a complete build (local-build.sh, hst4-build.ps1): the slot was wrong,
+# not the commit. Requeued without using up an infrastructure retry, at most MAX_INCOMPLETE_SLOT_RETRIES times.
+INCOMPLETE_SLOT_RE = re.compile(r"has no complete build yet; --modules needs|no complete build in \S+ yet; -Modules needs")
+MAX_INCOMPLETE_SLOT_RETRIES = 5
 
 
 def infra_failure(error, log_text):

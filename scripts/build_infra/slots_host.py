@@ -69,6 +69,11 @@ def slot_dirs(root):
     return sorted(int(n) for n in names if n.isdigit() and os.path.isdir(os.path.join(base, n, "src")))
 
 
+def slot_complete(root, slot):
+    """The slot holds a complete build (instdir/program/soffice), which a --modules build needs (local-build.sh)."""
+    return os.access(os.path.join(root, "slots", str(slot), "src", "lo", "instdir", "program", "soffice"), os.X_OK)
+
+
 def slot_locked(root, slot):
     """True when a local-build.sh run holds the slot's lock (also catches runs not registered here yet)."""
     path = os.path.join(root, "slots", str(slot), ".lock")
