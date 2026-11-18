@@ -56,7 +56,9 @@ def write_xlsx(path, rows, formulas, generator, many_styles=False, shared=True, 
                     first = r == 2
                     amount = qty * price
                     def f(cell, si, template, value, t=""):  # template: the formula with {r} for its row
-                        if not shared:  # every cell its own formula text, as some writers do
+                        # every cell its own formula text, as some writers do; Excel also rejects a shared formula
+                        # that refers to another sheet, so such a column is always written per cell
+                        if not shared or "!" in template:
                             head = "<f>%s</f>" % escape(template.format(r=r))
                         elif first:
                             head = '<f t="shared" ref="%s2:%s%d" si="%d">%s</f>' % (
