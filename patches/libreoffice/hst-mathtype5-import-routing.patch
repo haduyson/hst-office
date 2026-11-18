@@ -22,6 +22,8 @@ The RTF import keeps the OLE data of equations (ProgID "Equation.*") in table ce
 object is buffered with the cell (RTFBufferTypes::HstOleObject) and sent when the cell is
 replayed. LibreOffice read only the picture of objects in tables (fdo#53594), so saving again
 lost the equation; other OLE objects in tables are unchanged.
+The RTF export writes the text box of a shape inside a group from its text frame, as it does
+for other shapes: it wrote the shape's plain text, so equations in such text boxes vanished.
 diff --git a/filter/source/msfilter/msdffimp.cxx b/filter/source/msfilter/msdffimp.cxx
 index b3184b2..7cffec4 100644
 --- a/filter/source/msfilter/msdffimp.cxx
@@ -535,6 +537,39 @@ index 5c1119f..ee6f3e9 100644
      /// Math export.
      bool FlyFrameOLEMath(const SwFlyFrameFormat* pFlyFrameFormat, SwOLENode& rOLENode,
                           const Size& rSize);
+diff --git a/sw/source/filter/ww8/rtfsdrexport.cxx b/sw/source/filter/ww8/rtfsdrexport.cxx
+index 356d3b6..0fd0c51 100644
+--- a/sw/source/filter/ww8/rtfsdrexport.cxx
++++ b/sw/source/filter/ww8/rtfsdrexport.cxx
+@@ -568,8 +568,11 @@ sal_Int32 RtfSdrExport::StartShape()
+     const SwFrameFormat* pShape = FindFrameFormat(m_pSdrObject);
+     if (pShape)
+     {
+-        if (SwFrameFormat* pTextBox
+-            = SwTextBoxHelper::getOtherTextBoxFormat(pShape, RES_DRAWFRMFMT))
++        // HST Office: the text box of a shape in a group belongs to that shape, not to the
++        // group's format; written from its text frame, the objects in it (equations) are kept
++        const bool bInGroup = m_pSdrObject->getParentSdrObjectFromSdrObject() != nullptr;
++        if (SwFrameFormat* pTextBox = SwTextBoxHelper::getOtherTextBoxFormat(
++                pShape, RES_DRAWFRMFMT, bInGroup ? m_pSdrObject : nullptr))
+         {
+             ww8::Frame* pFrame = nullptr;
+             for (auto& rFrame : m_rExport.m_aFrames)
+@@ -581,9 +584,13 @@ sal_Int32 RtfSdrExport::StartShape()
+                 }
+             }
+ 
++            const SwPosition* pAnchor = pTextBox->GetAnchor().GetContentAnchor();
+             if (pFrame)
+                 m_rAttrOutput.writeTextFrame(*pFrame, /*bTextBox=*/true);
+-            return m_nShapeType;
++            else if (bInGroup && pAnchor)
++                m_rAttrOutput.writeTextFrame(ww8::Frame(*pTextBox, *pAnchor), /*bTextBox=*/true);
++            if (pFrame || !bInGroup || pAnchor)
++                return m_nShapeType;
+         }
+     }
+ 
 diff --git a/sw/source/filter/ww8/ww8graf2.cxx b/sw/source/filter/ww8/ww8graf2.cxx
 index e90b0fc..e07cff8 100644
 --- a/sw/source/filter/ww8/ww8graf2.cxx
