@@ -1,0 +1,156 @@
+Sheets: adding a conditional format to a range copies and registers each distinct cell format once (large workbooks open faster).
+ScAttrArray::AddCondFormat copied the cell format of every run of cells in the range, added the conditional
+format to the copy and registered it. Registering finds an equal format that is already registered, so equal
+inputs always end in the same format, but workbooks whose neighbouring cells have different formats have one
+run per cell: loading a synthetic 48 MB workbook (300 000 rows, 4000 cell formats, five conditional formats over
+its columns) spent a third of its import in these copies and registrations (SfxItemSet copies, hash codes and
+comparisons). One call now keeps the registered result of each input format and gives it to the next runs with
+that format (sc/inc/hstpatternmemo.hxx); the memo holds the input and the result, so neither can be freed and
+replaced by another format at the same address during the call. Every cell gets the same format as before.
+Test: CppunitTest_sc_ucalc_condformat testAddCondFormatKeepsEachCellFormat.
+License: sc/inc/hstpatternmemo.hxx is HST Office code (LicenseRef-HST-Proprietary); the modified upstream files
+keep their license (MPL-2.0).
+---
+--- /dev/null
++++ b/sc/inc/hstpatternmemo.hxx
+@@ -0,0 +1,45 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// HST Office: the result of one change applied to the cell formats of a column range, per format.
++//
++// Adding a conditional format to a range copies the cell format of every run of cells in the range, adds
++// the conditional format to the copy and registers it. Registering finds an equal format that is already
++// registered and uses that one, so equal inputs always end in the same registered format. Workbooks that
++// give neighbouring cells different formats have one run per cell: a 300 000-row column made 300 000 copies
++// and registrations of a few thousand distinct formats, a third of loading such a workbook. The memo keeps,
++// for one such change, the registered result of each input format; the input and the result are both held,
++// so neither can be freed and replaced by another format at the same address while the memo lives.
++
++#pragma once
++
++#include "patattr.hxx"
++
++#include <unordered_map>
++#include <utility>
++
++class HstPatternMemo
++{
++public:
++    /** The result stored for pInput, or nullptr. */
++    const CellAttributeHolder* find(const ScPatternAttr* pInput) const
++    {
++        auto it = maResults.find(pInput);
++        return it == maResults.end() ? nullptr : &it->second.second;
++    }
++
++    /** Stores the registered result for a registered input. */
++    void insert(const ScPatternAttr* pInput, const CellAttributeHolder& rResult)
++    {
++        if (pInput && pInput->isRegistered() && rResult.getScPatternAttr())
++            maResults.try_emplace(pInput, CellAttributeHolder(pInput), rResult);
++    }
++
++private:
++    std::unordered_map<const ScPatternAttr*, std::pair<CellAttributeHolder, CellAttributeHolder>> maResults;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/qa/unit/ucalc_condformat.cxx
++++ b/sc/qa/unit/ucalc_condformat.cxx
+@@ -1708,6 +1708,48 @@ CPPUNIT_TEST_FIXTURE(TestCondformat, testOptimalRowHeightsOnePassEqualsRowByRow)
+     m_pDoc->DeleteTab(0);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(TestCondformat, testAddCondFormatKeepsEachCellFormat)
++{
++    // Adding a conditional format to a range of many cell formats: every cell keeps its own format with the
++    // conditional format added, and equal formats end in the same registered format.
++    m_pDoc->InsertTab(0, u"Test"_ustr);
++    CellAttributeHelper& rHelper = m_pDoc->getCellAttributeHelper();
++    constexpr SCROW nRows = 600;
++    for (SCROW nRow = 0; nRow < nRows; ++nRow)
++    {
++        ScPatternAttr aPattern(rHelper);
++        aPattern.ItemSetPut(SvxFontHeightItem(200 + 20 * (nRow % 7), 100, ATTR_FONT_HEIGHT));
++        m_pDoc->ApplyPattern(0, nRow, 0, aPattern);
++    }
++    ScPatternAttr aOther(rHelper);
++    aOther.ItemSetPut(ScCondFormatItem(99));
++    m_pDoc->ApplyPattern(0, 5, 0, aOther); // one cell already has another conditional format
++
++    auto pFormat = std::make_unique<ScConditionalFormat>(1, *m_pDoc);
++    pFormat->SetRange(ScRange(0, 0, 0, 0, nRows - 1, 0));
++    auto pFormatTmp = pFormat.get();
++    sal_uInt32 nKey = m_pDoc->AddCondFormat(std::move(pFormat), 0);
++    pFormatTmp->AddEntry(new ScCondFormatEntry(ScConditionMode::Greater, u"6"_ustr, u""_ustr, *m_pDoc,
++                                               ScAddress(0, 0, 0), ScResId(STR_STYLENAME_RESULT)));
++    m_pDoc->AddCondFormatData(pFormatTmp->GetRange(), 0, nKey);
++
++    for (SCROW nRow = 0; nRow < nRows; ++nRow)
++    {
++        const ScPatternAttr* pPattern = m_pDoc->GetPattern(0, nRow, 0);
++        const ScCondFormatIndexes& rIndexes = pPattern->GetItem(ATTR_CONDITIONAL).GetCondFormatData();
++        CPPUNIT_ASSERT(rIndexes.find(nKey) != rIndexes.end());
++        CPPUNIT_ASSERT_EQUAL(size_t(nRow == 5 ? 2 : 1), rIndexes.size());
++        if (nRow != 5)
++        {
++            CPPUNIT_ASSERT_EQUAL(sal_uInt32(200 + 20 * (nRow % 7)),
++                                 pPattern->GetItem(ATTR_FONT_HEIGHT).GetHeight());
++            if (nRow >= 7 && nRow - 7 != 5)
++                CPPUNIT_ASSERT_EQUAL(m_pDoc->GetPattern(0, nRow - 7, 0), pPattern);
++        }
++    }
++    m_pDoc->DeleteTab(0);
++}
++
+ CPPUNIT_TEST_FIXTURE(TestCondformat, testCondFormatDuplicateTopCacheCells)
+ {
+     // The value counts of duplicate/unique/top rules (ScConditionEntry::FillCache) take every
+--- a/sc/source/core/data/attarray.cxx
++++ b/sc/source/core/data/attarray.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include <attarray.hxx>
++#include <hstpatternmemo.hxx>
+ #include <scitems.hxx>
+ #include <editeng/borderline.hxx>
+ #include <editeng/boxitem.hxx>
+@@ -281,6 +282,7 @@ void ScAttrArray::AddCondFormat( SCROW nStartRow, SCROW nEndRow, sal_uInt32 nInd
+ 
+     SCROW nTempStartRow = nStartRow;
+     SCROW nTempEndRow = nEndRow;
++    HstPatternMemo aHstMemo; // HST Office: one copy and registration per distinct format (hstpatternmemo.hxx)
+ 
+     do
+     {
+@@ -298,6 +300,12 @@ void ScAttrArray::AddCondFormat( SCROW nStartRow, SCROW nEndRow, sal_uInt32 nInd
+             GetPatternRange( nPatternStartRow, nPatternEndRow, nTempStartRow );
+ 
+             nTempEndRow = std::min<SCROW>( nPatternEndRow, nEndRow );
++            if (const CellAttributeHolder* pHstResult = aHstMemo.find(pPattern))
++            {
++                SetPatternArea( nTempStartRow, nTempEndRow, *pHstResult );
++                nTempStartRow = nTempEndRow + 1;
++                continue;
++            }
+             if (const ScCondFormatItem* pItem = pPattern->GetItemSet().GetItemIfSet( ATTR_CONDITIONAL ))
+             {
+                 ScCondFormatIndexes const & rCondFormatData = pItem->GetCondFormatData();
+@@ -328,7 +336,11 @@ void ScAttrArray::AddCondFormat( SCROW nStartRow, SCROW nEndRow, sal_uInt32 nInd
+         }
+ 
+         if (pNewPattern)
+-            SetPatternArea( nTempStartRow, nTempEndRow, CellAttributeHolder(pNewPattern.release(), true) );
++        {
++            CellAttributeHolder aHstResult(pNewPattern.release(), true);
++            aHstMemo.insert(pPattern, aHstResult); // before pPattern may be released below
++            SetPatternArea( nTempStartRow, nTempEndRow, aHstResult );
++        }
+         else
+             SetPatternArea( nTempStartRow, nTempEndRow, CellAttributeHolder(pPattern) );
+ 
