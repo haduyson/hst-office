@@ -1,0 +1,378 @@
+HST Office: ribbon groups of the 1.0.3 (v3) design laid out by the owner-locked mockup's own rules.
+
+- vcl/inc/HstRibbonV3Pack.hxx (new, plain arithmetic, unit tested by tests/unit/test_ribbon_v3_pack.py against the
+  mockup's packItems()/packRun()/eff() for all 329 groups of data/ribbon/ribbon-v3.json at every state): the look of
+  every command of a group at a state (L large, M small with its label, S icon only; a sparse tab's fill pass makes
+  a group large; Paste and a one-command group stay large), its blocks from left to right (large buttons and
+  galleries in their order, the small commands as one run where the first stands: balanced columns of at most 3,
+  4 = 2 + 2, or 1-3 rows beside a large button so the run reaches the bottom row; a group's fixed 3-row layout) and
+  their positions in logical px (rows at 0/26/52, 24 high; large buttons and galleries 76 high; 4 px between
+  blocks; one width for the labelled buttons and boxes of a group's columns; the tab's one large-button width).
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- /dev/null
++++ b/vcl/inc/HstRibbonV3Pack.hxx
+@@ -0,0 +1,362 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++// HST Office: how a ribbon group of the 1.0.3 (v3) design lays out its commands at a size state, the owner-locked
++// mockup's packItems()/packRun() turned into plain arithmetic (no LibreOffice types, unit tested on its own by
++// tests/unit/test_ribbon_v3_pack.py, which compares every group of data/ribbon/ribbon-v3.json with the mockup).
++//
++// A command has a kind (the .ui's "hst-ribbon-layout", generate-ribbon-v3-ui.py): L large, M small with its label,
++// S small icon only, W box, G gallery. At a state of the group (L full, M medium, S small) each command shows in a
++// look (the same letters); the commands then stand in blocks from left to right: a large button, a gallery, a column
++// of 1-3 small buttons, or 1-3 rows of small buttons; a group with a fixed 3-row layout keeps it at every state.
++// Positions are logical px from the top left of the group's content: rows at y 0, 26, 52 (24 high, 2 apart), large
++// buttons and galleries 76 high, 4 px between blocks, 6 px for a gap in a fixed row, 2 px after a box in a row.
++
++#include <algorithm>
++#include <cstddef>
++#include <cstdint>
++#include <functional>
++#include <string>
++#include <string_view>
++#include <vector>
++
++namespace hst::ribbon::v3
++{
++constexpr long ROW = 24;
++constexpr long ROW_GAP = 2;
++constexpr long CONTENT = 3 * ROW + 2 * ROW_GAP; // 76
++constexpr long BLOCK_GAP = 4;
++constexpr long ROW_SPACER = 6;
++constexpr long BOX_AFTER = 2;
++
++struct Spec
++{
++    std::string kinds; // one letter per command child, in child order
++    std::vector<std::vector<int>> rows; // fixed rows: item indexes, -1 for a gap
++    bool nofill = false;
++    bool valid = false;
++};
++
++/** "kinds=LSSS;rows=0.1.|.3/4.5;nofill" */
++inline Spec parseSpec(std::string_view aText)
++{
++    Spec aSpec;
++    while (!aText.empty())
++    {
++        const std::size_t nEnd = std::min(aText.find(';'), aText.size());
++        const std::string_view aPart = aText.substr(0, nEnd);
++        aText.remove_prefix(std::min(aText.size(), nEnd + 1));
++        if (aPart.substr(0, 6) == "kinds=")
++            aSpec.kinds = std::string(aPart.substr(6));
++        else if (aPart == "nofill")
++            aSpec.nofill = true;
++        else if (aPart.substr(0, 5) == "rows=")
++        {
++            std::string_view aRows = aPart.substr(5);
++            while (!aRows.empty())
++            {
++                const std::size_t nRow = std::min(aRows.find('/'), aRows.size());
++                std::string_view aRow = aRows.substr(0, nRow);
++                aRows.remove_prefix(std::min(aRows.size(), nRow + 1));
++                std::vector<int> aItems;
++                while (!aRow.empty())
++                {
++                    const std::size_t nItem = std::min(aRow.find('.'), aRow.size());
++                    const std::string_view aItem = aRow.substr(0, nItem);
++                    aRow.remove_prefix(std::min(aRow.size(), nItem + 1));
++                    if (aItem == "|")
++                        aItems.push_back(-1);
++                    else if (!aItem.empty())
++                        aItems.push_back(std::stoi(std::string(aItem)));
++                }
++                aSpec.rows.push_back(std::move(aItems));
++            }
++        }
++    }
++    aSpec.valid = !aSpec.kinds.empty()
++                  && std::all_of(aSpec.kinds.begin(), aSpec.kinds.end(),
++                                 [](char c) { return std::string_view("LMSWG").find(c) != std::string_view::npos; });
++    for (const auto& rRow : aSpec.rows)
++        for (int n : rRow)
++            if (n >= static_cast<int>(aSpec.kinds.size()))
++                aSpec.valid = false;
++    return aSpec;
++}
++
++enum class BlockType
++{
++    Large,
++    Gallery,
++    Column,
++    Rows
++};
++
++struct Cell
++{
++    std::size_t item = 0;
++    char look = 'S'; // L, M, S, W, G
++    int block = 0;
++    int row = 0; // row in a column or a rows block
++    long x = 0, y = 0, w = 0, h = 0;
++};
++
++struct Plan
++{
++    std::vector<BlockType> blocks;
++    std::vector<Cell> cells;
++    long width = 0; // of the content
++};
++
++/** The group's input at one state: per item its kind, whether it is Paste, whether it is shown. */
++struct Input
++{
++    std::string kinds;
++    std::vector<bool> paste;
++    std::vector<bool> visible;
++    std::vector<std::vector<int>> rows;
++    char state = 'L'; // L, M, S
++    bool big = false; // the sparse tab's fill pass made the group large
++};
++
++/** The look of an item at the group's state (mockup eff()). */
++inline char look(const Input& rIn, std::size_t i)
++{
++    const char k = rIn.kinds[i];
++    if (k == 'G' || k == 'W')
++        return k;
++    if (rIn.paste[i])
++        return 'L';
++    std::size_t nShown = 0;
++    for (std::size_t j = 0; j < rIn.kinds.size(); ++j)
++        nShown += rIn.visible[j] ? 1 : 0;
++    if (nShown == 1 && k == 'L')
++        return 'L'; // a one-command group stays one large button until it folds
++    if (rIn.state == 'L')
++        return rIn.big && (k == 'M' || k == 'S') ? 'L' : k;
++    if (rIn.state == 'M')
++        return k == 'L' ? 'M' : k;
++    return 'S';
++}
++
++namespace detail
++{
++struct Packed
++{
++    BlockType type;
++    std::vector<std::vector<std::pair<std::size_t, char>>> lines; // columns of a Column block, rows of a Rows block
++};
++
++/** rowsOf(): ceil(n/3) items per row; bLabel turns icon-only items into labelled ones. */
++inline Packed rowsOf(const std::vector<std::size_t>& rItems, const std::vector<char>& rLook, bool bLabel)
++{
++    Packed aOut{ BlockType::Rows, {} };
++    const std::size_t nPer = (rItems.size() + 2) / 3;
++    for (std::size_t c = 0; c < rItems.size(); c += nPer)
++    {
++        std::vector<std::pair<std::size_t, char>> aRow;
++        for (std::size_t i = c; i < std::min(rItems.size(), c + nPer); ++i)
++            aRow.emplace_back(rItems[i], bLabel && rLook[rItems[i]] == 'S' ? 'M' : rLook[rItems[i]]);
++        aOut.lines.push_back(std::move(aRow));
++    }
++    return aOut;
++}
++
++/** cols(): ceil(n/3) balanced columns (4 = 2 + 2, 5 = 3 + 2), top to bottom. */
++inline std::vector<Packed> cols(const std::vector<std::size_t>& rItems, const std::vector<char>& rLook, bool bLabel)
++{
++    std::vector<Packed> aOut;
++    const std::size_t n = rItems.size(), nc = (n + 2) / 3;
++    if (!nc)
++        return aOut;
++    const std::size_t nBase = n / nc, nExtra = n % nc;
++    std::size_t i = 0;
++    for (std::size_t c = 0; c < nc; ++c)
++    {
++        Packed aCol{ BlockType::Column, { {} } };
++        const std::size_t k = nBase + (c < nExtra ? 1 : 0);
++        for (std::size_t j = 0; j < k; ++j, ++i)
++            aCol.lines[0].emplace_back(rItems[i], bLabel && rLook[rItems[i]] == 'S' ? 'M' : rLook[rItems[i]]);
++        aOut.push_back(std::move(aCol));
++    }
++    return aOut;
++}
++
++/** packRun(): the small items of a group; bTall when a large button or gallery stands beside them. */
++inline std::vector<Packed> packRun(const std::vector<std::size_t>& rRun, const std::vector<char>& rLook, bool bTall)
++{
++    std::vector<std::size_t> aMs, aSs;
++    bool bHasW = false;
++    for (std::size_t i : rRun)
++    {
++        (rLook[i] == 'M' ? aMs : aSs).push_back(i);
++        bHasW = bHasW || rLook[i] == 'W';
++    }
++    const std::size_t n = rRun.size(), nMs = aMs.size(), nSs = aSs.size();
++    if (n <= 3)
++    {
++        if (bTall && n < 3)
++            return { rowsOf(rRun, rLook, nMs > 0) };
++        return cols(rRun, rLook, nMs > 0 || (bHasW && nSs > 1));
++    }
++    if (nMs && !bHasW && n <= 6 && (nSs <= 2 || (nMs == 1 && nSs <= 3)))
++        return bTall && n % 3 ? std::vector<Packed>{ rowsOf(rRun, rLook, true) } : cols(rRun, rLook, true);
++    if (bTall && ((nMs % 3) || (nSs && nSs < 3)))
++        return { rowsOf(rRun, rLook, false) };
++    if (nMs == 1)
++        return { rowsOf(rRun, rLook, false) };
++    const bool bSsFirst = nMs && nSs
++                          && std::find(rRun.begin(), rRun.end(), aSs[0]) < std::find(rRun.begin(), rRun.end(), aMs[0]);
++    std::vector<Packed> aOut;
++    for (const std::vector<std::size_t>* pSub : bSsFirst ? std::vector{ &aSs, &aMs } : std::vector{ &aMs, &aSs })
++    {
++        if (pSub->empty())
++            continue;
++        std::vector<Packed> aPart = (rLook[(*pSub)[0]] == 'M' || pSub->size() <= 3)
++                                        ? cols(*pSub, rLook, false)
++                                        : std::vector<Packed>{ rowsOf(*pSub, rLook, false) };
++        aOut.insert(aOut.end(), aPart.begin(), aPart.end());
++    }
++    return aOut;
++}
++
++/** packItems(): large buttons and galleries in order; the small items as one run where the first stands. */
++inline std::vector<Packed> packItems(const std::vector<std::size_t>& rItems, const std::vector<char>& rLook)
++{
++    std::vector<Packed> aBlocks;
++    std::vector<std::size_t> aRun;
++    std::ptrdiff_t nRunAt = -1;
++    for (std::size_t i : rItems)
++    {
++        const char c = rLook[i];
++        if (c == 'L' || c == 'G')
++            aBlocks.push_back(Packed{ c == 'L' ? BlockType::Large : BlockType::Gallery, { { { i, c } } } });
++        else
++        {
++            if (nRunAt < 0)
++                nRunAt = static_cast<std::ptrdiff_t>(aBlocks.size());
++            aRun.push_back(i);
++        }
++    }
++    if (!aRun.empty())
++    {
++        const std::vector<Packed> aRunBlocks = packRun(aRun, rLook, !aBlocks.empty());
++        aBlocks.insert(aBlocks.begin() + nRunAt, aRunBlocks.begin(), aRunBlocks.end());
++    }
++    return aBlocks;
++}
++}
++
++/** The blocks and looks of a group at a state, without positions (what the mockup draws). */
++inline std::vector<detail::Packed> structure(const Input& rIn)
++{
++    std::vector<char> aLook(rIn.kinds.size(), 'S');
++    for (std::size_t i = 0; i < rIn.kinds.size(); ++i)
++        aLook[i] = look(rIn, i);
++    std::vector<bool> aInRows(rIn.kinds.size(), false);
++    for (const auto& rRow : rIn.rows)
++        for (int n : rRow)
++            if (n >= 0)
++                aInRows[n] = true;
++    std::vector<std::size_t> aPre;
++    for (std::size_t i = 0; i < rIn.kinds.size(); ++i)
++        if (rIn.visible[i] && !aInRows[i])
++            aPre.push_back(i);
++    std::vector<detail::Packed> aBlocks = detail::packItems(aPre, aLook);
++    if (!rIn.rows.empty())
++    {
++        detail::Packed aRows{ BlockType::Rows, {} };
++        for (const auto& rRow : rIn.rows)
++        {
++            std::vector<std::pair<std::size_t, char>> aLine;
++            for (int n : rRow)
++            {
++                if (n < 0)
++                    aLine.emplace_back(SIZE_MAX, '|');
++                else if (rIn.visible[n])
++                    aLine.emplace_back(static_cast<std::size_t>(n), aLook[n] == 'L' ? 'M' : aLook[n]);
++            }
++            aRows.lines.push_back(std::move(aLine));
++        }
++        aBlocks.push_back(std::move(aRows));
++    }
++    return aBlocks;
++}
++
++/** Positions: rWidth(item, look) is the item's natural width in logical px at that look; nLargeWidth > 0 is the
++    tab's one width for every large button; labelled buttons and boxes in the group's columns share their widest
++    width (mockup equalize()). */
++inline Plan place(const Input& rIn, const std::function<long(std::size_t, char)>& rWidth, long nLargeWidth)
++{
++    const std::vector<detail::Packed> aBlocks = structure(rIn);
++    long nColumnLabel = 0;
++    bool bColumnLabels = false;
++    for (const detail::Packed& rBlock : aBlocks)
++        if (rBlock.type == BlockType::Column)
++            for (const auto& [i, c] : rBlock.lines[0])
++                if (c == 'M' || c == 'W')
++                {
++                    nColumnLabel = std::max(nColumnLabel, rWidth(i, c));
++                    bColumnLabels = bColumnLabels || c == 'M';
++                }
++    Plan aPlan;
++    long nX = 0;
++    for (const detail::Packed& rBlock : aBlocks)
++    {
++        if (!aPlan.blocks.empty())
++            nX += BLOCK_GAP;
++        const int nBlock = static_cast<int>(aPlan.blocks.size());
++        aPlan.blocks.push_back(rBlock.type);
++        long nBlockWidth = 0;
++        if (rBlock.type == BlockType::Large || rBlock.type == BlockType::Gallery)
++        {
++            const auto [i, c] = rBlock.lines[0][0];
++            const long w = c == 'L' && nLargeWidth > 0 ? nLargeWidth : rWidth(i, c);
++            aPlan.cells.push_back(Cell{ i, c, nBlock, 0, nX, 0, w, CONTENT });
++            nBlockWidth = w;
++        }
++        else if (rBlock.type == BlockType::Column)
++        {
++            int nRow = 0;
++            for (const auto& [i, c] : rBlock.lines[0])
++            {
++                const long w = bColumnLabels && (c == 'M' || c == 'W') ? nColumnLabel : rWidth(i, c);
++                aPlan.cells.push_back(Cell{ i, c, nBlock, nRow, nX, nRow * (ROW + ROW_GAP), w, ROW });
++                nBlockWidth = std::max(nBlockWidth, w);
++                ++nRow;
++            }
++        }
++        else
++        {
++            int nRow = 0;
++            for (const auto& rLine : rBlock.lines)
++            {
++                long nRowX = nX;
++                for (const auto& [i, c] : rLine)
++                {
++                    if (c == '|')
++                    {
++                        nRowX += ROW_SPACER;
++                        continue;
++                    }
++                    const long w = rWidth(i, c);
++                    aPlan.cells.push_back(Cell{ i, c, nBlock, nRow, nRowX, nRow * (ROW + ROW_GAP), w, ROW });
++                    nRowX += w + (c == 'W' ? BOX_AFTER : 0);
++                }
++                nBlockWidth = std::max(nBlockWidth, nRowX - nX);
++                ++nRow;
++            }
++        }
++        nX += nBlockWidth;
++    }
++    aPlan.width = nX;
++    return aPlan;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
