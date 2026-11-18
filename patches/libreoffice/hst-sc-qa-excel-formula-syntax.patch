@@ -26,6 +26,10 @@ the metric-compatible Carlito (hst-msoffice-defaults.patch), narrower and lower 
 width of an imported CSV column is 1145 instead of 1162 twips (testTdf152053) and a three-line comment is 1260
 instead of 1386 high (testCommentSize).
 
+testTdf107994 gives the frame of its new document a size before it freezes panes: panes freeze only at a visible
+cell, and the document's grid window can be 0x0 in the headless test, so C3 was scrolled to the top left and nothing
+froze (in HST Sheets itself, and with an office in svp mode, Freeze Panes at C3 and Ctrl+Home move to C3).
+
 License: these upstream files remain under their original license (MPL-2.0).
 Test: make CppunitTest_sc_cond_format CppunitTest_sc_subsequent_filters_test CppunitTest_sc_subsequent_filters_test2
 CppunitTest_sc_subsequent_filters_test3 CppunitTest_sc_subsequent_filters_test4 CppunitTest_sc_subsequent_filters_test5
@@ -452,7 +456,19 @@ CppunitTest_sc_subsequent_export_test CppunitTest_sc_subsequent_export_test2 Cpp
      } aTests[] = {
 --- a/sc/qa/unit/uicalc/uicalc2.cxx
 +++ b/sc/qa/unit/uicalc/uicalc2.cxx
-@@ -1353,7 +1353,9 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testAutoSum)
+@@ -26,6 +26,11 @@
+ #include <comphelper/propertyvalue.hxx>
+ #include <comphelper/servicehelper.hxx>
+ #include <com/sun/star/awt/Key.hpp>
++#include <com/sun/star/awt/PosSize.hpp>
++#include <com/sun/star/awt/XWindow.hpp>
++#include <com/sun/star/frame/XController.hpp>
++#include <com/sun/star/frame/XFrame.hpp>
++#include <com/sun/star/frame/XModel.hpp>
+ #include <com/sun/star/datatransfer/clipboard/XClipboard.hpp>
+ #include <com/sun/star/datatransfer/DataFlavor.hpp>
+ #include <com/sun/star/datatransfer/XTransferable.hpp>
+@@ -1353,7 +1358,9 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testAutoSum)
      goToCell(u"B14"_ustr);
      executeAutoSum();
      CPPUNIT_ASSERT_EQUAL(4.0, pDoc->GetValue(ScAddress(1, 13, 0)));
@@ -463,3 +479,18 @@ CppunitTest_sc_subsequent_export_test CppunitTest_sc_subsequent_export_test2 Cpp
  
      goToCell(u"F8:F14"_ustr);
      executeAutoSum();
+@@ -2219,6 +2226,14 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testTdf107994_MoveActiveCellToFreezePaneSpli
+     dispatchCommand(mxComponent, u".uno:GoToStart"_ustr, {});
+     checkCurrentCursorPosition(*pDocSh, u"A1");
+ 
++    // HST Office: panes freeze only at a visible cell. The grid window of the new document can be
++    // 0x0 in the headless test (C3 is then scrolled to the top left and nothing freezes), so the
++    // frame gets a real size first; a user's window always has one.
++    uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
++    xModel->getCurrentController()->getFrame()->getContainerWindow()->setPosSize(
++        0, 0, 1280, 800, css::awt::PosSize::SIZE);
++    Scheduler::ProcessEventsToIdle();
++
+     // Freeze panes at C3 and verify that GoToStart moves to the freeze pane splitter position
+     goToCell(u"C3"_ustr);
+     dispatchCommand(mxComponent, u".uno:FreezePanes"_ustr, {});
