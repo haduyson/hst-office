@@ -40,7 +40,7 @@ License: the new files sc/inc/hstrowheights.hxx and sc/inc/hsttextheightcache.hx
  };
 --- /dev/null
 +++ b/sc/inc/hstrowheights.hxx
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,124 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -59,7 +59,9 @@ License: the new files sc/inc/hstrowheights.hxx and sc/inc/hsttextheightcache.hx
 +// the same height that ends at or before the real end of that stretch: the callers step from run to
 +// run, so a shorter run only means one more step, never a different result. Runs are looked for at
 +// most RUN_SCAN rows ahead or behind, so stepping over a long stretch of equal heights stays linear.
-+// Rows after the last one ever set keep the initial height and are not stored.
++// Rows after the last one ever set keep the initial height and are not stored. A row before the
++// first one reads as the first row, as in ScCompressedArray (the pass asks for row -2 when its range
++// is the first row alone).
 +
 +#pragma once
 +
@@ -88,13 +90,15 @@ License: the new files sc/inc/hstrowheights.hxx and sc/inc/hsttextheightcache.hx
 +
 +    sal_uInt16 GetValue(SCROW nRow) const
 +    {
-+        return nRow >= 0 && static_cast<size_t>(nRow) < maHeights.size() ? maHeights[nRow] : mnInitial;
++        nRow = std::max<SCROW>(nRow, 0);
++        return static_cast<size_t>(nRow) < maHeights.size() ? maHeights[nRow] : mnInitial;
 +    }
 +
 +    /** The height of nRow, and the last row of a stretch from nRow on with that height. */
 +    sal_uInt16 GetValue(SCROW nRow, size_t& rIndex, SCROW& rEnd) const
 +    {
-+        rIndex = static_cast<size_t>(std::max<SCROW>(nRow, 0));
++        nRow = std::max<SCROW>(nRow, 0);
++        rIndex = static_cast<size_t>(nRow);
 +        const sal_uInt16 nValue = GetValue(nRow);
 +        const SCROW nStored = static_cast<SCROW>(maHeights.size());
 +        if (nRow >= nStored)
@@ -115,6 +119,7 @@ License: the new files sc/inc/hstrowheights.hxx and sc/inc/hsttextheightcache.hx
 +    /** The height of nRow, with a stretch of rows around it that have the same height. */
 +    RangeData GetRangeData(SCROW nRow) const
 +    {
++        nRow = std::max<SCROW>(nRow, 0);
 +        RangeData aData;
 +        size_t nIndex;
 +        aData.maValue = GetValue(nRow, nIndex, aData.mnRow2);
@@ -290,7 +295,7 @@ License: the new files sc/inc/hstrowheights.hxx and sc/inc/hsttextheightcache.hx
  #include <iterator>
  #include "helper/qahelper.hxx"
  
-@@ -24,6 +26,11 @@
+@@ -24,6 +26,12 @@
  #include <undomanager.hxx>
  
  #include <svl/sharedstringpool.hxx>
@@ -299,13 +304,40 @@ License: the new files sc/inc/hstrowheights.hxx and sc/inc/hsttextheightcache.hx
 +#include <patattr.hxx>
 +#include <stlpool.hxx>
 +#include <stlsheet.hxx>
++#include <hstrowheights.hxx>
  
  namespace {
  
-@@ -1648,6 +1655,59 @@ CPPUNIT_TEST_FIXTURE(TestCondformat, testCondFormatRowResultsInRowHeightPass)
+@@ -1648,6 +1656,85 @@ CPPUNIT_TEST_FIXTURE(TestCondformat, testCondFormatRowResultsInRowHeightPass)
      m_pDoc->DeleteTab(0);
  }
  
++CPPUNIT_TEST_FIXTURE(TestCondformat, testOptimalRowHeightOfTheFirstRowAlone)
++{
++    // The pass asks for the stretch before its range, row -2 for the first row alone: that reads as
++    // row 0, also when no row has been stored yet (it read before the start of the array).
++    sc::HstRowHeights aHeights(m_pDoc->MaxRow(), 256);
++    sc::HstRowHeights::RangeData aData = aHeights.GetRangeData(-2);
++    CPPUNIT_ASSERT_EQUAL(SCROW(0), aData.mnRow1);
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(256), aData.maValue);
++    aHeights.SetValue(0, 2, 300);
++    aData = aHeights.GetRangeData(-2);
++    CPPUNIT_ASSERT_EQUAL(SCROW(0), aData.mnRow1);
++    CPPUNIT_ASSERT_EQUAL(SCROW(2), aData.mnRow2);
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(300), aData.maValue);
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(300), aHeights.GetValue(-1));
++
++    m_pDoc->InsertTab(0, u"Test"_ustr);
++    m_xDocShell->AdjustRowHeight(0, 0, 0); // an empty first row
++    m_pDoc->SetString(ScAddress(0, 0, 0), u"x"_ustr);
++    m_xDocShell->AdjustRowHeight(0, 1, 0);
++    const sal_uInt16 nHeight = m_pDoc->GetRowHeight(0, SCTAB(0), false);
++    m_pDoc->SetRowHeightOnly(0, 0, 0, 100);
++    m_xDocShell->AdjustRowHeight(0, 0, 0);
++    CPPUNIT_ASSERT_EQUAL(nHeight, m_pDoc->GetRowHeight(0, SCTAB(0), false));
++    m_pDoc->DeleteTab(0);
++}
++
 +CPPUNIT_TEST_FIXTURE(TestCondformat, testOptimalRowHeightsOnePassEqualsRowByRow)
 +{
 +    // The optimal row height pass keeps one text height per font and one height per row: one pass over
