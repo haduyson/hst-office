@@ -12,21 +12,17 @@ Test: CppunitTest_sw_uibase_docvw testCloseWhileCommentHasFocus.
 ---
 --- a/sw/qa/uibase/docvw/docvw.cxx
 +++ b/sw/qa/uibase/docvw/docvw.cxx
-@@ -18,8 +18,13 @@
- #include <sfx2/lokhelper.hxx>
- #include <test/lokcallback.hxx>
+@@ -20,6 +20,9 @@
  #include <vcl/event.hxx>
-+#include <sfx2/dispatch.hxx>
-+#include <sfx2/viewfrm.hxx>
  #include <vcl/scheduler.hxx>
  
 +#include <AnnotationWin.hxx>
 +#include <PostItMgr.hxx>
-+#include <cmdid.h>
++#include <postithelper.hxx>
  #include <docsh.hxx>
  #include <edtwin.hxx>
  #include <flyfrm.hxx>
-@@ -283,6 +288,24 @@
+@@ -283,6 +286,27 @@
      pWrtShell->GetSfxViewShell()->setLibreOfficeKitViewCallback(nullptr);
  }
  
@@ -35,10 +31,13 @@ Test: CppunitTest_sw_uibase_docvw testCloseWhileCommentHasFocus.
 +    // Given a document with a comment whose window has the keyboard focus (the comment is being
 +    // edited):
 +    createSwDoc();
-+    SwView* pView = getSwDocShell()->GetView();
-+    pView->GetViewFrame().GetDispatcher()->Execute(FN_POSTIT, SfxCallMode::SYNCHRON);
-+    sw::annotation::SwAnnotationWin* pComment = pView->GetPostItMgr()->GetActiveSidebarWin();
++    dispatchCommand(mxComponent, u".uno:InsertAnnotation"_ustr, {});
++    Scheduler::ProcessEventsToIdle();
++    SwPostItMgr* pPostItMgr = getSwDocShell()->GetView()->GetPostItMgr();
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pPostItMgr->GetPostItFields().size());
++    sw::annotation::SwAnnotationWin* pComment = pPostItMgr->GetPostItFields()[0]->mpPostIt;
 +    CPPUNIT_ASSERT(pComment);
++    pPostItMgr->SetActiveSidebarWin(pComment);
 +    pComment->GrabFocus();
 +    CPPUNIT_ASSERT(pComment->HasChildPathFocus());
 +
@@ -51,19 +50,3 @@ Test: CppunitTest_sw_uibase_docvw testCloseWhileCommentHasFocus.
  CPPUNIT_PLUGIN_IMPLEMENT();
  
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
---- a/sw/source/uibase/docvw/edtwin.cxx
-+++ b/sw/source/uibase/docvw/edtwin.cxx
-@@ -5734,6 +5734,13 @@
- 
- void SwEditWin::GetFocus()
- {
-+    // The view has no comment manager while it is destroyed: a focused comment window that is
-+    // disposed then gives the focus back to this window.
-+    if (!m_rView.GetPostItMgr())
-+    {
-+        Window::GetFocus();
-+        return;
-+    }
-     if ( m_rView.GetPostItMgr()->HasActiveSidebarWin() )
-     {
-         m_rView.GetPostItMgr()->GrabFocusOnActiveSidebarWin();
