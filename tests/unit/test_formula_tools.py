@@ -8,7 +8,7 @@ import unittest
 import _paths  # noqa: F401
 
 from hst_office import formula_mathtype_server as server
-from hst_office import formula_ole, formula_save_check
+from hst_office import formula_convert, formula_ole, formula_save_check
 
 
 def compound_file(class_id):
@@ -130,6 +130,38 @@ class FormulaSaveCheckTest(unittest.TestCase):
 
     def test_unreadable_document_saves(self):
         self.assertTrue(formula_save_check.check(None, object(), "MS Word 97", lambda *a: False))
+
+
+class FakeEmbedded:
+    """An OLE object that stores its data only when loaded, like a running MathType object without its server."""
+    def __init__(self, state, unloads=True):
+        self.state, self.unloads = state, unloads
+
+    def getCurrentState(self):
+        return self.state
+
+    def changeState(self, state):
+        if not self.unloads:
+            raise RuntimeError("cannot unload")
+        self.state = state
+
+
+class OleDataTest(unittest.TestCase):
+    def setUp(self):
+        stored = formula_convert._stored
+        self.addCleanup(setattr, formula_convert, "_stored", stored)
+        formula_convert._stored = lambda ctx, obj: b"ole" if obj.state == formula_convert.LOADED else b""
+
+    def test_running_object_is_unloaded_and_stored(self):
+        obj = FakeEmbedded(state=1)  # RUNNING: Windows started it to show it
+        self.assertEqual(b"ole", formula_convert.ole_data(None, obj))
+        self.assertEqual(formula_convert.LOADED, obj.state)
+
+    def test_loaded_or_stuck_object_is_left_alone(self):
+        self.assertEqual(b"ole", formula_convert.ole_data(None, FakeEmbedded(state=0)))
+        formula_convert._stored = lambda ctx, obj: b""
+        self.assertEqual(b"", formula_convert.ole_data(None, FakeEmbedded(state=0)))
+        self.assertEqual(b"", formula_convert.ole_data(None, FakeEmbedded(state=1, unloads=False)))
 
 
 if __name__ == "__main__":

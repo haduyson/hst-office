@@ -1,25 +1,23 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""HST Công thức: turn MathType equations (Equation Editor 3.x, MathType 4-7) into editable Math formulas.
-
-Works the same in Writer, Sheets, Slides and Draw, on one object or on all of them, as one undo step:
-  - the object's OLE data is read back from the object itself (storeToEntry into a temporary storage);
-  - a new Math object takes its place and reads that data with the office's MathType import
-    (com.sun.star.comp.Math.MathTypeFilter; MTEF 5 needs hst-math-constructs-mathtype5.patch);
-  - if the import fails, the new object is removed and the original equation stays untouched.
-In Writer a formula anchored as a character sits on the text baseline (as Writer aligns Math objects); Word's
-run position shift that the OLE picture carried is dropped. Elsewhere the formula keeps the picture's top left."""
+"""HST Công thức: turn MathType equations (Equation Editor 3.x, MathType 4-7) into editable Math formulas, in Writer,
+Sheets, Slides and Draw, one object or all of them as one undo step: the object's OLE data is read back from the object
+(storeToEntry), a new Math object takes its place and reads it with com.sun.star.comp.Math.MathTypeFilter (MTEF 5
+needs hst-math-constructs-mathtype5.patch); if that import fails the original equation stays untouched.
+In Writer a formula anchored as a character sits on the text baseline, as Writer aligns Math objects (Word's run
+position shift carried by the OLE picture is dropped). Elsewhere the formula keeps the picture's top left."""
 from . import formula_ole
 
 FILTER = "com.sun.star.comp.Math.MathTypeFilter"
 OLE_SHAPE = "com.sun.star.drawing.OLE2Shape"
 CONTENT = 1  # com.sun.star.embed.Aspects.MSOLE_CONTENT
+LOADED = 0  # com.sun.star.embed.EmbedStates.LOADED
 AS_CHARACTER = 1  # com.sun.star.text.TextContentAnchorType.AS_CHARACTER
 NONE = 0  # com.sun.star.text.VertOrientation.NONE
 KEEP_TEXT = ("AnchorType", "HoriOrient", "HoriOrientPosition", "HoriOrientRelation", "VertOrientRelation", "TextWrap")
 
 
-def ole_data(ctx, embedded):
-    """The bytes of an embedded OLE object's data, b"" when it cannot be stored."""
+def _stored(ctx, embedded):
+    """The bytes the object stores, b"" when it cannot be stored."""
     try:
         storage = ctx.ServiceManager.createInstanceWithContext("com.sun.star.embed.StorageFactory", ctx).createInstance()
         embedded.storeToEntry(storage, "ole", (), ())
@@ -32,6 +30,20 @@ def ole_data(ctx, embedded):
                 return b"".join(chunks)
     except Exception:  # noqa: BLE001 - an object that cannot be stored is simply not converted
         return b""
+
+
+def ole_data(ctx, embedded):
+    """The bytes of an embedded OLE object's data, b"" when it cannot be stored. On Windows the office may have
+    started the object to show it (state RUNNING), and a running object without its server refuses storeToEntry:
+    it is unloaded and stored again."""
+    data = _stored(ctx, embedded)
+    try:
+        if data or embedded.getCurrentState() == LOADED:
+            return data
+        embedded.changeState(LOADED)
+    except Exception:  # noqa: BLE001 - an object that cannot be unloaded is not converted
+        return b""
+    return _stored(ctx, embedded)
 
 
 def import_formula(ctx, model, data):
