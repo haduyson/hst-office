@@ -155,6 +155,11 @@ class StartupPromptsJob(unohelper.Base, XServiceInfo, XJob):
 
     def execute(self, arguments):
         try:
+            from . import startup_choices
+            startup_choices.migrate(self.ctx)  # keep earlier answers safe even when no question runs this start
+        except Exception:  # noqa: BLE001 - never block start-up
+            diag_log.exception("startup_prompts")
+        try:
             from .welcome_job import run_later
             before = _safe_snapshot(self.ctx)
             run_later(self.ctx, lambda: run(self.ctx, before=before))

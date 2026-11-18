@@ -10,7 +10,8 @@ The office's recovery state is combined with HST's own session marker and crash 
 signal and stack the office or the OS recorded). The state is read at OnStartApp, before document recovery runs and resets it; the
 question is asked after onFirstVisibleTask, i.e. after the recovery dialog has closed and the recovered documents or
 the Start Center are shown, so both never compete. Crashed is then cleared, as recovery itself does, so the same exit
-is asked about once; "Không hỏi lại" stores /org.hasontech.hstoffice.ErrorReport/AskAfterCrash = false.
+is asked about once; "Không hỏi lại" stores "crash_never_ask" in the profile's startup-choices.json (startup_choices)
+and /org.hasontech.hstoffice.ErrorReport/AskAfterCrash = false.
 
 The crash facts are what the office knows: how many documents were open and in which apps, whether the session marker
 was left and the crash signature (faulting module and offsets). Never document names or locations.
@@ -82,11 +83,32 @@ def crash_facts(state):
     return "\n".join(lines), keys[0] if len(keys) == 1 else "unknown"
 
 
+NEVER_ASK = "crash_never_ask"  # "Không hỏi lại" in the profile's startup-choices.json (startup_choices)
+READONLY = 16  # com.sun.star.beans.PropertyAttribute.READONLY: an administrator finalized the value
+
+
 def ask_enabled(ctx):
+    """False after "Không hỏi lại" (kept in startup-choices.json, which survives what erases the extension's
+    configuration values, and in AskAfterCrash) or when an administrator set AskAfterCrash to false."""
+    from . import startup_choices
+    if startup_choices.get(ctx, NEVER_ASK):
+        return False
     try:
-        return bool(_node(ctx, SETTINGS).getPropertyValue("AskAfterCrash"))
+        node = _node(ctx, SETTINGS, True)
+        enabled = bool(node.getPropertyValue("AskAfterCrash"))
+        locked = bool(node.getPropertySetInfo().getPropertyByName("AskAfterCrash").Attributes & READONLY)
     except Exception:  # noqa: BLE001 - schema missing: behave like the default
         return True
+    if not enabled and not locked:
+        startup_choices.put(ctx, NEVER_ASK, True)  # migrate "Không hỏi lại" given by a version without the file
+    return enabled
+
+
+def never_ask(ctx):
+    """"Không hỏi lại": the file first (it never raises), then the configuration."""
+    from . import startup_choices
+    startup_choices.put(ctx, NEVER_ASK, True)
+    _write(ctx, SETTINGS, "AskAfterCrash", False)
 
 
 def capture(ctx):
@@ -113,7 +135,7 @@ def ask(ctx, frame=None, show=None, open_report=None):
         frame = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).getCurrentFrame()
     answer = (show or _question)(ctx, frame.getContainerWindow() if frame is not None else None)
     if answer == "never":
-        _write(ctx, SETTINGS, "AskAfterCrash", False)
+        never_ask(ctx)
     elif answer == "send":
         text, app = crash_facts(state)
         # the recovery list names modified documents only: unchanged ones leave the app to the session heartbeat
