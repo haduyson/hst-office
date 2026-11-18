@@ -320,7 +320,7 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
       <table:table-cell office:value-type="float" office:value="18" calcext:value-type="float">
 --- /dev/null
 +++ b/sc/qa/unit/uicalc/hstexcelparity.cxx
-@@ -0,0 +1,289 @@
+@@ -0,0 +1,303 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -451,6 +451,20 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
 +    insertStringToCell(u"C1"_ustr, u"TRUE");
 +    insertStringToCell(u"B6"_ustr, u"=\"a\"&C1");
 +    CPPUNIT_ASSERT_EQUAL(u"aTRUE"_ustr, str("B6"));
++    // Cells holding a boolean, typed or computed, read as text too.
++    insertStringToCell(u"C2"_ustr, u"=1=2");
++    insertStringToCell(u"D1"_ustr, u"=LEN(C1)");
++    CPPUNIT_ASSERT_EQUAL(4.0, val("D1"));
++    insertStringToCell(u"D2"_ustr, u"=CONCAT(C1:C2)");
++    CPPUNIT_ASSERT_EQUAL(u"TRUEFALSE"_ustr, str("D2"));
++    insertStringToCell(u"D3"_ustr, u"=TEXTJOIN(\"-\",TRUE,C1:C2)");
++    CPPUNIT_ASSERT_EQUAL(u"TRUE-FALSE"_ustr, str("D3"));
++    insertStringToCell(u"D4"_ustr, u"=TEXT(C1,\"0\")");
++    CPPUNIT_ASSERT_EQUAL(u"TRUE"_ustr, str("D4"));
++    insertStringToCell(u"D5"_ustr, u"=\"x\"&C2");
++    CPPUNIT_ASSERT_EQUAL(u"xFALSE"_ustr, str("D5"));
++    insertStringToCell(u"D6"_ustr, u"=C1+1");
++    CPPUNIT_ASSERT_EQUAL(2.0, val("D6"));
 +
 +    // Numbers and arithmetic stay as they were.
 +    insertStringToCell(u"B7"_ustr, u"=\"a\"&1");
@@ -730,7 +744,7 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sc/source/core/hst/hstlogicaltext.cxx
-@@ -0,0 +1,92 @@
+@@ -0,0 +1,154 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -744,12 +758,14 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
 +
 +#include <document.hxx>
 +#include <global.hxx>
++#include <formulacell.hxx>
 +#include <interpre.hxx>
 +
 +#include <formula/grammar.hxx>
 +#include <formula/token.hxx>
 +#include <svl/numformat.hxx>
 +#include <svl/sharedstringpool.hxx>
++#include <svl/zforlist.hxx>
 +
 +namespace sc::hst
 +{
@@ -812,25 +828,91 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
 +    if (!sc::hst::LogicalAsText(mrDoc))
 +        return false;
 +
-+    const double fValue = PopDouble();
++    rText = HstLogicalWord(PopDouble());
++    return true;
++}
++
++svl::SharedString ScInterpreter::HstLogicalWord(double fValue)
++{
 +    // The document's boolean words, as a boolean cell shows them.
 +    const sal_uInt32 nFormat = mrContext.NFGetStandardFormat(SvNumFormatType::LOGICAL, ScGlobal::eLnge);
 +    OUString aText;
 +    const Color* pColor = nullptr;
 +    mrContext.NFGetOutputString(fValue, nFormat, aText, &pColor);
-+    rText = mrStrPool.intern(aText);
-+    return true;
++    return mrStrPool.intern(aText);
++}
++
++bool ScInterpreter::HstIsLogicalCell(const ScRefCellValue& rCell, const ScAddress& rPos, double& rfValue)
++{
++    if (!sc::hst::LogicalAsText(mrDoc))
++        return false;
++    const sal_uInt32 nFormat = mrDoc.GetNumberFormat(mrContext, rPos);
++    const bool bLogicalFormat = mrContext.NFGetType(nFormat) == SvNumFormatType::LOGICAL;
++    switch (rCell.getType())
++    {
++        case CELLTYPE_VALUE:
++            rfValue = rCell.getDouble();
++            return bLogicalFormat;
++        case CELLTYPE_FORMULA:
++        {
++            // A formula cell shows a boolean result as TRUE/FALSE unless the cell has its own
++            // number format.
++            ScFormulaCell* pCell = rCell.getFormula();
++            if (pCell->GetErrCode() != FormulaError::NONE || !pCell->IsValue())
++                return false;
++            rfValue = pCell->GetValue();
++            return bLogicalFormat
++                   || (nFormat % SV_COUNTRY_LANGUAGE_OFFSET == 0
++                       && pCell->GetFormatType() == SvNumFormatType::LOGICAL);
++        }
++        default:
++            return false;
++    }
++}
++
++void ScInterpreter::HstLogicalCellText(svl::SharedString& rText, const ScRefCellValue& rCell,
++                                       const ScAddress& rPos)
++{
++    if (double fValue; HstIsLogicalCell(rCell, rPos, fValue))
++        rText = HstLogicalWord(fValue);
++}
++
++bool ScInterpreter::HstLogicalRefText(svl::SharedString& rText)
++{
++    if (sp == 0 || pStack[sp - 1]->GetType() != formula::svSingleRef)
++        return false;
++    formula::FormulaConstTokenRef xToken(PopToken());
++    PushTokenRef(xToken);
++    ScAddress aPos;
++    PopSingleRef(aPos);
++    if (nGlobalError == FormulaError::NONE)
++    {
++        const ScRefCellValue aCell(mrDoc, aPos);
++        if (double fValue; HstIsLogicalCell(aCell, aPos, fValue))
++        {
++            rText = HstLogicalWord(fValue);
++            return true;
++        }
++    }
++    PushTokenRef(xToken);
++    return false;
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sc/source/core/inc/interpre.hxx
 +++ b/sc/source/core/inc/interpre.hxx
-@@ -626,6 +626,11 @@ private:
+@@ -626,6 +626,17 @@
      // HST: @ with implicit intersection and the spill range A1#, sc/source/core/hst
      void ScHstSingleValue();
      void ScAnchorArray();
 +    /// HST: pops a boolean as its text where the document wants that (hstlogicaltext.cxx).
 +    bool HstLogicalText(svl::SharedString& rText);
++    /// HST: the text of a boolean cell (a value or formula shown as TRUE/FALSE) read as text.
++    void HstLogicalCellText(svl::SharedString& rText, const ScRefCellValue& rCell, const ScAddress& rPos);
++    /// HST: pops a reference to a boolean cell as its text where the document wants that.
++    bool HstLogicalRefText(svl::SharedString& rText);
++    bool HstIsLogicalCell(const ScRefCellValue& rCell, const ScAddress& rPos, double& rfValue);
++    svl::SharedString HstLogicalWord(double fValue);
 +    /// HST: a number typed as text as an argument of SUM, AVERAGE, PRODUCT, SUMSQ counts: replaces
 +    /// it on the stack by its value (hstexcelfunctions.cxx).
 +    void HstDirectTextNumber(ScIterFunc eFunc);
@@ -850,7 +932,7 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
  }
 --- a/sc/source/core/tool/interpr1.cxx
 +++ b/sc/source/core/tool/interpr1.cxx
-@@ -8431,8 +8431,8 @@ void ScInterpreter::ScFilter()
+@@ -8431,8 +8431,8 @@
      {
          if (xNotFound && (xNotFound->GetType() != svMissing))
              PushTokenRef(xNotFound);
@@ -861,7 +943,7 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
          return;
      }
  
-@@ -10115,6 +10115,7 @@ void ScInterpreter::ScIsOmitted()
+@@ -10115,6 +10115,7 @@
          return;
  
      auto pArg = PopToken();
@@ -869,7 +951,7 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
      if (pArg->GetType() == svMissing)
          PushInt(1);
      else
-@@ -10737,7 +10738,11 @@ void ScInterpreter::ScCall( FormulaCallableRef pCallable, const std::vector<Form
+@@ -10737,7 +10738,11 @@
              PushTokenRef(new ScMatrixToken(xMat->Clone()));
          }
          else if (xLambdaResult)
@@ -881,7 +963,7 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
          else if (nGlobalError != FormulaError::NONE)
              PushError(nGlobalError);
          else
-@@ -13220,6 +13225,11 @@ void ScInterpreter::ScText()
+@@ -13220,9 +13225,19 @@
              PopError();
              break;
          case svDouble:
@@ -893,7 +975,15 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
              fVal = PopDouble();
              break;
          default:
-@@ -13493,6 +13503,12 @@ void ScInterpreter::ScErrorType_ODF()
++            if (HstLogicalRefText(aStr)) // HST: TEXT(A1,...) with TRUE in A1
++            {
++                bString = true;
++                break;
++            }
+             {
+                 FormulaConstTokenRef xTok( PopToken());
+                 if (nGlobalError == FormulaError::NONE)
+@@ -13493,6 +13508,12 @@
          case FormulaError::NotAvailable :       // #N/A
              nErrType = 7;
              break;
@@ -908,7 +998,7 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
          complex worksheet is being calculated. In Excel 2007 and newer,
 --- a/sc/source/core/tool/interpr4.cxx
 +++ b/sc/source/core/tool/interpr4.cxx
-@@ -2482,6 +2482,8 @@ svl::SharedString ScInterpreter::GetString()
+@@ -2482,6 +2482,8 @@
              return svl::SharedString::getEmptyString();
          case svDouble:
          {
@@ -917,6 +1007,22 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
              return GetStringFromDouble( PopDouble() );
          }
          case svString:
+@@ -2497,6 +2499,7 @@
+                 ScRefCellValue aCell(mrDoc, aAdr);
+                 svl::SharedString aSS;
+                 GetCellString(aSS, aCell);
++                HstLogicalCellText(aSS, aCell, aAdr); // HST: "a"&A1 with TRUE in A1 is "aTRUE"
+                 return aSS;
+             }
+             else
+@@ -2512,6 +2515,7 @@
+                 ScRefCellValue aCell(mrDoc, aAdr);
+                 svl::SharedString aSS;
+                 GetCellString(aSS, aCell);
++                HstLogicalCellText(aSS, aCell, aAdr); // HST: "a"&A1 with TRUE in A1 is "aTRUE"
+                 return aSS;
+             }
+             else
 --- a/sc/source/core/tool/interpr5.cxx
 +++ b/sc/source/core/tool/interpr5.cxx
 @@ -1136,7 +1136,8 @@ void ScInterpreter::ScMatSequence()
@@ -968,6 +1074,56 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
                              xResMat->PutString( mrStrPool.intern( aResult), 0, nNode);
                          else
                              PushString(aResult);
+--- a/sc/source/core/tool/interpr8.cxx
++++ b/sc/source/core/tool/interpr8.cxx
+@@ -1411,6 +1411,7 @@
+                 {
+                     svl::SharedString aSS;
+                     GetCellString( aSS, aCell);
++                    HstLogicalCellText(aSS, aCell, aAdr); // HST
+                     const OUString& rStr = aSS.getString();
+                     if (CheckStringResultLen(aResBuf, rStr.getLength()))
+                         aResBuf.append( rStr);
+@@ -1449,6 +1450,7 @@
+                         {
+                             svl::SharedString aSS;
+                             GetCellString( aSS, aCell);
++                            HstLogicalCellText(aSS, aCell, aAdr); // HST
+                             const OUString& rStr = aSS.getString();
+                             if (CheckStringResultLen(aResBuf, rStr.getLength()))
+                                 aResBuf.append( rStr);
+@@ -1536,6 +1538,7 @@
+             {
+                 svl::SharedString aSS;
+                 GetCellString( aSS, aCell);
++                HstLogicalCellText(aSS, aCell, aAdr); // HST
+                 aDelimiters.push_back( aSS.getString());
+             }
+         }
+@@ -1574,6 +1577,7 @@
+                     {
+                         svl::SharedString aSS;
+                         GetCellString( aSS, aCell);
++                        HstLogicalCellText(aSS, aCell, aAdr); // HST
+                         aDelimiters.push_back( aSS.getString());
+                     }
+                 }
+@@ -1671,6 +1675,7 @@
+                 {
+                     svl::SharedString aSS;
+                     GetCellString( aSS, aCell);
++                    HstLogicalCellText(aSS, aCell, aAdr); // HST
+                     aStr = aSS.getString();
+                 }
+                 if ( !aStr.isEmpty() || !bSkipEmpty )
+@@ -1726,6 +1731,7 @@
+                         {
+                             svl::SharedString aSS;
+                             GetCellString( aSS, aCell);
++                            HstLogicalCellText(aSS, aCell, aAdr); // HST
+                             aStr = aSS.getString();
+                         }
+                         if ( !aStr.isEmpty() || !bSkipEmpty )
 --- a/sc/source/core/tool/interpr_pivotby.cxx
 +++ b/sc/source/core/tool/interpr_pivotby.cxx
 @@ -179,7 +179,7 @@ void ScInterpreter::ScGroupBy()
