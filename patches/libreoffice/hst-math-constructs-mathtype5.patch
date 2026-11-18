@@ -547,10 +547,10 @@ index 0000000..f9f276e
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
 new file mode 100644
-index 0000000..89f8c4b
+index 0000000..f582bfe
 --- /dev/null
 +++ b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
-@@ -0,0 +1,243 @@
+@@ -0,0 +1,251 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -562,10 +562,12 @@ index 0000000..89f8c4b
 +#include <test/bootstrapfixture.hxx>
 +
 +#include <sfx2/docfile.hxx>
++#include <sfx2/sfxmodelfactory.hxx>
 +#include <sot/storage.hxx>
 +#include <tools/stream.hxx>
 +#include <unotools/tempfile.hxx>
 +
++#include <document.hxx>
 +#include <node.hxx>
 +#include <parse5.hxx>
 +#include <smdll.hxx>
@@ -613,13 +615,19 @@ index 0000000..89f8c4b
 +// UCB, which wants an interaction handler the test does not have
 +std::vector<sal_uInt8> Saved(const OUString& rFormula)
 +{
++    // a prepared tree, as a document saves it (unprepared text nodes have no text yet)
++    rtl::Reference<SmDocShell> xDocShell
++        = new SmDocShell(SfxModelFlags::EMBEDDED_OBJECT | SfxModelFlags::DISABLE_EMBEDDED_SCRIPTS
++                         | SfxModelFlags::DISABLE_DOCUMENT_RECOVERY);
++    xDocShell->SetText(rFormula);
++    xDocShell->GetSize(); // prepares and arranges the formula
 +    OUStringBuffer aFormula(rFormula);
-+    auto pTree = SmParser5().Parse(rFormula);
 +    utl::TempFileNamed aTemp;
 +    aTemp.EnableKillingFile();
 +    SfxMedium aMedium(aTemp.GetURL(), StreamMode::STD_READWRITE | StreamMode::TRUNC);
-+    MathType aExport(aFormula, pTree.get());
++    MathType aExport(aFormula, xDocShell->GetFormulaTree());
 +    CPPUNIT_ASSERT(aExport.ConvertFromStarMath(aMedium));
++    xDocShell->DoClose();
 +    SvStream* pStream = aMedium.GetOutStream();
 +    CPPUNIT_ASSERT(pStream);
 +    std::vector<sal_uInt8> aData(pStream->TellEnd());
