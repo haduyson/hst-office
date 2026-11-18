@@ -18,6 +18,9 @@ An equation kept as an OLE object keeps its data when the document is saved as .
 \objdata with the compound file byte for byte, the picture in \result), so MathType can still
 edit it; LibreOffice's RTF export wrote only the picture (sw/source/core/hst/mathtypeoledata.cxx).
 That picture has the shown size at 100 %: the RTF import sizes an object by its picture's goal.
+Its run position (MathType's baseline, VertOrient NONE) is written as \up/\dn around it, as
+Word does, and the RTF import sends an object's \up/\dn in a run with it, so the domain
+mapper places it as in a .docx run; it sat on the baseline and lines grew taller.
 The RTF import keeps the OLE data of equations (ProgID "Equation.*") in table cells too: the
 object is buffered with the cell (RTFBufferTypes::HstOleObject) and sent when the cell is
 replayed. LibreOffice read only the picture of objects in tables (fdo#53594), so saving again
@@ -189,10 +192,10 @@ index 0000000..7144387
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sw/inc/hstmathtypeole.hxx b/sw/inc/hstmathtypeole.hxx
 new file mode 100644
-index 0000000..34e32c6
+index 0000000..355cd4b
 --- /dev/null
 +++ b/sw/inc/hstmathtypeole.hxx
-@@ -0,0 +1,34 @@
+@@ -0,0 +1,41 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -210,6 +213,8 @@ index 0000000..34e32c6
 +
 +#include <vector>
 +
++class SwFrameFormat;
++
 +namespace com::sun::star::embed
 +{
 +class XEmbeddedObject;
@@ -224,6 +229,11 @@ index 0000000..34e32c6
 +/// byte for byte, as native data) and its ProgID ("Equation.DSMT4"); empty for other objects.
 +SW_DLLPUBLIC std::vector<sal_uInt8>
 +MathTypeOle1Data(const css::uno::Reference<css::embed::XEmbeddedObject>& xObj, OString& rProgId);
++
++/// The run position (half-points, positive raises) Word gives an inline object whose top is
++/// placed from the baseline (VertOrient NONE): Word puts its bottom on the baseline and moves the
++/// run. 0 for other objects. RTF writes it as \up or \dn around the object.
++SW_DLLPUBLIC sal_Int32 InlineRunPosition(const SwFrameFormat& rFormat);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -345,10 +355,10 @@ index 0000000..db6e85c
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sw/source/core/hst/mathtypeoledata.cxx b/sw/source/core/hst/mathtypeoledata.cxx
 new file mode 100644
-index 0000000..50cde04
+index 0000000..1e44a44
 --- /dev/null
 +++ b/sw/source/core/hst/mathtypeoledata.cxx
-@@ -0,0 +1,120 @@
+@@ -0,0 +1,136 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -358,18 +368,24 @@ index 0000000..50cde04
 +
 +#include <hstmathtypeole.hxx>
 +
++#include <fmtornt.hxx>
++#include <fmtfsize.hxx>
++#include <frmfmt.hxx>
++
 +#include <com/sun/star/embed/ElementModes.hpp>
 +#include <com/sun/star/embed/XEmbeddedObject.hpp>
 +#include <com/sun/star/embed/XEmbedPersist.hpp>
 +#include <com/sun/star/embed/XStorage.hpp>
 +#include <com/sun/star/io/XInputStream.hpp>
 +#include <com/sun/star/io/XStream.hpp>
++#include <com/sun/star/text/VertOrientation.hpp>
 +#include <comphelper/diagnose_ex.hxx>
 +#include <comphelper/storagehelper.hxx>
 +#include <rtl/ref.hxx>
 +#include <sot/storage.hxx>
 +#include <tools/stream.hxx>
 +
++#include <cmath>
 +#include <string_view>
 +
 +using namespace css;
@@ -466,22 +482,33 @@ index 0000000..50cde04
 +        return {};
 +    }
 +}
++
++sal_Int32 InlineRunPosition(const SwFrameFormat& rFormat)
++{
++    const SwFormatVertOrient& rVert = rFormat.GetVertOrient();
++    if (rVert.GetVertOrient() != css::text::VertOrientation::NONE)
++        return 0;
++    // twips to half-points; the object's top is GetPos() below the baseline
++    return static_cast<sal_Int32>(
++        std::round(-(rVert.GetPos() + rFormat.GetFrameSize().GetHeight()) / 10.0));
++}
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sw/source/filter/ww8/rtfattributeoutput.cxx b/sw/source/filter/ww8/rtfattributeoutput.cxx
-index 87fcb95..3a9153e 100644
+index 87fcb95..c56aff7 100644
 --- a/sw/source/filter/ww8/rtfattributeoutput.cxx
 +++ b/sw/source/filter/ww8/rtfattributeoutput.cxx
-@@ -68,6 +68,7 @@
+@@ -68,6 +68,8 @@
  #include <o3tl/unit_conversion.hxx>
  #include <svx/svdouno.hxx>
  #include <filter/msfilter/rtfutil.hxx>
 +#include <hstmathtypeole.hxx>
++#include <cstdlib>
  #include <svx/xfillit0.hxx>
  #include <svx/xflgrit.hxx>
  #include <unotools/securityoptions.hxx>
-@@ -4833,10 +4834,11 @@ static OString ExportPICT(const SwFlyFrameFormat* pFlyFrameFormat, const Size& r
+@@ -4833,10 +4835,11 @@ static OString ExportPICT(const SwFlyFrameFormat* pFlyFrameFormat, const Size& r
  }
  
  void RtfAttributeOutput::FlyFrameOLEReplacement(const SwFlyFrameFormat* pFlyFrameFormat,
@@ -495,7 +522,7 @@ index 87fcb95..3a9153e 100644
      Size aRendered(aSize);
      aRendered.setWidth(rSize.Width());
      aRendered.setHeight(rSize.Height());
-@@ -4903,6 +4905,25 @@ void RtfAttributeOutput::FlyFrameOLE(const SwFlyFrameFormat* pFlyFrameFormat, Sw
+@@ -4903,6 +4906,34 @@ void RtfAttributeOutput::FlyFrameOLE(const SwFlyFrameFormat* pFlyFrameFormat, Sw
      if (FlyFrameOLEMath(pFlyFrameFormat, rOLENode, rSize))
          return;
  
@@ -505,6 +532,13 @@ index 87fcb95..3a9153e 100644
 +        = sw::hst::MathTypeOle1Data(rOLENode.GetOLEObj().GetOleRef(), aProgId);
 +    if (!aOle1.empty())
 +    {
++        // the run position the object had (MathType's baseline), as Word writes it
++        const sal_Int32 nPosition
++            = pFlyFrameFormat ? sw::hst::InlineRunPosition(*pFlyFrameFormat) : 0;
++        if (nPosition)
++            m_aRunText->append(OString(nPosition > 0 ? "{" OOO_STRING_SVTOOLS_RTF_UP
++                                                     : "{" OOO_STRING_SVTOOLS_RTF_DN)
++                               + OString::number(std::abs(nPosition)));
 +        m_aRunText->append(OString(
 +            "{" OOO_STRING_SVTOOLS_RTF_OBJECT OOO_STRING_SVTOOLS_RTF_OBJEMB OOO_STRING_SVTOOLS_RTF_OBJW
 +            + OString::number(rSize.Width()) + OOO_STRING_SVTOOLS_RTF_OBJH
@@ -515,6 +549,8 @@ index 87fcb95..3a9153e 100644
 +            + "}{" OOO_STRING_SVTOOLS_RTF_RESULT " "));
 +        FlyFrameOLEReplacement(pFlyFrameFormat, rOLENode, rSize, /*bShownSize=*/true);
 +        m_aRunText->append("}}"); // result, object
++        if (nPosition)
++            m_aRunText->append('}');
 +        return;
 +    }
 +
@@ -954,7 +990,7 @@ index 74f3c07..2f832dc 100644
                      // the object is in a table or another container.
                      // Use the \result (RTFKeyword::RESULT) element of the object instead,
 diff --git a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
-index 6ad758c..0b7cd2c 100644
+index 6ad758c..9ec237f 100644
 --- a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
 +++ b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
 @@ -56,6 +56,7 @@
@@ -982,12 +1018,16 @@ index 6ad758c..0b7cd2c 100644
                  break;
              }
  
-@@ -2995,23 +2999,14 @@ RTFError RTFDocumentImpl::beforePopState(RTFParserState& rState)
+@@ -2995,23 +2999,18 @@ RTFError RTFDocumentImpl::beforePopState(RTFParserState& rState)
              auto pOLEValue = new RTFValue(m_aOLEAttributes);
              aObjectSprms.set(NS_ooxml::LN_OLEObject_OLEObject, pOLEValue);
  
 -            RTFSprms aObjAttributes;
 -            RTFSprms aObjSprms;
++            // HST Office: the run position (\up, \dn) Word gives the object, sent with it
++            if (RTFValue::Pointer_t pPosition
++                = m_aStates.top().getCharacterSprms().find(NS_ooxml::LN_EG_RPrBase_position))
++                m_aObjectAttributes.set(NS_ooxml::LN_EG_RPrBase_position, pPosition);
              auto pValue = new RTFValue(m_aObjectAttributes, aObjectSprms);
 -            aObjSprms.set(NS_ooxml::LN_object, pValue);
 -            writerfilter::Reference<Properties>::Pointer_t pProperties
@@ -1013,12 +1053,24 @@ index 6ad758c..0b7cd2c 100644
              m_aObjectAttributes.clear();
              m_aOLEAttributes.clear();
              m_bObject = false;
-@@ -3929,6 +3924,30 @@ RTFError RTFDocumentImpl::popState()
+@@ -3929,6 +3928,44 @@ RTFError RTFDocumentImpl::popState()
      return RTFError::OK;
  }
  
 +void RTFDocumentImpl::sendObject(const RTFValue::Pointer_t& pObject)
 +{
++    // HST Office: a run around the object with its run position, which the domain mapper applies
++    // to the inline object as for a .docx run (the object's bottom on the baseline, then moved)
++    RTFValue::Pointer_t pPosition
++        = pObject->getAttributes().find(NS_ooxml::LN_EG_RPrBase_position);
++    if (pPosition)
++    {
++        pObject->getAttributes().erase(NS_ooxml::LN_EG_RPrBase_position);
++        RTFSprms aRunSprms;
++        aRunSprms.set(NS_ooxml::LN_EG_RPrBase_position, pPosition);
++        Mapper().startCharacterGroup();
++        Mapper().props(new RTFReferenceProperties(RTFSprms(), std::move(aRunSprms)));
++    }
 +    RTFSprms aObjAttributes;
 +    RTFSprms aObjSprms;
 +    aObjSprms.set(NS_ooxml::LN_object, pObject);
@@ -1033,6 +1085,8 @@ index 6ad758c..0b7cd2c 100644
 +        Mapper().props(pProperties);
 +        Mapper().endShape();
 +    }
++    if (pPosition)
++        Mapper().endCharacterGroup();
 +}
 +
 +bool RTFDocumentImpl::HstKeepsOleInTable()
@@ -1045,7 +1099,7 @@ index 6ad758c..0b7cd2c 100644
  {
      OUStringBuffer* pCurrentDestinationText = m_aStates.top().getCurrentDestinationText();
 diff --git a/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx b/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx
-index 0436f51..8929797 100644
+index 0436f51..ce826f8 100644
 --- a/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx
 +++ b/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx
 @@ -88,7 +88,9 @@ enum class RTFBufferTypes
@@ -1059,11 +1113,12 @@ index 0436f51..8929797 100644
  };
  
  /// Form field types
-@@ -819,6 +821,10 @@ private:
+@@ -819,6 +821,11 @@ private:
      void restoreTableRowProperties();
      /// Turns the destination text into an input stream of the current OLE attributes.
      RTFError handleEmbeddedObject();
-+    /// Sends an OLE object (its NS_ooxml::LN_object value) to the domain mapper.
++    /// Sends an OLE object (its NS_ooxml::LN_object value) to the domain mapper, in a run with
++    /// the object's run position if it has one.
 +    void sendObject(const RTFValue::Pointer_t& pObject);
 +    /// HST Office: the OLE object being read keeps its data in a table cell (an equation).
 +    bool HstKeepsOleInTable();

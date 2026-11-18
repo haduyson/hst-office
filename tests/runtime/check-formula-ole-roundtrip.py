@@ -110,7 +110,7 @@ def write_rtf(docx, path, in_table=False):
     result = b"{\\result {\\pict%s\\picwgoal600\\pichgoal300 %s}}" % (keyword, picture.hex().encode())
     body = b"{\\object\\objemb\\objw600\\objh300{\\*\\objclass %s}{\\*\\objdata %s}%s}" % (
         name, ole1.hex().encode(), result)
-    body = b"{\\f0\\fs24 A " + body + b" B}"
+    body = b"{\\f0\\fs24 A {\\dn6 " + body + b"} B}"  # MathType's baseline: Word lowers the run 3 pt
     if in_table:
         body = b"\\trowd\\cellx4000\\pard\\intbl " + body + b"\\cell\\row\\pard "
     with open(path, "wb") as stream:
@@ -118,15 +118,17 @@ def write_rtf(docx, path, in_table=False):
 
 
 def object_sizes(doc):
-    """(width, height) in 1/100 mm of the OLE objects of a Writer document that are not Math formulas (a formula, such
-    as a converted Equation 3.0, is sized by its own layout when it is opened)."""
+    """(width, height, top from the baseline) in 1/100 mm of the OLE objects of a Writer document that are not Math
+    formulas (a formula, such as a converted Equation 3.0, is sized by its own layout when it is opened)."""
     objects = [doc.getEmbeddedObjects().getByIndex(i) for i in range(doc.getEmbeddedObjects().getCount())]
-    return [(o.Size.Width, o.Size.Height) for o in objects if not o.CLSID.upper().startswith(MATH_CLSID)]
+    return [(o.Size.Width, o.Size.Height, o.VertOrientPosition if o.VertOrient == 0 else -o.Size.Height)
+            for o in objects if not o.CLSID.upper().startswith(MATH_CLSID)]
 
 
 def keeps_sizes(source, reopened):
-    """Each object of the reopened file has the size of an object of the source (twips rounding)."""
-    return all(any(abs(w - sw) <= 5 and abs(h - sh) <= 5 for sw, sh in source) for w, h in reopened)
+    """Each object of the reopened file has the size and the place from the baseline (MathType's baseline, Word's
+    run position) of an object of the source, to twips rounding."""
+    return all(any(max(abs(a - b) for a, b in zip(item, other)) <= 5 for other in source) for item in reopened)
 
 
 def main():
@@ -167,7 +169,7 @@ def main():
                     back = office.load(office.url(saved))
                     reopened = object_sizes(back)
                     back.close(True)
-                    record("%s -> .rtf reopens every object at its shown size" % os.path.basename(source),
+                    record("%s -> .rtf reopens every object at its size and baseline" % os.path.basename(source),
                            len(reopened) == len(sizes) and keeps_sizes(sizes, reopened),
                            {"objects": len(sizes), "reopened": len(reopened)})
             doc.close(True)
