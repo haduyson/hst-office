@@ -34,6 +34,8 @@ DEFAULT_CONFIG = {
     "integration_branch": "rc/1.0.2-batch5",
     "integrator_refs": ["rc/1.0.2-batch*"],
     "agent_max_priority": 50,
+    # An integrator submit without --priority: above every agent job, below the trains.
+    "integrator_priority": 60,
     # Build train (queue_train*.py): batch5 + ready branches merged into train/<prefix>NNN, one build per platform.
     "train_enabled": True,
     "train_prefix": "train/1.0.2-",

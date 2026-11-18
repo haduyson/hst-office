@@ -97,6 +97,19 @@ class SubmitRulesTest(QueueTestCase):
         flagged, _ = self.submit(ref="feat/y", priority=99, integrator=True)
         self.assertEqual(flagged["priority"], 99)
 
+    def test_an_integrator_submit_without_priority_goes_before_agents(self):
+        agent, _ = self.submit(ref="feat/x")
+        self.assertEqual(agent["priority"], 0)
+        self.shas["feat/y"] = "c" * 40
+        flagged, _ = self.submit(ref="feat/y", integrator=True)
+        self.assertEqual((flagged["priority"], flagged["integrator"]), (60, True))
+        self.assertGreater(flagged["priority"], self.store.config()["agent_max_priority"])
+        batch, _ = self.submit(ref="rc/1.0.2-batch5")
+        self.assertEqual(batch["priority"], 60)
+        self.shas["feat/z"] = "d" * 40
+        lowered, _ = self.submit(ref="feat/z", priority=-5, integrator=True)
+        self.assertEqual(lowered["priority"], -5)  # an explicit priority stays as given
+
     def test_newer_commit_cancels_the_queued_job_of_the_same_branch_platform_and_kind(self):
         first, _ = self.submit(ref="feat/x")
         win, _ = self.submit(ref="feat/x", platform="windows")

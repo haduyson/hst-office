@@ -12,17 +12,18 @@ from .queue_rules import (find_duplicate, is_integrator, job_key, job_kind, labe
 from .queue_store import PLATFORMS, QueueError, now_iso
 
 # ---------------------------------------------------------------- commands
-def submit(store, platform, ref, priority=0, package=True, modules=(), resolver=resolve_ref, submitter=None, tests=(),
+def submit(store, platform, ref, priority=None, package=True, modules=(), resolver=resolve_ref, submitter=None, tests=(),
            force=False, integrator=False, git=None, err=None, internal=False, train=None, confirm_for=None):
     """Queue a build; returns (job, deduplicated). Rules for agents (internal=False):
       - priority above agent_max_priority is capped unless the submit comes from the integrator;
+      - priority None (not given): integrator_priority for the integrator, 0 for everyone else;
       - a commit whose diff against the branch's last build (or, without one, its merge base with the integration
         branch) only touches tests/, docs/, plans/ or *.md is refused: that build is still valid (--force: integrator);
       - queued (not running) jobs of the same branch + platform + kind at an older commit are cancelled.
     internal=True: jobs the build train submits itself (no checks; never supersedes anything)."""
     if platform not in PLATFORMS:
         raise QueueError(f"--platform must be one of {', '.join(PLATFORMS)}")
-    if not -100 <= priority <= 100:
+    if priority is not None and not -100 <= priority <= 100:
         raise QueueError("--priority must be between -100 and 100")
     modules = list(modules)
     if platform == "windows" and not package and not modules:
@@ -37,6 +38,8 @@ def submit(store, platform, ref, priority=0, package=True, modules=(), resolver=
     if force and not integ:
         raise QueueError("--force is reserved for the integrator (rc/1.0.2-batch* refs or --integrator)")
     err = err or sys.stderr
+    if priority is None:
+        priority = cfg["integrator_priority"] if integ and not internal else 0
     if priority > cfg["agent_max_priority"] and not integ:
         print(f"priority {priority} capped at {cfg['agent_max_priority']} (higher is reserved for the integrator)",
               file=err)

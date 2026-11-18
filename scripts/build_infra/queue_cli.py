@@ -51,7 +51,8 @@ def main(argv=None):
     s = sub.add_parser("submit")
     s.add_argument("--platform", required=True, choices=PLATFORMS)
     s.add_argument("--ref", required=True)
-    s.add_argument("--priority", type=int, default=0)
+    s.add_argument("--priority", type=int, default=None,
+                   help="default 0; integrator submits default to integrator_priority (60)")
     s.add_argument("--no-package", action="store_true")
     s.add_argument("--modules", default="")
     s.add_argument("--test", default="", help="Linux: test targets to run after the build (space/comma separated)")
