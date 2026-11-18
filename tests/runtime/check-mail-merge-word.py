@@ -45,22 +45,24 @@ def connect(port, timeout=180):
             time.sleep(2)
 
 
-def columns(doc):
-    found = {}
-    enum = doc.TextFields.createEnumeration()
-    while enum.hasMoreElements():
-        field = enum.nextElement()
-        if field.supportsService("com.sun.star.text.TextField.Database"):
-            master = field.TextFieldMaster
-            found[master.DataColumnName] = master.DataBaseName
+def columns(doc, tries=20):
+    for _ in range(tries):  # {column: data source}; read again while the reconnect job replaces the fields
+        found, enum = {}, doc.TextFields.createEnumeration()
+        try:
+            while enum.hasMoreElements():
+                field = enum.nextElement()
+                if field.supportsService("com.sun.star.text.TextField.Database"):
+                    found[field.TextFieldMaster.DataColumnName] = field.TextFieldMaster.DataBaseName
+            return found
+        except Exception:  # noqa: BLE001 - UnknownPropertyException for a field being replaced
+            time.sleep(0.5)
     return found
 
 
 def pdf_text(path):
-    try:
+    if shutil.which("pdftotext"):
         return subprocess.run(["pdftotext", "-layout", path, "-"], capture_output=True, text=True, timeout=60).stdout
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+    return None
 
 
 def run_checks(ctx, out, expect, list_kind, keep):
@@ -68,9 +70,7 @@ def run_checks(ctx, out, expect, list_kind, keep):
     from com.sun.star.beans import PropertyValue
     from hst_office import mail_merge_output as output
     from hst_office import mail_merge_session as sessions
-
-    def prop(name, value):
-        return PropertyValue(Name=name, Value=value)
+    prop = lambda name, value: PropertyValue(Name=name, Value=value)  # noqa: E731
     desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
     letter_dir = os.path.join(out, "thu")
     source = "C:\\Users\\vanthu\\Documents\\Tron thu\\" + (samples.CSV if list_kind == "csv" else samples.XLSX)
