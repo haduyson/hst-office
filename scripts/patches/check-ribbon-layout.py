@@ -7,7 +7,7 @@ Usage: scripts/patches/check-ribbon-layout.py --tree DIR      (a tree with the w
 
 --tree checks the Tabbed notebookbar.ui of Writer, Sheets, Slides and Draw against data/ribbon/ribbon-v3.json
 (ribbon_v3_tree_check.py: every tab, group and command of the design in its order and kind, each group's
-"hst-ribbon-layout" valid, one command per cell, one caption, the 82 / 329 / 1,604 totals); the layout rules of the
+"hst-ribbon-layout" valid, one command per cell, one caption, the 82 / 329 / 1,607 totals); the layout rules of the
 running ribbon are checked on its dumps (tests/runtime/check-ribbon-v3-dumps.py). --shots measures every screenshot:
 a body of --body px (default 106), the groups' caption line at one height (+-1 px) in every shot, separators 1 px
 wide from 6 px under the body's top to 6 px over its bottom, the banner at least --min-banner px wide (default 340;
@@ -28,7 +28,9 @@ BAND = (62, 146)  # rows of the ribbon's group area in a screenshot of the windo
 SEPARATOR_INSET = 6  # px between a separator and the top or bottom of the body (mockup geometry_px)
 
 
-EXPECTED_TOTALS = [82, 329, 1604]  # tabs, groups, commands of the v3 design
+# tabs, groups, commands of the v3 design: 1,604 of 1.0.2 and the owner's "Công thức hoá học" (18/11/2026) in the
+# Phông chữ group of Writer, Slides and Draw
+EXPECTED_TOTALS = [82, 329, 1607]
 
 
 def check_tree(tree):

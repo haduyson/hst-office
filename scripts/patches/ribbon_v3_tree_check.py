@@ -10,7 +10,7 @@ breaks the design without a build error. Per app this checks:
 - each grid's layout is valid ("kinds=" one of L M S W G per command, "rows=" indexes within the kinds, "nofill");
 - its children: one command per grid cell in rows 0-2 (left-attach = its index), the commands in the data's order with
   the data's kinds, one caption at row 3, at most one separator;
-- the totals: tabs, groups, commands (82 / 329 / 1,604 for the 1.0.3 design).
+- the totals: tabs, groups, commands (82 / 329 / 1,607 for the 1.0.3 design with the owner's chemical formula button).
 
 check_tree() returns a list of (app, tab, group, message) problems.
 """

@@ -10,7 +10,7 @@
 #   TARBALL  libreoffice-26.8.3.1.tar.xz
 # Then the layout check of the four ribbons (check-ribbon-layout.py --tree: few-command groups large, no lone
 # small button, small items on the two rows) and the 24 px images of their large buttons (check-ribbon-large-icons.py
-# --tree: Paste alone keeps a larger one).
+# --tree: Paste alone keeps a larger one) and the command parity with 1.0.2 (check-ribbon-v3-parity.py).
 # Needs python3 with lxml. Exit status 1 when any module has a new fatal or a ribbon breaks a layout rule.
 set -uo pipefail
 TREE="$1"; TARBALL="$2"
@@ -48,4 +48,5 @@ for dir in "${!MODULES[@]}"; do
 done
 python3 "$(dirname "$0")/check-ribbon-layout.py" --tree "$TREE" || status=1
 python3 "$(dirname "$0")/check-ribbon-large-icons.py" --tree "$TREE" || status=1
+python3 "$(dirname "$0")/check-ribbon-v3-parity.py" --tree "$TREE" || status=1
 exit $status

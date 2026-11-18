@@ -85,11 +85,29 @@ def group_parts(grid):
     return captions, separators, units
 
 
+def new_unit(item, units):
+    """A command the 1.0.2 ribbon does not have ("new": an owner addition): a copy of the tool item of its neighbour
+    ("clone") with its own command and ids (bxV3<id> toolbox, btnHomeHst<k> button)."""
+    model = next((u for u in units if u.key == item["clone"] and u.toolbox is not None), None)
+    if model is None:
+        raise KeyError(f"no tool item {item['clone']} to copy for {item['k']}")
+    element = copy.deepcopy(model.element)
+    obj = element.find("object")
+    obj.set("id", "btnHomeHst" + item["k"].removeprefix("Hst"))
+    for prop in obj.findall("property"):
+        if prop.get("name") == "action-name":
+            prop.text = ".uno:" + item["k"]
+    return Unit(item["k"], element, toolbox=model.toolbox, child=ET.Element("child"))
+
+
 def match_units(group, units):
     """The unit of every item of the v3 group, in the group's order; raises when one is missing or left over."""
     left = list(units)
     out = []
     for item in group["items"]:
+        if item.get("new"):
+            out.append(new_unit(item, units))
+            continue
         found = next((u for u in left if u.key == item["k"]), None)
         if found is None:
             raise KeyError(f"{group['id']}: no .ui command for {item['k']}")
