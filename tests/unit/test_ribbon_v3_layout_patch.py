@@ -77,6 +77,44 @@ class BannerTest(unittest.TestCase):
         self.assertIn("bool BannerFillsWidth() const override { return true; }", added(PATCH, "vcl/source/control/HstBanner.cxx"))
 
 
+class UpdateDotTest(unittest.TestCase):
+    def test_status_listener_on_the_frame_sets_the_dot(self):
+        listener = added(PATCH, "sfx2/source/notebookbar/HstUpdateDot.cxx")
+        self.assertIn("mxDispatch = xFrame->queryDispatch(maURL, OUString(), 0);", listener)
+        self.assertIn("mxDispatch->addStatusListener(this, maURL);", listener)
+        self.assertIn("show(rEvent.IsEnabled);", listener)
+        self.assertIn('u"org.hst.office.update:Available"_ustr',
+                      added(PATCH, "sfx2/inc/notebookbar/HstUpdateDot.hxx"))
+        box = added(PATCH, "sfx2/source/notebookbar/NotebookbarTabControl.cxx")
+        self.assertIn("[this](bool bShow) { hst::ribbon::SetUpdateDot(*this, bShow); });", box)
+        self.assertIn("m_xHstUpdateDot->Stop();", box)
+        self.assertIn("CppunitTest_sfx2_hst_update_dot", added(PATCH, "sfx2/Module_sfx2.mk"))
+        self.assertIn("testNoHandlerNoDot", added(PATCH, "sfx2/qa/cppunit/test_hstupdatedot.cxx"))
+
+    def test_dot_is_painted_in_the_file_button_without_resizing_tabs(self):
+        tabs = added(PATCH, "vcl/source/control/tabctrl.cxx")
+        self.assertIn("hst::ribbon::DrawUpdateDot(rRenderContext, pItem->maRect);", tabs)
+        for sizing in ("ImplPlaceTabs", "FileTabExtraWidth", "maRect.Set", "SetSizePixel"):  # tabs keep their sizes
+            self.assertNotIn(sizing, tabs)
+        self.assertIn("const tools::Rectangle aFill = FileTabFill(rDev, rItem);",
+                      added(PATCH, "vcl/source/control/HstRibbonUpdateDot.cxx"))
+
+    def test_new_files_are_hst_owned(self):
+        for path in ("include/vcl/HstRibbonUpdateDot.hxx", "vcl/source/control/HstRibbonUpdateDot.cxx",
+                     "sfx2/inc/notebookbar/HstUpdateDot.hxx", "sfx2/source/notebookbar/HstUpdateDot.cxx",
+                     "sfx2/qa/cppunit/test_hstupdatedot.cxx", "sfx2/CppunitTest_sfx2_hst_update_dot.mk"):
+            self.assertIn("SPDX-License-Identifier: LicenseRef-HST-Proprietary", added(PATCH, path), path)
+
+
+class BannerSizeTest(unittest.TestCase):
+    def test_banner_asks_for_its_width_and_again_at_another_standard_size(self):
+        core = added(PATCH, "vcl/source/control/HstBannerCore.cxx")
+        self.assertIn('{ u"Width"_ustr, uno::Any(nWidth) } })', core)
+        self.assertIn('rData.nStandardWidth = rItem.get<sal_Int32>("standard_width", 0);', core)
+        self.assertIn("(mnSourceWidth > 0 && StandardWidth(LogicalWidth()) != mnSourceWidth)", core)
+        self.assertIn("for (const sal_Int32 nWidth : { 640, 960 })", core)
+
+
 class DetailsTest(unittest.TestCase):
     def test_keytip_hint_only(self):
         self.assertIn("aText += \"\\n\" + SfxResId(STR_HST_TIP_SEARCH_HINT);",

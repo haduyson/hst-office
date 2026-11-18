@@ -49,6 +49,55 @@ License: these upstream files remain under their original license (MPL-2.0).
      void HstApplyColumns();
  
  public:
+--- a/include/vcl/HstRibbonPaint.hxx
++++ b/include/vcl/HstRibbonPaint.hxx
+@@ -97,6 +97,9 @@ SAL_DLLPRIVATE tools::Long FileTabExtraW
+ /** Logical px height of the File button (the approved mockup's .hw-file), centred in the tab row. */
+ inline constexpr tools::Long FILE_BUTTON_HEIGHT = 24;
+ 
++/** The filled shape of the File button drawn in rItem (DrawFileTab; the update dot stands in it). */
++SAL_DLLPRIVATE tools::Rectangle FileTabFill(const OutputDevice& rDev, const tools::Rectangle& rItem);
++
+ /** The filled, rounded File button inside rItem: FILE_BUTTON_HEIGHT high, centred in rItem vertically, 2 px in
+     from its left and right;
+     in high contrast with an outline in the text colour while hovered or pressed. Returns the
+--- /dev/null
++++ b/include/vcl/HstRibbonUpdateDot.hxx
+@@ -0,0 +1,34 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++// HST Office: the update dot of the ribbon's File button ("Tệp tin"). sfx2 listens to the update status of the
++// document's frame (org.hst.office.update:Available, sfx2/inc/notebookbar/HstUpdateDot.hxx) and sets the dot of
++// its tab control; the tab control paints it inside the File button, over its top right corner. The tabs keep
++// their sizes: the dot takes no room.
++
++#include <tools/gen.hxx>
++#include <vcl/dllapi.h>
++#include <vcl/outdev.hxx>
++
++namespace vcl
++{
++class Window;
++}
++
++namespace hst::ribbon
++{
++/** Show (an update is known) or hide the dot of rTabControl's File button; repaints the tabs when it changes. */
++VCL_DLLPUBLIC void SetUpdateDot(vcl::Window& rTabControl, bool bShow);
++
++/** rTabControl's File button shows the dot. */
++VCL_DLLPUBLIC bool HasUpdateDot(const vcl::Window& rTabControl);
++
++/** Paint the dot in the File button drawn in rItem (the tab's rectangle, as DrawFileTab got it). */
++SAL_DLLPRIVATE void DrawUpdateDot(vcl::RenderContext& rDev, const tools::Rectangle& rItem);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/include/vcl/HstRibbonWidth.hxx
 +++ b/include/vcl/HstRibbonWidth.hxx
 @@ -9,6 +9,7 @@
@@ -95,9 +144,136 @@ License: these upstream files remain under their original license (MPL-2.0).
      /// HST Office: the toolbox is a ribbon group's dialog launcher (↘) on the caption line: its buttons are as
      /// high as the caption band, the icon centred (HstRibbonLadder.cxx)
      void                HstSetLauncher( bool bLauncher );
+--- /dev/null
++++ b/sfx2/CppunitTest_sfx2_hst_update_dot.mk
+@@ -0,0 +1,39 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,sfx2_hst_update_dot))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sfx2_hst_update_dot, \
++    sfx2/qa/cppunit/test_hstupdatedot \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sfx2_hst_update_dot,\
++    -I$(SRCDIR)/sfx2/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sfx2_hst_update_dot))
++
++$(eval $(call gb_CppunitTest_use_libraries,sfx2_hst_update_dot, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    sal \
++    sfx \
++    test \
++    unotest \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,sfx2_hst_update_dot, \
++    boost_headers \
++))
++
++$(eval $(call gb_CppunitTest_use_ure,sfx2_hst_update_dot))
++$(eval $(call gb_CppunitTest_use_vcl,sfx2_hst_update_dot))
++$(eval $(call gb_CppunitTest_use_rdb,sfx2_hst_update_dot,services))
++$(eval $(call gb_CppunitTest_use_configuration,sfx2_hst_update_dot))
++
++# vim: set noet sw=4 ts=4:
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -266,6 +266,7 @@ $(eval $(call gb_Library_add_exception_o
+     sfx2/source/notebookbar/HstRibbonCompactWidgets \
+     sfx2/source/notebookbar/HstQuickAccess \
+     sfx2/source/notebookbar/HstQuickAccessStore \
++    sfx2/source/notebookbar/HstUpdateDot \
+     sfx2/source/notebookbar/NotebookbarTabControl \
+     sfx2/source/notebookbar/HstRibbonKeyTips \
+     sfx2/source/notebookbar/HstChartCommands \
+--- /dev/null
++++ b/sfx2/inc/notebookbar/HstUpdateDot.hxx
+@@ -0,0 +1,56 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++// HST Office: the update dot of the ribbon's File button. The HST extension's status command
++// org.hst.office.update:Available is enabled while a newer release is known; UpdateDot listens to it on the
++// document's frame and tells its owner (the ribbon's tab control, vcl/HstRibbonUpdateDot.hxx) to show or hide
++// the dot. Without the command (no handler, an older extension) or after any failure there is no dot.
++
++#include <sfx2/dllapi.h>
++#include <com/sun/star/frame/XDispatch.hpp>
++#include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <com/sun/star/frame/XStatusListener.hpp>
++#include <com/sun/star/util/URL.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <rtl/ustring.hxx>
++
++#include <functional>
++
++namespace hst::notebookbar
++{
++inline constexpr OUString UPDATE_AVAILABLE_URL = u"org.hst.office.update:Available"_ustr;
++
++class SFX2_DLLPUBLIC UpdateDot final : public cppu::WeakImplHelper<css::frame::XStatusListener>
++{
++public:
++    /** aShow(true) shows the dot, aShow(false) hides it; called on the main thread with the SolarMutex held. */
++    explicit UpdateDot(std::function<void(bool)> aShow);
++
++    /** Listen to the update status of the dispatch xFrame (the document's frame) provides for the command (the same
++        frame again: nothing changes). No dispatch for the command: no dot. */
++    void SetFrame(const css::uno::Reference<css::frame::XDispatchProvider>& xFrame);
++
++    /** Stop listening and forget the owner: no call of aShow after this. */
++    void Stop();
++
++    // XStatusListener
++    virtual void SAL_CALL statusChanged(const css::frame::FeatureStateEvent& rEvent) override;
++    // XEventListener
++    virtual void SAL_CALL disposing(const css::lang::EventObject& rEvent) override;
++
++private:
++    void show(bool bShow);
++    void release();
++
++    std::function<void(bool)> maShow;
++    css::uno::Reference<css::frame::XDispatchProvider> mxFrame;
++    css::uno::Reference<css::frame::XDispatch> mxDispatch;
++    css::util::URL maURL;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
 +++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
-@@ -42,6 +42,8 @@ public:
+@@ -12,6 +12,7 @@
+ #include <chrono>
+ #include <map>
+ #include <memory>
++#include <rtl/ref.hxx>
+ #include <vcl/tabctrl.hxx>
+ 
+ #include <com/sun/star/frame/XFrame.hpp>
+@@ -22,6 +23,7 @@ class HstRibbonBanner;
+ class HstRibbonCompact;
+ class HstQuickAccess;
+ class HstTabSearchBox;
++namespace hst::notebookbar { class UpdateDot; }
+ class VclWindowEvent;
+ struct ImplSVEvent;
+ 
+@@ -42,6 +44,8 @@ public:
      virtual void dispose() override;
      virtual void MouseButtonDown( const MouseEvent& rMEvt ) override;
      virtual bool PreNotify( NotifyEvent& rNEvt ) override;
@@ -106,6 +282,187 @@ License: these upstream files remain under their original license (MPL-2.0).
  
  private:
      // HST Office: HASON TECH solution banner beside the groups (Writer, Calc, Impress, Draw Tabbed UI)
+@@ -67,6 +71,8 @@ private:
+     std::unique_ptr<HstRibbonCompact> m_pHstCompact;
+     // HST Office (1.0.2 ribbon): the quick access toolbar (the shortcuts toolbox); see HstQuickAccess.hxx
+     std::unique_ptr<HstQuickAccess> m_pHstQat;
++    // HST Office (1.0.3): the update dot of the File button (HstUpdateDot.hxx)
++    rtl::Reference<hst::notebookbar::UpdateDot> m_xHstUpdateDot;
+     DECL_LINK(HstQatPlacementHdl, LinkParamNone*, void);
+     tools::Long HstQatRow() const;
+     void HstResizeBar();
+--- /dev/null
++++ b/sfx2/qa/cppunit/test_hstupdatedot.cxx
+@@ -0,0 +1,169 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++// The update dot of the ribbon's File button follows the status of org.hst.office.update:Available, with fakes
++// for the frame (a dispatch provider) and the extension's handler (a dispatch that reports a status).
++
++#include <test/bootstrapfixture.hxx>
++
++#include <notebookbar/HstUpdateDot.hxx>
++
++#include <com/sun/star/frame/FeatureStateEvent.hpp>
++#include <com/sun/star/frame/XDispatch.hpp>
++#include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <rtl/ref.hxx>
++
++#include <algorithm>
++#include <vector>
++
++using namespace css;
++
++namespace
++{
++/// the extension's handler: answers addStatusListener with its status, as the real one does
++class FakeDispatch final : public cppu::WeakImplHelper<frame::XDispatch>
++{
++public:
++    explicit FakeDispatch(bool bAvailable)
++        : mbAvailable(bAvailable)
++    {
++    }
++    void report(bool bAvailable)
++    {
++        mbAvailable = bAvailable;
++        const auto aListeners = maListeners;
++        for (const auto& xListener : aListeners)
++            xListener->statusChanged(event());
++    }
++    std::size_t listeners() const { return maListeners.size(); }
++    OUString maAsked;
++
++    void SAL_CALL dispatch(const util::URL&, const uno::Sequence<beans::PropertyValue>&) override {}
++    void SAL_CALL addStatusListener(const uno::Reference<frame::XStatusListener>& xListener,
++                                    const util::URL& rURL) override
++    {
++        maAsked = rURL.Complete;
++        maListeners.push_back(xListener);
++        xListener->statusChanged(event());
++    }
++    void SAL_CALL removeStatusListener(const uno::Reference<frame::XStatusListener>& xListener,
++                                       const util::URL&) override
++    {
++        maListeners.erase(std::remove(maListeners.begin(), maListeners.end(), xListener), maListeners.end());
++    }
++
++private:
++    frame::FeatureStateEvent event() const
++    {
++        frame::FeatureStateEvent aEvent;
++        aEvent.FeatureURL.Complete = hst::notebookbar::UPDATE_AVAILABLE_URL;
++        aEvent.IsEnabled = mbAvailable;
++        return aEvent;
++    }
++    bool mbAvailable;
++    std::vector<uno::Reference<frame::XStatusListener>> maListeners;
++};
++
++/// the document's frame: provides the handler's dispatch for the command, or none (no handler)
++class FakeFrame final : public cppu::WeakImplHelper<frame::XDispatchProvider>
++{
++public:
++    explicit FakeFrame(rtl::Reference<FakeDispatch> xDispatch)
++        : mxDispatch(std::move(xDispatch))
++    {
++    }
++    uno::Reference<frame::XDispatch> SAL_CALL queryDispatch(const util::URL& rURL, const OUString&,
++                                                            sal_Int32) override
++    {
++        if (rURL.Complete != hst::notebookbar::UPDATE_AVAILABLE_URL)
++            return {};
++        return mxDispatch;
++    }
++    uno::Sequence<uno::Reference<frame::XDispatch>>
++        SAL_CALL queryDispatches(const uno::Sequence<frame::DispatchDescriptor>&) override
++    {
++        return {};
++    }
++
++private:
++    rtl::Reference<FakeDispatch> mxDispatch;
++};
++
++class HstUpdateDotTest : public test::BootstrapFixture
++{
++protected:
++    std::vector<bool> maShown;
++    rtl::Reference<hst::notebookbar::UpdateDot> dot()
++    {
++        return new hst::notebookbar::UpdateDot([this](bool bShow) { maShown.push_back(bShow); });
++    }
++};
++
++CPPUNIT_TEST_FIXTURE(HstUpdateDotTest, testShowsWhileAnUpdateIsKnown)
++{
++    rtl::Reference<FakeDispatch> xHandler(new FakeDispatch(true));
++    rtl::Reference<hst::notebookbar::UpdateDot> xDot = dot();
++    xDot->SetFrame(new FakeFrame(xHandler));
++    CPPUNIT_ASSERT_EQUAL(hst::notebookbar::UPDATE_AVAILABLE_URL, xHandler->maAsked);
++    CPPUNIT_ASSERT_EQUAL(std::size_t(1), maShown.size());
++    CPPUNIT_ASSERT(maShown[0]);
++    xHandler->report(false); // a later check finds no newer release
++    xHandler->report(true);
++    CPPUNIT_ASSERT_EQUAL(std::size_t(3), maShown.size());
++    CPPUNIT_ASSERT(!maShown[1]);
++    CPPUNIT_ASSERT(maShown[2]);
++    xDot->Stop();
++    CPPUNIT_ASSERT_EQUAL(std::size_t(0), xHandler->listeners());
++    xHandler->report(false); // nothing reaches a stopped dot
++    CPPUNIT_ASSERT_EQUAL(std::size_t(3), maShown.size());
++}
++
++CPPUNIT_TEST_FIXTURE(HstUpdateDotTest, testNoHandlerNoDot)
++{
++    rtl::Reference<hst::notebookbar::UpdateDot> xDot = dot();
++    xDot->SetFrame(new FakeFrame(nullptr));
++    CPPUNIT_ASSERT_EQUAL(std::size_t(1), maShown.size());
++    CPPUNIT_ASSERT(!maShown[0]);
++    xDot->SetFrame(nullptr);
++    CPPUNIT_ASSERT_EQUAL(std::size_t(2), maShown.size());
++    CPPUNIT_ASSERT(!maShown[1]);
++    xDot->Stop();
++}
++
++CPPUNIT_TEST_FIXTURE(HstUpdateDotTest, testNewFrameLeavesTheOldHandler)
++{
++    rtl::Reference<FakeDispatch> xOld(new FakeDispatch(true));
++    rtl::Reference<FakeDispatch> xNew(new FakeDispatch(false));
++    rtl::Reference<hst::notebookbar::UpdateDot> xDot = dot();
++    uno::Reference<frame::XDispatchProvider> xFrame(new FakeFrame(xOld));
++    xDot->SetFrame(xFrame);
++    xDot->SetFrame(xFrame); // the same frame again: no second listener
++    CPPUNIT_ASSERT_EQUAL(std::size_t(1), xOld->listeners());
++    xDot->SetFrame(new FakeFrame(xNew));
++    CPPUNIT_ASSERT_EQUAL(std::size_t(0), xOld->listeners());
++    CPPUNIT_ASSERT_EQUAL(std::size_t(1), xNew->listeners());
++    CPPUNIT_ASSERT_EQUAL(std::size_t(2), maShown.size());
++    CPPUNIT_ASSERT(maShown[0]);
++    CPPUNIT_ASSERT(!maShown[1]);
++    xDot->Stop();
++}
++
++CPPUNIT_TEST_FIXTURE(HstUpdateDotTest, testHandlerGoneHidesTheDot)
++{
++    rtl::Reference<FakeDispatch> xHandler(new FakeDispatch(true));
++    rtl::Reference<hst::notebookbar::UpdateDot> xDot = dot();
++    xDot->SetFrame(new FakeFrame(xHandler));
++    const lang::EventObject aEvent(static_cast<cppu::OWeakObject*>(xHandler.get()));
++    xDot->disposing(aEvent);
++    CPPUNIT_ASSERT_EQUAL(std::size_t(2), maShown.size());
++    CPPUNIT_ASSERT(!maShown[1]);
++    xDot->Stop();
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sfx2/source/notebookbar/HstRibbonTooltip.cxx
 +++ b/sfx2/source/notebookbar/HstRibbonTooltip.cxx
 @@ -9,6 +9,7 @@
@@ -125,9 +482,109 @@ License: these upstream files remain under their original license (MPL-2.0).
      const tools::Rectangle aScreenRect(rToolBox.OutputToScreenPixel(aItemRect.TopLeft()),
                                         rToolBox.OutputToScreenPixel(aItemRect.BottomRight()));
      Help::ShowQuickHelp(&rToolBox, aScreenRect, aText, QuickHelpFlags::RichTitle);
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstUpdateDot.cxx
+@@ -0,0 +1,97 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include <notebookbar/HstUpdateDot.hxx>
++
++#include <com/sun/star/util/URLTransformer.hpp>
++#include <comphelper/processfactory.hxx>
++#include <vcl/svapp.hxx>
++
++using namespace css;
++
++namespace hst::notebookbar
++{
++UpdateDot::UpdateDot(std::function<void(bool)> aShow)
++    : maShow(std::move(aShow))
++{
++    maURL.Complete = UPDATE_AVAILABLE_URL;
++}
++
++void UpdateDot::SetFrame(const uno::Reference<frame::XDispatchProvider>& xFrame)
++{
++    if (xFrame == mxFrame)
++        return;
++    release();
++    mxFrame = xFrame;
++    bool bListening = false;
++    try
++    {
++        uno::Reference<util::XURLTransformer> xTransformer
++            = util::URLTransformer::create(comphelper::getProcessComponentContext());
++        xTransformer->parseStrict(maURL);
++        if (xFrame.is())
++            mxDispatch = xFrame->queryDispatch(maURL, OUString(), 0);
++        if (mxDispatch.is())
++        {
++            // the handler answers at once with the current status, then whenever a check finds an update or none
++            mxDispatch->addStatusListener(this, maURL);
++            bListening = true;
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        mxDispatch.clear(); // no handler or a failing one: no dot
++    }
++    if (!bListening)
++        show(false);
++}
++
++void UpdateDot::Stop()
++{
++    maShow = nullptr;
++    release();
++    mxFrame.clear();
++}
++
++void UpdateDot::release()
++{
++    uno::Reference<frame::XDispatch> xDispatch;
++    std::swap(xDispatch, mxDispatch);
++    if (!xDispatch.is())
++        return;
++    try
++    {
++        xDispatch->removeStatusListener(this, maURL);
++    }
++    catch (const uno::Exception&)
++    {
++        // the handler is gone already
++    }
++}
++
++void UpdateDot::show(bool bShow)
++{
++    // the handler may call from its own thread
++    SolarMutexGuard aGuard;
++    if (maShow)
++        maShow(bShow);
++}
++
++void SAL_CALL UpdateDot::statusChanged(const frame::FeatureStateEvent& rEvent)
++{
++    show(rEvent.IsEnabled);
++}
++
++void SAL_CALL UpdateDot::disposing(const lang::EventObject& rEvent)
++{
++    if (rEvent.Source == mxDispatch)
++    {
++        mxDispatch.clear();
++        show(false);
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
 +++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
-@@ -37,6 +37,7 @@
+@@ -37,12 +37,15 @@
  #include <vcl/HstBanner.hxx>
  #include <vcl/HstBannerGeometry.hxx>
  #include <vcl/HstRibbonPaint.hxx>
@@ -135,7 +592,27 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <vcl/lineinfo.hxx>
  #include <sfx2/sfxresid.hxx>
  #include <sfx2/strings.hrc>
-@@ -510,6 +511,22 @@ void NotebookbarTabControl::dispose()
+ #include <vcl/settings.hxx>
+ #if __has_include(<notebookbar/HstFeatureSearch.hxx>)
+ #include <notebookbar/HstFeatureSearch.hxx>
++#include <notebookbar/HstUpdateDot.hxx>
++#include <vcl/HstRibbonUpdateDot.hxx>
+ #define HST_HAVE_FEATURE_SEARCH 1
+ #endif
+ #include <algorithm>
+@@ -499,6 +502,11 @@ void NotebookbarTabControl::dispose()
+         m_pHstCompact.reset();
+     }
+     m_pHstQat.reset();
++    if (m_xHstUpdateDot.is())
++    {
++        m_xHstUpdateDot->Stop();
++        m_xHstUpdateDot.clear();
++    }
+     if (m_pHstBanner)
+     {
+         RemoveChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
+@@ -510,6 +518,22 @@ void NotebookbarTabControl::dispose()
  
  // HST Office: the Tabbed notebookbar (notebookbar.ui) of Writer, Calc, Impress and Draw shows the banner
  // beside its groups; with the other notebookbars the window's border shows it beside the bar.
@@ -158,7 +635,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  void NotebookbarTabControl::HstCreateBanner()
  {
      if (m_pHstBanner)
-@@ -529,6 +546,7 @@ void NotebookbarTabControl::HstCreateBan
+@@ -529,6 +553,7 @@ void NotebookbarTabControl::HstCreateBan
              pBar->HstSetOwnBanner(true); // the window shows no second banner beside the bar
              hst::keytips::Attach(*this, *pBar, GetToolBox(), m_pHstBanner.get());
              AddChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
@@ -166,7 +643,7 @@ License: these upstream files remain under their original license (MPL-2.0).
              const OUString aApp = rFile.indexOf("/swriter/") >= 0  ? u"writer"_ustr
                                    : rFile.indexOf("/scalc/") >= 0  ? u"calc"_ustr
                                    : rFile.indexOf("/simpress/") >= 0 ? u"impress"_ustr
-@@ -603,13 +621,25 @@ void NotebookbarTabControl::HstLayoutBan
+@@ -603,13 +628,25 @@ void NotebookbarTabControl::HstLayoutBan
              // the document window's (its frame), not the SystemWindow's client, which is narrower than the window
              // (a 1920 px window got a 357 px banner); 1.0.2 mockup: 8 px from the window's right edge, w x w*104/360
              // centred in the 106 px body (360 x 104 at 1920, 260 x 75 up to 1440)
@@ -199,6 +676,17 @@ License: these upstream files remain under their original license (MPL-2.0).
          }
          else
              m_pHstBanner->Place(tools::Rectangle());
+@@ -977,6 +1014,10 @@ void NotebookbarTabControl::StateChanged
+         FillShortcutsToolBox( xContext, m_xFrame, aModuleName, pToolBox );
+         if (m_pHstQat)
+             m_pHstQat->SetFrame(m_xFrame);
++        if (!m_xHstUpdateDot.is())
++            m_xHstUpdateDot = new hst::notebookbar::UpdateDot(
++                [this](bool bShow) { hst::ribbon::SetUpdateDot(*this, bShow); });
++        m_xHstUpdateDot->SetFrame(Reference<XDispatchProvider>(m_xFrame, UNO_QUERY));
+ 
+         Size aSize( pToolBox->GetOptimalSize() );
+         Point aPos( ICON_SIZE + 10, 0 );
 --- a/svx/qa/unit/HstThemeGalleryColumnsTest.cxx
 +++ b/svx/qa/unit/HstThemeGalleryColumnsTest.cxx
 @@ -15,7 +15,7 @@ class HstThemeGalleryColumnsTest : publi
@@ -548,10 +1036,11 @@ License: these upstream files remain under their original license (MPL-2.0).
  msgctxt "STR_HST_SET_DEFAULT"
 --- a/vcl/Library_vcl.mk
 +++ b/vcl/Library_vcl.mk
-@@ -264,6 +264,8 @@ $(eval $(call gb_Library_add_exception_o
+@@ -264,6 +264,9 @@ $(eval $(call gb_Library_add_exception_o
      vcl/source/control/HstRibbonDrop \
      vcl/source/control/HstRibbonLadder \
      vcl/source/control/HstRibbonPaint \
++    vcl/source/control/HstRibbonUpdateDot \
 +    vcl/source/control/HstRibbonV3Layout \
 +    vcl/source/control/HstRibbonV3MergedBox \
      vcl/source/control/NotebookbarPopup \
@@ -1106,7 +1595,131 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <tools/stream.hxx>
  #include <vcl/graph.hxx>
  #include <vcl/graphicfilter.hxx>
-@@ -622,9 +623,37 @@ void Core::DrawArt(vcl::RenderContext& r
+@@ -70,6 +71,7 @@ struct Data
+     sal_Int32 nRotateSeconds = 10;
+     sal_Int32 nSlot = 0;
+     int nScale = 1;
++    sal_Int32 nStandardWidth = 0; // the standard size of the artwork (360, 640, 960); 0: the legacy art
+     bool bOk = false;
+     bool bLast = true; // the worker posts nothing after this result
+ };
+@@ -116,6 +118,7 @@ bool parseService(const OUString& rJson,
+     rData.aName = fromUtf8(rItem.get<std::string>("name"));
+     rData.aTagline = fromUtf8(rItem.get<std::string>("tagline"));
+     rData.aUrl = fromUtf8(rItem.get<std::string>("click_url_with_utm"));
++    rData.nStandardWidth = rItem.get<sal_Int32>("standard_width", 0);
+     uno::Sequence<sal_Int8> aBytes;
+     comphelper::Base64::decode(aBytes, fromUtf8(rItem.get<std::string>("image_base64")));
+     if (aBytes.getLength() == 0 || aBytes.getLength() > MAX_IMAGE_BYTES)
+@@ -132,7 +135,7 @@ uno::Reference<task::XJob> feed()
+         uno::UNO_QUERY);
+ }
+ 
+-bool fromService(sal_Int32 nSlot, int nScale, Data& rData)
++bool fromService(sal_Int32 nSlot, int nScale, sal_Int32 nWidth, Data& rData)
+ {
+     try
+     {
+@@ -140,8 +143,10 @@ bool fromService(sal_Int32 nSlot, int nS
+         if (!xFeed.is())
+             return false;
+         OUString aJson;
++        // Width: the banner's logical width, which picks the standard size of an item that has them
+         if (!(xFeed->execute({ { u"Scale"_ustr, uno::Any(static_cast<double>(nScale)) },
+-                               { u"Slot"_ustr, uno::Any(nSlot) } })
++                               { u"Slot"_ustr, uno::Any(nSlot) },
++                               { u"Width"_ustr, uno::Any(nWidth) } })
+               >>= aJson)
+             || aJson.isEmpty())
+             return false;
+@@ -215,11 +220,12 @@ bool fromBundled(sal_Int32 nSlot, int nS
+ class FetchThread final : public salhelper::Thread
+ {
+ public:
+-    FetchThread(Core* pCore, sal_Int32 nSlot, int nScale, bool bBundledFirst)
++    FetchThread(Core* pCore, sal_Int32 nSlot, int nScale, sal_Int32 nWidth, bool bBundledFirst)
+         : salhelper::Thread("HstBanner")
+         , mxCore(pCore)
+         , mnSlot(nSlot)
+         , mnScale(nScale)
++        , mnWidth(nWidth)
+         , mbBundledFirst(bBundledFirst)
+     {
+     }
+@@ -239,7 +245,7 @@ private:
+         }
+         auto pData = std::make_unique<Data>();
+         pData->nScale = mnScale;
+-        pData->bOk = fromService(mnSlot, mnScale, *pData);
++        pData->bOk = fromService(mnSlot, mnScale, mnWidth, *pData);
+         if (!pData->bOk && !mbBundledFirst)
+         {
+             // service unavailable: the installed defaults decide
+@@ -262,6 +268,7 @@ private:
+     rtl::Reference<Core> mxCore;
+     sal_Int32 mnSlot;
+     int mnScale;
++    sal_Int32 mnWidth;
+     bool mbBundledFirst;
+ };
+ 
+@@ -411,6 +418,23 @@ int Core::ScaleForSize() const
+     return sourceScale(std::lround(aImage.h * mpView->BannerSurfaceScale()));
+ }
+ 
++sal_Int32 Core::LogicalWidth() const
++{
++    const double fDpi = mpView->BannerDpi();
++    const tools::Long nWidth = mpView->BannerSize().Width();
++    return static_cast<sal_Int32>(fDpi > 0 ? std::lround(nWidth / fDpi) : nWidth);
++}
++
++sal_Int32 Core::StandardWidth(sal_Int32 nLogical)
++{
++    // banner_sizes.fit_width: the largest standard width that fits, at least the narrowest
++    sal_Int32 nFit = 360;
++    for (const sal_Int32 nWidth : { 640, 960 })
++        if (nWidth <= nLogical)
++            nFit = nWidth;
++    return nFit;
++}
++
+ void Core::Request(sal_Int32 nSlot)
+ {
+     if (mbRequested || !mpView)
+@@ -418,7 +442,7 @@ void Core::Request(sal_Int32 nSlot)
+     mbRequested = true; // the previous worker has posted its last result
+     try
+     {
+-        mxThread = new FetchThread(this, nSlot, ScaleForSize(), maId.isEmpty());
++        mxThread = new FetchThread(this, nSlot, ScaleForSize(), LogicalWidth(), maId.isEmpty());
+         mxThread->launch();
+     }
+     catch (const std::exception&)
+@@ -483,6 +507,7 @@ IMPL_LINK(Core, DeliverHdl, void*, p, vo
+     maImage = aBitmap;
+     maImageScaled = Bitmap();
+     mnSourceScale = pData->nScale;
++    mnSourceWidth = pData->nStandardWidth;
+     maId = pData->aId;
+     maUrl = pData->aUrl;
+     if (maId != maShownId)
+@@ -591,8 +616,12 @@ void Core::Shown(bool bResized)
+         mbShownInView = false; // the full second starts at the next check
+         maShownTimer.Start();
+     }
+-    if (maId.isEmpty() || (bResized && ScaleForSize() != mnSourceScale))
+-        Request(mnSlot); // first content, or the same slot again for the new scale
++    // first content, or the same slot again for the new scale or another standard size
++    if (maId.isEmpty()
++        || (bResized
++            && (ScaleForSize() != mnSourceScale
++                || (mnSourceWidth > 0 && StandardWidth(LogicalWidth()) != mnSourceWidth))))
++        Request(mnSlot);
+     else if (!maRotateTimer.IsActive() && !mbRequested)
+         maRotateTimer.Start();
+ }
+@@ -622,9 +651,37 @@ void Core::DrawArt(vcl::RenderContext& r
      // the image's own pixel size never changes the slot: aspect-fit, centred
      const Rect aBox{ nInset, nInset, static_cast<long>(aOut.Width()) - 2 * nInset,
                       static_cast<long>(aOut.Height()) - 2 * nInset };
@@ -1158,6 +1771,25 @@ License: these upstream files remain under their original license (MPL-2.0).
  };
  
  class Core final : public salhelper::SimpleReferenceObject
+@@ -93,6 +97,10 @@ public:
+ private:
+     void Request(sal_Int32 nSlot);
+     int ScaleForSize() const;
++    /** The slot's width in logical px: picks the standard size of an artwork (banner_sizes.py). */
++    sal_Int32 LogicalWidth() const;
++    /** The standard width (360, 640, 960) shown in nLogical px, as banner_sizes.fit_width. */
++    static sal_Int32 StandardWidth(sal_Int32 nLogical);
+     const Bitmap& Prepared(const Bitmap& rSource, Bitmap& rCache, const Size& rDevice);
+     void DrawArt(vcl::RenderContext& rRenderContext, const Bitmap& rSource, Bitmap& rCache, double fAlpha);
+     bool InView() const;
+@@ -128,6 +136,7 @@ private:
+     sal_Int32 mnRotateSeconds = 10;
+     sal_Int32 mnFailures = 0;
+     int mnSourceScale = 0;
++    sal_Int32 mnSourceWidth = 0; // standard width of the shown artwork; 0: legacy art, kept at any width
+     int mnFadeStep = 0;
+     bool mbRequested = false;
+ };
 --- a/vcl/source/control/HstRibbonLadder.cxx
 +++ b/vcl/source/control/HstRibbonLadder.cxx
 @@ -10,6 +10,7 @@
@@ -1269,6 +1901,126 @@ License: these upstream files remain under their original license (MPL-2.0).
      std::vector<ToolBox*> aToolBoxes;
      forToolBoxes(rGroup, [&aToolBoxes](ToolBox& rToolBox) { aToolBoxes.push_back(&rToolBox); });
      int nCommands = 0;
+--- a/vcl/source/control/HstRibbonPaint.cxx
++++ b/vcl/source/control/HstRibbonPaint.cxx
+@@ -245,16 +245,21 @@ FileTabColors fileTabColorsFor(const Sty
+ 
+ tools::Long FileTabExtraWidth(const OutputDevice& rDev) { return scaled(rDev, 14); }
+ 
++tools::Rectangle FileTabFill(const OutputDevice& rDev, const tools::Rectangle& rItem)
++{
++    const tools::Long nInset = scaled(rDev, 2);
++    // the approved mockup's File button: 24 logical px high, centred in the tab row (whatever the row's height)
++    const tools::Long nHeight = std::min<tools::Long>(rItem.GetHeight(), scaled(rDev, FILE_BUTTON_HEIGHT));
++    return tools::Rectangle(Point(rItem.Left() + nInset, rItem.Top() + (rItem.GetHeight() - nHeight) / 2),
++                            Size(std::max<tools::Long>(1, rItem.GetWidth() - 2 * nInset), nHeight));
++}
++
+ Color DrawFileTab(vcl::RenderContext& rDev, const tools::Rectangle& rItem, bool bPressed,
+                   bool bHover)
+ {
+     const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
+     const FileTabColors aColors = fileTabColorsFor(rStyle, bPressed, bHover);
+-    const tools::Long nInset = scaled(rDev, 2);
+-    // the approved mockup's File button: 24 logical px high, centred in the tab row (whatever the row's height)
+-    const tools::Long nHeight = std::min<tools::Long>(rItem.GetHeight(), scaled(rDev, FILE_BUTTON_HEIGHT));
+-    tools::Rectangle aFill(Point(rItem.Left() + nInset, rItem.Top() + (rItem.GetHeight() - nHeight) / 2),
+-                           Size(std::max<tools::Long>(1, rItem.GetWidth() - 2 * nInset), nHeight));
++    const tools::Rectangle aFill = FileTabFill(rDev, rItem);
+     rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
+     // high contrast has one fill colour only: the state shows as an outline
+     if (rStyle.GetHighContrastMode() && (bPressed || bHover))
+--- /dev/null
++++ b/vcl/source/control/HstRibbonUpdateDot.cxx
+@@ -0,0 +1,88 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include <vcl/HstRibbonUpdateDot.hxx>
++#include <vcl/HstRibbonPaint.hxx>
++
++#include <tools/link.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/vclevent.hxx>
++#include <vcl/window.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <set>
++
++namespace hst::ribbon
++{
++namespace
++{
++/// the tab controls whose File button shows the dot; a control leaves the set when it dies
++struct UpdateDots
++{
++    static std::set<const vcl::Window*>& shown()
++    {
++        static std::set<const vcl::Window*> aShown;
++        return aShown;
++    }
++    DECL_STATIC_LINK(UpdateDots, WindowEventHdl, VclWindowEvent&, void);
++};
++
++IMPL_STATIC_LINK(UpdateDots, WindowEventHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        UpdateDots::shown().erase(rEvent.GetWindow());
++}
++
++/// the accent of the dot: an orange that stands out from the File button's blue in both themes, with a ring of
++/// the button's text colour around it; high contrast has the system's colours only
++constexpr Color DOT_COLOR(0xF7, 0x63, 0x0C);
++}
++
++void SetUpdateDot(vcl::Window& rTabControl, bool bShow)
++{
++    std::set<const vcl::Window*>& rShown = UpdateDots::shown();
++    const bool bShown = rShown.count(&rTabControl) > 0;
++    if (bShow == bShown)
++        return;
++    if (bShow)
++    {
++        rShown.insert(&rTabControl);
++        rTabControl.AddEventListener(LINK(nullptr, UpdateDots, WindowEventHdl));
++    }
++    else
++    {
++        rShown.erase(&rTabControl);
++        rTabControl.RemoveEventListener(LINK(nullptr, UpdateDots, WindowEventHdl));
++    }
++    if (!rTabControl.isDisposed())
++        rTabControl.Invalidate();
++}
++
++bool HasUpdateDot(const vcl::Window& rTabControl) { return UpdateDots::shown().count(&rTabControl) > 0; }
++
++void DrawUpdateDot(vcl::RenderContext& rDev, const tools::Rectangle& rItem)
++{
++    const tools::Rectangle aFill = FileTabFill(rDev, rItem);
++    const double fScale = rDev.GetDPIScaleFactor();
++    const tools::Long nRadius = std::max<tools::Long>(2, std::lround(3 * fScale));
++    const tools::Long nRing = std::max<tools::Long>(1, std::lround(fScale));
++    const tools::Long nEdge = std::max<tools::Long>(nRadius + nRing, std::lround(6 * fScale));
++    const Point aCenter(aFill.Right() - nEdge, aFill.Top() + nEdge);
++    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++    const FileTabColors aColors = fileTabColorsFor(rStyle, false, false);
++    rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    rDev.SetLineColor();
++    rDev.SetFillColor(aColors.aText);
++    rDev.DrawEllipse(tools::Rectangle(aCenter.X() - nRadius - nRing, aCenter.Y() - nRadius - nRing,
++                                      aCenter.X() + nRadius + nRing, aCenter.Y() + nRadius + nRing));
++    rDev.SetFillColor(rStyle.GetHighContrastMode() ? aColors.aFill : DOT_COLOR);
++    rDev.DrawEllipse(tools::Rectangle(aCenter.X() - nRadius, aCenter.Y() - nRadius, aCenter.X() + nRadius,
++                                      aCenter.Y() + nRadius));
++    rDev.Pop();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
 @@ -0,0 +1,608 @@
@@ -2312,7 +3064,29 @@ License: these upstream files remain under their original license (MPL-2.0).
                                nTextStyle, nullptr, true );
 --- a/vcl/source/control/tabctrl.cxx
 +++ b/vcl/source/control/tabctrl.cxx
-@@ -2610,6 +2610,10 @@ void NotebookbarTabControlBase::HstSetPa
+@@ -24,6 +24,7 @@
+ #include <tools/mapunit.hxx>
+ #include <vcl/HstRibbonContext.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
++#include <vcl/HstRibbonUpdateDot.hxx>
+ #include <algorithm>
+ #include <chrono>
+ #include <cmath>
+@@ -895,9 +896,13 @@ void TabControl::ImplDrawItem(vcl::Rende
+                              && hst::ribbon::ownerDrawEnabled();
+     Color aHstFileText;
+     if (bHstFileTab)
++    {
+         aHstFileText = hst::ribbon::DrawFileTab(rRenderContext, pItem->maRect,
+                                                 bool(nState & ControlState::SELECTED),
+                                                 bool(nState & ControlState::ROLLOVER));
++        if (hst::ribbon::HasUpdateDot(*this)) // HST Office: an update is known (HstRibbonUpdateDot.hxx)
++            hst::ribbon::DrawUpdateDot(rRenderContext, pItem->maRect);
++    }
+     else if (bHstOwnerDraw)
+         hst::ribbon::DrawTabItem(rRenderContext, pItem->maRect,
+                                  rRenderContext.GetCtrlTextWidth(pItem->maFormatText),
+@@ -2610,6 +2615,10 @@ void NotebookbarTabControlBase::HstSetPa
          return;
      m_nHstPageReserve = nWidth;
      ImplPosCurTabPage();
@@ -2408,3 +3182,13 @@ License: these upstream files remain under their original license (MPL-2.0).
  void ToolBox::HstSetGridRows( int nRows )
  {
      if ( mpData->mnHstGridRows == nRows )
+--- a/sfx2/Module_sfx2.mk
++++ b/sfx2/Module_sfx2.mk
+@@ -38,6 +38,7 @@ $(eval $(call gb_Module_add_check_target
+     CppunitTest_sfx2_view \
+     CppunitTest_sfx2_doc \
+     CppunitTest_sfx2_autoredaction \
++    CppunitTest_sfx2_hst_update_dot \
+ ))
+ 
+ $(eval $(call gb_Module_add_subsequentcheck_targets,sfx2,\
