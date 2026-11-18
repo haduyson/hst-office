@@ -32,6 +32,8 @@ inside() {
       version() { sha256sum < /home/tester/Apps/HST.AppImage | cut -c1-16; } ;;
   esac
   useradd -m tester
+  # Fedora: sudo's PAM account step refuses a user without a usable shadow entry, even with NOPASSWD
+  pwconv >/dev/null 2>&1 || :; usermod -p '' tester >/dev/null 2>&1 || :
   printf 'tester ALL=(root) NOPASSWD: ALL\n' >/etc/sudoers.d/tester
   printf '#!/bin/sh\nexec sudo -n "$@"\n' >/usr/local/bin/pkexec; chmod 755 /usr/local/bin/pkexec
   local soffice=/opt/hst-office1.0/program/soffice python=/opt/hst-office1.0/program/python new_name
@@ -48,7 +50,7 @@ inside() {
   printf '{\\rtf1\\ansi HST update probe\\par}\n' >/tmp/probe.rtf; chmod 644 /tmp/probe.rtf; mkdir -p /out; chown tester /out
   local extra=() arg
   for arg in "${DRIVE_ARGS[@]}"; do [ "$arg" = NEW ] && arg="$cache/$new_name"; extra+=("$arg"); done
-  su tester -c "$(printf '%q ' env DISPLAY=:99 HOME="$home" "$python" /drive/update-e2e-drive.py --soffice "$soffice" \
+  su tester -c "$(printf '%q ' env DISPLAY=:99 HOME="$home" HST_APPIMAGE_NO_INTEGRATION=1 "$python" /drive/update-e2e-drive.py --soffice "$soffice" \
     --profile /tmp/probe-profile --document /tmp/probe.rtf --out /out/report.json "${extra[@]}")" >/out/drive.log 2>&1
   local rc=$?
   cp "$cache/update.log" /out/ 2>/dev/null || cp /home/tester/.cache/hst-office/update/update.log /out/ 2>/dev/null || :

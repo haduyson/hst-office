@@ -74,11 +74,19 @@ def install_macro(profile, args):
         handle.write(text)
 
 
+def office_env():
+    """The environment of the user, without what the office's python wrapper exported for this driver: an office
+    started with another copy's URE_BOOTSTRAP or PYTHONHOME (an AppImage, say) would not start."""
+    drop = ("URE_BOOTSTRAP", "UNO_PATH", "PYTHONPATH", "PYTHONHOME")
+    return {k: v for k, v in os.environ.items() if k not in drop}
+
+
 def init_profile(soffice, url):
     """A fresh profile asks for one restart (exit 81) at its first start: repeat until it exits cleanly."""
     for _ in range(3):
         if subprocess.run([soffice, "--headless", "--norestore", "--terminate_after_init", "-env:UserInstallation=" + url],
-                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300).returncode == 0:
+                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300,
+                          env=office_env()).returncode == 0:
             return
 
 
@@ -105,6 +113,7 @@ def main():
     p.add_argument("--pretend", default="")
     p.add_argument("--answer", default="auto", choices=("auto", "dialog"))
     p.add_argument("--keep-welcome", action="store_true", help="let the welcome dialog open at the start")
+    p.add_argument("--close-welcome", action="store_true", help="close the welcome dialog before the update command")
     p.add_argument("--installer", default="", help="local installer instead of the published manifest's")
     p.add_argument("--to", default="9.9.9", help="release of --installer")
     p.add_argument("--watch", type=int, default=600, help="seconds for the office to quit")
@@ -118,14 +127,14 @@ def main():
     events = os.path.abspath(a.out) + ".events.jsonl"
     open(events, "w").close()
     install_macro(profile, {"events": events, "code": a.code, "pretend": a.pretend,
-                            "answer": "auto" if a.answer == "auto" else "", "to": a.to,
+                            "answer": "auto" if a.answer == "auto" else "", "to": a.to, "close_welcome": a.close_welcome,
                             "installer": os.path.abspath(a.installer) if a.installer else "",
                             "sha256": sha256(a.installer) if a.installer else ""})
     port = free_port()
     before = office_pids()
     argv = [a.soffice, "-env:UserInstallation=" + url, "--norestore", "--nologo",
             "--accept=socket,host=127.0.0.1,port=%d;urp;" % port] + ([a.document] if a.document else [])
-    subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=office_env(),
                      **({"creationflags": 0x08000000} if WINDOWS else {"start_new_session": True}))
     local = uno.getComponentContext()
     resolver = local.ServiceManager.createInstanceWithContext("com.sun.star.bridge.UnoUrlResolver", local)

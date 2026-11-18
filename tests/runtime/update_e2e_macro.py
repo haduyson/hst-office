@@ -7,6 +7,7 @@
 #   code     directory to import hst_office from instead of the running office's own extension ("" = its own)
 #   pretend  release reported to the update check instead of the running one ("" = the real one)
 #   answer   "auto": answer the "Cập nhật ngay" question without showing it; "" = the real dialog (clicked by the driver)
+#   close_welcome  close the welcome dialog first, as a user would (releases up to 1.0.2 cannot quit while it is open)
 #   installer, sha256, to  a local installer that replaces the download (update_install.prepare) for any target
 #            release; "" = the published manifest and the file already waiting in the update cache
 import json
@@ -100,7 +101,15 @@ def run(*_):
             note("dispatch-returned")
         except Exception:
             note("dispatch-error", trace=traceback.format_exc())
-    update_ui.on_main_thread(ctx, go)
+    def close_welcome_then_go():
+        from hst_office import welcome_dialog
+        note("welcome", open=welcome_dialog.CURRENT is not None)
+        if welcome_dialog.CURRENT is not None:
+            welcome_dialog.CURRENT.close()
+            update_ui.on_main_thread(ctx, go)  # after the dialog has left its modal loop
+        else:
+            go()
+    update_ui.on_main_thread(ctx, close_welcome_then_go if ARGS.get("close_welcome") else go)
     return "scheduled"
 
 
