@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Runtime check: a MathType equation kept as an OLE object ("tự chuyển khi mở" off) keeps its ProgID and its OLE data
-byte for byte when the document is saved as .docx, .doc or .rtf, so MathType can still open it.
+"""Runtime check: a MathType equation kept as an OLE object ("tự chuyển khi mở" off) keeps its ProgID, its class ID
+(MathType's 0002CE03-...) and its OLE data byte for byte when the document is saved as .docx, .doc or .rtf, so
+MathType can still open it.
 
 Usage:
     python3 tests/runtime/check-formula-ole-roundtrip.py --soffice PATH --docx WORD.docx [--doc WORD.doc]
@@ -9,8 +10,10 @@ Usage:
 
 WORD.docx / WORD.doc are Word files with MathType 4-7 equations (files are never stored in the repository). The check
 also writes an .rtf holding the first equation of WORD.docx as RTF stores OLE objects (\\objdata, OLE 1.0 data).
-Each file is opened and saved in every format; every "Equation Native" stream and MathType ProgID of the source must
-be in the saved file.
+Each file is opened and saved in every format; every "Equation Native" stream of the source, with its ProgID and
+class ID, must be in the saved file, and the saved .rtf must reopen with the objects at their shown size. Equations in
+table cells come back as pictures: LibreOffice's RTF import reads only the picture of objects in tables. "Open with
+MathType" itself needs MathType, which is not installed anywhere.
 """
 import argparse
 import hashlib
@@ -36,8 +39,10 @@ def record(name, ok, detail=""):
 
 
 def streams(cfb, storage):
-    """{name: bytes} of the streams directly in one storage of a compound file."""
-    return {name: cfb.read(e) for name, e in cfb.children(storage).items() if e["type"] == 2}
+    """{name: bytes} of the streams directly in one storage of a compound file, and its "CLSID"."""
+    found = {name: cfb.read(e) for name, e in cfb.children(storage).items() if e["type"] == 2}
+    found["CLSID"] = storage["clsid"]
+    return found
 
 
 def object_streams(path):
@@ -66,12 +71,12 @@ def object_streams(path):
 
 
 def equations(path):
-    """Sorted [(ProgID, sha1 of Equation Native)] of the equations in a file."""
+    """Sorted [(ProgID, CLSID, sha1 of Equation Native)] of the equations in a file."""
     found = []
     for item in object_streams(path):
         if "Equation Native" in item:
             progid = PROGID.search(item.get("\x01CompObj", b""))
-            found.append((progid.group(0).decode() if progid else "",
+            found.append((progid.group(0).decode() if progid else "", item["CLSID"],
                           hashlib.sha1(item["Equation Native"]).hexdigest()[:12]))
     return sorted(found)
 
@@ -107,6 +112,17 @@ def write_rtf(docx, path):
         stream.write(b"{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Times New Roman;}}{\\f0\\fs24 A " + body + b" B}\\par}")
 
 
+def object_sizes(doc):
+    """(width, height) in 1/100 mm of every OLE object of a Writer document."""
+    objects = doc.getEmbeddedObjects()
+    return [(o.Size.Width, o.Size.Height) for o in (objects.getByIndex(i) for i in range(objects.getCount()))]
+
+
+def keeps_sizes(source, reopened):
+    """Each object of the reopened file has the size of an object of the source (twips rounding)."""
+    return all(any(abs(w - sw) <= 5 and abs(h - sh) <= 5 for sw, sh in source) for w, h in reopened)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--soffice", required=True)
@@ -131,6 +147,7 @@ def main():
             before = equations(source)
             mathtype = [e for e in before if e[0].startswith("Equation.DSMT")]
             doc = office.load(office.url(source))
+            sizes = object_sizes(doc)
             for extension, filter_name in FILTERS.items():
                 saved = os.path.join(workdir, os.path.basename(source) + ".saved" + extension)
                 doc.storeToURL(office.url(saved), headless_office.props(FilterName=filter_name))
@@ -138,6 +155,12 @@ def main():
                 lost = [e for e in mathtype if e not in after]
                 record("%s -> %s keeps MathType data" % (os.path.basename(source), extension),
                        mathtype and not lost, {"mathtype": len(mathtype), "lost": len(lost)})
+                if extension == ".rtf":  # the RTF import sizes an object by its picture
+                    back = office.load(office.url(saved))
+                    reopened = object_sizes(back)
+                    back.close(True)
+                    record("%s -> .rtf reopens at the shown size" % os.path.basename(source),
+                           keeps_sizes(sizes, reopened), {"objects": len(reopened)})
             doc.close(True)
     finally:
         office.stop()

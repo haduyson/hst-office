@@ -15,6 +15,7 @@ size is not compared with the formula's: MathType's box is taller than Math's at
 An equation kept as an OLE object keeps its data when the document is saved as .rtf (OLE 1.0
 \objdata with the compound file byte for byte, the picture in \result), so MathType can still
 edit it; LibreOffice's RTF export wrote only the picture (sw/source/core/hst/mathtypeoledata.cxx).
+That picture has the shown size at 100 %: the RTF import sizes an object by its picture's goal.
 diff --git a/filter/source/msfilter/msdffimp.cxx b/filter/source/msfilter/msdffimp.cxx
 index b3184b2..7cffec4 100644
 --- a/filter/source/msfilter/msdffimp.cxx
@@ -461,7 +462,7 @@ index 0000000..50cde04
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sw/source/filter/ww8/rtfattributeoutput.cxx b/sw/source/filter/ww8/rtfattributeoutput.cxx
-index 87fcb95..ec60985 100644
+index 87fcb95..3a9153e 100644
 --- a/sw/source/filter/ww8/rtfattributeoutput.cxx
 +++ b/sw/source/filter/ww8/rtfattributeoutput.cxx
 @@ -68,6 +68,7 @@
@@ -472,7 +473,21 @@ index 87fcb95..ec60985 100644
  #include <svx/xfillit0.hxx>
  #include <svx/xflgrit.hxx>
  #include <unotools/securityoptions.hxx>
-@@ -4903,6 +4904,25 @@ void RtfAttributeOutput::FlyFrameOLE(const SwFlyFrameFormat* pFlyFrameFormat, Sw
+@@ -4833,10 +4834,11 @@ static OString ExportPICT(const SwFlyFrameFormat* pFlyFrameFormat, const Size& r
+ }
+ 
+ void RtfAttributeOutput::FlyFrameOLEReplacement(const SwFlyFrameFormat* pFlyFrameFormat,
+-                                                SwOLENode& rOLENode, const Size& rSize)
++                                                SwOLENode& rOLENode, const Size& rSize,
++                                                bool bShownSize)
+ {
+     m_aRunText->append("{" OOO_STRING_SVTOOLS_RTF_IGNORE OOO_STRING_SVTOOLS_RTF_SHPPICT);
+-    Size aSize(rOLENode.GetTwipSize());
++    Size aSize(bShownSize ? rSize : rOLENode.GetTwipSize());
+     Size aRendered(aSize);
+     aRendered.setWidth(rSize.Width());
+     aRendered.setHeight(rSize.Height());
+@@ -4903,6 +4905,25 @@ void RtfAttributeOutput::FlyFrameOLE(const SwFlyFrameFormat* pFlyFrameFormat, Sw
      if (FlyFrameOLEMath(pFlyFrameFormat, rOLENode, rSize))
          return;
  
@@ -490,7 +505,7 @@ index 87fcb95..ec60985 100644
 +            + "}{" OOO_STRING_SVTOOLS_RTF_IGNORE OOO_STRING_SVTOOLS_RTF_OBJDATA " "
 +            + msfilter::rtfutil::WriteHex(aOle1.data(), static_cast<sal_uInt32>(aOle1.size()))
 +            + "}{" OOO_STRING_SVTOOLS_RTF_RESULT " "));
-+        FlyFrameOLEReplacement(pFlyFrameFormat, rOLENode, rSize);
++        FlyFrameOLEReplacement(pFlyFrameFormat, rOLENode, rSize, /*bShownSize=*/true);
 +        m_aRunText->append("}}"); // result, object
 +        return;
 +    }
@@ -498,6 +513,22 @@ index 87fcb95..ec60985 100644
      FlyFrameOLEReplacement(pFlyFrameFormat, rOLENode, rSize);
  }
  
+diff --git a/sw/source/filter/ww8/rtfattributeoutput.hxx b/sw/source/filter/ww8/rtfattributeoutput.hxx
+index 5c1119f..ee6f3e9 100644
+--- a/sw/source/filter/ww8/rtfattributeoutput.hxx
++++ b/sw/source/filter/ww8/rtfattributeoutput.hxx
+@@ -513,8 +513,10 @@ private:
+     void FlyFrameGraphic(const SwFlyFrameFormat* pFlyFrameFormat, const SwGrfNode* pGrfNode);
+     void FlyFrameOLE(const SwFlyFrameFormat* pFlyFrameFormat, SwOLENode& rOLENode,
+                      const Size& rSize);
++    /// HST Office: bShownSize draws the picture at its shown size (scale 100 %), as the \result
++    /// of an OLE object: the RTF import sizes the object by the picture's goal size
+     void FlyFrameOLEReplacement(const SwFlyFrameFormat* pFlyFrameFormat, SwOLENode& rOLENode,
+-                                const Size& rSize);
++                                const Size& rSize, bool bShownSize = false);
+     /// Math export.
+     bool FlyFrameOLEMath(const SwFlyFrameFormat* pFlyFrameFormat, SwOLENode& rOLENode,
+                          const Size& rSize);
 diff --git a/sw/source/filter/ww8/ww8par.cxx b/sw/source/filter/ww8/ww8par.cxx
 index 59260bb..891acee 100644
 --- a/sw/source/filter/ww8/ww8par.cxx
