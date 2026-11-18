@@ -125,6 +125,24 @@ invalidate_stale_translations() {
   done
 }
 [ ! -d "$LO/workdir/MoTarget" ] || invalidate_stale_translations
+# A package that delivers into program/python-core-<version> (libffi: libffi-8.dll next to _ctypes.pyd) is not
+# rebuilt when only the bundled Python version changes: its makefile text and tarball stay the same, so its filelist
+# keeps the old python-core path and the MSI ships the DLL in a directory the new Python never reads (import ctypes
+# fails). Drop every package filelist that names another python-core than this tree's Python tarball.
+invalidate_stale_python_packages() {
+  local want list name
+  want="$(sed -n 's/^PYTHON_TARBALL := Python-\(.*\)\.tar\.xz$/\1/p' "$LO/download.lst" 2>/dev/null)"
+  [ -n "$want" ] || return 0
+  for list in "$LO/workdir/Package/"*.filelist; do
+    [ -f "$list" ] || continue
+    awk -v keep="/python-core-$want/" 'index($0, "/python-core-") && !index($0, keep) { f = 1 } END { exit !f }' \
+      "$list" || continue
+    name="$(basename "$list" .filelist)"
+    log "package $name delivers into another python-core than $want: dropping its filelist"
+    rm -f "$list" "$LO/workdir/Package/prepared/$name" "$LO/workdir/ExternalPackage/$name"
+  done
+}
+[ ! -d "$LO/workdir/Package" ] || invalidate_stale_python_packages
 
 mv "$STAGE/manifest.new" "$STAGE/.hst-manifest"
 mv "$STAGE/dirs.new" "$STAGE/.hst-dirs"
