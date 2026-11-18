@@ -4,7 +4,7 @@ import re
 
 from . import vietnamese_text
 
-FUNCTION_NAMES = ("DOCSO", "DOCTIEN", "BODAU", "TACHHO", "TACHTEN")  # the Sheets functions of calc_functions.py
+FUNCTION_NAMES = ("DOCSO", "DOCTIEN", "BODAU", "TACHHO", "TACHTEN", "VND", "USD")  # the Sheets functions of calc_functions.py
 # in a formula text: "=DOCSO(A1)", and the programmatic form "ORG.HST.OFFICE.VI.CALCFUNCTIONS.DOCSO(A1)"
 USES_HST_FUNCTION = re.compile(r"\b(%s)\s*\(" % "|".join(FUNCTION_NAMES), re.I)
 
