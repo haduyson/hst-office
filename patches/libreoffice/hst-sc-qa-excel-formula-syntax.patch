@@ -11,7 +11,8 @@ operator as a space (testTdf160371), 'Новый.лист'!A1 (testNonAsciiWithD
 range of AutoSum as the cell, =SUM(B13,B10) (testAutoSum), =TRUE without parentheses (testInvalidBareBiff5), a
 named range as Sheet1!$A$1 (testTdf94627), references to another sheet as Two!$A$2
 (testFormulaReferenceXLS), a formula typed as ='90''s Data'!B2 (testFormulaRefSheetNameODS) and CELL("Address") as
-Logical!$A$1 (information-functions.csv).
+Logical!$A$1 (information-functions.csv), an external reference as ['file:///...external.xls']Sheet1!A1
+(testSupBookVirtualPathXLS) and a sheet range as 'First:Last'!B1 (testTdf163554).
 These failed identically in 1.0.2; only the printed syntax changes, values and references are still asserted.
 
 hst-sheets-num-errors.patch gives #NUM! (ERRORTYPE 503) for a number outside a function's domain where upstream
@@ -24,7 +25,10 @@ VALUETOTEXT, REGEXEXTRACT/REPLACE/TEST, DBCS, PHONETIC) and B under its Excel na
 (hst-sheets-excel-functions.patch, hst-sheets-groupby-pivotby.patch). The default font of HST Sheets is Calibri or
 the metric-compatible Carlito (hst-msoffice-defaults.patch), narrower and lower than Liberation Sans: the optimal
 width of an imported CSV column is 1145 instead of 1162 twips (testTdf152053) and a three-line comment is 1260
-instead of 1386 high (testCommentSize).
+instead of 1386 high (testCommentSize). A header without a font of its own takes that default font, so an .xlsx of a
+file whose default font is Liberation Sans names Calibri in it (testTdf121716_ExportEvenHeaderFooterXLSX). The empty
+rows of a new workbook take the height of its 11 pt default style (hst-sheets-default-font-size.patch) and are written
+to .ods as empty cells: testTdf165733_leap_day_BCE checks the one cell with a date.
 
 testTdf107994 gives the frame of its new document a size before it freezes panes: panes freeze only at a visible
 cell, and the document's grid window can be 0x0 in the headless test, so C3 was scrolled to the top left and nothing
@@ -33,7 +37,8 @@ froze (in HST Sheets itself, and with an office in svp mode, Freeze Panes at C3 
 License: these upstream files remain under their original license (MPL-2.0).
 Test: make CppunitTest_sc_cond_format CppunitTest_sc_subsequent_filters_test CppunitTest_sc_subsequent_filters_test2
 CppunitTest_sc_subsequent_filters_test3 CppunitTest_sc_subsequent_filters_test4 CppunitTest_sc_subsequent_filters_test5
-CppunitTest_sc_subsequent_export_test CppunitTest_sc_subsequent_export_test2 CppunitTest_sc_uicalc2 CppunitTest_sc_ucalc.
+CppunitTest_sc_subsequent_export_test CppunitTest_sc_subsequent_export_test2 CppunitTest_sc_subsequent_export_test3
+CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 CppunitTest_sc_uicalc2 CppunitTest_sc_ucalc.
 ---
 --- a/sc/qa/unit/cond_format.cxx
 +++ b/sc/qa/unit/cond_format.cxx
@@ -224,6 +229,76 @@ CppunitTest_sc_subsequent_export_test CppunitTest_sc_subsequent_export_test2 Cpp
          pDoc->GetFormula(0, 2, 0));
  }
  
+--- a/sc/qa/unit/subsequent_export_test3.cxx
++++ b/sc/qa/unit/subsequent_export_test3.cxx
+@@ -1199,11 +1199,13 @@ CPPUNIT_TEST_FIXTURE(ScExportTest3, testSupBookVirtualPathXLS)
+ 
+     OUString aFormula = pDoc->GetFormula(0, 0, 0);
+ #ifdef _WIN32
+-    aFormula = OUString::Concat(aFormula.subView(0, 9)) + aFormula.subView(12);
++    aFormula = OUString::Concat(aFormula.subView(0, 10)) + aFormula.subView(13);
+     // strip drive letter, e.g. 'C:/'
+ #endif
++    // HST Office shows formulas in the Excel A1 syntax ([file]Sheet!A1),
++    // hst-sheets-excel-formula-conventions.patch
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong SupBook VirtualPath URL",
+-                                 u"='file:///home/timar/Documents/external.xls'#$Sheet1.A1"_ustr,
++                                 u"=['file:///home/timar/Documents/external.xls']Sheet1!A1"_ustr,
+                                  aFormula);
+ }
+ 
+--- a/sc/qa/unit/subsequent_export_test4.cxx
++++ b/sc/qa/unit/subsequent_export_test4.cxx
+@@ -426,10 +426,13 @@ CPPUNIT_TEST_FIXTURE(ScExportTest4, testTdf121716_ExportEvenHeaderFooterXLSX)
+     CPPUNIT_ASSERT(pDoc);
+ 
+     assertXPath(pDoc, "/x:worksheet/x:headerFooter", "differentOddEven", u"true");
+-    assertXPathContent(pDoc, "/x:worksheet/x:headerFooter/x:oddHeader", u"&Coddh");
+-    assertXPathContent(pDoc, "/x:worksheet/x:headerFooter/x:oddFooter", u"&Coddf");
+-    assertXPathContent(pDoc, "/x:worksheet/x:headerFooter/x:evenHeader", u"&Cevenh");
+-    assertXPathContent(pDoc, "/x:worksheet/x:headerFooter/x:evenFooter", u"&Levenf");
++    // HST Office: these headers and footers have no font of their own and take the default
++    // spreadsheet font, Calibri in HST Office (hst-msoffice-defaults.patch, VCL.xcu
++    // LATIN_SPREADSHEET); the file's own default font is Liberation Sans, so the font is named.
++    assertXPathContent(pDoc, "/x:worksheet/x:headerFooter/x:oddHeader", u"&C&\"Calibri\"oddh");
++    assertXPathContent(pDoc, "/x:worksheet/x:headerFooter/x:oddFooter", u"&C&\"Calibri\"oddf");
++    assertXPathContent(pDoc, "/x:worksheet/x:headerFooter/x:evenHeader", u"&C&\"Calibri\"evenh");
++    assertXPathContent(pDoc, "/x:worksheet/x:headerFooter/x:evenFooter", u"&L&\"Calibri\"evenf");
+ }
+ 
+ CPPUNIT_TEST_FIXTURE(ScExportTest4, testTdf134459_HeaderFooterColorXLSX)
+--- a/sc/qa/unit/subsequent_export_test5.cxx
++++ b/sc/qa/unit/subsequent_export_test5.cxx
+@@ -1034,14 +1034,16 @@ CPPUNIT_TEST_FIXTURE(ScExportTest5, testTdf163554)
+     // Without the fix in place, this test would have failed with
+     // - Expected: =SUM($'time (misc) - last'.B1:$'time (pnrst)'.B1)
+     // - Actual  : =SUM('time (pnrst)':$'time (misc) - last'.B1:B1)
+-    CPPUNIT_ASSERT_EQUAL(u"=SUM($'time (misc) - last'.B1:$'time (pnrst)'.B1)"_ustr,
++    // HST Office shows formulas in the Excel A1 syntax, where a sheet range is written
++    // 'First:Last'!B1 (hst-sheets-excel-formula-conventions.patch)
++    CPPUNIT_ASSERT_EQUAL(u"=SUM('time (misc) - last:time (pnrst)'!B1)"_ustr,
+                          pDoc->GetFormula(0, 0, 0));
+     CPPUNIT_ASSERT_EQUAL(u"7"_ustr, pDoc->GetString(ScAddress(0, 0, 0)));
+ 
+     saveAndReload(TestFilter::XLSX);
+     pDoc = getScDoc();
+ 
+-    CPPUNIT_ASSERT_EQUAL(u"=SUM($'time (misc) - last'.B1:$'time (pnrst)'.B1)"_ustr,
++    CPPUNIT_ASSERT_EQUAL(u"=SUM('time (misc) - last:time (pnrst)'!B1)"_ustr,
+                          pDoc->GetFormula(0, 0, 0));
+     CPPUNIT_ASSERT_EQUAL(u"7"_ustr, pDoc->GetString(ScAddress(0, 0, 0)));
+ }
+@@ -1425,7 +1427,9 @@ CPPUNIT_TEST_FIXTURE(ScExportTest5, testTdf165733_leap_day_BCE)
+     {
+         xmlDocUniquePtr pXmlDoc = parseExport(u"content.xml"_ustr);
+         CPPUNIT_ASSERT(pXmlDoc);
+-        assertXPath(pXmlDoc, "//table:table-cell", "date-value", u"-0001-02-29");
++        // HST Office: the empty rows of a new workbook take the height of its 11 pt default style
++        // (hst-sheets-default-font-size.patch) and are written too, as empty cells
++        assertXPath(pXmlDoc, "//table:table-cell[@office:date-value]", "date-value", u"-0001-02-29");
+ 
+         ScDocument* pDoc = getScDoc();
+         // without the fix, this failed with:
 --- a/sc/qa/unit/subsequent_filters_test.cxx
 +++ b/sc/qa/unit/subsequent_filters_test.cxx
 @@ -452,7 +452,8 @@ CPPUNIT_TEST_FIXTURE(ScFiltersTest, testTdf143809)
