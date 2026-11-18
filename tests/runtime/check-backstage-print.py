@@ -2,10 +2,14 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Print page of the File panel (hst-backstage-print.patch) end to end in a visible office (Linux X display, gen
 plugin; Windows: the test user's own session). Widgets are driven by id through the UITest service, no keys.
-Usage: <office python> check-backstage-print.py --soffice PATH --out DIR [--shot CMD] [--no-pdf-printer]
+Usage: <office python> check-backstage-print.py --soffice PATH --out DIR [--shot CMD] [--no-pdf-printer | --cups-pdf DIR]
 Linux profiles get a generic PDF printer (psprint "pdf=", default) writing into DIR/pdf. Per application .uno:Print
 (what Ctrl+P runs) must open the Print page with the document's page count; Writer then prints from the page and from
 the classic dialog ("More Options"): same pages and text. Closing the panel cancels the job. Exit 1 on a failure.
+Host needs: a Vietnamese locale (LANG=vi_VN.UTF-8: the checks read Vietnamese labels) and a window manager on the X
+display (the panel is a part of the document window, which gets the keyboard only when it is the active window; a
+second document opened without one never does). --cups-pdf DIR prints to the default CUPS queue instead, e.g. a
+cups-pdf queue whose "Out" is DIR (run it in a container of its own, not on a shared host).
 """
 import argparse, glob, os, socket, subprocess, sys, tempfile, time  # noqa: E401
 
@@ -63,10 +67,12 @@ class VisibleOffice:
         self.desktop = self.service("com.sun.star.frame.Desktop")
         self.ui = self.service("com.sun.star.ui.test.UITest")
         self.set_config("/org.hasontech.hstoffice.Welcome", "Shown", True)
-        try:
-            self.set_config("/org.hasontech.hstoffice.UpdateCheck", "AutoCheck", False)
-        except Exception:  # noqa: BLE001 - not in every build
-            pass
+        # the start-up prompts (update check, "open office files with HST Office?") would take the keyboard
+        for node, name in (("/org.hasontech.hstoffice.UpdateCheck", "AutoCheck"), ("/org.hasontech.hstoffice.DefaultApps", "Ask")):
+            try:
+                self.set_config(node, name, False)
+            except Exception:  # noqa: BLE001 - not in every build
+                pass
 
     def service(self, name):
         return self.ctx.ServiceManager.createInstanceWithContext(name, self.ctx)
@@ -145,15 +151,17 @@ def main():
     parser.add_argument("--out", default=tempfile.mkdtemp(prefix="hst-bsprint-"))  # noqa
     parser.add_argument("--shot", help="screenshot command with {} for the file, e.g. 'import -window root {}'")
     parser.add_argument("--no-pdf-printer", action="store_true", help="no printer of the profile, no printing")
+    parser.add_argument("--cups-pdf", metavar="DIR", help="print to the default CUPS queue (a cups-pdf queue writing "
+                        "into DIR) instead of the profile's generic printer")
     parser.add_argument("--more-options-at", default="395,796", help="its button on a 1600x900 screen (gen)")
     args = parser.parse_args()
     out = os.path.abspath(args.out)  # noqa
-    os.makedirs(pdf_dir := os.path.join(out, "pdf"), exist_ok=True)
+    os.makedirs(pdf_dir := os.path.abspath(args.cups_pdf) if args.cups_pdf else os.path.join(out, "pdf"), exist_ok=True)
     shot = lambda name: args.shot and subprocess.run(args.shot.format(os.path.join(out, name)), shell=True)  # noqa
     # keys on the private X display only (no window manager: the window under the pointer has the keyboard)
     key = lambda k: subprocess.run(["xdotool", "mousemove", "650", "450", "sleep", "0.5", "key", k], check=True)  # noqa
     pdfs = lambda: set(glob.glob(os.path.join(pdf_dir, "*.pdf")))  # noqa: E731
-    office = VisibleOffice(args.soffice, out, None if args.no_pdf_printer else pdf_dir)
+    office = VisibleOffice(args.soffice, out, None if args.no_pdf_printer or args.cups_pdf else pdf_dir)
     try:
         docs = []
         for app in ("swriter", "scalc", "simpress", "sdraw"):
