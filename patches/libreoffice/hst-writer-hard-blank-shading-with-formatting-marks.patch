@@ -1,0 +1,78 @@
+HST Office: no-break spaces show no gray box unless formatting marks are shown (Writer).
+
+Writer painted the field shading (View > Field Shadings) on every no-break space (U+00A0) and non-breaking
+hyphen (U+2011) whenever the "Non-breaking spaces" display option was on, which it is by default, even with
+formatting marks hidden; their tilde/degree marker was drawn only with formatting marks. Documents from Word
+with runs of no-break spaces (spacing after "(2) giao nhau", after "Câu 1.") showed gray boxes that Word and
+WPS never show: Word shows a no-break space only with its formatting marks, as a degree sign. The shading is now
+drawn only while formatting marks are shown, together with the marker; real fields keep their shading.
+The narrow no-break space (U+202F) was never shaded and is unchanged.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+diff --git a/sw/qa/core/text/text.cxx b/sw/qa/core/text/text.cxx
+index a988ffe..cd073e1 100644
+--- a/sw/qa/core/text/text.cxx
++++ b/sw/qa/core/text/text.cxx
+@@ -54,6 +54,7 @@
+ #include <pagefrm.hxx>
+ #include <inftxt.hxx>
+ #include <itrtxt.hxx>
++#include <viewopt.hxx>
+ 
+ /// Covers sw/source/core/text/ fixes.
+ class SwCoreTextTest : public SwModelTestBase
+@@ -1836,6 +1837,36 @@ CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testTdf171555NonBreakingHyphen)
+                          getXPath(pXmlDoc, "//txt[1]/SwParaPortion/SwLineLayout", "width"));
+ }
+ 
++CPPUNIT_TEST_FIXTURE(SwCoreTextTest, testHardBlankShadingOnlyWithFormattingMarks)
++{
++    // Rectangles painted for the screen (where field shadings are drawn) of a document holding
++    // only rText, with formatting marks shown or not.
++    auto aRectCount = [this](const OUString& rText, bool bFormattingMarks) {
++        createSwDoc();
++        SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++        pWrtShell->Insert(rText);
++        SwViewOption aViewOptions(*pWrtShell->GetViewOptions());
++        aViewOptions.SetHardBlank(true);
++        aViewOptions.SetViewMetaChars(bFormattingMarks);
++        pWrtShell->ApplyViewOptions(aViewOptions);
++        std::shared_ptr<GDIMetaFile> xMetaFile = getSwDocShell()->GetPreviewMetaFile(false, true);
++        MetafileXmlDump aDumper;
++        xmlDocUniquePtr pXmlDoc = dumpAndParse(aDumper, *xMetaFile);
++        int nRects = countXPathNodes(pXmlDoc, "//rect");
++        dispose(); // the next count loads its own document
++        return nRects;
++    };
++    // A no-break space and a non-breaking hyphen, and the same text with a space and a hyphen.
++    static constexpr OUString aHard = u"a b‑c"_ustr;
++    static constexpr OUString aPlain = u"a b-c"_ustr;
++
++    // Without the fix in place, this failed: each of the two characters had a gray rectangle
++    // (the field shading) while formatting marks were hidden, which Word never shows.
++    CPPUNIT_ASSERT_EQUAL(aRectCount(aPlain, false), aRectCount(aHard, false));
++    // With formatting marks shown they keep their shading.
++    CPPUNIT_ASSERT_GREATER(aRectCount(aPlain, true), aRectCount(aHard, true));
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/core/text/inftxt.cxx b/sw/source/core/text/inftxt.cxx
+index 4f28113..54399dc 100644
+--- a/sw/source/core/text/inftxt.cxx
++++ b/sw/source/core/text/inftxt.cxx
+@@ -1541,7 +1541,11 @@ void SwTextPaintInfo::DrawViewOpt( const SwLinePortion &rPor,
+             bDraw = GetOpt().IsSoftHyph();
+             break;
+         case PortionType::Blank:
+-            bDraw = GetOpt().IsHardBlank();
++            // No-break spaces and non-breaking hyphens are shaded only while formatting marks
++            // are shown (where their marker is drawn too), as Word shows them only with its
++            // formatting marks: otherwise they appear as gray boxes in ordinary text.
++            if ( GetOpt().IsViewMetaChars() )
++                bDraw = GetOpt().IsHardBlank();
+             break;
+         case PortionType::ControlChar:
+             if ( GetOpt().IsViewMetaChars() )
