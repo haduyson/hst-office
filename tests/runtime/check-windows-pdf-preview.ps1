@@ -121,9 +121,12 @@ public static class Native {
 
     public static Bitmap Thumbnail(string clsid, string path, uint size) {
         object o = Create(clsid, typeof(IInitializeWithStream).GUID);
-        ((IInitializeWithStream)o).Initialize(Open(path), 0);
-        IntPtr h; int alpha; ((IThumbnailProvider)o).GetThumbnail(size, out h, out alpha);
-        try { return Image.FromHbitmap(h); } finally { DeleteObject(h); Marshal.ReleaseComObject(o); }
+        IStream s = Open(path);
+        try {
+            ((IInitializeWithStream)o).Initialize(s, 0);
+            IntPtr h; int alpha; ((IThumbnailProvider)o).GetThumbnail(size, out h, out alpha);
+            try { return Image.FromHbitmap(h); } finally { DeleteObject(h); }
+        } finally { Marshal.ReleaseComObject(o); Marshal.ReleaseComObject(s); }
     }
     public static Bitmap ShellThumbnail(string path, int size) {
         Guid iid = typeof(IShellItemImageFactory).GUID; object item;
@@ -146,6 +149,23 @@ public static class Native {
     public static SCROLLINFO Scroll(IntPtr hwnd) {
         SCROLLINFO i = new SCROLLINFO(); i.cbSize = (uint)Marshal.SizeOf(i); i.fMask = 0x17; /* RANGE|PAGE|POS */
         GetScrollInfo(hwnd, 1 /* SB_VERT */, ref i); return i;
+    }
+    // One preview handler instance shown in parent (PowerShell cannot cast the RCW to these interfaces).
+    public sealed class Preview {
+        object handler; IStream stream;
+        public Preview(string clsid, string path, IntPtr parent, int width, int height) {
+            handler = Create(clsid, typeof(IPreviewHandler).GUID);
+            stream = Open(path);
+            ((IInitializeWithStream)handler).Initialize(stream, 0);
+            RECT r = new RECT(); r.Right = width; r.Bottom = height;
+            ((IPreviewHandler)handler).SetWindow(parent, ref r);
+            ((IPreviewHandler)handler).DoPreview();
+        }
+        // Unloads, then drops this side's stream reference: the file is free only if the handler let go too.
+        public void Unload() {
+            ((IPreviewHandler)handler).Unload();
+            Marshal.ReleaseComObject(stream); Marshal.ReleaseComObject(handler);
+        }
     }
     // Share of dark pixels in a box given as fractions of the bitmap.
     public static double Dark(Bitmap b, double x0, double y0, double x1, double y1) {
@@ -213,20 +233,16 @@ if (-not $assoc -or $assoc -eq $ThumbClsid) {
     try {
         $shell = [HstPdfPreviewCheck.Native]::ShellThumbnail($pdf, 256)
         $shell.Save((Join-Path $Out 'thumbnail-shell.png'))
-        Check ([HstPdfPreviewCheck.Native]::Dark($shell, 0.0, 0.0, 1.0, 1.0) -gt 0.03) "shell thumbnail shows the page ($($shell.Width)x$($shell.Height))"
+        Check ([HstPdfPreviewCheck.Native]::Dark($shell, 0.10, 0.14, 0.23, 0.22) -gt 0.9) "shell thumbnail shows page 1 square ($($shell.Width)x$($shell.Height))"
     } catch { Check $false "shell thumbnail: $_" }
 } else { "SKIP shell thumbnail: .pdf uses another provider ($assoc)" }
 
 # Preview handler, in-process, in a plain parent window
 $parent = [HstPdfPreviewCheck.Native]::CreateWindowExW(0, 'Static', 'hst-pdf-preview-check', 2147483648, 0, 0, 500, 700, [IntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero, [IntPtr]::Zero)
 try {
-    $handler = [HstPdfPreviewCheck.Native]::Create($PreviewClsid, [HstPdfPreviewCheck.IPreviewHandler].GUID)
-    $pdfStream = [HstPdfPreviewCheck.Native]::Open($pdf)
-    ([HstPdfPreviewCheck.IInitializeWithStream]$handler).Initialize($pdfStream, 0)
-    $rect = New-Object HstPdfPreviewCheck.RECT; $rect.Right = 500; $rect.Bottom = 700
-    $preview = [HstPdfPreviewCheck.IPreviewHandler]$handler
-    $preview.SetWindow($parent, [ref]$rect)
-    $preview.DoPreview()
+    $previewPdf = $pdf -replace '\.pdf$', '-preview.pdf'  # its own file: only the handler can hold it open
+    Copy-Item -LiteralPath $pdf -Destination $previewPdf
+    $session = New-Object HstPdfPreviewCheck.Native+Preview($PreviewClsid, $previewPdf, $parent, 500, 700)
     $child = [HstPdfPreviewCheck.Native]::FindWindowExW($parent, [IntPtr]::Zero, 'HSTOfficePdfPreview', $null)
     Check ($child -ne [IntPtr]::Zero) 'preview window created'
     $info = [HstPdfPreviewCheck.Native]::Scroll($child)
@@ -246,22 +262,17 @@ try {
     # page 3's square spans x 250..350 of 595 pt (0.42..0.59 of the page width); page 1's x 0.08..0.25
     Check ([HstPdfPreviewCheck.Native]::Dark($end, 0.46, 0.0, 0.56, 1.0) -gt 0.03) 'preview end shows page 3 square'
     Check ([HstPdfPreviewCheck.Native]::Dark($end, 0.12, 0.0, 0.22, 1.0) -lt 0.005) 'preview end does not show page 1'
-    $preview.Unload()
-    [void][Runtime.InteropServices.Marshal]::ReleaseComObject($pdfStream)  # this script's reference; the handler's must be gone
+    $session.Unload()
     Check ([HstPdfPreviewCheck.Native]::FindWindowExW($parent, [IntPtr]::Zero, 'HSTOfficePdfPreview', $null) -eq [IntPtr]::Zero) 'Unload destroys the preview window'
     $locked = $false
-    try { [IO.File]::Open($pdf, 'Open', 'ReadWrite', 'None').Close() } catch { $locked = $true }
+    try { [IO.File]::Open($previewPdf, 'Open', 'ReadWrite', 'None').Close() } catch { $locked = $true }
     Check (-not $locked) 'Unload releases the file'
-    [void][Runtime.InteropServices.Marshal]::ReleaseComObject($handler)
 
-    $handler = [HstPdfPreviewCheck.Native]::Create($PreviewClsid, [HstPdfPreviewCheck.IPreviewHandler].GUID)
-    ([HstPdfPreviewCheck.IInitializeWithStream]$handler).Initialize([HstPdfPreviewCheck.Native]::Open($broken), 0)
-    $preview = [HstPdfPreviewCheck.IPreviewHandler]$handler
-    $preview.SetWindow($parent, [ref]$rect); $preview.DoPreview()
+    $session = New-Object HstPdfPreviewCheck.Native+Preview($PreviewClsid, $broken, $parent, 500, 700)
     $child = [HstPdfPreviewCheck.Native]::FindWindowExW($parent, [IntPtr]::Zero, 'HSTOfficePdfPreview', $null)
     $msg = [HstPdfPreviewCheck.Native]::Capture($child); $msg.Save((Join-Path $Out 'preview-broken.png'))
     Check ([HstPdfPreviewCheck.Native]::Dark($msg, 0.0, 0.0, 1.0, 0.2) -gt 0.0005) 'broken PDF shows a message'
-    $preview.Unload(); [void][Runtime.InteropServices.Marshal]::ReleaseComObject($handler)
+    $session.Unload()
 } catch { Check $false "preview handler: $_" }
 finally { [void][HstPdfPreviewCheck.Native]::DestroyWindow($parent) }
 

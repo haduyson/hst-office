@@ -22,7 +22,7 @@ $log = Join-Path $Out "$Tag.log"
 function Log([string]$line) { Add-Content -LiteralPath $log -Value $line -Encoding UTF8; $line }
 Set-Content -LiteralPath $log -Value "start $(Get-Date -Format s)" -Encoding UTF8
 Add-Type -AssemblyName System.Drawing, System.Windows.Forms
-Add-Type -TypeDefinition @'
+Add-Type -ReferencedAssemblies System.Drawing -TypeDefinition @'
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
@@ -107,7 +107,7 @@ try {
         $previewWindows = @([HstExplorer]::Children($hwnd, 'HSTOfficePdfPreview'))
         if (-not $previewWindows) {
             $hosts = @([HstExplorer]::Children($hwnd, $null) | Where-Object { $_ -match '\|(\d+)\|' -and (Get-Process -Id $Matches[1] -ErrorAction SilentlyContinue).ProcessName -eq 'prevhost' })
-            Log "attempt $attempt: no HST preview window; prevhost windows: $($hosts -join '; ')"
+            Log "attempt ${attempt}: no HST preview window; prevhost windows: $($hosts -join '; ')"
             if ($hosts) { break }  # another handler is showing the preview
         }
     }
