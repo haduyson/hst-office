@@ -54,7 +54,7 @@ class FormulaRules(unittest.TestCase):
                      "x2", "abc", "MH370", "F1", "Mr.", "3-4"):
             with self.subTest(word):
                 changed = preview(word)
-                if word in ("F1",):  # an element followed by a digit is a formula by design (F₁ is fluorine)
+                if word in ("F1",):  # alone it is the whole target: formatted on purpose (see SingleElementContext)
                     continue
                 self.assertEqual(changed, word)
 
@@ -70,6 +70,30 @@ class FormulaRules(unittest.TestCase):
         for text in list(self.CASES) + ["Cu2+ + 2OH- -> Cu(OH)2"]:
             spans = [(e.start, e.end) for e in parse(text) if e.text is None]
             self.assertEqual(len(spans), len(set(spans)), text)
+
+
+class SingleElementContext(unittest.TestCase):
+    """One element plus digits ("F1", "B2") is formatted alone, as a common molecule, or beside chemistry."""
+
+    def test_ordinary_text_keeps_keys_levels_and_rooms(self):
+        for text in ("Nhấn F1 để mở trợ giúp.", "Chứng chỉ tiếng Anh B2, phòng C4", "Khí F2 rất độc",
+                     "Tầng K2, cửa V1"):
+            self.assertEqual(preview(text), text)
+
+    def test_common_molecules_and_chemistry_lines(self):
+        self.assertEqual(preview("Đốt H2 trong O2 tạo H2O"), "Đốt H₂ trong O₂ tạo H₂O")
+        self.assertEqual(preview("F2 + H2 -> 2HF"), "F₂ + H₂ → 2HF")
+        self.assertEqual(preview("Khí F2 → HF"), "Khí F₂ → HF")
+        self.assertEqual(preview("Cho K2 + Na2 vào"), "Cho K₂ + Na₂ vào")
+        self.assertEqual(preview("Khí F2 phản ứng với NaCl"), "Khí F₂ phản ứng với NaCl")
+
+    def test_a_single_word_is_always_formatted(self):
+        for word, expected in (("F2", "F₂"), ("B2", "B₂"), (" C4 ", " C₄ "), ("K2.", "K₂.")):
+            self.assertEqual(preview(word), expected)
+
+    def test_context_is_per_line_or_paragraph(self):
+        self.assertEqual(preview("Phòng C4\nH2SO4 loãng"), "Phòng C4\nH₂SO₄ loãng")
+        self.assertEqual(preview("Phòng C4\u2029F2 + H2 -> 2HF"), "Phòng C4\u2029F₂ + H₂ → 2HF")
 
 
 class _Cursor:

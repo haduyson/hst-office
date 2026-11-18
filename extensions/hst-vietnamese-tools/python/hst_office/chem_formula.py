@@ -10,6 +10,11 @@ or it has a subscript or a charge (so "Na+" and "O2" count, the lone word "C" or
 lowercase-only letters, Vietnamese letters, or element-looking runs that are not elements ("COVID", "A4", "Năm")
 are left alone.
 
+Context: one element and digits with nothing else ("F1", "B2", "C4", "K2") is often a key, a level or a room. Such a
+token is formatted when it is the whole target (the one selected word, or the word before the cursor), when it is a
+common one-element molecule (COMMON: H2, O2, O3, N2, Cl2, Br2, I2, S8, P4, C60), or when its line or paragraph has
+chemistry: a reaction arrow, another formula ("H2SO4", "Fe3+") or "formula + formula". Otherwise it stays as typed.
+
 Rules: a digit run right after an element symbol, ")" or "]" is subscript; a leading coefficient (also after the
 hydrate dot) stays normal; a trailing charge (digits + "+"/"-", or a lone sign) is superscript, and when digits run
 into the sign ("SO42-") the last digit is the charge and the rest the subscript; "-" in a charge becomes "−"
@@ -28,6 +33,10 @@ MINUS, DOT = "−", "·"
 ARROWS = (("<->", "⇌"), ("<=>", "⇌"), ("-->", "→"), ("->", "→"), ("=>", "→"))
 _TRIM = ",;:!?\"'“”‘’…"
 _PART = re.compile(r"[A-Z][a-z]?|\d+|[()\[\]]")
+_LINE_BREAK = re.compile("[\n\r\u2029\u2028]")
+_ARROW_ANYWHERE = re.compile("|".join(re.escape(a) for a, _ in ARROWS) + "|[\u2192\u21cc]")
+# one-element molecules formatted anywhere; F2 is not among them: F1–F12 are keyboard keys in ordinary text
+COMMON = frozenset("H2 O2 O3 N2 Cl2 Br2 I2 S8 P4 C60".split())
 
 
 class Edit:
@@ -94,6 +103,12 @@ def _parse_part(part, offset):
 
 def parse_token(token, offset=0):
     """Edits of one token, or [] when the token is not a formula."""
+    edits, formula = _token(token, offset)
+    return edits if formula else []
+
+
+def _token(token, offset):
+    """(edits, is a formula): "NaCl" is a formula without edits."""
     body, charge_at = _charge(token)
     parts = re.split(r"([.*·])", body)
     edits, elements, cursor = [], 0, offset
@@ -104,7 +119,7 @@ def parse_token(token, offset=0):
             continue
         parsed = _parse_part(part, cursor)
         if parsed is None:
-            return []
+            return [], False
         edits += parsed[0]
         elements += parsed[1]
         cursor += len(part)
@@ -117,22 +132,37 @@ def parse_token(token, offset=0):
         edits.append(Edit(sign_at, sign_at + 1, SUP))
         if token[-1] == "-":
             edits.append(Edit(sign_at, sign_at + 1, text=MINUS))
-    has_script = any(e.kind for e in edits)
-    return edits if elements >= 2 or has_script else []
+    return edits, elements >= 2 or any(e.kind for e in edits)
+
+
+def _ambiguous(token):
+    """One element and digits only ("F1", "B2", "2H2"): a key, a level or a room as often as a molecule."""
+    match = re.fullmatch(r"\d*([A-Z][a-z]?\d+)", token)
+    return bool(match) and match.group(1) not in COMMON
 
 
 def parse(text):
-    """Every edit of `text`, sorted by position: formula tokens and reaction arrows."""
-    edits = []
+    """Every edit of `text`, sorted by position: formula tokens and reaction arrows. An ambiguous token is formatted
+    only when it is the whole text, or its line has chemistry: an arrow, another formula or "formula + formula"."""
+    tokens, edits = [], []
     for match in re.finditer(r"\S+", text):
         token, start = match.group(0), match.start()
         stripped = token.rstrip(_TRIM)
         lead = len(stripped) - len(stripped.lstrip(_TRIM))
         stripped = stripped[lead:]
         stripped = stripped.rstrip(".")  # a full stop after a formula; a hydrate dot is never last
-        if any(arrow in stripped for arrow, _ in ARROWS):
-            continue
-        edits += parse_token(stripped, start + lead)
+        line = len(_LINE_BREAK.findall(text, 0, start))
+        found, formula = ([], False) if any(a in stripped for a, _ in ARROWS) else _token(stripped, start + lead)
+        tokens.append((line, stripped, found if formula else [], formula, formula and _ambiguous(stripped)))
+    chemistry = {line for line, _, _, formula, ambiguous in tokens if formula and not ambiguous}
+    chemistry |= {len(_LINE_BREAK.findall(text, 0, m.start())) for m in _ARROW_ANYWHERE.finditer(text)}
+    for before, plus, after in zip(tokens, tokens[1:], tokens[2:]):
+        if plus[1] == "+" and before[3] and after[3]:
+            chemistry.add(plus[0])
+    single = len(tokens) == 1
+    for line, _, found, _, ambiguous in tokens:
+        if not ambiguous or single or line in chemistry:
+            edits += found
     for arrow, replacement in ARROWS:
         for match in re.finditer(re.escape(arrow), text):
             if not any(e.start < match.end() and match.start() < e.end for e in edits):
