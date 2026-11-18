@@ -10,8 +10,6 @@ host's bundle id. They live inside the host bundle, so the dmg, notarization, th
 updates carry them along; HST Office copies them to /Applications or ~/Applications at its first start
 (hst_office/mac_app_launchers.py). Run before the bundle is signed: adhoc-sign.sh signs them as nested apps, and
 sign-notarize.sh re-signs them without upstream's parent-process launch constraint (they are started by the Dock).
-HST PDF has no artwork of its own yet: it shows the HST Draw icon, as its Linux launcher does (pdf.desktop), until
-assets/brand/icons/hst-pdf-<px>.png exist.
 """
 import argparse
 import os
@@ -31,7 +29,6 @@ EXECUTABLE = "hst-app-launcher"
 LAUNCHERS = (("writer", "HST Writer", "hst-writer", "writer"), ("calc", "HST Sheets", "hst-sheets", "sheets"),
              ("impress", "HST Slides", "hst-slides", "slides"), ("draw", "HST Draw", "hst-draw", "draw"),
              ("pdf", "HST PDF", "hst-pdf", "pdf"))
-ICON_FALLBACK = {"hst-pdf": "hst-draw"}  # a family without artwork yet -> the family whose icon it shows
 # iconset member -> pixel size (Apple iconset naming)
 MEMBERS = {
     "icon_16x16.png": 16, "icon_16x16@2x.png": 32, "icon_32x32.png": 32, "icon_32x32@2x.png": 64,
@@ -71,8 +68,6 @@ def launcher_info(host, module, name, suffix):
 
 def iconset_sources(family, icons=ICONS):
     """{iconset member: HST PNG of exactly that size} (pure apart from the file checks). Raises FileNotFoundError."""
-    if family in ICON_FALLBACK and not any(Path(icons).glob("%s-*.png" % family)):
-        family = ICON_FALLBACK[family]
     plan = {}
     for member, size in MEMBERS.items():
         path = Path(icons) / ("%s-%d.png" % (family, size))

@@ -66,24 +66,13 @@ class LauncherBundles(unittest.TestCase):
             MAKE.launcher_info(dict(HOST, CFBundleVersion=""), "writer", "HST Writer", "writer")
 
     def test_icons_come_from_the_hst_module_artwork(self):
-        for _module, _name, family, _suffix in MAKE.LAUNCHERS:
+        for _module, _name, family, _suffix in MAKE.LAUNCHERS:  # HST PDF included: its own crimson "PDF" tile
             plan = MAKE.iconset_sources(family)
             self.assertEqual(set(plan), set(MAKE.MEMBERS))
-            shown = MAKE.ICON_FALLBACK.get(family, family) if not (MAKE.ICONS / (family + "-16.png")).exists() else family
-            self.assertEqual(plan["icon_512x512@2x.png"].name, shown + "-1024.png")
+            self.assertEqual(plan["icon_512x512@2x.png"].name, family + "-1024.png")
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(FileNotFoundError):
                 MAKE.iconset_sources("hst-writer", tmp)
-
-    def test_hst_pdf_shows_the_draw_icon_until_it_has_its_own(self):
-        """As the Linux launcher (pdf.desktop: Icon=vn.hasontech.hstoffice-draw); own artwork wins once added."""
-        with tempfile.TemporaryDirectory() as tmp:
-            for size in set(MAKE.MEMBERS.values()):
-                (Path(tmp) / ("hst-draw-%d.png" % size)).write_bytes(b"d")
-            self.assertEqual(MAKE.iconset_sources("hst-pdf", tmp)["icon_16x16.png"].name, "hst-draw-16.png")
-            for size in set(MAKE.MEMBERS.values()):
-                (Path(tmp) / ("hst-pdf-%d.png" % size)).write_bytes(b"p")
-            self.assertEqual(MAKE.iconset_sources("hst-pdf", tmp)["icon_16x16.png"].name, "hst-pdf-16.png")
 
     def test_stub_reads_the_keys_the_bundle_writes(self):
         stub = (MACOS / "hst-app-launcher.m").read_text(encoding="utf-8")
