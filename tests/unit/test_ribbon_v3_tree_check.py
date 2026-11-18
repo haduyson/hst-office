@@ -120,6 +120,22 @@ class TreeCheckTest(unittest.TestCase):
         props = [(p.get("name"), p.text) for p in obj.findall("property")]
         self.assertEqual(props, [("can-focus", "True"), ("halign", "fill"), ("valign", "fill")])
 
+    def test_merged_box_and_tab_fill_the_page_height(self):
+        import importlib.util
+        from lxml import etree as ET
+        spec = importlib.util.spec_from_file_location(
+            "generate_ribbon_v3_ui", os.path.join(ROOT, "scripts/patches/generate-ribbon-v3-ui.py"))
+        G = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(G)
+        root = ET.fromstring(
+            '<object class="sfxlo-PriorityHBox" id="Page"><property name="valign">center</property><child>'
+            '<object class="sfxlo-PriorityMergedHBox" id="pmhbPage"><property name="valign">center</property>'
+            '</object><packing><property name="fill">True</property></packing></child></object>')
+        G.expand_box(root.find("child/object"))
+        valign = [o.find("property[@name='valign']").text for o in root.iter("object")]
+        self.assertEqual(valign, ["fill", "fill"])
+        self.assertEqual(root.find("child/packing/property[@name='expand']").text, "True")
+
 
 if __name__ == "__main__":
     unittest.main()
