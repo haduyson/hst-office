@@ -34,6 +34,14 @@ class FakeGit:
     def rev(self, ref):
         return self.tips.get(ref)
 
+    def run(self, *args):
+        """Only what the patch lint asks: no patch changes unless a test sets self.patch_files/self.patch_texts."""
+        if args[0] == "diff":
+            return 0, "\n".join(getattr(self, "patch_files", [])), ""
+        if args[0] == "show":
+            return 0, getattr(self, "patch_texts", {}).get(args[1].split(":", 1)[1], ""), ""
+        return 1, "", "unsupported"
+
     def out(self, *args):
         ref = args[-1].replace("^{commit}", "")
         return self.tips.get(ref[len("origin/"):] if ref.startswith("origin/") else ref)

@@ -34,6 +34,9 @@ DEFAULT_CONFIG = {
     "integration_branch": "rc/1.0.2-batch5",
     "integrator_refs": ["rc/1.0.2-batch*"],
     "agent_max_priority": 50,
+    # Pristine LibreOffice tree of the current base: the patch lint (queue_patch_lint.py) checks that -p1 paths of new
+    # or changed patches land under one of its top-level directories (or on one of its root files).
+    "lo_reference_tree": "/data/hst-upstream/libreoffice-26.8.3.1",
     # An integrator submit without --priority: above every agent job, below the trains.
     "integrator_priority": 60,
     # Build train (queue_train*.py): the integration branch + ready branches merged into train/<prefix>NNN, one build

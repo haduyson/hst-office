@@ -71,6 +71,10 @@ các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u
   - Commit mà so với build gần nhất còn đầu ra của nhánh (cùng nền tảng + loại job), hoặc, khi chưa có build nào,
     so với merge-base với `rc/1.0.2-batch5`, chỉ đổi `tests/`, `docs/`, `plans/` hay `*.md` thì bị từ chối (thoát 2,
     thông báo chỉ build nên dùng). Integrator ép bằng `--force --integrator`.
+  - Patch mới/đổi trong `patches/libreoffice/` (so với merge-base với `integration_branch`) phải có header
+    `diff --git a/… b/…` và `--- a/…`/`+++ b/…` (hoặc `/dev/null`), và đường dẫn sau `-p1` phải nằm trong một thư mục
+    cấp cao của cây LibreOffice (`lo_reference_tree`) hoặc là tệp sẵn có ở gốc; sai thì `submit` và `train add` từ
+    chối (thoát 2, nêu `<patch>:<dòng>`). Integrator ép bằng `--force --integrator`.
   - Submit commit mới của một nhánh tự huỷ job **đang chờ** (không bao giờ job đang chạy) của commit cũ cùng nhánh +
     nền tảng + loại job; job cũ ghi `superseded_by`. Submit bằng sha trần (nhãn `commit`) không huỷ gì.
 - Dispatcher là dịch vụ systemd `hst-build-queue` ([unit](../scripts/linux/hst-build-queue.service), `Restart=on-failure`,

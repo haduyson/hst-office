@@ -164,6 +164,15 @@ class TrainTestSetTest(TrainFlowCase):
         self.assertIn(cand["state"], ("ready", "in-train"))   # retried: maybe already in the next train
         self.assertEqual(cand["attempts"], 1)
 
+    def test_train_add_refuses_a_patch_that_would_land_at_the_source_root(self):
+        bare = ("diff --git sw/CppunitTest_sw_x.mk sw/CppunitTest_sw_x.mk\n--- /dev/null\n+++ sw/CppunitTest_sw_x.mk\n"
+                "@@ -0,0 +1 @@\n+x\n")
+        self.world.branch("fix/bare", {"patches/libreoffice/hst-bare.patch": bare},
+                          append={"patches/libreoffice/series": "hst-bare.patch"})
+        with self.assertRaisesRegex(ops.QueueError, r"(?s)patch lint failed.*hst-bare\.patch:1: "):
+            self.add("fix/bare")
+        self.assertNotIn("fix/bare", self.ts.branches())
+
     def test_a_new_prefix_numbers_from_001_next_to_the_old_records(self):
         self.ts.ensure()
         old = {"number": 1, "name": "train/1.0.2-001", "kind": "train", "state": "passed", "created": 1,

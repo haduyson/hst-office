@@ -9,6 +9,7 @@ import sys
 import time
 
 from .queue_git import Git
+from .queue_ops import refuse_bad_patches
 from .queue_rules import is_integrator, label_for, resolve_ref
 from .queue_store import PLATFORMS, REF_RE, QueueError, now_iso
 from .queue_train_store import CANDIDATE_FINAL, TrainStore
@@ -45,6 +46,7 @@ def add(store, branch, platform="both", resolver=resolve_ref, git=None, submitte
     git = git or Git()
     if git.out("rev-parse", "-q", "--verify", f"origin/{branch}^{{commit}}") is None:
         raise QueueError(f"{branch} is not on origin: push it first (the train merges origin/{branch})")
+    refuse_bad_patches(git, cfg, branch, sha)
     tip = git.rev(cfg["integration_branch"])
     if tip and git.is_ancestor(sha, tip):
         raise QueueError(f"{branch}@{sha[:10]} is already merged into {cfg['integration_branch']}")

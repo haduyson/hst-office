@@ -7,6 +7,7 @@ import sys
 import time
 
 from .queue_git import Git, is_docs_only
+from .queue_patch_lint import lint_commit
 from .queue_rules import (find_duplicate, is_integrator, job_key, job_kind, label_for, last_built, new_id, resolve_ref,
                           superseded, test_merge_target)
 from .queue_store import PLATFORMS, QueueError, now_iso
@@ -48,10 +49,12 @@ def submit(store, platform, ref, priority=None, package=True, modules=(), resolv
               file=err)
         priority = cfg["agent_max_priority"]
     sha = resolver(ref)
+    git = git or Git()
+    if not internal and not force:
+        refuse_bad_patches(git, cfg, ref, sha)
     key = job_key(platform, sha, package, modules, tests)
     label = label_for(ref, sha)
     kind = job_kind({"tests": tests, "modules": modules})
-    git = git or Git()
     with store.lock():
         jobs = store.all()
         dup = find_duplicate(jobs, key)
@@ -132,6 +135,16 @@ def collapse_test_jobs(store, dry_run=False, out=None):
     for kept, others in done:
         print(f"{'would fold' if dry_run else 'folded'} {', '.join(others)} into {kept}", file=out)
     return done
+
+
+def refuse_bad_patches(git, cfg, ref, sha):
+    """QueueError when a patch the commit adds or changes would not apply where it should with `patch -p1`."""
+    problems = lint_commit(git, cfg["integration_branch"], sha, cfg.get("lo_reference_tree"))
+    if problems:
+        raise QueueError(f"{ref}@{sha[:10]}: patch lint failed, the build would apply files in the wrong place:\n  "
+                         + "\n  ".join(problems[:20]) + ("\n  ..." if len(problems) > 20 else "")
+                         + "\nFix the diff headers (git format-patch / git diff output keeps a/ and b/). The integrator "
+                         "can override with --force --integrator")
 
 
 def refuse_docs_only(jobs, cfg, git, platform, ref, label, kind, sha):
