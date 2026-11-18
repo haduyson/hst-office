@@ -45,6 +45,9 @@ SERVICES = (
     ("save_format_check", "SaveFormatCheck", "org.hst.office.vi.SaveFormatCheck", ("org.hst.office.vi.SaveFormatCheck",)),
     ("banner_uno", "BannerService", "org.hst.office.BannerFeed", ("org.hst.office.BannerFeed",) + JOB),
     ("banner_uno", "BannerStartup", "org.hst.office.BannerStartup", ("org.hst.office.BannerStartup",) + JOB),
+    # HST PDF started on its own (Windows shortcut, Linux launcher): "service:org.hst.office.vi.PdfOpen" on the
+    # command line opens the PDF file dialog
+    ("pdf_open", "PdfOpenJob", "org.hst.office.vi.PdfOpen", ("org.hst.office.vi.PdfOpen",)),
 )
 
 

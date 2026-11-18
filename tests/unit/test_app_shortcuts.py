@@ -40,7 +40,11 @@ class MacDock(unittest.TestCase):
         self.assertEqual(sc.mac_launchers(HOST), [
             ("HST Writer", HOST + "/Contents/Helpers/HST Writer.app"),
             ("HST Sheets", HOST + "/Contents/Helpers/HST Sheets.app"),
-            ("HST Slides", HOST + "/Contents/Helpers/HST Slides.app")])
+            ("HST Slides", HOST + "/Contents/Helpers/HST Slides.app"),
+            ("HST Draw", HOST + "/Contents/Helpers/HST Draw.app"),
+            ("HST PDF", HOST + "/Contents/Helpers/HST PDF.app")])
+        from hst_office import mac_app_launchers
+        self.assertEqual(tuple(name for name, _path in sc.mac_launchers(HOST)), mac_app_launchers.NAMES)
 
     def test_url_is_percent_encoded_with_a_trailing_slash(self):
         self.assertEqual(sc.dock_url(HOST + "/Contents/Helpers/HST Writer.app"),
@@ -61,7 +65,7 @@ class MacDock(unittest.TestCase):
         launchers = sc.mac_launchers(HOST)
         self.assertEqual(sc.missing_from_dock(launchers, dock()), launchers)
         pinned = dock(launchers[1][1], other=("file:///Applications/Safari.app/", "https://example.com/", 7))
-        self.assertEqual(sc.missing_from_dock(launchers, pinned), [launchers[0], launchers[2]])
+        self.assertEqual(sc.missing_from_dock(launchers, pinned), [launchers[0]] + launchers[2:])
         self.assertEqual(sc.missing_from_dock(launchers, dock(*(p for _n, p in launchers))), [])
         self.assertEqual(sc.missing_from_dock(launchers, {}), launchers)
         self.assertEqual(sc.missing_from_dock(launchers, {"persistent-apps": [{"tile-type": "spacer-tile"}]}), launchers)
@@ -78,7 +82,7 @@ class MacDock(unittest.TestCase):
         with mock.patch.object(sc.subprocess, "run", side_effect=run):
             sc.add_to_dock(launchers)
         writes = [c for c in calls if c[:2] == ["defaults", "write"]]
-        self.assertEqual(len(writes), 3)
+        self.assertEqual(len(writes), 5)
         self.assertTrue(all(c[2:5] == ["com.apple.dock", "persistent-apps", "-array-add"] for c in writes))
         self.assertEqual(calls[-1], ["killall", "Dock"])
 

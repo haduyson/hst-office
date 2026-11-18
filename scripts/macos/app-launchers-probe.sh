@@ -307,7 +307,7 @@ _launchers, left = s.dock_status(sys.argv[1])
 print("missing after:", [n for n, _p in left])
 sys.exit(1 if left else 0)' "$app" "$ext_py"
 }
-check "Thêm vào Dock pins HST Writer, HST Sheets and HST Slides" dock_add
+check "Thêm vào Dock pins all five launchers" dock_add
 sleep 5; shot dock
 defaults export com.apple.dock - > "$out/dock.plist" 2>/dev/null || true
 check "HST Writer opens again after the Dock restart" opens "$app/Contents/Helpers/HST Writer.app" writer

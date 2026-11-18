@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Tùy chọn ▸ HST Office ▸ Mở tài liệu ▸ "Lối tắt ứng dụng" (dialogs/DefaultApps.xdl, options_page.py).
 
-macOS: "Thêm vào Dock" pins HST Writer, HST Sheets and HST Slides, and "Gỡ biểu tượng ứng dụng" / "Thêm lại biểu tượng
+macOS: "Thêm vào Dock" pins HST Writer, HST Sheets, HST Slides, HST Draw and HST PDF, and "Gỡ biểu tượng ứng dụng" / "Thêm lại biểu tượng
 ứng dụng" remove or restore the five launchers in /Applications (mac_app_launchers_ui); Linux: "Tạo lối tắt trên màn
 hình nền". They ask first and change nothing on "Để sau". On Windows the installer creates the shortcuts, so the
 section is hidden.
@@ -13,15 +13,15 @@ from . import diag_log
 
 TITLE = "Lối tắt ứng dụng"
 NAMES = "HST Writer, HST Sheets và HST Slides"
+MAC_NAMES = "HST Writer, HST Sheets, HST Slides, HST Draw và HST PDF"
 LATER = "Để sau"
 TEXTS = {
     "Darwin": {
-        "note": "HST Writer, HST Sheets, HST Slides, HST Draw và HST PDF có trong Launchpad và thư mục Ứng dụng. "
-                "Ghim %s vào Dock để mở thẳng từng ứng dụng." % NAMES,
+        "note": "%s có trong Launchpad và thư mục Ứng dụng; ghim chúng vào Dock để mở thẳng từng ứng dụng." % MAC_NAMES,
         "button": "Thêm vào Dock",
-        "ask": "Thêm %s vào Dock?\nDock sẽ khởi động lại trong giây lát." % NAMES,
-        "done": "Đã thêm %s vào Dock." % NAMES,
-        "already": "%s đã có trong Dock." % NAMES,
+        "ask": "Thêm %s vào Dock?\nDock sẽ khởi động lại trong giây lát." % MAC_NAMES,
+        "done": "Đã thêm %s vào Dock." % MAC_NAMES,
+        "already": "%s đã có trong Dock." % MAC_NAMES,
     },
     "Linux": {
         "note": "Đặt lối tắt %s lên màn hình nền." % NAMES,
