@@ -1,0 +1,77 @@
+HST Office: Windows media playback no longer leaves MFPlay calling into a deleted player.
+
+A Player gets a new MFPlay player for every view that shows it (createPlayerWindow, the video Window, start()
+for background sounds), and InitializeWindow released the previous one without IMFPMediaPlayer::Shutdown().
+MFPlay keeps its own reference to the callback and keeps posting events from the message loop until Shutdown;
+the Player itself is deleted by its UNO reference count, which ignores the COM one. A later event then called
+OnMediaPlayerEvent on a deleted Player: access violation inside MFPlay.DLL dispatched from the office's
+message loop (Slides on Windows 11, 1.0.2, 70-90 s after opening two presentations). Every release now shuts
+the player down first (ReleaseMediaPlayer), the destructor stops MFPlay before destroying the window it
+renders into, and OnClose no longer posts WM_QUIT to the office's main thread (sample-code leftover that could
+end a modal loop running at that moment). Not fixed upstream (26.8.3, master 2026-11).
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+diff --git a/avmedia/source/win/player.cxx b/avmedia/source/win/player.cxx
+index 22912b3..1f53f80 100644
+--- a/avmedia/source/win/player.cxx
++++ b/avmedia/source/win/player.cxx
+@@ -74,9 +74,20 @@ Player::Player() :
+ 
+ Player::~Player()
+ {
++    // Stop MFPlay first: it renders into mnFrameWnd and calls back into this object.
++    ReleaseMediaPlayer();
++
+     if( mnFrameWnd )
+         ::DestroyWindow( mnFrameWnd );
++}
+ 
++// MFPlay keeps its own reference to the callback (this Player) and keeps posting events to it from
++// the thread's message loop until Shutdown() is called; releasing the interface alone does not stop
++// it. This object is deleted by its UNO reference count, which ignores the COM one, so a player that
++// was released without Shutdown() later called OnMediaPlayerEvent on a deleted Player: an access
++// violation inside MFPlay.dll, dispatched from the office's message loop.
++void Player::ReleaseMediaPlayer()
++{
+     if (g_pPlayer)
+         g_pPlayer->Shutdown();
+     SafeRelease(&g_pPlayer);
+@@ -211,11 +222,9 @@ void Player::setNotifyWnd( HWND nNotifyWnd )
+ //-------------------------------------------------------------------
+ void Player::OnClose(HWND /*hwnd*/)
+ {
+-    if (g_pPlayer)
+-        g_pPlayer->Shutdown();
+-    SafeRelease(&g_pPlayer);
+-
+-    PostQuitMessage(0);
++    // No PostQuitMessage(): this runs on the office's main thread, whose message loop (or a modal
++    // loop running at that moment) must not be told to quit when a media object goes away.
++    ReleaseMediaPlayer();
+ }
+ 
+ //-------------------------------------------------------------------
+@@ -358,7 +367,9 @@ void Player::ShowErrorMessage(HRESULT hrErr, bool bPopUpWin)
+ HRESULT Player::InitializeWindow(bool bAddSoundWindow)
+ {
+     HRESULT hr = S_OK;
+-    SafeRelease(&g_pPlayer);
++    // A Player gets a new MFPlay player for every view that shows it (createPlayerWindow, the
++    // video Window, start() for background sounds): shut the previous one down.
++    ReleaseMediaPlayer();
+ 
+     if (bAddSoundWindow)
+     {
+diff --git a/avmedia/source/win/player.hxx b/avmedia/source/win/player.hxx
+index 5d97ea3..7ea9a9e 100644
+--- a/avmedia/source/win/player.hxx
++++ b/avmedia/source/win/player.hxx
+@@ -89,6 +89,7 @@ public:
+ 
+     // Window message handlers
+     void    OnClose(HWND hwnd);
++    void    ReleaseMediaPlayer();
+     void    OnPaint(HWND hwnd);
+     void    OnSize(HWND hwnd, UINT state, int cx, int cy);
+ 
