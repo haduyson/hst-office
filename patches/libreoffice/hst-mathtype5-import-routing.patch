@@ -1,0 +1,362 @@
+HST Office: open MathType 4-7 equations as Math formulas when the user asks for it.
+
+New option Office.Common/Filter/Microsoft/Import/MathType5ToMath (default off). When it is on,
+.doc/.xls/.ppt (msfilter) and .docx/.rtf (writerfilter) convert "Equation.DSMT4" OLE objects.
+A formula that fails to convert keeps its OLE object. In Writer the converted formula is a
+normal Math object on the Math baseline; Word's run position shift only applies to the OLE
+objects that stay. The DOCX/RTF logic lives in sw/source/writerfilter/hst/.
+
+diff --git a/filter/source/msfilter/msdffimp.cxx b/filter/source/msfilter/msdffimp.cxx
+index b3184b2..7cffec4 100644
+--- a/filter/source/msfilter/msdffimp.cxx
++++ b/filter/source/msfilter/msdffimp.cxx
+@@ -7132,6 +7132,7 @@ css::uno::Reference < css::embed::XEmbeddedObject >  SvxMSDffManager::CheckForCo
+         } aArr[] {
+             { OLE_MATHTYPE_2_STARMATH, u"smath"_ustr, MSO_EQUATION3_CLASSID },
+             { OLE_MATHTYPE_2_STARMATH, u"smath"_ustr, MSO_EQUATION2_CLASSID },
++            { OLE_MATHTYPE5_2_STARMATH, u"smath"_ustr, MSO_EQUATION_DSMT4_CLASSID },
+             { OLE_WINWORD_2_STARWRITER, u"swriter"_ustr, MSO_WW8_CLASSID },
+             // Excel table
+             { OLE_EXCEL_2_STARCALC, u"scalc"_ustr, MSO_EXCEL5_CLASSID },
+diff --git a/include/filter/msfilter/classids.hxx b/include/filter/msfilter/classids.hxx
+index 2d32742..3e2eec5 100644
+--- a/include/filter/msfilter/classids.hxx
++++ b/include/filter/msfilter/classids.hxx
+@@ -17,6 +17,11 @@
+     0x0002ce02L, 0x0000, 0x0000, \
+     0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46
+ 
++// MathType 4-7 ("Equation.DSMT4")
++#define MSO_EQUATION_DSMT4_CLASSID \
++    0x0002ce03L, 0x0000, 0x0000, \
++    0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46
++
+ #define MSO_WW8_CLASSID \
+     0x00020906L, 0x0000, 0x0000, \
+     0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46
+diff --git a/include/filter/msfilter/msdffimp.hxx b/include/filter/msfilter/msdffimp.hxx
+index 9744ba5..b659aba 100644
+--- a/include/filter/msfilter/msdffimp.hxx
++++ b/include/filter/msfilter/msdffimp.hxx
+@@ -151,6 +151,8 @@ typedef ::std::multiset< std::shared_ptr<SvxMSDffShapeInfo>,
+ #define OLE_WINWORD_2_STARWRITER            0x0002
+ #define OLE_EXCEL_2_STARCALC                0x0004
+ #define OLE_POWERPOINT_2_STARIMPRESS        0x0008
++// HST Office: MathType 4-7 equations ("Equation.DSMT4", MTEF 5)
++#define OLE_MATHTYPE5_2_STARMATH            0x0010
+ 
+ struct SvxMSDffConnectorRule
+ {
+diff --git a/officecfg/registry/schema/org/openoffice/Office/Common.xcs b/officecfg/registry/schema/org/openoffice/Office/Common.xcs
+index a88f40e..1cee9e0 100644
+--- a/officecfg/registry/schema/org/openoffice/Office/Common.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Common.xcs
+@@ -3275,6 +3275,14 @@
+             </info>
+             <value>true</value>
+           </prop>
++          <prop oor:name="MathType5ToMath" oor:type="xs:boolean" oor:nillable="false">
++            <info>
++              <desc>Specifies if MathType 4-7 equations (Equation.DSMT4) are converted
++              into Math objects when a document is opened. Otherwise they stay OLE objects
++              that can be converted on request.</desc>
++            </info>
++            <value>false</value>
++          </prop>
+           <prop oor:name="WinWordToWriter" oor:type="xs:boolean" oor:nillable="false">
+             <info>
+               <desc>Specifies if convertible WinWord OLE objects are converted
+diff --git a/sc/source/filter/excel/xiescher.cxx b/sc/source/filter/excel/xiescher.cxx
+index 1ad7e5c..2f27fd5 100644
+--- a/sc/source/filter/excel/xiescher.cxx
++++ b/sc/source/filter/excel/xiescher.cxx
+@@ -3350,6 +3350,8 @@ XclImpDffConverter::XclImpDffConverter( const XclImpRoot& rRoot, SvStream& rDffS
+ {
+     if( officecfg::Office::Common::Filter::Microsoft::Import::MathTypeToMath::get() )
+         mnOleImpFlags |= OLE_MATHTYPE_2_STARMATH;
++    if( officecfg::Office::Common::Filter::Microsoft::Import::MathType5ToMath::get() )
++        mnOleImpFlags |= OLE_MATHTYPE5_2_STARMATH;
+     if( officecfg::Office::Common::Filter::Microsoft::Import::WinWordToWriter::get() )
+         mnOleImpFlags |= OLE_WINWORD_2_STARWRITER;
+     if( officecfg::Office::Common::Filter::Microsoft::Import::PowerPointToImpress::get() )
+diff --git a/sd/source/filter/ppt/pptin.cxx b/sd/source/filter/ppt/pptin.cxx
+index 06e8f41..73e884f 100644
+--- a/sd/source/filter/ppt/pptin.cxx
++++ b/sd/source/filter/ppt/pptin.cxx
+@@ -199,6 +199,8 @@ ImplSdPPTImport::ImplSdPPTImport( SdDrawDocument& rDocument, SotStorage& rStorag
+         mnFilterOptions |= 1;
+     if ( officecfg::Office::Common::Filter::Microsoft::Import::MathTypeToMath::get() )
+         nSvxMSDffOLEConvFlags2 |= OLE_MATHTYPE_2_STARMATH;
++    if ( officecfg::Office::Common::Filter::Microsoft::Import::MathType5ToMath::get() )
++        nSvxMSDffOLEConvFlags2 |= OLE_MATHTYPE5_2_STARMATH;
+     if ( officecfg::Office::Common::Filter::Microsoft::Import::WinWordToWriter::get() )
+         nSvxMSDffOLEConvFlags2 |= OLE_WINWORD_2_STARWRITER;
+     if ( officecfg::Office::Common::Filter::Microsoft::Import::ExcelToCalc::get() )
+diff --git a/sw/Library_sw_writerfilter.mk b/sw/Library_sw_writerfilter.mk
+index 224b73d..1184f4a 100644
+--- a/sw/Library_sw_writerfilter.mk
++++ b/sw/Library_sw_writerfilter.mk
+@@ -102,6 +102,7 @@ $(eval $(call gb_Library_add_exception_objects,sw_writerfilter,\
+     sw/source/writerfilter/dmapper/ModelEventListener \
+     sw/source/writerfilter/dmapper/NumberingManager \
+     sw/source/writerfilter/dmapper/OLEHandler \
++    sw/source/writerfilter/hst/mathtypeole \
+     sw/source/writerfilter/dmapper/PageBordersHandler \
+     sw/source/writerfilter/dmapper/PropertyIds \
+     sw/source/writerfilter/dmapper/PropertyMap \
+diff --git a/sw/source/filter/ww8/ww8par.cxx b/sw/source/filter/ww8/ww8par.cxx
+index 59260bb..891acee 100644
+--- a/sw/source/filter/ww8/ww8par.cxx
++++ b/sw/source/filter/ww8/ww8par.cxx
+@@ -510,6 +510,8 @@ sal_uInt32 SwMSDffManager::GetFilterFlags()
+     sal_uInt32 nFlags(0);
+     if (officecfg::Office::Common::Filter::Microsoft::Import::MathTypeToMath::get())
+         nFlags |= OLE_MATHTYPE_2_STARMATH;
++    if (officecfg::Office::Common::Filter::Microsoft::Import::MathType5ToMath::get())
++        nFlags |= OLE_MATHTYPE5_2_STARMATH;
+     if (officecfg::Office::Common::Filter::Microsoft::Import::ExcelToCalc::get())
+         nFlags |= OLE_EXCEL_2_STARCALC;
+     if (officecfg::Office::Common::Filter::Microsoft::Import::PowerPointToImpress::get())
+diff --git a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
+index 8c4e14a..0192f2c 100644
+--- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
++++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
+@@ -27,6 +27,7 @@
+ #include "SdtHelper.hxx"
+ #include "DomainMapperTableHandler.hxx"
+ #include "TagLogger.hxx"
++#include "../hst/mathtypeole.hxx"
+ #include <com/sun/star/uno/XComponentContext.hpp>
+ #include <com/sun/star/graphic/XGraphic.hpp>
+ #include <com/sun/star/beans/PropertyAttribute.hpp>
+@@ -3816,6 +3817,13 @@ void DomainMapper_Impl::appendOLE( const OUString& rStreamName, const std::share
+         if (!m_aTextAppendStack.empty())
+             m_aTextAppendStack.pop();
+ 
++        // HST Office: a MathType 4-7 equation converted on open sits on the Math baseline
++        // instead of Word's run position; if it can't be converted the OLE object stays
++        if (auto xFormula = writerfilter::hst::ConvertMathType5Ole(
++                pOLEHandler->getProgId(), pOLEHandler->getNativeData(), m_aBaseUrl);
++            xFormula.is())
++            return appendStarMathObject(xFormula, false);
++
+         appendTextContent( xOLE, uno::Sequence< beans::PropertyValue >() );
+         applyRunPositionToInlineObject(xOLE, aSize.Height);
+ 
+@@ -3836,7 +3844,12 @@ void DomainMapper_Impl::appendStarMath( const Value& val )
+     val.getAny() >>= formula;
+     if( !formula.is() )
+         return;
++    appendStarMathObject(formula);
++}
+ 
++void DomainMapper_Impl::appendStarMathObject(const uno::Reference<embed::XEmbeddedObject>& formula,
++                                             bool bScaleToText)
++{
+     try
+     {
+         rtl::Reference<SwXTextEmbeddedObject> xStarMath = m_xTextDocument->createTextEmbeddedObject();
+@@ -3870,7 +3883,7 @@ void DomainMapper_Impl::appendStarMath( const Value& val )
+         // The object is laid out at 12 pt and scaled to the text size.
+         double fCharHeight = 0;
+         double fScale = 1.0;
+-        if ((GetAnyProperty(PROP_CHAR_HEIGHT, GetTopContext()) >>= fCharHeight) && fCharHeight >= 1
++        if (bScaleToText && (GetAnyProperty(PROP_CHAR_HEIGHT, GetTopContext()) >>= fCharHeight) && fCharHeight >= 1
+             && fCharHeight <= 400 && std::round(fCharHeight) != 12)
+         {
+             xComponentProperties->setPropertyValue(u"BaseFontHeight"_ustr,
+diff --git a/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx b/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx
+index 02d3929..7e1b263 100644
+--- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx
++++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx
+@@ -851,6 +851,8 @@ public:
+     void appendTextContent(const css::uno::Reference<css::text::XTextContent>&, const css::uno::Sequence<css::beans::PropertyValue>&);
+     void appendOLE( const OUString& rStreamName, const std::shared_ptr<OLEHandler>& pOleHandler );
+     void appendStarMath( const Value& v);
++    void appendStarMathObject(const css::uno::Reference<css::embed::XEmbeddedObject>& formula,
++                              bool bScaleToText = true);
+     void adjustLastPara(sal_Int8 nAlign);
+     rtl::Reference<SwXTextSection> appendTextSectionAfter(css::uno::Reference<css::text::XTextRange> const & xBefore);
+ 
+diff --git a/sw/source/writerfilter/dmapper/OLEHandler.cxx b/sw/source/writerfilter/dmapper/OLEHandler.cxx
+index 94a8597..c3ee763 100644
+--- a/sw/source/writerfilter/dmapper/OLEHandler.cxx
++++ b/sw/source/writerfilter/dmapper/OLEHandler.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ #include "OLEHandler.hxx"
++#include "../hst/mathtypeole.hxx"
+ #include "DomainMapper.hxx"
+ #include "GraphicHelpers.hxx"
+ 
+@@ -295,11 +296,14 @@ OUString OLEHandler::copyOLEOStream(rtl::Reference<SwXTextDocument> const& xText
+         {
+             const sal_Int32 nReadRequest = 0x1000;
+             uno::Sequence< sal_Int8 > aData;
++            const bool bKeepData = writerfilter::hst::WantsMathType5Data(m_sProgId);
+ 
+             while( true )
+             {
+                 sal_Int32 nRead = m_xInputStream->readBytes( aData, nReadRequest );
+                 xOLEStream->writeBytes( aData );
++                if (bKeepData)
++                    m_aNativeData.insert(m_aNativeData.end(), aData.begin(), aData.end());
+                 if( nRead < nReadRequest )
+                 {
+                     xOLEStream->closeOutput();
+diff --git a/sw/source/writerfilter/dmapper/OLEHandler.hxx b/sw/source/writerfilter/dmapper/OLEHandler.hxx
+index cd5d59d..715618f 100644
+--- a/sw/source/writerfilter/dmapper/OLEHandler.hxx
++++ b/sw/source/writerfilter/dmapper/OLEHandler.hxx
+@@ -24,6 +24,8 @@
+ #include <com/sun/star/text/WrapTextMode.hpp>
+ #include <rtl/ref.hxx>
+ 
++#include <vector>
++
+ class SwXTextDocument;
+ namespace com::sun::star{
+     namespace graphic{
+@@ -59,6 +61,7 @@ class OLEHandler : public LoggedProperties
+     css::uno::Reference<css::drawing::XShape> m_xShape;
+ 
+     css::uno::Reference<css::io::XInputStream> m_xInputStream;
++    std::vector<sal_Int8> m_aNativeData; ///< HST Office: kept for MathType 5 conversion
+     DomainMapper& m_rDomainMapper;
+ 
+     // Properties
+@@ -81,6 +84,9 @@ public:
+     /// Get the CLSID of the OLE object, in case we can find one based on m_sProgId.
+     OUString getCLSID() const;
+ 
++    const OUString& getProgId() const { return m_sProgId; }
++    const std::vector<sal_Int8>& getNativeData() const { return m_aNativeData; }
++
+     OUString const & GetDrawAspect() const;
+     OUString const & GetVisAreaWidth() const;
+     OUString const & GetVisAreaHeight() const;
+diff --git a/sw/source/writerfilter/hst/mathtypeole.cxx b/sw/source/writerfilter/hst/mathtypeole.cxx
+new file mode 100644
+index 0000000..d646fd5
+--- /dev/null
++++ b/sw/source/writerfilter/hst/mathtypeole.cxx
+@@ -0,0 +1,81 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "mathtypeole.hxx"
++
++#include <com/sun/star/document/XFilter.hpp>
++#include <com/sun/star/document/XImporter.hpp>
++#include <com/sun/star/io/XInputStream.hpp>
++#include <com/sun/star/lang/XComponent.hpp>
++#include <com/sun/star/util/XCloseable.hpp>
++#include <comphelper/classids.hxx>
++#include <comphelper/embeddedobjectcontainer.hxx>
++#include <comphelper/mimeconfighelper.hxx>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <comphelper/seqstream.hxx>
++#include <comphelper/diagnose_ex.hxx>
++#include <officecfg/Office/Common.hxx>
++
++using namespace css;
++
++namespace writerfilter::hst
++{
++bool WantsMathType5Data(std::u16string_view rProgId)
++{
++    return rProgId == u"Equation.DSMT4"
++           && officecfg::Office::Common::Filter::Microsoft::Import::MathType5ToMath::get();
++}
++
++uno::Reference<embed::XEmbeddedObject>
++ConvertMathType5Ole(std::u16string_view rProgId, const std::vector<sal_Int8>& rData,
++                    const OUString& rBaseURL)
++{
++    if (rData.empty() || !WantsMathType5Data(rProgId))
++        return {};
++    uno::Reference<embed::XEmbeddedObject> xObj;
++    try
++    {
++        comphelper::EmbeddedObjectContainer aContainer;
++        OUString aName;
++        xObj = aContainer.CreateEmbeddedObject(
++            comphelper::MimeConfigurationHelper::GetSequenceClassID(SO3_SM_CLASSID), aName,
++            rBaseURL);
++        if (!xObj.is())
++            return {};
++        uno::Reference<uno::XComponentContext> xContext = comphelper::getProcessComponentContext();
++        uno::Reference<document::XImporter> xImporter(
++            xContext->getServiceManager()->createInstanceWithContext(
++                u"com.sun.star.comp.Math.MathTypeFilter"_ustr, xContext),
++            uno::UNO_QUERY_THROW);
++        xImporter->setTargetDocument(
++            uno::Reference<lang::XComponent>(xObj->getComponent(), uno::UNO_QUERY_THROW));
++        uno::Reference<io::XInputStream> xStream(new comphelper::SequenceInputStream(
++            uno::Sequence<sal_Int8>(rData.data(), rData.size())));
++        uno::Reference<document::XFilter> xFilter(xImporter, uno::UNO_QUERY_THROW);
++        if (xFilter->filter({ comphelper::makePropertyValue(u"InputStream"_ustr, xStream) }))
++            return xObj;
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("writerfilter", "MathType 5 equation not converted");
++    }
++    if (xObj.is())
++    {
++        try
++        {
++            xObj->close(true);
++        }
++        catch (const uno::Exception&)
++        {
++        }
++    }
++    return {};
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/writerfilter/hst/mathtypeole.hxx b/sw/source/writerfilter/hst/mathtypeole.hxx
+new file mode 100644
+index 0000000..835e041
+--- /dev/null
++++ b/sw/source/writerfilter/hst/mathtypeole.hxx
+@@ -0,0 +1,31 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <com/sun/star/embed/XEmbeddedObject.hpp>
++#include <com/sun/star/uno/Reference.hxx>
++#include <rtl/ustring.hxx>
++#include <sal/types.h>
++
++#include <string_view>
++#include <vector>
++
++// MathType 4-7 equations ("Equation.DSMT4") in DOCX and RTF: converted to Math objects on open
++// when the user turned that on; otherwise, or if conversion fails, they stay OLE objects.
++namespace writerfilter::hst
++{
++/// True if the OLE data of an object with this ProgId should be kept for conversion
++bool WantsMathType5Data(std::u16string_view rProgId);
++
++/// A new Math object made from the OLE compound file data, or empty (keep the OLE object)
++css::uno::Reference<css::embed::XEmbeddedObject>
++ConvertMathType5Ole(std::u16string_view rProgId, const std::vector<sal_Int8>& rData,
++                    const OUString& rBaseURL);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

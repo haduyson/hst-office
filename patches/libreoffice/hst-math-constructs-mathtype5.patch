@@ -1,0 +1,965 @@
+HST Office: arc and text arrows in Math; MathType 4-7 equations go to an HST reader.
+
+New StarMath constructs: "widearc {AB}" (arc over a name, geometry) and the arrows with text
+over and under them, "{over} xrightarrow {under}", xleftarrow, xrightleftarrows and
+xrightleftharpoons (reaction conditions in chemistry); the arrow stretches with its texts.
+They are written to and read from OMML and RTF. The OMML import also keeps a relation that
+starts a line ("= 105") and a single left script, which were lost on a .docx round trip.
+
+MathType::Parse hands MTEF version 5 ("Equation.DSMT4", MathType 4-7) to the HST reader
+(starmath/source/hst/mtef5converter.hxx) and applies the equation's own base size. A failed
+conversion returns false, so callers keep the OLE object.
+The logic lives in HST-owned files under starmath/source/hst/.
+
+diff --git a/starmath/CppunitTest_starmath_qa_cppunit.mk b/starmath/CppunitTest_starmath_qa_cppunit.mk
+index b79aa71..39c3c8c 100644
+--- a/starmath/CppunitTest_starmath_qa_cppunit.mk
++++ b/starmath/CppunitTest_starmath_qa_cppunit.mk
+@@ -63,6 +63,7 @@ $(eval $(call gb_CppunitTest_add_exception_objects,starmath_qa_cppunit,\
+     starmath/qa/cppunit/test_node \
+     starmath/qa/cppunit/test_nodetotextvisitors \
+     starmath/qa/cppunit/test_parse \
++    starmath/qa/cppunit/test_hst_formula_constructs \
+     starmath/qa/cppunit/test_starmath \
+ ))
+ 
+diff --git a/starmath/Library_sm.mk b/starmath/Library_sm.mk
+index 57a19e1..51f9eab 100644
+--- a/starmath/Library_sm.mk
++++ b/starmath/Library_sm.mk
+@@ -18,6 +18,7 @@ $(eval $(call gb_Library_set_precompiled_header,sm,starmath/inc/pch/precompiled_
+ $(eval $(call gb_Library_set_include,sm,\
+         -I$(SRCDIR)/starmath/inc \
+         -I$(SRCDIR)/starmath/inc/mathml \
++        -I$(SRCDIR)/emfio/source/reader \
+         -I$(WORKDIR)/SdiTarget/starmath/sdi \
+         $$(INCLUDE) \
+ ))
+@@ -81,6 +82,10 @@ $(eval $(call gb_Library_add_exception_objects,sm,\
+         starmath/source/smediteng \
+         starmath/source/format \
+         starmath/source/mathtype \
++        starmath/source/hst/mathtypeglue \
++        starmath/source/hst/mtef5converter \
++        starmath/source/hst/ommlfixes \
++        starmath/source/hst/textarrow \
+         starmath/source/node \
+         starmath/source/ooxmlexport \
+         starmath/source/ooxmlimport \
+diff --git a/starmath/inc/token.hxx b/starmath/inc/token.hxx
+index 41522a9..7e9ac01 100644
+--- a/starmath/inc/token.hxx
++++ b/starmath/inc/token.hxx
+@@ -120,13 +120,14 @@ enum SmTokenType
+     TFIXED,         TSANS,          TSERIF,                         // Types
+     TACUTE,         TGRAVE,         THAT,           TBREVE,         // Accents
+     TWIDEVEC,       TWIDELVEC,      TWIDEHARPOON,   TWIDELHARPOON,
+-    TWIDETILDE,     TWIDEHAT,                                       // Wide math
++    TWIDETILDE,     TWIDEHAT,       TWIDEARC,                       // Wide math
+     TVEC,           TLVEC,          THARPOON,       TLHARPOON,
+     TTILDE,         TCIRCLE,                                        // math
+     TCHECK,
+     TTEXT,          TNUMBER,        TCHARACTER,     TIDENT,         // Content type
+     // Brackets
+     TLEFT,          TRIGHT,         TUNDERBRACE,    TOVERBRACE,     // Scalable, upsidedown
++    TXRIGHTARROW,   TXLEFTARROW,    TXRIGHTLEFTARROWS, TXRIGHTLEFTHARPOONS, // Arrows with text
+     TLGROUP,        TRGROUP,        TLPARENT,       TRPARENT,       // Structural
+     TLBRACKET,      TRBRACKET,      TLDBRACKET,     TRDBRACKET,     // Bracket x1 & x2
+     TLCEIL,         TRCEIL,         TLFLOOR,        TRFLOOR,        // Reals -> Wholes
+diff --git a/starmath/inc/types.hxx b/starmath/inc/types.hxx
+index 4b756f4..2f33565 100644
+--- a/starmath/inc/types.hxx
++++ b/starmath/inc/types.hxx
+@@ -48,6 +48,10 @@ sal_Unicode const MS_DLARROW = 0x21D0;
+ sal_Unicode const MS_DLRARROW = 0x21D4;
+ sal_Unicode const MS_OVERBRACE = 0x23DE;
+ sal_Unicode const MS_UNDERBRACE = 0x23DF;
++// HST Office: arc over an expression and arrows stretched under/over text (reactions)
++sal_Unicode const MS_ARC = 0x2322;
++sal_Unicode const MS_RIGHTLEFTARROWS = 0x21C4;
++sal_Unicode const MS_RIGHTLEFTHARPOONS = 0x21CC;
+ sal_Unicode const MS_CIRC = 0x2218;
+ sal_Unicode const MS_ASSIGN = 0x003D;
+ sal_Unicode const MS_ERROR = 0x00BF;
+diff --git a/starmath/qa/cppunit/test_hst_formula_constructs.cxx b/starmath/qa/cppunit/test_hst_formula_constructs.cxx
+new file mode 100644
+index 0000000..19530ca
+--- /dev/null
++++ b/starmath/qa/cppunit/test_hst_formula_constructs.cxx
+@@ -0,0 +1,111 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++// HST Office formula constructs: the arc over a name and arrows that stretch under/over text
++// (reaction conditions), and the Word formula (OMML) import fixes that go with them.
++
++#include <sal/config.h>
++#include <test/bootstrapfixture.hxx>
++
++#include <document.hxx>
++#include <node.hxx>
++#include <parse5.hxx>
++#include <smdll.hxx>
++#include <visitors.hxx>
++#include "../../source/hst/ommlfixes.hxx"
++
++namespace
++{
++class HstFormulaConstructsTest : public test::BootstrapFixture
++{
++public:
++    void setUp() override
++    {
++        BootstrapFixture::setUp();
++        SmGlobals::ensure();
++    }
++
++    void testTextArrowsParse()
++    {
++        for (const OUString& s : { u"{t} xrightarrow {H_2 SO_4}"_ustr, u"{} xleftarrow {a}"_ustr,
++                                   u"{a} xrightleftarrows {}"_ustr,
++                                   u"{a} xrightleftharpoons {b}"_ustr })
++        {
++            auto pTree = SmParser5().Parse(s);
++            const SmNode* pExpr = pTree->GetSubNode(0)->GetSubNode(0);
++            CPPUNIT_ASSERT_EQUAL_MESSAGE(s.toUtf8().getStr(), SmNodeType::VerticalBrace,
++                                         pExpr->GetType());
++            // the keyword survives a round trip through the formula text
++            OUString aBack;
++            SmNodeToTextVisitor(pTree.get(), aBack);
++            CPPUNIT_ASSERT_MESSAGE(aBack.toUtf8().getStr(),
++                                   aBack.indexOf(pExpr->GetToken().aText) >= 0);
++        }
++    }
++
++    void testArcParse()
++    {
++        auto pTree = SmParser5().Parse(u"widearc {AB}"_ustr);
++        const SmNode* pAttr = pTree->GetSubNode(0)->GetSubNode(0);
++        CPPUNIT_ASSERT_EQUAL(SmNodeType::Attribute, pAttr->GetType());
++        OUString aBack;
++        SmNodeToTextVisitor(pTree.get(), aBack);
++        CPPUNIT_ASSERT(aBack.indexOf("widearc") >= 0);
++    }
++
++    void testTextArrowStretches()
++    {
++        rtl::Reference<SmDocShell> xDocShell = new SmDocShell(
++            SfxModelFlags::EMBEDDED_OBJECT | SfxModelFlags::DISABLE_EMBEDDED_SCRIPTS
++            | SfxModelFlags::DISABLE_DOCUMENT_RECOVERY);
++        xDocShell->SetText(u"{a} xrightarrow {b}"_ustr);
++        const Size aShort = xDocShell->GetSize();
++        xDocShell->SetText(u"{\"H2SO4 đặc, nhiệt độ cao\"} xrightarrow {b}"_ustr);
++        const Size aLong = xDocShell->GetSize();
++        xDocShell->SetText(u"a toward b"_ustr);
++        const Size aPlain = xDocShell->GetSize();
++        // the arrow grows with its text, and the texts stack above and below it
++        CPPUNIT_ASSERT_GREATER(aShort.Width(), aLong.Width());
++        CPPUNIT_ASSERT_GREATER(aPlain.Height(), aShort.Height());
++        xDocShell->DoClose();
++    }
++
++    void testOmmlImportFixes()
++    {
++        using namespace starmath::hst;
++        CPPUNIT_ASSERT(IsOmmlArcAccent(0x2322));
++        CPPUNIT_ASSERT(!IsOmmlArcAccent(0x0302));
++        // arrow under "t" (groupChr pos=bot), then the limLow text under the arrow
++        const OUString aGroup = OmmlTextArrowGroup(0x2192, true, u"t");
++        CPPUNIT_ASSERT_EQUAL(u"{t} xrightarrow { }"_ustr, aGroup);
++        CPPUNIT_ASSERT_EQUAL(u"{t} xrightarrow {x}"_ustr, OmmlTextArrowLimit(true, aGroup, u"x"));
++        CPPUNIT_ASSERT_EQUAL(u"{ } xrightleftharpoons {u}"_ustr,
++                             OmmlTextArrowGroup(0x21CC, false, u"u"));
++        CPPUNIT_ASSERT(OmmlTextArrowGroup(0x23DF, true, u"t").isEmpty());
++        CPPUNIT_ASSERT(OmmlTextArrowLimit(true, u"{t} underbrace { }", u"x").isEmpty());
++        // a relation starting the formula or a new line gets an empty left operand
++        CPPUNIT_ASSERT_EQUAL(u"{} = 105"_ustr, OmmlLeftOperandForLeadingRelations(u"= 105"_ustr));
++        CPPUNIT_ASSERT_EQUAL(u"x = 1 # {} = 2"_ustr,
++                             OmmlLeftOperandForLeadingRelations(u"x = 1 # = 2"_ustr));
++        CPPUNIT_ASSERT_EQUAL(u"\"= 1\""_ustr, OmmlLeftOperandForLeadingRelations(u"\"= 1\""_ustr));
++        // a placeholder is not a relation
++        CPPUNIT_ASSERT_EQUAL(u"{<?>} over {2}"_ustr,
++                             OmmlLeftOperandForLeadingRelations(u"{<?>} over {2}"_ustr));
++    }
++
++    CPPUNIT_TEST_SUITE(HstFormulaConstructsTest);
++    CPPUNIT_TEST(testTextArrowsParse);
++    CPPUNIT_TEST(testArcParse);
++    CPPUNIT_TEST(testTextArrowStretches);
++    CPPUNIT_TEST(testOmmlImportFixes);
++    CPPUNIT_TEST_SUITE_END();
++};
++
++CPPUNIT_TEST_SUITE_REGISTRATION(HstFormulaConstructsTest);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/document.cxx b/starmath/source/document.cxx
+index b6f68fe..c0d76ce 100644
+--- a/starmath/source/document.cxx
++++ b/starmath/source/document.cxx
+@@ -70,6 +70,7 @@
+ #include <utility.hxx>
+ #include <view.hxx>
+ #include "mathtype.hxx"
++#include "hst/mathtypeglue.hxx"
+ #include "ooxmlexport.hxx"
+ #include "ooxmlimport.hxx"
+ #include "rtfexport.hxx"
+@@ -644,6 +645,8 @@ bool SmDocShell::ConvertFrom(SfxMedium &rMedium)
+                     bSuccess = aEquation.Parse( aStorage.get() );
+                     if ( bSuccess )
+                     {
++                        // HST Office: MTEF 5 equations keep their own size
++                        starmath::hst::ApplyBaseHeight(maFormat, aEquation.GetBaseHeightPt());
+                         maText = aBuffer.makeStringAndClear();
+                         Parse();
+                     }
+diff --git a/starmath/source/hst/mathtypeglue.cxx b/starmath/source/hst/mathtypeglue.cxx
+new file mode 100644
+index 0000000..eac42ce
+--- /dev/null
++++ b/starmath/source/hst/mathtypeglue.cxx
+@@ -0,0 +1,54 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "mathtypeglue.hxx"
++#include "mtef5converter.hxx"
++
++#include <format.hxx>
++#include <utility.hxx>
++
++#include <sal/log.hxx>
++#include <tools/stream.hxx>
++
++#include <vector>
++
++namespace starmath::hst
++{
++bool ParseMtef5(SvStream& rStream, sal_uInt64 nStart, OUStringBuffer& rOut,
++                sal_uInt16& rBaseHeightPt)
++{
++    const sal_uInt64 nSize = rStream.TellEnd();
++    if (nSize <= nStart || nSize - nStart > 16 * 1024 * 1024)
++        return false;
++    std::vector<sal_uInt8> aData(nSize - nStart);
++    rStream.Seek(nStart);
++    if (rStream.ReadBytes(aData.data(), aData.size()) != aData.size())
++        return false;
++    const ::hst::mtef::Result aRes = ::hst::mtef::ConvertEquationNative(aData.data(), aData.size());
++    if (aRes.eStatus != ::hst::mtef::Status::Converted)
++    {
++        SAL_INFO("starmath", "MathType 5 equation kept as OLE object");
++        return false;
++    }
++    rOut.append(aRes.aStarMath);
++    rBaseHeightPt = aRes.nBaseHeightPt;
++    return true;
++}
++
++void ApplyBaseHeight(SmFormat& rFormat, sal_uInt16 nPt)
++{
++    if (!nPt)
++        return;
++    Size aSize = rFormat.GetBaseSize();
++    aSize.setHeight(o3tl::convert(nPt, o3tl::Length::pt, SmO3tlLengthUnit()));
++    rFormat.SetBaseSize(aSize);
++    for (sal_uInt16 i = FNT_BEGIN; i <= FNT_END; ++i)
++        rFormat.SetFontSize(i, aSize);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/hst/mathtypeglue.hxx b/starmath/source/hst/mathtypeglue.hxx
+new file mode 100644
+index 0000000..9f04d1d
+--- /dev/null
++++ b/starmath/source/hst/mathtypeglue.hxx
+@@ -0,0 +1,28 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <rtl/ustrbuf.hxx>
++#include <sal/types.h>
++
++class SmFormat;
++class SvStream;
++
++// Connects the MathType 4-7 reader (mtef5converter.hxx) to Math's MathType import.
++namespace starmath::hst
++{
++/// Reads the "Equation Native" stream from nStart to its end and appends the converted formula
++/// to rOut; false keeps the OLE object.
++bool ParseMtef5(SvStream& rStream, sal_uInt64 nStart, OUStringBuffer& rOut,
++                sal_uInt16& rBaseHeightPt);
++
++/// Sets the formula's base font height (all font kinds) to nPt points; 0 leaves it alone.
++void ApplyBaseHeight(SmFormat& rFormat, sal_uInt16 nPt);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/hst/mtef5converter.cxx b/starmath/source/hst/mtef5converter.cxx
+new file mode 100644
+index 0000000..1eadce6
+--- /dev/null
++++ b/starmath/source/hst/mtef5converter.cxx
+@@ -0,0 +1,17 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++// Placeholder until the MathType 4-7 reader lands: every equation stays an OLE object.
++
++#include "mtef5converter.hxx"
++
++namespace hst::mtef
++{
++Result ConvertEquationNative(const sal_uInt8*, std::size_t) { return Result(); }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/hst/mtef5converter.hxx b/starmath/source/hst/mtef5converter.hxx
+new file mode 100644
+index 0000000..8c20105
+--- /dev/null
++++ b/starmath/source/hst/mtef5converter.hxx
+@@ -0,0 +1,39 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <sal/types.h>
++
++#include <cstddef>
++
++// Interface between HST Office's MathType 4-7 reader and the rest of HST Office.
++// The reader (mtef5converter.cxx and helpers) is written from the behaviour spec only.
++namespace hst::mtef
++{
++enum class Status
++{
++    Converted, ///< aStarMath holds the formula
++    NotMtef5, ///< not an MTEF version 5 equation; nothing was read
++    Damaged ///< truncated or inconsistent data; the caller keeps the original OLE object
++};
++
++struct Result
++{
++    Status eStatus = Status::NotMtef5;
++    OUString aStarMath; ///< StarMath 5 source text, only for Status::Converted
++    sal_uInt16 nBaseHeightPt = 0; ///< the equation's "full" size in points, 0 if not given
++};
++
++/** Converts the complete contents of an OLE "Equation Native" stream (its 28-byte header
++    followed by MTEF data) to StarMath. Never throws; never reads outside [pData, pData+nSize).
++*/
++Result ConvertEquationNative(const sal_uInt8* pData, std::size_t nSize);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/hst/ommlfixes.cxx b/starmath/source/hst/ommlfixes.cxx
+new file mode 100644
+index 0000000..15d5ad8
+--- /dev/null
++++ b/starmath/source/hst/ommlfixes.cxx
+@@ -0,0 +1,113 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "ommlfixes.hxx"
++
++#include <rtl/ustrbuf.hxx>
++
++#include <initializer_list>
++
++namespace starmath::hst
++{
++namespace
++{
++std::u16string_view TextArrowKeyword(sal_Unicode c)
++{
++    switch (c)
++    {
++        case 0x2192:
++        case 0x27F6:
++            return u"xrightarrow";
++        case 0x2190:
++        case 0x27F5:
++            return u"xleftarrow";
++        case 0x21C4:
++            return u"xrightleftarrows";
++        case 0x21CC:
++            return u"xrightleftharpoons";
++        default:
++            return std::u16string_view();
++    }
++}
++
++bool IsTextArrowGroup(std::u16string_view e)
++{
++    for (std::u16string_view k : { u"} xrightarrow {", u"} xleftarrow {", u"} xrightleftarrows {",
++                                    u"} xrightleftharpoons {" })
++        if (e.find(k) != std::u16string_view::npos)
++            return true;
++    return false;
++}
++
++bool IsRelation(sal_Unicode c)
++{
++    switch (c)
++    {
++        case '=':
++        case '<':
++        case '>':
++        case 0x2248:
++        case 0x2260:
++        case 0x2264:
++        case 0x2265:
++        case 0x21D2:
++        case 0x21D4:
++            return true;
++        default:
++            return false;
++    }
++}
++}
++
++bool IsOmmlArcAccent(sal_Unicode c)
++{
++    return c == 0x2322 || c == 0x2312 || c == 0x23DC || c == 0x0311;
++}
++
++OUString OmmlTextArrowGroup(sal_Unicode cChr, bool bBelow, std::u16string_view e)
++{
++    const std::u16string_view aArrow = TextArrowKeyword(cChr);
++    if (aArrow.empty())
++        return OUString();
++    if (bBelow) // arrow below e: e is the text over the arrow
++        return OUString::Concat("{") + e + "} " + aArrow + " { }";
++    return OUString::Concat("{ } ") + aArrow + " {" + e + "}";
++}
++
++OUString OmmlTextArrowLimit(bool bLow, std::u16string_view e, std::u16string_view lim)
++{
++    if (!IsTextArrowGroup(e))
++        return OUString();
++    if (bLow && e.starts_with(u"{") && e.ends_with(u" { }"))
++        return OUString::Concat(e.substr(0, e.size() - 3)) + "{" + lim + "}";
++    if (!bLow && e.starts_with(u"{ } "))
++        return OUString::Concat("{") + lim + "}" + e.substr(3);
++    return OUString();
++}
++
++OUString OmmlLeftOperandForLeadingRelations(const OUString& rFormula)
++{
++    OUStringBuffer aOut(rFormula.getLength() + 8);
++    bool bInQuote = false;
++    sal_Unicode cPrev = '{'; // the formula start counts as an opening brace
++    for (sal_Int32 i = 0; i < rFormula.getLength(); ++i)
++    {
++        const sal_Unicode c = rFormula[i];
++        if (c == '"' && (i == 0 || rFormula[i - 1] != '\\'))
++            bInQuote = !bInQuote;
++        const bool bPlaceholder = c == '<' && i + 1 < rFormula.getLength() && rFormula[i + 1] == '?';
++        if (!bInQuote && !bPlaceholder && (cPrev == '{' || cPrev == '#') && IsRelation(c))
++            aOut.append("{} ");
++        aOut.append(c);
++        if (c != ' ')
++            cPrev = bInQuote ? '"' : c;
++    }
++    return aOut.makeStringAndClear();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/hst/ommlfixes.hxx b/starmath/source/hst/ommlfixes.hxx
+new file mode 100644
+index 0000000..f18b590
+--- /dev/null
++++ b/starmath/source/hst/ommlfixes.hxx
+@@ -0,0 +1,35 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <sal/types.h>
++
++#include <string_view>
++
++// OMML (Word formula) import additions for constructs that HST Office added to StarMath, and
++// for Word formulas that StarMath could not parse.
++namespace starmath::hst
++{
++/// m:acc characters that mean an arc over the base ("cung AB" in geometry)
++bool IsOmmlArcAccent(sal_Unicode c);
++
++/// m:groupChr with an arrow: "{e} xrightarrow { }" (arrow under e) or "{ } xrightarrow {e}",
++/// empty if chr is not such an arrow
++OUString OmmlTextArrowGroup(sal_Unicode cChr, bool bBelow, std::u16string_view e);
++
++/// m:limLow / m:limUpp around such a group: fills the free side of the arrow with lim
++/// (Word writes the text under a reaction arrow as the limit), empty if e is not such a group
++OUString OmmlTextArrowLimit(bool bLow, std::u16string_view e, std::u16string_view lim);
++
++/// A relation with nothing on its left ("= 105" on a new line) drops the operator in StarMath;
++/// gives it an empty left operand.
++OUString OmmlLeftOperandForLeadingRelations(const OUString& rFormula);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/hst/textarrow.cxx b/starmath/source/hst/textarrow.cxx
+new file mode 100644
+index 0000000..9f1f36d
+--- /dev/null
++++ b/starmath/source/hst/textarrow.cxx
+@@ -0,0 +1,64 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "textarrow.hxx"
++
++#include <format.hxx>
++#include <node.hxx>
++
++#include <algorithm>
++
++namespace starmath::hst
++{
++bool IsTextArrow(SmTokenType eType)
++{
++    switch (eType)
++    {
++        case TXRIGHTARROW:
++        case TXLEFTARROW:
++        case TXRIGHTLEFTARROWS:
++        case TXRIGHTLEFTHARPOONS:
++            return true;
++        default:
++            return false;
++    }
++}
++
++void ArrangeTextArrow(SmVerticalBraceNode& rNode, OutputDevice& rDev, const SmFormat& rFormat)
++{
++    SmNode* pOver = rNode.Body();
++    SmNode* pArrow = rNode.Brace();
++    SmNode* pUnder = rNode.Script();
++
++    const double fLimitSize = double(rFormat.GetRelSize(SIZ_LIMITS)) / 100;
++    pOver->SetSize(fLimitSize);
++    pUnder->SetSize(fLimitSize);
++    pOver->Arrange(rDev, rFormat);
++    pUnder->Arrange(rDev, rFormat);
++
++    const tools::Long nFontHeight = rNode.GetFont().GetFontSize().Height();
++    const tools::Long nWidth
++        = std::max(std::max(pOver->GetItalicWidth(), pUnder->GetItalicWidth()) + nFontHeight / 2,
++                   nFontHeight * 3 / 2);
++    pArrow->AdaptToX(rDev, nWidth);
++    pArrow->Arrange(rDev, rFormat);
++
++    const tools::Long nDist = nFontHeight * rFormat.GetDistance(DIS_ORNAMENTSIZE) / 100;
++    Point aPos = pOver->AlignTo(*pArrow, RectPos::Top, RectHorAlign::Center, RectVerAlign::Baseline);
++    aPos.AdjustY(-nDist);
++    pOver->MoveTo(aPos);
++    aPos = pUnder->AlignTo(*pArrow, RectPos::Bottom, RectHorAlign::Center, RectVerAlign::Baseline);
++    aPos.AdjustY(nDist);
++    pUnder->MoveTo(aPos);
++
++    SmRect& rRect = rNode;
++    rRect = *pArrow;
++    rRect.ExtendBy(*pOver, RectCopyMBL::This).ExtendBy(*pUnder, RectCopyMBL::This);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/hst/textarrow.hxx b/starmath/source/hst/textarrow.hxx
+new file mode 100644
+index 0000000..b98e100
+--- /dev/null
++++ b/starmath/source/hst/textarrow.hxx
+@@ -0,0 +1,26 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <token.hxx>
++
++class OutputDevice;
++class SmFormat;
++class SmVerticalBraceNode;
++
++// "{over} xrightarrow {under}" and the other arrows with text (reaction conditions in chemistry)
++namespace starmath::hst
++{
++bool IsTextArrow(SmTokenType eType);
++
++/// The arrow stays on the baseline like a relation and is stretched to the wider of the two
++/// texts, which are set in limit size above and below it.
++void ArrangeTextArrow(SmVerticalBraceNode& rNode, OutputDevice& rDev, const SmFormat& rFormat);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/mathml/mathmlexport.cxx b/starmath/source/mathml/mathmlexport.cxx
+index 1b28e4a..1ab9831 100644
+--- a/starmath/source/mathml/mathmlexport.cxx
++++ b/starmath/source/mathml/mathmlexport.cxx
+@@ -1063,6 +1063,7 @@ void SmXMLExport::ExportAttributes(const SmNode* pNode, int nLevel)
+             break;
+         case TWIDETILDE:
+         case TWIDEHAT:
++        case TWIDEARC:
+         case TWIDEVEC:
+         case TWIDELVEC:
+         case TWIDEHARPOON:
+@@ -1288,6 +1289,10 @@ void SmXMLExport::ExportVerticalBrace(const SmVerticalBraceNode* pNode, int nLev
+             which = XML_MOVER;
+             break;
+         case TUNDERBRACE:
++        case TXRIGHTARROW:
++        case TXLEFTARROW:
++        case TXRIGHTLEFTARROWS:
++        case TXRIGHTLEFTHARPOONS:
+             which = XML_MUNDER;
+             break;
+     }
+diff --git a/starmath/source/mathtype.cxx b/starmath/source/mathtype.cxx
+index 2310f6b..0fe9ba3 100644
+--- a/starmath/source/mathtype.cxx
++++ b/starmath/source/mathtype.cxx
+@@ -19,6 +19,7 @@
+ 
+ #include "mathtype.hxx"
+ #include "eqnolefilehdr.hxx"
++#include "hst/mathtypeglue.hxx"
+ 
+ #include <filter/msfilter/classids.hxx>
+ #include <osl/diagnose.h>
+@@ -556,6 +557,7 @@ bool MathType::Parse(SvStream* pStream)
+ {
+     pS = pStream;
+     pS->SetEndian( SvStreamEndian::LITTLE );
++    const sal_uInt64 nStart = pS->Tell();
+ 
+     EQNOLEFILEHDR aHdr;
+     aHdr.Read(pS);
+@@ -569,7 +571,12 @@ bool MathType::Parse(SvStream* pStream)
+     pS->ReadUChar( nProdVersion );
+     pS->ReadUChar( nProdSubVersion );
+ 
+-    if (!pS->good() || nVersion > 3)   // allow only supported versions of MathType to be parsed
++    if (!pS->good())
++        return false;
++    // HST Office: MathType 4-7 ("Equation.DSMT4") write MTEF 5, read by its own converter
++    if (nVersion == 5)
++        return starmath::hst::ParseMtef5(*pS, nStart, rRet, nBaseHeightPt);
++    if (nVersion > 3)   // allow only supported versions of MathType to be parsed
+         return false;
+ 
+     bool bRet = HandleRecords(0);
+diff --git a/starmath/source/mathtype.hxx b/starmath/source/mathtype.hxx
+index cd06cfc..5746f95 100644
+--- a/starmath/source/mathtype.hxx
++++ b/starmath/source/mathtype.hxx
+@@ -96,6 +96,8 @@ public:
+     bool Parse(SotStorage* pStor);
+     bool Parse(SvStream* pStream);
+     bool ConvertFromStarMath( SfxMedium& rMedium );
++    /// HST Office: "full" size of an MTEF 5 equation in points, 0 if unknown
++    sal_uInt16 GetBaseHeightPt() const { return nBaseHeightPt; }
+ 
+ private:
+ /*Ver 2 Header*/
+@@ -163,6 +165,7 @@ private:
+     sal_Int32 nPostSup;
+     sal_Int32 nPostlSup;
+     sal_uInt8 nTypeFace;
++    sal_uInt16 nBaseHeightPt = 0;
+     MathTypeFontSet aUserStyles;
+ 
+     enum MTOKENS {END,LINE,CHAR,TMPL,PILE,MATRIX,EMBEL,RULER,FONT,SIZE};
+diff --git a/starmath/source/node.cxx b/starmath/source/node.cxx
+index 89970e1..49f1870 100644
+--- a/starmath/source/node.cxx
++++ b/starmath/source/node.cxx
+@@ -21,6 +21,7 @@
+ #include <symbol.hxx>
+ #include <smmod.hxx>
+ #include "tmpdevice.hxx"
++#include "hst/textarrow.hxx"
+ #include <algorithm>
+ #include <utility>
+ #include <visitors.hxx>
+@@ -1422,6 +1423,9 @@ void SmVerticalBraceNode::Arrange(OutputDevice &rDev, const SmFormat &rFormat)
+     SmTmpDevice aTmpDev (rDev, true);
+     aTmpDev.SetFont(GetFont());
+ 
++    if (starmath::hst::IsTextArrow(GetToken().eType))
++        return starmath::hst::ArrangeTextArrow(*this, aTmpDev, rFormat);
++
+     pBody->Arrange(aTmpDev, rFormat);
+ 
+     // size is the same as for limits for this part
+diff --git a/starmath/source/ooxmlexport.cxx b/starmath/source/ooxmlexport.cxx
+index aed878f..6664d8f 100644
+--- a/starmath/source/ooxmlexport.cxx
++++ b/starmath/source/ooxmlexport.cxx
+@@ -207,6 +207,7 @@ void SmOoxmlExport::HandleAttribute( const SmAttributeNode* pNode, int nLevel )
+         case TDDDOT:
+         case TWIDETILDE:
+         case TWIDEHAT:
++        case TWIDEARC:
+         case TWIDEHARPOON:
+         case TWIDELHARPOON:
+         case TWIDEVEC:
+@@ -420,14 +421,16 @@ void SmOoxmlExport::HandleSubSupScriptInternal( const SmSubSupNode* pNode, int n
+         m_pSerializer->endElementNS( XML_m, XML_sup );
+         m_pSerializer->endElementNS( XML_m, XML_sSup );
+     }
+-    else if(( flags & ( 1 << LSUP | 1 << LSUB )) == ( 1 << LSUP | 1 << LSUB ))
+-    { // m:sPre
++    else if( flags & ( 1 << LSUP | 1 << LSUB ))
++    { // m:sPre; HST Office: also a single left script (isotopes, charges), else the body was lost
+         m_pSerializer->startElementNS(XML_m, XML_sPre);
+         m_pSerializer->startElementNS(XML_m, XML_sub);
+-        HandleNode( pNode->GetSubSup( LSUB ), nLevel + 1 );
++        if( flags & ( 1 << LSUB ))
++            HandleNode( pNode->GetSubSup( LSUB ), nLevel + 1 );
+         m_pSerializer->endElementNS( XML_m, XML_sub );
+         m_pSerializer->startElementNS(XML_m, XML_sup);
+-        HandleNode( pNode->GetSubSup( LSUP ), nLevel + 1 );
++        if( flags & ( 1 << LSUP ))
++            HandleNode( pNode->GetSubSup( LSUP ), nLevel + 1 );
+         m_pSerializer->endElementNS( XML_m, XML_sup );
+         m_pSerializer->startElementNS(XML_m, XML_e);
+         flags &= ~( 1 << LSUP | 1 << LSUB );
+@@ -562,6 +565,10 @@ void SmOoxmlExport::HandleVerticalBrace( const SmVerticalBraceNode* pNode, int n
+     {
+         case TOVERBRACE:
+         case TUNDERBRACE:
++        case TXRIGHTARROW: // HST Office: text over the arrow as the group, text under it as the limit
++        case TXLEFTARROW:
++        case TXRIGHTLEFTARROWS:
++        case TXRIGHTLEFTHARPOONS:
+         {
+             bool top = ( pNode->GetToken().eType == TOVERBRACE );
+             m_pSerializer->startElementNS(XML_m, top ? XML_limUpp : XML_limLow);
+diff --git a/starmath/source/ooxmlimport.cxx b/starmath/source/ooxmlimport.cxx
+index b821134..143f89d 100644
+--- a/starmath/source/ooxmlimport.cxx
++++ b/starmath/source/ooxmlimport.cxx
+@@ -12,6 +12,7 @@
+ #include <string_view>
+ 
+ #include "ooxmlimport.hxx"
++#include "hst/ommlfixes.hxx"
+ #include <types.hxx>
+ 
+ #include <oox/mathml/importutils.hxx>
+@@ -71,6 +72,7 @@ OUString SmOoxmlImport::handleStream()
+     // And as a result, empty parts of the formula that are not placeholders are written out
+     // as a single space, so fix that up too.
+     ret2 = ret2.replaceAll( "{ }", "{}" );
++    ret2 = starmath::hst::OmmlLeftOperandForLeadingRelations( ret2 );
+     SAL_INFO( "starmath.ooxml", "Formula: " << ret2 );
+     return ret2;
+ }
+@@ -175,7 +177,9 @@ OUString SmOoxmlImport::handleAcc()
+     }
+     // see aTokenTable in parse.cxx
+     OUString acc;
+-    switch( accChr )
++    if( starmath::hst::IsOmmlArcAccent( accChr ))
++        acc = "widearc";
++    else switch( accChr )
+     {
+         case MS_BAR:
+         case MS_COMBBAR:
+@@ -452,6 +456,8 @@ OUString SmOoxmlImport::handleLimLowUpp( LimLowUpp_t limlowupp )
+         return e.subView( 0, e.getLength() - 2 ) + lim + "}";
+     if( limlowupp == LimLow && e.endsWith( " underbrace { }" ))
+         return e.subView( 0, e.getLength() - 2 ) + lim + "}";
++    if( OUString aArrow = starmath::hst::OmmlTextArrowLimit( limlowupp == LimLow, e, lim ); !aArrow.isEmpty())
++        return aArrow;
+     return e
+         + ( limlowupp == LimLow
+             ? std::u16string_view( u" csub {" ) : std::u16string_view( u" csup {" ))
+@@ -482,6 +488,8 @@ OUString SmOoxmlImport::handleGroupChr()
+     m_rStream.ensureClosingTag( M_TOKEN( groupChr ));
+     if( pos == top && chr == u'\x23de')
+         return "{" + e + "} overbrace { }";
++    if( OUString aArrow = starmath::hst::OmmlTextArrowGroup( chr, pos == bot, e ); !aArrow.isEmpty())
++        return aArrow;
+     if( pos == bot && chr == u'\x23df')
+         return "{" + e + "} underbrace { }";
+     if( pos == top )
+@@ -689,7 +697,13 @@ OUString SmOoxmlImport::handleSpre()
+     OUString sup = readOMathArgInElement( M_TOKEN( sup ));
+     OUString e = readOMathArgInElement( M_TOKEN( e ));
+     m_rStream.ensureClosingTag( M_TOKEN( sPre ));
+-    return "{" + e + "} lsub {" + sub + "} lsup {" + sup + "}";
++    // HST Office: an empty left script would become a placeholder
++    OUString ret = "{" + e + "}";
++    if( !o3tl::trim( sub ).empty())
++        ret += " lsub {" + sub + "}";
++    if( !o3tl::trim( sup ).empty())
++        ret += " lsup {" + sup + "}";
++    return ret;
+ }
+ 
+ OUString SmOoxmlImport::handleSsub()
+diff --git a/starmath/source/parse5.cxx b/starmath/source/parse5.cxx
+index 9bc8f6c..95b78c6 100644
+--- a/starmath/source/parse5.cxx
++++ b/starmath/source/parse5.cxx
+@@ -257,6 +257,7 @@ constexpr SmTokenTableEntry aTokenTable[]
+         { u"uoper"_ustr, TUOPER, '\0', TG::UnOper, 5 },
+         { u"uparrow"_ustr, TUPARROW, MS_UPARROW, TG::Standalone, 5 },
+         { u"vec"_ustr, TVEC, MS_VEC, TG::Attribute, 5 },
++        { u"widearc"_ustr, TWIDEARC, MS_ARC, TG::Attribute, 5 },
+         { u"widebslash"_ustr, TWIDEBACKSLASH, MS_BACKSLASH, TG::Product, 0 },
+         { u"wideharpoon"_ustr, TWIDEHARPOON, MS_HARPOON, TG::Attribute, 5 },
+         { u"widehat"_ustr, TWIDEHAT, MS_HAT, TG::Attribute, 5 },
+@@ -266,6 +267,10 @@ constexpr SmTokenTableEntry aTokenTable[]
+         { u"widetilde"_ustr, TWIDETILDE, MS_TILDE, TG::Attribute, 5 },
+         { u"widevec"_ustr, TWIDEVEC, MS_VEC, TG::Attribute, 5 },
+         { u"wp"_ustr, TWP, MS_WP, TG::Standalone, 5 },
++        { u"xleftarrow"_ustr, TXLEFTARROW, MS_LEFTARROW, TG::Product, 5 },
++        { u"xrightarrow"_ustr, TXRIGHTARROW, MS_RIGHTARROW, TG::Product, 5 },
++        { u"xrightleftarrows"_ustr, TXRIGHTLEFTARROWS, MS_RIGHTLEFTARROWS, TG::Product, 5 },
++        { u"xrightleftharpoons"_ustr, TXRIGHTLEFTHARPOONS, MS_RIGHTLEFTHARPOONS, TG::Product, 5 },
+         { u"جا"_ustr, TSIN, '\0', TG::Function, 5 },
+         { u"جاز"_ustr, TSINH, '\0', TG::Function, 5 },
+         { u"جتا"_ustr, TCOS, '\0', TG::Function, 5 },
+@@ -1462,6 +1467,10 @@ std::unique_ptr<SmNode> SmParser5::DoProduct()
+ 
+             case TOVERBRACE:
+             case TUNDERBRACE:
++            case TXRIGHTARROW:
++            case TXLEFTARROW:
++            case TXRIGHTLEFTARROWS:
++            case TXRIGHTLEFTHARPOONS:
+                 xSNode.reset(new SmVerticalBraceNode(m_aCurToken));
+                 xSNode->SetSelection(m_aCurESelection);
+                 xOper.reset(new SmMathSymbolNode(m_aCurToken));
+@@ -2174,6 +2183,7 @@ std::unique_ptr<SmStructureNode> SmParser5::DoAttribute()
+         case TWIDELHARPOON:
+         case TWIDEHAT:
+         case TWIDETILDE:
++        case TWIDEARC:
+             xAttr.reset(new SmMathSymbolNode(m_aCurToken));
+             xAttr->SetSelection(m_aCurESelection);
+             eScaleMode = SmScaleMode::Width;
+diff --git a/starmath/source/rtfexport.cxx b/starmath/source/rtfexport.cxx
+index 47eb0b3..b0b2e59 100644
+--- a/starmath/source/rtfexport.cxx
++++ b/starmath/source/rtfexport.cxx
+@@ -103,6 +103,7 @@ void SmRtfExport::HandleAttribute(const SmAttributeNode* pNode, int nLevel)
+         case TDDDOT:
+         case TWIDETILDE:
+         case TWIDEHAT:
++        case TWIDEARC:
+         case TWIDEHARPOON:
+         case TWIDELHARPOON:
+         case TWIDEVEC:
+@@ -330,15 +331,17 @@ void SmRtfExport::HandleSubSupScriptInternal(const SmSubSupNode* pNode, int nLev
+         m_pBuffer->append("}"); // msup
+         m_pBuffer->append("}"); // msSup
+     }
+-    else if ((flags & (1 << LSUP | 1 << LSUB)) == (1 << LSUP | 1 << LSUB))
++    else if (flags & (1 << LSUP | 1 << LSUB))
+     {
+-        // m:sPre
++        // m:sPre; HST Office: also a single left script, else the body was lost
+         m_pBuffer->append("{" LO_STRING_SVTOOLS_RTF_MSPRE " ");
+         m_pBuffer->append("{" LO_STRING_SVTOOLS_RTF_MSUB " ");
+-        HandleNode(pNode->GetSubSup(LSUB), nLevel + 1);
++        if (flags & (1 << LSUB))
++            HandleNode(pNode->GetSubSup(LSUB), nLevel + 1);
+         m_pBuffer->append("}"); // msub
+         m_pBuffer->append("{" LO_STRING_SVTOOLS_RTF_MSUP " ");
+-        HandleNode(pNode->GetSubSup(LSUP), nLevel + 1);
++        if (flags & (1 << LSUP))
++            HandleNode(pNode->GetSubSup(LSUP), nLevel + 1);
+         m_pBuffer->append("}"); // msup
+         m_pBuffer->append("{" LO_STRING_SVTOOLS_RTF_ME " ");
+         flags &= ~(1 << LSUP | 1 << LSUB);
+@@ -457,6 +460,10 @@ void SmRtfExport::HandleVerticalBrace(const SmVerticalBraceNode* pNode, int nLev
+     {
+         case TOVERBRACE:
+         case TUNDERBRACE:
++        case TXRIGHTARROW:
++        case TXLEFTARROW:
++        case TXRIGHTLEFTARROWS:
++        case TXRIGHTLEFTHARPOONS:
+         {
+             bool top = (pNode->GetToken().eType == TOVERBRACE);
+             if (top)
+diff --git a/starmath/source/unofilter.cxx b/starmath/source/unofilter.cxx
+index 0f3a970..de64174 100644
+--- a/starmath/source/unofilter.cxx
++++ b/starmath/source/unofilter.cxx
+@@ -14,6 +14,7 @@
+ 
+ #include <document.hxx>
+ #include "mathtype.hxx"
++#include "hst/mathtypeglue.hxx"
+ #include <unomodel.hxx>
+ #include <comphelper/diagnose_ex.hxx>
+ #include <comphelper/sequenceashashmap.hxx>
+@@ -73,6 +74,12 @@ sal_Bool MathTypeFilter::filter(const uno::Sequence<beans::PropertyValue>& rDesc
+                         bSuccess = aEquation.Parse(aStorage.get());
+                         if (bSuccess)
+                         {
++                            if (aEquation.GetBaseHeightPt())
++                            {
++                                SmFormat aFormat(pDocShell->GetFormat());
++                                starmath::hst::ApplyBaseHeight(aFormat, aEquation.GetBaseHeightPt());
++                                pDocShell->SetFormat(aFormat);
++                            }
+                             pDocShell->SetText(aText.makeStringAndClear());
+                             pDocShell->Parse();
+                         }
