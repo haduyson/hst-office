@@ -34,6 +34,19 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
+      - name: Compile the launcher stub of this checkout
+        # The same clang command as the build (make-app-launchers.py): a stub that no longer compiles shows here in
+        # a minute instead of at the end of a three-hour build.
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -I -c '
+          import importlib.util, tempfile
+          spec = importlib.util.spec_from_file_location("make", "scripts/macos/make-app-launchers.py")
+          make = importlib.util.module_from_spec(spec); spec.loader.exec_module(make)
+          with tempfile.TemporaryDirectory() as tmp:
+              make.compile_stub(tmp + "/hst-app-launcher", "arm64", "11.0")
+          '
       - name: Download the arm64 dmg of the build
         shell: bash
         env:
