@@ -114,15 +114,17 @@ scripts/build-queue.sh train start --integrator          # integrator: dựng tr
 - **Push và build:** hàng đợi push nhánh `train/*` lên origin (chỉ tạo mới, không bao giờ force, không đụng nhánh
   khác; workflow GitHub không chạy khi push nhánh này) rồi gửi 1 job Linux + 1 job Windows (priority 70, nền tảng
   theo yêu cầu của các nhánh). Số NNN đếm riêng theo `train_prefix` (prefix mới bắt đầu từ 001); bản ghi
-  `trains/<tên>.json` (`train_1.0.3-001.json`), bản ghi cũ `trains/NNN.json` của 1.0.2 vẫn đọc được.
+  `trains/<tên>.json` (`train_1.0.3-001.json`), bản ghi cũ `trains/NNN.json` của 1.0.2 vẫn đọc được. Nhánh
+  `train/*` cũ hơn `train_keep_days` (2 ngày) mà không còn build nào chạy bị xoá khỏi origin. Chỉ xoá nhánh do hàng
+  đợi tạo.
 - **Test của train:** job Linux build, chạy bộ test rồi mới đóng gói: `train_tests` (mặc định sw/sc/sd/starmath:
   `CppunitTest_sw_core_layout`, `_sw_ooxmlexport`, `_sc_ucalc_formula`, `_sc_cond_format`, `_sd_import_tests`,
   `_starmath_qa_cppunit`) cộng các test thành viên khai báo bằng `train add --test`. Train có bộ test luôn có job
   Linux (kể cả khi mọi nhánh chỉ xin Windows). gla11y chạy sẵn trong `make` của build (lỗi `FATAL` làm build hỏng).
-  **Nhánh chỉ "passed" khi mọi build đạt và mọi test đạt.** Test hỏng thì hàng đợi chạy đúng các target đó trên
-  commit nền (1 job Linux, dùng chung giữa các train): target cũng hỏng trên nền được ghi `base_test_failures`, không
-  quy cho nhánh nào; target chỉ hỏng trên train làm train hỏng. Nhánh `train/*` cũ hơn `train_keep_days` (2 ngày) mà không còn build nào chạy bị xoá
-  khỏi origin. Chỉ xoá nhánh do hàng đợi tạo.
+  **Nhánh chỉ "passed" khi mọi build đạt và mọi test đạt.** Test hỏng thì hàng đợi chạy song song đúng các target
+  đó hai lần nữa: trên commit nền (1 job Linux, dùng chung giữa các train; hỏng cả trên nền → `base_test_failures`,
+  không quy cho ai) và một lần nữa trên commit của train (lần hai đạt → `flaky_tests`, không quy lỗi, không bisect).
+  Chỉ target đạt trên nền và hỏng cả hai lần trên train mới làm train hỏng.
 - **Khi train hỏng**, quy lỗi theo thứ tự:
   1. log có `does not apply: <patch>` → nhánh có commit thêm/sửa patch đó;
   2. lỗi biên dịch, gla11y `FATAL` hoặc `make ***` nêu tệp LibreOffice → nhánh có patch đụng tệp đó; với test
