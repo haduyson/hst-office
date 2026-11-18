@@ -30,6 +30,13 @@
     <node oor:name="org.hst.office.vi.CitationSaveJob" oor:op="replace">
       <prop oor:name="Service"><value>org.hst.office.vi.CitationSaveJob</value></prop>
     </node>
+    <!-- Sheets: after a file is loaded, VND()/USD() called through a Vietnamese number-words add-in (an add-in
+         workbook's external name, an XLL's _xll. prefix) become the HST functions; at OnLoad the links bar of a file whose
+         only links were those add-in files is removed (hst_office/excel_addin_calls_job.py) -->
+    <node oor:name="org.hst.office.vi.ExcelAddinCallsJob" oor:op="replace">
+      <prop oor:name="Service"><value>org.hst.office.vi.ExcelAddinCallsJob</value></prop>
+      <prop oor:name="Context"><value>com.sun.star.sheet.SpreadsheetDocument</value></prop>
+    </node>
   </node>
   <node oor:name="Events">
     <node oor:name="onFirstVisibleTask" oor:op="fuse">
@@ -46,6 +53,16 @@
     <node oor:name="OnCloseApp" oor:op="fuse">
       <node oor:name="JobList">
         <node oor:name="org.hst.office.vi.CrashReportJob" oor:op="replace"/>
+      </node>
+    </node>
+    <node oor:name="OnLoadFinished" oor:op="fuse">
+      <node oor:name="JobList">
+        <node oor:name="org.hst.office.vi.ExcelAddinCallsJob" oor:op="replace"/>
+      </node>
+    </node>
+    <node oor:name="OnLoad" oor:op="fuse">
+      <node oor:name="JobList">
+        <node oor:name="org.hst.office.vi.ExcelAddinCallsJob" oor:op="replace"/>
       </node>
     </node>
     <node oor:name="OnModifyChanged" oor:op="fuse">
