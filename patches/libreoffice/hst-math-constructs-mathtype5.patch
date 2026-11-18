@@ -338,10 +338,10 @@ index 0000000..d2601b1
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/qa/cppunit/test_hst_formula_constructs.cxx b/starmath/qa/cppunit/test_hst_formula_constructs.cxx
 new file mode 100644
-index 0000000..6f8bdab
+index 0000000..846f65b
 --- /dev/null
 +++ b/starmath/qa/cppunit/test_hst_formula_constructs.cxx
-@@ -0,0 +1,146 @@
+@@ -0,0 +1,165 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -404,6 +404,24 @@ index 0000000..6f8bdab
 +        OUString aBack;
 +        SmNodeToTextVisitor(pTree.get(), aBack);
 +        CPPUNIT_ASSERT(aBack.indexOf("widearc") >= 0);
++    }
++
++    void testArcDrawnFromAFontThatHasIt()
++    {
++        // OpenSymbol maps U+2322 to an empty glyph: the arc was invisible over the name
++        rtl::Reference<SmDocShell> xDocShell = new SmDocShell(
++            SfxModelFlags::EMBEDDED_OBJECT | SfxModelFlags::DISABLE_EMBEDDED_SCRIPTS
++            | SfxModelFlags::DISABLE_DOCUMENT_RECOVERY);
++        xDocShell->SetText(u"widearc {AB} + widehat {AB}"_ustr);
++        xDocShell->GetSize(); // prepares and arranges the formula
++        const SmNode* pSum = xDocShell->GetFormulaTree()->GetSubNode(0)->GetSubNode(0);
++        const auto* pArc = static_cast<const SmAttributeNode*>(pSum->GetSubNode(0));
++        const auto* pHat = static_cast<const SmAttributeNode*>(pSum->GetSubNode(2));
++        CPPUNIT_ASSERT(pArc->Attribute()->GetToken().eType == TWIDEARC);
++        CPPUNIT_ASSERT_EQUAL(u"DejaVu Math TeX Gyre"_ustr, pArc->Attribute()->GetFont().GetFamilyName());
++        // other attributes keep the math font
++        CPPUNIT_ASSERT(pHat->Attribute()->GetFont().GetFamilyName() != pArc->Attribute()->GetFont().GetFamilyName());
++        xDocShell->DoClose();
 +    }
 +
 +    void testTextArrowStretches()
@@ -479,6 +497,7 @@ index 0000000..6f8bdab
 +    CPPUNIT_TEST(testTemplateCategories);
 +    CPPUNIT_TEST(testTextArrowsParse);
 +    CPPUNIT_TEST(testArcParse);
++    CPPUNIT_TEST(testArcDrawnFromAFontThatHasIt);
 +    CPPUNIT_TEST(testTextArrowStretches);
 +    CPPUNIT_TEST(testOmmlImportFixes);
 +    CPPUNIT_TEST_SUITE_END();
@@ -3898,10 +3917,10 @@ index 0000000..f18b590
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/source/hst/textarrow.cxx b/starmath/source/hst/textarrow.cxx
 new file mode 100644
-index 0000000..9f1f36d
+index 0000000..bd324ec
 --- /dev/null
 +++ b/starmath/source/hst/textarrow.cxx
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,75 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -3913,11 +3932,14 @@ index 0000000..9f1f36d
 +
 +#include <format.hxx>
 +#include <node.hxx>
++#include <utility.hxx>
 +
 +#include <algorithm>
 +
 +namespace starmath::hst
 +{
++constexpr OUString ARC_FONT = u"DejaVu Math TeX Gyre"_ustr;
++
 +bool IsTextArrow(SmTokenType eType)
 +{
 +    switch (eType)
@@ -3963,15 +3985,23 @@ index 0000000..9f1f36d
 +    rRect = *pArrow;
 +    rRect.ExtendBy(*pOver, RectCopyMBL::This).ExtendBy(*pUnder, RectCopyMBL::This);
 +}
++
++void UseArcFont(SmTokenType eType, SmFace& rFace)
++{
++    if (eType != TWIDEARC)
++        return;
++    rFace.SetFamilyName(ARC_FONT);
++    rFace.SetCharSet(RTL_TEXTENCODING_UNICODE);
++}
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/source/hst/textarrow.hxx b/starmath/source/hst/textarrow.hxx
 new file mode 100644
-index 0000000..b98e100
+index 0000000..fd1c2f0
 --- /dev/null
 +++ b/starmath/source/hst/textarrow.hxx
-@@ -0,0 +1,26 @@
+@@ -0,0 +1,31 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -3984,6 +4014,7 @@ index 0000000..b98e100
 +#include <token.hxx>
 +
 +class OutputDevice;
++class SmFace;
 +class SmFormat;
 +class SmVerticalBraceNode;
 +
@@ -3995,6 +4026,10 @@ index 0000000..b98e100
 +/// The arrow stays on the baseline like a relation and is stretched to the wider of the two
 +/// texts, which are set in limit size above and below it.
 +void ArrangeTextArrow(SmVerticalBraceNode& rNode, OutputDevice& rDev, const SmFormat& rFormat);
++
++/// The arc of "widearc" (U+2322) is not drawn by OpenSymbol, which maps it to an empty glyph, so
++/// font fallback never happens: the arc symbol takes a font that has it (bundled with the office).
++void UseArcFont(SmTokenType eType, SmFace& rFace);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -4077,7 +4112,7 @@ index cd06cfc..5746f95 100644
  
      enum MTOKENS {END,LINE,CHAR,TMPL,PILE,MATRIX,EMBEL,RULER,FONT,SIZE};
 diff --git a/starmath/source/node.cxx b/starmath/source/node.cxx
-index 89970e1..49f1870 100644
+index 89970e1..6ac1a75 100644
 --- a/starmath/source/node.cxx
 +++ b/starmath/source/node.cxx
 @@ -21,6 +21,7 @@
@@ -4098,6 +4133,14 @@ index 89970e1..49f1870 100644
      pBody->Arrange(aTmpDev, rFormat);
  
      // size is the same as for limits for this part
+@@ -2116,6 +2120,7 @@ void SmMathSymbolNode::Prepare(const SmFormat &rFormat, const SmDocShell &rDocSh
+     SmNode::Prepare(rFormat, rDocShell, nDepth);
+ 
+     GetFont() = rFormat.GetFont(GetFontDesc());
++    starmath::hst::UseArcFont(GetToken().eType, GetFont());
+     // use same font size as is used for variables
+     GetFont().SetSize( rFormat.GetFont( FNT_VARIABLE ).GetFontSize() );
+ 
 diff --git a/starmath/source/ooxmlexport.cxx b/starmath/source/ooxmlexport.cxx
 index aed878f..6664d8f 100644
 --- a/starmath/source/ooxmlexport.cxx
