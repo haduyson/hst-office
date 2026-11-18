@@ -11,17 +11,20 @@ specifications and the interface headers of hst-sheets-dynamic-array-hooks.patch
   was scanned inside the symbol (quoted or non-ASCII sheet names); the autocorrected formula keeps A1#.
 - sc/source/core/hst/hstdynamicarrayinterpreter.cxx: @ intersects a range with the formula cell's row
   and/or column (#VALUE! when none), takes the upper-left element of an array and leaves single
-  values; A1# is the anchor's current result size as a reference, #REF! for no array formula, a
-  single value, an error or #SPILL!.
-- sc/source/ui/hst/hstdynamicarrayinput.cxx: whether a typed formula spills (calculated once as an
-  array formula unless it can only give one value or calls macros, add-ins, DDE or web services);
+  values; A1# is the current result size of a dynamic array's anchor as a reference, also one
+  cell; #REF! for an empty cell, a constant, an ordinary formula, a legacy array formula, an error
+  result or #SPILL!.
+- sc/source/ui/hst/hstdynamicarrayinput.cxx: whether a typed formula spills (a formula whose
+  outermost function is an array function is a dynamic array whatever its result size; others are
+  calculated once as an array
+  formula unless they can only give one value or call macros, add-ins, DDE or web services);
   the cursor cell alone as entry range when another array is in the way (#SPILL!); the input line
   of a dynamic array without braces.
 
 License: LicenseRef-HST-Proprietary (new files only; the makefile lines are hooks).
 Test: CppunitTest_sc_hst_dynamic_arrays (spill, single result, resize, #SPILL! and recovery, blocked by
-an array, A1#, @, xlsx export/import of Excel's form with cm and round trip, Spill.xlsx, error
-constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
+an array, A1#, A1# of a one-cell result, @, xlsx export/import of Excel's form with cm and round trip,
+Spill.xlsx, error constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 ---
 --- a/formula/Library_for.mk
 +++ b/formula/Library_for.mk
@@ -392,7 +395,7 @@ constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
  	CppunitTest_sc_a11y \
 --- /dev/null
 +++ b/sc/qa/unit/uicalc/hstdynamicarrays.cxx
-@@ -0,0 +1,568 @@
+@@ -0,0 +1,613 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -797,6 +800,51 @@ constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, text("K1"));
 +}
 +
++// A1# of a dynamic array whose result is one cell; an outermost array function stays dynamic.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testSpillRangeOfOneCellResult)
++{
++    createScDoc();
++    type("A1", u"a");
++    type("A2", u"a");
++    type("A3", u"a");
++    type("C1", u"=UNIQUE(A1:A3)");
++    CPPUNIT_ASSERT_EQUAL(u"a"_ustr, text("C1"));
++    CPPUNIT_ASSERT(formulaCell("C1")->IsDynamicArrayMaster());
++    type("D1", u"=COUNTA(C1#)");
++    CPPUNIT_ASSERT_EQUAL(1.0, value("D1"));
++    type("A2", u"b");
++    CPPUNIT_ASSERT_EQUAL(u"b"_ustr, text("C2"));
++    CPPUNIT_ASSERT_EQUAL(2.0, value("D1"));
++
++    const OUString aSep = ScCompiler::GetNativeSymbol(ocSep);
++    type("E1", u"1");
++    type("E2", u"2");
++    type("E3", u"3");
++    type("G1", OUString("=FILTER(E1:E3" + aSep + "E1:E3>2)"));
++    CPPUNIT_ASSERT_EQUAL(3.0, value("G1"));
++    CPPUNIT_ASSERT(formulaCell("G1")->IsDynamicArrayMaster());
++    type("H1", u"=ROWS(G1#)");
++    CPPUNIT_ASSERT_EQUAL(1.0, value("H1"));
++    type("I1", u"=G1#*10");
++    CPPUNIT_ASSERT_EQUAL(30.0, value("I1"));
++    type("E2", u"5");
++    CPPUNIT_ASSERT_EQUAL(5.0, value("G1"));
++    CPPUNIT_ASSERT_EQUAL(3.0, value("G2"));
++    CPPUNIT_ASSERT_EQUAL(2.0, value("H1"));
++
++    // No spill range: a constant, an ordinary formula, a legacy array formula.
++    type("A6", u"5");
++    type("B6", u"=SUM(A6#)");
++    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, text("B6"));
++    type("A7", u"=SUM(E1:E3)");
++    CPPUNIT_ASSERT(ScMatrixMode::NONE == formulaCell("A7")->GetMatrixFlag());
++    type("B7", u"=SUM(A7#)");
++    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, text("B7"));
++    insertArrayToCell(u"A8"_ustr, u"=E1:E2");
++    type("B8", u"=SUM(A8#)");
++    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, text("B8"));
++}
++
 +// The implicit intersection operator @.
 +CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testImplicitIntersection)
 +{
@@ -963,7 +1011,7 @@ constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sc/source/core/hst/hstdynamicarrayinterpreter.cxx
-@@ -0,0 +1,207 @@
+@@ -0,0 +1,212 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1129,9 +1177,10 @@ constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +        return;
 +    }
 +
-+    // Only an array formula's anchor has a spill range.
++    // Only a dynamic array's anchor has a spill range; a legacy array formula has none.
 +    ScFormulaCell* pAnchor = mrDoc.GetFormulaCell(aAnchor);
-+    if (!pAnchor || pAnchor->GetMatrixFlag() != ScMatrixMode::Formula)
++    if (!pAnchor || pAnchor->GetMatrixFlag() != ScMatrixMode::Formula
++        || !pAnchor->IsDynamicArrayMaster())
 +    {
 +        PushError(FormulaError::NoRef);
 +        return;
@@ -1150,17 +1199,21 @@ constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +        PushError(FormulaError::NoRef);
 +        return;
 +    }
-+    const ScMatrix* pMat = pAnchor->GetMatrix();
-+    if (!pMat)
++    SCSIZE nCols = 1, nRows = 1; // a one-cell result: the spill range is the anchor alone
++    if (const ScMatrix* pMat = pAnchor->GetMatrix())
 +    {
-+        PushError(FormulaError::NoRef); // an error or a single value is no spill range
-+        return;
++        pMat->GetDimensions(nCols, nRows);
++        const bool bErrorCell = nCols == 1 && nRows == 1 && pMat->IsValue(0, 0)
++                                && pMat->GetError(0, 0) != FormulaError::NONE;
++        if (nCols == 0 || nRows == 0 || bErrorCell)
++        {
++            PushError(FormulaError::NoRef);
++            return;
++        }
 +    }
-+    SCSIZE nCols = 0, nRows = 0;
-+    pMat->GetDimensions(nCols, nRows);
-+    if (nCols == 0 || nRows == 0)
++    else if (pAnchor->GetRawError() != FormulaError::NONE)
 +    {
-+        PushError(FormulaError::NoRef);
++        PushError(FormulaError::NoRef); // an anchor whose result is an error has no spill range
 +        return;
 +    }
 +    const SCCOL nEndCol = static_cast<SCCOL>(
@@ -1267,7 +1320,7 @@ constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sc/source/ui/hst/hstdynamicarrayinput.cxx
-@@ -0,0 +1,185 @@
+@@ -0,0 +1,227 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1343,6 +1396,44 @@ constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +    }
 +}
 +
++/** Array functions: a formula whose outermost function is one of them is a dynamic array even
++    when its result is one cell, so that it spills when the result grows. */
++bool IsArrayFunction(OpCode eOp)
++{
++    switch (eOp)
++    {
++        case ocMatSequence:
++        case ocRandArray:
++        case ocFilter:
++        case ocUnique:
++        case ocSort:
++        case ocSortBy:
++        case ocMatTrans:
++        case ocMakeArray:
++        case ocMap:
++        case ocScan:
++        case ocByRow:
++        case ocByCol:
++        case ocHStack:
++        case ocVStack:
++        case ocToCol:
++        case ocToRow:
++        case ocWrapRows:
++        case ocWrapCols:
++        case ocTake:
++        case ocDrop:
++        case ocChooseRows:
++        case ocChooseCols:
++        case ocExpand:
++        case ocMatrixUnit:
++        case ocGroupBy:
++        case ocPivotBy:
++            return true;
++        default:
++            return false;
++    }
++}
++
 +/// Whether a token may bring an array into the formula.
 +bool MayGiveArray(const formula::FormulaToken& rToken)
 +{
@@ -1381,6 +1472,11 @@ constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +    if (rCode.GetCodeError() != FormulaError::NONE || rCode.GetLen() == 0)
 +        return false;
 +
++    // The outermost function is an array function: a dynamic array whatever its result size.
++    const formula::FormulaToken* pLast = rCode.LastRPNToken();
++    if (pLast && IsArrayFunction(pLast->GetOpCode()))
++        return true;
++
 +    bool bMayGiveArray = false;
 +    formula::FormulaTokenArrayPlainIterator aIter(rCode);
 +    for (const formula::FormulaToken* p = aIter.First(); p; p = aIter.Next())
@@ -1391,7 +1487,6 @@ constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +            bMayGiveArray = true;
 +    }
 +    // A formula starting with @ never spills.
-+    const formula::FormulaToken* pLast = rCode.LastRPNToken();
 +    if (!bMayGiveArray || (pLast && pLast->GetOpCode() == ocSingleValue))
 +        return false;
 +
