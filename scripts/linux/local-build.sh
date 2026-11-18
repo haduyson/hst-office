@@ -412,7 +412,8 @@ invalidate_stale_translations() { # also catches a .po synced by a run that neve
   local dir lang oldest
   for dir in "$SRC/translations/source"/*/; do
     lang="$(basename "$dir")"
-    oldest="$(find "$SRC/workdir/MoTarget" -maxdepth 1 -name "*$lang.mo" -printf '%T@ %p\n' 2>/dev/null | sort -n | head -1 | cut -d' ' -f2-)"
+    # A fresh or wiped workdir has no MoTarget yet: find then fails, and pipefail must not end the build.
+    oldest="$({ find "$SRC/workdir/MoTarget" -maxdepth 1 -name "*$lang.mo" -printf '%T@ %p\n' 2>/dev/null || true; } | sort -n | head -1 | cut -d' ' -f2-)"
     [ -n "$oldest" ] || continue
     find "$dir" -name '*.po' -newer "$oldest" -print -quit | grep -q . || continue
     log "translations of $lang are newer than its catalogues: dropping its .mo catalogues and registry_$lang.xcd"
