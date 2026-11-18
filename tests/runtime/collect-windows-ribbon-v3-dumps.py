@@ -39,7 +39,8 @@ def tab_rects(office):
         parts = line.strip().split(" ", 5)
         if len(parts) == 6 and parts[0] == "RECT":
             box = tuple(int(v) for v in parts[1:5])
-            if box[2] > 0 and box[3] > 0:
+            # the ribbon's tab row is at the window's top: Calc's sheet tabs and Draw's layer tabs are page tabs too
+            if box[2] > 0 and box[3] > 0 and box[1] < 300:
                 tabs.append((parts[5], box))
     return sorted(tabs, key=lambda tab: tab[1][0])
 
