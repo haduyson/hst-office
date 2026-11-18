@@ -56,6 +56,9 @@ def main(argv=None):
     s.add_argument("--no-package", action="store_true")
     s.add_argument("--modules", default="")
     s.add_argument("--test", default="", help="Linux: test targets to run after the build (space/comma separated)")
+    s.add_argument("--test-name", help="with --test: run only this CppUnit test (CPPUNIT_TEST_NAME, e.g. TestTdf150606)")
+    s.add_argument("--gdb", action="store_true",
+                   help="with --test: run under gdb -batch; a crash logs `thread apply all bt full` in the test log")
     s.add_argument("--integrator", action="store_true", help="the integrator's submit (priority above 50, --force)")
     s.add_argument("--force", action="store_true", help="integrator: build even a tests/docs-only commit")
     pn = sub.add_parser("pin")
@@ -100,7 +103,7 @@ def main(argv=None):
         if args.cmd == "submit":
             job, dup = submit(store, args.platform, args.ref, args.priority, not args.no_package,
                               parse_modules(args.modules), tests=parse_tests(args.test), force=args.force,
-                              integrator=args.integrator)
+                              integrator=args.integrator, test_name=args.test_name, gdb=args.gdb)
             if dup:
                 print(f"deduplicated: identical job {job['id']} is {job['state']}", file=sys.stderr)
             print(job["id"])

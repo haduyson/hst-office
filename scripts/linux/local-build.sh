@@ -24,6 +24,9 @@
 #   --reconfigure      run the configure phase even when nothing it depends on changed
 #   --fresh            re-extract the pristine tarballs (full rebuild)
 #   --no-package       stop after make (skip the single-.deb packaging)
+#   --test-name NAME   with --test: run only that CppUnit test (CPPUNIT_TEST_NAME, e.g. TestTdf150606)
+#   --gdb              with --test: run the tests under `gdb -batch` and log `thread apply all bt full` on a crash
+#                      (the slot's libraries keep their symbol tables: function names, no line numbers)
 #   --package          package even with --test (build, run the tests, then package: a build train's Linux job)
 #   --umount           only unmount the slot's chroot (after a crashed run) and exit (needs --slot N)
 #
@@ -71,7 +74,7 @@ CCACHE_MAX="${HST_CCACHE_MAX:-30G}"
 # Optional systemd slice for the make scopes (a remote build host caps all its builds together in hst-build.slice).
 SLICE="${HST_LOCAL_SLICE:-}"
 [ -z "$SLICE" ] || [[ "$SLICE" =~ ^[A-Za-z0-9_-]+\.slice$ ]] || { echo "local-build: bad HST_LOCAL_SLICE" >&2; exit 64; }
-JOBS=$MAX_JOBS; RECONFIGURE=0; FRESH=0; PACKAGE=1; PACKAGE_WITH_TESTS=0; TARGET=""; BUILD_PGID=""; MOUNTED=0; ADMITTED=0; BASE_MOUNTED=0
+JOBS=$MAX_JOBS; RECONFIGURE=0; FRESH=0; PACKAGE=1; PACKAGE_WITH_TESTS=0; TEST_NAME=""; TEST_GDB=0; TARGET=""; BUILD_PGID=""; MOUNTED=0; ADMITTED=0; BASE_MOUNTED=0
 SLOT=auto; MODULES=""; TESTS=""; LABEL_OPT=""; OUT_OPT=""; UMOUNT_ONLY=0
 
 usage() { sed -n '7,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 64; }
@@ -85,6 +88,8 @@ while [ $# -gt 0 ]; do
     --slot) SLOT="${2:-}"; shift 2 ;;
     --modules) MODULES="${2:-}"; shift 2 ;;
     --test) TESTS="${2:-}"; shift 2 ;;
+    --test-name) TEST_NAME="${2:-}"; shift 2 ;;
+    --gdb) TEST_GDB=1; shift ;;
     --label) LABEL_OPT="${2:-}"; shift 2 ;;
     --out) OUT_OPT="${2:-}"; shift 2 ;;
     --reconfigure) RECONFIGURE=1; shift ;;
@@ -126,6 +131,14 @@ if [ -n "$TESTS" ]; then
   [ "$PACKAGE_WITH_TESTS" -eq 1 ] || PACKAGE=0
 fi
 [ "$PACKAGE_WITH_TESTS" -eq 0 ] || [ -z "$MODULES" ] || die "--package cannot be combined with --modules"
+if [ -n "$TEST_NAME" ] || [ "$TEST_GDB" -eq 1 ]; then
+  [ "${#TEST_TARGETS[@]}" -gt 0 ] || die "--test-name and --gdb need --test"
+  [ -z "$TEST_NAME" ] || [[ "$TEST_NAME" =~ ^[A-Za-z_][A-Za-z0-9_:]{0,199}$ ]] || die "--test-name: bad name '$TEST_NAME'"
+fi
+# Extra make variables of each test run (gbuild's CppunitTest.mk reads CPPUNIT_TEST_NAME and CPPUNITTRACE).
+TEST_MAKE_VARS=()
+[ -z "$TEST_NAME" ] || TEST_MAKE_VARS+=("CPPUNIT_TEST_NAME=$TEST_NAME")
+[ "$TEST_GDB" -eq 0 ] || TEST_MAKE_VARS+=("CPPUNITTRACE=gdb -batch -ex run -ex 'thread apply all bt full' --args")
 MAKE_KIND=full; [ -z "$MODULES" ] || MAKE_KIND=modules
 [ "$(id -u)" -eq 0 ] || die "needs root (chroot and mounts)"
 for tool in git rsync chroot mount flock python3 sha256sum systemd-run systemctl ionice; do   # docker: update_base
@@ -612,7 +625,7 @@ run_tests() { # each --test target in turn, same scope guards as the build; resu
   mkdir -p "$TEST_OUT/test-logs"; : > "$RUN_LOGS/tests.tsv"
   MAKE_KIND="test"
   for t in "${TEST_TARGETS[@]}"; do
-    MAKE_TARGETS=("$t"); BUILD_LOG="$RUN_LOGS/test-$t.log"; start=$(date +%s); rc=0
+    MAKE_TARGETS=("$t" "${TEST_MAKE_VARS[@]}"); BUILD_LOG="$RUN_LOGS/test-$t.log"; start=$(date +%s); rc=0
     log "test $t: start"
     do_build || rc=$?
     cp "$BUILD_LOG" "$TEST_OUT/test-logs/$t.log"

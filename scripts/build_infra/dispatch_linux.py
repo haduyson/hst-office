@@ -48,6 +48,10 @@ class LinuxRunner:
             cmd += ["--test", " ".join(job["tests"])]
             if job["package"] and not job["modules"]:
                 cmd.append("--package")   # a train's Linux build: tests, then the packages
+            if job.get("test_name"):
+                cmd += ["--test-name", job["test_name"]]
+            if job.get("gdb"):
+                cmd.append("--gdb")
         cmd.append(job["sha"])
         rc = self.rc_path(job)
         if os.path.exists(rc):

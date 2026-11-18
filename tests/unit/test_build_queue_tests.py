@@ -29,6 +29,22 @@ class TestModeTest(QueueTestCase):
         with self.assertRaises(bq.QueueError):
             self.submit(platform="windows", tests=["CppunitTest_sc_ucalc"])
 
+    def test_a_gdb_run_of_one_test_is_validated_keyed_and_never_joined(self):
+        plain, _ = self.submit(tests=["CppunitTest_sw_layoutwriter"])
+        dbg, dup = self.submit(tests=["CppunitTest_sw_layoutwriter"], test_name="TestTdf150606", gdb=True)
+        self.assertFalse(dup)
+        self.assertNotEqual(dbg["id"], plain["id"])
+        self.assertEqual((dbg["test_name"], dbg["gdb"], dbg["tests"]),
+                         ("TestTdf150606", True, ["CppunitTest_sw_layoutwriter"]))
+        self.assertTrue(dbg["key"].endswith(":name=TestTdf150606:gdb"))
+        self.assertEqual(self.store.load(plain["id"])["tests"], ["CppunitTest_sw_layoutwriter"])   # nothing joined
+        same, dup = self.submit(tests=["CppunitTest_sw_layoutwriter"], test_name="TestTdf150606", gdb=True)
+        self.assertEqual((same["id"], dup), (dbg["id"], True))
+        for kw, why in (({"gdb": True}, "need --test"),
+                        ({"tests": ["CppunitTest_a"], "test_name": "x;rm"}, "bad --test-name")):
+            with self.assertRaisesRegex(bq.QueueError, why):
+                self.submit(**kw)
+
     def test_tests_are_part_of_the_key_and_imply_no_package(self):
         build, _ = self.submit()
         test, dup = self.submit(tests=["CppunitTest_sc_ucalc"])

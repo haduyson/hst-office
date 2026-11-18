@@ -10,11 +10,12 @@ from .queue_git import Git, is_docs_only
 from .queue_patch_lint import lint_commit
 from .queue_rules import (find_duplicate, is_integrator, job_key, job_kind, label_for, last_built, new_id, resolve_ref,
                           superseded, test_merge_target)
-from .queue_store import PLATFORMS, QueueError, now_iso
+from .queue_store import PLATFORMS, TEST_NAME_RE, QueueError, now_iso
 
 # ---------------------------------------------------------------- commands
 def submit(store, platform, ref, priority=None, package=True, modules=(), resolver=resolve_ref, submitter=None, tests=(),
-           force=False, integrator=False, git=None, err=None, internal=False, train=None, confirm_for=None):
+           force=False, integrator=False, git=None, err=None, internal=False, train=None, confirm_for=None,
+           test_name=None, gdb=False):
     """Queue a build; returns (job, deduplicated). Rules for agents (internal=False):
       - priority above agent_max_priority is capped unless the submit comes from the integrator;
       - priority None (not given): integrator_priority for the integrator, 0 for everyone else;
@@ -35,6 +36,10 @@ def submit(store, platform, ref, priority=None, package=True, modules=(), resolv
     tests = list(tests)
     if tests and platform != "linux":
         raise QueueError("--test runs on Linux slots only")
+    if (test_name or gdb) and not tests:
+        raise QueueError("--test-name and --gdb need --test")
+    if test_name and not TEST_NAME_RE.match(test_name):
+        raise QueueError(f"bad --test-name {test_name!r} (a CppUnit test or fixture name, e.g. TestTdf150606)")
     if modules or (tests and not internal):
         package = False
     cfg = store.config()
@@ -52,7 +57,8 @@ def submit(store, platform, ref, priority=None, package=True, modules=(), resolv
     git = git or Git()
     if not internal and not force:
         refuse_bad_patches(git, cfg, ref, sha)
-    key = job_key(platform, sha, package, modules, tests)
+    key = job_key(platform, sha, package, modules, tests) + (f":name={test_name}" if test_name else "") \
+        + (":gdb" if gdb else "")
     label = label_for(ref, sha)
     kind = job_kind({"tests": tests, "modules": modules})
     with store.lock():
@@ -60,7 +66,8 @@ def submit(store, platform, ref, priority=None, package=True, modules=(), resolv
         dup = find_duplicate(jobs, key)
         if dup:
             return dup, True
-        target = None if internal or not tests else test_merge_target(jobs, platform, sha, package, modules)
+        target = None if internal or not tests or test_name or gdb \
+            else test_merge_target(jobs, platform, sha, package, modules)
         if target:
             return merge_test_job(store, target, tests, priority, err), True
         if not internal and not force:
@@ -82,6 +89,10 @@ def submit(store, platform, ref, priority=None, package=True, modules=(), resolv
             job["integrator"] = True
         if force:
             job["forced"] = True
+        if test_name:
+            job["test_name"] = test_name   # CPPUNIT_TEST_NAME: only that test of each target
+        if gdb:
+            job["gdb"] = True              # tests run under gdb -batch (a diagnosis run: never joined with others)
         if train:
             job["train"] = train
         if confirm_for:

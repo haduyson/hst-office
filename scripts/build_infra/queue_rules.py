@@ -65,6 +65,7 @@ def test_merge_target(jobs, platform, sha, package, modules):
         if (job["state"] == "queued" and job.get("tests") and job["platform"] == platform and job["sha"] == sha
                 and job["package"] == package and sorted(job["modules"]) == sorted(modules)
                 and not job.get("starting") and not job.get("infra_retries") and not job.get("train")
+                and not job.get("test_name") and not job.get("gdb")
                 and not job.get("confirm_for") and job.get("submitter") != "build-train"):
             return job
     return None

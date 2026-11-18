@@ -250,6 +250,10 @@ scripts/build-queue.sh wait <id>            # PASS/FAIL từng target + đuôi l
 scripts/build-queue.sh compare <id-nền> <id-nhánh>   # so sánh từng target; "REGRESSION" (thoát 3) khi nền đạt mà nhánh hỏng
 ```
 
+Chẩn đoán một test bị abort/crash: `--test CppunitTest_sw_layoutwriter --test-name TestTdf150606 --gdb` chạy đúng test
+đó (`CPPUNIT_TEST_NAME`) dưới `gdb -batch`; khi crash, `thread apply all bt full` nằm trong `test-logs/<target>.log` (thư
+viện trong slot giữ bảng symbol: có tên hàm, không có số dòng). Job loại này không bao giờ bị nhập với job test khác.
+
 Chỉ Linux. Job build tăng dần nhánh đó trong một slot (`make` đầy đủ, không đóng gói), rồi chạy lần lượt `make <target>`
 trong chroot của slot với cùng môi trường như build (`HST_VERSION_*`, `HST_REPO_ROOT`, scope systemd, bộ điều phối,
 cùng các bảo vệ RAM/đĩa). Target hợp lệ: `CppunitTest_*`, `PythonTest_*`, `<module>.check|unitcheck|slowcheck|

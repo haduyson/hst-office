@@ -18,6 +18,7 @@ REF_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$")
 MODULE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.+-]{0,79}$")
 # What local-build.sh --test accepts: unit/integration test targets that run headless in the slot chroot.
 TEST_RE = re.compile(r"^((CppunitTest|PythonTest)_[A-Za-z0-9_]{1,100}|[a-z0-9_]{1,40}\.(check|unitcheck|slowcheck|subsequentcheck))$")
+TEST_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_:]{0,199}$")   # CPPUNIT_TEST_NAME (local-build.sh --test-name)
 ID_RE = re.compile(r"^q\d{6}-\d{6}-[0-9a-f]{4}$")
 DEFAULT_CONFIG = {
     # Retention (queue_rules.retention_victims): newest outputs kept per platform + branch + job kind; train builds

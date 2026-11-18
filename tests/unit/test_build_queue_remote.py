@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 import types
 
-from build_queue_fixtures import FakeRunner, QueueTestCase, bq, bqd
+from build_queue_fixtures import ROOT, FakeRunner, QueueTestCase, bq, bqd
 from build_infra.dispatch_linux_pool import LinuxPool
 from build_infra.dispatch_remote_linux import RemoteLinuxRunner
 from build_infra.remote_host import HostStates, RemoteError
@@ -101,6 +101,18 @@ class RemoteRunnerTest(RemoteTestCase):
         modules, _ = self.submit(ref="feat/x", tests=["CppunitTest_b"], modules=["sw"])
         self.remote.start(modules, "vm103:4")
         self.assertNotIn("--package", self.host.calls[-1])
+
+    def test_a_gdb_run_passes_the_test_name_and_gdb_to_local_build(self):
+        job, _ = self.submit(ref="feat/x", tests=["CppunitTest_sw_layoutwriter"], test_name="TestTdf150606", gdb=True)
+        self.remote.start(job, "vm103:2")
+        run = self.host.calls[-1]
+        self.assertEqual(run[run.index("--test-name") + 1], "TestTdf150606")
+        self.assertIn("--gdb", run)
+        self.assertNotIn("--package", run)
+        script = (ROOT / "scripts/linux/local-build.sh").read_text()
+        self.assertIn('TEST_MAKE_VARS+=("CPPUNIT_TEST_NAME=$TEST_NAME")', script)
+        self.assertIn("CPPUNITTRACE=gdb -batch -ex run -ex 'thread apply all bt full' --args", script)
+        self.assertIn('MAKE_TARGETS=("$t" "${TEST_MAKE_VARS[@]}")', script)
 
     def test_log_streaming_then_output_copied_back_and_host_cleaned(self):
         job = self.running_job()
