@@ -7,6 +7,7 @@ from unittest import mock
 import xml.etree.ElementTree as ET
 
 import _paths
+import uno_stubs  # noqa: F401 - options_page imports unohelper and the awt interfaces
 from hst_office import app_shortcuts as sc
 from hst_office import app_shortcuts_ui as ui
 
