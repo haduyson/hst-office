@@ -1,0 +1,211 @@
+Writer: cells of an imported DOCX/RTF table with the same attributes share one cell format.
+
+The DOCX/RTF table import sets borders, widths and shading through the cell UNO objects, so every cell got a cell
+format of its own (SwTableBox::ClaimFrameFormat): about 0.5 KB each with its attribute set and name. A table made
+in Writer shares one format between equal cells, and SwTableBox::ClaimFrameFormat gives a cell its own format again
+as soon as it is changed. After a table is converted, HstShareEqualTableBoxFormats (new hsttableboxformats.cxx)
+moves every cell whose format has the same attribute set and parent as an earlier cell's onto that format
+(SwTableBox::ChgFrameFormat deletes the unused one). At most 64 distinct formats per table are compared, so the
+pass stays linear in the number of cells.
+
+Hook: sw/source/writerfilter/dmapper/DomainMapperTableHandler.cxx (one call after the table is converted),
+sw/Library_sw.mk; logic in sw/inc/hsttableboxformats.hxx, sw/source/core/table/hsttableboxformats.cxx.
+Test: CppunitTest_sw_writerfilter_dmapper testHstEqualCellsShareOneFormat (equal cells share, a changed cell gets
+its own format back); DOCX round trips of the upstream sw/qa files are unchanged.
+---
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -395,6 +395,7 @@
+     sw/source/core/swg/SwXMLTextBlocks \
+     sw/source/core/swg/SwXMLTextBlocks1 \
+     sw/source/core/swg/swblocks \
++    sw/source/core/table/hsttableboxformats \
+     sw/source/core/table/swnewtable \
+     sw/source/core/table/swtable \
+     sw/source/core/text/EnhancedPDFExportHelper \
+--- /dev/null
++++ b/sw/inc/hsttableboxformats.hxx
+@@ -0,0 +1,15 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++#pragma once
++
++#include <swdllapi.h>
++
++class SwXTextTable;
++
++/// HST: let the cells of one imported table that have exactly the same cell attributes (and the same
++/// parent format) use one cell format, as tables created in Writer do. An imported table gets a
++/// format of its own for every cell, about half a kilobyte each. Changing one cell later gives it its
++/// own format again (SwTableBox::ClaimFrameFormat). Returns the number of formats removed.
++SW_DLLPUBLIC sal_Int32 HstShareEqualTableBoxFormats(SwXTextTable& rTable);
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/core/table/hsttableboxformats.cxx
+@@ -0,0 +1,65 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++
++#include <hsttableboxformats.hxx>
++
++#include <frmfmt.hxx>
++#include <swtable.hxx>
++#include <swtblfmt.hxx>
++#include <unotbl.hxx>
++
++#include <vector>
++
++namespace
++{
++/// Distinct formats compared per table: a table whose cells are all formatted differently gains
++/// nothing, and the search stays linear in the number of cells.
++constexpr size_t HST_MAX_DISTINCT_BOX_FORMATS = 64;
++
++bool HstSameBoxAttributes(const SwTableBoxFormat& rA, const SwTableBoxFormat& rB)
++{
++    return rA.DerivedFrom() == rB.DerivedFrom() && rA.GetAttrSet() == rB.GetAttrSet();
++}
++}
++
++sal_Int32 HstShareEqualTableBoxFormats(SwXTextTable& rXTable)
++{
++    SwTable* pTable = SwTable::FindTable(rXTable.GetFrameFormat());
++    if (!pTable)
++        return 0;
++    std::vector<SwTableBoxFormat*> aDistinct;
++    sal_Int32 nRemoved = 0;
++    // Copy: changing a box format does not change the sorted box list, but keep the loop independent.
++    const std::vector<SwTableBox*> aBoxes(pTable->GetTabSortBoxes().begin(),
++                                          pTable->GetTabSortBoxes().end());
++    for (SwTableBox* pBox : aBoxes)
++    {
++        SwTableBoxFormat* pFormat = pBox->GetFrameFormat();
++        if (!pFormat)
++            continue;
++        SwTableBoxFormat* pShared = nullptr;
++        for (SwTableBoxFormat* pCandidate : aDistinct)
++        {
++            if (pCandidate == pFormat || HstSameBoxAttributes(*pCandidate, *pFormat))
++            {
++                pShared = pCandidate;
++                break;
++            }
++        }
++        if (!pShared)
++        {
++            if (aDistinct.size() < HST_MAX_DISTINCT_BOX_FORMATS)
++                aDistinct.push_back(pFormat);
++            continue;
++        }
++        if (pShared == pFormat)
++            continue;
++        const bool bLastUser = pFormat->HasOnlyOneListener();
++        pBox->ChgFrameFormat(pShared); // deletes pFormat when no other box uses it
++        if (bLastUser)
++            ++nRemoved;
++    }
++    return nRemoved;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/qa/writerfilter/dmapper/data/hst-table-equal-cells.rtf
+@@ -0,0 +1,8 @@
++{\rtf1\ansi\deff0{\fonttbl{\f0 Times New Roman;}}{\colortbl;\red255\green255\blue0;}
++\trowd\trgaph108\clbrdrt\brdrs\brdrw10\clbrdrl\brdrs\brdrw10\clbrdrb\brdrs\brdrw10\clbrdrr\brdrs\brdrw10\cellx3000\clbrdrt\brdrs\brdrw10\clbrdrl\brdrs\brdrw10\clbrdrb\brdrs\brdrw10\clbrdrr\brdrs\brdrw10\cellx6000\clbrdrt\brdrs\brdrw10\clbrdrl\brdrs\brdrw10\clbrdrb\brdrs\brdrw10\clbrdrr\brdrs\brdrw10\cellx9000
++\pard\intbl A1\cell B1\cell C1\cell \row
++\trowd\trgaph108\clbrdrt\brdrs\brdrw10\clbrdrl\brdrs\brdrw10\clbrdrb\brdrs\brdrw10\clbrdrr\brdrs\brdrw10\cellx3000\clbrdrt\brdrs\brdrw10\clbrdrl\brdrs\brdrw10\clbrdrb\brdrs\brdrw10\clbrdrr\brdrs\brdrw10\clcbpat1\cellx6000\clbrdrt\brdrs\brdrw10\clbrdrl\brdrs\brdrw10\clbrdrb\brdrs\brdrw10\clbrdrr\brdrs\brdrw10\cellx9000
++\pard\intbl A2\cell B2\cell C2\cell \row
++\trowd\trgaph108\clbrdrt\brdrs\brdrw10\clbrdrl\brdrs\brdrw10\clbrdrb\brdrs\brdrw10\clbrdrr\brdrs\brdrw10\cellx3000\clbrdrt\brdrs\brdrw10\clbrdrl\brdrs\brdrw10\clbrdrb\brdrs\brdrw10\clbrdrr\brdrs\brdrw10\cellx6000\clbrdrt\brdrs\brdrw10\clbrdrl\brdrs\brdrw10\clbrdrb\brdrs\brdrw10\clbrdrr\brdrs\brdrw10\cellx9000
++\pard\intbl A3\cell B3\cell C3\cell \row
++\pard\par}
+--- a/sw/source/writerfilter/dmapper/DomainMapperTableHandler.cxx
++++ b/sw/source/writerfilter/dmapper/DomainMapperTableHandler.cxx
+@@ -59,6 +59,7 @@
+ #include <unotbl.hxx>
+ #include <unoparagraph.hxx>
+ #include <unotextrange.hxx>
++#include <hsttableboxformats.hxx>
+ 
+ #ifdef DBG_UTIL
+ #include "PropertyMapHelper.hxx"
+@@ -1707,6 +1708,9 @@
+ 
+                     // convert special range IDs ABOVE, BELOW, LEFT and RIGHT
+                     lcl_convertFormulaRanges(xTable);
++
++                    // HST: cells with equal attributes share one cell format, as in Writer's own tables
++                    HstShareEqualTableBoxFormats(*xTable);
+                 }
+             }
+         }
+--- a/sw/qa/writerfilter/dmapper/DomainMapperTableHandler.cxx
++++ b/sw/qa/writerfilter/dmapper/DomainMapperTableHandler.cxx
+@@ -27,6 +27,10 @@
+ #include <rootfrm.hxx>
+ #include <pagefrm.hxx>
+ #include <sortedobjs.hxx>
++#include <frameformats.hxx>
++#include <frmfmt.hxx>
++
++#include <set>
+ 
+ using namespace ::com::sun::star;
+ 
+@@ -335,6 +339,55 @@
+ }
+ }
+ 
++CPPUNIT_TEST_FIXTURE(Test, testHstEqualCellsShareOneFormat)
++{
++    // A 3x3 table (RTF goes through the same table handler as DOCX) where only B2 is shaded.
++    loadFromFile(u"hst-table-equal-cells.rtf");
++    SwDoc* pDoc = getSwDoc();
++    const SwTable& rTable = *SwTable::FindTable((*pDoc->GetTableFrameFormats())[0]);
++    const SwTableSortBoxes& rBoxes = rTable.GetTabSortBoxes();
++    CPPUNIT_ASSERT_EQUAL(size_t(9), rBoxes.size());
++    std::set<const SwFrameFormat*> aFormats;
++    for (const SwTableBox* pA : rBoxes)
++    {
++        aFormats.insert(pA->GetFrameFormat());
++        for (const SwTableBox* pB : rBoxes)
++        {
++            // Cells share a format exactly when their attributes are the same.
++            const bool bSameFormat = pA->GetFrameFormat() == pB->GetFrameFormat();
++            const bool bSameAttrs = pA->GetFrameFormat()->GetAttrSet() == pB->GetFrameFormat()->GetAttrSet();
++            CPPUNIT_ASSERT_EQUAL(bSameAttrs, bSameFormat);
++        }
++    }
++    // Without the accompanying change, every cell had its own format.
++    CPPUNIT_ASSERT_LESS(size_t(9), aFormats.size());
++    const SwTableBox* pA1 = rTable.GetTableBox(u"A1"_ustr);
++    const SwTableBox* pB2 = rTable.GetTableBox(u"B2"_ustr);
++    CPPUNIT_ASSERT(pA1->GetFrameFormat() != pB2->GetFrameFormat());
++    OUString aPartner; // a cell that shares A1's format
++    for (const SwTableBox* pBox : rBoxes)
++        if (pBox != pA1 && pBox->GetFrameFormat() == pA1->GetFrameFormat())
++            aPartner = pBox->GetName();
++    CPPUNIT_ASSERT(!aPartner.isEmpty());
++
++    // Changing one cell gives it a format of its own again: the cell that shared it keeps its look.
++    uno::Reference<text::XTextTablesSupplier> xTextDocument(mxComponent, uno::UNO_QUERY);
++    uno::Reference<container::XIndexAccess> xTables(xTextDocument->getTextTables(), uno::UNO_QUERY);
++    uno::Reference<text::XTextTable> xTable(xTables->getByIndex(0), uno::UNO_QUERY);
++    uno::Reference<beans::XPropertySet> xA1(xTable->getCellByName(u"A1"_ustr), uno::UNO_QUERY);
++    uno::Reference<beans::XPropertySet> xB2(xTable->getCellByName(u"B2"_ustr), uno::UNO_QUERY);
++    uno::Reference<beans::XPropertySet> xPartner(xTable->getCellByName(aPartner), uno::UNO_QUERY);
++    CPPUNIT_ASSERT_EQUAL(Color(0xFFFF00), getProperty<Color>(xB2, u"BackColor"_ustr));
++    const Color aOld = getProperty<Color>(xA1, u"BackColor"_ustr);
++    CPPUNIT_ASSERT_EQUAL(aOld, getProperty<Color>(xPartner, u"BackColor"_ustr));
++    xA1->setPropertyValue(u"BackColor"_ustr, uno::Any(Color(0x00FF00)));
++    CPPUNIT_ASSERT_EQUAL(Color(0x00FF00), getProperty<Color>(xA1, u"BackColor"_ustr));
++    CPPUNIT_ASSERT_EQUAL(aOld, getProperty<Color>(xPartner, u"BackColor"_ustr));
++    table::BorderLine2 aBorder;
++    xPartner->getPropertyValue(u"TopBorder"_ustr) >>= aBorder;
++    CPPUNIT_ASSERT(aBorder.LineWidth > 0);
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
