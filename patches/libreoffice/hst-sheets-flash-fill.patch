@@ -1,0 +1,1244 @@
+HST Office: Flash Fill (Tự điền nhanh, Ctrl+E) in HST Sheets, like the leading spreadsheet application
+(owner 18/11: mandatory in 1.0.3). LibreOffice has no such feature; the logic is HST-owned
+(SPDX LicenseRef-HST-Proprietary), LibreOffice files only get the command hooks.
+
+- sc/source/core/hst/hstflashfill.cxx (sc/inc/hstflashfill.hxx): the inference. A program is a sequence of
+  constant text and parts of the source columns (whole text, n-th word / run of letters / run of digits,
+  n-th field between delimiters, text before or after the first or last delimiter, a word's first letter;
+  counted from the start or the end), each as is, UPPER, lower or Proper. Programs that produce the first
+  example are searched cheapest first; the cheapest that produces all other examples wins, the one
+  filling more rows among equally cheap ones. Vietnamese letters with diacritics (also decomposed) count
+  as letters.
+- sc/source/ui/hst/hstflashfillcommand.cxx: .uno:FlashFill (SID_HST_FLASH_FILL) fills the empty cells of the
+  cursor's column in its data region from the other columns, one undo step; a header row that does not
+  follow the pattern is skipped; numbers stay numbers when the examples are numbers, otherwise text
+  (keeps leading zeros). A message when there is no data or no pattern.
+- Data menu (after Text to Columns) and command search; Ctrl+E in Sheets (was Center, still on the
+  ribbon and in Format Cells; Excel's key). The ribbon button follows the ribbon refactor.
+- Strings and Vietnamese translations (sc/messages.po, officecfg UI.po against the pristine tarball).
+
+Test: CppunitTest_sc_hst_flash_fill (inference cases: Vietnamese names, joining columns, numbers,
+dates, phone digits, case changes, initials, two examples, no pattern; the command with header row,
+undo and numbers), scripts/check-keytips-parity.py (Ctrl+E row).
+---
+--- a/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
+@@ -1027,7 +1027,7 @@ Ctrl+Shift+u aka U_SHIFT_MOD1 under GTK/IBUS is for unicode key input
+         <node oor:name="E_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+-            <value xml:lang="en-US">.uno:AlignHorizontalCenter</value>
++            <value xml:lang="en-US">.uno:FlashFill</value>
+             <value xml:lang="es">.uno:SelectAll</value>
+           </prop>
+         </node>
+--- a/officecfg/registry/data/org/openoffice/Office/UI/CalcCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/CalcCommands.xcu
+@@ -3275,6 +3275,14 @@
+           <value xml:lang="en-US">Convert numbers stored as text in the selection to numbers</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:FlashFill" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Flash Fill</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Fill the column from the examples typed in it, following their pattern in the neighboring columns</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:CopyDelete" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">~Cut but Keep Format</value>
+--- /dev/null
++++ b/sc/CppunitTest_sc_hst_flash_fill.mk
+@@ -0,0 +1,65 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# This file is part of the LibreOffice project.
++#
++# This Source Code Form is subject to the terms of the Mozilla Public
++# License, v. 2.0. If a copy of the MPL was not distributed with this
++# file, You can obtain one at http://mozilla.org/MPL/2.0/.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,sc_hst_flash_fill))
++
++$(eval $(call gb_CppunitTest_use_externals,sc_hst_flash_fill, \
++	boost_headers \
++	mdds_headers \
++	libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sc_hst_flash_fill, \
++    sc/qa/unit/uicalc/hstflashfill \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sc_hst_flash_fill, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    editeng \
++    i18nlangtag \
++    sal \
++    sc \
++    scqahelper \
++    sfx \
++    sot \
++    subsequenttest \
++    svl \
++    svl \
++    svx \
++    svxcore \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++    $(if $(filter -fsanitize=vptr,$(gb_CXX)),salhelper) \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sc_hst_flash_fill,\
++    -I$(SRCDIR)/sc/source/ui/inc \
++    -I$(SRCDIR)/sc/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sc_hst_flash_fill))
++
++$(eval $(call gb_CppunitTest_use_ure,sc_hst_flash_fill))
++$(eval $(call gb_CppunitTest_use_vcl,sc_hst_flash_fill))
++
++$(eval $(call gb_CppunitTest_use_rdb,sc_hst_flash_fill,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sc_hst_flash_fill))
++
++$(eval $(call gb_CppunitTest_add_arguments,sc_hst_flash_fill, \
++    -env:arg-env=$(gb_Helper_LIBRARY_PATH_VAR)"$$$${$(gb_Helper_LIBRARY_PATH_VAR)+=$$$$$(gb_Helper_LIBRARY_PATH_VAR)}" \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/sc/Library_sc.mk
++++ b/sc/Library_sc.mk
+@@ -104,6 +104,12 @@ $(eval $(call gb_Library_use_libraries,sc,\
+     xo \
+ ))
+ 
++# HST Office: Flash Fill (sc/source/core/hst, sc/source/ui/hst)
++$(eval $(call gb_Library_add_exception_objects,sc,\
++    sc/source/core/hst/hstflashfill \
++    sc/source/ui/hst/hstflashfillcommand \
++))
++
+ $(eval $(call gb_Library_add_exception_objects,sc,\
+     sc/source/core/data/attarray \
+     sc/source/core/data/attrib \
+--- a/sc/Module_sc.mk
++++ b/sc/Module_sc.mk
+@@ -100,6 +100,7 @@ $(eval $(call gb_Module_add_slowcheck_targets,sc, \
+ 	CppunitTest_sc_subsequent_filters_test2 \
+ 	CppunitTest_sc_subsequent_filters_test3 \
+ 	CppunitTest_sc_subsequent_filters_test4 \
++	CppunitTest_sc_hst_flash_fill \
+     CppunitTest_sc_subsequent_filters_test5 \
+ 	CppunitTest_sc_subsequent_export_test \
+ 	CppunitTest_sc_subsequent_export_test2 \
+--- /dev/null
++++ b/sc/inc/hstflashfill.hxx
+@@ -0,0 +1,44 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++#include "scdllapi.h"
++
++#include <rtl/ustring.hxx>
++
++#include <optional>
++#include <vector>
++
++class CharClass;
++
++/** Flash Fill (Ctrl+E) of HST Sheets: the pattern inference, independent of documents.
++
++    A program is a sequence of segments: constant text, or a part of a source column (the
++    whole text, the n-th word, run of letters or run of digits, the n-th field between
++    delimiters, the text before or after a delimiter, a word's first letter), each in its own
++    case (as is, UPPER, lower, Proper). The programs that produce the first example are
++    searched cheapest first; the first one that produces every other example too wins, a
++    program filling more rows winning among equally cheap ones.
++ */
++namespace sc::hst::flashfill
++{
++struct Row
++{
++    /// The display text of the source columns, left to right.
++    std::vector<OUString> maSources;
++    /// The text the user typed in the filled column, if any.
++    std::optional<OUString> moExample;
++};
++
++/** The values for the rows without an example (nullopt where the pattern does not apply or
++    every source is empty, and for the example rows); nullopt when no pattern explains all
++    examples, or there is no example. */
++SC_DLLPUBLIC std::optional<std::vector<std::optional<OUString>>>
++Infer(const std::vector<Row>& rRows, const CharClass& rCharClass);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/inc/sc.hrc
++++ b/sc/inc/sc.hrc
+@@ -250,6 +250,7 @@ class SvxZoomSliderItem;
+ #define SID_CONVERT_FORMULA_TO_VALUE    (SC_FUNCTION_START + 5)
+ #define FID_MOVE_KEEP_INSERT_MODE       (SC_FUNCTION_START + 6)
+ #define SID_HST_CONVERT_TEXT_TO_NUMBER  (SC_FUNCTION_START + 7)
++#define SID_HST_FLASH_FILL              (SC_FUNCTION_START + 8)
+ #ifndef FILE_MENU_END // duplicated in sfx2/sfxsids.hrc
+ #define FILE_MENU_END                   (SC_FUNCTION_START + 20)
+ #endif
+--- a/sc/inc/strings.hrc
++++ b/sc/inc/strings.hrc
+@@ -488,4 +488,9 @@
+ #define STR_HST_TEXT_NUMBER                         NC_("STR_HST_TEXT_NUMBER", "Number Stored as Text")
+ #define STR_HST_UNDO_TEXT_TO_NUMBER                 NC_("STR_HST_UNDO_TEXT_TO_NUMBER", "Convert to Number")
+ 
++/* HST: Flash Fill */
++#define STR_HST_UNDO_FLASH_FILL                     NC_("STR_HST_UNDO_FLASH_FILL", "Flash Fill")
++#define STR_HST_FLASH_FILL_NO_DATA                  NC_("STR_HST_FLASH_FILL_NO_DATA", "Flash Fill needs data in a column next to the cell, and an example of the result typed in the cell's column.")
++#define STR_HST_FLASH_FILL_NO_PATTERN               NC_("STR_HST_FLASH_FILL_NO_PATTERN", "Flash Fill did not recognize a pattern. Type one or two more examples of the result in the column, then try again.")
++
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/qa/unit/uicalc/hstflashfill.cxx
+@@ -0,0 +1,200 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// HST Office: Flash Fill of Sheets: the inference (sc/source/core/hst/hstflashfill.cxx) and the
++// .uno:FlashFill command (sc/source/ui/hst/hstflashfillcommand.cxx).
++
++#include "../helper/qahelper.hxx"
++
++#include <comphelper/processfactory.hxx>
++#include <i18nlangtag/languagetag.hxx>
++#include <unotools/charclass.hxx>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <hstflashfill.hxx>
++#include <undomanager.hxx>
++
++#include <optional>
++#include <vector>
++
++using sc::hst::flashfill::Infer;
++using sc::hst::flashfill::Row;
++
++namespace
++{
++class ScHstFlashFillTest : public ScModelTestBase
++{
++public:
++    ScHstFlashFillTest()
++        : ScModelTestBase(u"sc/qa/unit/uicalc/data"_ustr)
++    {
++    }
++
++protected:
++    /// Rows of one source column; the first nExamples rows carry the examples.
++    static std::vector<Row> rows(const std::vector<OUString>& rSources,
++                                 const std::vector<OUString>& rExamples)
++    {
++        std::vector<Row> aRows;
++        for (size_t i = 0; i < rSources.size(); ++i)
++        {
++            Row aRow;
++            aRow.maSources.push_back(rSources[i]);
++            if (i < rExamples.size())
++                aRow.moExample = rExamples[i];
++            aRows.push_back(std::move(aRow));
++        }
++        return aRows;
++    }
++
++    static CharClass charClass()
++    {
++        return CharClass(comphelper::getProcessComponentContext(), LanguageTag(u"vi-VN"_ustr));
++    }
++
++    /// The filled values of the rows without an example, joined by '|' ("" for a row left empty).
++    static OUString fill(const std::vector<Row>& rRows)
++    {
++        const auto oValues = Infer(rRows, charClass());
++        CPPUNIT_ASSERT_MESSAGE("no pattern found", oValues.has_value());
++        std::vector<OUString> aResult;
++        for (size_t i = 0; i < rRows.size(); ++i)
++        {
++            if (!rRows[i].moExample)
++                aResult.push_back((*oValues)[i].value_or(OUString()));
++        }
++        return join(aResult);
++    }
++
++    static OUString join(const std::vector<OUString>& rValues)
++    {
++        OUString aJoined;
++        for (size_t i = 0; i < rValues.size(); ++i)
++            aJoined += (i ? u"|" : u"") + rValues[i];
++        return aJoined;
++    }
++};
++
++using Strings = std::vector<OUString>;
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstFlashFillTest, testSplitVietnameseNames)
++{
++    const Strings aNames{ u"Nguyễn Văn An"_ustr, u"Trần Thị Bình"_ustr, u"Lê Hoàng"_ustr,
++                          u"Phạm Thị Thu Hằng"_ustr };
++    // Family name: the first word.
++    CPPUNIT_ASSERT_EQUAL(join(Strings{ u"Trần"_ustr, u"Lê"_ustr, u"Phạm"_ustr }),
++                         fill(rows(aNames, { u"Nguyễn"_ustr })));
++    // Given name: the last word, also for names of two or four words.
++    CPPUNIT_ASSERT_EQUAL(join(Strings{ u"Bình"_ustr, u"Hoàng"_ustr, u"Hằng"_ustr }),
++                         fill(rows(aNames, { u"An"_ustr })));
++    // Everything after the family name.
++    CPPUNIT_ASSERT_EQUAL(join(Strings{ u"Thị Bình"_ustr, u"Hoàng"_ustr, u"Thị Thu Hằng"_ustr }),
++                         fill(rows(aNames, { u"Văn An"_ustr })));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstFlashFillTest, testJoinColumns)
++{
++    std::vector<Row> aRows(3);
++    aRows[0].maSources = { u"Nguyễn"_ustr, u"An"_ustr };
++    aRows[0].moExample = u"An Nguyễn"_ustr;
++    aRows[1].maSources = { u"Trần"_ustr, u"Bình"_ustr };
++    aRows[2].maSources = { u"Lê"_ustr, u"Cường"_ustr };
++    CPPUNIT_ASSERT_EQUAL(join(Strings{ u"Bình Trần"_ustr, u"Cường Lê"_ustr }), fill(aRows));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstFlashFillTest, testNumbersAndDates)
++{
++    CPPUNIT_ASSERT_EQUAL(join(Strings{ u"678"_ustr, u"90"_ustr }),
++                         fill(rows({ u"Mã SV: 12345"_ustr, u"Mã SV: 678"_ustr, u"Mã SV: 90"_ustr },
++                                   { u"12345"_ustr })));
++    CPPUNIT_ASSERT_EQUAL(join(Strings{ u"2025"_ustr }),
++                         fill(rows({ u"13/11/2026"_ustr, u"01/02/2025"_ustr }, { u"2026"_ustr })));
++    // Digits joined, the leading zero kept.
++    CPPUNIT_ASSERT_EQUAL(join(Strings{ u"0912345678"_ustr }),
++                         fill(rows({ u"0905-123-456"_ustr, u"0912-345-678"_ustr },
++                                   { u"0905123456"_ustr })));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstFlashFillTest, testCaseChanges)
++{
++    CPPUNIT_ASSERT_EQUAL(join(Strings{ u"TRẦN THỊ BÌNH"_ustr }),
++                         fill(rows({ u"nguyễn văn an"_ustr, u"trần thị bình"_ustr },
++                                   { u"NGUYỄN VĂN AN"_ustr })));
++    CPPUNIT_ASSERT_EQUAL(join(Strings{ u"Trần Thị Bình"_ustr }),
++                         fill(rows({ u"NGUYỄN VĂN AN"_ustr, u"TRẦN THỊ BÌNH"_ustr },
++                                   { u"Nguyễn Văn An"_ustr })));
++    CPPUNIT_ASSERT_EQUAL(join(Strings{ u"TTB"_ustr }),
++                         fill(rows({ u"Nguyễn Văn An"_ustr, u"Trần Thị Bình"_ustr },
++                                   { u"NVA"_ustr })));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstFlashFillTest, testTwoExamplesDisambiguate)
++{
++    // The first example fits several programs (fields, words, the text before '@'); the
++    // second one leaves only "the text before '@'".
++    CPPUNIT_ASSERT_EQUAL(
++        join(Strings{ u"le.van"_ustr }),
++        fill(rows({ u"an.nguyen@gmail.com"_ustr, u"binh-tran.hst@hst.vn"_ustr, u"le.van@x.com"_ustr },
++                  { u"an.nguyen"_ustr, u"binh-tran.hst"_ustr })));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstFlashFillTest, testNoPattern)
++{
++    // No example.
++    CPPUNIT_ASSERT(!Infer(rows({ u"a b"_ustr, u"c d"_ustr }, {}), charClass()));
++    // An example that no part of the sources explains.
++    CPPUNIT_ASSERT(!Infer(rows({ u"abc"_ustr, u"def"_ustr }, { u"xyz"_ustr }), charClass()));
++    // Examples that contradict each other.
++    CPPUNIT_ASSERT(!Infer(rows({ u"a b"_ustr, u"c d"_ustr, u"e f"_ustr }, { u"a"_ustr, u"d"_ustr }),
++                          charClass()));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstFlashFillTest, testCommandFillsAndUndoes)
++{
++    createScDoc();
++    ScDocument* pDoc = getScDoc();
++    pDoc->SetString(ScAddress(0, 0, 0), u"Họ và tên"_ustr);
++    pDoc->SetString(ScAddress(1, 0, 0), u"Tên"_ustr);
++    pDoc->SetString(ScAddress(0, 1, 0), u"Nguyễn Văn An"_ustr);
++    pDoc->SetString(ScAddress(0, 2, 0), u"Trần Thị Bình"_ustr);
++    pDoc->SetString(ScAddress(0, 3, 0), u"Lê Hoàng"_ustr);
++    pDoc->SetString(ScAddress(1, 1, 0), u"An"_ustr);
++
++    goToCell(u"B3"_ustr);
++    dispatchCommand(mxComponent, u".uno:FlashFill"_ustr, {});
++
++    // The header row does not stop the pattern and stays as it is.
++    CPPUNIT_ASSERT_EQUAL(u"Tên"_ustr, pDoc->GetString(ScAddress(1, 0, 0)));
++    CPPUNIT_ASSERT_EQUAL(u"Bình"_ustr, pDoc->GetString(ScAddress(1, 2, 0)));
++    CPPUNIT_ASSERT_EQUAL(u"Hoàng"_ustr, pDoc->GetString(ScAddress(1, 3, 0)));
++    CPPUNIT_ASSERT_EQUAL(CELLTYPE_NONE, pDoc->GetCellType(ScAddress(1, 4, 0)));
++
++    // One undo step removes the filled cells and keeps the example.
++    getScDocShell()->GetUndoManager()->Undo();
++    CPPUNIT_ASSERT_EQUAL(CELLTYPE_NONE, pDoc->GetCellType(ScAddress(1, 2, 0)));
++    CPPUNIT_ASSERT_EQUAL(CELLTYPE_NONE, pDoc->GetCellType(ScAddress(1, 3, 0)));
++    CPPUNIT_ASSERT_EQUAL(u"An"_ustr, pDoc->GetString(ScAddress(1, 1, 0)));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstFlashFillTest, testCommandKeepsNumbers)
++{
++    createScDoc();
++    ScDocument* pDoc = getScDoc();
++    pDoc->SetString(ScAddress(0, 0, 0), u"Mã 101"_ustr);
++    pDoc->SetString(ScAddress(0, 1, 0), u"Mã 202"_ustr);
++    pDoc->SetValue(ScAddress(1, 0, 0), 101.0);
++
++    goToCell(u"B1"_ustr);
++    dispatchCommand(mxComponent, u".uno:FlashFill"_ustr, {});
++
++    CPPUNIT_ASSERT_EQUAL(CELLTYPE_VALUE, pDoc->GetCellType(ScAddress(1, 1, 0)));
++    CPPUNIT_ASSERT_EQUAL(202.0, pDoc->GetValue(ScAddress(1, 1, 0)));
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/sdi/cellsh.sdi
++++ b/sc/sdi/cellsh.sdi
+@@ -270,6 +270,7 @@ interface CellSelection
+ 
+     SID_CONVERT_FORMULA_TO_VALUE [ ExecMethod = ExecuteEdit; StateMethod = GetBlockState; ]
+     SID_HST_CONVERT_TEXT_TO_NUMBER [ ExecMethod = ExecuteEdit; StateMethod = GetBlockState; ]
++    SID_HST_FLASH_FILL [ ExecMethod = ExecuteEdit; StateMethod = GetBlockState; ]
+ 
+     SID_TRANSLITERATE_SENTENCE_CASE [ ExecMethod = ExecuteTrans; StateMethod = GetBlockState; ]
+     SID_TRANSLITERATE_TITLE_CASE    [ ExecMethod = ExecuteTrans; StateMethod = GetBlockState; ]
+--- a/sc/sdi/scalc.sdi
++++ b/sc/sdi/scalc.sdi
+@@ -6993,6 +6993,23 @@ SfxVoidItem HstConvertTextToNumber SID_HST_CONVERT_TEXT_TO_NUMBER
+     GroupId = SfxGroupId::Data;
+ ]
+ 
++SfxVoidItem FlashFill SID_HST_FLASH_FILL
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Data;
++]
++
+ SfxVoidItem ShowDetail SID_OUTLINE_SHOW
+ ()
+ [
+--- /dev/null
++++ b/sc/source/core/hst/hstflashfill.cxx
+@@ -0,0 +1,531 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#include <hstflashfill.hxx>
++
++#include <rtl/character.hxx>
++#include <rtl/ustrbuf.hxx>
++#include <unotools/charclass.hxx>
++
++#include <algorithm>
++#include <map>
++#include <tuple>
++#include <utility>
++
++namespace sc::hst::flashfill
++{
++namespace
++{
++enum class Kind : sal_uInt8
++{
++    Whole, ///< the whole text without leading and trailing spaces
++    Field, ///< the n-th field between delimiters
++    Word, ///< the n-th run of letters and digits
++    Alpha, ///< the n-th run of letters
++    Number, ///< the n-th run of digits
++    BeforeFirst, ///< the text before the first delimiter
++    AfterFirst,
++    BeforeLast,
++    AfterLast, ///< the text after the last delimiter
++    Initial ///< the first letter of the n-th run of letters
++};
++
++enum class Case : sal_uInt8
++{
++    AsIs,
++    Upper,
++    Lower,
++    Proper
++};
++
++struct Spec
++{
++    sal_uInt16 nCol = 0;
++    Kind eKind = Kind::Whole;
++    sal_Unicode cDelim = 0;
++    sal_Int32 nIndex = 0;
++    bool bFromEnd = false;
++
++    auto key() const { return std::tie(nCol, eKind, cDelim, nIndex, bFromEnd); }
++    bool operator<(const Spec& r) const { return key() < r.key(); }
++};
++
++struct Segment
++{
++    bool bConst = false;
++    OUString aText; ///< the constant
++    Spec aSpec;
++    Case eCase = Case::AsIs;
++};
++
++using Program = std::vector<Segment>;
++
++constexpr std::u16string_view DELIMITERS = u" ,;-/._@|:\t";
++constexpr size_t BEAM = 120; ///< partial programs kept per output position
++constexpr size_t SAMPLE_ROWS = 1000; ///< rows that tell programs apart and count coverage
++constexpr sal_Int32 MAX_CONST = 30;
++
++class Inference
++{
++public:
++    Inference(const std::vector<Row>& rRows, const CharClass& rCharClass)
++        : mrRows(rRows)
++        , mrCharClass(rCharClass)
++    {
++    }
++
++    std::optional<std::vector<std::optional<OUString>>> run();
++
++private:
++    bool isLetter(const OUString& s, sal_Int32 i) const
++    {
++        const sal_Unicode c = s[i];
++        if (rtl::isAsciiAlpha(c) || (c >= 0x0300 && c <= 0x036F)) // combining diacritics too
++            return true;
++        if (c < 128)
++            return false;
++        return mrCharClass.isLetter(s, i);
++    }
++    static bool isDigit(sal_Unicode c) { return rtl::isAsciiDigit(c); }
++
++    std::vector<std::pair<sal_Int32, sal_Int32>> runs(const OUString& s, Kind eKind) const;
++    static std::vector<OUString> fields(const OUString& s, sal_Unicode cDelim);
++    std::optional<OUString> evalSpec(const Spec& rSpec, const Row& rRow) const;
++    OUString applyCase(const OUString& s, Case eCase) const;
++    std::optional<OUString> evalProgram(const Program& rProgram, const Row& rRow) const;
++    std::vector<std::pair<Spec, OUString>> atomsOf(const Row& rRow) const;
++    void addIndexed(std::vector<std::pair<Spec, OUString>>& rOut, Spec aSpec,
++                    const std::vector<OUString>& rValues) const;
++    std::vector<std::pair<Spec, OUString>> distinctAtoms(const Row& rRow) const;
++    std::vector<std::pair<Program, sal_Int32>> search(const Row& rRow) const;
++
++    const std::vector<Row>& mrRows;
++    const CharClass& mrCharClass;
++    std::vector<size_t> maSample; ///< rows that tell programs apart
++};
++
++std::vector<std::pair<sal_Int32, sal_Int32>> Inference::runs(const OUString& s, Kind eKind) const
++{
++    std::vector<std::pair<sal_Int32, sal_Int32>> aRuns;
++    sal_Int32 nStart = -1;
++    for (sal_Int32 i = 0; i <= s.getLength(); ++i)
++    {
++        bool bIn = false;
++        if (i < s.getLength())
++        {
++            switch (eKind)
++            {
++                case Kind::Number:
++                    bIn = isDigit(s[i]);
++                    break;
++                case Kind::Word:
++                    bIn = isDigit(s[i]) || isLetter(s, i);
++                    break;
++                default:
++                    bIn = isLetter(s, i);
++            }
++        }
++        if (bIn && nStart < 0)
++            nStart = i;
++        else if (!bIn && nStart >= 0)
++        {
++            aRuns.emplace_back(nStart, i);
++            nStart = -1;
++        }
++    }
++    return aRuns;
++}
++
++std::vector<OUString> Inference::fields(const OUString& s, sal_Unicode cDelim)
++{
++    std::vector<OUString> aFields;
++    sal_Int32 nStart = 0;
++    for (;;)
++    {
++        const sal_Int32 nPos = s.indexOf(cDelim, nStart);
++        if (nPos < 0)
++        {
++            aFields.push_back(s.copy(nStart).trim());
++            return aFields;
++        }
++        aFields.push_back(s.copy(nStart, nPos - nStart).trim());
++        nStart = nPos + 1;
++    }
++}
++
++std::optional<OUString> Inference::evalSpec(const Spec& rSpec, const Row& rRow) const
++{
++    if (rSpec.nCol >= rRow.maSources.size())
++        return std::nullopt;
++    const OUString s = rRow.maSources[rSpec.nCol].trim();
++    auto pick = [&rSpec](sal_Int32 nCount) -> sal_Int32 {
++        const sal_Int32 n = rSpec.bFromEnd ? nCount - 1 - rSpec.nIndex : rSpec.nIndex;
++        return (n >= 0 && n < nCount) ? n : -1;
++    };
++    switch (rSpec.eKind)
++    {
++        case Kind::Whole:
++            return s;
++        case Kind::Field:
++        {
++            if (s.indexOf(rSpec.cDelim) < 0)
++                return std::nullopt;
++            const std::vector<OUString> aFields = fields(s, rSpec.cDelim);
++            const sal_Int32 n = pick(aFields.size());
++            if (n < 0)
++                return std::nullopt;
++            return aFields[n];
++        }
++        case Kind::Word:
++        case Kind::Alpha:
++        case Kind::Number:
++        case Kind::Initial:
++        {
++            const auto aRuns = runs(s, rSpec.eKind == Kind::Initial ? Kind::Alpha : rSpec.eKind);
++            const sal_Int32 n = pick(aRuns.size());
++            if (n < 0)
++                return std::nullopt;
++            const auto& [nStart, nEnd] = aRuns[n];
++            if (rSpec.eKind == Kind::Initial)
++            {
++                // The base letter with the combining marks that follow it.
++                sal_Int32 nLen = 1;
++                while (nStart + nLen < nEnd && s[nStart + nLen] >= 0x0300 && s[nStart + nLen] <= 0x036F)
++                    ++nLen;
++                return s.copy(nStart, nLen);
++            }
++            return s.copy(nStart, nEnd - nStart);
++        }
++        case Kind::BeforeFirst:
++        case Kind::AfterFirst:
++        case Kind::BeforeLast:
++        case Kind::AfterLast:
++        {
++            const bool bFirst = rSpec.eKind == Kind::BeforeFirst || rSpec.eKind == Kind::AfterFirst;
++            const sal_Int32 nPos = bFirst ? s.indexOf(rSpec.cDelim) : s.lastIndexOf(rSpec.cDelim);
++            if (nPos < 0)
++                return std::nullopt;
++            if (rSpec.eKind == Kind::BeforeFirst || rSpec.eKind == Kind::BeforeLast)
++                return s.copy(0, nPos).trim();
++            return s.copy(nPos + 1).trim();
++        }
++    }
++    return std::nullopt;
++}
++
++OUString Inference::applyCase(const OUString& s, Case eCase) const
++{
++    switch (eCase)
++    {
++        case Case::Upper:
++            return mrCharClass.uppercase(s);
++        case Case::Lower:
++            return mrCharClass.lowercase(s);
++        case Case::Proper:
++        {
++            const OUString aLower = mrCharClass.lowercase(s);
++            OUStringBuffer aBuf(aLower.getLength());
++            bool bWordStart = true;
++            for (sal_Int32 i = 0; i < aLower.getLength(); ++i)
++            {
++                const bool bLetter = isLetter(aLower, i);
++                if (bLetter && bWordStart)
++                    aBuf.append(mrCharClass.uppercase(aLower, i, 1));
++                else
++                    aBuf.append(aLower[i]);
++                bWordStart = !bLetter && !isDigit(aLower[i]);
++            }
++            return aBuf.makeStringAndClear();
++        }
++        case Case::AsIs:
++            break;
++    }
++    return s;
++}
++
++std::optional<OUString> Inference::evalProgram(const Program& rProgram, const Row& rRow) const
++{
++    OUStringBuffer aBuf;
++    for (const Segment& rSeg : rProgram)
++    {
++        if (rSeg.bConst)
++        {
++            aBuf.append(rSeg.aText);
++            continue;
++        }
++        const std::optional<OUString> oValue = evalSpec(rSeg.aSpec, rRow);
++        if (!oValue || oValue->isEmpty())
++            return std::nullopt;
++        aBuf.append(applyCase(*oValue, rSeg.eCase));
++    }
++    return aBuf.makeStringAndClear();
++}
++
++void Inference::addIndexed(std::vector<std::pair<Spec, OUString>>& rOut, Spec aSpec,
++                           const std::vector<OUString>& rValues) const
++{
++    const sal_Int32 nCount = rValues.size();
++    for (sal_Int32 i = 0; i < nCount; ++i)
++    {
++        if (rValues[i].isEmpty())
++            continue;
++        aSpec.nIndex = i;
++        aSpec.bFromEnd = false;
++        rOut.emplace_back(aSpec, rValues[i]);
++        aSpec.nIndex = nCount - 1 - i;
++        aSpec.bFromEnd = true;
++        rOut.emplace_back(aSpec, rValues[i]);
++    }
++}
++
++std::vector<std::pair<Spec, OUString>> Inference::atomsOf(const Row& rRow) const
++{
++    std::vector<std::pair<Spec, OUString>> aAtoms;
++    for (size_t nCol = 0; nCol < rRow.maSources.size(); ++nCol)
++    {
++        const OUString s = rRow.maSources[nCol].trim();
++        if (s.isEmpty())
++            continue;
++        Spec aSpec;
++        aSpec.nCol = static_cast<sal_uInt16>(nCol);
++        aSpec.eKind = Kind::Whole;
++        aAtoms.emplace_back(aSpec, s);
++        for (const sal_Unicode cDelim : DELIMITERS)
++        {
++            if (s.indexOf(cDelim) < 0)
++                continue;
++            aSpec.cDelim = cDelim;
++            aSpec.eKind = Kind::Field;
++            addIndexed(aAtoms, aSpec, fields(s, cDelim));
++            aSpec.nIndex = 0;
++            aSpec.bFromEnd = false;
++            for (Kind eKind : { Kind::BeforeFirst, Kind::AfterFirst, Kind::BeforeLast, Kind::AfterLast })
++            {
++                aSpec.eKind = eKind;
++                if (std::optional<OUString> oValue = evalSpec(aSpec, rRow); oValue && !oValue->isEmpty())
++                    aAtoms.emplace_back(aSpec, *oValue);
++            }
++        }
++        aSpec.cDelim = 0;
++        for (Kind eKind : { Kind::Word, Kind::Alpha, Kind::Number, Kind::Initial })
++        {
++            aSpec.eKind = eKind;
++            std::vector<OUString> aValues;
++            for (const auto& [nStart, nEnd] : runs(s, eKind == Kind::Initial ? Kind::Alpha : eKind))
++            {
++                (void)nEnd;
++                Spec aOne = aSpec;
++                aOne.nIndex = aValues.size();
++                aValues.push_back(eKind == Kind::Initial ? *evalSpec(aOne, rRow) : s.copy(nStart, nEnd - nStart));
++            }
++            addIndexed(aAtoms, aSpec, aValues);
++        }
++    }
++    return aAtoms;
++}
++
++std::vector<std::pair<Spec, OUString>> Inference::distinctAtoms(const Row& rRow) const
++{
++    // Two parts that give the same text on every sampled row are one choice: keep the first,
++    // in the order atomsOf() lists them (the whole text, fields, words...).
++    std::vector<std::pair<Spec, OUString>> aDistinct;
++    std::map<std::vector<std::optional<OUString>>, bool> aSeen;
++    for (auto& rAtom : atomsOf(rRow))
++    {
++        std::vector<std::optional<OUString>> aValues;
++        aValues.reserve(maSample.size());
++        for (size_t nRow : maSample)
++            aValues.push_back(evalSpec(rAtom.first, mrRows[nRow]));
++        if (aSeen.emplace(std::move(aValues), true).second)
++            aDistinct.push_back(std::move(rAtom));
++    }
++    return aDistinct;
++}
++
++/// Lowest cost first. A part of a source costs 100, a case change 5; constant text costs 100
++/// when it holds no letters or digits, more and more with each letter or digit otherwise.
++std::vector<std::pair<Program, sal_Int32>> Inference::search(const Row& rRow) const
++{
++    const OUString& rOut = *rRow.moExample;
++    const sal_Int32 n = rOut.getLength();
++    struct Edge
++    {
++        sal_Int32 nLen;
++        Segment aSeg;
++        sal_Int32 nCost;
++    };
++    std::vector<std::vector<Edge>> aEdges(n);
++    for (const auto& [rSpec, rValue] : distinctAtoms(rRow))
++    {
++        // Counting from the nearer end of the list wins a tie, the start when in the middle.
++        sal_Int32 nFar = 0;
++        const bool bIndexed = rSpec.eKind == Kind::Field
++                              || (rSpec.cDelim == 0 && rSpec.eKind != Kind::Whole);
++        if (bIndexed)
++        {
++            Spec aOther = rSpec;
++            aOther.bFromEnd = !rSpec.bFromEnd;
++            // Index from the other end, counted by finding the same item from there.
++            for (sal_Int32 k = 0; k < 1000; ++k)
++            {
++                aOther.nIndex = k;
++                std::optional<OUString> oOther = evalSpec(aOther, rRow);
++                if (!oOther)
++                    break;
++                if (*oOther == rValue)
++                {
++                    if (rSpec.bFromEnd ? k <= rSpec.nIndex : k < rSpec.nIndex)
++                        nFar = 1;
++                    break;
++                }
++            }
++        }
++        for (Case eCase : { Case::AsIs, Case::Upper, Case::Lower, Case::Proper })
++        {
++            const OUString aValue = applyCase(rValue, eCase);
++            if (aValue.isEmpty() || (eCase != Case::AsIs && aValue == rValue))
++                continue;
++            for (sal_Int32 i = rOut.indexOf(aValue); i >= 0; i = rOut.indexOf(aValue, i + 1))
++            {
++                Segment aSeg;
++                aSeg.aSpec = rSpec;
++                aSeg.eCase = eCase;
++                aEdges[i].push_back({ aValue.getLength(), aSeg,
++                                      100 + (eCase == Case::AsIs ? 0 : 5) + nFar });
++            }
++        }
++    }
++    for (sal_Int32 i = 0; i < n; ++i)
++    {
++        sal_Int32 nAlnum = 0;
++        for (sal_Int32 nLen = 1; nLen <= MAX_CONST && i + nLen <= n; ++nLen)
++        {
++            if (isDigit(rOut[i + nLen - 1]) || isLetter(rOut, i + nLen - 1))
++                ++nAlnum;
++            Segment aSeg;
++            aSeg.bConst = true;
++            aSeg.aText = rOut.copy(i, nLen);
++            aEdges[i].push_back({ nLen, aSeg, nAlnum ? 200 + 50 * nAlnum : 100 });
++        }
++    }
++
++    struct Partial
++    {
++        Program aProgram;
++        sal_Int32 nCost = 0;
++    };
++    std::vector<std::vector<Partial>> aBeam(n + 1);
++    aBeam[0].emplace_back();
++    for (sal_Int32 i = 0; i < n; ++i)
++    {
++        auto& rHere = aBeam[i];
++        std::stable_sort(rHere.begin(), rHere.end(),
++                         [](const Partial& a, const Partial& b) { return a.nCost < b.nCost; });
++        if (rHere.size() > BEAM)
++            rHere.resize(BEAM);
++        for (const Partial& rPartial : rHere)
++        {
++            const bool bAfterConst = !rPartial.aProgram.empty() && rPartial.aProgram.back().bConst;
++            for (const Edge& rEdge : aEdges[i])
++            {
++                if (rEdge.aSeg.bConst && bAfterConst)
++                    continue; // one longer constant covers both
++                Partial aNext{ rPartial.aProgram, rPartial.nCost + rEdge.nCost };
++                aNext.aProgram.push_back(rEdge.aSeg);
++                aBeam[i + rEdge.nLen].push_back(std::move(aNext));
++            }
++        }
++        rHere.clear();
++        rHere.shrink_to_fit();
++    }
++    std::vector<std::pair<Program, sal_Int32>> aResult;
++    for (Partial& rPartial : aBeam[n])
++    {
++        const bool bUsesSource = std::any_of(rPartial.aProgram.begin(), rPartial.aProgram.end(),
++                                             [](const Segment& r) { return !r.bConst; });
++        if (bUsesSource)
++            aResult.emplace_back(std::move(rPartial.aProgram), rPartial.nCost);
++    }
++    std::stable_sort(aResult.begin(), aResult.end(),
++                     [](const auto& a, const auto& b) { return a.second < b.second; });
++    return aResult;
++}
++
++std::optional<std::vector<std::optional<OUString>>> Inference::run()
++{
++    std::vector<size_t> aExamples;
++    for (size_t i = 0; i < mrRows.size(); ++i)
++    {
++        if (mrRows[i].moExample && !mrRows[i].moExample->isEmpty())
++            aExamples.push_back(i);
++    }
++    if (aExamples.empty())
++        return std::nullopt;
++    for (size_t i = 0; i < mrRows.size() && maSample.size() < SAMPLE_ROWS; ++i)
++        maSample.push_back(i);
++    for (size_t nRow : aExamples)
++    {
++        if (nRow >= SAMPLE_ROWS)
++            maSample.push_back(nRow);
++    }
++
++    auto hasSource = [](const Row& rRow) {
++        return std::any_of(rRow.maSources.begin(), rRow.maSources.end(),
++                           [](const OUString& s) { return !s.trim().isEmpty(); });
++    };
++
++    const Program* pBest = nullptr;
++    std::tuple<sal_Int32, sal_Int32> aBestKey;
++    const auto aCandidates = search(mrRows[aExamples.front()]);
++    for (const auto& [rProgram, nCost] : aCandidates)
++    {
++        if (pBest && nCost / 10 > std::get<0>(aBestKey))
++            break; // the rest costs more
++        bool bConsistent = true;
++        for (size_t k = 1; k < aExamples.size() && bConsistent; ++k)
++        {
++            const std::optional<OUString> oValue = evalProgram(rProgram, mrRows[aExamples[k]]);
++            bConsistent = oValue && *oValue == *mrRows[aExamples[k]].moExample;
++        }
++        if (!bConsistent)
++            continue;
++        sal_Int32 nCovered = 0;
++        for (size_t nRow : maSample)
++        {
++            const Row& rRow = mrRows[nRow];
++            if (!rRow.moExample && hasSource(rRow) && evalProgram(rProgram, rRow))
++                ++nCovered;
++        }
++        // Programs whose costs differ only in the tie-breaks compare by the rows they fill.
++        const std::tuple<sal_Int32, sal_Int32> aKey(nCost / 10, -nCovered);
++        if (!pBest || aKey < aBestKey)
++        {
++            pBest = &rProgram;
++            aBestKey = aKey;
++        }
++    }
++    if (!pBest)
++        return std::nullopt;
++
++    std::vector<std::optional<OUString>> aValues(mrRows.size());
++    for (size_t i = 0; i < mrRows.size(); ++i)
++    {
++        const Row& rRow = mrRows[i];
++        if (!rRow.moExample && hasSource(rRow))
++            aValues[i] = evalProgram(*pBest, rRow);
++    }
++    return aValues;
++}
++}
++
++std::optional<std::vector<std::optional<OUString>>> Infer(const std::vector<Row>& rRows,
++                                                          const CharClass& rCharClass)
++{
++    return Inference(rRows, rCharClass).run();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/ui/hst/hstflashfillcommand.cxx
+@@ -0,0 +1,143 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#include <hstflashfillcommand.hxx>
++
++#include <docfunc.hxx>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <editable.hxx>
++#include <global.hxx>
++#include <hstflashfill.hxx>
++#include <strings.hrc>
++#include <tabvwsh.hxx>
++#include <viewdata.hxx>
++
++#include <svl/numformat.hxx>
++
++#include <vector>
++
++namespace sc::hst
++{
++namespace
++{
++using flashfill::Row;
++
++struct Region
++{
++    SCTAB nTab = 0;
++    SCCOL nCol = 0; ///< the column to fill
++    SCCOL nStartCol = 0;
++    SCCOL nEndCol = 0;
++    SCROW nStartRow = 0;
++    SCROW nEndRow = 0;
++};
++
++std::vector<Row> readRows(const ScDocument& rDoc, const Region& r, bool& rbNumeric)
++{
++    std::vector<Row> aRows;
++    aRows.reserve(r.nEndRow - r.nStartRow + 1);
++    rbNumeric = true;
++    bool bAnyExample = false;
++    for (SCROW nRow = r.nStartRow; nRow <= r.nEndRow; ++nRow)
++    {
++        Row aRow;
++        for (SCCOL nCol = r.nStartCol; nCol <= r.nEndCol; ++nCol)
++        {
++            if (nCol != r.nCol)
++                aRow.maSources.push_back(rDoc.GetString(nCol, nRow, r.nTab));
++        }
++        const ScAddress aPos(r.nCol, nRow, r.nTab);
++        const CellType eType = rDoc.GetCellType(aPos);
++        if (eType != CELLTYPE_NONE)
++        {
++            aRow.moExample = rDoc.GetString(aPos);
++            bAnyExample = true;
++            rbNumeric = rbNumeric && eType == CELLTYPE_VALUE;
++        }
++        aRows.push_back(std::move(aRow));
++    }
++    rbNumeric = rbNumeric && bAnyExample;
++    return aRows;
++}
++}
++
++size_t FlashFill(ScTabViewShell& rViewShell)
++{
++    ScViewData& rViewData = rViewShell.GetViewData();
++    ScDocument& rDoc = rViewData.GetDocument();
++    Region r;
++    r.nTab = rViewData.CurrentTabForData();
++    r.nCol = rViewData.GetCurX();
++    r.nStartCol = r.nEndCol = r.nCol;
++    r.nStartRow = r.nEndRow = rViewData.GetCurY();
++    rDoc.GetDataArea(r.nTab, r.nStartCol, r.nStartRow, r.nEndCol, r.nEndRow, true, false);
++    if (r.nStartCol == r.nEndCol)
++    {
++        rViewShell.ErrorMessage(STR_HST_FLASH_FILL_NO_DATA);
++        return 0;
++    }
++
++    bool bNumeric = false;
++    std::vector<Row> aRows = readRows(rDoc, r, bNumeric);
++    const CharClass& rCharClass = ScGlobal::getCharClass();
++    auto oValues = flashfill::Infer(aRows, rCharClass);
++    if (!oValues && aRows.front().moExample)
++    {
++        // The first row may be the header row ("Họ" above "Họ và tên"): try without it.
++        aRows.front() = Row();
++        oValues = flashfill::Infer(aRows, rCharClass);
++    }
++    if (!oValues)
++    {
++        rViewShell.ErrorMessage(STR_HST_FLASH_FILL_NO_PATTERN);
++        return 0;
++    }
++
++    std::vector<std::pair<SCROW, OUString>> aFills;
++    for (size_t i = 0; i < oValues->size(); ++i)
++    {
++        const SCROW nRow = r.nStartRow + static_cast<SCROW>(i);
++        if ((*oValues)[i] && !(*oValues)[i]->isEmpty()
++            && rDoc.GetCellType(ScAddress(r.nCol, nRow, r.nTab)) == CELLTYPE_NONE)
++            aFills.emplace_back(nRow, *(*oValues)[i]);
++    }
++    if (aFills.empty())
++    {
++        rViewShell.ErrorMessage(STR_HST_FLASH_FILL_NO_PATTERN);
++        return 0;
++    }
++    const ScEditableTester aTester = ScEditableTester::CreateAndTestBlock(
++        rDoc, r.nTab, r.nCol, aFills.front().first, r.nCol, aFills.back().first);
++    if (!aTester.IsEditable())
++    {
++        rViewShell.ErrorMessage(aTester.GetMessageId());
++        return 0;
++    }
++
++    // Numbers stay numbers when the examples are numbers, text otherwise (keeps 0905...).
++    ScDocFunc& rFunc = rViewData.GetDocFunc();
++    SvNumberFormatter* pFormatter = rDoc.GetFormatTable();
++    const bool bUndo = rDoc.IsUndoEnabled();
++    if (bUndo)
++        rFunc.EnterListAction(STR_HST_UNDO_FLASH_FILL);
++    for (const auto& [nRow, rText] : aFills)
++    {
++        const ScAddress aPos(r.nCol, nRow, r.nTab);
++        sal_uInt32 nFormat = rDoc.GetNumberFormat(r.nCol, nRow, r.nTab);
++        double fValue = 0.0;
++        if (bNumeric && pFormatter->IsNumberFormat(rText, nFormat, fValue))
++            rFunc.SetValueCell(aPos, fValue, true);
++        else
++            rFunc.SetStringCell(aPos, rText, true);
++    }
++    if (bUndo)
++        rFunc.EndListAction();
++    return aFills.size();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/ui/inc/hstflashfillcommand.hxx
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++#include <cstddef>
++
++class ScTabViewShell;
++
++namespace sc::hst
++{
++/** Flash Fill (.uno:FlashFill, Ctrl+E): fills the empty cells of the cursor's column in its data
++    region with the pattern of the examples typed there, taken from the other columns of the
++    region (sc/source/core/hst/hstflashfill.cxx). One undo step. Tells the user when there is no
++    example or no pattern. Returns the number of cells filled. */
++size_t FlashFill(ScTabViewShell& rViewShell);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/view/cellsh1.cxx
++++ b/sc/source/ui/view/cellsh1.cxx
+@@ -103,6 +103,7 @@
+ #include <formulacell.hxx>
+ #include <gridwin.hxx>
+ #include <hsttextnumberconvert.hxx>
++#include <hstflashfillcommand.hxx>
+ #include <searchresults.hxx>
+ #include <Sparkline.hxx>
+ #include <strings.hrc>
+@@ -2096,6 +2097,10 @@ void ScCellShell::ExecuteEdit( SfxRequest& rReq )
+             sc::hst::ConvertTextNumbers(GetViewData());
+             rReq.Done();
+             break;
++        case SID_HST_FLASH_FILL:
++            sc::hst::FlashFill(*pTabViewShell);
++            rReq.Done();
++            break;
+         case SID_THESAURUS:
+             pTabViewShell->DoThesaurus();
+             break;
+--- a/sc/uiconfig/scalc/menubar/menubar.xml
++++ b/sc/uiconfig/scalc/menubar/menubar.xml
+@@ -660,6 +660,7 @@
+       <menu:menuseparator/>
+       <menu:menuitem menu:id=".uno:TableOperationDialog"/>
+       <menu:menuitem menu:id=".uno:TextToColumns"/>
++      <menu:menuitem menu:id=".uno:FlashFill"/>
+       <menu:menuitem menu:id=".uno:DataConsolidate"/>
+       <menu:menu menu:id=".uno:GroupOutlineMenu">
+         <menu:menupopup>
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -5938,6 +5938,26 @@ msgctxt ""
+ msgid "Convert numbers stored as text in the selection to numbers"
+ msgstr "Chuyển các số được lưu dưới dạng văn bản trong vùng chọn thành số"
+ 
++#. hstFlashFillCmd
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:FlashFill\n"
++"Label\n"
++"value.text"
++msgid "Flash Fill"
++msgstr "Tự điền nhanh"
++
++#. hstFlashFillTip
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:FlashFill\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Fill the column from the examples typed in it, following their pattern in the neighboring columns"
++msgstr "Điền cột theo các ví dụ đã gõ trong cột, dựa trên quy luật của chúng ở các cột bên cạnh"
++
+ #. zZstf
+ #: CalcCommands.xcu
+ msgctxt ""
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -23312,6 +23312,24 @@ msgctxt "STR_HST_UNDO_TEXT_TO_NUMBER"
+ msgid "Convert to Number"
+ msgstr "Chuyển thành số"
+ 
++#. hstFlashFillUndo
++#: sc/inc/strings.hrc
++msgctxt "STR_HST_UNDO_FLASH_FILL"
++msgid "Flash Fill"
++msgstr "Tự điền nhanh"
++
++#. hstFlashFillNoData
++#: sc/inc/strings.hrc
++msgctxt "STR_HST_FLASH_FILL_NO_DATA"
++msgid "Flash Fill needs data in a column next to the cell, and an example of the result typed in the cell's column."
++msgstr "Tự điền nhanh cần dữ liệu ở cột bên cạnh ô và một ví dụ về kết quả đã gõ trong cột của ô."
++
++#. hstFlashFillNoPattern
++#: sc/inc/strings.hrc
++msgctxt "STR_HST_FLASH_FILL_NO_PATTERN"
++msgid "Flash Fill did not recognize a pattern. Type one or two more examples of the result in the column, then try again."
++msgstr "Tự điền nhanh chưa nhận ra quy luật. Hãy gõ thêm một hoặc hai ví dụ về kết quả trong cột rồi thử lại."
++
+ #. Et4zM
+ #: sc/inc/subtotals.hrc:28
+ msgctxt "subtotalgrppage|liststore1"
