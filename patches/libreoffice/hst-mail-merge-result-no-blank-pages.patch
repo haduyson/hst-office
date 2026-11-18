@@ -88,7 +88,7 @@ Test: CppunitTest_sw_hst_merge_result_pages.
      CppunitTest_sw_ooxmlencryption \
 --- /dev/null
 +++ b/sw/qa/extras/hst/hstmergeresultpages.cxx
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,86 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -119,6 +119,11 @@ Test: CppunitTest_sw_hst_merge_result_pages.
 +protected:
 +    int mergedPages(bool bMergeResult, const OUString& rPageStyle)
 +    {
++        if (mxComponent.is()) // the previous document of the same test
++        {
++            mxComponent->dispose();
++            mxComponent.clear();
++        }
 +        createSwDoc();
 +        if (bMergeResult) // as the HST mail merge marks the documents it produces
 +        {
