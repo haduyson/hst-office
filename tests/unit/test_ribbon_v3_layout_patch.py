@@ -33,8 +33,11 @@ class LayoutTest(unittest.TestCase):
     def test_medium_menu_button_measured_as_painted(self):
         code = added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx")
         self.assertIn("std::max<tools::Long>(1, 1 + (nTextHeight - 10) / 2);", code)
-        self.assertIn("tools::Long nWidth = 2 * 4 + 2 * nSymbol;", code)
+        self.assertIn("tools::Long nWidth = nFrame + 2 * nSymbol;", code)
         self.assertIn("it = rWidths.emplace(nKey, commandWidth(rCommand, cLook)).first;", code)
+        # a large one: its label's lines ("Bam\\ndinh \u25be"), each centred in the frame, not its words
+        self.assertIn("pMenu->GetTextWidth(aText.getToken(0, '\\n', nIndex))", code)
+        self.assertIn("if (const tools::Long nNeed = menuButtonNeed(rCommand, rCell.look))", code)
 
     def test_one_button_stretches_over_its_cell(self):
         code = added(PATCH, "vcl/source/window/toolbox.cxx")

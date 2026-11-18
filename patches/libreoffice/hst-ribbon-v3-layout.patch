@@ -1271,7 +1271,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      int nCommands = 0;
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
-@@ -0,0 +1,599 @@
+@@ -0,0 +1,608 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1284,6 +1284,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +#include <vcl/event.hxx>
 +#include <vcl/image.hxx>
 +#include <vcl/layout.hxx>
++#include <vcl/salnativewidgets.hxx>
 +#include <vcl/toolbox.hxx>
 +#include <vcl/toolkit/fixed.hxx>
 +#include <vcl/toolkit/MenuButton.hxx>
@@ -1408,26 +1409,45 @@ License: these upstream files remain under their original license (MPL-2.0).
 +
 +tools::Long px(long nLogical, const vcl::Window& rWindow) { return scaled(nLogical, scaleOf(rWindow)); }
 +
-+/// the width a command needs at a look. A medium menu button draws as PushButton's paint does (button.cxx): 4 px of
-+/// frame each side, the image, its separator, the label, and two symbol widths kept for the ▾. Its size request
-+/// misses the separator and the frame, so the widest button of a column had its label cut ("Sắp xếp và l…")
-+tools::Long commandWidth(const vcl::Window& rCommand, char cLook)
++/// the width a menu button's paint needs at a look (0: any). PushButton keeps its frame inside the button, 4 px
++/// each side (2 without a native one). A medium button draws the image, its separator, the label and two symbol
++/// widths for the ▾ (button.cxx); a large one its label's lines ("Bám\ndính ▾", HstRibbonLadder.cxx) centred, and
++/// breaks a line again when it fills the text area to the pixel, so it keeps 1 px each side more.
++tools::Long menuButtonNeed(const vcl::Window& rCommand, char cLook)
 +{
-+    const tools::Long nRequest = VclContainer::getLayoutRequisition(rCommand).Width();
 +    const MenuButton* pMenu = dynamic_cast<const MenuButton*>(&rCommand);
-+    if (!pMenu || cLook != 'M')
-+        return nRequest;
++    if (!pMenu || (cLook != 'M' && cLook != 'L'))
++        return 0;
++    const tools::Long nFrame
++        = 2 * (pMenu->IsNativeControlSupported(ControlType::Pushbutton, ControlPart::Entire) ? 4 : 2);
++    const OUString aText = pMenu->GetText().replaceAll("~", "");
++    if (cLook == 'L')
++    {
++        tools::Long nLine = 0;
++        sal_Int32 nIndex = 0;
++        do
++            nLine = std::max(nLine, pMenu->GetTextWidth(aText.getToken(0, '\n', nIndex)));
++        while (nIndex >= 0);
++        return nFrame + 2 + nLine;
++    }
 +    const tools::Long nTextHeight = pMenu->GetTextHeight();
 +    const tools::Long nSymbol = nTextHeight / 2 + 1;
 +    const tools::Long nImageSep = std::max<tools::Long>(1, 1 + (nTextHeight - 10) / 2);
-+    const OUString aText = pMenu->GetText().replaceAll("~", "");
 +    const Image aImage = pMenu->GetModeImage();
-+    tools::Long nWidth = 2 * 4 + 2 * nSymbol;
++    tools::Long nWidth = nFrame + 2 * nSymbol;
 +    if (!!aImage)
 +        nWidth += aImage.GetSizePixel().Width() + (aText.isEmpty() ? 0 : nImageSep);
 +    if (!aText.isEmpty())
 +        nWidth += pMenu->GetTextWidth(aText);
-+    return std::max(nRequest, nWidth);
++    return nWidth;
++}
++
++/// the width a command needs at a look: its size request, and what a menu button's paint needs (the request of a
++/// medium one misses the image separator and the frame: the widest button of a column had its label cut, "Sắp xếp
++/// và l…"; a large one at 125 % lost its second line, "Bám ...")
++tools::Long commandWidth(const vcl::Window& rCommand, char cLook)
++{
++    return std::max(VclContainer::getLayoutRequisition(rCommand).Width(), menuButtonNeed(rCommand, cLook));
 +}
 +
 +/// the look of a toolbox: L a large button (image above its label), M a small one with its label, S its image only
@@ -1840,21 +1860,10 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                appendRect(rOut, aRect);
 +                // a labelled command (large, or medium with its label) asks for more room than its cell gives it:
 +                // its label is cut (a box keeps the design's width, an icon-only command shows no label)
++                // a menu button as its paint lays its label out (menuButtonNeed), any other as its size request
 +                Size aWant = VclContainer::getLayoutRequisition(rCommand);
-+                const MenuButton* pMenu = dynamic_cast<const MenuButton*>(&rCommand);
-+                if (pMenu && rCell.look == 'M')
-+                    aWant = Size(commandWidth(rCommand, 'M'), aRect.GetHeight()); // as its paint lays it out
-+                if (pMenu && rCell.look == 'L')
-+                {
-+                    // a large menu button breaks its label at the spaces: cut when its longest word does not fit
-+                    tools::Long nWord = 0;
-+                    const OUString aText = pMenu->GetText().replaceAll("~", "");
-+                    sal_Int32 nIndex = 0;
-+                    do
-+                        nWord = std::max(nWord, pMenu->GetTextWidth(aText.getToken(0, ' ', nIndex)));
-+                    while (nIndex >= 0);
-+                    aWant = Size(nWord + 2 * px(4, rCommand), aRect.GetHeight());
-+                }
++                if (const tools::Long nNeed = menuButtonNeed(rCommand, rCell.look))
++                    aWant = Size(nNeed, aRect.GetHeight());
 +                const bool bLabelled = rCell.look == 'L' || rCell.look == 'M';
 +                rOut.append(",\"label_cut\":");
 +                rOut.append(bLabelled && (aWant.Width() > aRect.GetWidth() || aWant.Height() > aRect.GetHeight())
