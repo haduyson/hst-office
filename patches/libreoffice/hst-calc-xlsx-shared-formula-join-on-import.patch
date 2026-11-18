@@ -1,0 +1,107 @@
+Calc: an .xlsx import groups filled-down (shared) formula cells as they are created, not only at the end.
+
+Every shared formula cell was created with its own copy of the token array and the cells were only grouped by
+ScColumn::RegroupFormulaCells after the whole workbook was read, so at the peak of loading a sheet of filled-down
+formulas held one token array per cell: a 50 MB workbook with 3.5 million formula cells held about 400 MB of copies
+(1.66 GB peak heap), and a 200 MB one reached 7.9 GB while opening.
+
+Each cell is now joined, once its cached result and recalc mode are set, to the formula cell right above it with
+exactly the rule RegroupFormulaCells applies (same token comparison; the upper cell's group, or a new group of
+two whose code is the upper cell's), and its copy is freed at once. Cells are created top to bottom, and
+RegroupFormulaCells keeps existing groups and merges equal neighbours as before, so the final groups are the same.
+New logic in sc/source/filter/inc/hstsharedformulajoin.hxx; the hook is one line in applySharedFormulas.
+
+License: modified upstream files keep their license (MPL-2.0); the new file is LicenseRef-HST-Proprietary.
+Test: CppunitTest_sc_subsequent_filters_test4 testSharedFormulaXLSX and test2 testSharedFormulaXLSB (group top
+rows and lengths after import); saved .xlsx compared part by part before/after on the large fixtures.
+---
+--- /dev/null
++++ b/sc/source/filter/inc/hstsharedformulajoin.hxx
+@@ -0,0 +1,69 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HST Office.
++ */
++
++#pragma once
++
++#include <document.hxx>
++#include <formulacell.hxx>
++
++namespace oox::xls
++{
++/** Joins a shared formula cell of an .xlsx, once it is fully set up, to the formula cell right above it, exactly as
++    ScColumn::RegroupFormulaCells joins them at the end of the import (GroupFormulaCells in column3.cxx): same token
++    array comparison, same group (the upper cell's group, or a new group of two whose code is the upper cell's).
++
++    The import creates every shared formula cell with its own copy of the token array and only groups them at the
++    end, so a sheet of filled-down formulas held one token array per cell at the peak of loading (about 400 MB per
++    3.5 million formula cells). Joining while the cells are created in row order frees each copy at once. The final
++    groups are the same: RegroupFormulaCells keeps existing groups and merges equal neighbours as before.
++
++    Used as a scope guard so it runs after the cell's cached result, dirty state and recalc mode are set, on every
++    path through the loop body. */
++class HstJoinFormulaCellAbove
++{
++public:
++    HstJoinFormulaCellAbove(ScDocument& rDoc, ScFormulaCell& rCell)
++        : mrDoc(rDoc)
++        , mrCell(rCell)
++    {
++    }
++
++    HstJoinFormulaCellAbove(const HstJoinFormulaCellAbove&) = delete;
++    HstJoinFormulaCellAbove& operator=(const HstJoinFormulaCellAbove&) = delete;
++
++    ~HstJoinFormulaCellAbove()
++    {
++        const ScAddress& rPos = mrCell.aPos;
++        if (rPos.Row() == 0 || mrCell.GetCellGroup())
++            return;
++        ScFormulaCell* pAbove = mrDoc.GetFormulaCell(ScAddress(rPos.Col(), rPos.Row() - 1, rPos.Tab()));
++        if (!pAbove)
++            return;
++        const ScFormulaCell::CompareState eState = pAbove->CompareByTokenArray(mrCell);
++        if (eState == ScFormulaCell::NotEqual)
++            return;
++        if (ScFormulaCellGroupRef xGroup = pAbove->GetCellGroup())
++        {
++            // The cell above is the last one of its group (cells are created top to bottom): append this one.
++            mrCell.SetCellGroup(xGroup);
++            ++xGroup->mnLength;
++        }
++        else
++        {
++            ScFormulaCellGroupRef xNew
++                = pAbove->CreateCellGroup(2, eState == ScFormulaCell::EqualInvariant);
++            if (xNew)
++                mrCell.SetCellGroup(xNew);
++        }
++    }
++
++private:
++    ScDocument& mrDoc;
++    ScFormulaCell& mrCell;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/filter/oox/formulabuffer.cxx
++++ b/sc/source/filter/oox/formulabuffer.cxx
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include <formulabuffer.hxx>
++#include <hstsharedformulajoin.hxx>
+ #include <externallinkbuffer.hxx>
+ #include <formulacell.hxx>
+ #include <document.hxx>
+@@ -155,6 +156,7 @@ void applySharedFormulas(
+                 pCell = new ScFormulaCell(rDoc.getDoc(), aPos, *pArray);
+ 
+             rDoc.setFormulaCell(aPos, pCell);
++            HstJoinFormulaCellAbove aHstJoin(rDoc.getDoc(), *pCell); // HST Office: share the code at once
+             const bool bNeedNumberFormat = ((rDoc.getDoc().GetNumberFormat(
+                             aPos.Col(), aPos.Row(), aPos.Tab()) % SV_COUNTRY_LANGUAGE_OFFSET) == 0);
+             if (bNeedNumberFormat)
