@@ -18,6 +18,7 @@ CSV = (".csv", ".txt")
 _NUMBER = re.compile(r"-?(?:0|[1-9]\d*)(?:,\d+)?|-?[1-9]\d{0,2}(?:\.\d{3})+(?:,\d+)?|-?(?:0|[1-9]\d*)\.\d+")
 _DATE = re.compile(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})")
 DATE_FLAG = 2  # com.sun.star.util.NumberFormat.DATE (DATETIME includes it)
+TEXT_FLAG = 0x100  # com.sun.star.util.NumberFormat.TEXT ("@", Excel's "Text" format)
 
 
 class SourceError(ValueError):
@@ -100,38 +101,45 @@ def _load_hidden(ctx, path):
                                         (prop("Hidden", True), prop("ReadOnly", True), prop("MacroExecutionMode", 0)))
 
 
-def _date_cells(sheet, area, formats):
-    """{(column, row)} of the cells with a date format inside `area` (CellFormatRanges: few calls for a column)."""
-    found = set()
+def _format_cells(sheet, area, formats):
+    """({(column, row)} with a date format, {(column, row)} with the Text format) inside `area` (CellFormatRanges:
+    few calls for a column)."""
+    dates, texts = set(), set()
     ranges = sheet.getCellRangeByPosition(area.StartColumn, area.StartRow, area.EndColumn, area.EndRow).CellFormatRanges
     for index in range(ranges.getCount()):
         part = ranges.getByIndex(index)
         try:
             kind = formats.getByKey(part.NumberFormat).Type
-        except Exception:  # noqa: BLE001 - unknown format: not a date
+        except Exception:  # noqa: BLE001 - unknown format: neither
             continue
-        if kind & DATE_FLAG:
+        found = texts if kind & TEXT_FLAG else dates if kind & DATE_FLAG else None
+        if found is not None:
             a = part.RangeAddress
             found.update((c, r) for c in range(a.StartColumn, a.EndColumn + 1) for r in range(a.StartRow, a.EndRow + 1))
-    return found
+    return dates, texts
 
 
 def sheet_grid(sheet, formats):
+    """Rows of (kind, value) cells of the used area. A number in a cell with the Text format (typed before the
+    column was formatted as Text, the usual case for years and codes) is text as the sheet shows it: merged as
+    "2000", never as a grouped number "2.000", as in Word."""
     cursor = sheet.createCursor()
     cursor.gotoStartOfUsedArea(False)
     cursor.gotoEndOfUsedArea(True)
     area = cursor.RangeAddress
     data = cursor.getDataArray()
-    dates = _date_cells(sheet, area, formats)
+    dates, texts = _format_cells(sheet, area, formats)
     grid = []
     for r, row in enumerate(data):
         cells = []
         for c, value in enumerate(row):
+            position = (area.StartColumn + c, area.StartRow + r)
             if isinstance(value, str):
                 cells.append((fmt.COL_TEXT, value) if value.strip() else ("", None))
+            elif position in texts:
+                cells.append((fmt.COL_TEXT, sheet.getCellByPosition(*position).getString()))
             else:
-                date = (area.StartColumn + c, area.StartRow + r) in dates
-                cells.append((fmt.COL_DATE if date else fmt.COL_NUMBER, float(value)))
+                cells.append((fmt.COL_DATE if position in dates else fmt.COL_NUMBER, float(value)))
         grid.append(cells)
     return grid
 
