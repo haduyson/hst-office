@@ -5,12 +5,15 @@ Sheets, Slides and Draw, one object or all of them as one undo step: the object'
 needs hst-math-constructs-mathtype5.patch); if that import fails the original equation stays untouched.
 In Writer a formula anchored as a character sits on the text baseline, as Writer aligns Math objects (Word's run
 position shift carried by the OLE picture is dropped). Elsewhere the formula keeps the picture's top left."""
+import time
+
 from . import formula_ole
 
 FILTER = "com.sun.star.comp.Math.MathTypeFilter"
 OLE_SHAPE = "com.sun.star.drawing.OLE2Shape"
 CONTENT = 1  # com.sun.star.embed.Aspects.MSOLE_CONTENT
 LOADED = 0  # com.sun.star.embed.EmbedStates.LOADED
+PROGRESS_SECONDS = 0.5  # each progress update lets the office lay out and repaint: hundreds cost more than converting
 AS_CHARACTER = 1  # com.sun.star.text.TextContentAnchorType.AS_CHARACTER
 NONE = 0  # com.sun.star.text.VertOrientation.NONE
 KEEP_TEXT = ("AnchorType", "HoriOrient", "HoriOrientPosition", "HoriOrientRelation", "VertOrientRelation", "TextWrap")
@@ -49,13 +52,11 @@ def ole_data(ctx, embedded):
 def import_formula(ctx, model, data):
     """Fill a new formula's model from MathType OLE data; False when the import refuses it."""
     import uno
-    from com.sun.star.beans import PropertyValue
     stream = ctx.ServiceManager.createInstanceWithContext("com.sun.star.io.SequenceInputStream", ctx)
     stream.initialize((uno.ByteSequence(data),))
     importer = ctx.ServiceManager.createInstanceWithContext(FILTER, ctx)
     importer.setTargetDocument(model)
-    value = PropertyValue()
-    value.Name, value.Value = "InputStream", stream
+    value = uno.createUnoStruct("com.sun.star.beans.PropertyValue", Name="InputStream", Value=stream)
     return bool(importer.filter((value,)))
 
 
@@ -82,8 +83,7 @@ def _replace_text_object(ctx, doc, old, data):
     if not import_formula(ctx, model, data):
         new.dispose()
         return False
-    size = new.EmbeddedObject.getVisualAreaSize(CONTENT)
-    new.Size = size
+    new.Size = new.EmbeddedObject.getVisualAreaSize(CONTENT)
     for name in ("LeftMargin", "RightMargin", "TopMargin", "BottomMargin"):
         new.setPropertyValue(name, 0)
     if new.AnchorType == AS_CHARACTER:  # formula baseline on the text baseline
@@ -98,10 +98,8 @@ def shape_pages(doc):
     if doc.supportsService("com.sun.star.sheet.SpreadsheetDocument"):
         sheets = doc.getSheets()
         return [sheets.getByIndex(i).getDrawPage() for i in range(sheets.getCount())]
-    pages = []
-    for owner in (doc.getDrawPages(), doc.getMasterPages()):
-        pages += [owner.getByIndex(i) for i in range(owner.getCount())]
-    return pages
+    owners = (doc.getDrawPages(), doc.getMasterPages())
+    return [owner.getByIndex(i) for owner in owners for i in range(owner.getCount())]
 
 
 def shape_objects(doc):
@@ -164,8 +162,8 @@ def _progress(doc, text, count):
 
 
 def _settle(ctx):
-    """Let the office finish the layout it deferred while the views were locked (Writer resizes each new formula
-    then), so those changes belong to the same undo step."""
+    """Let the office finish the layout deferred while the views were locked (it resizes the new formulas), in the
+    same undo step."""
     try:
         ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx).processEventsToIdle()
     except Exception:  # noqa: BLE001 - an office without it lays out later, as usual
@@ -174,7 +172,7 @@ def _settle(ctx):
 
 def convert_all(ctx, doc, undo_title, only=None):
     """(converted, kept) for all MathType equations, or for the objects in `only`; one undo step. The views are not
-    redrawn until the end, and a progress bar counts the objects."""
+    redrawn until the end; a progress bar counts the objects, updated every PROGRESS_SECONDS."""
     from .undo import undo_step
     done = kept = 0
     found = [(c, o) for c, o in candidates(doc) if only is None or o in only]
@@ -182,13 +180,15 @@ def convert_all(ctx, doc, undo_title, only=None):
     try:
         with undo_step(doc, undo_title):  # the layout after unlocking resizes the objects: inside the same step
             doc.lockControllers()
+            shown = time.monotonic()
             try:
                 for index, (container, obj) in enumerate(found):
                     result = convert_one(ctx, doc, container, obj)
                     if result is not None:
                         done, kept = (done + 1, kept) if result else (done, kept + 1)
-                    if indicator is not None:
+                    if indicator is not None and time.monotonic() - shown >= PROGRESS_SECONDS:
                         indicator.setValue(index + 1)
+                        shown = time.monotonic()
             finally:
                 doc.unlockControllers()
             _settle(ctx)
