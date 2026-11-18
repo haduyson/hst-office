@@ -18,8 +18,16 @@ font set on the characters (DOCX run properties) is estimated in that font (HstM
 stops, and the layout continues on its own as before, at a table it does not cover (nested tables, split
 cells, repeated headings), a section, or a change of page format.
 
+Appending the estimated pages was itself O(pages) per page: SwPageFrame::Paste walked all pages to
+find the end (SwFrame::InsertBefore without sibling), and PreparePage formatted the new page, whose
+PrepareMake walks all pages before it. A 50 MB DOCX (about 100,000 pages) spent most of its open time
+there. While the estimate inserts a page (SwRootFrame::IsHstEstimatedPageInsert), the page is appended
+behind the root's last page, and is formatted by the layout like its frames instead of right away.
+This also applies to the large plain texts of hst-sw-large-text-pagination.patch.
+
 Hook: sw/source/core/layout/laycache.cxx (filter check, paragraph estimate split from the frame
-dispatch), sw/source/core/layout/layhelp.hxx, sw/Library_sw.mk; logic in
+dispatch, page insert flag), sw/source/core/layout/layhelp.hxx, sw/source/core/inc/rootfrm.hxx,
+sw/source/core/layout/pagechg.cxx (Paste, PreparePage), sw/Library_sw.mk; logic in
 sw/source/core/inc/hstlargedocxpagination.hxx, sw/source/core/layout/hstlargedocxpagination.cxx.
 Test: CppunitTest_sw_core_layout testLargeDocxPaginationUnchanged (every page start equal to the
 start-to-end layout, and no page left holding the rest of the document after loading),
@@ -35,6 +43,27 @@ testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
      sw/source/core/layout/hstpageart \
      sw/source/core/layout/hstpageartsets \
      sw/source/core/layout/hffrm \
+--- a/sw/source/core/inc/rootfrm.hxx
++++ b/sw/source/core/inc/rootfrm.hxx
+@@ -106,6 +106,9 @@
+     bool    mbLargeTextPagination = false;
+     sal_uInt16 mnViewLayoutLock = 0; // >0: CheckViewLayout(nullptr, nullptr) only marks mbViewLayoutDirty
+     bool    mbViewLayoutDirty = false;
++    /// A page is being inserted for the page estimate while the frames are created (laycache.cxx):
++    /// it is appended behind the last page and formatted by the layout later, not right away.
++    bool    mbHstEstimatedPageInsert = false;
+ 
+     bool    mbNeedGrammarCheck;     // true when sth needs to be checked (not necessarily started yet!)
+ 
+@@ -428,6 +431,8 @@
+     const SwRect& GetPagesArea() const { return maPagesArea; }
+     void SetSidebarChanged() { mbSidebarChanged = true; }
+     bool IsLargeTextPagination() const { return mbLargeTextPagination; }
++    bool IsHstEstimatedPageInsert() const { return mbHstEstimatedPageInsert; }
++    void SetHstEstimatedPageInsert(bool bSet) { mbHstEstimatedPageInsert = bSet; }
+     void SetLargeTextPagination() { mbLargeTextPagination = true; }
+     void LockViewLayout() { ++mnViewLayoutLock; }
+     void UnlockViewLayout()
 --- a/sw/source/core/layout/laycache.cxx
 +++ b/sw/source/core/layout/laycache.cxx
 @@ -71,6 +71,8 @@
@@ -135,6 +164,19 @@ testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
      if (rSpacing.GetInterLineSpaceRule() == SvxInterLineSpaceRule::Prop)
          nLine = nLine * std::max<tools::Long>(100, rSpacing.GetPropLineSpace()) / 100;
      else if (rSpacing.GetInterLineSpaceRule() == SvxInterLineSpaceRule::Fix)
+@@ -1019,7 +1053,12 @@
+             const tools::Long nTextHeight = mnTextPageBudget ? EstimateTextHeight() : 0;
+             if (nTextHeight && mnTextPageUsed > 0 && mnTextPageUsed + nTextHeight > mnTextPageBudget)
+                 mbBreakAfter = true;
++            SwRootFrame* pHstRoot = nTextHeight ? mrpPage->getRootFrame() : nullptr;
++            if (pHstRoot)
++                pHstRoot->SetHstEstimatedPageInsert(true);
+             const bool bNewPage = CheckInsertPage(mrpPage, mrpLay, mrpFrame, mbBreakAfter);
++            if (pHstRoot)
++                pHstRoot->SetHstEstimatedPageInsert(false);
+             mnTextPageUsed = (bNewPage ? 0 : mnTextPageUsed) + nTextHeight;
+             if (bNewPage)
+             {
 --- a/sw/source/core/layout/layhelp.hxx
 +++ b/sw/source/core/layout/layhelp.hxx
 @@ -32,9 +32,11 @@
@@ -164,6 +206,35 @@ testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
  public:
      SwLayHelper( SwDoc& rDoc, SwFrame* &rpF, SwFrame* &rpP, SwPageFrame* &rpPg,
              SwLayoutFrame* &rpL, std::unique_ptr<SwActualSection> &rpA,
+--- a/sw/source/core/layout/pagechg.cxx
++++ b/sw/source/core/layout/pagechg.cxx
+@@ -519,7 +519,9 @@
+     // Thus, first calling <::RegistFlys(..)>, then call <::lcl_FormatLay(..)>
+     ::RegistFlys( this, this );
+ 
+-    if ( Lower() )
++    // HST: a page inserted by the page estimate is formatted by the layout, as all its frames are;
++    // formatting it here walks all pages before it (PrepareMake), O(pages) for every new page
++    if ( Lower() && !getRootFrame()->IsHstEstimatedPageInsert() )
+     {
+                 ::lcl_FormatLay( this );
+     }
+@@ -1006,7 +1008,14 @@
+             "I am still registered somewhere." );
+ 
+     // insert into tree structure
+-    InsertBefore( static_cast<SwLayoutFrame*>(pParent), pSibling );
++    // HST: a page appended by the page estimate goes behind the known last page instead of
++    // walking all pages to find the end
++    SwPageFrame* pHstLast = !pSibling && static_cast<SwRootFrame*>(pParent)->IsHstEstimatedPageInsert()
++                                ? static_cast<SwRootFrame*>(pParent)->GetLastPage() : nullptr;
++    if (pHstLast && pHstLast->GetUpper() == pParent && !pHstLast->GetNext())
++        InsertBehind( static_cast<SwLayoutFrame*>(pParent), pHstLast );
++    else
++        InsertBefore( static_cast<SwLayoutFrame*>(pParent), pSibling );
+ 
+     // increase the root's page number
+     static_cast<SwRootFrame*>(GetUpper())->IncrPhyPageNums();
 --- a/sw/qa/core/layout/laycache.cxx
 +++ b/sw/qa/core/layout/laycache.cxx
 @@ -9,11 +9,19 @@
