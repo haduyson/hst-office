@@ -24,8 +24,8 @@ import ribbon_v3_ui as v3  # noqa: E402
 
 PATCH = os.path.join(HERE, "..", "..", "patches", "libreoffice", "hst-ribbon-v3-ui.patch")
 # owner decision 18/11/2026: "Công thức hoá học" beside x2 / x² in Trang đầu › Phông chữ (not Sheets)
-ADDED = {"writer": {".uno:HstChemicalFormula": 1}, "sheets": {}, "slides": {".uno:HstChemicalFormula": 1},
-         "draw": {".uno:HstChemicalFormula": 1}}
+ADDED = {"writer": {"org.hst.office.vi:ChemFormula": 1}, "sheets": {}, "slides": {"org.hst.office.vi:ChemFormula": 1},
+         "draw": {"org.hst.office.vi:ChemFormula": 1}}
 MENU_ITEMS = ("GtkMenuItem", "GtkCheckMenuItem", "GtkRadioMenuItem")
 
 

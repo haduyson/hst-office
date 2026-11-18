@@ -90,6 +90,26 @@ class TreeCheckTest(unittest.TestCase):
                          ("LSSS", [["0", "1", "|", "3"], ["2"]], True))
         self.assertIsNone(C.parse_spec("kinds=LX"))
 
+    def test_new_protocol_command_is_a_labelled_copy_of_its_neighbour(self):
+        from lxml import etree as ET
+        import ribbon_v3_ui as V
+        child = ET.fromstring(
+            '<child><object class="sfxlo-NotebookbarToolBox" id="bxSup"><child>'
+            '<object class="GtkToolButton" id="btnHomeSuperScript">'
+            '<property name="action-name">.uno:SuperScript</property></object></child></object></child>')
+        units = V.units_of(child.find("object"), child)
+        item = {"k": "org.hst.office.vi:ChemFormula", "kind": "S", "t": "Formula", "clone": "SuperScript",
+                "new": True, "icon": "cmd/sc_chemformula.png"}
+        unit = V.new_unit(item, units)
+        obj = unit.element.find("object")
+        props = {p.get("name"): p.text for p in obj.findall("property")}
+        self.assertEqual(obj.get("id"), "btnHomeHstChemFormula")
+        self.assertEqual(props["action-name"], "org.hst.office.vi:ChemFormula")
+        self.assertEqual((props["label"], props["tooltip-text"], props["icon-name"]),
+                         ("Formula", "Formula", "cmd/sc_chemformula.png"))
+        self.assertEqual(unit.key, item["k"])
+        self.assertEqual([u.key for u in V.units_of(unit.toolbox, child)], ["SuperScript"])  # model untouched
+
 
 if __name__ == "__main__":
     unittest.main()

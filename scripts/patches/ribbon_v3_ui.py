@@ -87,16 +87,28 @@ def group_parts(grid):
 
 def new_unit(item, units):
     """A command the 1.0.2 ribbon does not have ("new": an owner addition): a copy of the tool item of its neighbour
-    ("clone") with its own command and ids (bxV3<id> toolbox, btnHomeHst<k> button)."""
+    ("clone") with its own command and ids (bxV3<id> toolbox, btnHomeHst<k> button). An extension's protocol command
+    (org.hst.office.vi:...) keeps its name and gets the item's label, tooltip and "icon", as the other HST extension
+    buttons of the ribbon; a .uno: command takes them from the command."""
     model = next((u for u in units if u.key == item["clone"] and u.toolbox is not None), None)
     if model is None:
         raise KeyError(f"no tool item {item['clone']} to copy for {item['k']}")
     element = copy.deepcopy(model.element)
     obj = element.find("object")
-    obj.set("id", "btnHomeHst" + item["k"].removeprefix("Hst"))
+    name = item["k"].split(":")[-1]
+    obj.set("id", "btnHomeHst" + name.removeprefix("Hst"))
+    protocol = ":" in item["k"]  # an extension's protocol command (org.hst.office.vi:...), else .uno:
     for prop in obj.findall("property"):
         if prop.get("name") == "action-name":
-            prop.text = ".uno:" + item["k"]
+            prop.text = item["k"] if protocol else ".uno:" + item["k"]
+    if protocol:
+        # as the other HST extension buttons of the ribbon: its own label, tooltip and image (no command label)
+        anchor = next(p for p in obj.findall("property") if p.get("name") == "action-name")
+        for key, value in (("icon-name", item.get("icon")), ("label", item["t"]), ("tooltip-text", item["t"])):
+            if value:
+                prop = ET.Element("property", name=key)
+                prop.text = value
+                anchor.addprevious(prop) if key != "icon-name" else anchor.addnext(prop)
     return Unit(item["k"], element, toolbox=model.toolbox, child=ET.Element("child"))
 
 
