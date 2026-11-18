@@ -1,11 +1,13 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """HST Công thức commands (Chèn ▸ nhóm Công thức, and the question on double-clicking a MathType equation):
   - ConvertFormulas ("Chuyển công thức"): every MathType equation of the document, one undo step;
-  - AskConvertFormula: the selected MathType equation, after asking (the office asks this command when such an
-    equation is double-clicked, since it cannot be edited here; hst-math-convert-on-double-click.patch).
+  - AskConvertFormula: the selected MathType equation, after asking (formula_click runs it when such an equation is
+    double-clicked): "Chuyển thành công thức HST" / "Để nguyên", plus "Mở bằng MathType" on Windows when MathType is
+    installed (formula_mathtype_server; owner decision 18/11/2026).
 The work is done by formula_convert; this module only talks to the user."""
 from . import formula_convert
 from .dialogs import message_box
+from .formula_mathtype_server import CONVERT, LEAVE, OPEN, choices
 
 
 def _selected_equation(host):
@@ -37,19 +39,45 @@ def convert_all(host):
     _report(host, done, kept)
 
 
+def _choose(host, text, answers):
+    """The answer picked; closing the question means LEAVE. The last button has the focus and is the default."""
+    from .dialogs import Dialog
+    s = host.s["formula"]
+    labels = {CONVERT: s["convert"], OPEN: s["openMathType"], LEAVE: s["notNow"]}
+    width = 140 + 124 * len(answers)
+    lines = sum(max(1, -(-len(part) // int(width / 5))) for part in text.split("\n"))
+    dialog = Dialog(host.ctx, s["title"], width, lines * 9 + 40)
+    dialog.label("text", text, 8, 8, width - 16, lines * 9 + 2, wrap=True)
+    x, y = width - 8 - 120, lines * 9 + 18
+    for index in reversed(range(len(answers))):
+        dialog.button("b%d" % index, labels[answers[index]], x, y, 120, default=index == len(answers) - 1,
+                      callback=lambda code=index + 1: dialog.end(code))
+        x -= 124
+    code = dialog.execute(host.peer)
+    return answers[code - 1] if 1 <= code <= len(answers) else LEAVE
+
+
 def ask_convert_selected(host):
     found = _selected_equation(host)
     if found is None:
         return convert_all(host)
     container, obj = found
     s = host.s["formula"]
-    if not message_box(host.ctx, host.peer, s["title"], s["askOne"], ask=True, buttons=(s["convert"], s["notNow"])):
+    from . import formula_ole
+    data = formula_convert.ole_data(host.ctx, obj.EmbeddedObject)
+    if not formula_ole.is_mathtype(data):
+        return message_box(host.ctx, host.peer, s["title"], s["none"])
+    answers = choices(formula_ole.root_class_id(data))
+    answer = _choose(host, s["askOneMathType"] if OPEN in answers else s["askOne"], answers)
+    if answer == OPEN:  # as before HST Công thức: the equation's own program opens it
+        return obj.EmbeddedObject.doVerb(0)  # com.sun.star.embed.EmbedVerbs.MS_OLEVERB_PRIMARY
+    if answer != CONVERT:
         return
     from .undo import undo_step
     with undo_step(host.doc, host.s["undo"]["formula"]):
         result = formula_convert.convert_one(host.ctx, host.doc, container, obj)
     if not result:
-        message_box(host.ctx, host.peer, s["title"], s["kept"] % 1 if result is False else s["none"])
+        message_box(host.ctx, host.peer, s["title"], s["kept"] % 1)
 
 
 TEMPLATES_PATH = "/org.hasontech.hstoffice.Formula"

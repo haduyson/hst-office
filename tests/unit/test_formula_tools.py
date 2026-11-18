@@ -7,6 +7,7 @@ import unittest
 
 import _paths  # noqa: F401
 
+from hst_office import formula_mathtype_server as server
 from hst_office import formula_ole, formula_save_check
 
 
@@ -72,6 +73,37 @@ class FormulaOleTest(unittest.TestCase):
             text = open(os.path.join(python, name), encoding="utf-8").read()
             for command in ("ConvertFormulas", "AskConvertFormula", "FormulaTemplates"):
                 self.assertIn('"%s"' % command, text)
+
+
+class MathTypeServerTest(unittest.TestCase):
+    """The double-click question offers "Mở bằng MathType" only where MathType is installed (Windows)."""
+    MATHTYPE_EXE = r"C:\Program Files (x86)\MathType\MathType.exe"
+
+    def registry(self, entries):
+        return lambda path: entries.get(path)
+
+    def test_installed_mathtype(self):
+        read = self.registry({r"CLSID\{%s}\LocalServer32" % formula_ole.MATHTYPE: '"%s" /Automation' % self.MATHTYPE_EXE})
+        self.assertTrue(server.server_installed(formula_ole.MATHTYPE, read, lambda p: p == self.MATHTYPE_EXE, "win32"))
+        self.assertEqual(("convert", "open", "leave"), server.choices(
+            formula_ole.MATHTYPE, lambda c: server.server_installed(c, read, lambda p: True, "win32")))
+
+    def test_equation3_treated_as_mathtype(self):
+        read = self.registry({r"CLSID\{%s}\TreatAs" % formula_ole.EQUATION3: "{%s}" % formula_ole.MATHTYPE,
+                              r"CLSID\{%s}\LocalServer32" % formula_ole.MATHTYPE: self.MATHTYPE_EXE + " /Automation"})
+        self.assertTrue(server.server_installed(formula_ole.EQUATION3, read, lambda p: p == self.MATHTYPE_EXE, "win32"))
+
+    def test_not_installed(self):
+        stale = self.registry({r"CLSID\{%s}\LocalServer32" % formula_ole.MATHTYPE: self.MATHTYPE_EXE})
+        self.assertFalse(server.server_installed(formula_ole.MATHTYPE, stale, lambda p: False, "win32"))  # uninstalled
+        self.assertFalse(server.server_installed(formula_ole.MATHTYPE, self.registry({}), lambda p: True, "win32"))
+        self.assertFalse(server.server_installed(formula_ole.MATHTYPE, stale, lambda p: True, "linux"))
+        self.assertFalse(server.server_installed(formula_ole.MATHTYPE, stale, lambda p: True, "darwin"))
+        self.assertEqual(("convert", "leave"), server.choices(formula_ole.MATHTYPE, lambda c: False))
+
+    def test_program_path(self):
+        self.assertEqual(r"C:\a b\m.exe", server.program_path(r'"C:\a b\m.exe" /x'))
+        self.assertEqual(r"C:\a b\m.exe", server.program_path(r"C:\a b\m.exe /x"))
 
 
 class FormulaSaveCheckTest(unittest.TestCase):
