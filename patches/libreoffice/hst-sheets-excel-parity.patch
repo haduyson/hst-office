@@ -294,9 +294,33 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
       </table:table-cell>
       <table:table-cell/>
       <table:table-cell table:style-name="ce21" table:number-columns-repeated="2"/>
+@@ -2532,17 +2532,17 @@
+      <table:table-cell table:number-columns-repeated="5"/>
+     </table:table-row>
+     <table:table-row table:style-name="ro2">
+-     <table:table-cell table:formula="of:=MROUND([.F14];[.G14])" office:value-type="float" office:value="18" calcext:value-type="float">
+-      <text:p>18</text:p>
++     <table:table-cell table:formula="of:=ISERROR(MROUND([.F14];[.G14]))" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
++      <text:p>TRUE</text:p>
+      </table:table-cell>
+-     <table:table-cell office:value-type="float" office:value="18" calcext:value-type="float">
+-      <text:p>18</text:p>
++     <table:table-cell office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
++      <text:p>TRUE</text:p>
+      </table:table-cell>
+      <table:table-cell table:style-name="ce14" table:formula="of:=ROUND([.A14];12)=ROUND([.B14];12)" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
+       <text:p>TRUE</text:p>
+      </table:table-cell>
+-     <table:table-cell table:style-name="ce20" table:formula="of:=FORMULA([.A14])" office:value-type="string" office:string-value="=MROUND(F14,G14)" calcext:value-type="string">
+-      <text:p>=MROUND(F14,G14)</text:p>
++     <table:table-cell table:style-name="ce20" table:formula="of:=FORMULA([.A14])" office:value-type="string" office:string-value="=ISERROR(MROUND(F14,G14))" calcext:value-type="string">
++      <text:p>=ISERROR(MROUND(F14,G14))</text:p>
+      </table:table-cell>
+      <table:table-cell/>
+      <table:table-cell office:value-type="float" office:value="18" calcext:value-type="float">
 --- /dev/null
 +++ b/sc/qa/unit/uicalc/hstexcelparity.cxx
-@@ -0,0 +1,284 @@
+@@ -0,0 +1,289 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -313,6 +337,8 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
 +#include "../helper/qahelper.hxx"
 +
 +#include <comphelper/propertyvalue.hxx>
++#include <rtl/string.hxx>
++#include <rtl/ustring.hxx>
 +#include <tools/stream.hxx>
 +#include <vcl/scheduler.hxx>
 +#include <docsh.hxx>
@@ -347,7 +373,8 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
 +    /// Types the boolean-in-text cases into column A (rows 1-8).
 +    void typeBooleanCases()
 +    {
-+        insertStringToCell(u"A1"_ustr, u"=\"a\"&TRUE");
++        // Set, not typed: Enter after a trailing function name takes the autocompletion tip.
++        getScDoc()->SetString(pos("A1"), u"=\"a\"&TRUE"_ustr);
 +        insertStringToCell(u"A2"_ustr, u"=CONCATENATE(\"x\",TRUE)");
 +        insertStringToCell(u"A3"_ustr, u"=TEXTJOIN(\",\",TRUE,TRUE,1)");
 +        insertStringToCell(u"A4"_ustr, u"=LEN(TRUE)");
@@ -358,7 +385,9 @@ testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
 +    }
 +    void checkBooleanCasesAsText()
 +    {
-+        CPPUNIT_ASSERT_EQUAL(u"aTRUE"_ustr, str("A1"));
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(
++            std::string(OUStringToOString(getScDoc()->GetFormula(0, 0, 0), RTL_TEXTENCODING_UTF8)),
++            u"aTRUE"_ustr, str("A1"));
 +        CPPUNIT_ASSERT_EQUAL(u"xTRUE"_ustr, str("A2"));
 +        CPPUNIT_ASSERT_EQUAL(u"TRUE,1"_ustr, str("A3"));
 +        CPPUNIT_ASSERT_EQUAL(4.0, val("A4"));
