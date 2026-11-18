@@ -172,7 +172,7 @@ def main():
     env = {k: v for k, v in os.environ.items() if k != "URE_BOOTSTRAP"}
     if os.path.exists(os.path.join(program, "uno.py")):
         sys.path.insert(0, program)
-        os.environ["URE_BOOTSTRAP"] = "vnd.sun.star.pathname:" + os.path.join(program, "fundamentalrc")
+        os.environ["URE_BOOTSTRAP"] = "vnd.sun.star.pathname:" + os.path.join(program, "fundamental.ini" if os.name == "nt" else "fundamentalrc")
     import uno
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(out)
