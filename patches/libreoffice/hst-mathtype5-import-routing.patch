@@ -118,7 +118,7 @@ index 59260bb..891acee 100644
          nFlags |= OLE_EXCEL_2_STARCALC;
      if (officecfg::Office::Common::Filter::Microsoft::Import::PowerPointToImpress::get())
 diff --git a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
-index 8c4e14a..0192f2c 100644
+index 8c4e14a..525284c 100644
 --- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
 +++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
 @@ -27,6 +27,7 @@
@@ -143,7 +143,7 @@ index 8c4e14a..0192f2c 100644
          appendTextContent( xOLE, uno::Sequence< beans::PropertyValue >() );
          applyRunPositionToInlineObject(xOLE, aSize.Height);
  
-@@ -3836,7 +3844,12 @@ void DomainMapper_Impl::appendStarMath( const Value& val )
+@@ -3836,13 +3844,18 @@ void DomainMapper_Impl::appendStarMath( const Value& val )
      val.getAny() >>= formula;
      if( !formula.is() )
          return;
@@ -156,6 +156,13 @@ index 8c4e14a..0192f2c 100644
      try
      {
          rtl::Reference<SwXTextEmbeddedObject> xStarMath = m_xTextDocument->createTextEmbeddedObject();
+ 
+         xStarMath->setPropertyValue(getPropertyName( PROP_EMBEDDED_OBJECT ),
+-            val.getAny());
++            uno::Any(formula));
+         // tdf#66405: set zero margins for embedded object
+         xStarMath->setPropertyValue(getPropertyName( PROP_LEFT_MARGIN ),
+             uno::Any(sal_Int32(0)));
 @@ -3870,7 +3883,7 @@ void DomainMapper_Impl::appendStarMath( const Value& val )
          // The object is laid out at 12 pt and scaled to the text size.
          double fCharHeight = 0;
