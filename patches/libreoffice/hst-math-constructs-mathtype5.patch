@@ -543,10 +543,10 @@ index 0000000..f9f276e
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
 new file mode 100644
-index 0000000..6379223
+index 0000000..7ef392e
 --- /dev/null
 +++ b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,170 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -557,12 +557,16 @@ index 0000000..6379223
 +#include <sal/config.h>
 +#include <test/bootstrapfixture.hxx>
 +
++#include <sfx2/docfile.hxx>
++#include <sot/storage.hxx>
 +#include <tools/stream.hxx>
++#include <unotools/tempfile.hxx>
 +
 +#include <node.hxx>
 +#include <parse5.hxx>
 +#include <smdll.hxx>
 +#include "../../source/hst/mathtypetextarrow.hxx"
++#include "../../source/mathtype.hxx"
 +
 +#include <vector>
 +
@@ -672,9 +676,40 @@ index 0000000..6379223
 +        CPPUNIT_ASSERT_EQUAL(u"} "_ustr, aText.makeStringAndClear());
 +    }
 +
++    void testSavedAndReopened()
++    {
++        // what a .doc/.xls/.ppt keeps of a formula, read back as when the file is opened
++        OUStringBuffer aFormula(u"A {t^o} xrightarrow {} B {} xleftarrow {x} C + widearc {AB}"_ustr);
++        auto pSaved = SmParser5().Parse(aFormula.toString());
++        utl::TempFileNamed aTemp;
++        aTemp.EnableKillingFile();
++        {
++            SfxMedium aMedium(aTemp.GetURL(), StreamMode::STD_READWRITE | StreamMode::TRUNC);
++            MathType aExport(aFormula, pSaved.get());
++            CPPUNIT_ASSERT(aExport.ConvertFromStarMath(aMedium));
++            aMedium.Commit();
++        }
++
++        rtl::Reference<SotStorage> xStorage = new SotStorage(aTemp.GetURL(), StreamMode::STD_READ);
++        OUStringBuffer aRead;
++        MathType aImport(aRead);
++        CPPUNIT_ASSERT(aImport.Parse(xStorage.get()));
++        const OUString aText = aRead.makeStringAndClear();
++        // not overbrace (the brace templates) and not a dot over the A (an embellishment)
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("brace") < 0);
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("dot") < 0);
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.indexOf("widearc") >= 0);
++        auto pTree = SmParser5().Parse(aText);
++        SmVerticalBraceNode* pRight = FindTextArrow(pTree.get());
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), pRight);
++        CPPUNIT_ASSERT(TXRIGHTARROW == pRight->GetToken().eType);
++        CPPUNIT_ASSERT(aText.indexOf("xleftarrow") > aText.indexOf("xrightarrow"));
++    }
++
 +    CPPUNIT_TEST_SUITE(HstMathTypeTextArrowTest);
 +    CPPUNIT_TEST(testWrittenAsArrowTemplates);
 +    CPPUNIT_TEST(testArrowTemplatesReadBack);
++    CPPUNIT_TEST(testSavedAndReopened);
 +    CPPUNIT_TEST_SUITE_END();
 +};
 +
@@ -4561,7 +4596,7 @@ index 1b28e4a..1ab9831 100644
              break;
      }
 diff --git a/starmath/source/mathtype.cxx b/starmath/source/mathtype.cxx
-index 2310f6b..c790309 100644
+index 2310f6b..fd95c2f 100644
 --- a/starmath/source/mathtype.cxx
 +++ b/starmath/source/mathtype.cxx
 @@ -19,6 +19,9 @@
@@ -4596,7 +4631,13 @@ index 2310f6b..c790309 100644
          return false;
  
      bool bRet = HandleRecords(0);
-@@ -824,7 +833,7 @@ bool MathType::HandleRecords(int nLevel, sal_uInt8 nSelector,
+@@ -821,10 +830,13 @@ bool MathType::HandleRecords(int nLevel, sal_uInt8 nSelector,
+                                 rRet.append(" {overline overline ");
+                             rRet.append(" {");
+                             break;
++                        case tmOARC: // HST Office
++                            rRet.append(" {widearc {");
++                            break;
                          case tmLARROW:
                          case tmRARROW:
                          case tmBARROW:
@@ -4605,7 +4646,15 @@ index 2310f6b..c790309 100644
                              {
                                  if (nVariation == 0)
                                      rRet.append(" widevec ");//arrow above
-@@ -1374,7 +1383,7 @@ bool MathType::HandleRecords(int nLevel, sal_uInt8 nSelector,
+@@ -1366,6 +1378,7 @@ bool MathType::HandleRecords(int nLevel, sal_uInt8 nSelector,
+                             break;
+                         case tmUBAR:
+                         case tmOBAR:
++                        case tmOARC:
+                             rRet.append("}} ");
+                             break;
+                         case tmLARROW:
+@@ -1374,7 +1387,7 @@ bool MathType::HandleRecords(int nLevel, sal_uInt8 nSelector,
                              if (nPart == 0)
                              {
                                  newline--;
@@ -4614,7 +4663,7 @@ index 2310f6b..c790309 100644
                              }
                              nPart++;
                              break;
-@@ -2385,6 +2394,9 @@ void MathType::HandleBrace(SmNode *pNode,int nLevel)
+@@ -2385,6 +2398,9 @@ void MathType::HandleBrace(SmNode *pNode,int nLevel)
  
  void MathType::HandleVerticalBrace(SmNode *pNode,int nLevel)
  {
@@ -4624,6 +4673,41 @@ index 2310f6b..c790309 100644
      SmNode *pTemp;
      pS->WriteUChar( TMPL ); //Template
      if (pNode->GetToken().eType == TUNDERBRACE)
+@@ -2658,7 +2674,7 @@ bool MathType::HandleTemplate(int nLevel, sal_uInt8 &rSelector,
+     pS->ReadUChar( rSelector );
+     pS->ReadUChar( rVariation );
+     pS->ReadUChar( nOption );
+-    OSL_ENSURE(rSelector < 48,"Selector out of range");
++    OSL_ENSURE(rSelector <= tmOARC,"Selector out of range");
+     if ((rSelector >= 21) && (rSelector <=26))
+     {
+         OSL_ENSURE(nOption < 2,"Option out of range");
+@@ -3141,6 +3157,9 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+             //we have to drop them
+             nOldPending = StartTemplate(0x2f,0x01);
+             break;
++        case TWIDEARC: // HST Office: the over-arc template
++            nOldPending = StartTemplate(tmOARC);
++            break;
+         case TWIDELVEC: //Not Exportable
+         case TCHECK: //Not Exportable
+         case TACUTE: //Not Exportable
+@@ -3175,6 +3194,7 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+         switch (pTemp->GetToken().eType)
+         {
+             case TWIDEVEC:
++            case TWIDEARC:
+             case TUNDERLINE:
+                 EndTemplate(nOldPending);
+                 break;
+@@ -3236,6 +3256,7 @@ void MathType::HandleAttributes(SmNode *pNode,int nLevel)
+                 pS->WriteUChar( 20 );
+                 break;
+             case TWIDEVEC:
++            case TWIDEARC:
+             case TWIDELVEC:
+             case TWIDEHARPOON:
+             case TWIDELHARPOON:
 diff --git a/starmath/source/mathtype.hxx b/starmath/source/mathtype.hxx
 index cd06cfc..5746f95 100644
 --- a/starmath/source/mathtype.hxx
