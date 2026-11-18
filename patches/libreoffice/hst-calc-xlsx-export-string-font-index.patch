@@ -1,0 +1,313 @@
+Sheets: saving a workbook with many text cells as .xlsx/.xls finds shared strings and cell fonts by hash and keeps one copy of each text.
+Profiles of saving a 50 MB workbook (380 000 rows, 14 text columns) showed three costs that grew with the number
+of text cells (sc/source/filter/excel):
+- XclExpSstImpl kept the shared string table in 2048 buckets of sorted vectors keyed by a 16-bit hash. With a
+  million different texts every bucket held hundreds of entries, so each new text moved half a bucket and was
+  compared a dozen times (XclExpString::IsLessThan alone was 17 % of the save). The table now finds texts in a
+  hash index over the whole text and its format runs, compared with XclExpString::IsEqual: the same texts get
+  the same numbers in the same order.
+- Every text cell built its Excel font from its cell format (font name, size, colour, ...) and looked it up in
+  the font list (19 % of the save). A font that is already in the list is only found there again, so the index
+  is now kept per cell format and script for the export; formats that are not registered are not cached.
+- Every text cell kept its own copy of its text after the table had an equal one. It now shares the table's
+  copy, which removes one string object per repeated text from the save's memory.
+The logic lives in the new file sc/source/filter/inc/hstxlsexportcache.hxx; the exported files are unchanged
+(compared part by part before/after on the large-file fixtures; CppunitTest_sc_subsequent_export_test*).
+License: sc/source/filter/inc/hstxlsexportcache.hxx is HST Office code (LicenseRef-HST-Proprietary); the
+modified upstream files keep their license (MPL-2.0).
+---
+--- a/sc/source/filter/excel/xecontent.cxx
++++ b/sc/source/filter/excel/xecontent.cxx
+@@ -47,6 +47,7 @@
+ #include <fapihelper.hxx>
+ #include <xehelper.hxx>
+ #include <xestyle.hxx>
++#include <hstxlsexportcache.hxx>
+ #include <xename.hxx>
+ #include <xlcontent.hxx>
+ #include <xltools.hxx>
+@@ -69,26 +70,6 @@ using ::com::sun::star::sheet::XAreaLink;
+ 
+ // Shared string table ========================================================
+ 
+-namespace {
+-
+-/** A single string entry in the hash table. */
+-struct XclExpHashEntry
+-{
+-    const XclExpString* mpString;       /// Pointer to the string (no ownership).
+-    sal_uInt32          mnSstIndex;     /// The SST index of this string.
+-    explicit     XclExpHashEntry( const XclExpString* pString, sal_uInt32 nSstIndex ) :
+-                            mpString( pString ), mnSstIndex( nSstIndex ) {}
+-};
+-
+-/** Function object for strict weak ordering. */
+-struct XclExpHashEntrySWO
+-{
+-    bool         operator()( const XclExpHashEntry& rLeft, const XclExpHashEntry& rRight ) const
+-                            { return *rLeft.mpString < *rRight.mpString; }
+-};
+-
+-}
+-
+ /** Implementation of the SST export.
+     @descr  Stores all passed strings in a hash table and prevents repeated
+     insertion of equal strings. */
+@@ -99,25 +80,21 @@ public:
+ 
+     /** Inserts the passed string, if not already inserted, and returns the unique SST index. */
+     sal_uInt32          Insert( XclExpStringRef xString );
++    /** HST Office: the string stored under an SST index. */
++    const XclExpStringRef& GetString( sal_uInt32 nSstIndex ) const { return maStringVector[ nSstIndex ]; }
+ 
+     /** Writes the complete SST and EXTSST records. */
+     void                Save( XclExpStream& rStrm );
+     void                SaveXml( XclExpXmlStream& rStrm );
+ 
+ private:
+-    typedef ::std::vector< XclExpHashEntry >    XclExpHashVec;
+-
+     std::vector< XclExpStringRef > maStringVector;   /// List of unique strings (in SST ID order).
+-    std::vector< XclExpHashVec >
+-                        maHashTab;      /// Hashed table that manages string pointers.
+     sal_uInt32          mnTotal;        /// Total count of strings (including doubles).
+     sal_uInt32          mnSize;         /// Size of the SST (count of unique strings).
++    HstSstIndex         maHstIndex;     /// HST Office: finds equal strings (hstxlsexportcache.hxx)
+ };
+ 
+-const sal_uInt32 EXC_SST_HASHTABLE_SIZE = 2048;
+-
+ XclExpSstImpl::XclExpSstImpl() :
+-    maHashTab( EXC_SST_HASHTABLE_SIZE ),
+     mnTotal( 0 ),
+     mnSize( 0 )
+ {
+@@ -132,24 +109,14 @@ sal_uInt32 XclExpSstImpl::Insert( XclExpStringRef xString )
+     ++mnTotal;
+     sal_uInt32 nSstIndex = 0;
+ 
+-    // calculate hash value in range [0,EXC_SST_HASHTABLE_SIZE)
+-    sal_uInt16 nHash = xString->GetHash();
+-    nHash = (nHash ^ (nHash / EXC_SST_HASHTABLE_SIZE)) % EXC_SST_HASHTABLE_SIZE;
+-
+-    XclExpHashVec& rVec = maHashTab[ nHash ];
+-    XclExpHashEntry aEntry( xString.get(), mnSize );
+-    XclExpHashVec::iterator aIt = ::std::lower_bound( rVec.begin(), rVec.end(), aEntry, XclExpHashEntrySWO() );
+-    if( (aIt == rVec.end()) || (*aIt->mpString != *xString) )
++    // HST Office: an index over the whole string instead of 2048 sorted buckets (hstxlsexportcache.hxx)
++    const auto [nIndex, bNew] = maHstIndex.insert( *xString, mnSize );
++    nSstIndex = nIndex;
++    if( bNew )
+     {
+-        nSstIndex = mnSize;
+         maStringVector.push_back( xString );
+-        rVec.insert( aIt, aEntry );
+         ++mnSize;
+     }
+-    else
+-    {
+-        nSstIndex = aIt->mnSstIndex;
+-    }
+ 
+     return nSstIndex;
+ }
+@@ -249,6 +216,11 @@ sal_uInt32 XclExpSst::Insert( const XclExpStringRef& xString )
+     return mxImpl->Insert( xString );
+ }
+ 
++const XclExpStringRef& XclExpSst::GetString( sal_uInt32 nSstIndex ) const
++{
++    return mxImpl->GetString( nSstIndex );
++}
++
+ void XclExpSst::Save( XclExpStream& rStrm )
+ {
+     mxImpl->Save( rStrm );
+--- a/sc/source/filter/excel/xehelper.cxx
++++ b/sc/source/filter/excel/xehelper.cxx
+@@ -391,19 +391,26 @@ XclExpStringRef lclCreateFormattedString(
+         if( nScript == ApiScriptType::WEAK )
+             nScript = nLastScript;
+ 
+-        // construct font from current text portion
+-        SvxFont aFont(XclExpFontHelper::GetFontFromItemSet(rRoot, rItemSet, nScript));
+-        model::ComplexColor aComplexColor;
+-        ScPatternAttr::fillColor(aComplexColor, rItemSet, ScAutoFontColorMode::Raw);
+-
+         // Excel start position of this portion
+         sal_Int32 nXclPortionStart = xString->Len();
+         // add portion text to Excel string
+         XclExpStringHelper::AppendString( *xString, rRoot, rText.subView( nPortionPos, nPortionEnd - nPortionPos ) );
+         if( nXclPortionStart < xString->Len() )
+         {
++            // HST Office: the font of a cell format and script is built once per export (hstxlsexportcache.hxx)
++            const bool bHstCache = !pCellAttr || pCellAttr->isRegistered();
++            sal_uInt16 nFontIdx;
++            if (!bHstCache || !rFontBuffer.GetHstCellFonts().find(pCellAttr, nScript, nFontIdx))
++            {
++            // construct font from current text portion
++            SvxFont aFont(XclExpFontHelper::GetFontFromItemSet(rRoot, rItemSet, nScript));
++            model::ComplexColor aComplexColor;
++            ScPatternAttr::fillColor(aComplexColor, rItemSet, ScAutoFontColorMode::Raw);
+             // insert font into buffer
+-            sal_uInt16 nFontIdx = rFontBuffer.Insert(aFont, aComplexColor, EXC_COLOR_CELLTEXT);
++            nFontIdx = rFontBuffer.Insert(aFont, aComplexColor, EXC_COLOR_CELLTEXT);
++            if (bHstCache)
++                rFontBuffer.GetHstCellFonts().insert(pCellAttr, nScript, nFontIdx);
++            }
+             // insert font index into format run vector
+             xString->AppendFormat( nXclPortionStart, nFontIdx );
+         }
+--- a/sc/source/filter/excel/xetable.cxx
++++ b/sc/source/filter/excel/xetable.cxx
+@@ -780,6 +780,7 @@ void XclExpLabelCell::Init( const XclExpRoot& rRoot,
+         case EXC_BIFF8:
+             // BIFF8+: create a LABELSST record
+             mnSstIndex = rRoot.GetSst().Insert( xText );
++            mxText = rRoot.GetSst().GetString( mnSstIndex ); // HST Office: share the table's equal copy
+             SetRecId( EXC_ID_LABELSST );
+             SetContSize( 4 );
+         break;
+--- /dev/null
++++ b/sc/source/filter/inc/hstxlsexportcache.hxx
+@@ -0,0 +1,101 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// HST Office: lookups of the Excel export that grew with the number of text cells.
++//
++// HstSstIndex finds the shared-string-table entry of a cell text. The table was a fixed set of 2048
++// buckets of sorted vectors keyed by a 16-bit hash: with a million different texts each bucket held
++// hundreds of entries, every new text moved half a bucket and compared texts a dozen times. The index
++// hashes the whole text and its format runs and compares with XclExpString::IsEqual, so it finds the
++// same entries and gives new texts the same numbers, in the same order.
++//
++// HstCellFontCache remembers the Excel font index of a cell text portion per cell format and script for
++// one export. Building the font of every text cell from its format (font name, size, colour, ...) and
++// looking it up in the font list cost a fifth of saving a workbook with many text cells. A font that is
++// already in the font list is only found there again, without changing anything, so asking once per
++// format and script gives the same indexes. Each format used as a key is kept alive by the cache.
++
++#pragma once
++
++#include <patattr.hxx>
++#include "xestring.hxx"
++
++#include <functional>
++#include <unordered_map>
++#include <utility>
++
++class HstSstIndex
++{
++public:
++    /** The index of a string equal to rString, or nNewIndex after remembering rString under it; the
++        flag is true when rString is new. rString must live as long as the index. */
++    std::pair<sal_uInt32, bool> insert(const XclExpString& rString, sal_uInt32 nNewIndex)
++    {
++        auto aRes = maIndex.try_emplace(&rString, nNewIndex);
++        return { aRes.first->second, aRes.second };
++    }
++
++private:
++    struct Hash
++    {
++        size_t operator()(const XclExpString* p) const
++        {
++            size_t nHash = p->Len();
++            for (sal_uInt16 i = 0, n = p->Len(); i < n; ++i)
++                nHash = nHash * 1000003 ^ p->GetChar(i);
++            for (const XclFormatRun& rRun : p->GetFormats())
++                nHash = nHash * 31 + ((size_t(rRun.mnChar) << 16) | rRun.mnFontIdx);
++            return nHash;
++        }
++    };
++    struct Equal
++    {
++        bool operator()(const XclExpString* a, const XclExpString* b) const { return a->IsEqual(*b); }
++    };
++    std::unordered_map<const XclExpString*, sal_uInt32, Hash, Equal> maIndex;
++};
++
++class HstCellFontCache
++{
++public:
++    /** The font index stored for this cell format and script, or false. */
++    bool find(const ScPatternAttr* pPattern, sal_Int16 nScript, sal_uInt16& rFontIdx) const
++    {
++        auto it = maFonts.find(Key{ pPattern, nScript });
++        if (it == maFonts.end())
++            return false;
++        rFontIdx = it->second.mnFontIdx;
++        return true;
++    }
++
++    void insert(const ScPatternAttr* pPattern, sal_Int16 nScript, sal_uInt16 nFontIdx)
++    {
++        maFonts.try_emplace(Key{ pPattern, nScript }, Entry{ CellAttributeHolder(pPattern), nFontIdx });
++    }
++
++private:
++    struct Key
++    {
++        const ScPatternAttr* mpPattern;
++        sal_Int16 mnScript;
++        bool operator==(const Key& r) const { return mpPattern == r.mpPattern && mnScript == r.mnScript; }
++    };
++    struct KeyHash
++    {
++        size_t operator()(const Key& r) const
++        {
++            return std::hash<const void*>()(r.mpPattern) * 31 + static_cast<size_t>(r.mnScript + 32768);
++        }
++    };
++    struct Entry
++    {
++        CellAttributeHolder maPattern; // keeps the format alive while it is a key
++        sal_uInt16 mnFontIdx;
++    };
++    std::unordered_map<Key, Entry, KeyHash> maFonts;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/filter/inc/xecontent.hxx
++++ b/sc/source/filter/inc/xecontent.hxx
+@@ -57,6 +57,8 @@ public:
+     /** Inserts a new string into the table.
+         @return  The index of the string in the SST, used in other records. */
+     sal_uInt32          Insert( const XclExpStringRef& xString );
++    /** HST Office: the string stored under an SST index (equal to the one inserted). */
++    const XclExpStringRef& GetString( sal_uInt32 nSstIndex ) const;
+ 
+     /** Writes the complete SST and EXTSST records. */
+     virtual void        Save( XclExpStream& rStrm ) override;
+--- a/sc/source/filter/inc/xestyle.hxx
++++ b/sc/source/filter/inc/xestyle.hxx
+@@ -26,6 +26,7 @@
+ #include "xerecord.hxx"
+ #include "xlstyle.hxx"
+ #include "xeroot.hxx"
++#include "hstxlsexportcache.hxx"
+ #include <fonthelper.hxx>
+ #include <memory>
+ #include <utility>
+@@ -236,6 +237,9 @@ public:
+     virtual void        Save( XclExpStream& rStrm ) override;
+     virtual void        SaveXml( XclExpXmlStream& rStrm ) override;
+ 
++    /** HST Office: font indexes of cell texts per cell format and script (hstxlsexportcache.hxx). */
++    HstCellFontCache&   GetHstCellFonts() { return maHstCellFonts; }
++
+ private:
+     /** Initializes the default fonts for the current BIFF version. */
+     void                InitDefaultFonts();
+@@ -248,6 +252,7 @@ private:
+ 
+     XclExpFontList      maFontList;     /// List of all FONT records.
+     size_t              mnXclMaxSize;   /// Maximum number of fonts.
++    HstCellFontCache    maHstCellFonts;     /// HST Office: see GetHstCellFonts()
+ };
+ 
+ // FORMAT record - number formats =============================================
