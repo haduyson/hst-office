@@ -1,0 +1,182 @@
+HST Office: Word layouts keep a wide inline object beside a wrapping float, over the right margin (Writer).
+
+In a document laid out like Word before 2013 (.doc, and .docx/.rtf in an older compatibility mode, where Writer
+sets TabOverMargin), Word keeps an inline object that is the first content beside a square-wrapped float in that
+line and lets it run over the right margin when it is wider than the room left. Writer moved the whole line
+below the float. A worksheet with geometry figures beside MathType formulas (s036.doc) was 24 pages instead of
+Word's 22: the formula line next to a figure jumped 194 pt down, and so on for each such figure.
+SwFlyCntPortion::Format now keeps such an object in the line (hst::sw::KeepWideObjectBesideFly): only with
+TabOverMargin, only when nothing but the float's room precedes it in the line and no other float follows.
+Native documents and Word 2013+ layouts are unchanged.
+
+Test: CppunitTest_sw_core_text testWideInlineObjectStaysBesideFloatInWordLayout and
+testWideInlineObjectMovesBelowFloatOtherwise (minimal .docx in compatibility mode 14 and 15, stored in base64).
+
+License: the new files sw/source/core/text/hstwideobjectbesidefly.{hxx,cxx} are LicenseRef-HST-Proprietary; the
+upstream files remain under their original license (MPL-2.0).
+---
+--- a/sw/qa/core/text/txtfly.cxx
++++ b/sw/qa/core/text/txtfly.cxx
+@@ -11,6 +11,10 @@
+ 
+ #include <memory>
+ 
++#include <comphelper/base64.hxx>
++#include <tools/stream.hxx>
++#include <unotools/tempfile.hxx>
++
+ #include <IDocumentLayoutAccess.hxx>
+ #include <doc.hxx>
+ #include <frame.hxx>
+@@ -27,6 +31,24 @@
+         : SwModelTestBase(u"/sw/qa/core/text/data/"_ustr)
+     {
+     }
++
++    /// Loads a .docx stored in base64 (patch files carry no binary data).
++    void loadBase64Docx(std::u16string_view rFileName)
++    {
++        SvFileStream aBase64File(createFileURL(rFileName), StreamMode::READ);
++        OStringBuffer aBase64;
++        OString aLine;
++        while (aBase64File.ReadLine(aLine))
++            aBase64.append(aLine);
++        css::uno::Sequence<sal_Int8> aBytes;
++        comphelper::Base64::decode(aBytes, OStringToOUString(aBase64, RTL_TEXTENCODING_ASCII_US));
++        CPPUNIT_ASSERT(aBytes.hasElements());
++        utl::TempFileNamed aDocx(u"hst-txtfly", true, u".docx");
++        aDocx.EnableKillingFile();
++        aDocx.GetStream(StreamMode::WRITE)->WriteBytes(aBytes.getConstArray(), aBytes.getLength());
++        aDocx.CloseStream();
++        loadFromURL(aDocx.GetURL());
++    }
+ };
+ 
+ CPPUNIT_TEST_FIXTURE(Test, testClearingBreakWrapThrough)
+@@ -47,6 +69,38 @@
+     // page.
+     CPPUNIT_ASSERT(!pPage->GetNext());
+ }
++
++CPPUNIT_TEST_FIXTURE(Test, testWideInlineObjectStaysBesideFloatInWordLayout)
++{
++    // Given a Word 2010 document: a square-wrapped 2 inch picture at the left, then a paragraph that only holds a
++    // 4.6 inch wide inline picture (wider than the room beside the float, narrower than the 6.5 inch column):
++    loadBase64Docx(u"hst-wide-object-beside-float.docx.b64");
++
++    // When laying out that document:
++    calcLayout();
++
++    // Then the inline picture stays beside the float and runs over the right margin, as in Word:
++    xmlDocUniquePtr pXmlDoc = parseLayoutDump();
++    sal_Int32 nFloatBottom = getXPath(pXmlDoc, "//txt[1]/anchored/fly/infos/bounds", "bottom").toInt32();
++    sal_Int32 nInlineTop = getXPath(pXmlDoc, "//txt[2]/anchored/fly/infos/bounds", "top").toInt32();
++    // Without the accompanying fix in place, the inline picture was moved below the float.
++    CPPUNIT_ASSERT_LESS(nFloatBottom, nInlineTop);
++}
++
++CPPUNIT_TEST_FIXTURE(Test, testWideInlineObjectMovesBelowFloatOtherwise)
++{
++    // Given the same content saved by Word 2013 or later (no content over the right margin):
++    loadBase64Docx(u"hst-wide-object-beside-float-word2013.docx.b64");
++
++    // When laying out that document:
++    calcLayout();
++
++    // Then the inline picture is still moved below the float:
++    xmlDocUniquePtr pXmlDoc = parseLayoutDump();
++    sal_Int32 nFloatBottom = getXPath(pXmlDoc, "//txt[1]/anchored/fly/infos/bounds", "bottom").toInt32();
++    sal_Int32 nInlineTop = getXPath(pXmlDoc, "//txt[2]/anchored/fly/infos/bounds", "top").toInt32();
++    CPPUNIT_ASSERT_GREATEREQUAL(nFloatBottom, nInlineTop);
++}
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/qa/core/text/data/hst-wide-object-beside-float.docx.b64
+@@ -0,0 +1,41 @@
++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
+--- /dev/null
++++ b/sw/qa/core/text/data/hst-wide-object-beside-float-word2013.docx.b64
+@@ -0,0 +1,41 @@
++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
