@@ -5,8 +5,6 @@ name: macOS update e2e probe
 # /Applications and the new office open again?
 on:
   workflow_dispatch:
-  push:
-    branches: [fix/updater-1.0.3]
 permissions:
   contents: read
 concurrency:
@@ -20,8 +18,7 @@ jobs:
         include:
           # This branch's own (unsigned) arm64 dmg as the installed app, its welcome dialog left open, updated to
           # the published signed 1.0.2: the update must close the dialog, install, reopen the office and the document.
-          - {name: branch-code-user, installed: "1.0.2", scenario: branch, pretend: "1.0.1", close_welcome: "", keep_welcome: ""}
-          - {name: branch-code-root, installed: "1.0.2", scenario: branch-root, pretend: "1.0.1", close_welcome: "", keep_welcome: ""}
+          - {name: branch-dmg-welcome-open, installed: "branch", scenario: shipped, pretend: "1.0.1", close_welcome: "", keep_welcome: "1"}
     name: probe ${{ matrix.name }}
     runs-on: macos-15
     timeout-minutes: 45
