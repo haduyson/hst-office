@@ -6,6 +6,11 @@ A formula that fails to convert keeps its OLE object. In Writer the converted fo
 normal Math object on the Math baseline; Word's run position shift only applies to the OLE
 objects that stay. The DOCX/RTF logic lives in sw/source/writerfilter/hst/.
 
+A converted equation keeps the size Word shows it at (.docx shape size, .rtf picture scale,
+.doc PICF scale): MathType's point sizes in the formula are scaled when the formula's own
+height is more than 10 % off (sw/source/core/hst/formulashownsize.cxx, shared by writerfilter
+and the ww8 reader).
+
 diff --git a/filter/source/msfilter/msdffimp.cxx b/filter/source/msfilter/msdffimp.cxx
 index b3184b2..7cffec4 100644
 --- a/filter/source/msfilter/msdffimp.cxx
@@ -92,6 +97,18 @@ index 06e8f41..73e884f 100644
      if ( officecfg::Office::Common::Filter::Microsoft::Import::WinWordToWriter::get() )
          nSvxMSDffOLEConvFlags2 |= OLE_WINWORD_2_STARWRITER;
      if ( officecfg::Office::Common::Filter::Microsoft::Import::ExcelToCalc::get() )
+diff --git a/sw/Library_sw.mk b/sw/Library_sw.mk
+index 4be0f1f..2594f97 100644
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -353,6 +353,7 @@ $(eval $(call gb_Library_add_exception_objects,sw,\
+     sw/source/core/layout/flypos \
+     sw/source/core/layout/frmtool \
+     sw/source/core/layout/ftnfrm \
++    sw/source/core/hst/formulashownsize \
+     sw/source/core/layout/hstpageart \
+     sw/source/core/layout/hstpageartsets \
+     sw/source/core/layout/hffrm \
 diff --git a/sw/Library_sw_writerfilter.mk b/sw/Library_sw_writerfilter.mk
 index 224b73d..1184f4a 100644
 --- a/sw/Library_sw_writerfilter.mk
@@ -104,6 +121,176 @@ index 224b73d..1184f4a 100644
      sw/source/writerfilter/dmapper/PageBordersHandler \
      sw/source/writerfilter/dmapper/PropertyIds \
      sw/source/writerfilter/dmapper/PropertyMap \
+diff --git a/sw/inc/hstformulashownsize.hxx b/sw/inc/hstformulashownsize.hxx
+new file mode 100644
+index 0000000..2d1a573
+--- /dev/null
++++ b/sw/inc/hstformulashownsize.hxx
+@@ -0,0 +1,39 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <com/sun/star/uno/Reference.hxx>
++#include <rtl/ustring.hxx>
++#include <sal/types.h>
++
++#include "swdllapi.h"
++
++#include <string_view>
++
++namespace com::sun::star::embed
++{
++class XEmbeddedObject;
++}
++
++// A MathType equation converted to a formula when a .docx, .rtf or .doc file is opened keeps the
++// size Word shows it at. An equation resized in Word keeps MathType's point sizes in its data;
++// the resize lives only in the object's shown size (.docx shape style, .rtf \picscalex, .doc PICF
++// scale), and the MathType import writes those point sizes into the formula ("size 12{em}").
++namespace sw::hst
++{
++/// Scales the formula of the Math object xFormula to nShownHeight (mm100, 0 if unknown) when its
++/// own height is more than 10 % off. Never throws: the formula stays as it is.
++SW_DLLPUBLIC void KeepFormulaShownHeight(
++    const css::uno::Reference<css::embed::XEmbeddedObject>& xFormula, sal_Int32 nShownHeight);
++
++/// The formula text drawn fRatio times as large: each absolute "size N" outside quoted text is
++/// multiplied, and the text is wrapped in "size *fRatio" for the parts without a size.
++SW_DLLPUBLIC OUString ScaleFormulaSizes(std::u16string_view aFormula, double fRatio);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/core/hst/formulashownsize.cxx b/sw/source/core/hst/formulashownsize.cxx
+new file mode 100644
+index 0000000..856218f
+--- /dev/null
++++ b/sw/source/core/hst/formulashownsize.cxx
+@@ -0,0 +1,119 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <hstformulashownsize.hxx>
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/embed/Aspects.hpp>
++#include <com/sun/star/embed/EmbedMapUnits.hpp>
++#include <com/sun/star/embed/EmbedStates.hpp>
++#include <com/sun/star/embed/XEmbeddedObject.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <o3tl/unit_conversion.hxx>
++#include <rtl/character.hxx>
++#include <rtl/math.hxx>
++#include <rtl/ustrbuf.hxx>
++
++#include <algorithm>
++#include <cmath>
++
++using namespace css;
++
++namespace sw::hst
++{
++namespace
++{
++constexpr double TOLERANCE = 0.1; // within 10 % of the shown height: MathType's own size
++
++OUString NumberText(double fValue)
++{
++    return rtl::math::doubleToUString(fValue, rtl_math_StringFormat_Automatic,
++                                      rtl_math_DecimalPlaces_Max, '.', true);
++}
++
++/// The height of the formula at the sizes MathType gave it, in mm100 (0 if unknown)
++double NaturalHeight(const uno::Reference<embed::XEmbeddedObject>& xObj)
++{
++    const sal_Int64 nAspect = embed::Aspects::MSOLE_CONTENT;
++    const double fHeight = xObj->getVisualAreaSize(nAspect).Height;
++    switch (xObj->getMapUnit(nAspect))
++    {
++        case embed::EmbedMapUnits::TWIP:
++            return o3tl::convert(fHeight, o3tl::Length::twip, o3tl::Length::mm100);
++        case embed::EmbedMapUnits::ONE_100TH_MM:
++            return fHeight;
++        default:
++            return 0;
++    }
++}
++}
++
++void KeepFormulaShownHeight(const uno::Reference<embed::XEmbeddedObject>& xFormula,
++                            sal_Int32 nShownHeight)
++{
++    if (!xFormula.is() || nShownHeight <= 0)
++        return;
++    try
++    {
++        if (xFormula->getCurrentState() == embed::EmbedStates::LOADED)
++            xFormula->changeState(embed::EmbedStates::RUNNING);
++        const double fNatural = NaturalHeight(xFormula);
++        if (fNatural <= 0)
++            return;
++        const double fRatio = nShownHeight / fNatural;
++        if (std::abs(fRatio - 1.0) <= TOLERANCE)
++            return;
++        uno::Reference<beans::XPropertySet> xProps(xFormula->getComponent(), uno::UNO_QUERY_THROW);
++        OUString aText;
++        xProps->getPropertyValue(u"Formula"_ustr) >>= aText;
++        xProps->setPropertyValue(u"Formula"_ustr, uno::Any(ScaleFormulaSizes(aText, fRatio)));
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sw", "HST: formula keeps MathType's size");
++    }
++}
++
++OUString ScaleFormulaSizes(std::u16string_view aFormula, double fRatio)
++{
++    OUStringBuffer aBuf("size *" + NumberText(std::round(fRatio * 1000) / 1000) + " {");
++    bool bQuoted = false;
++    for (size_t i = 0; i < aFormula.size();)
++    {
++        const sal_Unicode c = aFormula[i];
++        if (c == '"')
++            bQuoted = !bQuoted;
++        else if (!bQuoted && aFormula.substr(i).starts_with(u"size")
++                 && (i == 0 || !rtl::isAsciiAlphanumeric(aFormula[i - 1])))
++        {
++            size_t nNumber = i + 4;
++            while (nNumber < aFormula.size()
++                   && (aFormula[nNumber] == ' ' || aFormula[nNumber] == '\t'))
++                ++nNumber;
++            size_t nEnd = nNumber;
++            while (nEnd < aFormula.size()
++                   && (rtl::isAsciiDigit(aFormula[nEnd]) || aFormula[nEnd] == '.'))
++                ++nEnd;
++            if (nNumber > i + 4 && nEnd > nNumber)
++            {
++                const double fSize = rtl::math::stringToDouble(
++                    OUString(aFormula.substr(nNumber, nEnd - nNumber)), '.', 0);
++                aBuf.append("size "
++                            + NumberText(std::max(1.0, std::round(fSize * fRatio * 10) / 10)));
++                i = nEnd;
++                continue;
++            }
++        }
++        aBuf.append(c);
++        ++i;
++    }
++    aBuf.append("}");
++    return aBuf.makeStringAndClear();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sw/source/filter/ww8/ww8par.cxx b/sw/source/filter/ww8/ww8par.cxx
 index 59260bb..891acee 100644
 --- a/sw/source/filter/ww8/ww8par.cxx
@@ -117,8 +304,35 @@ index 59260bb..891acee 100644
      if (officecfg::Office::Common::Filter::Microsoft::Import::ExcelToCalc::get())
          nFlags |= OLE_EXCEL_2_STARCALC;
      if (officecfg::Office::Common::Filter::Microsoft::Import::PowerPointToImpress::get())
+diff --git a/sw/source/filter/ww8/ww8par4.cxx b/sw/source/filter/ww8/ww8par4.cxx
+index 1ea2f7c..c280fce 100644
+--- a/sw/source/filter/ww8/ww8par4.cxx
++++ b/sw/source/filter/ww8/ww8par4.cxx
+@@ -37,6 +37,9 @@
+ 
+ #include <sot/exchange.hxx>
+ #include <fmtanchr.hxx>
++#include <fmtfsize.hxx>
++#include <hstformulashownsize.hxx>
++#include <o3tl/unit_conversion.hxx>
+ #include <frmfmt.hxx>
+ #include <pam.hxx>
+ #include <docsh.hxx>
+@@ -210,6 +213,12 @@ SwFlyFrameFormat* SwWW8ImplReader::InsertOle(SdrOle2Obj &rObject,
+         SvGlobalName aClassName( xClass->getClassID() );
+         if (SotExchange::IsMath(aClassName))
+         {
++            // HST Office: a converted MathType equation keeps the size Word shows it at
++            if (const SwFormatFrameSize* pShown = rFlySet.GetItemIfSet(RES_FRM_SIZE, false))
++                sw::hst::KeepFormulaShownHeight(
++                    rObject.GetObjRef(),
++                    sal_Int32(o3tl::convert(pShown->GetHeight(), o3tl::Length::twip,
++                                            o3tl::Length::mm100)));
+             // StarMath sets it own fixed size, so its counter productive to use
+             // the size Word says it is. i.e. Don't attempt to override its size.
+             pMathFlySet.emplace(rFlySet);
 diff --git a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
-index 8c4e14a..525284c 100644
+index 8c4e14a..57040d2 100644
 --- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
 +++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
 @@ -27,6 +27,7 @@
@@ -129,21 +343,22 @@ index 8c4e14a..525284c 100644
  #include <com/sun/star/uno/XComponentContext.hpp>
  #include <com/sun/star/graphic/XGraphic.hpp>
  #include <com/sun/star/beans/PropertyAttribute.hpp>
-@@ -3816,6 +3817,13 @@ void DomainMapper_Impl::appendOLE( const OUString& rStreamName, const std::share
+@@ -3816,6 +3817,14 @@ void DomainMapper_Impl::appendOLE( const OUString& rStreamName, const std::share
          if (!m_aTextAppendStack.empty())
              m_aTextAppendStack.pop();
  
 +        // HST Office: a MathType 4-7 equation converted on open sits on the Math baseline
 +        // instead of Word's run position; if it can't be converted the OLE object stays
 +        if (auto xFormula = writerfilter::hst::ConvertMathType5Ole(
-+                pOLEHandler->getProgId(), pOLEHandler->getNativeData(), m_aBaseUrl);
++                pOLEHandler->getProgId(), pOLEHandler->getNativeData(), m_aBaseUrl,
++                pOLEHandler->getSize().Height);
 +            xFormula.is())
 +            return appendStarMathObject(xFormula, false);
 +
          appendTextContent( xOLE, uno::Sequence< beans::PropertyValue >() );
          applyRunPositionToInlineObject(xOLE, aSize.Height);
  
-@@ -3836,13 +3844,18 @@ void DomainMapper_Impl::appendStarMath( const Value& val )
+@@ -3836,13 +3845,18 @@ void DomainMapper_Impl::appendStarMath( const Value& val )
      val.getAny() >>= formula;
      if( !formula.is() )
          return;
@@ -163,7 +378,7 @@ index 8c4e14a..525284c 100644
          // tdf#66405: set zero margins for embedded object
          xStarMath->setPropertyValue(getPropertyName( PROP_LEFT_MARGIN ),
              uno::Any(sal_Int32(0)));
-@@ -3870,7 +3883,7 @@ void DomainMapper_Impl::appendStarMath( const Value& val )
+@@ -3870,7 +3884,7 @@ void DomainMapper_Impl::appendStarMath( const Value& val )
          // The object is laid out at 12 pt and scaled to the text size.
          double fCharHeight = 0;
          double fScale = 1.0;
@@ -245,10 +460,10 @@ index cd5d59d..715618f 100644
      OUString const & GetVisAreaHeight() const;
 diff --git a/sw/source/writerfilter/hst/mathtypeole.cxx b/sw/source/writerfilter/hst/mathtypeole.cxx
 new file mode 100644
-index 0000000..30f747b
+index 0000000..b0856ba
 --- /dev/null
 +++ b/sw/source/writerfilter/hst/mathtypeole.cxx
-@@ -0,0 +1,88 @@
+@@ -0,0 +1,93 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -257,6 +472,8 @@ index 0000000..30f747b
 + */
 +
 +#include "mathtypeole.hxx"
++
++#include <hstformulashownsize.hxx>
 +
 +#include <com/sun/star/document/XFilter.hpp>
 +#include <com/sun/star/document/XImporter.hpp>
@@ -287,7 +504,7 @@ index 0000000..30f747b
 +
 +uno::Reference<embed::XEmbeddedObject>
 +ConvertMathType5Ole(std::u16string_view rProgId, const std::vector<sal_Int8>& rData,
-+                    const OUString& rBaseURL)
++                    const OUString& rBaseURL, sal_Int32 nShownHeight)
 +{
 +    if (rData.empty() || !WantsMathType5Data(rProgId))
 +        return {};
@@ -316,7 +533,10 @@ index 0000000..30f747b
 +            uno::Sequence<sal_Int8>(rData.data(), rData.size())));
 +        uno::Reference<document::XFilter> xFilter(xImporter, uno::UNO_QUERY_THROW);
 +        if (xFilter->filter({ comphelper::makePropertyValue(u"InputStream"_ustr, xStream) }))
++        {
++            sw::hst::KeepFormulaShownHeight(xObj, nShownHeight);
 +            return xObj;
++        }
 +    }
 +    catch (const uno::Exception&)
 +    {
@@ -339,10 +559,10 @@ index 0000000..30f747b
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sw/source/writerfilter/hst/mathtypeole.hxx b/sw/source/writerfilter/hst/mathtypeole.hxx
 new file mode 100644
-index 0000000..835e041
+index 0000000..8accda4
 --- /dev/null
 +++ b/sw/source/writerfilter/hst/mathtypeole.hxx
-@@ -0,0 +1,31 @@
+@@ -0,0 +1,32 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -367,10 +587,11 @@ index 0000000..835e041
 +/// True if the OLE data of an object with this ProgId should be kept for conversion
 +bool WantsMathType5Data(std::u16string_view rProgId);
 +
-+/// A new Math object made from the OLE compound file data, or empty (keep the OLE object)
++/// A new Math object made from the OLE compound file data, or empty (keep the OLE object).
++/// nShownHeight (mm100, 0 if unknown) is the height Word shows the equation at.
 +css::uno::Reference<css::embed::XEmbeddedObject>
 +ConvertMathType5Ole(std::u16string_view rProgId, const std::vector<sal_Int8>& rData,
-+                    const OUString& rBaseURL);
++                    const OUString& rBaseURL, sal_Int32 nShownHeight);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

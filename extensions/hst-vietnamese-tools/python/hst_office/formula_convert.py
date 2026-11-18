@@ -1,17 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""HST Công thức: turn MathType equations (Equation Editor 3.x, MathType 4-7) into editable Math formulas, in Writer,
-Sheets, Slides and Draw, one object or all of them as one undo step: the object's OLE data is read back from the object
-(storeToEntry), a new Math object takes its place and reads it with com.sun.star.comp.Math.MathTypeFilter (MTEF 5
-needs hst-math-constructs-mathtype5.patch); if that import fails the original equation stays untouched.
-In Writer a formula anchored as a character sits on the text baseline, as Writer aligns Math objects (Word's run
-position shift carried by the OLE picture is dropped). Elsewhere the formula keeps the picture's top left."""
+"""HST Công thức: turn MathType equations (Equation Editor 3.x, MathType 4-7) into editable Math formulas in Writer,
+Sheets, Slides and Draw, one object or all as one undo step. The object's OLE data is read back (storeToEntry), a new
+Math object takes its place and reads it with com.sun.star.comp.Math.MathTypeFilter (MTEF 5: HST's patch); if that
+fails the equation stays. The formula keeps the size Word shows (formula_size). In Writer a formula anchored as a
+character sits on the text baseline (Word's run position shift is dropped); elsewhere it keeps the picture's corner."""
 import time
 
-from . import formula_ole
+from . import formula_ole, formula_size
 
 FILTER = "com.sun.star.comp.Math.MathTypeFilter"
 OLE_SHAPE = "com.sun.star.drawing.OLE2Shape"
-CONTENT = 1  # com.sun.star.embed.Aspects.MSOLE_CONTENT
 LOADED = 0  # com.sun.star.embed.EmbedStates.LOADED
 PROGRESS_SECONDS = 0.5  # each progress update lets the office lay out and repaint: hundreds cost more than converting
 AS_CHARACTER = 1  # com.sun.star.text.TextContentAnchorType.AS_CHARACTER
@@ -83,7 +81,8 @@ def _replace_text_object(ctx, doc, old, data):
     if not import_formula(ctx, model, data):
         new.dispose()
         return False
-    new.Size = new.EmbeddedObject.getVisualAreaSize(CONTENT)
+    formula_size.keep_shown_size(model, new.EmbeddedObject, old.Size.Height)
+    new.Size = formula_size.visual_size(new.EmbeddedObject)
     for name in ("LeftMargin", "RightMargin", "TopMargin", "BottomMargin"):
         new.setPropertyValue(name, 0)
     if new.AnchorType == AS_CHARACTER:  # formula baseline on the text baseline
@@ -125,7 +124,8 @@ def _replace_shape(ctx, doc, container, old, data):
     if not import_formula(ctx, new.Model, data):
         container.remove(new)
         return False
-    new.Size = new.EmbeddedObject.getVisualAreaSize(CONTENT)
+    formula_size.keep_shown_size(new.Model, new.EmbeddedObject, old.Size.Height)
+    new.Size = formula_size.visual_size(new.EmbeddedObject)
     new.Position = old.Position
     if old.getPropertySetInfo().hasPropertyByName("Anchor"):  # Sheets: same cell or page anchor
         new.Anchor = old.Anchor
