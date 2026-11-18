@@ -3,11 +3,16 @@
 
 Usage: python3 tests/runtime/collect-ribbon-v3-dumps.py --instdir DIR --out DIR [--display :283]
            [--apps writer,calc,impress,draw] [--widths 1280,1366,1470,1536,1920,2560] [--height 900] [--no-shots]
+           [--contextual 1920]
 
 The office runs with HST_RIBBON_DUMP_LAYOUT=<out>/dumps/<app>-w<width> (hst-ribbon-v3-layout.patch: every tab page
 writes <box>-<logical width>.json when its banner is placed), one fresh profile per app. For every width the window
 is resized, then every ribbon tab but "Tệp tin" is opened through AT-SPI and, unless --no-shots, the window's top
 (the ribbon) is saved as <out>/shots/<app>-w<width>-<tab index>.png. Check the dumps with check-ribbon-v3-dumps.py.
+With --contextual WIDTHS a table, a picture, a shape and a chart (ribbon_contextual_objects.py) are selected in turn at
+those widths and every contextual tab they show is opened and dumped (<out>/dumps/<app>-ctx-<object>-w<width>/);
+after a command on the object (KEEP_COMMANDS) the contextual tab must still be the current one (bug: the ribbon went
+back to Trang đầu), written to <out>/contextual.json.
 The X display (wide enough for the widest window) must already run; this script never starts or stops it.
 Runs as the build user like the other GUI checks (dbus-run-session, AT-SPI).
 """
@@ -22,9 +27,18 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
 import ribbon_tabs_gui as gui  # noqa: E402
+from ribbon_contextual_objects import make_objects, park  # noqa: E402
 
 PORTS = {"writer": 7631, "calc": 7632, "impress": 7633, "draw": 7634}  # one fixed UNO port per app
 RIBBON_HEIGHT = 200  # px of the window's top kept in a shot: title, tab row, ribbon body, a little document
+# a command run on the selected object from its contextual tab, per app and object (the tab must stay current)
+KEEP_COMMANDS = {
+    ("writer", "picture"): ".uno:GraphicFilterInvert", ("writer", "table"): ".uno:InsertRowsAfter",
+    ("writer", "shape"): ".uno:FillShadow", ("calc", "picture"): ".uno:GraphicFilterInvert",
+    ("calc", "shape"): ".uno:FillShadow", ("impress", "picture"): ".uno:GraphicFilterInvert",
+    ("impress", "shape"): ".uno:FillShadow", ("impress", "table"): ".uno:InsertRowsAfter",
+    ("draw", "picture"): ".uno:GraphicFilterInvert", ("draw", "shape"): ".uno:FillShadow",
+}
 
 
 def start(instdir, app, display, work, dumps):
@@ -41,6 +55,73 @@ def start(instdir, app, display, work, dumps):
         raise RuntimeError(f"{app}: no window")
     gui.xdo(display, "windowmove", windows[0], "0", "0")
     return office, windows[0]
+
+
+def move_dumps(live, target):
+    os.makedirs(target, exist_ok=True)
+    for name in os.listdir(live):
+        os.replace(os.path.join(live, name), os.path.join(target, name))
+    return len(os.listdir(target))
+
+
+def dispatch(office, frame, command):
+    from com.sun.star.util import URL
+    url = URL()
+    url.Complete = command
+    _ok, url = office.service("com.sun.star.util.URLTransformer").parseStrict(url)
+    target = frame.queryDispatch(url, "", 0)
+    if target is not None:
+        target.dispatch(url, ())
+    return target is not None
+
+
+def collect_contextual(args, app, office, window, live, root):
+    """Every contextual tab of every object at the --contextual widths; [(object, width, tab, kept)]."""
+    doc = office.desktop().getCurrentComponent()
+    image = "file://" + os.path.join(args.instdir, "program/about.png")
+    if not os.path.exists(image[7:]):
+        image = "file://" + os.path.join(args.instdir, "share/extensions/hst-vietnamese-tools/banners/aios@1x.png")
+    objects = make_objects(app, doc, image)
+    objects.pop("pivot", None)
+    objects.pop("header", None)
+    rows = []
+    try:
+        for width in args.contextual:
+            gui.xdo(args.display, "windowsize", window, str(width), str(args.height))
+            time.sleep(3)
+            park(app, doc, office)
+            plain = set(gui.visible_names())
+            for kind, target in sorted(objects.items(), key=lambda item: item[0] == "chart"):
+                doc.CurrentController.select(target)
+                time.sleep(2)
+                tabs = [n for n in gui.visible_names() if n and n not in plain]
+                for index, name in enumerate(tabs):
+                    if not gui.open_tab(args.display, name):
+                        continue
+                    time.sleep(1.5)
+                    if args.shots:
+                        shot = os.path.join(args.out, "shots", f"{app}-ctx-{kind}-w{width}-{index}.png")
+                        os.makedirs(os.path.dirname(shot), exist_ok=True)
+                        subprocess.run(["import", "-display", args.display, "-window", "root", "-crop",
+                                        f"{width}x{RIBBON_HEIGHT}+0+0", "+repage", shot], check=False)
+                    kept = None
+                    command = KEEP_COMMANDS.get((app, kind))
+                    if index == 0 and command and kind != "chart":
+                        if dispatch(office, doc.CurrentController.Frame, command):
+                            time.sleep(2)
+                            kept = gui.selected() == [name]
+                    rows.append({"object": kind, "width": width, "tab": name, "command": command if kept is not None
+                                 else None, "kept": kept})
+                    print(f"{app} {kind} w{width} {name}: kept={kept}", flush=True)
+                move_dumps(live, os.path.join(root, f"{app}-ctx-{kind}-w{width}"))
+                park(app, doc, office)
+                time.sleep(1)
+    finally:
+        try:
+            doc.setModified(False)
+        except Exception:  # noqa: BLE001 - the document may be gone already
+            pass
+    return rows
 
 
 def collect_app(args, app):
@@ -67,12 +148,11 @@ def collect_app(args, app):
                     os.makedirs(os.path.dirname(shot), exist_ok=True)
                     subprocess.run(["import", "-display", args.display, "-window", "root", "-crop",
                                     f"{width}x{RIBBON_HEIGHT}+0+0", "+repage", shot], check=False)
-            target = os.path.join(root, f"{app}-w{width}")
-            os.makedirs(target, exist_ok=True)
-            for name in os.listdir(live):
-                os.replace(os.path.join(live, name), os.path.join(target, name))
+            count = move_dumps(live, os.path.join(root, f"{app}-w{width}"))
             seen.append((width, names))
-            print(f"{app} w{width}: {len(names)} tabs, {len(os.listdir(target))} dumps", flush=True)
+            print(f"{app} w{width}: {len(names)} tabs, {count} dumps", flush=True)
+        if args.contextual:
+            seen.append(("contextual", collect_contextual(args, app, office, window, live, root)))
     finally:
         office.stop()
     return seen
@@ -87,8 +167,10 @@ def main():
     parser.add_argument("--widths", default="1280,1366,1470,1536,1920,2560")
     parser.add_argument("--height", type=int, default=900)
     parser.add_argument("--no-shots", dest="shots", action="store_false")
+    parser.add_argument("--contextual", default="", help="widths of the contextual pass (empty: none)")
     args = parser.parse_args()
-    args.widths = [int(w) for w in args.widths.split(",")]
+    args.widths = [int(w) for w in args.widths.split(",") if w]
+    args.contextual = [int(w) for w in args.contextual.split(",") if w]
     if os.geteuid() == 0:
         os.makedirs(args.out, exist_ok=True)
         subprocess.run(["chown", "-R", hst_gui.BUILD_USER, args.out], check=False)

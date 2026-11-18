@@ -106,7 +106,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <vcl/commandinfoprovider.hxx>
  #include <vcl/event.hxx>
  #include <vcl/help.hxx>
-@@ -126,6 +127,8 @@ bool RequestRichHelp(ToolBox& rToolBox, const HelpEvent& rHEvt,
+@@ -126,6 +127,8 @@ bool RequestRichHelp(ToolBox& rToolBox,
                  aText += "\n" + aDescription;
          }
      }
@@ -148,7 +148,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  void NotebookbarTabControl::HstCreateBanner()
  {
      if (m_pHstBanner)
-@@ -529,6 +546,7 @@ void NotebookbarTabControl::HstCreateBanner()
+@@ -529,6 +546,7 @@ void NotebookbarTabControl::HstCreateBan
              pBar->HstSetOwnBanner(true); // the window shows no second banner beside the bar
              hst::keytips::Attach(*this, *pBar, GetToolBox(), m_pHstBanner.get());
              AddChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
@@ -156,7 +156,7 @@ License: these upstream files remain under their original license (MPL-2.0).
              const OUString aApp = rFile.indexOf("/swriter/") >= 0  ? u"writer"_ustr
                                    : rFile.indexOf("/scalc/") >= 0  ? u"calc"_ustr
                                    : rFile.indexOf("/simpress/") >= 0 ? u"impress"_ustr
-@@ -603,13 +621,25 @@ void NotebookbarTabControl::HstLayoutBanner()
+@@ -603,13 +621,25 @@ void NotebookbarTabControl::HstLayoutBan
              // the document window's (its frame), not the SystemWindow's client, which is narrower than the window
              // (a 1920 px window got a 357 px banner); 1.0.2 mockup: 8 px from the window's right edge, w x w*104/360
              // centred in the 106 px body (360 x 104 at 1920, 260 x 75 up to 1440)
@@ -189,6 +189,170 @@ License: these upstream files remain under their original license (MPL-2.0).
          }
          else
              m_pHstBanner->Place(tools::Rectangle());
+--- a/svx/source/inc/StylesPreviewWindow.hxx
++++ b/svx/source/inc/StylesPreviewWindow.hxx
+@@ -71,6 +71,7 @@ class StyleItemController
+     static constexpr unsigned LEFT_MARGIN = 4;
+     // HST Office: highest font of a preview, in pixels: the name is one line of a 70 px preview
+     static constexpr tools::Long MAX_PREVIEW_FONT_HEIGHT = 20;
++    static tools::Long HstTextLeft(const vcl::RenderContext& rRenderContext);
+ 
+     SfxStyleFamily m_eStyleFamily;
+     StylePreviewDescriptor m_aStyleName;
+--- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
++++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
+@@ -105,16 +105,8 @@ namespace
+ // HST Office: a preview of the ribbon gallery is a 96 x 74 tile: its image and the icon view's room around it,
+ // the item padding 2 on each side in gtk (92 x 70) or vcl's own 5 px (86 x 64; vcl's builder makes the
+ // icon view its own scrolled window, so "stylesscroll" does not exist there)
+-constexpr tools::Long HST_TILE_WIDTH = 96;
+-constexpr tools::Long HST_TILE_HEIGHT = 74;
+ bool g_bHstVclIconView = false;
+ 
+-Size lcl_HstPreviewImageSize(double fScale)
+-{
+-    const tools::Long nRoom = g_bHstVclIconView ? 10 : 4;
+-    return Size(std::lround(HST_TILE_WIDTH * fScale) - nRoom, std::lround(HST_TILE_HEIGHT * fScale) - nRoom);
+-}
+-
+ // HST Office: the module of the current document ("swriter", "scalc"...): Writer's gallery shows paragraph
+ // styles with short names, Calc's (the same control, whose style family Para is Calc's cell styles) cell styles
+ bool lcl_HstModuleIs(std::u16string_view aModule)
+@@ -122,6 +114,20 @@ bool lcl_HstModuleIs(std::u16string_view
+     const SfxObjectShell* pShell = SfxObjectShell::Current();
+     return pShell && pShell->GetFactory().GetFactoryName().startsWith(aModule);
+ }
++
++// HST Office (1.0.3 ribbon, owner-locked design): Writer's and Sheets' style galleries are a vertical list of three
++// rows, 24 px high, 132 px wide in Writer and 104 in Sheets, each style's name in its own font (Sheets: a swatch of the
++// cell's fill before it)
++constexpr tools::Long HST_LIST_ROW = 24;
++constexpr int HST_LIST_ROWS = 3;
++
++tools::Long lcl_HstListWidth() { return lcl_HstModuleIs(u"scalc") ? 104 : 132; }
++
++Size lcl_HstPreviewImageSize(double fScale)
++{
++    const tools::Long nRoom = g_bHstVclIconView ? 10 : 4;
++    return Size(std::lround(lcl_HstListWidth() * fScale) - nRoom, std::lround(HST_LIST_ROW * fScale) - nRoom);
++}
+ }
+ 
+ namespace
+@@ -405,9 +411,10 @@ void StyleItemController::DrawEntry(vcl:
+         const MapUnit eUnit = pItemSet->GetPool() ? pItemSet->GetPool()->GetMetric(pFontHeightItem->Which())
+                                                   : pShell->GetMapUnit();
+         Size aPixelSize(rRenderContext.LogicToPixel(aFontSize, MapMode(eUnit)));
+-        // HST Office: a long name takes two lines of the preview; big headings are capped so two fit
+-        if (aPixelSize.Height() > MAX_PREVIEW_FONT_HEIGHT)
+-            aPixelSize.setHeight(MAX_PREVIEW_FONT_HEIGHT);
++        // HST Office: the name is one line of its row: big headings are capped so it fits the row's height
++        const tools::Long nMaxFont = std::max<tools::Long>(8, std::min<tools::Long>(MAX_PREVIEW_FONT_HEIGHT, aSize.Height() - 2));
++        if (aPixelSize.Height() > nMaxFont)
++            aPixelSize.setHeight(nMaxFont);
+ 
+         SvxFont aFont = GetFontFromItems(pFontItem, aPixelSize, pItemSet);
+         rRenderContext.SetFont(aFont);
+@@ -436,15 +443,16 @@ void StyleItemController::DrawEntry(vcl:
+         }
+     }
+ 
+-    // HST Office: a cell style looks like a cell (Sheets mockup): its fill, or white, in a light grey frame
+-    // 4 px inside the preview (6 px inside the 96 x 74 tile)
++    // HST Office: a cell style shows a swatch of its cell (Sheets mockup): its fill, or white, in a light grey frame,
++    // a square as high as the row allows at the row's left, its name after it
+     if (lcl_HstModuleIs(u"scalc"))
+     {
+         const SvxBrushItem* pBrush = pItemSet->GetItem<SvxBrushItem>(SID_ATTR_BRUSH);
+         const Color aFill = pBrush && !pBrush->GetColor().IsTransparent() ? pBrush->GetColor() : COL_WHITE;
++        const tools::Long nSide = std::min<tools::Long>(aSize.Height() - 4, 16);
+         rRenderContext.SetLineColor(Color(0xd6, 0xd6, 0xd6));
+         rRenderContext.SetFillColor(aFill);
+-        rRenderContext.DrawRect(tools::Rectangle(Point(4, 4), Size(aSize.Width() - 8, aSize.Height() - 8)));
++        rRenderContext.DrawRect(tools::Rectangle(Point(2, (aSize.Height() - nSide) / 2), Size(nSide, nSide)));
+     }
+ 
+     if (aFontHighlight != COL_AUTO)
+@@ -465,14 +473,21 @@ void StyleItemController::DrawContentBac
+     rRenderContext.DrawRect(rContentRect);
+ }
+ 
++// HST Office: where a row of the style list shows its name: from the left (after the swatch in Sheets)
++tools::Long StyleItemController::HstTextLeft(const vcl::RenderContext& rRenderContext)
++{
++    const tools::Long nHeight = rRenderContext.GetOutputSizePixel().Height();
++    return lcl_HstModuleIs(u"scalc") ? 2 + std::min<tools::Long>(nHeight - 4, 16) + 4 : LEFT_MARGIN;
++}
++
+ tools::Rectangle StyleItemController::HstTextRect(vcl::RenderContext& rRenderContext,
+                                                  const OUString& rLabel) const
+ {
+     const Size aOut(rRenderContext.GetOutputSizePixel());
+-    const tools::Long nInner = aOut.Width() - 2 * LEFT_MARGIN;
++    const tools::Long nLeft = HstTextLeft(rRenderContext);
++    const tools::Long nInner = aOut.Width() - nLeft - LEFT_MARGIN;
+     const Size aText(std::min(nInner, rRenderContext.GetTextWidth(rLabel)), rRenderContext.GetTextHeight());
+-    return tools::Rectangle(Point((aOut.Width() - aText.Width()) / 2, (aOut.Height() - aText.Height()) / 2),
+-                            aText);
++    return tools::Rectangle(Point(nLeft, (aOut.Height() - aText.Height()) / 2), aText);
+ }
+ 
+ void StyleItemController::DrawHighlight(vcl::RenderContext& rRenderContext, Color aFontBack)
+@@ -482,15 +497,16 @@ void StyleItemController::DrawHighlight(
+     rRenderContext.DrawRect(HstTextRect(rRenderContext, StylesPreviewWindow_Base::HstTileLabel(m_aStyleName)));
+ }
+ 
+-// HST Office: the name is one centred line in the style's font (Office's gallery); a name wider than
+-// the preview ends with "…". The gallery shows the short name of a common style (HstTileLabel).
++// HST Office: the name is one line of its row in the style's font, from the row's left; a name wider than the row
++// ends with "…". The list shows the short name of a common style (HstTileLabel).
+ void StyleItemController::DrawText(vcl::RenderContext& rRenderContext)
+ {
+     const OUString aLabel = StylesPreviewWindow_Base::HstTileLabel(m_aStyleName);
+     const Size aOut(rRenderContext.GetOutputSizePixel());
+-    const tools::Rectangle aRect(Point(LEFT_MARGIN, 0), Size(aOut.Width() - 2 * LEFT_MARGIN, aOut.Height()));
++    const tools::Long nLeft = HstTextLeft(rRenderContext);
++    const tools::Rectangle aRect(Point(nLeft, 0), Size(aOut.Width() - nLeft - LEFT_MARGIN, aOut.Height()));
+     rRenderContext.DrawText(aRect, aLabel,
+-                            DrawTextFlags::Center | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
++                            DrawTextFlags::Left | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
+ }
+ 
+ StylesPreviewWindow_Base::StylesPreviewWindow_Base(
+@@ -1308,9 +1324,9 @@ StylesPreviewWindow_Impl::StylesPreviewW
+ 
+ namespace
+ {
+-// HST Office: previews kept in the row at the large, medium and small group, as Office's Styles gallery narrows
+-// from 6 to 4 to 3 before it folds. The group needs n x 96 + 2 (frame) + 16 (button column) px.
+-constexpr int HST_PREVIEWS[] = { 6, 4, 3 };
++// HST Office: the gallery's states (large, medium, small group); the 1.0.3 design shows the same three-row list at
++// each of them. The group needs the list's width + 2 (frame) + 16 (button column) px.
++constexpr int HST_PREVIEWS[] = { HST_LIST_ROWS, HST_LIST_ROWS, HST_LIST_ROWS };
+ constexpr tools::Long HST_GALLERY_HEIGHT = 76;
+ }
+ 
+@@ -1318,17 +1334,18 @@ void StylesPreviewWindow_Impl::HstApplyP
+ {
+     const double fScale = GetDPIScaleFactor();
+     const int nTiles = HST_PREVIEWS[m_nHstState];
++    const tools::Long nTileWidth = lcl_HstListWidth(); // one column: the view is as wide as one row
+     // set the height as well: -1 dropped the .ui's height-request on gtk3, the view (whose scroll bars are
+     // external) was then 2 px tall and the gallery a blank strip. Without "stylesscroll" (vcl) the view is
+     // the framed, scrolling widget and takes the size itself; its frame may be 2 px (vcl's 3D border), so it
+     // gets 2 px more to keep n columns.
+-    const int nWidth = static_cast<int>(std::lround((nTiles * HST_TILE_WIDTH + (m_xHstScroll ? 2 : 4)) * fScale));
++    const int nWidth = static_cast<int>(std::lround((nTileWidth + (m_xHstScroll ? 2 : 4)) * fScale));
+     const int nHeight = static_cast<int>(std::lround(HST_GALLERY_HEIGHT * fScale));
+     if (m_xHstScroll)
+         m_xHstScroll->set_size_request(nWidth, nHeight);
+     else
+         m_xStylesView->set_size_request(nWidth, nHeight);
+-    m_xStylesView->set_item_width(static_cast<int>(g_bHstVclIconView ? std::lround(HST_TILE_WIDTH * fScale)
++    m_xStylesView->set_item_width(static_cast<int>(g_bHstVclIconView ? std::lround(nTileWidth * fScale)
+                                                                      : lcl_HstPreviewImageSize(fScale).Width()));
+     HstSetTiles(nTiles);
+ }
 --- a/translations/source/vi/sfx2/messages.po
 +++ b/translations/source/vi/sfx2/messages.po
 @@ -10480,6 +10480,12 @@ msgctxt "STR_HST_TAB_SEARCH_BUBBLE"
@@ -206,7 +370,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  msgctxt "STR_HST_SET_DEFAULT"
 --- a/vcl/Library_vcl.mk
 +++ b/vcl/Library_vcl.mk
-@@ -264,6 +264,7 @@ $(eval $(call gb_Library_add_exception_objects,vcl,\
+@@ -264,6 +264,7 @@ $(eval $(call gb_Library_add_exception_o
      vcl/source/control/HstRibbonDrop \
      vcl/source/control/HstRibbonLadder \
      vcl/source/control/HstRibbonPaint \
@@ -758,7 +922,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <tools/stream.hxx>
  #include <vcl/graph.hxx>
  #include <vcl/graphicfilter.hxx>
-@@ -622,9 +623,37 @@ void Core::DrawArt(vcl::RenderContext& rRenderContext, const Bitmap& rSource, Bi
+@@ -622,9 +623,37 @@ void Core::DrawArt(vcl::RenderContext& r
      // the image's own pixel size never changes the slot: aspect-fit, centred
      const Rect aBox{ nInset, nInset, static_cast<long>(aOut.Width()) - 2 * nInset,
                       static_cast<long>(aOut.Height()) - 2 * nInset };
@@ -820,7 +984,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  
  #include <comphelper/lok.hxx>
  #include <officecfg/Office/HSTRibbon.hxx>
-@@ -981,6 +982,23 @@ std::set<const ToolBox*> stackLargeButtons(vcl::Window& rGroup, int nState, bool
+@@ -981,6 +982,23 @@ std::set<const ToolBox*> stackLargeButto
      return aLone;
  }
  
@@ -1461,7 +1625,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      {
          // HST Office: the tab's ladder says which groups fold first (core groups and Styles last)
          std::vector<vcl::Window*> aHidden;
-@@ -865,7 +874,11 @@ void PriorityMergedHBox::DataChanged(const DataChangedEvent& rEvent)
+@@ -865,7 +874,11 @@ void PriorityMergedHBox::DataChanged(con
      // fonts, scale or theme change the widths: measure again
      if (rEvent.GetType() == DataChangedEventType::SETTINGS || rEvent.GetType() == DataChangedEventType::FONTS
          || rEvent.GetType() == DataChangedEventType::DISPLAY)
@@ -1473,7 +1637,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  void PriorityMergedHBox::dispose()
-@@ -920,7 +933,10 @@ Size PriorityMergedHBox::calculateRequisition() const
+@@ -920,7 +933,10 @@ Size PriorityMergedHBox::calculateRequis
      // HST Office: with the collapse ladder the box can shrink to every group at its smallest state
      // before anything folds; that is the width it asks for, so the block beside it in the tab (the
      // Tools group) folds only when the groups could not make room for it by shrinking
@@ -1485,7 +1649,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      if (nMin >= 0)
      {
          Size aSize;
-@@ -1003,4 +1019,295 @@ IMPL_LINK(PriorityMergedHBox, PBClickHdl, Button*, /*pButton*/, void)
+@@ -1003,4 +1019,295 @@ IMPL_LINK(PriorityMergedHBox, PBClickHdl
                                          | FloatWinPopupFlags::AllMouseButtonClose);
  }
  
@@ -1791,7 +1955,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <boost/multi_array.hpp>
  #include <vcl/DesktopType.hxx>
  #include <vcl/toolkit/vclmedit.hxx>
-@@ -1256,6 +1257,9 @@ static VclGrid::Value accumulateValues(const VclGrid::Value &i, const VclGrid::V
+@@ -1256,6 +1257,9 @@ static VclGrid::Value accumulateValues(c
  
  Size VclGrid::calculateRequisition() const
  {
@@ -1801,7 +1965,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      return calculateRequisitionForSpacings(get_row_spacing(), get_column_spacing());
  }
  
-@@ -1319,6 +1323,11 @@ tools::Long VclGrid::get_hst_caption_room() const
+@@ -1319,6 +1323,11 @@ tools::Long VclGrid::get_hst_caption_roo
  
  void VclGrid::setAllocation(const Size& rAllocation)
  {
@@ -1813,7 +1977,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      array_type A = assembleGrid(*this);
  
      if (isNullGrid(A))
-@@ -1502,6 +1511,8 @@ bool VclGrid::set_property(const OUString &rKey, const OUString &rValue)
+@@ -1502,6 +1511,8 @@ bool VclGrid::set_property(const OUStrin
          m_bColumnHomogeneous = toBool(rValue);
      else if (rKey == "n-rows")
          /*nothing to do*/;
@@ -1851,7 +2015,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      // indicate formatting is done
      mbFormat = false;
  }
-@@ -4221,6 +4241,14 @@ void ToolBox::HstSetLauncher( bool bLauncher )
+@@ -4221,6 +4241,14 @@ void ToolBox::HstSetLauncher( bool bLaun
      ImplInvalidate( true );
  }
  
