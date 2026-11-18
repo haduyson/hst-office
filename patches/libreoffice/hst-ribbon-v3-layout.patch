@@ -199,6 +199,37 @@ License: these upstream files remain under their original license (MPL-2.0).
          }
          else
              m_pHstBanner->Place(tools::Rectangle());
+--- a/svx/qa/unit/HstThemeGalleryColumnsTest.cxx
++++ b/svx/qa/unit/HstThemeGalleryColumnsTest.cxx
+@@ -15,7 +15,7 @@ class HstThemeGalleryColumnsTest : publi
+ {
+ };
+ 
+-// The ribbon's theme gallery shows 6, 4 or 3 themes in a row at its large, medium and small state. The vcl builder
++// The ribbon's theme gallery shows 5, 4 or 3 themes in a row at its large, medium and small state (1.0.3 design). The vcl builder
+ // used here (headless) is the one of Windows and macOS: it drops the .ui's scrolled window, so the gallery must
+ // size its icon view instead, or it keeps the width of the large state at every state.
+ CPPUNIT_TEST_FIXTURE(HstThemeGalleryColumnsTest, testColumnsFollowTheRibbonState)
+@@ -30,11 +30,17 @@ CPPUNIT_TEST_FIXTURE(HstThemeGalleryColu
+     const tools::Long nSmall = pGallery->GetSizePixel().Width();
+     CPPUNIT_ASSERT_GREATER(nMedium, nLarge);
+     CPPUNIT_ASSERT_GREATER(nSmall, nMedium);
+-    // 6 -> 4 columns is two theme widths narrower, 4 -> 3 one
+-    CPPUNIT_ASSERT_EQUAL(2 * (nMedium - nSmall), nLarge - nMedium);
++    // 5 -> 4 -> 3 columns: one theme width narrower each time
++    const tools::Long nTheme = nMedium - nSmall;
++    CPPUNIT_ASSERT_EQUAL(nTheme, nLarge - nMedium);
+     // back to the large state: the first width again
+     CPPUNIT_ASSERT(pGallery->set_property(u"hst-gallery-state"_ustr, u"0"_ustr));
+     CPPUNIT_ASSERT_EQUAL(nLarge, pGallery->GetSizePixel().Width());
++    // a sparse tab: two more themes at the large state, none at the others
++    CPPUNIT_ASSERT(pGallery->set_property(u"hst-gallery-extra"_ustr, u"2"_ustr));
++    CPPUNIT_ASSERT_EQUAL(nLarge + 2 * nTheme, pGallery->GetSizePixel().Width());
++    CPPUNIT_ASSERT(pGallery->set_property(u"hst-gallery-state"_ustr, u"1"_ustr));
++    CPPUNIT_ASSERT_EQUAL(nMedium, pGallery->GetSizePixel().Width());
+     pGallery.disposeAndClear();
+ }
+ }
 --- a/svx/source/inc/StylesPreviewWindow.hxx
 +++ b/svx/source/inc/StylesPreviewWindow.hxx
 @@ -71,6 +71,7 @@ class StyleItemController
@@ -449,14 +480,17 @@ License: these upstream files remain under their original license (MPL-2.0).
  constexpr int HST_ITEM_WIDTH = 108;
  constexpr int HST_FRAME_WIDTH = 32; // margins, frame and the vertical scroll bar
  constexpr int HST_HEIGHT = 88; // the .ui's height-request: one row of themes with their names
-@@ -148,13 +148,27 @@ void ThemeColorsPaneWrapper::HstApplyCol
-         return;
+@@ -145,7 +145,8 @@ void ThemeColorsPaneWrapper::SetOptimalS
+ void ThemeColorsPaneWrapper::HstApplyColumns()
+ {
      const double fScale = GetDPIScaleFactor();
-     m_xHstScroll->set_size_request(
--        (HST_COLUMNS[m_nHstState] * HST_ITEM_WIDTH + HST_FRAME_WIDTH) * fScale, HST_HEIGHT * fScale);
-+        ((HST_COLUMNS[m_nHstState] + (m_nHstState == 0 ? m_nHstExtra : 0)) * HST_ITEM_WIDTH + HST_FRAME_WIDTH) * fScale,
-+        HST_HEIGHT * fScale);
- }
+-    const int nColumns = HST_COLUMNS[m_nHstState];
++    // the ribbon's state chooses the columns; a sparse tab adds some at the large state (1.0.3 design)
++    const int nColumns = HST_COLUMNS[m_nHstState] + (m_nHstState == 0 ? m_nHstExtra : 0);
+     if (m_xHstScroll)
+     {
+         m_xHstScroll->set_size_request((nColumns * HST_ITEM_WIDTH + HST_FRAME_WIDTH) * fScale,
+@@ -166,8 +167,21 @@ void ThemeColorsPaneWrapper::HstApplyCol
  
  bool ThemeColorsPaneWrapper::set_property(const OUString& rKey, const OUString& rValue)
  {
