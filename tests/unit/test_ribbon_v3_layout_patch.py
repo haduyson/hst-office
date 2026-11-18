@@ -128,6 +128,13 @@ class MenuButtonMetricsTest(unittest.TestCase):
         # the dump reports a large label whose lines do not fit as cut
         self.assertIn("menuButtonHeightNeed(rCommand, rCell.look)", added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx"))
 
+    def test_medium_label_stays_on_one_line_with_its_accents(self):
+        layout = added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx")
+        self.assertIn("| (cLook == 'L' ? WB_CENTER | WB_WORDBREAK : WB_LEFT);", layout)
+        metrics = added(PATCH, "vcl/source/control/HstRibbonMenuButtonMetrics.cxx")
+        self.assertIn("if (cLook == 'M' && nPaintHeight > rInner.GetHeight())", metrics)
+        self.assertIn("rDev.SetClipRegion(vcl::Region(aClip));", metrics)
+
     def test_new_files_are_hst_owned(self):
         for path in ("vcl/inc/HstRibbonMenuButtonMetrics.hxx", "vcl/source/control/HstRibbonMenuButtonMetrics.cxx"):
             self.assertIn("SPDX-License-Identifier: LicenseRef-HST-Proprietary", added(PATCH, path), path)
