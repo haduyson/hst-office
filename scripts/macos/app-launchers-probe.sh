@@ -174,12 +174,15 @@ check "office from the .dmg closed" quit_office
 hdiutil detach "$vol" >/dev/null 2>&1 || hdiutil detach -force "$vol" >/dev/null 2>&1
 
 echo "## First start of the installed app" >> "$summary"
-check "HST Writer (in the bundle) opens Writer when HST Office is not running" opens "$app/Contents/Helpers/HST Writer.app" writer
-check "the one-time notice is shown" uno window "Biểu tượng ứng dụng" --timeout 90
-shot notice
+# The frames and controllers of a launcher start, as startup_activity sees them (evidence for the check below).
+open "$app/Contents/Helpers/HST Writer.app"; uno trace 45 > "$out/frames-trace-launcher.jsonl" 2>&1
+check "HST Writer (in the bundle) opens Writer when HST Office is not running" uno wait writer --timeout 120
+sleep 10; shot notice
 check "first start copied all five launchers into /Applications" copies_are 5 0
-check "the notice is remembered as shown" state_has notice '"shown"'
-check "the notice closes" close_window "Biểu tượng ứng dụng"
+# A start through a launcher counts as "the user started working" (startup_activity: its document replaces the first
+# window's content), so every start-up question, this notice included, waits for a plain start (checked below).
+check "at a launcher start the notice waits for a plain start" state_has notice '"pending"'
+check "no notice over the launcher's document" uno window-gone "Biểu tượng ứng dụng"
 for name in "${names[@]}"; do check "$name.app in /Applications: valid signature, no quarantine" copy_valid "$name"; done
 if [ "$signed_dev_id" = true ]; then
   for name in "${names[@]}"; do check "$name.app in /Applications passes Gatekeeper" spctl -a -t exec -vv "$apps/$name.app"; done
@@ -197,10 +200,12 @@ spotlight() {
   mdls -name kMDItemCFBundleIdentifier -name kMDItemContentType "$apps/HST PDF.app"; return 1
 }
 sudo -n mdutil -i on / 2>&1 | tee -a "$out/checks.log" >/dev/null || true
-if mdutil -s / 2>&1 | grep -q "Indexing enabled"; then
+control="$(mdls -raw -name kMDItemCFBundleIdentifier /System/Applications/Calculator.app 2>/dev/null)"
+echo "Spotlight control (Calculator): $control" >> "$out/checks.log"
+if mdutil -s / 2>&1 | grep -q "Indexing enabled" && [ "$control" = "com.apple.calculator" ]; then
   check "Spotlight finds the five launchers in /Applications" spotlight
 else
-  skip "Spotlight: indexing is disabled on this runner ($(mdutil -s / 2>&1 | tail -1))"
+  skip "Spotlight: this runner's index is not populated (Calculator.app: ${control:-none})"
 fi
 registered() {
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -dump \

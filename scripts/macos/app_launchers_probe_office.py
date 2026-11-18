@@ -83,6 +83,31 @@ def icons(action, python_dir):
     return 0 if shown and shown[-1].startswith(expected) else 1
 
 
+def trace(seconds):
+    """Every change of the desktop's frames and their controllers for `seconds` (what startup_activity compares)."""
+    desktop = connect(120)
+    started, before = time.time(), []
+    while time.time() - started < seconds:
+        try:
+            now = [(f, f.getController()) for f in (desktop.Frames.getByIndex(i) for i in range(desktop.Frames.getCount()))]
+        except Exception as exc:  # noqa: BLE001 - a frame closed while it was read
+            print(json.dumps({"t": round(time.time() - started, 1), "error": str(exc)}))
+            continue
+        for frame, controller in now:
+            old = next((c for f, c in before if f == frame), False)
+            if old is False or not ((old is None and controller is None) or (old is not None and old == controller)):
+                print(json.dumps({"t": round(time.time() - started, 1), "event": "new frame" if old is False else
+                                  "controller changed", "title": frame.Title, "visible":
+                                  bool(frame.getContainerWindow().isVisible()), "controller": controller is not None},
+                                 ensure_ascii=False), flush=True)
+        for frame, _c in before:
+            if not any(frame == f for f, _x in now):
+                print(json.dumps({"t": round(time.time() - started, 1), "event": "frame gone"}), flush=True)
+        before = now
+        time.sleep(0.2)
+    return 0
+
+
 def frames():
     """Diagnostic: title and document kind of each frame of the desktop (what a quit has to close)."""
     desktop = connect(20)

@@ -12,6 +12,7 @@
   app-launchers-probe.py icons remove|add <python dir>   (bundled python, uno) the options buttons "Gỡ biểu tượng ứng
                                                           dụng" / "Thêm lại biểu tượng ứng dụng" of hst_office in
                                                           <python dir>, every question answered with its first button
+  app-launchers-probe.py trace <seconds>                 (bundled python, uno) log each new frame and controller
   app-launchers-probe.py frames                          (bundled python, uno) list frames and top windows (quit diagnostics)
   app-launchers-probe.py template true|false            (bundled python, uno) Impress's template dialog on or off
   app-launchers-probe.py window-gone <title>             (bundled python, uno) no visible top window of that title
@@ -126,9 +127,9 @@ def main(argv):
     if argv[:1] and argv[0] not in ("seed", "wait"):  # the other commands: app_launchers_probe_office.py beside this file
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import app_launchers_probe_office as office
-        title, window, icons, frames, template, window_gone, no_base_menu = (
+        title, window, icons, frames, template, window_gone, no_base_menu, trace = (
             office.title, office.window, office.icons, office.frames, office.template, office.window_gone,
-            office.no_base_menu)
+            office.no_base_menu, office.trace)
     if len(argv) >= 2 and argv[0] == "seed":
         seed(argv[1])
         return 0
@@ -140,6 +141,8 @@ def main(argv):
         return (title if argv[0] == "title" else window)(argv[1], timeout)
     if len(argv) >= 3 and argv[0] == "icons" and argv[1] in ("remove", "add"):
         return icons(argv[1], argv[2])
+    if len(argv) >= 2 and argv[0] == "trace":
+        return trace(float(argv[1]))
     if argv[:1] == ["frames"]:
         return frames()
     if len(argv) >= 2 and argv[0] == "template" and argv[1] in ("true", "false"):
