@@ -8,12 +8,17 @@ testCondFormatExportCellIs). The references themselves are unchanged.
 The same syntax prints imported formulas the Excel way: Comparison!$I:$J (testTdf131536), the intersection
 operator as a space (testTdf160371), 'Новый.лист'!A1 (testNonAsciiWithDotXLSX), Calc's CEILING as CEILING.ODF
 (testTdf143809), external references as ['file://host/share/file.xlsx']Sheet1!A1:B5 (testTdf118990), a one-cell
-range of AutoSum as the cell, =SUM(B13,B10) (testAutoSum), =TRUE without parentheses (testInvalidBareBiff5), a
+range of AutoSum as the cell, =SUM(B13,B10) (testAutoSum), =TRUE and =FALSE without parentheses (testInvalidBareBiff5), a
 named range as Sheet1!$A$1 (testTdf94627), references to another sheet as Two!$A$2
 (testFormulaReferenceXLS), a formula typed as ='90''s Data'!B2 (testFormulaRefSheetNameODS) and CELL("Address") as
 Logical!$A$1 (information-functions.csv), an external reference as ['file:///...external.xls']Sheet1!A1
 (testSupBookVirtualPathXLS) and a sheet range as 'First:Last'!B1 (testTdf163554).
-These failed identically in 1.0.2; only the printed syntax changes, values and references are still asserted.
+Links pasted with Paste as Link print as Sheet1!$A$1 (testPasteAsLink); AutoSum of two one-cell ranges prints
+=SUM(F13,F10) (testAutoSum); a copied range is parsed as Sheet1!A1:AMJ2 (copy_paste_test testTdf126421). Tests about
+Calc's own reference syntax ($Sheet1.A1, relative sheets, 'file'#$Sheet1.A1: uicalc testTdf103994, testTdf150219,
+testTdf153790, testTdf173608) switch the document to that syntax. As in Excel, Alt+Enter starts a new line in a cell
+and Ctrl+Enter fills the selection (hst-msoffice-shortcuts.patch), so testTdf56036 and testTdf119162 type Alt+Enter.
+The HST behaviour behind them is the same as in 1.0.2; only the printed syntax and keys change, values and references are still asserted.
 
 hst-sheets-num-errors.patch gives #NUM! (ERRORTYPE 503) for a number outside a function's domain where upstream
 gives Err:502: SQRT(-1), ACOSH(0) and BITAND/BITOR/BITXOR of a negative number in spreadsheet-, mathematical-
@@ -38,7 +43,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 Test: make CppunitTest_sc_cond_format CppunitTest_sc_subsequent_filters_test CppunitTest_sc_subsequent_filters_test2
 CppunitTest_sc_subsequent_filters_test3 CppunitTest_sc_subsequent_filters_test4 CppunitTest_sc_subsequent_filters_test5
 CppunitTest_sc_subsequent_export_test CppunitTest_sc_subsequent_export_test2 CppunitTest_sc_subsequent_export_test3
-CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 CppunitTest_sc_uicalc2 CppunitTest_sc_ucalc.
+CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 CppunitTest_sc_uicalc CppunitTest_sc_uicalc2 CppunitTest_sc_ucalc CppunitTest_sc_copypaste.
 ---
 --- a/sc/qa/unit/cond_format.cxx
 +++ b/sc/qa/unit/cond_format.cxx
@@ -109,6 +114,19 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  }
  
  CPPUNIT_TEST_FIXTURE(CondFormatTest, testConditionalFormatExportXLSX)
+--- a/sc/qa/unit/copy_paste_test.cxx
++++ b/sc/qa/unit/copy_paste_test.cxx
+@@ -226,7 +226,9 @@ void ScCopyPasteTest::testTdf126421()
+     pDoc->MakeTable(n2ndTab);
+     const auto aTabNames = pDoc->GetAllTableNames();
+ 
+-    lcl_copy(aTabNames[0] + ".A1:AMJ2", aTabNames[n2ndTab] + ".A1:AMJ2", *pDoc, pViewShell);
++    // HST Office: ranges are parsed in the Excel A1 syntax, Sheet1!A1:AMJ2
++    // (hst-sheets-excel-formula-conventions.patch)
++    lcl_copy(aTabNames[0] + "!A1:AMJ2", aTabNames[n2ndTab] + "!A1:AMJ2", *pDoc, pViewShell);
+ 
+     // 3. Check all cells in destination table
+     for (int r = 0; r < 2; ++r)
 --- a/sc/qa/unit/data/contentCSV/information-functions.csv
 +++ b/sc/qa/unit/data/contentCSV/information-functions.csv
 @@ -1,4 +1,4 @@
@@ -401,17 +419,23 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  }
  
  CPPUNIT_TEST_FIXTURE(ScFiltersTest3, testPreviewMissingObjLink)
-@@ -1387,7 +1389,9 @@ CPPUNIT_TEST_FIXTURE(ScFiltersTest3, testInvalidBareBiff5)
+@@ -1387,12 +1389,14 @@ CPPUNIT_TEST_FIXTURE(ScFiltersTest3, testInvalidBareBiff5)
      aPos = ScAddress(0, 1, 0);
      CPPUNIT_ASSERT_EQUAL(CELLTYPE_FORMULA, pDoc->GetCellType(aPos));
      OUString sFormula = pDoc->GetFormula(aPos.Col(), aPos.Row(), aPos.Tab());
 -    CPPUNIT_ASSERT_EQUAL(u"=TRUE()"_ustr, sFormula);
-+    // HST Office: the Excel A1 UI syntax prints TRUE without parentheses
++    // HST Office: the Excel A1 UI syntax prints TRUE and FALSE without parentheses
 +    // (hst-sheets-excel-formula-conventions.patch)
 +    CPPUNIT_ASSERT_EQUAL(u"=TRUE"_ustr, sFormula);
      CPPUNIT_ASSERT_EQUAL(1.0, pDoc->GetValue(aPos));
      aPos.IncCol();
      CPPUNIT_ASSERT_EQUAL(CELLTYPE_FORMULA, pDoc->GetCellType(aPos));
+     sFormula = pDoc->GetFormula(aPos.Col(), aPos.Row(), aPos.Tab());
+-    CPPUNIT_ASSERT_EQUAL(u"=FALSE()"_ustr, sFormula);
++    CPPUNIT_ASSERT_EQUAL(u"=FALSE"_ustr, sFormula);
+     CPPUNIT_ASSERT_EQUAL(0.0, pDoc->GetValue(aPos));
+     aPos.IncCol();
+     CPPUNIT_ASSERT_EQUAL(CELLTYPE_NONE, pDoc->GetCellType(aPos));
 --- a/sc/qa/unit/subsequent_filters_test4.cxx
 +++ b/sc/qa/unit/subsequent_filters_test4.cxx
 @@ -1399,7 +1399,9 @@ CPPUNIT_TEST_FIXTURE(ScFiltersTest4, testCommentSize)
@@ -529,6 +553,97 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
      struct {
          const char* Category; const char** Functions;
      } aTests[] = {
+--- a/sc/qa/unit/uicalc/uicalc.cxx
++++ b/sc/qa/unit/uicalc/uicalc.cxx
+@@ -309,6 +309,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf103994)
+     dispose();
+     createScDoc();
+     pDoc = getScDoc();
++    // HST Office types and shows formulas in the Excel A1 syntax
++    // (hst-sheets-excel-formula-conventions.patch); this test is about references in Calc's own
++    // syntax ('file'#$Sheet1.A1), so it uses that syntax
++    FormulaGrammarSwitch aFGSwitch(pDoc, formula::FormulaGrammar::GRAM_NATIVE);
+ 
+     // Insert the reference to the external document
+     OUString aFormula = "='" + maTempFile.GetURL() + "'#$Sheet1.A1";
+@@ -782,9 +786,11 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf56036)
+     typeString(u"=SUM( 1 + 2 ");
+ 
+     // Insert Newline
++    // HST Office: Alt+Enter starts a new line in a cell and Ctrl+Enter fills the selection, as in
++    // the leading spreadsheet application (hst-msoffice-shortcuts.patch)
+     ScModelObj* pModelObj = comphelper::getFromUnoTunnel<ScModelObj>(mxComponent);
+-    pModelObj->postKeyEvent(LOK_KEYEVENT_KEYINPUT, 0, KEY_MOD1 | awt::Key::RETURN);
+-    pModelObj->postKeyEvent(LOK_KEYEVENT_KEYUP, 0, KEY_MOD1 | awt::Key::RETURN);
++    pModelObj->postKeyEvent(LOK_KEYEVENT_KEYINPUT, 0, KEY_MOD2 | awt::Key::RETURN);
++    pModelObj->postKeyEvent(LOK_KEYEVENT_KEYUP, 0, KEY_MOD2 | awt::Key::RETURN);
+     Scheduler::ProcessEventsToIdle();
+ 
+     typeString(u"+ 3)");
+@@ -841,9 +847,11 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf119162)
+     typeString(u"Test");
+ 
+     // Insert Newline
++    // HST Office: Alt+Enter starts a new line in a cell and Ctrl+Enter fills the selection, as in
++    // the leading spreadsheet application (hst-msoffice-shortcuts.patch)
+     ScModelObj* pModelObj = comphelper::getFromUnoTunnel<ScModelObj>(mxComponent);
+-    pModelObj->postKeyEvent(LOK_KEYEVENT_KEYINPUT, 0, KEY_MOD1 | awt::Key::RETURN);
+-    pModelObj->postKeyEvent(LOK_KEYEVENT_KEYUP, 0, KEY_MOD1 | awt::Key::RETURN);
++    pModelObj->postKeyEvent(LOK_KEYEVENT_KEYINPUT, 0, KEY_MOD2 | awt::Key::RETURN);
++    pModelObj->postKeyEvent(LOK_KEYEVENT_KEYUP, 0, KEY_MOD2 | awt::Key::RETURN);
+     Scheduler::ProcessEventsToIdle();
+ 
+     pModelObj->postKeyEvent(LOK_KEYEVENT_KEYINPUT, 0, awt::Key::RETURN);
+@@ -2103,12 +2111,13 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testPasteAsLink)
+ 
+     dispatchCommand(mxComponent, u".uno:PasteAsLink"_ustr, {});
+ 
++    // HST Office: the Excel A1 syntax (hst-sheets-excel-formula-conventions.patch)
+     OUString aFormula = pDoc->GetFormula(2, 0, 0);
+-    CPPUNIT_ASSERT_EQUAL(u"=$Sheet1.$A$1"_ustr, aFormula); // C1
++    CPPUNIT_ASSERT_EQUAL(u"=Sheet1!$A$1"_ustr, aFormula); // C1
+     aFormula = pDoc->GetFormula(2, 1, 0);
+-    CPPUNIT_ASSERT_EQUAL(u"=$Sheet1.$A$2"_ustr, aFormula); // C2
++    CPPUNIT_ASSERT_EQUAL(u"=Sheet1!$A$2"_ustr, aFormula); // C2
+     aFormula = pDoc->GetFormula(2, 2, 0);
+-    CPPUNIT_ASSERT_EQUAL(u"=$Sheet1.$A$3"_ustr, aFormula); // C3
++    CPPUNIT_ASSERT_EQUAL(u"=Sheet1!$A$3"_ustr, aFormula); // C3
+     CPPUNIT_ASSERT_EQUAL(1.0, pDoc->GetValue(2, 0, 0)); // C1
+     CPPUNIT_ASSERT_EQUAL(1.0, pDoc->GetValue(2, 2, 0)); // C3
+ 
+@@ -2264,6 +2273,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf173608_relative_references_when_copyin
+ {
+     createScDoc();
+     ScDocument* pDoc = getScDoc();
++    // HST Office types and shows formulas in the Excel A1 syntax
++    // (hst-sheets-excel-formula-conventions.patch); this test is about references in Calc's own
++    // syntax ($Sheet1.A1 and the relative sheet of Sheet1.A2), so it uses that syntax
++    FormulaGrammarSwitch aFGSwitch(pDoc, formula::FormulaGrammar::GRAM_NATIVE);
+ 
+     insertStringToCell(u"A1"_ustr, u"1");
+     insertStringToCell(u"A2"_ustr, u"2");
+@@ -2358,6 +2371,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf150219)
+ {
+     createScDoc();
+     ScDocument* pDoc = getScDoc();
++    // HST Office types and shows formulas in the Excel A1 syntax
++    // (hst-sheets-excel-formula-conventions.patch); this test is about references in Calc's own
++    // syntax ($Sheet1.A1), so it uses that syntax
++    FormulaGrammarSwitch aFGSwitch(pDoc, formula::FormulaGrammar::GRAM_NATIVE);
+ 
+     insertNewSheet(*pDoc);
+ 
+@@ -2378,6 +2395,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf153790)
+ {
+     createScDoc();
+     ScDocument* pDoc = getScDoc();
++    // HST Office types and shows formulas in the Excel A1 syntax
++    // (hst-sheets-excel-formula-conventions.patch); this test is about references in Calc's own
++    // syntax ($Sheet1.B1:C1), so it uses that syntax
++    FormulaGrammarSwitch aFGSwitch(pDoc, formula::FormulaGrammar::GRAM_NATIVE);
+ 
+     insertStringToCell(u"A1"_ustr, u"=SUM($Sheet1.B1:C1)");
+ 
 --- a/sc/qa/unit/uicalc/uicalc2.cxx
 +++ b/sc/qa/unit/uicalc/uicalc2.cxx
 @@ -26,6 +26,11 @@
@@ -543,7 +658,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  #include <com/sun/star/datatransfer/clipboard/XClipboard.hpp>
  #include <com/sun/star/datatransfer/DataFlavor.hpp>
  #include <com/sun/star/datatransfer/XTransferable.hpp>
-@@ -1353,7 +1358,9 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testAutoSum)
+@@ -1353,12 +1358,14 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testAutoSum)
      goToCell(u"B14"_ustr);
      executeAutoSum();
      CPPUNIT_ASSERT_EQUAL(4.0, pDoc->GetValue(ScAddress(1, 13, 0)));
@@ -554,6 +669,21 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  
      goToCell(u"F8:F14"_ustr);
      executeAutoSum();
+     CPPUNIT_ASSERT_EQUAL(4.0, pDoc->GetValue(ScAddress(5, 13, 0)));
+-    CPPUNIT_ASSERT_EQUAL(u"=SUM(F13:F13,F10:F10)"_ustr, pDoc->GetFormula(5, 13, 0));
++    CPPUNIT_ASSERT_EQUAL(u"=SUM(F13,F10)"_ustr, pDoc->GetFormula(5, 13, 0));
+ 
+     //Sum on Row and Column
+     goToCell(u"E25"_ustr);
+@@ -1389,7 +1396,7 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testAutoSum)
+     goToCell(u"E30"_ustr);
+     executeAutoSum();
+     CPPUNIT_ASSERT_EQUAL(12.0, pDoc->GetValue(ScAddress(4, 29, 0)));
+-    CPPUNIT_ASSERT_EQUAL(u"=SUM(E29:E29,E25:E25)"_ustr, pDoc->GetFormula(4, 29, 0));
++    CPPUNIT_ASSERT_EQUAL(u"=SUM(E29,E25)"_ustr, pDoc->GetFormula(4, 29, 0));
+ 
+     //Subtotals on Autosum
+     goToCell(u"C49"_ustr);
 @@ -2219,6 +2226,14 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testTdf107994_MoveActiveCellToFreezePaneSpli
      dispatchCommand(mxComponent, u".uno:GoToStart"_ustr, {});
      checkCurrentCursorPosition(*pDocSh, u"A1");
