@@ -196,6 +196,16 @@ License: these upstream files remain under their original license (MPL-2.0).
      sfx2/source/notebookbar/NotebookbarTabControl \
      sfx2/source/notebookbar/HstRibbonKeyTips \
      sfx2/source/notebookbar/HstChartCommands \
+--- a/sfx2/Module_sfx2.mk
++++ b/sfx2/Module_sfx2.mk
+@@ -38,6 +38,7 @@ $(eval $(call gb_Module_add_check_target
+     CppunitTest_sfx2_view \
+     CppunitTest_sfx2_doc \
+     CppunitTest_sfx2_autoredaction \
++    CppunitTest_sfx2_hst_update_dot \
+ ))
+ 
+ $(eval $(call gb_Module_add_subsequentcheck_targets,sfx2,\
 --- /dev/null
 +++ b/sfx2/inc/notebookbar/HstUpdateDot.hxx
 @@ -0,0 +1,56 @@
@@ -245,7 +255,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +
 +private:
 +    void show(bool bShow);
-+    void release();
++    void stopListening();
 +
 +    std::function<void(bool)> maShow;
 +    css::uno::Reference<css::frame::XDispatchProvider> mxFrame;
@@ -510,7 +520,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +{
 +    if (xFrame == mxFrame)
 +        return;
-+    release();
++    stopListening();
 +    mxFrame = xFrame;
 +    bool bListening = false;
 +    try
@@ -538,11 +548,11 @@ License: these upstream files remain under their original license (MPL-2.0).
 +void UpdateDot::Stop()
 +{
 +    maShow = nullptr;
-+    release();
++    stopListening();
 +    mxFrame.clear();
 +}
 +
-+void UpdateDot::release()
++void UpdateDot::stopListening()
 +{
 +    uno::Reference<frame::XDispatch> xDispatch;
 +    std::swap(xDispatch, mxDispatch);
@@ -1036,10 +1046,11 @@ License: these upstream files remain under their original license (MPL-2.0).
  msgctxt "STR_HST_SET_DEFAULT"
 --- a/vcl/Library_vcl.mk
 +++ b/vcl/Library_vcl.mk
-@@ -264,6 +264,9 @@ $(eval $(call gb_Library_add_exception_o
+@@ -264,6 +264,10 @@ $(eval $(call gb_Library_add_exception_o
      vcl/source/control/HstRibbonDrop \
      vcl/source/control/HstRibbonLadder \
      vcl/source/control/HstRibbonPaint \
++    vcl/source/control/HstRibbonMenuButtonMetrics \
 +    vcl/source/control/HstRibbonUpdateDot \
 +    vcl/source/control/HstRibbonV3Layout \
 +    vcl/source/control/HstRibbonV3MergedBox \
@@ -1059,7 +1070,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  
  namespace vcl
  {
-@@ -44,6 +48,15 @@ bool collapseLadderEnabled();
+@@ -44,6 +48,21 @@ bool collapseLadderEnabled();
  /** Apply nState to every toolbox inside rGroup (authored styles are remembered on first use). */
  void SetGroupState(vcl::Window& rGroup, int nState);
  
@@ -1072,9 +1083,55 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    button's content rectangle, nSymbol the symbol's size; an empty rectangle for every other button (VCL's place). */
 +tools::Rectangle MenuArrowAfterLabel(const PushButton& rButton, const tools::Rectangle& rInner, tools::Long nSymbol);
 +
++/** The look SetMenuButtonLook gave rButton ('L', 'M', 'S'), 0 for a button it did not. */
++char MenuButtonLook(const PushButton& rButton);
++
++/** Place a menu button of a v3 group again at its look (its label's metrics changed, HstRibbonMenuButtonMetrics.hxx). */
++void RefreshMenuButton(PushButton& rButton);
++
  /** The caption of a ribbon group: its "labelled-by" label, else its first label (no mnemonic). */
  OUString GroupCaption(vcl::Window& rGroup);
  
+--- /dev/null
++++ b/vcl/inc/HstRibbonMenuButtonMetrics.hxx
+@@ -0,0 +1,37 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++// HST Office: the text metrics of the ribbon's menu buttons as their paint draws them. The ribbon lays a menu button
++// out from its label's width and height; on Windows at 125 % the button's window measured a smaller font than the
++// one its paint draws with, so the label lost its end ("Sắp xếp và l…") or its second line ("Bám …"). The paint
++// tells what it drew with (MenuButtonPainted); the layout measures with that from then on and lays out again once.
++
++#include <rtl/ustring.hxx>
++#include <sal/types.h>
++#include <tools/gen.hxx>
++#include <tools/long.hxx>
++
++class OutputDevice;
++class PushButton;
++
++namespace hst::ribbon
++{
++/** Called by PushButton's paint (button.cxx) with the device it draws on and its content rectangle, before it lays
++    its image and label out with the image-text gap rImageSep. A menu button of a v3 group remembers the paint's
++    metrics of its label, and when they differ from what its layout measured, the ribbon lays it out again. A large
++    one (image above a label of lines) gets a gap its lines fit under, not less than 1 px. Any other button: nothing. */
++void MenuButtonPainted(PushButton& rButton, const OutputDevice& rDev, const tools::Rectangle& rInner,
++                       sal_Int32& rImageSep);
++
++/** The width of rText (no mnemonic) as rButton's paint draws it; its window's measure before its first paint. */
++tools::Long MenuButtonTextWidth(const PushButton& rButton, const OUString& rText);
++
++/** The height of a line of rButton's label as its paint draws it; its window's measure before its first paint. */
++tools::Long MenuButtonTextHeight(const PushButton& rButton);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/inc/HstRibbonV3Layout.hxx
 @@ -0,0 +1,74 @@
@@ -1792,15 +1849,55 @@ License: these upstream files remain under their original license (MPL-2.0).
  };
 --- a/vcl/source/control/HstRibbonLadder.cxx
 +++ b/vcl/source/control/HstRibbonLadder.cxx
-@@ -10,6 +10,7 @@
+@@ -8,8 +8,10 @@
+  */
+ 
  #include <HstRibbonLadder.hxx>
++#include <HstRibbonMenuButtonMetrics.hxx>
  #include <HstRibbonGeometry.hxx>
  #include <HstRibbonGrid.hxx>
 +#include <HstRibbonV3Layout.hxx>
  
  #include <comphelper/lok.hxx>
  #include <officecfg/Office/HSTRibbon.hxx>
-@@ -981,6 +982,31 @@ std::set<const ToolBox*> stackLargeButto
+@@ -297,9 +299,9 @@ tools::Long smallMenuButtonWidth(const M
+ {
+     const tools::Long nText = rButton.GetText().isEmpty()
+                                   ? 0
+-                                  : geometry::imageTextGap(rButton.GetTextHeight())
+-                                        + rButton.GetOutDev()->GetTextWidth(rButton.GetText().replaceAll("~", ""));
+-    return 8 + rButton.GetModeImage().GetSizePixel().Width() + nText + 2 * (rButton.GetTextHeight() / 2 + 1);
++                                  : geometry::imageTextGap(MenuButtonTextHeight(rButton))
++                                        + MenuButtonTextWidth(rButton, rButton.GetText().replaceAll("~", ""));
++    return 8 + rButton.GetModeImage().GetSizePixel().Width() + nText + 2 * (MenuButtonTextHeight(rButton) / 2 + 1);
+ }
+ 
+ /** A large menu button (Select ▾) at the place of the large tool buttons beside it (HstRibbonGeometry.hxx
+@@ -320,18 +322,19 @@ void placeLargeMenuButton(MenuButton& rB
+     {
+         const OUString aText = rButton.GetText().replaceAll("~", "");
+         const sal_Int32 nBreak = aText.indexOf('\n');
+-        const tools::Long nFirst = rButton.GetOutDev()->GetTextWidth(nBreak < 0 ? aText : aText.copy(0, nBreak));
+-        const tools::Long nSecond = nBreak < 0 ? 0 : rButton.GetOutDev()->GetTextWidth(aText.copy(nBreak + 1));
++        const tools::Long nFirst = MenuButtonTextWidth(rButton, nBreak < 0 ? aText : aText.copy(0, nBreak));
++        const tools::Long nSecond = nBreak < 0 ? 0 : MenuButtonTextWidth(rButton, aText.copy(nBreak + 1));
+         const Size aImage = rButton.GetModeImage().GetSizePixel();
++        const tools::Long nTextHeight = MenuButtonTextHeight(rButton);
+         const geometry::LargeButton aLarge = geometry::largeButton(
+-            aImage.Width(), std::max(nFirst, nSecond), 0, false, rButton.GetTextHeight(), rButton.GetDPIScaleFactor());
++            aImage.Width(), std::max(nFirst, nSecond), 0, false, nTextHeight, rButton.GetDPIScaleFactor());
+         const tools::Long nInner
+             = rButton.IsNativeControlSupported(ControlType::Pushbutton, ControlPart::Entire) ? 4 : 2;
+         nStyle = (rLabel.nStyle & ~(WB_VCENTER | WB_BOTTOM | WB_LEFT | WB_RIGHT)) | WB_TOP | WB_CENTER | WB_WORDBREAK;
+         eVAlign = VclAlign::Start;
+         // the label on the large buttons' label line whatever the image's size (PushButton puts it under the image)
+         nMarginTop = static_cast<sal_Int32>(std::max<tools::Long>(
+-            0, aLarge.textY - geometry::imageTextGap(rButton.GetTextHeight()) - aImage.Height() - nInner));
++            0, aLarge.textY - geometry::imageTextGap(nTextHeight) - aImage.Height() - nInner));
+         // with a little room: PushButton breaks its label again where a line fills its text area to the pixel
+         nWidth = static_cast<sal_Int32>(aLarge.width + geometry::px(geometry::ARROW_GAP, rButton.GetDPIScaleFactor()));
+         nHeight = static_cast<sal_Int32>(aLarge.height - nMarginTop);
+@@ -981,6 +984,31 @@ std::set<const ToolBox*> stackLargeButto
      return aLone;
  }
  
@@ -1832,7 +1929,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
  {
      for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
-@@ -1029,8 +1055,68 @@ bool collapseLadderEnabled()
+@@ -1029,8 +1057,81 @@ bool collapseLadderEnabled()
      return bEnabled;
  }
  
@@ -1871,6 +1968,19 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    applyToMenuButton(rButton, cLook == 'S' ? GroupSmall : GroupLarge);
 +}
 +
++char MenuButtonLook(const PushButton& rButton)
++{
++    const auto it = MenuLookStocks::looks().find(&rButton);
++    return it == MenuLookStocks::looks().end() ? 0 : it->second;
++}
++
++void RefreshMenuButton(PushButton& rButton)
++{
++    MenuButton* pMenu = dynamic_cast<MenuButton*>(&rButton);
++    if (const char cLook = MenuButtonLook(rButton); pMenu && cLook)
++        applyToMenuButton(*pMenu, cLook == 'S' ? GroupSmall : GroupLarge);
++}
++
 +tools::Rectangle MenuArrowAfterLabel(const PushButton& rButton, const tools::Rectangle& rInner, tools::Long nSymbol)
 +{
 +    const auto it = MenuLookStocks::looks().find(&rButton);
@@ -1881,7 +1991,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    const OUString aText = rButton.GetText().replaceAll("~", "");
 +    tools::Long nRight = rInner.Left() + (!!aImage ? aImage.GetSizePixel().Width() : 0);
 +    if (!aText.isEmpty())
-+        nRight += (!!aImage ? nSymbol : 0) + rButton.GetTextWidth(aText);
++        nRight += (!!aImage ? nSymbol : 0) + MenuButtonTextWidth(rButton, aText);
 +    const tools::Long nLeft = std::min(rInner.Right() - nSymbol, nRight + nSymbol / 2);
 +    return tools::Rectangle(Point(nLeft, rInner.Top()), Size(nSymbol, rInner.GetHeight()));
 +}
@@ -1901,6 +2011,204 @@ License: these upstream files remain under their original license (MPL-2.0).
      std::vector<ToolBox*> aToolBoxes;
      forToolBoxes(rGroup, [&aToolBoxes](ToolBox& rToolBox) { aToolBoxes.push_back(&rToolBox); });
      int nCommands = 0;
+--- /dev/null
++++ b/vcl/source/control/HstRibbonMenuButtonMetrics.cxx
+@@ -0,0 +1,195 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include <HstRibbonMenuButtonMetrics.hxx>
++#include <HstRibbonLadder.hxx>
++#include <HstRibbonV3Layout.hxx>
++#include <PriorityMergedHBox.hxx>
++
++#include <vcl/event.hxx>
++#include <vcl/image.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/toolkit/button.hxx>
++#include <vcl/vclevent.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <map>
++#include <vector>
++
++namespace hst::ribbon
++{
++namespace
++{
++/// what a menu button's paint measured: each string the layout asks for (the label, and each line of a large one's),
++/// the paint's width and its window's, and the height of a line
++struct Painted
++{
++    OUString label;
++    std::map<OUString, std::pair<tools::Long, tools::Long>> widths; // paint, window
++    tools::Long height = 0;
++};
++
++struct PaintedMetrics
++{
++    static std::map<const vcl::Window*, Painted>& metrics()
++    {
++        static std::map<const vcl::Window*, Painted> aMetrics;
++        return aMetrics;
++    }
++    /// the buttons whose metrics changed since their layout, laid out again together after the paint
++    static std::vector<VclPtr<PushButton>>& pending()
++    {
++        static std::vector<VclPtr<PushButton>> aPending;
++        return aPending;
++    }
++    static ImplSVEvent*& event()
++    {
++        static ImplSVEvent* pEvent = nullptr;
++        return pEvent;
++    }
++    DECL_STATIC_LINK(PaintedMetrics, DyingHdl, VclWindowEvent&, void);
++    DECL_STATIC_LINK(PaintedMetrics, RelayoutHdl, void*, void);
++};
++
++IMPL_STATIC_LINK(PaintedMetrics, DyingHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        PaintedMetrics::metrics().erase(rEvent.GetWindow());
++}
++
++IMPL_STATIC_LINK_NOARG(PaintedMetrics, RelayoutHdl, void*, void)
++{
++    PaintedMetrics::event() = nullptr;
++    std::vector<VclPtr<PushButton>> aButtons;
++    aButtons.swap(PaintedMetrics::pending());
++    std::vector<VclPtr<PriorityMergedHBox>> aBoxes;
++    for (const VclPtr<PushButton>& xButton : aButtons)
++    {
++        if (xButton->isDisposed())
++            continue;
++        // the button's own place (a large one's width and label line), then the widths its group and tab measured
++        RefreshMenuButton(*xButton);
++        for (vcl::Window* pParent = xButton->GetParent(); pParent; pParent = pParent->GetParent())
++        {
++            if (v3::IsGroup(*pParent))
++                v3::Forget(*pParent);
++            if (PriorityMergedHBox* pBox = dynamic_cast<PriorityMergedHBox*>(pParent))
++            {
++                if (std::find(aBoxes.begin(), aBoxes.end(), pBox) == aBoxes.end())
++                    aBoxes.emplace_back(pBox);
++                break;
++            }
++        }
++        xButton->queue_resize();
++    }
++    for (const VclPtr<PriorityMergedHBox>& xBox : aBoxes)
++    {
++        if (xBox->isDisposed())
++            continue;
++        // the tab's box measures its groups again, as after a font change
++        xBox->DataChanged(DataChangedEvent(DataChangedEventType::FONTS));
++        xBox->queue_resize();
++    }
++}
++
++/// the strings the layout measures of a label: the label, and each of its lines when it has several
++std::vector<OUString> measuredStrings(const OUString& rText)
++{
++    std::vector<OUString> aStrings{ rText };
++    if (rText.indexOf('\n') >= 0)
++    {
++        sal_Int32 nIndex = 0;
++        do
++            aStrings.push_back(rText.getToken(0, '\n', nIndex));
++        while (nIndex >= 0);
++    }
++    return aStrings;
++}
++}
++
++void MenuButtonPainted(PushButton& rButton, const OutputDevice& rDev, const tools::Rectangle& rInner,
++                       sal_Int32& rImageSep)
++{
++    const char cLook = MenuButtonLook(rButton);
++    if (cLook != 'L' && cLook != 'M')
++        return;
++    const OUString aText = rButton.GetText().replaceAll("~", "");
++    Painted aNow;
++    aNow.label = aText;
++    aNow.height = rDev.GetTextHeight();
++    for (const OUString& rString : measuredStrings(aText))
++        aNow.widths[rString] = { rDev.GetTextWidth(rString), rButton.GetTextWidth(rString) };
++
++    // the layout measured with what was known before this paint (the window's measure before the first one)
++    const bool bChanged = aNow.height != MenuButtonTextHeight(rButton)
++                          || std::any_of(aNow.widths.begin(), aNow.widths.end(), [&rButton](const auto& rWidth) {
++                                 return rWidth.second.first != MenuButtonTextWidth(rButton, rWidth.first);
++                             });
++    auto& rMetrics = PaintedMetrics::metrics();
++    auto it = rMetrics.find(&rButton);
++    if (it == rMetrics.end())
++    {
++        rButton.AddEventListener(LINK(nullptr, PaintedMetrics, DyingHdl));
++        rMetrics.emplace(&rButton, std::move(aNow));
++    }
++    else
++    {
++        // keep the strings of the other looks: the layout plans every look of the button
++        it->second.label = aNow.label;
++        it->second.height = aNow.height;
++        for (auto& [rString, rWidths] : aNow.widths)
++            it->second.widths[rString] = rWidths;
++    }
++    if (bChanged)
++    {
++        auto& rPending = PaintedMetrics::pending();
++        if (std::find(rPending.begin(), rPending.end(), &rButton) == rPending.end())
++            rPending.emplace_back(&rButton);
++        if (!PaintedMetrics::event())
++            PaintedMetrics::event() = Application::PostUserEvent(LINK(nullptr, PaintedMetrics, RelayoutHdl));
++    }
++
++    // a large button: its lines under its image, the gap shrunk when the font is too tall for the content at the
++    // usual one (Windows at 125 %: 2 lines of 20 px under a 24 px icon in 68 px)
++    const Image aImage = rButton.GetModeImage();
++    if (cLook == 'L' && !aText.isEmpty() && !!aImage && rButton.GetImageAlign() == ImageAlign::Top)
++    {
++        const auto nLines = static_cast<tools::Long>(1 + std::count(aText.getStr(), aText.getStr() + aText.getLength(), u'\n'));
++        const tools::Long nRoom
++            = rInner.GetHeight() - aImage.GetSizePixel().Height() - nLines * rDev.GetTextHeight();
++        if (nRoom < rImageSep)
++            rImageSep = static_cast<sal_Int32>(std::max<tools::Long>(1, nRoom));
++    }
++}
++
++tools::Long MenuButtonTextWidth(const PushButton& rButton, const OUString& rText)
++{
++    const tools::Long nWindow = rButton.GetTextWidth(rText);
++    const auto it = PaintedMetrics::metrics().find(&rButton);
++    if (it == PaintedMetrics::metrics().end())
++        return nWindow;
++    const auto itText = it->second.widths.find(rText);
++    if (itText != it->second.widths.end())
++        return itText->second.first;
++    // a string the paint did not draw (the label of another look): the window's measure at the paint's ratio
++    const auto itLabel = it->second.widths.find(it->second.label);
++    if (itLabel == it->second.widths.end())
++        return nWindow;
++    const auto& [nPaint, nWindowLabel] = itLabel->second;
++    if (nWindowLabel <= 0 || nPaint == nWindowLabel)
++        return nWindow;
++    return static_cast<tools::Long>(std::ceil(double(nWindow) * nPaint / nWindowLabel));
++}
++
++tools::Long MenuButtonTextHeight(const PushButton& rButton)
++{
++    const auto it = PaintedMetrics::metrics().find(&rButton);
++    return it == PaintedMetrics::metrics().end() ? rButton.GetTextHeight() : it->second.height;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/source/control/HstRibbonPaint.cxx
 +++ b/vcl/source/control/HstRibbonPaint.cxx
 @@ -245,16 +245,21 @@ FileTabColors fileTabColorsFor(const Sty
@@ -2023,7 +2331,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
-@@ -0,0 +1,608 @@
+@@ -0,0 +1,627 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2032,6 +2340,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +#include <HstRibbonV3Layout.hxx>
 +#include <HstRibbonV3Pack.hxx>
 +#include <HstRibbonLadder.hxx>
++#include <HstRibbonMenuButtonMetrics.hxx>
 +
 +#include <vcl/event.hxx>
 +#include <vcl/image.hxx>
@@ -2178,11 +2487,11 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        tools::Long nLine = 0;
 +        sal_Int32 nIndex = 0;
 +        do
-+            nLine = std::max(nLine, pMenu->GetTextWidth(aText.getToken(0, '\n', nIndex)));
++            nLine = std::max(nLine, MenuButtonTextWidth(*pMenu, aText.getToken(0, '\n', nIndex)));
 +        while (nIndex >= 0);
 +        return nFrame + 2 + nLine;
 +    }
-+    const tools::Long nTextHeight = pMenu->GetTextHeight();
++    const tools::Long nTextHeight = MenuButtonTextHeight(*pMenu);
 +    const tools::Long nSymbol = nTextHeight / 2 + 1;
 +    const tools::Long nImageSep = std::max<tools::Long>(1, 1 + (nTextHeight - 10) / 2);
 +    const Image aImage = pMenu->GetModeImage();
@@ -2190,8 +2499,26 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    if (!!aImage)
 +        nWidth += aImage.GetSizePixel().Width() + (aText.isEmpty() ? 0 : nImageSep);
 +    if (!aText.isEmpty())
-+        nWidth += pMenu->GetTextWidth(aText);
++        nWidth += MenuButtonTextWidth(*pMenu, aText);
 +    return nWidth;
++}
++
++/// the height a large menu button's paint needs (0: any other command): its frame, its image, the smallest gap the
++/// paint shrinks it to (HstRibbonMenuButtonMetrics.hxx) and its label's lines
++tools::Long menuButtonHeightNeed(const vcl::Window& rCommand, char cLook)
++{
++    const MenuButton* pMenu = dynamic_cast<const MenuButton*>(&rCommand);
++    if (!pMenu || cLook != 'L')
++        return 0;
++    const OUString aText = pMenu->GetText();
++    const Image aImage = pMenu->GetModeImage();
++    if (aText.isEmpty() || !aImage || pMenu->GetImageAlign() != ImageAlign::Top)
++        return 0;
++    const tools::Long nFrame
++        = 2 * (pMenu->IsNativeControlSupported(ControlType::Pushbutton, ControlPart::Entire) ? 4 : 2);
++    const auto nLines = static_cast<tools::Long>(
++        1 + std::count(aText.getStr(), aText.getStr() + aText.getLength(), u'\n'));
++    return nFrame + aImage.GetSizePixel().Height() + 1 + nLines * MenuButtonTextHeight(*pMenu);
 +}
 +
 +/// the width a command needs at a look: its size request, and what a menu button's paint needs (the request of a
@@ -2615,7 +2942,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                // a menu button as its paint lays its label out (menuButtonNeed), any other as its size request
 +                Size aWant = VclContainer::getLayoutRequisition(rCommand);
 +                if (const tools::Long nNeed = menuButtonNeed(rCommand, rCell.look))
-+                    aWant = Size(nNeed, aRect.GetHeight());
++                    aWant = Size(nNeed, std::max(aRect.GetHeight(), menuButtonHeightNeed(rCommand, rCell.look)));
 +                const bool bLabelled = rCell.look == 'L' || rCell.look == 'M';
 +                rOut.append(",\"label_cut\":");
 +                rOut.append(bLabelled && (aWant.Width() > aRect.GetWidth() || aWant.Height() > aRect.GetHeight())
@@ -3040,16 +3367,25 @@ License: these upstream files remain under their original license (MPL-2.0).
          Size aSize;
 --- a/vcl/source/control/button.cxx
 +++ b/vcl/source/control/button.cxx
-@@ -55,6 +55,8 @@
+@@ -55,6 +55,9 @@
  #include <tools/mapunit.hxx>
  #include <tools/stream.hxx>
  
 +#include <HstRibbonLadder.hxx>
++#include <HstRibbonMenuButtonMetrics.hxx>
 +
  
  using namespace css;
  
-@@ -871,6 +873,12 @@ void PushButton::ImplDrawPushButtonConte
+@@ -851,6 +854,7 @@ void PushButton::ImplDrawPushButtonConte
+     sal_Int32 nImageSep = 1 + (pDev->GetTextHeight()-10)/2;
+     if( nImageSep < 1 )
+         nImageSep = 1;
++    hst::ribbon::MenuButtonPainted(*this, *pDev, aInRect, nImageSep); // HST Office: ribbon label metrics
+     if ( mnDDStyle == PushButtonDropdownStyle::MenuButton )
+     {
+         tools::Long nSeparatorX = 0;
+@@ -871,6 +875,12 @@ void PushButton::ImplDrawPushButtonConte
          // center symbol rectangle in the separated area
          aSymbolRect.AdjustRight( -(nSymbolSize/2) );
          aSymbolRect.SetLeft( aSymbolRect.Right() - nSymbolSize );
@@ -3182,13 +3518,3 @@ License: these upstream files remain under their original license (MPL-2.0).
  void ToolBox::HstSetGridRows( int nRows )
  {
      if ( mpData->mnHstGridRows == nRows )
---- a/sfx2/Module_sfx2.mk
-+++ b/sfx2/Module_sfx2.mk
-@@ -38,6 +38,7 @@ $(eval $(call gb_Module_add_check_target
-     CppunitTest_sfx2_view \
-     CppunitTest_sfx2_doc \
-     CppunitTest_sfx2_autoredaction \
-+    CppunitTest_sfx2_hst_update_dot \
- ))
- 
- $(eval $(call gb_Module_add_subsequentcheck_targets,sfx2,\

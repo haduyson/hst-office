@@ -36,7 +36,7 @@ class LayoutTest(unittest.TestCase):
         self.assertIn("tools::Long nWidth = nFrame + 2 * nSymbol;", code)
         self.assertIn("it = rWidths.emplace(nKey, commandWidth(rCommand, cLook)).first;", code)
         # a large one: its label's lines ("Bam\\ndinh \u25be"), each centred in the frame, not its words
-        self.assertIn("pMenu->GetTextWidth(aText.getToken(0, '\\n', nIndex))", code)
+        self.assertIn("MenuButtonTextWidth(*pMenu, aText.getToken(0, '\\n', nIndex))", code)
         self.assertIn("if (const tools::Long nNeed = menuButtonNeed(rCommand, rCell.look))", code)
 
     def test_one_button_stretches_over_its_cell(self):
@@ -83,6 +83,7 @@ class UpdateDotTest(unittest.TestCase):
         self.assertIn("mxDispatch = xFrame->queryDispatch(maURL, OUString(), 0);", listener)
         self.assertIn("mxDispatch->addStatusListener(this, maURL);", listener)
         self.assertIn("show(rEvent.IsEnabled);", listener)
+        self.assertNotIn("void release();", added(PATCH, "sfx2/inc/notebookbar/HstUpdateDot.hxx"))  # XInterface's
         self.assertIn('u"org.hst.office.update:Available"_ustr',
                       added(PATCH, "sfx2/inc/notebookbar/HstUpdateDot.hxx"))
         box = added(PATCH, "sfx2/source/notebookbar/NotebookbarTabControl.cxx")
@@ -103,6 +104,32 @@ class UpdateDotTest(unittest.TestCase):
         for path in ("include/vcl/HstRibbonUpdateDot.hxx", "vcl/source/control/HstRibbonUpdateDot.cxx",
                      "sfx2/inc/notebookbar/HstUpdateDot.hxx", "sfx2/source/notebookbar/HstUpdateDot.cxx",
                      "sfx2/qa/cppunit/test_hstupdatedot.cxx", "sfx2/CppunitTest_sfx2_hst_update_dot.mk"):
+            self.assertIn("SPDX-License-Identifier: LicenseRef-HST-Proprietary", added(PATCH, path), path)
+
+
+class MenuButtonMetricsTest(unittest.TestCase):
+    def test_layout_measures_menu_labels_as_the_paint_draws_them(self):
+        button = added(PATCH, "vcl/source/control/button.cxx")
+        self.assertIn("hst::ribbon::MenuButtonPainted(*this, *pDev, aInRect, nImageSep);", button)
+        metrics = added(PATCH, "vcl/source/control/HstRibbonMenuButtonMetrics.cxx")
+        self.assertIn("rDev.GetTextWidth(rString), rButton.GetTextWidth(rString)", metrics)
+        self.assertIn("Application::PostUserEvent(LINK(nullptr, PaintedMetrics, RelayoutHdl))", metrics)
+        self.assertIn("xBox->DataChanged(DataChangedEvent(DataChangedEventType::FONTS));", metrics)
+        layout = added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx")
+        self.assertIn("nWidth += MenuButtonTextWidth(*pMenu, aText);", layout)
+        self.assertIn("const tools::Long nTextHeight = MenuButtonTextHeight(*pMenu);", layout)
+        ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
+        self.assertIn("const tools::Long nTextHeight = MenuButtonTextHeight(rButton);", ladder)
+
+    def test_large_label_lines_fit_under_the_image(self):
+        metrics = added(PATCH, "vcl/source/control/HstRibbonMenuButtonMetrics.cxx")
+        self.assertIn("rInner.GetHeight() - aImage.GetSizePixel().Height() - nLines * rDev.GetTextHeight();", metrics)
+        self.assertIn("rImageSep = static_cast<sal_Int32>(std::max<tools::Long>(1, nRoom));", metrics)
+        # the dump reports a large label whose lines do not fit as cut
+        self.assertIn("menuButtonHeightNeed(rCommand, rCell.look)", added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx"))
+
+    def test_new_files_are_hst_owned(self):
+        for path in ("vcl/inc/HstRibbonMenuButtonMetrics.hxx", "vcl/source/control/HstRibbonMenuButtonMetrics.cxx"):
             self.assertIn("SPDX-License-Identifier: LicenseRef-HST-Proprietary", added(PATCH, path), path)
 
 
