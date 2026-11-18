@@ -20,7 +20,7 @@ import sys
 
 from .queue_rules import parse_tests
 from .queue_store import QueueError
-from .queue_train_ops import add, member_jobs, remove, start, wait
+from .queue_train_ops import add, flaky_line, member_jobs, remove, start, wait
 from .queue_train_store import TRAIN_ACTIVE, TrainStore
 
 
@@ -67,7 +67,7 @@ def print_train(store, rec, out):
     for platform, targets in sorted(rec.get("test_failures", {}).items()):
         print(f"    failing  {platform}: {', '.join(targets)}", file=out)
     if rec.get("flaky_tests"):
-        print(f"    flaky    passed when run again, not blamed: {', '.join(rec['flaky_tests'])}", file=out)
+        print(flaky_line(rec), file=out)
     if rec.get("base_test_failures"):
         print(f"    on base  also failing on {rec['base_ref']}, not blamed: {', '.join(rec['base_test_failures'])}",
               file=out)

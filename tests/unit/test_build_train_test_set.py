@@ -3,12 +3,14 @@
 train runs train_tests plus the tests members declared and still packages; a branch passes only when builds and
 tests pass; failing tests run on the base first and a target failing there too is never blamed; a new failure is
 blamed by the assertion's file, else by single/bisect; numbers count per train_prefix next to old records."""
+import io
 import json
 import os
 
 from test_build_train_flow import TrainFlowCase   # first: its fixtures put scripts/ on sys.path
 from build_infra import queue_train_ops as ops  # noqa: E402
 from build_infra.queue_train_store import write_json  # noqa: E402
+from build_infra import queue_train_cli as train_cli  # noqa: E402
 
 SMOKE = "CppunitTest_sw_smoke"
 
@@ -140,6 +142,13 @@ class TrainTestSetTest(TrainFlowCase):
         self.assertNotIn("attribution", rec)
         self.assertEqual(len(self.ts.trains()), 1)              # no bisect halves
         self.assertIn(f"1 passed only when run again: {SMOKE}", self.cand("fix/a")["note"])
+        out = io.StringIO()
+        self.assertEqual(ops.wait(self.store, "fix/a", out=out), 0)
+        self.assertIn(f"FLAKY    train/1.0.2-001: {SMOKE} failed once", out.getvalue())   # never silent
+        for what in ("fix/b", "train/1.0.2-001", None):
+            out = io.StringIO()
+            train_cli.status(self.store, what, False, out)
+            self.assertIn("FLAKY", out.getvalue(), what)
 
     def test_a_base_run_that_cannot_finish_blames_nobody(self):
         self.world.member("fix/a", "hst-a.patch", "sw/a.cxx")

@@ -95,6 +95,12 @@ def start(store):
             f.write(now_iso() + "\n")
 
 
+def flaky_line(rec):
+    """The warning for tests of a train that failed once and passed when run again: never blamed, never silent."""
+    return (f"    FLAKY    {rec['name']}: {', '.join(rec['flaky_tests'])} failed once, passed when run again: "
+            "not blamed, but each one is a defect to fix")
+
+
 def member_jobs(store, cand):
     """[(platform, job)] of the train result (or confirmation builds) a candidate points at."""
     res = cand.get("result") or {}
@@ -122,6 +128,9 @@ def wait(store, branch, timeout=None, interval=15, out=sys.stdout):
             return 2
         time.sleep(interval)
     print(f"{branch}: {cand['state']}: {cand.get('note', '')}", file=out)
+    rec = ts.load((cand.get("result") or {}).get("train") or "")
+    if rec and rec.get("flaky_tests"):
+        print(flaky_line(rec), file=out)
     for platform, job in member_jobs(store, cand):
         if job and job["state"] == "done" and cand["state"] == "passed":
             for path in job.get("output", []):
