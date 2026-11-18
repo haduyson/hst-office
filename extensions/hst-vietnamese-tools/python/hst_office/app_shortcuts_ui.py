@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Tùy chọn ▸ HST Office ▸ Mở tài liệu ▸ "Lối tắt ứng dụng" (dialogs/DefaultApps.xdl, options_page.py).
 
-macOS: "Thêm vào Dock" pins HST Writer, HST Sheets and HST Slides; Linux: "Tạo lối tắt trên màn hình nền". Both ask
-first and change nothing on "Để sau". On Windows the installer creates the shortcuts, so the section is hidden.
+macOS: "Thêm vào Dock" pins HST Writer, HST Sheets and HST Slides, and "Gỡ biểu tượng ứng dụng" / "Thêm lại biểu tượng
+ứng dụng" remove or restore the five launchers in /Applications (mac_app_launchers_ui); Linux: "Tạo lối tắt trên màn
+hình nền". They ask first and change nothing on "Để sau". On Windows the installer creates the shortcuts, so the
+section is hidden.
 """
 import platform
 
@@ -14,7 +16,8 @@ NAMES = "HST Writer, HST Sheets và HST Slides"
 LATER = "Để sau"
 TEXTS = {
     "Darwin": {
-        "note": "Ghim %s vào Dock để mở thẳng từng ứng dụng." % NAMES,
+        "note": "HST Writer, HST Sheets, HST Slides, HST Draw và HST PDF có trong Launchpad và thư mục Ứng dụng. "
+                "Ghim %s vào Dock để mở thẳng từng ứng dụng." % NAMES,
         "button": "Thêm vào Dock",
         "ask": "Thêm %s vào Dock?\nDock sẽ khởi động lại trong giây lát." % NAMES,
         "done": "Đã thêm %s vào Dock." % NAMES,
@@ -31,6 +34,7 @@ TEXTS = {
 MOVE_FIRST = "Hãy chuyển HST Office vào thư mục Ứng dụng (Applications) rồi thử lại."
 FAILED = "Không tạo được lối tắt: %s"
 CONTROLS = ("shortcutsHeading", "shortcutsNote", "appShortcuts")
+MAC_CONTROLS = ("removeLaunchers", "addLaunchers")  # the app icons in /Applications: macOS only
 
 
 def texts(system=None):
@@ -40,12 +44,13 @@ def texts(system=None):
 
 def configure_page(window, system=None):
     """Label the section's button for this OS, or hide the section."""
+    system = system or platform.system()
     text = texts(system)
-    for name in CONTROLS:
+    for name in CONTROLS + MAC_CONTROLS:
         control = window.getControl(name)
         if control is None:
             continue
-        control.setVisible(text is not None)
+        control.setVisible(text is not None and (name in CONTROLS or system == "Darwin"))
         if text is not None and name == "appShortcuts":
             control.getModel().Label = text["button"]
             control.getModel().HelpText = text["note"]
@@ -80,15 +85,12 @@ def _linux(ctx, peer, text):
     return _message(ctx, peer, text["done"])
 
 
-def run(ctx, peer=None, system=None):
-    """The button's action. Never raises: every failure is shown to the user and logged."""
-    system = system or platform.system()
-    text = texts(system)
-    if text is None:
-        return False
+def _guarded(ctx, peer, action):
+    """action() with every failure shown to the user and logged, never raised into the options dialog."""
+    from .mac_app_launchers import LauncherError
     try:
-        return (_mac if system == "Darwin" else _linux)(ctx, peer, text)
-    except shortcuts.ShortcutError as exc:
+        return action()
+    except (shortcuts.ShortcutError, LauncherError) as exc:
         diag_log.exception("app_shortcuts")
         return _message(ctx, peer, FAILED % exc)
     except Exception as exc:  # noqa: BLE001 - never raise into the options dialog
@@ -98,3 +100,24 @@ def run(ctx, peer=None, system=None):
         except Exception:  # noqa: BLE001 - not even the message could be shown
             diag_log.exception("app_shortcuts")
             return False
+
+
+def run(ctx, peer=None, system=None):
+    """The button's action. Never raises: every failure is shown to the user and logged."""
+    system = system or platform.system()
+    text = texts(system)
+    if text is None:
+        return False
+    return _guarded(ctx, peer, lambda: (_mac if system == "Darwin" else _linux)(ctx, peer, text))
+
+
+def launcher_icons(ctx, peer=None, add=False, system=None):
+    """"Thêm lại biểu tượng ứng dụng" (add) or "Gỡ biểu tượng ứng dụng" on macOS. Never raises."""
+    if (system or platform.system()) != "Darwin":
+        return False
+    from . import mac_app_launchers_ui as icons
+    action = icons.add_from_options if add else icons.remove_from_options
+
+    def message(text, ask=False, button=None):
+        return _message(ctx, peer, text, ask=ask, button=button)
+    return _guarded(ctx, peer, lambda: action(ctx, message))

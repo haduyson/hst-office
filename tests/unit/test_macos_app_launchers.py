@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""macOS launchers HST Writer, HST Sheets and HST Slides: the bundles make-app-launchers.py builds, the stub's
-contract with their Info.plist, the signing step that drops the launch constraint, and the probe helper."""
+"""macOS launchers HST Writer, HST Sheets, HST Slides, HST Draw and HST PDF: the bundles make-app-launchers.py builds,
+the stub's contract with their Info.plist, the signing step that drops the launch constraint, and the probe helper."""
 import importlib.util
 from pathlib import Path
 import plistlib
@@ -30,9 +30,14 @@ HOST = {"CFBundleIdentifier": "vn.hasontech.hstoffice", "CFBundleShortVersionStr
 
 
 class LauncherBundles(unittest.TestCase):
-    def test_three_launchers_for_the_three_modules(self):
+    def test_five_launchers_like_windows_and_linux(self):
         self.assertEqual([(m, n) for m, n, _f, _s in MAKE.LAUNCHERS],
-                         [("writer", "HST Writer"), ("calc", "HST Sheets"), ("impress", "HST Slides")])
+                         [("writer", "HST Writer"), ("calc", "HST Sheets"), ("impress", "HST Slides"),
+                          ("draw", "HST Draw"), ("pdf", "HST PDF")])
+        # the names HST Office copies to /Applications (hst_office/mac_app_launchers.py) are the bundles built here
+        from hst_office import mac_app_launchers
+        self.assertEqual(tuple(n for _m, n, _f, _s in MAKE.LAUNCHERS), mac_app_launchers.NAMES)
+        self.assertEqual([s for *_x, s in MAKE.LAUNCHERS], ["writer", "sheets", "slides", "draw", "pdf"])
         self.assertEqual(MAKE.bundle_path("/A/HST Office.app", "HST Sheets"),
                          Path("/A/HST Office.app/Contents/Helpers/HST Sheets.app"))
 
@@ -64,10 +69,21 @@ class LauncherBundles(unittest.TestCase):
         for _module, _name, family, _suffix in MAKE.LAUNCHERS:
             plan = MAKE.iconset_sources(family)
             self.assertEqual(set(plan), set(MAKE.MEMBERS))
-            self.assertEqual(plan["icon_512x512@2x.png"].name, family + "-1024.png")
+            shown = MAKE.ICON_FALLBACK.get(family, family) if not (MAKE.ICONS / (family + "-16.png")).exists() else family
+            self.assertEqual(plan["icon_512x512@2x.png"].name, shown + "-1024.png")
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(FileNotFoundError):
                 MAKE.iconset_sources("hst-writer", tmp)
+
+    def test_hst_pdf_shows_the_draw_icon_until_it_has_its_own(self):
+        """As the Linux launcher (pdf.desktop: Icon=vn.hasontech.hstoffice-draw); own artwork wins once added."""
+        with tempfile.TemporaryDirectory() as tmp:
+            for size in set(MAKE.MEMBERS.values()):
+                (Path(tmp) / ("hst-draw-%d.png" % size)).write_bytes(b"d")
+            self.assertEqual(MAKE.iconset_sources("hst-pdf", tmp)["icon_16x16.png"].name, "hst-draw-16.png")
+            for size in set(MAKE.MEMBERS.values()):
+                (Path(tmp) / ("hst-pdf-%d.png" % size)).write_bytes(b"p")
+            self.assertEqual(MAKE.iconset_sources("hst-pdf", tmp)["icon_16x16.png"].name, "hst-pdf-16.png")
 
     def test_stub_reads_the_keys_the_bundle_writes(self):
         stub = (MACOS / "hst-app-launcher.m").read_text(encoding="utf-8")
@@ -79,6 +95,16 @@ class LauncherBundles(unittest.TestCase):
         for forbidden in ("/bin/sh", "osascript", "NSAppleScript", "system("):
             self.assertNotIn(forbidden, stub)
         self.assertNotIn("LibreOffice", stub)
+
+    def test_stub_outside_the_bundle(self):
+        """A copy in /Applications finds HST Office by bundle id (never one in the Trash), HST PDF asks for PDF files,
+        and a launcher whose HST Office was removed offers to move itself to the Trash."""
+        stub = (MACOS / "hst-app-launcher.m").read_text(encoding="utf-8")
+        for needed in ("URLForApplicationWithBundleIdentifier:", "URLsForApplicationsWithBundleIdentifier:",
+                       '@"/.Trash/"', '@"HST Office.app"', "NSOpenPanel", "UTTypePDF", "openURLs:",
+                       "HST Office chưa được cài đặt.", "trashItemAtURL:", '@"Chuyển vào Thùng rác"'):
+            self.assertIn(needed, stub)
+        self.assertIn('"-framework", "UniformTypeIdentifiers"', (MACOS / "make-app-launchers.py").read_text())
 
     def test_hand_over_of_a_new_document_does_not_wait(self):
         """The launcher's second soffice waited for Impress's template dialog: a second HST Office in the Dock and
@@ -99,6 +125,8 @@ class LauncherBundles(unittest.TestCase):
         self.assertLess(collect.index("make-app-launchers.py"), collect.index("build-dmg.sh"))
         verify = trial[trial.index("do_verify()"):]
         self.assertIn("Contents/Helpers/$name.app", verify)
+        for _module, name, _family, _suffix in MAKE.LAUNCHERS:
+            self.assertIn('"%s:%s"' % (name, _module), verify)
 
     def test_developer_id_signing_drops_the_parent_launch_constraint(self):
         sign = (MACOS / "sign-notarize.sh").read_text(encoding="utf-8")

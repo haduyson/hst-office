@@ -158,10 +158,11 @@ do_sign() {
   env BUILDDIR="$TMP/kit/build" SRCDIR="$TMP/kit/src" MACOSX_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
     MACOSX_CODESIGNING_IDENTITY="$MACOS_SIGNING_IDENTITY" ENABLE_MACOSX_SANDBOX= ENABLE_RELEASE_BUILD=TRUE \
     bash "$kit/macosx-codesign-app-bundle" "$app" 2>&1 | { grep -v 'replacing existing signature' || :; }
-  # 2b. The launchers HST Writer/Sheets/Slides (Contents/Helpers, scripts/macos/make-app-launchers.py) are started
-  #     by the Dock or Finder, never by HST Office: upstream's pass gave them its parent-process launch constraint,
-  #     which would stop them. Re-sign them without it (hardened runtime, no entitlements), then re-seal the app
-  #     exactly as upstream's last step does.
+  # 2b. The launchers HST Writer/Sheets/Slides/Draw/PDF (Contents/Helpers, scripts/macos/make-app-launchers.py) are
+  #     started by the Dock, Launchpad or Finder, never by HST Office, and HST Office copies them to /Applications:
+  #     upstream's pass gave them its parent-process launch constraint, which would stop them. Re-sign them without
+  #     it (hardened runtime, no entitlements; each copy keeps a complete signature of its own, and notarization
+  #     records its cdhash), then re-seal the app exactly as upstream's last step does.
   local launcher launchers=0
   for launcher in "$app/Contents/Helpers/"*.app; do
     [ -d "$launcher" ] || continue

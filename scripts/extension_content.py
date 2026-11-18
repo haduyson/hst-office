@@ -36,9 +36,9 @@ USB_TOKEN_NSS = "python/hst_office/usb_token_nss.py"  # local NSS tools only; no
 CRASH_SIGNATURE = "python/hst_office/crash_signature.py"  # wevtutil (Windows event log) only; no shell or network
 # "Mở tài liệu văn phòng bằng HST Office?": xdg-mime (Linux) and LaunchServices through ctypes (macOS), after the
 # user agrees; never any network module
-# Local OS tools only (xdg-mime, LaunchServices, defaults/killall Dock, gio), never the network.
+# Local OS tools only (xdg-mime, LaunchServices, defaults/killall Dock, gio, ditto/lsregister), never the network.
 DEFAULT_APPS = ("python/hst_office/default_apps_linux.py", "python/hst_office/default_apps_os.py",
-                "python/hst_office/app_shortcuts.py")
+                "python/hst_office/app_shortcuts.py", "python/hst_office/mac_app_launchers.py")
 # Local OS queries, never the network (same import rule as DEFAULT_APPS: subprocess/ctypes allowed, network refused).
 LOCAL_SYSTEM = ("python/hst_office/screen_work_area.py",  # ctypes user32 SystemParametersInfoW: the taskbar-free work area
                 "python/hst_office/system_boot.py",  # boot time: ctypes GetTickCount64 (Windows), `sysctl -n kern.boottime` (macOS)
