@@ -5,6 +5,7 @@ configmgr reads the user's registrymodifications.xcu before the profile's extens
 registration is missing or being renewed; values of a schema it does not know then are dropped (the welcome dialog came
 back). hst-extension-settings-core.patch adds every HST settings schema to main.xcd, with the same paths and defaults,
 and the bundled extension stops shipping them (one definition only)."""
+import hashlib
 import os
 import re
 import unittest
@@ -31,6 +32,14 @@ SHIPPED_1_0_2 = {
                     "SendInstallId": "true", "InstallId": ""},
     "Welcome": {"Shown": "false"},
 }
+# components added after 1.0.2, copied unchanged from the branch that introduced them (the RC integration checks that
+# the source is still this file): component -> (defaults, sha256 of the original extension .xcs)
+ADDED_LATER = {
+    # ai.xcs of feat/features-engine-1.0.3 dfc64def080baa538abc48bdeabee602c77eca93 (AI assistant)
+    "AI": ({"Enabled": "false", "Provider": "", "OpenAIModel": "", "GeminiModel": "", "ClaudeModel": ""},
+           "2fd4439bf8c498c3e0677895d6759d6ec226fa56ae775d7fa4aefec33dad5bb9"),
+}
+HEADER_LINES = 10  # XML declaration, MPL comment (7 lines), blank line, DOCTYPE
 
 
 def read(path):
@@ -52,13 +61,20 @@ class CoreSchemas(unittest.TestCase):
         self.assertLessEqual(used, set(core.components()))
 
     def test_same_paths_properties_and_defaults_as_1_0_2(self):
-        self.assertEqual(core.components(), sorted(SHIPPED_1_0_2))
-        for component, props in SHIPPED_1_0_2.items():
+        self.assertEqual(core.components(), sorted(list(SHIPPED_1_0_2) + list(ADDED_LATER)))
+        expected = dict(SHIPPED_1_0_2, **{name: props for name, (props, _sha) in ADDED_LATER.items()})
+        for component, props in expected.items():
             root = core.schema_root(component)
             self.assertEqual((root.get(core.OOR + "package"), root.get(core.OOR + "name")),
                              ("org.hasontech.hstoffice", component))
             got = {p.get(core.OOR + "name"): p.findtext("value") for p in root.find("component").iter("prop")}
             self.assertEqual(got, props, component)
+
+    def test_later_components_are_the_original_files_unchanged(self):
+        for component, (_props, sha) in ADDED_LATER.items():
+            lines = core.schema_text(component).split("\n")
+            original = "\n".join(lines[:1] + lines[HEADER_LINES:])
+            self.assertEqual(hashlib.sha256(original.encode("utf-8")).hexdigest(), sha, component)
 
     def test_schema_files_are_valid_officecfg_sources(self):
         for component in core.components():

@@ -1,9 +1,9 @@
 HST Office: the per-user settings of the bundled HST extension become core configuration schemas.
 
 The components org.hasontech.hstoffice.* (Welcome, DefaultApps, ErrorReport, FeatureSearch, SaveFormatCheck,
-NumberWords, Citations, Nd30, Banners, PreviousVersions, UpdateCheck) were defined by .xcs files inside the bundled
-extension. configmgr learns a bundled extension's schemas at start only from the profile's registration cache
-(user/extensions/bundled/.../configmgr.ini); when that cache is missing, or was left without the HST schemas by a
+NumberWords, Citations, Nd30, Banners, PreviousVersions, UpdateCheck, and AI of the AI assistant) were defined by
+.xcs files inside the bundled extension. configmgr learns a bundled extension's schemas at start only from the
+profile's registration cache (user/extensions/bundled/.../configmgr.ini); when that cache is missing, or was left without the HST schemas by a
 start ended while the extensions were registered again after an update, it skips the user's values of these
 components in registrymodifications.xcu as unknown items and drops them at the next settings write: the welcome
 dialog, the default-apps and crash questions and the feature search hint came back, and the other HST settings
@@ -19,7 +19,7 @@ Test: tests/unit/test_extension_settings_core.py; tests/runtime/check-startup-ch
 ---
 --- a/officecfg/Configuration_officecfg.mk
 +++ b/officecfg/Configuration_officecfg.mk
-@@ -22,6 +22,27 @@
+@@ -22,6 +22,28 @@
  
  $(eval $(call gb_Configuration_add_schemas,registry,officecfg/registry/schema,\
  	$(addprefix org/openoffice/,$(addsuffix .xcs,$(officecfg_XCSFILES))) \
@@ -30,6 +30,7 @@ Test: tests/unit/test_extension_settings_core.py; tests/runtime/check-startup-ch
 +# registrymodifications.xcu; as extension schemas they were not while the profile's extension
 +# registration was missing or being renewed, and the user's values were dropped.
 +officecfg_HST_XCSFILES := \
++	AI \
 +	Banners \
 +	Citations \
 +	DefaultApps \
@@ -49,12 +50,13 @@ Test: tests/unit/test_extension_settings_core.py; tests/runtime/check-startup-ch
  $(eval $(call gb_Configuration_add_datas,registry,officecfg/registry/data,\
 --- a/postprocess/CustomTarget_registry.mk
 +++ b/postprocess/CustomTarget_registry.mk
-@@ -278,6 +278,20 @@
+@@ -278,6 +278,21 @@
  	$(postprocess_MOD)/org/openoffice/TypeDetection/UISort-math.xcu \
  	$(postprocess_MOD)/org/openoffice/TypeDetection/UISort-writer.xcu
  
 +# HST Office: the settings of the bundled HST extension (hst-extension-settings-core.patch)
 +postprocess_FILES_main += $(addprefix $(call gb_XcsTarget_get_target,org/hasontech/hstoffice)/,\
++	AI.xcs \
 +	Banners.xcs \
 +	Citations.xcs \
 +	DefaultApps.xcs \
@@ -70,6 +72,62 @@ Test: tests/unit/test_extension_settings_core.py; tests/runtime/check-startup-ch
  ifeq (MACOSX,$(OS))
  postprocess_FILES_main += \
  	$(postprocess_MOD)/org/openoffice/Inet-macosx.xcu \
+--- /dev/null
++++ b/officecfg/registry/schema/org/hasontech/hstoffice/AI.xcs
+@@ -0,0 +1,53 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
++                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++                      oor:name="AI" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
++  <info>
++    <desc>Trợ lý AI (hst_office/ai_*.py): off by default, no provider chosen by default. The user turns it on in
++      Tùy chọn ▸ HST Office ▸ Trợ lý AI, picks OpenAI, Google Gemini or Anthropic Claude and enters their own API
++      key, which is kept in the operating system's credential store (ai_keystore.py), never here. A request leaves
++      the machine only when the user presses a send button; see docs/PRIVACY.md. Administrators can set Enabled to
++      false and lock it to remove the assistant.</desc>
++  </info>
++  <component>
++    <prop oor:name="Enabled" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>The assistant's commands work (otherwise they are greyed out). Default off.</desc>
++      </info>
++      <value>false</value>
++    </prop>
++    <prop oor:name="Provider" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>openai, gemini or claude; empty (the default) means none chosen yet.</desc>
++      </info>
++      <value></value>
++    </prop>
++    <prop oor:name="OpenAIModel" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Model ID used with OpenAI; empty: the first of ai_providers.PROVIDERS["openai"]["models"].</desc>
++      </info>
++      <value></value>
++    </prop>
++    <prop oor:name="GeminiModel" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Model ID used with Google Gemini; empty: the first suggested one.</desc>
++      </info>
++      <value></value>
++    </prop>
++    <prop oor:name="ClaudeModel" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Model ID used with Anthropic Claude; empty: the first suggested one.</desc>
++      </info>
++      <value></value>
++    </prop>
++  </component>
++</oor:component-schema>
 --- /dev/null
 +++ b/officecfg/registry/schema/org/hasontech/hstoffice/Banners.xcs
 @@ -0,0 +1,21 @@

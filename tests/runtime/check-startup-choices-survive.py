@@ -38,7 +38,8 @@ SETTINGS = (("Welcome", "Shown", "true"), ("DefaultApps", "Done", "true"), ("Def
             ("SaveFormatCheck", "Remembered", "keep"), ("NumberWords", "Unit", "USD"),
             ("Citations", "OnlineLookup", "false"), ("Nd30", "AgencyRule", "1/2"),
             ("Banners", "FeedURL", "https://127.0.0.1:9/hst-feed.json"), ("PreviousVersions", "Enabled", "false"),
-            ("UpdateCheck", "InstallId", "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0"))
+            ("UpdateCheck", "InstallId", "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0"),
+            ("AI", "Enabled", "true"), ("AI", "Provider", "claude"))
 
 
 class Starts:
