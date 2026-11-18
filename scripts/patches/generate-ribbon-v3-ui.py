@@ -146,6 +146,19 @@ def expand_box(box):
         prop = ET.SubElement(pack, "property", name="expand")
         pack.insert(0, prop)
     prop.text = "True"
+    fill_height(box)
+
+
+def fill_height(box):
+    """The merged box and its tab box take the page's height: centred (valign center), a tab of buttons only stood
+    at the groups' own height and sat a few px below the body top that the other tabs fill (Draw's Page tab)."""
+    tab = box.getparent().getparent()
+    for obj in (box, tab):
+        if obj is None or obj.tag != "object":
+            continue
+        prop = obj.find("property[@name='valign']")
+        if prop is not None:
+            prop.text = "fill"
 
 
 def rewrite_app(path, app):
