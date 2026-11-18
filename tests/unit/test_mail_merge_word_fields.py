@@ -73,7 +73,7 @@ class NumberPictures(unittest.TestCase):
         picture = "#,##0 'đ';(#,##0 'đ');'không'"
         self.assertEqual(pictures.format_number(-2500.0, picture), "(2,500 đ)")
         self.assertEqual(pictures.format_number(0.0, picture), "không")
-        self.assertEqual(pictures.format_number(-5.0, "#,##0"), "    -5")
+        self.assertEqual(pictures.format_number(-5.0, "#,##0"), "   -5")
         self.assertEqual(pictures.format_number(-1234.5, "#,##0.00"), "-1,234.50")
         self.assertEqual(pictures.format_number(5.0, "+0"), "+5")
 

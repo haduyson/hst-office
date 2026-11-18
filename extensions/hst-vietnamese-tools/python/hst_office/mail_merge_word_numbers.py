@@ -98,7 +98,7 @@ def _whole_part(digits, places, group):
     text = ""
     for position, cell in enumerate(cells):
         if group and position and position % 3 == 0:
-            text = (group if cell.strip() else " ") + text
+            text = (group if cell.strip() else "") + text  # Word: no separator, and no space, without a digit
         text = cell + text
     return text
 

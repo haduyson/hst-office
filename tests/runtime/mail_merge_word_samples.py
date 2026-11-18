@@ -48,7 +48,7 @@ PARAGRAPHS = (
 )
 # Word's merged text per recipient. \* Caps lowers the rest of each word, \* FirstCap only raises the first
 # letter. Word compares IF texts with case ("nam" is not "Nam"). A "#" of a numeric picture without a digit shows a
-# space, and so does a group separator with no digit before it (0 -> "    0").
+# space, and a group separator with no digit before it is left out (0 -> "   0"; Word 2021, HST4).
 EXPECTED = (
     ("Kính gửi: Ông NGUYỄN VĂN AN",
      "Họ tên: Nguyễn Văn An / Nguyễn Văn An / nguyễn văn an",
@@ -71,7 +71,7 @@ EXPECTED = (
     ("Kính gửi: Bà LÊ HOÀNG ÁNH",
      "Họ tên: Lê Hoàng Ánh / Lê hoàng ánh / lê hoàng ánh",
      "Ngày sinh: 01/01/2001; ngày 01 tháng 01 năm 2001; 1/1/01",
-     "Lương:     0 đ;     0.00;     0; không đồng",
+     "Lương:    0 đ;    0.00;    0; không đồng",
      "Năm sinh: 2001, CCCD: 048201009999, STT: 003",
      "Chức vụ: nhân viên.",
      "Mức lương thường",
