@@ -15,6 +15,91 @@ Test: CppunitTest_sw_core_text testIndentNotAddedBesideFloatInWordLayout and tes
 License: the new files sw/source/core/text/hstindentbesidefly.{hxx,cxx} are LicenseRef-HST-Proprietary; the
 upstream files remain under their original license (MPL-2.0).
 ---
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -416,6 +416,7 @@
+     sw/source/core/text/porexp \
+     sw/source/core/text/porfld \
+     sw/source/core/text/porfly \
++    sw/source/core/text/hstindentbesidefly \
+     sw/source/core/text/hstwideobjectbesidefly \
+     sw/source/core/text/porglue \
+     sw/source/core/text/porlay \
+--- /dev/null
++++ b/sw/source/core/text/hstindentbesidefly.hxx
+@@ -0,0 +1,26 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++class SwTextFrame;
++
++namespace hst::sw
++{
++/** Whether a paragraph's left indent is left out of the room a float at the left of a line takes.
++
++    Word (layouts imported with content allowed over the right margin: .doc, and .docx/.rtf before Word 2013)
++    starts the text beside a float at the float's wrap edge; the paragraph's left indent, measured from the
++    margin, is already covered by the float. Writer adds the indent again after the float, so every line next to
++    a picture in an indented paragraph lost the indent's width and wide formulas broke onto an extra line.
++    Writer already does this for split (floating table) frames.
++
++    True only with DocumentSettingId::TAB_OVER_MARGIN, a left-to-right paragraph and a float that is no split
++    frame. */
++bool IgnoreIndentBesideFly(const SwTextFrame& rFrame, bool bSplitFly);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/core/text/hstindentbesidefly.cxx
+@@ -0,0 +1,23 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#include "hstindentbesidefly.hxx"
++
++#include <IDocumentSettingAccess.hxx>
++#include <doc.hxx>
++#include <txtfrm.hxx>
++
++namespace hst::sw
++{
++bool IgnoreIndentBesideFly(const SwTextFrame& rFrame, bool bSplitFly)
++{
++    if (bSplitFly || rFrame.IsRightToLeft())
++        return false;
++    return rFrame.GetDoc().getIDocumentSettingAccess().get(DocumentSettingId::TAB_OVER_MARGIN);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/core/text/itrform2.cxx
++++ b/sw/source/core/text/itrform2.cxx
+@@ -71,6 +71,7 @@
+ #include <com/sun/star/rdf/XLiteral.hpp>
+ #include <com/sun/star/text/XTextContent.hpp>
+ #include <unotxdoc.hxx>
++#include "hstindentbesidefly.hxx"
+ 
+ using namespace ::com::sun::star;
+ 
+@@ -3092,6 +3093,9 @@
+         }
+         else
+             nAddMar = nLeftMar - nFrameLeft;
++        // Word starts the text at the float's edge, the indent is already covered by the float
++        if (nAddMar > 0 && hst::sw::IgnoreIndentBesideFly(*GetTextFrame(), bSplitFly))
++            nAddMar = 0;
+ 
+         aInter.Width( aInter.Width() + nAddMar );
+         // For a negative first line indent, we set this flag to show
 --- a/sw/qa/core/text/txtfly.cxx
 +++ b/sw/qa/core/text/txtfly.cxx
 @@ -49,6 +49,15 @@
