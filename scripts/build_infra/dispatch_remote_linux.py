@@ -226,6 +226,8 @@ class RemoteLinuxRunner:
             cmd.append("--no-package")
         if job.get("tests"):
             cmd += ["--test", " ".join(job["tests"])]
+            if job["package"] and not job["modules"]:
+                cmd.append("--package")   # a train's Linux build: tests, then the packages
         cmd.append(job["sha"])
         env = {**self.env(), "HST_Q_LOG": rlog, "HST_Q_RC": rc}
         argv = ["systemd-run", f"--unit={self.unit(job['id'])}", "--collect", "--quiet",

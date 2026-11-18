@@ -24,6 +24,7 @@
 #   --reconfigure      run the configure phase even when nothing it depends on changed
 #   --fresh            re-extract the pristine tarballs (full rebuild)
 #   --no-package       stop after make (skip the single-.deb packaging)
+#   --package          package even with --test (build, run the tests, then package: a build train's Linux job)
 #   --umount           only unmount the slot's chroot (after a crashed run) and exit (needs --slot N)
 #
 # Layout under HST_BUILD_ROOT:
@@ -70,7 +71,7 @@ CCACHE_MAX="${HST_CCACHE_MAX:-30G}"
 # Optional systemd slice for the make scopes (a remote build host caps all its builds together in hst-build.slice).
 SLICE="${HST_LOCAL_SLICE:-}"
 [ -z "$SLICE" ] || [[ "$SLICE" =~ ^[A-Za-z0-9_-]+\.slice$ ]] || { echo "local-build: bad HST_LOCAL_SLICE" >&2; exit 64; }
-JOBS=$MAX_JOBS; RECONFIGURE=0; FRESH=0; PACKAGE=1; TARGET=""; BUILD_PGID=""; MOUNTED=0; ADMITTED=0; BASE_MOUNTED=0
+JOBS=$MAX_JOBS; RECONFIGURE=0; FRESH=0; PACKAGE=1; PACKAGE_WITH_TESTS=0; TARGET=""; BUILD_PGID=""; MOUNTED=0; ADMITTED=0; BASE_MOUNTED=0
 SLOT=auto; MODULES=""; TESTS=""; LABEL_OPT=""; OUT_OPT=""; UMOUNT_ONLY=0
 
 usage() { sed -n '7,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 64; }
@@ -89,6 +90,7 @@ while [ $# -gt 0 ]; do
     --reconfigure) RECONFIGURE=1; shift ;;
     --fresh) FRESH=1; shift ;;
     --no-package) PACKAGE=0; shift ;;
+    --package) PACKAGE_WITH_TESTS=1; shift ;;
     --umount) UMOUNT_ONLY=1; shift ;;
     -h|--help) usage ;;
     -*) die "unknown option $1" ;;
@@ -121,8 +123,9 @@ if [ -n "$TESTS" ]; then
       || die "--test: '$t' is not a CppunitTest_*/PythonTest_* or <module>.check-style target"
   done
   [ "${#TEST_TARGETS[@]}" -gt 0 ] || die "--test needs at least one target"
-  PACKAGE=0
+  [ "$PACKAGE_WITH_TESTS" -eq 1 ] || PACKAGE=0
 fi
+[ "$PACKAGE_WITH_TESTS" -eq 0 ] || [ -z "$MODULES" ] || die "--package cannot be combined with --modules"
 MAKE_KIND=full; [ -z "$MODULES" ] || MAKE_KIND=modules
 [ "$(id -u)" -eq 0 ] || die "needs root (chroot and mounts)"
 for tool in git rsync chroot mount flock python3 sha256sum systemd-run systemctl ionice; do   # docker: update_base

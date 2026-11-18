@@ -44,6 +44,16 @@ class SubmitTest(QueueTestCase):
         self.store.update(fresh["id"], state="failed")
         self.assertFalse(self.submit()[1])
 
+    def test_a_done_package_build_without_packages_is_not_reused(self):
+        job, _ = self.submit()
+        self.store.update(job["id"], state="done", output=[], finished=job["submitted"])
+        fresh, dup = self.submit()
+        self.assertFalse(dup)
+        self.assertNotEqual(fresh["id"], job["id"])
+        tests, _ = self.submit(tests=["CppunitTest_a"])   # a test run has no package: done without output is fine
+        self.store.update(tests["id"], state="done", output=[], finished=tests["submitted"])
+        self.assertEqual(self.submit(tests=["CppunitTest_a"])[0]["id"], tests["id"])
+
     def test_validation(self):
         with self.assertRaises(bq.QueueError):
             self.submit(platform="mac")

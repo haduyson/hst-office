@@ -46,6 +46,8 @@ class LinuxRunner:
             cmd.append("--no-package")
         if job.get("tests"):
             cmd += ["--test", " ".join(job["tests"])]
+            if job["package"] and not job["modules"]:
+                cmd.append("--package")   # a train's Linux build: tests, then the packages
         cmd.append(job["sha"])
         rc = self.rc_path(job)
         if os.path.exists(rc):

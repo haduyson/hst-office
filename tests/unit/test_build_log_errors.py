@@ -73,6 +73,17 @@ class ErrorLinesTest(unittest.TestCase):
         self.assertLess(script.index(call), script.index('tail -60 "$BUILD_LOG"'))   # errors first, then the tail
 
 
+class LocalBuildPackageWithTestsTest(unittest.TestCase):
+    def test_package_flag_keeps_packaging_after_tests_but_not_with_modules(self):
+        script = (ROOT / "scripts/linux/local-build.sh").read_text()
+        self.assertIn("--package) PACKAGE_WITH_TESTS=1", script)
+        self.assertIn('[ "$PACKAGE_WITH_TESTS" -eq 1 ] || PACKAGE=0', script)   # --test alone: no package
+        self.assertIn('die "--package cannot be combined with --modules"', script)
+        # Packaging runs after the tests and the test results are copied after it (it recreates the output dir).
+        self.assertLess(script.index("timed tests run_tests"), script.index("timed package do_package"))
+        self.assertLess(script.index("timed package do_package"), script.index('cp -r "$TEST_OUT/." "$DEST/"'))
+
+
 class FailedJobOutputTest(QueueTestCase):
     def failed(self, log_text):
         job, _ = self.submit(modules=["sw"])

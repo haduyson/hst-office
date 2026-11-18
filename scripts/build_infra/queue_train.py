@@ -100,7 +100,8 @@ def job_outcome(job, infra_failure, log_text=""):
     if job is None:
         return "error"
     if job["state"] == "done":
-        return "pass"
+        # A package build that delivered no package did not finish its work (never a pass, never a branch's fault).
+        return "error" if job.get("package") and not job.get("output") else "pass"
     if job["state"] == "cancelled":
         return "error"
     if job["state"] == "failed":

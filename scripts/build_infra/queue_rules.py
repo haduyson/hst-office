@@ -51,7 +51,8 @@ def find_duplicate(jobs, key):
             continue
         if job["state"] in ACTIVE:
             return job
-        if job["state"] == "done" and not job.get("output_deleted") and all(os.path.exists(p) for p in job.get("output", [])):
+        if job["state"] == "done" and not job.get("output_deleted") and all(os.path.exists(p) for p in job.get("output", [])) \
+                and not (job.get("package") and not job.get("output")):   # a package build without packages: redo it
             return job
     return None
 

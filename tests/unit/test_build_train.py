@@ -63,6 +63,10 @@ class OutcomeAndAttributionTest(unittest.TestCase):
         infra = bq.infra_failure
         self.assertIsNone(qt.job_outcome({"state": "running"}, infra))
         self.assertEqual(qt.job_outcome({"state": "done"}, infra), "pass")
+        self.assertEqual(qt.job_outcome({"state": "done", "package": True, "output": ["x.deb"]}, infra), "pass")
+        # A package build that delivered no package (e.g. tests ran but packaging was skipped): never a pass.
+        self.assertEqual(qt.job_outcome({"state": "done", "package": True, "output": []}, infra), "error")
+        self.assertEqual(qt.job_outcome({"state": "done", "package": False, "output": []}, infra), "pass")
         self.assertEqual(qt.job_outcome({"state": "cancelled"}, infra), "error")
         self.assertEqual(qt.job_outcome(None, infra), "error")
         self.assertEqual(qt.job_outcome({"state": "failed", "error": "invalidated: x"}, infra), "error")

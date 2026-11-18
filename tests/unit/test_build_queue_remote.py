@@ -88,6 +88,20 @@ class RemoteRunnerTest(RemoteTestCase):
         self.assertEqual(run[run.index("--slot") + 1], "2")
         self.assertIn(["push", job["sha"], f"refs/q/{job['id']}"], self.host.calls)
 
+    def test_a_train_build_with_tests_still_packages_and_an_agent_test_run_does_not(self):
+        train, _ = self.submit(ref="commit", tests=["CppunitTest_a"], internal=True, train="train/1.0.3-001")
+        self.shas["commit"] = train["sha"]
+        self.remote.start(train, "vm103:2")
+        run = self.host.calls[-1]
+        self.assertIn("--package", run)
+        self.assertLess(run.index("--test"), run.index("--package"))
+        agent, _ = self.submit(ref="feat/x", tests=["CppunitTest_a"])
+        self.remote.start(agent, "vm103:3")
+        self.assertNotIn("--package", self.host.calls[-1])
+        modules, _ = self.submit(ref="feat/x", tests=["CppunitTest_b"], modules=["sw"])
+        self.remote.start(modules, "vm103:4")
+        self.assertNotIn("--package", self.host.calls[-1])
+
     def test_log_streaming_then_output_copied_back_and_host_cleaned(self):
         job = self.running_job()
         self.host.log = "phase patch: start\n"
