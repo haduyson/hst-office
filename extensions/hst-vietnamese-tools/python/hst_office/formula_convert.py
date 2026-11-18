@@ -2,7 +2,7 @@
 """HST Công thức: turn MathType equations (Equation Editor 3.x, MathType 4-7) into editable Math formulas in Writer,
 Sheets, Slides and Draw, one object or all as one undo step. The object's OLE data is read back (storeToEntry), a new
 Math object takes its place and reads it with com.sun.star.comp.Math.MathTypeFilter (MTEF 5: HST's patch); if that
-fails the equation stays. The formula keeps the size Word shows (formula_size). In Writer a formula anchored as a
+fails the equation stays. The formula keeps the scale Word shows (formula_size). In Writer a formula anchored as a
 character sits on the text baseline (Word's run position shift is dropped); elsewhere it keeps the picture's corner."""
 import time
 
@@ -81,7 +81,7 @@ def _replace_text_object(ctx, doc, old, data):
     if not import_formula(ctx, model, data):
         new.dispose()
         return False
-    formula_size.keep_shown_size(model, new.EmbeddedObject, old.Size.Height)
+    formula_size.keep_word_scale(model, old)
     new.Size = formula_size.visual_size(new.EmbeddedObject)
     for name in ("LeftMargin", "RightMargin", "TopMargin", "BottomMargin"):
         new.setPropertyValue(name, 0)
@@ -124,7 +124,7 @@ def _replace_shape(ctx, doc, container, old, data):
     if not import_formula(ctx, new.Model, data):
         container.remove(new)
         return False
-    formula_size.keep_shown_size(new.Model, new.EmbeddedObject, old.Size.Height)
+    formula_size.keep_word_scale(new.Model, old)
     new.Size = formula_size.visual_size(new.EmbeddedObject)
     new.Position = old.Position
     if old.getPropertySetInfo().hasPropertyByName("Anchor"):  # Sheets: same cell or page anchor

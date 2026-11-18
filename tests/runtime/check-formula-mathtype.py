@@ -91,27 +91,32 @@ def check_open(args, workdir):
     return result
 
 
-def check_convert(args, workdir, name):
+def convert_all(office, doc):
+    """Chuyển công thức on the office's main thread, as from the menu; returns the seconds it took."""
     import unohelper
     from com.sun.star.awt import XCallback
+    ended = threading.Event()
+
+    class Run(unohelper.Base, XCallback):  # called on the office's main thread; URP keeps the nested
+        def notify(self, data):            # dispatch on that thread, as when the user picks the command
+            try:
+                office.dispatch(doc, "org.hst.office.vi:ConvertFormulas")
+            finally:
+                ended.set()
+    start = time.time()
+    office.service("com.sun.star.awt.AsyncCallback").addCallback(Run(), None)
+    ended.wait(900)
+    return round(time.time() - start, 1)
+
+
+def check_convert(args, workdir, name):
     path = next(p for p in documents(args.docs) if os.path.basename(p) == name)
     office = headless_office.Office(args.soffice, workdir, args.port)
     try:
         set_option(office, False)
         doc = office.desktop.loadComponentFromURL(office.url(path), "_blank", 0, ())
         before = counts(doc)
-        ended = threading.Event()
-
-        class Run(unohelper.Base, XCallback):  # called on the office's main thread; URP keeps the nested
-            def notify(self, data):            # dispatch on that thread, as when the user picks the command
-                try:
-                    office.dispatch(doc, "org.hst.office.vi:ConvertFormulas")
-                finally:
-                    ended.set()
-        start = time.time()
-        office.service("com.sun.star.awt.AsyncCallback").addCallback(Run(), None)
-        ended.wait(900)
-        seconds = round(time.time() - start, 1)
+        seconds = convert_all(office, doc)
         after = counts(doc)
         undo = doc.getUndoManager()
         steps = len(undo.getAllUndoActionTitles())
