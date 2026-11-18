@@ -39,7 +39,7 @@ import os
 import sys
 
 from .queue_ops import cancel, drain, invalidate, submit
-from .queue_report import compare, describe, print_tests, wait
+from .queue_report import compare, describe, failure_errors, print_tests, wait
 from .queue_retention import apply_retention, pin
 from . import queue_train_cli
 from .queue_rules import order_key, parse_modules, parse_tests
@@ -119,6 +119,8 @@ def main(argv=None):
                     print(f"  output: {p}{' (deleted by retention)' if job.get('output_deleted') else ''}")
                 if job.get("tests") and job["state"] == "done":
                     print_tests(store, job, sys.stdout)
+                if job["state"] == "failed":
+                    print(failure_errors(job["log"]), end="")
                 print(f"  log: {job['log']}")
             return 0
         if args.cmd == "wait":

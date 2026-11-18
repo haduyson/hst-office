@@ -569,6 +569,8 @@ do_build() {
         "${SLOTS_PY[@]}" update --slot "$SLOT" --want "$jobs" || true
         log "make killed (scope memory cap?), retrying with -j$jobs"; sleep 30; start_make "$jobs"; continue
       fi
+      # The tail shows the jobs that finished after the failing one (mostly warnings): the error lines come first.
+      python3 -I "$SELF_REPO/scripts/build_infra/build_log_errors.py" "$BUILD_LOG" || true
       tail -60 "$BUILD_LOG"; return "$rc"
     fi
     sleep 5; tick=$(( tick + 1 ))

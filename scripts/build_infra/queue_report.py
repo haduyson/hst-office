@@ -5,6 +5,7 @@ import os
 import sys
 import time
 
+from .build_log_errors import FOOTER, HEADER, error_block
 from .queue_store import TERMINAL
 
 def log_tail(path, lines=40):
@@ -13,6 +14,21 @@ def log_tail(path, lines=40):
             return "".join(f.readlines()[-lines:])
     except FileNotFoundError:
         return "(no log yet)"
+
+
+def failure_errors(path):
+    """The error block of a job log (local-build.sh prints one from build.log when make fails; older runs: taken
+    from the whole job log), so `wait` shows the real error above the tail."""
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except FileNotFoundError:
+        return ""
+    start = text.rfind(HEADER)
+    if start >= 0:
+        end = text.find(FOOTER, start)
+        return text[start:end + len(FOOTER)] + "\n" if end >= 0 else text[start:]
+    return error_block(text)
 
 
 def describe(job):
@@ -90,5 +106,6 @@ def wait(store, job_id, timeout=None, interval=15, out=sys.stdout):
             return 3 if print_tests(store, job, out) else 0
         return 0
     print(f"job {job_id} {job['state']}: {job.get('error', '')}", file=out)
+    print(failure_errors(job["log"]), file=out, end="")
     print(log_tail(job["log"]), file=out, end="")
     return 1
