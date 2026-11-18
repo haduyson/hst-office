@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """The remembered answer of the save format warning, per user in /org.hasontech.hstoffice.SaveFormatCheck
-(saveformatcheck.xcs): empty asks every time (the default); "convert" or "keep" is used without asking. Written only
+(core schema, hst-extension-settings-core.patch): empty asks every time (the default); "convert" or "keep" is used without asking. Written only
 when "Không hỏi lại" is ticked; Tùy chọn ▸ HST Office ▸ Đọc số và tiền shows it and turns the question back on."""
 from . import diag_log
 from .save_format_rules import ASK, CONVERT, KEEP, remembered

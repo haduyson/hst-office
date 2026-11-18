@@ -65,7 +65,7 @@ class _Config:
 
             def getPropertySetInfo(self):
                 return types.SimpleNamespace(getPropertyByName=lambda name: types.SimpleNamespace(
-                    Attributes=crash.READONLY if name in config.locked else 0))
+                    Attributes=sc.READONLY if name in config.locked else 0))
         return Node()
 
 

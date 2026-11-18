@@ -29,7 +29,7 @@ Mỗi lần lưu đè một tệp đã có trên đĩa (mọi định dạng), b
 | Kho (chép, trùng, giới hạn, dọn, khóa, chỉ mục hỏng) | `python/hst_office/version_store.py`, `version_files.py` |
 | Thời điểm chép | `version_capture.py`, job `version_job.py` (`Jobs.xcu`: `OnModifyChanged`, `OnSave`, `OnSaveDone`, `OnSaveAsDone`, `OnUnload`) |
 | Hộp thoại, khôi phục | `version_dialog.py`, `version_restore.py`, chuỗi `version_texts.py` |
-| Cài đặt, khóa quản trị | `version_config.py`, schema `previousversions.xcs`, trang `dialogs/PreviousVersions.xdl` + `version_options.py` |
+| Cài đặt, khóa quản trị | `version_config.py`, schema lõi `org/hasontech/hstoffice/PreviousVersions.xcs` (`hst-extension-settings-core.patch`), trang `dialogs/PreviousVersions.xdl` + `version_options.py` |
 | Menu | `Addons.xcu` (`OfficeMenuBarMerging`: Tệp tin ▸ Phiên bản trước, sau "Phiên bản"), `FeatureSearch.xcu` |
 | Bảng Tệp tin của giao diện theo thẻ | nút "Phiên bản trước" ở trang Thông tin: bản vá lõi `hst-backstage-previous-versions.patch` (chưa vào series lúc viết) |
 

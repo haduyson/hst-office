@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """The user's default of number and money reading, per user in /org.hasontech.hstoffice.NumberWords
-(numberwords.xcs): unit, sub-unit, money and number reading options (Tùy chọn ▸ HST Office ▸ Đọc số và tiền), and
+(core schema, hst-extension-settings-core.patch): unit, sub-unit, money and number reading options (Tùy chọn ▸ HST Office ▸ Đọc số và tiền), and
 what the "Đọc số thành chữ" dialog last used (number or money, text or formula). The dialog writes back what it
 used, so the page and the dialog edit one default. Cells are never kept: they follow the selection.
 

@@ -84,24 +84,12 @@ def crash_facts(state):
 
 
 NEVER_ASK = "crash_never_ask"  # "Không hỏi lại" in the profile's startup-choices.json (startup_choices)
-READONLY = 16  # com.sun.star.beans.PropertyAttribute.READONLY: an administrator finalized the value
 
 
 def ask_enabled(ctx):
-    """False after "Không hỏi lại" (kept in startup-choices.json, which survives what erases the extension's
-    configuration values, and in AskAfterCrash) or when an administrator set AskAfterCrash to false."""
+    """False after "Không hỏi lại" (startup-choices.json and AskAfterCrash) or when an administrator set it false."""
     from . import startup_choices
-    if startup_choices.get(ctx, NEVER_ASK):
-        return False
-    try:
-        node = _node(ctx, SETTINGS, True)
-        enabled = bool(node.getPropertyValue("AskAfterCrash"))
-        locked = bool(node.getPropertySetInfo().getPropertyByName("AskAfterCrash").Attributes & READONLY)
-    except Exception:  # noqa: BLE001 - schema missing: behave like the default
-        return True
-    if not enabled and not locked:
-        startup_choices.put(ctx, NEVER_ASK, True)  # migrate "Không hỏi lại" given by a version without the file
-    return enabled
+    return startup_choices.opt_out(ctx, NEVER_ASK, lambda: _node(ctx, SETTINGS, True), "AskAfterCrash")
 
 
 def never_ask(ctx):

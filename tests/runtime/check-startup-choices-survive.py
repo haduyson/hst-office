@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""The welcome dialog stays closed after "Không hiển thị lại" even when a start loses the extension's settings.
+"""The HST settings and the welcome dialog's answer survive a start whose extension registration cache is missing.
 
 Usage: python3 tests/runtime/check-startup-choices-survive.py --instdir <instdir> [--out tests/output/startup-choices]
            [--display :97]
 
-configmgr skips the user values of a bundled extension's schema when it reads registrymodifications.xcu before the
-profile's extension registration cache lists that schema, and the next settings write drops them. A start whose
-cache is gone (removed, or left without the HST schemas by a start ended while the extensions were registered again
-after an update) is such a start. The check: a fresh profile shows the welcome dialog, it is closed with the tick
-left on, the office quits; user/extensions is removed; the next two starts must not show the dialog again. Exit 1
-when a check fails. The X display must already run; the office runs as the build user when started as root.
+configmgr skipped the user's values of the bundled extension's schemas when it read registrymodifications.xcu before
+the profile's extension registration cache listed those schemas, and the next settings write dropped them. A start
+whose cache is gone (removed, or left without the HST schemas by a start ended while the extensions were registered
+again after an update) is such a start. Since hst-extension-settings-core.patch the schemas are core (main.xcd).
+
+The check: a fresh profile shows the welcome dialog, it is closed with the tick left on, the office quits; a value
+other than the default is then stored for one setting of every HST component, as an earlier version left them in
+registrymodifications.xcu; user/extensions is removed; the next two starts must not show the dialog again and every
+value must still be there. Exit 1 when a check fails. The X display must already run; the office runs as the build
+user when started as root.
 """
 import argparse
 import json
@@ -28,6 +32,13 @@ from hst_gui_x11 import send_close_request, toplevels, window_pid  # noqa: E402
 from recovery_runtime import record, summary  # noqa: E402
 
 WELCOME = re.compile(r"Chào mừng|chào đón bạn|Welcome to")
+# one setting of every HST component, with a value other than its default: (component, property, value)
+SETTINGS = (("Welcome", "Shown", "true"), ("DefaultApps", "Done", "true"), ("DefaultApps", "Asked", "2"),
+            ("ErrorReport", "AskAfterCrash", "false"), ("FeatureSearch", "BubbleShown", "true"),
+            ("SaveFormatCheck", "Remembered", "keep"), ("NumberWords", "Unit", "USD"),
+            ("Citations", "OnlineLookup", "false"), ("Nd30", "AgencyRule", "1/2"),
+            ("Banners", "FeedURL", "https://127.0.0.1:9/hst-feed.json"), ("PreviousVersions", "Enabled", "false"),
+            ("UpdateCheck", "InstallId", "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0"))
 
 
 class Starts:
@@ -100,12 +111,26 @@ class Starts:
         except (OSError, ValueError):
             return {}
 
-    def configured_shown(self):
+    def settings_text(self):
         try:
             with open(self.user("registrymodifications.xcu"), encoding="utf-8") as handle:
-                return "org.hasontech.hstoffice.Welcome" in handle.read()
+                return handle.read()
         except OSError:
-            return False
+            return ""
+
+    def store_settings(self):
+        """Store SETTINGS in registrymodifications.xcu as an earlier version wrote them (office not running)."""
+        items = "".join('<item oor:path="/org.hasontech.hstoffice.%s"><prop oor:name="%s" oor:op="fuse"><value>%s'
+                        "</value></prop></item>\n" % setting for setting in SETTINGS)
+        text = self.settings_text()
+        with open(self.user("registrymodifications.xcu"), "w", encoding="utf-8") as handle:
+            handle.write(text.replace("</oor:items>", items + "</oor:items>"))
+
+    def lost_settings(self):
+        text = self.settings_text()
+        return ["%s/%s" % (component, name) for component, name, value in SETTINGS
+                if not re.search(r'<item oor:path="/org\.hasontech\.hstoffice\.%s"><prop oor:name="%s" oor:op="fuse">'
+                                 r"<value>%s</value>" % (component, name, re.escape(value)), text)]
 
     def session_starts(self):
         try:
@@ -129,15 +154,15 @@ def main():
     record("closing it with the tick on stores the answer in the profile file",
            office.choices().get("welcome_shown") is True, office.choices())
     record("the next start does not show it", not office.run(True, 40))
-    shutil.rmtree(office.user("extensions"))  # the start below reads the settings without the HST schemas
+    office.store_settings()
+    shutil.rmtree(office.user("extensions"))  # the start below reads the settings without the extension's registration
     before = office.session_starts()
     shown = office.run(True, 60)
     record("the extension ran in the start without the registration cache", office.session_starts() > before)
-    # the case under test happened: the value is gone from registrymodifications.xcu (an unfixed office shows the
-    # dialog again instead, which writes it back)
-    record("that start lost the configuration value", shown or not office.configured_shown())
-    record("the welcome dialog stays closed after the configuration value was lost", not shown)
+    record("the welcome dialog stays closed after that start", not shown)
+    record("every HST setting survives that start", not office.lost_settings(), office.lost_settings())
     record("and at the start after", not office.run(True, 40))
+    record("every HST setting is still there after it", not office.lost_settings(), office.lost_settings())
     return summary("startup choices runtime")
 
 

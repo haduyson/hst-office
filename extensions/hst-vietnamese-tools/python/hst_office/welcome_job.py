@@ -2,8 +2,8 @@
 """Show-once logic for the welcome dialog plus the Jobs.xcu job (event onFirstVisibleTask).
 
 Persistent flag: "welcome_shown" in the profile's startup-choices.json (startup_choices: it survives what erases the
-extension's configuration values) and /org.hasontech.hstoffice.Welcome/Shown (boolean, per user; schema in
-welcome.xcs), which older versions sharing the profile read and an administrator can set. Either one true means
+extension's configuration values) and /org.hasontech.hstoffice.Welcome/Shown (boolean, per user;
+core schema, hst-extension-settings-core.patch), which older versions sharing the profile read and an administrator can set. Either one true means
 shown; a true found only in the configuration is copied into the file. It is written as soon as the dialog is
 displayed, so a crash or kill never makes the dialog loop. The "do not show again" tick is on by default; closing
 with it cleared writes false to both so the dialog appears again next start.

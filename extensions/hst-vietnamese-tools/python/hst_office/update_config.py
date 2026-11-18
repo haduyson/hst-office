@@ -7,7 +7,7 @@ a share/registry .xcd (Linux, macOS), HKLM\\SOFTWARE\\Policies\\HASON TECH\\HST 
 (Windows, hst-own-policy-paths.patch) or a shared extension. On macOS a configuration profile (managed preferences of vn.hasontech.hstoffice,
 dictionary "HSTUpdate") is read as well. See docs/UPDATE_ADMIN.md.
 
-Earlier releases kept the settings in the extension schema /org.hasontech.hstoffice.UpdateCheck (update.xcs):
+Earlier releases kept the settings in /org.hasontech.hstoffice.UpdateCheck (update.xcs, an extension schema then; a core schema since hst-extension-settings-core.patch):
 - the per-user values there are copied once into the core schema (migrate);
 - a value finalized there (old hst-update-policy.oxt) is still honoured as a lock.
 

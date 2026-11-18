@@ -5,18 +5,18 @@
     {"welcome_shown": true, "crash_never_ask": true,
      "default_apps": {"Asked": 1, "LastAsked": 1795010742, "Done": false, "Release": "1.0.3"}}
 
-Why not only the configuration: the answers used to live only in the bundled extension's own schemas (welcome.xcs,
-errorreport.xcs, defaultapps.xcs). configmgr keeps a user value of a schema only if it knows the schema when it reads
-registrymodifications.xcu at start (configmgr xcuparser.cxx handleItem skips an "unknown item"), and it rewrites the
-file from what it read (writemodfile.cxx), so a skipped value is gone after the next settings write. The bundled
-extension's schemas are known at start only through the profile's registration cache
-(user/extensions/bundled/registry/.../configmgr.ini; bundled extensions are not deployed live, dp_configuration.cxx).
-Every start without a complete cache therefore erases the answers: a removed or damaged user/extensions folder, a
-start ended (log out, power off, kill) while the extensions were being registered again after an update. The welcome
-dialog then comes back. registrymodifications.xcu can also be restored from an older copy or reset after a power cut
-(hst-profile-durability.patch). This file survives all of these; the configuration is still written too, so an
-older HST Office sharing the profile and an administrator's lock keep working, and a value found only there is
-copied here (migration).
+Why not only the configuration: until 1.0.2 the answers lived only in the bundled extension's own schemas
+(welcome.xcs, errorreport.xcs, defaultapps.xcs). configmgr keeps a user value of a schema only if it knows the schema
+when it reads registrymodifications.xcu at start (configmgr xcuparser.cxx handleItem skips an "unknown item"), and it
+rewrites the file from what it read (writemodfile.cxx), so a skipped value is gone after the next settings write. The
+bundled extension's schemas are known at start only through the profile's registration cache
+(user/extensions/bundled/registry/.../configmgr.ini; bundled extensions are not deployed live, dp_configuration.cxx),
+so a start without a complete cache (a removed or damaged user/extensions folder, a start ended while the extensions
+were registered again after an update) erased the answers. Since hst-extension-settings-core.patch these schemas are
+core (main.xcd) and that path is closed; the file still covers registrymodifications.xcu restored from an older copy
+or reset after a power cut (hst-profile-durability.patch), and an office whose core lacks the schemas. The
+configuration is still written too, so an older HST Office sharing the profile and an administrator's lock keep
+working, and a value found only there is copied here (migration).
 
 Reads and writes never raise: a read-only profile only loses the answer, as before. Writes are atomic (temporary
 file, fsync, rename), so a power cut leaves the old or the new file, never a broken one.
@@ -30,6 +30,7 @@ from .citation_store import atomic_write
 
 FILE_NAME = "startup-choices.json"
 MAX_BYTES = 64 * 1024
+READONLY = 16  # com.sun.star.beans.PropertyAttribute.READONLY: an administrator finalized the value
 _LOCK = threading.Lock()
 
 
@@ -64,6 +65,48 @@ def write(folder, **changes):
         except OSError:
             diag_log.exception("startup_choices")
             return False
+
+
+def merge_default_apps(configured, stored):
+    """The state from the configuration and the copy in startup-choices.json (pure). The configuration value can be
+    lost (see above) or newer (an older version sharing the profile): Done counts when either
+    says so; the counts are those of the latest question (higher LastAsked). Ask stays the configuration's: an
+    administrator locks it there."""
+    if not isinstance(stored, dict):
+        return dict(configured)
+    merged = dict(configured)
+    try:
+        newer = int(stored.get("LastAsked", 0)) >= int(configured.get("LastAsked", 0))
+    except (TypeError, ValueError):
+        return merged
+    if newer:
+        for key in ("Asked", "LastAsked", "Release"):
+            if key in stored:
+                merged[key] = stored[key]
+    merged["Done"] = bool(configured.get("Done")) or bool(stored.get("Done"))
+    return merged
+
+
+def default_apps_answered(state):
+    """True when the state holds an answer worth keeping (pure)."""
+    return bool(state.get("Done")) or int(state.get("Asked", 0)) > 0
+
+
+def opt_out(ctx, key, node_of, name):
+    """For a question the user can turn off ("Không hỏi lại"): False when `key` is stored, else the configured boolean
+    `name` of node_of() (an update access). A false value an administrator did not finalize is copied into the file
+    (migration); a missing schema reads as the default, true."""
+    if get(ctx, key):
+        return False
+    try:
+        node = node_of()
+        enabled = bool(node.getPropertyValue(name))
+        locked = bool(node.getPropertySetInfo().getPropertyByName(name).Attributes & READONLY)
+    except Exception:  # noqa: BLE001 - schema missing: behave like the default
+        return True
+    if not enabled and not locked:
+        put(ctx, key, True)
+    return enabled
 
 
 def get(ctx, key, default=None):

@@ -1,0 +1,517 @@
+HST Office: the per-user settings of the bundled HST extension become core configuration schemas.
+
+The components org.hasontech.hstoffice.* (Welcome, DefaultApps, ErrorReport, FeatureSearch, SaveFormatCheck,
+NumberWords, Citations, Nd30, Banners, PreviousVersions, UpdateCheck) were defined by .xcs files inside the bundled
+extension. configmgr learns a bundled extension's schemas at start only from the profile's registration cache
+(user/extensions/bundled/.../configmgr.ini); when that cache is missing, or was left without the HST schemas by a
+start ended while the extensions were registered again after an update, it skips the user's values of these
+components in registrymodifications.xcu as unknown items and drops them at the next settings write: the welcome
+dialog, the default-apps and crash questions and the feature search hint came back, and the other HST settings
+returned to their defaults.
+
+The schemas are now part of main.xcd (officecfg/registry/schema/org/hasontech/hstoffice/*.xcs), with the same
+paths, types and defaults, so they are known before the user layer is read; the extension no longer ships them
+(its data .xcu files, e.g. FeatureSearch.xcu, still fill them). A finalized value in a share/registry .xcd or the
+Windows policy key can now lock these settings too.
+
+License: MPL-2.0, like the configuration schemas of the office.
+Test: tests/unit/test_extension_settings_core.py; tests/runtime/check-startup-choices-survive.py.
+---
+--- a/officecfg/Configuration_officecfg.mk
++++ b/officecfg/Configuration_officecfg.mk
+@@ -22,6 +22,27 @@
+ 
+ $(eval $(call gb_Configuration_add_schemas,registry,officecfg/registry/schema,\
+ 	$(addprefix org/openoffice/,$(addsuffix .xcs,$(officecfg_XCSFILES))) \
++))
++
++# HST Office: the per-user settings of the bundled HST extension, components org.hasontech.hstoffice.*
++# (hst-extension-settings-core.patch). Defined here, they are known whenever the office reads the user's
++# registrymodifications.xcu; as extension schemas they were not while the profile's extension
++# registration was missing or being renewed, and the user's values were dropped.
++officecfg_HST_XCSFILES := \
++	Banners \
++	Citations \
++	DefaultApps \
++	ErrorReport \
++	FeatureSearch \
++	Nd30 \
++	NumberWords \
++	PreviousVersions \
++	SaveFormatCheck \
++	UpdateCheck \
++	Welcome \
++
++$(eval $(call gb_Configuration_add_schemas,registry,officecfg/registry/schema,\
++	$(addprefix org/hasontech/hstoffice/,$(addsuffix .xcs,$(officecfg_HST_XCSFILES))) \
+ ))
+ 
+ $(eval $(call gb_Configuration_add_datas,registry,officecfg/registry/data,\
+--- a/postprocess/CustomTarget_registry.mk
++++ b/postprocess/CustomTarget_registry.mk
+@@ -278,6 +278,20 @@
+ 	$(postprocess_MOD)/org/openoffice/TypeDetection/UISort-math.xcu \
+ 	$(postprocess_MOD)/org/openoffice/TypeDetection/UISort-writer.xcu
+ 
++# HST Office: the settings of the bundled HST extension (hst-extension-settings-core.patch)
++postprocess_FILES_main += $(addprefix $(call gb_XcsTarget_get_target,org/hasontech/hstoffice)/,\
++	Banners.xcs \
++	Citations.xcs \
++	DefaultApps.xcs \
++	ErrorReport.xcs \
++	FeatureSearch.xcs \
++	Nd30.xcs \
++	NumberWords.xcs \
++	PreviousVersions.xcs \
++	SaveFormatCheck.xcs \
++	UpdateCheck.xcs \
++	Welcome.xcs)
++
+ ifeq (MACOSX,$(OS))
+ postprocess_FILES_main += \
+ 	$(postprocess_MOD)/org/openoffice/Inet-macosx.xcu \
+--- /dev/null
++++ b/officecfg/registry/schema/org/hasontech/hstoffice/Banners.xcs
+@@ -0,0 +1,21 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
++                      oor:name="Banners" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
++  <info><desc>Shared solution banner feed. No visibility or disable setting exists.</desc></info>
++  <component>
++    <prop oor:name="FeedURL" oor:type="xs:string" oor:nillable="false">
++      <info><desc>Expert testing override: HTTPS only; empty or invalid values use the production endpoint.
++      Content must still carry a valid banner signature and use allowed item/image hosts.</desc></info>
++      <value></value>
++    </prop>
++  </component>
++</oor:component-schema>
+--- /dev/null
++++ b/officecfg/registry/schema/org/hasontech/hstoffice/Citations.xcs
+@@ -0,0 +1,36 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
++                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++                      oor:name="Citations" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
++  <info>
++    <desc>Citations (Trích dẫn) in HST Writer. The reference library itself is a file in the user profile
++      (hst-citations/library.json), not configuration. Online lookup runs only when the user clicks "Tra cứu trực
++      tuyến" in the source form (hst_office/citation_lookup_action.py); see docs/PRIVACY.md.</desc>
++  </info>
++  <component>
++    <prop oor:name="OnlineLookup" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Allow the two online buttons of the source form: "Tra cứu" (DOI, ISBN, PubMed ID or arXiv ID) and
++          "Tìm theo dòng đã dán" (a pasted reference line, to Crossref). Administrators set it to false (and lock
++          it) to remove every lookup request; the form then says online lookup is turned off.</desc>
++      </info>
++      <value>true</value>
++    </prop>
++    <prop oor:name="LookupContact" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Contact address an administrator may send with lookups, only as Crossref "mailto" and NCBI "email"
++          (those services ask for one). Empty (the default) sends no address at all; never the user's address.</desc>
++      </info>
++      <value></value>
++    </prop>
++  </component>
++</oor:component-schema>
+--- /dev/null
++++ b/officecfg/registry/schema/org/hasontech/hstoffice/DefaultApps.xcs
+@@ -0,0 +1,49 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
++                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++                      oor:name="DefaultApps" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
++  <info>
++    <desc>Per-user state of the start-up question "open office documents with HST Office" (hst_office/default_apps.py). No data leaves the machine.</desc>
++  </info>
++  <component>
++    <prop oor:name="Ask" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Ask at start-up at all. An administrator can lock it to false; the HST menu and the options page still work.</desc>
++      </info>
++      <value>true</value>
++    </prop>
++    <prop oor:name="Asked" oor:type="xs:int" oor:nillable="false">
++      <info>
++        <desc>How many times the question was shown at start-up for the release in Release (at most 3).</desc>
++      </info>
++      <value>0</value>
++    </prop>
++    <prop oor:name="LastAsked" oor:type="xs:long" oor:nillable="false">
++      <info>
++        <desc>When it was last shown (seconds since 1970); "later" asks again 14 days after it.</desc>
++      </info>
++      <value>0</value>
++    </prop>
++    <prop oor:name="Done" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>True once the user agreed, or HST was found to already open the office document types.</desc>
++      </info>
++      <value>false</value>
++    </prop>
++    <prop oor:name="Release" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Release id Asked and LastAsked belong to. Another release starts counting again unless Done is true.</desc>
++      </info>
++      <value></value>
++    </prop>
++  </component>
++</oor:component-schema>
+--- /dev/null
++++ b/officecfg/registry/schema/org/hasontech/hstoffice/ErrorReport.xcs
+@@ -0,0 +1,25 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
++                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++                      oor:name="ErrorReport" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
++  <info>
++    <desc>Per-user state of the HST Office error report (Help > Báo lỗi cho HASON TECH…). Nothing is sent without the user's click in the report dialog.</desc>
++  </info>
++  <component>
++    <prop oor:name="AskAfterCrash" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>True: after an abnormal exit the next start asks once whether to send a crash report. "Không hỏi lại" sets it to false.</desc>
++      </info>
++      <value>true</value>
++    </prop>
++  </component>
++</oor:component-schema>
+--- /dev/null
++++ b/officecfg/registry/schema/org/hasontech/hstoffice/FeatureSearch.xcs
+@@ -0,0 +1,54 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
++                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++                      oor:name="FeatureSearch" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
++  <info>
++    <desc>Extra search words, empty-box suggestions and the recently used commands of "Tìm tính năng…" (Search
++      Commands, Alt+Q, Shift+Esc), read by the HST core patches hst-feature-search.patch and
++      hst-feature-search-ux.patch. Matching ignores case and diacritics. No data leaves the machine.</desc>
++  </info>
++  <templates>
++    <group oor:name="Entry">
++      <prop oor:name="Command" oor:type="xs:string">
++        <info><desc>Command URL of the menu entry, e.g. org.hst.office.vi:ConvertEncoding.</desc></info>
++      </prop>
++      <prop oor:name="Words" oor:type="xs:string">
++        <info><desc>Space-separated words and phrases that also find the command.</desc></info>
++      </prop>
++    </group>
++    <group oor:name="Suggestion">
++      <prop oor:name="Module" oor:type="xs:string">
++        <info><desc>Module identifier, e.g. com.sun.star.text.TextDocument.</desc></info>
++      </prop>
++      <prop oor:name="Commands" oor:type="oor:string-list">
++        <info><desc>Command URLs suggested while the search box is empty, in this order.</desc></info>
++      </prop>
++    </group>
++  </templates>
++  <component>
++    <set oor:name="Keywords" oor:node-type="Entry"/>
++    <set oor:name="Suggestions" oor:node-type="Suggestion"/>
++    <prop oor:name="BubbleShown" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>True once the first-start hint under the search box ("Không thấy lệnh? Gõ tên lệnh ở đây, không
++          cần dấu.") has been shown (hst-ribbon-ux-engine.patch); it shows once per profile.</desc>
++      </info>
++      <value>false</value>
++    </prop>
++    <prop oor:name="Recent" oor:type="oor:string-list">
++      <info>
++        <desc>Commands run from the search, most recent first, as "module-identifier command-URL" (at most 30
++          entries); the empty search box lists the five latest of the current module.</desc>
++      </info>
++    </prop>
++  </component>
++</oor:component-schema>
+--- /dev/null
++++ b/officecfg/registry/schema/org/hasontech/hstoffice/Nd30.xcs
+@@ -0,0 +1,27 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
++                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++                      oor:name="Nd30" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
++  <info>
++    <desc>Per-user choices of the ND30 wizard "Văn bản hành chính" (hst_office/nd30_prefs.py), remembered from the
++      last accepted wizard. No document text is kept. No data leaves the machine.</desc>
++  </info>
++  <component>
++    <prop oor:name="AgencyRule" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Length of the rule under the agency name: 1/3, 2/5, 1/2 of the agency line, "parent" (as long as the line
++          above it) or "mm:LENGTH" (typed in millimetres). Anything else reads as 2/5.</desc>
++      </info>
++      <value>2/5</value>
++    </prop>
++  </component>
++</oor:component-schema>
+--- /dev/null
++++ b/officecfg/registry/schema/org/hasontech/hstoffice/NumberWords.xcs
+@@ -0,0 +1,57 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
++                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++                      oor:name="NumberWords" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
++  <info>
++    <desc>Per-user default of number and money reading (hst_office/number_words_prefs.py): set in Tùy chọn ▸ HST
++      Office ▸ Đọc số và tiền and by the dialog "Đọc số thành chữ", which opens with it unless the spreadsheet has its
++      own default. DOCSO/DOCTIEN in a cell never read it. Cells are never kept. No data leaves the machine.</desc>
++  </info>
++  <component>
++    <prop oor:name="Money" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>The dialog last read money (DOCTIEN) rather than a number (DOCSO).</desc>
++      </info>
++      <value>false</value>
++    </prop>
++    <prop oor:name="Formula" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Sheets: the dialog last wrote a DOCSO/DOCTIEN formula rather than plain words.</desc>
++      </info>
++      <value>false</value>
++    </prop>
++    <prop oor:name="Unit" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Default money unit, e.g. đồng or dollar (at most 40 characters).</desc>
++      </info>
++      <value>đồng</value>
++    </prop>
++    <prop oor:name="SubUnit" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Default sub-unit, e.g. xu or cent; empty reads whole units only.</desc>
++      </info>
++      <value></value>
++    </prop>
++    <prop oor:name="MoneyOptions" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Default reading options of money, as DOCTIEN accepts them (e.g. ngàn linh tư en); empty: nghìn lẻ bốn, Vietnamese.</desc>
++      </info>
++      <value></value>
++    </prop>
++    <prop oor:name="NumberOptions" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Default reading options of numbers, as DOCSO accepts them; empty: nghìn lẻ bốn, Vietnamese.</desc>
++      </info>
++      <value></value>
++    </prop>
++  </component>
++</oor:component-schema>
+--- /dev/null
++++ b/officecfg/registry/schema/org/hasontech/hstoffice/PreviousVersions.xcs
+@@ -0,0 +1,28 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
++                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++                      oor:name="PreviousVersions" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
++  <info>
++    <desc>"Phiên bản trước" (docs/PREVIOUS_VERSIONS.md): before a save overwrites a file, HST Office keeps the file as
++      it was in the user profile (hst-versions). Copies stay on the machine and are never sent anywhere.</desc>
++  </info>
++  <component>
++    <prop oor:name="Enabled" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Keep a copy of a file before a save overwrites it (Tùy chọn ▸ HST Office ▸ Phiên bản trước). An
++          administrator can lock it (hst_office/version_config.py: Windows policy key, macOS profile, or a finalized
++          value from a shared policy extension).</desc>
++      </info>
++      <value>true</value>
++    </prop>
++  </component>
++</oor:component-schema>
+--- /dev/null
++++ b/officecfg/registry/schema/org/hasontech/hstoffice/SaveFormatCheck.xcs
+@@ -0,0 +1,28 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
++                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++                      oor:name="SaveFormatCheck" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
++  <info>
++    <desc>Per-user answer of the warning shown when a Sheets document whose cells use DOCSO, DOCTIEN, BODAU, TACHHO
++      or TACHTEN is saved as .xlsx/.xls (hst_office/save_format_prefs.py). Stored only when "Không hỏi lại" is
++      ticked; Tùy chọn ▸ HST Office ▸ Đọc số và tiền shows it and turns the question back on.</desc>
++  </info>
++  <component>
++    <prop oor:name="Remembered" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Empty: ask every time. "convert": the saved file holds the results of those cells (the open document
++          keeps its formulas). "keep": the saved file keeps the formulas.</desc>
++      </info>
++      <value></value>
++    </prop>
++  </component>
++</oor:component-schema>
+--- /dev/null
++++ b/officecfg/registry/schema/org/hasontech/hstoffice/UpdateCheck.xcs
+@@ -0,0 +1,62 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
++                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++                      oor:name="UpdateCheck" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
++  <info>
++    <desc>HST Office update check (docs/UPDATE_CHECK.md). Administrators can lock AutoCheck with a finalized
++      configuration layer. Only the product version, the OS name and (unless SendInstallId is false) the anonymous
++      InstallId are sent to office.hasontech.vn.</desc>
++  </info>
++  <component>
++    <prop oor:name="AutoCheck" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Check for a new HST Office version at start-up, at most once every 24 hours.</desc>
++      </info>
++      <value>true</value>
++    </prop>
++    <prop oor:name="AllowInstall" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Offer "Cập nhật ngay" (download, verify, and install after the user agrees). When false, only the
++          manual download link is offered. Administrators can lock it with a finalized configuration layer.</desc>
++      </info>
++      <value>true</value>
++    </prop>
++    <prop oor:name="LastCheck" oor:type="xs:long" oor:nillable="false">
++      <info>
++        <desc>Unix time (seconds) of the last automatic check attempt.</desc>
++      </info>
++      <value>0</value>
++    </prop>
++    <prop oor:name="SkippedVersion" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Version the user chose to skip ("Bỏ qua phiên bản này"); it is not announced again.</desc>
++      </info>
++      <value/>
++    </prop>
++    <prop oor:name="SendInstallId" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>Send InstallId with the update check (Tùy chọn ▸ HST Office ▸ Cập nhật), so HASON TECH can count the
++          machines in use. When false, no ID is sent and none is created; the update check works the same.
++          The core /org.openoffice.Office.HSTUpdate/SendInstallId takes precedence when the core has it; this one
++          is its fallback and can be locked by a shared policy extension (docs/UPDATE_ADMIN.md).</desc>
++      </info>
++      <value>true</value>
++    </prop>
++    <prop oor:name="InstallId" oor:type="xs:string" oor:nillable="false">
++      <info>
++        <desc>Anonymous install ID: a random UUID4 created at the first update check, derived from nothing on the
++          machine. Lives only in this user profile; a new profile gets a new ID.</desc>
++      </info>
++      <value/>
++    </prop>
++  </component>
++</oor:component-schema>
+--- /dev/null
++++ b/officecfg/registry/schema/org/hasontech/hstoffice/Welcome.xcs
+@@ -0,0 +1,25 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
++                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++                      oor:name="Welcome" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
++  <info>
++    <desc>Per-user state of the HST Office welcome dialog. No data leaves the machine.</desc>
++  </info>
++  <component>
++    <prop oor:name="Shown" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>True once the welcome dialog has been displayed; the dialog is then not shown at start-up again.</desc>
++      </info>
++      <value>false</value>
++    </prop>
++  </component>
++</oor:component-schema>

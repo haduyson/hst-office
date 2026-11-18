@@ -5,9 +5,9 @@ Show-once rule (owner 2026-11-06): asked on a start after the welcome dialog; "�
 at most MAX_ASKS times; "Đồng ý" or a registration found on the machine ends the question for good. The count is per
 release (owner 2026-11-08), like the macOS move offer: the profile outlives an uninstall (macOS keeps
 ~/Library/Application Support/HSTOffice, Windows and Linux keep theirs too), and a "Để sau" given to a pre-release must
-not snooze the next release. State: /org.hasontech.hstoffice.DefaultApps (defaultapps.xcs), per user, with the release
+not snooze the next release. State: /org.hasontech.hstoffice.DefaultApps (core schema, hst-extension-settings-core.patch), per user, with the release
 the counts belong to (Release); an administrator can lock Ask to false. The answers are also kept in the profile's
-startup-choices.json (startup_choices), which survives what erases the extension's configuration values
+startup-choices.json (startup_choices), which also survives a reset of the settings file
 (merge_answers). The rule is the same on every OS.
 
 Per-OS actions (the user's own choice, never at install time alone):
@@ -23,7 +23,7 @@ Product rule: the text names file types only ("tài liệu văn bản (.doc, .do
 import time
 
 from . import default_apps_os as osx
-from . import diag_log
+from . import diag_log, startup_choices
 
 CONFIG_PATH = "/org.hasontech.hstoffice.DefaultApps"
 SNOOZE_DAYS = 14
@@ -81,31 +81,7 @@ def _access(ctx, writable):
 
 ANSWER_KEYS = ("Asked", "LastAsked", "Done", "Release")
 CHOICE = "default_apps"  # the answers in the profile's startup-choices.json (startup_choices)
-
-
-def merge_answers(configured, stored):
-    """The state from the configuration and the copy in startup-choices.json (pure). The configuration value can be
-    lost (startup_choices explains how) or newer (an older version sharing the profile): Done counts when either
-    says so; the counts are those of the latest question (higher LastAsked). Ask stays the configuration's: an
-    administrator locks it there."""
-    if not isinstance(stored, dict):
-        return dict(configured)
-    merged = dict(configured)
-    try:
-        newer = int(stored.get("LastAsked", 0)) >= int(configured.get("LastAsked", 0))
-    except (TypeError, ValueError):
-        return merged
-    if newer:
-        for key in ("Asked", "LastAsked", "Release"):
-            if key in stored:
-                merged[key] = stored[key]
-    merged["Done"] = bool(configured.get("Done")) or bool(stored.get("Done"))
-    return merged
-
-
-def answered(state):
-    """True when the state holds an answer worth keeping (pure)."""
-    return bool(state.get("Done")) or int(state.get("Asked", 0)) > 0
+merge_answers, answered = startup_choices.merge_default_apps, startup_choices.default_apps_answered
 
 
 def load_state(ctx):
@@ -115,7 +91,6 @@ def load_state(ctx):
     except Exception:  # noqa: BLE001 - schema missing: never ask rather than ask every start
         diag_log.exception("default_apps")
         return dict(DEFAULT_STATE, Ask=False)
-    from . import startup_choices
     stored = startup_choices.get(ctx, CHOICE)
     if stored is None and answered(configured):  # migrate an answer given by a version without the file
         startup_choices.put(ctx, CHOICE, {key: configured[key] for key in ANSWER_KEYS})
@@ -123,7 +98,6 @@ def load_state(ctx):
 
 
 def save_state(ctx, state):
-    from . import startup_choices
     startup_choices.put(ctx, CHOICE, {key: state[key] for key in ANSWER_KEYS})  # never raises
     try:
         node = _access(ctx, True)
