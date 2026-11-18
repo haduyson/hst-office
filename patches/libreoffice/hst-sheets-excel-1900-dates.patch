@@ -288,7 +288,7 @@ dates, .xlsx round trip, an older .ods unchanged, .ods export of such a document
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sc/qa/unit/uicalc/hstexcel1900dates.cxx
-@@ -0,0 +1,368 @@
+@@ -0,0 +1,374 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -516,8 +516,9 @@ dates, .xlsx round trip, an older .ods unchanged, .ods export of such a document
 +
 +CPPUNIT_TEST_FIXTURE(ScHstExcel1900DatesTest, testDayCountFunctions)
 +{
-+    // Year, month and day functions over January and February 1900 count 01/01/1900 as a
-+    // Sunday and February 1900 with 29 days; later dates are counted as before.
++    // Results of Excel 2021 (16.0.15601, CalculateFull) for the same formulas. Over January and
++    // February 1900 serial 1 is a Sunday and DATE, DAYS360 and DATEDIF give February 29 days, EDATE
++    // and EOMONTH 28; later dates count as before.
 +    createScDoc();
 +    CPPUNIT_ASSERT(excel1900());
 +    ScDocument* pDoc = getScDoc();
@@ -531,13 +532,18 @@ dates, .xlsx round trip, an older .ods unchanged, .ods export of such a document
 +        { "=DAYS360(1,61)", 60 },      { "=DAYS360(59,61)", 3 },
 +        { "=DAYS360(60,61)", 1 },      { "=DAYS360(1,31)", 30 },
 +        { "=DAYS360(60,91,TRUE)", 31 }, { "=DAYS360(45292,45351)", 58 },
++        { "=DAYS360(59,91)", 33 },     { "=DAYS360(31,60)", 29 },
++        { "=WEEKNUM(366,2)", 54 },     { "=WEEKNUM(100,21)", 15 },
++        { "=DATEDIF(31,61,\"md\")", -1 }, { "=DATEDIF(60,425,\"ym\")", 11 },
++        { "=DATEDIF(60,426,\"yd\")", 0 },  { "=NETWORKDAYS(1,100)", 71 },
++        { "=WORKDAY(55,5)", 62 },
 +        { "=DATEDIF(1,61,\"m\")", 2 },  { "=DATEDIF(31,60,\"md\")", 29 },
 +        { "=DATEDIF(1,60,\"yd\")", 59 }, { "=DATEDIF(1,367,\"y\")", 1 },
 +        { "=DATEDIF(1,60,\"d\")", 59 },  { "=DATEDIF(45292,45351,\"md\")", 28 },
-+        { "=EDATE(31,1)", 60 },        { "=EDATE(60,12)", 425 },
++        { "=EDATE(31,1)", 59 },        { "=EDATE(91,-1)", 59 },        { "=EDATE(60,12)", 425 },
 +        { "=EDATE(61,-1)", 32 },       { "=EDATE(45292,1)", 45323 },
-+        { "=EOMONTH(1,1)", 60 },       { "=EOMONTH(1,0)", 31 },
-+        { "=EOMONTH(61,-1)", 60 },     { "=EOMONTH(45292,1)", 45351 },
++        { "=EOMONTH(1,1)", 59 },       { "=EOMONTH(1,0)", 31 },
++        { "=EOMONTH(61,-1)", 59 },     { "=EOMONTH(45292,1)", 45351 },
 +        // Weekdays follow the serials alone.
 +        { "=NETWORKDAYS(1,60)", 43 },  { "=WORKDAY(1,1)", 2 },
 +    };
@@ -857,7 +863,7 @@ dates, .xlsx round trip, an older .ods unchanged, .ods export of such a document
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sc/source/core/hst/hstexcel1900functions.cxx
-@@ -0,0 +1,383 @@
+@@ -0,0 +1,386 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -967,14 +973,17 @@ dates, .xlsx round trip, an older .ods unchanged, .ods export of such a document
 +    return 7 - nDaysBefore >= nMinimumDays ? nStart : nStart + 7;
 +}
 +
-+/// Serial a pair of months later, with the day kept or cut to the end of the month.
++/** Serial some months later, with the day kept or cut to the end of the month. EDATE and
++    EOMONTH of the 1900 date system give February 1900 28 days (EDATE(31,1) and EOMONTH(1,1)
++    are 59, 28/02/1900), unlike DATE and DAYS360. */
 +sal_Int32 monthsLater(sal_Int32 nSerial, sal_Int32 nMonths, bool bEndOfMonth)
 +{
 +    const ShownDay aDay = shownDay(nSerial);
 +    const sal_Int32 nTotal = aDay.nYear * 12 + aDay.nMonth - 1 + nMonths;
 +    const sal_Int32 nYear = nTotal >= 0 ? nTotal / 12 : -((-nTotal + 11) / 12);
 +    const sal_Int32 nMonth = nTotal - nYear * 12 + 1;
-+    const sal_Int32 nLast = daysInMonth(nYear, nMonth);
++    const sal_Int32 nLast
++        = Date::GetDaysInMonth(static_cast<sal_uInt16>(nMonth), static_cast<sal_Int16>(nYear));
 +    return daySerial(nYear, nMonth, bEndOfMonth ? nLast : std::min(aDay.nDay, nLast));
 +}
 +
