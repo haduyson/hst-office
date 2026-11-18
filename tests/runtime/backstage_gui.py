@@ -86,8 +86,10 @@ def press(node):
 
 def focused_name():
     import pyatspi
-    for _role, name, node in walk(nd30.office_app(), []):
-        if node.getState().contains(pyatspi.STATE_FOCUSED):
+    # the ribbon's paragraph style preview (an "icon") keeps the focused state under gtk3 although it has no keyboard
+    # focus; it is no answer
+    for role, name, node in walk(nd30.office_app(), []):
+        if role != "icon" and node.getState().contains(pyatspi.STATE_FOCUSED):
             return name
     return None
 

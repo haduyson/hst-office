@@ -44,7 +44,7 @@ COMMAND_ITEMS = {
 }
 # item name -> a label that only its page shows
 PAGE_ITEMS = {"Mới": "Quản lý mẫu", "Mở": "Duyệt", "Thông tin": "Thuộc tính", "Lưu thành": "Duyệt", "Trang chủ": "Tạo mới",
-              "In": "Xem trước khi in", "Xuất": "Xuất PDF ngay"}
+              "In": "Thêm tùy chọn", "Xuất": "Xuất PDF ngay"}
 APPS = (("swriter", "Writer", ".docx", "MS Word 2007 XML"),
         ("scalc", "Sheets", ".xlsx", "Calc MS Excel 2007 XML"),
         ("simpress", "Slides", ".pptx", "Impress MS PowerPoint 2007 XML"))
@@ -127,6 +127,8 @@ def check_app(office, args, factory, label, recent_name, shots):
             press(view_items()[name])
             time.sleep(0.5)
             record("%s: %s shows its page" % (label, name), marker in view_items() or marker == "Tạo mới")
+        press(view_items()["Trang chủ"])  # the page loop ends on Xuất, which has no recent list
+        time.sleep(0.5)
         found = [n for _r, n, _node in showing(walk(nd30.office_app(), []))]
         record(label + ": the recent list shows the saved file", recent_name in found, recent_name)
         if shots:
