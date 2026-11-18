@@ -39,7 +39,7 @@ class TrainTestSetTest(TrainFlowCase):
             self.finish(jid)
         self.step()
         self.assertEqual(self.train(1)["state"], "passed")
-        self.assertIn("2 tests passed", self.cand("fix/a")["note"])
+        self.assertIn("2 of 2 tests passed", self.cand("fix/a")["note"])
 
     def test_a_windows_only_train_still_runs_the_tests_on_linux(self):
         self.world.member("fix/w", "hst-w.patch", "vcl/win/w.cxx")
@@ -65,7 +65,7 @@ class TrainTestSetTest(TrainFlowCase):
         self.step()
         rec = self.train(1)
         self.assertEqual((rec["state"], rec["base_test_failures"]), ("passed", [SMOKE]))
-        self.assertIn("failing on the base too, not counted", self.cand("fix/a")["note"])
+        self.assertIn("0 of 1 tests passed (1 failing on the base too, not counted)", self.cand("fix/a")["note"])
 
     def test_a_new_failure_is_blamed_on_the_branch_that_touches_the_asserting_file(self):
         self.world.member("fix/a", "hst-a.patch", "sw/qa/core/a.cxx")

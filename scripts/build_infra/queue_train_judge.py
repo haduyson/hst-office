@@ -123,9 +123,10 @@ class TrainJudge:
                 where = f" (bisect half of {parent['name']})"
                 result_jobs = {**{p: parent["jobs"][p] for p, o in parent.get("results", {}).items() if o == "pass"},
                                **result_jobs}
-            tested_text = f"; {ntests} tests passed" if ntests else "; build only, no tests ran"
-            if rec.get("base_test_failures"):
-                tested_text += f" ({len(rec['base_test_failures'])} failing on the base too, not counted)"
+            excused = len(rec.get("base_test_failures", []))
+            tested_text = f"; {ntests - excused} of {ntests} tests passed" if ntests else "; build only, no tests ran"
+            if excused:
+                tested_text += f" ({excused} failing on the base too, not counted)"
             for m in members:
                 self.decide(m["branch"], "passed", f"passed in {rec['name']}{where} at {rec['sha'][:10]}{tested_text}",
                             owner=rec["name"], result={"train": rec["name"], "sha": rec["sha"], "jobs": result_jobs})
