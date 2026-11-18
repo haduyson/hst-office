@@ -1,0 +1,79 @@
+HST Office: a foreign OLE object that cannot be opened says why, in plain words (MathType formulas).
+
+Double-clicking an embedded Windows OLE object whose program is not available (a MathType formula on a PC
+without MathType, any such object on Linux and macOS) showed "Lỗi OLE chung khi kích hoạt đối tượng" (General
+OLE error activating object). SfxInPlaceClient::DoVerb now shows an information box instead for that case
+(an XEmbeddedOleObject failing with ERRCODE_SO_GENERALERROR): the program that made the object is not
+installed or the system cannot run Windows OLE objects, and the object still shows and prints as it is. Other
+errors and own objects (formulas, charts) keep the usual error box; the technical detail is logged.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+diff --git a/include/sfx2/strings.hrc b/include/sfx2/strings.hrc
+index d12961d..c98d3aa 100644
+--- a/include/sfx2/strings.hrc
++++ b/include/sfx2/strings.hrc
+@@ -173,6 +173,7 @@
+ #define STR_INFO_WRONGDOCFORMAT                 NC_("STR_INFO_WRONGDOCFORMAT", "This document must be saved in OpenDocument file format before it can be digitally signed.")
+ #define RID_XMLSEC_DOCUMENTSIGNED               NC_("RID_XMLSEC_DOCUMENTSIGNED", " (Signed)")
+ #define STR_EMBEDDED_TITLE                      NC_("STR_EMBEDDED_TITLE", " (Embedded document)")
++#define STR_HST_OLE_CANNOT_EDIT                 NC_("STR_HST_OLE_CANNOT_EDIT", "This embedded object cannot be opened for editing: the program that made it (for example MathType for a MathType formula) is not installed on this computer, or this system cannot run Windows OLE objects.\nThe object still shows and prints as it is.")
+ #define STR_STANDARD                            NC_("STR_STANDARD", "Standard")
+ #define RID_SVXSTR_FILELINK                     NC_("RID_SVXSTR_FILELINK", "Document")
+ #define STR_NONE                                NC_("STR_NONE", "- None -")
+diff --git a/sfx2/source/view/ipclient.cxx b/sfx2/source/view/ipclient.cxx
+index 1ef8cd7..7f5aed3 100644
+--- a/sfx2/source/view/ipclient.cxx
++++ b/sfx2/source/view/ipclient.cxx
+@@ -47,6 +47,9 @@
+ #include <vcl/unohelp.hxx>
+ 
+ #include <sfx2/ipclient.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <sfx2/strings.hrc>
++#include <vcl/weld.hxx>
+ #include <sfx2/viewsh.hxx>
+ #include <sfx2/viewfrm.hxx>
+ #include <sfx2/objsh.hxx>
+@@ -1029,7 +1032,23 @@ ErrCodeMsg SfxInPlaceClient::DoVerb(sal_Int32 nVerb)
+     }
+ 
+     if( nError )
+-        ErrorHandler::HandleError( nError );
++    {
++        // A foreign (Windows OLE) object whose program is not available cannot be activated: a
++        // MathType formula on a PC without MathType, any such object on Linux and macOS. Say that in
++        // plain words instead of the generic "General OLE error activating object".
++        uno::Reference<embed::XEmbeddedOleObject> xOleObject(m_xImp->m_xObject, uno::UNO_QUERY);
++        if (xOleObject.is() && nError.GetCode() == ERRCODE_SO_GENERALERROR
++            && !comphelper::LibreOfficeKit::isActive())
++        {
++            SAL_WARN("sfx.view", "OLE object cannot be activated: " << nError.GetArg1());
++            std::unique_ptr<weld::MessageDialog> xBox(Application::CreateMessageDialog(
++                m_pViewSh->GetFrameWeld(), VclMessageType::Info, VclButtonsType::Ok,
++                SfxResId(STR_HST_OLE_CANNOT_EDIT)));
++            xBox->run();
++        }
++        else
++            ErrorHandler::HandleError( nError );
++    }
+ 
+     return nError;
+ }
+diff --git a/translations/source/vi/sfx2/messages.po b/translations/source/vi/sfx2/messages.po
+index 222610f..ee55052 100644
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -876,6 +876,12 @@ msgctxt "STR_EMBEDDED_TITLE"
+ msgid " (Embedded document)"
+ msgstr " (Tài liệu nhúng)"
+ 
++#. hstOleCannotEdit
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_OLE_CANNOT_EDIT"
++msgid "This embedded object cannot be opened for editing: the program that made it (for example MathType for a MathType formula) is not installed on this computer, or this system cannot run Windows OLE objects.\nThe object still shows and prints as it is."
++msgstr "Không mở được đối tượng nhúng này để chỉnh sửa: máy tính chưa cài chương trình đã tạo ra nó (ví dụ MathType với công thức MathType), hoặc hệ điều hành này không chạy được đối tượng OLE của Windows.\nĐối tượng vẫn hiển thị và in như cũ."
++
+ #. 3nT9T
+ #: include/sfx2/strings.hrc:166
+ msgctxt "STR_STANDARD"
