@@ -13,6 +13,11 @@ HST PDF started on its own asks for a PDF file, and its launchers and shortcuts 
   CREATEDESKTOPLINK=1, as the other app shortcuts.
 - installer shortcut.pm: a non-advertised shortcut whose IconFile is an .ico of its own gets that
   icon (Icon table); the others keep showing their target's icon as before.
+- desktop dispatchwatcher: a "service:" argument is counted as a pending notified dispatch, as the
+  others are. Upstream left it out, so dispatchFinished() drove the count to -1 and the "a command
+  line that leaves no window quits the office" rule never ran again: with the HST extension disabled
+  or broken, the HST PDF launchers left a windowless office running. Now that office quits. With the
+  service present, its terminate listener holds the office until the PDF dialog has run.
 - The "HST Office" shortcut tooltip no longer describes LibreOffice and The Document Foundation:
   "HST Office, the office suite provided by HASON TECH. See https://hasontech.vn" (Vietnamese in
   l10n/vi-overrides.jsonl).
@@ -192,3 +197,19 @@ Test: tests/unit/test_pdf_launchers_patch.py, tests/unit/test_pdf_open.py; windo
  #. w5oJE
  #: module_draw.ulf
  msgctxt ""
+--- a/desktop/source/app/dispatchwatcher.cxx
++++ b/desktop/source/app/dispatchwatcher.cxx
+@@ -472,7 +472,13 @@
+                                                                                      true) };
+                     Reference < XNotifyingDispatch > xDisp( xDispatcher, UNO_QUERY );
+                     if ( xDisp.is() )
++                    {
++                        // HST Office: counted like the other notified dispatches, so dispatchFinished()
++                        // brings the count back to 0 and an office this request left without a window
++                        // quits (e.g. a service that cannot be created) instead of running unseen
++                        m_nRequestCount++;
+                         xDisp->dispatchWithNotification( aURL, aArgs2, this );
++                    }
+                     else
+                         xDispatcher->dispatch( aURL, aArgs2 );
+                 }

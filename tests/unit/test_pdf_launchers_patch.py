@@ -94,6 +94,17 @@ class WindowsShortcuts(unittest.TestCase):
         self.assertIn("HASON TECH", rows[0]["msgstr"])
 
 
+class WindowlessOffice(unittest.TestCase):
+    def test_service_requests_count_until_dispatch_finished(self):
+        """Without the HST extension the service is missing: the request must still end in the office's "no window,
+        quit" rule (tests/runtime/check-pdf-launcher-linux.py runs it on a real office)."""
+        hook = added()["desktop/source/app/dispatchwatcher.cxx"]
+        self.assertIn("m_nRequestCount++;", hook)
+        text = PATCH.read_text(encoding="utf-8")  # counted before the dispatch, which may finish at once
+        self.assertIn("+                        m_nRequestCount++;\n"
+                      "                         xDisp->dispatchWithNotification( aURL, aArgs2, this );", text)
+
+
 class Series(unittest.TestCase):
     def test_after_the_patches_it_builds_on(self):
         series = [n for n in (ROOT / "patches/libreoffice/series").read_text().splitlines() if n and n[0] != "#"]
