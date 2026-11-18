@@ -81,13 +81,22 @@ def office_env():
     return {k: v for k, v in os.environ.items() if k not in drop}
 
 
-def init_profile(soffice, url):
-    """A fresh profile asks for one restart (exit 81) at its first start: repeat until it exits cleanly."""
+def init_profile(soffice, url, profile):
+    """Create the profile and finish the bundled-extension sync before quiet_start seeds it. --terminate_after_init
+    never writes user/extensions/bundled/lastsynchronized, so the next start would sync again and drop the values seeded
+    for the extensions (Welcome/Shown read back false); one short full run (converting an empty file) completes it, as
+    hst_gui_profile.settle_extensions does. A fresh profile asks for one restart (exit 81): repeat until it is clean."""
+    marker = os.path.join(profile, "user", "extensions", "bundled", "lastsynchronized")
+    os.makedirs(profile, exist_ok=True)
+    empty = os.path.join(profile, "settle.txt")
+    open(empty, "w").close()
     for _ in range(3):
-        if subprocess.run([soffice, "--headless", "--norestore", "--terminate_after_init", "-env:UserInstallation=" + url],
-                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=300,
-                          env=office_env()).returncode == 0:
+        done = subprocess.run([soffice, "--headless", "--norestore", "-env:UserInstallation=" + url, "--convert-to", "pdf",
+                               "--outdir", profile, empty], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, timeout=300, env=office_env())
+        if done.returncode == 0 and os.path.exists(marker):
             return
+    raise SystemExit("profile set-up did not finish (no %s)" % marker)
 
 
 def quiet_start(profile, welcome):
@@ -122,7 +131,7 @@ def main():
     import uno
     profile = os.path.abspath(a.profile)
     url = uno.systemPathToFileUrl(profile)
-    init_profile(a.soffice, url)
+    init_profile(a.soffice, url, profile)
     quiet_start(profile, a.keep_welcome)
     events = os.path.abspath(a.out) + ".events.jsonl"
     open(events, "w").close()

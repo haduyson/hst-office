@@ -39,7 +39,16 @@ cp "$target_dmg" "$cache/$(basename "$target_dmg")"
 drv="$work/driver.app"
 py="$(find "$drv/Contents" -path '*bin/python3*' -type f -perm -u+x ! -name '*-config' | head -1)"
 pyhome="$(dirname "$(find "$drv/Contents" -name 'pyuno*.so' -o -name 'pyuno*.dylib' | head -1)")"
-profile="$work/profile"; init_profile "$app" "$profile"; python3 "$here/probe-profile.py" "$profile" --shown "$([ -n "${KEEP_WELCOME:-}" ] && echo false || echo true)" --no-tip
+profile="$work/profile"; init_profile "$app" "$profile"
+# Finish the bundled-extension sync before seeding: --terminate_after_init never writes lastsynchronized, so the next
+# start would sync again and drop the seeded Welcome/Shown (hst_gui_profile.settle_extensions does the same).
+: >"$work/settle.txt"
+for _ in 1 2 3; do
+  "$app/Contents/MacOS/soffice" --headless --norestore "-env:UserInstallation=file://$profile" --convert-to pdf \
+    --outdir "$work" "$work/settle.txt" >/dev/null 2>&1 && [ -f "$profile/user/extensions/bundled/lastsynchronized" ] && break
+done
+[ -f "$profile/user/extensions/bundled/lastsynchronized" ] || note "profile: bundled extensions not settled"
+python3 "$here/probe-profile.py" "$profile" --shown "$([ -n "${KEEP_WELCOME:-}" ] && echo false || echo true)" --no-tip
 printf '%s\n' '<item oor:path="/org.hasontech.hstoffice.DefaultApps"><prop oor:name="Ask" oor:op="fuse"><value>false</value></prop></item>' \
   | perl -0pi -e 'BEGIN { $item = <STDIN> } s|</oor:items>|$item</oor:items>|' "$profile/user/registrymodifications.xcu"
 document="$work/probe.rtf"; printf '{\\rtf1\\ansi HST update probe\\par}\n' >"$document"
