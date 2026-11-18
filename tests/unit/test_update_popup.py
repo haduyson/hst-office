@@ -81,7 +81,7 @@ class Notify(unittest.TestCase):
             ui.notify.assert_not_called()
             popup.close_all()
             self.assertEqual(popup._CURRENT, [])
-        shown.close.assert_called_once_with()
+        shown.dialog.dispose.assert_called_once_with()
 
     def test_error_falls_back_to_the_infobar(self):
         popup.show.side_effect = RuntimeError("no toolkit")

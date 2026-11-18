@@ -15,7 +15,7 @@ set -uo pipefail
 [ $# -eq 4 ] || { echo "usage: $0 <installed.dmg> <target.dmg> <scenario> <out-dir>" >&2; exit 64; }
 installed_dmg="$1"; target_dmg="$2"; scenario="$3"; out="$4"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"; repo="$(cd "$here/../.." && pwd)"
-# shellcheck source=probe-lib.sh
+# shellcheck source=scripts/macos/probe-lib.sh
 . "$here/probe-lib.sh"
 mkdir -p "$out"; work="$(mktemp -d)"; app="/Applications/HST Office.app"
 cache="$HOME/Library/Caches/HSTOffice/update"

@@ -52,8 +52,9 @@ def remember(cache, version, now):
 
 def close_all():
     """Remove the pop-ups being shown (update_launch, before the office quits for an update)."""
+    from . import dialog_modeless
     while _CURRENT:
-        _CURRENT.pop().close()
+        dialog_modeless.close(_CURRENT.pop())
 
 
 def _cache():
@@ -63,8 +64,8 @@ def _cache():
 
 def _busy(ctx):
     """A document is still being imported, or a modal dialog of the extension is open (its window takes no input)."""
-    from . import dialogs
-    if dialogs.OPEN:
+    from . import dialog_registry
+    if dialog_registry.OPEN:
         return True
     try:
         from .welcome_job import loading
@@ -104,7 +105,7 @@ def _parent(ctx):
 
 def show(ctx, release, installed):
     """Open the modeless pop-up over the current window; False when there is no visible window to hold it."""
-    from . import update_ui as ui
+    from . import dialog_modeless, update_ui as ui
     from .dialogs import Dialog
     from .update_texts import texts
     frame, parent = _parent(ctx)
@@ -117,7 +118,7 @@ def show(ctx, release, installed):
     def close():
         if dialog in _CURRENT:
             _CURRENT.remove(dialog)
-        dialog.close()
+        dialog_modeless.close(dialog)
 
     def act(action):
         close()
@@ -141,6 +142,6 @@ def show(ctx, release, installed):
         width = max(48, 8 + 5 * len(label))
         dialog.button("b%d" % index, label, x, 34, width, default=index == 0, callback=lambda a=action: act(a))
         x += width + 4
-    dialog.open_modeless(parent, on_close=close)
+    dialog.closing = dialog_modeless.open_modeless(dialog, parent, on_close=close)
     _CURRENT.append(dialog)
     return True

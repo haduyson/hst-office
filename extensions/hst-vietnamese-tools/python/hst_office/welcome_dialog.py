@@ -14,9 +14,9 @@ import unohelper
 from com.sun.star.awt import XActionListener, XWindowListener
 from com.sun.star.style.VerticalAlignment import MIDDLE
 
-from . import help_pages, welcome_content
+from . import dialog_registry, help_pages, welcome_content
 from .data_files import EXT_ROOT, load_data
-from .dialogs import OPEN, Dialog, is_dark, PALETTES
+from .dialogs import Dialog, is_dark, PALETTES
 
 WIDTH, PAD = 340, 10
 TEXT_W = WIDTH - 2 * PAD
@@ -179,12 +179,10 @@ class Welcome:
             d.dialog.addWindowListener(shown)
             keep.append(shown)
         CURRENT = self
-        OPEN.append(d.dialog)
         try:
-            d.dialog.execute()
+            dialog_registry.execute(d.dialog)  # registered: a modal dialog keeps the office from quitting
             return bool(d.get("dontShow"))
         finally:
-            OPEN.remove(d.dialog)
             CURRENT = None
             d.dialog.dispose()
 

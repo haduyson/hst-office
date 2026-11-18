@@ -6,14 +6,11 @@ gets a HelpText for screen readers. All positions are in Map AppFont units.
 """
 import uno
 import unohelper
-from com.sun.star.awt import XActionListener, XItemListener, XTextListener, XTopWindowListener
+from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
-from . import dialog_edit_heights, screen_work_area
+from . import dialog_edit_heights, dialog_registry, screen_work_area
 
 OK, CANCEL = 1, 2
-# UnoControlDialogs of this extension inside their modal loop, oldest first. A modal dialog makes the office refuse to
-# quit (the frame it belongs to will not close), so "Cập nhật ngay" ends them before closing the office (update_launch).
-OPEN = []
 # Accent text colours that stay readable (contrast >= 4.5:1) on the light and on the dark dialog background.
 PALETTES = {False: {"link": 0x0B57D0, "muted": 0x5F6368, "error": 0xC5221F},
             True: {"link": 0x8AB4F8, "muted": 0xBDC1C6, "error": 0xF28B82}}
@@ -61,37 +58,6 @@ class _Changed(unohelper.Base, XTextListener, XItemListener):
 
     def itemStateChanged(self, event):
         self.callback()
-
-    def disposing(self, event):
-        pass
-
-
-class _Closing(unohelper.Base, XTopWindowListener):
-    """The title bar's close button of a modeless dialog (Dialog.open_modeless)."""
-
-    def __init__(self, callback):
-        self.callback = callback
-
-    def windowClosing(self, event):
-        self.callback()
-
-    def windowOpened(self, event):
-        pass
-
-    def windowClosed(self, event):
-        pass
-
-    def windowMinimized(self, event):
-        pass
-
-    def windowNormalized(self, event):
-        pass
-
-    def windowActivated(self, event):
-        pass
-
-    def windowDeactivated(self, event):
-        pass
 
     def disposing(self, event):
         pass
@@ -200,35 +166,13 @@ class Dialog:
                 control.addTextListener(listener)
         if self.on_ready:
             self.on_ready()
-        OPEN.append(self.dialog)
         try:
-            self.dialog.execute()
+            dialog_registry.execute(self.dialog)  # registered: a modal dialog keeps the office from quitting
             return self.result
         finally:
-            OPEN.remove(self.dialog)
             if self.on_closed:
                 self.on_closed()
             self.dialog.dispose()
-
-
-    def open_modeless(self, parent_peer=None, on_close=None):
-        """Show without a modal loop: the other windows keep working. The buttons' callbacks run on clicks;
-        on_close runs when the title bar's close button is used. close() removes the dialog."""
-        toolkit = self.smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", self.ctx)
-        self.dialog.setVisible(False)
-        self.dialog.createPeer(toolkit, parent_peer)
-        for name, listener in self._listeners:
-            self.dialog.getControl(name).addActionListener(listener)
-        self._closing = _Closing(on_close or self.close)
-        self.dialog.addTopWindowListener(self._closing)
-        self.dialog.setVisible(True)
-
-    def close(self):
-        try:
-            self.dialog.setVisible(False)
-            self.dialog.dispose()
-        except Exception:  # noqa: BLE001 - already disposed (closed twice)
-            pass
 
 
 def message_box(ctx, parent_peer, title, text, error=False, ask=False, buttons=None):

@@ -13,8 +13,6 @@ import platform
 import threading
 import time
 
-import uno
-
 from . import update_config
 from . import update_helper_cmd as cmd
 from . import update_installer as installer
@@ -24,6 +22,7 @@ from . import update_resume as resume
 from . import update_ui as ui
 from .update_download import DownloadCancelled
 from .update_prepare import PrepareError, prepare
+from .update_install_ui import _ask, _live_peer, needs_password, office_paths  # noqa: F401 - patched by tests as update_install.*
 from .update_texts import texts
 from . import diag_log
 
@@ -34,24 +33,6 @@ OWN_DIALOG_TURNS = 50  # main-thread turns to wait for ended dialogs to leave th
 
 def _size(n):
     return "%.1f MB" % (n / 1048576.0)
-
-
-def _ask(ctx, peer, title, text, buttons, text_height=28):
-    """Modal question; `buttons` = [(label, key)]; returns the key of the clicked button or None (closed)."""
-    from .dialogs import CANCEL, Dialog
-    top = 16 + text_height
-    dialog = Dialog(ctx, title, 300, top + 20)
-    dialog.label("message", text, 8, 8, 284, text_height, wrap=True)
-    keys, x = [], 8
-    for index, (label, key) in enumerate(buttons):
-        width = max(44, 8 + 5 * len(label))
-        last = index == len(buttons) - 1
-        dialog.button("b%d" % index, label, 292 - width if last else x, top, width, kind=CANCEL if last else None,
-                      default=index == 0, callback=None if last else (lambda k=key: (keys.append(k), dialog.end(1))))
-        x += width + 4
-    if dialog.execute(peer):
-        return keys[0] if keys else None
-    return buttons[-1][1]
 
 
 def manual_download(ctx):
@@ -112,18 +93,6 @@ def _download_dialog(ctx, peer, info, proxy):
     return outcome
 
 
-def office_paths(ctx, system):
-    """(soffice executable, running app bundle or None) of this installation."""
-    base = uno.fileUrlToSystemPath(ctx.getValueByName("/singletons/com.sun.star.util.theMacroExpander").expandMacros("$BRAND_BASE_DIR"))
-    base = os.path.normpath(base.replace("vnd.sun.star.expand:", ""))
-    if system == "Darwin":
-        bundle = base  # BRAND_BASE_DIR is <name>.app/Contents: climb to the bundle itself
-        while not bundle.endswith(".app") and os.path.dirname(bundle) != bundle:
-            bundle = os.path.dirname(bundle)
-        return os.path.join(bundle, "Contents", "MacOS", "soffice"), bundle
-    return os.path.join(base, "program", "soffice.exe" if system == "Windows" else "soffice"), None
-
-
 def launch_and_quit(ctx, result, info):
     """Start the helper (it waits for this process to exit), then close the office the normal way.
 
@@ -161,20 +130,6 @@ def launch_and_quit(ctx, result, info):
         if not closing:  # Cancel in a save prompt (or an error): nothing is updated, the file stays for later
             resume.discard(cache)
     return closing
-
-
-def _live_peer(ctx, peer):
-    """The window to parent a message to: the clicked one may have closed while the office tried to quit."""
-    try:
-        if peer is not None and peer.isVisible():
-            return peer
-    except Exception:  # noqa: BLE001 - disposed
-        pass
-    try:
-        frame = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).getCurrentFrame()
-        return frame.getContainerWindow() if frame else None
-    except Exception:  # noqa: BLE001
-        return None
 
 
 def install(ctx, peer, result, info, turns=0):
@@ -229,8 +184,10 @@ def start(ctx, peer):
             return fail(ctx, peer, outcome.get("code", "err_network")) if outcome.get("code") != "uptodate" else None
         TEXT = texts(ctx)
         version = outcome["result"]["release"]["version"]
-        if _ask(ctx, peer, TEXT["install_title"], TEXT["ready"] % version,
-                [(TEXT["install"], "install"), (TEXT["later"], "later")]) == "install":
+        # macOS: the password is asked only after the office closed; say so now, or a skipped prompt looks like a no-op
+        password = system == "Darwin" and needs_password(office_paths(ctx, system)[1])
+        if _ask(ctx, peer, TEXT["install_title"], TEXT["ready_password" if password else "ready"] % version,
+                [(TEXT["install"], "install"), (TEXT["later"], "later")], 52 if password else 28) == "install":
             install(ctx, peer, outcome["result"], info)
     except Exception:  # noqa: BLE001 - report instead of failing inside the UI thread
         diag_log.exception("update_install")
