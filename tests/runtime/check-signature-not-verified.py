@@ -34,6 +34,7 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--doc", required=True, help="a document whose signature does not verify")
     args = parser.parse_args()
+    sys.stdout.reconfigure(encoding="utf-8")  # the labels are Vietnamese; a Windows console log is cp1252
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
     doc_path = os.path.join(out, os.path.basename(args.doc))
