@@ -39,6 +39,16 @@ License: these upstream files remain under their original license (MPL-2.0).
  
  // HST Office: "Set As Default" in the font, paragraph, page setup and format cells dialogs
  #define STR_HST_SET_DEFAULT                     NC_("STR_HST_SET_DEFAULT", "Set As ~Default")
+--- a/include/svx/ThemeColorsToolBoxControl.hxx
++++ b/include/svx/ThemeColorsToolBoxControl.hxx
+@@ -35,6 +35,7 @@ private:
+     // the gallery shows fewer columns at the smaller states, so the ribbon narrows it before folding its group
+     std::unique_ptr<weld::ScrolledWindow> m_xHstScroll;
+     int m_nHstState = 0;
++    int m_nHstExtra = 0; // more themes at the large state on a sparse tab (set_property("hst-gallery-extra"))
+     void HstApplyColumns();
+ 
+ public:
 --- a/include/vcl/HstRibbonWidth.hxx
 +++ b/include/vcl/HstRibbonWidth.hxx
 @@ -9,6 +9,7 @@
@@ -201,7 +211,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      StylePreviewDescriptor m_aStyleName;
 --- a/svx/source/tbxctrls/HstStyleGalleryWindow.cxx
 +++ b/svx/source/tbxctrls/HstStyleGalleryWindow.cxx
-@@ -29,7 +29,7 @@ namespace svx::hststyles
+@@ -29,10 +29,14 @@ namespace svx::hststyles
  {
  namespace
  {
@@ -210,6 +220,66 @@ License: these upstream files remain under their original license (MPL-2.0).
  constexpr int ITEM_STEP = TILE_WIDTH + 10; // a tile with the icon view's padding
  constexpr int FRAME_WIDTH = 8;
  constexpr int VIEW_HEIGHT = TILE_HEIGHT + 12; // one row, never taller (Windows asks for every row)
++constexpr int MAX_EXTRA = 10; // a sparse tab's gallery shows at most this many more tiles (1.0.3 design)
++
++// tiles in the row at a state; a sparse tab adds some at the large state
++int columnsOf(int nState, int nExtra) { return COLUMNS[nState] + (nState == 0 ? nExtra : 0); }
+ 
+ bool IsModel(const uno::Reference<frame::XFrame>& rxFrame, const OUString& rService)
+ {
+@@ -92,6 +96,15 @@ void StyleGalleryWindow::dispose()
+ 
+ bool StyleGalleryWindow::set_property(const OUString& rKey, const OUString& rValue)
+ {
++    if (rKey == "hst-gallery-extra")
++    {
++        const int nExtra = std::clamp<int>(rValue.toInt32(), 0, MAX_EXTRA);
++        if (nExtra == m_nExtra || !m_xView)
++            return false;
++        m_nExtra = nExtra;
++        ApplyColumns();
++        return true;
++    }
+     if (rKey != "hst-gallery-state")
+         return InterimItemWindow::set_property(rKey, rValue);
+     const int nState = std::clamp<int>(rValue.toInt32(), 0, std::size(COLUMNS) - 1);
+@@ -110,7 +123,7 @@ void StyleGalleryWindow::ApplyColumns()
+         return;
+     const float fScale = GetDPIScaleFactor();
+     // on the icon view itself: the VCL builder folds a GtkScrolledWindow into the icon view (it scrolls itself)
+-    m_xView->set_size_request((COLUMNS[m_nState] * ITEM_STEP + FRAME_WIDTH) * fScale, VIEW_HEIGHT * fScale);
++    m_xView->set_size_request((columnsOf(m_nState, m_nExtra) * ITEM_STEP + FRAME_WIDTH) * fScale, VIEW_HEIGHT * fScale);
+     ShowPage();
+     Size aSize = get_preferred_size();
+     aSize.setHeight(std::min<tools::Long>(aSize.Height(), (VIEW_HEIGHT + 6) * fScale));
+@@ -121,7 +134,7 @@ void StyleGalleryWindow::ShowPage()
+ {
+     if (!m_xView)
+         return;
+-    const size_t nPage = COLUMNS[m_nState];
++    const size_t nPage = columnsOf(m_nState, m_nExtra);
+     if (m_nFirst >= m_aEntries.size())
+         m_nFirst = 0;
+     m_nFirst -= m_nFirst % nPage; // pages start at multiples of the page size
+@@ -179,7 +192,7 @@ IMPL_LINK(StyleGalleryWindow, ActivatedH
+ 
+ IMPL_LINK(StyleGalleryWindow, PageHdl, weld::Button&, rButton, void)
+ {
+-    const size_t nPage = COLUMNS[m_nState];
++    const size_t nPage = columnsOf(m_nState, m_nExtra);
+     if (&rButton == m_xNext.get())
+     {
+         if (m_nFirst + nPage < m_aEntries.size())
+--- a/svx/source/tbxctrls/HstStyleGalleryWindow.hxx
++++ b/svx/source/tbxctrls/HstStyleGalleryWindow.hxx
+@@ -71,6 +71,7 @@ private:
+     std::vector<Entry> m_aEntries;
+     size_t m_nFirst = 0;
+     int m_nState = 0;
++    int m_nExtra = 0; // more tiles at the large state on a sparse tab (set_property("hst-gallery-extra"))
+     bool m_bFilling = false;
+ };
+ }
 --- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
 +++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
 @@ -105,16 +105,8 @@ namespace
@@ -379,6 +449,36 @@ License: these upstream files remain under their original license (MPL-2.0).
  constexpr int HST_ITEM_WIDTH = 108;
  constexpr int HST_FRAME_WIDTH = 32; // margins, frame and the vertical scroll bar
  constexpr int HST_HEIGHT = 88; // the .ui's height-request: one row of themes with their names
+@@ -148,13 +148,27 @@ void ThemeColorsPaneWrapper::HstApplyCol
+         return;
+     const double fScale = GetDPIScaleFactor();
+     m_xHstScroll->set_size_request(
+-        (HST_COLUMNS[m_nHstState] * HST_ITEM_WIDTH + HST_FRAME_WIDTH) * fScale, HST_HEIGHT * fScale);
++        ((HST_COLUMNS[m_nHstState] + (m_nHstState == 0 ? m_nHstExtra : 0)) * HST_ITEM_WIDTH + HST_FRAME_WIDTH) * fScale,
++        HST_HEIGHT * fScale);
+ }
+ 
+ bool ThemeColorsPaneWrapper::set_property(const OUString& rKey, const OUString& rValue)
+ {
+-    if (rKey != "hst-gallery-state")
++    const bool bExtra = rKey == "hst-gallery-extra";
++    if (!bExtra && rKey != "hst-gallery-state")
+         return InterimItemWindow::set_property(rKey, rValue);
++    if (bExtra)
++    {
++        // a sparse tab: more themes at the large state (1.0.3 design: at most 10 more)
++        const int nExtra = std::clamp<int>(rValue.toInt32(), 0, 10);
++        if (nExtra == m_nHstExtra)
++            return false;
++        m_nHstExtra = nExtra;
++        HstApplyColumns();
++        InvalidateChildSizeCache();
++        SetOptimalSize();
++        return true;
++    }
+     const int nState = std::clamp<int>(rValue.toInt32(), 0, std::size(HST_COLUMNS) - 1);
+     if (nState == m_nHstState)
+         return false; // nothing changed: the ladder need not lay the toolbox out again
 --- a/translations/source/vi/sfx2/messages.po
 +++ b/translations/source/vi/sfx2/messages.po
 @@ -10480,6 +10480,12 @@ msgctxt "STR_HST_TAB_SEARCH_BUBBLE"
@@ -428,7 +528,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  
 --- /dev/null
 +++ b/vcl/inc/HstRibbonV3Layout.hxx
-@@ -0,0 +1,74 @@
+@@ -0,0 +1,76 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This Source Code Form is subject to the terms of the Mozilla Public
@@ -458,12 +558,14 @@ License: these upstream files remain under their original license (MPL-2.0).
 +namespace hst::ribbon::v3
 +{
 +/// How a group shows: its state (L full, M medium, S small), whether the sparse tab's fill pass made it large, its
-+/// gallery's state (L, M, S: 6/4/3 previews) and the tab's one large-button width in device px (0: natural widths)
++/// gallery's state (L, M, S: 5/4/3 tiles), the tiles a sparse tab adds to it at L, and the tab's one large-button
++/// width in device px (0: natural widths)
 +struct Config
 +{
 +    char state = 'L';
 +    bool big = false;
 +    char gallery = 'L';
++    int extra = 0;
 +    tools::Long largeWidth = 0;
 +    bool operator==(const Config&) const = default;
 +};
@@ -1089,7 +1191,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      int nCommands = 0;
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
-@@ -0,0 +1,519 @@
+@@ -0,0 +1,529 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This Source Code Form is subject to the terms of the Mozilla Public
@@ -1111,7 +1213,6 @@ License: these upstream files remain under their original license (MPL-2.0).
 +#include <toolbox.h>
 +
 +#include <algorithm>
-+#include <array>
 +#include <map>
 +#include <vector>
 +
@@ -1119,13 +1220,11 @@ License: these upstream files remain under their original license (MPL-2.0).
 +{
 +namespace
 +{
-+/// the natural widths of one command, per look (L, M, S, W, and G at the gallery states L, M, S), -1 unknown
-+struct Naturals
-+{
-+    std::array<tools::Long, 7> width{ -1, -1, -1, -1, -1, -1, -1 };
-+};
++/// the natural widths of one command, per look (L, M, S, W, and G at the gallery states L, M, S with the tiles a
++/// sparse tab adds), measured once
++using Naturals = std::map<int, tools::Long>;
 +
-+int lookIndex(char cLook, char cGallery)
++int lookKey(char cLook, char cGallery, int nExtra)
 +{
 +    switch (cLook)
 +    {
@@ -1133,7 +1232,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        case 'M': return 1;
 +        case 'S': return 2;
 +        case 'W': return 3;
-+        default: return cGallery == 'L' ? 4 : cGallery == 'M' ? 5 : 6;
++        default: return 16 * (cGallery == 'L' ? 1 : cGallery == 'M' ? 2 : 3) + (cGallery == 'L' ? nExtra : 0);
 +    }
 +}
 +
@@ -1275,17 +1374,23 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        rBox.queue_resize();
 +}
 +
-+void lookGallery(vcl::Window& rCommand, char cGallery)
++void lookGallery(vcl::Window& rCommand, char cGallery, int nExtra)
 +{
 +    ToolBox* pBox = dynamic_cast<ToolBox*>(&rCommand);
 +    if (!pBox)
 +        return;
 +    const OUString aState = OUString::number(cGallery == 'L' ? 0 : cGallery == 'M' ? 1 : 2);
++    const OUString aExtra = OUString::number(cGallery == 'L' ? nExtra : 0);
 +    for (ToolBox::ImplToolItems::size_type i = 0; i < pBox->GetItemCount(); ++i)
 +    {
 +        const ToolBoxItemId nId = pBox->GetItemId(i);
 +        vcl::Window* pItemWindow = pBox->GetItemWindow(nId);
-+        if (pItemWindow && pItemWindow->set_property(u"hst-gallery-state"_ustr, aState))
++        if (!pItemWindow)
++            continue;
++        // both: a window that does not know a property ignores it (the styles list has no extra tiles)
++        const bool bState = pItemWindow->set_property(u"hst-gallery-state"_ustr, aState);
++        const bool bExtra = pItemWindow->set_property(u"hst-gallery-extra"_ustr, aExtra);
++        if (bState || bExtra)
 +        {
 +            pBox->SetItemWindow(nId, pItemWindow); // the item takes the window's new size
 +            pBox->queue_resize();
@@ -1293,7 +1398,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    }
 +}
 +
-+void setLook(Group& rData, vcl::Window& rCommand, char cLook, char cGallery)
++void setLook(Group& rData, vcl::Window& rCommand, char cLook, char cGallery, int nExtra)
 +{
 +    rData.looks[&rCommand] = cLook;
 +    if (ToolBox* pBox = dynamic_cast<ToolBox*>(&rCommand))
@@ -1302,7 +1407,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            rData.size32[&rCommand] = pBox->GetToolboxButtonSize() == ToolBoxButtonSize::Size32;
 +        lookToolBox(*pBox, cLook, rData.size32[&rCommand]);
 +        if (cLook == 'G')
-+            lookGallery(rCommand, cGallery);
++            lookGallery(rCommand, cGallery, nExtra);
 +    }
 +    else if (MenuButton* pButton = dynamic_cast<MenuButton*>(&rCommand))
 +        SetMenuButtonLook(*pButton, cLook);
@@ -1335,16 +1440,23 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    return aLooks;
 +}
 +
-+/// the natural width of a command at a look, measured once (the command shows that look for a moment)
-+tools::Long natural(Group& rData, vcl::Window& rCommand, char cLook, char cGallery)
++bool measured(Group& rData, const vcl::Window& rCommand, char cLook, const Config& rConfig)
 +{
-+    tools::Long& rWidth = rData.naturals[&rCommand].width[lookIndex(cLook, cGallery)];
-+    if (rWidth < 0)
++    return rData.naturals[&rCommand].count(lookKey(cLook, rConfig.gallery, rConfig.extra)) > 0;
++}
++
++/// the natural width of a command at a look, measured once (the command shows that look for a moment)
++tools::Long natural(Group& rData, vcl::Window& rCommand, char cLook, const Config& rConfig)
++{
++    Naturals& rWidths = rData.naturals[&rCommand];
++    const int nKey = lookKey(cLook, rConfig.gallery, rConfig.extra);
++    auto it = rWidths.find(nKey);
++    if (it == rWidths.end())
 +    {
-+        setLook(rData, rCommand, cLook, cGallery);
-+        rWidth = VclContainer::getLayoutRequisition(rCommand).Width();
++        setLook(rData, rCommand, cLook, rConfig.gallery, rConfig.extra);
++        it = rWidths.emplace(nKey, VclContainer::getLayoutRequisition(rCommand).Width()).first;
 +    }
-+    return rWidth;
++    return it->second;
 +}
 +
 +Plan planFor(Group& rData, const Parts& rParts, const Config& rConfig, const vcl::Window& rGrid)
@@ -1355,9 +1467,9 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    bool bMeasured = !rData.applied;
 +    rData.applied = true;
 +    for (std::size_t i = 0; i < rParts.commands.size(); ++i)
-+        if (aLooks[i] && rData.naturals[rParts.commands[i]].width[lookIndex(aLooks[i], rConfig.gallery)] < 0)
++        if (aLooks[i] && !measured(rData, *rParts.commands[i], aLooks[i], rConfig))
 +        {
-+            natural(rData, *rParts.commands[i], aLooks[i], rConfig.gallery);
++            natural(rData, *rParts.commands[i], aLooks[i], rConfig);
 +            bMeasured = true;
 +        }
 +    if (bMeasured)
@@ -1367,10 +1479,10 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        const std::vector<char> aNowLooks = looksFor(aNow);
 +        for (std::size_t i = 0; i < rParts.commands.size(); ++i)
 +            if (aNowLooks[i])
-+                setLook(rData, *rParts.commands[i], aNowLooks[i], rData.config.gallery);
++                setLook(rData, *rParts.commands[i], aNowLooks[i], rData.config.gallery, rData.config.extra);
 +    }
 +    const auto width = [&](std::size_t i, char cLook) -> long {
-+        return static_cast<long>(natural(rData, *rParts.commands[i], cLook, rConfig.gallery));
++        return static_cast<long>(natural(rData, *rParts.commands[i], cLook, rConfig));
 +    };
 +    return place(aIn, width, static_cast<long>(rConfig.largeWidth), scaleOf(rGrid));
 +}
@@ -1450,7 +1562,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    const std::vector<char> aLooks = looksFor(inputFor(*pData, aParts, rConfig));
 +    for (std::size_t i = 0; i < aParts.commands.size(); ++i)
 +        if (aLooks[i])
-+            setLook(*pData, *aParts.commands[i], aLooks[i], rConfig.gallery);
++            setLook(*pData, *aParts.commands[i], aLooks[i], rConfig.gallery, rConfig.extra);
 +    if (FixedText* pText = dynamic_cast<FixedText*>(aParts.caption))
 +    {
 +        const WinBits nStyle = (pText->GetStyle() & ~(WB_LEFT | WB_RIGHT | WB_TOP | WB_BOTTOM)) | WB_CENTER | WB_VCENTER;
@@ -1675,7 +1787,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      if (nMin >= 0)
      {
          Size aSize;
-@@ -1003,4 +1019,295 @@ IMPL_LINK(PriorityMergedHBox, PBClickHdl
+@@ -1003,4 +1019,314 @@ IMPL_LINK(PriorityMergedHBox, PBClickHdl
                                          | FloatWinPopupFlags::AllMouseButtonClose);
  }
  
@@ -1769,6 +1881,25 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        aConfigs[i].big = true;
 +        if (over())
 +            aConfigs[i].big = false;
++    }
++    // galleries show more tiles while the tab is still more than 40 % free (at most 10 more)
++    std::vector<size_t> aGalleries;
++    for (size_t i = 0; i < n; ++i)
++        if (aV3[i] && v3::HasGallery(*aWindows[i]))
++            aGalleries.push_back(i);
++    const auto setExtra = [&](int nExtra) {
++        for (size_t i : aGalleries)
++            aConfigs[i].extra = nExtra;
++    };
++    for (int nExtra = 1; !aGalleries.empty() && nExtra <= 10 && freeShare() > 0.4; ++nExtra)
++    {
++        const tools::Long nBefore = used();
++        setExtra(nExtra);
++        if (over() || used() == nBefore) // too wide, or no gallery of the tab takes more tiles
++        {
++            setExtra(nExtra - 1);
++            break;
++        }
 +    }
 +    // still sparse: every large button of the tab widens to 96 px
 +    if (freeShare() > 0.4)

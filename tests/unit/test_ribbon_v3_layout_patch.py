@@ -35,6 +35,11 @@ class FitTest(unittest.TestCase):
         self.assertIn("const bool bSparse = freeShare() > 0.4;", code)
         self.assertIn("px(bWide ? 96 : std::clamp<long>((nLogical + 1) / 2 * 2, 52, 96))", code)
         self.assertIn("for (const char cStep : { 'M', 'S', 'C' })", code)
+        # galleries take more tiles while the tab is still more than 40 % free
+        self.assertIn("for (int nExtra = 1; !aGalleries.empty() && nExtra <= 10 && freeShare() > 0.4; ++nExtra)", code)
+        self.assertIn('set_property(u"hst-gallery-extra"_ustr, aExtra)',
+                      added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx"))
+        self.assertIn('if (rKey == "hst-gallery-extra")', added(PATCH, "svx/source/tbxctrls/HstStyleGalleryWindow.cxx"))
         self.assertIn("HstApplyV3(nWidth);", code)
 
 
