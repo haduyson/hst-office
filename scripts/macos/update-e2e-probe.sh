@@ -9,6 +9,7 @@
 #   branch        this checkout's updater code, imported by the same installed app
 #   shipped-root  shipped code, /Applications copy owned by root (administrator password path)
 #   branch-root   branch code, root-owned copy
+# KEEP_WELCOME=1: the welcome dialog opens at the start and stays open. CLOSE_WELCOME=1: closed before the update.
 # PRETEND=<release>: reported to the update check as the running release (an up-to-date app is offered the target).
 set -uo pipefail
 [ $# -eq 4 ] || { echo "usage: $0 <installed.dmg> <target.dmg> <scenario> <out-dir>" >&2; exit 64; }
@@ -38,7 +39,7 @@ cp "$target_dmg" "$cache/$(basename "$target_dmg")"
 drv="$work/driver.app"
 py="$(find "$drv/Contents" -path '*bin/python3*' -type f -perm -u+x ! -name '*-config' | head -1)"
 pyhome="$(dirname "$(find "$drv/Contents" -name 'pyuno*.so' -o -name 'pyuno*.dylib' | head -1)")"
-profile="$work/profile"; init_profile "$app" "$profile"; python3 "$here/probe-profile.py" "$profile" --shown true --no-tip
+profile="$work/profile"; init_profile "$app" "$profile"; python3 "$here/probe-profile.py" "$profile" --shown "$([ -n "${KEEP_WELCOME:-}" ] && echo false || echo true)" --no-tip
 printf '%s\n' '<item oor:path="/org.hasontech.hstoffice.DefaultApps"><prop oor:name="Ask" oor:op="fuse"><value>false</value></prop></item>' \
   | perl -0pi -e 'BEGIN { $item = <STDIN> } s|</oor:items>|$item</oor:items>|' "$profile/user/registrymodifications.xcu"
 document="$work/probe.rtf"; printf '{\\rtf1\\ansi HST update probe\\par}\n' >"$document"

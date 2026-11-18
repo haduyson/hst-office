@@ -212,6 +212,9 @@ def main():
     report["version_after"] = version(a.app)
     report["inode_after"] = os.stat(a.app).st_ino if os.path.exists(a.app) else None
     report["office_processes_after"] = office_processes()
+    names = subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of every window of every process '
+                            'whose name is "soffice"'], capture_output=True, text=True, timeout=30)
+    report["windows_after"] = (names.stdout + names.stderr).strip()  # the relaunched office: reopened document?
     log = os.path.expanduser("~/Library/Caches/HSTOffice/update/update.log")
     report["update_log"] = open(log, encoding="utf-8", errors="replace").read().splitlines()[-40:] if os.path.exists(log) else None
     with open(a.out, "w", encoding="utf-8") as handle:
