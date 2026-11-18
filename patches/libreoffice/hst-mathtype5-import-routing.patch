@@ -245,10 +245,10 @@ index cd5d59d..715618f 100644
      OUString const & GetVisAreaHeight() const;
 diff --git a/sw/source/writerfilter/hst/mathtypeole.cxx b/sw/source/writerfilter/hst/mathtypeole.cxx
 new file mode 100644
-index 0000000..0d18d30
+index 0000000..30f747b
 --- /dev/null
 +++ b/sw/source/writerfilter/hst/mathtypeole.cxx
-@@ -0,0 +1,83 @@
+@@ -0,0 +1,88 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -271,6 +271,7 @@ index 0000000..0d18d30
 +#include <comphelper/processfactory.hxx>
 +#include <comphelper/propertyvalue.hxx>
 +#include <comphelper/seqstream.hxx>
++#include <comphelper/storagehelper.hxx>
 +#include <comphelper/diagnose_ex.hxx>
 +#include <officecfg/Office/Common.hxx>
 +
@@ -293,7 +294,11 @@ index 0000000..0d18d30
 +    uno::Reference<embed::XEmbeddedObject> xObj;
 +    try
 +    {
-+        comphelper::EmbeddedObjectContainer aContainer;
++        // The container must not own its storage: an owning container disposes the storage when it goes
++        // out of scope, and the object, which stays in that storage until Writer moves it into the
++        // document, would then crash the document's EmbeddedObjectContainer::InsertEmbeddedObject.
++        comphelper::EmbeddedObjectContainer aContainer(
++            comphelper::OStorageHelper::GetTemporaryStorage());
 +        OUString aName;
 +        xObj = aContainer.CreateEmbeddedObject(
 +            comphelper::MimeConfigurationHelper::GetSequenceClassID(SO3_SM_CLASSID), aName,
