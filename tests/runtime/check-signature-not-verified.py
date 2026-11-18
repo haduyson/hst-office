@@ -41,6 +41,7 @@ def main():
     base.PORT = free_port()  # VisibleOffice reads the module's port
     office = base.VisibleOffice(args.soffice, out, None)
     try:
+        office.set_config("/org.hasontech.hstoffice.DefaultApps", "Ask", False)  # no start question over the dialog
         doc = office.desktop.loadComponentFromURL(office.uno.systemPathToFileUrl(doc_path), "_blank", 0, ())
         time.sleep(3)
         office.close_welcome()
