@@ -1,12 +1,18 @@
-HST Office: three upstream sc conditional format tests expect the Calc A1 formula syntax; they now expect HST's.
+HST Office: upstream sc tests that print formulas expect the Calc A1 syntax; they now expect HST's Excel A1.
 
 hst-sheets-excel-formula-conventions.patch makes Excel A1 the default UI formula syntax, so the expressions
 that ScCondFormatHelper::GetExpression and ScConditionEntry::GetExpression print read Sheet1!$B2 and
 Sheet2!$A$2 instead of $Sheet1.$B2 and $Sheet2.$A$2 (testTdf104026, testCondFormatImportCellIs,
 testCondFormatExportCellIs). The references themselves are unchanged.
 
+The same syntax prints imported formulas the Excel way: Comparison!$I:$J (testTdf131536), the intersection
+operator as a space (testTdf160371), 'Новый.лист'!A1 (testNonAsciiWithDotXLSX), Calc's CEILING as CEILING.ODF
+(testTdf143809) and external references as ['file://host/share/file.xlsx']Sheet1!A1:B5 (testTdf118990). These
+failed identically in 1.0.2; only the printed syntax changes, values and references are still asserted as before.
+
 License: these upstream files remain under their original license (MPL-2.0).
-Test: make CppunitTest_sc_cond_format.
+Test: make CppunitTest_sc_cond_format CppunitTest_sc_subsequent_filters_test CppunitTest_sc_subsequent_filters_test2
+CppunitTest_sc_subsequent_export_test2.
 ---
 --- a/sc/qa/unit/cond_format.cxx
 +++ b/sc/qa/unit/cond_format.cxx
@@ -77,3 +83,79 @@ Test: make CppunitTest_sc_cond_format.
  }
  
  CPPUNIT_TEST_FIXTURE(CondFormatTest, testConditionalFormatExportXLSX)
+--- a/sc/qa/unit/subsequent_export_test2.cxx
++++ b/sc/qa/unit/subsequent_export_test2.cxx
+@@ -1047,12 +1047,13 @@
+ 
+     CPPUNIT_ASSERT_EQUAL_MESSAGE(
+         "Wrong Windows share (using host IP) URL in A2",
+-        u"=VLOOKUP(B1,'file://192.168.1.1/share/lookupsource.xlsx'#$Sheet1.A1:B5,2)"_ustr,
++        // HST Office: the UI formula syntax is Excel A1 (hst-sheets-excel-formula-conventions.patch)
++        u"=VLOOKUP(B1,['file://192.168.1.1/share/lookupsource.xlsx']Sheet1!A1:B5,2)"_ustr,
+         pDoc->GetFormula(0, 1, 0));
+ 
+     CPPUNIT_ASSERT_EQUAL_MESSAGE(
+         "Wrong Windows share (using hostname) URL in A3",
+-        u"=VLOOKUP(B1,'file://NETWORKHOST/share/lookupsource.xlsx'#$Sheet1.A1:B5,2)"_ustr,
++        u"=VLOOKUP(B1,['file://NETWORKHOST/share/lookupsource.xlsx']Sheet1!A1:B5,2)"_ustr,
+         pDoc->GetFormula(0, 2, 0));
+ }
+ 
+--- a/sc/qa/unit/subsequent_filters_test.cxx
++++ b/sc/qa/unit/subsequent_filters_test.cxx
+@@ -452,7 +452,8 @@
+ 
+     aFormula = pDoc->GetFormula(0, 1, 0);
+     CPPUNIT_ASSERT_EQUAL(
+-        u"=SUMPRODUCT(IFERROR(CEILING(SUMIFS(DURATIONS,IDS,IDS),300)/COUNTIFS(IDS,IDS),0))"_ustr,
++        // HST Office: Excel A1 names Calc's CEILING CEILING.ODF (hst-sheets-excel-formula-conventions.patch)
++        u"=SUMPRODUCT(IFERROR(CEILING.ODF(SUMIFS(DURATIONS,IDS,IDS),300)/COUNTIFS(IDS,IDS),0))"_ustr,
+         aFormula);
+     CPPUNIT_ASSERT_EQUAL(u"51900"_ustr, pDoc->GetString(0, 1, 0));
+ }
+@@ -1661,7 +1662,8 @@
+     ScDocument* pDoc = getScDoc();
+ 
+     OUString aStr = pDoc->GetFormula(0, 0, 0);
+-    CPPUNIT_ASSERT_EQUAL(u"=$'Новый.лист'.A1"_ustr, aStr);
++    // HST Office: the UI formula syntax is Excel A1 (hst-sheets-excel-formula-conventions.patch)
++    CPPUNIT_ASSERT_EQUAL(u"='Новый.лист'!A1"_ustr, aStr);
+ 
+     pDoc->CalcAll();
+     double aValue = pDoc->GetValue(ScAddress(0, 0, 0));
+--- a/sc/qa/unit/subsequent_filters_test2.cxx
++++ b/sc/qa/unit/subsequent_filters_test2.cxx
+@@ -761,7 +761,8 @@
+     // Without the fix in place, this test would have failed with
+     // - Expected: =INDIRECT(B2)!INDIRECT(B3)
+     // - Actual  : =INDIRECT(B2) INDIRECT(B3)
+-    CPPUNIT_ASSERT_EQUAL(u"=INDIRECT(B2)!INDIRECT(B3)"_ustr, pDoc->GetFormula(1, 3, 0));
++    // HST Office: Excel A1 writes the intersection operator as a space (hst-sheets-excel-formula-conventions.patch)
++    CPPUNIT_ASSERT_EQUAL(u"=INDIRECT(B2) INDIRECT(B3)"_ustr, pDoc->GetFormula(1, 3, 0));
+     CPPUNIT_ASSERT_EQUAL(1.0, pDoc->GetValue(ScAddress(1, 3, 0)));
+ }
+ 
+@@ -1417,18 +1418,19 @@
+     ScDocument* pDoc = getScDoc();
+ 
+     CPPUNIT_ASSERT_EQUAL(1.0, pDoc->GetValue(3, 9, 0));
++    // HST Office: the UI formula syntax is Excel A1 (hst-sheets-excel-formula-conventions.patch)
+     CPPUNIT_ASSERT_EQUAL(
+-        u"=IF(D$4=\"-\",\"-\",MID(TEXT(INDEX($Comparison.$I:$J,$Comparison.$A5,$Comparison.D$2),"
++        u"=IF(D$4=\"-\",\"-\",MID(TEXT(INDEX(Comparison!$I:$J,Comparison!$A5,Comparison!D$2),"
+         "\"\")"
+         ",2,4)"
+-        "=RIGHT(TEXT(INDEX($Comparison.$L:$Z,$Comparison.$A5,$Comparison.D$4),\"\"),4))"_ustr,
++        "=RIGHT(TEXT(INDEX(Comparison!$L:$Z,Comparison!$A5,Comparison!D$4),\"\"),4))"_ustr,
+         pDoc->GetFormula(3, 9, 0));
+ 
+     CPPUNIT_ASSERT_EQUAL(1.0, pDoc->GetValue(4, 9, 0));
+     CPPUNIT_ASSERT_EQUAL(
+-        u"=IF(D$4=\"-\",\"-\",MID(TEXT(INDEX($Comparison.$I:$J,$Comparison.$A5,$Comparison.D$2),"
++        u"=IF(D$4=\"-\",\"-\",MID(TEXT(INDEX(Comparison!$I:$J,Comparison!$A5,Comparison!D$2),"
+         "\"0\"),2,4)"
+-        "=RIGHT(TEXT(INDEX($Comparison.$L:$Z,$Comparison.$A5,$Comparison.D$4),\"0\"),4))"_ustr,
++        "=RIGHT(TEXT(INDEX(Comparison!$L:$Z,Comparison!$A5,Comparison!D$4),\"0\"),4))"_ustr,
+         pDoc->GetFormula(4, 9, 0));
+ }
+ 
