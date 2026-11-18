@@ -333,6 +333,13 @@ ensure_tarballs() { # pinned tarballs in $DL: local cache copy, else download li
   [ "$missing" -eq 0 ] || python3 -I "$CHECKOUT/scripts/windows/fetch-sources.py" --dest "$DL"
 }
 
+# Hard-link a tree of cached files into place; when source and target sit on different filesystems
+# (slots moved to a second disk), fall back to a no-clobber copy so the build still gets every file.
+link_tree() { # link_tree SRC_DIR DST_DIR
+  mkdir -p "$2"
+  cp -rln "$1/." "$2/" 2>/dev/null || cp -r --update=none --reflink=auto "$1/." "$2/"
+}
+
 ensure_pristine() { # extract like CI once, then index the untouched tree (outside $SRC: no .git there,
   # or LibreOffice would treat it as a git build and rerun autogen.sh on its own)
   local want; want="$(sha256sum "$CHECKOUT/upstream/libreoffice-lock.json" | cut -c1-16)"
@@ -341,8 +348,8 @@ ensure_pristine() { # extract like CI once, then index the untouched tree (outsi
   rm -rf "$PRISTINE" "$SYNC" "$WORK/.pristine"
   ci --extract
   # External tarballs (sha256-checked by make fetch) survive re-extraction as hard links.
-  mkdir -p "$EXT_CACHE" "$SRC/external/tarballs"
-  cp -rln "$EXT_CACHE/." "$SRC/external/tarballs/"
+  mkdir -p "$EXT_CACHE"
+  link_tree "$EXT_CACHE" "$SRC/external/tarballs"
   git init -q --bare "$PRISTINE"
   pgit config core.bare false; pgit config gc.auto 0
   pgit add -A -f .
@@ -448,7 +455,7 @@ configure_if_needed() {
     timed configure ci --configure
     cp "$SRC/autogen.input" "$WORK/autogen.input.last"
     timed fetch ci --fetch
-    cp -rln "$SRC/external/tarballs/." "$EXT_CACHE/"
+    link_tree "$SRC/external/tarballs" "$EXT_CACHE"
   else
     log "configure: inputs unchanged, skipped"
   fi
