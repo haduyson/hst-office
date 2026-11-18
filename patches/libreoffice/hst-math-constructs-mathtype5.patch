@@ -61,7 +61,7 @@ index b79aa71..4bf7071 100644
  ))
  
 diff --git a/starmath/Library_sm.mk b/starmath/Library_sm.mk
-index 57a19e1..0f41931 100644
+index 57a19e1..83c659e 100644
 --- a/starmath/Library_sm.mk
 +++ b/starmath/Library_sm.mk
 @@ -18,6 +18,7 @@ $(eval $(call gb_Library_set_precompiled_header,sm,starmath/inc/pch/precompiled_
@@ -72,7 +72,7 @@ index 57a19e1..0f41931 100644
          -I$(WORKDIR)/SdiTarget/starmath/sdi \
          $$(INCLUDE) \
  ))
-@@ -81,6 +82,17 @@ $(eval $(call gb_Library_add_exception_objects,sm,\
+@@ -81,6 +82,18 @@ $(eval $(call gb_Library_add_exception_objects,sm,\
          starmath/source/smediteng \
          starmath/source/format \
          starmath/source/mathtype \
@@ -86,6 +86,7 @@ index 57a19e1..0f41931 100644
 +        starmath/source/hst/mtef5symbols \
 +        starmath/source/hst/mtef5templates \
 +        starmath/source/hst/ommlfixes \
++        starmath/source/hst/printlayout \
 +        starmath/source/hst/textarrow \
          starmath/source/node \
          starmath/source/ooxmlexport \
@@ -338,10 +339,10 @@ index 0000000..d2601b1
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/qa/cppunit/test_hst_formula_constructs.cxx b/starmath/qa/cppunit/test_hst_formula_constructs.cxx
 new file mode 100644
-index 0000000..846f65b
+index 0000000..b247a99
 --- /dev/null
 +++ b/starmath/qa/cppunit/test_hst_formula_constructs.cxx
-@@ -0,0 +1,165 @@
+@@ -0,0 +1,189 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -357,6 +358,8 @@ index 0000000..846f65b
 +
 +#include <o3tl/cppunittraitshelper.hxx>
 +#include <sfx2/sfxmodelfactory.hxx>
++#include <tools/gen.hxx>
++#include <vcl/mapmod.hxx>
 +
 +#include <document.hxx>
 +#include <node.hxx>
@@ -365,6 +368,7 @@ index 0000000..846f65b
 +#include <visitors.hxx>
 +#include "../../source/hst/elementtemplates.hxx"
 +#include "../../source/hst/ommlfixes.hxx"
++#include "../../source/hst/printlayout.hxx"
 +#include <ElementsDockingWindow.hxx>
 +
 +namespace
@@ -422,6 +426,26 @@ index 0000000..846f65b
 +        // other attributes keep the math font
 +        CPPUNIT_ASSERT(pHat->Attribute()->GetFont().GetFamilyName() != pArc->Attribute()->GetFont().GetFamilyName());
 +        xDocShell->DoClose();
++    }
++
++    void testPrintedFormulaNotClipped()
++    {
++        using starmath::hst::SmallerFormulaTextHeight;
++        // a long formula text shrinks step by step until the formula has the height it needs
++        CPPUNIT_ASSERT_EQUAL(tools::Long(540), SmallerFormulaTextHeight(600, 20000, 21000, 2400));
++        CPPUNIT_ASSERT_EQUAL(tools::Long(200), SmallerFormulaTextHeight(210, 20000, 21000, 2400));
++        CPPUNIT_ASSERT_EQUAL(tools::Long(0), SmallerFormulaTextHeight(200, 20000, 21000, 2400));
++        // a short text keeps LibreOffice's 6 mm
++        CPPUNIT_ASSERT_EQUAL(tools::Long(0), SmallerFormulaTextHeight(600, 1800, 21000, 2400));
++
++        // a formula larger than its rectangle is scaled down to fit, never clipped
++        MapMode aMap(MapUnit::Map100thMM);
++        starmath::hst::FitFormula(aMap, Size(20000, 4000), tools::Rectangle(Point(), Size(10000, 10000)));
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(0.5, aMap.GetScaleX(), 1e-9);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(0.5, aMap.GetScaleY(), 1e-9);
++        MapMode aFits(MapUnit::Map100thMM);
++        starmath::hst::FitFormula(aFits, Size(2000, 400), tools::Rectangle(Point(), Size(10000, 10000)));
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(1.0, aFits.GetScaleX(), 1e-9);
 +    }
 +
 +    void testTextArrowStretches()
@@ -498,6 +522,7 @@ index 0000000..846f65b
 +    CPPUNIT_TEST(testTextArrowsParse);
 +    CPPUNIT_TEST(testArcParse);
 +    CPPUNIT_TEST(testArcDrawnFromAFontThatHasIt);
++    CPPUNIT_TEST(testPrintedFormulaNotClipped);
 +    CPPUNIT_TEST(testTextArrowStretches);
 +    CPPUNIT_TEST(testOmmlImportFixes);
 +    CPPUNIT_TEST_SUITE_END();
@@ -938,18 +963,19 @@ index 6d8df6b..07dc46d 100644
  
      SmViewShell* pViewSh = GetView();
 diff --git a/starmath/source/document.cxx b/starmath/source/document.cxx
-index b6f68fe..c0d76ce 100644
+index b6f68fe..fc2322f 100644
 --- a/starmath/source/document.cxx
 +++ b/starmath/source/document.cxx
-@@ -70,6 +70,7 @@
+@@ -70,6 +70,8 @@
  #include <utility.hxx>
  #include <view.hxx>
  #include "mathtype.hxx"
 +#include "hst/mathtypeglue.hxx"
++#include "hst/printlayout.hxx"
  #include "ooxmlexport.hxx"
  #include "ooxmlimport.hxx"
  #include "rtfexport.hxx"
-@@ -644,6 +645,8 @@ bool SmDocShell::ConvertFrom(SfxMedium &rMedium)
+@@ -644,6 +646,8 @@ bool SmDocShell::ConvertFrom(SfxMedium &rMedium)
                      bSuccess = aEquation.Parse( aStorage.get() );
                      if ( bSuccess )
                      {
@@ -958,6 +984,34 @@ index b6f68fe..c0d76ce 100644
                          maText = aBuffer.makeStringAndClear();
                          Parse();
                      }
+@@ -1497,6 +1501,18 @@ void SmDocShell::Impl_Print(OutputDevice& rOutDev, const SmPrintUIOptions& rPrin
+         rOutDev.SetFont(aFont);
+ 
+         Size aSize(GetTextSize(rOutDev, GetText(), aOutRect.GetWidth() - 200));
++        // HST Office: a long formula text no longer squeezes the formula into a clipped strip
++        const tools::Long nFormulaHeight
++            = GetSize().Height() * (ePrintSize == PRINT_SIZE_ZOOMED ? nZoomFactor : 100) / 100 + 400;
++        for (tools::Long nHeight = starmath::hst::SmallerFormulaTextHeight(
++                 600, aSize.Height(), aOutRect.GetHeight(), nFormulaHeight);
++             nHeight; nHeight = starmath::hst::SmallerFormulaTextHeight(
++                          nHeight, aSize.Height(), aOutRect.GetHeight(), nFormulaHeight))
++        {
++            aFont.SetFontSize(Size(0, nHeight));
++            rOutDev.SetFont(aFont);
++            aSize = GetTextSize(rOutDev, GetText(), aOutRect.GetWidth() - 200);
++        }
+ 
+         aOutRect.AdjustBottom(-(aSize.Height() + 600));
+ 
+@@ -1553,6 +1569,8 @@ void SmDocShell::Impl_Print(OutputDevice& rOutDev, const SmPrintUIOptions& rPrin
+         }
+     }
+ 
++    starmath::hst::FitFormula(OutputMapMode, aSize, aOutRect); // HST Office: never clip the formula
++
+     aSize = OutputDevice::LogicToLogic(aSize, OutputMapMode, MapMode(SmMapUnit()));
+ 
+     Point aPos(aOutRect.Left() + (aOutRect.GetWidth() - aSize.Width()) / 2,
 diff --git a/starmath/source/hst/elementtemplates.cxx b/starmath/source/hst/elementtemplates.cxx
 new file mode 100644
 index 0000000..f404138
@@ -3912,6 +3966,96 @@ index 0000000..f18b590
 +/// A relation with nothing on its left ("= 105" on a new line) drops the operator in StarMath;
 +/// gives it an empty left operand.
 +OUString OmmlLeftOperandForLeadingRelations(const OUString& rFormula);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/hst/printlayout.cxx b/starmath/source/hst/printlayout.cxx
+new file mode 100644
+index 0000000..17a80f4
+--- /dev/null
++++ b/starmath/source/hst/printlayout.cxx
+@@ -0,0 +1,44 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "printlayout.hxx"
++
++#include <tools/gen.hxx>
++#include <vcl/mapmod.hxx>
++
++#include <algorithm>
++
++namespace starmath::hst
++{
++namespace
++{
++constexpr tools::Long MIN_TEXT_HEIGHT = 200; // 2 mm, still readable on paper
++constexpr tools::Long TEXT_FRAME = 800; // the frame and spacing around the formula text
++}
++
++tools::Long SmallerFormulaTextHeight(tools::Long nHeight, tools::Long nTextHeight, tools::Long nRoom,
++                                     tools::Long nFormulaHeight)
++{
++    if (nHeight <= MIN_TEXT_HEIGHT || nRoom - (nTextHeight + TEXT_FRAME) >= nFormulaHeight)
++        return 0;
++    return std::max(MIN_TEXT_HEIGHT, nHeight * 9 / 10);
++}
++
++void FitFormula(MapMode& rMapMode, const Size& rFormulaSize, const tools::Rectangle& rRect)
++{
++    if (rFormulaSize.IsEmpty() || rRect.IsEmpty())
++        return;
++    const double fScale = double(rMapMode.GetScaleX());
++    const double fFit = std::min(double(rRect.GetWidth()) / rFormulaSize.Width(),
++                                 double(rRect.GetHeight()) / rFormulaSize.Height());
++    if (fFit >= fScale)
++        return;
++    rMapMode = MapMode(rMapMode.GetMapUnit(), Point(), fFit, fFit);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/hst/printlayout.hxx b/starmath/source/hst/printlayout.hxx
+new file mode 100644
+index 0000000..fb34841
+--- /dev/null
++++ b/starmath/source/hst/printlayout.hxx
+@@ -0,0 +1,34 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <tools/long.hxx>
++
++class MapMode;
++class Size;
++namespace tools
++{
++class Rectangle;
++}
++
++// Printing or exporting a formula document to PDF: title on top, the formula, its text below.
++namespace starmath::hst
++{
++/// Font height (1/100 mm) for the formula text under the formula: 600 as LibreOffice prints it,
++/// smaller (down to 200) while a long text would leave the formula less height than it needs
++/// (nFormulaHeight); nRoom is the height left for the formula and the text together.
++/// Returns the next smaller height to try, or 0 when the current one is fine or the smallest.
++tools::Long SmallerFormulaTextHeight(tools::Long nHeight, tools::Long nTextHeight, tools::Long nRoom,
++                                     tools::Long nFormulaHeight);
++
++/// The formula is never clipped: when it is larger than its rectangle at the scale of rMapMode,
++/// rMapMode is scaled down so that it fits.
++void FitFormula(MapMode& rMapMode, const Size& rFormulaSize, const tools::Rectangle& rRect);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
