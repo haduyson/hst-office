@@ -9,7 +9,9 @@ The same syntax prints imported formulas the Excel way: Comparison!$I:$J (testTd
 operator as a space (testTdf160371), 'Новый.лист'!A1 (testNonAsciiWithDotXLSX), Calc's CEILING as CEILING.ODF
 (testTdf143809), external references as ['file://host/share/file.xlsx']Sheet1!A1:B5 (testTdf118990), a one-cell
 range of AutoSum as the cell, =SUM(B13,B10) (testAutoSum), =TRUE without parentheses (testInvalidBareBiff5), a
-named range as Sheet1!$A$1 (testTdf94627) and CELL("Address") as Logical!$A$1 (information-functions.csv).
+named range as Sheet1!$A$1 (testTdf94627), references to another sheet as Two!$A$2
+(testFormulaReferenceXLS), a formula typed as ='90''s Data'!B2 (testFormulaRefSheetNameODS) and CELL("Address") as
+Logical!$A$1 (information-functions.csv).
 These failed identically in 1.0.2; only the printed syntax changes, values and references are still asserted.
 
 hst-sheets-num-errors.patch gives #NUM! (ERRORTYPE 503) for a number outside a function's domain where upstream
@@ -27,7 +29,7 @@ instead of 1386 high (testCommentSize).
 License: these upstream files remain under their original license (MPL-2.0).
 Test: make CppunitTest_sc_cond_format CppunitTest_sc_subsequent_filters_test CppunitTest_sc_subsequent_filters_test2
 CppunitTest_sc_subsequent_filters_test3 CppunitTest_sc_subsequent_filters_test4 CppunitTest_sc_subsequent_filters_test5
-CppunitTest_sc_subsequent_export_test2 CppunitTest_sc_uicalc2 CppunitTest_sc_ucalc.
+CppunitTest_sc_subsequent_export_test CppunitTest_sc_subsequent_export_test2 CppunitTest_sc_uicalc2 CppunitTest_sc_ucalc.
 ---
 --- a/sc/qa/unit/cond_format.cxx
 +++ b/sc/qa/unit/cond_format.cxx
@@ -155,6 +157,51 @@ CppunitTest_sc_subsequent_export_test2 CppunitTest_sc_uicalc2 CppunitTest_sc_uca
  Hyperlink,http://www.example.org
  3,1
  1,3,5
+--- a/sc/qa/unit/subsequent_export_test.cxx
++++ b/sc/qa/unit/subsequent_export_test.cxx
+@@ -1821,9 +1821,11 @@ CPPUNIT_TEST_FIXTURE(ScExportTest, testFormulaRefSheetNameODS)
+         ScDocument* pDoc = getScDoc();
+ 
+         sc::AutoCalcSwitch aACSwitch(*pDoc, true); // turn on auto calc.
+-        pDoc->SetString(ScAddress(1, 1, 0), u"='90''s Data'.B2"_ustr);
++        // HST Office: the formula is typed and printed in the Excel A1 UI syntax
++        // (hst-sheets-excel-formula-conventions.patch)
++        pDoc->SetString(ScAddress(1, 1, 0), u"='90''s Data'!B2"_ustr);
+         CPPUNIT_ASSERT_EQUAL(1.1, pDoc->GetValue(ScAddress(1, 1, 0)));
+-        CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula", u"='90''s Data'.B2"_ustr,
++        CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula", u"='90''s Data'!B2"_ustr,
+                                      pDoc->GetFormula(1, 1, 0));
+     }
+     // Now, save and reload this document.
+@@ -1832,7 +1834,7 @@ CPPUNIT_TEST_FIXTURE(ScExportTest, testFormulaRefSheetNameODS)
+     ScDocument* pDoc = getScDoc();
+     pDoc->CalcAll();
+     CPPUNIT_ASSERT_EQUAL(1.1, pDoc->GetValue(ScAddress(1, 1, 0)));
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula", u"='90''s Data'.B2"_ustr,
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula", u"='90''s Data'!B2"_ustr,
+                                  pDoc->GetFormula(1, 1, 0));
+ }
+ 
+@@ -2141,13 +2143,15 @@ CPPUNIT_TEST_FIXTURE(ScExportTest, testFormulaReferenceXLS)
+                                  pDoc->GetFormula(3, 5, 0));
+     CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula in D7", u"=SUM(A7:C7)"_ustr,
+                                  pDoc->GetFormula(3, 6, 0));
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula in D10", u"=$Two.$A$2+$Two.$B$2+$Two.$C$2"_ustr,
++    // HST Office: references to sheet Two print in the Excel A1 UI syntax
++    // (hst-sheets-excel-formula-conventions.patch)
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula in D10", u"=Two!$A$2+Two!$B$2+Two!$C$2"_ustr,
+                                  pDoc->GetFormula(3, 9, 0));
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula in D11", u"=$Two.A3+$Two.B3+$Two.C3"_ustr,
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula in D11", u"=Two!A3+Two!B3+Two!C3"_ustr,
+                                  pDoc->GetFormula(3, 10, 0));
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula in D14", u"=MIN($Two.$A$2:$C$2)"_ustr,
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula in D14", u"=MIN(Two!$A$2:$C$2)"_ustr,
+                                  pDoc->GetFormula(3, 13, 0));
+-    CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula in D15", u"=MAX($Two.A3:C3)"_ustr,
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("Wrong formula in D15", u"=MAX(Two!A3:C3)"_ustr,
+                                  pDoc->GetFormula(3, 14, 0));
+ }
+ 
 --- a/sc/qa/unit/subsequent_export_test2.cxx
 +++ b/sc/qa/unit/subsequent_export_test2.cxx
 @@ -1047,12 +1047,13 @@ CPPUNIT_TEST_FIXTURE(ScExportTest2, testTdf118990)
