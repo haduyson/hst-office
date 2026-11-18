@@ -16,8 +16,8 @@ specifications and the interface headers of hst-sheets-dynamic-array-hooks.patch
   result or #SPILL!.
 - sc/source/ui/hst/hstdynamicarrayinput.cxx: whether a typed formula spills (a formula whose
   outermost function is an array function is a dynamic array whatever its result size; others are
-  calculated once as an array
-  formula unless they can only give one value or call macros, add-ins, DDE or web services);
+  compiled afresh from the text and calculated once as a Ctrl+Shift+Enter array formula would be,
+  unless they can only give one value or call macros, add-ins, DDE or web services);
   the cursor cell alone as entry range when another array is in the way (#SPILL!); the input line
   of a dynamic array without braces.
 
@@ -777,7 +777,7 @@ Spill.xlsx, error constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +    CPPUNIT_ASSERT_EQUAL(5.0, value("G2"));
 +    type("G3", u"=INDEX(A1#,2)");
 +    CPPUNIT_ASSERT_EQUAL(2.0, value("G3"));
-+    type("G4", u"=COUNTA($Sheet1.A1#)");
++    type("G4", u"=COUNTA(Sheet1!$A$1#)");
 +    CPPUNIT_ASSERT_EQUAL(5.0, value("G4"));
 +
 +    CPPUNIT_ASSERT_EQUAL(u"=SUM(A1#)"_ustr, formula("C1"));
@@ -1320,7 +1320,7 @@ Spill.xlsx, error constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sc/source/ui/hst/hstdynamicarrayinput.cxx
-@@ -0,0 +1,227 @@
+@@ -0,0 +1,244 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1329,6 +1329,7 @@ Spill.xlsx, error constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +
 +#include <hstdynamicarrayinput.hxx>
 +
++#include <compiler.hxx>
 +#include <document.hxx>
 +#include <editable.hxx>
 +#include <formulacell.hxx>
@@ -1490,8 +1491,24 @@ Spill.xlsx, error constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
 +    if (!bMayGiveArray || (pLast && pLast->GetOpCode() == ocSingleValue))
 +        return false;
 +
-+    // Calculate once as an array formula at the cursor cell, outside the sheet.
-+    ScFormulaCell aProbe(rDoc, rPos, rCode, eGrammar, ScMatrixMode::Formula);
++    // Calculate once exactly as a Ctrl+Shift+Enter array formula at the cursor cell would be,
++    // outside the sheet. The code is compiled afresh from the text in array mode: the code typed
++    // for a single cell has its range operands already reduced to the formula's row or column.
++    std::u16string_view aText(rFormula);
++    if (aText.starts_with(u'='))
++        aText.remove_prefix(1);
++    ScCompiler aCompiler(rDoc, rPos, eGrammar, /*bComputeII*/ false, /*bMatrixFlag*/ true);
++    std::unique_ptr<ScTokenArray> pArrayCode = aCompiler.CompileString(OUString(aText));
++    if (!pArrayCode || pArrayCode->GetCodeError() != FormulaError::NONE)
++        return false;
++    {
++        ScCompiler aRpnCompiler(rDoc, rPos, *pArrayCode, eGrammar, /*bComputeII*/ false,
++                                /*bMatrixFlag*/ true);
++        aRpnCompiler.CompileTokenArray();
++    }
++    if (pArrayCode->GetCodeError() != FormulaError::NONE || pArrayCode->GetCodeLen() == 0)
++        return false;
++    ScFormulaCell aProbe(rDoc, rPos, std::move(pArrayCode), eGrammar, ScMatrixMode::Formula);
 +    aProbe.SetFreeFlying(true);
 +    aProbe.Interpret();
 +    const ScMatrix* pMat = aProbe.GetMatrix();
