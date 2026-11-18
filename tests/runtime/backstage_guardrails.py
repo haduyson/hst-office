@@ -26,6 +26,22 @@ def toplevel_of(node):
     return None
 
 
+# the accessible name of the panel's box ("panel" in hstbackstage.ui)
+PANEL_NAMES = ("Tệp tin", "File")
+
+
+def panel_of(node):
+    """The File panel's box around `node`; the window of its own of the former drop-down."""
+    while node is not None:
+        parent = node.parent
+        if node.name in PANEL_NAMES and node.getRoleName() not in ("page tab", "push button"):
+            return node
+        if parent is None or parent.getRoleName() == "application":
+            return node
+        node = parent
+    return None
+
+
 def guardrails(label):
     """While the panel is open: the ribbon and the document show, and the panel is a part of the document's window
     below the ribbon (it covers no part of the ribbon and not all of the document). Returns the panel's box."""
@@ -34,13 +50,15 @@ def guardrails(label):
     if "Thông tin" not in items:
         record(label + ": the panel is open for the guardrail checks", False)
         return None
-    panel = toplevel_of(items["Thông tin"])
+    panel = panel_of(items["Thông tin"])
     tabs = [node for role, name, node in found if role == "page tab" and name in FILE_TAB_NAMES]
     frame = toplevel_of(tabs[0]) if tabs else None
     # as in the reference suite the panel moves and resizes with the window (a window of its own was left behind and
     # closed by a press on the title bar)
-    record(label + ": the panel is a part of the document's window", panel is not None and panel == frame,
-           "%s / %s" % (panel.getRoleName() if panel else None, frame.getRoleName() if frame else None))
+    record(label + ": the panel is a part of the document's window",
+           panel is not None and frame is not None and toplevel_of(panel) == frame,
+           "%s / %s" % (toplevel_of(panel).getRoleName() if panel else None,
+                        frame.getRoleName() if frame else None))
     in_frame = [(role, name, node) for role, name, node in found if frame is not None and toplevel_of(node) == frame]
     # the ribbon's tab control (tabs and the selected tab's groups) is at the top of the window; Sheets also has the
     # sheet tabs at the bottom

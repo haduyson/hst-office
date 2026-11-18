@@ -38,7 +38,7 @@ index f90d826..2a19ab1 100644
  }
  
 diff --git a/sfx2/source/backstage/hstbackstagewindow.cxx b/sfx2/source/backstage/hstbackstagewindow.cxx
-index e095763..e75d50d 100644
+index e095763..8eedf9d 100644
 --- a/sfx2/source/backstage/hstbackstagewindow.cxx
 +++ b/sfx2/source/backstage/hstbackstagewindow.cxx
 @@ -60,6 +60,8 @@
@@ -142,7 +142,7 @@ index e095763..e75d50d 100644
  }
  
  void BackstageWindow::FillRecentLists()
-@@ -1157,20 +1188,105 @@ bool BackstageWindow::OpenOn(Page ePage)
+@@ -1157,20 +1188,107 @@ bool BackstageWindow::OpenOn(Page ePage)
      ShowPage(ePage);
      m_xRecentTabs->set_current_page(0);
  
@@ -215,15 +215,17 @@ index e095763..e75d50d 100644
 +        Close(); // no room under the ribbon any more
 +}
 +
-+/* A press of a mouse button in the panel's window but outside the panel and the File title band
-+   closes the panel, as the click outside a drop-down did. The window's title bar and frame are not
++/* A press of a mouse button in the panel's window (the document, the ribbon and its tabs) but
++   outside the panel and the File title band closes the panel, as the click outside a drop-down did. The window's title bar and frame are not
 +   VCL windows: moving, snapping and resizing the window keep the panel open. */
 +IMPL_LINK(BackstageWindow, AppEventHdl, VclSimpleEvent&, rEvent, void)
 +{
 +    if (!m_bOpen || rEvent.GetId() != VclEventId::WindowMouseButtonDown)
 +        return;
 +    vcl::Window* pWindow = static_cast<VclWindowEvent&>(rEvent).GetWindow();
-+    if (!pWindow || !m_xClient || !m_xClient->IsWindowOrChild(pWindow))
++    // the ribbon is a child of the window's border window, not of its client window
++    vcl::Window* pFrameWindow = m_xClient ? m_xClient->GetFrameWindow() : nullptr;
++    if (!pWindow || !pFrameWindow || !pFrameWindow->IsWindowOrChild(pWindow))
 +        return; // another window: a dialog, another document
 +    if (m_xHost->IsWindowOrChild(pWindow)
 +        || (m_xTitleBand && !m_xTitleBand->isDisposed() && m_xTitleBand->IsWindowOrChild(pWindow)))
@@ -251,7 +253,7 @@ index e095763..e75d50d 100644
      ShowTitleBand(false);
      FocusDocument();
  }
-@@ -1189,17 +1305,6 @@ void BackstageWindow::FocusDocument()
+@@ -1189,17 +1307,6 @@ void BackstageWindow::FocusDocument()
      }
  }
  
