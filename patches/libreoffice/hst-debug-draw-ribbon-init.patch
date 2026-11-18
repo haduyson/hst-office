@@ -1,0 +1,96 @@
+HST debug (never merge): fprintf trace of the notebookbar set-up paths, to find why the Draw ribbon never initialises.
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
++#include <cstdio>
+ #include <chrono>
+ #include <vcl/builderfactory.hxx>
+ #include <vcl/commandevent.hxx>
+@@ -519,6 +520,7 @@
+         if (NotebookBar* pBar = dynamic_cast<NotebookBar*>(pParent))
+         {
+             const OUString& rFile = pBar->GetUIFilePath();
++            fprintf(stderr, "HSTDBG HstCreateBanner file=%s\n", rFile.toUtf8().getStr());
+             if (!rFile.endsWith("/notebookbar.ui")
+                 || (rFile.indexOf("/swriter/") < 0 && rFile.indexOf("/scalc/") < 0
+                     && rFile.indexOf("/simpress/") < 0 && rFile.indexOf("/sdraw/") < 0))
+@@ -948,6 +950,8 @@
+ void NotebookbarTabControl::StateChanged(StateChangedType nStateChange)
+ {
+     SfxViewFrame* pViewFrm = SfxViewFrame::Current();
++    fprintf(stderr, "HSTDBG TabControl StateChanged type=%d initialized=%d viewfrm=%d pages=%d\n",
++            int(nStateChange), int(m_bInitialized), int(pViewFrm != nullptr), int(GetPageCount()));
+     if (!m_bInitialized && pViewFrm)
+     {
+         VclPtr<ShortcutsToolBox> pShortcuts = VclPtr<ShortcutsToolBox>::Create( this );
+--- a/sfx2/source/notebookbar/SfxNotebookBar.cxx
++++ b/sfx2/source/notebookbar/SfxNotebookBar.cxx
+@@ -7,6 +7,7 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+  */
+ 
++#include <cstdio>
+ #include <vcl/builder.hxx>
+ #include <sfx2/bindings.hxx>
+ #include <sfx2/viewsh.hxx>
+@@ -396,6 +397,7 @@
+ 
+     // HST Office: the mode of xFrame's module, not of SfxViewFrame::Current() (another tab's module
+     // while document tabs switch).
++    fprintf(stderr, "HSTDBG StateMethod enter active=%d\n", int(xFrame.is() ? IsActiveFor(xFrame) : IsActive()));
+     if (xFrame.is() ? IsActiveFor(xFrame) : IsActive())
+     {
+         const css::uno::Reference<css::uno::XComponentContext>& xContext = comphelper::getProcessComponentContext();
+@@ -405,6 +407,10 @@
+         bool bIsLOK = comphelper::LibreOfficeKit::isActive();
+ 
+         OUString sFile = lcl_getNotebookbarFileName( eApp );
++        fprintf(stderr, "HSTDBG StateMethod module=%s file=%s current=%s visible=%d reload=%d\n",
++                aModuleName.toUtf8().getStr(), (OUString(rUIFile) + sFile).toUtf8().getStr(),
++                pSysWindow->GetNotebookBar() ? pSysWindow->GetNotebookBar()->GetUIFilePath().toUtf8().getStr() : "-",
++                pSysWindow->GetNotebookBar() ? int(pSysWindow->GetNotebookBar()->IsVisible()) : -1, int(bReloadNotebookbar));
+ 
+         OUString sNewFile = rUIFile + sFile;
+         OUString sCurrentFile;
+@@ -435,6 +441,7 @@
+ 
+             // tdf#164899 don't call SystemWindow::SetNotebookBar recursively
+             // if NoteBookBar is in process of getting set
++            fprintf(stderr, "HSTDBG StateMethod set notebookbar settingup=%d\n", int(pSysWindow->isSettingUpNoteBookBar()));
+             if (pSysWindow->isSettingUpNoteBookBar())
+                 return false;
+ 
+--- a/vcl/source/control/notebookbar.cxx
++++ b/vcl/source/control/notebookbar.cxx
+@@ -16,6 +16,7 @@
+ #include <vcl/commandinfoprovider.hxx>
+ #include <vcl/layout.hxx>
+ #include <vcl/notebookbar/notebookbar.hxx>
++#include <cstdio>
+ #include <vcl/notebookbar/NotebookBarAddonsItem.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/syswin.hxx>
+@@ -104,6 +105,8 @@
+             i++;
+         }
+         while( pContextContainer != nullptr );
++        fprintf(stderr, "HSTDBG NotebookBar ctor %s module=%s containers=%zu\n",
++                rUIXMLDescription.toUtf8().getStr(), m_sModule.toUtf8().getStr(), m_pContextContainers.size());
+     }
+ 
+     UpdateBackground();
+@@ -185,6 +188,9 @@
+         nHeight = std::max(nHeight, aSize.Height());
+ 
+     Control::setPosSizePixel(nX, nY, nWidth, nHeight, nFlags);
++    fprintf(stderr, "HSTDBG NotebookBar setPosSize module=%s optimal=%ldx%ld set=%ldx%ld layout=%d visible=%d\n",
++            m_sModule.toUtf8().getStr(), long(aSize.Width()), long(aSize.Height()), long(nWidth), long(nHeight),
++            int(bIsLayoutEnabled), int(IsVisible()));
+ 
+     if (bIsLayoutEnabled && (nFlags & PosSizeFlags::Size))
+         VclContainer::setLayoutAllocation(*pChild, Point(0, 0), Size(nWidth, nHeight));
