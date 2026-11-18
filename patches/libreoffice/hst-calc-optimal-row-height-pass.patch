@@ -345,13 +345,13 @@ License: the new files sc/inc/hstrowheights.hxx and sc/inc/hsttextheightcache.hx
 +    m_xDocShell->AdjustRowHeight(0, nRows - 1, 0);
 +    std::vector<sal_uInt16> aOnePass;
 +    for (SCROW nRow = 0; nRow < nRows; ++nRow)
-+        aOnePass.push_back(m_pDoc->GetRowHeight(nRow, 0, false));
++        aOnePass.push_back(m_pDoc->GetRowHeight(nRow, SCTAB(0), false));
 +    m_pDoc->SetRowHeightOnly(0, nRows - 1, 0, 100);
 +    for (SCROW nRow = 0; nRow < nRows; ++nRow)
 +        m_xDocShell->AdjustRowHeight(nRow, nRow, 0);
 +    for (SCROW nRow = 0; nRow < nRows; ++nRow)
 +        CPPUNIT_ASSERT_EQUAL_MESSAGE(OString::number(nRow).getStr(), aOnePass[nRow],
-+                                     m_pDoc->GetRowHeight(nRow, 0, false));
++                                     m_pDoc->GetRowHeight(nRow, SCTAB(0), false));
 +    // the rows really differ: the conditional style and the fonts change their heights
 +    CPPUNIT_ASSERT(std::adjacent_find(aOnePass.begin(), aOnePass.end(), std::not_equal_to<>())
 +                   != aOnePass.end());
