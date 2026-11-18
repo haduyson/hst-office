@@ -13,6 +13,7 @@ items by ".", a 6 px gap as "|", items by their index in kinds; nofill: the grou
 sparse. The caption (a label, or a box with the label and the dialog launcher) and the separator stay as they are.
 """
 import copy
+import re
 
 from lxml import etree as ET
 
@@ -85,9 +86,9 @@ def group_parts(grid):
     return captions, separators, units
 
 
-def new_unit(item, units):
+def new_unit(item, units, tab="Home"):
     """A command the 1.0.2 ribbon does not have ("new": an owner addition): a copy of the tool item of its neighbour
-    ("clone") with its own command and ids (bxV3<id> toolbox, btnHomeHst<k> button). An extension's protocol command
+    ("clone") with its own command and ids (bxV3<id> toolbox, btn<tab>Hst<k> button, the tab as in the group id). An extension's protocol command
     (org.hst.office.vi:...) keeps its name and gets the item's label, tooltip and "icon", as the other HST extension
     buttons of the ribbon; a .uno: command takes them from the command."""
     model = next((u for u in units if u.key == item["clone"] and u.toolbox is not None), None)
@@ -96,15 +97,19 @@ def new_unit(item, units):
     element = copy.deepcopy(model.element)
     obj = element.find("object")
     name = item["k"].split(":")[-1]
-    obj.set("id", "btnHomeHst" + name.removeprefix("Hst"))
+    obj.set("id", "btn" + tab + "Hst" + name.removeprefix("Hst"))
     protocol = ":" in item["k"]  # an extension's protocol command (org.hst.office.vi:...), else .uno:
     for prop in obj.findall("property"):
         if prop.get("name") == "action-name":
             prop.text = item["k"] if protocol else ".uno:" + item["k"]
     if protocol:
         # as the other HST extension buttons of the ribbon: its own label, tooltip and image (no command label)
+        for prop in [p for p in obj.findall("property") if p.get("name") in ("icon-name", "label", "tooltip-text",
+                                                                       "hst-ribbon-label", "hst-ribbon-description")]:
+            obj.remove(prop)  # the neighbour's own image or texts, if it has any
         anchor = next(p for p in obj.findall("property") if p.get("name") == "action-name")
-        for key, value in (("icon-name", item.get("icon")), ("label", item["t"]), ("tooltip-text", item["t"])):
+        for key, value in (("icon-name", item.get("icon")), ("label", item["t"]),
+                           ("tooltip-text", item.get("tip", item["t"]))):
             if value:
                 prop = ET.Element("property", name=key)
                 prop.text = value
@@ -118,7 +123,7 @@ def match_units(group, units):
     out = []
     for item in group["items"]:
         if item.get("new"):
-            out.append(new_unit(item, units))
+            out.append(new_unit(item, units, re.match(r"gd([A-Z][a-z]+)", group["id"]).group(1)))
             continue
         found = next((u for u in left if u.key == item["k"]), None)
         if found is None:
