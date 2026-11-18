@@ -23,11 +23,15 @@ find the end (SwFrame::InsertBefore without sibling), and PreparePage formatted 
 PrepareMake walks all pages before it. A 50 MB DOCX (about 100,000 pages) spent most of its open time
 there. While the estimate inserts a page (SwRootFrame::IsHstEstimatedPageInsert), the page is appended
 behind the root's last page, and is formatted by the layout like its frames instead of right away.
-This also applies to the large plain texts of hst-sw-large-text-pagination.patch.
+Formatting a page (SwFrame::PrepareMake) walked all pages before it to format the unformatted ones,
+O(pages) for every page of the layout. For such documents it starts after the last formatted page before
+it (HstFirstSiblingToFormat); the unformatted pages before that are formatted by the layout in page order.
+These two also apply to the large plain texts of hst-sw-large-text-pagination.patch.
 
 Hook: sw/source/core/layout/laycache.cxx (filter check, paragraph estimate split from the frame
 dispatch, page insert flag), sw/source/core/layout/layhelp.hxx, sw/source/core/inc/rootfrm.hxx,
-sw/source/core/layout/pagechg.cxx (Paste, PreparePage), sw/Library_sw.mk; logic in
+sw/source/core/layout/pagechg.cxx (Paste, PreparePage), sw/source/core/layout/calcmove.cxx (PrepareMake),
+sw/Library_sw.mk; logic in
 sw/source/core/inc/hstlargedocxpagination.hxx, sw/source/core/layout/hstlargedocxpagination.cxx.
 Test: CppunitTest_sw_core_layout testLargeDocxPaginationUnchanged (every page start equal to the
 start-to-end layout, and no page left holding the rest of the document after loading),
@@ -64,6 +68,25 @@ testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
      void SetLargeTextPagination() { mbLargeTextPagination = true; }
      void LockViewLayout() { ++mnViewLayoutLock; }
      void UnlockViewLayout()
+--- a/sw/source/core/layout/calcmove.cxx
++++ b/sw/source/core/layout/calcmove.cxx
+@@ -47,6 +47,7 @@
+ 
+ #include <DocumentSettingManager.hxx>
+ #include <IDocumentLayoutAccess.hxx>
++#include <hstlargedocxpagination.hxx>
+ 
+ // Move methods
+ 
+@@ -318,7 +319,7 @@
+         }
+         if ( bFormatPrev )
+         {
+-            SwFrame *pFrame = GetUpper()->Lower();
++            SwFrame *pFrame = HstFirstSiblingToFormat(*this); // HST: not every page of a large document
+             while ( pFrame != this )
+             {
+                 OSL_ENSURE( pFrame, ":-( Layout unstable (this not found)." );
 --- a/sw/source/core/layout/laycache.cxx
 +++ b/sw/source/core/layout/laycache.cxx
 @@ -71,6 +71,8 @@
@@ -412,7 +435,7 @@ testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
      // Below the size threshold the frames all start on the first page, as before.
 --- /dev/null
 +++ b/sw/source/core/inc/hstlargedocxpagination.hxx
-@@ -0,0 +1,30 @@
+@@ -0,0 +1,36 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
 +
@@ -423,6 +446,7 @@ testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
 +#include <functional>
 +
 +class SwDoc;
++class SwFrame;
 +class SwTable;
 +class SwTextNode;
 +
@@ -442,10 +466,15 @@ testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
 +HstEstimateTableHeight(const SwTable& rTable, tools::Long nWidth,
 +                       const std::function<tools::Long(const SwTextNode&, tools::Long)>& rEstimatePara);
 +
++/// First sibling that SwFrame::PrepareMake formats before rFrame: the first one of its upper, but for a
++/// page of a large text or DOCX (SwRootFrame::IsLargeTextPagination) the page after the last page before
++/// it that is already formatted. Walking all pages before every page made its layout O(pages^2).
++SwFrame* HstFirstSiblingToFormat(const SwFrame& rFrame);
++
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sw/source/core/layout/hstlargedocxpagination.cxx
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,122 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
 +
@@ -464,6 +493,8 @@ testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
 +#include <ndarr.hxx>
 +#include <ndtxt.hxx>
 +#include <node.hxx>
++#include <pagefrm.hxx>
++#include <rootfrm.hxx>
 +#include <swtable.hxx>
 +#include <txatbase.hxx>
 +#include <ndhints.hxx>
@@ -550,6 +581,19 @@ testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
 +        nTable += nRow;
 +    }
 +    return nTable;
++}
++
++SwFrame* HstFirstSiblingToFormat(const SwFrame& rFrame)
++{
++    SwFrame* pFirst = rFrame.GetUpper()->Lower();
++    if (!rFrame.IsPageFrame() || !rFrame.getRootFrame()->IsLargeTextPagination())
++        return pFirst;
++    // Formatted pages before the last formatted one need no formatting; unformatted ones before it
++    // are formatted by the layout in page order, as all pages are.
++    SwFrame* pStart = const_cast<SwFrame&>(rFrame).GetPrev();
++    while (pStart && !pStart->isFrameAreaDefinitionValid())
++        pStart = pStart->GetPrev();
++    return pStart ? pStart->GetNext() : pFirst;
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
