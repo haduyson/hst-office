@@ -12,6 +12,9 @@ MathType's point sizes in the formula are multiplied by it unless it is within 5
 (sw/source/core/hst/formulashownsize.cxx, shared by writerfilter and the ww8 reader). The shown
 size is not compared with the formula's: MathType's box is taller than Math's at the same size.
 
+An equation kept as an OLE object keeps its data when the document is saved as .rtf (OLE 1.0
+\objdata with the compound file byte for byte, the picture in \result), so MathType can still
+edit it; LibreOffice's RTF export wrote only the picture (sw/source/core/hst/mathtypeoledata.cxx).
 diff --git a/filter/source/msfilter/msdffimp.cxx b/filter/source/msfilter/msdffimp.cxx
 index b3184b2..7cffec4 100644
 --- a/filter/source/msfilter/msdffimp.cxx
@@ -99,14 +102,15 @@ index 06e8f41..73e884f 100644
          nSvxMSDffOLEConvFlags2 |= OLE_WINWORD_2_STARWRITER;
      if ( officecfg::Office::Common::Filter::Microsoft::Import::ExcelToCalc::get() )
 diff --git a/sw/Library_sw.mk b/sw/Library_sw.mk
-index 4be0f1f..2594f97 100644
+index 4be0f1f..55b0cd3 100644
 --- a/sw/Library_sw.mk
 +++ b/sw/Library_sw.mk
-@@ -353,6 +353,7 @@ $(eval $(call gb_Library_add_exception_objects,sw,\
+@@ -353,6 +353,8 @@ $(eval $(call gb_Library_add_exception_objects,sw,\
      sw/source/core/layout/flypos \
      sw/source/core/layout/frmtool \
      sw/source/core/layout/ftnfrm \
 +    sw/source/core/hst/formulashownsize \
++    sw/source/core/hst/mathtypeoledata \
      sw/source/core/layout/hstpageart \
      sw/source/core/layout/hstpageartsets \
      sw/source/core/layout/hffrm \
@@ -171,6 +175,46 @@ index 0000000..7144387
 +/// The formula text drawn fRatio times as large: each absolute "size N" outside quoted text is
 +/// multiplied, and the text is wrapped in "size *fRatio" for the parts without a size.
 +SW_DLLPUBLIC OUString ScaleFormulaSizes(std::u16string_view aFormula, double fRatio);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/inc/hstmathtypeole.hxx b/sw/inc/hstmathtypeole.hxx
+new file mode 100644
+index 0000000..34e32c6
+--- /dev/null
++++ b/sw/inc/hstmathtypeole.hxx
+@@ -0,0 +1,34 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <com/sun/star/uno/Reference.hxx>
++#include <rtl/string.hxx>
++#include <sal/types.h>
++
++#include "swdllapi.h"
++
++#include <vector>
++
++namespace com::sun::star::embed
++{
++class XEmbeddedObject;
++}
++
++// A MathType equation kept as an OLE object (not converted to a formula) keeps its OLE data when
++// the document is saved as .rtf, so MathType or Word can still edit it. LibreOffice's RTF export
++// writes only the picture of objects it does not know.
++namespace sw::hst
++{
++/// The OLE 1.0 data RTF stores in \objdata for the MathType equation xObj (its compound file,
++/// byte for byte, as native data) and its ProgID ("Equation.DSMT4"); empty for other objects.
++SW_DLLPUBLIC std::vector<sal_uInt8>
++MathTypeOle1Data(const css::uno::Reference<css::embed::XEmbeddedObject>& xObj, OString& rProgId);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -290,6 +334,169 @@ index 0000000..db6e85c
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/core/hst/mathtypeoledata.cxx b/sw/source/core/hst/mathtypeoledata.cxx
+new file mode 100644
+index 0000000..e8fd346
+--- /dev/null
++++ b/sw/source/core/hst/mathtypeoledata.cxx
+@@ -0,0 +1,119 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <hstmathtypeole.hxx>
++
++#include <com/sun/star/embed/ElementModes.hpp>
++#include <com/sun/star/embed/XEmbeddedObject.hpp>
++#include <com/sun/star/embed/XEmbedPersist.hpp>
++#include <com/sun/star/embed/XStorage.hpp>
++#include <com/sun/star/io/XInputStream.hpp>
++#include <com/sun/star/io/XStream.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <comphelper/storagehelper.hxx>
++#include <sot/storage.hxx>
++#include <tools/stream.hxx>
++
++#include <string_view>
++
++using namespace css;
++
++namespace sw::hst
++{
++namespace
++{
++constexpr std::string_view EQUATION_PREFIX = "Equation."; // Equation.DSMT4..6, Equation.3
++constexpr sal_uInt32 OLE_VERSION = 0x0501;
++constexpr sal_uInt32 EMBEDDED = 2; // ObjectHeader.FormatID of an embedded object (MS-OLEDS 2.2.4)
++constexpr sal_uInt32 NO_PRESENTATION = 0; // the picture is RTF's \result
++
++void Append32(std::vector<sal_uInt8>& rOut, sal_uInt32 n)
++{
++    for (int i = 0; i < 4; ++i)
++        rOut.push_back(static_cast<sal_uInt8>(n >> (8 * i)));
++}
++
++/// The compound file the object stores, byte for byte
++std::vector<sal_uInt8> StoredData(const uno::Reference<embed::XEmbeddedObject>& xObj)
++{
++    uno::Reference<embed::XEmbedPersist> xPersist(xObj, uno::UNO_QUERY);
++    if (!xPersist.is())
++        return {};
++    uno::Reference<embed::XStorage> xStorage = comphelper::OStorageHelper::GetTemporaryStorage();
++    const OUString aName(u"ole"_ustr);
++    xPersist->storeToEntry(xStorage, aName, {}, {});
++    uno::Reference<io::XInputStream> xIn
++        = xStorage->openStreamElement(aName, embed::ElementModes::READ)->getInputStream();
++    std::vector<sal_uInt8> aData;
++    uno::Sequence<sal_Int8> aChunk;
++    while (xIn->readBytes(aChunk, 65536) > 0)
++        aData.insert(aData.end(), aChunk.begin(), aChunk.end());
++    return aData;
++}
++
++/// The ProgID a compound file's \1CompObj names, if it is a MathType or Equation Editor one
++OString MathTypeProgId(const std::vector<sal_uInt8>& rCompObj)
++{
++    // \1CompObj: header, then length-prefixed AnsiUserType, clipboard format, ProgID
++    const std::string_view aText(reinterpret_cast<const char*>(rCompObj.data()), rCompObj.size());
++    for (size_t nPos = aText.find(EQUATION_PREFIX); nPos != std::string_view::npos;
++         nPos = aText.find(EQUATION_PREFIX, nPos + 1))
++    {
++        const size_t nEnd = aText.find('\0', nPos);
++        if (nEnd != std::string_view::npos && nPos >= 4
++            && static_cast<size_t>(static_cast<sal_uInt8>(aText[nPos - 4])) == nEnd - nPos + 1)
++            return OString(aText.substr(nPos, nEnd - nPos));
++    }
++    return {};
++}
++}
++
++std::vector<sal_uInt8> MathTypeOle1Data(const uno::Reference<embed::XEmbeddedObject>& xObj,
++                                        OString& rProgId)
++{
++    try
++    {
++        std::vector<sal_uInt8> aNative = StoredData(xObj);
++        if (aNative.empty())
++            return {};
++        SvMemoryStream aStream(aNative.data(), aNative.size(), StreamMode::READ);
++        rtl::Reference<SotStorage> xStorage = new SotStorage(aStream);
++        if (xStorage->GetError() || !xStorage->IsStream(u"Equation Native"_ustr))
++            return {};
++        rtl::Reference<SotStorageStream> xCompObj = xStorage->OpenSotStream(
++            u"\001CompObj"_ustr, StreamMode::READ | StreamMode::NOCREATE);
++        if (!xCompObj.is() || xCompObj->GetError())
++            return {};
++        std::vector<sal_uInt8> aCompObj(xCompObj->TellEnd());
++        xCompObj->Seek(0);
++        xCompObj->ReadBytes(aCompObj.data(), aCompObj.size());
++        rProgId = MathTypeProgId(aCompObj);
++        if (rProgId.isEmpty())
++            return {};
++
++        std::vector<sal_uInt8> aOut;
++        Append32(aOut, OLE_VERSION);
++        Append32(aOut, EMBEDDED);
++        Append32(aOut, static_cast<sal_uInt32>(rProgId.getLength() + 1)); // ClassName, its null
++        aOut.insert(aOut.end(), rProgId.getStr(), rProgId.getStr() + rProgId.getLength() + 1);
++        Append32(aOut, 0); // TopicName
++        Append32(aOut, 0); // ItemName
++        Append32(aOut, static_cast<sal_uInt32>(aNative.size()));
++        aOut.insert(aOut.end(), aNative.begin(), aNative.end());
++        Append32(aOut, OLE_VERSION);
++        Append32(aOut, NO_PRESENTATION);
++        return aOut;
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sw", "HST: MathType object written as a picture only");
++        return {};
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/filter/ww8/rtfattributeoutput.cxx b/sw/source/filter/ww8/rtfattributeoutput.cxx
+index 87fcb95..ec60985 100644
+--- a/sw/source/filter/ww8/rtfattributeoutput.cxx
++++ b/sw/source/filter/ww8/rtfattributeoutput.cxx
+@@ -68,6 +68,7 @@
+ #include <o3tl/unit_conversion.hxx>
+ #include <svx/svdouno.hxx>
+ #include <filter/msfilter/rtfutil.hxx>
++#include <hstmathtypeole.hxx>
+ #include <svx/xfillit0.hxx>
+ #include <svx/xflgrit.hxx>
+ #include <unotools/securityoptions.hxx>
+@@ -4903,6 +4904,25 @@ void RtfAttributeOutput::FlyFrameOLE(const SwFlyFrameFormat* pFlyFrameFormat, Sw
+     if (FlyFrameOLEMath(pFlyFrameFormat, rOLENode, rSize))
+         return;
+ 
++    // HST Office: a MathType equation kept as OLE keeps its data, so it can still be edited
++    OString aProgId;
++    const std::vector<sal_uInt8> aOle1
++        = sw::hst::MathTypeOle1Data(rOLENode.GetOLEObj().GetOleRef(), aProgId);
++    if (!aOle1.empty())
++    {
++        m_aRunText->append(OString(
++            "{" OOO_STRING_SVTOOLS_RTF_OBJECT OOO_STRING_SVTOOLS_RTF_OBJEMB OOO_STRING_SVTOOLS_RTF_OBJW
++            + OString::number(rSize.Width()) + OOO_STRING_SVTOOLS_RTF_OBJH
++            + OString::number(rSize.Height())
++            + "{" OOO_STRING_SVTOOLS_RTF_IGNORE OOO_STRING_SVTOOLS_RTF_OBJCLASS " " + aProgId
++            + "}{" OOO_STRING_SVTOOLS_RTF_IGNORE OOO_STRING_SVTOOLS_RTF_OBJDATA " "
++            + msfilter::rtfutil::WriteHex(aOle1.data(), static_cast<sal_uInt32>(aOle1.size()))
++            + "}{" OOO_STRING_SVTOOLS_RTF_RESULT " "));
++        FlyFrameOLEReplacement(pFlyFrameFormat, rOLENode, rSize);
++        m_aRunText->append("}}"); // result, object
++        return;
++    }
++
+     FlyFrameOLEReplacement(pFlyFrameFormat, rOLENode, rSize);
+ }
+ 
 diff --git a/sw/source/filter/ww8/ww8par.cxx b/sw/source/filter/ww8/ww8par.cxx
 index 59260bb..891acee 100644
 --- a/sw/source/filter/ww8/ww8par.cxx
