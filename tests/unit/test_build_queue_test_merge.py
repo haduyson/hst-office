@@ -61,6 +61,21 @@ class TestJoinTest(QueueTestCase):
         separate, dup = self.run_tests(["CppunitTest_sc_g"], modules=["sw"])
         self.assertNotEqual(separate["id"], requeued["id"])
 
+    def test_a_red_green_pair_is_never_joined_even_with_the_same_tests_and_a_shared_sha_prefix(self):
+        red_sha, green_sha = "bf56d8f3df" + "1" * 30, "bf56d8f3df" + "2" * 30   # same 10-char prefix
+        self.shas.update({"bf56d8f3df": red_sha, "fix/core-bugs": green_sha})
+        tests = ["CppunitTest_sw_uibase_docvw"]
+        red, _ = self.run_tests(tests, modules=["sw"], ref="bf56d8f3df")
+        green, dup = self.run_tests(tests, modules=["sw"], ref="fix/core-bugs")
+        self.assertFalse(dup)
+        self.assertNotEqual(green["id"], red["id"])
+        self.assertEqual(bq.collapse_test_jobs(self.store, out=io.StringIO()), [])
+        self.assertEqual([self.store.load(j["id"])["state"] for j in (red, green)], ["queued", "queued"])
+        self.assertIsNone(bq.test_merge_target([red], "linux", red_sha[:12], False, ["sw"]))   # never a prefix match
+        resubmit, dup = self.run_tests(tests + ["CppunitTest_sw_x"], modules=["sw"], ref="bf56d8f3df")
+        self.assertEqual((resubmit["id"], dup), (red["id"], True))   # only the exact same commit joins
+        self.assertEqual(self.store.load(green["id"])["tests"], tests)
+
     def test_train_and_confirmation_jobs_are_never_joined_or_joining(self):
         train, _ = self.submit(ref="commit", tests=["CppunitTest_a"], internal=True, train="train/1.0.3-001")
         mine, dup = self.run_tests(["CppunitTest_b"])
