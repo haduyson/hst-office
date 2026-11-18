@@ -70,6 +70,9 @@ class BannerTest(unittest.TestCase):
         self.assertIn("nMin = hst::banner::scaled(360, fDpi), nMax = hst::banner::scaled(960, fDpi)", code)
         self.assertIn("Size(nBanner, hst::banner::scaled(96, fDpi))", code)
         self.assertIn("hst::ribbon::SetPageSlack(*pPage, nSmallest - nPageWidth);", code)
+        # the collapse chevron's room after the last group, out of the fit and before the banner
+        self.assertIn("const tools::Long nChevron = m_pHstCompact ? hst::banner::scaled(22, fDpi) : 0;", code)
+        self.assertIn("nRight - nMin - nGap - aPage.x - nChevron", code)
 
     def test_old_artwork_left_aligned_with_fill(self):
         code = added(PATCH, "vcl/source/control/HstBannerCore.cxx")
@@ -135,6 +138,10 @@ class MenuButtonMetricsTest(unittest.TestCase):
         self.assertIn("if (cLook == 'M' && nPaintHeight > rInner.GetHeight())", metrics)
         self.assertIn("rDev.SetClipRegion(vcl::Region(aClip));", metrics)
         self.assertIn(": rLabel.aText.replace('\\n', ' ');", added(PATCH, "vcl/source/control/HstRibbonLadder.cxx"))
+        # a toolbox label right of its icon joins its authored break with a space
+        tools = added(PATCH, "vcl/source/window/toolbox.cxx")
+        self.assertIn("ePosition == ToolBoxTextPosition::Right ? rText.replace('\\n', ' ') : rText;", tools)
+        self.assertIn("GetCtrlTextWidth( ImplHstOneLine( *mpData, item.maText, meTextPosition ) )", tools)
 
     def test_new_files_are_hst_owned(self):
         for path in ("vcl/inc/HstRibbonMenuButtonMetrics.hxx", "vcl/source/control/HstRibbonMenuButtonMetrics.cxx"):

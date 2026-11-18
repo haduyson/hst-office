@@ -209,11 +209,11 @@ class Banner(unittest.TestCase):
 
 
 class ElasticFill(unittest.TestCase):
-    def test_free_room_up_to_12_px_passes(self):
-        self.assertEqual(failed(dump(baseline()["groups"], banner=rect(212, 6, 360, 96)), "elastic_fill"), [])
+    def test_free_room_up_to_34_px_passes(self):  # gap 8, the collapse chevron's 22, slack 4
+        self.assertEqual(failed(dump(baseline()["groups"], banner=rect(234, 6, 360, 96)), "elastic_fill"), [])
 
-    def test_more_than_12_px_free_fails(self):
-        self.assertTrue(failed(dump(baseline()["groups"], banner=rect(230, 6, 360, 96)), "elastic_fill"))
+    def test_more_than_34_px_free_fails(self):
+        self.assertTrue(failed(dump(baseline()["groups"], banner=rect(240, 6, 360, 96)), "elastic_fill"))
 
     def test_at_960_the_free_room_is_information_only(self):
         d = dump(baseline()["groups"], banner=rect(260, 6, 960, 96))

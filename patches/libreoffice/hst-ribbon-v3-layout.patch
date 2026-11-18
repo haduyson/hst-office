@@ -653,7 +653,7 @@ License: these upstream files remain under their original license (MPL-2.0).
              const OUString aApp = rFile.indexOf("/swriter/") >= 0  ? u"writer"_ustr
                                    : rFile.indexOf("/scalc/") >= 0  ? u"calc"_ustr
                                    : rFile.indexOf("/simpress/") >= 0 ? u"impress"_ustr
-@@ -603,13 +628,25 @@ void NotebookbarTabControl::HstLayoutBan
+@@ -603,13 +628,29 @@ void NotebookbarTabControl::HstLayoutBan
              // the document window's (its frame), not the SystemWindow's client, which is narrower than the window
              // (a 1920 px window got a 357 px banner); 1.0.2 mockup: 8 px from the window's right edge, w x w*104/360
              // centred in the 106 px body (360 x 104 at 1920, 260 x 75 up to 1440)
@@ -672,12 +672,16 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            const tools::Long nMin = hst::banner::scaled(360, fDpi), nMax = hst::banner::scaled(960, fDpi);
 +            const tools::Long nGap = hst::banner::scaled(8, fDpi);
 +            const tools::Long nRight = HstBannerRight();
++            // the collapse chevron (˄) has its own room after the last group, as in the mockup (HstRibbonCompact.cxx
++            // places it 4 px from the page's right edge): it covered the last group's caption ("Phân tíc˄")
++            const tools::Long nChevron = m_pHstCompact ? hst::banner::scaled(22, fDpi) : 0;
 +            const tools::Long nUsed = hst::ribbon::PageUsedRight(*pPage);
 +            const tools::Long nBanner
-+                = nUsed < 0 ? nMin : std::clamp<tools::Long>(nRight - (aPage.x + nUsed) - nGap - 1, nMin, nMax);
++                = nUsed < 0 ? nMin
++                            : std::clamp<tools::Long>(nRight - (aPage.x + nUsed + nChevron) - nGap - 1, nMin, nMax);
 +            const tools::Rectangle aSlot(Point(nRight - nBanner, aPage.y + hst::banner::scaled(6, fDpi)),
 +                                         Size(nBanner, hst::banner::scaled(96, fDpi)));
-+            const tools::Long nSmallest = std::max<tools::Long>(0, nRight - nMin - nGap - aPage.x);
++            const tools::Long nSmallest = std::max<tools::Long>(0, nRight - nMin - nGap - aPage.x - nChevron);
 +            nPageWidth = std::max<tools::Long>(0, aSlot.Left() - nGap - aPage.x);
 +            hst::ribbon::SetPageSlack(*pPage, nSmallest - nPageWidth);
 +            m_pHstBanner->Place(aSlot);
@@ -686,7 +690,7 @@ License: these upstream files remain under their original license (MPL-2.0).
          }
          else
              m_pHstBanner->Place(tools::Rectangle());
-@@ -977,6 +1014,10 @@ void NotebookbarTabControl::StateChanged
+@@ -977,6 +1018,10 @@ void NotebookbarTabControl::StateChanged
          FillShortcutsToolBox( xContext, m_xFrame, aModuleName, pToolBox );
          if (m_pHstQat)
              m_pHstQat->SetFrame(m_xFrame);
@@ -3504,7 +3508,30 @@ License: these upstream files remain under their original license (MPL-2.0).
      return true;
 --- a/vcl/source/window/toolbox.cxx
 +++ b/vcl/source/window/toolbox.cxx
-@@ -2635,6 +2635,26 @@ void ToolBox::ImplFormat( bool bResize )
+@@ -127,6 +127,13 @@ OUString ImplHstLabel(const ToolBox& rTo
+     return nFirst == 0 || nFirst >= aWords.size() ? rText : rText.replaceAt(aSpaces[nFirst - 1], 1, u"\n");
+ }
+ 
++// HST Office: a ribbon label right of its image is one line: an authored break ("Văn bản\nhành chính") joins with a
++// space, which VCL drew and measured as nothing ("Văn bảnhành chính")
++OUString ImplHstOneLine(const ImplToolBoxPrivateData& rData, const OUString& rText, ToolBoxTextPosition ePosition)
++{
++    return rData.mbHstOwnerDraw && ePosition == ToolBoxTextPosition::Right ? rText.replace('\n', ' ') : rText;
++}
++
+ // HST Office: how the ribbon draws a button at the approved mockup's geometry (HstRibbonGeometry.hxx): Large for
+ // an image above its label (L), Small for an image with its label on the right or alone (M, S); None for every
+ // other toolbox, item window and text-only button, drawn as before.
+@@ -1650,7 +1657,7 @@ bool ToolBox::ImplCalcItem()
+                     else
+                     {
+                         // we're drawing images and text
+-                        item.maItemSize.setWidth( bText ? GetOutDev()->GetCtrlTextWidth( item.maText )+TB_TEXTOFFSET : 0 );
++                        item.maItemSize.setWidth( bText ? GetOutDev()->GetCtrlTextWidth( ImplHstOneLine( *mpData, item.maText, meTextPosition ) )+TB_TEXTOFFSET : 0 );
+                         item.maItemSize.setHeight( bText ? GetTextHeight() : 0 );
+                         const OUString aHstLabel = bText ? ImplHstLabel(*this, *mpData, item.maText, meTextPosition)
+                                                          : item.maText;
+@@ -2635,6 +2642,26 @@ void ToolBox::ImplFormat( bool bResize )
              item.maRect = item.maCalcRect;
      }
  
@@ -3531,7 +3558,17 @@ License: these upstream files remain under their original license (MPL-2.0).
      // indicate formatting is done
      mbFormat = false;
  }
-@@ -4221,6 +4241,14 @@ void ToolBox::HstSetLauncher( bool bLaun
+@@ -3018,7 +3045,8 @@ void ToolBox::ImplDrawItem(vcl::RenderCo
+             const tools::Long nX = nImageOffX + aImageSize.Width()
+                                    + hst::ribbon::geometry::px(hst::ribbon::geometry::SMALL_ICON_GAP, fHstScale);
+             const tools::Long nY = pItem->maRect.Top() + (aBtnSize.Height() - GetTextHeight()) / 2;
+-            rRenderContext.DrawCtrlText(Point(nX, nY), pItem->maText, 0, pItem->maText.getLength(), nHstTextStyle);
++            const OUString aLine = ImplHstOneLine(*mpData, pItem->maText, meTextPosition);
++            rRenderContext.DrawCtrlText(Point(nX, nY), aLine, 0, aLine.getLength(), nHstTextStyle);
+         }
+         else
+         {
+@@ -4221,6 +4249,14 @@ void ToolBox::HstSetLauncher( bool bLaun
      ImplInvalidate( true );
  }
  
