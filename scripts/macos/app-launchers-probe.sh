@@ -163,10 +163,9 @@ copy_valid() { codesign --verify --strict --deep --verbose=2 "$apps/$1.app" && !
 
 echo "## Not from the .dmg" >> "$summary"
 # mounted under /Volumes as a user's double click mounts it (hst_office/mac_app_location.py: kind "volume")
-vol="$(hdiutil attach -readonly -nobrowse -noautoopen -mountrandom /Volumes -plist "$dmg" | python3 -I -c '
-import plistlib, sys
-print(next(e["mount-point"] for e in plistlib.load(sys.stdin.buffer)["system-entities"] if e.get("mount-point")))')"
+vol="$(hdiutil attach -readonly -nobrowse -noautoopen "$dmg" | awk -F'\t' '/\/Volumes\// { print $NF; exit }')"
 echo "dmg mounted at $vol" >> "$out/checks.log"
+case "$vol" in /Volumes/?*) ;; *) echo "- FAIL the .dmg is not mounted under /Volumes" | tee -a "$summary"; fails=$((fails + 1)) ;; esac
 check "HST Office from the mounted .dmg opens Writer" opens "$vol/HST Office.app/Contents/Helpers/HST Writer.app" writer
 sleep 10
 check "HST Office from the .dmg copied no launcher and kept no state" copies_are 0 0
@@ -188,12 +187,14 @@ else
   skip "Gatekeeper of the copies: the dmg is not Developer ID signed (signing runs on main only)"
 fi
 spotlight() {
-  mdutil -s / ; for name in "${names[@]}"; do mdimport "$apps/$name.app"; done
-  for _ in $(seq 1 45); do
+  local launcher found=0
+  mdutil -s /; for launcher in "${names[@]}"; do mdimport "$apps/$launcher.app"; done
+  for _ in $(seq 1 90); do
     found="$(mdfind "kMDItemCFBundleIdentifier == '$bundle_id.launcher.*'" | grep -c "^$apps/HST ")"
     [ "$found" = 5 ] && return 0; sleep 2
   done
-  mdfind "kMDItemCFBundleIdentifier == '$bundle_id.launcher.*'"; return 1
+  echo "found $found"; mdfind "kMDItemCFBundleIdentifier == '$bundle_id.launcher.*'"; mdfind -name "HST PDF"
+  mdls -name kMDItemCFBundleIdentifier -name kMDItemContentType "$apps/HST PDF.app"; return 1
 }
 sudo -n mdutil -i on / 2>&1 | tee -a "$out/checks.log" >/dev/null || true
 if mdutil -s / 2>&1 | grep -q "Indexing enabled"; then
@@ -246,6 +247,16 @@ check "the update refreshed the copies (stale file gone)" test ! -e "$apps/HST W
 check "the update kept four copies: no duplicate, the deleted HST Draw not re-added" copies_are 4 0
 check "the refreshed HST Writer copy is valid" copy_valid "HST Writer"
 check "no notice after the update" uno window-gone "Biểu tượng ứng dụng"
+
+echo "## Notice at a plain start (Start Center)" >> "$summary"
+check "office closed before the plain start" quit_office
+python3 -I -c 'import json,sys; p=sys.argv[1]; s=json.load(open(p)); s["notice"]="pending"; json.dump(s, open(p, "w"))' "$state"
+check "HST Office opens its Start Center" open -a "$app"
+check "the one-time notice is shown at a plain start" uno window "Biểu tượng ứng dụng" --timeout 90
+shot notice-plain
+check "the notice closes after a plain start" close_window "Biểu tượng ứng dụng"
+check "the notice is remembered as shown after a plain start" state_has notice '"shown"'
+check "HST Sheets opens a spreadsheet after the plain start" opens "$apps/HST Sheets.app" calc
 
 echo "## Remove and add again (Tùy chọn ▸ HST Office ▸ Mở tài liệu)" >> "$summary"
 check "Gỡ biểu tượng ứng dụng removes them" uno icons remove "$ext_py"
@@ -302,6 +313,7 @@ odb_opens() { open -a "$app" "$out/probe.odb" && uno wait base --timeout 120 >>"
 check "an .odb opens in HST Office" odb_opens
 quit_office >/dev/null 2>&1 || echo "office did not close cleanly" >>"$out/checks.log"
 cp "$state" "$out/app-launchers.json" 2>/dev/null || true
+cp "$profile"/user/hst-office/hst-office.log* "$out/" 2>/dev/null || true
 
 echo "" >> "$summary"
 echo "$fails failed check(s); log: checks.log" >> "$summary"
