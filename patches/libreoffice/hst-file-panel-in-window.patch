@@ -11,7 +11,8 @@ as in Word).
 - sfx2/source/backstage/hstbackstagewindow.*: the panel is a child window of the document window's client window
   (BackstagePanelHost, an InterimItemWindow filled by the "panel" box of hstbackstage.ui), placed where the
   drop-down opened (BackstageWindow::GetPlacement, unchanged: under the ribbon and the document tab strip, left of
-  the banner) and above the document and the ribbon's other children. It moves with the window; a resize of the
+  the banner) and above the document and the ribbon's other children; its sibling windows (the document's container,
+  the document tab strip) clip it out (Window::EnableClipSiblings), else they paint over it. It moves with the window; a resize of the
   window (maximize, restore, snap) places it again. It still closes on Esc, Alt+F, the File tab, the "←" of the
   title band and when one of its commands runs, and on a mouse press in its window outside the panel and the title
   band (an application event listener while it is open), so the document click still closes it. The keyboard
@@ -38,7 +39,7 @@ index f90d826..2a19ab1 100644
  }
  
 diff --git a/sfx2/source/backstage/hstbackstagewindow.cxx b/sfx2/source/backstage/hstbackstagewindow.cxx
-index e095763..8eedf9d 100644
+index e095763..c61a0b5 100644
 --- a/sfx2/source/backstage/hstbackstagewindow.cxx
 +++ b/sfx2/source/backstage/hstbackstagewindow.cxx
 @@ -60,6 +60,8 @@
@@ -142,7 +143,7 @@ index e095763..8eedf9d 100644
  }
  
  void BackstageWindow::FillRecentLists()
-@@ -1157,20 +1188,107 @@ bool BackstageWindow::OpenOn(Page ePage)
+@@ -1157,20 +1188,117 @@ bool BackstageWindow::OpenOn(Page ePage)
      ShowPage(ePage);
      m_xRecentTabs->set_current_page(0);
  
@@ -156,6 +157,7 @@ index e095763..8eedf9d 100644
 +        return false;
 +    }
 +    m_xHost->Show();
++    m_xHost->Invalidate(InvalidateFlags::Children);
 +    if (m_xClient)
 +        m_xClient->AddEventListener(LINK(this, BackstageWindow, ClientEventHdl));
 +    Application::AddEventListener(LINK(this, BackstageWindow, AppEventHdl));
@@ -192,6 +194,15 @@ index e095763..8eedf9d 100644
 +    m_xHost->SetPosSizePixel(aPos, Size(std::min(aWant.Width(), aRoom.Width()),
 +                                        std::min(aWant.Height(), aRoom.Height())));
 +    m_xHost->SetZOrder(nullptr, ZOrderFlags::First); // above the document and the ribbon
++    // VCL clips a child window out of its siblings only when they ask for it: without this the
++    // document (and the document tab strip) painted over the panel. With the panel hidden the
++    // flag changes nothing, so it stays.
++    for (vcl::Window* pSibling = pClient->GetWindow(GetWindowType::FirstChild); pSibling;
++         pSibling = pSibling->GetWindow(GetWindowType::Next))
++    {
++        if (pSibling != m_xHost.get())
++            pSibling->EnableClipSiblings(true);
++    }
 +    return true;
 +}
 +
@@ -253,7 +264,7 @@ index e095763..8eedf9d 100644
      ShowTitleBand(false);
      FocusDocument();
  }
-@@ -1189,17 +1307,6 @@ void BackstageWindow::FocusDocument()
+@@ -1189,17 +1317,6 @@ void BackstageWindow::FocusDocument()
      }
  }
  
