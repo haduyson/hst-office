@@ -10,7 +10,7 @@ on gtk3 (hst-gtk-ui-translation-c-locale.patch).
 Writer, Sheets, Slides and Draw: .uno:Print (Ctrl+P) opens the page, the panel closes (its job is cancelled), N times.
 Each opening: exactly one panel, its labels in Vietnamese. After all: no job printed (the generic PDF printer of the
 profile wrote nothing), the office's memory grew by less than MAX_GROWTH_KIB, and after WARM_UP openings of an
-application each further opening adds less than MAX_GROWTH_PER_OPENING_KIB. Exit 1 on a failure.
+application each further opening adds less than MAX_GROWTH_PER_OPENING_KIB (median step). Exit 1 on a failure.
 """
 import argparse, importlib.util, json, os, socket, subprocess, sys, tempfile, time  # noqa: E401
 
@@ -129,11 +129,12 @@ def main():
               f"memory grows by less than {MAX_GROWTH_KIB} KiB over all openings ({first} -> {last} KiB)")
         for app, values in memory.items():
             later = values[WARM_UP - 1:]
-            if len(later) > 1:
-                per_opening = (later[-1] - later[0]) / (len(later) - 1)
+            steps = sorted(b - a for a, b in zip(later, later[1:]))
+            if steps:  # the median step: one cache filled late is not a leak, a printer kept per job is in every step
+                per_opening = steps[len(steps) // 2]
                 check(per_opening < MAX_GROWTH_PER_OPENING_KIB,
                       f"{app}: after {WARM_UP} openings each opening adds less than {MAX_GROWTH_PER_OPENING_KIB} KiB "
-                      f"({per_opening:.0f} KiB)")
+                      f"(median {per_opening} KiB, steps {steps})")
         printed = os.listdir(printer_dir)
         check(not printed, f"no cancelled job printed ({printed})")
     finally:
