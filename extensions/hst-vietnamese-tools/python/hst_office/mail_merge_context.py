@@ -42,7 +42,7 @@ class Context:
         registered = self.ctx.ServiceManager.createInstanceWithContext("com.sun.star.sdb.DatabaseContext", self.ctx)
         if not registered.hasByName(self.source_name):
             self.session.stage(self.ctx)
-        fields.adopt(self.doc, self.source_name, self.session.meta)
+        fields.adopt(self.doc, self.source_name, self.session.meta, self.session.table)
         if not self.session.preview:
             fields.show_names(self.doc, self.source_name)
         return True

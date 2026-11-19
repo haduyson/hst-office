@@ -14,6 +14,11 @@ VI = {
     "kind.money_words": "Đọc thành tiền (… đồng chẵn)",
     "err.no-list": "Chưa có danh sách người nhận. Hãy bấm “Chọn danh sách người nhận” trên thẻ Gửi thư.",
     "err.missing": "Không tìm thấy tệp danh sách người nhận:\n%s\nHãy chọn lại danh sách.",
+    "word.missing": "Văn bản trộn thư này lấy người nhận từ tệp:\n%s\nKhông tìm thấy tệp này ở đó, ở cùng thư mục với văn bản "
+                    "hay theo đường dẫn tương đối. Bạn có muốn tìm tệp danh sách không?",
+    "word.remote": "Văn bản trộn thư này lấy người nhận từ một vị trí trên mạng:\n%s\nMở vị trí này có thể gửi thông tin "
+                   "đăng nhập của bạn tới máy chủ đó. Kết nối tới danh sách này?",
+    "word.find": "Tìm tệp", "word.connect": "Kết nối", "word.skip": "Bỏ qua",
     "err.unsupported": "Chỉ dùng được tệp bảng tính (.xlsx, .xls, .ods) hoặc tệp .csv.",
     "err.empty": "Danh sách không có dữ liệu: cần một dòng tiêu đề và ít nhất một người nhận.",
     "err.unreadable": "Không đọc được tệp danh sách (%s).",
@@ -95,6 +100,11 @@ EN = {
     "kind.money_words": "Amount in words (… đồng chẵn)",
     "err.no-list": "No recipient list yet. Click “Select Recipients” on the Mailings tab.",
     "err.missing": "The recipient list file was not found:\n%s\nPlease select the list again.",
+    "word.missing": "This mail merge document takes its recipients from:\n%s\nThe file is not there, next to the "
+                    "document or at the relative path. Do you want to find the list file?",
+    "word.remote": "This mail merge document takes its recipients from a network location:\n%s\nOpening it may send "
+                   "your sign-in details to that server. Connect to this list?",
+    "word.find": "Find File", "word.connect": "Connect", "word.skip": "Skip",
     "err.unsupported": "Only spreadsheet files (.xlsx, .xls, .ods) or .csv files can be used.",
     "err.empty": "The list has no data: it needs a header row and at least one recipient.",
     "err.unreadable": "The list file could not be read (%s).",
