@@ -6,7 +6,8 @@
 # own Xvfb display :$LFO_DISPLAY (default 88; a display already in use stops the run), at nice 19, inside a transient
 # systemd scope with MemoryMax=$LFO_MEMORY_MAX (default 8G) and no swap. After each file, the scope's memory.peak and
 # its oom_kill count are appended to <out>/<label>-cgroup.jsonl; the harness's own JSON lines go to <out>/<label>.jsonl.
-# The display is stopped on exit. LFO_REPEAT (default 1) and LFO_TIMEOUT (default 1800 s) go to the harness.
+# The display is stopped on exit. LFO_REPEAT (default 1) and LFO_TIMEOUT (default 1800 s) go to the harness;
+# LFO_SEED picks the profile seed, LFO_SAVE=0 times the open only.
 set -Eeuo pipefail
 program="$(cd "$1" && pwd)"; fixtures="$(cd "$2" && pwd)"; out="$(mkdir -p "$3" && cd "$3" && pwd)"; label="$4"
 shift 4
@@ -25,7 +26,7 @@ for name in "${files[@]}"; do
   DISPLAY=":$display" systemd-run --scope --quiet --unit "$unit" -p MemoryMax="${LFO_MEMORY_MAX:-8G}" \
     -p MemorySwapMax=0 -p CollectMode=inactive-or-failed --setenv=DISPLAY=":$display" \
     nice -n 19 python3 -I "$here/large-file-open.py" --soffice "$program/soffice" --python "$program/python" \
-      --files "$fixtures" --only "$name" --out "$out" --label "$label" --mode gui --save --seed "${LFO_SEED:-default}" \
+      --files "$fixtures" --only "$name" --out "$out" --label "$label" --mode gui $([ "${LFO_SAVE:-1}" = 1 ] && echo --save) --seed "${LFO_SEED:-default}" \
       --repeat "${LFO_REPEAT:-1}" --timeout "${LFO_TIMEOUT:-1800}" &
   pid=$!
   cg=""

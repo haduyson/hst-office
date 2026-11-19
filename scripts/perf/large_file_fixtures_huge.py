@@ -13,6 +13,7 @@ Files are fitted to the target size with large_file_fixtures_sized.sized(). Shar
 file while the sheets are written, so 200 MB files need only a small, constant amount of memory.
 """
 import argparse
+import datetime
 import os
 import random
 import sys
@@ -82,7 +83,8 @@ def congthuc_row(r, rnd, st, items, last):
     amount = qty * price
     total = amount + amount * 0.1
     serial = 44927 + r % 1460
-    year, month = 2023 + (serial - 44927) // 365, 1 + ((serial - 44927) % 365) // 31
+    day = datetime.date(1899, 12, 30) + datetime.timedelta(days=serial)  # the cached TEXT(A,"mm/yyyy") result
+    year, month = day.year, day.month
     out = ['<c r="A%d" s="3"><v>%d</v></c>' % (r, serial), '<c r="B%d" s="4" t="s"><v>%d</v></c>'
            % (r, st.shared(items[code][0])), '<c r="C%d" s="2"><v>%d</v></c>' % (r, qty),
            '<c r="D%d" s="2"><v>%d</v></c>' % (r, price),
@@ -90,10 +92,12 @@ def congthuc_row(r, rnd, st, items, last):
     formulas = (("F", "C{r}*D{r}", amount, ""), ("G", "F{r}*0.1", amount * 0.1, ""), ("H", "F{r}+G{r}", total, ""),
                 ("I", "VLOOKUP(B{r},DanhMuc!$A$1:$B$%d,2,0)" % CATALOGUE, escape(items[code][1]), ' t="str"'),
                 ("J", 'IF(H{r}>1000000,"Lớn","Nhỏ")', "Lớn" if total > 1e6 else "Nhỏ", ' t="str"'),
-                ("K", 'TEXT(A{r},"mm/yyyy")', "%02d/%d" % (min(month, 12), year), ' t="str"'),
+                ("K", 'TEXT(A{r},"mm/yyyy")', "%02d/%d" % (month, year), ' t="str"'),
                 ("L", "ROUND(H{r}*IF(C{r}>100,0.05,0),0)", round(total * (0.05 if qty > 100 else 0)), ""))
     for si, (c, template, value, t) in enumerate(formulas):
-        if r == 2:
+        if "!" in template:  # Excel rejects a shared formula that refers to another sheet: write it per cell
+            head = "<f>%s</f>" % escape(template.format(r=r))
+        elif r == 2:
             head = '<f t="shared" ref="%s2:%s%d" si="%d">%s</f>' % (c, c, last, si, escape(template.format(r=2)))
         else:
             head = '<f t="shared" si="%d"/>' % si

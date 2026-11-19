@@ -1,0 +1,41 @@
+Calc: an .xlsx import frees its shared string table once every sheet is read, before the optimal row heights.
+
+The oox shared string table (one RichString object per unique string, with its portions) is only read while the
+sheets' cells are parsed (SheetDataBuffer::setStringCell); the cells then hold the text in the document's string
+pool. The table stayed alive until the end of the import filter, through the optimal row height pass and the
+other final steps, so a workbook with a million unique strings held about 100-130 MB more at the peak of loading.
+It is now released right after the sheet fragments are imported; nothing reads it afterwards.
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: existing xlsx import suites (CppunitTest_sc_subsequent_filters_test1..5) load shared strings from many files.
+---
+--- a/sc/source/filter/inc/sharedstringsbuffer.hxx
++++ b/sc/source/filter/inc/sharedstringsbuffer.hxx
+@@ -38,6 +38,9 @@ public:
+     /** Returns the specified string. */
+     RichStringRef       getString( sal_Int32 nStringId ) const;
+ 
++    /** HST Office: frees the strings once every sheet's cells are filled (they are not read afterwards). */
++    void                releaseStrings() { StringVector().swap( maStrings ); }
++
+ private:
+     typedef RefVector< RichString > StringVector;
+     StringVector        maStrings;
+--- a/sc/source/filter/oox/workbookfragment.cxx
++++ b/sc/source/filter/oox/workbookfragment.cxx
+@@ -37,6 +37,7 @@
+ #include <externallinkfragment.hxx>
+ #include <formulabuffer.hxx>
+ #include <pivotcachebuffer.hxx>
++#include <sharedstringsbuffer.hxx>
+ #include <sharedstringsfragment.hxx>
+ #include <revisionfragment.hxx>
+ #include <stylesfragment.hxx>
+@@ -577,6 +578,7 @@ void WorkbookFragment::finalizeImport()
+ 
+     // load all worksheets
+     importSheetFragments(*this, aSheetFragments);
++    getSharedStrings().releaseStrings(); // HST Office: the cells hold their own copies now
+ 
+     if (pTheme && !pTheme->GetName().isEmpty())
+     {
