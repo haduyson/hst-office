@@ -6,7 +6,7 @@ For each tab and each width of ribbon-mockup-expected.json (1100-1920) the windo
   - every group's ladder state (L, M, S, C) equals the mockup vector (ribbon_mockup_geometry.py, heuristic classification);
   - the body of a ribbon group, from its top to the bottom of its caption, is 106 px (±1);
   - from the top of the tab row to the top of the document tab strip is 147 px (±1);
-  - the banner matches the mockup rule for its width (260 wide up to 1440 px, then growing to 360 at 1920; height 104/360 of width);
+  - the banner is 360..960 px wide and 96 px high (the v3 banner rule, ribbon_mockup_rules.banner_ok);
   - the font box "Tên phông" is 128 px and the size box "Kích cỡ phông" 46 px wherever the font group is L;
   - with --sweep-step N the states are read every N px from 1100 to 1920 and no group moves to a larger ladder level as
     the window widens (monotonic).

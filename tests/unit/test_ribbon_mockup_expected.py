@@ -7,7 +7,7 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "tests", "runtime"))
-from ribbon_mockup_rules import LEVEL, compare_states, expected_banner, is_monotonic  # noqa: E402
+from ribbon_mockup_rules import LEVEL, banner_limits, banner_ok, compare_states, is_monotonic, width_findings  # noqa: E402
 
 with open(os.path.join(ROOT, "tests", "runtime", "ribbon-mockup-expected.json"), encoding="utf-8") as handle:
     EXPECTED = json.load(handle)
@@ -30,9 +30,27 @@ class ExpectedVectors(unittest.TestCase):
                 series = [EXPECTED["states"][f"{tab}-{w}"]["states"][key] for w in widths]
                 self.assertTrue(is_monotonic(series), (tab, key, series))
 
-    def test_banner_rule_reproduces_the_listed_sizes(self):
-        for width in (1366, 1485, 1920):
-            self.assertEqual(list(expected_banner(width)), EXPECTED["banner"][str(width)], width)
+    def test_banner_limits_are_the_v3_rule(self):
+        # the "banner" list of the expected JSON still holds the 1.0.2 sizes (260..360 wide, 104 high): the v3 rule
+        # replaces them, so the check is the v3 limits (360..960 wide, 96 high, top 6), not that list
+        self.assertEqual(banner_limits(), {"min_w": 360, "max_w": 960, "h": 96, "top": 6})
+
+    def test_banner_ok_accepts_the_v3_range_and_rejects_the_1_0_2_size(self):
+        self.assertTrue(banner_ok(360, 96))
+        self.assertTrue(banner_ok(960, 96))
+        self.assertTrue(banner_ok(361, 97))  # ±1 px for toolkit rounding
+        self.assertFalse(banner_ok(358, 96))
+        self.assertFalse(banner_ok(962, 96))
+        self.assertFalse(banner_ok(360, 104))  # the 1.0.2 height
+        self.assertFalse(banner_ok(260, 104))  # the 1.0.2 width at 1280
+
+    def test_width_findings_judges_the_banner_by_the_v3_rule(self):
+        got = {"groups": {}, "banner": (0, 0, 260, 104)}
+        banner = [f for f in width_findings("home", 1920, {}, got) if "banner" in f[0]]
+        self.assertEqual([ok for _name, ok, _detail in banner], [False])
+        got["banner"] = (0, 0, 360, 96)
+        banner = [f for f in width_findings("home", 1920, {}, got) if "banner" in f[0]]
+        self.assertEqual([ok for _name, ok, _detail in banner], [True])
 
     def test_geometry_adds_up_to_the_147_px_row(self):
         g = EXPECTED["geometry_px"]

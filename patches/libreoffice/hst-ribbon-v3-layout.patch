@@ -1,0 +1,3653 @@
+HST Office: ribbon groups of the 1.0.3 (v3) design laid out by the owner-locked mockup's own rules.
+
+- vcl/inc/HstRibbonV3Pack.hxx (new, plain arithmetic, unit tested by tests/unit/test_ribbon_v3_pack.py against the
+  mockup's packItems()/packRun()/eff() for all 329 groups of data/ribbon/ribbon-v3.json at every state): the look of
+  every command of a group at a state (L large, M small with its label, S icon only; a sparse tab's fill pass makes
+  a group large; Paste and a one-command group stay large), its blocks from left to right (large buttons and
+  galleries in their order, the small commands as one run where the first stands: balanced columns of at most 3,
+  4 = 2 + 2, or 1-3 rows beside a large button so the run reaches the bottom row; a group's fixed 3-row layout) and
+  their positions (rows at 0/26/52, 24 high; large buttons and galleries 76 high; 4 px between blocks; one width
+  for the labelled buttons and boxes of a group's columns; the tab's one large-button width), scaled to device px.
+- vcl/source/control/HstRibbonV3Layout.cxx (new): a GtkGrid with "hst-ribbon-layout" (hst-ribbon-v3-ui.patch) is a
+  v3 group; VclGrid's requisition and allocation place its commands by the plan instead of by its cells: 6 px
+  padding, content 76 px high 6 px under the top, the caption band 18 px (or the caption's height) 4 px under the
+  content, the separator at the right edge. A command's look is applied to its toolbox (button type, size, text
+  position; the only button stretched over its cell: ToolBox::HstSetStretch), menu button (large: image above the
+  label, ▾ ending its second line; medium: image beside it; small: image only) or gallery (hst-gallery-state).
+  Natural widths are measured once per look. HST_RIBBON_DUMP_LAYOUT=<dir> writes the layout of every tab as JSON
+  (tests/runtime/check-ribbon-v3-dumps.py).
+- PriorityMergedHBox: a box whose groups are all v3 fits them by the mockup's fit(): all large; on a tab more than
+  40 % free the groups turn large from the left, then every large button widens to 96; the tab's large buttons
+  share the narrowest even width of 52 to 96 that fits their labels; when too wide the galleries go M then S and
+  the groups go M, S, then "Caption ▾" from the right; what still does not fit folds into the chevron. The fit
+  uses the width beside the smallest banner, so the banner growing into free room changes no group.
+- The banner (NotebookbarTabControl): never hidden, 360 to 960 logical px wide, 96 high at the groups' top, 8 px
+  after the last group (it takes the room the groups leave); old 360 x 104 artwork takes its height at the left
+  and the colour of its right edge fills the rest.
+- The ribbon tooltip ends with the owner's single KeyTip hint: "Alt+Q, type the command's name".
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/include/sfx2/strings.hrc
++++ b/include/sfx2/strings.hrc
+@@ -428,6 +428,8 @@
+ // HST Office: placeholder of the feature search box in the ribbon tab row
+ #define STR_HST_TAB_SEARCH                      NC_("STR_HST_TAB_SEARCH", "Search features… (Alt+Q)")
+ #define STR_HST_TAB_SEARCH_BUBBLE               NC_("STR_HST_TAB_SEARCH_BUBBLE", "Can't find a command? Type its name here; accents are optional.")
++// HST Office: the last line of a ribbon command's tooltip
++#define STR_HST_TIP_SEARCH_HINT                 NC_("STR_HST_TIP_SEARCH_HINT", "Find any command: Alt+Q, type its name")
+ 
+ // HST Office: "Set As Default" in the font, paragraph, page setup and format cells dialogs
+ #define STR_HST_SET_DEFAULT                     NC_("STR_HST_SET_DEFAULT", "Set As ~Default")
+--- a/include/svx/ThemeColorsToolBoxControl.hxx
++++ b/include/svx/ThemeColorsToolBoxControl.hxx
+@@ -35,6 +35,7 @@ private:
+     // the gallery shows fewer columns at the smaller states, so the ribbon narrows it before folding its group
+     std::unique_ptr<weld::ScrolledWindow> m_xHstScroll;
+     int m_nHstState = 0;
++    int m_nHstExtra = 0; // more themes at the large state on a sparse tab (set_property("hst-gallery-extra"))
+     void HstApplyColumns();
+ 
+ public:
+--- a/include/vcl/HstRibbonPaint.hxx
++++ b/include/vcl/HstRibbonPaint.hxx
+@@ -97,6 +97,9 @@ SAL_DLLPRIVATE tools::Long FileTabExtraW
+ /** Logical px height of the File button (the approved mockup's .hw-file), centred in the tab row. */
+ inline constexpr tools::Long FILE_BUTTON_HEIGHT = 24;
+ 
++/** The filled shape of the File button drawn in rItem (DrawFileTab; the update dot stands in it). */
++SAL_DLLPRIVATE tools::Rectangle FileTabFill(const OutputDevice& rDev, const tools::Rectangle& rItem);
++
+ /** The filled, rounded File button inside rItem: FILE_BUTTON_HEIGHT high, centred in rItem vertically, 2 px in
+     from its left and right;
+     in high contrast with an outline in the text colour while hovered or pressed. Returns the
+--- /dev/null
++++ b/include/vcl/HstRibbonUpdateDot.hxx
+@@ -0,0 +1,34 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++// HST Office: the update dot of the ribbon's File button ("Tệp tin"). sfx2 listens to the update status of the
++// document's frame (org.hst.office.update:Available, sfx2/inc/notebookbar/HstUpdateDot.hxx) and sets the dot of
++// its tab control; the tab control paints it inside the File button, over its top right corner. The tabs keep
++// their sizes: the dot takes no room.
++
++#include <tools/gen.hxx>
++#include <vcl/dllapi.h>
++#include <vcl/outdev.hxx>
++
++namespace vcl
++{
++class Window;
++}
++
++namespace hst::ribbon
++{
++/** Show (an update is known) or hide the dot of rTabControl's File button; repaints the tabs when it changes. */
++VCL_DLLPUBLIC void SetUpdateDot(vcl::Window& rTabControl, bool bShow);
++
++/** rTabControl's File button shows the dot. */
++VCL_DLLPUBLIC bool HasUpdateDot(const vcl::Window& rTabControl);
++
++/** Paint the dot in the File button drawn in rItem (the tab's rectangle, as DrawFileTab got it). */
++SAL_DLLPRIVATE void DrawUpdateDot(vcl::RenderContext& rDev, const tools::Rectangle& rItem);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/include/vcl/HstRibbonWidth.hxx
++++ b/include/vcl/HstRibbonWidth.hxx
+@@ -9,6 +9,7 @@
+ 
+ #pragma once
+ 
++#include <tools/gen.hxx>
+ #include <tools/long.hxx>
+ #include <vcl/dllapi.h>
+ 
+@@ -23,6 +24,23 @@ namespace hst::ribbon
+ /// merged group box at its largest state, or -1 when the page has no such box or its groups are not
+ /// measured yet. The banner beside the page narrows by it.
+ VCL_DLLPUBLIC tools::Long PageFullWidth(const vcl::Window& rPage);
++
++/// HST Office (1.0.3 ribbon): the right edge, in rPage's pixels, of the groups of the page's v3 merged group box
++/// after its last fit, or -1 when the page has none (the elastic banner starts 8 px after it)
++VCL_DLLPUBLIC tools::Long PageUsedRight(const vcl::Window& rPage);
++
++/// HST Office (1.0.3 ribbon): the room the banner takes from the page beyond its smallest width, so that the page's
++/// groups keep the fit of the width they have beside the smallest banner
++VCL_DLLPUBLIC void SetPageSlack(vcl::Window& rPage, tools::Long nSlack);
++
++/// HST Office (1.0.3 ribbon): called with the tab page whose groups took another width after a fit (the tab control
++/// places its banner again); one handler for the process, set by the notebookbar
++using UsedChangedHandler = void (*)(vcl::Window& rPage);
++VCL_DLLPUBLIC void SetUsedChangedHandler(UsedChangedHandler pHandler);
++
++/// HST Office (1.0.3 ribbon): with HST_RIBBON_DUMP_LAYOUT set to a directory, writes the layout of the page's groups
++/// and rBanner (in rPage's pixels) as JSON there (tests/runtime/ribbon_v3_rules.py reads it); nothing otherwise
++VCL_DLLPUBLIC void DumpPageLayout(const vcl::Window& rPage, const tools::Rectangle& rBanner);
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/include/vcl/toolbox.hxx
++++ b/include/vcl/toolbox.hxx
+@@ -338,6 +338,9 @@ public:
+     /// HST Office: lay the items out in an even grid of nRows rows, column by column (ribbon groups at their
+     /// medium and small size); 0 = the usual line layout
+     void                HstSetGridRows( int nRows );
++    /// HST Office: a one-button ribbon toolbox of the v3 layout (vcl/inc/HstRibbonV3Layout.hxx) stretches its
++    /// button over the toolbox's width (the tab's one large-button width, the one width of a group's column)
++    void                HstSetStretch( bool bStretch );
+     /// HST Office: the toolbox is a ribbon group's dialog launcher (↘) on the caption line: its buttons are as
+     /// high as the caption band, the icon centred (HstRibbonLadder.cxx)
+     void                HstSetLauncher( bool bLauncher );
+--- /dev/null
++++ b/sfx2/CppunitTest_sfx2_hst_update_dot.mk
+@@ -0,0 +1,39 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,sfx2_hst_update_dot))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sfx2_hst_update_dot, \
++    sfx2/qa/cppunit/test_hstupdatedot \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sfx2_hst_update_dot,\
++    -I$(SRCDIR)/sfx2/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sfx2_hst_update_dot))
++
++$(eval $(call gb_CppunitTest_use_libraries,sfx2_hst_update_dot, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    sal \
++    sfx \
++    test \
++    unotest \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,sfx2_hst_update_dot, \
++    boost_headers \
++))
++
++$(eval $(call gb_CppunitTest_use_ure,sfx2_hst_update_dot))
++$(eval $(call gb_CppunitTest_use_vcl,sfx2_hst_update_dot))
++$(eval $(call gb_CppunitTest_use_rdb,sfx2_hst_update_dot,services))
++$(eval $(call gb_CppunitTest_use_configuration,sfx2_hst_update_dot))
++
++# vim: set noet sw=4 ts=4:
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -266,6 +266,7 @@ $(eval $(call gb_Library_add_exception_o
+     sfx2/source/notebookbar/HstRibbonCompactWidgets \
+     sfx2/source/notebookbar/HstQuickAccess \
+     sfx2/source/notebookbar/HstQuickAccessStore \
++    sfx2/source/notebookbar/HstUpdateDot \
+     sfx2/source/notebookbar/NotebookbarTabControl \
+     sfx2/source/notebookbar/HstRibbonKeyTips \
+     sfx2/source/notebookbar/HstChartCommands \
+--- a/sfx2/Module_sfx2.mk
++++ b/sfx2/Module_sfx2.mk
+@@ -38,6 +38,7 @@ $(eval $(call gb_Module_add_check_target
+     CppunitTest_sfx2_view \
+     CppunitTest_sfx2_doc \
+     CppunitTest_sfx2_autoredaction \
++    CppunitTest_sfx2_hst_update_dot \
+ ))
+ 
+ $(eval $(call gb_Module_add_subsequentcheck_targets,sfx2,\
+--- /dev/null
++++ b/sfx2/inc/notebookbar/HstUpdateDot.hxx
+@@ -0,0 +1,56 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++// HST Office: the update dot of the ribbon's File button. The HST extension's status command
++// org.hst.office.update:Available is enabled while a newer release is known; UpdateDot listens to it on the
++// document's frame and tells its owner (the ribbon's tab control, vcl/HstRibbonUpdateDot.hxx) to show or hide
++// the dot. Without the command (no handler, an older extension) or after any failure there is no dot.
++
++#include <sfx2/dllapi.h>
++#include <com/sun/star/frame/XDispatch.hpp>
++#include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <com/sun/star/frame/XStatusListener.hpp>
++#include <com/sun/star/util/URL.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <rtl/ustring.hxx>
++
++#include <functional>
++
++namespace hst::notebookbar
++{
++inline constexpr OUString UPDATE_AVAILABLE_URL = u"org.hst.office.update:Available"_ustr;
++
++class SFX2_DLLPUBLIC UpdateDot final : public cppu::WeakImplHelper<css::frame::XStatusListener>
++{
++public:
++    /** aShow(true) shows the dot, aShow(false) hides it; called on the main thread with the SolarMutex held. */
++    explicit UpdateDot(std::function<void(bool)> aShow);
++
++    /** Listen to the update status of the dispatch xFrame (the document's frame) provides for the command (the same
++        frame again: nothing changes). No dispatch for the command: no dot. */
++    void SetFrame(const css::uno::Reference<css::frame::XDispatchProvider>& xFrame);
++
++    /** Stop listening and forget the owner: no call of aShow after this. */
++    void Stop();
++
++    // XStatusListener
++    virtual void SAL_CALL statusChanged(const css::frame::FeatureStateEvent& rEvent) override;
++    // XEventListener
++    virtual void SAL_CALL disposing(const css::lang::EventObject& rEvent) override;
++
++private:
++    void show(bool bShow);
++    void stopListening();
++
++    std::function<void(bool)> maShow;
++    css::uno::Reference<css::frame::XDispatchProvider> mxFrame;
++    css::uno::Reference<css::frame::XDispatch> mxDispatch;
++    css::util::URL maURL;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -12,6 +12,7 @@
+ #include <chrono>
+ #include <map>
+ #include <memory>
++#include <rtl/ref.hxx>
+ #include <vcl/tabctrl.hxx>
+ 
+ #include <com/sun/star/frame/XFrame.hpp>
+@@ -22,6 +23,7 @@ class HstRibbonBanner;
+ class HstRibbonCompact;
+ class HstQuickAccess;
+ class HstTabSearchBox;
++namespace hst::notebookbar { class UpdateDot; }
+ class VclWindowEvent;
+ struct ImplSVEvent;
+ 
+@@ -42,6 +44,8 @@ public:
+     virtual void dispose() override;
+     virtual void MouseButtonDown( const MouseEvent& rMEvt ) override;
+     virtual bool PreNotify( NotifyEvent& rNEvt ) override;
++    /// HST Office (1.0.3 ribbon): the banner is placed again once the current layout pass is over
++    void HstQueueLayout();
+ 
+ private:
+     // HST Office: HASON TECH solution banner beside the groups (Writer, Calc, Impress, Draw Tabbed UI)
+@@ -67,6 +71,8 @@ private:
+     std::unique_ptr<HstRibbonCompact> m_pHstCompact;
+     // HST Office (1.0.2 ribbon): the quick access toolbar (the shortcuts toolbox); see HstQuickAccess.hxx
+     std::unique_ptr<HstQuickAccess> m_pHstQat;
++    // HST Office (1.0.3): the update dot of the File button (HstUpdateDot.hxx)
++    rtl::Reference<hst::notebookbar::UpdateDot> m_xHstUpdateDot;
+     DECL_LINK(HstQatPlacementHdl, LinkParamNone*, void);
+     tools::Long HstQatRow() const;
+     void HstResizeBar();
+--- /dev/null
++++ b/sfx2/qa/cppunit/test_hstupdatedot.cxx
+@@ -0,0 +1,169 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++// The update dot of the ribbon's File button follows the status of org.hst.office.update:Available, with fakes
++// for the frame (a dispatch provider) and the extension's handler (a dispatch that reports a status).
++
++#include <test/bootstrapfixture.hxx>
++
++#include <notebookbar/HstUpdateDot.hxx>
++
++#include <com/sun/star/frame/FeatureStateEvent.hpp>
++#include <com/sun/star/frame/XDispatch.hpp>
++#include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <rtl/ref.hxx>
++
++#include <algorithm>
++#include <vector>
++
++using namespace css;
++
++namespace
++{
++/// the extension's handler: answers addStatusListener with its status, as the real one does
++class FakeDispatch final : public cppu::WeakImplHelper<frame::XDispatch>
++{
++public:
++    explicit FakeDispatch(bool bAvailable)
++        : mbAvailable(bAvailable)
++    {
++    }
++    void report(bool bAvailable)
++    {
++        mbAvailable = bAvailable;
++        const auto aListeners = maListeners;
++        for (const auto& xListener : aListeners)
++            xListener->statusChanged(event());
++    }
++    std::size_t listeners() const { return maListeners.size(); }
++    OUString maAsked;
++
++    void SAL_CALL dispatch(const util::URL&, const uno::Sequence<beans::PropertyValue>&) override {}
++    void SAL_CALL addStatusListener(const uno::Reference<frame::XStatusListener>& xListener,
++                                    const util::URL& rURL) override
++    {
++        maAsked = rURL.Complete;
++        maListeners.push_back(xListener);
++        xListener->statusChanged(event());
++    }
++    void SAL_CALL removeStatusListener(const uno::Reference<frame::XStatusListener>& xListener,
++                                       const util::URL&) override
++    {
++        maListeners.erase(std::remove(maListeners.begin(), maListeners.end(), xListener), maListeners.end());
++    }
++
++private:
++    frame::FeatureStateEvent event() const
++    {
++        frame::FeatureStateEvent aEvent;
++        aEvent.FeatureURL.Complete = hst::notebookbar::UPDATE_AVAILABLE_URL;
++        aEvent.IsEnabled = mbAvailable;
++        return aEvent;
++    }
++    bool mbAvailable;
++    std::vector<uno::Reference<frame::XStatusListener>> maListeners;
++};
++
++/// the document's frame: provides the handler's dispatch for the command, or none (no handler)
++class FakeFrame final : public cppu::WeakImplHelper<frame::XDispatchProvider>
++{
++public:
++    explicit FakeFrame(rtl::Reference<FakeDispatch> xDispatch)
++        : mxDispatch(std::move(xDispatch))
++    {
++    }
++    uno::Reference<frame::XDispatch> SAL_CALL queryDispatch(const util::URL& rURL, const OUString&,
++                                                            sal_Int32) override
++    {
++        if (rURL.Complete != hst::notebookbar::UPDATE_AVAILABLE_URL)
++            return {};
++        return mxDispatch;
++    }
++    uno::Sequence<uno::Reference<frame::XDispatch>>
++        SAL_CALL queryDispatches(const uno::Sequence<frame::DispatchDescriptor>&) override
++    {
++        return {};
++    }
++
++private:
++    rtl::Reference<FakeDispatch> mxDispatch;
++};
++
++class HstUpdateDotTest : public test::BootstrapFixture
++{
++protected:
++    std::vector<bool> maShown;
++    rtl::Reference<hst::notebookbar::UpdateDot> dot()
++    {
++        return new hst::notebookbar::UpdateDot([this](bool bShow) { maShown.push_back(bShow); });
++    }
++};
++
++CPPUNIT_TEST_FIXTURE(HstUpdateDotTest, testShowsWhileAnUpdateIsKnown)
++{
++    rtl::Reference<FakeDispatch> xHandler(new FakeDispatch(true));
++    rtl::Reference<hst::notebookbar::UpdateDot> xDot = dot();
++    xDot->SetFrame(new FakeFrame(xHandler));
++    CPPUNIT_ASSERT_EQUAL(hst::notebookbar::UPDATE_AVAILABLE_URL, xHandler->maAsked);
++    CPPUNIT_ASSERT_EQUAL(std::size_t(1), maShown.size());
++    CPPUNIT_ASSERT(maShown[0]);
++    xHandler->report(false); // a later check finds no newer release
++    xHandler->report(true);
++    CPPUNIT_ASSERT_EQUAL(std::size_t(3), maShown.size());
++    CPPUNIT_ASSERT(!maShown[1]);
++    CPPUNIT_ASSERT(maShown[2]);
++    xDot->Stop();
++    CPPUNIT_ASSERT_EQUAL(std::size_t(0), xHandler->listeners());
++    xHandler->report(false); // nothing reaches a stopped dot
++    CPPUNIT_ASSERT_EQUAL(std::size_t(3), maShown.size());
++}
++
++CPPUNIT_TEST_FIXTURE(HstUpdateDotTest, testNoHandlerNoDot)
++{
++    rtl::Reference<hst::notebookbar::UpdateDot> xDot = dot();
++    xDot->SetFrame(new FakeFrame(nullptr));
++    CPPUNIT_ASSERT_EQUAL(std::size_t(1), maShown.size());
++    CPPUNIT_ASSERT(!maShown[0]);
++    xDot->SetFrame(nullptr);
++    CPPUNIT_ASSERT_EQUAL(std::size_t(2), maShown.size());
++    CPPUNIT_ASSERT(!maShown[1]);
++    xDot->Stop();
++}
++
++CPPUNIT_TEST_FIXTURE(HstUpdateDotTest, testNewFrameLeavesTheOldHandler)
++{
++    rtl::Reference<FakeDispatch> xOld(new FakeDispatch(true));
++    rtl::Reference<FakeDispatch> xNew(new FakeDispatch(false));
++    rtl::Reference<hst::notebookbar::UpdateDot> xDot = dot();
++    uno::Reference<frame::XDispatchProvider> xFrame(new FakeFrame(xOld));
++    xDot->SetFrame(xFrame);
++    xDot->SetFrame(xFrame); // the same frame again: no second listener
++    CPPUNIT_ASSERT_EQUAL(std::size_t(1), xOld->listeners());
++    xDot->SetFrame(new FakeFrame(xNew));
++    CPPUNIT_ASSERT_EQUAL(std::size_t(0), xOld->listeners());
++    CPPUNIT_ASSERT_EQUAL(std::size_t(1), xNew->listeners());
++    CPPUNIT_ASSERT_EQUAL(std::size_t(2), maShown.size());
++    CPPUNIT_ASSERT(maShown[0]);
++    CPPUNIT_ASSERT(!maShown[1]);
++    xDot->Stop();
++}
++
++CPPUNIT_TEST_FIXTURE(HstUpdateDotTest, testHandlerGoneHidesTheDot)
++{
++    rtl::Reference<FakeDispatch> xHandler(new FakeDispatch(true));
++    rtl::Reference<hst::notebookbar::UpdateDot> xDot = dot();
++    xDot->SetFrame(new FakeFrame(xHandler));
++    const lang::EventObject aEvent(static_cast<cppu::OWeakObject*>(xHandler.get()));
++    xDot->disposing(aEvent);
++    CPPUNIT_ASSERT_EQUAL(std::size_t(2), maShown.size());
++    CPPUNIT_ASSERT(!maShown[1]);
++    xDot->Stop();
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/notebookbar/HstRibbonTooltip.cxx
++++ b/sfx2/source/notebookbar/HstRibbonTooltip.cxx
+@@ -9,6 +9,7 @@
+ #include "HstRibbonTooltipTable.hrc"
+ 
+ #include <sfx2/sfxresid.hxx>
++#include <sfx2/strings.hrc>
+ #include <vcl/commandinfoprovider.hxx>
+ #include <vcl/event.hxx>
+ #include <vcl/help.hxx>
+@@ -126,6 +127,8 @@ bool RequestRichHelp(ToolBox& rToolBox,
+                 aText += "\n" + aDescription;
+         }
+     }
++    // the owner-locked 1.0.3 design: no KeyTip sequence per command, one hint to the feature search
++    aText += "\n" + SfxResId(STR_HST_TIP_SEARCH_HINT);
+     const tools::Rectangle aScreenRect(rToolBox.OutputToScreenPixel(aItemRect.TopLeft()),
+                                        rToolBox.OutputToScreenPixel(aItemRect.BottomRight()));
+     Help::ShowQuickHelp(&rToolBox, aScreenRect, aText, QuickHelpFlags::RichTitle);
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstUpdateDot.cxx
+@@ -0,0 +1,97 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include <notebookbar/HstUpdateDot.hxx>
++
++#include <com/sun/star/util/URLTransformer.hpp>
++#include <comphelper/processfactory.hxx>
++#include <vcl/svapp.hxx>
++
++using namespace css;
++
++namespace hst::notebookbar
++{
++UpdateDot::UpdateDot(std::function<void(bool)> aShow)
++    : maShow(std::move(aShow))
++{
++    maURL.Complete = UPDATE_AVAILABLE_URL;
++}
++
++void UpdateDot::SetFrame(const uno::Reference<frame::XDispatchProvider>& xFrame)
++{
++    if (xFrame == mxFrame)
++        return;
++    stopListening();
++    mxFrame = xFrame;
++    bool bListening = false;
++    try
++    {
++        uno::Reference<util::XURLTransformer> xTransformer
++            = util::URLTransformer::create(comphelper::getProcessComponentContext());
++        xTransformer->parseStrict(maURL);
++        if (xFrame.is())
++            mxDispatch = xFrame->queryDispatch(maURL, OUString(), 0);
++        if (mxDispatch.is())
++        {
++            // the handler answers at once with the current status, then whenever a check finds an update or none
++            mxDispatch->addStatusListener(this, maURL);
++            bListening = true;
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        mxDispatch.clear(); // no handler or a failing one: no dot
++    }
++    if (!bListening)
++        show(false);
++}
++
++void UpdateDot::Stop()
++{
++    maShow = nullptr;
++    stopListening();
++    mxFrame.clear();
++}
++
++void UpdateDot::stopListening()
++{
++    uno::Reference<frame::XDispatch> xDispatch;
++    std::swap(xDispatch, mxDispatch);
++    if (!xDispatch.is())
++        return;
++    try
++    {
++        xDispatch->removeStatusListener(this, maURL);
++    }
++    catch (const uno::Exception&)
++    {
++        // the handler is gone already
++    }
++}
++
++void UpdateDot::show(bool bShow)
++{
++    // the handler may call from its own thread
++    SolarMutexGuard aGuard;
++    if (maShow)
++        maShow(bShow);
++}
++
++void SAL_CALL UpdateDot::statusChanged(const frame::FeatureStateEvent& rEvent)
++{
++    show(rEvent.IsEnabled);
++}
++
++void SAL_CALL UpdateDot::disposing(const lang::EventObject& rEvent)
++{
++    if (rEvent.Source == mxDispatch)
++    {
++        mxDispatch.clear();
++        show(false);
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -37,12 +37,15 @@
+ #include <vcl/HstBanner.hxx>
+ #include <vcl/HstBannerGeometry.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
++#include <vcl/HstRibbonWidth.hxx>
+ #include <vcl/lineinfo.hxx>
+ #include <sfx2/sfxresid.hxx>
+ #include <sfx2/strings.hrc>
+ #include <vcl/settings.hxx>
+ #if __has_include(<notebookbar/HstFeatureSearch.hxx>)
+ #include <notebookbar/HstFeatureSearch.hxx>
++#include <notebookbar/HstUpdateDot.hxx>
++#include <vcl/HstRibbonUpdateDot.hxx>
+ #define HST_HAVE_FEATURE_SEARCH 1
+ #endif
+ #include <algorithm>
+@@ -499,6 +502,11 @@ void NotebookbarTabControl::dispose()
+         m_pHstCompact.reset();
+     }
+     m_pHstQat.reset();
++    if (m_xHstUpdateDot.is())
++    {
++        m_xHstUpdateDot->Stop();
++        m_xHstUpdateDot.clear();
++    }
+     if (m_pHstBanner)
+     {
+         RemoveChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
+@@ -510,6 +518,22 @@ void NotebookbarTabControl::dispose()
+ 
+ // HST Office: the Tabbed notebookbar (notebookbar.ui) of Writer, Calc, Impress and Draw shows the banner
+ // beside its groups; with the other notebookbars the window's border shows it beside the bar.
++namespace
++{
++// the groups of a page took another width: its tab control's banner takes the room they leave
++void lcl_HstUsedChanged(vcl::Window& rPage)
++{
++    if (NotebookbarTabControl* pControl = dynamic_cast<NotebookbarTabControl*>(rPage.GetParent()))
++        pControl->HstQueueLayout();
++}
++}
++
++void NotebookbarTabControl::HstQueueLayout()
++{
++    if (m_pHstBanner && !m_pHstLayoutEvent && !isDisposed())
++        m_pHstLayoutEvent = Application::PostUserEvent(LINK(this, NotebookbarTabControl, HstDeferredLayoutHdl));
++}
++
+ void NotebookbarTabControl::HstCreateBanner()
+ {
+     if (m_pHstBanner)
+@@ -529,6 +553,7 @@ void NotebookbarTabControl::HstCreateBan
+             pBar->HstSetOwnBanner(true); // the window shows no second banner beside the bar
+             hst::keytips::Attach(*this, *pBar, GetToolBox(), m_pHstBanner.get());
+             AddChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
++            hst::ribbon::SetUsedChangedHandler(&lcl_HstUsedChanged);
+             const OUString aApp = rFile.indexOf("/swriter/") >= 0  ? u"writer"_ustr
+                                   : rFile.indexOf("/scalc/") >= 0  ? u"calc"_ustr
+                                   : rFile.indexOf("/simpress/") >= 0 ? u"impress"_ustr
+@@ -603,13 +628,29 @@ void NotebookbarTabControl::HstLayoutBan
+             // the document window's (its frame), not the SystemWindow's client, which is narrower than the window
+             // (a 1920 px window got a 357 px banner); 1.0.2 mockup: 8 px from the window's right edge, w x w*104/360
+             // centred in the 106 px body (360 x 104 at 1920, 260 x 75 up to 1440)
+-            const vcl::Window* pFrame = GetFrameWindow();
+-            const long nMaxWidth = hst::banner::windowSlotWidth(
+-                pFrame ? pFrame->GetOutputSizePixel().Width() : GetOutputSizePixel().Width(), fDpi);
+-            const hst::banner::Rect aSlot
+-                = hst::banner::slotFor(aPage, fDpi, hst::banner::artWidth(eMode), nMaxWidth, HstBannerRight());
+-            nPageWidth = hst::banner::pageWidthBeside(aPage, aSlot, fDpi);
+-            m_pHstBanner->Place(tools::Rectangle(Point(aSlot.x, aSlot.y), Size(aSlot.w, aSlot.h)));
++            // HST Office (1.0.3, owner-locked v3 design): the banner is never hidden and never narrower than 360
++            // logical px; it takes the room the page's groups leave once they are as large as they may be, up to 960
++            // px, 96 px high at the groups' top (6 px under the body's top), 8 px after the last group. The groups are
++            // fitted at the width they have beside the 360 px banner (SetPageSlack), so the banner growing into their
++            // free room does not change them.
++            const tools::Long nMin = hst::banner::scaled(360, fDpi), nMax = hst::banner::scaled(960, fDpi);
++            const tools::Long nGap = hst::banner::scaled(8, fDpi);
++            const tools::Long nRight = HstBannerRight();
++            // the collapse chevron (˄) has its own room after the last group, as in the mockup (HstRibbonCompact.cxx
++            // places it 4 px from the page's right edge): it covered the last group's caption ("Phân tíc˄")
++            const tools::Long nChevron = m_pHstCompact ? hst::banner::scaled(22, fDpi) : 0;
++            const tools::Long nUsed = hst::ribbon::PageUsedRight(*pPage);
++            const tools::Long nBanner
++                = nUsed < 0 ? nMin
++                            : std::clamp<tools::Long>(nRight - (aPage.x + nUsed + nChevron) - nGap - 1, nMin, nMax);
++            const tools::Rectangle aSlot(Point(nRight - nBanner, aPage.y + hst::banner::scaled(6, fDpi)),
++                                         Size(nBanner, hst::banner::scaled(96, fDpi)));
++            const tools::Long nSmallest = std::max<tools::Long>(0, nRight - nMin - nGap - aPage.x - nChevron);
++            nPageWidth = std::max<tools::Long>(0, aSlot.Left() - nGap - aPage.x);
++            hst::ribbon::SetPageSlack(*pPage, nSmallest - nPageWidth);
++            m_pHstBanner->Place(aSlot);
++            hst::ribbon::DumpPageLayout(*pPage, tools::Rectangle(Point(aSlot.Left() - aPage.x, aSlot.Top() - aPage.y),
++                                                                 aSlot.GetSize()));
+         }
+         else
+             m_pHstBanner->Place(tools::Rectangle());
+@@ -977,6 +1018,10 @@ void NotebookbarTabControl::StateChanged
+         FillShortcutsToolBox( xContext, m_xFrame, aModuleName, pToolBox );
+         if (m_pHstQat)
+             m_pHstQat->SetFrame(m_xFrame);
++        if (!m_xHstUpdateDot.is())
++            m_xHstUpdateDot = new hst::notebookbar::UpdateDot(
++                [this](bool bShow) { hst::ribbon::SetUpdateDot(*this, bShow); });
++        m_xHstUpdateDot->SetFrame(Reference<XDispatchProvider>(m_xFrame, UNO_QUERY));
+ 
+         Size aSize( pToolBox->GetOptimalSize() );
+         Point aPos( ICON_SIZE + 10, 0 );
+--- a/svx/qa/unit/HstThemeGalleryColumnsTest.cxx
++++ b/svx/qa/unit/HstThemeGalleryColumnsTest.cxx
+@@ -15,7 +15,7 @@ class HstThemeGalleryColumnsTest : publi
+ {
+ };
+ 
+-// The ribbon's theme gallery shows 6, 4 or 3 themes in a row at its large, medium and small state. The vcl builder
++// The ribbon's theme gallery shows 5, 4 or 3 themes in a row at its large, medium and small state (1.0.3 design). The vcl builder
+ // used here (headless) is the one of Windows and macOS: it drops the .ui's scrolled window, so the gallery must
+ // size its icon view instead, or it keeps the width of the large state at every state.
+ CPPUNIT_TEST_FIXTURE(HstThemeGalleryColumnsTest, testColumnsFollowTheRibbonState)
+@@ -30,11 +30,17 @@ CPPUNIT_TEST_FIXTURE(HstThemeGalleryColu
+     const tools::Long nSmall = pGallery->GetSizePixel().Width();
+     CPPUNIT_ASSERT_GREATER(nMedium, nLarge);
+     CPPUNIT_ASSERT_GREATER(nSmall, nMedium);
+-    // 6 -> 4 columns is two theme widths narrower, 4 -> 3 one
+-    CPPUNIT_ASSERT_EQUAL(2 * (nMedium - nSmall), nLarge - nMedium);
++    // 5 -> 4 -> 3 columns: one theme width narrower each time
++    const tools::Long nTheme = nMedium - nSmall;
++    CPPUNIT_ASSERT_EQUAL(nTheme, nLarge - nMedium);
+     // back to the large state: the first width again
+     CPPUNIT_ASSERT(pGallery->set_property(u"hst-gallery-state"_ustr, u"0"_ustr));
+     CPPUNIT_ASSERT_EQUAL(nLarge, pGallery->GetSizePixel().Width());
++    // a sparse tab: two more themes at the large state, none at the others
++    CPPUNIT_ASSERT(pGallery->set_property(u"hst-gallery-extra"_ustr, u"2"_ustr));
++    CPPUNIT_ASSERT_EQUAL(nLarge + 2 * nTheme, pGallery->GetSizePixel().Width());
++    CPPUNIT_ASSERT(pGallery->set_property(u"hst-gallery-state"_ustr, u"1"_ustr));
++    CPPUNIT_ASSERT_EQUAL(nMedium, pGallery->GetSizePixel().Width());
+     pGallery.disposeAndClear();
+ }
+ }
+--- a/svx/source/inc/StylesPreviewWindow.hxx
++++ b/svx/source/inc/StylesPreviewWindow.hxx
+@@ -71,6 +71,7 @@ class StyleItemController
+     static constexpr unsigned LEFT_MARGIN = 4;
+     // HST Office: highest font of a preview, in pixels: the name is one line of a 70 px preview
+     static constexpr tools::Long MAX_PREVIEW_FONT_HEIGHT = 20;
++    static tools::Long HstTextLeft(const vcl::RenderContext& rRenderContext);
+ 
+     SfxStyleFamily m_eStyleFamily;
+     StylePreviewDescriptor m_aStyleName;
+--- a/svx/source/tbxctrls/HstStyleGalleryWindow.cxx
++++ b/svx/source/tbxctrls/HstStyleGalleryWindow.cxx
+@@ -29,10 +29,14 @@ namespace svx::hststyles
+ {
+ namespace
+ {
+-constexpr int COLUMNS[] = { 6, 4, 3 }; // tiles in a row at the ribbon's large, medium and small states
++constexpr int COLUMNS[] = { 5, 4, 3 }; // tiles in a row at the ribbon's large, medium and small states (1.0.3 design)
+ constexpr int ITEM_STEP = TILE_WIDTH + 10; // a tile with the icon view's padding
+ constexpr int FRAME_WIDTH = 8;
+ constexpr int VIEW_HEIGHT = TILE_HEIGHT + 12; // one row, never taller (Windows asks for every row)
++constexpr int MAX_EXTRA = 10; // a sparse tab's gallery shows at most this many more tiles (1.0.3 design)
++
++// tiles in the row at a state; a sparse tab adds some at the large state
++int columnsOf(int nState, int nExtra) { return COLUMNS[nState] + (nState == 0 ? nExtra : 0); }
+ 
+ bool IsModel(const uno::Reference<frame::XFrame>& rxFrame, const OUString& rService)
+ {
+@@ -92,6 +96,15 @@ void StyleGalleryWindow::dispose()
+ 
+ bool StyleGalleryWindow::set_property(const OUString& rKey, const OUString& rValue)
+ {
++    if (rKey == "hst-gallery-extra")
++    {
++        const int nExtra = std::clamp<int>(rValue.toInt32(), 0, MAX_EXTRA);
++        if (nExtra == m_nExtra || !m_xView)
++            return false;
++        m_nExtra = nExtra;
++        ApplyColumns();
++        return true;
++    }
+     if (rKey != "hst-gallery-state")
+         return InterimItemWindow::set_property(rKey, rValue);
+     const int nState = std::clamp<int>(rValue.toInt32(), 0, std::size(COLUMNS) - 1);
+@@ -110,7 +123,7 @@ void StyleGalleryWindow::ApplyColumns()
+         return;
+     const float fScale = GetDPIScaleFactor();
+     // on the icon view itself: the VCL builder folds a GtkScrolledWindow into the icon view (it scrolls itself)
+-    m_xView->set_size_request((COLUMNS[m_nState] * ITEM_STEP + FRAME_WIDTH) * fScale, VIEW_HEIGHT * fScale);
++    m_xView->set_size_request((columnsOf(m_nState, m_nExtra) * ITEM_STEP + FRAME_WIDTH) * fScale, VIEW_HEIGHT * fScale);
+     ShowPage();
+     Size aSize = get_preferred_size();
+     aSize.setHeight(std::min<tools::Long>(aSize.Height(), (VIEW_HEIGHT + 6) * fScale));
+@@ -121,7 +134,7 @@ void StyleGalleryWindow::ShowPage()
+ {
+     if (!m_xView)
+         return;
+-    const size_t nPage = COLUMNS[m_nState];
++    const size_t nPage = columnsOf(m_nState, m_nExtra);
+     if (m_nFirst >= m_aEntries.size())
+         m_nFirst = 0;
+     m_nFirst -= m_nFirst % nPage; // pages start at multiples of the page size
+@@ -179,7 +192,7 @@ IMPL_LINK(StyleGalleryWindow, ActivatedH
+ 
+ IMPL_LINK(StyleGalleryWindow, PageHdl, weld::Button&, rButton, void)
+ {
+-    const size_t nPage = COLUMNS[m_nState];
++    const size_t nPage = columnsOf(m_nState, m_nExtra);
+     if (&rButton == m_xNext.get())
+     {
+         if (m_nFirst + nPage < m_aEntries.size())
+--- a/svx/source/tbxctrls/HstStyleGalleryWindow.hxx
++++ b/svx/source/tbxctrls/HstStyleGalleryWindow.hxx
+@@ -71,6 +71,7 @@ private:
+     std::vector<Entry> m_aEntries;
+     size_t m_nFirst = 0;
+     int m_nState = 0;
++    int m_nExtra = 0; // more tiles at the large state on a sparse tab (set_property("hst-gallery-extra"))
+     bool m_bFilling = false;
+ };
+ }
+--- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
++++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
+@@ -102,19 +102,10 @@
+ 
+ namespace
+ {
+-// HST Office: a preview of the ribbon gallery is a 96 x 74 tile: its image and the icon view's room around it,
+-// the item padding 2 on each side in gtk (92 x 70) or vcl's own 5 px (86 x 64; vcl's builder makes the
+-// icon view its own scrolled window, so "stylesscroll" does not exist there)
+-constexpr tools::Long HST_TILE_WIDTH = 96;
+-constexpr tools::Long HST_TILE_HEIGHT = 74;
++// HST Office: whether the icon view is vcl's (vcl's builder makes the icon view its own scrolled window, so
++// "stylesscroll" does not exist there); its frame then takes 2 px more
+ bool g_bHstVclIconView = false;
+ 
+-Size lcl_HstPreviewImageSize(double fScale)
+-{
+-    const tools::Long nRoom = g_bHstVclIconView ? 10 : 4;
+-    return Size(std::lround(HST_TILE_WIDTH * fScale) - nRoom, std::lround(HST_TILE_HEIGHT * fScale) - nRoom);
+-}
+-
+ // HST Office: the module of the current document ("swriter", "scalc"...): Writer's gallery shows paragraph
+ // styles with short names, Calc's (the same control, whose style family Para is Calc's cell styles) cell styles
+ bool lcl_HstModuleIs(std::u16string_view aModule)
+@@ -122,6 +113,22 @@ bool lcl_HstModuleIs(std::u16string_view
+     const SfxObjectShell* pShell = SfxObjectShell::Current();
+     return pShell && pShell->GetFactory().GetFactoryName().startsWith(aModule);
+ }
++
++// HST Office (1.0.3 ribbon, owner-locked design): Writer's and Sheets' style galleries are a vertical list of three
++// rows, 24 px high, 132 px wide in Writer and 104 in Sheets, each style's name in its own font (Sheets: a swatch of the
++// cell's fill before it)
++constexpr tools::Long HST_LIST_ROW = 24;
++constexpr int HST_LIST_ROWS = 3;
++
++tools::Long lcl_HstListWidth() { return lcl_HstModuleIs(u"scalc") ? 104 : 132; }
++
++// the image of a list row: the row less the icon view's room around it, the .ui's item padding of 2 on each side in
++// gtk and in vcl (its builder sets the padding as the icon view's spacing); 10 here left vcl's rows 18 px high
++Size lcl_HstPreviewImageSize(double fScale)
++{
++    constexpr tools::Long nRoom = 4;
++    return Size(std::lround(lcl_HstListWidth() * fScale) - nRoom, std::lround(HST_LIST_ROW * fScale) - nRoom);
++}
+ }
+ 
+ namespace
+@@ -405,9 +412,10 @@ void StyleItemController::DrawEntry(vcl:
+         const MapUnit eUnit = pItemSet->GetPool() ? pItemSet->GetPool()->GetMetric(pFontHeightItem->Which())
+                                                   : pShell->GetMapUnit();
+         Size aPixelSize(rRenderContext.LogicToPixel(aFontSize, MapMode(eUnit)));
+-        // HST Office: a long name takes two lines of the preview; big headings are capped so two fit
+-        if (aPixelSize.Height() > MAX_PREVIEW_FONT_HEIGHT)
+-            aPixelSize.setHeight(MAX_PREVIEW_FONT_HEIGHT);
++        // HST Office: the name is one line of its row: big headings are capped so it fits the row's height
++        const tools::Long nMaxFont = std::max<tools::Long>(8, std::min<tools::Long>(MAX_PREVIEW_FONT_HEIGHT, aSize.Height() - 2));
++        if (aPixelSize.Height() > nMaxFont)
++            aPixelSize.setHeight(nMaxFont);
+ 
+         SvxFont aFont = GetFontFromItems(pFontItem, aPixelSize, pItemSet);
+         rRenderContext.SetFont(aFont);
+@@ -436,15 +444,16 @@ void StyleItemController::DrawEntry(vcl:
+         }
+     }
+ 
+-    // HST Office: a cell style looks like a cell (Sheets mockup): its fill, or white, in a light grey frame
+-    // 4 px inside the preview (6 px inside the 96 x 74 tile)
++    // HST Office: a cell style shows a swatch of its cell (Sheets mockup): its fill, or white, in a light grey frame,
++    // a square as high as the row allows at the row's left, its name after it
+     if (lcl_HstModuleIs(u"scalc"))
+     {
+         const SvxBrushItem* pBrush = pItemSet->GetItem<SvxBrushItem>(SID_ATTR_BRUSH);
+         const Color aFill = pBrush && !pBrush->GetColor().IsTransparent() ? pBrush->GetColor() : COL_WHITE;
++        const tools::Long nSide = std::min<tools::Long>(aSize.Height() - 4, 16);
+         rRenderContext.SetLineColor(Color(0xd6, 0xd6, 0xd6));
+         rRenderContext.SetFillColor(aFill);
+-        rRenderContext.DrawRect(tools::Rectangle(Point(4, 4), Size(aSize.Width() - 8, aSize.Height() - 8)));
++        rRenderContext.DrawRect(tools::Rectangle(Point(2, (aSize.Height() - nSide) / 2), Size(nSide, nSide)));
+     }
+ 
+     if (aFontHighlight != COL_AUTO)
+@@ -465,14 +474,21 @@ void StyleItemController::DrawContentBac
+     rRenderContext.DrawRect(rContentRect);
+ }
+ 
++// HST Office: where a row of the style list shows its name: from the left (after the swatch in Sheets)
++tools::Long StyleItemController::HstTextLeft(const vcl::RenderContext& rRenderContext)
++{
++    const tools::Long nHeight = rRenderContext.GetOutputSizePixel().Height();
++    return lcl_HstModuleIs(u"scalc") ? 2 + std::min<tools::Long>(nHeight - 4, 16) + 4 : LEFT_MARGIN;
++}
++
+ tools::Rectangle StyleItemController::HstTextRect(vcl::RenderContext& rRenderContext,
+                                                  const OUString& rLabel) const
+ {
+     const Size aOut(rRenderContext.GetOutputSizePixel());
+-    const tools::Long nInner = aOut.Width() - 2 * LEFT_MARGIN;
++    const tools::Long nLeft = HstTextLeft(rRenderContext);
++    const tools::Long nInner = aOut.Width() - nLeft - LEFT_MARGIN;
+     const Size aText(std::min(nInner, rRenderContext.GetTextWidth(rLabel)), rRenderContext.GetTextHeight());
+-    return tools::Rectangle(Point((aOut.Width() - aText.Width()) / 2, (aOut.Height() - aText.Height()) / 2),
+-                            aText);
++    return tools::Rectangle(Point(nLeft, (aOut.Height() - aText.Height()) / 2), aText);
+ }
+ 
+ void StyleItemController::DrawHighlight(vcl::RenderContext& rRenderContext, Color aFontBack)
+@@ -482,15 +498,16 @@ void StyleItemController::DrawHighlight(
+     rRenderContext.DrawRect(HstTextRect(rRenderContext, StylesPreviewWindow_Base::HstTileLabel(m_aStyleName)));
+ }
+ 
+-// HST Office: the name is one centred line in the style's font (Office's gallery); a name wider than
+-// the preview ends with "…". The gallery shows the short name of a common style (HstTileLabel).
++// HST Office: the name is one line of its row in the style's font, from the row's left; a name wider than the row
++// ends with "…". The list shows the short name of a common style (HstTileLabel).
+ void StyleItemController::DrawText(vcl::RenderContext& rRenderContext)
+ {
+     const OUString aLabel = StylesPreviewWindow_Base::HstTileLabel(m_aStyleName);
+     const Size aOut(rRenderContext.GetOutputSizePixel());
+-    const tools::Rectangle aRect(Point(LEFT_MARGIN, 0), Size(aOut.Width() - 2 * LEFT_MARGIN, aOut.Height()));
++    const tools::Long nLeft = HstTextLeft(rRenderContext);
++    const tools::Rectangle aRect(Point(nLeft, 0), Size(aOut.Width() - nLeft - LEFT_MARGIN, aOut.Height()));
+     rRenderContext.DrawText(aRect, aLabel,
+-                            DrawTextFlags::Center | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
++                            DrawTextFlags::Left | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
+ }
+ 
+ StylesPreviewWindow_Base::StylesPreviewWindow_Base(
+@@ -1147,8 +1164,8 @@ Bitmap StylesPreviewWindow_Base::GetCach
+     else
+     {
+         ScopedVclPtrInstance<VirtualDevice> pImg;
+-        // HST Office: the image of a 96 x 74 tile (lcl_HstPreviewImageSize); the room around it is the frame
+-        // of the selected preview, and the gallery's 1 px frame makes it 76 tall
++        // HST Office: the image of a list row (lcl_HstPreviewImageSize); the room around it is the frame of the
++        // selected style, three 24 px rows and the gallery's frame make it 76 tall
+         const Size aSize(lcl_HstPreviewImageSize(Application::GetDefaultDevice()->GetDPIScaleFactor()));
+         pImg->SetOutputSizePixel(aSize);
+ 
+@@ -1308,9 +1325,9 @@ StylesPreviewWindow_Impl::StylesPreviewW
+ 
+ namespace
+ {
+-// HST Office: previews kept in the row at the large, medium and small group, as Office's Styles gallery narrows
+-// from 6 to 4 to 3 before it folds. The group needs n x 96 + 2 (frame) + 16 (button column) px.
+-constexpr int HST_PREVIEWS[] = { 6, 4, 3 };
++// HST Office: the gallery's states (large, medium, small group); the 1.0.3 design shows the same three-row list at
++// each of them. The group needs the list's width + 2 (frame) + 16 (button column) px.
++constexpr int HST_PREVIEWS[] = { HST_LIST_ROWS, HST_LIST_ROWS, HST_LIST_ROWS };
+ constexpr tools::Long HST_GALLERY_HEIGHT = 76;
+ }
+ 
+@@ -1318,17 +1335,18 @@ void StylesPreviewWindow_Impl::HstApplyP
+ {
+     const double fScale = GetDPIScaleFactor();
+     const int nTiles = HST_PREVIEWS[m_nHstState];
++    const tools::Long nTileWidth = lcl_HstListWidth(); // one column: the view is as wide as one row
+     // set the height as well: -1 dropped the .ui's height-request on gtk3, the view (whose scroll bars are
+     // external) was then 2 px tall and the gallery a blank strip. Without "stylesscroll" (vcl) the view is
+     // the framed, scrolling widget and takes the size itself; its frame may be 2 px (vcl's 3D border), so it
+     // gets 2 px more to keep n columns.
+-    const int nWidth = static_cast<int>(std::lround((nTiles * HST_TILE_WIDTH + (m_xHstScroll ? 2 : 4)) * fScale));
++    const int nWidth = static_cast<int>(std::lround((nTileWidth + (m_xHstScroll ? 2 : 4)) * fScale));
+     const int nHeight = static_cast<int>(std::lround(HST_GALLERY_HEIGHT * fScale));
+     if (m_xHstScroll)
+         m_xHstScroll->set_size_request(nWidth, nHeight);
+     else
+         m_xStylesView->set_size_request(nWidth, nHeight);
+-    m_xStylesView->set_item_width(static_cast<int>(g_bHstVclIconView ? std::lround(HST_TILE_WIDTH * fScale)
++    m_xStylesView->set_item_width(static_cast<int>(g_bHstVclIconView ? std::lround(nTileWidth * fScale)
+                                                                      : lcl_HstPreviewImageSize(fScale).Width()));
+     HstSetTiles(nTiles);
+ }
+--- a/svx/source/tbxctrls/ThemeColorsToolBoxControl.cxx
++++ b/svx/source/tbxctrls/ThemeColorsToolBoxControl.cxx
+@@ -123,10 +123,10 @@ ThemeColorsPaneWrapper::~ThemeColorsPane
+ 
+ namespace
+ {
+-// HST Office: on the ribbon, the gallery shows 6, 4 or 3 themes in a row (large, medium, small state) of
++// HST Office: on the ribbon, the gallery shows 5, 4 or 3 themes in a row (large, medium, small state; 1.0.3 design) of
+ // HST_ITEM_WIDTH px (the .ui's item-width plus its padding) and is never taller than HST_MAX_HEIGHT: the
+ // Windows icon view asked for the height of every row, which made the Design tab taller than the others
+-constexpr int HST_COLUMNS[] = { 6, 4, 3 };
++constexpr int HST_COLUMNS[] = { 5, 4, 3 };
+ constexpr int HST_ITEM_WIDTH = 108;
+ constexpr int HST_FRAME_WIDTH = 32; // margins, frame and the vertical scroll bar
+ constexpr int HST_HEIGHT = 88; // the .ui's height-request: one row of themes with their names
+@@ -145,7 +145,8 @@ void ThemeColorsPaneWrapper::SetOptimalS
+ void ThemeColorsPaneWrapper::HstApplyColumns()
+ {
+     const double fScale = GetDPIScaleFactor();
+-    const int nColumns = HST_COLUMNS[m_nHstState];
++    // the ribbon's state chooses the columns; a sparse tab adds some at the large state (1.0.3 design)
++    const int nColumns = HST_COLUMNS[m_nHstState] + (m_nHstState == 0 ? m_nHstExtra : 0);
+     if (m_xHstScroll)
+     {
+         m_xHstScroll->set_size_request((nColumns * HST_ITEM_WIDTH + HST_FRAME_WIDTH) * fScale,
+@@ -166,8 +167,21 @@ void ThemeColorsPaneWrapper::HstApplyCol
+ 
+ bool ThemeColorsPaneWrapper::set_property(const OUString& rKey, const OUString& rValue)
+ {
+-    if (rKey != "hst-gallery-state")
++    const bool bExtra = rKey == "hst-gallery-extra";
++    if (!bExtra && rKey != "hst-gallery-state")
+         return InterimItemWindow::set_property(rKey, rValue);
++    if (bExtra)
++    {
++        // a sparse tab: more themes at the large state (1.0.3 design: at most 10 more)
++        const int nExtra = std::clamp<int>(rValue.toInt32(), 0, 10);
++        if (nExtra == m_nHstExtra)
++            return false;
++        m_nHstExtra = nExtra;
++        HstApplyColumns();
++        InvalidateChildSizeCache();
++        SetOptimalSize();
++        return true;
++    }
+     const int nState = std::clamp<int>(rValue.toInt32(), 0, std::size(HST_COLUMNS) - 1);
+     if (nState == m_nHstState)
+         return false; // nothing changed: the ladder need not lay the toolbox out again
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -10480,6 +10480,12 @@ msgctxt "STR_HST_TAB_SEARCH_BUBBLE"
+ msgid "Can't find a command? Type its name here; accents are optional."
+ msgstr "Không thấy lệnh? Gõ tên lệnh ở đây, không cần dấu."
+ 
++#. hstTipHint
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_TIP_SEARCH_HINT"
++msgid "Find any command: Alt+Q, type its name"
++msgstr "Tìm nhanh lệnh: Alt+Q, gõ tên lệnh"
++
+ #. hstSD01
+ #: include/sfx2/strings.hrc
+ msgctxt "STR_HST_SET_DEFAULT"
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -264,6 +264,10 @@ $(eval $(call gb_Library_add_exception_o
+     vcl/source/control/HstRibbonDrop \
+     vcl/source/control/HstRibbonLadder \
+     vcl/source/control/HstRibbonPaint \
++    vcl/source/control/HstRibbonMenuButtonMetrics \
++    vcl/source/control/HstRibbonUpdateDot \
++    vcl/source/control/HstRibbonV3Layout \
++    vcl/source/control/HstRibbonV3MergedBox \
+     vcl/source/control/NotebookbarPopup \
+     vcl/source/control/PriorityHBox \
+     vcl/source/control/PriorityMergedHBox \
+--- a/vcl/inc/HstRibbonGeometry.hxx
++++ b/vcl/inc/HstRibbonGeometry.hxx
+@@ -58,7 +58,7 @@ constexpr long FOLDED_HEIGHT = 98; // a
+ constexpr long FOLDED_MIN_WIDTH = 48;
+ constexpr long FOLDED_PAD = 6; // above the icon, left and right of the label
+ constexpr long FOLDED_LABEL_MAX = 84; // the folded group's name wraps over this width
+-constexpr long FOLDED_LABEL_BOTTOM = 4; // under the name's last line: the name sits on the caption line
++constexpr long FOLDED_LABEL_BOTTOM = 2; // under the name's last line: the name sits on the groups' caption line
+ constexpr long FOLDED_ARROW_GAP = 4;
+ 
+ /** nLogical logical px in device px at fScale (GetDPIScaleFactor()), rounded once. */
+--- a/vcl/inc/HstRibbonLadder.hxx
++++ b/vcl/inc/HstRibbonLadder.hxx
+@@ -16,6 +16,10 @@
+ 
+ #include <rtl/ustring.hxx>
+ #include <sal/types.h>
++#include <tools/gen.hxx>
++
++class MenuButton;
++class PushButton;
+ 
+ namespace vcl
+ {
+@@ -44,6 +48,21 @@ bool collapseLadderEnabled();
+ /** Apply nState to every toolbox inside rGroup (authored styles are remembered on first use). */
+ void SetGroupState(vcl::Window& rGroup, int nState);
+ 
++/** A menu button of a v3 ribbon group (HstRibbonV3Layout.hxx) in a look: 'L' large (its image above its label on
++    two lines, ▾ at the end), 'M' small with its label (its image beside it), 'S' its image only. */
++void SetMenuButtonLook(MenuButton& rButton, char cLook);
++
++/** Where a menu button of a v3 group at its medium or small look draws its ▾: right after its image and label (the
++    button fills its column, so VCL's place at its right edge left the ▾ far from its label). rInner is the
++    button's content rectangle, nSymbol the symbol's size; an empty rectangle for every other button (VCL's place). */
++tools::Rectangle MenuArrowAfterLabel(const PushButton& rButton, const tools::Rectangle& rInner, tools::Long nSymbol);
++
++/** The look SetMenuButtonLook gave rButton ('L', 'M', 'S'), 0 for a button it did not. */
++char MenuButtonLook(const PushButton& rButton);
++
++/** Place a menu button of a v3 group again at its look (its label's metrics changed, HstRibbonMenuButtonMetrics.hxx). */
++void RefreshMenuButton(PushButton& rButton);
++
+ /** The caption of a ribbon group: its "labelled-by" label, else its first label (no mnemonic). */
+ OUString GroupCaption(vcl::Window& rGroup);
+ 
+--- /dev/null
++++ b/vcl/inc/HstRibbonMenuButtonMetrics.hxx
+@@ -0,0 +1,41 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++// HST Office: the text metrics of the ribbon's menu buttons as their paint draws them. The ribbon lays a menu button
++// out from its label's width and height; on Windows at 125 % the button's window measured a smaller font than the
++// one its paint draws with, so the label lost its end ("Sắp xếp và l…") or its second line ("Bám …"). The paint
++// tells what it drew with (MenuButtonPainted); the layout measures with that from then on and lays out again once.
++
++#include <rtl/ustring.hxx>
++#include <sal/types.h>
++#include <tools/gen.hxx>
++#include <tools/long.hxx>
++
++class OutputDevice;
++class PushButton;
++
++namespace hst::ribbon
++{
++/** Called by PushButton's paint (button.cxx) with the device it draws on and its content rectangle, before it lays
++    its image and label out with the image-text gap rImageSep. A menu button of a v3 group remembers the paint's
++    metrics of its label, and when they differ from what its layout measured, the ribbon lays it out again. A large
++    one (image above a label of lines) gets a gap its lines fit under, not less than 1 px; a medium one whose font is
++    taller than its content draws over its frame's inner edge. Any other button: nothing. */
++void MenuButtonPainted(PushButton& rButton, OutputDevice& rDev, const tools::Rectangle& rInner,
++                       sal_Int32& rImageSep);
++
++/** The width of rText (no mnemonic) as rButton's paint draws it; its window's measure before its first paint. */
++tools::Long MenuButtonTextWidth(const PushButton& rButton, const OUString& rText);
++
++/** The height of a line of rButton's label as its paint draws it; its window's measure before its first paint. */
++tools::Long MenuButtonTextHeight(const PushButton& rButton);
++
++/** Whether the lines of a large menu button's label fitted under its image at its last paint (true before one). */
++bool MenuButtonLinesFit(const PushButton& rButton);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/inc/HstRibbonV3Layout.hxx
+@@ -0,0 +1,74 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++// HST Office: a ribbon group of the 1.0.3 (v3) design, a VclGrid whose .ui gives it the property
++// "hst-ribbon-layout" (scripts/patches/generate-ribbon-v3-ui.py): its children are its commands (one each, in order),
++// its caption (a label, or the box of the label and the dialog launcher) and its separator. The grid then lays its
++// children out by HstRibbonV3Pack.hxx instead of by its cells: the commands in blocks from the left of the content
++// (76 logical px high, 6 px under the group's top), the caption band (18 px, 4 px under the content), the separator at
++// the right edge. PriorityMergedHBox chooses every group's configuration for the width of its tab (the mockup's fit()).
++
++#include <rtl/ustring.hxx>
++#include <rtl/strbuf.hxx>
++#include <tools/gen.hxx>
++#include <tools/long.hxx>
++
++namespace vcl
++{
++class Window;
++}
++
++namespace hst::ribbon::v3
++{
++/// How a group shows: its state (L full, M medium, S small), whether the sparse tab's fill pass made it large, its
++/// gallery's state (L, M, S: 5/4/3 tiles), the tiles a sparse tab adds to it at L, and the tab's one large-button
++/// width in device px (0: natural widths)
++struct Config
++{
++    char state = 'L';
++    bool big = false;
++    char gallery = 'L';
++    int extra = 0;
++    tools::Long largeWidth = 0;
++    bool operator==(const Config&) const = default;
++};
++
++/// VclGrid::set_property("hst-ribbon-layout"): remembers the group's layout
++void SetSpec(const vcl::Window& rGrid, const OUString& rValue);
++
++/// rGroup is a v3 group: a grid with a valid layout whose commands match its children
++bool IsGroup(const vcl::Window& rGroup);
++
++/// VclGrid::calculateRequisition and setAllocation of a v3 group
++Size Requisition(const vcl::Window& rGrid);
++void Allocate(vcl::Window& rGrid, const Size& rSize);
++
++/// the group's current configuration, and a new one (applies the looks of its commands)
++Config Current(const vcl::Window& rGroup);
++void Apply(vcl::Window& rGroup, const Config& rConfig);
++
++/// the width in device px the group takes at rConfig (padding included), without changing it
++tools::Long Width(vcl::Window& rGroup, const Config& rConfig);
++
++/// the widest natural width in device px of the group's large buttons at rConfig, 0 when it shows none
++tools::Long LargeNatural(vcl::Window& rGroup, const Config& rConfig);
++
++/// the sparse tab's fill pass may make the group large (it has small commands, no box, no fixed rows, is not the
++/// clipboard and not marked nofill); it holds a gallery
++bool Fillable(const vcl::Window& rGroup);
++bool HasGallery(const vcl::Window& rGroup);
++
++/// the natural widths of the group's commands are measured again (fonts, scale, theme)
++void Forget(const vcl::Window& rGroup);
++
++/// the group as a JSON object for the layout dump (tests/runtime/ribbon_v3_rules.py), rects in device px relative to
++/// rOrigin; cState: the state to write ('C' for a group shown as its button, rFold its rectangle)
++void Dump(const vcl::Window& rGroup, const vcl::Window& rOrigin, char cState, const tools::Rectangle& rFold,
++          OStringBuffer& rOut);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/inc/HstRibbonV3Pack.hxx
+@@ -0,0 +1,367 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++// HST Office: how a ribbon group of the 1.0.3 (v3) design lays out its commands at a size state, the owner-locked
++// mockup's packItems()/packRun() turned into plain arithmetic (no LibreOffice types, unit tested on its own by
++// tests/unit/test_ribbon_v3_pack.py, which compares every group of data/ribbon/ribbon-v3.json with the mockup).
++//
++// A command has a kind (the .ui's "hst-ribbon-layout", generate-ribbon-v3-ui.py): L large, M small with its label,
++// S small icon only, W box, G gallery. At a state of the group (L full, M medium, S small) each command shows in a
++// look (the same letters); the commands then stand in blocks from left to right: a large button, a gallery, a column
++// of 1-3 small buttons, or 1-3 rows of small buttons; a group with a fixed 3-row layout keeps it at every state.
++// Positions are logical px from the top left of the group's content: rows at y 0, 26, 52 (24 high, 2 apart), large
++// buttons and galleries 76 high, 4 px between blocks, 6 px for a gap in a fixed row, 2 px after a box in a row.
++
++#include <algorithm>
++#include <cstddef>
++#include <cstdint>
++#include <functional>
++#include <string>
++#include <string_view>
++#include <vector>
++
++namespace hst::ribbon::v3
++{
++constexpr long ROW = 24;
++constexpr long ROW_GAP = 2;
++constexpr long CONTENT = 3 * ROW + 2 * ROW_GAP; // 76
++constexpr long BLOCK_GAP = 4;
++constexpr long ROW_SPACER = 6;
++constexpr long BOX_AFTER = 2;
++
++struct Spec
++{
++    std::string kinds; // one letter per command child, in child order
++    std::vector<std::vector<int>> rows; // fixed rows: item indexes, -1 for a gap
++    bool nofill = false;
++    bool valid = false;
++};
++
++/** "kinds=LSSS;rows=0.1.|.3/4.5;nofill" */
++inline Spec parseSpec(std::string_view aText)
++{
++    Spec aSpec;
++    while (!aText.empty())
++    {
++        const std::size_t nEnd = std::min(aText.find(';'), aText.size());
++        const std::string_view aPart = aText.substr(0, nEnd);
++        aText.remove_prefix(std::min(aText.size(), nEnd + 1));
++        if (aPart.substr(0, 6) == "kinds=")
++            aSpec.kinds = std::string(aPart.substr(6));
++        else if (aPart == "nofill")
++            aSpec.nofill = true;
++        else if (aPart.substr(0, 5) == "rows=")
++        {
++            std::string_view aRows = aPart.substr(5);
++            while (!aRows.empty())
++            {
++                const std::size_t nRow = std::min(aRows.find('/'), aRows.size());
++                std::string_view aRow = aRows.substr(0, nRow);
++                aRows.remove_prefix(std::min(aRows.size(), nRow + 1));
++                std::vector<int> aItems;
++                while (!aRow.empty())
++                {
++                    const std::size_t nItem = std::min(aRow.find('.'), aRow.size());
++                    const std::string_view aItem = aRow.substr(0, nItem);
++                    aRow.remove_prefix(std::min(aRow.size(), nItem + 1));
++                    if (aItem == "|")
++                        aItems.push_back(-1);
++                    else if (!aItem.empty())
++                        aItems.push_back(std::stoi(std::string(aItem)));
++                }
++                aSpec.rows.push_back(std::move(aItems));
++            }
++        }
++    }
++    aSpec.valid = !aSpec.kinds.empty()
++                  && std::all_of(aSpec.kinds.begin(), aSpec.kinds.end(),
++                                 [](char c) { return std::string_view("LMSWG").find(c) != std::string_view::npos; });
++    for (const auto& rRow : aSpec.rows)
++        for (int n : rRow)
++            if (n >= static_cast<int>(aSpec.kinds.size()))
++                aSpec.valid = false;
++    return aSpec;
++}
++
++enum class BlockType
++{
++    Large,
++    Gallery,
++    Column,
++    Rows
++};
++
++struct Cell
++{
++    std::size_t item = 0;
++    char look = 'S'; // L, M, S, W, G
++    int block = 0;
++    int row = 0; // row in a column or a rows block
++    long x = 0, y = 0, w = 0, h = 0;
++};
++
++struct Plan
++{
++    std::vector<BlockType> blocks;
++    std::vector<Cell> cells;
++    long width = 0; // of the content
++};
++
++/** The group's input at one state: per item its kind, whether it is Paste, whether it is shown. */
++struct Input
++{
++    std::string kinds;
++    std::vector<bool> paste;
++    std::vector<bool> visible;
++    std::vector<std::vector<int>> rows;
++    char state = 'L'; // L, M, S
++    bool big = false; // the sparse tab's fill pass made the group large
++};
++
++/** The look of an item at the group's state (mockup eff()). */
++inline char look(const Input& rIn, std::size_t i)
++{
++    const char k = rIn.kinds[i];
++    if (k == 'G' || k == 'W')
++        return k;
++    if (rIn.paste[i])
++        return 'L';
++    std::size_t nShown = 0;
++    for (std::size_t j = 0; j < rIn.kinds.size(); ++j)
++        nShown += rIn.visible[j] ? 1 : 0;
++    if (nShown == 1 && k == 'L')
++        return 'L'; // a one-command group stays one large button until it folds
++    if (rIn.state == 'L')
++        return rIn.big && (k == 'M' || k == 'S') ? 'L' : k;
++    if (rIn.state == 'M')
++        return k == 'L' ? 'M' : k;
++    return 'S';
++}
++
++namespace detail
++{
++struct Packed
++{
++    BlockType type;
++    std::vector<std::vector<std::pair<std::size_t, char>>> lines; // columns of a Column block, rows of a Rows block
++};
++
++/** rowsOf(): ceil(n/3) items per row; bLabel turns icon-only items into labelled ones. */
++inline Packed rowsOf(const std::vector<std::size_t>& rItems, const std::vector<char>& rLook, bool bLabel)
++{
++    Packed aOut{ BlockType::Rows, {} };
++    const std::size_t nPer = (rItems.size() + 2) / 3;
++    for (std::size_t c = 0; c < rItems.size(); c += nPer)
++    {
++        std::vector<std::pair<std::size_t, char>> aRow;
++        for (std::size_t i = c; i < std::min(rItems.size(), c + nPer); ++i)
++            aRow.emplace_back(rItems[i], bLabel && rLook[rItems[i]] == 'S' ? 'M' : rLook[rItems[i]]);
++        aOut.lines.push_back(std::move(aRow));
++    }
++    return aOut;
++}
++
++/** cols(): ceil(n/3) balanced columns (4 = 2 + 2, 5 = 3 + 2), top to bottom. */
++inline std::vector<Packed> cols(const std::vector<std::size_t>& rItems, const std::vector<char>& rLook, bool bLabel)
++{
++    std::vector<Packed> aOut;
++    const std::size_t n = rItems.size(), nc = (n + 2) / 3;
++    if (!nc)
++        return aOut;
++    const std::size_t nBase = n / nc, nExtra = n % nc;
++    std::size_t i = 0;
++    for (std::size_t c = 0; c < nc; ++c)
++    {
++        Packed aCol{ BlockType::Column, { {} } };
++        const std::size_t k = nBase + (c < nExtra ? 1 : 0);
++        for (std::size_t j = 0; j < k; ++j, ++i)
++            aCol.lines[0].emplace_back(rItems[i], bLabel && rLook[rItems[i]] == 'S' ? 'M' : rLook[rItems[i]]);
++        aOut.push_back(std::move(aCol));
++    }
++    return aOut;
++}
++
++/** packRun(): the small items of a group; bTall when a large button or gallery stands beside them. */
++inline std::vector<Packed> packRun(const std::vector<std::size_t>& rRun, const std::vector<char>& rLook, bool bTall)
++{
++    std::vector<std::size_t> aMs, aSs;
++    bool bHasW = false;
++    for (std::size_t i : rRun)
++    {
++        (rLook[i] == 'M' ? aMs : aSs).push_back(i);
++        bHasW = bHasW || rLook[i] == 'W';
++    }
++    const std::size_t n = rRun.size(), nMs = aMs.size(), nSs = aSs.size();
++    if (n <= 3)
++    {
++        if (bTall && n < 3)
++            return { rowsOf(rRun, rLook, nMs > 0) };
++        return cols(rRun, rLook, nMs > 0 || (bHasW && nSs > 1));
++    }
++    if (nMs && !bHasW && n <= 6 && (nSs <= 2 || (nMs == 1 && nSs <= 3)))
++        return bTall && n % 3 ? std::vector<Packed>{ rowsOf(rRun, rLook, true) } : cols(rRun, rLook, true);
++    if (bTall && ((nMs % 3) || (nSs && nSs < 3)))
++        return { rowsOf(rRun, rLook, false) };
++    if (nMs == 1)
++        return { rowsOf(rRun, rLook, false) };
++    const bool bSsFirst = nMs && nSs
++                          && std::find(rRun.begin(), rRun.end(), aSs[0]) < std::find(rRun.begin(), rRun.end(), aMs[0]);
++    std::vector<Packed> aOut;
++    for (const std::vector<std::size_t>* pSub : bSsFirst ? std::vector{ &aSs, &aMs } : std::vector{ &aMs, &aSs })
++    {
++        if (pSub->empty())
++            continue;
++        std::vector<Packed> aPart = (rLook[(*pSub)[0]] == 'M' || pSub->size() <= 3)
++                                        ? cols(*pSub, rLook, false)
++                                        : std::vector<Packed>{ rowsOf(*pSub, rLook, false) };
++        aOut.insert(aOut.end(), aPart.begin(), aPart.end());
++    }
++    return aOut;
++}
++
++/** packItems(): large buttons and galleries in order; the small items as one run where the first stands. */
++inline std::vector<Packed> packItems(const std::vector<std::size_t>& rItems, const std::vector<char>& rLook)
++{
++    std::vector<Packed> aBlocks;
++    std::vector<std::size_t> aRun;
++    std::ptrdiff_t nRunAt = -1;
++    for (std::size_t i : rItems)
++    {
++        const char c = rLook[i];
++        if (c == 'L' || c == 'G')
++            aBlocks.push_back(Packed{ c == 'L' ? BlockType::Large : BlockType::Gallery, { { { i, c } } } });
++        else
++        {
++            if (nRunAt < 0)
++                nRunAt = static_cast<std::ptrdiff_t>(aBlocks.size());
++            aRun.push_back(i);
++        }
++    }
++    if (!aRun.empty())
++    {
++        const std::vector<Packed> aRunBlocks = packRun(aRun, rLook, !aBlocks.empty());
++        aBlocks.insert(aBlocks.begin() + nRunAt, aRunBlocks.begin(), aRunBlocks.end());
++    }
++    return aBlocks;
++}
++}
++
++/** The blocks and looks of a group at a state, without positions (what the mockup draws). */
++inline std::vector<detail::Packed> structure(const Input& rIn)
++{
++    std::vector<char> aLook(rIn.kinds.size(), 'S');
++    for (std::size_t i = 0; i < rIn.kinds.size(); ++i)
++        aLook[i] = look(rIn, i);
++    std::vector<bool> aInRows(rIn.kinds.size(), false);
++    for (const auto& rRow : rIn.rows)
++        for (int n : rRow)
++            if (n >= 0)
++                aInRows[n] = true;
++    std::vector<std::size_t> aPre;
++    for (std::size_t i = 0; i < rIn.kinds.size(); ++i)
++        if (rIn.visible[i] && !aInRows[i])
++            aPre.push_back(i);
++    std::vector<detail::Packed> aBlocks = detail::packItems(aPre, aLook);
++    if (!rIn.rows.empty())
++    {
++        detail::Packed aRows{ BlockType::Rows, {} };
++        for (const auto& rRow : rIn.rows)
++        {
++            std::vector<std::pair<std::size_t, char>> aLine;
++            for (int n : rRow)
++            {
++                if (n < 0)
++                    aLine.emplace_back(SIZE_MAX, '|');
++                else if (rIn.visible[n])
++                    aLine.emplace_back(static_cast<std::size_t>(n), aLook[n] == 'L' ? 'M' : aLook[n]);
++            }
++            aRows.lines.push_back(std::move(aLine));
++        }
++        aBlocks.push_back(std::move(aRows));
++    }
++    return aBlocks;
++}
++
++/** Logical px nLogical at fScale device px per logical px. */
++inline long scaled(long nLogical, double fScale) { return static_cast<long>(nLogical * fScale + 0.5); }
++
++/** Positions in device px at fScale: rWidth(item, look) is the item's natural width at that look; nLargeWidth > 0
++    is the tab's one width for every large button; labelled buttons and boxes in the group's columns share their
++    widest width (mockup equalize()). */
++inline Plan place(const Input& rIn, const std::function<long(std::size_t, char)>& rWidth, long nLargeWidth,
++                  double fScale = 1.0)
++{
++    const long nRowH = scaled(ROW, fScale), nRowGap = scaled(ROW_GAP, fScale);
++    const long nContent = 3 * nRowH + 2 * nRowGap, nBlockGap = scaled(BLOCK_GAP, fScale);
++    const long nSpacer = scaled(ROW_SPACER, fScale), nBoxAfter = scaled(BOX_AFTER, fScale);
++    const std::vector<detail::Packed> aBlocks = structure(rIn);
++    long nColumnLabel = 0;
++    bool bColumnLabels = false;
++    for (const detail::Packed& rBlock : aBlocks)
++        if (rBlock.type == BlockType::Column)
++            for (const auto& [i, c] : rBlock.lines[0])
++                if (c == 'M' || c == 'W')
++                {
++                    nColumnLabel = std::max(nColumnLabel, rWidth(i, c));
++                    bColumnLabels = bColumnLabels || c == 'M';
++                }
++    Plan aPlan;
++    long nX = 0;
++    for (const detail::Packed& rBlock : aBlocks)
++    {
++        if (!aPlan.blocks.empty())
++            nX += nBlockGap;
++        const int nBlock = static_cast<int>(aPlan.blocks.size());
++        aPlan.blocks.push_back(rBlock.type);
++        long nBlockWidth = 0;
++        if (rBlock.type == BlockType::Large || rBlock.type == BlockType::Gallery)
++        {
++            const auto [i, c] = rBlock.lines[0][0];
++            const long w = c == 'L' && nLargeWidth > 0 ? nLargeWidth : rWidth(i, c);
++            aPlan.cells.push_back(Cell{ i, c, nBlock, 0, nX, 0, w, nContent });
++            nBlockWidth = w;
++        }
++        else if (rBlock.type == BlockType::Column)
++        {
++            int nRow = 0;
++            for (const auto& [i, c] : rBlock.lines[0])
++            {
++                const long w = bColumnLabels && (c == 'M' || c == 'W') ? nColumnLabel : rWidth(i, c);
++                aPlan.cells.push_back(Cell{ i, c, nBlock, nRow, nX, nRow * (nRowH + nRowGap), w, nRowH });
++                nBlockWidth = std::max(nBlockWidth, w);
++                ++nRow;
++            }
++        }
++        else
++        {
++            int nRow = 0;
++            for (const auto& rLine : rBlock.lines)
++            {
++                long nRowX = nX;
++                for (const auto& [i, c] : rLine)
++                {
++                    if (c == '|')
++                    {
++                        nRowX += nSpacer;
++                        continue;
++                    }
++                    const long w = rWidth(i, c);
++                    aPlan.cells.push_back(Cell{ i, c, nBlock, nRow, nRowX, nRow * (nRowH + nRowGap), w, nRowH });
++                    nRowX += w + (c == 'W' ? nBoxAfter : 0);
++                }
++                nBlockWidth = std::max(nBlockWidth, nRowX - nX);
++                ++nRow;
++            }
++        }
++        nX += nBlockWidth;
++    }
++    aPlan.width = nX;
++    return aPlan;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -23,6 +23,7 @@
+ #include "HstRibbonScaling.hxx"
+ 
+ #include <cstdint>
++#include <rtl/strbuf.hxx>
+ 
+ #include <map>
+ #include <vector>
+@@ -53,6 +54,16 @@ private:
+     std::vector<size_t> m_aHstLastStates;
+     tools::Long m_nHstLastWidth = -1;
+     void HstApplyLadder(tools::Long nWidth);
++    // HST Office (1.0.3, v3 design): every group of the box is a v3 group (HstRibbonV3Layout.hxx); the box then
++    // fits them by the locked mockup's fit() (HstApplyV3) at the width it would have beside the smallest banner:
++    // its allocation and m_nHstSlack, the room the banner took from it beyond its smallest width
++    bool HstIsV3() const;
++    void HstApplyV3(tools::Long nWidth);
++    void HstNotifyUsedChanged();
++    tools::Long m_nHstSlack = 0;
++    tools::Long m_nHstUsed = -1; // the width the shown groups take after the last fit, -1 before
++    bool m_bHstWide = false;
++    OString m_aHstSparse;
+     // width of the box with every group at its smallest state, or -1 before all are measured
+     tools::Long HstMinWidth() const;
+     // groups the tab's ladder may collapse into one captioned button (Office's collapsed group), and
+@@ -110,6 +121,14 @@ public:
+     bool HstBlockShouldBeBare(tools::Long nRoom, tools::Long nGain) const;
+ 
+     Size calculateRequisition() const override;
++
++    /// HST Office (v3): the width the groups take, -1 when the box is not a v3 box or not laid out yet
++    tools::Long HstUsedWidth() const { return m_nHstUsed; }
++    /// HST Office (v3): the room the banner takes beyond its smallest width; the groups keep the fit of the
++    /// width they would have beside the smallest banner
++    void HstSetSlack(tools::Long nSlack);
++    /// HST Office (v3): the box's groups as the "groups" array and the fit's flags of a layout dump
++    void HstDump(const vcl::Window& rOrigin, OStringBuffer& rOut) const;
+     void setAllocation(const Size& rAllocation) override;
+ 
+     /// HST Office: the box takes the full height of its tab ("valign" of the .ui is ignored), so every
+--- a/vcl/inc/toolbox.h
++++ b/vcl/inc/toolbox.h
+@@ -145,6 +145,8 @@ struct ImplToolBoxPrivateData
+     // HST Office: rows of the even grid the items fill column by column (ribbon medium/small sizes,
+     // HstRibbonGrid.hxx); 0 = the usual line layout
+     int mnHstGridRows = 0;
++    // HST Office: the only button stretches over the toolbox's width (ToolBox::HstSetStretch)
++    bool mbHstStretch = false;
+     // HST Office: a group's dialog launcher on the caption line (ToolBox::HstSetLauncher)
+     bool mbHstLauncher = false;
+ 
+--- a/vcl/source/control/HstBanner.cxx
++++ b/vcl/source/control/HstBanner.cxx
+@@ -43,6 +43,7 @@ public:
+         return !pWork || !pWork->IsMinimized();
+     }
+     bool BannerPaused() const override { return mrBanner.mbHover || mrBanner.HasFocus(); }
++    bool BannerFillsWidth() const override { return true; }
+     void BannerInvalidate() override { mrBanner.Invalidate(); }
+     void BannerSetName(const OUString& rName) override
+     {
+--- a/vcl/source/control/HstBannerCore.cxx
++++ b/vcl/source/control/HstBannerCore.cxx
+@@ -28,6 +28,7 @@
+ #include <osl/file.hxx>
+ #include <rtl/bootstrap.hxx>
+ #include <salhelper/thread.hxx>
++#include <tools/poly.hxx>
+ #include <tools/stream.hxx>
+ #include <vcl/graph.hxx>
+ #include <vcl/graphicfilter.hxx>
+@@ -70,6 +71,7 @@ struct Data
+     sal_Int32 nRotateSeconds = 10;
+     sal_Int32 nSlot = 0;
+     int nScale = 1;
++    sal_Int32 nStandardWidth = 0; // the standard size of the artwork (360, 640, 960); 0: the legacy art
+     bool bOk = false;
+     bool bLast = true; // the worker posts nothing after this result
+ };
+@@ -116,6 +118,7 @@ bool parseService(const OUString& rJson,
+     rData.aName = fromUtf8(rItem.get<std::string>("name"));
+     rData.aTagline = fromUtf8(rItem.get<std::string>("tagline"));
+     rData.aUrl = fromUtf8(rItem.get<std::string>("click_url_with_utm"));
++    rData.nStandardWidth = rItem.get<sal_Int32>("standard_width", 0);
+     uno::Sequence<sal_Int8> aBytes;
+     comphelper::Base64::decode(aBytes, fromUtf8(rItem.get<std::string>("image_base64")));
+     if (aBytes.getLength() == 0 || aBytes.getLength() > MAX_IMAGE_BYTES)
+@@ -132,7 +135,7 @@ uno::Reference<task::XJob> feed()
+         uno::UNO_QUERY);
+ }
+ 
+-bool fromService(sal_Int32 nSlot, int nScale, Data& rData)
++bool fromService(sal_Int32 nSlot, int nScale, sal_Int32 nWidth, Data& rData)
+ {
+     try
+     {
+@@ -140,8 +143,10 @@ bool fromService(sal_Int32 nSlot, int nS
+         if (!xFeed.is())
+             return false;
+         OUString aJson;
++        // Width: the banner's logical width, which picks the standard size of an item that has them
+         if (!(xFeed->execute({ { u"Scale"_ustr, uno::Any(static_cast<double>(nScale)) },
+-                               { u"Slot"_ustr, uno::Any(nSlot) } })
++                               { u"Slot"_ustr, uno::Any(nSlot) },
++                               { u"Width"_ustr, uno::Any(nWidth) } })
+               >>= aJson)
+             || aJson.isEmpty())
+             return false;
+@@ -215,11 +220,12 @@ bool fromBundled(sal_Int32 nSlot, int nS
+ class FetchThread final : public salhelper::Thread
+ {
+ public:
+-    FetchThread(Core* pCore, sal_Int32 nSlot, int nScale, bool bBundledFirst)
++    FetchThread(Core* pCore, sal_Int32 nSlot, int nScale, sal_Int32 nWidth, bool bBundledFirst)
+         : salhelper::Thread("HstBanner")
+         , mxCore(pCore)
+         , mnSlot(nSlot)
+         , mnScale(nScale)
++        , mnWidth(nWidth)
+         , mbBundledFirst(bBundledFirst)
+     {
+     }
+@@ -239,7 +245,7 @@ private:
+         }
+         auto pData = std::make_unique<Data>();
+         pData->nScale = mnScale;
+-        pData->bOk = fromService(mnSlot, mnScale, *pData);
++        pData->bOk = fromService(mnSlot, mnScale, mnWidth, *pData);
+         if (!pData->bOk && !mbBundledFirst)
+         {
+             // service unavailable: the installed defaults decide
+@@ -262,6 +268,7 @@ private:
+     rtl::Reference<Core> mxCore;
+     sal_Int32 mnSlot;
+     int mnScale;
++    sal_Int32 mnWidth;
+     bool mbBundledFirst;
+ };
+ 
+@@ -411,6 +418,23 @@ int Core::ScaleForSize() const
+     return sourceScale(std::lround(aImage.h * mpView->BannerSurfaceScale()));
+ }
+ 
++sal_Int32 Core::LogicalWidth() const
++{
++    const double fDpi = mpView->BannerDpi();
++    const tools::Long nWidth = mpView->BannerSize().Width();
++    return static_cast<sal_Int32>(fDpi > 0 ? std::lround(nWidth / fDpi) : nWidth);
++}
++
++sal_Int32 Core::StandardWidth(sal_Int32 nLogical)
++{
++    // banner_sizes.fit_width: the largest standard width that fits, at least the narrowest
++    sal_Int32 nFit = 360;
++    for (const sal_Int32 nWidth : { 640, 960 })
++        if (nWidth <= nLogical)
++            nFit = nWidth;
++    return nFit;
++}
++
+ void Core::Request(sal_Int32 nSlot)
+ {
+     if (mbRequested || !mpView)
+@@ -418,7 +442,7 @@ void Core::Request(sal_Int32 nSlot)
+     mbRequested = true; // the previous worker has posted its last result
+     try
+     {
+-        mxThread = new FetchThread(this, nSlot, ScaleForSize(), maId.isEmpty());
++        mxThread = new FetchThread(this, nSlot, ScaleForSize(), LogicalWidth(), maId.isEmpty());
+         mxThread->launch();
+     }
+     catch (const std::exception&)
+@@ -483,6 +507,7 @@ IMPL_LINK(Core, DeliverHdl, void*, p, vo
+     maImage = aBitmap;
+     maImageScaled = Bitmap();
+     mnSourceScale = pData->nScale;
++    mnSourceWidth = pData->nStandardWidth;
+     maId = pData->aId;
+     maUrl = pData->aUrl;
+     if (maId != maShownId)
+@@ -591,8 +616,12 @@ void Core::Shown(bool bResized)
+         mbShownInView = false; // the full second starts at the next check
+         maShownTimer.Start();
+     }
+-    if (maId.isEmpty() || (bResized && ScaleForSize() != mnSourceScale))
+-        Request(mnSlot); // first content, or the same slot again for the new scale
++    // first content, or the same slot again for the new scale or another standard size
++    if (maId.isEmpty()
++        || (bResized
++            && (ScaleForSize() != mnSourceScale
++                || (mnSourceWidth > 0 && StandardWidth(LogicalWidth()) != mnSourceWidth))))
++        Request(mnSlot);
+     else if (!maRotateTimer.IsActive() && !mbRequested)
+         maRotateTimer.Start();
+ }
+@@ -622,9 +651,37 @@ void Core::DrawArt(vcl::RenderContext& r
+     // the image's own pixel size never changes the slot: aspect-fit, centred
+     const Rect aBox{ nInset, nInset, static_cast<long>(aOut.Width()) - 2 * nInset,
+                      static_cast<long>(aOut.Height()) - 2 * nInset };
+-    const Rect aFit = fit(aBox, aSourceSize.Width(), aSourceSize.Height());
++    Rect aFit = fit(aBox, aSourceSize.Width(), aSourceSize.Height());
+     if (aFit.w <= 0 || aFit.h <= 0)
+         return;
++    if (mpView->BannerFillsWidth() && aSourceSize.Height() > 0)
++    {
++        // the 1.0.3 ribbon's elastic banner: artwork made for 360 x 104 takes the slot's height at its left (never
++        // wider than the slot), and the colour just inside its right edge fills the slot behind it
++        const long nHeight = static_cast<long>(aOut.Height());
++        const long nWidth = std::lround(double(aSourceSize.Width()) * nHeight / aSourceSize.Height());
++        if (nWidth > 0 && nWidth <= static_cast<long>(aOut.Width()))
++        {
++            aFit = Rect{ 0, 0, nWidth, nHeight };
++            const ::Color aEdge = rSource.GetPixelColor(
++                std::max<sal_Int32>(0, aSourceSize.Width() - 1 - std::max<sal_Int32>(2, aSourceSize.Width() / 60)),
++                aSourceSize.Height() / 2);
++            if (aEdge.GetAlpha() == 255)
++            {
++                const long nRadius = scaled(8, mpView->BannerDpi());
++                const tools::Rectangle aAll(Point(), aOut);
++                rRenderContext.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++                rRenderContext.SetLineColor();
++                rRenderContext.SetFillColor(::Color(aEdge.GetRed(), aEdge.GetGreen(), aEdge.GetBlue()));
++                if (fAlpha >= 1.0)
++                    rRenderContext.DrawRect(aAll, nRadius, nRadius);
++                else
++                    rRenderContext.DrawTransparent(tools::PolyPolygon(tools::Polygon(aAll, nRadius, nRadius)),
++                                                   static_cast<sal_uInt16>(std::lround(100 * (1.0 - fAlpha))));
++                rRenderContext.Pop();
++            }
++        }
++    }
+     const double fScale = SurfaceScale(rRenderContext);
+     const Size aDevice(std::lround(aFit.w * fScale), std::lround(aFit.h * fScale));
+     const Bitmap& rDraw = Prepared(rSource, rCache, aDevice);
+--- a/vcl/source/control/HstBannerCore.hxx
++++ b/vcl/source/control/HstBannerCore.hxx
+@@ -58,6 +58,10 @@ public:
+     virtual void BannerInvalidate() = 0;
+     /** Accessible name and tooltip: "<name> — <tagline>". */
+     virtual void BannerSetName(const OUString& rName) = 0;
++    /** The slot may be much wider than the artwork (the 1.0.3 ribbon's banner, 360 to 960 px wide and 96 high): the
++        artwork takes the slot's height at its left and the colour of its right edge fills the rest. Otherwise it is
++        fitted and centred. */
++    virtual bool BannerFillsWidth() const { return false; }
+ };
+ 
+ class Core final : public salhelper::SimpleReferenceObject
+@@ -93,6 +97,10 @@ public:
+ private:
+     void Request(sal_Int32 nSlot);
+     int ScaleForSize() const;
++    /** The slot's width in logical px: picks the standard size of an artwork (banner_sizes.py). */
++    sal_Int32 LogicalWidth() const;
++    /** The standard width (360, 640, 960) shown in nLogical px, as banner_sizes.fit_width. */
++    static sal_Int32 StandardWidth(sal_Int32 nLogical);
+     const Bitmap& Prepared(const Bitmap& rSource, Bitmap& rCache, const Size& rDevice);
+     void DrawArt(vcl::RenderContext& rRenderContext, const Bitmap& rSource, Bitmap& rCache, double fAlpha);
+     bool InView() const;
+@@ -128,6 +136,7 @@ private:
+     sal_Int32 mnRotateSeconds = 10;
+     sal_Int32 mnFailures = 0;
+     int mnSourceScale = 0;
++    sal_Int32 mnSourceWidth = 0; // standard width of the shown artwork; 0: legacy art, kept at any width
+     int mnFadeStep = 0;
+     bool mbRequested = false;
+ };
+--- a/vcl/source/control/HstRibbonLadder.cxx
++++ b/vcl/source/control/HstRibbonLadder.cxx
+@@ -8,8 +8,10 @@
+  */
+ 
+ #include <HstRibbonLadder.hxx>
++#include <HstRibbonMenuButtonMetrics.hxx>
+ #include <HstRibbonGeometry.hxx>
+ #include <HstRibbonGrid.hxx>
++#include <HstRibbonV3Layout.hxx>
+ 
+ #include <comphelper/lok.hxx>
+ #include <officecfg/Office/HSTRibbon.hxx>
+@@ -297,9 +299,9 @@ tools::Long smallMenuButtonWidth(const M
+ {
+     const tools::Long nText = rButton.GetText().isEmpty()
+                                   ? 0
+-                                  : geometry::imageTextGap(rButton.GetTextHeight())
+-                                        + rButton.GetOutDev()->GetTextWidth(rButton.GetText().replaceAll("~", ""));
+-    return 8 + rButton.GetModeImage().GetSizePixel().Width() + nText + 2 * (rButton.GetTextHeight() / 2 + 1);
++                                  : geometry::imageTextGap(MenuButtonTextHeight(rButton))
++                                        + MenuButtonTextWidth(rButton, rButton.GetText().replaceAll("~", ""));
++    return 8 + rButton.GetModeImage().GetSizePixel().Width() + nText + 2 * (MenuButtonTextHeight(rButton) / 2 + 1);
+ }
+ 
+ /** A large menu button (Select ▾) at the place of the large tool buttons beside it (HstRibbonGeometry.hxx
+@@ -320,18 +322,19 @@ void placeLargeMenuButton(MenuButton& rB
+     {
+         const OUString aText = rButton.GetText().replaceAll("~", "");
+         const sal_Int32 nBreak = aText.indexOf('\n');
+-        const tools::Long nFirst = rButton.GetOutDev()->GetTextWidth(nBreak < 0 ? aText : aText.copy(0, nBreak));
+-        const tools::Long nSecond = nBreak < 0 ? 0 : rButton.GetOutDev()->GetTextWidth(aText.copy(nBreak + 1));
++        const tools::Long nFirst = MenuButtonTextWidth(rButton, nBreak < 0 ? aText : aText.copy(0, nBreak));
++        const tools::Long nSecond = nBreak < 0 ? 0 : MenuButtonTextWidth(rButton, aText.copy(nBreak + 1));
+         const Size aImage = rButton.GetModeImage().GetSizePixel();
++        const tools::Long nTextHeight = MenuButtonTextHeight(rButton);
+         const geometry::LargeButton aLarge = geometry::largeButton(
+-            aImage.Width(), std::max(nFirst, nSecond), 0, false, rButton.GetTextHeight(), rButton.GetDPIScaleFactor());
++            aImage.Width(), std::max(nFirst, nSecond), 0, false, nTextHeight, rButton.GetDPIScaleFactor());
+         const tools::Long nInner
+             = rButton.IsNativeControlSupported(ControlType::Pushbutton, ControlPart::Entire) ? 4 : 2;
+         nStyle = (rLabel.nStyle & ~(WB_VCENTER | WB_BOTTOM | WB_LEFT | WB_RIGHT)) | WB_TOP | WB_CENTER | WB_WORDBREAK;
+         eVAlign = VclAlign::Start;
+         // the label on the large buttons' label line whatever the image's size (PushButton puts it under the image)
+         nMarginTop = static_cast<sal_Int32>(std::max<tools::Long>(
+-            0, aLarge.textY - geometry::imageTextGap(rButton.GetTextHeight()) - aImage.Height() - nInner));
++            0, aLarge.textY - geometry::imageTextGap(nTextHeight) - aImage.Height() - nInner));
+         // with a little room: PushButton breaks its label again where a line fills its text area to the pixel
+         nWidth = static_cast<sal_Int32>(aLarge.width + geometry::px(geometry::ARROW_GAP, rButton.GetDPIScaleFactor()));
+         nHeight = static_cast<sal_Int32>(aLarge.height - nMarginTop);
+@@ -342,7 +345,9 @@ void placeLargeMenuButton(MenuButton& rB
+         // and small tool buttons (VCL's PushButton asks 12 px more than its 16 px icon), its icon at the left of
+         // its 4 px frame as theirs, not centred with its label in the room PushButton asks for
+         nHeight = static_cast<sal_Int32>(geometry::px(geometry::SMALL_ROW, rButton.GetDPIScaleFactor()));
+-        nStyle = (rLabel.nStyle & ~(WB_CENTER | WB_RIGHT)) | WB_LEFT;
++        // one line: a label filling its text area to the pixel broke onto a second line the row has no room for
++        // and lost its end ("Sắp xếp và l…")
++        nStyle = (rLabel.nStyle & ~(WB_CENTER | WB_RIGHT | WB_WORDBREAK)) | WB_LEFT;
+         nWidth = static_cast<sal_Int32>(smallMenuButtonWidth(rButton));
+     }
+     bool bChanged = false;
+@@ -413,7 +418,10 @@ void applyToMenuButton(MenuButton& rButt
+     const bool bImage = !!rButton.GetModeImage();
+     const bool bHide = nState == GroupSmall && bImage && !keepsLarge(rButton);
+     const bool bLarge = !bHide && bImage && rButton.GetImageAlign() == ImageAlign::Top;
+-    const OUString aText = bHide ? OUString() : bLarge ? largeMenuLabel(rLabel.aText) : rLabel.aText;
++    // beside its image a label is one line: an authored break ("Sort and\nFilter") put its second line under the row
++    const OUString aText = bHide    ? OUString()
++                           : bLarge ? largeMenuLabel(rLabel.aText)
++                                    : rLabel.aText.replace('\n', ' ');
+     const PushButtonDropdownStyle eArrow = bLarge ? PushButtonDropdownStyle::NONE : PushButtonDropdownStyle::MenuButton;
+     if (bHide && !rLabel.bTip && rButton.GetQuickHelpText().isEmpty())
+     {
+@@ -981,6 +989,31 @@ std::set<const ToolBox*> stackLargeButto
+     return aLone;
+ }
+ 
++/// The authored image of the menu buttons of v3 groups (SetMenuButtonLook), kept while the button lives
++struct MenuLookStocks
++{
++    static std::map<const vcl::Window*, OUString>& stocks()
++    {
++        static std::map<const vcl::Window*, OUString> aStocks;
++        return aStocks;
++    }
++    /// the look (L, M, S) each of them shows
++    static std::map<const vcl::Window*, char>& looks()
++    {
++        static std::map<const vcl::Window*, char> aLooks;
++        return aLooks;
++    }
++    DECL_STATIC_LINK(MenuLookStocks, DyingHdl, VclWindowEvent&, void);
++};
++
++IMPL_STATIC_LINK(MenuLookStocks, DyingHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        MenuLookStocks::stocks().erase(rEvent.GetWindow());
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        MenuLookStocks::looks().erase(rEvent.GetWindow());
++}
++
+ template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
+ {
+     for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
+@@ -1029,8 +1062,81 @@ bool collapseLadderEnabled()
+     return bEnabled;
+ }
+ 
++void SetMenuButtonLook(MenuButton& rButton, char cLook)
++{
++    // the authored image, remembered the first time; the large look shows its large (lc_) image above the label,
++    // the others the small (sc_) one beside it
++    auto& rStocks = MenuLookStocks::stocks();
++    auto it = rStocks.find(&rButton);
++    if (it == rStocks.end())
++    {
++        it = rStocks.emplace(&rButton, rButton.GetModeImage().GetStock()).first;
++        rButton.AddEventListener(LINK(nullptr, MenuLookStocks, DyingHdl));
++    }
++    MenuLookStocks::looks()[&rButton] = cLook;
++    const bool bLarge = cLook == 'L';
++    const ImageAlign eAlign = bLarge ? ImageAlign::Top : ImageAlign::Left;
++    bool bChanged = false;
++    if (rButton.GetImageAlign() != eAlign)
++    {
++        rButton.SetImageAlign(eAlign);
++        bChanged = true;
++    }
++    if (!it->second.isEmpty())
++    {
++        const OUString aWanted = bLarge ? it->second.replaceFirst("/sc_", "/lc_") : it->second.replaceFirst("/lc_", "/sc_");
++        if (rButton.GetModeImage().GetStock() != aWanted)
++        {
++            const Image aImage(StockImage::Yes, aWanted);
++            rButton.SetModeImage(aImage.GetSizePixel().Width() > 0 ? aImage : Image(StockImage::Yes, it->second));
++            bChanged = true;
++        }
++    }
++    if (bChanged)
++        rButton.queue_resize();
++    applyToMenuButton(rButton, cLook == 'S' ? GroupSmall : GroupLarge);
++}
++
++char MenuButtonLook(const PushButton& rButton)
++{
++    const auto it = MenuLookStocks::looks().find(&rButton);
++    return it == MenuLookStocks::looks().end() ? 0 : it->second;
++}
++
++void RefreshMenuButton(PushButton& rButton)
++{
++    MenuButton* pMenu = dynamic_cast<MenuButton*>(&rButton);
++    if (const char cLook = MenuButtonLook(rButton); pMenu && cLook)
++        applyToMenuButton(*pMenu, cLook == 'S' ? GroupSmall : GroupLarge);
++}
++
++tools::Rectangle MenuArrowAfterLabel(const PushButton& rButton, const tools::Rectangle& rInner, tools::Long nSymbol)
++{
++    const auto it = MenuLookStocks::looks().find(&rButton);
++    if (it == MenuLookStocks::looks().end() || it->second == 'L')
++        return tools::Rectangle();
++    // the content starts at the left (WB_LEFT): image, the image-text gap, label, then the ▾ a symbol's width after
++    const Image aImage = rButton.GetModeImage();
++    const OUString aText = rButton.GetText().replaceAll("~", "");
++    tools::Long nRight = rInner.Left() + (!!aImage ? aImage.GetSizePixel().Width() : 0);
++    if (!aText.isEmpty())
++        nRight += (!!aImage ? nSymbol : 0) + MenuButtonTextWidth(rButton, aText);
++    const tools::Long nLeft = std::min(rInner.Right() - nSymbol, nRight + nSymbol / 2);
++    return tools::Rectangle(Point(nLeft, rInner.Top()), Size(nSymbol, rInner.GetHeight()));
++}
++
+ void SetGroupState(vcl::Window& rGroup, int nState)
+ {
++    // HST Office: a group of the v3 design shows the state at its large-button width (the popup of a folded group)
++    if (v3::IsGroup(rGroup))
++    {
++        v3::Config aConfig = v3::Current(rGroup);
++        aConfig.state = nState == GroupMedium ? 'M' : nState == GroupSmall ? 'S' : 'L';
++        aConfig.big = aConfig.big && aConfig.state == 'L';
++        aConfig.gallery = aConfig.state;
++        v3::Apply(rGroup, aConfig);
++        return;
++    }
+     std::vector<ToolBox*> aToolBoxes;
+     forToolBoxes(rGroup, [&aToolBoxes](ToolBox& rToolBox) { aToolBoxes.push_back(&rToolBox); });
+     int nCommands = 0;
+--- /dev/null
++++ b/vcl/source/control/HstRibbonMenuButtonMetrics.cxx
+@@ -0,0 +1,216 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include <HstRibbonMenuButtonMetrics.hxx>
++#include <HstRibbonLadder.hxx>
++#include <HstRibbonV3Layout.hxx>
++#include <PriorityMergedHBox.hxx>
++
++#include <vcl/event.hxx>
++#include <vcl/image.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/region.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/toolkit/button.hxx>
++#include <vcl/vclevent.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <map>
++#include <vector>
++
++namespace hst::ribbon
++{
++namespace
++{
++/// what a menu button's paint measured: each string the layout asks for (the label, and each line of a large one's),
++/// the paint's width and its window's, and the height of a line
++struct Painted
++{
++    OUString label;
++    std::map<OUString, std::pair<tools::Long, tools::Long>> widths; // paint, window
++    tools::Long height = 0;
++    bool linesFit = true; // a large one's lines under its image at the last paint
++};
++
++struct PaintedMetrics
++{
++    static std::map<const vcl::Window*, Painted>& metrics()
++    {
++        static std::map<const vcl::Window*, Painted> aMetrics;
++        return aMetrics;
++    }
++    /// the buttons whose metrics changed since their layout, laid out again together after the paint
++    static std::vector<VclPtr<PushButton>>& pending()
++    {
++        static std::vector<VclPtr<PushButton>> aPending;
++        return aPending;
++    }
++    static ImplSVEvent*& event()
++    {
++        static ImplSVEvent* pEvent = nullptr;
++        return pEvent;
++    }
++    DECL_STATIC_LINK(PaintedMetrics, DyingHdl, VclWindowEvent&, void);
++    DECL_STATIC_LINK(PaintedMetrics, RelayoutHdl, void*, void);
++};
++
++IMPL_STATIC_LINK(PaintedMetrics, DyingHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        PaintedMetrics::metrics().erase(rEvent.GetWindow());
++}
++
++IMPL_STATIC_LINK_NOARG(PaintedMetrics, RelayoutHdl, void*, void)
++{
++    PaintedMetrics::event() = nullptr;
++    std::vector<VclPtr<PushButton>> aButtons;
++    aButtons.swap(PaintedMetrics::pending());
++    std::vector<VclPtr<PriorityMergedHBox>> aBoxes;
++    for (const VclPtr<PushButton>& xButton : aButtons)
++    {
++        if (xButton->isDisposed())
++            continue;
++        // the button's own place (a large one's width and label line), then the widths its group and tab measured
++        RefreshMenuButton(*xButton);
++        for (vcl::Window* pParent = xButton->GetParent(); pParent; pParent = pParent->GetParent())
++        {
++            if (v3::IsGroup(*pParent))
++                v3::Forget(*pParent);
++            if (PriorityMergedHBox* pBox = dynamic_cast<PriorityMergedHBox*>(pParent))
++            {
++                if (std::find(aBoxes.begin(), aBoxes.end(), pBox) == aBoxes.end())
++                    aBoxes.emplace_back(pBox);
++                break;
++            }
++        }
++        xButton->queue_resize();
++    }
++    for (const VclPtr<PriorityMergedHBox>& xBox : aBoxes)
++    {
++        if (xBox->isDisposed())
++            continue;
++        // the tab's box measures its groups again, as after a font change
++        xBox->DataChanged(DataChangedEvent(DataChangedEventType::FONTS));
++        xBox->queue_resize();
++    }
++}
++
++/// the strings the layout measures of a label: the label, and each of its lines when it has several
++std::vector<OUString> measuredStrings(const OUString& rText)
++{
++    std::vector<OUString> aStrings{ rText };
++    if (rText.indexOf('\n') >= 0)
++    {
++        sal_Int32 nIndex = 0;
++        do
++            aStrings.push_back(rText.getToken(0, '\n', nIndex));
++        while (nIndex >= 0);
++    }
++    return aStrings;
++}
++}
++
++void MenuButtonPainted(PushButton& rButton, OutputDevice& rDev, const tools::Rectangle& rInner,
++                       sal_Int32& rImageSep)
++{
++    const char cLook = MenuButtonLook(rButton);
++    if (cLook != 'L' && cLook != 'M')
++        return;
++    const OUString aText = rButton.GetText().replaceAll("~", "");
++    Painted aNow;
++    aNow.label = aText;
++    aNow.height = rDev.GetTextHeight();
++    for (const OUString& rString : measuredStrings(aText))
++        aNow.widths[rString] = { rDev.GetTextWidth(rString), rButton.GetTextWidth(rString) };
++
++    // the layout measured with what was known before this paint (the window's measure before the first one)
++    const tools::Long nPaintHeight = aNow.height;
++    const bool bChanged = aNow.height != MenuButtonTextHeight(rButton)
++                          || std::any_of(aNow.widths.begin(), aNow.widths.end(), [&rButton](const auto& rWidth) {
++                                 return rWidth.second.first != MenuButtonTextWidth(rButton, rWidth.first);
++                             });
++    auto& rMetrics = PaintedMetrics::metrics();
++    auto it = rMetrics.find(&rButton);
++    if (it == rMetrics.end())
++    {
++        rButton.AddEventListener(LINK(nullptr, PaintedMetrics, DyingHdl));
++        rMetrics.emplace(&rButton, std::move(aNow));
++    }
++    else
++    {
++        // keep the strings of the other looks: the layout plans every look of the button
++        it->second.label = aNow.label;
++        it->second.height = aNow.height;
++        for (auto& [rString, rWidths] : aNow.widths)
++            it->second.widths[rString] = rWidths;
++    }
++    if (bChanged)
++    {
++        auto& rPending = PaintedMetrics::pending();
++        if (std::find(rPending.begin(), rPending.end(), &rButton) == rPending.end())
++            rPending.emplace_back(&rButton);
++        if (!PaintedMetrics::event())
++            PaintedMetrics::event() = Application::PostUserEvent(LINK(nullptr, PaintedMetrics, RelayoutHdl));
++    }
++
++    // a medium one: a font taller than its row's content (Windows at 125 %: 20 px in 16 px) draws its accents and
++    // the dots under its letters into the frame, which the paint's clip cut off ("Tìm và chon")
++    if (cLook == 'M' && nPaintHeight > rInner.GetHeight())
++    {
++        const tools::Long nOver = (nPaintHeight - rInner.GetHeight() + 1) / 2;
++        tools::Rectangle aClip(rInner);
++        aClip.AdjustTop(-nOver);
++        aClip.AdjustBottom(nOver);
++        rDev.SetClipRegion(vcl::Region(aClip));
++    }
++
++    // a large button: its lines under its image, the gap shrunk when the font is too tall for the content at the
++    // usual one (Windows at 125 %: 2 lines of 20 px under a 24 px icon in 68 px)
++    const Image aImage = rButton.GetModeImage();
++    if (cLook == 'L' && !aText.isEmpty() && !!aImage && rButton.GetImageAlign() == ImageAlign::Top)
++    {
++        const auto nLines = static_cast<tools::Long>(1 + std::count(aText.getStr(), aText.getStr() + aText.getLength(), u'\n'));
++        const tools::Long nRoom
++            = rInner.GetHeight() - aImage.GetSizePixel().Height() - nLines * rDev.GetTextHeight();
++        if (nRoom < rImageSep)
++            rImageSep = static_cast<sal_Int32>(std::max<tools::Long>(1, nRoom));
++        PaintedMetrics::metrics()[&rButton].linesFit = nRoom >= 1;
++    }
++}
++
++tools::Long MenuButtonTextWidth(const PushButton& rButton, const OUString& rText)
++{
++    const tools::Long nWindow = rButton.GetTextWidth(rText);
++    const auto it = PaintedMetrics::metrics().find(&rButton);
++    if (it == PaintedMetrics::metrics().end())
++        return nWindow;
++    const auto itText = it->second.widths.find(rText);
++    if (itText != it->second.widths.end())
++        return itText->second.first;
++    // a string the paint did not draw (the label of another look): the window's measure at the paint's ratio
++    const auto itLabel = it->second.widths.find(it->second.label);
++    if (itLabel == it->second.widths.end())
++        return nWindow;
++    const auto& [nPaint, nWindowLabel] = itLabel->second;
++    if (nWindowLabel <= 0 || nPaint == nWindowLabel)
++        return nWindow;
++    return static_cast<tools::Long>(std::ceil(double(nWindow) * nPaint / nWindowLabel));
++}
++
++bool MenuButtonLinesFit(const PushButton& rButton)
++{
++    const auto it = PaintedMetrics::metrics().find(&rButton);
++    return it == PaintedMetrics::metrics().end() || it->second.linesFit;
++}
++
++tools::Long MenuButtonTextHeight(const PushButton& rButton)
++{
++    const auto it = PaintedMetrics::metrics().find(&rButton);
++    return it == PaintedMetrics::metrics().end() ? rButton.GetTextHeight() : it->second.height;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/control/HstRibbonPaint.cxx
++++ b/vcl/source/control/HstRibbonPaint.cxx
+@@ -245,16 +245,21 @@ FileTabColors fileTabColorsFor(const Sty
+ 
+ tools::Long FileTabExtraWidth(const OutputDevice& rDev) { return scaled(rDev, 14); }
+ 
++tools::Rectangle FileTabFill(const OutputDevice& rDev, const tools::Rectangle& rItem)
++{
++    const tools::Long nInset = scaled(rDev, 2);
++    // the approved mockup's File button: 24 logical px high, centred in the tab row (whatever the row's height)
++    const tools::Long nHeight = std::min<tools::Long>(rItem.GetHeight(), scaled(rDev, FILE_BUTTON_HEIGHT));
++    return tools::Rectangle(Point(rItem.Left() + nInset, rItem.Top() + (rItem.GetHeight() - nHeight) / 2),
++                            Size(std::max<tools::Long>(1, rItem.GetWidth() - 2 * nInset), nHeight));
++}
++
+ Color DrawFileTab(vcl::RenderContext& rDev, const tools::Rectangle& rItem, bool bPressed,
+                   bool bHover)
+ {
+     const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
+     const FileTabColors aColors = fileTabColorsFor(rStyle, bPressed, bHover);
+-    const tools::Long nInset = scaled(rDev, 2);
+-    // the approved mockup's File button: 24 logical px high, centred in the tab row (whatever the row's height)
+-    const tools::Long nHeight = std::min<tools::Long>(rItem.GetHeight(), scaled(rDev, FILE_BUTTON_HEIGHT));
+-    tools::Rectangle aFill(Point(rItem.Left() + nInset, rItem.Top() + (rItem.GetHeight() - nHeight) / 2),
+-                           Size(std::max<tools::Long>(1, rItem.GetWidth() - 2 * nInset), nHeight));
++    const tools::Rectangle aFill = FileTabFill(rDev, rItem);
+     rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
+     // high contrast has one fill colour only: the state shows as an outline
+     if (rStyle.GetHighContrastMode() && (bPressed || bHover))
+--- /dev/null
++++ b/vcl/source/control/HstRibbonUpdateDot.cxx
+@@ -0,0 +1,88 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include <vcl/HstRibbonUpdateDot.hxx>
++#include <vcl/HstRibbonPaint.hxx>
++
++#include <tools/link.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/vclevent.hxx>
++#include <vcl/window.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <set>
++
++namespace hst::ribbon
++{
++namespace
++{
++/// the tab controls whose File button shows the dot; a control leaves the set when it dies
++struct UpdateDots
++{
++    static std::set<const vcl::Window*>& shown()
++    {
++        static std::set<const vcl::Window*> aShown;
++        return aShown;
++    }
++    DECL_STATIC_LINK(UpdateDots, WindowEventHdl, VclWindowEvent&, void);
++};
++
++IMPL_STATIC_LINK(UpdateDots, WindowEventHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        UpdateDots::shown().erase(rEvent.GetWindow());
++}
++
++/// the accent of the dot: an orange that stands out from the File button's blue in both themes, with a ring of
++/// the button's text colour around it; high contrast has the system's colours only
++constexpr Color DOT_COLOR(0xF7, 0x63, 0x0C);
++}
++
++void SetUpdateDot(vcl::Window& rTabControl, bool bShow)
++{
++    std::set<const vcl::Window*>& rShown = UpdateDots::shown();
++    const bool bShown = rShown.count(&rTabControl) > 0;
++    if (bShow == bShown)
++        return;
++    if (bShow)
++    {
++        rShown.insert(&rTabControl);
++        rTabControl.AddEventListener(LINK(nullptr, UpdateDots, WindowEventHdl));
++    }
++    else
++    {
++        rShown.erase(&rTabControl);
++        rTabControl.RemoveEventListener(LINK(nullptr, UpdateDots, WindowEventHdl));
++    }
++    if (!rTabControl.isDisposed())
++        rTabControl.Invalidate();
++}
++
++bool HasUpdateDot(const vcl::Window& rTabControl) { return UpdateDots::shown().count(&rTabControl) > 0; }
++
++void DrawUpdateDot(vcl::RenderContext& rDev, const tools::Rectangle& rItem)
++{
++    const tools::Rectangle aFill = FileTabFill(rDev, rItem);
++    const double fScale = rDev.GetDPIScaleFactor();
++    const tools::Long nRadius = std::max<tools::Long>(2, std::lround(3 * fScale));
++    const tools::Long nRing = std::max<tools::Long>(1, std::lround(fScale));
++    const tools::Long nEdge = std::max<tools::Long>(nRadius + nRing, std::lround(6 * fScale));
++    const Point aCenter(aFill.Right() - nEdge, aFill.Top() + nEdge);
++    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++    const FileTabColors aColors = fileTabColorsFor(rStyle, false, false);
++    rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    rDev.SetLineColor();
++    rDev.SetFillColor(aColors.aText);
++    rDev.DrawEllipse(tools::Rectangle(aCenter.X() - nRadius - nRing, aCenter.Y() - nRadius - nRing,
++                                      aCenter.X() + nRadius + nRing, aCenter.Y() + nRadius + nRing));
++    rDev.SetFillColor(rStyle.GetHighContrastMode() ? aColors.aFill : DOT_COLOR);
++    rDev.DrawEllipse(tools::Rectangle(aCenter.X() - nRadius, aCenter.Y() - nRadius, aCenter.X() + nRadius,
++                                      aCenter.Y() + nRadius));
++    rDev.Pop();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/control/HstRibbonV3Layout.cxx
+@@ -0,0 +1,642 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include <HstRibbonV3Layout.hxx>
++#include <HstRibbonV3Pack.hxx>
++#include <HstRibbonLadder.hxx>
++#include <HstRibbonMenuButtonMetrics.hxx>
++
++#include <vcl/event.hxx>
++#include <vcl/image.hxx>
++#include <vcl/layout.hxx>
++#include <vcl/salnativewidgets.hxx>
++#include <vcl/toolbox.hxx>
++#include <vcl/toolkit/fixed.hxx>
++#include <vcl/toolkit/MenuButton.hxx>
++#include <vcl/vclevent.hxx>
++
++#include <toolbox.h>
++
++#include <algorithm>
++#include <map>
++#include <vector>
++
++namespace hst::ribbon::v3
++{
++namespace
++{
++/// the natural widths of one command, per look (L, M, S, W, and G at the gallery states L, M, S with the tiles a
++/// sparse tab adds), measured once
++using Naturals = std::map<int, tools::Long>;
++
++int lookKey(char cLook, char cGallery, int nExtra)
++{
++    switch (cLook)
++    {
++        case 'L': return 0;
++        case 'M': return 1;
++        case 'S': return 2;
++        case 'W': return 3;
++        default: return 16 * (cGallery == 'L' ? 1 : cGallery == 'M' ? 2 : 3) + (cGallery == 'L' ? nExtra : 0);
++    }
++}
++
++struct Group
++{
++    Spec spec;
++    Config config;
++    bool listening = false;
++    bool applied = false;
++    std::map<const vcl::Window*, Naturals> naturals;
++    std::map<const vcl::Window*, char> looks; // the look each command shows now
++    std::map<const vcl::Window*, bool> size32; // a toolbox authored with the 32 px images (Paste)
++    Plan plan; // of the last allocation, for the dump
++    std::vector<const vcl::Window*> planChildren; // command child of each plan item index
++};
++
++std::map<const vcl::Window*, Group>& groups()
++{
++    static std::map<const vcl::Window*, Group> aGroups;
++    return aGroups;
++}
++
++struct Forgetter
++{
++    DECL_STATIC_LINK(Forgetter, DyingHdl, VclWindowEvent&, void);
++};
++
++IMPL_STATIC_LINK(Forgetter, DyingHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        groups().erase(rEvent.GetWindow());
++}
++
++/// the caption of a group (its label, or the box of its label and launcher) is under its commands: the .ui
++/// generator attaches the commands at rows 0-2 and the caption at row 3
++bool isCaption(const vcl::Window& rChild) { return rChild.get_grid_top_attach() >= 3; }
++
++struct Parts
++{
++    std::vector<vcl::Window*> commands;
++    vcl::Window* caption = nullptr;
++    vcl::Window* separator = nullptr;
++};
++
++Parts partsOf(const vcl::Window& rGrid)
++{
++    Parts aParts;
++    for (vcl::Window* pChild = rGrid.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (dynamic_cast<FixedLine*>(pChild))
++            aParts.separator = aParts.separator ? aParts.separator : pChild;
++        else if (isCaption(*pChild))
++            aParts.caption = aParts.caption ? aParts.caption : pChild;
++        else
++            aParts.commands.push_back(pChild);
++    }
++    return aParts;
++}
++
++/// a command is shown: its window is, and a toolbox has a shown item
++bool shown(const vcl::Window& rCommand)
++{
++    if (!rCommand.IsVisible())
++        return false;
++    if (const ToolBox* pBox = dynamic_cast<const ToolBox*>(&rCommand))
++    {
++        for (ToolBox::ImplToolItems::size_type i = 0; i < pBox->GetItemCount(); ++i)
++            if (pBox->GetItemType(i) == ToolBoxItemType::BUTTON && pBox->IsItemVisible(pBox->GetItemId(i)))
++                return true;
++        return false;
++    }
++    return true;
++}
++
++bool holdsPaste(const vcl::Window& rCommand)
++{
++    if (const ToolBox* pBox = dynamic_cast<const ToolBox*>(&rCommand))
++        for (ToolBox::ImplToolItems::size_type i = 0; i < pBox->GetItemCount(); ++i)
++            if (pBox->GetItemCommand(pBox->GetItemId(i)) == ".uno:Paste")
++                return true;
++    return false;
++}
++
++Group* find(const vcl::Window& rGroup)
++{
++    auto it = groups().find(&rGroup);
++    if (it == groups().end() || !it->second.spec.valid)
++        return nullptr;
++    return &it->second;
++}
++
++double scaleOf(const vcl::Window& rWindow) { return rWindow.GetDPIScaleFactor(); }
++
++tools::Long px(long nLogical, const vcl::Window& rWindow) { return scaled(nLogical, scaleOf(rWindow)); }
++
++/// the width a menu button's paint needs at a look (0: any). PushButton keeps its frame inside the button, 4 px
++/// each side (2 without a native one). A medium button draws the image, its separator, the label and two symbol
++/// widths for the ▾ (button.cxx); a large one its label's lines ("Bám\ndính ▾", HstRibbonLadder.cxx) centred, and
++/// breaks a line again when it fills the text area to the pixel, so it keeps 1 px each side more.
++tools::Long menuButtonNeed(const vcl::Window& rCommand, char cLook)
++{
++    const MenuButton* pMenu = dynamic_cast<const MenuButton*>(&rCommand);
++    if (!pMenu || (cLook != 'M' && cLook != 'L'))
++        return 0;
++    const tools::Long nFrame
++        = 2 * (pMenu->IsNativeControlSupported(ControlType::Pushbutton, ControlPart::Entire) ? 4 : 2);
++    const OUString aText = pMenu->GetText().replaceAll("~", "");
++    if (cLook == 'L')
++    {
++        tools::Long nLine = 0;
++        sal_Int32 nIndex = 0;
++        do
++            nLine = std::max(nLine, MenuButtonTextWidth(*pMenu, aText.getToken(0, '\n', nIndex)));
++        while (nIndex >= 0);
++        return nFrame + 2 + nLine;
++    }
++    const tools::Long nTextHeight = MenuButtonTextHeight(*pMenu);
++    const tools::Long nSymbol = nTextHeight / 2 + 1;
++    const tools::Long nImageSep = std::max<tools::Long>(1, 1 + (nTextHeight - 10) / 2);
++    const Image aImage = pMenu->GetModeImage();
++    tools::Long nWidth = nFrame + 2 * nSymbol;
++    if (!!aImage)
++        nWidth += aImage.GetSizePixel().Width() + (aText.isEmpty() ? 0 : nImageSep);
++    if (!aText.isEmpty())
++        nWidth += MenuButtonTextWidth(*pMenu, aText);
++    return nWidth;
++}
++
++/// a large menu button whose label's lines did not fit under its image at its last paint (the paint measures its
++/// own frame, image and font: HstRibbonMenuButtonMetrics.hxx)
++bool largeMenuLinesCut(const vcl::Window& rCommand, char cLook)
++{
++    const MenuButton* pMenu = dynamic_cast<const MenuButton*>(&rCommand);
++    return pMenu && cLook == 'L' && !MenuButtonLinesFit(*pMenu);
++}
++
++/// the width a command needs at a look: its size request, and what a menu button's paint needs (the request of a
++/// medium one misses the image separator and the frame: the widest button of a column had its label cut, "Sắp xếp
++/// và l…"; a large one at 125 % lost its second line, "Bám ...")
++tools::Long commandWidth(const vcl::Window& rCommand, char cLook)
++{
++    return std::max(VclContainer::getLayoutRequisition(rCommand).Width(), menuButtonNeed(rCommand, cLook));
++}
++
++/// the look of a toolbox: L a large button (image above its label), M a small one with its label, S its image only
++void lookToolBox(ToolBox& rBox, char cLook, bool bSize32)
++{
++    ImplToolBoxPrivateData& rData = *rBox.ImplGetToolBoxPrivateData();
++    bool bChanged = false;
++    rBox.HstSetStretch(true);
++    rBox.HstSetGridRows(0);
++    // the toolbox takes its cell (the tab's large-button width, its column's width), its button stretched over it
++    if (rBox.get_halign() != VclAlign::Fill || rBox.get_valign() != VclAlign::Fill)
++    {
++        rBox.set_halign(VclAlign::Fill);
++        rBox.set_valign(VclAlign::Fill);
++        bChanged = true;
++    }
++    if (cLook == 'W' || cLook == 'G')
++    {
++        if (bChanged)
++            rBox.queue_resize();
++        return;
++    }
++    const ButtonType eType = cLook == 'S' ? ButtonType::SYMBOLONLY : ButtonType::SYMBOLTEXT;
++    const ToolBoxButtonSize eSize = cLook == 'L' ? (bSize32 ? ToolBoxButtonSize::Size32 : ToolBoxButtonSize::Large)
++                                                 : ToolBoxButtonSize::Small;
++    const ToolBoxTextPosition ePosition = cLook == 'L' ? ToolBoxTextPosition::Bottom : ToolBoxTextPosition::Right;
++    if (rBox.GetButtonType() != eType)
++    {
++        rBox.SetButtonType(eType);
++        bChanged = true;
++    }
++    if (rBox.GetToolboxButtonSize() != eSize)
++    {
++        rBox.SetToolboxButtonSize(eSize);
++        // the toolbox's owner loads the images of the new size (SidebarToolBox reloads its command images)
++        rBox.DataChanged(DataChangedEvent(DataChangedEventType::NONE));
++        bChanged = true;
++    }
++    if (rData.meHstTextPosition != ePosition)
++    {
++        rBox.SetToolBoxTextPosition(ePosition);
++        bChanged = true;
++    }
++    if (bChanged)
++        rBox.queue_resize();
++}
++
++void lookGallery(vcl::Window& rCommand, char cGallery, int nExtra)
++{
++    ToolBox* pBox = dynamic_cast<ToolBox*>(&rCommand);
++    if (!pBox)
++        return;
++    const OUString aState = OUString::number(cGallery == 'L' ? 0 : cGallery == 'M' ? 1 : 2);
++    const OUString aExtra = OUString::number(cGallery == 'L' ? nExtra : 0);
++    for (ToolBox::ImplToolItems::size_type i = 0; i < pBox->GetItemCount(); ++i)
++    {
++        const ToolBoxItemId nId = pBox->GetItemId(i);
++        vcl::Window* pItemWindow = pBox->GetItemWindow(nId);
++        if (!pItemWindow)
++            continue;
++        // both: a window that does not know a property ignores it (the styles list has no extra tiles)
++        const bool bState = pItemWindow->set_property(u"hst-gallery-state"_ustr, aState);
++        const bool bExtra = pItemWindow->set_property(u"hst-gallery-extra"_ustr, aExtra);
++        if (bState || bExtra)
++        {
++            pBox->SetItemWindow(nId, pItemWindow); // the item takes the window's new size
++            pBox->queue_resize();
++        }
++    }
++}
++
++/// a widget of a medium or small toolbox (the fill style's lists) one row high: taller (a list box of the X11 look is
++/// 34 px), the row cut its bottom off
++void fitItemWindowsToRow(ToolBox& rBox)
++{
++    const tools::Long nRow = px(ROW, rBox);
++    for (ToolBox::ImplToolItems::size_type i = 0; i < rBox.GetItemCount(); ++i)
++    {
++        const ToolBoxItemId nId = rBox.GetItemId(i);
++        vcl::Window* pItemWindow = rBox.GetItemWindow(nId);
++        if (!pItemWindow || pItemWindow->GetSizePixel().Height() <= nRow)
++            continue;
++        pItemWindow->SetSizePixel(Size(pItemWindow->GetSizePixel().Width(), nRow));
++        rBox.SetItemWindow(nId, pItemWindow); // the item takes the window's new size
++        rBox.queue_resize();
++    }
++}
++
++void setLook(Group& rData, vcl::Window& rCommand, char cLook, char cGallery, int nExtra)
++{
++    rData.looks[&rCommand] = cLook;
++    if (ToolBox* pBox = dynamic_cast<ToolBox*>(&rCommand))
++    {
++        if (!rData.size32.count(&rCommand))
++            rData.size32[&rCommand] = pBox->GetToolboxButtonSize() == ToolBoxButtonSize::Size32;
++        lookToolBox(*pBox, cLook, rData.size32[&rCommand]);
++        if (cLook == 'M' || cLook == 'S')
++            fitItemWindowsToRow(*pBox);
++        if (cLook == 'G')
++            lookGallery(rCommand, cGallery, nExtra);
++    }
++    else if (MenuButton* pButton = dynamic_cast<MenuButton*>(&rCommand))
++    {
++        SetMenuButtonLook(*pButton, cLook);
++        // the menu button takes its cell as the toolboxes do (a column's commands are equally wide); beside its
++        // image (medium, small) its content starts at the left like a toolbox button's
++        const WinBits nStyle
++            = (pButton->GetStyle() & ~(WB_LEFT | WB_CENTER | WB_RIGHT)) | (cLook == 'L' ? WB_CENTER : WB_LEFT);
++        // its frame spans the whole cell, top and bottom edges with the tool buttons' (the 1.0.2 look moved a large
++        // menu button down by a top margin to put its label on the label line)
++        if (pButton->get_halign() != VclAlign::Fill || pButton->get_valign() != VclAlign::Fill
++            || pButton->GetStyle() != nStyle || pButton->get_margin_top() != 0)
++        {
++            pButton->set_halign(VclAlign::Fill);
++            pButton->set_valign(VclAlign::Fill);
++            pButton->set_margin_top(0);
++            pButton->SetStyle(nStyle);
++            pButton->queue_resize();
++        }
++    }
++}
++
++Input inputFor(const Group& rData, const Parts& rParts, const Config& rConfig)
++{
++    Input aIn;
++    aIn.kinds = rData.spec.kinds;
++    aIn.rows = rData.spec.rows;
++    aIn.state = rConfig.state;
++    aIn.big = rConfig.big;
++    for (const vcl::Window* pCommand : rParts.commands)
++    {
++        aIn.paste.push_back(holdsPaste(*pCommand));
++        aIn.visible.push_back(shown(*pCommand));
++    }
++    return aIn;
++}
++
++/// the look of every shown command at rConfig, from the blocks (a row may show an icon-only command labelled)
++std::vector<char> looksFor(const Input& rIn)
++{
++    std::vector<char> aLooks(rIn.kinds.size(), 0);
++    for (const auto& rBlock : structure(rIn))
++        for (const auto& rLine : rBlock.lines)
++            for (const auto& [i, c] : rLine)
++                if (c != '|' && i < aLooks.size())
++                    aLooks[i] = c;
++    return aLooks;
++}
++
++bool measured(Group& rData, const vcl::Window& rCommand, char cLook, const Config& rConfig)
++{
++    return rData.naturals[&rCommand].count(lookKey(cLook, rConfig.gallery, rConfig.extra)) > 0;
++}
++
++/// the natural width of a command at a look, measured once (the command shows that look for a moment)
++tools::Long natural(Group& rData, vcl::Window& rCommand, char cLook, const Config& rConfig)
++{
++    Naturals& rWidths = rData.naturals[&rCommand];
++    const int nKey = lookKey(cLook, rConfig.gallery, rConfig.extra);
++    auto it = rWidths.find(nKey);
++    if (it == rWidths.end())
++    {
++        setLook(rData, rCommand, cLook, rConfig.gallery, rConfig.extra);
++        it = rWidths.emplace(nKey, commandWidth(rCommand, cLook)).first;
++    }
++    return it->second;
++}
++
++Plan planFor(Group& rData, const Parts& rParts, const Config& rConfig, const vcl::Window& rGrid)
++{
++    const Input aIn = inputFor(rData, rParts, rConfig);
++    const std::vector<char> aLooks = looksFor(aIn);
++    // a group shows the looks of its configuration from its first layout on, fitted or not
++    bool bMeasured = !rData.applied;
++    rData.applied = true;
++    for (std::size_t i = 0; i < rParts.commands.size(); ++i)
++        if (aLooks[i] && !measured(rData, *rParts.commands[i], aLooks[i], rConfig))
++        {
++            natural(rData, *rParts.commands[i], aLooks[i], rConfig);
++            bMeasured = true;
++        }
++    if (bMeasured)
++    {
++        // back to the looks of the group's current configuration
++        const Input aNow = inputFor(rData, rParts, rData.config);
++        const std::vector<char> aNowLooks = looksFor(aNow);
++        for (std::size_t i = 0; i < rParts.commands.size(); ++i)
++            if (aNowLooks[i])
++                setLook(rData, *rParts.commands[i], aNowLooks[i], rData.config.gallery, rData.config.extra);
++    }
++    else
++    {
++        // the looks shown now are measured live: a command's size changes after its first measure (its large image
++        // arrives later, Paste's 32 px one), and a stale width cut its label
++        const Input aNow = inputFor(rData, rParts, rData.config);
++        const std::vector<char> aNowLooks = looksFor(aNow);
++        for (std::size_t i = 0; i < rParts.commands.size(); ++i)
++            if (aNowLooks[i])
++                rData.naturals[rParts.commands[i]][lookKey(aNowLooks[i], rData.config.gallery, rData.config.extra)]
++                    = commandWidth(*rParts.commands[i], aNowLooks[i]);
++    }
++    const auto width = [&](std::size_t i, char cLook) -> long {
++        return static_cast<long>(natural(rData, *rParts.commands[i], cLook, rConfig));
++    };
++    return place(aIn, width, static_cast<long>(rConfig.largeWidth), scaleOf(rGrid));
++}
++
++tools::Long captionWidth(const Parts& rParts)
++{
++    return rParts.caption ? VclContainer::getLayoutRequisition(*rParts.caption).Width() : 0;
++}
++
++tools::Long captionHeight(const Parts& rParts, const vcl::Window& rGrid)
++{
++    const tools::Long nBand = px(18, rGrid);
++    return rParts.caption ? std::max(nBand, VclContainer::getLayoutRequisition(*rParts.caption).Height()) : nBand;
++}
++
++/// the content's height: three rows, or more when a command asks for more (a larger font)
++tools::Long contentHeight(const Plan& rPlan, const vcl::Window& rGrid)
++{
++    tools::Long nHeight = 3 * px(ROW, rGrid) + 2 * px(ROW_GAP, rGrid);
++    for (const Cell& rCell : rPlan.cells)
++        nHeight = std::max<tools::Long>(nHeight, rCell.y + rCell.h);
++    return nHeight;
++}
++
++void appendRect(OStringBuffer& rOut, const tools::Rectangle& rRect)
++{
++    rOut.append("{\"x\":" + OString::number(sal_Int64(rRect.Left())) + ",\"y\":"
++                + OString::number(sal_Int64(rRect.Top())) + ",\"w\":" + OString::number(sal_Int64(rRect.GetWidth()))
++                + ",\"h\":" + OString::number(sal_Int64(rRect.GetHeight())) + "}");
++}
++
++tools::Rectangle rectIn(const vcl::Window& rWindow, const vcl::Window& rOrigin)
++{
++    const Point aPos = rWindow.OutputToScreenPixel(Point()) - rOrigin.OutputToScreenPixel(Point());
++    return tools::Rectangle(aPos, rWindow.GetSizePixel());
++}
++
++OString jsonText(const OUString& rText)
++{
++    return rText.replaceAll(u"\\", u"\\\\").replaceAll(u"\"", u"\\\"").replaceAll(u"~", u"").replace('\n', ' ').toUtf8();
++}
++}
++
++void SetSpec(const vcl::Window& rGrid, const OUString& rValue)
++{
++    Group& rData = groups()[&rGrid];
++    const OString aUtf8 = rValue.toUtf8();
++    rData.spec = parseSpec(std::string_view(aUtf8.getStr(), aUtf8.getLength()));
++    if (!rData.listening)
++    {
++        const_cast<vcl::Window&>(rGrid).AddEventListener(LINK(nullptr, Forgetter, DyingHdl));
++        rData.listening = true;
++    }
++}
++
++bool IsGroup(const vcl::Window& rGroup)
++{
++    const Group* pData = find(rGroup);
++    return pData && partsOf(rGroup).commands.size() == pData->spec.kinds.size();
++}
++
++Config Current(const vcl::Window& rGroup)
++{
++    const Group* pData = find(rGroup);
++    return pData ? pData->config : Config();
++}
++
++void Apply(vcl::Window& rGroup, const Config& rConfig)
++{
++    Group* pData = find(rGroup);
++    if (!pData || !IsGroup(rGroup))
++        return;
++    const Parts aParts = partsOf(rGroup);
++    const bool bChanged = !(pData->config == rConfig);
++    pData->config = rConfig;
++    pData->applied = true;
++    const std::vector<char> aLooks = looksFor(inputFor(*pData, aParts, rConfig));
++    for (std::size_t i = 0; i < aParts.commands.size(); ++i)
++        if (aLooks[i])
++            setLook(*pData, *aParts.commands[i], aLooks[i], rConfig.gallery, rConfig.extra);
++    if (FixedText* pText = dynamic_cast<FixedText*>(aParts.caption))
++    {
++        const WinBits nStyle = (pText->GetStyle() & ~(WB_LEFT | WB_RIGHT | WB_TOP | WB_BOTTOM)) | WB_CENTER | WB_VCENTER;
++        if (pText->GetStyle() != nStyle)
++            pText->SetStyle(nStyle);
++    }
++    if (bChanged)
++        rGroup.queue_resize();
++}
++
++tools::Long Width(vcl::Window& rGroup, const Config& rConfig)
++{
++    Group* pData = find(rGroup);
++    if (!pData)
++        return 0;
++    const Parts aParts = partsOf(rGroup);
++    const Plan aPlan = planFor(*pData, aParts, rConfig, rGroup);
++    return 2 * px(6, rGroup) + std::max<tools::Long>(aPlan.width, captionWidth(aParts));
++}
++
++tools::Long LargeNatural(vcl::Window& rGroup, const Config& rConfig)
++{
++    Group* pData = find(rGroup);
++    if (!pData)
++        return 0;
++    const Parts aParts = partsOf(rGroup);
++    Config aNatural = rConfig;
++    aNatural.largeWidth = 0;
++    tools::Long nWidest = 0;
++    for (const Cell& rCell : planFor(*pData, aParts, aNatural, rGroup).cells)
++        if (rCell.look == 'L')
++            nWidest = std::max<tools::Long>(nWidest, rCell.w);
++    return nWidest;
++}
++
++bool Fillable(const vcl::Window& rGroup)
++{
++    const Group* pData = find(rGroup);
++    if (!pData || pData->spec.nofill || !pData->spec.rows.empty() || rGroup.get_id() == "gdHomeClipboard")
++        return false;
++    const std::string& rKinds = pData->spec.kinds;
++    return rKinds.find_first_of("MS") != std::string::npos && rKinds.find('W') == std::string::npos;
++}
++
++bool HasGallery(const vcl::Window& rGroup)
++{
++    const Group* pData = find(rGroup);
++    return pData && pData->spec.kinds.find('G') != std::string::npos;
++}
++
++void Forget(const vcl::Window& rGroup)
++{
++    if (Group* pData = find(rGroup))
++        pData->naturals.clear();
++}
++
++Size Requisition(const vcl::Window& rGrid)
++{
++    Group* pData = find(rGrid);
++    if (!pData)
++        return Size();
++    vcl::Window& rGroup = const_cast<vcl::Window&>(rGrid);
++    const Parts aParts = partsOf(rGroup);
++    const Plan aPlan = planFor(*pData, aParts, pData->config, rGroup);
++    const tools::Long nWidth = 2 * px(6, rGroup) + std::max<tools::Long>(aPlan.width, captionWidth(aParts));
++    const tools::Long nHeight = px(6, rGroup) + contentHeight(aPlan, rGroup) + px(4, rGroup)
++                                + captionHeight(aParts, rGroup) + px(2, rGroup);
++    return Size(nWidth, nHeight);
++}
++
++void Allocate(vcl::Window& rGrid, const Size& rSize)
++{
++    Group* pData = find(rGrid);
++    if (!pData)
++        return;
++    const Parts aParts = partsOf(rGrid);
++    pData->plan = planFor(*pData, aParts, pData->config, rGrid);
++    pData->planChildren.assign(aParts.commands.begin(), aParts.commands.end());
++    const tools::Long nPad = px(6, rGrid), nTop = px(6, rGrid);
++    const tools::Long nContentWidth = std::max<tools::Long>(pData->plan.width, captionWidth(aParts));
++    for (const Cell& rCell : pData->plan.cells)
++        VclContainer::setLayoutAllocation(*aParts.commands[rCell.item], Point(nPad + rCell.x, nTop + rCell.y),
++                                          Size(rCell.w, rCell.h));
++    const tools::Long nContent = contentHeight(pData->plan, rGrid);
++    // the caption band reaches the group's bottom less 2 px: every group of the tab has the page's height, so the
++    // captions (a label, or a label with its launcher, which may be taller) share one band, centred in it
++    const tools::Long nCaptionTop = nTop + nContent + px(4, rGrid);
++    const tools::Long nCaption
++        = std::max<tools::Long>(captionHeight(aParts, rGrid), rSize.Height() - px(2, rGrid) - nCaptionTop);
++    if (aParts.caption)
++        VclContainer::setLayoutAllocation(*aParts.caption, Point(nPad, nCaptionTop), Size(nContentWidth, nCaption));
++    if (aParts.separator)
++    {
++        const tools::Long nLine = std::max<tools::Long>(1, px(1, rGrid));
++        VclContainer::setLayoutAllocation(
++            *aParts.separator, Point(std::max<tools::Long>(0, rSize.Width() - nLine), nTop),
++            Size(nLine, std::max<tools::Long>(1, nContent + px(4, rGrid) + nCaption - px(2, rGrid))));
++    }
++}
++
++void Dump(const vcl::Window& rGroup, const vcl::Window& rOrigin, char cState, const tools::Rectangle& rFold,
++          OStringBuffer& rOut)
++{
++    const Group* pData = find(rGroup);
++    const Parts aParts = partsOf(rGroup);
++    rOut.append("{\"id\":\"" + rGroup.get_id().toUtf8() + "\",\"caption\":\""
++                + jsonText(GroupCaption(const_cast<vcl::Window&>(rGroup))) + "\",\"state\":\""
++                + OStringChar(cState) + "\",\"big\":");
++    rOut.append(pData && pData->config.big ? "true" : "false");
++    rOut.append(",\"rect\":");
++    if (cState == 'C')
++    {
++        appendRect(rOut, rFold);
++        // its name in the groups' caption band: under the content and its gap, 2 px over the body's bottom
++        const tools::Long nBand = px(6, rGroup) + px(CONTENT, rGroup) + px(4, rGroup);
++        rOut.append(",\"caption_rect\":");
++        appendRect(rOut, tools::Rectangle(Point(rFold.Left(), rFold.Top() + nBand),
++                                          Size(rFold.GetWidth(), rFold.GetHeight() - nBand - px(2, rGroup))));
++        rOut.append(",\"caption_needed\":0,\"blocks\":[{\"type\":\"fold\",\"items\":[{\"id\":\"fold\",\"kind\":\"C\","
++                    "\"rect\":");
++        appendRect(rOut, rFold);
++        rOut.append("}]}]}");
++        return;
++    }
++    appendRect(rOut, rectIn(rGroup, rOrigin));
++    rOut.append(",\"caption_rect\":");
++    appendRect(rOut, aParts.caption ? rectIn(*aParts.caption, rOrigin) : tools::Rectangle());
++    rOut.append(",\"caption_needed\":" + OString::number(sal_Int64(captionWidth(aParts))) + ",\"blocks\":[");
++    if (pData)
++    {
++        static constexpr const char* aTypes[] = { "large", "gallery", "col", "rows" };
++        for (std::size_t b = 0; b < pData->plan.blocks.size(); ++b)
++        {
++            rOut.append(b ? "," : "");
++            rOut.append("{\"type\":\"");
++            rOut.append(aTypes[static_cast<int>(pData->plan.blocks[b])]);
++            rOut.append("\",\"items\":[");
++            bool bFirst = true;
++            for (const Cell& rCell : pData->plan.cells)
++            {
++                if (rCell.block != static_cast<int>(b) || rCell.item >= pData->planChildren.size())
++                    continue;
++                const vcl::Window& rCommand = *pData->planChildren[rCell.item];
++                rOut.append(bFirst ? "" : ",");
++                rOut.append("{\"id\":\"" + jsonText(rCommand.get_id())
++                            + "\",\"kind\":\"" + OStringChar(rCell.look) + "\",\"row\":"
++                            + OString::number(rCell.row) + ",\"rect\":");
++                const tools::Rectangle aRect = rectIn(rCommand, rOrigin);
++                appendRect(rOut, aRect);
++                // a labelled command (large, or medium with its label) asks for more room than its cell gives it:
++                // its label is cut (a box keeps the design's width, an icon-only command shows no label)
++                // a menu button as its paint lays its label out (menuButtonNeed), any other as its size request
++                Size aWant = VclContainer::getLayoutRequisition(rCommand);
++                if (const tools::Long nNeed = menuButtonNeed(rCommand, rCell.look))
++                    aWant = Size(nNeed, aRect.GetHeight() + (largeMenuLinesCut(rCommand, rCell.look) ? 1 : 0));
++                const bool bLabelled = rCell.look == 'L' || rCell.look == 'M';
++                const bool bCut
++                    = bLabelled && (aWant.Width() > aRect.GetWidth() || aWant.Height() > aRect.GetHeight());
++                rOut.append(",\"label_cut\":");
++                rOut.append(bCut ? "true" : "false");
++                if (bCut) // the size it asked for, to tell a stale width from a short one
++                    rOut.append(",\"want\":{\"w\":" + OString::number(sal_Int64(aWant.Width())) + ",\"h\":"
++                                + OString::number(sal_Int64(aWant.Height())) + "}");
++                rOut.append("}");
++                bFirst = false;
++            }
++            rOut.append("]}");
++        }
++    }
++    rOut.append("]}");
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/control/HstRibbonV3MergedBox.cxx
+@@ -0,0 +1,359 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++// HST Office: the 1.0.3 (v3) ribbon's fit of a tab's groups (the owner-locked mockup's fit()), the page's dump of
++// its layout and the banner's link to the groups' used width; members of PriorityMergedHBox (PriorityMergedHBox.hxx)
++// that the box's Resize() and calculateRequisition() call for a tab of v3 groups (HstRibbonV3Layout.hxx).
++
++#include <PriorityMergedHBox.hxx>
++#include <HstRibbonLadder.hxx>
++#include <HstRibbonV3Layout.hxx>
++#include <HstRibbonV3Pack.hxx>
++
++#include <comphelper/lok.hxx>
++#include <rtl/strbuf.hxx>
++#include <vcl/HstRibbonWidth.hxx>
++#include <vcl/layout.hxx>
++#include <vcl/tabpage.hxx>
++#include <vcl/toolkit/button.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <cstdio>
++#include <cstdlib>
++#include <vector>
++
++bool PriorityMergedHBox::HstIsV3() const
++{
++    if (comphelper::LibreOfficeKit::isActive())
++        return false;
++    bool bAny = false;
++    for (vcl::Window* pChild : HstGroups())
++    {
++        if (!dynamic_cast<VclGrid*>(pChild))
++            continue; // a merged box of add-ons stays as it is
++        if (!hst::ribbon::v3::IsGroup(*pChild))
++            return false;
++        bAny = true;
++    }
++    return bAny;
++}
++
++namespace
++{
++/// with HST_RIBBON_DUMP_LAYOUT: the fit passes of every ribbon page so far, in <dir>/layout-passes, so that a check
++/// sees whether the layout settles (a pass asking for the next one laid the ribbon out without end)
++void countLayoutPass()
++{
++    static const char* const pDir = std::getenv("HST_RIBBON_DUMP_LAYOUT");
++    if (!pDir || !*pDir)
++        return;
++    static sal_uInt64 nPasses = 0;
++    const OString aPath = OString(pDir) + "/layout-passes";
++    if (FILE* pFile = std::fopen(aPath.getStr(), "w"))
++    {
++        std::fprintf(pFile, "%llu\n", static_cast<unsigned long long>(++nPasses));
++        std::fclose(pFile);
++    }
++}
++}
++
++void PriorityMergedHBox::HstApplyV3(tools::Long nWidth)
++{
++    countLayoutPass();
++    // HST Office (1.0.3): the owner-locked mockup's fit(): every group large; on a sparse tab (more than 40 % free)
++    // the groups turn large from the left and then every large button widens to 96 px; when the row is too wide the
++    // galleries shrink first, then the groups from the right go medium, small, then to their "Caption ▾" button;
++    // what still does not fit folds into the chevron, from the end
++    if (m_bHstLadder)
++        return;
++    m_bHstLadder = true;
++    namespace v3 = hst::ribbon::v3;
++    const std::vector<vcl::Window*> aWindows = HstGroups();
++    const size_t n = aWindows.size();
++    const double fScale = GetDPIScaleFactor();
++    const auto px = [fScale](long nLogical) { return v3::scaled(nLogical, fScale); };
++    std::vector<v3::Config> aConfigs(n);
++    std::vector<char> aStates(n, 'L');
++    std::vector<bool> aV3(n), aHidden(n, false);
++    for (size_t i = 0; i < n; ++i)
++        aV3[i] = v3::IsGroup(*aWindows[i]);
++    bool bWide = false;
++    const auto setLargeWidth = [&]() {
++        tools::Long nLarge = 0;
++        for (size_t i = 0; i < n; ++i)
++            if (aV3[i] && aStates[i] != 'C' && !aHidden[i])
++            {
++                v3::Config aNatural = aConfigs[i];
++                aNatural.state = aStates[i];
++                nLarge = std::max(nLarge, v3::LargeNatural(*aWindows[i], aNatural));
++            }
++        // the narrowest even width in logical px, from 52, at which every large label of the tab fits (equalize());
++        // 96 on a sparse tab. A label wider than 96 (a large UI font: Windows at 125 % keeps the scale factor 1 but
++        // its text grows) widens the large buttons beyond it rather than being cut
++        const long nLogical = static_cast<long>(std::ceil(nLarge / fScale - 0.01));
++        const tools::Long nWanted = nLarge <= 0 ? 0 : px(std::max<long>(bWide ? 96 : 52, (nLogical + 1) / 2 * 2));
++        for (size_t i = 0; i < n; ++i)
++        {
++            aConfigs[i].state = aStates[i] == 'C' ? 'L' : aStates[i];
++            aConfigs[i].largeWidth = nWanted;
++        }
++    };
++    const tools::Long nChevron = getLayoutRequisition(*m_pButton).Width() + m_pButton->get_padding() * 2;
++    const auto used = [&]() {
++        setLargeWidth();
++        tools::Long nUsed = 0;
++        bool bAnyHidden = false;
++        for (size_t i = 0; i < n; ++i)
++        {
++            if (aHidden[i])
++            {
++                bAnyHidden = true;
++                continue;
++            }
++            if (aStates[i] == 'C')
++            {
++                PushButton& rButton = HstGroupButton(*aWindows[i]);
++                nUsed += getLayoutRequisition(rButton).Width() + rButton.get_padding() * 2;
++            }
++            else if (aV3[i])
++                nUsed += v3::Width(*aWindows[i], aConfigs[i]);
++            else
++                nUsed += getLayoutRequisition(*aWindows[i]).Width() + aWindows[i]->get_padding() * 2;
++        }
++        return nUsed + (bAnyHidden ? nChevron : 0);
++    };
++    const auto over = [&]() { return used() > nWidth; };
++    const auto freeShare = [&]() { return nWidth > 0 ? double(nWidth - used()) / nWidth : 0.0; };
++    // the sparse tab's fill pass, left to right
++    const bool bSparse = freeShare() > 0.4;
++    for (size_t i = 0; bSparse && i < n && freeShare() > 0.4; ++i)
++    {
++        if (!aV3[i] || !v3::Fillable(*aWindows[i]))
++            continue;
++        aConfigs[i].big = true;
++        if (over())
++            aConfigs[i].big = false;
++    }
++    // galleries show more tiles while the tab is still more than 40 % free (at most 10 more)
++    std::vector<size_t> aGalleries;
++    for (size_t i = 0; i < n; ++i)
++        if (aV3[i] && v3::HasGallery(*aWindows[i]))
++            aGalleries.push_back(i);
++    const auto setExtra = [&](int nExtra) {
++        for (size_t i : aGalleries)
++            aConfigs[i].extra = nExtra;
++    };
++    for (int nExtra = 1; !aGalleries.empty() && nExtra <= 10 && freeShare() > 0.4; ++nExtra)
++    {
++        const tools::Long nBefore = used();
++        setExtra(nExtra);
++        if (over() || used() == nBefore) // too wide, or no gallery of the tab takes more tiles
++        {
++            setExtra(nExtra - 1);
++            break;
++        }
++    }
++    // still sparse: every large button of the tab widens to 96 px
++    if (freeShare() > 0.4)
++    {
++        bWide = true;
++        if (over())
++            bWide = false;
++    }
++    // the ladder, right to left: galleries first, then the groups go M, S, then C
++    const auto rank = [](char c) { return c == 'L' ? 0 : c == 'M' ? 1 : c == 'S' ? 2 : 3; };
++    for (const char cStep : { 'M', 'S' })
++        for (size_t j = n; j-- > 0;)
++        {
++            if (!over())
++                break;
++            if (aV3[j] && v3::HasGallery(*aWindows[j]) && rank(aConfigs[j].gallery) < rank(cStep))
++                aConfigs[j].gallery = cStep;
++        }
++    for (const char cStep : { 'M', 'S', 'C' })
++        for (size_t j = n; j-- > 0;)
++        {
++            if (!over())
++                break;
++            if (!aV3[j] || rank(aStates[j]) >= rank(cStep))
++                continue;
++            aStates[j] = cStep;
++            aConfigs[j].big = false;
++            if (rank(aConfigs[j].gallery) < rank(cStep))
++                aConfigs[j].gallery = cStep == 'C' ? 'S' : cStep;
++        }
++    // the last rung: groups from the end fold into the chevron ("Nhóm khác »")
++    for (size_t j = n; j-- > 1 && over();)
++        aHidden[j] = true;
++    setLargeWidth();
++    m_bHstWide = bWide;
++    OStringBuffer aSparse;
++    for (size_t i = 0; i < n; ++i)
++        aSparse.append(aConfigs[i].big ? '1' : '0');
++    m_aHstSparse = aSparse.makeStringAndClear();
++    const tools::Long nWasUsed = m_nHstUsed;
++    m_nHstUsed = used();
++    m_aHstFoldOrder.assign(aWindows.rbegin(), aWindows.rend());
++    m_aHstFolded.clear();
++    for (size_t i = 0; i < n; ++i)
++        if (aHidden[i])
++            m_aHstFolded.push_back(aWindows[i]);
++    m_nHstFoldedFor = nWidth;
++    for (size_t i = 0; i < n; ++i)
++    {
++        const int nState = aStates[i] == 'C' ? hst::ribbon::GroupCollapsed
++                           : aStates[i] == 'M' ? hst::ribbon::GroupMedium
++                           : aStates[i] == 'S' ? hst::ribbon::GroupSmall
++                                               : hst::ribbon::GroupLarge;
++        if (aV3[i])
++            v3::Apply(*aWindows[i], aConfigs[i]); // a collapsed group's content stays large for its popup
++        if (aStates[i] == 'C')
++            HstGroupButton(*aWindows[i]);
++        m_aHstStates[aWindows[i]] = nState;
++    }
++    m_bHstLadder = false;
++    if (m_nHstUsed != nWasUsed)
++        HstNotifyUsedChanged();
++}
++
++void PriorityMergedHBox::HstSetSlack(tools::Long nSlack)
++{
++    if (nSlack == m_nHstSlack)
++        return;
++    m_nHstSlack = nSlack;
++    queue_resize();
++}
++
++void PriorityMergedHBox::HstDump(const vcl::Window& rOrigin, OStringBuffer& rOut) const
++{
++    rOut.append("\"more\":");
++    rOut.append(m_pButton && m_pButton->IsVisible() ? "true" : "false");
++    rOut.append(",\"wide\":");
++    rOut.append(m_bHstWide ? "true" : "false");
++    rOut.append(",\"sparse\":\"" + m_aHstSparse + "\",\"track_width\":"
++                + OString::number(sal_Int64(GetSizePixel().Width() + m_nHstSlack)) + ",\"groups\":[");
++    bool bFirst = true;
++    for (vcl::Window* pGroup : HstGroups())
++    {
++        if (std::find(m_aHstFolded.begin(), m_aHstFolded.end(), pGroup) != m_aHstFolded.end()
++            || !hst::ribbon::v3::IsGroup(*pGroup))
++            continue;
++        const auto itState = m_aHstStates.find(pGroup);
++        const int nState = itState == m_aHstStates.end() ? 0 : itState->second;
++        const char cState = nState == hst::ribbon::GroupCollapsed ? 'C'
++                            : nState == hst::ribbon::GroupMedium ? 'M'
++                            : nState == hst::ribbon::GroupSmall ? 'S'
++                                                                : 'L';
++        tools::Rectangle aFold;
++        if (cState == 'C')
++        {
++            const auto it = m_aHstGroupButtons.find(pGroup);
++            if (it != m_aHstGroupButtons.end() && it->second)
++            {
++                const Point aPos = it->second->OutputToScreenPixel(Point()) - rOrigin.OutputToScreenPixel(Point());
++                aFold = tools::Rectangle(aPos, it->second->GetSizePixel());
++            }
++        }
++        rOut.append(bFirst ? "" : ",");
++        hst::ribbon::v3::Dump(*pGroup, rOrigin, cState, aFold, rOut);
++        bFirst = false;
++    }
++    rOut.append("]");
++}
++
++namespace
++{
++hst::ribbon::UsedChangedHandler g_pHstUsedChanged = nullptr;
++
++/// the page's merged group box, breadth first (not a merged box nested in it)
++PriorityMergedHBox* lcl_HstPageBox(const vcl::Window& rPage)
++{
++    std::vector<const vcl::Window*> aLevel{ &rPage };
++    while (!aLevel.empty())
++    {
++        std::vector<const vcl::Window*> aNext;
++        for (const vcl::Window* pWindow : aLevel)
++            for (const vcl::Window* pChild = pWindow->GetWindow(GetWindowType::FirstChild); pChild;
++                 pChild = pChild->GetWindow(GetWindowType::Next))
++            {
++                if (!pChild->IsVisible())
++                    continue;
++                if (auto* pBox = dynamic_cast<const PriorityMergedHBox*>(pChild))
++                    return const_cast<PriorityMergedHBox*>(pBox);
++                aNext.push_back(pChild);
++            }
++        aLevel = std::move(aNext);
++    }
++    return nullptr;
++}
++}
++
++tools::Long hst::ribbon::PageUsedRight(const vcl::Window& rPage)
++{
++    const PriorityMergedHBox* pBox = lcl_HstPageBox(rPage);
++    if (!pBox || pBox->HstUsedWidth() < 0)
++        return -1;
++    return pBox->OutputToScreenPixel(Point()).X() - rPage.OutputToScreenPixel(Point()).X() + pBox->HstUsedWidth();
++}
++
++void hst::ribbon::SetUsedChangedHandler(UsedChangedHandler pHandler) { g_pHstUsedChanged = pHandler; }
++
++void PriorityMergedHBox::HstNotifyUsedChanged()
++{
++    if (!g_pHstUsedChanged)
++        return;
++    for (vcl::Window* pWindow = GetParent(); pWindow; pWindow = pWindow->GetParent())
++        if (dynamic_cast<TabPage*>(pWindow))
++        {
++            g_pHstUsedChanged(*pWindow);
++            return;
++        }
++}
++
++void hst::ribbon::SetPageSlack(vcl::Window& rPage, tools::Long nSlack)
++{
++    if (PriorityMergedHBox* pBox = lcl_HstPageBox(rPage))
++        pBox->HstSetSlack(nSlack); // less than 0: the collapse chevron's room at the smallest banner
++}
++
++void hst::ribbon::DumpPageLayout(const vcl::Window& rPage, const tools::Rectangle& rBanner)
++{
++    static const char* const pDir = std::getenv("HST_RIBBON_DUMP_LAYOUT");
++    if (!pDir || !*pDir)
++        return;
++    const PriorityMergedHBox* pBox = lcl_HstPageBox(rPage);
++    if (!pBox || pBox->HstUsedWidth() < 0)
++        return;
++    const double fScale = rPage.GetDPIScaleFactor();
++    const vcl::Window* pFrame = rPage.GetFrameWindow();
++    const Size aWindow = pFrame ? pFrame->GetOutputSizePixel() : rPage.GetSizePixel();
++    const char* const pApp = std::getenv("HST_RIBBON_DUMP_APP");
++    OStringBuffer aOut("{\"app\":\"" + OString(pApp ? pApp : "") + "\",\"tab\":\"" + pBox->get_id().toUtf8()
++                       + "\",\"box\":\"" + pBox->get_id().toUtf8() + "\",\"scale\":" + OString::number(fScale)
++                       + ",\"window\":{\"w\":" + OString::number(sal_Int64(aWindow.Width())) + ",\"h\":"
++                       + OString::number(sal_Int64(aWindow.Height())) + "},\"body\":{\"x\":0,\"y\":0,\"w\":"
++                       + OString::number(sal_Int64(rPage.GetSizePixel().Width())) + ",\"h\":"
++                       + OString::number(sal_Int64(rPage.GetSizePixel().Height())) + "},\"banner\":");
++    if (rBanner.IsEmpty())
++        aOut.append("null");
++    else
++        aOut.append("{\"x\":" + OString::number(sal_Int64(rBanner.Left())) + ",\"y\":"
++                    + OString::number(sal_Int64(rBanner.Top())) + ",\"w\":"
++                    + OString::number(sal_Int64(rBanner.GetWidth())) + ",\"h\":"
++                    + OString::number(sal_Int64(rBanner.GetHeight())) + "}");
++    aOut.append(",");
++    pBox->HstDump(rPage, aOut);
++    aOut.append("}\n");
++    const OString aPath = OString(pDir) + "/" + pBox->get_id().toUtf8().replaceAll(" ", "_") + "-"
++                          + OString::number(sal_Int64(std::lround(aWindow.Width() / fScale))) + ".json";
++    if (FILE* pFile = std::fopen(aPath.getStr(), "w"))
++    {
++        std::fwrite(aOut.getStr(), 1, aOut.getLength(), pFile);
++        std::fclose(pFile);
++    }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/control/PriorityMergedHBox.cxx
++++ b/vcl/source/control/PriorityMergedHBox.cxx
+@@ -29,6 +29,7 @@
+ #include <HstRibbonLadder.hxx>
+ #include <HstRibbonScaling.hxx>
+ #include <HstRibbonRegrow.hxx>
++#include <HstRibbonV3Layout.hxx>
+ #include <vcl/HstRibbonWidth.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
+ #include <vcl/decoview.hxx>
+@@ -123,12 +124,18 @@ void PriorityMergedHBox::Resize()
+         if (VclGrid* pGrid = dynamic_cast<VclGrid*>(pChild))
+             pGrid->set_hst_centre_spanned(true);
+ 
+-    const tools::Long nWidth = GetSizePixel().Width();
++    // HST Office (v3): the groups are fitted at the width they have beside the smallest banner
++    const bool bV3 = HstIsV3();
++    if (bV3 && get_spacing() != 0)
++        set_spacing(0); // a v3 group has its padding and separator inside
++    const tools::Long nWidth = GetSizePixel().Width() + (bV3 ? m_nHstSlack : 0);
+     const tools::Long nSpacing = get_spacing();
+ 
+     // HST Office: groups first shrink step by step (large, medium, small); only what still does not
+     // fit folds into the chevron popup below, which stays the last rung
+-    if (hst::ribbon::collapseLadderEnabled())
++    if (bV3)
++        HstApplyV3(nWidth);
++    else if (hst::ribbon::collapseLadderEnabled())
+         HstApplyLadder(nWidth);
+     // the ladder may have made a group button: it goes right after its group
+     HstRestoreOrder();
+@@ -156,7 +163,7 @@ void PriorityMergedHBox::Resize()
+     const tools::Long nRoom
+         = bFold ? nWidth - getLayoutRequisition(*m_pButton).Width() - m_pButton->get_padding() * 2 - nSpacing
+                 : nWidth;
+-    if (hst::ribbon::collapseLadderEnabled() && !m_aHstFoldOrder.empty())
++    if ((bV3 || hst::ribbon::collapseLadderEnabled()) && !m_aHstFoldOrder.empty())
+     {
+         // HST Office: the tab's ladder says which groups fold first (core groups and Styles last)
+         std::vector<vcl::Window*> aHidden;
+@@ -865,7 +872,11 @@ void PriorityMergedHBox::DataChanged(con
+     // fonts, scale or theme change the widths: measure again
+     if (rEvent.GetType() == DataChangedEventType::SETTINGS || rEvent.GetType() == DataChangedEventType::FONTS
+         || rEvent.GetType() == DataChangedEventType::DISPLAY)
++    {
+         m_aHstWidths.clear();
++        for (vcl::Window* pGroup : HstGroups())
++            hst::ribbon::v3::Forget(*pGroup);
++    }
+ }
+ 
+ void PriorityMergedHBox::dispose()
+@@ -920,7 +931,10 @@ Size PriorityMergedHBox::calculateRequis
+     // HST Office: with the collapse ladder the box can shrink to every group at its smallest state
+     // before anything folds; that is the width it asks for, so the block beside it in the tab (the
+     // Tools group) folds only when the groups could not make room for it by shrinking
+-    const tools::Long nMin = m_bHstOwnLayout ? -1 : HstMinWidth();
++    tools::Long nMin = m_bHstOwnLayout ? -1 : HstMinWidth();
++    // HST Office (v3): the groups fold down to the chevron, so the box takes whatever its tab leaves it
++    if (!m_bHstOwnLayout && HstIsV3())
++        nMin = getLayoutRequisition(*m_pButton).Width() + m_pButton->get_padding() * 2;
+     if (nMin >= 0)
+     {
+         Size aSize;
+--- a/vcl/source/control/button.cxx
++++ b/vcl/source/control/button.cxx
+@@ -55,6 +55,9 @@
+ #include <tools/mapunit.hxx>
+ #include <tools/stream.hxx>
+ 
++#include <HstRibbonLadder.hxx>
++#include <HstRibbonMenuButtonMetrics.hxx>
++
+ 
+ using namespace css;
+ 
+@@ -851,6 +854,7 @@ void PushButton::ImplDrawPushButtonConte
+     sal_Int32 nImageSep = 1 + (pDev->GetTextHeight()-10)/2;
+     if( nImageSep < 1 )
+         nImageSep = 1;
++    hst::ribbon::MenuButtonPainted(*this, *pDev, aInRect, nImageSep); // HST Office: ribbon label metrics
+     if ( mnDDStyle == PushButtonDropdownStyle::MenuButton )
+     {
+         tools::Long nSeparatorX = 0;
+@@ -871,6 +875,12 @@ void PushButton::ImplDrawPushButtonConte
+         // center symbol rectangle in the separated area
+         aSymbolRect.AdjustRight( -(nSymbolSize/2) );
+         aSymbolRect.SetLeft( aSymbolRect.Right() - nSymbolSize );
++        // HST Office: a ribbon menu button filling its column draws its ▾ after its label (HstRibbonLadder.cxx)
++        if (const tools::Rectangle aHst = hst::ribbon::MenuArrowAfterLabel(*this, aInRect, nSymbolSize); !aHst.IsEmpty())
++        {
++            aSymbolRect = aHst;
++            nSeparatorX = 0;
++        }
+ 
+         ImplDrawAlignedImage( pDev, aPos, aSize, nImageSep,
+                               nTextStyle, nullptr, true );
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -24,6 +24,7 @@
+ #include <tools/mapunit.hxx>
+ #include <vcl/HstRibbonContext.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
++#include <vcl/HstRibbonUpdateDot.hxx>
+ #include <algorithm>
+ #include <chrono>
+ #include <cmath>
+@@ -895,9 +896,13 @@ void TabControl::ImplDrawItem(vcl::Rende
+                              && hst::ribbon::ownerDrawEnabled();
+     Color aHstFileText;
+     if (bHstFileTab)
++    {
+         aHstFileText = hst::ribbon::DrawFileTab(rRenderContext, pItem->maRect,
+                                                 bool(nState & ControlState::SELECTED),
+                                                 bool(nState & ControlState::ROLLOVER));
++        if (hst::ribbon::HasUpdateDot(*this)) // HST Office: an update is known (HstRibbonUpdateDot.hxx)
++            hst::ribbon::DrawUpdateDot(rRenderContext, pItem->maRect);
++    }
+     else if (bHstOwnerDraw)
+         hst::ribbon::DrawTabItem(rRenderContext, pItem->maRect,
+                                  rRenderContext.GetCtrlTextWidth(pItem->maFormatText),
+@@ -2610,6 +2615,10 @@ void NotebookbarTabControlBase::HstSetPa
+         return;
+     m_nHstPageReserve = nWidth;
+     ImplPosCurTabPage();
++    // HST Office (1.0.3): the elastic banner changes the reserve on every tab and document switch; the tab row is
++    // laid out and painted again with it (at 125 % a partly repainted row showed tab labels twice)
++    mbFormat = true;
++    Invalidate();
+ }
+ 
+ bool NotebookbarTabControlBase::HstIsOffRow( sal_uInt16 nPageId ) const
+--- a/vcl/source/window/layout.cxx
++++ b/vcl/source/window/layout.cxx
+@@ -56,6 +56,7 @@
+ #include <messagedialog.hxx>
+ #include <svdata.hxx>
+ #include <window.h>
++#include <HstRibbonV3Layout.hxx>
+ #include <boost/multi_array.hpp>
+ #include <vcl/DesktopType.hxx>
+ #include <vcl/toolkit/vclmedit.hxx>
+@@ -1256,6 +1257,9 @@ static VclGrid::Value accumulateValues(c
+ 
+ Size VclGrid::calculateRequisition() const
+ {
++    // HST Office: a ribbon group of the v3 design lays its commands out by its "hst-ribbon-layout"
++    if (hst::ribbon::v3::IsGroup(*this))
++        return hst::ribbon::v3::Requisition(*this);
+     return calculateRequisitionForSpacings(get_row_spacing(), get_column_spacing());
+ }
+ 
+@@ -1319,6 +1323,11 @@ tools::Long VclGrid::get_hst_caption_roo
+ 
+ void VclGrid::setAllocation(const Size& rAllocation)
+ {
++    if (hst::ribbon::v3::IsGroup(*this))
++    {
++        hst::ribbon::v3::Allocate(*this, rAllocation);
++        return;
++    }
+     array_type A = assembleGrid(*this);
+ 
+     if (isNullGrid(A))
+@@ -1502,6 +1511,8 @@ bool VclGrid::set_property(const OUStrin
+         m_bColumnHomogeneous = toBool(rValue);
+     else if (rKey == "n-rows")
+         /*nothing to do*/;
++    else if (rKey == "hst-ribbon-layout")
++        hst::ribbon::v3::SetSpec(*this, rValue);
+     else
+         return VclContainer::set_property(rKey, rValue);
+     return true;
+--- a/vcl/source/window/toolbox.cxx
++++ b/vcl/source/window/toolbox.cxx
+@@ -127,6 +127,15 @@ OUString ImplHstLabel(const ToolBox& rTo
+     return nFirst == 0 || nFirst >= aWords.size() ? rText : rText.replaceAt(aSpaces[nFirst - 1], 1, u"\n");
+ }
+ 
++// HST Office: a ribbon label right of its image is one line: an authored break ("Văn bản\nhành chính") joins with a
++// space, which VCL drew and measured as nothing ("Văn bảnhành chính"); after a slash without one ("Chấp nhận/Từ chối")
++OUString ImplHstOneLine(const ImplToolBoxPrivateData& rData, const OUString& rText, ToolBoxTextPosition ePosition)
++{
++    if (!rData.mbHstOwnerDraw || ePosition != ToolBoxTextPosition::Right)
++        return rText;
++    return rText.replaceAll(u"/\n", u"/").replace('\n', ' ');
++}
++
+ // HST Office: how the ribbon draws a button at the approved mockup's geometry (HstRibbonGeometry.hxx): Large for
+ // an image above its label (L), Small for an image with its label on the right or alone (M, S); None for every
+ // other toolbox, item window and text-only button, drawn as before.
+@@ -1650,7 +1659,7 @@ bool ToolBox::ImplCalcItem()
+                     else
+                     {
+                         // we're drawing images and text
+-                        item.maItemSize.setWidth( bText ? GetOutDev()->GetCtrlTextWidth( item.maText )+TB_TEXTOFFSET : 0 );
++                        item.maItemSize.setWidth( bText ? GetOutDev()->GetCtrlTextWidth( ImplHstOneLine( *mpData, item.maText, meTextPosition ) )+TB_TEXTOFFSET : 0 );
+                         item.maItemSize.setHeight( bText ? GetTextHeight() : 0 );
+                         const OUString aHstLabel = bText ? ImplHstLabel(*this, *mpData, item.maText, meTextPosition)
+                                                          : item.maText;
+@@ -2635,6 +2644,26 @@ void ToolBox::ImplFormat( bool bResize )
+             item.maRect = item.maCalcRect;
+     }
+ 
++    // HST Office: the only button of a v3 ribbon toolbox fills the toolbox's width (HstSetStretch)
++    if ( mpData->mbHstStretch && mbHorz && !ImplIsFloatingMode() )
++    {
++        ImplToolItem* pOnly = nullptr;
++        int nButtons = 0;
++        for (auto & item : mpData->m_aItems)
++            if ( item.mbVisible && item.meType == ToolBoxItemType::BUTTON && !item.mpWindow )
++            {
++                pOnly = &item;
++                ++nButtons;
++            }
++        const tools::Long nRight = mnDX - mnRightBorder;
++        if ( nButtons == 1 && !pOnly->maRect.IsEmpty() && nRight > pOnly->maRect.Right() + 1 )
++        {
++            pOnly->maRect.SetRight( nRight - 1 );
++            pOnly->maCalcRect = pOnly->maRect;
++            Invalidate();
++        }
++    }
++
+     // indicate formatting is done
+     mbFormat = false;
+ }
+@@ -3018,7 +3047,8 @@ void ToolBox::ImplDrawItem(vcl::RenderCo
+             const tools::Long nX = nImageOffX + aImageSize.Width()
+                                    + hst::ribbon::geometry::px(hst::ribbon::geometry::SMALL_ICON_GAP, fHstScale);
+             const tools::Long nY = pItem->maRect.Top() + (aBtnSize.Height() - GetTextHeight()) / 2;
+-            rRenderContext.DrawCtrlText(Point(nX, nY), pItem->maText, 0, pItem->maText.getLength(), nHstTextStyle);
++            const OUString aLine = ImplHstOneLine(*mpData, pItem->maText, meTextPosition);
++            rRenderContext.DrawCtrlText(Point(nX, nY), aLine, 0, aLine.getLength(), nHstTextStyle);
+         }
+         else
+         {
+@@ -4221,6 +4251,14 @@ void ToolBox::HstSetLauncher( bool bLaun
+     ImplInvalidate( true );
+ }
+ 
++void ToolBox::HstSetStretch( bool bStretch )
++{
++    if ( mpData->mbHstStretch == bStretch )
++        return;
++    mpData->mbHstStretch = bStretch;
++    ImplInvalidate( false );
++}
++
+ void ToolBox::HstSetGridRows( int nRows )
+ {
+     if ( mpData->mnHstGridRows == nRows )
