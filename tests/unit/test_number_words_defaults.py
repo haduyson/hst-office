@@ -8,6 +8,7 @@ import xml.etree.ElementTree as ET
 from unittest import mock
 
 import _paths  # noqa: F401
+import uno_stubs  # noqa: F401 - before the hst_office imports
 
 from hst_office import number_words as nw
 from hst_office import number_words_defaults as defaults
