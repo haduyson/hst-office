@@ -1,0 +1,34 @@
+HST Office: copying cells under a chart no longer crashes HST Sheets.
+
+hst-sheets-default-font-size.patch gives a new workbook Excel's 11 pt and sizes its empty rows in
+ScDocShell::InitNew, for every shell whose medium has no name. A copy or cut of cells that hold a chart or
+another OLE object wraps the clipboard document in such a shell (ScTransferObj::SetDrawClipDoc); that
+document has no sheet yet, and sizing its rows crashed in ScDocument::SetOptimalHeight (Ctrl+C or Ctrl+X over
+a chart in a new workbook; upstream testTdf124818). Clipboard documents are no longer treated as new
+workbooks, and rows are sized only when the first sheet exists.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: make CppunitTest_sc_uicalc2 (testTdf124818).
+---
+--- a/sc/source/ui/docshell/docsh2.cxx
++++ b/sc/source/ui/docshell/docsh2.cxx
+@@ -63,7 +63,9 @@ bool ScDocShell::InitNew( const uno::Reference < embed::XStorage >& xStor )
+     // InitOptions sets the document languages, must be called before CreateStandardStyles
+     InitOptions(false);
+ 
+-    const bool bNewWorkbook = GetMedium() && GetMedium()->GetName().isEmpty();
++    // HST Office: not the clipboard document that a copy of a chart or other OLE object wraps in a shell
++    // (ScTransferObj::SetDrawClipDoc): it has no sheet whose rows could be sized.
++    const bool bNewWorkbook = GetMedium() && GetMedium()->GetName().isEmpty() && !m_pDocument->IsClipboard();
+ 
+     if (ScStyleSheetPool* pStyleSheetPool = m_pDocument->GetStyleSheetPool())
+     {
+@@ -104,7 +106,7 @@ bool ScDocShell::InitNew( const uno::Reference < embed::XStorage >& xStor )
+     CalcOutputFactor();
+ 
+     // HST: the empty rows follow the default style's size, as a change of that style makes them do.
+-    if (bNewWorkbook)
++    if (bNewWorkbook && m_pDocument->HasTable(0))
+         AdjustRowHeight(0, m_pDocument->MaxRow(), 0);
+ 
+     return bRet;

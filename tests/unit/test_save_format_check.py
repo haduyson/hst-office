@@ -2,11 +2,13 @@
 """The warning before a Sheets document with HST functions is saved as .xlsx/.xls: rules, remembered answer, the
 answer given to the core save code, and that the open document is only read."""
 import os
+import types
 import unittest
 import xml.etree.ElementTree as ET
 from unittest import mock
 
 import _paths  # noqa: F401
+import uno_stubs  # noqa: F401 - before the hst_office imports
 
 from hst_office import save_format_check as check_module
 from hst_office import save_format_dialog as dialog
@@ -120,8 +122,11 @@ class Check(unittest.TestCase):
             store.save.assert_not_called()
 
     def test_service_answers_named_values_and_never_blocks(self):
-        import uno  # noqa: F401 - the service module needs the UNO runtime types
-        values = check_module.to_uno(rules.answer(rules.CONVERT))
+        import uno
+        struct = mock.Mock(side_effect=lambda name: types.SimpleNamespace(Name=None, Value=None))
+        with mock.patch.object(uno, "createUnoStruct", struct):  # the real runtime or the stub alike
+            values = check_module.to_uno(rules.answer(rules.CONVERT))
+        self.assertEqual({call.args for call in struct.call_args_list}, {("com.sun.star.beans.NamedValue",)})
         self.assertEqual([(v.Name, v.Value) for v in values],
                          [("Proceed", True), ("ValueFunctions", rules.value_functions())])
         self.assertIs(check_module.to_uno(False), False)
