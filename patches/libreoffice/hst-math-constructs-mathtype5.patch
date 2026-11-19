@@ -552,10 +552,10 @@ index 0000000..f9f276e
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
 new file mode 100644
-index 0000000..cca8454
+index 0000000..9d466f9
 --- /dev/null
 +++ b/starmath/qa/cppunit/test_hst_mathtype_textarrow.cxx
-@@ -0,0 +1,273 @@
+@@ -0,0 +1,277 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -791,6 +791,10 @@ index 0000000..cca8454
 +        starmath::hst::JoinArrowPile(aText, 1);
 +        CPPUNIT_ASSERT_EQUAL(u"A {t rSup { size 8{o} } } xrightleftarrows { ital \"x{t\"} "_ustr,
 +                             aText.makeStringAndClear());
++        // an empty lower label: the left arrow template reads as the plain arrow
++        aText.append(u"A stack {\n {{p} xrightarrow {}}  {} # \n leftarrow  {} \n} "_ustr);
++        starmath::hst::JoinArrowPile(aText, 1);
++        CPPUNIT_ASSERT_EQUAL(u"A {p} xrightleftarrows {} "_ustr, aText.makeStringAndClear());
 +        // any other pile stays a stack
 +        const OUString aOther(u"A stack {\n {a} # \n {{} xleftarrow {b}}  {} \n} "_ustr);
 +        aText.append(aOther);
@@ -1572,10 +1576,10 @@ index 0000000..9f04d1d
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/source/hst/mathtypetextarrow.cxx b/starmath/source/hst/mathtypetextarrow.cxx
 new file mode 100644
-index 0000000..00985e5
+index 0000000..7a8a5eb
 --- /dev/null
 +++ b/starmath/source/hst/mathtypetextarrow.cxx
-@@ -0,0 +1,274 @@
+@@ -0,0 +1,281 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1816,10 +1820,17 @@ index 0000000..00985e5
 +    size_t m_nPos = 0;
 +};
 +
-+/// The label of one pile line, "{{label} xrightarrow {}}" (bOver) or "{{} xleftarrow {label}}"
++/// The label of one pile line, "{{label} xrightarrow {}}" (bOver) or "{{} xleftarrow {label}}";
++/// an arrow template with an empty label reads as the plain arrow ("leftarrow")
 +bool ArrowLine(TextReader& rPile, bool bOver, std::u16string_view& rLabel)
 +{
 +    std::u16string_view aLine, aOver, aUnder;
++    if (rPile.Word(bOver ? u"rightarrow " : u"leftarrow "))
++    {
++        rLabel = {};
++        rPile.SkipEmptyGroups();
++        return true;
++    }
 +    if (!rPile.Group(aLine))
 +        return false;
 +    TextReader aArrow(aLine);
