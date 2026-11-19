@@ -1,0 +1,337 @@
+HST Office: opening a very large Writer file gives no hint that it may take long or not open at
+all on a 16 GB machine. When a .docx, .doc or .odt over 100 MB opens editable and visible, a
+warning bar names its size and the limits, with [Close]. Hidden, read-only, preview and embedded
+loads get no bar; it shows once per document per session
+(sw/source/uibase/hst/largedocwarning.cxx). HST_LARGE_DOCUMENT_BYTES lowers the limit for tests.
+
+--- a/sw/CppunitTest_sw_uibase_docvw.mk
++++ b/sw/CppunitTest_sw_uibase_docvw.mk
+@@ -15,6 +15,7 @@
+ 
+ $(eval $(call gb_CppunitTest_add_exception_objects,sw_uibase_docvw, \
+     sw/qa/uibase/docvw/docvw \
++    sw/qa/uibase/hst/largedocwarning \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,sw_uibase_docvw, \
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -793,6 +793,7 @@
+     sw/source/uibase/uiview/viewsrch \
+     sw/source/uibase/uiview/viewstat \
+     sw/source/uibase/uiview/viewtab \
++    sw/source/uibase/hst/largedocwarning \
+     sw/source/uibase/uno/SwXDocumentSettings \
+     sw/source/uibase/uno/SwXFilterOptions \
+     sw/source/uibase/uno/dlelstnr \
+--- a/sw/qa/uibase/hst/largedocwarning.cxx
++++ b/sw/qa/uibase/hst/largedocwarning.cxx
+@@ -0,0 +1,88 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <comphelper/propertyvalue.hxx>
++#include <osl/process.h>
++#include <sfx2/viewfrm.hxx>
++#include <vcl/scheduler.hxx>
++
++#include <docsh.hxx>
++#include <view.hxx>
++
++namespace
++{
++/// The warning bar for very large Writer files. The fixture is small: the tests lower the limit
++/// (HST_LARGE_DOCUMENT_BYTES) instead of storing a 100 MB file.
++class HstLargeDocWarningTest : public SwModelTestBase
++{
++public:
++    HstLargeDocWarningTest()
++        : SwModelTestBase(u"/sw/qa/uibase/uiview/data/"_ustr)
++    {
++    }
++
++    void tearDown() override
++    {
++        osl_clearEnvironment(u"HST_LARGE_DOCUMENT_BYTES"_ustr.pData);
++        SwModelTestBase::tearDown();
++    }
++
++    static void lowerLimit()
++    {
++        osl_setEnvironment(u"HST_LARGE_DOCUMENT_BYTES"_ustr.pData, u"1"_ustr.pData);
++    }
++
++    void open(bool bReadOnly = false, bool bHidden = false)
++    {
++        loadFromFile(u"editinsection.odt",
++                     { comphelper::makePropertyValue(u"Hidden"_ustr, bHidden),
++                       comphelper::makePropertyValue(u"ReadOnly"_ustr, bReadOnly) });
++    }
++
++    bool hasWarning()
++    {
++        Scheduler::ProcessEventsToIdle(); // the bar comes once the document has opened
++        SwView* pView = getSwDocShell()->GetView();
++        CPPUNIT_ASSERT(pView);
++        return pView->GetViewFrame().HasInfoBarWithID(u"hst-large-document");
++    }
++};
++}
++
++CPPUNIT_TEST_FIXTURE(HstLargeDocWarningTest, testShownAboveLimit)
++{
++    lowerLimit();
++    open();
++    CPPUNIT_ASSERT(hasWarning());
++}
++
++CPPUNIT_TEST_FIXTURE(HstLargeDocWarningTest, testNotShownBelowLimit)
++{
++    // the real limit, 100 MB
++    open();
++    CPPUNIT_ASSERT(!hasWarning());
++}
++
++CPPUNIT_TEST_FIXTURE(HstLargeDocWarningTest, testNotShownReadOnly)
++{
++    lowerLimit();
++    open(true);
++    CPPUNIT_ASSERT(getSwDocShell()->IsReadOnly());
++    CPPUNIT_ASSERT(!hasWarning());
++}
++
++CPPUNIT_TEST_FIXTURE(HstLargeDocWarningTest, testNotShownHidden)
++{
++    // a background load (mail merge, a script, a conversion) has no user to show the bar to
++    lowerLimit();
++    open(false, true);
++    CPPUNIT_ASSERT(!hasWarning());
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/hst/largedocwarning.cxx
++++ b/sw/source/uibase/hst/largedocwarning.cxx
+@@ -0,0 +1,172 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <hstlargedocwarning.hxx>
++
++#include <com/sun/star/frame/XModel3.hpp>
++#include <comphelper/lok.hxx>
++#include <cppuhelper/weakref.hxx>
++#include <i18nlangtag/languagetag.hxx>
++#include <osl/file.hxx>
++#include <osl/process.h>
++#include <sfx2/docfile.hxx>
++#include <sfx2/infobar.hxx>
++#include <sfx2/sfxsids.hrc>
++#include <sfx2/viewfrm.hxx>
++#include <svl/eitem.hxx>
++#include <tools/urlobj.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/weld/Button.hxx>
++
++#include <docsh.hxx>
++#include <view.hxx>
++
++#include <memory>
++#include <vector>
++
++using namespace css;
++
++namespace hst::largedoc
++{
++namespace
++{
++constexpr OUString WARNING_BAR_ID = u"hst-large-document"_ustr;
++constexpr sal_uInt64 LIMIT_BYTES = sal_uInt64(100) * 1024 * 1024;
++
++sal_uInt64 Limit()
++{
++    // the tests open small files: they lower the limit instead of storing 100 MB
++    OUString aValue;
++    if (osl_getEnvironment(u"HST_LARGE_DOCUMENT_BYTES"_ustr.pData, &aValue.pData)
++            == osl_Process_E_None
++        && !aValue.isEmpty())
++        return aValue.toUInt64();
++    return LIMIT_BYTES;
++}
++
++/// Documents that showed the bar in this session (kept alive on purpose: no destruction at exit)
++bool FirstTime(const uno::Reference<uno::XInterface>& xModel)
++{
++    static auto* pShown = new std::vector<uno::WeakReferenceHelper>;
++    std::erase_if(*pShown, [](const uno::WeakReferenceHelper& r) { return !r.get().is(); });
++    for (const auto& r : *pShown)
++        if (r.get() == xModel)
++            return false;
++    pShown->emplace_back(xModel);
++    return true;
++}
++
++/// Size of the opened file in bytes, 0 when it is not a local .docx, .doc or .odt file
++sal_uInt64 FileSize(const SfxMedium& rMedium)
++{
++    const INetURLObject aURL(rMedium.GetName());
++    if (aURL.GetProtocol() != INetProtocol::File)
++        return 0;
++    const OUString aExtension = aURL.getExtension().toAsciiLowerCase();
++    if (aExtension != "docx" && aExtension != "doc" && aExtension != "odt")
++        return 0;
++    osl::DirectoryItem aItem;
++    osl::FileStatus aStatus(osl_FileStatus_Mask_FileSize);
++    if (osl::DirectoryItem::get(rMedium.GetName(), aItem) != osl::FileBase::E_None
++        || aItem.getFileStatus(aStatus) != osl::FileBase::E_None)
++        return 0;
++    return aStatus.getFileSize();
++}
++
++bool FrameAlive(const SfxViewFrame* pFrame)
++{
++    for (SfxViewFrame* p = SfxViewFrame::GetFirst(nullptr, false); p;
++         p = SfxViewFrame::GetNext(*p, nullptr, false))
++        if (p == pFrame)
++            return true;
++    return false;
++}
++
++void CloseLater(void* pFrame, void*)
++{
++    if (FrameAlive(static_cast<SfxViewFrame*>(pFrame)))
++        static_cast<SfxViewFrame*>(pFrame)->RemoveInfoBar(WARNING_BAR_ID);
++}
++
++// acts after the click handler has returned: the bar (and the button) goes away
++void CloseClicked(void* pFrame, weld::Button&)
++{
++    Application::PostUserEvent(LINK_NONMEMBER(pFrame, CloseLater));
++}
++
++void Show(SwView& rView)
++{
++    SwDocShell* pDocShell = rView.GetDocShell();
++    if (!pDocShell || pDocShell->IsReadOnly() || pDocShell->IsPreview()
++        || pDocShell->GetCreateMode() != SfxObjectCreateMode::STANDARD)
++        return;
++    // No bar without a user to see it. Background loads open hidden: soffice --convert-to and
++    // --print-to (also read-only), mail merge working documents, scripts and API conversions.
++    const SfxMedium* pMedium = pDocShell->GetMedium();
++    if (!pMedium)
++        return;
++    const SfxBoolItem* pHidden = pMedium->GetItemSet().GetItemIfSet(SID_HIDDEN, false);
++    if (pHidden && pHidden->GetValue())
++        return;
++    const sal_uInt64 nBytes = FileSize(*pMedium);
++    if (nBytes == 0 || nBytes <= Limit())
++        return;
++    const uno::Reference<uno::XInterface> xModel(pDocShell->GetModel(), uno::UNO_QUERY);
++    if (!xModel.is() || !FirstTime(xModel))
++        return;
++
++    SfxViewFrame& rFrame = rView.GetViewFrame();
++    const sal_uInt16 nId = SfxInfoBarContainerChild::GetChildWindowId();
++    if (!rFrame.HasChildWindow(nId))
++        rFrame.ToggleChildWindow(nId);
++    const bool bVi = Application::GetSettings().GetUILanguageTag().getLanguage() == "vi";
++    const OUString aMegabytes = OUString::number((nBytes + 512 * 1024) / (1024 * 1024));
++    const OUString aMessage
++        = (bVi ? u"Tệp rất lớn (%N MB). HST Office có thể mở chậm và dùng nhiều bộ nhớ; tệp chữ "
++                 "thuần trên 200 MB có thể không mở được với 16 GB RAM."_ustr
++               : u"This file is very large (%N MB). HST Office may open it slowly and use a lot of "
++                 "memory; text-only files over 200 MB may not open with 16 GB of RAM."_ustr)
++              .replaceFirst("%N", aMegabytes);
++    VclPtr<SfxInfoBarWindow> pBar
++        = rFrame.AppendInfoBar(WARNING_BAR_ID, OUString(), aMessage, InfobarType::WARNING, false);
++    if (!pBar)
++        return;
++    weld::Button& rClose = pBar->addButton();
++    rClose.set_label(bVi ? u"Đóng"_ustr : u"Close"_ustr);
++    rClose.connect_clicked(LINK_NONMEMBER(static_cast<void*>(&rFrame), CloseClicked));
++}
++
++void ShowLater(void* pModel, void*)
++{
++    std::unique_ptr<uno::WeakReferenceHelper> pWeak(
++        static_cast<uno::WeakReferenceHelper*>(pModel));
++    const uno::Reference<uno::XInterface> xModel = pWeak->get();
++    auto* pDocShell = xModel.is()
++                          ? dynamic_cast<SwDocShell*>(SfxObjectShell::GetShellFromComponent(xModel))
++                          : nullptr;
++    if (pDocShell && pDocShell->GetView())
++        Show(*pDocShell->GetView());
++}
++}
++
++void ScheduleWarning(const SwView& rView)
++{
++    if (comphelper::LibreOfficeKit::isActive())
++        return;
++    const SwDocShell* pDocShell = rView.GetDocShell();
++    if (!pDocShell || !pDocShell->GetModel().is())
++        return;
++    // the view is built while the document opens; the frame shows infobars once it has opened
++    Application::PostUserEvent(LINK_NONMEMBER(
++        static_cast<void*>(new uno::WeakReferenceHelper(
++            uno::Reference<uno::XInterface>(pDocShell->GetModel(), uno::UNO_QUERY))),
++        ShowLater));
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/inc/hstlargedocwarning.hxx
++++ b/sw/source/uibase/inc/hstlargedocwarning.hxx
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++class SwView;
++
++/// The warning bar a very large Writer file (.docx, .doc, .odt over 100 MB) shows when it opens:
++/// it may open slowly and use much memory; text-only files over 200 MB may not open with 16 GB.
++namespace hst::largedoc
++{
++/// After the document has opened: shows the bar in rView's frame when the opened file is larger
++/// than the limit, the document is editable and visible, and it has not shown the bar in this
++/// session. The environment variable HST_LARGE_DOCUMENT_BYTES overrides the limit (tests).
++void ScheduleWarning(const SwView& rView);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/uiview/view.cxx
++++ b/sw/source/uibase/uiview/view.cxx
+@@ -75,6 +75,7 @@
+ #include <gloshdl.hxx>
+ #include <usrpref.hxx>
+ #include <srcview.hxx>
++#include <hstlargedocwarning.hxx>
+ #include <doc.hxx>
+ #include <IDocumentUndoRedo.hxx>
+ #include <IDocumentSettingAccess.hxx>
+@@ -1140,6 +1141,9 @@
+     if (bOldModifyFlag)
+         rDocSh.EnableSetModified();
+     InvalidateBorder();
++    // HST Office: warn about very large files (sw/source/uibase/hst/largedocwarning.cxx)
++    if (!bFuzzing)
++        hst::largedoc::ScheduleWarning(*this);
+ 
+     if (!bFuzzing)
+     {
