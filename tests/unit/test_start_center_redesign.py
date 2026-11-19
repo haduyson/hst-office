@@ -13,7 +13,7 @@ from _paths import ROOT
 from patch_sections import added, po_entries, sections
 
 PATCH = "hst-start-center-redesign.patch"
-UI = "sfx2/uiconfig/ui/hststartcenter.ui"
+UIS = ("sfx2/uiconfig/ui/hststartcentersearch.ui", "sfx2/uiconfig/ui/hststartcenterbanner.ui")
 WINDOW = "sfx2/source/startcenter/hststartcenterwindow.cxx"
 ICONS = "sfx2/source/startcenter/hststartcentericons.cxx"
 LOGOS = "sfx2/source/startcenter/hststartcenterlogos.cxx"
@@ -46,15 +46,26 @@ def decode(literal):
 class StartCenterRedesignTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ui_text = added(PATCH, UI)
-        cls.ui = ET.fromstring(cls.ui_text.encode("utf-8"))
+        cls.ui_texts = [added(PATCH, path) for path in UIS]
+        cls.ui_text = "\n".join(cls.ui_texts)
+        cls.uis = [ET.fromstring(text.encode("utf-8")) for text in cls.ui_texts]
         cls.po = po_entries(added(PATCH, PO))
         cls.hrc = dict((name, (context, english)) for name, context, english in re.findall(
             r'#define (STR_HST_SC_\w+)\s+NC_\("([^"]+)", "([^"]*)"\)', added(PATCH, HRC)))
         cls.window = added(PATCH, WINDOW)
 
     def ids(self):
-        return [o.get("id") for o in self.ui.iter("object") if o.get("id")]
+        return [o.get("id") for ui in self.uis for o in ui.iter("object") if o.get("id")]
+
+    def test_one_toplevel_per_ui_file(self):
+        # VclBuilder (Windows, macOS) builds every toplevel of a .ui into the window that asks for one: the search
+        # entry and the banner each have their own file, and each host opens its own
+        for path, ui in zip(UIS, self.uis):
+            self.assertEqual(1, len(ui.findall("object")), path)
+        for path, toplevel in zip(UIS, ("SearchBox", "BannerBox")):
+            self.assertEqual(toplevel, self.uis[UIS.index(path)].find("object").get("id"))
+            self.assertIn('u"sfx/ui/%s"_ustr, u"%s"_ustr' % (os.path.basename(path), toplevel), self.window)
+        self.assertNotIn("hststartcenter.ui", self.window)
 
     def test_series_position(self):
         with open(SERIES, encoding="utf-8") as handle:

@@ -10,8 +10,9 @@ Per theme (the office's own appearance, set in a fresh profile, the office start
 of check-start-center-redesign.py are the recent ones, two of them pinned. For each display mode the Start Center
 window is maximised, the screen is saved as <out>\\shots\\start-center-<theme>-<label>-<mode>.png and the boxes of its
 accessible regions and items (screen pixels) go to <out>\\collected-<label>.json. Checks there: the scaling is the
-label, the Start Center is shown, the solutions region holds its cards, every item lies inside the Start Center (it
-fits without scrolling) and no scroll bar shows. The display mode is put back at the end.
+label, the Start Center is shown, the solutions region holds its six cards and the link to more, every item lies
+inside the Start Center (it fits without scrolling; only noted when the window is shorter than the 674 logical px of a
+maximised window on a 1366 x 768 screen) and no scroll bar shows. The display mode is put back at the end.
 
 Judge (Linux, with Pillow), for every collected shot: the solutions heading above the first card is one line.
   python3 tests/runtime/collect-windows-start-center.py --judge DIR
@@ -28,7 +29,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 
 HEADINGS = ("HASON TECH - Giải pháp chuyển đổi số", "HASON TECH - Digital solutions")
-MIN_CARDS = 5
+CARDS = 7  # the six solution cards and the link to more solutions
+FIT_FROM = 674  # logical px: what a maximised window of a 1366 x 768 screen keeps at 100 %
 
 
 def _const(group, name):
@@ -94,7 +96,7 @@ def inside(box, outer, slack=1):
     return x >= ox - slack and y >= oy - slack and x + w <= ox + ow + slack and y + h <= oy + oh + slack
 
 
-def verdict(case, found, res):
+def verdict(case, found, res, scale):
     """The Start Center's own checks on the collected nodes; the cards' boxes for the judge."""
     heading = next((n for n in found if n["role"] == "PANEL" and n["name"] in HEADINGS), None)
     if not res(f"[{case}] solutions region named", heading is not None, sorted({n["name"] for n in found
@@ -103,12 +105,17 @@ def verdict(case, found, res):
     start = found.index(heading)
     end = next((i for i in range(start + 1, len(found)) if found[i]["depth"] <= heading["depth"]), len(found))
     cards = [n for n in found[start + 1:end] if n["role"] == "PUSH_BUTTON" and n["box"][2] > 0]
-    res(f"[{case}] solution cards", len(cards) >= MIN_CARDS, [n["name"] for n in cards])
     canvas = max((n for n in found if n["role"] == "PANEL"), key=lambda n: n["box"][2] * n["box"][3])
     items = [n for n in found if n["role"] in ("PUSH_BUTTON", "LIST_ITEM") and n["box"][2] > 0 and n["box"][3] > 0]
     outside = [(n["name"], n["box"]) for n in items if not inside(n["box"], canvas["box"])]
-    res(f"[{case}] every item fits in the Start Center (no scrolling)", not outside and len(items) > MIN_CARDS,
-        outside or f"{len(items)} items in {canvas['box']}")
+    checks = [(f"[{case}] solution cards and the link to more", len(cards) == CARDS, [n["name"] for n in cards]),
+              (f"[{case}] every item fits in the Start Center (no scrolling)", not outside,
+               outside or f"{len(items)} items in {canvas['box']}")]
+    for name, ok, detail in checks:
+        if canvas["box"][3] * 100 / scale >= FIT_FROM:
+            res(name, ok, detail)
+        else:  # shorter than a maximised window of a 1366 x 768 screen at 100 %: the left column may scroll
+            res.note(name, detail)
     bars = [n["box"] for n in found if n["role"] == "SCROLL_BAR"]
     res(f"[{case}] no scroll bar", not bars, bars)
     return [n["box"] for n in cards]
@@ -164,7 +171,7 @@ def collect_theme(theme, args, res, collected, mods):
             shot = os.path.join(args.out, "shots", f"start-center-{case}.png")
             wg.screenshot(shot, cursor=False)
             found = nodes(window)
-            cards = verdict(case, found, res)
+            cards = verdict(case, found, res, int(args.label))
             collected[case] = dict(shot=os.path.basename(shot), window=[where.X, where.Y, size.Width, size.Height],
                                    cards=cards, nodes=found)
     finally:
