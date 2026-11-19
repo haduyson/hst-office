@@ -54,6 +54,8 @@ def main():
     parser.add_argument("--shot", help="screenshot command with {} for the file")
     parser.add_argument("--dark", action="store_true")
     parser.add_argument("--apps", default="swriter,scalc")
+    parser.add_argument("--open-list-at", help="x,y of the printer list on the screen: drop it down for a last "
+                        "screenshot with every dot (xdotool)")
     args = parser.parse_args()
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
@@ -68,6 +70,7 @@ def main():
             doc = CB.load(office, app)
             office.close_welcome()
             office.ui.executeCommandForProvider(".uno:Print", doc.getCurrentController().getFrame())
+            CB.FRAME[:] = [doc.getCurrentController().getFrame()]
             printers = CB.panel_button(office, "printersbox")
             check(printers is not None, f"{app}: the Print page shows its printer list")
             if printers is None:
@@ -85,6 +88,13 @@ def main():
                         break
                 check(status.startswith(text), f"{app}: {name}: status {status!r}")
                 shot(f"{app}-printer-{index + 1}-{PRINTERS[name][0]}-{tag}.png")
+            if args.open_list_at:
+                x, y = args.open_list_at.split(",")
+                subprocess.run(["xdotool", "mousemove", x, y, "click", "1"], check=False)
+                time.sleep(2)
+                shot(f"{app}-printer-list-{tag}.png")
+                subprocess.run(["xdotool", "key", "Escape"], check=False)
+                time.sleep(1)
             office.ui.executeCommandForProvider(".uno:HSTBackstage", doc.getCurrentController().getFrame())
             doc.setModified(False)
     finally:
