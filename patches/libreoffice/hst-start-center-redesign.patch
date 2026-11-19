@@ -181,10 +181,10 @@ index 0000000..3db49e3
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/inc/startcenter/hststartcenterwindow.hxx b/sfx2/inc/startcenter/hststartcenterwindow.hxx
 new file mode 100644
-index 0000000..d0b33f5
+index 0000000..1634e89
 --- /dev/null
 +++ b/sfx2/inc/startcenter/hststartcenterwindow.hxx
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,202 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -348,6 +348,7 @@ index 0000000..d0b33f5
 +    std::unique_ptr<weld::Button> mxMathButton; ///< kept for automation, not shown
 +    std::unique_ptr<weld::Button> mxBaseButton; ///< kept for automation, not shown
 +    std::unique_ptr<weld::Label> mxRecentTitle;
++    /// GTK keeps the scrolled window around a list; VCL folds it into the list (then this is null)
 +    std::unique_ptr<weld::Widget> mxRecentScroll;
 +    std::unique_ptr<weld::TreeView> mxRecentList;
 +    std::unique_ptr<weld::Label> mxRecentEmpty;
@@ -377,6 +378,8 @@ index 0000000..d0b33f5
 +    int mnHoverMenu = -1;
 +    int mnHoverTile = -1;
 +    double mfScale = 1.0;
++    weld::Widget* mpRecentFrame = nullptr; ///< what hides an empty list: its scrolled window, or the list
++    weld::Widget* mpPinnedFrame = nullptr;
 +    int mnLeftWidth = 0; ///< device pixels, once laid out
 +    bool mbCompact = false;
 +    bool mbShowRight = true;
@@ -767,7 +770,7 @@ index 7bddf0c..a122fb5 100644
  
 diff --git a/sfx2/source/startcenter/hststartcenterfiles.cxx b/sfx2/source/startcenter/hststartcenterfiles.cxx
 new file mode 100644
-index 0000000..f4ce57f
+index 0000000..54a0e30
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterfiles.cxx
 @@ -0,0 +1,467 @@
@@ -953,7 +956,7 @@ index 0000000..f4ce57f
 +    else
 +        mxRecentEmpty->set_label(maRecentEmptyText);
 +    mxRecentEmpty->set_visible(bEmpty);
-+    mxRecentScroll->set_visible(!bEmpty);
++    mpRecentFrame->set_visible(!bEmpty);
 +    mxRecentTitle->set_label(mbPinnedOnly ? mxPinnedTitle->get_label() : maRecentTitleText);
 +    selectRow(*mxRecentList, aKeep);
 +}
@@ -971,7 +974,7 @@ index 0000000..f4ce57f
 +    mxPinnedList->thaw();
 +    const bool bEmpty = mxPinnedList->n_children() == 0;
 +    mxPinnedEmpty->set_visible(bEmpty);
-+    mxPinnedScroll->set_visible(!bEmpty);
++    mpPinnedFrame->set_visible(!bEmpty);
 +    selectRow(*mxPinnedList, aKeep);
 +}
 +
@@ -1113,7 +1116,7 @@ index 0000000..f4ce57f
 +IMPL_LINK_NOARG(HstStartCenterWindow, SearchActivateHdl, weld::Entry&, bool)
 +{
 +    // Enter in the search box: to the first file found
-+    if (mxRecentScroll->get_visible() && mxRecentList->n_children() > 0)
++    if (mpRecentFrame->get_visible() && mxRecentList->n_children() > 0)
 +    {
 +        mxRecentList->set_cursor(0);
 +        mxRecentList->grab_focus();
@@ -1966,10 +1969,10 @@ index 0000000..dcb957f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
 new file mode 100644
-index 0000000..cf37ce6
+index 0000000..5ad762e
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
-@@ -0,0 +1,761 @@
+@@ -0,0 +1,765 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2183,6 +2186,8 @@ index 0000000..cf37ce6
 +        TOOLS_WARN_EXCEPTION("sfx.startcenter", "no desktop");
 +    }
 +
++    mpRecentFrame = mxRecentScroll ? mxRecentScroll.get() : static_cast<weld::Widget*>(mxRecentList.get());
++    mpPinnedFrame = mxPinnedScroll ? mxPinnedScroll.get() : static_cast<weld::Widget*>(mxPinnedList.get());
 +    InitMenu();
 +    InitSolutions();
 +    InitTiles();
@@ -2237,6 +2242,8 @@ index 0000000..cf37ce6
 +    mxMathButton.reset();
 +    mxBaseButton.reset();
 +    mxRecentTitle.reset();
++    mpRecentFrame = nullptr;
++    mpPinnedFrame = nullptr;
 +    mxRecentList.reset();
 +    mxRecentScroll.reset();
 +    mxRecentEmpty.reset();
@@ -2657,9 +2664,9 @@ index 0000000..cf37ce6
 +{
 +    // F6 regions: the left menu, the search box, the recent table, the pinned list
 +    std::vector<weld::Widget*> aRegions{ maMenu.front().xButton.get(), mxSearch.get() };
-+    if (mxRecentScroll->get_visible())
++    if (mpRecentFrame->get_visible())
 +        aRegions.push_back(mxRecentList.get());
-+    if (mbShowRight && mxPinnedScroll->get_visible())
++    if (mbShowRight && mpPinnedFrame->get_visible())
 +        aRegions.push_back(mxPinnedList.get());
 +    int nCurrent = -1;
 +    for (size_t i = 0; i < aRegions.size(); ++i)
