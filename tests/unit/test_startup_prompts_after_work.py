@@ -34,11 +34,14 @@ class _Arg:
 
 
 class _Model:
-    def __init__(self, modified=False, hidden=False):
-        self.modified, self.hidden = modified, hidden
+    def __init__(self, modified=False, hidden=False, url="file:///home/u/hop-dong.docx"):
+        self.modified, self.hidden, self.url = modified, hidden, url
 
     def isModified(self):
         return self.modified
+
+    def getURL(self):
+        return self.url
 
     def getArgs(self):
         return (_Arg("Hidden", True),) if self.hidden else ()
@@ -123,7 +126,7 @@ class StartedWorking(unittest.TestCase):
         self.desktop.frames.remove(self.start_center)
         self.assertTrue(activity.started_working(self.ctx, self.before))
 
-    def test_the_start_center_replaced_by_a_new_document(self):
+    def test_the_start_center_replaced_by_a_file(self):
         self.start_center.controller = _Controller(_Model())
         self.assertTrue(activity.started_working(self.ctx, self.before))
 

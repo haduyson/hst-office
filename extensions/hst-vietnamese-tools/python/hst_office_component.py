@@ -50,6 +50,9 @@ SERVICES = (
     # Trợ lý AI: org.hst.office.ai:* commands and its options page (off by default; core schema AI.xcs)
     ("ai_handler", "AiHandler", "org.hst.office.vi.AiDispatchProvider", PROTOCOL_HANDLER),
     ("ai_options", "AiOptionsHandler", "org.hst.office.vi.OptionsAI", ("org.hst.office.vi.OptionsAI",)),
+    # HST PDF started on its own (Windows shortcut, Linux launcher): "service:org.hst.office.vi.PdfOpen" on the
+    # command line opens the PDF file dialog
+    ("pdf_open", "PdfOpenJob", "org.hst.office.vi.PdfOpen", ("org.hst.office.vi.PdfOpen",)),
 )
 
 

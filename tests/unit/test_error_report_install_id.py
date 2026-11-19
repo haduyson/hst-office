@@ -120,6 +120,11 @@ class _FakeDialog:
 class DialogPreview(unittest.TestCase):
     def preview(self, kind="user", **values):
         FakeConfig(**values).patch(self)
+        # one fixed "createdAt": the preview and the payload compared with it are built at different moments, and a
+        # second may tick between them
+        clock = mock.patch.object(dialog, "utc_now", return_value="2026-11-18T04:30:00Z")
+        clock.start()
+        self.addCleanup(clock.stop)
         _FakeDialog.shown = []
         environment = (PRODUCT, OS, "vi-VN", "writer")
         with mock.patch.object(dialog.info, "environment", return_value=environment), \

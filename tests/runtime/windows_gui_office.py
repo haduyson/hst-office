@@ -43,7 +43,9 @@ class WinOffice:
         cmd = [os.path.join(self.program, "soffice.exe"), "--norestore", "-env:UserInstallation=" + self.url,
                "--accept=socket,host=127.0.0.1,port=%d;urp;" % self.port] + (["--nodefault"] if self.nodefault else [])
         log = os.path.join(self.log_dir, "soffice-%d" % self.starts)
-        self.proc = subprocess.Popen(cmd, stdout=open(log + ".out", "w"), stderr=open(log + ".err", "w"))
+        # an --accept start counts as automation, which skips the welcome and default-apps questions (automation_start)
+        env = dict(os.environ, HST_OFFICE_INTERACTIVE_START="1")
+        self.proc = subprocess.Popen(cmd, stdout=open(log + ".out", "w"), stderr=open(log + ".err", "w"), env=env)
         self.owner = processes.ProfileOwner(self.url)
         guard.register_owner(self.owner)
         self.ctx = self._connect()

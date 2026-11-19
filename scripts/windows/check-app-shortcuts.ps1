@@ -1,7 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-# Windows smoke: the shortcuts HST Writer, HST Sheets and HST Slides of hst-msi-app-desktop-shortcuts.patch.
+# Windows smoke: the shortcuts HST Writer, HST Sheets and HST Slides of hst-msi-app-desktop-shortcuts.patch and
+# HST PDF of hst-pdf-launchers.patch.
 #   -Expect installed    one of each on the desktop and in the Start menu, each opening its own app
-#                        (program\swriter.exe, scalc.exe, simpress.exe, no arguments) with its own AppUserModelID
+#                        (program\swriter.exe, scalc.exe, simpress.exe, no arguments; HST PDF: program\soffice.exe
+#                        asking for a PDF file, with HST PDF's icon) with its own AppUserModelID
 #   -Expect no-desktop   installed with CREATEDESKTOPLINK=0: the Start menu entries only, no desktop shortcut of HST Office
 #   -Expect removed      after uninstall: none of them is left on a desktop or in the Start menu
 # Every mode: no "HST Base" shortcut anywhere (hst-hide-base-launchers.patch); installed modes: .odb still opens
@@ -19,6 +21,8 @@ $apps = [ordered]@{
     'HST Writer' = @{ Exe = 'swriter.exe'; Id = 'HASONTECH.HSTOffice.Writer' }
     'HST Sheets' = @{ Exe = 'scalc.exe'; Id = 'HASONTECH.HSTOffice.Calc' }
     'HST Slides' = @{ Exe = 'simpress.exe'; Id = 'HASONTECH.HSTOffice.Impress' }
+    'HST PDF' = @{ Exe = 'soffice.exe'; Id = 'HASONTECH.HSTOffice.Pdf'; Args = '--nodefault service:org.hst.office.vi.PdfOpen'
+                   Icon = 'pdf_app.ico' }
 }
 # Per-machine installs use the public desktop and Start menu, per-user ones the user's: look in both.
 $places = [ordered]@{
@@ -53,7 +57,12 @@ foreach ($place in $places.Keys) {
         $id = $shell.NameSpace($link.DirectoryName).ParseName($link.Name).ExtendedProperty('System.AppUserModel.ID')
         Write-Host ("{0} '{1}': {2} {3} [{4}] icon {5}" -f $place, $name, $lnk.TargetPath, $lnk.Arguments, $id, $lnk.IconLocation)
         if ($lnk.TargetPath -ne $target) { Fail "$place '$name' opens $($lnk.TargetPath), expected $target" }
-        if ($lnk.Arguments) { Fail "$place '$name' passes arguments '$($lnk.Arguments)'" }
+        $wantArgs = "$($apps[$name].Args)"
+        if ($lnk.Arguments -ne $wantArgs) { Fail "$place '$name' passes arguments '$($lnk.Arguments)', expected '$wantArgs'" }
+        # an icon of its own comes from the Windows Installer icon cache (C:\Windows\Installer\{product}\pdf_app.ico)
+        if ($apps[$name].Icon -and $lnk.IconLocation -notlike "*\$($apps[$name].Icon),*") {
+            Fail "$place '$name' shows icon '$($lnk.IconLocation)', expected $($apps[$name].Icon)"
+        }
         if (-not (Test-Path -LiteralPath $lnk.TargetPath)) { Fail "$place '$name' points to a missing file" }
         if ($id -ne $apps[$name].Id) { Fail "$place '$name' has AppUserModelID '$id', expected $($apps[$name].Id)" }
     }

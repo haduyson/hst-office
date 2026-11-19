@@ -81,14 +81,16 @@ def main():
     hst_gui.setup_uno(args.instdir)
     env = dict(os.environ, DISPLAY=args.display)
 
-    def office_for(name, config, fresh=True):
+    def office_for(name, config, fresh=True, automated=False):
         home = os.path.join(os.path.abspath(out), name, "home")
+        # automated: the --accept start counts as other software's (no opt-in), as for any UNO client
+        interactive = {"HST_OFFICE_INTERACTIVE_START": "0" if automated else "1"}
         # runuser resets HOME to the build user's: hand the private HOME to soffice (and so to xdg-mime) explicitly
         office = hst_gui.Office(args.instdir, os.path.join(out, name), args.port, display=args.display,
                                 nodefault=False, welcome=True,
                                 config=[("/org.hasontech.hstoffice.DefaultApps", "Ask", "true")] + list(config),
                                 env={"HOME": home, "XDG_CONFIG_HOME": os.path.join(home, ".config"),
-                                     "XDG_DATA_HOME": os.path.join(home, ".local", "share")})
+                                     "XDG_DATA_HOME": os.path.join(home, ".local", "share"), **interactive})
         if fresh:
             shutil.rmtree(home, ignore_errors=True)  # a mimeapps.list left by an earlier run would count as answered
             apps = os.path.join(home, ".local", "share", "applications")
@@ -109,6 +111,22 @@ def main():
             subprocess.run(["xdotool", "key", item], env=env, check=False, timeout=10)
             time.sleep(0.4)
 
+    # 0. a new user's profile, started by other software (a UNO client): neither the welcome nor the question; both
+    #    wait for the start by a person
+    office, home = office_for("automated", [("/org.hasontech.hstoffice.Welcome", "Shown", "false")], automated=True)
+    try:
+        seen = watch(office, 25)
+        check("automated start: no welcome dialog, no default-apps question",
+              not any(WELCOME.search(n) for n in seen) and QUESTION_TITLE not in seen, seen)
+    finally:
+        office.stop()
+    office, home = office_for("automated", [], fresh=False)
+    try:
+        seen = watch(office, 25)
+        check("the next start by a person: the welcome dialog is shown", any(WELCOME.search(n) for n in seen), seen)
+        office.close_welcome()
+    finally:
+        office.stop()
     # 1. a new user: the welcome dialog only, no second question in the same start
     office, home = office_for("first", [("/org.hasontech.hstoffice.Welcome", "Shown", "false")])
     try:

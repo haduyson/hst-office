@@ -30,9 +30,18 @@ NOW = 2_000_000_000
 
 
 class Order(unittest.TestCase):
-    def test_order_is_mac_move_profile_crash_welcome_default_apps_update(self):
-        self.assertEqual(sp.ORDER, ("mac_move", "profile_repaired", "crash", "welcome", "default_apps",
-                                    "update_outcome"))
+    def test_order_is_mac_move_profile_crash_welcome_launchers_default_apps_update(self):
+        self.assertEqual(sp.ORDER, ("mac_move", "profile_repaired", "crash", "welcome", "mac_launchers",
+                                    "default_apps", "update_outcome"))
+
+    def test_launchers_are_synced_before_the_questions_even_when_one_is_shown(self):
+        calls = []
+        sp.run("ctx", [("crash", lambda: calls.append("crash") or True)], after=lambda ctx: None,
+               prepare=lambda ctx: calls.append("sync:" + ctx))
+        self.assertEqual(calls, ["sync:ctx", "crash"])
+        with mock.patch("traceback.print_exc"):  # a failing sync never blocks the questions
+            self.assertEqual(sp.run(None, [("welcome", lambda: True)], after=lambda ctx: None,
+                                    prepare=mock.Mock(side_effect=RuntimeError("disk full"))), "welcome")
 
     def chain(self, due):
         calls = []
