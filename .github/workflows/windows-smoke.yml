@@ -427,6 +427,8 @@ jobs:
           python -I -W ignore::DeprecationWarning scripts/check-msi-coexist.py --msi "$HST_MSI" | tee "$RUNNER_TEMP/out/msi-coexist-rules.txt"
           # File and MsiAssembly tables: no legacy CLI-UNO bridge, nothing installed into the .NET GAC.
           python -I -W ignore::DeprecationWarning scripts/check-msi-no-cli.py --msi "$HST_MSI" | tee "$RUNNER_TEMP/out/msi-no-cli.txt"
+          # Registry/AppSearch tables: PDF preview and thumbnail handlers on HSTOffice.Pdf and free slots only.
+          python -I -W ignore::DeprecationWarning scripts/check-msi-pdf-preview.py --msi "$HST_MSI" | tee "$RUNNER_TEMP/out/msi-pdf-preview.txt"
       - name: Download the other installer (LibreOffice, HST beta.4, beta.5 or 1.0.1)
         if: ${{ matrix.scenario != 'commands' && !startsWith(matrix.scenario, 'ui-parity') }}
         shell: bash
