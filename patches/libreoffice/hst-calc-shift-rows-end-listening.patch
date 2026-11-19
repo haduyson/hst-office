@@ -27,37 +27,6 @@ Test: CppunitTest_sc_ucalc_sharedformula testSharedFormulaWholeColumnShiftEndLis
 delete rows above 20 000 grouped whole-column lookups vs. the same lookups into a bounded range, and
 the results still follow the catalogue afterwards); tests/runtime/check-sheets-insert-row-speed.py.
 ---
---- a/sc/source/core/data/bcaslot.cxx
-+++ b/sc/source/core/data/bcaslot.cxx
-@@ -836,6 +836,10 @@
-             SCSIZE nBreak = nOff + nRowBreak;
-             ScBroadcastAreaSlot** pp = ppSlots + nOff;
-             ScBroadcastArea* pArea = nullptr;
-+            // HST Office: an area always goes into the slot of its range start first, and
-+            // StartListeningArea() looks for an existing area only there. If that slot does not
-+            // have it, no slot has; if it still has listeners, the other slots have nothing to do.
-+            auto bOtherSlotsIdle = [&pArea]() { return !pArea || pArea->GetBroadcaster().HasListeners(); };
-             if (nOff == 0 && nEnd == mnBcaSlots-1)
-             {
-                 // Slightly optimized for 0,0,MAXCOL,MAXROW calls as they
-@@ -845,6 +849,8 @@
-                 {
-                     if ( *pp )
-                         (*pp)->EndListeningArea( rRange, bGroupListening, pListener, pArea);
-+                    if (pp == ppSlots && bOtherSlotsIdle())
-+                        break;
-                 } while (++pp < pStop);
-             }
-             else
-@@ -853,6 +859,8 @@
-                 {
-                     if ( *pp )
-                         (*pp)->EndListeningArea( rRange, bGroupListening, pListener, pArea);
-+                    if (nOff == nStart && bOtherSlotsIdle())
-+                        break;
-                     ComputeNextSlot( nOff, nBreak, pp, nStart, ppSlots, nRowBreak, mnBcaSlotsCol);
-                 }
-             }
 --- a/sc/qa/unit/ucalc_sharedformula.cxx
 +++ b/sc/qa/unit/ucalc_sharedformula.cxx
 @@ -20,9 +20,12 @@
