@@ -7,6 +7,7 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "tests", "runtime"))
+import ribbon_v3_rules as R  # noqa: E402
 from ribbon_v3_rules import RULES, dump_findings, dump_summary, dump_width, summarize  # noqa: E402
 
 
@@ -311,6 +312,31 @@ class Summary(unittest.TestCase):
 
     def test_summarize_of_no_dump_has_no_banner_statistics(self):
         self.assertIsNone(summarize([])["banner"])
+
+
+class OrderRuleTest(unittest.TestCase):
+    """The groups stand left to right in the design's order."""
+
+    @staticmethod
+    def dump(ids_by_x):
+        return {"app": "draw", "groups": [{"id": g, "rect": {"x": x}} for g, x in ids_by_x]}
+
+    def test_design_order_passes(self):
+        dump = self.dump([("gdEdit", 0), ("gdPdf", 130), ("gdSign", 390)])
+        self.assertEqual(R._order(dump, [["gdEdit", "gdPdf", "gdSign", "gdHst"]]), [("order", True, "pass")])
+
+    def test_a_group_shown_first_out_of_order_fails(self):
+        dump = self.dump([("gdSign", 0), ("gdHst", 176), ("gdEdit", 268), ("gdPdf", 398)])
+        (rule, ok, detail), = R._order(dump, [["gdEdit", "gdPdf", "gdSign", "gdHst"]])
+        self.assertEqual((rule, ok), ("order", False))
+        self.assertIn("gdSign", detail)
+
+    def test_a_tab_missing_from_the_data_is_information(self):
+        self.assertEqual(R._order(self.dump([("gdOther", 0)]), [["gdEdit"]])[0][1], None)
+
+    def test_the_real_data_knows_every_app(self):
+        for app in ("writer", "calc", "impress", "draw"):
+            self.assertTrue(R._tab_orders(app), app)
 
 
 if __name__ == "__main__":

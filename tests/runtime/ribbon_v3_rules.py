@@ -6,6 +6,8 @@ device px like the rects. Each rule yields (rule, ok, detail): ok False per viol
 ok None for information. Rules 1-6 skip folded groups (state C); captions, clip and label cut cover every group.
 Pure functions, no display, no AT-SPI (tests/unit/test_ribbon_v3_rules.py).
 """
+import json
+import os
 import statistics
 
 from ribbon_mockup_rules import BANNER_MAX_W, BANNER_MIN_W, BANNER_TOP, TOLERANCE, banner_ok
@@ -17,7 +19,11 @@ GAP, SLACK = 8, 4  # the banner's gap to the last group, and the slack allowed a
 CHEVRON = 22  # the collapse chevron's own room after the last group (18 px and its 4 px inset), as in the mockup
 CLIPBOARD = "gdHomeClipboard"  # Paste (large) with one column of three icons: the only mixed group allowed
 RULES = ("body", "band", "edge", "one_size", "equal_width", "lone_col", "cols_3plus1", "banner", "elastic_fill",
-         "captions", "clip", "label_cut", "widening")
+         "captions", "clip", "label_cut", "widening", "order")
+DATA = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "ribbon",
+                    "ribbon-v3.json")
+DATA_APPS = {"writer": "writer", "calc": "sheets", "impress": "slides", "draw": "draw"}  # dump app -> data app
+_TAB_ORDERS = {}
 
 
 def _logical(rect, scale):
@@ -217,8 +223,31 @@ def _widening(dump):
                                  for i in _large_items(dump) if not _near(_width(i, scale), LARGE_W)])
 
 
+def _tab_orders(app):
+    """[[group id, ...] of every tab] of an app in the v3 data (read once)."""
+    if app not in _TAB_ORDERS:
+        with open(DATA, encoding="utf-8") as handle:
+            data = json.load(handle)
+        wanted = DATA_APPS.get(app, app)
+        _TAB_ORDERS[app] = [[g["id"] for g in t["groups"]] for a in data["apps"] if a["id"] == wanted
+                            for t in a["tabs"]]
+    return _TAB_ORDERS[app]
+
+
+def _order(dump, orders=None):
+    """The groups stand left to right in the design's order (a group without a packing position showed first)."""
+    shown = [g["id"] for g in sorted(dump["groups"], key=lambda g: g["rect"]["x"])]
+    orders = _tab_orders(dump["app"]) if orders is None else orders
+    tab = max(orders, key=lambda ids: len(set(ids) & set(shown)), default=[])
+    if not set(tab) & set(shown):
+        return [("order", None, "tab not in the data")]
+    expected = [g for g in tab if g in shown]
+    actual = [g for g in shown if g in tab]
+    return _verdict("order", [] if actual == expected else [f"groups {actual}, want {expected}"])
+
+
 _CHECKS = (_body, _band, _edge, _one_size, _equal_width, _lone_col, _cols_3plus1, _banner, _elastic, _captions,
-           _clip, _label_cut, _widening)
+           _clip, _label_cut, _widening, _order)
 
 
 def dump_findings(dump):
