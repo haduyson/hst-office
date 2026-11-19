@@ -48,6 +48,21 @@ class Office:
         self.program, self.work, self.port, self.env, self.proc, self.ctx = program, work, port, env, None, None
         self.profile = os.path.join(work, "profile")
 
+    def init_profile(self):
+        """Create the profile with a headless start before anything is seeded into it.
+
+        The first start of a new profile writes registrymodifications.xcu afresh: values seeded before it are lost,
+        the welcome dialog opens and the update pop-up (rightly) waits behind it. hst_gui does the same on Linux."""
+        path = os.path.join(self.profile, "user", "registrymodifications.xcu")
+        url = "file:///" + self.profile.replace("\\", "/")
+        for _attempt in range(2):  # a new profile may make the office restart itself once
+            if os.path.exists(path):
+                return
+            subprocess.run([os.path.join(self.program, "soffice.exe"), "-env:UserInstallation=" + url, "--headless",
+                            "--norestore", "--terminate_after_init"], env=self.env, timeout=180, check=False)
+        if not os.path.exists(path):
+            raise RuntimeError("the office did not create its profile")
+
     def start(self):
         url = "file:///" + self.profile.replace("\\", "/")
         self.proc = subprocess.Popen([os.path.join(self.program, "soffice.exe"), "-env:UserInstallation=" + url, "--norestore",

@@ -69,6 +69,7 @@ def main():
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 22196), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     office = Office(args.program, args.work, 22195, env)
+    office.init_profile()
     seed(office.profile, [("/org.hasontech.hstoffice.Welcome", "Shown", "true"),
                           ("/org.hasontech.hstoffice.DefaultApps", "Ask", "false"), (NODE, "LastCheck", "0")])
     log, started = [], time.time()
