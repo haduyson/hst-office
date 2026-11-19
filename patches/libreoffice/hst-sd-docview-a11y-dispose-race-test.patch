@@ -21,7 +21,7 @@ Test: CppunitTest_sd_a11y.
  $(eval $(call gb_CppunitTest_use_libraries,sd_a11y, \
 --- /dev/null
 +++ b/sd/qa/unit/a11y/HstDocumentViewDisposeRace.cxx
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,145 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; fill-column: 100 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -101,20 +101,29 @@ Test: CppunitTest_sd_a11y.
 +            std::this_thread::yield();
 +        // the reader is now inside the call; a correct implementation waits for the SolarMutex
 +        std::this_thread::sleep_for(std::chrono::milliseconds(300));
-+        uno::Reference<lang::XComponent>(xView, uno::UNO_QUERY_THROW)->dispose();
-+        {
-+            SolarMutexReleaser aReleaser;
-+            // Holding the view's own mutex while waiting for the SolarMutex deadlocks against
-+            // dispose(); end the process instead of hanging the test run.
-+            if (aFinished.wait_for(std::chrono::seconds(20)) != std::future_status::ready)
++        // A reader holding the view's own mutex while it waits for the SolarMutex deadlocks
++        // against dispose(), which this thread runs with the SolarMutex held: either side may be
++        // the one stuck. A separate watchdog ends the run with a message instead of hanging.
++        std::promise<void> aSequenceDone;
++        std::future<void> aSequenceFinished = aSequenceDone.get_future();
++        std::thread aWatchdog([&aSequenceFinished] {
++            if (aSequenceFinished.wait_for(std::chrono::seconds(20)) != std::future_status::ready)
 +            {
-+                std::fprintf(stderr, "HstDocumentViewDisposeRace: the call is still blocked 20 s "
-+                                     "after the SolarMutex was released: deadlock\n");
++                std::fprintf(stderr, "HstDocumentViewDisposeRace: dispose() and the waiting call "
++                                     "are still blocked after 20 s: deadlock between the view's "
++                                     "own mutex and the SolarMutex\n");
 +                std::fflush(stderr);
 +                std::_Exit(1);
 +            }
++        });
++        uno::Reference<lang::XComponent>(xView, uno::UNO_QUERY_THROW)->dispose();
++        {
++            SolarMutexReleaser aReleaser;
++            aFinished.wait();
 +            aReader.join();
 +        }
++        aSequenceDone.set_value();
++        aWatchdog.join();
 +        return bDisposed;
 +    }
 +};
