@@ -38,6 +38,8 @@ ADDED_LATER = {
     # ai.xcs of feat/features-engine-1.0.3 dfc64def080baa538abc48bdeabee602c77eca93 (AI assistant)
     "AI": ({"Enabled": "false", "Provider": "", "OpenAIModel": "", "GeminiModel": "", "ClaudeModel": ""},
            "2fd4439bf8c498c3e0677895d6759d6ec226fa56ae775d7fa4aefec33dad5bb9"),
+    # formula.xcs of feat/hst-equation-1.0.3 6855dbdf5cf66e330a8e41f3eae5fbed58805a5a (HST Công thức templates)
+    "Formula": ({"OpenTemplates": "false"}, "af981a85ac17ed0f049d16ce71d710385067bf2a9938a0f88ec42ef68731d3fc"),
 }
 HEADER_LINES = 10  # XML declaration, MPL comment (7 lines), blank line, DOCTYPE
 
