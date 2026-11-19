@@ -2394,7 +2394,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
-@@ -0,0 +1,766 @@
+@@ -0,0 +1,769 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2907,10 +2907,13 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        framedBoxes(*pItemWindow, aBoxes);
 +        for (const vcl::Window* pFramed : aBoxes)
 +        {
-+            tools::Rectangle aShown = rectIn(*pFramed, rOrigin);
++            // a framed box draws its frame in its border window; the box itself is the client inside it, whose
++            // size counts the frame while its origin does not, so the border window is the rect the box covers
++            const vcl::Window& rFrame = *pFramed->GetWindow(GetWindowType::Border);
++            tools::Rectangle aShown = rectIn(rFrame, rOrigin);
 +            const tools::Long nHeight = aShown.GetHeight();
 +            OString aBy;
-+            for (const vcl::Window* pParent = pFramed->GetParent(); pParent; pParent = pParent->GetParent())
++            for (const vcl::Window* pParent = rFrame.GetParent(); pParent; pParent = pParent->GetParent())
 +            {
 +                const tools::Long nBefore = aShown.GetHeight();
 +                aShown.Intersection(rectIn(*pParent, rOrigin));
@@ -2923,7 +2926,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            const tools::Long nShown = aShown.IsEmpty() ? 0 : aShown.GetHeight();
 +            if (nHeight - nShown > aWorst.height - aWorst.shown)
 +            {
-+                OString aChain = windowRect(*pFramed->GetWindow(GetWindowType::Border), rOrigin);
++                OString aChain = windowRect(rFrame, rOrigin);
 +                for (const vcl::Window* pUp = pFramed; pUp; pUp = pUp->GetParent())
 +                {
 +                    aChain += " < " + windowRect(*pUp, rOrigin);
