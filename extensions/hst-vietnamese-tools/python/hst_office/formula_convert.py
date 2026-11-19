@@ -82,6 +82,7 @@ def _replace_text_object(ctx, doc, old, data):
         return False
     formula_size.keep_word_scale(model, old)
     new.Size = formula_size.visual_size(new.EmbeddedObject)
+    formula_place.fit_room(model, new, old)
     formula_place.keep_room(new, old, model.BaseLine)  # the pages do not move
     old.dispose()
     return True
