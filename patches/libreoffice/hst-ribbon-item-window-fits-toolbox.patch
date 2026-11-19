@@ -4,8 +4,9 @@ On Windows at 125 % text the native boxes ask for more height than the ribbon's 
 line width and the picture's colour boxes 24-27 px, the font boxes 28 px). The toolbox centres each item
 on its line, which follows its tallest item, so a box sat 1-3 px below the toolbox's top or was taller
 than the toolbox, and the toolbox cut its bottom (a box shown 20-23 px of 24-28). A ribbon toolbox now
-places each item window inside its own height: as high as the window up to the toolbox's inner height,
-moved up just enough to end inside. Boxes keep their native drawing; nothing changes where they fit
+(owner drawn, or laid out by the v3 layout, which makes every one of its toolboxes stretch) places each
+item window inside its own height: as high as the window up to the toolbox's inner height, moved up just
+enough to end inside. Boxes keep their native drawing; nothing changes where they fit
 (100 %).
 
 - vcl/inc/HstRibbonItemFit.hxx (new, plain arithmetic, unit tested), vcl/source/window/toolbox.cxx.
@@ -58,13 +59,14 @@ moved up just enough to end inside. Boxes keep their native drawing; nothing cha
  
  #define SMALLBUTTON_HSIZE           7
  #define SMALLBUTTON_VSIZE           7
-@@ -2558,6 +2559,20 @@ void ToolBox::ImplFormat( bool bResize )
+@@ -2558,6 +2559,21 @@ void ToolBox::ImplFormat( bool bResize )
  
                          assert( item.maCalcRect.Top() >= 0 );
  
-+                        // HST Office: a ribbon toolbox shows all of an item window: at most as high as the toolbox
-+                        // and inside it (a native box of 125 % text asks for more than the row, HstRibbonItemFit.hxx)
-+                        if ( mpData->mbHstOwnerDraw && mbHorz && !ImplIsFloatingMode() )
++                        // HST Office: a ribbon toolbox (owner drawn, or one of the v3 layout's, which all stretch)
++                        // shows all of an item window: at most as high as the toolbox and inside it (a native box
++                        // of 125 % text asks for more than the row, HstRibbonItemFit.hxx)
++                        if ( ( mpData->mbHstOwnerDraw || mpData->mbHstStretch ) && mbHorz && !ImplIsFloatingMode() )
 +                        {
 +                            const hst::ribbon::ItemSpan aFit = hst::ribbon::fitItemWindow(
 +                                item.maCalcRect.Top(), item.mpWindow->GetSizePixel().Height(), mnTopBorder,

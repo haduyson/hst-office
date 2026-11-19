@@ -77,7 +77,7 @@ class ItemWindowFitTest(unittest.TestCase):
     def test_the_toolbox_places_its_item_windows_with_it(self):
         code = added(PATCH, "vcl/source/window/toolbox.cxx")
         self.assertIn("#include <HstRibbonItemFit.hxx>", code)
-        self.assertIn("if ( mpData->mbHstOwnerDraw && mbHorz && !ImplIsFloatingMode() )", code)
+        self.assertIn("if ( ( mpData->mbHstOwnerDraw || mpData->mbHstStretch ) && mbHorz && !ImplIsFloatingMode() )", code)
         self.assertIn("mnDY - mnTopBorder - mnBottomBorder", code)
         self.assertIn("aPos.setY( aFit.top );", code)
 
