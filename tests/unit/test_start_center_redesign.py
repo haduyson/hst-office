@@ -13,7 +13,7 @@ from _paths import ROOT
 from patch_sections import added, po_entries, sections
 
 PATCH = "hst-start-center-redesign.patch"
-UIS = ("sfx2/uiconfig/ui/hststartcentersearch.ui", "sfx2/uiconfig/ui/hststartcenterbanner.ui")
+UIS = ("sfx2/uiconfig/ui/hststartcentersearch.ui",)
 WINDOW = "sfx2/source/startcenter/hststartcenterwindow.cxx"
 ICONS = "sfx2/source/startcenter/hststartcentericons.cxx"
 LOGOS = "sfx2/source/startcenter/hststartcenterlogos.cxx"
@@ -59,13 +59,20 @@ class StartCenterRedesignTest(unittest.TestCase):
 
     def test_one_toplevel_per_ui_file(self):
         # VclBuilder (Windows, macOS) builds every toplevel of a .ui into the window that asks for one: the search
-        # entry and the banner each have their own file, and each host opens its own
+        # entry's file holds only it
         for path, ui in zip(UIS, self.uis):
             self.assertEqual(1, len(ui.findall("object")), path)
-        for path, toplevel in zip(UIS, ("SearchBox", "BannerBox")):
-            self.assertEqual(toplevel, self.uis[UIS.index(path)].find("object").get("id"))
-            self.assertIn('u"sfx/ui/%s"_ustr, u"%s"_ustr' % (os.path.basename(path), toplevel), self.window)
+        self.assertEqual("SearchBox", self.uis[0].find("object").get("id"))
+        self.assertIn('u"sfx/ui/hststartcentersearch.ui"_ustr, u"SearchBox"_ustr', self.window)
         self.assertNotIn("hststartcenter.ui", self.window)
+
+    def test_no_banner_in_the_start_center(self):
+        # the owner took the HASON TECH banner out of the Start Center (the ribbon and the File panel keep theirs):
+        # no banner widget, no banner .ui, nothing that fetches the feed
+        self.assertFalse([path for path in sections(PATCH) if "banner" in path])
+        for path in sections(PATCH):
+            if "/startcenter/" in path:
+                self.assertNotRegex(added(PATCH, path), r"HstBanner|BannerBox|FocusBanner|aBanner\b", path)
 
     def test_series_position(self):
         with open(SERIES, encoding="utf-8") as handle:
@@ -82,10 +89,9 @@ class StartCenterRedesignTest(unittest.TestCase):
             self.assertEqual(("hststartcenter|" + context, english), self.hrc[name])
             self.assertEqual((english, vietnamese), self.po["hststartcenter|" + context])
 
-    def test_only_search_and_banner_are_widgets(self):
+    def test_only_search_is_a_widget(self):
         # everything else is drawn by the canvas
-        self.assertEqual(["SearchBox", "search", "search-atkobject", "BannerBox", "banner", "banner-atkobject"],
-                         self.ids())
+        self.assertEqual(["SearchBox", "search", "search-atkobject"], self.ids())
 
     def test_no_shared_files_and_no_account(self):
         for name, (context, english) in self.hrc.items():
