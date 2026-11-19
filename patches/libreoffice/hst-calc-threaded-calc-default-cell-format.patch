@@ -1,0 +1,36 @@
+Calc: threaded formula group calculation builds the document's default cell format before the worker threads start.
+
+The worker threads of a threaded group calculation read cell number formats (VLOOKUP keys, cell values). A
+column without any formatted cell answers with the document's default cell format, which
+ScDocument::getCellAttributeHelper() and CellAttributeHelper::getDefaultCellAttribute() create on first use
+without any lock. A document whose cells were all set without a format (import through ScDocumentImport, API)
+reaches its first threaded calculation without them, so every worker thread tried to create them at once; one
+thread replaced the helper the others were using, which then read freed memory: crashes in
+SfxItemPool::GetUserOrPoolDefaultItem <- ScPatternAttr::GetNumberFormat, in ScDocument::getCellAttributeHelper
+and in ~ScQueryEntry, from ScInterpreter::CalculateLookup in ScColumn::CalculateInThread. The main thread now
+builds both before it starts the threads (one call next to the existing non-threaded formatter set-up).
+
+License: modified upstream file keeps its license (MPL-2.0).
+Test: CppunitTest_sc_ucalc_sharedformula testSharedFormulaWholeColumnShiftEndListening (20 000 grouped VLOOKUPs
+filled through ScDocumentImport, then CalcAll: the threaded calculation crashed before this change).
+---
+--- a/sc/source/core/data/formulacell.cxx
++++ b/sc/source/core/data/formulacell.cxx
+@@ -41,6 +41,7 @@
+ #include <rangenam.hxx>
+ #include <rangelst.hxx>
+ #include <dbdata.hxx>
++#include <patattr.hxx>
+ #include <progress.hxx>
+ #include <scmatrix.hxx>
+ #include <rechead.hxx>
+@@ -5201,6 +5202,9 @@
+         };
+ 
+         SvNumberFormatter* pNonThreadedFormatter = rDocument.GetNonThreadedContext().GetFormatTable();
++        // HST Office: the worker threads read cell formats, and a document whose cells were all set without
++        // a format (import, API) has not built its default cell format yet: build it here, not in the threads.
++        rDocument.getCellAttributeHelper().getDefaultCellAttribute();
+ 
+         comphelper::ThreadPool& rThreadPool(comphelper::ThreadPool::getSharedOptimalPool());
+         sal_Int32 nThreadCount = rThreadPool.getWorkerCount();
