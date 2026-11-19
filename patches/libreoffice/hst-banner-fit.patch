@@ -14,8 +14,17 @@ and wherever else it is shown (owner, 19/11/2026: no letterbox, no filler band, 
 - vcl HstBannerWidget: HeightForWidth (the contract of hosts that size the slot themselves, with SetArtChangedHdl);
   the drawing area asks for the artwork's height at the width it was given, so the Start Center's slot is sized to
   the image, not the image to the slot.
-- sfx2 NotebookbarTabControl: the Tabbed ribbon's banner room is unchanged (360 to 960 logical px, 96 high, 8 px
-  after the last group); the banner takes its artwork's width at the left of it.
+- sfx2 NotebookbarTabControl: the Tabbed ribbon's banner room is unchanged (360 to 960 logical px, 96 high, from
+  8 px after the last group to 8 px before the window's right edge); the banner takes its artwork's width flush
+  with the room's right end (owner, 19/11/2026), so it stands at the same place on every tab and the free room
+  between the last group and the banner is the ribbon's own background. The groups' fit is unchanged. With gtk and
+  qt only the page paints the body, and the page stops before the room: the room is now painted as the page
+  paints the body (the native tab body), so the body is one surface behind the banner instead of a step after
+  the last group.
+- vcl TabControl::Paint: for the same reason the native tab header (behind the quick access toolbar, the tab titles,
+  the search box and the menu button) ran only to the page's right end with gtk, so the later tab titles stood on
+  the tab control's own background; the ribbon's header now runs to the control's right end, one surface across
+  the window like the body.
 
 License: these upstream files remain under their original license (MPL-2.0).
 Test: tests/unit/test_banner_fit_geometry.py; tests/runtime/check-banner-fit.py.
@@ -137,20 +146,79 @@ Test: tests/unit/test_banner_fit_geometry.py; tests/runtime/check-banner-fit.py.
  /** Artwork variant (1, 2 or 3) for an image drawn nDeviceHeight device pixels high: the exact
      variant when the size matches one, else the next larger one so that it is only ever
      downscaled (high quality) and never upscaled. */
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -44,6 +44,8 @@ public:
+     virtual void dispose() override;
+     virtual void MouseButtonDown( const MouseEvent& rMEvt ) override;
+     virtual bool PreNotify( NotifyEvent& rNEvt ) override;
++    /// HST Office: the ribbon's body continues behind the banner (see HstPaintBodyBesidePage)
++    virtual void Paint( vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect ) override;
+     /// HST Office (1.0.3 ribbon): the banner is placed again once the current layout pass is over
+     void HstQueueLayout();
+ 
 --- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
 +++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
-@@ -649,7 +649,10 @@ void NotebookbarTabControl::HstLayoutBanner()
+@@ -43,6 +43,7 @@
+ #include <sfx2/sfxresid.hxx>
+ #include <sfx2/strings.hrc>
+ #include <vcl/settings.hxx>
++#include <vcl/salnativewidgets.hxx>
+ #if __has_include(<notebookbar/HstFeatureSearch.hxx>)
+ #include <notebookbar/HstFeatureSearch.hxx>
+ #include <notebookbar/HstUpdateDot.hxx>
+@@ -649,7 +650,12 @@ void NotebookbarTabControl::HstLayoutBanner()
              const tools::Long nSmallest = std::max<tools::Long>(0, nRight - nMin - nGap - aPage.x - nChevron);
              nPageWidth = std::max<tools::Long>(0, aSlot.Left() - nGap - aPage.x);
              hst::ribbon::SetPageSlack(*pPage, nSmallest - nPageWidth);
 -            m_pHstBanner->Place(aSlot);
-+            // the room is the slot above; the banner takes only its artwork's width at the room's height, at the
-+            // room's left (8 px after the last group): the rest is the ribbon's own background, no filler band
-+            m_pHstBanner->Place(aSlot, true);
++            // the room is the slot above; the banner takes only its artwork's width at the room's height, flush
++            // with the room's right end (8 px before the window's right edge, the same place on every tab): the free
++            // room between the last group and the banner is the ribbon's own background, no filler band (owner,
++            // 19/11/2026)
++            m_pHstBanner->Place(aSlot, false);
 +            // the layout dump keeps the room (the v3 rules check where the groups leave it)
              hst::ribbon::DumpPageLayout(*pPage, tools::Rectangle(Point(aSlot.Left() - aPage.x, aSlot.Top() - aPage.y),
                                                                   aSlot.GetSize()));
          }
+@@ -714,6 +720,37 @@ void NotebookbarTabControl::Resize()
+     HstLayoutBanner();
+ }
+ 
++// HST Office: the page stops before the banner's room (HstLayoutBanner), and with gtk and qt only the page paints the
++// ribbon's body (TabPage::Paint: the native tab body, white in the light themes, which is not the window colour of
++// the style settings), so the room beside it showed the tab control's own background: a step after the last group,
++// with the banner on another surface. The room is painted as the page paints the body. The other toolkits' tab
++// control paints the whole panel itself already (TabControl::Paint), in one colour.
++void NotebookbarTabControl::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect)
++{
++    NotebookbarTabControlBase::Paint(rRenderContext, rRect);
++    const OUString aToolkit = Application::GetToolkitName();
++    if (!aToolkit.startsWith("gtk") && !aToolkit.startsWith("qt") && !aToolkit.startsWith("kf"))
++        return;
++    TabPage* pPage = GetTabPage(GetCurPageId());
++    if (!m_pHstBanner || !pPage || !pPage->IsVisible() || pPage->GetSizePixel().Height() <= 0)
++        return;
++    const tools::Rectangle aPage(pPage->GetPosPixel(), pPage->GetSizePixel());
++    const tools::Rectangle aBeside(Point(aPage.Right() + 1, aPage.Top()),
++                                   Point(GetOutputSizePixel().Width() - 1, aPage.Bottom()));
++    if (aBeside.IsEmpty() || aBeside.Left() > aBeside.Right())
++        return;
++    if (rRenderContext.IsNativeControlSupported(ControlType::TabBody, ControlPart::Entire)
++        && rRenderContext.DrawNativeControl(ControlType::TabBody, ControlPart::Entire, aBeside,
++                                            IsEnabled() ? ControlState::ENABLED : ControlState::NONE,
++                                            ImplControlValue(), OUString()))
++        return;
++    rRenderContext.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    rRenderContext.SetLineColor();
++    rRenderContext.SetFillColor(rRenderContext.GetSettings().GetStyleSettings().GetWindowColor());
++    rRenderContext.DrawRect(aBeside);
++    rRenderContext.Pop();
++}
++
+ tools::Long NotebookbarTabControl::HstBannerRight() const
+ {
+     // the document window's right edge in this control's pixels (this control may stop before it: the margins of
 --- a/vcl/source/control/HstBanner.cxx
 +++ b/vcl/source/control/HstBanner.cxx
 @@ -13,6 +13,8 @@
@@ -394,3 +462,19 @@ Test: tests/unit/test_banner_fit_geometry.py; tests/runtime/check-banner-fit.py.
      if (!GetOutputSizePixel().IsEmpty())
          mxCore->Shown(true);
  }
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -1223,6 +1223,13 @@ void TabControl::Paint( vcl::RenderContext& rRenderContext, const tools::Rectang
+                 aHeaderRect.SetRight(nRight);
+             }
+         }
++        // HST Office: the ribbon's page stops before the banner's room, so the header (behind the quick access
++        // toolbar, the tab titles, the search box and the menu button) ran only to the page's right end and the later
++        // tab titles stood on another surface. The ribbon's header runs to the control's right end, as its body does
++        // (only where the header is drawn natively below; the other backends' panes take their header's width).
++        if (!bPaneWithHeader && dynamic_cast<NotebookbarTabControlBase*>(this)
++            && rRenderContext.IsNativeControlSupported(ControlType::TabHeader, ControlPart::Entire))
++            aHeaderRect.SetRight(std::max<tools::Long>(aHeaderRect.Right(), GetOutputSizePixel().Width() - 1));
+ 
+         const TabPaneValue aTabPaneValue(aHeaderRect, pCurItem ? pCurItem->maRect : tools::Rectangle());
+ 
