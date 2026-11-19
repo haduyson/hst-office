@@ -124,7 +124,7 @@ class StartCenterRedesignTest(unittest.TestCase):
         self.assertEqual("Tìm kiếm tài liệu gần đây", self.po["hststartcenter|search"][1])
         self.assertEqual("Tạo nhanh tài liệu mới", self.po["hststartcenter|quicktitle"][1])
         self.assertEqual("HASON TECH - Giải pháp chuyển đổi số", self.po["hststartcenter|solutionstitle"][1])
-        self.assertEqual("HASON TECH - Digital transformation solutions", self.po["hststartcenter|solutionstitle"][0])
+        self.assertEqual("HASON TECH - Digital solutions", self.po["hststartcenter|solutionstitle"][0])
         self.assertEqual(["Tên", "Đã mở", "Vị trí"],
                          [self.po["hststartcenter|recentcol%d" % i][1] for i in range(3)])
         self.assertEqual("Được ghim", self.po["hststartcenter|pinnedtitle"][1])
