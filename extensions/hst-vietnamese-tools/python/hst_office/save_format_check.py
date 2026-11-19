@@ -48,6 +48,9 @@ def _ask(ctx, doc, names, count, extension):
 
 def check(ctx, doc, filter_name, ask=_ask, prefs=None):
     """The answer for the core save code (True: save unchanged). Does nothing for other documents and formats."""
+    from . import formula_save_check  # formulas saved as .doc/.xls/.ppt cannot be edited in current Word
+    if not formula_save_check.check(ctx, doc, filter_name):
+        return False
     if doc is None or not doc.supportsService("com.sun.star.sheet.SpreadsheetDocument") or not is_excel_filter(filter_name):
         return True
     names, count = find_functions(doc)
