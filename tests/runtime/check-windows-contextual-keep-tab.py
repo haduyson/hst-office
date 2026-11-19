@@ -169,15 +169,16 @@ def check_kind(app, kind, doc, objects, frame, office, res, args):
 
 
 def leave_unmodified(app, doc, office):
+    """The checked document goes without a save prompt: unmodified, its controller suspended, then closed."""
     try:
         doc.setModified(False)
     except Exception as error:  # noqa: BLE001 - the office is gone
         print("setModified:", repr(error), flush=True)
     try:
-        park(app, doc, _Dispatcher(office))
-        doc.setModified(False)
-    except Exception as error:  # noqa: BLE001 - the selection stays; the document is unmodified already
-        print("park:", repr(error), flush=True)
+        doc.CurrentController.suspend(True)
+        doc.close(True)
+    except Exception as error:  # noqa: BLE001 - the quit then shows what still holds it
+        print("close:", repr(error), flush=True)
 
 
 def what_holds(office, shot):
@@ -187,6 +188,25 @@ def what_holds(office, shot):
         windows = msaa(office, "-Action", "tabs")
     except Exception as error:  # noqa: BLE001 - the screenshot stays the evidence
         windows = repr(error)
+    # a prompt answers and shows above; a hung UI thread answers nothing: then a dump of the office for its stack
+    try:
+        import windows_hang_probe as hang
+        states = hang.ui_state()
+        windows += "\nUI " + "; ".join(f"{title}: {state}" for _hwnd, title, state in states)
+        if any(state == "hung" for _hwnd, _title, state in states):
+            dump = os.path.splitext(shot)[0] + ".dmp"
+            pid = office.bin_pids_of_profile()[0]
+            windows += f"\nDUMP {dump}: {hang.write_minidump(pid, dump)}"
+            program = getattr(office, "program", "")
+            stacks = hang.thread_stacks(pid, os.environ.get("HST_PDB_PATH", program))
+            if stacks is not None:
+                with open(os.path.splitext(shot)[0] + "-stacks.txt", "w", encoding="utf-8") as handle:
+                    handle.write(stacks)
+                windows += f"\nSTACKS {os.path.splitext(shot)[0]}-stacks.txt"
+            else:
+                windows += "\nSTACKS no cdb.exe on this machine"
+    except Exception as error:  # noqa: BLE001 - the screenshot and the names stay the evidence
+        windows += f"\nUI state unknown: {error!r}"
     with open(os.path.splitext(shot)[0] + ".txt", "w", encoding="utf-8") as handle:
         handle.write(windows)
     return windows

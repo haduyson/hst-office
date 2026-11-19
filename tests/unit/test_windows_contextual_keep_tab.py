@@ -100,6 +100,29 @@ class KeepTabTest(unittest.TestCase):
         self.assertIn("Chèn hàng", held[0][2])
         self.assertTrue(res.call_args_list[-1].args[0].endswith("still selected after .uno:GraphicFilterInvert"))
 
+    def test_the_document_is_closed_without_a_prompt(self):
+        doc, office = mock.MagicMock(), mock.MagicMock()
+        self.keep.leave_unmodified("draw", doc, office)
+        doc.setModified.assert_called_with(False)
+        doc.CurrentController.suspend.assert_called_once_with(True)
+        doc.close.assert_called_once_with(True)
+
+    def test_a_hung_ui_gets_a_dump_and_the_stacks(self):
+        office = mock.MagicMock(program=r"C:\img\program")
+        office.bin_pids_of_profile.return_value = [42]
+        hang = mock.MagicMock()
+        hang.ui_state.return_value = [(1, "Không tên 1 — HST Draw", "hung")]
+        hang.write_minidump.return_value = True
+        hang.thread_stacks.return_value = "  0  Id: 1.2 ... sd!accessibility"
+        shot = os.path.join(tempfile.mkdtemp(), "draw-shape-held.png")
+        with mock.patch.dict(sys.modules, {"windows_hang_probe": hang}), \
+                mock.patch.object(self.keep, "msaa", return_value="WINDOW 1 "):
+            text = self.keep.what_holds(office, shot)
+        self.assertIn("HST Draw: hung", text)
+        hang.write_minidump.assert_called_once_with(42, shot[:-4] + ".dmp")
+        with open(shot[:-4] + "-stacks.txt", encoding="utf-8") as handle:
+            self.assertIn("sd!accessibility", handle.read())
+
     def test_park_gets_a_dispatch_that_waits(self):
         office = mock.MagicMock()
         self.keep._Dispatcher(office).dispatch("frame", ".uno:Escape")
