@@ -38,6 +38,7 @@ SERVICES = (
     ("version_job", "PreviousVersionsJob", "org.hst.office.vi.PreviousVersionsJob", JOB),
     ("citation_save_job", "CitationSaveJob", "org.hst.office.vi.CitationSaveJob", JOB),
     ("mail_merge_word_job", "MailMergeWordJob", "org.hst.office.vi.MailMergeWordJob", JOB),
+    ("excel_addin_calls_job", "ExcelAddinCallsJob", "org.hst.office.vi.ExcelAddinCallsJob", JOB),
     ("version_options", "PreviousVersionsOptionsHandler", "org.hst.office.vi.OptionsPreviousVersions",
      ("org.hst.office.vi.OptionsPreviousVersions",)),
     ("number_words_options", "NumberWordsOptionsHandler", "org.hst.office.vi.OptionsNumberWords",

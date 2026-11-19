@@ -44,6 +44,13 @@
     <node oor:name="org.hst.office.vi.MailMergeWordJob" oor:op="replace">
       <prop oor:name="Service"><value>org.hst.office.vi.MailMergeWordJob</value></prop>
     </node>
+    <!-- Sheets: after a file is loaded, VND()/USD() called through a Vietnamese number-words add-in (an add-in
+         workbook's external name, an XLL's _xll. prefix) become the HST functions; at OnLoad the links bar of a file whose
+         only links were those add-in files is removed (hst_office/excel_addin_calls_job.py) -->
+    <node oor:name="org.hst.office.vi.ExcelAddinCallsJob" oor:op="replace">
+      <prop oor:name="Service"><value>org.hst.office.vi.ExcelAddinCallsJob</value></prop>
+      <prop oor:name="Context"><value>com.sun.star.sheet.SpreadsheetDocument</value></prop>
+    </node>
   </node>
   <node oor:name="Events">
     <node oor:name="onFirstVisibleTask" oor:op="fuse">
@@ -65,11 +72,18 @@
     <node oor:name="OnLoad" oor:op="fuse">
       <node oor:name="JobList">
         <node oor:name="org.hst.office.vi.FormulaOpenJob" oor:op="replace"/>
+        <node oor:name="org.hst.office.vi.ExcelAddinCallsJob" oor:op="replace"/>
+        <node oor:name="org.hst.office.vi.MailMergeWordJob" oor:op="replace"/>
       </node>
     </node>
     <node oor:name="OnViewCreated" oor:op="fuse">
       <node oor:name="JobList">
         <node oor:name="org.hst.office.vi.FormulaOpenJob" oor:op="replace"/>
+      </node>
+    </node>
+    <node oor:name="OnLoadFinished" oor:op="fuse">
+      <node oor:name="JobList">
+        <node oor:name="org.hst.office.vi.ExcelAddinCallsJob" oor:op="replace"/>
       </node>
     </node>
     <node oor:name="OnModifyChanged" oor:op="fuse">
@@ -86,11 +100,6 @@
     <node oor:name="OnSaveAs" oor:op="fuse">
       <node oor:name="JobList">
         <node oor:name="org.hst.office.vi.CitationSaveJob" oor:op="replace"/>
-      </node>
-    </node>
-    <node oor:name="OnLoad" oor:op="fuse">
-      <node oor:name="JobList">
-        <node oor:name="org.hst.office.vi.MailMergeWordJob" oor:op="replace"/>
       </node>
     </node>
     <node oor:name="OnUnload" oor:op="fuse">

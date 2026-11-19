@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Sheets add-in functions DOCSO, DOCTIEN, BODAU, TACHHO, TACHTEN (service org.hst.office.vi.CalcFunctions).
+"""Sheets add-in functions DOCSO, DOCTIEN, BODAU, TACHHO, TACHTEN, VND, USD (service org.hst.office.vi.CalcFunctions).
 
 Calc finds the functions, their Vietnamese help and the "Tiếng Việt" category in CalcAddIns.xcu and the method types in
 types/hst-calc-functions.rdb (interface org.hst.office.vi.XCalcFunctions). A bad argument (more than 15 integer digits,
@@ -9,6 +9,9 @@ DOCSO and DOCTIEN get the calling document from Calc (the hidden caller argument
 takes the file's own default (user-defined properties HST.DocSo.* / HST.DocTien.*, number_words_file_default.py), else
 the program default ("đồng", no "xu"); never the user's own default, so a file reads the same on every machine. A
 changed file default shows after recalculation (the dialog recalculates; otherwise Ctrl+Shift+F9).
+
+VND and USD read like the Vietnamese Excel add-ins of that name (number_words_addin.py) and never use a default:
+files written for those add-ins read the same everywhere.
 """
 import unohelper
 from com.sun.star.lang import IllegalArgumentException, XServiceInfo
@@ -77,5 +80,13 @@ def implementation():
 
         def tachten(self, text):
             return vietnamese_text.given_name(text)
+
+        def vnd(self, number, option, option3, option4, option5, option6):
+            from .number_words_addin import vnd
+            return self._guard(lambda: vnd(number, option, option3, option4, option5, option6))
+
+        def usd(self, number, option, option3, option4, option5):
+            from .number_words_addin import usd
+            return self._guard(lambda: usd(number, option, option3, option4, option5))
 
     return CalcFunctions
