@@ -9,7 +9,7 @@ of the same build, for the bundled artworks the banner may show. Per app, scale 
     ribbon's body on both sides of it;
   - -header: the tab row is one surface from the first tab title to the window's right edge, every title on it;
   - -tabs: one banner on every tab, flush with the right end of the ribbon (8 px before the client area's right
-    edge, the margin at 100 %, scaled with the display), the same box on every tab.
+    edge, scaled with the office's own UI factor: 1 up to 125 %, see office_scale), the same box on every tab.
 Exit 1 when a case fails; writes the rows to --out (JSON).
 """
 import argparse
@@ -35,6 +35,13 @@ def load_check(name):
 fit = load_check("check-banner-fit")
 
 
+def office_scale(percent):
+    """The office's own UI scale factor at a display scaling (vcl Window CountDPIScaleFactor, not macOS): 1 up to
+    120 DPI (125 %), then 1.5, 2 and 2.5; fonts follow the display scaling, the ribbon's pixel geometry this factor."""
+    dpi = 96 * percent / 100
+    return 2.5 if dpi > 216 else 2 if dpi > 168 else 1.5 if dpi > 120 else 1
+
+
 def judge_case(case, data, scale, shots_dir, catalogue):
     """[(name, ok, detail)] for one app/scale/theme of the collected data."""
     frame, tabs = data["client"], data["tabs"]
@@ -43,7 +50,7 @@ def judge_case(case, data, scale, shots_dir, catalogue):
         tab["banners"] = [box for box in tab["banners"] if box[3] <= 200]
         if frame[2] <= 0 and window:  # client box read after the window closed: its accessible box is the client area
             frame = window[0]
-    margin = round(fit.RIGHT_MARGIN * scale / 100)
+    margin = fit.RIGHT_MARGIN * office_scale(scale)
     if not tabs:
         return [(case, False, "no tab collected")]
     first = tabs[0]
