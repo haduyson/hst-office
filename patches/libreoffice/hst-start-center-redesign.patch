@@ -389,10 +389,10 @@ index 0000000..1634e89
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/qa/cppunit/hststartcenter.cxx b/sfx2/qa/cppunit/hststartcenter.cxx
 new file mode 100644
-index 0000000..cc971eb
+index 0000000..bbc78b6
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
-@@ -0,0 +1,335 @@
+@@ -0,0 +1,336 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -664,8 +664,9 @@ index 0000000..cc971eb
 +    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), rows(u"recentlist"_ustr));
 +    search(u"ngan sach"_ustr);
 +    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), rows(u"recentlist"_ustr));
-+    CPPUNIT_ASSERT_EQUAL(OUString(aNames[1]),
-+                         child(u"recentlist"_ustr)->get_child(u"0"_ustr)->get_state()[u"Text"_ustr]);
++    // the row's text is its columns joined by tabs where the toolkit lists them so (VCL)
++    const OUString aRow = child(u"recentlist"_ustr)->get_child(u"0"_ustr)->get_state()[u"Text"_ustr];
++    CPPUNIT_ASSERT_EQUAL(OUString(aNames[1]), aRow.getToken(0, '\t'));
 +    search(u"không có tệp này"_ustr);
 +    CPPUNIT_ASSERT_EQUAL(u"true"_ustr, child(u"recentempty"_ustr)->get_state()[u"ReallyVisible"_ustr]);
 +    search(OUString());
@@ -1969,10 +1970,10 @@ index 0000000..dcb957f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
 new file mode 100644
-index 0000000..5ad762e
+index 0000000..95e9b2b
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
-@@ -0,0 +1,765 @@
+@@ -0,0 +1,775 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2686,6 +2687,16 @@ index 0000000..5ad762e
 +    if (rNEvt.GetType() == NotifyEventType::KEYINPUT && mxSearch)
 +    {
 +        const vcl::KeyCode& rKey = rNEvt.GetKeyEvent()->GetKeyCode();
++        // Space in a list: the lists' key handlers take it first where the toolkit delivers keys to
++        // them (GTK, and VCL's key listeners for keys typed); a key event posted to the window reaches
++        // only this point, so it pins here too (each key is taken once: a handled key stops earlier)
++        if (rKey.GetFullCode() == KEY_SPACE)
++        {
++            if (mxRecentList->has_focus())
++                return LINK(this, HstStartCenterWindow, RecentKeyHdl).Call(*rNEvt.GetKeyEvent());
++            if (mxPinnedList->has_focus())
++                return LINK(this, HstStartCenterWindow, PinnedKeyHdl).Call(*rNEvt.GetKeyEvent());
++        }
 +        if (rKey.GetCode() == KEY_F6 && !rKey.IsMod1() && !rKey.IsMod2())
 +        {
 +            FocusRegion(rKey.IsShift() ? -1 : 1);
