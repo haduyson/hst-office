@@ -1,0 +1,893 @@
+HST Office: the Print page of the File panel shows the state of each printer: a dot before every printer name of
+its printer list and a short text beside the selected printer ("Trạng thái:").
+
+- Green: ready. Amber: busy or paused (printing, processing, warming up, toner low...). Red: offline or an error
+  that stops it (paper jam, out of paper, door open, out of toner, offline, stopped CUPS queue). Grey: unknown.
+- Text: Sẵn sàng / Đang bận / Tạm dừng / Ngoại tuyến / Lỗi: hết giấy, kẹt giấy, nắp máy in đang mở, hết mực / Sắp
+  hết mực / Không rõ trạng thái (en: Ready, Busy, Paused, Offline, Error: ..., Toner low, Status unknown), shown
+  before the label's own text ("Sẵn sàng — Máy in mặc định") and as the tooltip and accessible description of the
+  printer list, so colour is never the only sign.
+- Data (vcl hstprinterstatusquery.cxx), on a thread of its own when the page opens and each time the list drops
+  down; dots are grey until the answer arrives, nothing waits on the main thread:
+  - Windows: the spooler's PRINTER_INFO_2 Status bits and the PRINTER_ATTRIBUTE_WORK_OFFLINE attribute
+    (26.8.3.1's queue list enumerates level 4 without a state; its GetPrinterQueueState asks synchronously);
+  - Linux/BSD: CUPS printer-state (idle/processing/stopped), printer-is-accepting-jobs and printer-state-reasons
+    (26.8.3.1's unx queue info leaves the state empty); the profile's generic printer is no CUPS queue: grey;
+  - macOS and others: grey (the queue info has no state there).
+- Mapping flags to state and text: vcl::hst::ClassifyPrinterStatus / PrinterStatusText (hstprinterstatus.cxx).
+- Hook: PrintDialog (panel form only) owns a vcl::hst::PrinterStatusView over its printer list and status label;
+  updatePrinterText tells it the selection changed.
+
+License: include/vcl/hstprinterstatus.hxx, vcl/inc/hstprinterstatus.hrc, vcl/source/window/hstprinterstatus.cxx and
+vcl/source/gdi/hstprinterstatusquery.cxx are HST Office code (LicenseRef-HST-Proprietary); the modified files keep
+their license (MPL-2.0).
+Test: CppunitTest_vcl_hst_print_panel testPrinterStatusMapping, testPrinterStatusInPanel;
+tests/unit/test_print_printer_status.py.
+---
+diff --git a/include/vcl/hstprinterstatus.hxx b/include/vcl/hstprinterstatus.hxx
+new file mode 100644
+--- /dev/null
++++ b/include/vcl/hstprinterstatus.hxx
+@@ -0,0 +1,82 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <tools/color.hxx>
++#include <vcl/dllapi.h>
++#include <vcl/prntypes.hxx>
++
++#include <memory>
++#include <vector>
++
++namespace weld
++{
++class ComboBox;
++class Label;
++}
++
++namespace vcl::hst
++{
++/* HST Office: the connection state of the printers in the printer list of the Print page.
++
++   Each printer of the list gets a small dot before its name and the selected one a short text
++   beside it ("Status:"):
++   - green: ready to print;
++   - amber: paused or busy (printing, warming up, toner low...);
++   - red: offline or an error that stops printing (paper jam, out of paper, door open...);
++   - grey: not known (yet, or the system does not tell).
++   The text is also the tooltip and the accessible text, so the colour is never the only sign. */
++enum class PrinterState
++{
++    Unknown,
++    Ready,
++    Busy,
++    Paused,
++    Offline,
++    Error
++};
++
++struct PrinterStatus
++{
++    PrinterState eState = PrinterState::Unknown;
++    PrintQueueFlags nFlags = PrintQueueFlags::NONE; ///< what the system reported
++};
++
++/// The state of a printer from the flags of its queue; bKnown false: the system told nothing.
++VCL_DLLPUBLIC PrinterStatus ClassifyPrinterStatus(PrintQueueFlags nFlags, bool bKnown);
++/// The short text of a status ("Ready", "Error: out of paper"...), in the UI language.
++VCL_DLLPUBLIC OUString PrinterStatusText(const PrinterStatus& rStatus);
++/// The colour of the dot of a state.
++VCL_DLLPUBLIC Color PrinterStatusColor(PrinterState eState);
++
++/// Ask the system for the state of one printer. May take a while (network printers): call it
++/// off the main thread only.
++PrinterStatus QueryPrinterStatus(const OUString& rPrinterName);
++
++/* The dots of a printer list and the text of the selected printer. The states are asked on a
++   thread of their own when the view is made and when the list drops down; until they arrive the
++   dots are grey. The UI is never blocked. Entries before nFirstPrinter (e.g. "Print to File")
++   get no dot. */
++class VCL_DLLPUBLIC PrinterStatusView final
++{
++public:
++    PrinterStatusView(weld::ComboBox& rPrinters, weld::Label& rStatus, int nFirstPrinter);
++    ~PrinterStatusView();
++    PrinterStatusView(const PrinterStatusView&) = delete;
++    PrinterStatusView& operator=(const PrinterStatusView&) = delete;
++
++    /// The selected printer changed; rText is what the label shows besides the state.
++    void SelectionChanged(const OUString& rText);
++
++private:
++    struct Impl;
++    std::unique_ptr<Impl> m_pImpl;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/translations/source/vi/vcl/messages.po b/translations/source/vi/vcl/messages.po
+--- a/translations/source/vi/vcl/messages.po
++++ b/translations/source/vi/vcl/messages.po
+@@ -3679,3 +3679,69 @@
+ msgctxt "hstprintpanel|extended_tip|back"
+ msgid "Closes the print page and returns to the document, like Esc and the back arrow."
+ msgstr "Đóng trang In và quay lại tài liệu, như phím Esc và nút mũi tên quay lại."
++
++#. hstPS
++#: vcl/inc/hstprinterstatus.hrc
++msgctxt "STR_HST_PRINTER_READY"
++msgid "Ready"
++msgstr "Sẵn sàng"
++
++#. hstPS
++#: vcl/inc/hstprinterstatus.hrc
++msgctxt "STR_HST_PRINTER_BUSY"
++msgid "Busy"
++msgstr "Đang bận"
++
++#. hstPS
++#: vcl/inc/hstprinterstatus.hrc
++msgctxt "STR_HST_PRINTER_PAUSED"
++msgid "Paused"
++msgstr "Tạm dừng"
++
++#. hstPS
++#: vcl/inc/hstprinterstatus.hrc
++msgctxt "STR_HST_PRINTER_OFFLINE"
++msgid "Offline"
++msgstr "Ngoại tuyến"
++
++#. hstPS
++#: vcl/inc/hstprinterstatus.hrc
++msgctxt "STR_HST_PRINTER_ERROR"
++msgid "Error"
++msgstr "Lỗi"
++
++#. hstPS
++#: vcl/inc/hstprinterstatus.hrc
++msgctxt "STR_HST_PRINTER_PAPER_OUT"
++msgid "Error: out of paper"
++msgstr "Lỗi: hết giấy"
++
++#. hstPS
++#: vcl/inc/hstprinterstatus.hrc
++msgctxt "STR_HST_PRINTER_PAPER_JAM"
++msgid "Error: paper jam"
++msgstr "Lỗi: kẹt giấy"
++
++#. hstPS
++#: vcl/inc/hstprinterstatus.hrc
++msgctxt "STR_HST_PRINTER_DOOR_OPEN"
++msgid "Error: door open"
++msgstr "Lỗi: nắp máy in đang mở"
++
++#. hstPS
++#: vcl/inc/hstprinterstatus.hrc
++msgctxt "STR_HST_PRINTER_NO_TONER"
++msgid "Error: out of toner"
++msgstr "Lỗi: hết mực"
++
++#. hstPS
++#: vcl/inc/hstprinterstatus.hrc
++msgctxt "STR_HST_PRINTER_TONER_LOW"
++msgid "Toner low"
++msgstr "Sắp hết mực"
++
++#. hstPS
++#: vcl/inc/hstprinterstatus.hrc
++msgctxt "STR_HST_PRINTER_UNKNOWN"
++msgid "Status unknown"
++msgstr "Không rõ trạng thái"
+diff --git a/vcl/Library_vcl.mk b/vcl/Library_vcl.mk
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -216,6 +216,7 @@
+     vcl/source/window/OptionalBox \
+     vcl/source/window/printdlg \
+     vcl/source/window/hstprintjobpanel \
++    vcl/source/window/hstprinterstatus \
+     vcl/source/window/scrwnd \
+     vcl/source/window/seleng \
+     vcl/source/window/split \
+@@ -374,6 +375,7 @@
+     vcl/source/gdi/print2 \
+     vcl/source/gdi/print3 \
+     vcl/source/gdi/hstjobprinter \
++    vcl/source/gdi/hstprinterstatusquery \
+     vcl/source/gdi/print \
+     vcl/source/gdi/regband \
+     vcl/source/gdi/region \
+diff --git a/vcl/inc/hstprinterstatus.hrc b/vcl/inc/hstprinterstatus.hrc
+new file mode 100644
+--- /dev/null
++++ b/vcl/inc/hstprinterstatus.hrc
+@@ -0,0 +1,24 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++#define NC_(Context, String) TranslateId(Context, u8##String)
++
++// HST Office: the state of a printer on the Print page (vcl::hst::PrinterStatusText)
++#define STR_HST_PRINTER_READY           NC_("STR_HST_PRINTER_READY", "Ready")
++#define STR_HST_PRINTER_BUSY            NC_("STR_HST_PRINTER_BUSY", "Busy")
++#define STR_HST_PRINTER_PAUSED          NC_("STR_HST_PRINTER_PAUSED", "Paused")
++#define STR_HST_PRINTER_OFFLINE         NC_("STR_HST_PRINTER_OFFLINE", "Offline")
++#define STR_HST_PRINTER_ERROR           NC_("STR_HST_PRINTER_ERROR", "Error")
++#define STR_HST_PRINTER_PAPER_OUT       NC_("STR_HST_PRINTER_PAPER_OUT", "Error: out of paper")
++#define STR_HST_PRINTER_PAPER_JAM       NC_("STR_HST_PRINTER_PAPER_JAM", "Error: paper jam")
++#define STR_HST_PRINTER_DOOR_OPEN       NC_("STR_HST_PRINTER_DOOR_OPEN", "Error: door open")
++#define STR_HST_PRINTER_NO_TONER        NC_("STR_HST_PRINTER_NO_TONER", "Error: out of toner")
++#define STR_HST_PRINTER_TONER_LOW       NC_("STR_HST_PRINTER_TONER_LOW", "Toner low")
++#define STR_HST_PRINTER_UNKNOWN         NC_("STR_HST_PRINTER_UNKNOWN", "Status unknown")
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/vcl/inc/printdlg.hxx b/vcl/inc/printdlg.hxx
+--- a/vcl/inc/printdlg.hxx
++++ b/vcl/inc/printdlg.hxx
+@@ -22,6 +22,7 @@
+ #include <vcl/bitmap.hxx>
+ #include <vcl/gdimtf.hxx>
+ #include <vcl/idle.hxx>
++#include <vcl/hstprinterstatus.hxx>
+ #include <vcl/print.hxx>
+ #include <vcl/weld/Button.hxx>
+ #include <vcl/weld/CheckButton.hxx>
+@@ -241,6 +242,7 @@
+         std::unique_ptr<weld::Label>            mxMarginsLabel;
+         std::unique_ptr<weld::ComboBox>         mxMarginsBox;
+         std::unique_ptr<weld::Button>           mxBackBtn;
++        std::unique_ptr<vcl::hst::PrinterStatusView> mxPrinterStatus; // the panel's state dots
+         Link<PrintDialog&, void>                maPanelCancelHdl;
+         Link<PrintDialog&, void>                maPanelBackHdl;
+         Link<PrintDialog&, void>                maPanelMarginsHdl;
+diff --git a/vcl/qa/cppunit/hstprintjobpanel.cxx b/vcl/qa/cppunit/hstprintjobpanel.cxx
+--- a/vcl/qa/cppunit/hstprintjobpanel.cxx
++++ b/vcl/qa/cppunit/hstprintjobpanel.cxx
+@@ -22,9 +22,11 @@
+ #include <comphelper/propertyvalue.hxx>
+ #include <rtl/character.hxx>
+ #include <test/bootstrapfixture.hxx>
++#include <vcl/hstprinterstatus.hxx>
+ #include <vcl/hstprintjobpanel.hxx>
+ #include <vcl/print.hxx>
+ #include <vcl/toolkit/button.hxx>
++#include <vcl/toolkit/lstbox.hxx>
+ #include <vcl/window.hxx>
+ #include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/Container.hxx>
+@@ -301,6 +303,76 @@
+         CPPUNIT_ASSERT_EQUAL(css::view::PrintableState_JOB_ABORTED, xJob->meState);
+     }
+ 
++
++    void testPrinterStatusMapping()
++    {
++        using vcl::hst::ClassifyPrinterStatus;
++        using vcl::hst::PrinterState;
++        auto state = [](PrintQueueFlags nFlags, bool bKnown = true)
++        { return ClassifyPrinterStatus(nFlags, bKnown).eState; };
++        auto text = [](PrintQueueFlags nFlags, bool bKnown = true)
++        { return vcl::hst::PrinterStatusText(ClassifyPrinterStatus(nFlags, bKnown)); };
++        // grey: nothing known
++        CPPUNIT_ASSERT(PrinterState::Unknown == state(PrintQueueFlags::NONE, false));
++        CPPUNIT_ASSERT(PrinterState::Unknown == state(PrintQueueFlags::StatusUnknown));
++        CPPUNIT_ASSERT_EQUAL(u"Status unknown"_ustr, text(PrintQueueFlags::NONE, false));
++        // green: a queue without news waits for jobs
++        CPPUNIT_ASSERT(PrinterState::Ready == state(PrintQueueFlags::NONE));
++        CPPUNIT_ASSERT(PrinterState::Ready == state(PrintQueueFlags::Ready));
++        CPPUNIT_ASSERT(PrinterState::Ready == state(PrintQueueFlags::PowerSave));
++        CPPUNIT_ASSERT_EQUAL(u"Ready"_ustr, text(PrintQueueFlags::NONE));
++        // amber: busy or paused
++        for (PrintQueueFlags nFlag : { PrintQueueFlags::Printing, PrintQueueFlags::Busy,
++                                       PrintQueueFlags::WarmingUp, PrintQueueFlags::Processing })
++        {
++            CPPUNIT_ASSERT(PrinterState::Busy == state(nFlag));
++            CPPUNIT_ASSERT_EQUAL(u"Busy"_ustr, text(nFlag));
++        }
++        CPPUNIT_ASSERT(PrinterState::Busy == state(PrintQueueFlags::TonerLow));
++        CPPUNIT_ASSERT_EQUAL(u"Toner low"_ustr, text(PrintQueueFlags::TonerLow));
++        CPPUNIT_ASSERT_EQUAL(u"Busy"_ustr, text(PrintQueueFlags::TonerLow | PrintQueueFlags::Printing));
++        CPPUNIT_ASSERT(PrinterState::Paused == state(PrintQueueFlags::Paused));
++        CPPUNIT_ASSERT_EQUAL(u"Paused"_ustr, text(PrintQueueFlags::Paused));
++        // red: offline wins over everything, errors over paused/busy
++        CPPUNIT_ASSERT(PrinterState::Offline
++                       == state(PrintQueueFlags::Offline | PrintQueueFlags::Paused));
++        CPPUNIT_ASSERT_EQUAL(u"Offline"_ustr, text(PrintQueueFlags::Offline));
++        CPPUNIT_ASSERT(PrinterState::Error
++                       == state(PrintQueueFlags::PaperOut | PrintQueueFlags::Printing));
++        CPPUNIT_ASSERT_EQUAL(u"Error: out of paper"_ustr, text(PrintQueueFlags::PaperOut));
++        CPPUNIT_ASSERT_EQUAL(u"Error: paper jam"_ustr, text(PrintQueueFlags::PaperJam));
++        CPPUNIT_ASSERT_EQUAL(u"Error: door open"_ustr, text(PrintQueueFlags::DoorOpen));
++        CPPUNIT_ASSERT_EQUAL(u"Error: out of toner"_ustr, text(PrintQueueFlags::NoToner));
++        CPPUNIT_ASSERT_EQUAL(u"Error"_ustr, text(PrintQueueFlags::Error));
++        // the dots: four distinct colours
++        const Color aGreen = vcl::hst::PrinterStatusColor(PrinterState::Ready);
++        const Color aAmber = vcl::hst::PrinterStatusColor(PrinterState::Busy);
++        const Color aRed = vcl::hst::PrinterStatusColor(PrinterState::Error);
++        const Color aGrey = vcl::hst::PrinterStatusColor(PrinterState::Unknown);
++        CPPUNIT_ASSERT_EQUAL(aAmber, vcl::hst::PrinterStatusColor(PrinterState::Paused));
++        CPPUNIT_ASSERT_EQUAL(aRed, vcl::hst::PrinterStatusColor(PrinterState::Offline));
++        CPPUNIT_ASSERT(aGreen.GetGreen() > aGreen.GetRed() && aRed.GetRed() > aRed.GetGreen());
++        CPPUNIT_ASSERT(aGreen != aAmber && aAmber != aRed && aRed != aGrey && aGrey != aGreen);
++    }
++
++    void testPrinterStatusInPanel()
++    {
++        // the dots are made on the panel's own printer list: entries and selection stay, the
++        // states are asked on a thread (no wait here), the panel works on as before
++        auto xJob = makeJob();
++        vcl::PrintJobPanel aPanel(xJob);
++        aPanel.Show(m_xHost.get());
++        auto* pPrinters = dynamic_cast<ListBox*>(findById(hostWindow(), u"printersbox"));
++        CPPUNIT_ASSERT(findById(hostWindow(), u"status"));
++        if (pPrinters) // a ListBox in the VCL backend
++        {
++            CPPUNIT_ASSERT(pPrinters->GetEntryCount() >= 1); // "Print to File" and the printers
++            CPPUNIT_ASSERT(pPrinters->GetSelectedEntryPos() != LISTBOX_ENTRY_NOTFOUND);
++        }
++        aPanel.Show(m_xHost.get()); // made again: a second view while the first query may run
++        CPPUNIT_ASSERT(aPanel.IsPending());
++    }
++
+     DECL_LINK(CancelHdl, vcl::PrintJobPanel&, void);
+     DECL_LINK(BackHdl, vcl::PrintJobPanel&, void);
+ 
+@@ -316,6 +388,8 @@
+     CPPUNIT_TEST(testGivenPrinterStaysWithItsOwner);
+     CPPUNIT_TEST(testCloseButtonsBesidePrint);
+     CPPUNIT_TEST(testCloseButtonsCallTheHost);
++    CPPUNIT_TEST(testPrinterStatusMapping);
++    CPPUNIT_TEST(testPrinterStatusInPanel);
+     CPPUNIT_TEST_SUITE_END();
+ 
+ private:
+diff --git a/vcl/source/gdi/hstprinterstatusquery.cxx b/vcl/source/gdi/hstprinterstatusquery.cxx
+new file mode 100644
+--- /dev/null
++++ b/vcl/source/gdi/hstprinterstatusquery.cxx
+@@ -0,0 +1,199 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// HST Office: the state of one printer, asked from the system on a thread of the Print page
++// (vcl::hst::PrinterStatusView). Windows: the spooler's printer status and its "use offline"
++// attribute; Linux/BSD: the CUPS printer state and state reasons; elsewhere: unknown (grey).
++
++#include <vcl/hstprinterstatus.hxx>
++
++#include <config_cups.h>
++
++#if defined(_WIN32)
++#include <prewin.h>
++#include <postwin.h>
++#include <winspool.h>
++#include <o3tl/char16_t2wchar_t.hxx>
++#include <vector>
++#elif ENABLE_CUPS && !defined(MACOSX) && !defined(IOS) && !defined(ANDROID) // vcl links cups
++#include <cups/cups.h>
++#include <rtl/string.hxx>
++#include <rtl/textenc.h>
++#include <string_view>
++#endif
++
++namespace vcl::hst
++{
++#if defined(_WIN32)
++namespace
++{
++struct WinFlag
++{
++    DWORD nWin;
++    PrintQueueFlags nFlag;
++};
++// the PRINTER_STATUS_* bits of PRINTER_INFO_2 (winspool.h) and what they mean here
++constexpr WinFlag WIN_FLAGS[]
++    = { { PRINTER_STATUS_PAUSED, PrintQueueFlags::Paused },
++        { PRINTER_STATUS_ERROR, PrintQueueFlags::Error },
++        { PRINTER_STATUS_PENDING_DELETION, PrintQueueFlags::PendingDeletion },
++        { PRINTER_STATUS_PAPER_JAM, PrintQueueFlags::PaperJam },
++        { PRINTER_STATUS_PAPER_OUT, PrintQueueFlags::PaperOut },
++        { PRINTER_STATUS_MANUAL_FEED, PrintQueueFlags::ManualFeed },
++        { PRINTER_STATUS_PAPER_PROBLEM, PrintQueueFlags::PaperProblem },
++        { PRINTER_STATUS_OFFLINE, PrintQueueFlags::Offline },
++        { PRINTER_STATUS_NOT_AVAILABLE, PrintQueueFlags::Offline },
++        { PRINTER_STATUS_IO_ACTIVE, PrintQueueFlags::IOActive },
++        { PRINTER_STATUS_BUSY, PrintQueueFlags::Busy },
++        { PRINTER_STATUS_PRINTING, PrintQueueFlags::Printing },
++        { PRINTER_STATUS_OUTPUT_BIN_FULL, PrintQueueFlags::OutputBinFull },
++        { PRINTER_STATUS_WAITING, PrintQueueFlags::Waiting },
++        { PRINTER_STATUS_PROCESSING, PrintQueueFlags::Processing },
++        { PRINTER_STATUS_INITIALIZING, PrintQueueFlags::Initializing },
++        { PRINTER_STATUS_WARMING_UP, PrintQueueFlags::WarmingUp },
++        { PRINTER_STATUS_TONER_LOW, PrintQueueFlags::TonerLow },
++        { PRINTER_STATUS_NO_TONER, PrintQueueFlags::NoToner },
++        { PRINTER_STATUS_PAGE_PUNT, PrintQueueFlags::PagePunt },
++        { PRINTER_STATUS_USER_INTERVENTION, PrintQueueFlags::UserIntervention },
++        { PRINTER_STATUS_OUT_OF_MEMORY, PrintQueueFlags::OutOfMemory },
++        { PRINTER_STATUS_DOOR_OPEN, PrintQueueFlags::DoorOpen },
++        { PRINTER_STATUS_SERVER_UNKNOWN, PrintQueueFlags::StatusUnknown },
++        { PRINTER_STATUS_POWER_SAVE, PrintQueueFlags::PowerSave } };
++}
++
++PrinterStatus QueryPrinterStatus(const OUString& rPrinterName)
++{
++    HANDLE hPrinter = nullptr;
++    if (!OpenPrinterW(const_cast<LPWSTR>(o3tl::toW(rPrinterName.getStr())), &hPrinter, nullptr))
++        return ClassifyPrinterStatus(PrintQueueFlags::NONE, false);
++    DWORD nBytes = 0;
++    GetPrinterW(hPrinter, 2, nullptr, 0, &nBytes);
++    PrinterStatus aStatus = ClassifyPrinterStatus(PrintQueueFlags::NONE, false);
++    if (nBytes)
++    {
++        std::vector<BYTE> aBuffer(nBytes);
++        if (GetPrinterW(hPrinter, 2, aBuffer.data(), nBytes, &nBytes))
++        {
++            const auto* pInfo = reinterpret_cast<const PRINTER_INFO_2W*>(aBuffer.data());
++            PrintQueueFlags nFlags = PrintQueueFlags::NONE;
++            for (const WinFlag& rFlag : WIN_FLAGS)
++                if (pInfo->Status & rFlag.nWin)
++                    nFlags |= rFlag.nFlag;
++            // "Use Printer Offline", also set by the spooler for an unreachable network printer
++            if (pInfo->Attributes & PRINTER_ATTRIBUTE_WORK_OFFLINE)
++                nFlags |= PrintQueueFlags::Offline;
++            aStatus = ClassifyPrinterStatus(nFlags, true);
++        }
++    }
++    ClosePrinter(hPrinter);
++    return aStatus;
++}
++
++#elif ENABLE_CUPS && !defined(MACOSX) && !defined(IOS) && !defined(ANDROID) // vcl links cups
++namespace
++{
++struct CupsReason
++{
++    std::string_view aKeyword;
++    PrintQueueFlags nFlag;
++};
++// printer-state-reasons keywords (RFC 8011, PWG 5100.9) without their -report/-warning/-error
++constexpr CupsReason CUPS_REASONS[] = { { "media-empty", PrintQueueFlags::PaperOut },
++                                        { "media-needed", PrintQueueFlags::PaperOut },
++                                        { "media-jam", PrintQueueFlags::PaperJam },
++                                        { "door-open", PrintQueueFlags::DoorOpen },
++                                        { "cover-open", PrintQueueFlags::DoorOpen },
++                                        { "toner-empty", PrintQueueFlags::NoToner },
++                                        { "marker-supply-empty", PrintQueueFlags::NoToner },
++                                        { "toner-low", PrintQueueFlags::TonerLow },
++                                        { "marker-supply-low", PrintQueueFlags::TonerLow },
++                                        { "offline", PrintQueueFlags::Offline },
++                                        { "shutdown", PrintQueueFlags::Offline },
++                                        { "connecting-to-device", PrintQueueFlags::Busy },
++                                        { "output-area-full", PrintQueueFlags::OutputBinFull },
++                                        { "moving-to-paused", PrintQueueFlags::Paused },
++                                        { "paused", PrintQueueFlags::Paused } };
++
++PrintQueueFlags lcl_reasons(std::string_view aReasons)
++{
++    PrintQueueFlags nFlags = PrintQueueFlags::NONE;
++    while (!aReasons.empty())
++    {
++        const size_t nComma = aReasons.find(',');
++        std::string_view aReason = aReasons.substr(0, nComma);
++        aReasons = nComma == std::string_view::npos ? std::string_view() : aReasons.substr(nComma + 1);
++        if (aReason == "offline-report") // the device itself reports that it is offline
++        {
++            nFlags |= PrintQueueFlags::Offline;
++            continue;
++        }
++        if (aReason.ends_with("-report"))
++            continue; // information only
++        bool bError = false;
++        if (aReason.ends_with("-warning"))
++            aReason.remove_suffix(8);
++        else if (aReason.ends_with("-error"))
++        {
++            aReason.remove_suffix(6);
++            bError = true;
++        }
++        if (aReason.empty() || aReason == "none")
++            continue;
++        bool bKnown = false;
++        for (const CupsReason& rReason : CUPS_REASONS)
++            if (rReason.aKeyword == aReason)
++            {
++                nFlags |= rReason.nFlag;
++                bKnown = true;
++            }
++        if (!bKnown && bError)
++            nFlags |= PrintQueueFlags::Error; // another reason that stops the printer
++    }
++    return nFlags;
++}
++}
++
++PrinterStatus QueryPrinterStatus(const OUString& rPrinterName)
++{
++    // "queue/instance": the instance has the state of its queue
++    const OString aName = OUStringToOString(rPrinterName, RTL_TEXTENCODING_UTF8);
++    const sal_Int32 nSlash = aName.indexOf('/');
++    const OString aQueue = nSlash < 0 ? aName : aName.copy(0, nSlash);
++    cups_dest_t* pDest = cupsGetNamedDest(CUPS_HTTP_DEFAULT, aQueue.getStr(), nullptr);
++    if (!pDest) // not a CUPS queue (e.g. the generic printer of the profile)
++        return ClassifyPrinterStatus(PrintQueueFlags::NONE, false);
++    PrintQueueFlags nFlags = PrintQueueFlags::NONE;
++    bool bKnown = false;
++    if (const char* pState = cupsGetOption("printer-state", pDest->num_options, pDest->options))
++    {
++        bKnown = true;
++        const std::string_view aState(pState);
++        if (aState == "4") // processing
++            nFlags |= PrintQueueFlags::Printing;
++        else if (aState == "5") // stopped (cupsdisable): it prints nothing
++            nFlags |= PrintQueueFlags::Offline;
++    }
++    if (const char* pAccepting
++        = cupsGetOption("printer-is-accepting-jobs", pDest->num_options, pDest->options))
++        if (std::string_view(pAccepting) == "false")
++            nFlags |= PrintQueueFlags::Offline;
++    if (const char* pReasons
++        = cupsGetOption("printer-state-reasons", pDest->num_options, pDest->options))
++        nFlags |= lcl_reasons(pReasons);
++    cupsFreeDests(1, pDest);
++    return ClassifyPrinterStatus(nFlags, bKnown);
++}
++
++#else
++PrinterStatus QueryPrinterStatus(const OUString&)
++{
++    // macOS and the rest: the system's queue information has no state here
++    return ClassifyPrinterStatus(PrintQueueFlags::NONE, false);
++}
++#endif
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/vcl/source/window/hstprinterstatus.cxx b/vcl/source/window/hstprinterstatus.cxx
+new file mode 100644
+--- /dev/null
++++ b/vcl/source/window/hstprinterstatus.cxx
+@@ -0,0 +1,309 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#include <vcl/hstprinterstatus.hxx>
++
++#include <hstprinterstatus.hrc>
++#include <svdata.hxx>
++
++#include <o3tl/safeint.hxx>
++#include <sal/log.hxx>
++#include <tools/gen.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/timer.hxx>
++#include <vcl/virdev.hxx>
++#include <vcl/wall.hxx>
++#include <vcl/weld/ComboBox.hxx>
++#include <vcl/weld/Label.hxx>
++
++#include <algorithm>
++#include <exception>
++#include <mutex>
++#include <thread>
++#include <utility>
++
++namespace vcl::hst
++{
++namespace
++{
++bool has(PrintQueueFlags nFlags, PrintQueueFlags nFlag) { return bool(nFlags & nFlag); }
++
++/// Flags that stop the printer until someone acts: red.
++constexpr PrintQueueFlags ERROR_FLAGS
++    = PrintQueueFlags::Error | PrintQueueFlags::PaperJam | PrintQueueFlags::PaperOut
++      | PrintQueueFlags::PaperProblem | PrintQueueFlags::DoorOpen | PrintQueueFlags::NoToner
++      | PrintQueueFlags::OutputBinFull | PrintQueueFlags::UserIntervention
++      | PrintQueueFlags::OutOfMemory | PrintQueueFlags::PagePunt;
++/// Flags of a printer that works but cannot start the job at once: amber.
++constexpr PrintQueueFlags BUSY_FLAGS
++    = PrintQueueFlags::Busy | PrintQueueFlags::Printing | PrintQueueFlags::Processing
++      | PrintQueueFlags::WarmingUp | PrintQueueFlags::Initializing | PrintQueueFlags::Waiting
++      | PrintQueueFlags::IOActive | PrintQueueFlags::ManualFeed | PrintQueueFlags::TonerLow;
++}
++
++PrinterStatus ClassifyPrinterStatus(PrintQueueFlags nFlags, bool bKnown)
++{
++    PrinterStatus aStatus;
++    aStatus.nFlags = nFlags;
++    if (!bKnown || has(nFlags, PrintQueueFlags::StatusUnknown))
++        aStatus.eState = PrinterState::Unknown;
++    else if (has(nFlags, PrintQueueFlags::Offline | PrintQueueFlags::PendingDeletion))
++        aStatus.eState = PrinterState::Offline;
++    else if (has(nFlags, ERROR_FLAGS))
++        aStatus.eState = PrinterState::Error;
++    else if (has(nFlags, PrintQueueFlags::Paused))
++        aStatus.eState = PrinterState::Paused;
++    else if (has(nFlags, BUSY_FLAGS))
++        aStatus.eState = PrinterState::Busy;
++    else // no flag (the systems report a printer that waits for jobs so), Ready, PowerSave
++        aStatus.eState = PrinterState::Ready;
++    return aStatus;
++}
++
++OUString PrinterStatusText(const PrinterStatus& rStatus)
++{
++    const PrintQueueFlags nFlags = rStatus.nFlags;
++    switch (rStatus.eState)
++    {
++        case PrinterState::Ready:
++            return VclResId(STR_HST_PRINTER_READY);
++        case PrinterState::Busy:
++            // a low toner is the only news of a printer that is otherwise idle
++            if (has(nFlags, PrintQueueFlags::TonerLow)
++                && !has(nFlags, BUSY_FLAGS & ~PrintQueueFlags::TonerLow))
++                return VclResId(STR_HST_PRINTER_TONER_LOW);
++            return VclResId(STR_HST_PRINTER_BUSY);
++        case PrinterState::Paused:
++            return VclResId(STR_HST_PRINTER_PAUSED);
++        case PrinterState::Offline:
++            return VclResId(STR_HST_PRINTER_OFFLINE);
++        case PrinterState::Error:
++            if (has(nFlags, PrintQueueFlags::PaperOut))
++                return VclResId(STR_HST_PRINTER_PAPER_OUT);
++            if (has(nFlags, PrintQueueFlags::PaperJam))
++                return VclResId(STR_HST_PRINTER_PAPER_JAM);
++            if (has(nFlags, PrintQueueFlags::DoorOpen))
++                return VclResId(STR_HST_PRINTER_DOOR_OPEN);
++            if (has(nFlags, PrintQueueFlags::NoToner))
++                return VclResId(STR_HST_PRINTER_NO_TONER);
++            return VclResId(STR_HST_PRINTER_ERROR);
++        case PrinterState::Unknown:
++            break;
++    }
++    return VclResId(STR_HST_PRINTER_UNKNOWN);
++}
++
++Color PrinterStatusColor(PrinterState eState)
++{
++    switch (eState)
++    {
++        case PrinterState::Ready:
++            return Color(0x2E, 0xA0, 0x43); // green
++        case PrinterState::Busy:
++        case PrinterState::Paused:
++            return Color(0xE5, 0x9F, 0x00); // amber
++        case PrinterState::Offline:
++        case PrinterState::Error:
++            return Color(0xD9, 0x30, 0x25); // red
++        case PrinterState::Unknown:
++            break;
++    }
++    return Color(0x9A, 0x9A, 0x9A); // grey
++}
++
++/* The states are asked on a thread; the view looks for them on a timer of the main thread, so the
++   thread never touches a widget and outlives the view without harm (it only holds Shared). */
++struct PrinterStatusView::Impl
++{
++    struct Shared
++    {
++        std::mutex aMutex;
++        std::vector<std::pair<OUString, PrinterStatus>> aResults;
++        bool bDone = false;
++    };
++
++    weld::ComboBox& m_rPrinters;
++    weld::Label& m_rStatus;
++    int m_nFirst;
++    OUString m_aText; ///< the label's own text (e.g. "Default printer")
++    std::vector<OUString> m_aNames; ///< of the entries from m_nFirst on
++    std::vector<PrinterStatus> m_aStates;
++    std::shared_ptr<Shared> m_xQuery; ///< the running query
++    Timer m_aPoll;
++
++    Impl(weld::ComboBox& rPrinters, weld::Label& rStatus, int nFirst)
++        : m_rPrinters(rPrinters)
++        , m_rStatus(rStatus)
++        , m_nFirst(nFirst)
++        , m_aText(rStatus.get_label())
++        , m_aPoll("vcl::hst::PrinterStatusView")
++    {
++        for (int i = m_nFirst; i < m_rPrinters.get_count(); ++i)
++            m_aNames.push_back(m_rPrinters.get_text(i));
++        m_aStates.resize(m_aNames.size());
++        m_aPoll.SetTimeout(200);
++        m_aPoll.SetInvokeHandler(LINK(this, Impl, PollHdl));
++        ShowDots();
++        ShowSelected();
++        Start();
++    }
++
++    ~Impl() { m_aPoll.Stop(); }
++
++    void Start()
++    {
++        if (m_xQuery || m_aNames.empty())
++            return;
++        auto xShared = std::make_shared<Shared>();
++        m_xQuery = xShared;
++        try
++        {
++            std::thread(
++                [xShared, aNames = m_aNames]()
++                {
++                    for (const OUString& rName : aNames)
++                    {
++                        PrinterStatus aStatus;
++                        try
++                        {
++                            aStatus = QueryPrinterStatus(rName);
++                        }
++                        catch (const std::exception&)
++                        {
++                            // grey: the state stays unknown
++                        }
++                        std::scoped_lock aGuard(xShared->aMutex);
++                        xShared->aResults.emplace_back(rName, aStatus);
++                    }
++                    std::scoped_lock aGuard(xShared->aMutex);
++                    xShared->bDone = true;
++                })
++                .detach();
++        }
++        catch (const std::exception& rException)
++        {
++            SAL_WARN("vcl.print", "no printer state thread: " << rException.what());
++            m_xQuery.reset();
++            return;
++        }
++        m_aPoll.Start();
++    }
++
++    DECL_LINK(PollHdl, Timer*, void);
++    DECL_LINK(PopupHdl, weld::ComboBox&, void);
++    bool m_bDotsPending = false; ///< states arrived while the list was dropped down
++
++    VclPtr<VirtualDevice> MakeDot(PrinterState eState) const
++    {
++        const tools::Long nSize
++            = std::max<tools::Long>(Application::GetDefaultDevice()->GetTextHeight() * 2 / 3, 8);
++        VclPtr<VirtualDevice> xDev = VclPtr<VirtualDevice>::Create(DeviceFormat::WITH_ALPHA);
++        xDev->SetOutputSizePixel(Size(nSize, nSize));
++        xDev->SetBackground(Wallpaper(COL_TRANSPARENT));
++        xDev->Erase();
++        const Color aColor = PrinterStatusColor(eState);
++        Color aRing(aColor);
++        aRing.DecreaseLuminance(48);
++        xDev->SetAntialiasing(AntialiasingFlags::Enable);
++        xDev->SetFillColor(aColor);
++        xDev->SetLineColor(aRing);
++        xDev->DrawEllipse(tools::Rectangle(Point(1, 1), Size(nSize - 2, nSize - 2)));
++        return xDev;
++    }
++
++    /// Entries are made again with their dot (a combo box has no image setter); selection kept.
++    void ShowDots()
++    {
++        if (m_rPrinters.get_popup_shown())
++        {
++            m_bDotsPending = true; // never under the user's pointer: shown at the popdown
++            return;
++        }
++        m_bDotsPending = false;
++        const int nActive = m_rPrinters.get_active();
++        m_rPrinters.freeze();
++        for (size_t i = 0; i < m_aNames.size(); ++i)
++        {
++            const int nPos = m_nFirst + int(i);
++            if (nPos >= m_rPrinters.get_count() || m_rPrinters.get_text(nPos) != m_aNames[i])
++                break; // the list changed under us: leave it
++            VclPtr<VirtualDevice> xDot = MakeDot(m_aStates[i].eState);
++            m_rPrinters.remove(nPos);
++            m_rPrinters.insert(nPos, m_aNames[i], nullptr, nullptr, xDot.get());
++        }
++        m_rPrinters.thaw();
++        m_rPrinters.set_active(nActive);
++    }
++
++    void ShowSelected()
++    {
++        const int nActive = m_rPrinters.get_active();
++        const int nIndex = nActive - m_nFirst;
++        if (nIndex < 0 || o3tl::make_unsigned(nIndex) >= m_aStates.size())
++        {
++            m_rStatus.set_label(m_aText);
++            m_rPrinters.set_tooltip_text(OUString());
++            return;
++        }
++        const OUString aState = PrinterStatusText(m_aStates[nIndex]);
++        m_rStatus.set_label(m_aText.isEmpty() ? aState : aState + u" — " + m_aText);
++        m_rPrinters.set_tooltip_text(m_aNames[nIndex] + u": " + aState);
++        m_rPrinters.set_accessible_description(m_aNames[nIndex] + u": " + aState);
++    }
++};
++
++IMPL_LINK_NOARG(PrinterStatusView::Impl, PollHdl, Timer*, void)
++{
++    std::vector<std::pair<OUString, PrinterStatus>> aResults;
++    bool bDone = false;
++    if (m_xQuery)
++    {
++        std::scoped_lock aGuard(m_xQuery->aMutex);
++        aResults.swap(m_xQuery->aResults);
++        bDone = m_xQuery->bDone;
++    }
++    bool bChanged = false;
++    for (const auto & [ rName, rStatus ] : aResults)
++        for (size_t i = 0; i < m_aNames.size(); ++i)
++            if (m_aNames[i] == rName)
++            {
++                bChanged = bChanged || m_aStates[i].eState != rStatus.eState;
++                m_aStates[i] = rStatus; // the same dot may come with another text
++            }
++    if (bChanged)
++        ShowDots();
++    ShowSelected();
++    if (bDone)
++        m_xQuery.reset();
++    if (m_xQuery)
++        m_aPoll.Start();
++}
++
++IMPL_LINK_NOARG(PrinterStatusView::Impl, PopupHdl, weld::ComboBox&, void)
++{
++    if (m_rPrinters.get_popup_shown())
++        Start(); // the states again, fresh (a printer may have come back)
++    else if (m_bDotsPending)
++        ShowDots();
++}
++
++PrinterStatusView::PrinterStatusView(weld::ComboBox& rPrinters, weld::Label& rStatus,
++                                     int nFirstPrinter)
++    : m_pImpl(std::make_unique<Impl>(rPrinters, rStatus, nFirstPrinter))
++{
++    rPrinters.connect_popup_toggled(LINK(m_pImpl.get(), Impl, PopupHdl));
++}
++
++PrinterStatusView::~PrinterStatusView() = default;
++
++void PrinterStatusView::SelectionChanged(const OUString& rText)
++{
++    m_pImpl->m_aText = rText;
++    m_pImpl->ShowSelected();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/vcl/source/window/printdlg.cxx b/vcl/source/window/printdlg.cxx
+--- a/vcl/source/window/printdlg.cxx
++++ b/vcl/source/window/printdlg.cxx
+@@ -807,6 +807,8 @@
+         mxMarginsLabel->hide();
+         mxMarginsBox->hide();
+         mxMarginsBox->connect_changed(LINK(this, PrintDialog, SelectMarginsHdl));
++        // HST Office: the state of each printer (index 0 is "Print to File")
++        mxPrinterStatus = std::make_unique<vcl::hst::PrinterStatusView>(*mxPrinters, *mxStatusTxt, 1);
+         setZoom(0);
+         return;
+     }
+@@ -1245,6 +1247,8 @@
+     {
+         mxStatusTxt->set_label( OUString() );
+     }
++    if (mxPrinterStatus)
++        mxPrinterStatus->SelectionChanged(mxStatusTxt->get_label());
+ }
+ 
+ void PrintDialog::setPreviewText()
