@@ -518,10 +518,10 @@ start_make() { # make like ci-build.sh --build (or the --modules targets), in a 
         test) exec make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" "$@" ;;
       esac
       # Module builds: the UNO API headers first, in their own invocation (docs/SHARED_BUILD_SLOTS.md).
-      # officecfg too when requested: its generated officecfg/*.hxx headers are not a make dependency of the
-      # modules that include them, so building it in the same parallel make races with them.
-      pre=""; for t; do [ "$t" != officecfg.build ] || pre=officecfg.build; done
-      make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" udkapi.build offapi.build oovbaapi.build $pre || exit $?
+      # officecfg always: its generated officecfg/*.hxx headers are not a make dependency of the modules that
+      # include them, so a slot tree last built from another commit keeps stale headers unless officecfg is
+      # remade first (it is a no-op when its schema is unchanged), and building it in the same parallel make races.
+      make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" udkapi.build offapi.build oovbaapi.build officecfg.build || exit $?
       exec make GIT_NEEDED_SUBMODULES= PARALLELISM="$jobs" "$@"' "$C_SRC" "$jobs" "$MAKE_KIND" "${MAKE_TARGETS[@]}" \
     >> "$BUILD_LOG" 2>&1 &
   BUILD_PGID=$!; PAUSES=0

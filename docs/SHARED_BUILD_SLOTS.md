@@ -12,8 +12,9 @@ working on patches that are not in `series` yet.
    series patch that touches those files must reverse-apply at fuzz 0, in reverse order, on a copy.
 3. Dry-run your whole chain at fuzz 0 on a copy, then apply it.
 4. Build in three separate `make` invocations, in this order:
-   1. `make udkapi.build offapi.build oovbaapi.build`, plus `officecfg.build` when a patch changes a schema
-      (the generated `officecfg/*.hxx` headers are not a dependency of the modules that include them)
+   1. `make udkapi.build offapi.build oovbaapi.build officecfg.build`, always: the generated `officecfg/*.hxx`
+      headers are not a dependency of the modules that include them, so a slot tree last built from another commit
+      would keep stale headers (a no-op when the schema is unchanged)
    2. the modules your patches touch, plus `Library_merged` (vcl, sfx2 and svx live in libmergedlo)
    3. modules that link against libmergedlo, such as `sw.build`, `sc.build` and `sd.build`
 5. Copy what you need into a private instdir copy. Break hard links to every file you take: use
