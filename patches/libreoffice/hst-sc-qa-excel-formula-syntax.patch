@@ -40,6 +40,8 @@ and in the CppunitTest the 800x600 frame of the new document had not been laid o
 window were 0x0 and C3 was scrolled to the top left instead (measured: after the frame's layout manager lays it out,
 the view is 800x429 and the grid 698x343, and the test passes). In HST Sheets itself, and in an office in svp mode,
 Freeze Panes at C3 and Ctrl+Home move to C3.
+That layout is not always done in time in the CppunitTest (testTdf107994 and uicalc testMouseMergeRef passed in some
+runs and failed in others), so testMouseMergeRef, which drags the mouse over the grid, lays out its frame too.
 
 License: these upstream files remain under their original license (MPL-2.0).
 Test: make CppunitTest_sc_cond_format CppunitTest_sc_subsequent_filters_test CppunitTest_sc_subsequent_filters_test2
@@ -578,7 +580,19 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
      } aTests[] = {
 --- a/sc/qa/unit/uicalc/uicalc.cxx
 +++ b/sc/qa/unit/uicalc/uicalc.cxx
-@@ -98,6 +98,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testExternalReferences)
+@@ -19,6 +19,11 @@
+ #include <comphelper/scopeguard.hxx>
+ #include <comphelper/servicehelper.hxx>
+ #include <com/sun/star/awt/Key.hpp>
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/frame/XController.hpp>
++#include <com/sun/star/frame/XFrame.hpp>
++#include <com/sun/star/frame/XLayoutManager.hpp>
++#include <com/sun/star/frame/XModel.hpp>
+ #include <com/sun/star/sheet/GlobalSheetSettings.hpp>
+ #include <com/sun/star/table/BorderLineStyle.hpp>
+ #include <com/sun/star/text/WritingMode2.hpp>
+@@ -98,6 +103,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testExternalReferences)
      dispose();
      createScDoc();
      pDoc = getScDoc();
@@ -589,7 +603,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  
      // Insert the references to the external document
      {
-@@ -309,6 +313,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf103994)
+@@ -309,6 +318,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf103994)
      dispose();
      createScDoc();
      pDoc = getScDoc();
@@ -600,7 +614,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  
      // Insert the reference to the external document
      OUString aFormula = "='" + maTempFile.GetURL() + "'#$Sheet1.A1";
-@@ -782,9 +790,11 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf56036)
+@@ -782,9 +795,11 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf56036)
      typeString(u"=SUM( 1 + 2 ");
  
      // Insert Newline
@@ -614,7 +628,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
      Scheduler::ProcessEventsToIdle();
  
      typeString(u"+ 3)");
-@@ -841,9 +851,11 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf119162)
+@@ -841,9 +856,11 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf119162)
      typeString(u"Test");
  
      // Insert Newline
@@ -628,7 +642,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
      Scheduler::ProcessEventsToIdle();
  
      pModelObj->postKeyEvent(LOK_KEYEVENT_KEYINPUT, 0, awt::Key::RETURN);
-@@ -2103,12 +2115,13 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testPasteAsLink)
+@@ -2103,12 +2120,13 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testPasteAsLink)
  
      dispatchCommand(mxComponent, u".uno:PasteAsLink"_ustr, {});
  
@@ -645,7 +659,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
      CPPUNIT_ASSERT_EQUAL(1.0, pDoc->GetValue(2, 0, 0)); // C1
      CPPUNIT_ASSERT_EQUAL(1.0, pDoc->GetValue(2, 2, 0)); // C3
  
-@@ -2264,6 +2277,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf173608_relative_references_when_copyin
+@@ -2264,6 +2282,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf173608_relative_references_when_copyin
  {
      createScDoc();
      ScDocument* pDoc = getScDoc();
@@ -656,7 +670,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  
      insertStringToCell(u"A1"_ustr, u"1");
      insertStringToCell(u"A2"_ustr, u"2");
-@@ -2358,6 +2375,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf150219)
+@@ -2358,6 +2380,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf150219)
  {
      createScDoc();
      ScDocument* pDoc = getScDoc();
@@ -667,7 +681,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  
      insertNewSheet(*pDoc);
  
-@@ -2378,6 +2399,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf153790)
+@@ -2378,6 +2404,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf153790)
  {
      createScDoc();
      ScDocument* pDoc = getScDoc();
@@ -678,6 +692,28 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  
      insertStringToCell(u"A1"_ustr, u"=SUM($Sheet1.B1:C1)");
  
+@@ -2668,6 +2698,21 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testKeyboardMergeRef)
+ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testMouseMergeRef)
+ {
+     createScDoc();
++    // HST Office: the mouse events below need a grid window with a size. In this test the frame of
++    // the new document is not always laid out yet (its document view can be 0x0, as measured for
++    // uicalc2 testTdf107994); a user's window is laid out when it is shown or resized, here the
++    // frame's layout manager lays it out.
++    {
++        uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<frame::XLayoutManager> xLayoutManager;
++        uno::Reference<beans::XPropertySet>(xModel->getCurrentController()->getFrame(),
++                                            uno::UNO_QUERY_THROW)
++                ->getPropertyValue(u"LayoutManager"_ustr)
++            >>= xLayoutManager;
++        CPPUNIT_ASSERT(xLayoutManager.is());
++        xLayoutManager->doLayout();
++        Scheduler::ProcessEventsToIdle();
++    }
+     ScDocShell* pDocSh = getScDocShell();
+     ScModelObj* pModelObj = comphelper::getFromUnoTunnel<ScModelObj>(mxComponent);
+     ScTabViewShell* pViewShell = pDocSh->GetBestViewShell(false);
 --- a/sc/qa/unit/uicalc/uicalc2.cxx
 +++ b/sc/qa/unit/uicalc/uicalc2.cxx
 @@ -26,6 +26,11 @@
