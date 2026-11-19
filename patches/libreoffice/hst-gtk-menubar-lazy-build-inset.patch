@@ -1,0 +1,36 @@
+HST Office: no empty band below the native menu bar (gtk3) once the lazily built menu bar shows.
+
+hst-gtk-menubar-lazy-build.patch builds the native GTK menu bar on an idle. When the window's menu bar is
+created, MenuBar::ImplCreate gives the VCL menu bar window height 0 only if the native menu bar is already
+visible; with the build pending it is not, so the VCL window keeps its own height (34 px here) and
+ImplBorderWindow::GetBorder keeps that much space at the top of the client. The native menu bar then shows
+above it, and the VCL window paints nothing under a native menu bar: an unthemed white band between the menu
+bar and the content. Every window that shows its menu bar from the start has it; the Start Center always
+does (the Tabbed UI hides the menu bar of documents, so their windows do not). Measured on 1.0.2 rc and the
+1.0.3 Start Center: the container window's TopInset is 34 and the Start Center 34 px shorter than the window.
+
+GtkSalMenu::BuildPendingMenuBar now lays the VCL menu bar out again after it created the native widget
+(MenuBar::LayoutChanged, as EnableUnity does), which gives the VCL window height 0. Nothing else changes: the
+idle, the document tab strip (LayoutManager border space) and the notebookbar strip are untouched.
+
+Check: tests/runtime/check-start-center-top-border.py (gtk3): a lone Start Center has TopInset 0 and fills its
+window; two documents still show the document tab strip.
+
+License: modified upstream files keep their license (MPL-2.0).
+---
+diff --git a/vcl/unx/gtk3/gtksalmenu.cxx b/vcl/unx/gtk3/gtksalmenu.cxx
+index 23d88fa..eb3cabf 100644
+--- a/vcl/unx/gtk3/gtksalmenu.cxx
++++ b/vcl/unx/gtk3/gtksalmenu.cxx
+@@ -1115,6 +1115,11 @@ void GtkSalMenu::BuildPendingMenuBar()
+     {
+         DestroyMenuBarWidget();
+         CreateMenuBarWidget();
++        // The VCL menubar window kept its own height while the native menubar was pending, and the
++        // window's border kept that much space at the top of the client (an empty band below the
++        // native menubar). Now that the native one shows, the VCL one goes to height 0.
++        if (!pMenuBar->isDisposed())
++            pMenuBar->LayoutChanged();
+     }
+ }
+ 
