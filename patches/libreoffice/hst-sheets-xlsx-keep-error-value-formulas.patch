@@ -2,10 +2,12 @@ HST Office: .xlsx keeps formulas whose result is an error value; only a formula 
 
 hst-sheets-excel-formula-conventions.patch leaves a formula that never compiled (LibreOffice keeps "=1+*2" and shows
 an error) out of the .xlsx, because the leading application refuses the whole file. It tested every code error of the
-formula, so formulas that are valid there were lost on save too and only their error value was written: an error
-value in the formula (=#N/A, upstream testTdf131372) and a name that is not defined, such as an external defined name
-without a value ([1]!HelloWorld, testEmptyExternalDefinedNames). Now only the compiler's syntax errors (invalid
-character, missing bracket, operator or operand, parameter list, overflows, unknown token) leave the formula out.
+formula, so formulas that are valid there were lost on save too and only their error value was written: an error value
+in the formula (=#N/A, upstream testTdf131372), a name that is not defined, and an external defined name that Calc
+cannot resolve ([1]!HelloWorld, testEmptyExternalDefinedNames; Calc keeps it with a code error such as 520 or 510).
+Now only the compiler's syntax errors (invalid character, missing bracket, operator or operand, parameter list,
+overflows, unknown token) leave the formula out, and not when the formula holds an external reference or name or a
+name Calc could not read, which the leading application resolves.
 
 License: these upstream files remain under their original license (MPL-2.0).
 Test: make CppunitTest_sc_subsequent_export_test4 (testTdf131372, testEmptyExternalDefinedNames);
@@ -13,13 +15,13 @@ tests/runtime/check-sheets-excel-formula-conventions.py (=1+*2 is still left out
 ---
 --- a/sc/source/filter/excel/xetable.cxx
 +++ b/sc/source/filter/excel/xetable.cxx
-@@ -1039,7 +1039,31 @@ void XclExpFormulaCell::SaveXml( XclExpXmlStream& rStrm )
+@@ -1039,7 +1039,46 @@ void XclExpFormulaCell::SaveXml( XclExpXmlStream& rStrm )
          // HST: a formula kept with a syntax error (it never compiled, e.g. "=1+*2") is not
          // written: the leading application refuses the whole file, also when asked to repair
          // it. The cell keeps its error result.
 -        bool bValid = aTokenArray.GetCodeError() == FormulaError::NONE;
 +        // Only a formula that did not compile: an error value in the formula (=#N/A) or a name that
-+        // is not defined (#NAME?, [1]!Name) is a formula there too, and stays one.
++        // is not defined (#NAME?) is a formula there too, and stays one.
 +        bool bValid = true;
 +        switch (aTokenArray.GetCodeError())
 +        {
@@ -42,6 +44,21 @@ tests/runtime/check-sheets-excel-formula-conventions.py (=1+*2 is still left out
 +                break;
 +            default:
 +                break;
++        }
++        // An external reference or name ('file'#Name, [1]!Name) that Calc cannot resolve also leaves a code
++        // error, but the leading application resolves it: such a formula is written.
++        if (!bValid)
++        {
++            for (const formula::FormulaToken* t : aTokenArray.Tokens())
++            {
++                const formula::StackVar eType = t->GetType();
++                if (eType == formula::svExternalSingleRef || eType == formula::svExternalDoubleRef
++                    || eType == formula::svExternalName || t->GetOpCode() == ocBad)
++                {
++                    bValid = true;
++                    break;
++                }
++            }
 +        }
          // Discard formulas containing macros in XLSX export.
          if (!rStrm.IsExportVBA())
