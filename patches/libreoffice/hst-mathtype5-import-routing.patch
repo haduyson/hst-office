@@ -759,7 +759,7 @@ index 1ea2f7c..6e5e4bd 100644
              pRet.clear();     // we don't need this anymore
          }
 diff --git a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
-index 8c4e14a..c5b41b7 100644
+index 8c4e14a..02b4cd9 100644
 --- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
 +++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
 @@ -27,6 +27,7 @@
@@ -776,7 +776,7 @@ index 8c4e14a..c5b41b7 100644
  
 +        // HST Office: a MathType 4-7 equation converted on open sits on the Math baseline
 +        // instead of Word's run position; if it can't be converted the OLE object stays
-+        if (auto xFormula = writerfilter::hst::ConvertMathType5Ole(
++        if (auto xFormula = writerfilter::hstmath::ConvertMathType5Ole(
 +                pOLEHandler->getProgId(), pOLEHandler->getNativeData(), m_aBaseUrl,
 +                pOLEHandler->getSize().Height, pOLEHandler->getReplacement());
 +            xFormula.is())
@@ -828,7 +828,7 @@ index 02d3929..7e1b263 100644
      rtl::Reference<SwXTextSection> appendTextSectionAfter(css::uno::Reference<css::text::XTextRange> const & xBefore);
  
 diff --git a/sw/source/writerfilter/dmapper/OLEHandler.cxx b/sw/source/writerfilter/dmapper/OLEHandler.cxx
-index 94a8597..c3ee763 100644
+index 94a8597..683e1ee 100644
 --- a/sw/source/writerfilter/dmapper/OLEHandler.cxx
 +++ b/sw/source/writerfilter/dmapper/OLEHandler.cxx
 @@ -17,6 +17,7 @@
@@ -843,7 +843,7 @@ index 94a8597..c3ee763 100644
          {
              const sal_Int32 nReadRequest = 0x1000;
              uno::Sequence< sal_Int8 > aData;
-+            const bool bKeepData = writerfilter::hst::WantsMathType5Data(m_sProgId);
++            const bool bKeepData = writerfilter::hstmath::WantsMathType5Data(m_sProgId);
  
              while( true )
              {
@@ -887,7 +887,7 @@ index cd5d59d..715618f 100644
      OUString const & GetVisAreaHeight() const;
 diff --git a/sw/source/writerfilter/hst/mathtypeole.cxx b/sw/source/writerfilter/hst/mathtypeole.cxx
 new file mode 100644
-index 0000000..25e97e0
+index 0000000..9a7081e
 --- /dev/null
 +++ b/sw/source/writerfilter/hst/mathtypeole.cxx
 @@ -0,0 +1,103 @@
@@ -924,7 +924,7 @@ index 0000000..25e97e0
 +
 +using namespace css;
 +
-+namespace writerfilter::hst
++namespace writerfilter::hstmath
 +{
 +bool WantsMathType5Data(std::u16string_view rProgId)
 +{
@@ -996,7 +996,7 @@ index 0000000..25e97e0
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sw/source/writerfilter/hst/mathtypeole.hxx b/sw/source/writerfilter/hst/mathtypeole.hxx
 new file mode 100644
-index 0000000..157e9c0
+index 0000000..aa2ba31
 --- /dev/null
 +++ b/sw/source/writerfilter/hst/mathtypeole.hxx
 @@ -0,0 +1,39 @@
@@ -1020,7 +1020,7 @@ index 0000000..157e9c0
 +
 +// MathType 4-7 equations ("Equation.DSMT4") in DOCX and RTF: converted to Math objects on open
 +// when the user turned that on; otherwise, or if conversion fails, they stay OLE objects.
-+namespace writerfilter::hst
++namespace writerfilter::hstmath
 +{
 +/// True if the OLE data of an object with this ProgId should be kept for conversion
 +bool WantsMathType5Data(std::u16string_view rProgId);
@@ -1059,7 +1059,7 @@ index 74f3c07..2f832dc 100644
                      // the object is in a table or another container.
                      // Use the \result (RTFKeyword::RESULT) element of the object instead,
 diff --git a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
-index 6ad758c..141d516 100644
+index 6ad758c..2658140 100644
 --- a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
 +++ b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
 @@ -56,6 +56,7 @@
@@ -1191,7 +1191,7 @@ index 6ad758c..141d516 100644
 +bool RTFDocumentImpl::HstKeepsOleInTable()
 +{
 +    RTFValue::Pointer_t pProgId = m_aOLEAttributes.find(NS_ooxml::LN_CT_OLEObject_ProgID);
-+    return pProgId && writerfilter::hst::KeepsOleInTable(pProgId->getString());
++    return pProgId && writerfilter::hstmath::KeepsOleInTable(pProgId->getString());
 +}
 +
  RTFError RTFDocumentImpl::handleEmbeddedObject()
