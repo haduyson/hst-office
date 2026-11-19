@@ -20,7 +20,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 
-from coat_dialog_cases import DIALOGS, NO_PROMPTS  # noqa: E402
+from coat_dialog_cases import DIALOGS, FRAME_VIEWS, NO_PROMPTS  # noqa: E402
 
 LOOKS = [(coat, theme, scale) for coat in ("before", "after") for theme in ("light", "dark") for scale in ("100", "125")]
 
@@ -65,6 +65,28 @@ def close_all(office, wins, display, before):
     return False
 
 
+def shoot_frame_view(args, office, ui, name, look, failures):
+    """A view shown inside a document window (HST's backstage print): a fresh document, the command, a shot of
+    that document's window; closing the document afterwards cancels whatever the view started."""
+    factory, command = DIALOGS[name]
+    before = {w[0] for w in hst_gui.toplevels(args.display, pid=office.pid)}
+    doc = load(office, factory)
+    frames = new_windows(office, before, args.display)
+    if not frames:
+        failures.append(f"{name} {'-'.join(look)}: no document window")
+        return
+    ui.executeDialog(command)
+    time.sleep(8)  # the view lays out its preview
+    path = os.path.join(args.out, f"{name}-{'-'.join(look)}.png")
+    os.makedirs(args.out, exist_ok=True)
+    subprocess.run(["import", "-display", args.display, "-window", frames[0][0], path], check=True)
+    print("shot", path, flush=True)
+    try:
+        doc.close(True)
+    except Exception as error:  # noqa: BLE001 - the view may veto; the office is stopped after this look anyway
+        failures.append(f"{name} {'-'.join(look)}: document did not close ({error})")
+
+
 def shoot_look(args, look, names, failures):
     coat, theme, scale = look
     work = os.path.join(args.work, "-".join(look))
@@ -82,6 +104,9 @@ def shoot_look(args, look, names, failures):
                     # misspelt words for the spelling dialog
                     docs[factory].getText().setString("Thử nghiệm lớp áo HST: chữ saii chính tả và tieng Viet.")
                 time.sleep(2)
+            if name in FRAME_VIEWS:
+                shoot_frame_view(args, office, ui, name, look, failures)
+                continue
             docs[factory].getCurrentController().getFrame().getContainerWindow().setFocus()
             before = {w[0] for w in hst_gui.toplevels(args.display, pid=office.pid)}
             ui.executeDialog(command)

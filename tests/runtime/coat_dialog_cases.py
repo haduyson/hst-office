@@ -6,14 +6,17 @@ DIALOGS = {
     "format-cells": ("scalc", ".uno:FormatCellDialog"),
     "paragraph": ("swriter", ".uno:ParagraphDialog"),
     "page-style": ("swriter", ".uno:PageDialog"),
-    "print": ("swriter", ".uno:Print"),
     "options": ("swriter", ".uno:OptionsTreeDialog"),
     "find-replace": ("swriter", ".uno:SearchDialog"),
     "insert-table": ("swriter", ".uno:InsertTable"),
     "character": ("swriter", ".uno:FontDialog"),
     "insert-image": ("swriter", ".uno:InsertGraphic"),
     "spelling": ("swriter", ".uno:SpellingAndGrammarDialog"),
+    # last: in HST, Print opens the backstage print panel inside the document window, not a dialog
+    "print": ("swriter", ".uno:Print"),
 }
+# shot as their document window (in its own fresh document, closed afterwards), not as a new top-level window
+FRAME_VIEWS = {"print"}
 # no update check: its modal dialog would interrupt the shots
 NO_PROMPTS = [("/org.openoffice.Office.HSTUpdate", "AutoCheck", "false"),
               ("/org.hasontech.hstoffice.UpdateCheck", "AutoCheck", "false")]

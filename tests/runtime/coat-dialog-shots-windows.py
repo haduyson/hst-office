@@ -20,7 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui_windows  # noqa: E402
 import windows_gui_dialogs  # noqa: E402
-from coat_dialog_cases import DIALOGS, NO_PROMPTS  # noqa: E402
+from coat_dialog_cases import DIALOGS, FRAME_VIEWS, NO_PROMPTS  # noqa: E402
 
 LOOKS = [(coat, theme) for coat in ("before", "after") for theme in ("light", "dark")]
 SHOT = os.path.join(HERE, "coat-window-shot.ps1")
@@ -47,6 +47,33 @@ def new_dialog(office, before, timeout=25):
     return None, None
 
 
+def capture(hwnd, path):
+    result = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SHOT,
+                             "-Hwnd", str(hwnd), "-Path", path], capture_output=True, text=True, timeout=120)
+    print(result.stdout.strip() or result.stderr.strip(), flush=True)
+    return result.returncode == 0
+
+
+def shoot_frame_view(args, office, ui, name, look, failures):
+    """A view inside a document window (HST's backstage print): a fresh document, the command, a shot of that
+    document's window; closing the document afterwards cancels whatever the view started."""
+    factory, command = DIALOGS[name]
+    doc = office.load(f"private:factory/{factory}")
+    time.sleep(2)
+    hwnd = windows_gui_dialogs.dialog_hwnd(doc.getCurrentController().getFrame().getContainerWindow())
+    if not hwnd:
+        failures.append(f"{name} {'-'.join(look)}: no document window")
+        return
+    ui.executeDialog(command)
+    time.sleep(8)  # the view lays out its preview
+    if not capture(hwnd, os.path.join(args.out, f"{name}-{'-'.join(look)}-{args.scale}.png")):
+        failures.append(f"{name} {'-'.join(look)}: capture failed")
+    try:
+        doc.close(True)
+    except Exception as error:  # noqa: BLE001 - the view may veto; the office is stopped after this look anyway
+        failures.append(f"{name} {'-'.join(look)}: document did not close ({error})")
+
+
 def shoot_look(args, look, names, failures):
     coat, theme = look
     work = os.path.join(args.work, "-".join(look))
@@ -59,6 +86,9 @@ def shoot_look(args, look, names, failures):
         docs = {}
         for name in names:
             factory, command = DIALOGS[name]
+            if name in FRAME_VIEWS:
+                shoot_frame_view(args, office, ui, name, look, failures)
+                continue
             if factory not in docs:
                 docs[factory] = office.load(f"private:factory/{factory}")
                 if factory == "swriter":
@@ -71,10 +101,7 @@ def shoot_look(args, look, names, failures):
                 failures.append(f"{name} {'-'.join(look)}: no dialog window")
                 continue
             path = os.path.join(args.out, f"{name}-{coat}-{theme}-{args.scale}.png")
-            result = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", SHOT,
-                                     "-Hwnd", str(hwnd), "-Path", path], capture_output=True, text=True, timeout=120)
-            print(result.stdout.strip() or result.stderr.strip(), flush=True)
-            if result.returncode:
+            if not capture(hwnd, path):
                 failures.append(f"{name} {'-'.join(look)}: capture failed")
             if windows_gui_dialogs.close_dialog(window) == "open":
                 failures.append(f"{name} {'-'.join(look)}: dialog did not close; later shots of this look skipped")
