@@ -72,6 +72,11 @@ def focus_tab_row(window):
     return False
 
 
+def entry_matches(name, label):
+    """A menu entry that opens a dialog carries an ellipsis ("Tùy chỉnh ribbon…"): match by the label's start."""
+    return bool(name) and name.startswith(label)
+
+
 def menu_entry(office, label):
     """(shown, highlighted) for the popup menu entry `label`: a menu opened from the keyboard may start with no entry
     highlighted, so the check moves to the entry by its accessible state rather than by a fixed count of Down keys."""
@@ -82,7 +87,8 @@ def menu_entry(office, label):
     for window in office.top_windows():
         try:
             for context, _depth in wg.walk(base.accessible(window)):
-                if (context.getAccessibleRole() == base.role("MENU_ITEM") and context.getAccessibleName() == label
+                if (context.getAccessibleRole() == base.role("MENU_ITEM")
+                        and entry_matches(context.getAccessibleName(), label)
                         and wg.showing(context)):
                     return True, bool(context.getAccessibleStateSet() & mask)
         except Exception:  # noqa: BLE001 - a window going away
