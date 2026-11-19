@@ -35,13 +35,12 @@ file whose default font is Liberation Sans names Calibri in it (testTdf121716_Ex
 rows of a new workbook take the height of its 11 pt default style (hst-sheets-default-font-size.patch) and are written
 to .ods as empty cells: testTdf165733_leap_day_BCE checks the one cell with a date.
 
-testTdf107994 lays out the frame of its new document before it freezes panes: panes freeze only at a visible cell,
-and in the CppunitTest the 800x600 frame of the new document had not been laid out yet, so its document view and grid
-window were 0x0 and C3 was scrolled to the top left instead (measured: after the frame's layout manager lays it out,
-the view is 800x429 and the grid 698x343, and the test passes). In HST Sheets itself, and in an office in svp mode,
-Freeze Panes at C3 and Ctrl+Home move to C3.
-That layout is not always done in time in the CppunitTest (testTdf107994 and uicalc testMouseMergeRef passed in some
-runs and failed in others), so testMouseMergeRef, which drags the mouse over the grid, lays out its frame too.
+testTdf107994 and uicalc testMouseMergeRef lay out the frame of their new document first. With the Tabbed user
+interface, HST's default (hst-defaults.patch), the first layout of a new document's frame comes from a timer: measured
+in the CppunitTest, 3 of 5 new documents still had a 0x0 document view after ProcessEventsToIdle and all were laid out
+(800x429) 400 ms later; with the classic toolbars 5 of 5 were laid out at once. With a 0x0 grid, C3 was scrolled to
+the top left and nothing froze, and the mouse drag of testMouseMergeRef missed the cells. In HST Sheets itself, and in
+an office in svp mode, Freeze Panes at C3 and Ctrl+Home move to C3.
 
 License: these upstream files remain under their original license (MPL-2.0).
 Test: make CppunitTest_sc_cond_format CppunitTest_sc_subsequent_filters_test CppunitTest_sc_subsequent_filters_test2
@@ -696,10 +695,10 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testMouseMergeRef)
  {
      createScDoc();
-+    // HST Office: the mouse events below need a grid window with a size. In this test the frame of
-+    // the new document is not always laid out yet (its document view can be 0x0, as measured for
-+    // uicalc2 testTdf107994); a user's window is laid out when it is shown or resized, here the
-+    // frame's layout manager lays it out.
++    // HST Office: the mouse events below need a grid window with a size. With the Tabbed user
++    // interface, the default of HST Office (hst-defaults.patch), the first layout of a new
++    // document's frame comes from a timer and can still be pending here (a 0x0 document view, see
++    // uicalc2 testTdf107994), so the test lays the frame out itself.
 +    {
 +        uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
 +        uno::Reference<frame::XLayoutManager> xLayoutManager;
@@ -754,14 +753,16 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  
      //Subtotals on Autosum
      goToCell(u"C49"_ustr);
-@@ -2219,6 +2226,19 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testTdf107994_MoveActiveCellToFreezePaneSpli
+@@ -2219,6 +2226,21 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testTdf107994_MoveActiveCellToFreezePaneSpli
      dispatchCommand(mxComponent, u".uno:GoToStart"_ustr, {});
      checkCurrentCursorPosition(*pDocSh, u"A1");
  
-+    // HST Office: panes freeze only at a visible cell. In this test the frame of the new document
-+    // is not laid out yet: its 800x600 window gives the document view 0x0 (C3 is then scrolled to
-+    // the top left and nothing freezes). A user's window is laid out when it is shown or resized;
-+    // here the frame's layout manager lays it out (view 800x429, grid 698x343).
++    // HST Office: panes freeze only at a visible cell. With the Tabbed user interface, the default
++    // of HST Office (hst-defaults.patch), the first layout of a new document's frame comes from a
++    // timer: measured in this test, 3 of 5 new documents still had a 0x0 document view after
++    // ProcessEventsToIdle and all were laid out 400 ms later (with the classic toolbars, 5 of 5 at
++    // once). C3 is then scrolled to the top left and nothing freezes, so the test lays the frame
++    // out itself (view 800x429, grid 698x343).
 +    uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
 +    uno::Reference<frame::XLayoutManager> xLayoutManager;
 +    uno::Reference<beans::XPropertySet>(xModel->getCurrentController()->getFrame(), uno::UNO_QUERY_THROW)
