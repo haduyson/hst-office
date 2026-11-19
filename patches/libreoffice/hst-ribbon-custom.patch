@@ -4043,7 +4043,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/hst/ribbon/lo/ribbon-customize-dialog.cxx
-@@ -0,0 +1,572 @@
+@@ -0,0 +1,602 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -4066,6 +4066,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +#include <sfx2/filedlghelper.hxx>
 +#include <sfx2/sfxresid.hxx>
 +#include <unotools/collatorwrapper.hxx>
++#include <unotools/resmgr.hxx>
 +#include <unotools/transliterationwrapper.hxx>
 +#include <vcl/commandinfoprovider.hxx>
 +#include <vcl/settings.hxx>
@@ -4243,6 +4244,32 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +    return aText.toAsciiLowerCase().replace(u'đ', 'd').replace(u'Đ', 'd');
 +}
 +
++namespace
++{
++// Ribbon commands that are boxes with neither a label on the ribbon nor one in the command descriptions (.xcu): the
++// paragraph indent and spacing boxes. They are named by the boxes' own tooltips (svx catalogue, already translated).
++struct BoxLabel
++{
++    std::string_view command;
++    TranslateId label;
++};
++
++constexpr BoxLabel aBoxLabels[] = {
++    { ".uno:LeftParaMargin", TranslateId("paralrspacing|beforetextindent|tooltip_text", u8"Before Text Indent") },
++    { ".uno:RightParaMargin", TranslateId("paralrspacing|aftertextindent|tooltip_text", u8"After Text Indent") },
++    { ".uno:AboveSpacing", TranslateId("paraulspacing|aboveparaspacing|tooltip_text", u8"Above Paragraph Spacing") },
++    { ".uno:BelowSpacing", TranslateId("paraulspacing|belowparaspacing|tooltip_text", u8"Below Paragraph Spacing") },
++};
++
++OUString BoxLabelOf(std::string_view aCommand)
++{
++    for (const BoxLabel& rBox : aBoxLabels)
++        if (rBox.command == aCommand)
++            return Translate::get(rBox.label, Translate::Create("svx"));
++    return OUString();
++}
++}
++
 +OUString CustomizeDialog::CommandLabel(const core::Command& rCommand) const
 +{
 +    if (!rCommand.label.empty())
@@ -4250,7 +4277,10 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +    const OUString aId = FromUtf8(rCommand.id);
 +    const OUString aLabel = vcl::CommandInfoProvider::GetLabelForCommand(
 +        vcl::CommandInfoProvider::GetCommandProperties(aId, m_aModule));
-+    return aLabel.isEmpty() ? aId : aLabel.replaceAll("~", "");
++    if (!aLabel.isEmpty())
++        return aLabel.replaceAll("~", "");
++    const OUString aBox = BoxLabelOf(rCommand.id);
++    return aBox.isEmpty() ? aId : aBox;
 +}
 +
 +namespace

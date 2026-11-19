@@ -11,7 +11,8 @@ HST_RIBBON_DUMP_LAYOUT so the generated tabs' layouts can be checked by check-ri
      Trang đầu, the first group of Trang đầu hidden, a broken entry): the custom tab and its commands are there, the
      recently used tab still follows Trang đầu, the history survived the restart, the hidden group's caption is
      gone, the other tabs are unchanged;
-  4. a right-click on the tab row offers "Tùy chỉnh ribbon…", which opens the dialog (closed with Escape);
+  4. a right-click on the tab row offers "Tùy chỉnh ribbon…", which opens the dialog (closed with Escape); its
+     command list and ribbon tree name every command (no raw ".uno:" id);
   5. Tùy chọn's service turns the tab off: after the reload the tab is gone.
 Writes <work>/evidence.json; exit 1 on any failure.
 """
@@ -99,6 +100,24 @@ def unmodified(office):
 
 def menu_items():
     return [n for n in gui.walk(gui.office_app()) if n.getRoleName() == "menu item"]
+
+
+def dialog_names(node, depth=0):
+    """Every accessible name under the dialog, the rows of its tree views included (ribbon_tabs_gui.walk skips
+    tables, and a tree view of a list store is one)."""
+    try:
+        yield node.name or ""
+        children = [node.getChildAtIndex(i) for i in range(min(node.childCount, 3000))] if depth < 16 else []
+    except Exception:  # noqa: BLE001 - a row going away
+        return
+    for child in children:
+        if child is not None:
+            yield from dialog_names(child, depth + 1)
+
+
+def raw_command_ids(names):
+    """Names that are a bare command id: a command shown without its label."""
+    return sorted({name for name in names if name.startswith(".uno:")})
 
 
 def shot(args, office, name):
@@ -191,6 +210,11 @@ def check_app(args, app):
                 time.sleep(3)
                 dialogs = [n for _w, n in hst_gui.toplevels(args.display, office.pid) if "Tùy chỉnh ribbon" in n]
                 record(f"[{app}] customize dialog opens", bool(dialogs), hst_gui.toplevels(args.display, office.pid))
+                office_app = gui.office_app()
+                found = [n for n in (office_app.getChildAtIndex(i) for i in range(office_app.childCount))
+                         if n and (n.name or "").startswith("Tùy chỉnh ribbon")]
+                raw = raw_command_ids(dialog_names(found[0])) if found else ["no dialog"]
+                record(f"[{app}] the dialog names every command (no raw .uno: id)", not raw, raw)
                 shot(args, office, f"{app}-customize-dialog.png")
                 gui.xdo(args.display, "key", "Escape")
                 time.sleep(1.5)
