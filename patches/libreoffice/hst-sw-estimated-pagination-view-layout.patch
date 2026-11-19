@@ -1,0 +1,46 @@
+sw: estimated pagination places the pages once per layout action.
+
+With estimated pagination (large plain text, large DOCX) the layout removes the surplus estimated
+pages as it goes. Every removal repositions all following pages and moves their frames
+(SwRootFrame::CheckViewLayout, lcl_MoveAllLowers), once per CheckPageDescs: at about 100,000 pages
+(docx-text 50 MB) a quarter of the layout time.
+
+Complete and idle layout actions take no shortcut by visible area, so the page positions are now
+computed once when the action's page loop ends (SwViewLayoutDeferGuard, a no-op without estimated
+pagination), before the interrupt formatting that looks for pages by position.
+
+Hook: sw/source/core/layout/layact.cxx.
+Test: CppunitTest_sw_core_layout testLargeDocxPaginationUnchanged / testLargeTextPaginationUnchanged
+(every page starts at the same text as the layout without estimates).
+---
+--- a/sw/source/core/layout/layact.cxx
++++ b/sw/source/core/layout/layact.cxx
+@@ -22,6 +22,7 @@
+ 
+ #include <ctime>
+ #include <rootfrm.hxx>
++#include <optional>
+ #include <rowfrm.hxx>
+ #include <pagefrm.hxx>
+ #include <viewimp.hxx>
+@@ -523,6 +524,12 @@
+         return bAgain;
+     };
+ 
++    // HST: estimated pagination removes and inserts pages all along the layout; place the pages
++    // once when the action ends (complete and idle actions take no shortcut by visible area)
++    std::optional<SwViewLayoutDeferGuard> oHstDeferViewLayout;
++    if (IsComplete() || IsIdle())
++        oHstDeferViewLayout.emplace(m_pRoot);
++
+     int nOuterLoopControlRuns = 0;
+     // one run per page: a large plain text (laycache.cxx) may have more than 10000 pages
+     const int nOuterLoopControlMax = m_pRoot->IsLargeTextPagination()
+@@ -762,6 +769,7 @@
+         // already - the border of the page will never be painted.
+         SwPageFrame *pPg = pPage;
+         if (lcl_isLayoutLooping()) return;
++        oHstDeferViewLayout.reset(); // HST: the pages below are found by position
+         // LOK case: VisArea() is the entire document and getLOKVisibleArea() may contain the actual
+         // visible area.
+         const SwRect &rVisArea = m_pImp->GetShell().VisArea();

@@ -1,0 +1,147 @@
+Writer: paragraphs without fill share one set of fill attributes.
+
+When the layout formats a paragraph, SwTextNode::getSdrAllFillAttributesHelper creates and keeps an
+SdrAllFillAttributesHelper for it, about 0.4 KB with its shared_ptr, even when the paragraph has no fill, which is
+almost every paragraph. A 2 MB DOCX with 94,000 paragraphs held 39 MB of them after its layout. For a paragraph
+with no fill style, no slide background fill and no enabled float transparency the helper always holds the
+default fill and the default gradient, so HstSharedNoFillAttributes (new hstnofillattributes.cxx) returns one
+shared helper for all of them. A paragraph with a fill still gets its own, and an attribute change still drops the
+cached helper (SwTextNode::TriggerNodeUpdate, SwClientNotify) as before.
+
+Hook: sw/source/core/txtnode/ndtxt.cxx (2 lines), sw/Library_sw.mk; logic in sw/source/core/inc/hstnofillattributes.hxx,
+sw/source/core/txtnode/hstnofillattributes.cxx.
+Test: CppunitTest_sw_core_txtnode testHstNoFillParagraphsShareFillAttributes.
+---
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -447,6 +447,7 @@
+     sw/source/core/tox/ToxTextGenerator \
+     sw/source/core/tox/ToxWhitespaceStripper \
+     sw/source/core/txtnode/GrammarContact \
++    sw/source/core/txtnode/hstnofillattributes \
+     sw/source/core/txtnode/OnlineAccessibilityCheck \
+     sw/source/core/txtnode/attrcontentcontrol \
+     sw/source/core/txtnode/atrfld \
+--- /dev/null
++++ b/sw/source/core/inc/hstnofillattributes.hxx
+@@ -0,0 +1,15 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++#pragma once
++
++#include <svx/sdr/attribute/sdrallfillattributeshelper.hxx>
++
++class SfxItemSet;
++
++/// HST: the fill attributes of a paragraph without fill (no fill style, no slide background, no
++/// float transparency) are the same for every such paragraph: one shared helper instead of one per
++/// paragraph (about 0.4 KB each, created for every paragraph the layout formats). nullptr when
++/// rSet has a fill.
++drawinglayer::attribute::SdrAllFillAttributesHelperPtr HstSharedNoFillAttributes(const SfxItemSet& rSet);
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/core/txtnode/hstnofillattributes.cxx
+@@ -0,0 +1,30 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++
++#include <hstnofillattributes.hxx>
++
++#include <com/sun/star/drawing/FillStyle.hpp>
++#include <svl/itemset.hxx>
++#include <svx/xdef.hxx>
++#include <svx/xfillit0.hxx>
++#include <svx/xfilluseslidebackgrounditem.hxx>
++#include <svx/xflftrit.hxx>
++
++#include <memory>
++
++drawinglayer::attribute::SdrAllFillAttributesHelperPtr HstSharedNoFillAttributes(const SfxItemSet& rSet)
++{
++    // The helper built from rSet depends only on these items: with no fill style, no slide background
++    // and no enabled float transparency it holds the default fill and the default gradient.
++    if (rSet.Get(XATTR_FILLSTYLE).GetValue() != css::drawing::FillStyle_NONE
++        || rSet.Get(XATTR_FILLUSESLIDEBACKGROUND).GetValue())
++        return {};
++    if (const XFillFloatTransparenceItem* pItem = rSet.GetItemIfSet(XATTR_FILLFLOATTRANSPARENCE);
++        pItem && pItem->IsEnabled())
++        return {};
++    static const drawinglayer::attribute::SdrAllFillAttributesHelperPtr s_pNoFill
++        = std::make_shared<drawinglayer::attribute::SdrAllFillAttributesHelper>(rSet);
++    return s_pNoFill;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/core/txtnode/ndtxt.cxx
++++ b/sw/source/core/txtnode/ndtxt.cxx
+@@ -91,6 +91,7 @@
+ #include <fmtcntnt.hxx>
+ #include <poolfmt.hxx>
+ #include <names.hxx>
++#include <hstnofillattributes.hxx>
+ 
+ using namespace ::com::sun::star;
+ 
+@@ -5816,6 +5817,8 @@
+     // create SdrAllFillAttributesHelper on demand
+     if(!maFillAttributes)
+     {
++        if (auto pShared = HstSharedNoFillAttributes(GetSwAttrSet())) // HST: one for all without fill
++            return const_cast<SwTextNode*>(this)->maFillAttributes = std::move(pShared);
+         auto pNew = std::make_shared<drawinglayer::attribute::SdrAllFillAttributesHelper>(GetSwAttrSet());
+ 
+         if (hasDeferredFillBitmap(GetSwAttrSet()))
+--- a/sw/qa/core/txtnode/txtnode.cxx
++++ b/sw/qa/core/txtnode/txtnode.cxx
+@@ -47,6 +47,8 @@
+ #include <IDocumentFieldsAccess.hxx>
+ #include <MarkManager.hxx>
+ #include <fldmgr.hxx>
++#include <com/sun/star/drawing/FillStyle.hpp>
++#include <svx/sdr/attribute/sdrallfillattributeshelper.hxx>
+ 
+ /// Covers sw/source/core/txtnode/ fixes.
+ class SwCoreTxtnodeTest : public SwModelTestBase
+@@ -747,6 +749,41 @@
+     CPPUNIT_ASSERT_EQUAL(u"2"_ustr, aExpand);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(SwCoreTxtnodeTest, testHstNoFillParagraphsShareFillAttributes)
++{
++    // Two paragraphs without fill and a third with a solid fill.
++    createSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    pWrtShell->Insert(u"a"_ustr);
++    pWrtShell->SplitNode();
++    pWrtShell->Insert(u"b"_ustr);
++    pWrtShell->SplitNode();
++    pWrtShell->Insert(u"c"_ustr);
++    uno::Reference<beans::XPropertySet> xThird(getParagraph(3), uno::UNO_QUERY);
++    xThird->setPropertyValue(u"FillStyle"_ustr, uno::Any(drawing::FillStyle_SOLID));
++    xThird->setPropertyValue(u"FillColor"_ustr, uno::Any(Color(0xFF0000)));
++
++    SwNodeOffset nFirst = pWrtShell->GetCursor()->GetPoint()->GetNodeIndex() - SwNodeOffset(2);
++    SwNodes& rNodes = getSwDoc()->GetNodes();
++    auto pA = rNodes[nFirst]->GetTextNode()->getSdrAllFillAttributesHelper();
++    auto pB = rNodes[nFirst + SwNodeOffset(1)]->GetTextNode()->getSdrAllFillAttributesHelper();
++    auto pC = rNodes[nFirst + SwNodeOffset(2)]->GetTextNode()->getSdrAllFillAttributesHelper();
++    CPPUNIT_ASSERT(pA && pB && pC);
++    // Without the accompanying change, every paragraph had a helper of its own.
++    CPPUNIT_ASSERT_EQUAL(pA.get(), pB.get());
++    CPPUNIT_ASSERT(!pA->isUsed());
++    CPPUNIT_ASSERT(pC.get() != pA.get());
++    CPPUNIT_ASSERT(pC->isUsed());
++
++    // Giving the second paragraph a fill gives it a helper of its own, the first keeps no fill.
++    uno::Reference<beans::XPropertySet> xSecond(getParagraph(2), uno::UNO_QUERY);
++    xSecond->setPropertyValue(u"FillStyle"_ustr, uno::Any(drawing::FillStyle_SOLID));
++    xSecond->setPropertyValue(u"FillColor"_ustr, uno::Any(Color(0x00FF00)));
++    pB = rNodes[nFirst + SwNodeOffset(1)]->GetTextNode()->getSdrAllFillAttributesHelper();
++    CPPUNIT_ASSERT(pB->isUsed());
++    CPPUNIT_ASSERT(!rNodes[nFirst]->GetTextNode()->getSdrAllFillAttributesHelper()->isUsed());
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

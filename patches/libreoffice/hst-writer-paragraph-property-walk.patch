@@ -1,0 +1,175 @@
+Writer: a paragraph's direct property values are looked up by walking its property map once.
+
+getDirectPropertyValuesTolerant (and getPropertyValuesTolerant) on a paragraph receive their property names in
+ascending order, as the XTolerantMultiPropertySet contract requires; the DOCX/RTF table style pass asks for all
+~400 of them for every table cell paragraph. Each name was found with its own binary search over the paragraph
+property map, about nine string compares per name: 3 % of the open of a 3000-page report with tables.
+HstSortedPropertyLookup (new hstsortedpropertylookup.cxx) keeps its position in the sorted map and steps forward
+to the next name; a name out of order, or far ahead, is found with SfxItemPropertyMap::getByName as before, so
+the entries found are the same for any list of names.
+
+Hook: sw/source/core/unocore/unoparagraph.cxx (2 lines), sw/Library_sw.mk; logic in
+sw/source/core/inc/hstsortedpropertylookup.hxx, sw/source/core/unocore/hstsortedpropertylookup.cxx.
+Test: CppunitTest_sw_core_unocore testHstSortedPropertyLookup (sorted, unknown, out-of-order and repeated names
+give the entries of getByName).
+---
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -519,6 +519,7 @@
+     sw/source/core/unocore/unomap1 \
+     sw/source/core/unocore/unoobj \
+     sw/source/core/unocore/unoobj2 \
++    sw/source/core/unocore/hstsortedpropertylookup \
+     sw/source/core/unocore/unoparagraph \
+     sw/source/core/unocore/unoport \
+     sw/source/core/unocore/unoportenum \
+--- /dev/null
++++ b/sw/source/core/inc/hstsortedpropertylookup.hxx
+@@ -0,0 +1,27 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++#pragma once
++
++#include <svl/itemprop.hxx>
++#include <swdllapi.h>
++
++#include <string_view>
++
++/// HST: finds the entries of a property map for a list of names given in ascending order (as the
++/// XTolerantMultiPropertySet calls require) by walking the map once, instead of one binary search
++/// with string compares per name. Names out of order are still found (by a new search).
++class SW_DLLPUBLIC HstSortedPropertyLookup
++{
++    const SfxItemPropertyMap& m_rMap;
++    size_t m_nPos = 0; ///< no later name is before this position, if the names are sorted
++
++public:
++    explicit HstSortedPropertyLookup(const SfxItemPropertyMap& rMap)
++        : m_rMap(rMap)
++    {
++    }
++    /// The entry of rName, nullptr if the map has none (as SfxItemPropertyMap::getByName).
++    const SfxItemPropertyMapEntry* Find(std::u16string_view rName);
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/core/unocore/hstsortedpropertylookup.cxx
+@@ -0,0 +1,43 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++
++#include <hstsortedpropertylookup.hxx>
++
++namespace
++{
++/// Steps tried forwards before falling back to a search: a sorted list of all names moves one
++/// entry per name, a list of a few names may jump far.
++constexpr size_t HST_MAX_FORWARD_STEPS = 8;
++}
++
++const SfxItemPropertyMapEntry* HstSortedPropertyLookup::Find(std::u16string_view rName)
++{
++    const auto& rEntries = m_rMap.getPropertyEntries();
++    const size_t nCount = rEntries.size();
++    size_t nPos = m_nPos;
++    size_t nSteps = 0;
++    // Walk forwards while the entry is before the name; give up on a long way or a name out of order.
++    while (nPos < nCount && rEntries[nPos]->aName < rName && nSteps < HST_MAX_FORWARD_STEPS)
++    {
++        ++nPos;
++        ++nSteps;
++    }
++    const bool bBefore = nPos < nCount && rEntries[nPos]->aName < rName;
++    const bool bOutOfOrder = nPos > 0 && !(rEntries[nPos - 1]->aName < rName);
++    if (bBefore || bOutOfOrder)
++    {
++        const SfxItemPropertyMapEntry* pEntry = m_rMap.getByName(rName);
++        if (pEntry)
++        {
++            auto it = rEntries.find(pEntry);
++            m_nPos = it - rEntries.begin();
++        }
++        return pEntry;
++    }
++    m_nPos = nPos;
++    if (nPos < nCount && rEntries[nPos]->aName == rName)
++        return rEntries[nPos];
++    return nullptr;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/core/unocore/unoparagraph.cxx
++++ b/sw/source/core/unocore/unoparagraph.cxx
+@@ -63,6 +63,7 @@
+ #include <svx/xflbmtit.hxx>
+ #include <svx/xflbstit.hxx>
+ #include <optional>
++#include <hstsortedpropertylookup.hxx>
+ 
+ using namespace ::com::sun::star;
+ 
+@@ -717,6 +718,7 @@
+ 
+     // get entry to start with
+     const SfxItemPropertyMap &rPropMap = m_rPropSet.getPropertyMap();
++    HstSortedPropertyLookup aLookup(rPropMap); // HST: the names come sorted
+ 
+     for (const OUString& rProp : rPropertyNames)
+     {
+@@ -728,7 +730,7 @@
+             rResult.Name = rProp;
+ 
+             SfxItemPropertyMapEntry const*const pEntry =
+-                rPropMap.getByName( rProp );
++                aLookup.Find( rProp );
+             if (!pEntry)  // property available?
+             {
+                 rResult.Result =
+--- a/sw/qa/core/unocore/unocore.cxx
++++ b/sw/qa/core/unocore/unocore.cxx
+@@ -33,6 +33,9 @@
+ #include <frmmgr.hxx>
+ #include <fmtcntnt.hxx>
+ #include <strings.hrc>
++#include <hstsortedpropertylookup.hxx>
++#include <cppu/unotype.hxx>
++#include <vector>
+ 
+ using namespace ::com::sun::star;
+ 
+@@ -1114,6 +1117,34 @@
+     CPPUNIT_ASSERT(!bIsContentEmpty);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(SwCoreUnocoreTest, testHstSortedPropertyLookup)
++{
++    // Entries out of order on purpose: the map sorts them.
++    std::vector<SfxItemPropertyMapEntry> aEntries;
++    for (const char16_t* pName : { u"ParaTopMargin", u"CharWeight", u"ParaAdjust", u"CharHeight",
++                                   u"ParaBottomMargin", u"BorderDistance", u"ParaStyleName",
++                                   u"CharColor", u"CharFontName", u"ParaLineSpacing", u"Z" })
++        aEntries.emplace_back(OUString(pName), 1, cppu::UnoType<sal_Int32>::get(), 0, 0);
++    SfxItemPropertyMap aMap(aEntries);
++
++    auto check = [&aMap](const std::vector<OUString>& rNames) {
++        HstSortedPropertyLookup aLookup(aMap);
++        for (const OUString& rName : rNames)
++            CPPUNIT_ASSERT_EQUAL_MESSAGE(rName.toUtf8().getStr(), aMap.getByName(rName),
++                                         aLookup.Find(rName));
++    };
++    // All names in order (the getDirectPropertyValuesTolerant case), with unknown ones in between.
++    std::vector<OUString> aAll;
++    for (const SfxItemPropertyMapEntry* pEntry : aMap.getPropertyEntries())
++        aAll.push_back(pEntry->aName);
++    check(aAll);
++    check({ u"A"_ustr, u"CharColor"_ustr, u"CharColour"_ustr, u"ParaAdjust"_ustr, u"ParaZ"_ustr,
++            u"Z"_ustr, u"ZZ"_ustr });
++    // A few names far apart, out of order and repeated: still the same entries.
++    check({ u"Z"_ustr, u"BorderDistance"_ustr, u"ParaStyleName"_ustr, u"ParaStyleName"_ustr,
++            u"CharWeight"_ustr, u""_ustr, u"BorderDistance"_ustr });
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
