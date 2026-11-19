@@ -1,12 +1,15 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """HST Công thức: a converted MathType equation keeps the size Word shows it at."""
+import struct
 import unittest
+from unittest import mock
 
 import _paths  # noqa: F401
 
 from hst_office import formula_size
 
 TWIP, MM100 = 9, 0  # com.sun.star.embed.EmbedMapUnits
+WMF_KEY = b"\xd7\xcd\xc6\x9a"  # a placeable WMF
 
 
 class FakeSize:
@@ -80,15 +83,26 @@ class WordScaleTest(unittest.TestCase):
         self.assertEqual(1.0, formula_size.keep_word_scale(model, FakeEquation(316)))  # scale unknown
         self.assertEqual(" size 12{em}", model.Formula)
 
-    def test_preview_sized_to_one_inch_by_the_reader_is_not_a_scale(self):
-        # s037.docx: "m=0", 0.35 x 0.57 cm in its WMF (bounds 320 x 512 at 2307 per inch) and shown so in Word; the
-        # WMF reader makes it one inch on its longer side (1588 x 2540), which drew the formula at 23 %
+    def test_small_equation_takes_its_size_from_the_placeable_header(self):
+        # s037.docx: "m=0" is 320 x 512 at 2307 per inch (352 x 564 mm100) in its WMF; the WMF reader makes it one
+        # inch (1588 x 2540), which drew the formula at 23 %. Word shows it at 150 %: 846 mm100
+        header = WMF_KEY + struct.pack("<hhhhhH", 0, 0, 0, 320, 512, 2307) + bytes(6)
+        self.assertEqual(564, formula_size.placeable_height(header))
         model = FakeModel(" size 12{m = 0}")
-        self.assertEqual(1.0, formula_size.keep_word_scale(model, FakeEquation(575, preview=2540, preview_width=1588)))
-        self.assertEqual(1.0, formula_size.keep_word_scale(model, FakeEquation(1185 * 480 // 1055, preview=1185,
-                                                                                preview_width=2540)))
-        self.assertEqual(" size 12{m = 0}", model.Formula)
+        with mock.patch.object(formula_size, "preview_data", return_value=header):
+            self.assertAlmostEqual(1.5, formula_size.keep_word_scale(
+                model, FakeEquation(846, preview=2540, preview_width=1588)), places=2)
+            self.assertEqual("size *1.5 { size 18{m = 0}}", model.Formula)
+            model.Formula = " size 12{m = 0}"
+            self.assertEqual(1.0, formula_size.keep_word_scale(  # shown at 100 %
+                model, FakeEquation(575, preview=2540, preview_width=1588)))
 
+    def test_preview_sized_to_one_inch_without_a_header_is_not_a_scale(self):
+        model = FakeModel(" size 12{m = 0}")
+        self.assertEqual(b"", formula_size.preview_data(FakeGraphic(2540)))  # no office here
+        self.assertEqual(0, formula_size.placeable_height(b"\x01\x00\x09\x00" + bytes(30)))
+        self.assertEqual(1.0, formula_size.keep_word_scale(model, FakeEquation(846, preview=2540, preview_width=1588)))
+        self.assertEqual(" size 12{m = 0}", model.Formula)
 
 if __name__ == "__main__":
     unittest.main()
