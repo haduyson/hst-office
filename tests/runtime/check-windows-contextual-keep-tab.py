@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Windows: a contextual ribbon tab stays the current tab after a command on its object (bug #9: the ribbon went
 back to "Trang đầu"), for a picture, a table and a shape in Writer, Sheets, Slides and Draw and a chart in Sheets
-(Sheets' table is its pivot table: a sheet has no table object).
+(Sheets' table: a database range with a table style, as Chèn › Bảng makes; its pivot table is checked too).
 
 Per app on an INSTALLED HST Office (console session, under C:\\hst-test\\console-lock.txt): a new document with the
 objects of ribbon_contextual_objects.py; for each object it is selected, its first contextual tab (a tab the plain
@@ -26,13 +26,15 @@ from ribbon_contextual_objects import make_objects, park  # noqa: E402
 
 APPS = {"writer": ("private:factory/swriter", "HST Writer"), "calc": ("private:factory/scalc", "HST Sheets"),
         "impress": ("private:factory/simpress", "HST Slides"), "draw": ("private:factory/sdraw", "HST Draw")}
-# the objects each app is checked with; Sheets' pivot first: after a drawing selection, a cell selected through the
-# API does not switch Sheets to its pivot shell
-KINDS = {"writer": ("picture", "table", "shape"), "calc": ("pivot", "picture", "shape", "chart"),
+# the objects each app is checked with; Sheets' cell objects (pivot, table) first: after a drawing selection, a cell
+# selected through the API does not switch Sheets to their shells
+KINDS = {"writer": ("picture", "table", "shape"), "calc": ("pivot", "table", "picture", "shape", "chart"),
          "impress": ("picture", "table", "shape"), "draw": ("picture", "table", "shape")}
 # a command on the selected object that leaves it selected
 COMMANDS = {"picture": ".uno:GraphicFilterInvert", "table": ".uno:InsertRowsAfter", "shape": ".uno:FillShadow",
             "chart": ".uno:BringToFront", "pivot": ".uno:RecalcPivotTable"}
+CALC_TABLE_COMMAND = ".uno:Bold"  # on a cell of the Sheets table: the cursor stays in it
+CALC_TABLE_STYLE = "TableStyleMedium2"  # a built-in table style of core (defaulttablestyles.inc)
 MSAA = os.path.join(HERE, "windows-msaa-ribbon.ps1")
 SETTLE = 3
 
@@ -66,6 +68,28 @@ def select_tab(office, name):
     return out.stdout.decode("utf-8", "replace").startswith("OK")
 
 
+def make_calc_table(doc):
+    """A Sheets table: a database range over K1:L4 with a table style (what makes the table shell, and its contextual
+    tab, apply to a cell in it); returns a cell inside it."""
+    from com.sun.star.table import CellRangeAddress
+    sheet = doc.Sheets.getByIndex(0)
+    for row, (name, value) in enumerate((("Tên", None), ("a", 1), ("b", 2), ("c", 3))):
+        sheet.getCellByPosition(10, row).String = name
+        if value is None:
+            sheet.getCellByPosition(11, row).String = "Số"
+        else:
+            sheet.getCellByPosition(11, row).Value = value
+    area = CellRangeAddress()
+    area.Sheet, area.StartColumn, area.EndColumn, area.EndRow = 0, 10, 11, 3
+    doc.DatabaseRanges.addNewByName("Bang1", area)
+    doc.DatabaseRanges.getByName("Bang1").setPropertyValue("TableStyleName", CALC_TABLE_STYLE)
+    return sheet.getCellByPosition(10, 2)
+
+
+def command_for(app, kind):
+    return CALC_TABLE_COMMAND if (app, kind) == ("calc", "table") else COMMANDS[kind]
+
+
 class _Dispatcher:
     """What park() needs of the office: a dispatch that returns once the command ran."""
 
@@ -97,6 +121,8 @@ def check_app(app, args, res):
         image = "file:///" + os.path.join(args.install, "share", "extensions", "hst-vietnamese-tools", "banners",
                                           "aios@1x.png").replace("\\", "/")
         objects = make_objects(app, doc, image)
+        if app == "calc":
+            objects["table"] = make_calc_table(doc)
         frame = doc.CurrentController.Frame
         for kind in KINDS[app]:
             park(app, doc, _Dispatcher(office))
@@ -113,10 +139,11 @@ def check_app(app, args, res):
             before = [name for name, selected in ribbon_tabs(office) if selected]
             if not res(f"[{app}] {kind}: {tab} selected", before == [tab], before):
                 continue
-            office.dispatch_async(frame, COMMANDS[kind]).join(30)
+            command = command_for(app, kind)
+            office.dispatch_async(frame, command).join(30)
             time.sleep(SETTLE)
             after = [name for name, selected in ribbon_tabs(office) if selected]
-            res(f"[{app}] {kind}: {tab} still selected after {COMMANDS[kind]}", after == [tab], after)
+            res(f"[{app}] {kind}: {tab} still selected after {command}", after == [tab], after)
     finally:
         try:
             office.desktop.getCurrentComponent().setModified(False)

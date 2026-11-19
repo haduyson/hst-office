@@ -31,9 +31,25 @@ class KeepTabTest(unittest.TestCase):
     def test_covers_picture_table_shape_everywhere_and_the_chart_in_sheets(self):
         for app in ("writer", "impress", "draw"):
             self.assertEqual(set(self.keep.KINDS[app]), {"picture", "table", "shape"})
-        self.assertEqual(set(self.keep.KINDS["calc"]), {"pivot", "picture", "shape", "chart"})
-        self.assertEqual(self.keep.KINDS["calc"][0], "pivot")
+        self.assertEqual(set(self.keep.KINDS["calc"]), {"pivot", "table", "picture", "shape", "chart"})
+        self.assertEqual(self.keep.KINDS["calc"][:2], ("pivot", "table"))
+        self.assertEqual(self.keep.command_for("calc", "table"), ".uno:Bold")
+        self.assertEqual(self.keep.command_for("writer", "table"), ".uno:InsertRowsAfter")
         self.assertTrue(all(kind in self.keep.COMMANDS for kinds in self.keep.KINDS.values() for kind in kinds))
+
+    def test_calc_table_is_a_database_range_with_a_table_style(self):
+        doc = mock.MagicMock()
+        table = mock.MagicMock()
+        table.CellRangeAddress = mock.MagicMock
+        with mock.patch.dict(sys.modules, {"com": mock.MagicMock(), "com.sun": mock.MagicMock(),
+                                           "com.sun.star": mock.MagicMock(), "com.sun.star.table": table}):
+            cell = self.keep.make_calc_table(doc)
+        name, area = doc.DatabaseRanges.addNewByName.call_args.args
+        self.assertEqual((area.StartColumn, area.EndColumn, area.EndRow), (10, 11, 3))
+        doc.DatabaseRanges.getByName.assert_called_once_with(name)
+        doc.DatabaseRanges.getByName.return_value.setPropertyValue.assert_called_once_with(
+            "TableStyleName", "TableStyleMedium2")
+        self.assertIs(cell, doc.Sheets.getByIndex.return_value.getCellByPosition.return_value)
 
     def test_park_gets_a_dispatch_that_waits(self):
         office = mock.MagicMock()
