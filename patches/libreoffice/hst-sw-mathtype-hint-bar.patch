@@ -1,0 +1,79 @@
+HST Office: a Writer document with MathType equations (Equation.DSMT*) kept as OLE objects
+shows them as their preview picture, and nothing tells the user that HST can turn them into
+editable formulas. When such a document opens editable, an info bar names the number of
+MathType equations and offers [Convert Equations], which runs HST's formula converter
+Test only: the info bar tests without the info bar.
+
+--- a/sw/CppunitTest_sw_uibase_uiview.mk
++++ b/sw/CppunitTest_sw_uibase_uiview.mk
+@@ -15,6 +15,7 @@
+ 
+ $(eval $(call gb_CppunitTest_add_exception_objects,sw_uibase_uiview, \
+     sw/qa/uibase/uiview/uiview \
++    sw/qa/uibase/hst/mathtypehintbar \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,sw_uibase_uiview, \
+--- a/sw/qa/uibase/hst/mathtypehintbar.cxx
++++ b/sw/qa/uibase/hst/mathtypehintbar.cxx
+@@ -0,0 +1,60 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <comphelper/propertyvalue.hxx>
++#include <sfx2/viewfrm.hxx>
++#include <vcl/scheduler.hxx>
++
++#include <docsh.hxx>
++#include <view.hxx>
++
++namespace
++{
++/// The hint bar offering to convert MathType equations when a Writer document opens.
++class HstMathTypeHintBarTest : public SwModelTestBase
++{
++public:
++    HstMathTypeHintBarTest()
++        : SwModelTestBase(u"/sw/qa/core/data/ooxml/pass/"_ustr)
++    {
++    }
++
++    bool hasHintBar()
++    {
++        Scheduler::ProcessEventsToIdle(); // the bar comes once the document has opened
++        SwView* pView = getSwDocShell()->GetView();
++        CPPUNIT_ASSERT(pView);
++        return pView->GetViewFrame().HasInfoBarWithID(u"hst-mathtype");
++    }
++};
++}
++
++CPPUNIT_TEST_FIXTURE(HstMathTypeHintBarTest, testShownForMathType)
++{
++    // One MathType (Equation.DSMT4) OLE object with its WMF preview.
++    createSwDoc("fdo78906.docx");
++    CPPUNIT_ASSERT(hasHintBar());
++}
++
++CPPUNIT_TEST_FIXTURE(HstMathTypeHintBarTest, testNotShownWithoutMathType)
++{
++    // No embedded objects at all.
++    createSwDoc("fdo64256.docx");
++    CPPUNIT_ASSERT(!hasHintBar());
++}
++
++CPPUNIT_TEST_FIXTURE(HstMathTypeHintBarTest, testNotShownReadOnly)
++{
++    // The converter edits the document: nothing to offer when it cannot be edited.
++    loadFromFile(u"fdo78906.docx", { comphelper::makePropertyValue(u"ReadOnly"_ustr, true) });
++    CPPUNIT_ASSERT(getSwDocShell()->IsReadOnly());
++    CPPUNIT_ASSERT(!hasHintBar());
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
