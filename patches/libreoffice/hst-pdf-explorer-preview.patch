@@ -1,0 +1,1620 @@
+HST Office: Explorer preview pane and thumbnails for PDF files, rendered with the office's own PDFium.
+
+hstpdfpreview.dll (program\shlxthdl, next to the other Explorer extensions, in the optional "Windows
+Explorer extensions" feature) implements a preview handler (IPreviewHandler, run by the shell in
+prevhost.exe: every page fitted to the pane width, scrolled with the scroll bar, wheel and keyboard,
+following the pane's colours) and a thumbnail provider (IThumbnailProvider: the first page; the shell
+runs stream-initialised providers in an isolated surrogate). Both read the file through the shell's
+IStream and load program\pdfiumlo.dll at run time, so no office process starts and nothing new is
+shipped besides the small DLL.
+
+Registration never takes over another PDF program's preview: the handlers are set on HST Office's own
+ProgID HSTOffice.Pdf (consulted only while the user's PDF app is HST Office) and, as a fallback, in
+SystemFileAssociations\.pdf\ShellEx, which the shell consults last. A fallback value is written only
+when AppSearch found that slot empty or already HST's, so another program's value is neither replaced
+nor removed at uninstall. .pdf\ShellEx (e.g. Edge's "Microsoft PDF Previewer") is not touched.
+
+The code and the registration are HST-owned new files (shell/source/win32/hstpdfpreview,
+shell/Library_hstpdfpreview.mk, scp2/source/winexplorerext/registryitem_hstpdfpreview.scp); LibreOffice
+files only get one-line hooks (Repository.mk, Module_shell.mk, InstallModule_winexplorerext.mk) and the
+AppSearch/RegLocator/Property template rows.
+
+diff --git a/Repository.mk b/Repository.mk
+index 3a9b342..8336a61 100644
+--- a/Repository.mk
++++ b/Repository.mk
+@@ -762,6 +762,7 @@ $(eval $(call gb_Helper_register_libraries_for_install,PLAINLIBS_OOO,winexplorer
+ ))
+ 
+ $(eval $(call gb_Helper_register_libraries_for_install,PLAINLIBS_SHLXTHDL,winexplorerext, \
++	$(if $(ENABLE_PDFIUM),hstpdfpreview) \
+ 	ooofilt \
+ 	propertyhdl \
+ 	shlxthdl \
+diff --git a/instsetoo_native/inc_openoffice/windows/msi_templates/AppSearc.idt b/instsetoo_native/inc_openoffice/windows/msi_templates/AppSearc.idt
+index 569132a..8b8faab 100644
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/AppSearc.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/AppSearc.idt
+@@ -2,3 +2,5 @@ Property	Signature_
+ s72	s72
+ AppSearch	Property	Signature_
+ WINMAJORVER	WinMajorVer
++HSTPDFPREVIEWSLOT	HstPdfPreviewSlot
++HSTPDFTHUMBNAILSLOT	HstPdfThumbnailSlot
+diff --git a/instsetoo_native/inc_openoffice/windows/msi_templates/Property.idt b/instsetoo_native/inc_openoffice/windows/msi_templates/Property.idt
+index 624767f..1854da0 100644
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/Property.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/Property.idt
+@@ -21,6 +21,8 @@ DisplayNameTypical	IDPROP_SETUPTYPE_TYPICAL
+ DWUSINTERVAL	30
+ ErrorDialog	SetupError
+ FILETYPEDIALOGUSED	0
++HSTPDFPREVIEWCLSID	{6058E664-567B-4207-82EE-F250B8F88276}
++HSTPDFTHUMBNAILCLSID	{61440647-9253-4376-A0B3-66622FA3B055}
+ InstallChoice	AR
+ INSTALLLEVEL	INSTALLLEVELTEMPLATE
+ ISCHECKFORPRODUCTUPDATES	ISCHECKFORPRODUCTUPDATESTEMPLATE
+diff --git a/instsetoo_native/inc_openoffice/windows/msi_templates/RegLocat.idt b/instsetoo_native/inc_openoffice/windows/msi_templates/RegLocat.idt
+index 59aed91..df26be5 100644
+--- a/instsetoo_native/inc_openoffice/windows/msi_templates/RegLocat.idt
++++ b/instsetoo_native/inc_openoffice/windows/msi_templates/RegLocat.idt
+@@ -2,3 +2,5 @@ Signature_	Root	Key	Name	Type
+ s72	i2	s255	S255	I2
+ RegLocator	Signature_
+ WinMajorVer	2	Software\Microsoft\Windows NT\CurrentVersion	CurrentMajorVersionNumber	2
++HstPdfPreviewSlot	2	SOFTWARE\Classes\SystemFileAssociations\.pdf\ShellEx\{8895b1c6-b41f-4c1c-a562-0d564250836f}		2
++HstPdfThumbnailSlot	2	SOFTWARE\Classes\SystemFileAssociations\.pdf\ShellEx\{e357fccd-a995-4576-b01f-234630154e96}		2
+diff --git a/scp2/InstallModule_winexplorerext.mk b/scp2/InstallModule_winexplorerext.mk
+index 2bf2773..ee64844 100644
+--- a/scp2/InstallModule_winexplorerext.mk
++++ b/scp2/InstallModule_winexplorerext.mk
+@@ -17,6 +17,7 @@ $(eval $(call gb_InstallModule_use_auto_install_libs,scp2/winexplorerext,\
+ $(eval $(call gb_InstallModule_add_scpfiles,scp2/winexplorerext,\
+     scp2/source/winexplorerext/file_winexplorerext \
+     scp2/source/winexplorerext/registryitem_winexplorerext \
++    scp2/source/winexplorerext/registryitem_hstpdfpreview \
+ ))
+ 
+ $(eval $(call gb_InstallModule_add_localized_scpfiles,scp2/winexplorerext,\
+diff --git a/scp2/source/winexplorerext/registryitem_hstpdfpreview.scp b/scp2/source/winexplorerext/registryitem_hstpdfpreview.scp
+new file mode 100644
+index 0000000..60fbd5a
+--- /dev/null
++++ b/scp2/source/winexplorerext/registryitem_hstpdfpreview.scp
+@@ -0,0 +1,134 @@
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * HST Office (HASON TECH): registration of the PDF preview handler and thumbnail provider.
++ */
++
++#include "macros.inc"
++
++// Begin registry entries for the HST PDF preview handler and thumbnail provider
++// (program\shlxthdl\hstpdfpreview.dll, PDFium from program\pdfiumlo.dll).
++//
++// They never replace another program's PDF preview or thumbnail:
++// - HSTOffice.Pdf\ShellEx is HST Office's own ProgID; the shell consults it only while the
++//   user's chosen PDF application (UserChoice) is HST Office.
++// - SystemFileAssociations\.pdf\ShellEx is the lowest-priority place the shell looks: a handler
++//   of the chosen application's ProgID or of .pdf itself (e.g. the Microsoft PDF Previewer of
++//   Edge, Adobe's) wins over it. Each value is only written when that slot is empty or already
++//   ours (AppSearch reads it into HSTPDFPREVIEWSLOT / HSTPDFTHUMBNAILSLOT, msi_templates), so
++//   another program's entry there is neither overwritten nor removed at uninstall.
++// Windows Installer removes all of them, and the CLSIDs, on uninstall.
++
++RegistryItem gid_Regitem_Clsid_6058E664_567B_4207_82EE_F250B8F88276
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Optional_Winexplorerext;
++    Subkey = "CLSID\{6058E664-567B-4207-82EE-F250B8F88276}";
++    Value = "%PRODUCTNAME PDF Preview Handler";
++End
++
++RegistryItem gid_Regitem_Clsid_6058E664_567B_4207_82EE_F250B8F88276_AppID
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Optional_Winexplorerext;
++    Subkey = "CLSID\{6058E664-567B-4207-82EE-F250B8F88276}";
++    Name = "AppID";
++    // prevhost.exe, the shell's out-of-process host for 64-bit preview handlers
++    Value = "{6d2b5079-2f0b-48dd-ab7f-97cec514d30b}";
++End
++
++RegistryItem gid_Regitem_Clsid_6058E664_567B_4207_82EE_F250B8F88276_InProcServer32
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Optional_Winexplorerext;
++    Subkey = "CLSID\{6058E664-567B-4207-82EE-F250B8F88276}\InprocServer32";
++    Value = "[INSTALLLOCATION]program\shlxthdl\hstpdfpreview.dll";
++End
++
++RegistryItem gid_Regitem_Clsid_6058E664_567B_4207_82EE_F250B8F88276_InProcServer32_TM
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Optional_Winexplorerext;
++    Subkey = "CLSID\{6058E664-567B-4207-82EE-F250B8F88276}\InprocServer32";
++    Name = "ThreadingModel";
++    Value = "Apartment";
++End
++
++RegistryItem gid_Regitem_PreviewHandlers_6058E664_567B_4207_82EE_F250B8F88276
++    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
++    ModuleID = gid_Module_Optional_Winexplorerext;
++    Subkey = "SOFTWARE\Microsoft\Windows\CurrentVersion\PreviewHandlers";
++    Name = "{6058E664-567B-4207-82EE-F250B8F88276}";
++    Value = "%PRODUCTNAME PDF Preview Handler";
++End
++
++RegistryItem gid_Regitem_Clsid_6058E664_567B_4207_82EE_F250B8F88276_Approved
++    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
++    ModuleID = gid_Module_Optional_Winexplorerext;
++    Subkey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved";
++    Name = "{6058E664-567B-4207-82EE-F250B8F88276}";
++    Value = "%PRODUCTNAME PDF Preview Handler";
++End
++
++RegistryItem gid_Regitem_Clsid_61440647_9253_4376_A0B3_66622FA3B055
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Optional_Winexplorerext;
++    Subkey = "CLSID\{61440647-9253-4376-A0B3-66622FA3B055}";
++    Value = "%PRODUCTNAME PDF Thumbnail Provider";
++End
++
++RegistryItem gid_Regitem_Clsid_61440647_9253_4376_A0B3_66622FA3B055_InProcServer32
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Optional_Winexplorerext;
++    Subkey = "CLSID\{61440647-9253-4376-A0B3-66622FA3B055}\InprocServer32";
++    Value = "[INSTALLLOCATION]program\shlxthdl\hstpdfpreview.dll";
++End
++
++RegistryItem gid_Regitem_Clsid_61440647_9253_4376_A0B3_66622FA3B055_InProcServer32_TM
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Optional_Winexplorerext;
++    Subkey = "CLSID\{61440647-9253-4376-A0B3-66622FA3B055}\InprocServer32";
++    Name = "ThreadingModel";
++    Value = "Apartment";
++End
++
++RegistryItem gid_Regitem_Clsid_61440647_9253_4376_A0B3_66622FA3B055_Approved
++    ParentID = PREDEFINED_HKEY_LOCAL_MACHINE;
++    ModuleID = gid_Module_Optional_Winexplorerext;
++    Subkey = "SOFTWARE\Microsoft\Windows\CurrentVersion\Shell Extensions\Approved";
++    Name = "{61440647-9253-4376-A0B3-66622FA3B055}";
++    Value = "%PRODUCTNAME PDF Thumbnail Provider";
++End
++
++RegistryItem gid_Regitem_HSTOffice_Pdf_Shellex_8895B1C6_B41F_4C1C_A562_0D564250836F
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Optional_Winexplorerext;
++    Subkey = "HSTOffice.Pdf\ShellEx\{8895b1c6-b41f-4c1c-a562-0d564250836f}";
++    Value = "{6058E664-567B-4207-82EE-F250B8F88276}";
++End
++
++RegistryItem gid_Regitem_HSTOffice_Pdf_Shellex_E357FCCD_A995_4576_B01F_234630154E96
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Optional_Winexplorerext;
++    Subkey = "HSTOffice.Pdf\ShellEx\{e357fccd-a995-4576-b01f-234630154e96}";
++    Value = "{61440647-9253-4376-A0B3-66622FA3B055}";
++End
++
++// Each conditional value has its own hidden module: the condition applies to a whole component,
++// and registry components are made per module.
++CONDITIONAL_MODULE_ENTRY(PdfPreviewFallback, gid_Module_Optional_Winexplorerext)
++
++RegistryItem gid_Regitem_SystemFileAssociations_Pdf_Shellex_8895B1C6_B41F_4C1C_A562_0D564250836F
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Root_Reg_PdfPreviewFallback;
++    Subkey = "SystemFileAssociations\.pdf\ShellEx\{8895b1c6-b41f-4c1c-a562-0d564250836f}";
++    Value = "{6058E664-567B-4207-82EE-F250B8F88276}";
++    ComponentCondition = "NOT HSTPDFPREVIEWSLOT OR HSTPDFPREVIEWSLOT=HSTPDFPREVIEWCLSID";
++End
++
++CONDITIONAL_MODULE_ENTRY(PdfThumbnailFallback, gid_Module_Optional_Winexplorerext)
++
++RegistryItem gid_Regitem_SystemFileAssociations_Pdf_Shellex_E357FCCD_A995_4576_B01F_234630154E96
++    ParentID = PREDEFINED_HKEY_CLASSES_ROOT;
++    ModuleID = gid_Module_Root_Reg_PdfThumbnailFallback;
++    Subkey = "SystemFileAssociations\.pdf\ShellEx\{e357fccd-a995-4576-b01f-234630154e96}";
++    Value = "{61440647-9253-4376-A0B3-66622FA3B055}";
++    ComponentCondition = "NOT HSTPDFTHUMBNAILSLOT OR HSTPDFTHUMBNAILSLOT=HSTPDFTHUMBNAILCLSID";
++End
++
++// End registry entries for the HST PDF preview handler and thumbnail provider
+diff --git a/shell/Library_hstpdfpreview.mk b/shell/Library_hstpdfpreview.mk
+new file mode 100644
+index 0000000..cbd1de7
+--- /dev/null
++++ b/shell/Library_hstpdfpreview.mk
+@@ -0,0 +1,41 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# HST Office (HASON TECH): Explorer preview handler and thumbnail provider for PDF files.
++#
++
++# Explorer preview handler and thumbnail provider for PDF files. PDFium (pdfiumlo.dll) is
++# loaded at run time, so only its headers are used here.
++$(eval $(call gb_Library_Library,hstpdfpreview))
++
++$(eval $(call gb_Library_use_unpacked,hstpdfpreview,pdfium))
++
++$(eval $(call gb_Library_set_include,hstpdfpreview,\
++	-I$(gb_UnpackedTarball_workdir)/pdfium/public \
++	$$(INCLUDE) \
++))
++
++$(eval $(call gb_Library_add_defs,hstpdfpreview,\
++	-DWIN32_LEAN_AND_MEAN \
++))
++
++$(eval $(call gb_Library_use_system_win32_libs,hstpdfpreview,\
++	gdi32 \
++	kernel32 \
++	ole32 \
++	user32 \
++	uuid \
++))
++
++$(eval $(call gb_Library_add_ldflags,hstpdfpreview,\
++	/DEF:$(SRCDIR)/shell/source/win32/hstpdfpreview/hstpdfpreview.def \
++))
++
++$(eval $(call gb_Library_add_exception_objects,hstpdfpreview,\
++	shell/source/win32/hstpdfpreview/dllmain \
++	shell/source/win32/hstpdfpreview/pdfdocument \
++	shell/source/win32/hstpdfpreview/previewhandler \
++	shell/source/win32/hstpdfpreview/thumbnailprovider \
++))
++
++# vim: set shiftwidth=4 tabstop=4 noexpandtab:
+diff --git a/shell/Module_shell.mk b/shell/Module_shell.mk
+index 58a5987..39e757f 100644
+--- a/shell/Module_shell.mk
++++ b/shell/Module_shell.mk
+@@ -58,6 +58,7 @@ $(eval $(call gb_Module_add_targets,shell,\
+ ifeq ($(COM),MSC)
+ $(eval $(call gb_Module_add_targets,shell,\
+ 	CustomTarget_shlxthdl_res \
++	$(if $(ENABLE_PDFIUM),Library_hstpdfpreview) \
+ 	Library_ooofilt \
+ 	Library_propertyhdl \
+ 	Library_shlxthdl \
+diff --git a/shell/source/win32/hstpdfpreview/dllmain.cxx b/shell/source/win32/hstpdfpreview/dllmain.cxx
+new file mode 100644
+index 0000000..904a5f0
+--- /dev/null
++++ b/shell/source/win32/hstpdfpreview/dllmain.cxx
+@@ -0,0 +1,189 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * HST Office (HASON TECH): Explorer preview handler and thumbnail provider for PDF files.
++ */
++
++// COM entry points of hstpdfpreview.dll and the IStream/DIB helpers shared by the PDF
++// preview handler and thumbnail provider. The DLL is registered by the installer only
++// (no DllRegisterServer): see scp2/source/winexplorerext/registryitem_winexplorerext.scp.
++
++#include "shellcommon.hxx"
++
++#include <climits>
++#include <new>
++
++namespace hstpdf
++{
++std::atomic<long> g_nModuleRefs{ 0 };
++HINSTANCE g_hModule = nullptr;
++
++namespace
++{
++// ByteSource over the shell's IStream (the preview host and the thumbnail surrogate hand the
++// file over as a stream, never as a path).
++class StreamSource final : public ByteSource
++{
++public:
++    StreamSource(IStream* pStream, std::uint64_t nSize)
++        : m_pStream(pStream)
++        , m_nSize(nSize)
++    {
++        m_pStream->AddRef();
++    }
++    ~StreamSource() override { m_pStream->Release(); }
++    StreamSource(const StreamSource&) = delete;
++    StreamSource& operator=(const StreamSource&) = delete;
++
++    std::uint64_t size() const override { return m_nSize; }
++
++    bool read(std::uint64_t pos, unsigned char* buffer, unsigned long len) override
++    {
++        if (pos > m_nSize || len > m_nSize - pos)
++            return false;
++        LARGE_INTEGER aMove;
++        aMove.QuadPart = static_cast<LONGLONG>(pos);
++        if (FAILED(m_pStream->Seek(aMove, STREAM_SEEK_SET, nullptr)))
++            return false;
++        while (len > 0)
++        {
++            ULONG nRead = 0;
++            HRESULT hr = m_pStream->Read(buffer, len, &nRead);
++            if (FAILED(hr) || nRead == 0)
++                return false;
++            buffer += nRead;
++            len -= nRead;
++        }
++        return true;
++    }
++
++private:
++    IStream* m_pStream;
++    std::uint64_t m_nSize;
++};
++
++class ClassFactory final : public IClassFactory
++{
++public:
++    explicit ClassFactory(const CLSID& rClsid)
++        : m_aClsid(rClsid)
++    {
++    }
++
++    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) override
++    {
++        if (!ppv)
++            return E_POINTER;
++        if (riid == __uuidof(IUnknown) || riid == __uuidof(IClassFactory))
++        {
++            *ppv = static_cast<IClassFactory*>(this);
++            AddRef();
++            return S_OK;
++        }
++        *ppv = nullptr;
++        return E_NOINTERFACE;
++    }
++    IFACEMETHODIMP_(ULONG) AddRef() override { return ++m_nRefs; }
++    IFACEMETHODIMP_(ULONG) Release() override
++    {
++        long n = --m_nRefs;
++        if (n == 0)
++            delete this;
++        return n;
++    }
++
++    IFACEMETHODIMP CreateInstance(IUnknown* pOuter, REFIID riid, void** ppv) override
++    {
++        if (!ppv)
++            return E_POINTER;
++        *ppv = nullptr;
++        if (pOuter)
++            return CLASS_E_NOAGGREGATION;
++        return m_aClsid == CLSID_PdfPreviewHandler ? createPreviewHandler(riid, ppv)
++                                                   : createThumbnailProvider(riid, ppv);
++    }
++    IFACEMETHODIMP LockServer(BOOL bLock) override
++    {
++        if (bLock)
++            ++g_nModuleRefs;
++        else
++            --g_nModuleRefs;
++        return S_OK;
++    }
++
++private:
++    std::atomic<long> m_nRefs{ 1 };
++    CLSID m_aClsid;
++    ModuleRef m_aModuleRef;
++};
++}
++
++OpenResult openFromStream(IStream* pStream, std::unique_ptr<Document>& result)
++{
++    result.reset();
++    if (!pStream)
++        return OpenResult::Invalid;
++    STATSTG aStat{};
++    if (FAILED(pStream->Stat(&aStat, STATFLAG_NONAME)))
++        return OpenResult::Invalid;
++    return Document::open(std::make_unique<StreamSource>(pStream, aStat.cbSize.QuadPart), result);
++}
++
++HBITMAP renderPageBitmap(const Document& rDocument, int index, int width, int height)
++{
++    if (width <= 0 || height <= 0 || width > INT_MAX / 4)
++        return nullptr;
++    BITMAPINFO aInfo{};
++    aInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
++    aInfo.bmiHeader.biWidth = width;
++    aInfo.bmiHeader.biHeight = -height; // top-down, as PDFium writes it
++    aInfo.bmiHeader.biPlanes = 1;
++    aInfo.bmiHeader.biBitCount = 32;
++    aInfo.bmiHeader.biCompression = BI_RGB;
++    void* pBits = nullptr;
++    HBITMAP hBitmap = CreateDIBSection(nullptr, &aInfo, DIB_RGB_COLORS, &pBits, nullptr, 0);
++    if (!hBitmap)
++        return nullptr;
++    if (!rDocument.renderPage(index, width, height, static_cast<unsigned char*>(pBits), width * 4))
++    {
++        DeleteObject(hBitmap);
++        return nullptr;
++    }
++    return hBitmap;
++}
++}
++
++extern "C" BOOL WINAPI DllMain(HINSTANCE hInstance, DWORD nReason, LPVOID)
++{
++    if (nReason == DLL_PROCESS_ATTACH)
++    {
++        hstpdf::g_hModule = hInstance;
++        DisableThreadLibraryCalls(hInstance);
++    }
++    return TRUE;
++}
++
++STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** ppv)
++{
++    if (!ppv)
++        return E_POINTER;
++    *ppv = nullptr;
++    if (rclsid != hstpdf::CLSID_PdfPreviewHandler && rclsid != hstpdf::CLSID_PdfThumbnailProvider)
++        return CLASS_E_CLASSNOTAVAILABLE;
++    auto* pFactory = new (std::nothrow) hstpdf::ClassFactory(rclsid);
++    if (!pFactory)
++        return E_OUTOFMEMORY;
++    HRESULT hr = pFactory->QueryInterface(riid, ppv);
++    pFactory->Release();
++    return hr;
++}
++
++STDAPI DllCanUnloadNow()
++{
++    if (hstpdf::g_nModuleRefs != 0)
++        return S_FALSE;
++    hstpdf::unregisterPreviewWindowClass();
++    return S_OK;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/shell/source/win32/hstpdfpreview/hstpdfpreview.def b/shell/source/win32/hstpdfpreview/hstpdfpreview.def
+new file mode 100644
+index 0000000..a2a3a08
+--- /dev/null
++++ b/shell/source/win32/hstpdfpreview/hstpdfpreview.def
+@@ -0,0 +1,4 @@
++; SPDX-License-Identifier: LicenseRef-HST-Proprietary
++EXPORTS
++    DllCanUnloadNow     PRIVATE
++    DllGetClassObject   PRIVATE
+diff --git a/shell/source/win32/hstpdfpreview/pdfdocument.cxx b/shell/source/win32/hstpdfpreview/pdfdocument.cxx
+new file mode 100644
+index 0000000..0ea9bfa
+--- /dev/null
++++ b/shell/source/win32/hstpdfpreview/pdfdocument.cxx
+@@ -0,0 +1,232 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * HST Office (HASON TECH): Explorer preview handler and thumbnail provider for PDF files.
++ */
++
++#include "pdfdocument.hxx"
++
++#include <algorithm>
++#include <climits>
++#include <cmath>
++#include <cstdlib>
++#include <mutex>
++#include <string>
++
++#ifdef _WIN32
++#include <windows.h>
++#else
++#include <dlfcn.h>
++#endif
++
++namespace hstpdf
++{
++namespace
++{
++// The PDFium entry points used here, resolved from pdfiumlo at run time.
++struct Pdfium
++{
++    decltype(&FPDF_InitLibrary) InitLibrary = nullptr;
++    decltype(&FPDF_LoadCustomDocument) LoadCustomDocument = nullptr;
++    decltype(&FPDF_GetLastError) GetLastError = nullptr;
++    decltype(&FPDF_GetPageCount) GetPageCount = nullptr;
++    decltype(&FPDF_GetPageSizeByIndexF) GetPageSizeByIndexF = nullptr;
++    decltype(&FPDF_CloseDocument) CloseDocument = nullptr;
++    decltype(&FPDF_LoadPage) LoadPage = nullptr;
++    decltype(&FPDF_ClosePage) ClosePage = nullptr;
++    decltype(&FPDF_RenderPageBitmap) RenderPageBitmap = nullptr;
++    decltype(&FPDFBitmap_CreateEx) BitmapCreateEx = nullptr;
++    decltype(&FPDFBitmap_FillRect) BitmapFillRect = nullptr;
++    decltype(&FPDFBitmap_Destroy) BitmapDestroy = nullptr;
++};
++
++// Guards every PDFium call and the one-time load. Recursive: a Document may be destroyed
++// (closing its FPDF_DOCUMENT) while Document::open still holds the lock.
++std::recursive_mutex g_aPdfiumMutex;
++
++#ifdef _WIN32
++void* loadLibrary()
++{
++    // pdfiumlo.dll is in the program directory, the parent of this DLL's shlxthdl directory.
++    // LOAD_WITH_ALTERED_SEARCH_PATH resolves its own dependencies (ICU, lcms2) from there too.
++    HMODULE hSelf = nullptr;
++    if (!GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS
++                                | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
++                            reinterpret_cast<LPCWSTR>(&loadLibrary), &hSelf))
++        return nullptr;
++    std::wstring aPath(MAX_PATH, L'\0');
++    for (;;)
++    {
++        DWORD n = GetModuleFileNameW(hSelf, aPath.data(), static_cast<DWORD>(aPath.size()));
++        if (n == 0)
++            return nullptr;
++        if (n < aPath.size())
++        {
++            aPath.resize(n);
++            break;
++        }
++        if (aPath.size() >= 32768)
++            return nullptr;
++        aPath.resize(aPath.size() * 2);
++    }
++    for (int i = 0; i < 2; ++i) // strip "hstpdfpreview.dll", then "shlxthdl"
++    {
++        std::wstring::size_type nSep = aPath.find_last_of(L'\\');
++        if (nSep == std::wstring::npos)
++            return nullptr;
++        aPath.resize(nSep);
++    }
++    aPath += L"\\pdfiumlo.dll";
++    return LoadLibraryExW(aPath.c_str(), nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
++}
++
++void* symbol(void* pLibrary, const char* pName)
++{
++    return reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(pLibrary), pName));
++}
++#else
++// Not shipped outside Windows; this branch lets the rendering core be exercised against
++// libpdfiumlo.so (directory in HST_PDFIUM_DIR).
++void* loadLibrary()
++{
++    const char* pDir = getenv("HST_PDFIUM_DIR");
++    std::string aPath = std::string(pDir ? pDir : ".") + "/libpdfiumlo.so";
++    return dlopen(aPath.c_str(), RTLD_NOW | RTLD_LOCAL);
++}
++
++void* symbol(void* pLibrary, const char* pName) { return dlsym(pLibrary, pName); }
++#endif
++
++template <typename T> bool resolve(void* pLibrary, const char* pName, T& rFunction)
++{
++    rFunction = reinterpret_cast<T>(symbol(pLibrary, pName));
++    return rFunction != nullptr;
++}
++
++// Loads and initialises PDFium once per process; the library stays loaded for the process
++// lifetime (PDFium has no safe re-initialisation after FPDF_DestroyLibrary). Caller holds the mutex.
++const Pdfium* pdfium()
++{
++    static bool bTried = false;
++    static Pdfium aPdfium;
++    static bool bOk = false;
++    if (bTried)
++        return bOk ? &aPdfium : nullptr;
++    bTried = true;
++    void* pLibrary = loadLibrary();
++    if (!pLibrary)
++        return nullptr;
++    Pdfium a;
++    bOk = resolve(pLibrary, "FPDF_InitLibrary", a.InitLibrary)
++          && resolve(pLibrary, "FPDF_LoadCustomDocument", a.LoadCustomDocument)
++          && resolve(pLibrary, "FPDF_GetLastError", a.GetLastError)
++          && resolve(pLibrary, "FPDF_GetPageCount", a.GetPageCount)
++          && resolve(pLibrary, "FPDF_GetPageSizeByIndexF", a.GetPageSizeByIndexF)
++          && resolve(pLibrary, "FPDF_CloseDocument", a.CloseDocument)
++          && resolve(pLibrary, "FPDF_LoadPage", a.LoadPage)
++          && resolve(pLibrary, "FPDF_ClosePage", a.ClosePage)
++          && resolve(pLibrary, "FPDF_RenderPageBitmap", a.RenderPageBitmap)
++          && resolve(pLibrary, "FPDFBitmap_CreateEx", a.BitmapCreateEx)
++          && resolve(pLibrary, "FPDFBitmap_FillRect", a.BitmapFillRect)
++          && resolve(pLibrary, "FPDFBitmap_Destroy", a.BitmapDestroy);
++    if (!bOk)
++        return nullptr;
++    a.InitLibrary();
++    aPdfium = a;
++    return &aPdfium;
++}
++
++// FPDF_FILEACCESS callback: pParam is the ByteSource.
++int getBlock(void* pParam, unsigned long nPosition, unsigned char* pBuffer, unsigned long nSize)
++{
++    return static_cast<ByteSource*>(pParam)->read(nPosition, pBuffer, nSize) ? 1 : 0;
++}
++}
++
++OpenResult Document::open(std::unique_ptr<ByteSource> source, std::unique_ptr<Document>& result)
++{
++    result.reset();
++    if (!source)
++        return OpenResult::Invalid;
++    std::uint64_t nSize = source->size();
++    // FPDF_FILEACCESS::m_FileLen is an unsigned long: 32 bits on Windows.
++    if (nSize == 0 || nSize > ULONG_MAX)
++        return OpenResult::Invalid;
++
++    std::lock_guard aGuard(g_aPdfiumMutex);
++    const Pdfium* p = pdfium();
++    if (!p)
++        return OpenResult::NoRenderer;
++
++    std::unique_ptr<Document> pDoc(new Document);
++    pDoc->m_pSource = std::move(source);
++    // PDFium keeps the FPDF_FILEACCESS pointer until FPDF_CloseDocument; it must outlive the
++    // document, so it is stored with it.
++    pDoc->m_aFileAccess.m_FileLen = static_cast<unsigned long>(nSize);
++    pDoc->m_aFileAccess.m_GetBlock = &getBlock;
++    pDoc->m_aFileAccess.m_Param = pDoc->m_pSource.get();
++    FPDF_DOCUMENT pDocument = p->LoadCustomDocument(&pDoc->m_aFileAccess, nullptr);
++    if (!pDocument)
++        return p->GetLastError() == FPDF_ERR_PASSWORD ? OpenResult::PasswordProtected
++                                                       : OpenResult::Invalid;
++    pDoc->m_pDocument = pDocument;
++
++    int nPages = p->GetPageCount(pDocument);
++    if (nPages <= 0)
++        return OpenResult::Invalid; // pDoc's destructor closes the document
++    pDoc->m_aPageSizes.reserve(nPages);
++    for (int i = 0; i < nPages; ++i)
++    {
++        FS_SIZEF aSize{ 0, 0 };
++        if (!p->GetPageSizeByIndexF(pDocument, i, &aSize) || !(aSize.width > 0)
++            || !(aSize.height > 0))
++            aSize = FS_SIZEF{ 595, 842 }; // unreadable page box: lay it out as A4
++        pDoc->m_aPageSizes.push_back(PageSize{ aSize.width, aSize.height });
++    }
++    result = std::move(pDoc);
++    return OpenResult::Ok;
++}
++
++Document::~Document()
++{
++    if (!m_pDocument)
++        return;
++    std::lock_guard aGuard(g_aPdfiumMutex);
++    if (const Pdfium* p = pdfium())
++        p->CloseDocument(m_pDocument);
++}
++
++bool Document::renderPage(int index, int width, int height, unsigned char* pixels,
++                          int stride) const
++{
++    if (index < 0 || index >= pageCount() || width <= 0 || height <= 0 || !pixels
++        || stride < 4 * width)
++        return false;
++    std::lock_guard aGuard(g_aPdfiumMutex);
++    const Pdfium* p = pdfium();
++    if (!p)
++        return false;
++    FPDF_PAGE pPage = p->LoadPage(m_pDocument, index);
++    if (!pPage)
++        return false;
++    bool bOk = false;
++    if (FPDF_BITMAP pBitmap = p->BitmapCreateEx(width, height, FPDFBitmap_BGRx, pixels, stride))
++    {
++        p->BitmapFillRect(pBitmap, 0, 0, width, height, 0xFFFFFFFF);
++        p->RenderPageBitmap(pBitmap, pPage, 0, 0, width, height, 0, FPDF_ANNOT);
++        p->BitmapDestroy(pBitmap); // the pixels are the caller's and stay valid
++        bOk = true;
++    }
++    p->ClosePage(pPage);
++    return bOk;
++}
++
++void fitInto(const PageSize& page, int maxWidth, int maxHeight, int& width, int& height)
++{
++    double fScale = std::min(maxWidth / page.width, maxHeight / page.height);
++    width = std::max(1, static_cast<int>(std::lround(page.width * fScale)));
++    height = std::max(1, static_cast<int>(std::lround(page.height * fScale)));
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/shell/source/win32/hstpdfpreview/pdfdocument.hxx b/shell/source/win32/hstpdfpreview/pdfdocument.hxx
+new file mode 100644
+index 0000000..aca3067
+--- /dev/null
++++ b/shell/source/win32/hstpdfpreview/pdfdocument.hxx
+@@ -0,0 +1,74 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * HST Office (HASON TECH): Explorer preview handler and thumbnail provider for PDF files.
++ */
++
++#pragma once
++
++#include <fpdfview.h>
++
++#include <cstdint>
++#include <memory>
++#include <vector>
++
++// PDF rendering for the Explorer preview handler and thumbnail provider. PDFium is the
++// pdfiumlo library the office already installs; it is loaded at run time from the office's
++// program directory, so a missing or broken PDFium only disables the preview instead of
++// failing the COM class load. Every PDFium call is serialised: PDFium is not thread-safe.
++namespace hstpdf
++{
++/// Random-access bytes of the PDF file (an IStream from the shell).
++class ByteSource
++{
++public:
++    virtual ~ByteSource() = default;
++    virtual std::uint64_t size() const = 0;
++    /// Reads exactly len bytes at pos; false on any error or short read.
++    virtual bool read(std::uint64_t pos, unsigned char* buffer, unsigned long len) = 0;
++};
++
++enum class OpenResult
++{
++    Ok,
++    NoRenderer, ///< pdfiumlo could not be loaded
++    PasswordProtected,
++    Invalid ///< not a PDF, damaged, empty, or too large for PDFium's 32-bit file access
++};
++
++struct PageSize
++{
++    double width; ///< in points, rotation applied
++    double height;
++};
++
++class Document
++{
++public:
++    static OpenResult open(std::unique_ptr<ByteSource> source, std::unique_ptr<Document>& result);
++    ~Document();
++    Document(const Document&) = delete;
++    Document& operator=(const Document&) = delete;
++
++    int pageCount() const { return static_cast<int>(m_aPageSizes.size()); }
++    const PageSize& pageSize(int index) const { return m_aPageSizes[index]; }
++
++    /// Renders page `index` scaled to width x height into a top-down 32-bit BGRx buffer
++    /// (stride bytes per row, at least 4 * width), on a white background, with annotations.
++    bool renderPage(int index, int width, int height, unsigned char* pixels, int stride) const;
++
++private:
++    Document() = default;
++
++    std::unique_ptr<ByteSource> m_pSource;
++    FPDF_FILEACCESS m_aFileAccess{}; // PDFium reads through it until the document is closed
++    FPDF_DOCUMENT m_pDocument = nullptr;
++    std::vector<PageSize> m_aPageSizes;
++};
++
++/// Scales (width, height) in points to fit inside maxWidth x maxHeight pixels, keeping the
++/// aspect ratio; each side is at least 1 pixel.
++void fitInto(const PageSize& page, int maxWidth, int maxHeight, int& width, int& height);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/shell/source/win32/hstpdfpreview/previewhandler.cxx b/shell/source/win32/hstpdfpreview/previewhandler.cxx
+new file mode 100644
+index 0000000..d2336c5
+--- /dev/null
++++ b/shell/source/win32/hstpdfpreview/previewhandler.cxx
+@@ -0,0 +1,632 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * HST Office (HASON TECH): Explorer preview handler and thumbnail provider for PDF files.
++ */
++
++// Explorer preview pane for PDF files: every page, fitted to the pane width and stacked
++// vertically, scrolled with the scroll bar, the mouse wheel and the keyboard. Runs in the
++// shell's preview host process (prevhost.exe), not in Explorer and not in the office.
++
++#include "shellcommon.hxx"
++
++#include <ocidl.h>
++#include <propsys.h>
++#include <shobjidl.h>
++
++#include <algorithm>
++#include <climits>
++#include <cmath>
++#include <list>
++#include <new>
++#include <vector>
++
++namespace hstpdf
++{
++namespace
++{
++constexpr wchar_t WINDOW_CLASS[] = L"HSTOfficePdfPreview";
++constexpr int MARGIN = 12; // around and between pages, at 96 DPI
++constexpr int LINE_STEP = 40; // one scroll line, at 96 DPI
++constexpr int MAX_PAGE_WIDTH = 2400; // keeps one cached page under ~40 MB on very wide panes
++constexpr std::size_t PAGE_CACHE_SIZE = 6;
++
++bool g_bClassRegistered = false;
++
++bool isVietnameseUi() { return PRIMARYLANGID(GetUserDefaultUILanguage()) == LANG_VIETNAMESE; }
++
++const wchar_t* messageFor(OpenResult eResult)
++{
++    if (eResult == OpenResult::PasswordProtected)
++        return isVietnameseUi() ? L"Tệp PDF này có mật khẩu. Hãy "
++                                  L"mở bằng HST PDF để xem."
++                                : L"This PDF file is password protected. Open it in HST PDF.";
++    return isVietnameseUi() ? L"Không xem trước được tệp "
++                              L"PDF này."
++                            : L"This PDF file cannot be previewed.";
++}
++
++class PreviewHandler final : public IPreviewHandler,
++                             public IInitializeWithStream,
++                             public IObjectWithSite,
++                             public IOleWindow,
++                             public IPreviewHandlerVisuals
++{
++public:
++    PreviewHandler() = default;
++    PreviewHandler(const PreviewHandler&) = delete;
++    PreviewHandler& operator=(const PreviewHandler&) = delete;
++
++    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) override
++    {
++        if (!ppv)
++            return E_POINTER;
++        if (riid == __uuidof(IUnknown) || riid == __uuidof(IPreviewHandler))
++            *ppv = static_cast<IPreviewHandler*>(this);
++        else if (riid == __uuidof(IInitializeWithStream))
++            *ppv = static_cast<IInitializeWithStream*>(this);
++        else if (riid == __uuidof(IObjectWithSite))
++            *ppv = static_cast<IObjectWithSite*>(this);
++        else if (riid == __uuidof(IOleWindow))
++            *ppv = static_cast<IOleWindow*>(this);
++        else if (riid == __uuidof(IPreviewHandlerVisuals))
++            *ppv = static_cast<IPreviewHandlerVisuals*>(this);
++        else
++        {
++            *ppv = nullptr;
++            return E_NOINTERFACE;
++        }
++        AddRef();
++        return S_OK;
++    }
++    IFACEMETHODIMP_(ULONG) AddRef() override { return ++m_nRefs; }
++    IFACEMETHODIMP_(ULONG) Release() override
++    {
++        long n = --m_nRefs;
++        if (n == 0)
++            delete this;
++        return n;
++    }
++
++    // IInitializeWithStream
++    IFACEMETHODIMP Initialize(IStream* pStream, DWORD) override
++    {
++        if (!pStream)
++            return E_INVALIDARG;
++        if (m_pStream)
++            return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
++        m_pStream = pStream;
++        m_pStream->AddRef();
++        return S_OK;
++    }
++
++    // IPreviewHandler
++    IFACEMETHODIMP SetWindow(HWND hParent, const RECT* pRect) override
++    {
++        if (!hParent || !pRect)
++            return E_INVALIDARG;
++        m_hParent = hParent;
++        m_aRect = *pRect;
++        if (m_hWnd)
++        {
++            ::SetParent(m_hWnd, m_hParent);
++            placeWindow();
++        }
++        return S_OK;
++    }
++    IFACEMETHODIMP SetRect(const RECT* pRect) override
++    {
++        if (!pRect)
++            return E_INVALIDARG;
++        m_aRect = *pRect;
++        if (m_hWnd)
++            placeWindow();
++        return S_OK;
++    }
++    IFACEMETHODIMP DoPreview() override
++    {
++        if (m_hWnd)
++            return S_OK;
++        if (!m_hParent || !m_pStream)
++            return E_UNEXPECTED;
++        m_eOpenResult = openFromStream(m_pStream, m_pDocument);
++        if (!registerWindowClass())
++            return HRESULT_FROM_WIN32(GetLastError());
++        m_hWnd = CreateWindowExW(0, WINDOW_CLASS, nullptr,
++                                 WS_CHILD | WS_VISIBLE | WS_VSCROLL | WS_CLIPSIBLINGS,
++                                 m_aRect.left, m_aRect.top, m_aRect.right - m_aRect.left,
++                                 m_aRect.bottom - m_aRect.top, m_hParent, nullptr, g_hModule,
++                                 this);
++        if (!m_hWnd)
++            return HRESULT_FROM_WIN32(GetLastError());
++        return S_OK;
++    }
++    IFACEMETHODIMP Unload() override
++    {
++        if (m_hWnd)
++        {
++            DestroyWindow(m_hWnd); // WM_DESTROY detaches the window from this object
++            m_hWnd = nullptr;
++        }
++        clearCache();
++        m_pDocument.reset(); // before the stream it reads from
++        if (m_pStream)
++        {
++            m_pStream->Release();
++            m_pStream = nullptr;
++        }
++        return S_OK;
++    }
++    IFACEMETHODIMP SetFocus() override
++    {
++        if (m_hWnd)
++            ::SetFocus(m_hWnd);
++        return S_OK;
++    }
++    IFACEMETHODIMP QueryFocus(HWND* phWnd) override
++    {
++        if (!phWnd)
++            return E_POINTER;
++        *phWnd = ::GetFocus();
++        return *phWnd ? S_OK : HRESULT_FROM_WIN32(GetLastError());
++    }
++    IFACEMETHODIMP TranslateAccelerator(MSG* pMsg) override
++    {
++        // The host's accelerators (e.g. F5, Tab back to the file list) keep working.
++        return m_pFrame ? m_pFrame->TranslateAccelerator(pMsg) : S_FALSE;
++    }
++
++    // IObjectWithSite
++    IFACEMETHODIMP SetSite(IUnknown* pSite) override
++    {
++        if (m_pFrame)
++        {
++            m_pFrame->Release();
++            m_pFrame = nullptr;
++        }
++        if (m_pSite)
++        {
++            m_pSite->Release();
++            m_pSite = nullptr;
++        }
++        if (pSite)
++        {
++            m_pSite = pSite;
++            m_pSite->AddRef();
++            if (FAILED(pSite->QueryInterface(__uuidof(IPreviewHandlerFrame),
++                                             reinterpret_cast<void**>(&m_pFrame))))
++                m_pFrame = nullptr;
++        }
++        return S_OK;
++    }
++    IFACEMETHODIMP GetSite(REFIID riid, void** ppv) override
++    {
++        if (!ppv)
++            return E_POINTER;
++        *ppv = nullptr;
++        return m_pSite ? m_pSite->QueryInterface(riid, ppv) : E_FAIL;
++    }
++
++    // IOleWindow
++    IFACEMETHODIMP GetWindow(HWND* phWnd) override
++    {
++        if (!phWnd)
++            return E_POINTER;
++        *phWnd = m_hParent;
++        return m_hParent ? S_OK : E_FAIL;
++    }
++    IFACEMETHODIMP ContextSensitiveHelp(BOOL) override { return E_NOTIMPL; }
++
++    // IPreviewHandlerVisuals: follow the pane's colours and font (light and dark mode).
++    IFACEMETHODIMP SetBackgroundColor(COLORREF aColor) override
++    {
++        m_aBackground = aColor;
++        repaint();
++        return S_OK;
++    }
++    IFACEMETHODIMP SetFont(const LOGFONTW* pFont) override
++    {
++        if (!pFont)
++            return E_INVALIDARG;
++        HFONT hFont = CreateFontIndirectW(pFont);
++        if (!hFont)
++            return E_FAIL;
++        if (m_hFont)
++            DeleteObject(m_hFont);
++        m_hFont = hFont;
++        repaint();
++        return S_OK;
++    }
++    IFACEMETHODIMP SetTextColor(COLORREF aColor) override
++    {
++        m_aText = aColor;
++        repaint();
++        return S_OK;
++    }
++
++private:
++    struct CachedPage
++    {
++        int nIndex;
++        int nWidth;
++        int nHeight;
++        HBITMAP hBitmap;
++    };
++
++    ~PreviewHandler()
++    {
++        Unload();
++        SetSite(nullptr);
++        if (m_hFont)
++            DeleteObject(m_hFont);
++    }
++
++    static bool registerWindowClass()
++    {
++        if (g_bClassRegistered)
++            return true;
++        WNDCLASSEXW aClass{};
++        aClass.cbSize = sizeof(aClass);
++        aClass.style = CS_HREDRAW | CS_VREDRAW;
++        aClass.lpfnWndProc = &PreviewHandler::windowProc;
++        aClass.hInstance = g_hModule;
++        aClass.hCursor = LoadCursorW(nullptr, MAKEINTRESOURCEW(32512)); // IDC_ARROW (ANSI-typed without UNICODE)
++        aClass.lpszClassName = WINDOW_CLASS;
++        if (!RegisterClassExW(&aClass) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS)
++            return false;
++        g_bClassRegistered = true;
++        return true;
++    }
++
++    static LRESULT CALLBACK windowProc(HWND hWnd, UINT nMsg, WPARAM wParam, LPARAM lParam)
++    {
++        if (nMsg == WM_NCCREATE)
++        {
++            auto* pCreate = reinterpret_cast<CREATESTRUCTW*>(lParam);
++            SetWindowLongPtrW(hWnd, GWLP_USERDATA,
++                              reinterpret_cast<LONG_PTR>(pCreate->lpCreateParams));
++        }
++        auto* pThis = reinterpret_cast<PreviewHandler*>(GetWindowLongPtrW(hWnd, GWLP_USERDATA));
++        if (!pThis)
++            return DefWindowProcW(hWnd, nMsg, wParam, lParam);
++        switch (nMsg)
++        {
++            case WM_CREATE:
++                pThis->m_hWnd = hWnd;
++                pThis->layout();
++                return 0;
++            case WM_SIZE:
++                pThis->layout();
++                return 0;
++            case WM_ERASEBKGND:
++                return 1; // WM_PAINT covers everything
++            case WM_PAINT:
++            {
++                PAINTSTRUCT aPaint;
++                if (HDC hDC = BeginPaint(hWnd, &aPaint))
++                {
++                    pThis->paint(hDC);
++                    EndPaint(hWnd, &aPaint);
++                }
++                return 0;
++            }
++            case WM_PRINTCLIENT: // window captures (PrintWindow) and the runtime check
++                pThis->paint(reinterpret_cast<HDC>(wParam));
++                return 0;
++            case WM_VSCROLL:
++                pThis->onScrollBar(LOWORD(wParam));
++                return 0;
++            case WM_MOUSEWHEEL:
++                pThis->onWheel(GET_WHEEL_DELTA_WPARAM(wParam));
++                return 0;
++            case WM_KEYDOWN:
++                if (pThis->onKey(wParam))
++                    return 0;
++                break;
++            case WM_LBUTTONDOWN:
++                ::SetFocus(hWnd);
++                return 0;
++            case WM_DESTROY: // also when the host destroys the parent window first
++                SetWindowLongPtrW(hWnd, GWLP_USERDATA, 0);
++                pThis->m_hWnd = nullptr;
++                return 0;
++        }
++        return DefWindowProcW(hWnd, nMsg, wParam, lParam);
++    }
++
++    void placeWindow()
++    {
++        SetWindowPos(m_hWnd, nullptr, m_aRect.left, m_aRect.top, m_aRect.right - m_aRect.left,
++                     m_aRect.bottom - m_aRect.top, SWP_NOZORDER | SWP_NOACTIVATE);
++    }
++
++    void repaint()
++    {
++        if (m_hWnd)
++            InvalidateRect(m_hWnd, nullptr, FALSE);
++    }
++
++    int scaled(int nPixelsAt96) const
++    {
++        UINT nDpi = m_hWnd ? GetDpiForWindow(m_hWnd) : 96;
++        return MulDiv(nPixelsAt96, nDpi ? static_cast<int>(nDpi) : 96, 96);
++    }
++
++    int clientHeight() const
++    {
++        RECT aClient{};
++        GetClientRect(m_hWnd, &aClient);
++        return aClient.bottom;
++    }
++
++    // Page width follows the pane width; page heights follow each page's aspect ratio.
++    void layout()
++    {
++        RECT aClient{};
++        GetClientRect(m_hWnd, &aClient);
++        int nMargin = scaled(MARGIN);
++        m_nPageWidth = std::clamp(static_cast<int>(aClient.right) - 2 * nMargin, 1, MAX_PAGE_WIDTH);
++        m_aPageTops.clear();
++        m_aPageHeights.clear();
++        int nTop = nMargin;
++        int nPages = m_pDocument ? m_pDocument->pageCount() : 0;
++        for (int i = 0; i < nPages; ++i)
++        {
++            const PageSize& rSize = m_pDocument->pageSize(i);
++            double fHeight = std::clamp(m_nPageWidth * rSize.height / rSize.width, 1.0, 1048576.0);
++            int nHeight = static_cast<int>(std::lround(fHeight));
++            m_aPageTops.push_back(nTop);
++            m_aPageHeights.push_back(nHeight);
++            // Saturate: a pathological page count must not overflow the scroll range.
++            nTop = nTop > INT_MAX / 2 - nHeight ? INT_MAX / 2 : nTop + nHeight + nMargin;
++        }
++        m_nTotalHeight = nTop;
++        scrollTo(m_nScroll);
++        repaint();
++    }
++
++    void scrollTo(int nPosition)
++    {
++        int nPage = clientHeight();
++        int nMax = std::max(0, m_nTotalHeight - nPage);
++        m_nScroll = std::clamp(nPosition, 0, nMax);
++        SCROLLINFO aInfo{};
++        aInfo.cbSize = sizeof(aInfo);
++        aInfo.fMask = SIF_RANGE | SIF_PAGE | SIF_POS | SIF_DISABLENOSCROLL;
++        aInfo.nMin = 0;
++        aInfo.nMax = std::max(0, m_nTotalHeight - 1);
++        aInfo.nPage = static_cast<UINT>(std::max(0, nPage));
++        aInfo.nPos = m_nScroll;
++        SetScrollInfo(m_hWnd, SB_VERT, &aInfo, TRUE);
++        repaint();
++    }
++
++    void onScrollBar(int nCode)
++    {
++        int nPage = clientHeight();
++        int nLine = scaled(LINE_STEP);
++        switch (nCode)
++        {
++            case SB_LINEUP:
++                scrollTo(m_nScroll - nLine);
++                break;
++            case SB_LINEDOWN:
++                scrollTo(m_nScroll + nLine);
++                break;
++            case SB_PAGEUP:
++                scrollTo(m_nScroll - std::max(nLine, nPage - nLine));
++                break;
++            case SB_PAGEDOWN:
++                scrollTo(m_nScroll + std::max(nLine, nPage - nLine));
++                break;
++            case SB_TOP:
++                scrollTo(0);
++                break;
++            case SB_BOTTOM:
++                scrollTo(m_nTotalHeight);
++                break;
++            case SB_THUMBTRACK:
++            case SB_THUMBPOSITION:
++            {
++                SCROLLINFO aInfo{};
++                aInfo.cbSize = sizeof(aInfo);
++                aInfo.fMask = SIF_TRACKPOS;
++                if (GetScrollInfo(m_hWnd, SB_VERT, &aInfo))
++                    scrollTo(aInfo.nTrackPos); // 32-bit position, unlike HIWORD(wParam)
++                break;
++            }
++        }
++    }
++
++    void onWheel(int nDelta)
++    {
++        UINT nLines = 3;
++        SystemParametersInfoW(SPI_GETWHEELSCROLLLINES, 0, &nLines, 0);
++        if (nLines == WHEEL_PAGESCROLL)
++        {
++            onScrollBar(nDelta > 0 ? SB_PAGEUP : SB_PAGEDOWN);
++            return;
++        }
++        m_nWheelRemainder += nDelta;
++        int nNotches = m_nWheelRemainder / WHEEL_DELTA;
++        m_nWheelRemainder -= nNotches * WHEEL_DELTA;
++        scrollTo(m_nScroll - nNotches * static_cast<int>(nLines) * scaled(LINE_STEP));
++    }
++
++    bool onKey(WPARAM nKey)
++    {
++        switch (nKey)
++        {
++            case VK_UP:
++                onScrollBar(SB_LINEUP);
++                return true;
++            case VK_DOWN:
++                onScrollBar(SB_LINEDOWN);
++                return true;
++            case VK_PRIOR:
++                onScrollBar(SB_PAGEUP);
++                return true;
++            case VK_NEXT:
++            case VK_SPACE:
++                onScrollBar(SB_PAGEDOWN);
++                return true;
++            case VK_HOME:
++                onScrollBar(SB_TOP);
++                return true;
++            case VK_END:
++                onScrollBar(SB_BOTTOM);
++                return true;
++        }
++        return false;
++    }
++
++    // Rendered page bitmap at the current width; least recently used pages are dropped.
++    HBITMAP pageBitmap(int nIndex, int nWidth, int nHeight)
++    {
++        for (auto it = m_aCache.begin(); it != m_aCache.end(); ++it)
++        {
++            if (it->nIndex == nIndex && it->nWidth == nWidth && it->nHeight == nHeight)
++            {
++                m_aCache.splice(m_aCache.begin(), m_aCache, it);
++                return it->hBitmap;
++            }
++        }
++        HBITMAP hBitmap = renderPageBitmap(*m_pDocument, nIndex, nWidth, nHeight);
++        if (!hBitmap)
++            return nullptr;
++        m_aCache.push_front(CachedPage{ nIndex, nWidth, nHeight, hBitmap });
++        while (m_aCache.size() > PAGE_CACHE_SIZE)
++        {
++            DeleteObject(m_aCache.back().hBitmap);
++            m_aCache.pop_back();
++        }
++        return hBitmap;
++    }
++
++    void clearCache()
++    {
++        for (const CachedPage& rPage : m_aCache)
++            DeleteObject(rPage.hBitmap);
++        m_aCache.clear();
++    }
++
++    void paint(HDC hDC)
++    {
++        RECT aClient{};
++        GetClientRect(m_hWnd, &aClient);
++        // Double buffered: scrolling repaints the whole pane without flicker.
++        HDC hBuffer = CreateCompatibleDC(hDC);
++        HBITMAP hBufferBitmap = hBuffer ? CreateCompatibleBitmap(hDC, aClient.right, aClient.bottom)
++                                        : nullptr;
++        HDC hTarget = hBufferBitmap ? hBuffer : hDC;
++        HGDIOBJ hOldBufferBitmap = hBufferBitmap ? SelectObject(hBuffer, hBufferBitmap) : nullptr;
++
++        HBRUSH hBackground = CreateSolidBrush(m_aBackground);
++        FillRect(hTarget, &aClient, hBackground);
++        DeleteObject(hBackground);
++
++        if (m_pDocument)
++            paintPages(hTarget, aClient);
++        else
++            paintMessage(hTarget, aClient);
++
++        if (hBufferBitmap)
++        {
++            BitBlt(hDC, 0, 0, aClient.right, aClient.bottom, hBuffer, 0, 0, SRCCOPY);
++            SelectObject(hBuffer, hOldBufferBitmap);
++            DeleteObject(hBufferBitmap);
++        }
++        if (hBuffer)
++            DeleteDC(hBuffer);
++    }
++
++    void paintPages(HDC hTarget, const RECT& rClient)
++    {
++        HDC hPageDC = CreateCompatibleDC(hTarget);
++        if (!hPageDC)
++            return;
++        HBRUSH hBorder = CreateSolidBrush(RGB(0xA0, 0xA0, 0xA0));
++        int nLeft = std::max(0, (static_cast<int>(rClient.right) - m_nPageWidth) / 2);
++        for (std::size_t i = 0; i < m_aPageTops.size(); ++i)
++        {
++            int nTop = m_aPageTops[i] - m_nScroll;
++            int nHeight = m_aPageHeights[i];
++            if (nTop + nHeight <= 0)
++                continue;
++            if (nTop >= rClient.bottom)
++                break;
++            RECT aFrame{ nLeft - 1, nTop - 1, nLeft + m_nPageWidth + 1, nTop + nHeight + 1 };
++            if (hBorder)
++                FrameRect(hTarget, &aFrame, hBorder);
++            if (HBITMAP hPage = pageBitmap(static_cast<int>(i), m_nPageWidth, nHeight))
++            {
++                HGDIOBJ hOld = SelectObject(hPageDC, hPage);
++                BitBlt(hTarget, nLeft, nTop, m_nPageWidth, nHeight, hPageDC, 0, 0, SRCCOPY);
++                SelectObject(hPageDC, hOld);
++            }
++            else
++            {
++                RECT aPage{ nLeft, nTop, nLeft + m_nPageWidth, nTop + nHeight };
++                FillRect(hTarget, &aPage, static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH)));
++            }
++        }
++        if (hBorder)
++            DeleteObject(hBorder);
++        DeleteDC(hPageDC);
++    }
++
++    void paintMessage(HDC hTarget, const RECT& rClient)
++    {
++        int nMargin = scaled(MARGIN) * 2;
++        RECT aText{ rClient.left + nMargin, rClient.top + nMargin, rClient.right - nMargin,
++                    rClient.bottom - nMargin };
++        HGDIOBJ hOldFont = m_hFont ? SelectObject(hTarget, m_hFont) : nullptr;
++        SetBkMode(hTarget, TRANSPARENT);
++        ::SetTextColor(hTarget, m_aText);
++        DrawTextW(hTarget, messageFor(m_eOpenResult), -1, &aText,
++                  DT_CENTER | DT_WORDBREAK | DT_NOPREFIX);
++        if (hOldFont)
++            SelectObject(hTarget, hOldFont);
++    }
++
++    std::atomic<long> m_nRefs{ 1 };
++    ModuleRef m_aModuleRef;
++    IStream* m_pStream = nullptr;
++    IUnknown* m_pSite = nullptr;
++    IPreviewHandlerFrame* m_pFrame = nullptr;
++    HWND m_hParent = nullptr;
++    HWND m_hWnd = nullptr;
++    RECT m_aRect{};
++    std::unique_ptr<Document> m_pDocument;
++    OpenResult m_eOpenResult = OpenResult::Invalid;
++    COLORREF m_aBackground = GetSysColor(COLOR_WINDOW);
++    COLORREF m_aText = GetSysColor(COLOR_WINDOWTEXT);
++    HFONT m_hFont = nullptr;
++    int m_nPageWidth = 1;
++    std::vector<int> m_aPageTops;
++    std::vector<int> m_aPageHeights;
++    int m_nTotalHeight = 0;
++    int m_nScroll = 0;
++    int m_nWheelRemainder = 0;
++    std::list<CachedPage> m_aCache;
++};
++}
++
++HRESULT createPreviewHandler(REFIID riid, void** ppv)
++{
++    auto* pHandler = new (std::nothrow) PreviewHandler;
++    if (!pHandler)
++        return E_OUTOFMEMORY;
++    HRESULT hr = pHandler->QueryInterface(riid, ppv);
++    pHandler->Release();
++    return hr;
++}
++
++void unregisterPreviewWindowClass()
++{
++    if (g_bClassRegistered && UnregisterClassW(WINDOW_CLASS, g_hModule))
++        g_bClassRegistered = false;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/shell/source/win32/hstpdfpreview/shellcommon.hxx b/shell/source/win32/hstpdfpreview/shellcommon.hxx
+new file mode 100644
+index 0000000..405ef46
+--- /dev/null
++++ b/shell/source/win32/hstpdfpreview/shellcommon.hxx
+@@ -0,0 +1,55 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * HST Office (HASON TECH): Explorer preview handler and thumbnail provider for PDF files.
++ */
++
++#pragma once
++
++#include <windows.h>
++#include <objidl.h>
++
++#include <atomic>
++#include <memory>
++
++#include "pdfdocument.hxx"
++
++// Shared pieces of the PDF preview handler and thumbnail provider DLL.
++namespace hstpdf
++{
++// {6058E664-567B-4207-82EE-F250B8F88276}: the preview handler (scp2 registers it).
++inline constexpr CLSID CLSID_PdfPreviewHandler
++    = { 0x6058e664, 0x567b, 0x4207, { 0x82, 0xee, 0xf2, 0x50, 0xb8, 0xf8, 0x82, 0x76 } };
++// {61440647-9253-4376-A0B3-66622FA3B055}: the thumbnail provider (scp2 registers it).
++inline constexpr CLSID CLSID_PdfThumbnailProvider
++    = { 0x61440647, 0x9253, 0x4376, { 0xa0, 0xb3, 0x66, 0x62, 0x2f, 0xa3, 0xb0, 0x55 } };
++
++/// Live COM objects and class factory locks; DllCanUnloadNow answers S_OK at zero.
++extern std::atomic<long> g_nModuleRefs;
++/// This DLL's module handle (window class registration).
++extern HINSTANCE g_hModule;
++
++/// Holds a module reference for the lifetime of a COM object.
++class ModuleRef
++{
++public:
++    ModuleRef() { ++g_nModuleRefs; }
++    ~ModuleRef() { --g_nModuleRefs; }
++    ModuleRef(const ModuleRef&) = delete;
++    ModuleRef& operator=(const ModuleRef&) = delete;
++};
++
++/// Opens the PDF behind a shell stream. The stream is AddRef'ed and read lazily by PDFium,
++/// so it must stay valid as long as the document.
++OpenResult openFromStream(IStream* pStream, std::unique_ptr<Document>& result);
++
++/// Renders a page into a new top-down 32-bit DIB section of width x height; nullptr on failure.
++HBITMAP renderPageBitmap(const Document& rDocument, int index, int width, int height);
++
++HRESULT createPreviewHandler(REFIID riid, void** ppv);
++HRESULT createThumbnailProvider(REFIID riid, void** ppv);
++/// Drops the preview window class before the DLL may be unloaded (its window procedure goes too).
++void unregisterPreviewWindowClass();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/shell/source/win32/hstpdfpreview/thumbnailprovider.cxx b/shell/source/win32/hstpdfpreview/thumbnailprovider.cxx
+new file mode 100644
+index 0000000..39c69c5
+--- /dev/null
++++ b/shell/source/win32/hstpdfpreview/thumbnailprovider.cxx
+@@ -0,0 +1,115 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * HST Office (HASON TECH): Explorer preview handler and thumbnail provider for PDF files.
++ */
++
++// Explorer thumbnail of a PDF: its first page. Initialised with a stream, so the shell runs it
++// in an isolated surrogate process, never in explorer.exe.
++
++#include "shellcommon.hxx"
++
++#include <propsys.h>
++#include <shobjidl.h>
++#include <thumbcache.h>
++
++#include <new>
++
++namespace hstpdf
++{
++namespace
++{
++class ThumbnailProvider final : public IInitializeWithStream, public IThumbnailProvider
++{
++public:
++    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppv) override
++    {
++        if (!ppv)
++            return E_POINTER;
++        if (riid == __uuidof(IUnknown) || riid == __uuidof(IInitializeWithStream))
++            *ppv = static_cast<IInitializeWithStream*>(this);
++        else if (riid == __uuidof(IThumbnailProvider))
++            *ppv = static_cast<IThumbnailProvider*>(this);
++        else
++        {
++            *ppv = nullptr;
++            return E_NOINTERFACE;
++        }
++        AddRef();
++        return S_OK;
++    }
++    IFACEMETHODIMP_(ULONG) AddRef() override { return ++m_nRefs; }
++    IFACEMETHODIMP_(ULONG) Release() override
++    {
++        long n = --m_nRefs;
++        if (n == 0)
++            delete this;
++        return n;
++    }
++
++    // IInitializeWithStream
++    IFACEMETHODIMP Initialize(IStream* pStream, DWORD) override
++    {
++        if (!pStream)
++            return E_INVALIDARG;
++        if (m_pStream)
++            return HRESULT_FROM_WIN32(ERROR_ALREADY_INITIALIZED);
++        m_pStream = pStream;
++        m_pStream->AddRef();
++        return S_OK;
++    }
++
++    // IThumbnailProvider
++    IFACEMETHODIMP GetThumbnail(UINT cx, HBITMAP* phbmp, WTS_ALPHATYPE* pdwAlpha) override
++    {
++        if (!phbmp || !pdwAlpha)
++            return E_POINTER;
++        *phbmp = nullptr;
++        *pdwAlpha = WTSAT_UNKNOWN;
++        if (!m_pStream)
++            return E_UNEXPECTED;
++        if (cx == 0 || cx > 4096)
++            return E_INVALIDARG;
++        std::unique_ptr<Document> pDocument;
++        if (openFromStream(m_pStream, pDocument) != OpenResult::Ok)
++            return E_FAIL; // the shell falls back to the file type icon
++        int nWidth = 0, nHeight = 0;
++        int nSize = static_cast<int>(cx);
++        fitInto(pDocument->pageSize(0), nSize, nSize, nWidth, nHeight);
++        HBITMAP hBitmap = renderPageBitmap(*pDocument, 0, nWidth, nHeight);
++        if (!hBitmap)
++            return E_FAIL;
++        *phbmp = hBitmap;
++        *pdwAlpha = WTSAT_RGB; // pages are opaque
++        return S_OK;
++    }
++
++    ThumbnailProvider() = default;
++    ThumbnailProvider(const ThumbnailProvider&) = delete;
++    ThumbnailProvider& operator=(const ThumbnailProvider&) = delete;
++
++private:
++    ~ThumbnailProvider()
++    {
++        if (m_pStream)
++            m_pStream->Release();
++    }
++
++    std::atomic<long> m_nRefs{ 1 };
++    IStream* m_pStream = nullptr;
++    ModuleRef m_aModuleRef;
++};
++}
++
++HRESULT createThumbnailProvider(REFIID riid, void** ppv)
++{
++    auto* pProvider = new (std::nothrow) ThumbnailProvider;
++    if (!pProvider)
++        return E_OUTOFMEMORY;
++    HRESULT hr = pProvider->QueryInterface(riid, ppv);
++    pProvider->Release();
++    return hr;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
