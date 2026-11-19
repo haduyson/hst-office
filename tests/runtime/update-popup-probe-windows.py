@@ -88,7 +88,7 @@ def main():
             entry["foreground"] = windows_foreground()
             entry["popup"] = [t for _h, t in windows_titled(lambda title: "HST" in title)]
             log.append(entry)
-            print(json.dumps(entry, ensure_ascii=False), flush=True)
+            print(json.dumps(entry), flush=True)  # ASCII: the Windows console is cp1252
             if any(t == "Cập nhật HST Office" for t in entry["popup"]):
                 break
             time.sleep(5)
