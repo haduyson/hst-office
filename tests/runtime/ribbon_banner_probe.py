@@ -2,7 +2,7 @@
 """Helpers for check-ribbon-banner.py: expected items, banner recognition, ribbon geometry.
 
 The banner is recognised in screenshots by comparing the drawn slot with every bundled artwork,
-fitted exactly as sfx2 HstBannerGeometry.hxx fits it (3 px inset per DPI step, aspect-fit, centred).
+fitted exactly as include/vcl/HstBannerGeometry.hxx paints it (artRect: edge to edge in its snug slot).
 """
 import json
 import os
@@ -39,9 +39,15 @@ def items(instdir):
 
 
 def fitted(box, image_w, image_h, scale):
-    """Inner rectangle the control draws the image into (screen coordinates)."""
-    inset = round(3 * scale)
-    x, y, w, h = box[0] + inset, box[1] + inset, box[2] - 2 * inset, box[3] - 2 * inset
+    """Rectangle the control draws the image into (screen coordinates), as include/vcl/HstBannerGeometry.hxx's artRect:
+    the whole box when it has the image's ratio (the hosts size the slot so: hst-banner-fit.patch), otherwise the
+    image aspect-fitted and centred. scale is kept for the callers; the artwork has no inset."""
+    del scale
+    x, y, w, h = box
+    if w <= 0 or h <= 0:
+        return x, y, 0, 0
+    if abs(round(w * image_h / image_w) - h) <= 1 or abs(round(h * image_w / image_h) - w) <= 1:
+        return x, y, w, h
     if w * image_h > image_w * h:
         fw, fh = max(1, h * image_w // image_h), h
     else:
