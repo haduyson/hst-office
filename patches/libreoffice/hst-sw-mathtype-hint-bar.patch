@@ -111,7 +111,7 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sw/source/uibase/hst/mathtypehintbar.cxx
 +++ b/sw/source/uibase/hst/mathtypehintbar.cxx
-@@ -0,0 +1,226 @@
+@@ -0,0 +1,225 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -121,7 +121,6 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +
 +#include <hstmathtypehintbar.hxx>
 +
-+#include <com/sun/star/embed/ElementModes.hpp>
 +#include <com/sun/star/embed/XStorage.hpp>
 +#include <com/sun/star/frame/XModel3.hpp>
 +#include <comphelper/dispatchcommand.hxx>
@@ -199,8 +198,8 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +    {
 +        if (rName.isEmpty() || !xStorage->hasByName(rName) || xStorage->isStorageElement(rName))
 +            return false; // an own (ODF) object, not an OLE compound file
-+        uno::Reference<io::XStream> xStream
-+            = xStorage->openStreamElement(rName, embed::ElementModes::READ);
++        // a copy: the OLE object keeps its own stream open, so it cannot be opened again
++        uno::Reference<io::XStream> xStream = xStorage->cloneStreamElement(rName);
 +        std::unique_ptr<SvStream> pStream = utl::UcbStreamHelper::CreateStream(xStream);
 +        if (!pStream || !SotStorage::IsStorageFile(pStream.get()))
 +            return false;
