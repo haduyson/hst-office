@@ -42,6 +42,7 @@ EXPECTED = {"picture": ("Định dạng ảnh",), "table": ("Thiết kế bảng
             "pivot": ("Phân tích bảng tổng hợp",)}
 MSAA = os.path.join(HERE, "windows-msaa-ribbon.ps1")
 SETTLE = 3
+STEP_TIMEOUT = 240  # seconds for one object: four MSAA reads, three settles and the command
 
 
 def msaa(office, *args):
@@ -120,13 +121,7 @@ def stop_office(office, shot, res, app, timeout=120):
     if worker.is_alive():
         # what holds the quit: the screen, and every window of the office with its accessible names (a save prompt
         # of the document checked here is the harness; any other prompt is a product bug)
-        wg.screenshot(shot, cursor=False)
-        try:
-            windows = msaa(office, "-Action", "tabs")
-        except Exception as error:  # noqa: BLE001 - the screenshot stays the evidence
-            windows = repr(error)
-        with open(os.path.splitext(shot)[0] + ".txt", "w", encoding="utf-8") as handle:
-            handle.write(windows)
+        windows = what_holds(office, shot)
         import windows_gui_processes as processes
         office.proc.kill()
         processes.terminate(office.url)
@@ -141,6 +136,60 @@ class _Dispatcher:
 
     def dispatch(self, frame, command):
         self.office.dispatch_async(frame, command).join(30)
+
+
+def check_kind(app, kind, doc, objects, frame, office, res, args):
+    park(app, doc, _Dispatcher(office))
+    time.sleep(SETTLE)
+    plain = {name for name, _ in ribbon_tabs(office)}
+    if not res(f"[{app}] {kind}: ribbon tabs read", bool(plain), sorted(plain)):
+        return
+    doc.CurrentController.select(objects[kind])
+    time.sleep(SETTLE)
+    now = [name for name, _ in ribbon_tabs(office)]
+    contextual = [name for name in now if name not in plain]
+    wanted = [name for name in contextual if name in EXPECTED[kind]]
+    if not res(f"[{app}] {kind}: contextual tab shown", bool(wanted), contextual or now):
+        return
+    tab = wanted[0]
+    select_tab(office, tab)
+    time.sleep(SETTLE)
+    before = [name for name, selected in ribbon_tabs(office) if selected]
+    if not res(f"[{app}] {kind}: {tab} selected", before == [tab], before):
+        return
+    command = command_for(app, kind)
+    dispatch = office.dispatch_async(frame, command)
+    dispatch.join(30)
+    if dispatch.is_alive():  # the command opened something modal: what it is decides harness or product
+        shot = os.path.join(args.out, f"{app}-{kind}-command-held.png")
+        res(f"[{app}] {kind}: {command} returned", False, f"held over 30 s: {shot}; " + what_holds(office, shot))
+    time.sleep(SETTLE)
+    after = [name for name, selected in ribbon_tabs(office) if selected]
+    res(f"[{app}] {kind}: {tab} still selected after {command}", after == [tab], after)
+
+
+def leave_unmodified(app, doc, office):
+    try:
+        doc.setModified(False)
+    except Exception as error:  # noqa: BLE001 - the office is gone
+        print("setModified:", repr(error), flush=True)
+    try:
+        park(app, doc, _Dispatcher(office))
+        doc.setModified(False)
+    except Exception as error:  # noqa: BLE001 - the selection stays; the document is unmodified already
+        print("park:", repr(error), flush=True)
+
+
+def what_holds(office, shot):
+    """The screen and every window of the office with its accessible names, kept next to SHOT; returns the names."""
+    wg.screenshot(shot, cursor=False)
+    try:
+        windows = msaa(office, "-Action", "tabs")
+    except Exception as error:  # noqa: BLE001 - the screenshot stays the evidence
+        windows = repr(error)
+    with open(os.path.splitext(shot)[0] + ".txt", "w", encoding="utf-8") as handle:
+        handle.write(windows)
+    return windows
 
 
 def check_app(app, args, res):
@@ -169,43 +218,24 @@ def check_app(app, args, res):
             objects["table"] = make_calc_table(doc)
         frame = doc.CurrentController.Frame
         for kind in KINDS[app]:
-            park(app, doc, _Dispatcher(office))
-            time.sleep(SETTLE)
-            plain = {name for name, _ in ribbon_tabs(office)}
-            if not res(f"[{app}] {kind}: ribbon tabs read", bool(plain), sorted(plain)):
-                continue
-            doc.CurrentController.select(objects[kind])
-            time.sleep(SETTLE)
-            now = [name for name, _ in ribbon_tabs(office)]
-            contextual = [name for name in now if name not in plain]
-            wanted = [name for name in contextual if name in EXPECTED[kind]]
-            if not res(f"[{app}] {kind}: contextual tab shown", bool(wanted), contextual or now):
-                continue
-            tab = wanted[0]
-            select_tab(office, tab)
-            time.sleep(SETTLE)
-            before = [name for name, selected in ribbon_tabs(office) if selected]
-            if not res(f"[{app}] {kind}: {tab} selected", before == [tab], before):
-                continue
-            command = command_for(app, kind)
-            office.dispatch_async(frame, command).join(30)
-            time.sleep(SETTLE)
-            after = [name for name, selected in ribbon_tabs(office) if selected]
-            res(f"[{app}] {kind}: {tab} still selected after {command}", after == [tab], after)
+            # each object in a thread: a UNO call held by a prompt must not hang the run without evidence
+            step = threading.Thread(target=check_kind, args=(app, kind, doc, objects, frame, office, res, args),
+                                    daemon=True)
+            step.start()
+            step.join(STEP_TIMEOUT)
+            if step.is_alive():
+                shot = os.path.join(args.out, f"{app}-{kind}-held.png")
+                res(f"[{app}] {kind}: step finished", False, f"held over {STEP_TIMEOUT} s: {shot}; "
+                    + what_holds(office, shot))
+                break
     finally:
         # the document itself: with a chart selected the current component is the chart's model, and a modified
         # sheet would hold the close on its save prompt
         # each on its own: a refused park (Slides' select of nothing) must not leave the save prompt in the way
-        if doc is not None:
-            try:
-                doc.setModified(False)
-            except Exception as error:  # noqa: BLE001 - the office is gone
-                print("setModified:", repr(error), flush=True)
-            try:
-                park(app, doc, _Dispatcher(office))
-                doc.setModified(False)
-            except Exception as error:  # noqa: BLE001 - the selection stays; the document is unmodified already
-                print("park:", repr(error), flush=True)
+        if doc is not None:  # bounded as well: a held prompt holds these calls too; the close then shows it
+            tidy = threading.Thread(target=leave_unmodified, args=(app, doc, office), daemon=True)
+            tidy.start()
+            tidy.join(60)
         stop_office(office, os.path.join(args.out, f"{app}-close-blocked.png"), res, app)
 
 

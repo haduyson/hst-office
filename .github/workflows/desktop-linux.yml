@@ -107,6 +107,8 @@ jobs:
           bash scripts/linux/ci-build.sh --rpm-appimage | tail -8 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Check coexistence with the distribution LibreOffice
         if: ${{ inputs.mode == 'full' && success() }}
+        # a stalled distribution mirror must not hold the job: the check itself takes about a minute
+        timeout-minutes: 15
         shell: bash
         run: |
           set -euo pipefail

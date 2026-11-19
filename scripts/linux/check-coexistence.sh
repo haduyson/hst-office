@@ -49,7 +49,8 @@ log() { printf '%s\n' "$*"; }
 pass() { log "PASS $*"; }
 fail() { log "FAIL $*"; FAILS=$((FAILS + 1)); }
 as_user() { runuser -u "$USER_NAME" -- env HOME="/home/$USER_NAME" DISPLAY=:99 SAL_USE_VCLPLUGIN=gtk3 "$@"; }
-apt_quiet() { DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Use-Pty=0 -y -q "$@"; }
+# a mirror that stops answering fails the fetch (and is retried) instead of hanging the check
+apt_quiet() { DEBIAN_FRONTEND=noninteractive apt-get -o Dpkg::Use-Pty=0 -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -y -q "$@"; }
 
 # Default application per type as xdg-mime (generic) and GLib/GNOME (gio) see it, one line per type.
 defaults() {
