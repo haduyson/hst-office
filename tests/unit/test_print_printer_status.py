@@ -58,6 +58,13 @@ class PrinterStatus(unittest.TestCase):
         self.assertIn("connect_popup_toggled", added(PATCH, VIEW))  # fresh again when the list drops down
         self.assertNotIn("Printer::GetQueueInfo", view)  # the synchronous queue state of vcl
 
+    def test_gtk_printer_list_has_an_image_column(self):
+        ui = added(PATCH, "vcl/uiconfig/ui/hstprintpanel.ui")
+        self.assertIn('<object class="GtkComboBox" id="printersbox">', ui)
+        self.assertIn('<property name="model">printerstore</property>', ui)
+        self.assertIn('<column type="CairoSurface"/>', ui)  # vcl's gtk3 combo box puts VirtualDevice images there
+        self.assertIn('<attribute name="surface">3</attribute>', ui)
+
     def test_platform_sources(self):
         query = added(PATCH, QUERY)
         self.assertIn("PRINTER_ATTRIBUTE_WORK_OFFLINE", query)

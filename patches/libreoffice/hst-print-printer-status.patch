@@ -17,6 +17,8 @@ its printer list and a short text beside the selected printer ("Trạng thái:")
 - Test runs only: HST_TEST_PRINTER_STATES="<printer>=ready|busy|paused|offline|paperout|unknown;..." overrides
   the system for those printers (screenshots on a host without a print server).
 - Mapping flags to state and text: vcl::hst::ClassifyPrinterStatus / PrinterStatusText (hstprinterstatus.cxx).
+- vcl hstprintpanel.ui: the printer list is a GtkComboBox over a list store with an image column (text, id,
+  pixbuf, surface; the dot before the name), so GTK shows the dots too (a GtkComboBoxText has no image column).
 - Hook: PrintDialog (panel form only) owns a vcl::hst::PrinterStatusView over its printer list and status label;
   updatePrinterText tells it the selection changed.
 
@@ -941,3 +943,52 @@ diff --git a/vcl/source/window/printdlg.cxx b/vcl/source/window/printdlg.cxx
  }
  
  void PrintDialog::setPreviewText()
+diff --git a/vcl/uiconfig/ui/hstprintpanel.ui b/vcl/uiconfig/ui/hstprintpanel.ui
+--- a/vcl/uiconfig/ui/hstprintpanel.ui
++++ b/vcl/uiconfig/ui/hstprintpanel.ui
+@@ -59,6 +59,18 @@
+     <property name="can-focus">False</property>
+     <property name="icon-name">go-last</property>
+   </object>
++  <object class="GtkListStore" id="printerstore">
++    <columns>
++      <!-- column-name text -->
++      <column type="gchararray"/>
++      <!-- column-name id -->
++      <column type="gchararray"/>
++      <!-- column-name image -->
++      <column type="GdkPixbuf"/>
++      <!-- column-name surface -->
++      <column type="CairoSurface"/>
++    </columns>
++  </object>
+   <object class="GtkImage" id="printimg">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -275,9 +287,25 @@
+                                 <property name="orientation">vertical</property>
+                                 <property name="spacing">6</property>
+                                 <child>
+-                                  <object class="GtkComboBoxText" id="printersbox">
++                                  <object class="GtkComboBox" id="printersbox">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
++                                    <property name="model">printerstore</property>
++                                    <property name="entry-text-column">0</property>
++                                    <property name="id-column">1</property>
++                                    <child>
++                                      <object class="GtkCellRendererText" id="printertext"/>
++                                      <attributes>
++                                        <attribute name="text">0</attribute>
++                                      </attributes>
++                                    </child>
++                                    <child>
++                                      <!-- HST Office: the printer state dot (vcl::hst::PrinterStatusView) -->
++                                      <object class="GtkCellRendererPixbuf" id="printerstate"/>
++                                      <attributes>
++                                        <attribute name="surface">3</attribute>
++                                      </attributes>
++                                    </child>
+                                     <child internal-child="accessible">
+                                       <object class="AtkObject" id="printersbox-atkobject">
+                                         <property name="AtkObject::accessible-description" translatable="yes" context="printdialog|extended_tip|printersbox">The list box shows the installed printers. Click the printer to use for the current print job. Click the Properties button to change some of the printer properties.</property>

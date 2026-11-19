@@ -34,7 +34,7 @@ def check(ok, text):
     failures.extend([] if ok else [text])
 
 
-def write_printers(soffice, out):
+def write_printers(soffice, out, default=None):
     """Generic printers in the profile (they spool into /dev/null: nothing is printed here)."""
     profile = os.path.join(out, "profile")
     subprocess.run([soffice, "--headless", "--terminate_after_init",
@@ -42,7 +42,7 @@ def write_printers(soffice, out):
     os.makedirs(os.path.join(profile, "user", "psprint"), exist_ok=True)
     with open(os.path.join(profile, "user", "psprint", "psprint.conf"), "w", encoding="utf-8") as handle:
         for name in PRINTERS:
-            handle.write(f"[{name}]\nPrinter=SGENPRT/{name}\nDefaultPrinter=0\nLocation=\nComment=\n"
+            handle.write(f"[{name}]\nPrinter=SGENPRT/{name}\nDefaultPrinter={int(name == default)}\nLocation=\nComment=\n"
                          "Command=cat > /dev/null\nQueueName=\nFeatures=\n\n")
     os.environ["HST_TEST_PRINTER_STATES"] = ";".join(f"{n}={s}" for n, (s, _) in PRINTERS.items())
 
@@ -54,6 +54,9 @@ def main():
     parser.add_argument("--shot", help="screenshot command with {} for the file")
     parser.add_argument("--dark", action="store_true")
     parser.add_argument("--apps", default="swriter,scalc")
+    parser.add_argument("--default", help="the printer the office starts with (gtk3: the page shows it)")
+    parser.add_argument("--shots-only", action="store_true", help="gtk3: no UITest, only the page with the "
+                        "default printer (and the dropped-down list with --open-list-at)")
     parser.add_argument("--open-list-at", help="x,y of the printer list on the screen: drop it down for a last "
                         "screenshot with every dot (xdotool)")
     args = parser.parse_args()
@@ -63,7 +66,7 @@ def main():
     shot = lambda name: args.shot and subprocess.run(args.shot.format(os.path.join(out, name)), shell=True)  # noqa
     if args.dark:
         CB.set_dark_appearance(args.soffice, out)
-    write_printers(args.soffice, out)
+    write_printers(args.soffice, out, args.default)
     office = CB.BASE.VisibleOffice(args.soffice, out, None)
     try:
         for app in args.apps.split(","):
@@ -71,6 +74,18 @@ def main():
             office.close_welcome()
             office.ui.executeCommandForProvider(".uno:Print", doc.getCurrentController().getFrame())
             CB.FRAME[:] = [doc.getCurrentController().getFrame()]
+            if args.shots_only:
+                time.sleep(8)  # the page, then the states from their thread
+                shot(f"{app}-printer-default-{tag}.png")
+                if args.open_list_at:
+                    x, y = args.open_list_at.split(",")
+                    subprocess.run(["xdotool", "mousemove", x, y, "click", "1"], check=False)
+                    time.sleep(2)
+                    shot(f"{app}-printer-list-{tag}.png")
+                    subprocess.run(["xdotool", "key", "Escape"], check=False)
+                office.ui.executeCommandForProvider(".uno:HSTBackstage", doc.getCurrentController().getFrame())
+                doc.setModified(False)
+                continue
             printers = CB.panel_button(office, "printersbox")
             check(printers is not None, f"{app}: the Print page shows its printer list")
             if printers is None:
