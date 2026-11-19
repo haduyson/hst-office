@@ -15,7 +15,7 @@ Logical!$A$1 (information-functions.csv), an external reference as ['file:///...
 (testSupBookVirtualPathXLS, filters-test testTdf90299) and a sheet range as 'First:Last'!B1 (testTdf163554).
 Links pasted with Paste as Link print as Sheet1!$A$1 (testPasteAsLink); AutoSum of two one-cell ranges prints
 =SUM(F13,F10) (testAutoSum); a copied range is parsed as Sheet1!A1:AMJ2 (copy_paste_test testTdf126421). Tests about
-Calc's own reference syntax ($Sheet1.A1, relative sheets, 'file'#$Sheet1.A1: uicalc testTdf103994, testTdf150219,
+Calc's own reference syntax ($Sheet1.A1, relative sheets, 'file'#$Sheet1.A1: uicalc testExternalReferences, testTdf103994, testTdf150219,
 testTdf153790, testTdf173608) switch the document to that syntax. As in Excel, Alt+Enter starts a new line in a cell
 and Ctrl+Enter fills the selection (hst-msoffice-shortcuts.patch), so testTdf56036 and testTdf119162 type Alt+Enter.
 The HST behaviour behind them is the same as in 1.0.2; only the printed syntax and keys change, values and references are still asserted.
@@ -35,9 +35,11 @@ file whose default font is Liberation Sans names Calibri in it (testTdf121716_Ex
 rows of a new workbook take the height of its 11 pt default style (hst-sheets-default-font-size.patch) and are written
 to .ods as empty cells: testTdf165733_leap_day_BCE checks the one cell with a date.
 
-testTdf107994 gives the frame of its new document a size before it freezes panes: panes freeze only at a visible
-cell, and the document's grid window can be 0x0 in the headless test, so C3 was scrolled to the top left and nothing
-froze (in HST Sheets itself, and with an office in svp mode, Freeze Panes at C3 and Ctrl+Home move to C3).
+testTdf107994 lays out the frame of its new document before it freezes panes: panes freeze only at a visible cell,
+and in the CppunitTest the 800x600 frame of the new document had not been laid out yet, so its document view and grid
+window were 0x0 and C3 was scrolled to the top left instead (measured: after the frame's layout manager lays it out,
+the view is 800x429 and the grid 698x343, and the test passes). In HST Sheets itself, and in an office in svp mode,
+Freeze Panes at C3 and Ctrl+Home move to C3.
 
 License: these upstream files remain under their original license (MPL-2.0).
 Test: make CppunitTest_sc_cond_format CppunitTest_sc_subsequent_filters_test CppunitTest_sc_subsequent_filters_test2
@@ -576,7 +578,18 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
      } aTests[] = {
 --- a/sc/qa/unit/uicalc/uicalc.cxx
 +++ b/sc/qa/unit/uicalc/uicalc.cxx
-@@ -309,6 +309,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf103994)
+@@ -98,6 +98,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testExternalReferences)
+     dispose();
+     createScDoc();
+     pDoc = getScDoc();
++    // HST Office types and shows formulas in the Excel A1 syntax
++    // (hst-sheets-excel-formula-conventions.patch); this test is about references in Calc's own
++    // syntax ('file'#$Sheet1.C1:C3), so it uses that syntax
++    FormulaGrammarSwitch aFGSwitch(pDoc, formula::FormulaGrammar::GRAM_NATIVE);
+ 
+     // Insert the references to the external document
+     {
+@@ -309,6 +313,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf103994)
      dispose();
      createScDoc();
      pDoc = getScDoc();
@@ -587,7 +600,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  
      // Insert the reference to the external document
      OUString aFormula = "='" + maTempFile.GetURL() + "'#$Sheet1.A1";
-@@ -782,9 +786,11 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf56036)
+@@ -782,9 +790,11 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf56036)
      typeString(u"=SUM( 1 + 2 ");
  
      // Insert Newline
@@ -601,7 +614,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
      Scheduler::ProcessEventsToIdle();
  
      typeString(u"+ 3)");
-@@ -841,9 +847,11 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf119162)
+@@ -841,9 +851,11 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf119162)
      typeString(u"Test");
  
      // Insert Newline
@@ -615,7 +628,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
      Scheduler::ProcessEventsToIdle();
  
      pModelObj->postKeyEvent(LOK_KEYEVENT_KEYINPUT, 0, awt::Key::RETURN);
-@@ -2103,12 +2111,13 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testPasteAsLink)
+@@ -2103,12 +2115,13 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testPasteAsLink)
  
      dispatchCommand(mxComponent, u".uno:PasteAsLink"_ustr, {});
  
@@ -632,7 +645,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
      CPPUNIT_ASSERT_EQUAL(1.0, pDoc->GetValue(2, 0, 0)); // C1
      CPPUNIT_ASSERT_EQUAL(1.0, pDoc->GetValue(2, 2, 0)); // C3
  
-@@ -2264,6 +2273,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf173608_relative_references_when_copyin
+@@ -2264,6 +2277,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf173608_relative_references_when_copyin
  {
      createScDoc();
      ScDocument* pDoc = getScDoc();
@@ -643,7 +656,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  
      insertStringToCell(u"A1"_ustr, u"1");
      insertStringToCell(u"A2"_ustr, u"2");
-@@ -2358,6 +2371,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf150219)
+@@ -2358,6 +2375,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf150219)
  {
      createScDoc();
      ScDocument* pDoc = getScDoc();
@@ -654,7 +667,7 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  
      insertNewSheet(*pDoc);
  
-@@ -2378,6 +2395,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf153790)
+@@ -2378,6 +2399,10 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest, testTdf153790)
  {
      createScDoc();
      ScDocument* pDoc = getScDoc();
@@ -671,10 +684,10 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  #include <comphelper/propertyvalue.hxx>
  #include <comphelper/servicehelper.hxx>
  #include <com/sun/star/awt/Key.hpp>
-+#include <com/sun/star/awt/PosSize.hpp>
-+#include <com/sun/star/awt/XWindow.hpp>
++#include <com/sun/star/beans/XPropertySet.hpp>
 +#include <com/sun/star/frame/XController.hpp>
 +#include <com/sun/star/frame/XFrame.hpp>
++#include <com/sun/star/frame/XLayoutManager.hpp>
 +#include <com/sun/star/frame/XModel.hpp>
  #include <com/sun/star/datatransfer/clipboard/XClipboard.hpp>
  #include <com/sun/star/datatransfer/DataFlavor.hpp>
@@ -705,16 +718,21 @@ CppunitTest_sc_subsequent_export_test4 CppunitTest_sc_subsequent_export_test5 Cp
  
      //Subtotals on Autosum
      goToCell(u"C49"_ustr);
-@@ -2219,6 +2226,14 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testTdf107994_MoveActiveCellToFreezePaneSpli
+@@ -2219,6 +2226,19 @@ CPPUNIT_TEST_FIXTURE(ScUiCalcTest2, testTdf107994_MoveActiveCellToFreezePaneSpli
      dispatchCommand(mxComponent, u".uno:GoToStart"_ustr, {});
      checkCurrentCursorPosition(*pDocSh, u"A1");
  
-+    // HST Office: panes freeze only at a visible cell. The grid window of the new document can be
-+    // 0x0 in the headless test (C3 is then scrolled to the top left and nothing freezes), so the
-+    // frame gets a real size first; a user's window always has one.
++    // HST Office: panes freeze only at a visible cell. In this test the frame of the new document
++    // is not laid out yet: its 800x600 window gives the document view 0x0 (C3 is then scrolled to
++    // the top left and nothing freezes). A user's window is laid out when it is shown or resized;
++    // here the frame's layout manager lays it out (view 800x429, grid 698x343).
 +    uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
-+    xModel->getCurrentController()->getFrame()->getContainerWindow()->setPosSize(
-+        0, 0, 1280, 800, css::awt::PosSize::SIZE);
++    uno::Reference<frame::XLayoutManager> xLayoutManager;
++    uno::Reference<beans::XPropertySet>(xModel->getCurrentController()->getFrame(), uno::UNO_QUERY_THROW)
++            ->getPropertyValue(u"LayoutManager"_ustr)
++        >>= xLayoutManager;
++    CPPUNIT_ASSERT(xLayoutManager.is());
++    xLayoutManager->doLayout();
 +    Scheduler::ProcessEventsToIdle();
 +
      // Freeze panes at C3 and verify that GoToStart moves to the freeze pane splitter position
