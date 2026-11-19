@@ -296,6 +296,16 @@ class LabelAndWidening(unittest.TestCase):
         d["groups"][1]["blocks"][0]["items"][0]["native_cut"] = False
         self.assertEqual(failed(d, "label_cut"), [])
 
+    def test_a_box_shown_in_part_fails(self):
+        d = baseline()
+        d["groups"][1]["blocks"][0]["items"][0]["box_clip"] = {"h": 24, "shown": 20, "by": "toolbox"}
+        self.assertEqual(failed(d, "label_cut"), ["gdB bxB1 box shown 20 of 24 px (cut by toolbox)"])
+
+    def test_a_box_shown_whole_passes(self):
+        d = baseline()
+        d["groups"][1]["blocks"][0]["items"][0]["box_clip"] = {"h": 24, "shown": 24, "by": ""}
+        self.assertEqual(failed(d, "label_cut"), [])
+
     def test_a_wide_dump_needs_large_items_of_96(self):
         d = baseline()
         d["wide"] = True
