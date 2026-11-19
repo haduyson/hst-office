@@ -219,7 +219,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/qa/cppunit/hst/coat-test.cxx
 +++ b/vcl/qa/cppunit/hst/coat-test.cxx
-@@ -0,0 +1,387 @@
+@@ -0,0 +1,441 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -239,7 +239,11 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +
 +#include <hst/coat.hxx>
 +
++#include <algorithm>
++#include <cmath>
 +#include <cstdlib>
++#include <utility>
++#include <vector>
 +
 +namespace
 +{
@@ -479,7 +483,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +        pDev->SetBackground(Wallpaper(SURFACE));
 +        CPPUNIT_ASSERT(draw(*pDev, ControlType::TabPane, ControlPart::Entire, ENABLED));
 +        assertPixel("pane corner: the same surface", *pDev, 0, 0, SURFACE);
-+        assertPixel("pane border", *pDev, 0, 60, p.aCardBorder);
++        assertPixel("pane border", *pDev, 0, 60, p.aControlBorder);
 +        assertPixel("pane inside: the same surface", *pDev, 100, 60, SURFACE);
 +    }
 +}
@@ -587,6 +591,56 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    CPPUNIT_ASSERT(!draw(*pDev, ControlType::Pushbutton, ControlPart::Focus, ENABLED));
 +    CPPUNIT_ASSERT(!draw(*pDev, ControlType::Progress, ControlPart::Entire, ENABLED));
 +    assertPixel("nothing painted", *pDev, 40, 15, MARKER);
++}
++
++/** The WCAG 2.x contrast ratio of two opaque colours. */
++double contrast(const Color& rA, const Color& rB)
++{
++    auto luminance = [](const Color& rColor) {
++        auto channel = [](sal_uInt8 n) {
++            const double f = n / 255.0;
++            return f <= 0.04045 ? f / 12.92 : std::pow((f + 0.055) / 1.055, 2.4);
++        };
++        return 0.2126 * channel(rColor.GetRed()) + 0.7152 * channel(rColor.GetGreen())
++               + 0.0722 * channel(rColor.GetBlue());
++    };
++    const double fA = luminance(rA), fB = luminance(rB);
++    return (std::max(fA, fB) + 0.05) / (std::min(fA, fB) + 0.05);
++}
++
++/* Every boundary that identifies a control reaches 3:1 against each surface it sits on (WCAG 1.4.11),
++   light and dark: the coat's own fills and the dialog faces of the platforms' common themes. Disabled
++   controls are exempt. */
++CPPUNIT_TEST_FIXTURE(CoatTest, testBoundaryContrast)
++{
++    for (bool bDark : { false, true })
++    {
++        const auto& p = hst::design::GetPalette(bDark);
++        // Windows, Adwaita and a mid grey, light or dark
++        const std::vector<Color> aFaces = bDark
++            ? std::vector<Color>{ Color(0x20, 0x20, 0x20), Color(0x2B, 0x2B, 0x2B), Color(0x35, 0x35, 0x35) }
++            : std::vector<Color>{ COL_WHITE, Color(0xF0, 0xF0, 0xF0), Color(0xF6, 0xF5, 0xF4) };
++        std::vector<Color> aSurfaces{ p.aCard, p.aFieldFill, p.aControlFill, p.aHover, p.aPressed };
++        aSurfaces.insert(aSurfaces.end(), aFaces.begin(), aFaces.end());
++        const std::pair<const char*, Color> aBoundaries[] = {
++            { "field border", p.aFieldBorder }, { "control border", p.aControlBorder },
++            { "accent (focus, checked)", p.aAccent }, { "tab indicator", p.aTabIndicator } };
++        for (const auto& [pName, rBoundary] : aBoundaries)
++            for (const Color& rSurface : aSurfaces)
++            {
++                const double fRatio = contrast(rBoundary, rSurface);
++                CPPUNIT_ASSERT_MESSAGE(OString(OString::Concat(bDark ? "dark " : "light ") + pName
++                                               + " " + rBoundary.AsRGBHexString().toUtf8() + " on "
++                                               + rSurface.AsRGBHexString().toUtf8() + ": "
++                                               + OString::number(fRatio))
++                                           .getStr(),
++                                       fRatio >= 3.0);
++            }
++        // the check mark and the radio dot on the accent, the scroll thumb on its track
++        CPPUNIT_ASSERT_GREATEREQUAL(3.0, contrast(p.aOnAccent, p.aAccent));
++        for (const Color& rThumb : { p.aScrollThumb, p.aScrollThumbHover, p.aScrollThumbPressed })
++            CPPUNIT_ASSERT_GREATEREQUAL(3.0, contrast(rThumb, p.aScrollTrack));
++    }
 +}
 +
 +CPPUNIT_TEST_FIXTURE(CoatTest, testGtkCss)
@@ -952,10 +1006,10 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    aCss.append(u"notebook > stack:not(:only-child) { background-color: " + hex(p.aCard)
 +                + u"; }\n"
 +                  u"notebook.frame { border-color: "
-+                + hex(p.aCardBorder) + u"; border-radius: " + px(d::radius::Control)
++                + hex(p.aControlBorder) + u"; border-radius: " + px(d::radius::Control)
 +                + u"; }\n"
 +                  u"notebook > header { background-color: transparent; border-color: "
-+                + hex(p.aCardBorder) + u"; }\n"
++                + hex(p.aControlBorder) + u"; }\n"
 +                  u"notebook > header tab { background-color: transparent; box-shadow: none; "
 +                  u"border-color: transparent; }\n"
 +                  u"notebook > header tab:hover { background-color: "
@@ -1185,7 +1239,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/source/hst/coat/coat-tabs-scrollbars.cxx
 +++ b/vcl/source/hst/coat/coat-tabs-scrollbars.cxx
-@@ -0,0 +1,210 @@
+@@ -0,0 +1,212 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1195,7 +1249,8 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +
 +/* Tab controls and scroll bars.
 +   Tabs: the tab row and the pages are one continuous surface in the control's own background colour
-+   (a notebook bar's tint included), across the full width: the pages are outlined by a rounded border,
++   (a notebook bar's tint included), across the full width: the pages are outlined by a rounded border
++   in the control border colour,
 +   a tab is tinted under the mouse, and the selected tab carries an accent bar on the side facing its
 +   page. No part fills a colour of its own, so no partial-width band can appear behind the tabs.
 +   Scroll bars: a plain track, a pill-shaped thumb narrower than the bar, chevrons for the buttons. */
@@ -1323,8 +1378,9 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    {
 +        case ControlType::TabPane:
 +            fillRect(rCtx, rCtx.aRect, aSurface);
++            // the pages' outline identifies the control: the control border (3:1 on its surface)
 +            FillAndStroke(rCtx, rCtx.aRect, rCtx.Px(hst::design::radius::Control), aSurface,
-+                          p.aCardBorder, rCtx.Px(hst::design::stroke::Border));
++                          p.aControlBorder, rCtx.Px(hst::design::stroke::Border));
 +            return true;
 +        case ControlType::TabBody:
 +        case ControlType::TabHeader:
