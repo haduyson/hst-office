@@ -622,10 +622,10 @@ index 0000000..cfabd6a
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/qa/cppunit/hststartcenter.cxx b/sfx2/qa/cppunit/hststartcenter.cxx
 new file mode 100644
-index 0000000..14764b8
+index 0000000..7a5c388
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
-@@ -0,0 +1,520 @@
+@@ -0,0 +1,575 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -649,6 +649,7 @@ index 0000000..14764b8
 +#include <com/sun/star/accessibility/XAccessibleComponent.hpp>
 +#include <com/sun/star/accessibility/XAccessibleContext.hpp>
 +#include <com/sun/star/awt/PosSize.hpp>
++#include <com/sun/star/awt/Rectangle.hpp>
 +#include <com/sun/star/awt/XWindow.hpp>
 +#include <com/sun/star/frame/DispatchDescriptor.hpp>
 +#include <com/sun/star/frame/StartModule.hpp>
@@ -664,14 +665,18 @@ index 0000000..14764b8
 +#include <tools/urlobj.hxx>
 +#include <unotools/historyoptions.hxx>
 +#include <vcl/event.hxx>
++#include <vcl/hst/drawhelpers.hxx>
 +#include <vcl/scheduler.hxx>
 +#include <vcl/svapp.hxx>
 +#include <vcl/uitest/uiobject.hxx>
 +#include <vcl/vclevent.hxx>
 +#include <vcl/virdev.hxx>
++#include <vcl/wall.hxx>
 +#include <vcl/window.hxx>
 +
++#include <chrono>
 +#include <set>
++#include <thread>
 +#include <vector>
 +
 +using namespace css;
@@ -796,12 +801,21 @@ index 0000000..14764b8
 +        xContainer->setPosSize(0, 0, 1366, 707, awt::PosSize::POSSIZE);
 +        xContainer->setVisible(true);
 +        Scheduler::ProcessEventsToIdle();
-+        // whatever the frame keeps for itself (a menu bar), the content area is 1366 x 707
-+        const Size aContent = window()->GetOutputSizePixel();
-+        if (aContent != Size(1366, 707))
++        // whatever the frame keeps for itself (a menu bar), the content area is 1366 x 707; the
++        // frame may place its component only after a later event, so measure once it is laid out
++        for (int nTry = 0; nTry < 20; ++nTry)
 +        {
-+            xContainer->setPosSize(0, 0, 1366 + 1366 - aContent.Width(), 707 + 707 - aContent.Height(),
-+                                   awt::PosSize::SIZE);
++            const Size aContent = window()->GetOutputSizePixel();
++            if (aContent == Size(1366, 707))
++                break;
++            if (aContent.Width() > 0 && aContent.Height() > 0)
++            {
++                const awt::Rectangle aOuter = xContainer->getPosSize();
++                xContainer->setPosSize(0, 0, aOuter.Width + 1366 - aContent.Width(),
++                                       aOuter.Height + 707 - aContent.Height(), awt::PosSize::SIZE);
++            }
++            else // the frame lays out on a short timer, which "events to idle" does not wait for
++                std::this_thread::sleep_for(std::chrono::milliseconds(100));
 +            Scheduler::ProcessEventsToIdle();
 +        }
 +
@@ -1140,6 +1154,47 @@ index 0000000..14764b8
 +    const tools::Rectangle aRecent = bounds(region(u"Recent documents"));
 +    CPPUNIT_ASSERT_EQUAL(COL_WHITE, xDev->GetPixel(Point(aRecent.Right() - 2, aRecent.Bottom() - 2)));
 +    CPPUNIT_ASSERT_EQUAL(COL_WHITE, xDev->GetPixel(Point(aPinnedArea.Left() + 2, aPinnedArea.Bottom() - 2)));
++}
++
++CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testCrispBorders)
++{
++    // a 1 px border is one column of its own colour, not a half-and-half mix with the fill or
++    // the background beside it; and a 2 px ring is two such columns
++    const Color aBack(0xEE, 0xF2, 0xF8), aFill(COL_WHITE), aBorder(0xD9, 0xE1, 0xEB);
++    ScopedVclPtrInstance<VirtualDevice> xDev;
++    xDev->SetOutputSizePixel(Size(80, 60));
++    xDev->SetBackground(Wallpaper(aBack));
++    xDev->Erase();
++    const tools::Rectangle aRect(Point(10, 10), Size(50, 30));
++    ::hst::design::DrawRoundRect(*xDev, aRect, 10, aFill, aBorder);
++    const tools::Long nMidY = aRect.Center().Y(), nMidX = aRect.Center().X();
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Left() - 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Left(), nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aFill, xDev->GetPixel(Point(aRect.Left() + 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aFill, xDev->GetPixel(Point(aRect.Right() - 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Right(), nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Right() + 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(nMidX, aRect.Top() - 1)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(nMidX, aRect.Top())));
++    CPPUNIT_ASSERT_EQUAL(aFill, xDev->GetPixel(Point(nMidX, aRect.Top() + 1)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(nMidX, aRect.Bottom())));
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(nMidX, aRect.Bottom() + 1)));
++
++    // a fill without border covers exactly its pixels
++    xDev->Erase();
++    ::hst::design::DrawRoundRect(*xDev, aRect, 10, aBorder, COL_TRANSPARENT);
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Left() - 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Left(), nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Right(), nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Right() + 1, nMidY)));
++
++    // a 2 px outline: both columns inside the rectangle, crisp
++    xDev->Erase();
++    ::hst::design::DrawRoundRect(*xDev, aRect, 10, COL_TRANSPARENT, aBorder, 2.0);
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Left() - 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Left(), nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Left() + 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Left() + 2, nMidY)));
 +}
 +}
 +
@@ -6066,10 +6121,10 @@ index 0000000..9618e01
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/vcl/source/hst/drawhelpers.cxx b/vcl/source/hst/drawhelpers.cxx
 new file mode 100644
-index 0000000..edb4405
+index 0000000..5802a8e
 --- /dev/null
 +++ b/vcl/source/hst/drawhelpers.cxx
-@@ -0,0 +1,185 @@
+@@ -0,0 +1,194 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -6131,23 +6186,31 @@ index 0000000..edb4405
 +{
 +    if (rRect.IsEmpty())
 +        return;
-+    // pixel centres: a 1 px outline lies on whole pixels, the fill covers the rectangle
-+    const basegfx::B2DPolygon aShape = roundedRect(
-+        basegfx::B2DRange(rRect.Left() + 0.5, rRect.Top() + 0.5, rRect.Right() + 0.5, rRect.Bottom() + 0.5),
-+        fRadius);
++    // Cairo fills polygons on pixel edges and strokes lines half a pixel further (it adds that offset
++    // itself; Skia adds it to lines and to rounded fills alike). So the fill covers the rectangle's
++    // pixels, and an outline of width w lies w/2 - 0.5 inside the edge: its outer edge is the edge
++    // pixel, crisp at any w. Under an outline the fill stops half a pixel inside, where the outline
++    // paints over it on both backends, so no fill bleeds beside the border.
++    const bool bBorder = rBorder != COL_TRANSPARENT;
++    const double fFillIn = bBorder ? 0.5 : 0.0;
++    const basegfx::B2DRange aFillRange(rRect.Left() + fFillIn, rRect.Top() + fFillIn,
++                                       rRect.Right() + 1.0 - fFillIn, rRect.Bottom() + 1.0 - fFillIn);
++    const double fInset = std::max(0.0, fBorderWidth / 2 - 0.5);
++    const basegfx::B2DRange aLineRange(rRect.Left() + fInset, rRect.Top() + fInset, rRect.Right() - fInset,
++                                       rRect.Bottom() - fInset);
 +    auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
 +    ScopedAntialiasing aAntialiasing(rDev);
 +    if (rFill != COL_TRANSPARENT)
 +    {
 +        rDev.SetLineColor();
 +        rDev.SetFillColor(rFill);
-+        rDev.DrawPolygon(aShape);
++        rDev.DrawPolygon(roundedRect(aFillRange, fRadius));
 +    }
-+    if (rBorder != COL_TRANSPARENT)
++    if (bBorder)
 +    {
 +        rDev.SetFillColor();
 +        rDev.SetLineColor(rBorder);
-+        rDev.DrawPolyLine(aShape, fBorderWidth);
++        rDev.DrawPolyLine(roundedRect(aLineRange, std::max(0.0, fRadius - fInset)), fBorderWidth);
 +    }
 +}
 +
@@ -6201,7 +6264,8 @@ index 0000000..edb4405
 +void DrawFocusRing(OutputDevice& rDev, const tools::Rectangle& rRect, double fRadius,
 +                   const Palette& rPalette, double fScale)
 +{
-+    const tools::Long nOut = static_cast<tools::Long>(FOCUS_RING_GAP * fScale + 0.5);
++    // the ring is drawn inside its rectangle, so that lies the gap and the ring's width outside
++    const tools::Long nOut = static_cast<tools::Long>((FOCUS_RING_GAP + FOCUS_RING_WIDTH) * fScale + 0.5);
 +    tools::Rectangle aRing(rRect);
 +    aRing.expand(nOut);
 +    DrawRoundRect(rDev, aRing, fRadius + nOut, COL_TRANSPARENT, rPalette.aAccent, FOCUS_RING_WIDTH * fScale);
