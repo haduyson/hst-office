@@ -8,6 +8,7 @@ from unittest import mock
 import _paths  # noqa: F401
 import test_update_job  # noqa: F401 - installs the UNO module stubs
 from hst_office import update_popup as popup  # noqa: E402
+from hst_office import update_handler as handler  # noqa: E402
 from hst_office import update_ui as ui  # noqa: E402
 
 NOW = 1_800_000_000
@@ -46,6 +47,12 @@ class Notify(unittest.TestCase):
         ui.notify.assert_not_called()
         self.assertEqual(popup.load(self.cache), {"version": "1.0.4", "shown": NOW})
         self.assertIs(ui.STATE["release"], RELEASE)  # the handler's Install/Download/Skip commands use it
+
+    def test_the_file_panel_hears_of_the_release_the_popup_shows(self):
+        popup.show.return_value = True
+        with mock.patch.dict(handler.AVAILABLE, {"release": None, "listeners": []}):
+            popup.notify(mock.Mock(), RELEASE, "1.0.3", now=NOW)
+            self.assertIs(handler.AVAILABLE["release"], RELEASE)
 
     def test_shown_today_falls_back_to_the_infobar(self):
         popup.remember(self.cache, "1.0.4", NOW)
@@ -88,6 +95,40 @@ class Notify(unittest.TestCase):
         with mock.patch("traceback.print_exc"):
             popup.notify(mock.Mock(), RELEASE, "1.0.3", now=NOW)
         ui.notify.assert_called_once()
+
+
+class Buttons(unittest.TestCase):
+    """What the pop-up's buttons do, after the pop-up has closed."""
+
+    def setUp(self):
+        state = mock.patch.dict(handler.AVAILABLE, {"release": RELEASE, "listeners": []})
+        state.start()
+        self.addCleanup(state.stop)
+
+    def test_skip_saves_the_version_and_takes_the_dot_off_the_file_tab(self):
+        with mock.patch.object(ui, "save") as save:
+            popup.run_action("ctx", RELEASE, "skip")
+        save.assert_called_once_with("ctx", "SkippedVersion", "1.0.4")
+        self.assertIsNone(handler.AVAILABLE["release"])
+
+    def test_later_changes_nothing(self):
+        with mock.patch.object(ui, "save") as save, mock.patch.object(ui, "open_url") as open_url:
+            popup.run_action("ctx", RELEASE, "later")
+        save.assert_not_called()
+        open_url.assert_not_called()
+        self.assertIs(handler.AVAILABLE["release"], RELEASE)
+
+    def test_download_opens_the_download_page(self):
+        with mock.patch.object(ui, "open_url") as open_url, \
+                mock.patch.object(ui, "release_download", return_value="https://x/"):
+            popup.run_action("ctx", RELEASE, "download")
+        open_url.assert_called_once_with("ctx", "https://x/")
+
+    def test_a_failing_button_never_raises(self):
+        with mock.patch.object(ui, "save", side_effect=OSError("read-only")), \
+                mock.patch.object(popup.diag_log, "exception") as logged:
+            popup.run_action("ctx", RELEASE, "skip")
+        logged.assert_called_once_with("update_popup")
 
 
 if __name__ == "__main__":

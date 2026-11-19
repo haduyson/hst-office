@@ -77,7 +77,9 @@ def _busy(ctx):
 def notify(ctx, release, installed, now=None, tries=0):
     """Main thread. The pop-up when it is due and a window can hold it, else the infobar (update_ui.notify)."""
     from . import update_ui as ui
+    from .update_handler import set_available
     ui.STATE["release"] = release
+    set_available(release)  # the File panel entry and the File tab dot, whether the pop-up or the infobar shows it
     now = int(time.time() if now is None else now)
     try:
         cache = _cache()
@@ -95,6 +97,23 @@ def notify(ctx, release, installed, now=None, tries=0):
     except Exception:  # noqa: BLE001 - never lose the notice: fall back to the infobar
         diag_log.exception("update_popup")
     return ui.notify(ctx, release, installed)
+
+
+def run_action(ctx, release, action):
+    """A button of the pop-up, after it closed: install | download | later | skip. "Bỏ qua bản này" also takes the
+    release off the File panel entry and the File tab dot; "Để sau" leaves both as they are."""
+    from . import update_ui as ui
+    try:
+        if action == "install":
+            from .update_install import start
+            start(ctx, _parent(ctx)[1])
+        elif action == "download":
+            ui.open_url(ctx, ui.release_download(release))
+        elif action == "skip":
+            from .update_handler import skip_release
+            skip_release(ctx, release["version"])
+    except Exception:  # noqa: BLE001 - a button must never raise into the office
+        diag_log.exception("update_popup")
 
 
 def _parent(ctx):
@@ -123,19 +142,8 @@ def show(ctx, release, installed):
     def act(action):
         close()
         # Later, from the main loop: not on the stack of the button of a dialog that has just been disposed.
-        ui.on_main_thread(ctx, lambda: run(action))
+        ui.on_main_thread(ctx, lambda: run_action(ctx, release, action))
 
-    def run(action):
-        try:
-            if action == "install":
-                from .update_install import start
-                start(ctx, _parent(ctx)[1])
-            elif action == "download":
-                ui.open_url(ctx, ui.release_download(release))
-            elif action == "skip":
-                ui.save(ctx, "SkippedVersion", release["version"])
-        except Exception:  # noqa: BLE001 - a button must never raise into the office
-            diag_log.exception("update_popup")
     first = ("install", TEXT["install"]) if ui.can_install(ctx, release) else ("download", TEXT["download"])
     buttons, x = (first, ("later", TEXT["later"]), ("skip", TEXT["skip"])), 8
     for index, (action, label) in enumerate(buttons):

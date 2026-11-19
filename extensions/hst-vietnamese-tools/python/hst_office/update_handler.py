@@ -36,6 +36,14 @@ def set_available(release):
             AVAILABLE["listeners"].remove((control, feature_url))
 
 
+def skip_release(ctx, version):
+    """"Bỏ qua bản này" (pop-up, infobar, check dialog): never announce `version` again, and take it off the File panel
+    entry and the File tab dot now."""
+    from . import update_ui as ui
+    ui.save(ctx, "SkippedVersion", version)
+    set_available(None)
+
+
 class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, XDispatch):
     """org.hst.office.update:Check | Download | Install | Notes | Skip | Available."""
 
@@ -103,7 +111,7 @@ class UpdateHandler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProv
     def _skip(self):
         from . import update_ui as ui
         if ui.STATE["release"]:
-            ui.save(self.ctx, "SkippedVersion", ui.STATE["release"]["version"])
+            skip_release(self.ctx, ui.STATE["release"]["version"])
         if self.frame is not None:
             ui.remove_infobar(self.frame)
 

@@ -142,6 +142,31 @@ class UpdateAvailableTests(unittest.TestCase):
         check.assert_called_once_with()
         install.assert_called_once_with("ctx", "peer")
 
+    def test_skipping_the_release_takes_the_dot_off(self):
+        handler_module.set_available(RELEASE)
+        with mock.patch.object(update_ui, "save") as save, mock.patch.object(update_ui, "remove_infobar"), \
+                mock.patch.dict(update_ui.STATE, {"release": RELEASE}):
+            self.handler.dispatch(url("Skip"), ())
+        save.assert_called_once_with("ctx", "SkippedVersion", RELEASE["version"])
+        self.assertIsNone(handler_module.AVAILABLE["release"])
+
+    def test_skip_in_the_check_dialog_takes_the_dot_off(self):
+        dialog = mock.Mock()
+        texts = mock.MagicMock()
+        texts.__getitem__.side_effect = lambda key: "%s"
+        with mock.patch("hst_office.dialogs.Dialog", return_value=dialog), \
+                mock.patch.object(update_result, "texts", return_value=texts), \
+                mock.patch.object(update_result.update_config, "load", return_value=({"AutoCheck": True}, ())), \
+                mock.patch.object(update_ui, "can_install", return_value=False), \
+                mock.patch.object(update_ui, "save") as save, mock.patch.dict(update_ui.STATE, {"release": None}):
+            dialog.execute.return_value = 0
+            update_result.show_result("ctx", "peer", RELEASE, "1.0.0", False)
+            self.assertIs(handler_module.AVAILABLE["release"], RELEASE)
+            skip = next(c.kwargs["callback"] for c in dialog.button.call_args_list if c.args[0] == "skip")
+            skip()
+        save.assert_any_call("ctx", "SkippedVersion", RELEASE["version"])
+        self.assertIsNone(handler_module.AVAILABLE["release"])
+
     def test_the_check_dialog_and_the_infobar_publish_what_they_found(self):
         with mock.patch.object(update_ui, "show_infobar", return_value=True), \
                 mock.patch.object(update_ui, "_broadcaster"), \

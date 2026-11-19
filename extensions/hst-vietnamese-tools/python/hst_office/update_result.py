@@ -23,14 +23,14 @@ def show_result(ctx, parent_peer, release, installed, failed):
     else:
         dialog.on_change(["autocheck"], lambda: ui.save(ctx, "AutoCheck", dialog.get("autocheck")))
     x, chosen = 8, []
+    from .update_handler import set_available, skip_release
     if not failed:  # the File panel entry and the File tab dot follow the answer (None: up to date)
-        from .update_handler import set_available
         set_available(release)
     if release is not None and not failed:
         ui.STATE["release"] = release
         actions = [("download", 44, lambda: ui.open_url(ctx, ui.release_download(release))),
                    ("notes", 56, lambda: ui.open_url(ctx, release["notes"])),
-                   ("skip", 80, lambda: ui.save(ctx, "SkippedVersion", release["version"]))]
+                   ("skip", 80, lambda: skip_release(ctx, release["version"]))]
         if ui.can_install(ctx, release):
             actions.insert(0, ("install", 60, lambda: chosen.append("install")))
         for name, width, fn in actions:
