@@ -13,7 +13,7 @@ from _paths import ROOT
 from patch_sections import added, po_entries, sections
 
 PATCH = "hst-start-center-redesign.patch"
-UI = "sfx2/uiconfig/ui/hststartcenter.ui"
+UIS = ("sfx2/uiconfig/ui/hststartcentersearch.ui", "sfx2/uiconfig/ui/hststartcenterbanner.ui")
 WINDOW = "sfx2/source/startcenter/hststartcenterwindow.cxx"
 ICONS = "sfx2/source/startcenter/hststartcentericons.cxx"
 LOGOS = "sfx2/source/startcenter/hststartcenterlogos.cxx"
@@ -46,15 +46,26 @@ def decode(literal):
 class StartCenterRedesignTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ui_text = added(PATCH, UI)
-        cls.ui = ET.fromstring(cls.ui_text.encode("utf-8"))
+        cls.ui_texts = [added(PATCH, path) for path in UIS]
+        cls.ui_text = "\n".join(cls.ui_texts)
+        cls.uis = [ET.fromstring(text.encode("utf-8")) for text in cls.ui_texts]
         cls.po = po_entries(added(PATCH, PO))
         cls.hrc = dict((name, (context, english)) for name, context, english in re.findall(
             r'#define (STR_HST_SC_\w+)\s+NC_\("([^"]+)", "([^"]*)"\)', added(PATCH, HRC)))
         cls.window = added(PATCH, WINDOW)
 
     def ids(self):
-        return [o.get("id") for o in self.ui.iter("object") if o.get("id")]
+        return [o.get("id") for ui in self.uis for o in ui.iter("object") if o.get("id")]
+
+    def test_one_toplevel_per_ui_file(self):
+        # VclBuilder (Windows, macOS) builds every toplevel of a .ui into the window that asks for one: the search
+        # entry and the banner each have their own file, and each host opens its own
+        for path, ui in zip(UIS, self.uis):
+            self.assertEqual(1, len(ui.findall("object")), path)
+        for path, toplevel in zip(UIS, ("SearchBox", "BannerBox")):
+            self.assertEqual(toplevel, self.uis[UIS.index(path)].find("object").get("id"))
+            self.assertIn('u"sfx/ui/%s"_ustr, u"%s"_ustr' % (os.path.basename(path), toplevel), self.window)
+        self.assertNotIn("hststartcenter.ui", self.window)
 
     def test_series_position(self):
         with open(SERIES, encoding="utf-8") as handle:
@@ -160,6 +171,30 @@ class StartCenterRedesignTest(unittest.TestCase):
                 self.assertEqual((size, size), (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")))
                 name = "PNG_%s_%d" % (solution["id"].upper().replace("-", "_"), size)
                 self.assertEqual(data, arrays.get(name), name)
+
+    def test_app_icon_rasters_are_the_brand_icons(self):
+        # the application icons come from the brand's own PNGs (no SVG rendered at start-up), byte for byte, each
+        # name with its sizes in ascending order (the lookup takes the first one large enough)
+        logos = added(PATCH, LOGOS)
+        arrays = dict((name, bytes(int(b, 16) for b in re.findall(r"0x([0-9a-f]{2})", body)))
+                      for name, body in re.findall(r"constexpr sal_uInt8 (PNG_\w+)\[\] = \{(.*?)\};", logos, re.S))
+        rows = re.findall(r'\{ "([a-z-]+)", (\d+), (PNG_\w+), sizeof\(\3\) \},', logos)
+        names = ["hst-writer", "hst-sheets", "hst-slides", "hst-draw", "hst-pdf"]
+        self.assertEqual(names, list(dict.fromkeys(name for name, _size, _array in rows)))
+        for name in names:
+            sizes = [int(size) for row, size, _array in rows if row == name]
+            self.assertEqual(sorted(sizes), sizes, name)
+            self.assertIn(24, sizes, name)
+        for name, size, array in rows:
+            path = os.path.join(ROOT, "assets", "brand", "icons", "%s-%s.png" % (name, size))
+            with open(path, "rb") as handle:
+                data = handle.read()
+            self.assertEqual((int(size), int(size)), (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")))
+            self.assertEqual(data, arrays.get(array), array)
+        icons = added(PATCH, ICONS)
+        for name in names:
+            self.assertIn('return "%s";' % name, icons)
+        self.assertLess(icons.index("RenderAppIconRaster("), icons.index("ImportGraphic("))
 
     def test_visual_constants_are_design_tokens(self):
         # every colour lives in the shared HST tokens; the Start Center's sources hold none of their own
