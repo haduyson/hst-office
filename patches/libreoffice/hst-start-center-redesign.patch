@@ -181,10 +181,10 @@ index 0000000..3db49e3
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/inc/startcenter/hststartcenterwindow.hxx b/sfx2/inc/startcenter/hststartcenterwindow.hxx
 new file mode 100644
-index 0000000..7760f92
+index 0000000..0e87d1e
 --- /dev/null
 +++ b/sfx2/inc/startcenter/hststartcenterwindow.hxx
-@@ -0,0 +1,204 @@
+@@ -0,0 +1,207 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -201,6 +201,7 @@ index 0000000..7760f92
 +#include <rtl/ustring.hxx>
 +#include <tools/datetime.hxx>
 +#include <vcl/InterimItemWindow.hxx>
++#include <vcl/weld/TreeView.hxx>
 +
 +#include <memory>
 +#include <unordered_map>
@@ -316,6 +317,8 @@ index 0000000..7760f92
 +    DECL_LINK(PinnedCommandHdl, const CommandEvent&, bool);
 +    DECL_LINK(RecentTooltipHdl, const weld::TreeIter&, OUString);
 +    DECL_LINK(PinnedTooltipHdl, const weld::TreeIter&, OUString);
++    DECL_LINK(PinnedRowSizeHdl, weld::TreeView::get_size_args, Size);
++    DECL_LINK(PinnedRowRenderHdl, weld::TreeView::render_args, void);
 +    DECL_LINK(TileSizeHdl, const Size&, void);
 +    DECL_LINK(RecentSizeHdl, const Size&, void);
 +    DECL_LINK(PendingActionHdl, void*, void);
@@ -773,10 +776,10 @@ index 7bddf0c..a122fb5 100644
  
 diff --git a/sfx2/source/startcenter/hststartcenterfiles.cxx b/sfx2/source/startcenter/hststartcenterfiles.cxx
 new file mode 100644
-index 0000000..54a0e30
+index 0000000..9a1dc65
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterfiles.cxx
-@@ -0,0 +1,467 @@
+@@ -0,0 +1,535 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -805,6 +808,8 @@ index 0000000..54a0e30
 +#include <unotools/historyoptions.hxx>
 +#include <vcl/commandevent.hxx>
 +#include <vcl/event.hxx>
++#include <vcl/image.hxx>
++#include <vcl/settings.hxx>
 +#include <vcl/rendercontext/AntialiasingFlags.hxx>
 +#include <vcl/svapp.hxx>
 +#include <vcl/virdev.hxx>
@@ -823,9 +828,12 @@ index 0000000..54a0e30
 +{
 +// columns of the recent table as weld numbers them (the file icon shares the name's column)
 +constexpr int COL_OPENED = 1;
-+constexpr int COL_FOLDER = 2;
-+constexpr int COL_PIN = 3;
-+constexpr int COL_MORE = 4;
++constexpr int COL_FOLDER_GLYPH = 2;
++constexpr int COL_FOLDER = 3;
++constexpr int COL_PIN = 4;
++constexpr int COL_MORE = 5;
++// the rows of the recent table are this tall (its glyph images set the height on every toolkit)
++constexpr double ROW_HEIGHT = 34;
 +
 +/** A glyph of the table as a small image on the window colour. */
 +ScopedVclPtr<VirtualDevice> glyphImage(weld::Widget& rWidget, double fScale, Glyph eGlyph,
@@ -833,11 +841,13 @@ index 0000000..54a0e30
 +{
 +    ScopedVclPtr<VirtualDevice> xDev = rWidget.create_virtual_device();
 +    const tools::Long nSize = static_cast<tools::Long>(16 * fScale + 0.5);
-+    xDev->SetOutputSizePixel(Size(nSize, nSize));
++    const tools::Long nHeight = static_cast<tools::Long>(ROW_HEIGHT * fScale + 0.5);
++    xDev->SetOutputSizePixel(Size(nSize, nHeight));
 +    xDev->SetAntialiasing(AntialiasingFlags::Enable);
 +    xDev->SetBackground(Wallpaper(rBack));
 +    xDev->Erase();
-+    DrawGlyph(*xDev, tools::Rectangle(Point(0, 0), Size(nSize, nSize)), eGlyph, rColor, bFilled);
++    DrawGlyph(*xDev, tools::Rectangle(Point(0, (nHeight - nSize) / 2), Size(nSize, nSize)), eGlyph, rColor,
++              bFilled);
 +    return xDev;
 +}
 +
@@ -869,6 +879,10 @@ index 0000000..54a0e30
 +    mxPinnedList->connect_key_press(LINK(this, HstStartCenterWindow, PinnedKeyHdl));
 +    mxPinnedList->connect_command(LINK(this, HstStartCenterWindow, PinnedCommandHdl));
 +    mxPinnedList->connect_query_tooltip(LINK(this, HstStartCenterWindow, PinnedTooltipHdl));
++    // a pinned file: its icon and name, and below them its folder (the list's text is the name)
++    mxPinnedList->connect_custom_get_size(LINK(this, HstStartCenterWindow, PinnedRowSizeHdl));
++    mxPinnedList->connect_custom_render(LINK(this, HstStartCenterWindow, PinnedRowRenderHdl));
++    mxPinnedList->set_column_custom_renderer(0, true);
 +
 +    mxSearch->connect_activate(LINK(this, HstStartCenterWindow, SearchActivateHdl));
 +}
@@ -931,6 +945,8 @@ index 0000000..54a0e30
 +        = glyphImage(*mxRecentList, mfScale, Glyph::Pinned, rPalette.aMuted, rPalette.aWindow, false);
 +    ScopedVclPtr<VirtualDevice> xMore
 +        = glyphImage(*mxRecentList, mfScale, Glyph::More, rPalette.aMuted, rPalette.aWindow, false);
++    ScopedVclPtr<VirtualDevice> xFolder
++        = glyphImage(*mxRecentList, mfScale, Glyph::Open, rPalette.aMuted, rPalette.aWindow, false);
 +
 +    const DateTime aNow(DateTime::SYSTEM);
 +    mxRecentList->freeze();
@@ -939,12 +955,15 @@ index 0000000..54a0e30
 +    {
 +        if ((mbPinnedOnly && !rFile.bPinned) || !MatchesFoldedQuery(rFile.aFolded, aQuery))
 +            continue;
-+        mxRecentList->insert(-1, rFile.aName, &rFile.aURL, &rFile.aIcon, nullptr);
++        mxRecentList->insert(-1, rFile.aName, &rFile.aURL, nullptr, nullptr);
 +        const int nRow = mxRecentList->n_children() - 1;
++        // the document type's icon before the name (-1: the image of the first column)
++        mxRecentList->set_image(nRow, rFile.aIcon, -1);
 +        auto it = maTimes.find(rFile.aURL);
 +        mxRecentList->set_text(nRow, it == maTimes.end() ? OUString()
 +                                                          : sfx2::hst::FormatRecentDate(it->second, aNow),
 +                               COL_OPENED);
++        mxRecentList->set_image(nRow, *xFolder, COL_FOLDER_GLYPH);
 +        mxRecentList->set_text(nRow, rFile.aFolder, COL_FOLDER);
 +        mxRecentList->set_image(nRow, rFile.bPinned ? *xPinned : *xUnpinned, COL_PIN);
 +        mxRecentList->set_image(nRow, *xMore, COL_MORE);
@@ -973,7 +992,7 @@ index 0000000..54a0e30
 +    mxPinnedList->clear();
 +    for (const RecentFile& rFile : maFiles)
 +        if (rFile.bPinned)
-+            mxPinnedList->insert(-1, rFile.aName, &rFile.aURL, &rFile.aIcon, nullptr);
++            mxPinnedList->insert(-1, rFile.aName, &rFile.aURL, nullptr, nullptr);
 +    mxPinnedList->thaw();
 +    const bool bEmpty = mxPinnedList->n_children() == 0;
 +    mxPinnedEmpty->set_visible(bEmpty);
@@ -1227,15 +1246,17 @@ index 0000000..54a0e30
 +
 +IMPL_LINK(HstStartCenterWindow, RecentSizeHdl, const Size&, rSize, void)
 +{
-+    // name (with the file icon) | opened | folder | pin | ⋯ ; the name takes what is left
++    // name (with the file icon) | opened | folder glyph | folder | pin | ⋯ ; the name takes what is left
 +    const auto px = [this](double f) { return static_cast<int>(f * mfScale + 0.5); };
 +    const bool bNarrow = rSize.Width() < px(560);
 +    const int nOpened = px(bNarrow ? 110 : 130);
-+    const int nFolder = px(bNarrow ? 100 : 150);
++    const int nGlyph = px(24);
++    const int nFolder = px(bNarrow ? 90 : 130);
 +    const int nPin = px(36);
 +    const int nMore = px(36);
-+    const int nName = std::max(px(120), static_cast<int>(rSize.Width()) - nOpened - nFolder - nPin - nMore - px(4));
-+    std::vector<int> aWidths{ nName, nOpened, nFolder, nPin, nMore };
++    const int nName = std::max(px(120), static_cast<int>(rSize.Width()) - nOpened - nGlyph - nFolder - nPin
++                                            - nMore - px(4));
++    std::vector<int> aWidths{ nName, nOpened, nGlyph, nFolder, nPin, nMore };
 +    if (aWidths == maRecentWidths)
 +        return;
 +    maRecentWidths = aWidths;
@@ -1243,10 +1264,60 @@ index 0000000..54a0e30
 +    mxRecentList->set_column_fixed_widths(aWidths);
 +}
 +
++IMPL_LINK(HstStartCenterWindow, PinnedRowSizeHdl, weld::TreeView::get_size_args, aArgs, Size)
++{
++    vcl::RenderContext& rDev = aArgs.first;
++    const RecentFile* pFile = FindFile(aArgs.second);
++    const tools::Long nText = rDev.GetTextHeight();
++    const tools::Long nName = pFile ? rDev.GetTextWidth(pFile->aName) : 0;
++    return Size(nName + static_cast<tools::Long>(32 * mfScale),
++                2 * nText + static_cast<tools::Long>(14 * mfScale));
++}
++
++IMPL_LINK(HstStartCenterWindow, PinnedRowRenderHdl, weld::TreeView::render_args, aArgs, void)
++{
++    vcl::RenderContext& rDev = std::get<0>(aArgs);
++    const tools::Rectangle& rRect = std::get<1>(aArgs);
++    const bool bSelected = std::get<2>(aArgs);
++    const RecentFile* pFile = FindFile(std::get<3>(aArgs));
++    if (!pFile || !mpPalette)
++        return;
++    const StyleSettings& rStyle = Application::GetSettings().GetStyleSettings();
++    const Color aText = bSelected ? rStyle.GetHighlightTextColor() : mpPalette->aText;
++    const Color aMuted = bSelected ? rStyle.GetHighlightTextColor() : mpPalette->aMuted;
++    auto aPop = rDev.ScopedPush(vcl::PushFlags::TEXTCOLOR | vcl::PushFlags::FONT);
++
++    const auto px = [this](double f) { return static_cast<tools::Long>(f * mfScale + 0.5); };
++    const tools::Long nText = rDev.GetTextHeight();
++    const tools::Long nTop = rRect.Top() + std::max<tools::Long>(0, (rRect.GetHeight() - 2 * nText - px(4)) / 2);
++    const tools::Long nTextX = rRect.Left() + px(28);
++
++    // the document type's icon, beside the name
++    const Image aIcon(StockImage::Yes, pFile->aIcon);
++    const Size aIconSize = aIcon.GetSizePixel();
++    rDev.DrawImage(Point(rRect.Left() + px(4), nTop + (nText - aIconSize.Height()) / 2), aIcon);
++    rDev.SetTextColor(aText);
++    rDev.DrawText(Point(nTextX, nTop),
++                  rDev.GetEllipsisString(pFile->aName, rRect.Right() - nTextX - px(4)));
++
++    // the folder: a small folder glyph and its name, in the muted colour
++    const tools::Long nLine = nTop + nText + px(4);
++    const tools::Long nGlyph = std::min(nText, px(14));
++    DrawGlyph(rDev, tools::Rectangle(Point(nTextX, nLine + (nText - nGlyph) / 2), Size(nGlyph, nGlyph)),
++              Glyph::Open, aMuted, false);
++    const tools::Long nFolderX = nTextX + nGlyph + px(6);
++    vcl::Font aSmall(rDev.GetFont());
++    aSmall.SetFontHeight(aSmall.GetFontHeight() * 9 / 10);
++    rDev.SetFont(aSmall);
++    rDev.SetTextColor(aMuted);
++    rDev.DrawText(Point(nFolderX, nLine),
++                  rDev.GetEllipsisString(pFile->aFolder, rRect.Right() - nFolderX - px(4)));
++}
++
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterpaint.cxx b/sfx2/source/startcenter/hststartcenterpaint.cxx
 new file mode 100644
-index 0000000..bd0c56b
+index 0000000..2894c93
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterpaint.cxx
 @@ -0,0 +1,296 @@
@@ -1376,7 +1447,7 @@ index 0000000..bd0c56b
 +    aPalette.aAccent = bDark ? Color(0x8A, 0xB4, 0xF8) : Color(0x1A, 0x56, 0xC8);
 +    aPalette.aMuted = merged(aPalette.aText, aPalette.aWindow, 150);
 +    aPalette.aSide = bDark ? merged(aPalette.aWindow, COL_WHITE, 242)
-+                           : merged(aPalette.aWindow, Color(0x1A, 0x56, 0xC8), 245);
++                           : merged(aPalette.aWindow, Color(0x1A, 0x56, 0xC8), 236); // a soft light blue
 +    aPalette.aSelected = merged(aPalette.aSide, aPalette.aAccent, bDark ? 205 : 220);
 +    aPalette.aHover = merged(aPalette.aSide, aPalette.aAccent, bDark ? 232 : 240);
 +    aPalette.aBorder = merged(aPalette.aWindow, aPalette.aText, 222);
@@ -1631,7 +1702,7 @@ index 0000000..22485da
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterrecent.cxx b/sfx2/source/startcenter/hststartcenterrecent.cxx
 new file mode 100644
-index 0000000..da79da4
+index 0000000..3bc4cd9
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterrecent.cxx
 @@ -0,0 +1,180 @@
@@ -1777,7 +1848,7 @@ index 0000000..da79da4
 +            if (aFile.aFolder.isEmpty()) // a file at the root of a drive
 +                aFile.aFolder = aFile.aFolderPath;
 +        }
-+        aFile.aIcon = SvFileInformationManager::GetImageId(aURL, false);
++        aFile.aIcon = SvFileInformationManager::GetFileImageId(aURL); // by the extension: no disk access
 +        aFile.aFolded = FoldForSearch(aFile.aName);
 +        aFile.bPinned = rItem.isPinned;
 +        aFile.bReadOnly = rItem.isReadOnly;
@@ -1972,7 +2043,7 @@ index 0000000..dcb957f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
 new file mode 100644
-index 0000000..dd66eee
+index 0000000..efe60c4
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
 @@ -0,0 +1,781 @@
@@ -2072,7 +2143,7 @@ index 0000000..dd66eee
 +constexpr double COMPACT_WINDOW = 860; // narrower: the left menu shows its glyphs only
 +constexpr double LEFT_WIDTH = 248;
 +constexpr double LEFT_COMPACT_WIDTH = 56;
-+constexpr double MENU_HEIGHT = 40;
++constexpr double MENU_HEIGHT = 38;
 +constexpr double TILE_HEIGHT = 72;
 +constexpr double MIN_WINDOW_WIDTH = 720;
 +
@@ -2759,10 +2830,10 @@ index 0000000..dd66eee
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/uiconfig/ui/hststartcenter.ui b/sfx2/uiconfig/ui/hststartcenter.ui
 new file mode 100644
-index 0000000..bd48321
+index 0000000..7a824ba
 --- /dev/null
 +++ b/sfx2/uiconfig/ui/hststartcenter.ui
-@@ -0,0 +1,831 @@
+@@ -0,0 +1,835 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<!-- SPDX-License-Identifier: LicenseRef-HST-Proprietary
 +     HST Office: the Start Center, see sfx2/source/startcenter/hststartcenterwindow.cxx.
@@ -2875,6 +2946,8 @@ index 0000000..bd48321
 +      <column type="gchararray"/>
 +      <!-- column-name opened -->
 +      <column type="gchararray"/>
++      <!-- column-name foldericon -->
++      <column type="GdkPixbuf"/>
 +      <!-- column-name folder -->
 +      <column type="gchararray"/>
 +      <!-- column-name pin -->
@@ -2887,8 +2960,6 @@ index 0000000..bd48321
 +  </object>
 +  <object class="GtkListStore" id="pinnedstore">
 +    <columns>
-+      <!-- column-name icon -->
-+      <column type="GdkPixbuf"/>
 +      <!-- column-name name -->
 +      <column type="gchararray"/>
 +      <!-- column-name id -->
@@ -2918,7 +2989,7 @@ index 0000000..bd48321
 +                <property name="can-focus">False</property>
 +                <property name="vexpand">True</property>
 +                <property name="orientation">vertical</property>
-+                <property name="spacing">4</property>
++                <property name="spacing">2</property>
 +                <property name="border-width">16</property>
 +                <child>
 +                  <object class="GtkImage" id="logo">
@@ -3430,6 +3501,16 @@ index 0000000..bd48321
 +                  </object>
 +                </child>
 +                <child>
++                  <object class="GtkTreeViewColumn" id="recentcolfolder">
++                    <child>
++                      <object class="GtkCellRendererPixbuf" id="recentcellfolder"/>
++                      <attributes>
++                        <attribute name="pixbuf">3</attribute>
++                      </attributes>
++                    </child>
++                  </object>
++                </child>
++                <child>
 +                  <object class="GtkTreeViewColumn" id="recentcol2">
 +                    <property name="resizable">True</property>
 +                    <property name="spacing">6</property>
@@ -3439,7 +3520,7 @@ index 0000000..bd48321
 +                        <property name="ellipsize">end</property>
 +                      </object>
 +                      <attributes>
-+                        <attribute name="text">3</attribute>
++                        <attribute name="text">4</attribute>
 +                      </attributes>
 +                    </child>
 +                  </object>
@@ -3449,7 +3530,7 @@ index 0000000..bd48321
 +                    <child>
 +                      <object class="GtkCellRendererPixbuf" id="recentcell4"/>
 +                      <attributes>
-+                        <attribute name="pixbuf">4</attribute>
++                        <attribute name="pixbuf">5</attribute>
 +                      </attributes>
 +                    </child>
 +                  </object>
@@ -3459,7 +3540,7 @@ index 0000000..bd48321
 +                    <child>
 +                      <object class="GtkCellRendererPixbuf" id="recentcell5"/>
 +                      <attributes>
-+                        <attribute name="pixbuf">5</attribute>
++                        <attribute name="pixbuf">6</attribute>
 +                      </attributes>
 +                    </child>
 +                  </object>
@@ -3524,7 +3605,7 @@ index 0000000..bd48321
 +            <property name="can-focus">True</property>
 +            <property name="vexpand">True</property>
 +            <property name="hscrollbar-policy">never</property>
-+            <property name="shadow-type">none</property>
++            <property name="shadow-type">in</property>
 +            <child>
 +              <object class="GtkTreeView" id="pinnedlist">
 +                <property name="visible">True</property>
@@ -3534,7 +3615,7 @@ index 0000000..bd48321
 +                <property name="vexpand">True</property>
 +                <property name="model">pinnedstore</property>
 +                <property name="headers-visible">False</property>
-+                <property name="search-column">1</property>
++                <property name="search-column">0</property>
 +                <property name="show-expanders">False</property>
 +                <property name="enable-search">False</property>
 +                <child internal-child="selection">
@@ -3544,17 +3625,11 @@ index 0000000..bd48321
 +                  <object class="GtkTreeViewColumn" id="pinnedcol0">
 +                    <property name="spacing">8</property>
 +                    <child>
-+                      <object class="GtkCellRendererPixbuf" id="pinnedcell0"/>
-+                      <attributes>
-+                        <attribute name="pixbuf">0</attribute>
-+                      </attributes>
-+                    </child>
-+                    <child>
 +                      <object class="GtkCellRendererText" id="pinnedcell1">
 +                        <property name="ellipsize">end</property>
 +                      </object>
 +                      <attributes>
-+                        <attribute name="text">1</attribute>
++                        <attribute name="text">0</attribute>
 +                      </attributes>
 +                    </child>
 +                  </object>

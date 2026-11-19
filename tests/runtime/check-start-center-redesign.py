@@ -121,6 +121,8 @@ def main():
         size = last.getContainerWindow().getPosSize()
         if size.Width > width + 2:
             failures.append("the window grew to %d px: a column does not fit" % size.Width)
+        if size.Height > height + 2:
+            failures.append("the window grew to %d px high: the left column does not scroll" % size.Height)
         # no tooltip in the picture: the pointer rests in the corner
         subprocess.run(["xdotool", "mousemove", str(width - 2), str(height - 2)],
                        env=dict(os.environ, DISPLAY=args.display), check=False)
