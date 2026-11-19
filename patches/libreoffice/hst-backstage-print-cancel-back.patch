@@ -1,0 +1,712 @@
+HST Office: the Print page of the File panel ("Tệp tin" ▸ "In") has "Hủy" (Cancel) and "Quay lại" (Back) next to
+its big "In" button, in Writer, Sheets, Slides and Draw.
+
+- Both are secondary buttons of the same height as "In" (72 px), each with an icon above its label (cmd/lc_cancel,
+  cmd/lc_prevrecord), a tooltip and an accessible description. Tab order: In, Hủy, Quay lại, then the copies. Access
+  keys: vi "Hủ_y" (Y), "_Quay lại" (Q); en "Canc_el" (E), "_Back" (B): none of the panel's other keys (vi I_n N,
+  _Số bản sao S, Thiết _lập trang L, Thêm _tùy chọn T, Calc's T_hu phóng H; en _Print, _Collate...).
+- "Quay lại" closes the panel exactly as Esc and the back arrow do: the waiting print job is cancelled (its print
+  settings were the job's and go with it); margins picked in the page's margins box stay (one undo step each).
+- "Hủy" closes it the same way and also undoes the margins box's changes of this visit (the page's own undo steps
+  "Change Page Margins" on top of the document's undo stack, sfx2 hstbackstageprintcancel.cxx), so the document is
+  as it was when the page opened; it does not store the dialog's last printer/collate choice (the panel's In does).
+  Printing itself runs after the panel closed (its progress dialog has its own Cancel), so there is no job being
+  sent while the page is shown.
+- vcl: the panel's "cancel" (hidden until now) moves into the print button's group; a new "back"; PrintDialog
+  setPanelCloseHdls, PrintJobPanel::SetCloseHdls. The classic print dialog is unchanged (it has its Cancel; from
+  "Thêm tùy chọn" that Cancel returns to the page).
+
+License: sfx2/source/backstage/hstbackstageprintcancel.{hxx,cxx} are HST Office code (LicenseRef-HST-Proprietary);
+the modified files keep their license (MPL-2.0).
+Test: CppunitTest_vcl_hst_print_panel testCloseButtonsBesidePrint, testCloseButtonsCallTheHost;
+tests/unit/test_backstage_print_cancel_back.py; tests/runtime/check-backstage-print-cancel-back.py (Writer, Sheets:
+Quay lại closes, Hủy closes and restores the margins).
+---
+diff --git a/include/vcl/hstprintjobpanel.hxx b/include/vcl/hstprintjobpanel.hxx
+--- a/include/vcl/hstprintjobpanel.hxx
++++ b/include/vcl/hstprintjobpanel.hxx
+@@ -70,6 +70,10 @@
+     void SetHdls(const Link<PrintJobPanel&, void>& rPrint,
+                  const Link<PrintJobPanel&, void>& rMoreOptions,
+                  const Link<PrintJobPanel&, void>& rPageSetup);
++    /// The "Cancel" and "Back" buttons next to the print button: the host closes the page; Cancel
++    /// also undoes what the page changed in the document. Neither ends the job by itself.
++    void SetCloseHdls(const Link<PrintJobPanel&, void>& rCancel,
++                      const Link<PrintJobPanel&, void>& rBack);
+ 
+     /// The document's margins box of the panel. Its entries have the ids "normal", "narrow",
+     /// "moderate", "wide" (presets of Page Setup) and "custom"; those in aRemoved go. rActive is
+@@ -87,6 +91,8 @@
+     DECL_LINK(MoreOptionsHdl, PrintDialog&, void);
+     DECL_LINK(PageSetupHdl, PrintDialog&, void);
+     DECL_LINK(MarginsHdl, PrintDialog&, void);
++    DECL_LINK(CancelHdl, PrintDialog&, void);
++    DECL_LINK(BackHdl, PrintDialog&, void);
+     void ShowMargins();
+ 
+     std::shared_ptr<PrinterController> m_xController;
+@@ -96,6 +102,8 @@
+     Link<PrintJobPanel&, void> m_aPrintHdl;
+     Link<PrintJobPanel&, void> m_aMoreOptionsHdl;
+     Link<PrintJobPanel&, void> m_aPageSetupHdl;
++    Link<PrintJobPanel&, void> m_aCancelHdl;
++    Link<PrintJobPanel&, void> m_aBackHdl;
+     Link<PrintJobPanel&, void> m_aMarginsHdl; ///< set: the box shows
+     OUString m_aMargins;
+     std::vector<OUString> m_aRemovedMargins;
+diff --git a/sfx2/Library_sfx.mk b/sfx2/Library_sfx.mk
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -94,6 +94,7 @@
+     sfx2/source/backstage/hstbackstage \
+     sfx2/source/backstage/hstbackstagedata \
+     sfx2/source/backstage/hstbackstageprint \
++    sfx2/source/backstage/hstbackstageprintcancel \
+     sfx2/source/backstage/hstbackstageprintmargins \
+     sfx2/source/backstage/hstbackstagewindow \
+     sfx2/source/control/recentdocsview \
+diff --git a/sfx2/source/backstage/hstbackstageprint.cxx b/sfx2/source/backstage/hstbackstageprint.cxx
+--- a/sfx2/source/backstage/hstbackstageprint.cxx
++++ b/sfx2/source/backstage/hstbackstageprint.cxx
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "hstbackstageprint.hxx"
++#include "hstbackstageprintcancel.hxx"
+ #include "hstbackstageprintmargins.hxx"
+ 
+ #include <utility>
+@@ -85,6 +86,9 @@
+     m_xJob->SetHdls(LINK(this, BackstagePrintPage, PrintHdl),
+                     LINK(this, BackstagePrintPage, MoreOptionsHdl),
+                     LINK(this, BackstagePrintPage, PageSetupHdl));
++    m_xJob->SetCloseHdls(LINK(this, BackstagePrintPage, CancelHdl),
++                         LINK(this, BackstagePrintPage, BackHdl));
++    m_nMarginSteps = 0;
+     ShowMargins();
+     ShowWaiting(false);
+     m_xJob->Show(m_xHost.get());
+@@ -141,13 +145,21 @@
+         if (aPreset != MARGINS_CUSTOM)
+         {
+             // the page style changes, the job stays: it shows the pages as they are now
+-            ApplyMarginPreset(m_xFrame, m_eApp, aPreset);
++            if (ApplyMarginPreset(m_xFrame, m_eApp, aPreset))
++                ++m_nMarginSteps;
+             ShowMargins(); // what the document has (also when it refused the change)
+             m_xJob->UpdatePreview();
+             return;
+         }
+         eAction = Action::PageSetup; // "Custom Margins"
+     }
++    if (eAction == Action::Cancel || eAction == Action::Back)
++    {
++        if (eAction == Action::Cancel)
++            UndoPrintPageMargins(m_xFrame, std::exchange(m_nMarginSteps, 0));
++        m_aClosePanel(); // cancels the job (Deactivate), as Esc does
++        return;
++    }
+     // the job leaves the page before the panel closes (closing it cancels a job on the page)
+     std::unique_ptr<vcl::PrintJobPanel> xJob(std::move(m_xJob));
+     if (!xJob)
+@@ -192,6 +204,10 @@
+ {
+     Post(Action::Margins);
+ }
++
++IMPL_LINK_NOARG(BackstagePrintPage, CancelHdl, vcl::PrintJobPanel&, void) { Post(Action::Cancel); }
++
++IMPL_LINK_NOARG(BackstagePrintPage, BackHdl, vcl::PrintJobPanel&, void) { Post(Action::Back); }
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/source/backstage/hstbackstageprint.hxx b/sfx2/source/backstage/hstbackstageprint.hxx
+--- a/sfx2/source/backstage/hstbackstageprint.hxx
++++ b/sfx2/source/backstage/hstbackstageprint.hxx
+@@ -71,7 +71,9 @@
+         Print,
+         MoreOptions,
+         PageSetup,
+-        Margins
++        Margins,
++        Cancel, ///< close the panel, undo the page's margin changes
++        Back ///< close the panel, as Esc and the back arrow
+     };
+     /// Run eAction after the current event (a click must not destroy the widget it came from).
+     void Post(Action eAction);
+@@ -84,6 +86,8 @@
+     DECL_LINK(MoreOptionsHdl, vcl::PrintJobPanel&, void);
+     DECL_LINK(PageSetupHdl, vcl::PrintJobPanel&, void);
+     DECL_LINK(MarginsHdl, vcl::PrintJobPanel&, void);
++    DECL_LINK(CancelHdl, vcl::PrintJobPanel&, void);
++    DECL_LINK(BackHdl, vcl::PrintJobPanel&, void);
+     DECL_LINK(ActionHdl, void*, void);
+ 
+     css::uno::Reference<css::frame::XFrame> m_xFrame;
+@@ -96,6 +100,7 @@
+     bool m_bRequested; ///< .uno:Print was run for the page, its job has not arrived yet
+     ImplSVEvent* m_pEvent;
+     Action m_ePosted;
++    sal_Int32 m_nMarginSteps = 0; ///< undo steps of the margins box since the job arrived
+ };
+ }
+ 
+diff --git a/sfx2/source/backstage/hstbackstageprintcancel.cxx b/sfx2/source/backstage/hstbackstageprintcancel.cxx
+new file mode 100644
+--- /dev/null
++++ b/sfx2/source/backstage/hstbackstageprintcancel.cxx
+@@ -0,0 +1,50 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#include "hstbackstageprintcancel.hxx"
++
++#include <backstage/hstbackstage.hrc>
++#include <com/sun/star/document/XUndoManagerSupplier.hpp>
++#include <com/sun/star/frame/XController.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <sfx2/sfxresid.hxx>
++
++using namespace css;
++
++namespace sfx2::hst
++{
++sal_Int32 UndoPrintPageMargins(const uno::Reference<frame::XFrame>& rxFrame, sal_Int32 nSteps)
++{
++    if (nSteps <= 0 || !rxFrame.is())
++        return 0;
++    sal_Int32 nUndone = 0;
++    try
++    {
++        const uno::Reference<frame::XController> xController(rxFrame->getController());
++        const uno::Reference<document::XUndoManagerSupplier> xSupplier(
++            xController.is() ? xController->getModel() : nullptr, uno::UNO_QUERY);
++        const uno::Reference<document::XUndoManager> xUndo(
++            xSupplier.is() ? xSupplier->getUndoManager() : nullptr);
++        if (!xUndo.is())
++            return 0;
++        // the title the margins box gives its undo step (ApplyMarginPreset)
++        const OUString aTitle = SfxResId(STR_HST_BS_PRINT_MARGINS);
++        while (nUndone < nSteps && !xUndo->isLocked() && xUndo->isUndoPossible()
++               && xUndo->getCurrentUndoActionTitle() == aTitle)
++        {
++            xUndo->undo();
++            ++nUndone;
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.backstage", "the margins of the Print page were not undone");
++    }
++    return nUndone;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/source/backstage/hstbackstageprintcancel.hxx b/sfx2/source/backstage/hstbackstageprintcancel.hxx
+new file mode 100644
+--- /dev/null
++++ b/sfx2/source/backstage/hstbackstageprintcancel.hxx
+@@ -0,0 +1,27 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++#include <com/sun/star/frame/XFrame.hpp>
++
++namespace sfx2::hst
++{
++/* HST Office: "Cancel" of the Print page of the File panel.
++
++   The print settings of the page belong to its print job, which is cancelled whenever the page
++   closes, so they are dropped by "Back" (Esc, the back arrow) as well. The only change the page
++   makes outside the job is the margins box: each pick is one undo step of the document. "Cancel"
++   takes those steps back too, so the document is as it was when the page opened.
++
++   Undo the last nSteps margin changes of the page in the frame's document, newest first. Only
++   steps that are the page's own (on top of the undo stack, with its title) are undone; it stops
++   at the first other step. Returns the number undone. */
++sal_Int32 UndoPrintPageMargins(const css::uno::Reference<css::frame::XFrame>& rxFrame,
++                               sal_Int32 nSteps);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/translations/source/vi/vcl/messages.po b/translations/source/vi/vcl/messages.po
+--- a/translations/source/vi/vcl/messages.po
++++ b/translations/source/vi/vcl/messages.po
+@@ -3643,3 +3643,39 @@
+ msgctxt "hstprintpanel|marginsbox"
+ msgid "Custom Margins"
+ msgstr "Lề tùy chỉnh"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|cancel"
++msgid "Canc_el"
++msgstr "Hủ_y"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|canceltip"
++msgid "Close without printing and undo the margins changed on this page"
++msgstr "Đóng mà không in và hoàn tác lề trang đã đổi ở trang này"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|extended_tip|cancel"
++msgid "Closes the print page without printing: the print settings and the margins changed on this page are discarded."
++msgstr "Đóng trang In mà không in: bỏ các thiết lập in và lề trang đã đổi ở trang này."
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|back"
++msgid "_Back"
++msgstr "_Quay lại"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|backtip"
++msgid "Return to the document (Esc)"
++msgstr "Quay lại tài liệu (Esc)"
++
++#. hstBP
++#: vcl/uiconfig/ui/hstprintpanel.ui
++msgctxt "hstprintpanel|extended_tip|back"
++msgid "Closes the print page and returns to the document, like Esc and the back arrow."
++msgstr "Đóng trang In và quay lại tài liệu, như phím Esc và nút mũi tên quay lại."
+diff --git a/vcl/CppunitTest_vcl_hst_print_panel.mk b/vcl/CppunitTest_vcl_hst_print_panel.mk
+--- a/vcl/CppunitTest_vcl_hst_print_panel.mk
++++ b/vcl/CppunitTest_vcl_hst_print_panel.mk
+@@ -14,6 +14,11 @@
+ 	-I$(SRCDIR)/vcl/inc \
+ ))
+ 
++# the tests find the panel's buttons in the host's window tree (salvtables.hxx, vcl/toolkit)
++$(eval $(call gb_CppunitTest_add_defs,vcl_hst_print_panel,\
++	-DVCL_INTERNALS \
++))
++
+ $(eval $(call gb_CppunitTest_add_exception_objects,vcl_hst_print_panel, \
+ 	vcl/qa/cppunit/hstprintjobpanel \
+ ))
+diff --git a/vcl/inc/printdlg.hxx b/vcl/inc/printdlg.hxx
+--- a/vcl/inc/printdlg.hxx
++++ b/vcl/inc/printdlg.hxx
+@@ -129,6 +129,9 @@
+         void setPanelHdls(const Link<PrintDialog&, void>& rPrint,
+                           const Link<PrintDialog&, void>& rMoreOptions,
+                           const Link<PrintDialog&, void>& rPageSetup);
++        /// Panel: its "Cancel" and "Back" buttons call these (neither stores the settings).
++        void setPanelCloseHdls(const Link<PrintDialog&, void>& rCancel,
++                               const Link<PrintDialog&, void>& rBack);
+         /// Show the choices of rOther that the controller does not keep itself (copies,
+         /// collate, paper sides, orientation, paper size, pages per sheet) and apply them.
+         void takeSettings(const PrintDialog& rOther);
+@@ -237,6 +240,9 @@
+         std::unique_ptr<weld::Label>            mxZoomText;
+         std::unique_ptr<weld::Label>            mxMarginsLabel;
+         std::unique_ptr<weld::ComboBox>         mxMarginsBox;
++        std::unique_ptr<weld::Button>           mxBackBtn;
++        Link<PrintDialog&, void>                maPanelCancelHdl;
++        Link<PrintDialog&, void>                maPanelBackHdl;
+         Link<PrintDialog&, void>                maPanelMarginsHdl;
+         sal_Int32                               mnLayoutRevision = 0;
+         int                                     mnZoom = 0; // 0: the page fits the preview
+diff --git a/vcl/qa/cppunit/hstprintjobpanel.cxx b/vcl/qa/cppunit/hstprintjobpanel.cxx
+--- a/vcl/qa/cppunit/hstprintjobpanel.cxx
++++ b/vcl/qa/cppunit/hstprintjobpanel.cxx
+@@ -11,21 +11,49 @@
+ 
+ #include <hstjobprinter.hxx>
+ #include <salinst.hxx>
++#include <salvtables.hxx>
+ #include <svdata.hxx>
+ 
++#include <set>
+ #include <stdexcept>
+ 
+ #include <com/sun/star/awt/Size.hpp>
+ #include <com/sun/star/view/PrintableState.hpp>
+ #include <comphelper/propertyvalue.hxx>
++#include <rtl/character.hxx>
+ #include <test/bootstrapfixture.hxx>
+ #include <vcl/hstprintjobpanel.hxx>
+ #include <vcl/print.hxx>
++#include <vcl/toolkit/button.hxx>
++#include <vcl/window.hxx>
+ #include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/Container.hxx>
+ 
+ namespace
+ {
++/// The widget of the panel with that .ui id, in the host's window tree; nullptr without one.
++vcl::Window* findById(vcl::Window* pParent, std::u16string_view aId)
++{
++    for (vcl::Window* pChild = pParent ? pParent->GetWindow(GetWindowType::FirstChild) : nullptr;
++         pChild; pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (pChild->get_id() == aId)
++            return pChild;
++        if (vcl::Window* pFound = findById(pChild, aId))
++            return pFound;
++    }
++    return nullptr;
++}
++
++/// The access key of a label ("I~n" -> 'N'), 0 without one.
++sal_Unicode accessKey(const OUString& rLabel)
++{
++    const sal_Int32 nPos = rLabel.indexOf('~');
++    return nPos >= 0 && nPos + 1 < rLabel.getLength()
++               ? static_cast<sal_Unicode>(rtl::toAsciiUpperCase(rLabel[nPos + 1]))
++               : 0;
++}
++
+ /// Three A4 pages; counts how often the job ended and how.
+ class TestController final : public vcl::PrinterController
+ {
+@@ -199,6 +227,83 @@
+         xGiven.disposeAndClear();
+     }
+ 
++
++    vcl::Window* hostWindow() const
++    {
++        auto* pHost = dynamic_cast<SalInstanceWidget*>(m_xHost.get());
++        return pHost ? pHost->getWidget() : nullptr;
++    }
++
++    void testCloseButtonsBesidePrint()
++    {
++        auto xJob = makeJob();
++        vcl::PrintJobPanel aPanel(xJob);
++        aPanel.Show(m_xHost.get());
++        vcl::Window* pOk = findById(hostWindow(), u"ok");
++        vcl::Window* pCancel = findById(hostWindow(), u"cancel");
++        vcl::Window* pBack = findById(hostWindow(), u"back");
++        CPPUNIT_ASSERT(pOk);
++        CPPUNIT_ASSERT_MESSAGE("no Cancel button", pCancel);
++        CPPUNIT_ASSERT_MESSAGE("no Back button", pBack);
++        for (vcl::Window* pButton : { pCancel, pBack })
++        {
++            // shown in the group of the print button, as tall as it, with a label of its own
++            CPPUNIT_ASSERT(pButton->IsVisible());
++            CPPUNIT_ASSERT(pButton->IsEnabled());
++            CPPUNIT_ASSERT_EQUAL(pOk->GetParent(), pButton->GetParent());
++            CPPUNIT_ASSERT(pButton->GetParent()->IsVisible());
++            CPPUNIT_ASSERT_EQUAL(pOk->get_height_request(), pButton->get_height_request());
++            CPPUNIT_ASSERT(!pButton->GetText().isEmpty());
++            CPPUNIT_ASSERT(!pButton->GetAccessibleName().isEmpty());
++            CPPUNIT_ASSERT(!pButton->GetAccessibleDescription().isEmpty());
++        }
++        // Print, Cancel, Back in this order (the tab order), each with its own access key
++        CPPUNIT_ASSERT(pOk->GetParent()->GetChildCount() >= 3);
++        CPPUNIT_ASSERT_EQUAL(pOk, pOk->GetParent()->GetChild(0));
++        CPPUNIT_ASSERT_EQUAL(pCancel, pOk->GetParent()->GetChild(1));
++        CPPUNIT_ASSERT_EQUAL(pBack, pOk->GetParent()->GetChild(2));
++        const std::set<sal_Unicode> aKeys{ accessKey(pOk->GetText()), accessKey(pCancel->GetText()),
++                                           accessKey(pBack->GetText()) };
++        CPPUNIT_ASSERT_EQUAL(size_t(3), aKeys.size());
++        CPPUNIT_ASSERT(!aKeys.contains(0));
++        // the job waits: showing the buttons does not end it
++        CPPUNIT_ASSERT(aPanel.IsPending());
++    }
++
++    void testCloseButtonsCallTheHost()
++    {
++        auto xJob = makeJob();
++        {
++            vcl::PrintJobPanel aPanel(xJob);
++            aPanel.SetCloseHdls(LINK(this, HstPrintJobPanelTest, CancelHdl),
++                                LINK(this, HstPrintJobPanelTest, BackHdl));
++            aPanel.Show(m_xHost.get());
++            auto* pBack = dynamic_cast<Button*>(findById(hostWindow(), u"back"));
++            auto* pCancel = dynamic_cast<Button*>(findById(hostWindow(), u"cancel"));
++            CPPUNIT_ASSERT(pBack);
++            CPPUNIT_ASSERT(pCancel);
++            // each calls its own handler; the host closes the page, which ends the job
++            pBack->Click();
++            CPPUNIT_ASSERT_EQUAL(0, m_nCancel);
++            CPPUNIT_ASSERT_EQUAL(1, m_nBack);
++            CPPUNIT_ASSERT(aPanel.IsPending());
++            pCancel->Click();
++            CPPUNIT_ASSERT_EQUAL(1, m_nCancel);
++            CPPUNIT_ASSERT_EQUAL(1, m_nBack);
++            CPPUNIT_ASSERT(aPanel.IsPending());
++            CPPUNIT_ASSERT_EQUAL(0, xJob->mnFinished);
++            aPanel.Show(m_xHost.get()); // made again (after the classic dialog): still connected
++            dynamic_cast<Button&>(*findById(hostWindow(), u"cancel")).Click();
++            CPPUNIT_ASSERT_EQUAL(2, m_nCancel);
++        }
++        // the page went away without printing: the job was cancelled
++        CPPUNIT_ASSERT_EQUAL(1, xJob->mnFinished);
++        CPPUNIT_ASSERT_EQUAL(css::view::PrintableState_JOB_ABORTED, xJob->meState);
++    }
++
++    DECL_LINK(CancelHdl, vcl::PrintJobPanel&, void);
++    DECL_LINK(BackHdl, vcl::PrintJobPanel&, void);
++
+     DECL_STATIC_LINK(HstPrintJobPanelTest, MarginsHdl, vcl::PrintJobPanel&, void);
+ 
+     CPPUNIT_TEST_SUITE(HstPrintJobPanelTest);
+@@ -209,16 +314,24 @@
+     CPPUNIT_TEST(testMargins);
+     CPPUNIT_TEST(testJobPrinterEndsWithTheJob);
+     CPPUNIT_TEST(testGivenPrinterStaysWithItsOwner);
++    CPPUNIT_TEST(testCloseButtonsBesidePrint);
++    CPPUNIT_TEST(testCloseButtonsCallTheHost);
+     CPPUNIT_TEST_SUITE_END();
+ 
+ private:
+     std::unique_ptr<weld::Builder> m_xBuilder;
+     std::unique_ptr<weld::Container> m_xHost;
++    int m_nCancel = 0;
++    int m_nBack = 0;
+ };
+ }
+ 
+ IMPL_STATIC_LINK_NOARG(HstPrintJobPanelTest, MarginsHdl, vcl::PrintJobPanel&, void) {}
+ 
++IMPL_LINK_NOARG(HstPrintJobPanelTest, CancelHdl, vcl::PrintJobPanel&, void) { ++m_nCancel; }
++
++IMPL_LINK_NOARG(HstPrintJobPanelTest, BackHdl, vcl::PrintJobPanel&, void) { ++m_nBack; }
++
+ CPPUNIT_TEST_SUITE_REGISTRATION(HstPrintJobPanelTest);
+ 
+ CPPUNIT_PLUGIN_IMPLEMENT();
+diff --git a/vcl/source/window/hstprintjobpanel.cxx b/vcl/source/window/hstprintjobpanel.cxx
+--- a/vcl/source/window/hstprintjobpanel.cxx
++++ b/vcl/source/window/hstprintjobpanel.cxx
+@@ -75,6 +75,8 @@
+     m_xSettings->setPanelHdls(LINK(this, PrintJobPanel, PrintHdl),
+                               LINK(this, PrintJobPanel, MoreOptionsHdl),
+                               LINK(this, PrintJobPanel, PageSetupHdl));
++    m_xSettings->setPanelCloseHdls(LINK(this, PrintJobPanel, CancelHdl),
++                                   LINK(this, PrintJobPanel, BackHdl));
+     ShowMargins();
+ }
+ 
+@@ -136,6 +138,13 @@
+     m_aPageSetupHdl = rPageSetup;
+ }
+ 
++void PrintJobPanel::SetCloseHdls(const Link<PrintJobPanel&, void>& rCancel,
++                                 const Link<PrintJobPanel&, void>& rBack)
++{
++    m_aCancelHdl = rCancel;
++    m_aBackHdl = rBack;
++}
++
+ void PrintJobPanel::SetMargins(const OUString& rActive, std::vector<OUString> aRemoved,
+                                const Link<PrintJobPanel&, void>& rChanged)
+ {
+@@ -168,6 +177,10 @@
+ 
+ IMPL_LINK_NOARG(PrintJobPanel, PageSetupHdl, PrintDialog&, void) { m_aPageSetupHdl.Call(*this); }
+ 
++IMPL_LINK_NOARG(PrintJobPanel, CancelHdl, PrintDialog&, void) { m_aCancelHdl.Call(*this); }
++
++IMPL_LINK_NOARG(PrintJobPanel, BackHdl, PrintDialog&, void) { m_aBackHdl.Call(*this); }
++
+ IMPL_LINK(PrintJobPanel, MarginsHdl, PrintDialog&, rSettings, void)
+ {
+     m_aMargins = rSettings.getPanelMargins();
+diff --git a/vcl/source/window/printdlg.cxx b/vcl/source/window/printdlg.cxx
+--- a/vcl/source/window/printdlg.cxx
++++ b/vcl/source/window/printdlg.cxx
+@@ -641,6 +641,7 @@
+     , mxZoomText(m_xBuilder->weld_label(u"zoomtext"_ustr))
+     , mxMarginsLabel(m_xBuilder->weld_label(u"labelmargins"_ustr))
+     , mxMarginsBox(m_xBuilder->weld_combo_box(u"marginsbox"_ustr))
++    , mxBackBtn(m_xBuilder->weld_button(u"back"_ustr))
+     , maPrintToFileText( VclResId( SV_PRINT_TOFILE_TXT ) )
+     , maDefPrtText( VclResId( SV_PRINT_DEFPRT_TXT ) )
+     , maNoPageStr( VclResId( SV_PRINT_NOPAGES ) )
+@@ -785,7 +786,7 @@
+         mxRangeExpander->set_expanded(true);
+         mxLayoutExpander->set_expanded(true);
+         for (weld::Button* pButton : { mxMoreOptionsBtn.get(), mxPageSetupBtn.get(), mxZoomOutBtn.get(),
+-                                       mxZoomInBtn.get(), mxZoomFitBtn.get() })
++                                       mxZoomInBtn.get(), mxZoomFitBtn.get(), mxBackBtn.get() })
+             pButton->connect_clicked(LINK(this, PrintDialog, ClickPanelHdl));
+         // the application's options (Slides: slides, handouts, notes; Sheets: which sheets) join the
+         // one settings column, under the range, instead of a second tab
+@@ -827,6 +828,13 @@
+     maPanelPageSetupHdl = rPageSetup;
+ }
+ 
++void PrintDialog::setPanelCloseHdls(const Link<PrintDialog&, void>& rCancel,
++                                    const Link<PrintDialog&, void>& rBack)
++{
++    maPanelCancelHdl = rCancel;
++    maPanelBackHdl = rBack;
++}
++
+ void PrintDialog::setPanelMargins(const OUString& rActive, const std::vector<OUString>& rRemoved,
+                                   const Link<PrintDialog&, void>& rChanged)
+ {
+@@ -905,6 +913,8 @@
+         maPanelMoreOptionsHdl.Call(*this);
+     else if (&rButton == mxPageSetupBtn.get())
+         maPanelPageSetupHdl.Call(*this);
++    else if (&rButton == mxBackBtn.get())
++        maPanelBackHdl.Call(*this);
+     else if (&rButton == mxZoomFitBtn.get())
+         setZoom(0);
+     else
+@@ -2356,11 +2366,14 @@
+ 
+ IMPL_LINK(PrintDialog, ClickOKCancelHdl, weld::Button&, rButton, void)
+ {
+-    storeToSettings();
++    if (m_xDialog || &rButton == mxOKButton.get()) // the panel's Cancel discards the choices
++        storeToSettings();
+     if (!m_xDialog)
+     {
+         if (&rButton == mxOKButton.get())
+             maPanelPrintHdl.Call(*this);
++        else
++            maPanelCancelHdl.Call(*this);
+         return;
+     }
+     m_xDialog->response(&rButton == mxOKButton.get() ? RET_OK : RET_CANCEL);
+diff --git a/vcl/uiconfig/ui/hstprintpanel.ui b/vcl/uiconfig/ui/hstprintpanel.ui
+--- a/vcl/uiconfig/ui/hstprintpanel.ui
++++ b/vcl/uiconfig/ui/hstprintpanel.ui
+@@ -64,6 +64,16 @@
+     <property name="can-focus">False</property>
+     <property name="icon-name">cmd/lc_print.png</property>
+   </object>
++  <object class="GtkImage" id="cancelimg">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/lc_cancel.png</property>
++  </object>
++  <object class="GtkImage" id="backimg">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="icon-name">cmd/lc_prevrecord.png</property>
++  </object>
+   <object class="GtkAdjustment" id="zoomadj">
+     <property name="lower">10</property>
+     <property name="upper">400</property>
+@@ -89,20 +99,79 @@
+             <property name="can-focus">False</property>
+             <property name="spacing">18</property>
+             <child>
+-              <object class="GtkButton" id="ok">
+-                <property name="label" translatable="yes" context="printdialog|print">_Print</property>
++              <object class="GtkBox" id="printbuttons">
+                 <property name="visible">True</property>
+-                <property name="can-focus">True</property>
+-                <property name="receives-default">True</property>
+-                <property name="use-underline">True</property>
+-                <property name="width-request">96</property>
+-                <property name="height-request">72</property>
+-                <property name="image">printimg</property>
+-                <property name="image-position">top</property>
+-                <property name="always-show-image">True</property>
+-                <style>
+-                  <class name="suggested-action" />
+-                </style>
++                <property name="can-focus">False</property>
++                <property name="spacing">6</property>
++                <child>
++                  <object class="GtkButton" id="ok">
++                    <property name="label" translatable="yes" context="printdialog|print">_Print</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">True</property>
++                    <property name="use-underline">True</property>
++                    <property name="width-request">96</property>
++                    <property name="height-request">72</property>
++                    <property name="image">printimg</property>
++                    <property name="image-position">top</property>
++                    <property name="always-show-image">True</property>
++                    <style>
++                      <class name="suggested-action" />
++                    </style>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="cancel">
++                    <property name="label" translatable="yes" context="hstprintpanel|cancel">Canc_el</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="width-request">88</property>
++                    <property name="height-request">72</property>
++                    <property name="tooltip-text" translatable="yes" context="hstprintpanel|canceltip">Close without printing and undo the margins changed on this page</property>
++                    <property name="image">cancelimg</property>
++                    <property name="image-position">top</property>
++                    <property name="always-show-image">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="cancel-atkobject">
++                        <property name="AtkObject::accessible-description" translatable="yes" context="hstprintpanel|extended_tip|cancel">Closes the print page without printing: the print settings and the margins changed on this page are discarded.</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="back">
++                    <property name="label" translatable="yes" context="hstprintpanel|back">_Back</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="use-underline">True</property>
++                    <property name="width-request">88</property>
++                    <property name="height-request">72</property>
++                    <property name="tooltip-text" translatable="yes" context="hstprintpanel|backtip">Return to the document (Esc)</property>
++                    <property name="image">backimg</property>
++                    <property name="image-position">top</property>
++                    <property name="always-show-image">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="back-atkobject">
++                        <property name="AtkObject::accessible-description" translatable="yes" context="hstprintpanel|extended_tip|back">Closes the print page and returns to the document, like Esc and the back arrow.</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+@@ -1325,19 +1394,6 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">True</property>
+                 <property name="receives-default">True</property>
+-                <property name="use-underline">True</property>
+-              </object>
+-              <packing>
+-                <property name="expand">False</property>
+-                <property name="fill">True</property>
+-              </packing>
+-            </child>
+-            <child>
+-              <object class="GtkButton" id="cancel">
+-                <property name="label" translatable="yes" context="stock">_Cancel</property>
+-                <property name="visible">True</property>
+-                <property name="can-focus">True</property>
+-                <property name="receives-default">True</property>
+                 <property name="use-underline">True</property>
+               </object>
+               <packing>
