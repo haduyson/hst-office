@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 from . import banner_cache as cache
-from .banner_schema import MAX_MANIFEST, active, image_specs
+from .banner_schema import MAX_MANIFEST, active, client_specs
 from .banner_verify import verify_image, verify_manifest
 
 LIMIT = 6 * MAX_MANIFEST  # current signed envelope plus one last-eligible signed envelope
@@ -66,7 +66,7 @@ def metadata(root, key, allow_test=False):
 
 
 def images(root, doc):
-    return {i["id"]: {s: cache.cached_image(root, spec, s) for s, spec in image_specs(i)}
+    return {i["id"]: {s: cache.cached_image(root, spec, s) for s, spec in client_specs(i)}
             for i in doc["items"]}
 
 
@@ -107,7 +107,7 @@ def publish(root, key, data, signature, blobs, now, version, allow_test=False):
                 except (OSError, ValueError):
                     pass
         for item in doc["items"]:
-            for scale, spec in image_specs(item):
+            for scale, spec in client_specs(item):
                 blob = blobs[item["id"]][scale]
                 suffix = verify_image(blob, spec, scale)
                 cache.atomic_write(cache.image_path(root, spec, suffix), blob)
@@ -119,7 +119,7 @@ def publish(root, key, data, signature, blobs, now, version, allow_test=False):
             previous = records[0]
         cache.atomic_write(root / "current.json", json.dumps(current).encode())
         keep_docs = [doc] + [r[0] for r in (fallback, previous) if r]
-        keep = {spec["sha256"] + ext for d in keep_docs for i in d["items"] for _, spec in image_specs(i)
+        keep = {spec["sha256"] + ext for d in keep_docs for i in d["items"] for _, spec in client_specs(i)
                 for ext in (".png", ".jpg", ".webp")}
         for path in (root / "images").glob("*"):
             if path.name not in keep and path.is_file():

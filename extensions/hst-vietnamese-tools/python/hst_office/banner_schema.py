@@ -124,6 +124,12 @@ def image_specs(item):
     return specs
 
 
+def client_specs(item):
+    """(key, descriptor) of every image the 1.0.3 client shows: image_specs, then the standard sizes (360@1x ..
+    960@2x, banner_sizes.size_specs) the ribbon picks from by the banner's width."""
+    return image_specs(item) + banner_sizes.size_specs(item)
+
+
 def has_compact(item):
     """True when the item carries compact artwork (parse_manifest has validated it)."""
     return isinstance(item.get(COMPACT_FIELD), dict)

@@ -1,16 +1,24 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Pure rules of the ribbon mockup check: ladder levels, vector comparison, monotonic growth and the banner size rule.
+"""Pure rules of the ribbon mockup check: ladder levels, vector comparison, monotonic growth and the v3 banner rule.
 
 No display or AT-SPI here, so the unit tests run without a desktop (tests/unit/test_ribbon_mockup_expected.py).
+The v3 layout-dump rules are in ribbon_v3_rules.py.
 """
 LEVEL = {"L": 3, "M": 2, "S": 1, "C": 0}
+TOLERANCE = 1  # px, for sizes (the plan's ±1 px)
+BANNER_MIN_W, BANNER_MAX_W, BANNER_H, BANNER_TOP = 360, 960, 96, 6  # v3: the banner is 360..960 wide, 96 high, top 6
 
 
-def expected_banner(width):
-    """The mockup's banner rule (expected JSON, "banner"): width 260 up to 1440, then growing to 360 at 1920; height w * 104/360."""
-    w = 260 if width <= 1440 else min(360, 260 + (width - 1440) * 100 / 480)
-    w = round(w)
-    return w, round(w * 104 / 360)
+def banner_limits():
+    """The v3 banner rule (logical px): width 360 to 960, height 96, top 6 under the ribbon body's top edge."""
+    return {"min_w": BANNER_MIN_W, "max_w": BANNER_MAX_W, "h": BANNER_H, "top": BANNER_TOP}
+
+
+def banner_ok(width, height):
+    """True when a measured banner box of width x height is inside the v3 limits (±1 px)."""
+    limits = banner_limits()
+    return (limits["min_w"] - TOLERANCE <= width <= limits["max_w"] + TOLERANCE
+            and abs(height - limits["h"]) <= TOLERANCE)
 
 
 def compare_states(expected, measured):
@@ -24,7 +32,6 @@ def is_monotonic(levels):
     return all(LEVEL[levels[i]] <= LEVEL[levels[i + 1]] for i in range(len(levels) - 1))
 
 
-TOLERANCE = 1  # px, for sizes (the plan's ±1 px)
 SKIP_NOT_MEASURED = "skip: not in the accessible tree (measured on Linux, P2/P4; not a Windows failure)"
 
 
@@ -48,13 +55,11 @@ def width_findings(tab, width, want_states, got):
         out.append((f"{tag} tab row to document strip is 147 px", abs(span - 147) <= TOLERANCE, span))
     else:  # a missing measurement is a failure, not a silent pass
         out.append((f"{tag} tab row and document strip", None, SKIP_NOT_MEASURED))
-    ew, eh = expected_banner(width)
     banner = got.get("banner")
     if banner is not None:
-        out.append((f"{tag} banner {ew}x{eh}",
-                    abs(banner[2] - ew) <= TOLERANCE and abs(banner[3] - eh) <= TOLERANCE, list(banner[2:])))
+        out.append((f"{tag} banner 360..960 x 96", banner_ok(banner[2], banner[3]), list(banner[2:])))
     else:
-        out.append((f"{tag} banner {ew}x{eh}", None, SKIP_NOT_MEASURED))
+        out.append((f"{tag} banner 360..960 x 96", None, SKIP_NOT_MEASURED))
     if got["groups"].get("font", {}).get("state") == "L":
         fb, sb = got.get("font_box"), got.get("size_box")
         out.append((f"{tag} font box 128 px", fb is not None and abs(fb[2] - 128) <= TOLERANCE, fb and fb[2]))

@@ -5,6 +5,7 @@ import json
 import math
 from types import MappingProxyType
 
+from . import banner_sizes
 from .banner_schema import COMPACT_PREFIX, MAX_IMAGE, MAX_ITEMS
 from .banner_urls import click_url
 
@@ -44,6 +45,9 @@ def encoded_items(doc, images, utm, allow_test=False):
         for scale, blob in images[item["id"]].items():
             if len(blob) > MAX_IMAGE:
                 raise ValueError("banner image exceeds snapshot limit")
+            standard = banner_sizes.pixel_size(scale)
+            # the standard width of a standard-size variant: the ribbon asks again when its banner fits another one
+            fields["standard_width"] = standard[0] // int(scale[-2]) if standard else 0
             fields["image_base64"] = base64.b64encode(blob).decode("ascii")
             value = json.dumps(fields, ensure_ascii=True, separators=(",", ":"))
             if len(value) > MAX_SNAPSHOT - 128:
@@ -68,11 +72,25 @@ def prepare(candidates, utm, encoded=None, allow_test=False):
     return tuple(result)
 
 
-def selected_json(snapshot, scale=1, slot=0, compact=False):
+def variant_key(item, scale, compact=False, width=None):
+    """The serialized variant of item to show: with the banner's logical width (the 1.0.3 ribbon), the standard
+    size that fits it (banner_sizes.fit_width) at 1x or 2x when the item has standard sizes, else its 1x..3x art
+    (c1x..c3x in the compact slot)."""
+    if not compact and width is not None and not isinstance(width, bool) and isinstance(width, (int, float)) \
+            and math.isfinite(width):
+        level = scale_key(scale)
+        key = banner_sizes.size_key(banner_sizes.fit_width(width), "1x" if level == "1x" else "2x")
+        if key in item.serialized:
+            return key
+    return scale_key(scale, compact)
+
+
+def selected_json(snapshot, scale=1, slot=0, compact=False, width=None):
     """A single image, independent of weights. Padding keeps count/index header size constant.
 
     compact: the compact slot of narrow windows rotates only through items with compact art (the
-    wide art is never cropped); slotCount 0 tells the ribbon to hide the slot."""
+    wide art is never cropped); slotCount 0 tells the ribbon to hide the slot. width: the banner's logical width,
+    which picks a standard size (variant_key)."""
     items = snapshot["items"]
     if compact is True:
         items = [i for i in items if i.has_compact()]
@@ -80,7 +98,7 @@ def selected_json(snapshot, scale=1, slot=0, compact=False):
     if count > MAX_ITEMS * 10:
         raise ValueError("banner rotation exceeds snapshot limit")
     slot = slot % count if type(slot) is int and slot >= 0 and count else 0
-    item = items[slot].serialized[scale_key(scale, compact is True)] if count else ""
+    item = items[slot].serialized[variant_key(items[slot], scale, compact is True, width)] if count else ""
     result = (f'{{"rotateSeconds":{snapshot["rotateSeconds"]:2d},"slot":{slot:3d},'
               f'"slotCount":{count:3d},"items":[' + item + "]}")
     if len(result) > MAX_SNAPSHOT:

@@ -40,7 +40,7 @@ DRAW_TABS = {"HomeLabel", "InsertLabel", "ReviewLabel", "ViewLabel", "HelpLabel"
 ALIASES = {"Show/Hide": "Show All", "Online Videos": "Online Videos...", "Footnote": "Insert Footnote",
            "Chart types (Column/Line/Pie/Bar/Area/Scatter...)": "Recommended Charts"}
 # controls the spec does not list (group launchers): (reference app, tab) -> {control name: [HST commands]}
-EXTRA = {("excel", "Page Layout"): {"Page Setup": ["PageFormatDialog"]}}
+EXTRA = {("excel", "Page Layout"): {"Page Setup": ["PageFormatDialog"]}, ("excel", "Data"): {"Flash Fill": ["FlashFill"]}}
 # menu buttons ("Caption ▾") that hold the commands of a control of the suite: module -> tab -> {widget id: [letter,
 # control]}. They take their letter before the tab's commands. Draw's Arrange tab and the Data Analysis add-in have no
 # captured counterpart: the letters of the same controls on the suite's other tabs.

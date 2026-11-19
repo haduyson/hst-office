@@ -240,7 +240,7 @@ HST Office: the 1.0.2 ribbon mockup's frame: a 106 px body, the banner 8 px from
          || (pWindow->GetFrameWindow() != GetFrameWindow() && !IsWindowOrChild(pWindow, true)))
          return false;
      HstSetCompact(!m_pHstCompact->IsCompact());
-@@ -1067,16 +1099,24 @@
+@@ -1067,16 +1099,32 @@
      }
  }
  
@@ -260,17 +260,25 @@ HST Office: the 1.0.2 ribbon mockup's frame: a 106 px body, the banner 8 px from
 -    aSize.setHeight(std::max<tools::Long>(aSize.Height(), std::lround(HST_RIBBON_HEIGHT * GetDPIScaleFactor())));
 +    const double fDpi = GetDPIScaleFactor();
 +    // HST Office (1.0.2 ribbon mockup): the ribbon of Writer, Sheets, Slides and Draw (the one with the banner) is the
-+    // tab row, 3 px, a body of exactly 106 logical px (rounded once) and 3 px in every tab: never taller for a page
-+    // whose content asks for more (a .ui to fix) nor lower for a shorter one. The compact ribbon below sets its own
-+    // height.
++    // tab row, 3 px, a body of 106 logical px (rounded once) and 3 px in every tab. The compact ribbon below sets its
++    // own height.
 +    if (m_pHstBanner && HstHeaderHeight() > 0)
-+        aSize.setHeight(HstHeaderHeight() + HST_PAGE_INSETS + hst::banner::scaled(hst::banner::RIBBON_BODY_HEIGHT, fDpi));
++    {
++        // the body is taller when a page's content and captions ask for more (a larger UI font: a fixed 106 px body
++        // cut the captions at the bottom); the tallest page sets one height for every tab, so the ribbon never cuts a
++        // caption and keeps its height between tabs
++        tools::Long nBody = hst::banner::scaled(hst::banner::RIBBON_BODY_HEIGHT, fDpi);
++        for (int i = 0; i < GetPageCount(); i++)
++            if (vcl::Window* pPage = GetTabPage(TabControl::GetPageId(i)))
++                nBody = std::max(nBody, VclContainer::getLayoutRequisition(*pPage).Height());
++        aSize.setHeight(HstHeaderHeight() + HST_PAGE_INSETS + nBody);
++    }
 +    else
 +        aSize.setHeight(std::max<tools::Long>(aSize.Height(), std::lround(HST_RIBBON_HEIGHT * fDpi)));
  
      for (int i = 0; i < GetPageCount(); i++)
      {
-@@ -1094,7 +1134,7 @@
+@@ -1094,7 +1142,7 @@
      if (aSize.Width() < 400)
          aSize.setWidth( 400 );
      if (m_pHstCompact && m_pHstCompact->IsCompact()) // the tab row and the quick row
