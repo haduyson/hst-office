@@ -42,6 +42,7 @@ SERVICES = (
      ("org.hst.office.vi.OptionsPreviousVersions",)),
     ("number_words_options", "NumberWordsOptionsHandler", "org.hst.office.vi.OptionsNumberWords",
      ("org.hst.office.vi.OptionsNumberWords",)),
+    ("ribbon_options", "RibbonOptionsHandler", "org.hst.office.vi.OptionsRibbon", ("org.hst.office.vi.OptionsRibbon",)),
     # asked by the core before an Excel file is written (hst-save-format-check.patch)
     ("formula_options", "FormulaOptionsHandler", "org.hst.office.vi.OptionsFormula", ("org.hst.office.vi.OptionsFormula",)),
     ("formula_open_job", "FormulaOpenJob", "org.hst.office.vi.FormulaOpenJob", JOB),
