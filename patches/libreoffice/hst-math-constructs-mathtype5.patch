@@ -350,10 +350,10 @@ index 0000000..d2601b1
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/qa/cppunit/test_hst_formula_constructs.cxx b/starmath/qa/cppunit/test_hst_formula_constructs.cxx
 new file mode 100644
-index 0000000..f9f276e
+index 0000000..5e3d6de
 --- /dev/null
 +++ b/starmath/qa/cppunit/test_hst_formula_constructs.cxx
-@@ -0,0 +1,196 @@
+@@ -0,0 +1,203 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -480,6 +480,13 @@ index 0000000..f9f276e
 +        // the arrow grows with its text, and the texts stack above and below it
 +        CPPUNIT_ASSERT_GREATER(aShort.Width(), aLong.Width());
 +        CPPUNIT_ASSERT_GREATER(aPlain.Height(), aShort.Height());
++        // an empty label takes no room (s011: "{t^o} xrightarrow {}" was taller than its MathType)
++        xDocShell->SetText(u"a {} xrightarrow {} b"_ustr);
++        const Size aBare = xDocShell->GetSize();
++        xDocShell->SetText(u"a {x} xrightarrow { } b"_ustr);
++        const Size aAbove = xDocShell->GetSize();
++        CPPUNIT_ASSERT_GREATER(aBare.Height(), aAbove.Height());
++        CPPUNIT_ASSERT_GREATER(aAbove.Height(), aShort.Height());
 +        xDocShell->DoClose();
 +    }
 +
@@ -4735,10 +4742,10 @@ index 0000000..fb34841
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/starmath/source/hst/textarrow.cxx b/starmath/source/hst/textarrow.cxx
 new file mode 100644
-index 0000000..7d58edc
+index 0000000..49a7d2e
 --- /dev/null
 +++ b/starmath/source/hst/textarrow.cxx
-@@ -0,0 +1,82 @@
+@@ -0,0 +1,103 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -4773,6 +4780,23 @@ index 0000000..7d58edc
 +    }
 +}
 +
++namespace
++{
++/// Whether a label draws anything: an empty group ("{}", "{ }") has a font's height but no ink
++bool HasContent(SmNode* pNode)
++{
++    if (!pNode)
++        return false;
++    const size_t nCount = pNode->GetNumSubNodes();
++    if (nCount == 0)
++        return pNode->GetType() != SmNodeType::Expression;
++    for (size_t i = 0; i < nCount; ++i)
++        if (HasContent(pNode->GetSubNode(i)))
++            return true;
++    return false;
++}
++}
++
 +void ArrangeTextArrow(SmVerticalBraceNode& rNode, OutputDevice& rDev, const SmFormat& rFormat)
 +{
 +    SmNode* pOver = rNode.Body();
@@ -4800,9 +4824,13 @@ index 0000000..7d58edc
 +    aPos.AdjustY(nDist);
 +    pUnder->MoveTo(aPos);
 +
++    // an empty label takes no room: MathType's arrow without text is no taller than the arrow
 +    SmRect& rRect = rNode;
 +    rRect = *pArrow;
-+    rRect.ExtendBy(*pOver, RectCopyMBL::This).ExtendBy(*pUnder, RectCopyMBL::This);
++    if (HasContent(pOver))
++        rRect.ExtendBy(*pOver, RectCopyMBL::This);
++    if (HasContent(pUnder))
++        rRect.ExtendBy(*pUnder, RectCopyMBL::This);
 +}
 +
 +void UseArcFont(SmTokenType eType, SmFace& rFace)
