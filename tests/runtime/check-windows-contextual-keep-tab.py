@@ -15,6 +15,7 @@ import argparse
 import os
 import subprocess
 import sys
+import threading
 import time
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -110,6 +111,20 @@ def command_for(app, kind):
     return CALC_TABLE_COMMAND if (app, kind) == ("calc", "table") else COMMANDS[kind]
 
 
+def stop_office(office, shot, res, app, timeout=120):
+    """office.stop() in a thread: Desktop.terminate does not return while a prompt holds the quit. Past the timeout
+    the screen is kept (what held it) and our own processes end, so the next app still runs."""
+    worker = threading.Thread(target=office.stop, daemon=True)
+    worker.start()
+    worker.join(timeout)
+    if worker.is_alive():
+        wg.screenshot(shot, cursor=False)
+        import windows_gui_processes as processes
+        office.proc.kill()
+        processes.terminate(office.url)
+        res(f"[{app}] office closed", False, f"Desktop.terminate held over {timeout} s: {shot}")
+
+
 class _Dispatcher:
     """What park() needs of the office: a dispatch that returns once the command ran."""
 
@@ -172,13 +187,18 @@ def check_app(app, args, res):
     finally:
         # the document itself: with a chart selected the current component is the chart's model, and a modified
         # sheet would hold the close on its save prompt
-        try:
-            if doc is not None:
+        # each on its own: a refused park (Slides' select of nothing) must not leave the save prompt in the way
+        if doc is not None:
+            try:
+                doc.setModified(False)
+            except Exception as error:  # noqa: BLE001 - the office is gone
+                print("setModified:", repr(error), flush=True)
+            try:
                 park(app, doc, _Dispatcher(office))
                 doc.setModified(False)
-        except Exception:  # noqa: BLE001 - the office is gone
-            pass
-        office.stop()
+            except Exception as error:  # noqa: BLE001 - the selection stays; the document is unmodified already
+                print("park:", repr(error), flush=True)
+        stop_office(office, os.path.join(args.out, f"{app}-close-blocked.png"), res, app)
 
 
 def main():
