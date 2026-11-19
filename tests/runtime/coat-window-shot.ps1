@@ -10,7 +10,10 @@ public static class CoatShot {
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int L, T, R, B; }
   [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr h, out RECT r);
   [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr h, IntPtr dc, uint f);
+  [DllImport("user32.dll")] static extern bool SetProcessDPIAware();
   public static void Save(IntPtr h, string path) {
+    // physical pixels: without this, above 100 % scaling the rectangle is logical and the shot is cropped
+    SetProcessDPIAware();
     RECT r; if (!GetWindowRect(h, out r)) throw new Exception("no such window");
     int w = r.R - r.L, ht = r.B - r.T; if (w <= 0 || ht <= 0) throw new Exception("empty window");
     using (var bmp = new Bitmap(w, ht, PixelFormat.Format32bppArgb)) {
