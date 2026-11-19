@@ -5,6 +5,8 @@ must show one print panel: on gtk3 a panel left behind by the previous job stays
 preview were stacked once more per opening. Run like check-backstage-print-margins.py:
     dbus-run-session -- env NO_AT_BRIDGE=0 GTK_MODULES=gail:atk-bridge SAL_USE_VCLPLUGIN=gtk3 \
         <office python> check-backstage-print-repeat.py --soffice PATH --out DIR [--rounds N] [--shot CMD]
+Run it under LANG=C.UTF-8 as well: gettext ignores the UI language in the C locale, so the panel came out in English
+on gtk3 (hst-gtk-ui-translation-c-locale.patch).
 Writer, Sheets, Slides and Draw: .uno:Print (Ctrl+P) opens the page, the panel closes (its job is cancelled), N times.
 Each opening: exactly one panel, its labels in Vietnamese. After all: no job printed (the generic PDF printer of the
 profile wrote nothing), the office's memory grew by less than MAX_GROWTH_KIB, and after WARM_UP openings of an
