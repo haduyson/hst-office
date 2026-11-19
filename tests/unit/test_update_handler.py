@@ -32,7 +32,7 @@ class UpdateHandlerTests(unittest.TestCase):
     def tearDown(self):
         self.logged.assert_not_called()
 
-    def test_it_answers_for_its_five_commands_only(self):
+    def test_it_answers_for_its_commands_only(self):
         for command in handler_module.COMMANDS:
             self.assertIs(self.handler.queryDispatch(url(command), "", 0), self.handler)
         self.assertIsNone(self.handler.queryDispatch(url("Other"), "", 0))
@@ -95,6 +95,62 @@ class UpdateHandlerTests(unittest.TestCase):
                 self.handler.addStatusListener(control, url("Download"))  # no state for the other commands
             control.statusChanged.assert_called_once()
             self.assertIs(control.statusChanged.call_args[0][0].IsEnabled, allowed)
+
+
+
+class UpdateAvailableTests(unittest.TestCase):
+    """org.hst.office.update:Available: the File panel entry and the File tab dot follow the release a check found."""
+
+    def setUp(self):
+        self.handler = handler_module.UpdateHandler("ctx")
+        self.handler.initialize((SimpleNamespace(getContainerWindow=lambda: "peer"),))
+        state = mock.patch.dict(handler_module.AVAILABLE, {"release": None, "listeners": []})
+        state.start()
+        self.addCleanup(state.stop)
+        struct = mock.patch.object(handler_module.uno, "createUnoStruct", side_effect=lambda name: SimpleNamespace())
+        struct.start()
+        self.addCleanup(struct.stop)
+
+    def states(self, control):
+        return [c[0][0].IsEnabled for c in control.statusChanged.call_args_list]
+
+    def test_listeners_hear_the_current_state_then_every_change(self):
+        control = mock.Mock()
+        self.handler.addStatusListener(control, url("Available"))
+        handler_module.set_available(RELEASE)
+        handler_module.set_available(None)
+        self.assertEqual(self.states(control), [False, True, False])
+        self.handler.removeStatusListener(control, url("Available"))
+        handler_module.set_available(RELEASE)
+        self.assertEqual(len(self.states(control)), 3)
+
+    def test_a_disposed_listener_is_dropped(self):
+        gone, alive = mock.Mock(), mock.Mock()
+        self.handler.addStatusListener(gone, url("Available"))
+        self.handler.addStatusListener(alive, url("Available"))
+        gone.statusChanged.side_effect = RuntimeError("disposed")
+        handler_module.set_available(RELEASE)
+        self.assertEqual(self.states(alive), [False, True])
+        self.assertEqual([c for c, _ in handler_module.AVAILABLE["listeners"]], [alive])
+
+    def test_the_entry_installs_a_known_release_else_checks(self):
+        with mock.patch.object(update_install, "start") as install, \
+                mock.patch.object(self.handler, "_check") as check:
+            self.handler.dispatch(url("Available"), ())
+            handler_module.set_available(RELEASE)
+            self.handler.dispatch(url("Available"), ())
+        check.assert_called_once_with()
+        install.assert_called_once_with("ctx", "peer")
+
+    def test_the_check_dialog_and_the_infobar_publish_what_they_found(self):
+        with mock.patch.object(update_ui, "show_infobar", return_value=True), \
+                mock.patch.object(update_ui, "_broadcaster"), \
+                mock.patch.dict(update_ui.STATE, {"release": None}):
+            fake_desktop = mock.Mock()
+            ctx = mock.Mock()
+            ctx.ServiceManager.createInstanceWithContext.return_value = fake_desktop
+            update_ui.notify(ctx, RELEASE, "1.0.0")
+        self.assertIs(handler_module.AVAILABLE["release"], RELEASE)
 
 
 if __name__ == "__main__":
