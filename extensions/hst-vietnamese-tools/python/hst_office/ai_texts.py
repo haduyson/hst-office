@@ -17,6 +17,18 @@ HELP = COMMON + (
     " Nhiệm vụ: hướng dẫn cách dùng HST Office theo câu hỏi. Hướng dẫn từng bước, theo giao diện thanh công cụ dạng "
     "thẻ (ribbon) với tên thẻ, nhóm và lệnh tiếng Việt; phím tắt giống Microsoft Office. Nếu không chắc tên chính xác "
     "của một lệnh, hãy nói vậy và gợi ý tìm lệnh bằng ô \"Tìm tính năng\" (Alt+Q). Không dùng Markdown.")
+HELP_WITH_MAP = (
+    " Khi chỉ chỗ một lệnh, ghi đường dẫn đúng như bản đồ ribbon bên dưới, dạng Thẻ › Nhóm › Lệnh (lệnh trong danh "
+    "sách thả xuống: Thẻ › Nhóm › Nút ▾ › Mục). Chỉ dùng tên có trong bản đồ, không tự đặt tên khác. Thẻ [ngữ cảnh] chỉ "
+    "hiện khi chọn đối tượng tương ứng (bảng, ảnh, biểu đồ...): nói rõ cần chọn gì trước. Nếu tính năng không có trên "
+    "ribbon, nói vậy rồi gợi ý menu chuột phải hoặc ô \"Tìm tính năng\" (Alt+Q).\n\n")
+
+
+def help_system(ribbon_map):
+    """System text of "Hỏi cách dùng": the task plus the ribbon map of the current app when it could be read."""
+    return HELP + HELP_WITH_MAP + ribbon_map if ribbon_map else HELP
+
+
 WRITING = COMMON + (
     " Nhiệm vụ: %s. Chỉ trả về văn bản kết quả: không lời dẫn, không giải thích, không dùng Markdown; giữ nguyên các "
     "ngắt đoạn của văn bản gốc.")

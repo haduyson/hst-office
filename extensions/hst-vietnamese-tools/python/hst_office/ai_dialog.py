@@ -12,8 +12,9 @@ from . import ai_document as document
 from . import diag_log
 from .ai_client import Settings, complete
 from .ai_providers import MAX_PROMPT, PROVIDERS, AiError
-from .ai_texts import ACTIONS, FORMULA_EXPLAIN, FORMULA_WRITE, HELP, TEXT, WRITING_MODES, error_text, \
-    extract_formula, writing_system
+from .ai_ribbon_map_uno import command_map
+from .ai_texts import ACTIONS, FORMULA_EXPLAIN, FORMULA_WRITE, TEXT, WRITING_MODES, error_text, extract_formula, \
+    help_system, writing_system
 from .dialogs import Dialog, palette
 from .update_ui import on_main_thread
 
@@ -28,6 +29,8 @@ class AssistantDialog:
         self.cell = document.active_cell(self.controller) if document.kind(self.model) == "calc" else None
         self.label = PROVIDERS[settings.provider]["label"]
         self.answer, self.closed, self.dialog = "", False, None
+        # read on the main thread now; the request itself runs on a worker
+        self.ribbon_map = command_map(ctx, document.kind(self.model)) if action == "Help" else ""
 
     def prefill(self):
         if self.action == "FormulaExplain" and self.cell is not None:
@@ -46,7 +49,7 @@ class AssistantDialog:
             return FORMULA_EXPLAIN, text
         if self.action == "Writing":
             return writing_system(max(0, d.get("mode")), d.get("instruction")), text
-        return HELP, text
+        return help_system(self.ribbon_map), text
 
     def run(self, parent_peer=None):
         d = self.dialog = Dialog(self.ctx, "%s: %s" % (TEXT["title"], ACTIONS[self.action]), WIDTH, HEIGHT)
