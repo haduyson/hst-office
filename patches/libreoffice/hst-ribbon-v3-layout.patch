@@ -1098,7 +1098,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  
 --- /dev/null
 +++ b/vcl/inc/HstRibbonMenuButtonMetrics.hxx
-@@ -0,0 +1,38 @@
+@@ -0,0 +1,41 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1134,6 +1134,9 @@ License: these upstream files remain under their original license (MPL-2.0).
 +
 +/** The height of a line of rButton's label as its paint draws it; its window's measure before its first paint. */
 +tools::Long MenuButtonTextHeight(const PushButton& rButton);
++
++/** Whether the lines of a large menu button's label fitted under its image at its last paint (true before one). */
++bool MenuButtonLinesFit(const PushButton& rButton);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -1902,7 +1905,18 @@ License: these upstream files remain under their original license (MPL-2.0).
          // with a little room: PushButton breaks its label again where a line fills its text area to the pixel
          nWidth = static_cast<sal_Int32>(aLarge.width + geometry::px(geometry::ARROW_GAP, rButton.GetDPIScaleFactor()));
          nHeight = static_cast<sal_Int32>(aLarge.height - nMarginTop);
-@@ -413,7 +416,10 @@ void applyToMenuButton(MenuButton& rButt
+@@ -342,7 +345,9 @@ void placeLargeMenuButton(MenuButton& rB
+         // and small tool buttons (VCL's PushButton asks 12 px more than its 16 px icon), its icon at the left of
+         // its 4 px frame as theirs, not centred with its label in the room PushButton asks for
+         nHeight = static_cast<sal_Int32>(geometry::px(geometry::SMALL_ROW, rButton.GetDPIScaleFactor()));
+-        nStyle = (rLabel.nStyle & ~(WB_CENTER | WB_RIGHT)) | WB_LEFT;
++        // one line: a label filling its text area to the pixel broke onto a second line the row has no room for
++        // and lost its end ("Sắp xếp và l…")
++        nStyle = (rLabel.nStyle & ~(WB_CENTER | WB_RIGHT | WB_WORDBREAK)) | WB_LEFT;
+         nWidth = static_cast<sal_Int32>(smallMenuButtonWidth(rButton));
+     }
+     bool bChanged = false;
+@@ -413,7 +418,10 @@ void applyToMenuButton(MenuButton& rButt
      const bool bImage = !!rButton.GetModeImage();
      const bool bHide = nState == GroupSmall && bImage && !keepsLarge(rButton);
      const bool bLarge = !bHide && bImage && rButton.GetImageAlign() == ImageAlign::Top;
@@ -1914,7 +1928,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      const PushButtonDropdownStyle eArrow = bLarge ? PushButtonDropdownStyle::NONE : PushButtonDropdownStyle::MenuButton;
      if (bHide && !rLabel.bTip && rButton.GetQuickHelpText().isEmpty())
      {
-@@ -981,6 +987,31 @@ std::set<const ToolBox*> stackLargeButto
+@@ -981,6 +989,31 @@ std::set<const ToolBox*> stackLargeButto
      return aLone;
  }
  
@@ -1946,7 +1960,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
  {
      for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
-@@ -1029,8 +1060,81 @@ bool collapseLadderEnabled()
+@@ -1029,8 +1062,81 @@ bool collapseLadderEnabled()
      return bEnabled;
  }
  
@@ -2030,7 +2044,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      int nCommands = 0;
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonMenuButtonMetrics.cxx
-@@ -0,0 +1,208 @@
+@@ -0,0 +1,216 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2065,6 +2079,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    OUString label;
 +    std::map<OUString, std::pair<tools::Long, tools::Long>> widths; // paint, window
 +    tools::Long height = 0;
++    bool linesFit = true; // a large one's lines under its image at the last paint
 +};
 +
 +struct PaintedMetrics
@@ -2209,6 +2224,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            = rInner.GetHeight() - aImage.GetSizePixel().Height() - nLines * rDev.GetTextHeight();
 +        if (nRoom < rImageSep)
 +            rImageSep = static_cast<sal_Int32>(std::max<tools::Long>(1, nRoom));
++        PaintedMetrics::metrics()[&rButton].linesFit = nRoom >= 1;
 +    }
 +}
 +
@@ -2229,6 +2245,12 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    if (nWindowLabel <= 0 || nPaint == nWindowLabel)
 +        return nWindow;
 +    return static_cast<tools::Long>(std::ceil(double(nWindow) * nPaint / nWindowLabel));
++}
++
++bool MenuButtonLinesFit(const PushButton& rButton)
++{
++    const auto it = PaintedMetrics::metrics().find(&rButton);
++    return it == PaintedMetrics::metrics().end() || it->second.linesFit;
 +}
 +
 +tools::Long MenuButtonTextHeight(const PushButton& rButton)
@@ -2361,7 +2383,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
-@@ -0,0 +1,629 @@
+@@ -0,0 +1,617 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2533,22 +2555,12 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    return nWidth;
 +}
 +
-+/// the height a large menu button's paint needs (0: any other command): its frame, its image, the smallest gap the
-+/// paint shrinks it to (HstRibbonMenuButtonMetrics.hxx) and its label's lines
-+tools::Long menuButtonHeightNeed(const vcl::Window& rCommand, char cLook)
++/// a large menu button whose label's lines did not fit under its image at its last paint (the paint measures its
++/// own frame, image and font: HstRibbonMenuButtonMetrics.hxx)
++bool largeMenuLinesCut(const vcl::Window& rCommand, char cLook)
 +{
 +    const MenuButton* pMenu = dynamic_cast<const MenuButton*>(&rCommand);
-+    if (!pMenu || cLook != 'L')
-+        return 0;
-+    const OUString aText = pMenu->GetText();
-+    const Image aImage = pMenu->GetModeImage();
-+    if (aText.isEmpty() || !aImage || pMenu->GetImageAlign() != ImageAlign::Top)
-+        return 0;
-+    const tools::Long nFrame
-+        = 2 * (pMenu->IsNativeControlSupported(ControlType::Pushbutton, ControlPart::Entire) ? 4 : 2);
-+    const auto nLines = static_cast<tools::Long>(
-+        1 + std::count(aText.getStr(), aText.getStr() + aText.getLength(), u'\n'));
-+    return nFrame + aImage.GetSizePixel().Height() + 1 + nLines * MenuButtonTextHeight(*pMenu);
++    return pMenu && cLook == 'L' && !MenuButtonLinesFit(*pMenu);
 +}
 +
 +/// the width a command needs at a look: its size request, and what a menu button's paint needs (the request of a
@@ -2644,10 +2656,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        SetMenuButtonLook(*pButton, cLook);
 +        // the menu button takes its cell as the toolboxes do (a column's commands are equally wide); beside its
 +        // image (medium, small) its content starts at the left like a toolbox button's
-+        // one line beside its image: a label filling its text area to the pixel broke onto a second line the row
-+        // has no room for, and lost its end ("Sắp xếp và l…")
-+        const WinBits nStyle = (pButton->GetStyle() & ~(WB_LEFT | WB_CENTER | WB_RIGHT | WB_WORDBREAK))
-+                               | (cLook == 'L' ? WB_CENTER | WB_WORDBREAK : WB_LEFT);
++        const WinBits nStyle
++            = (pButton->GetStyle() & ~(WB_LEFT | WB_CENTER | WB_RIGHT)) | (cLook == 'L' ? WB_CENTER : WB_LEFT);
 +        // its frame spans the whole cell, top and bottom edges with the tool buttons' (the 1.0.2 look moved a large
 +        // menu button down by a top margin to put its label on the label line)
 +        if (pButton->get_halign() != VclAlign::Fill || pButton->get_valign() != VclAlign::Fill
@@ -2974,7 +2984,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                // a menu button as its paint lays its label out (menuButtonNeed), any other as its size request
 +                Size aWant = VclContainer::getLayoutRequisition(rCommand);
 +                if (const tools::Long nNeed = menuButtonNeed(rCommand, rCell.look))
-+                    aWant = Size(nNeed, std::max(aRect.GetHeight(), menuButtonHeightNeed(rCommand, rCell.look)));
++                    aWant = Size(nNeed, aRect.GetHeight() + (largeMenuLinesCut(rCommand, rCell.look) ? 1 : 0));
 +                const bool bLabelled = rCell.look == 'L' || rCell.look == 'M';
 +                rOut.append(",\"label_cut\":");
 +                rOut.append(bLabelled && (aWant.Width() > aRect.GetWidth() || aWant.Height() > aRect.GetHeight())
@@ -3292,7 +3302,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +void hst::ribbon::SetPageSlack(vcl::Window& rPage, tools::Long nSlack)
 +{
 +    if (PriorityMergedHBox* pBox = lcl_HstPageBox(rPage))
-+        pBox->HstSetSlack(std::max<tools::Long>(0, nSlack));
++        pBox->HstSetSlack(nSlack); // less than 0: the collapse chevron's room at the smallest banner
 +}
 +
 +void hst::ribbon::DumpPageLayout(const vcl::Window& rPage, const tools::Rectangle& rBanner)

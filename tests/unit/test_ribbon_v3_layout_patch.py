@@ -73,6 +73,8 @@ class BannerTest(unittest.TestCase):
         # the collapse chevron's room after the last group, out of the fit and before the banner
         self.assertIn("const tools::Long nChevron = m_pHstCompact ? hst::banner::scaled(22, fDpi) : 0;", code)
         self.assertIn("nRight - nMin - nGap - aPage.x - nChevron", code)
+        # the chevron's room at the smallest banner is a slack below 0
+        self.assertIn("pBox->HstSetSlack(nSlack);", added(PATCH, "vcl/source/control/HstRibbonV3MergedBox.cxx"))
 
     def test_old_artwork_left_aligned_with_fill(self):
         code = added(PATCH, "vcl/source/control/HstBannerCore.cxx")
@@ -129,11 +131,16 @@ class MenuButtonMetricsTest(unittest.TestCase):
         self.assertIn("rInner.GetHeight() - aImage.GetSizePixel().Height() - nLines * rDev.GetTextHeight();", metrics)
         self.assertIn("rImageSep = static_cast<sal_Int32>(std::max<tools::Long>(1, nRoom));", metrics)
         # the dump reports a large label whose lines do not fit as cut
-        self.assertIn("menuButtonHeightNeed(rCommand, rCell.look)", added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx"))
+        self.assertIn("(largeMenuLinesCut(rCommand, rCell.look) ? 1 : 0)", added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx"))
+        self.assertIn("PaintedMetrics::metrics()[&rButton].linesFit = nRoom >= 1;", metrics)
 
     def test_medium_label_stays_on_one_line_with_its_accents(self):
         layout = added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx")
-        self.assertIn("| (cLook == 'L' ? WB_CENTER | WB_WORDBREAK : WB_LEFT);", layout)
+        self.assertIn("nStyle = (rLabel.nStyle & ~(WB_CENTER | WB_RIGHT | WB_WORDBREAK)) | WB_LEFT;",
+                      added(PATCH, "vcl/source/control/HstRibbonLadder.cxx"))
+        # one owner of the style: the group's look keeps the word break the menu button's look chose (both setting
+        # it differently laid the ribbon out again and again)
+        self.assertNotIn("WB_RIGHT | WB_WORDBREAK)) | (cLook", layout)
         metrics = added(PATCH, "vcl/source/control/HstRibbonMenuButtonMetrics.cxx")
         self.assertIn("if (cLook == 'M' && nPaintHeight > rInner.GetHeight())", metrics)
         self.assertIn("rDev.SetClipRegion(vcl::Region(aClip));", metrics)
