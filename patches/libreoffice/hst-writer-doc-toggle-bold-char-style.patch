@@ -12,6 +12,53 @@ run without a character style is unchanged.
 Test: CppunitTest_sw_ww8import testToggleBoldOverCharacterStyle (a .doc made by Word 2021, as base64)
 --- a/sw/qa/extras/ww8import/ww8import.cxx
 +++ b/sw/qa/extras/ww8import/ww8import.cxx
+--- a/sw/Library_msword.mk
++++ b/sw/Library_msword.mk
+@@ -119,6 +119,7 @@
+     sw/source/filter/ww8/ww8par4 \
+     sw/source/filter/ww8/ww8par5 \
+     sw/source/filter/ww8/ww8par6 \
++    sw/source/filter/ww8/hstwwtogglestyle \
+     sw/source/filter/ww8/ww8scan \
+     sw/source/filter/ww8/ww8toolbar \
+ ))
+--- a/sw/source/filter/ww8/ww8par6.cxx
++++ b/sw/source/filter/ww8/ww8par6.cxx
+@@ -99,6 +99,7 @@
+ #include "ww8scan.hxx"
+ #include "ww8par2.hxx"
+ #include "ww8graf.hxx"
++#include "hstwwtogglestyle.hxx"
+ 
+ #include <fmtwrapinfluenceonobjpos.hxx>
+ #include <formatflysplit.hxx>
+@@ -3116,12 +3117,13 @@
+     // value: 0 = off, 1 = on, 128 = like style, 129 contrary to style
+     bool bOn = *pData & 1;
+     SwWW8StyInf* pSI = GetStyle(m_nCurrentColl);
++    SwWW8StyInf* pCharSI = nullptr;
+     if (m_xPlcxMan && eVersion > ww::eWW2)
+     {
+         SprmResult aCharIstd =
+             m_xPlcxMan->GetChpPLCF()->HasSprm(m_bVer67 ? NS_sprm::v6::sprmCIstd : NS_sprm::CIstd::val);
+         if (aCharIstd.pSprm && aCharIstd.nRemainingData >= 2)
+-            pSI = GetStyle(SVBT16ToUInt16(aCharIstd.pSprm));
++            pSI = pCharSI = GetStyle(SVBT16ToUInt16(aCharIstd.pSprm));
+     }
+ 
+     if( m_pCurrentColl )                          // StyleDef -> remember flags
+@@ -3149,7 +3151,8 @@
+         // in text -> look at flags
+         if( *pData & 0x80 )                 // bit 7 set?
+         {
+-            if (pSI && pSI->m_n81Flags & nMask)       // and in StyleDef at ?
++            // the style value: paragraph style XOR character style, as Word combines them
++            if (hst::sw::ww8::ToggleStyleValue(GetStyle(m_nCurrentColl), pCharSI, nMask))
+                 bOn = !bOn;                 // then invert
+             // remember on stack that this is a toggle-attribute
+             m_xCtrlStck->SetToggleAttr(nI, true);
+--- a/sw/qa/extras/ww8import/ww8import.cxx
++++ b/sw/qa/extras/ww8import/ww8import.cxx
 @@ -14,12 +14,16 @@
  #include <com/sun/star/text/XTextSectionsSupplier.hpp>
  #include <com/sun/star/text/XTextField.hpp>
@@ -73,6 +120,62 @@ Test: CppunitTest_sw_ww8import testToggleBoldOverCharacterStyle (a .doc made by 
  CPPUNIT_TEST_FIXTURE(Test, testN816593)
  {
      createSwDoc("n816593.doc");
+--- /dev/null
++++ b/sw/source/filter/ww8/hstwwtogglestyle.hxx
+@@ -0,0 +1,29 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <sal/types.h>
++
++class SwWW8StyInf;
++
++namespace hst::sw::ww8
++{
++/** Whether the style value that a toggle property of a run (bold, italic, ...: sprm value 0x80 "as the style",
++    0x81 "opposite of the style") refers to is on.
++
++    Word combines the toggle properties of the paragraph style and of the run's character style: a character style
++    that turns bold on over a bold paragraph style gives regular text, one that leaves bold alone keeps the
++    paragraph style's bold. The style value is the paragraph style's value XOR the character style's. The import
++    looked at the character style alone when the run had one, so text in a character style that does not set bold
++    over a bold Normal style ("opposite of the style": regular in Word) came out bold.
++
++    nMask: the bit of the property in SwWW8StyInf::m_n81Flags. pCharStyle: null when the run has no character
++    style. */
++bool ToggleStyleValue(const SwWW8StyInf* pParaStyle, const SwWW8StyInf* pCharStyle, sal_uInt16 nMask);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/filter/ww8/hstwwtogglestyle.cxx
+@@ -0,0 +1,21 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#include "hstwwtogglestyle.hxx"
++
++#include "ww8par.hxx"
++
++namespace hst::sw::ww8
++{
++bool ToggleStyleValue(const SwWW8StyInf* pParaStyle, const SwWW8StyInf* pCharStyle, sal_uInt16 nMask)
++{
++    const bool bPara = pParaStyle && (pParaStyle->m_n81Flags & nMask);
++    const bool bChar = pCharStyle && (pCharStyle->m_n81Flags & nMask);
++    return bPara != bChar;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sw/qa/extras/ww8import/data/hst-toggle-bold-char-style.doc.b64
 @@ -0,0 +1,396 @@
