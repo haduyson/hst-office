@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """The Print page of the File panel shows all of itself in a small window (hst-backstage-panel-beside-banner.patch):
 in a visible office (Windows: the test user's own session, at the scaling under test, e.g. 125 %), the document
-window is set to each width (1024, 1042, 1366 px by default), .uno:Print opens the Print page, and the page's
-buttons ("In", "Hủy", "Quay lại") must end inside the panel and the printer's status inside its scrolled settings.
+window is set to each width (1024, 1042, 1366 px by default), .uno:Print opens the Print page; the panel must reach
+the window's right edge (it starts below the document tab strip, the banner is above it), and the page's buttons
+("In", "Hủy", "Quay lại") must end inside the panel and the printer's status inside its scrolled settings.
 Positions are the UITest service's (AbsPosition, Size: the window's pixels). Screenshots with --shot.
 Usage: <office python> check-backstage-print-fits.py --soffice PATH --out DIR [--shot CMD] [--widths 1024,1366]
        [--apps swriter,scalc]
@@ -23,6 +24,7 @@ CB = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(CB)
 
 BUTTONS = ("ok", "cancel", "back")  # In, Hủy, Quay lại
+EDGE = 40  # px left free at the window's right: the panel's inset (8 px scaled) and the window frame
 
 
 def rect(widget):
@@ -40,6 +42,8 @@ def check_fits(office, app, width):
         CB.check(False, f"{app} @{width}: the panel and the page's settings are found")
         return
     right, settings_right = rect(panel)[2], rect(settings)[2]
+    # below the document tab strip the banner is above the panel: the panel spans the window but for its insets
+    CB.check(right >= width - EDGE, f"{app} @{width}: the panel reaches the window's right edge ({right} of {width})")
     for oid in BUTTONS:
         widget = CB.panel_button(office, oid)
         if widget is None:
