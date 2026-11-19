@@ -5,7 +5,7 @@ import unohelper
 from . import diag_log
 from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_duplex, nd30_insertion, nd30_layout,
                nd30_open, nd30_writer, blank_rows_calc, number_words_action, sheets, vba, vietnamese_calc)
-from . import citation_command_names, open_in_hst_pdf
+from . import citation_command_names, formula_action, open_in_hst_pdf
 from .dialogs import message_box
 from .wizard_convert import ConvertWizard
 from .wizard_csv import CsvWizard
@@ -179,8 +179,7 @@ COMMANDS = {
     "Nd30Wizard": nd30_wizard,
     "ToggleDuplex": toggle_duplex,
     "ConvertEncoding": convert_encoding,
-    "FormatDate": lambda h: apply_format(h, "date"),
-    "FormatDateLong": lambda h: apply_format(h, "dateLong"),
+    "FormatDate": lambda h: apply_format(h, "date"), "FormatDateLong": lambda h: apply_format(h, "dateLong"),
     "FormatMonthYear": lambda h: apply_format(h, "monthYear"),
     "FormatDateDash": lambda h: apply_format(h, "dateDash"),
     "FormatVnd": lambda h: apply_format(h, "vnd"),
@@ -193,6 +192,7 @@ COMMANDS = {
     "SplitName": sheet_utility(vietnamese_calc.split_name),
     "SortByGivenName": sheet_utility(vietnamese_calc.sort_by_given_name),
     "DeleteBlankRows": sheet_utility(blank_rows_calc.delete_blank_rows),
-    "PreviousVersions": previous_versions,
+    "PreviousVersions": previous_versions, "ConvertFormulas": formula_action.convert_all,
+    "AskConvertFormula": formula_action.ask_convert_selected, "FormulaTemplates": formula_action.insert_templates,
     **{name: citation_command(name) for name in citation_command_names.NAMES},
 }
