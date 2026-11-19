@@ -151,9 +151,9 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +}
 +
 +/// Documents that showed the bar in this session (kept alive on purpose: no destruction at exit)
-+std::vector<cppu::WeakReferenceHelper>& Shown()
++std::vector<uno::WeakReferenceHelper>& Shown()
 +{
-+    static auto* pShown = new std::vector<cppu::WeakReferenceHelper>;
++    static auto* pShown = new std::vector<uno::WeakReferenceHelper>;
 +    return *pShown;
 +}
 +
@@ -161,7 +161,7 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +bool FirstTime(const uno::Reference<uno::XInterface>& xModel)
 +{
 +    auto& rShown = Shown();
-+    std::erase_if(rShown, [](const cppu::WeakReferenceHelper& r) { return !r.get().is(); });
++    std::erase_if(rShown, [](const uno::WeakReferenceHelper& r) { return !r.get().is(); });
 +    for (const auto& r : rShown)
 +        if (r.get() == xModel)
 +            return false;
@@ -262,8 +262,8 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +
 +void ShowLater(void* pModel, void*)
 +{
-+    std::unique_ptr<cppu::WeakReferenceHelper> pWeak(
-+        static_cast<cppu::WeakReferenceHelper*>(pModel));
++    std::unique_ptr<uno::WeakReferenceHelper> pWeak(
++        static_cast<uno::WeakReferenceHelper*>(pModel));
 +    const uno::Reference<uno::XInterface> xModel = pWeak->get();
 +    if (!xModel.is())
 +        return;
@@ -299,7 +299,7 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +        return;
 +    // the view is built while the document opens; the frame shows infobars once it has opened
 +    Application::PostUserEvent(LINK_NONMEMBER(
-+        static_cast<void*>(new cppu::WeakReferenceHelper(
++        static_cast<void*>(new uno::WeakReferenceHelper(
 +            uno::Reference<uno::XInterface>(pDocShell->GetModel(), uno::UNO_QUERY))),
 +        ShowLater));
 +}
