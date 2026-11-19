@@ -8,11 +8,35 @@ formula they chose to send, shown before sending), the model name and the API ke
 no file names, no user name, no machine ID.
 """
 import json
+import threading
 
 from .ai_providers import AiError, PROVIDERS, chat_request, models_request, parse_chat, parse_models
 
 DEADLINE = 120  # seconds, DNS + TLS + generation; thinking models can take a minute
 MODELS_DEADLINE = 20
+# The helper's own deadline starts when its turn comes: the interpreter probe (once per session) and banner or
+# citation helpers queued ahead of it come on top. Past DEADLINE + GRACE the dialog gets the timeout message anyway.
+GRACE = 30
+
+
+def _bounded(call, limit):
+    """call() on its own thread; TimeoutError when it has not returned within `limit` seconds (it is abandoned: a
+    helper it starts later is still killed at its own deadline and its answer dropped)."""
+    box = {}
+
+    def target():
+        try:
+            box["value"] = call()
+        except BaseException as exc:  # noqa: BLE001 - handed to the caller as is
+            box["error"] = exc
+    worker = threading.Thread(target=target, name="hst-ai-helper", daemon=True)
+    worker.start()
+    worker.join(limit)
+    if worker.is_alive():
+        raise TimeoutError("AI request deadline")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
 
 
 class Settings:
@@ -37,7 +61,8 @@ def http_transport(timeout=DEADLINE):
         payload = dict(request, provider=settings.provider, key=settings.key, version=settings.version,
                        proxy=settings.proxy)
         try:
-            data = banner_fetch._run(json.dumps(payload).encode("utf-8"), timeout, "ai_http.py")
+            data = _bounded(lambda: banner_fetch._run(json.dumps(payload).encode("utf-8"), timeout, "ai_http.py"),
+                            timeout + GRACE)
         except TimeoutError as exc:
             raise AiError("timeout") from exc
         except (OSError, ValueError) as exc:  # no answer at all: offline, DNS, TLS, proxy, refused request
