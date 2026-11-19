@@ -776,10 +776,10 @@ index 7bddf0c..a122fb5 100644
  
 diff --git a/sfx2/source/startcenter/hststartcenterfiles.cxx b/sfx2/source/startcenter/hststartcenterfiles.cxx
 new file mode 100644
-index 0000000..9a1dc65
+index 0000000..c667939
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterfiles.cxx
-@@ -0,0 +1,535 @@
+@@ -0,0 +1,537 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -939,14 +939,16 @@ index 0000000..9a1dc65
 +    const OUString aQuery = FoldForSearch(mxSearch->get_text());
 +    const OUString aKeep = mxRecentList->get_selected_id();
 +
++    // the glyphs sit on the list's own background (the field colour of the theme)
++    const Color aField = Application::GetSettings().GetStyleSettings().GetFieldColor();
 +    ScopedVclPtr<VirtualDevice> xPinned
-+        = glyphImage(*mxRecentList, mfScale, Glyph::Pinned, rPalette.aAccent, rPalette.aWindow, true);
++        = glyphImage(*mxRecentList, mfScale, Glyph::Pinned, rPalette.aAccent, aField, true);
 +    ScopedVclPtr<VirtualDevice> xUnpinned
-+        = glyphImage(*mxRecentList, mfScale, Glyph::Pinned, rPalette.aMuted, rPalette.aWindow, false);
++        = glyphImage(*mxRecentList, mfScale, Glyph::Pinned, rPalette.aMuted, aField, false);
 +    ScopedVclPtr<VirtualDevice> xMore
-+        = glyphImage(*mxRecentList, mfScale, Glyph::More, rPalette.aMuted, rPalette.aWindow, false);
++        = glyphImage(*mxRecentList, mfScale, Glyph::More, rPalette.aMuted, aField, false);
 +    ScopedVclPtr<VirtualDevice> xFolder
-+        = glyphImage(*mxRecentList, mfScale, Glyph::Open, rPalette.aMuted, rPalette.aWindow, false);
++        = glyphImage(*mxRecentList, mfScale, Glyph::Open, rPalette.aMuted, aField, false);
 +
 +    const DateTime aNow(DateTime::SYSTEM);
 +    mxRecentList->freeze();
@@ -2830,10 +2832,10 @@ index 0000000..efe60c4
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/uiconfig/ui/hststartcenter.ui b/sfx2/uiconfig/ui/hststartcenter.ui
 new file mode 100644
-index 0000000..275c1e3
+index 0000000..ce9cccb
 --- /dev/null
 +++ b/sfx2/uiconfig/ui/hststartcenter.ui
-@@ -0,0 +1,883 @@
+@@ -0,0 +1,901 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<!-- SPDX-License-Identifier: LicenseRef-HST-Proprietary
 +     HST Office: the Start Center, see sfx2/source/startcenter/hststartcenterwindow.cxx.
@@ -2990,14 +2992,15 @@ index 0000000..275c1e3
 +                <property name="vexpand">True</property>
 +                <property name="orientation">vertical</property>
 +                <property name="spacing">2</property>
-+                <property name="border-width">16</property>
++                <property name="border-width">0</property>
 +                <child>
 +                  <object class="GtkImage" id="logo">
++                    <property name="margin-end">16</property>
 +                    <property name="visible">True</property>
 +                    <property name="can-focus">False</property>
 +                    <property name="halign">start</property>
-+                    <property name="margin-start">6</property>
-+                    <property name="margin-top">4</property>
++                    <property name="margin-start">22</property>
++                    <property name="margin-top">20</property>
 +                    <property name="margin-bottom">24</property>
 +                    <child internal-child="accessible">
 +                      <object class="AtkObject" id="logo-atkobject">
@@ -3012,6 +3015,8 @@ index 0000000..275c1e3
 +                </child>
 +                <child>
 +                  <object class="GtkButton" id="nav_home">
++                    <property name="margin-end">16</property>
++                    <property name="margin-start">16</property>
 +                    <property name="label" translatable="yes" context="hststartcenter|nav_home">Home</property>
 +                    <property name="visible">True</property>
 +                    <property name="can-focus">True</property>
@@ -3026,6 +3031,8 @@ index 0000000..275c1e3
 +                </child>
 +                <child>
 +                  <object class="GtkButton" id="nav_new">
++                    <property name="margin-end">16</property>
++                    <property name="margin-start">16</property>
 +                    <property name="label" translatable="yes" context="hststartcenter|nav_new">New Document</property>
 +                    <property name="visible">True</property>
 +                    <property name="can-focus">True</property>
@@ -3040,6 +3047,8 @@ index 0000000..275c1e3
 +                </child>
 +                <child>
 +                  <object class="GtkButton" id="open_all">
++                    <property name="margin-end">16</property>
++                    <property name="margin-start">16</property>
 +                    <property name="label" translatable="yes" context="hststartcenter|open_all">Open File</property>
 +                    <property name="visible">True</property>
 +                    <property name="can-focus">True</property>
@@ -3054,6 +3063,8 @@ index 0000000..275c1e3
 +                </child>
 +                <child>
 +                  <object class="GtkButton" id="nav_unsaved">
++                    <property name="margin-end">16</property>
++                    <property name="margin-start">16</property>
 +                    <property name="label" translatable="yes" context="hststartcenter|nav_unsaved">Unsaved Documents</property>
 +                    <property name="visible">True</property>
 +                    <property name="can-focus">True</property>
@@ -3068,6 +3079,8 @@ index 0000000..275c1e3
 +                </child>
 +                <child>
 +                  <object class="GtkButton" id="nav_recent">
++                    <property name="margin-end">16</property>
++                    <property name="margin-start">16</property>
 +                    <property name="label" translatable="yes" context="hststartcenter|nav_recent">Recent</property>
 +                    <property name="visible">True</property>
 +                    <property name="can-focus">True</property>
@@ -3082,6 +3095,8 @@ index 0000000..275c1e3
 +                </child>
 +                <child>
 +                  <object class="GtkButton" id="nav_pinned">
++                    <property name="margin-end">16</property>
++                    <property name="margin-start">16</property>
 +                    <property name="label" translatable="yes" context="hststartcenter|nav_pinned">Pinned</property>
 +                    <property name="visible">True</property>
 +                    <property name="can-focus">True</property>
@@ -3096,6 +3111,8 @@ index 0000000..275c1e3
 +                </child>
 +                <child>
 +                  <object class="GtkButton" id="nav_update">
++                    <property name="margin-end">16</property>
++                    <property name="margin-start">16</property>
 +                    <property name="label" translatable="yes" context="hststartcenter|nav_update">Update HST Office</property>
 +                    <property name="visible">True</property>
 +                    <property name="can-focus">True</property>
@@ -3112,8 +3129,8 @@ index 0000000..275c1e3
 +                  <object class="GtkSeparator" id="separator">
 +                    <property name="visible">True</property>
 +                    <property name="can-focus">False</property>
-+                    <property name="margin-start">6</property>
-+                    <property name="margin-end">6</property>
++                    <property name="margin-start">22</property>
++                    <property name="margin-end">22</property>
 +                    <property name="margin-top">20</property>
 +                    <property name="margin-bottom">16</property>
 +                  </object>
@@ -3124,6 +3141,9 @@ index 0000000..275c1e3
 +                </child>
 +                <child>
 +                  <object class="GtkBox" id="solutions">
++                    <property name="margin-bottom">16</property>
++                    <property name="margin-end">16</property>
++                    <property name="margin-start">16</property>
 +                    <property name="visible">True</property>
 +                    <property name="can-focus">False</property>
 +                    <property name="orientation">vertical</property>
