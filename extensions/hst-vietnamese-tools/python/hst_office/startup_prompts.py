@@ -9,7 +9,9 @@ it moves; it returns False off macOS and once the app is in /Applications. The f
 ends the modal chain for this start; every later step waits for a later start, because each one keeps its own state
 until it is shown (welcome: Shown; default apps: Asked/LastAsked; update outcome: its state file). A crash question
 skipped behind the move question is not carried over: the recovery state is read once per start. The update check
-itself is not modal (an infobar) and always runs last.
+itself is not modal (an infobar) and always runs last. Before the questions, an installed macOS copy puts its app
+launchers in /Applications or refreshes them (mac_app_launchers_ui.sync_at_startup, no dialog); the one-time notice
+about them ("mac_launchers") comes after the welcome dialog, so a first start still opens with the welcome.
 
 Runs on the main thread after the Start Center has painted and after a document opened at start has loaded
 (welcome_job.run_later), never inside the job and never inside a document import. When the user has started working
@@ -24,7 +26,7 @@ from com.sun.star.task import XJob
 from . import diag_log
 
 JOB_NAME = "org.hst.office.vi.StartupPromptsJob"
-ORDER = ("mac_move", "profile_repaired", "crash", "welcome", "default_apps", "update_outcome")
+ORDER = ("mac_move", "profile_repaired", "crash", "welcome", "mac_launchers", "default_apps", "update_outcome")
 
 
 def run_chain(steps):
@@ -79,6 +81,17 @@ def _welcome(ctx):
     return True
 
 
+def _mac_launchers(ctx):
+    from . import mac_app_launchers_ui
+    return mac_app_launchers_ui.notice_once(ctx)
+
+
+def _sync_mac_launchers(ctx):
+    if platform.system() == "Darwin":
+        from . import mac_app_launchers_ui
+        mac_app_launchers_ui.sync_at_startup(ctx)
+
+
 def _default_apps(ctx):
     from . import default_apps
     return default_apps.offer_at_startup(ctx, _parent(ctx))
@@ -96,7 +109,7 @@ def _update_check(ctx):
 
 def steps_for(ctx):
     table = {"crash": _crash, "mac_move": _mac_move, "profile_repaired": _profile_repaired, "welcome": _welcome, "default_apps": _default_apps,
-             "update_outcome": _update_outcome}
+             "mac_launchers": _mac_launchers, "update_outcome": _update_outcome}
     return [(name, (lambda fn=table[name]: fn(ctx))) for name in ORDER]
 
 
@@ -106,11 +119,16 @@ def only_after_work(steps):
     return [(name, step) for name, step in steps if name == "crash"]
 
 
-def run(ctx, steps=None, after=None, before=None):
-    """The whole start: the modal chain, then the non-modal update check. Returns the name of the modal shown.
+def run(ctx, steps=None, after=None, before=None, prepare=None):
+    """The whole start: the macOS launchers, the modal chain, then the non-modal update check. Returns the name of the
+    modal shown.
 
     before: startup_activity.snapshot() taken when the questions were scheduled; when the user has started working
     since, only the crash question may still open a modal."""
+    try:
+        (prepare or _sync_mac_launchers)(ctx)
+    except Exception:  # noqa: BLE001 - never break start-up
+        diag_log.exception("startup_prompts")
     steps = steps if steps is not None else steps_for(ctx)
     if before is not None and _started_working(ctx, before):
         steps = only_after_work(steps)

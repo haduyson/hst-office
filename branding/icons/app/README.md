@@ -11,8 +11,9 @@ Thiết kế "Tile": ô vuông bo góc theo màu module, glyph trắng lớn, d�
 | `hst-draw` | Vẽ | `#F2A900` | tròn + tam giác (glyph nâu `#44300D`) |
 | `hst-math` | Công thức | `#0F8A8A` | dấu căn |
 | `hst-base` | Cơ sở dữ liệu | `#7B3FC4` | trụ dữ liệu |
+| `hst-pdf` | HST PDF | `#D0312D` | trang giấy gấp góc với chữ "PDF" (màu thân) |
 
-`<tên>.svg` là bản gốc thiết kế: lưới 1024, thân ô 100–924, SVG 1.1 thuần, không ảnh nhúng, không chữ. `<tên>.png` là bản 1024×1024 RGBA render từ SVG và được commit.
+`<tên>.svg` là bản gốc thiết kế: lưới 1024, thân ô 100–924, SVG 1.1 thuần, không ảnh nhúng, không chữ. Riêng `hst-pdf` có chữ "PDF" (chủ dự án duyệt 19/11/2026), vẽ bằng đường viền hình học, không dùng font. `<tên>.png` là bản 1024×1024 RGBA render từ SVG và được commit.
 
 ## Sinh lại
 
@@ -37,3 +38,6 @@ Generator chỉ đọc PNG gốc nên `--check` trên CI không phụ thuộc ph
 - Dấu HST được dựng lại dạng vector từ `assets/brand/hst-office-mark.png`, IoU 0,990 so với ảnh gốc.
 - Chủ dự án chọn phương án 1 (Tile) ngày 2026-10-30, giữ nguyên thiết kế. Bảng xem trước: [preview-sheet.png](provenance/preview-sheet.png).
 - Tiêu đề trong SVG được đổi thành tên sản phẩm. Mọi hình vẽ giữ nguyên như Codex tạo.
+- `hst-pdf` (19/11/2026): dựng theo cùng mẫu Tile (thân, dấu HST, bóng lấy từ `hst-draw`), thân đỏ thẫm, trang giấy
+  trắng gấp góc và chữ "PDF" đậm dạng đường viền vẽ tay (chữ nhật + cung tròn). Chủ dự án duyệt một bản gốc cho mọi
+  kích thước, không có biến thể cỡ nhỏ.
