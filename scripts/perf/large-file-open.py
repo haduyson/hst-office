@@ -22,7 +22,6 @@ import os
 import shutil
 import subprocess
 import sys
-import tempfile
 import threading
 import time
 
@@ -69,7 +68,8 @@ def one_open(a, path, profile, pipe):
     if a.mode == "cli":  # as a double-click: the file on the command line
         args.append(os.path.abspath(path))
     office = subprocess.Popen(procs.limit_cpus(args, a.cpus))
-    save_to = os.path.join(tempfile.gettempdir(), "lfo-save-" + os.path.basename(path)) if a.save else "-"
+    # in this run's own output directory: two runs that save the same file must not share (and lock) one copy
+    save_to = os.path.join(os.path.abspath(a.out), "lfo-save-" + os.path.basename(path)) if a.save else "-"
     client = subprocess.Popen([a.python, CLIENT, pipe, os.path.abspath(path),
                                {"headless": "1", "gui": "0"}.get(a.mode, "cli"), save_to],
                               stdout=subprocess.PIPE, text=True)

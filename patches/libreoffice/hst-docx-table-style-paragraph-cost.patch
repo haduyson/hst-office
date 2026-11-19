@@ -1,0 +1,146 @@
+Writer: DOCX/RTF table import reads each cell paragraph's style name and property names once.
+
+For every paragraph of a table whose style (or the table defaults) sets paragraph or character properties,
+DomainMapperTableHandler::ApplyParagraphPropertiesFromTableStyle asked the paragraph for its style name once per
+table style property, rebuilt the list of all ~400 paragraph property names from the property set info, and
+SwXParagraph's state check created a cursor (SwPosition + SwPaM, registered in the node) for every one of those
+~400 properties. In a 5 MB DOCX with 4400 tables this was 30 % of the import, 3.5 % of it for the style name alone.
+
+Now the style name is read once per paragraph (nothing in the loop changes it), the property names are kept while
+the property set info stays the same (it is one static object for all paragraphs), and the state check creates its
+cursor only for the three properties that need one (numbering rules, paragraph style, page style). The values
+collected and the autostyle applied to each paragraph are unchanged.
+
+Test: CppunitTest_sw_writerfilter_dmapper, CppunitTest_sw_ooxmlimport, CppunitTest_sw_ooxmlexport,
+CppunitTest_sw_rtfimport; DOCX->ODT of the upstream sw/qa .docx files gives the same output as before.
+---
+--- a/sw/source/writerfilter/dmapper/DomainMapperTableHandler.cxx
++++ b/sw/source/writerfilter/dmapper/DomainMapperTableHandler.cxx
+@@ -1203,7 +1203,7 @@
+ 
+ // table style has got bigger precedence than docDefault style,
+ // but lower precedence than the paragraph styles and direct paragraph formatting
+-void DomainMapperTableHandler::ApplyParagraphPropertiesFromTableStyle(TableParagraph rParaProp, std::vector< PropertyIds > aAllTableParaProperties, const css::beans::PropertyValues& rCellProperties)
++void DomainMapperTableHandler::ApplyParagraphPropertiesFromTableStyle(const TableParagraph& rParaProp, const std::vector< PropertyIds >& aAllTableParaProperties, const css::beans::PropertyValues& rCellProperties)
+ {
+     // Setting paragraph or character properties using setPropertyValue may have unwanted
+     // side effects; e.g., setting a paragraph's font size can reset font size in a runs
+@@ -1215,6 +1215,7 @@
+     //    paragraph style or direct formatting
+     std::vector<beans::PropertyValue> aProps;
+     std::optional<OUString> oParagraphText;
++    std::optional<OUString> oParaStyleName; // read once: nothing below changes it before step 4
+ 
+     for( auto eId : aAllTableParaProperties )
+     {
+@@ -1309,8 +1310,12 @@
+                         continue;
+                     }
+                 }
+-                OUString sParaStyleName;
+-                rParaProp.m_rPropertySet->getPropertyValue(u"ParaStyleName"_ustr) >>= sParaStyleName;
++                if (!oParaStyleName)
++                {
++                    oParaStyleName.emplace();
++                    rParaProp.m_rPropertySet->getPropertyValue(u"ParaStyleName"_ustr) >>= *oParaStyleName;
++                }
++                const OUString& sParaStyleName = *oParaStyleName;
+                 bool bDocDefault;
+                 uno::Any aParaStyle = m_rDMapper_Impl.GetPropertyFromStyleSheet(eId,
+                         m_rDMapper_Impl.GetStyleSheetTable()->FindStyleSheetByConvertedStyleName(sParaStyleName),
+@@ -1362,10 +1367,15 @@
+         // 2. Get all properties directly defined in the paragraph
+         uno::Reference<beans::XPropertySetInfo> xPropSetInfo(
+             rParaProp.m_rPropertySet->getPropertySetInfo(), uno::UNO_SET_THROW);
+-        auto props = xPropSetInfo->getProperties();
+-        uno::Sequence<OUString> propNames(props.getLength());
+-        std::transform(props.begin(), props.end(), propNames.getArray(),
+-                       [](const beans::Property& prop) { return prop.Name; });
++        if (xPropSetInfo != m_xParaPropertyInfo)
++        {
++            auto props = xPropSetInfo->getProperties();
++            m_aParaPropertyNames.realloc(props.getLength());
++            std::transform(props.begin(), props.end(), m_aParaPropertyNames.getArray(),
++                           [](const beans::Property& prop) { return prop.Name; });
++            m_xParaPropertyInfo = xPropSetInfo;
++        }
++        const uno::Sequence<OUString>& propNames = m_aParaPropertyNames;
+         uno::Reference<beans::XTolerantMultiPropertySet> xTolPara(rParaProp.m_rPropertySet,
+                                                                   uno::UNO_QUERY_THROW);
+         // getDirectPropertyValuesTolerant requires a sorted sequence.
+--- a/sw/source/writerfilter/dmapper/DomainMapperTableHandler.hxx
++++ b/sw/source/writerfilter/dmapper/DomainMapperTableHandler.hxx
+@@ -66,6 +66,10 @@
+     PropertyMapVector2      m_aCellProperties;
+     PropertyMapVector1      m_aRowProperties;
+     TablePropertyMapPtr     m_aTableProperties;
++    /// Names of all properties of the paragraph property set info last seen in
++    /// ApplyParagraphPropertiesFromTableStyle (the same info for every paragraph).
++    css::uno::Reference<css::beans::XPropertySetInfo> m_xParaPropertyInfo;
++    css::uno::Sequence<OUString> m_aParaPropertyNames;
+ 
+     TableStyleSheetEntry * endTableGetTableStyle(TableInfo & rInfo,
+                     std::vector<css::beans::PropertyValue>& rFrameProperties,
+@@ -87,7 +91,7 @@
+      */
+     void startTable(const TablePropertyMapPtr& pProps);
+ 
+-    void ApplyParagraphPropertiesFromTableStyle(TableParagraph rParaProp, std::vector< PropertyIds > aAllTableProperties, const css::beans::PropertyValues & rCellProperties);
++    void ApplyParagraphPropertiesFromTableStyle(const TableParagraph& rParaProp, const std::vector< PropertyIds >& aAllTableProperties, const css::beans::PropertyValues & rCellProperties);
+ 
+     /// Handle end of table.
+     void endTable(unsigned int nestedTableLevel);
+--- a/sw/source/core/unocore/unoparagraph.cxx
++++ b/sw/source/core/unocore/unoparagraph.cxx
+@@ -62,6 +62,7 @@
+ #include <svx/unobrushitemhelper.hxx>
+ #include <svx/xflbmtit.hxx>
+ #include <svx/xflbstit.hxx>
++#include <optional>
+ 
+ using namespace ::com::sun::star;
+ 
+@@ -880,8 +881,14 @@
+         rAttrSetFetched = true;
+     }
+ 
+-    SwPosition aPos(rTextNode);
+-    SwPaM aPam(aPos);
++    // Only a few properties need a cursor: creating one for every queried property costs more than
++    // the state check itself when all properties of a paragraph are queried.
++    std::optional<SwPaM> oPam;
++    auto aPam = [&]() -> SwPaM& {
++        if (!oPam)
++            oPam.emplace(SwPosition(rTextNode));
++        return *oPam;
++    };
+     bool bDone(false);
+ 
+     switch(rEntry.nWID)
+@@ -889,7 +896,7 @@
+         case FN_UNO_NUM_RULES:
+         {
+             // if numbering is set, return it; else do nothing
+-            SwUnoCursorHelper::getNumberingProperty(aPam,eRet,nullptr);
++            SwUnoCursorHelper::getNumberingProperty(aPam(),eRet,nullptr);
+             bDone = true;
+             break;
+         }
+@@ -911,7 +918,7 @@
+         case FN_UNO_PARA_STYLE:
+         case FN_UNO_PARA_CONDITIONAL_STYLE_NAME:
+         {
+-            SwFormatColl* pFormat = SwUnoCursorHelper::GetCurTextFormatColl(aPam,rEntry.nWID == FN_UNO_PARA_CONDITIONAL_STYLE_NAME);
++            SwFormatColl* pFormat = SwUnoCursorHelper::GetCurTextFormatColl(aPam(),rEntry.nWID == FN_UNO_PARA_CONDITIONAL_STYLE_NAME);
+             eRet = pFormat ? beans::PropertyState_DIRECT_VALUE : beans::PropertyState_AMBIGUOUS_VALUE;
+             bDone = true;
+             break;
+@@ -919,7 +926,7 @@
+         case FN_UNO_PAGE_STYLE:
+         {
+             ProgName sVal;
+-            SwUnoCursorHelper::GetCurPageStyle( aPam, sVal );
++            SwUnoCursorHelper::GetCurPageStyle( aPam(), sVal );
+             eRet = !sVal.isEmpty() ? beans::PropertyState_DIRECT_VALUE
+                               : beans::PropertyState_AMBIGUOUS_VALUE;
+             bDone = true;
