@@ -107,10 +107,12 @@ def write_rtf(docx, path, in_table=False):
     progid = name + b"\0"
     ole1 = struct.pack("<III", 0x501, 2, len(progid)) + progid + struct.pack("<III", 0, 0, len(native)) + native
     ole1 += struct.pack("<II", 0x501, 0)
-    result = b"{\\result {\\pict%s\\picwgoal600\\pichgoal300 %s}}" % (keyword, picture.hex().encode())
+    # MathType's baseline: Word lowers the run 3 pt; MathType writes \\dn in \\result, a cell gets it round \\object
+    inner, outer = (b"", b"\\dn6 ") if in_table else (b"\\dn6 ", b"")
+    result = b"{\\result {%s{\\pict%s\\picwgoal600\\pichgoal300 %s}}}" % (inner, keyword, picture.hex().encode())
     body = b"{\\object\\objemb\\objw600\\objh300{\\*\\objclass %s}{\\*\\objdata %s}%s}" % (
         name, ole1.hex().encode(), result)
-    body = b"{\\f0\\fs24 A {\\dn6 " + body + b"} B}"  # MathType's baseline: Word lowers the run 3 pt
+    body = b"{\\f0\\fs24 A {" + outer + body + b"} B}"
     # space after the paragraph, as in Word's Normal style
     body = b"\\pard%s\\sa160 " % (b"\\intbl" if in_table else b"") + body
     if in_table:
@@ -164,6 +166,8 @@ def main():
             if source in (rtf, in_table):  # an RTF object has no wrap distance, whatever the paragraph spacing
                 record("%s opens with no margin round the equation" % os.path.basename(source),
                        sizes and all(size[3:] == (0, 0) for size in sizes), sizes)
+                record("%s opens with the equation lowered by \\dn6 (3 pt)" % os.path.basename(source),
+                       sizes and all(abs(size[2] + size[1] - 105) <= 2 for size in sizes), sizes)
             for extension, filter_name in FILTERS.items():
                 saved = os.path.join(workdir, os.path.basename(source) + ".saved" + extension)
                 doc.storeToURL(office.url(saved), headless_office.props(FilterName=filter_name))
