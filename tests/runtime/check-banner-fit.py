@@ -14,6 +14,9 @@ does) and per theme (the office's own appearance setting), in a window of --size
     box (no inset, no background around it);
   - the ribbon's body is one surface behind the banner: left of it and right of it the screenshot shows the body's
     colour (the most common colour of the body beside the groups), not the tab control's own background;
+  - the tab row is one surface across the window (owner, 20/11/2026): every tab title's box shows the header's
+    colour as its background, and the row through the titles shows it from the first title to the window's right
+    edge, apart from the titles and the other widgets on the row (quick access toolbar, search box, menu button);
   - on every tab of the ribbon (each one opened by a click on it; Tệp tin opens the File panel and is left out) the
     banner stands flush with the right end of the ribbon's content area: its right edge is the window's right edge
     less the 8 px margin, the same box on every tab (owner decision 19/11/2026), the free room left of it.
@@ -115,6 +118,56 @@ def body_continuous(shot_path, box, frame):
     return not off, (f"body {body}, beside the banner {off}" if off else f"body {body} on both sides")
 
 
+def row_widgets(candidates, tabs, frame):
+    """The boxes among `candidates` that are other widgets on the tab row (quick access toolbar, search box, menu
+    button): opaque by design, so the header's colour is not asked of them."""
+    top, bottom = min(t[1] for t in tabs), max(t[1] + t[3] for t in tabs)
+    return [box for box in candidates
+            if box[1] + box[3] > top and box[1] < bottom and box[2] < frame[2] // 2 and box[3] <= bottom - top + 16]
+
+
+def header_widgets(tabs, frame):
+    """row_widgets of the showing buttons, texts and toolbars of the ribbon (AT-SPI)."""
+    roles = ("push button", "toggle button", "text", "entry", "combo box", "tool bar")
+    bottom = max(t[1] + t[3] for t in tabs)
+    return row_widgets([box for _name, _role, box, _node in tabs_gui.ribbon_nodes(roles, band=bottom)], tabs, frame)
+
+
+def header_continuous(shot_path, titles, widgets, frame):
+    """(ok, detail): the tab row is one surface from the first tab title to the window's right edge.
+
+    `titles`: [(name, box)] of the tab titles. The header colour is the most common colour inside their boxes. Every
+    title's box (but Tệp tin's, a coloured button by design) shows it as its own background, and the row through the
+    titles' middle shows it everywhere from the first title to the window's right edge, apart from the titles and
+    the other widgets on the row (`widgets`)."""
+    shot = numpy.asarray(Image.open(shot_path).convert("RGB"), dtype=int)
+    tabs = [box for _name, box in titles]
+    tab_px = numpy.concatenate([shot[y:y + h, x:x + w].reshape(-1, 3) for x, y, w, h in tabs])
+    colours, counts = numpy.unique(tab_px, axis=0, return_counts=True)
+    header = colours[counts.argmax()]
+
+    def near(pixels):
+        return numpy.abs(pixels - header).max(axis=-1) <= 6
+
+    bad = []
+    for name, (x, y, w, h) in titles:
+        inside = near(shot[y:y + h, x:x + w]).mean()
+        if name not in SKIP_TABS and inside < 0.5:
+            bad.append(f"{name} (x={x}..{x + w - 1}) on another surface ({inside:.0%} header colour)")
+    mid = sorted(t[1] + t[3] // 2 for t in tabs)[len(tabs) // 2]
+    left, right = min(t[0] for t in tabs), frame[0] + frame[2] - 3
+    covered = numpy.zeros(right + 1, dtype=bool)
+    for x, y, w, h in tabs + list(widgets):
+        if y <= mid < y + h:
+            covered[max(x, 0):x + w] = True
+    columns = [x for x in range(left, right + 1) if not covered[x]]
+    off = [x for x in columns if not near(shot[mid, x])]
+    if len(off) > max(2, len(columns) // 50):
+        bad.append(f"{len(off)} of {len(columns)} px of the tab row off the header, from x={off[0]} to x={off[-1]}")
+    colour = tuple(int(v) for v in header)
+    return not bad, "; ".join(bad) or f"header {colour} from x={left} to x={right} under {len(tabs)} titles"
+
+
 def set_scale(display, scale):
     subprocess.run(["xrdb", "-display", display, "-merge", "-"], input="Xft.dpi: %d\n" % round(96 * scale),
                    text=True, check=False)
@@ -159,6 +212,13 @@ def run_case(args, app, scale, theme, catalogue, results):
         if args.shots:
             os.makedirs(args.shots, exist_ok=True)
             shutil.copy(path, os.path.join(args.shots, f"{case}.png"))
+        titles = [(t[0], t[1]) for t in tabs_gui.ribbon_tabs()]
+        if titles:
+            ok, detail = header_continuous(path, titles, header_widgets([t[1] for t in titles], frame), frame)
+        else:
+            ok, detail = False, "no ribbon tabs found"
+        results.append({"case": f"{case}-header", "status": "PASS" if ok else "FAIL", "detail": detail})
+        print(f"{'PASS' if ok else 'FAIL'}  {case}-header  {detail}", flush=True)
         ok, detail = flush_right_on_every_tab(args, frame)
         results.append({"case": f"{case}-tabs", "status": "PASS" if ok else "FAIL", "detail": detail})
         print(f"{'PASS' if ok else 'FAIL'}  {case}-tabs  {detail}", flush=True)
