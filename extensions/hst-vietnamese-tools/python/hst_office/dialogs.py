@@ -8,7 +8,7 @@ import uno
 import unohelper
 from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
-from . import dialog_edit_heights, screen_work_area
+from . import dialog_edit_heights, dialog_registry, screen_work_area
 
 OK, CANCEL = 1, 2
 # Accent text colours that stay readable (contrast >= 4.5:1) on the light and on the dark dialog background.
@@ -167,7 +167,7 @@ class Dialog:
         if self.on_ready:
             self.on_ready()
         try:
-            self.dialog.execute()
+            dialog_registry.execute(self.dialog)  # registered: a modal dialog keeps the office from quitting
             return self.result
         finally:
             if self.on_closed:

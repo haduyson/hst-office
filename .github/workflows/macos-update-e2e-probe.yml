@@ -1,0 +1,77 @@
+# SPDX-License-Identifier: AGPL-3.0-only
+name: macOS update e2e probe
+# Evidence only: "Cập nhật ngay" end to end on a GUI runner, dispatched on a document like the infobar button, with the
+# published signed dmgs (scripts/macos/update-e2e-probe.sh). Does the office quit, the helper swap the bundle in
+# /Applications and the new office open again?
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: macos-update-e2e-probe-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # This branch's own (unsigned) arm64 dmg as the installed app, its welcome dialog left open, updated to
+          # the published signed 1.0.2: the update must close the dialog, install, reopen the office and the document.
+          - {name: branch-dmg-welcome-open, installed: "branch", scenario: shipped, pretend: "1.0.1", close_welcome: "", keep_welcome: "1"}
+    name: probe ${{ matrix.name }}
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Fetch the published arm64 dmgs (sha256 checked)
+        timeout-minutes: 30
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bash scripts/macos/fetch-verified-dmg.sh "$RUNNER_TEMP/dmg/1.0.1/HSTOffice_1.0.1_macOS_arm64.dmg" \
+            3b1850d681eab4b8b3488c896f0f79b3a4b78c86d7d3dbbd2c370b37685e9642 43060602039 \
+            hst-office-macos-arm64-dmg-signed-43060602039 https://office.hasontech.vn/tai/1.0.1/HSTOffice_1.0.1_macOS_arm64.dmg
+          bash scripts/macos/fetch-verified-dmg.sh "$RUNNER_TEMP/dmg/1.0.2/HSTOffice_1.0.2_macOS_arm64.dmg" \
+            2dd66779423083d3ddcb8ccc95f2d6d914eb0f861278bf7ce8e123109ec33e2b 43814629096 \
+            hst-office-macos-arm64-dmg-signed-43814629096 https://office.hasontech.vn/tai/1.0.2/HSTOffice_1.0.2_macOS_arm64.dmg
+      - name: Fetch this branch's dmg (Desktop macOS run of the branch)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INSTALLED: ${{ matrix.installed }}
+        run: |
+          set -euo pipefail
+          if [ "$INSTALLED" = branch ]; then
+            gh run download 44212432755 --repo "$GITHUB_REPOSITORY" --name hst-office-macos-arm64-dmg-44212432755 --dir "$RUNNER_TEMP/branch"
+            mkdir -p "$RUNNER_TEMP/dmg/branch"
+            mv "$(find "$RUNNER_TEMP/branch" -name '*.dmg' -print -quit)" "$RUNNER_TEMP/dmg/branch/HSTOffice_branch_macOS_arm64.dmg"
+          fi
+      - name: Probe
+        shell: bash
+        env:
+          PRETEND: ${{ matrix.pretend }}
+          CLOSE_WELCOME: ${{ matrix.close_welcome }}
+          KEEP_WELCOME: ${{ matrix.keep_welcome }}
+        run: |
+          bash scripts/macos/update-e2e-probe.sh "$RUNNER_TEMP/dmg/${{ matrix.installed }}/HSTOffice_${{ matrix.installed }}_macOS_arm64.dmg" \
+            "$RUNNER_TEMP/dmg/1.0.2/HSTOffice_1.0.2_macOS_arm64.dmg" "${{ matrix.scenario }}" "$RUNNER_TEMP/probe"
+      - name: Summarize
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [ -f "$RUNNER_TEMP/probe/summary.md" ]; then cat "$RUNNER_TEMP/probe/summary.md" >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: ${{ always() }}
+        with:
+          name: macos-update-e2e-${{ matrix.name }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/probe/
+          if-no-files-found: error
+          retention-days: 7
