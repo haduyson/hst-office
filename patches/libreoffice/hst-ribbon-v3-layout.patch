@@ -2394,7 +2394,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
-@@ -0,0 +1,748 @@
+@@ -0,0 +1,766 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2881,8 +2881,16 @@ License: these upstream files remain under their original license (MPL-2.0).
 +struct BoxClip
 +{
 +    tools::Long height = 0, shown = 0;
-+    OString by;
++    OString by, chain; // chain: the box's border window, the box, then each window up to the toolbox (type:id:rect)
 +};
++
++OString windowRect(const vcl::Window& rWindow, const vcl::Window& rOrigin)
++{
++    const tools::Rectangle aRect = rectIn(rWindow, rOrigin);
++    return OString::number(static_cast<sal_Int32>(rWindow.GetType())) + ":" + jsonText(rWindow.get_id()) + ":"
++           + OString::number(sal_Int64(aRect.Left())) + "," + OString::number(sal_Int64(aRect.Top())) + ","
++           + OString::number(sal_Int64(aRect.GetWidth())) + "x" + OString::number(sal_Int64(aRect.GetHeight()));
++}
 +
 +BoxClip boxClip(const vcl::Window& rCommand, const vcl::Window& rGroup, const vcl::Window& rOrigin)
 +{
@@ -2914,7 +2922,16 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            }
 +            const tools::Long nShown = aShown.IsEmpty() ? 0 : aShown.GetHeight();
 +            if (nHeight - nShown > aWorst.height - aWorst.shown)
-+                aWorst = BoxClip{ nHeight, nShown, aBy };
++            {
++                OString aChain = windowRect(*pFramed->GetWindow(GetWindowType::Border), rOrigin);
++                for (const vcl::Window* pUp = pFramed; pUp; pUp = pUp->GetParent())
++                {
++                    aChain += " < " + windowRect(*pUp, rOrigin);
++                    if (pUp == &rCommand)
++                        break;
++                }
++                aWorst = BoxClip{ nHeight, nShown, aBy, aChain };
++            }
 +        }
 +    }
 +    return aWorst;
@@ -3131,7 +3148,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                rOut.append(aNativeCut.empty() ? "false" : "true");
 +                if (const BoxClip aClip = boxClip(rCommand, rGroup, rOrigin); aClip.shown < aClip.height)
 +                    rOut.append(",\"box_clip\":{\"h\":" + OString::number(sal_Int64(aClip.height)) + ",\"shown\":"
-+                                + OString::number(sal_Int64(aClip.shown)) + ",\"by\":\"" + aClip.by + "\"}");
++                                + OString::number(sal_Int64(aClip.shown)) + ",\"by\":\"" + aClip.by + "\",\"chain\":\""
++                                + aClip.chain + "\"}");
 +                rOut.append("}");
 +                bFirst = false;
 +            }
