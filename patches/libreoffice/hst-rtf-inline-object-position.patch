@@ -4,9 +4,10 @@ MathType writes \dn on the run of each formula (an Equation.DSMT4 \object whose 
 run) so the formula baseline meets the text baseline. The RTF reader only sent character properties with text,
 so the object never got the run's position: every formula sat raised, lines grew taller and a worksheet that is
 6 pages in Word became 8 pages. The reader now sends the run's position (ooxml position sprm, half-points) in a
-character group around the OLE object of \object and around an inline \pict (also buffered, in table cells,
-where the \result picture is used instead of the object); the mapper then applies it like the .docx import
-(hst-docx-inline-object-position.patch: VertOrient NONE at -height - position).
+character group around an inline \pict (also buffered, in table cells, where the \result picture is used instead
+of the object); the mapper then applies it like the .docx import (hst-docx-inline-object-position.patch:
+VertOrient NONE at -height - position). The OLE object of \object itself gets its run position from the
+equation import (hst-mathtype5-import-routing.patch, RTFDocumentImpl::sendObject).
 
 Test: CppunitTest_sw_rtfimport testRunPositionMovesInlineObjects (an object with \dn in its \result, the
 \result picture of an object in a table cell, a plain picture in a \dn run, an object without \dn).
@@ -14,10 +15,9 @@ Test: CppunitTest_sw_rtfimport testRunPositionMovesInlineObjects (an object with
 License: these upstream files remain under their original license (MPL-2.0).
 ---
 diff --git a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
-index 6ad758c..3598244 100644
 --- a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
 +++ b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
-@@ -691,6 +691,24 @@ void RTFDocumentImpl::checkNeedPap()
+@@ -691,6 +691,24 @@
      }
  }
  
@@ -42,17 +42,7 @@ index 6ad758c..3598244 100644
  void RTFDocumentImpl::runProps()
  {
      if (!m_aStates.top().getCurrentBuffer())
-@@ -1150,6 +1168,9 @@ void RTFDocumentImpl::resolvePict(bool const bInline, uno::Reference<drawing::XS
- 
-         auto pShapeValue = new RTFValue(xShape);
-         m_aObjectAttributes.set(NS_ooxml::LN_shape, pShapeValue);
-+        // Word moves the run holding the object by its \up / \dn (MathType writes \dn so the formula
-+        // baseline meets the text baseline); the picture's group inherits it from the run.
-+        m_pObjectPosition = getRunPosition();
-         return;
-     }
- 
-@@ -1316,18 +1337,39 @@ void RTFDocumentImpl::resolvePict(bool const bInline, uno::Reference<drawing::XS
+@@ -1316,18 +1334,39 @@
      }
      checkFirstRun();
  
@@ -93,32 +83,10 @@ index 6ad758c..3598244 100644
      }
  }
  
-@@ -3008,10 +3050,20 @@ RTFError RTFDocumentImpl::beforePopState(RTFParserState& rState)
-                 pShape->getAny() >>= xShape;
-             if (xShape.is())
-             {
-+                // The run's position goes with the object, as w:position of a .docx run does: the
-+                // mapper gives an as-character object VertOrient NONE below the baseline by it.
-+                if (m_pObjectPosition)
-+                {
-+                    Mapper().startCharacterGroup();
-+                    sendRunPosition(m_pObjectPosition);
-+                }
-                 Mapper().startShape(xShape);
-                 Mapper().props(pProperties);
-                 Mapper().endShape();
-+                if (m_pObjectPosition)
-+                    Mapper().endCharacterGroup();
-             }
-+            m_pObjectPosition.clear();
-             m_aObjectAttributes.clear();
-             m_aOLEAttributes.clear();
-             m_bObject = false;
 diff --git a/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx b/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx
-index 0436f51..03f0ead 100644
 --- a/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx
 +++ b/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx
-@@ -787,6 +787,10 @@ private:
+@@ -787,6 +787,10 @@
      void singleChar(sal_uInt8 nValue, bool bRunProps = false);
      // Sends run properties to dmapper, taking care of buffering.
      void runProps();
@@ -129,20 +97,10 @@ index 0436f51..03f0ead 100644
      void runBreak();
      void parBreak();
      void tableBreak();
-@@ -940,6 +944,8 @@ private:
-     /// OLE attributes are attributes of the ooxml:OLEObject_OLEObject sprm.
-     RTFSprms m_aOLEAttributes;
-     RTFSprms m_aObjectAttributes;
-+    /// \up / \dn of the run that holds the object's \result picture (half-points, positive raises).
-+    RTFValue::Pointer_t m_pObjectPosition;
-     /** If we are in an object group and if the we use its
-      *  \objdata element.
-      *  (if we don't use the \objdata we use the \result element)*/
 diff --git a/sw/qa/extras/rtfimport/rtfimport.cxx b/sw/qa/extras/rtfimport/rtfimport.cxx
-index 488e333..04e0997 100644
 --- a/sw/qa/extras/rtfimport/rtfimport.cxx
 +++ b/sw/qa/extras/rtfimport/rtfimport.cxx
-@@ -1000,6 +1000,30 @@ CPPUNIT_TEST_FIXTURE(Test, testTdf166191)
+@@ -1000,6 +1000,30 @@
      CPPUNIT_ASSERT_EQUAL(12.0f, getProperty<float>(textRun, u"CharHeight"_ustr));
  }
  
