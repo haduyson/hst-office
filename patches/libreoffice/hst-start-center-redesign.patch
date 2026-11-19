@@ -181,10 +181,10 @@ index 0000000..3db49e3
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/inc/startcenter/hststartcenterwindow.hxx b/sfx2/inc/startcenter/hststartcenterwindow.hxx
 new file mode 100644
-index 0000000..1634e89
+index 0000000..7760f92
 --- /dev/null
 +++ b/sfx2/inc/startcenter/hststartcenterwindow.hxx
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,204 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -316,6 +316,7 @@ index 0000000..1634e89
 +    DECL_LINK(PinnedCommandHdl, const CommandEvent&, bool);
 +    DECL_LINK(RecentTooltipHdl, const weld::TreeIter&, OUString);
 +    DECL_LINK(PinnedTooltipHdl, const weld::TreeIter&, OUString);
++    DECL_LINK(TileSizeHdl, const Size&, void);
 +    DECL_LINK(RecentSizeHdl, const Size&, void);
 +    DECL_LINK(PendingActionHdl, void*, void);
 +
@@ -326,6 +327,7 @@ index 0000000..1634e89
 +    std::unique_ptr<svt::AcceleratorExecute> mpAccExec;
 +
 +    // left column
++    std::unique_ptr<weld::Widget> mxLeftView; ///< the scrolled area behind the left column
 +    std::unique_ptr<weld::Container> mxLeft;
 +    std::unique_ptr<weld::Image> mxLogo;
 +    std::vector<MenuItem> maMenu;
@@ -1970,10 +1972,10 @@ index 0000000..dcb957f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
 new file mode 100644
-index 0000000..95e9b2b
+index 0000000..dd66eee
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
-@@ -0,0 +1,775 @@
+@@ -0,0 +1,781 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2070,7 +2072,6 @@ index 0000000..95e9b2b
 +constexpr double COMPACT_WINDOW = 860; // narrower: the left menu shows its glyphs only
 +constexpr double LEFT_WIDTH = 248;
 +constexpr double LEFT_COMPACT_WIDTH = 56;
-+constexpr double RIGHT_WIDTH = 270;
 +constexpr double MENU_HEIGHT = 40;
 +constexpr double TILE_HEIGHT = 72;
 +constexpr double MIN_WINDOW_WIDTH = 720;
@@ -2146,6 +2147,7 @@ index 0000000..95e9b2b
 +
 +HstStartCenterWindow::HstStartCenterWindow(vcl::Window* pParent)
 +    : InterimItemWindow(pParent, u"sfx/ui/hststartcenter.ui"_ustr, u"StartCenter"_ustr, false)
++    , mxLeftView(m_xBuilder->weld_widget(u"leftview"_ustr))
 +    , mxLeft(m_xBuilder->weld_container(u"leftcol"_ustr))
 +    , mxLogo(m_xBuilder->weld_image(u"logo"_ustr))
 +    , mxNewMenu(m_xBuilder->weld_menu(u"newmenu"_ustr))
@@ -2255,6 +2257,7 @@ index 0000000..95e9b2b
 +    mxRight.reset();
 +    mxCentre.reset();
 +    mxLeft.reset();
++    mxLeftView.reset();
 +    InterimItemWindow::dispose();
 +}
 +
@@ -2331,6 +2334,8 @@ index 0000000..95e9b2b
 +        aTile.xButton->set_label(OUString());
 +        aTile.xButton->set_sensitive(bInstalled[i]);
 +        aTile.xButton->connect_clicked(LINK(this, HstStartCenterWindow, TileClickHdl));
++        // the grid shares the centre between the tiles: each face is painted as wide as its button
++        aTile.xButton->connect_size_allocate(LINK(this, HstStartCenterWindow, TileSizeHdl));
 +        aTile.xHover.reset(new HoverWatch(*this, -1, maTiles.size()));
 +        aTile.xButton->connect_mouse_move(LINK(aTile.xHover.get(), HoverWatch, MouseHdl));
 +        maTiles.push_back(std::move(aTile));
@@ -2350,6 +2355,9 @@ index 0000000..95e9b2b
 +
 +    SetBackground(Wallpaper(rPalette.aWindow));
 +    m_xContainer->set_background(rPalette.aWindow);
++    // the column's border is the viewport's: both in the colour of the side
++    if (mxLeftView)
++        mxLeftView->set_background(rPalette.aSide);
 +    mxLeft->set_background(rPalette.aSide);
 +    mxSolutions->set_background(rPalette.aSide);
 +    mxSeparator->set_background(rPalette.aBorder);
@@ -2430,8 +2438,22 @@ index 0000000..95e9b2b
 +    aFont.SetFontHeight(aFont.GetFontHeight() * 1.25 * xDev->GetDPIY() / 72.0);
 +    sfx2::hst::startcenter::PaintTile(*xDev, aSize, mfScale, nIndex, rTile.aText, aFont, *mpPalette,
 +                                      static_cast<int>(nIndex) == mnHoverTile);
-+    rTile.xButton->set_size_request(aSize.Width(), aSize.Height());
++    // only the smallest size is asked for, so the tiles shrink with the window again
++    rTile.xButton->set_size_request(static_cast<tools::Long>(150 * mfScale), aSize.Height());
 +    rTile.xButton->set_custom_button(xDev.get());
++}
++
++IMPL_LINK(HstStartCenterWindow, TileSizeHdl, const Size&, rSize, void)
++{
++    // the tiles are equally wide (a homogeneous grid); a face repaints only when its width changes
++    for (size_t i = 0; i < maTiles.size(); ++i)
++    {
++        if (std::abs(maTiles[i].nWidth - rSize.Width()) > 2)
++        {
++            maTiles[i].nWidth = rSize.Width();
++            PaintTile(i);
++        }
++    }
 +}
 +
 +void HstStartCenterWindow::SetHover(int nMenu, int nTile)
@@ -2489,20 +2511,6 @@ index 0000000..95e9b2b
 +            // the pinned files have their own column again
 +            mbPinnedOnly = false;
 +            FillRecentList();
-+        }
-+    }
-+
-+    // three tiles share the centre column; they repaint only when their width really changes
-+    const double fRight = mbShowRight ? RIGHT_WIDTH : 0;
-+    const double fCentre = fWidth - nLeft / mfScale - fRight - 64; // the centre's margins
-+    const tools::Long nTile
-+        = static_cast<tools::Long>(std::max(150.0, (fCentre - 2 * 16) / 3 - 12) * mfScale);
-+    for (size_t i = 0; i < maTiles.size(); ++i)
-+    {
-+        if (std::abs(maTiles[i].nWidth - nTile) > 2)
-+        {
-+            maTiles[i].nWidth = nTile;
-+            PaintTile(i);
 +        }
 +    }
 +}
