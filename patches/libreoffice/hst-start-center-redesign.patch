@@ -29,10 +29,10 @@ Test: CppunitTest_sfx2_hst_startcenter.
 ---
 diff --git a/include/vcl/hst/designtokens.hxx b/include/vcl/hst/designtokens.hxx
 new file mode 100644
-index 0000000..94ee667
+index 0000000..bfdd5e2
 --- /dev/null
 +++ b/include/vcl/hst/designtokens.hxx
-@@ -0,0 +1,131 @@
+@@ -0,0 +1,132 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -106,13 +106,14 @@ index 0000000..94ee667
 +
 +namespace type
 +{
-+constexpr TypeStyle Display{ 2.35, WEIGHT_BOLD }; ///< the welcome heading
++constexpr TypeStyle Display{ 2.75, WEIGHT_ULTRABOLD }; ///< the welcome heading
 +constexpr TypeStyle Title{ 1.32, WEIGHT_BOLD }; ///< section titles
 +constexpr TypeStyle Subtitle{ 1.22, WEIGHT_SEMIBOLD }; ///< tile labels
-+constexpr TypeStyle Nav{ 1.12, WEIGHT_NORMAL }; ///< navigation items
-+constexpr TypeStyle NavSelected{ 1.12, WEIGHT_BOLD };
++constexpr TypeStyle Nav{ 1.32, WEIGHT_NORMAL }; ///< navigation items
++constexpr TypeStyle NavSelected{ 1.32, WEIGHT_BOLD };
++constexpr TypeStyle Row{ 1.2, WEIGHT_NORMAL }; ///< the rows of a list of files
 +constexpr TypeStyle Body{ 1.0, WEIGHT_NORMAL };
-+constexpr TypeStyle Label{ 1.0, WEIGHT_SEMIBOLD }; ///< table headers
++constexpr TypeStyle Label{ 1.1, WEIGHT_SEMIBOLD }; ///< table headers
 +constexpr TypeStyle Strong{ 1.0, WEIGHT_BOLD }; ///< small section headings
 +constexpr TypeStyle CardTitle{ 0.95, WEIGHT_BOLD };
 +constexpr TypeStyle Caption{ 0.9, WEIGHT_NORMAL }; ///< second lines, taglines
@@ -621,10 +622,10 @@ index 0000000..cfabd6a
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/qa/cppunit/hststartcenter.cxx b/sfx2/qa/cppunit/hststartcenter.cxx
 new file mode 100644
-index 0000000..2c78747
+index 0000000..7a5c388
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
-@@ -0,0 +1,489 @@
+@@ -0,0 +1,575 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -648,6 +649,7 @@ index 0000000..2c78747
 +#include <com/sun/star/accessibility/XAccessibleComponent.hpp>
 +#include <com/sun/star/accessibility/XAccessibleContext.hpp>
 +#include <com/sun/star/awt/PosSize.hpp>
++#include <com/sun/star/awt/Rectangle.hpp>
 +#include <com/sun/star/awt/XWindow.hpp>
 +#include <com/sun/star/frame/DispatchDescriptor.hpp>
 +#include <com/sun/star/frame/StartModule.hpp>
@@ -656,20 +658,25 @@ index 0000000..2c78747
 +#include <com/sun/star/frame/XDispatchProviderInterceptor.hpp>
 +#include <com/sun/star/lang/XServiceInfo.hpp>
 +#include <com/sun/star/util/XCloseable.hpp>
++#include <comphelper/OAccessible.hxx>
 +#include <cppuhelper/implbase.hxx>
 +#include <rtl/ref.hxx>
 +#include <toolkit/helper/vclunohelper.hxx>
 +#include <tools/urlobj.hxx>
 +#include <unotools/historyoptions.hxx>
 +#include <vcl/event.hxx>
++#include <vcl/hst/drawhelpers.hxx>
 +#include <vcl/scheduler.hxx>
 +#include <vcl/svapp.hxx>
 +#include <vcl/uitest/uiobject.hxx>
 +#include <vcl/vclevent.hxx>
 +#include <vcl/virdev.hxx>
++#include <vcl/wall.hxx>
 +#include <vcl/window.hxx>
 +
++#include <chrono>
 +#include <set>
++#include <thread>
 +#include <vector>
 +
 +using namespace css;
@@ -794,12 +801,21 @@ index 0000000..2c78747
 +        xContainer->setPosSize(0, 0, 1366, 707, awt::PosSize::POSSIZE);
 +        xContainer->setVisible(true);
 +        Scheduler::ProcessEventsToIdle();
-+        // whatever the frame keeps for itself (a menu bar), the content area is 1366 x 707
-+        const Size aContent = window()->GetOutputSizePixel();
-+        if (aContent != Size(1366, 707))
++        // whatever the frame keeps for itself (a menu bar), the content area is 1366 x 707; the
++        // frame may place its component only after a later event, so measure once it is laid out
++        for (int nTry = 0; nTry < 20; ++nTry)
 +        {
-+            xContainer->setPosSize(0, 0, 1366 + 1366 - aContent.Width(), 707 + 707 - aContent.Height(),
-+                                   awt::PosSize::SIZE);
++            const Size aContent = window()->GetOutputSizePixel();
++            if (aContent == Size(1366, 707))
++                break;
++            if (aContent.Width() > 0 && aContent.Height() > 0)
++            {
++                const awt::Rectangle aOuter = xContainer->getPosSize();
++                xContainer->setPosSize(0, 0, aOuter.Width + 1366 - aContent.Width(),
++                                       aOuter.Height + 707 - aContent.Height(), awt::PosSize::SIZE);
++            }
++            else // the frame lays out on a short timer, which "events to idle" does not wait for
++                std::this_thread::sleep_for(std::chrono::milliseconds(100));
 +            Scheduler::ProcessEventsToIdle();
 +        }
 +
@@ -1072,7 +1088,8 @@ index 0000000..2c78747
 +    for (sal_Int64 i = 0; i < 6; ++i)
 +    {
 +        uno::Reference<XAccessibleContext> xCard = context(xSolutions->getAccessibleChild(i));
-+        CPPUNIT_ASSERT(!xCard->getAccessibleDescription().isEmpty());
++        // the card shows a short tagline; the full one is its description (and tooltip)
++        CPPUNIT_ASSERT(xCard->getAccessibleDescription().getLength() >= 20);
 +        CPPUNIT_ASSERT(xCard->getAccessibleStateSet() & AccessibleStateType::SHOWING);
 +        tools::Rectangle aCard = bounds(xCard);
 +        aCard.Move(aSolutionsArea.Left(), aSolutionsArea.Top());
@@ -1103,11 +1120,81 @@ index 0000000..2c78747
 +    CPPUNIT_ASSERT(xMore->getAccessibleStateSet() & AccessibleStateType::SHOWING);
 +    CPPUNIT_ASSERT(aSolutionsArea.Bottom() < aSize.Height());
 +
++    // the full AIOS tagline is told, not the short one on the card
++    CPPUNIT_ASSERT_EQUAL(u"Trợ lý AI cá nhân, như một trợ lý thực thụ"_ustr,
++                         context(xSolutions->getAccessibleChild(0))->getAccessibleDescription());
++
++    // a pinned file is two lines, as in the mockup: its name, then its folder
++    press(u"Recent documents", 0, 1);
++    uno::Reference<XAccessibleContext> xPinnedList = region(u"Pinned files");
++    CPPUNIT_ASSERT_EQUAL(sal_Int64(1), xPinnedList->getAccessibleChildCount());
++    uno::Reference<XAccessibleContext> xPinnedItem = context(xPinnedList->getAccessibleChild(0));
++    CPPUNIT_ASSERT(xPinnedItem->getAccessibleDescription().indexOf("Reports") >= 0);
++    tools::Rectangle aItem = bounds(xPinnedItem);
++    const tools::Rectangle aPinnedArea = bounds(xPinnedList);
++    aItem.Move(aPinnedArea.Left(), aPinnedArea.Top());
++    xDev->SetOutputSizePixel(aSize);
++    pCanvas->PaintToDevice(*xDev, Point(0, 0));
++    const auto inkRows = [&](tools::Long nTop, tools::Long nBottom) {
++        int nRows = 0;
++        for (tools::Long y = nTop; y < nBottom; ++y)
++            for (tools::Long x = aItem.Left() + 40; x < aItem.Right() - 8; ++x)
++                if (xDev->GetPixel(Point(x, y)).GetLuminance() < 0xB0)
++                {
++                    ++nRows;
++                    break;
++                }
++        return nRows;
++    };
++    // text in the upper half (the name) and in the lower half (the folder)
++    CPPUNIT_ASSERT(inkRows(aItem.Top() + 2, aItem.Center().Y()) > 4);
++    CPPUNIT_ASSERT(inkRows(aItem.Center().Y(), aItem.Bottom() - 2) > 4);
++
 +    // the Recent table and the Pinned card are white cards
 +    const tools::Rectangle aRecent = bounds(region(u"Recent documents"));
 +    CPPUNIT_ASSERT_EQUAL(COL_WHITE, xDev->GetPixel(Point(aRecent.Right() - 2, aRecent.Bottom() - 2)));
-+    const tools::Rectangle aPinned = bounds(region(u"Pinned files"));
-+    CPPUNIT_ASSERT_EQUAL(COL_WHITE, xDev->GetPixel(Point(aPinned.Left() + 2, aPinned.Bottom() - 2)));
++    CPPUNIT_ASSERT_EQUAL(COL_WHITE, xDev->GetPixel(Point(aPinnedArea.Left() + 2, aPinnedArea.Bottom() - 2)));
++}
++
++CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testCrispBorders)
++{
++    // a 1 px border is one column of its own colour, not a half-and-half mix with the fill or
++    // the background beside it; and a 2 px ring is two such columns
++    const Color aBack(0xEE, 0xF2, 0xF8), aFill(COL_WHITE), aBorder(0xD9, 0xE1, 0xEB);
++    ScopedVclPtrInstance<VirtualDevice> xDev;
++    xDev->SetOutputSizePixel(Size(80, 60));
++    xDev->SetBackground(Wallpaper(aBack));
++    xDev->Erase();
++    const tools::Rectangle aRect(Point(10, 10), Size(50, 30));
++    ::hst::design::DrawRoundRect(*xDev, aRect, 10, aFill, aBorder);
++    const tools::Long nMidY = aRect.Center().Y(), nMidX = aRect.Center().X();
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Left() - 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Left(), nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aFill, xDev->GetPixel(Point(aRect.Left() + 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aFill, xDev->GetPixel(Point(aRect.Right() - 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Right(), nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Right() + 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(nMidX, aRect.Top() - 1)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(nMidX, aRect.Top())));
++    CPPUNIT_ASSERT_EQUAL(aFill, xDev->GetPixel(Point(nMidX, aRect.Top() + 1)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(nMidX, aRect.Bottom())));
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(nMidX, aRect.Bottom() + 1)));
++
++    // a fill without border covers exactly its pixels
++    xDev->Erase();
++    ::hst::design::DrawRoundRect(*xDev, aRect, 10, aBorder, COL_TRANSPARENT);
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Left() - 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Left(), nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Right(), nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Right() + 1, nMidY)));
++
++    // a 2 px outline: both columns inside the rectangle, crisp
++    xDev->Erase();
++    ::hst::design::DrawRoundRect(*xDev, aRect, 10, COL_TRANSPARENT, aBorder, 2.0);
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Left() - 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Left(), nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Left() + 1, nMidY)));
++    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Left() + 2, nMidY)));
 +}
 +}
 +
@@ -1901,10 +1988,10 @@ index 0000000..bf38440
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcentercanvas.cxx b/sfx2/source/startcenter/hststartcentercanvas.cxx
 new file mode 100644
-index 0000000..fbd1c89
+index 0000000..9b7a328
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvas.cxx
-@@ -0,0 +1,751 @@
+@@ -0,0 +1,767 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2072,8 +2159,22 @@ index 0000000..fbd1c89
 +    aIn.nWelcome = rDev.GetTextHeight();
 +    UseFont(rDev, design::type::Title);
 +    aIn.nTitle = rDev.GetTextHeight();
++    UseFont(rDev, design::type::Row);
++    aIn.nRow = rDev.GetTextHeight();
 +    UseFont(rDev, design::type::Caption);
 +    aIn.nSmall = rDev.GetTextHeight();
++    // the taglines wrap within the cards: the cards are as tall as the longest needs
++    const tools::Long nTagline = SolutionTextWidth(aIn.fScale);
++    aIn.nSolutionLines = 1;
++    for (const OUString& rTagline : maTexts.aSolutionTagline)
++    {
++        const tools::Long nHeight
++            = rDev.GetTextRect(tools::Rectangle(Point(0, 0), Size(nTagline, 10000)), rTagline,
++                               DrawTextFlags::Left | DrawTextFlags::Top | DrawTextFlags::WordBreak
++                                   | DrawTextFlags::MultiLine)
++                  .GetHeight();
++        aIn.nSolutionLines = std::max<int>(aIn.nSolutionLines, (nHeight + aIn.nSmall / 2) / std::max<tools::Long>(1, aIn.nSmall));
++    }
 +    UseFont(rDev, design::type::Strong);
 +    // the heading wraps within the left column (its width without the panel's padding)
 +    const tools::Long nColumn = static_cast<tools::Long>((LEFT_WIDTH - 2 * LEFT_PAD) * aIn.fScale);
@@ -2185,7 +2286,7 @@ index 0000000..fbd1c89
 +{
 +    const Hit aItem = itemOf(rHit);
 +    if (aItem.ePart == Part::Solution && aItem.nIndex >= 0 && aItem.nIndex < SOLUTION_COUNT)
-+        return maTexts.aSolutionTagline[aItem.nIndex];
++        return maTexts.aSolutionDescription[aItem.nIndex];
 +    const RecentFile* pFile = ItemFile(aItem);
 +    if (!pFile)
 +        return OUString();
@@ -2283,9 +2384,11 @@ index 0000000..fbd1c89
 +    }
 +}
 +
-+void HstStartCenterCanvas::FocusItem(const Hit& rHit)
++void HstStartCenterCanvas::FocusItem(const Hit& rHit, bool bKeyboard)
 +{
-+    mbKeyboardFocus = true;
++    // the focus ring shows once the keyboard is used (a click or the window's first focus keep it hidden)
++    if (bKeyboard)
++        mbKeyboardFocus = true;
 +    SetFocusItem(itemOf(rHit));
 +    EnsureVisible(rHit);
 +    if (!HasFocus())
@@ -2309,12 +2412,12 @@ index 0000000..fbd1c89
 +    }
 +}
 +
-+bool HstStartCenterCanvas::FocusRegion(Part eRegion)
++bool HstStartCenterCanvas::FocusRegion(Part eRegion, bool bKeyboard)
 +{
 +    const Hit aFirst = FirstItem(eRegion);
 +    if (aFirst.ePart == Part::None)
 +        return false;
-+    FocusItem(aFirst);
++    FocusItem(aFirst, bKeyboard);
 +    return true;
 +}
 +
@@ -2615,7 +2718,7 @@ index 0000000..fbd1c89
 +{
 +    Control::GetFocus();
 +    const GetFocusFlags nFlags = GetGetFocusFlags();
-+    if (nFlags & (GetFocusFlags::Tab | GetFocusFlags::F6 | GetFocusFlags::CURSOR))
++    if (nFlags & GetFocusFlags::F6)
 +        mbKeyboardFocus = true;
 +    if (maFocus.ePart == Part::None)
 +        SetFocusItem(FirstItem(Part::Nav));
@@ -2658,10 +2761,10 @@ index 0000000..fbd1c89
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcentercanvas.hxx b/sfx2/source/startcenter/hststartcentercanvas.hxx
 new file mode 100644
-index 0000000..def5122
+index 0000000..1affb37
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvas.hxx
-@@ -0,0 +1,204 @@
+@@ -0,0 +1,205 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2715,7 +2818,8 @@ index 0000000..def5122
 +    OUString aSolutionsTitle;
 +    OUString aMore;
 +    std::array<OUString, SOLUTION_COUNT> aSolutionName;
-+    std::array<OUString, SOLUTION_COUNT> aSolutionTagline;
++    std::array<OUString, SOLUTION_COUNT> aSolutionTagline; ///< shown on the card
++    std::array<OUString, SOLUTION_COUNT> aSolutionDescription; ///< in full: tooltip, accessible description
 +};
 +
 +/** What the canvas shows: the recent files and which of them each list displays. */
@@ -2779,10 +2883,10 @@ index 0000000..def5122
 +    /** The keyboard focus: an item of the canvas (Part::None: none). */
 +    const Hit& GetFocusItem() const { return maFocus; }
 +    /** Moves the focus to rHit (scrolling it into view) and grabs the window focus. */
-+    void FocusItem(const Hit& rHit);
++    void FocusItem(const Hit& rHit, bool bKeyboard = true);
 +    /** The first item of a region: Part::Nav, Part::Tile, Part::Recent, Part::Pinned or
 +        Part::Solution; false when the region is empty or hidden. */
-+    bool FocusRegion(Part eRegion);
++    bool FocusRegion(Part eRegion, bool bKeyboard = true);
 +    /** Shift+Tab out of a child window: focuses the region before eRegion in the Tab order. */
 +    void FocusRegionBefore(Part eRegion);
 +    /** The child windows in the canvas's slots, listed by its accessibility in visual order. */
@@ -2868,10 +2972,10 @@ index 0000000..def5122
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcentercanvaspaint.cxx b/sfx2/source/startcenter/hststartcentercanvaspaint.cxx
 new file mode 100644
-index 0000000..b80f1b3
+index 0000000..6348d02
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvaspaint.cxx
-@@ -0,0 +1,384 @@
+@@ -0,0 +1,389 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -3004,14 +3108,19 @@ index 0000000..b80f1b3
 +                      bHover ? maPalette.aAccent : maPalette.aCardBorder);
 +        if (ShowFocus(aHit))
 +            DrawFocusRing(rDev, rCard, L.px(radius::Control), maPalette, L.fScale);
-+        const tools::Long nX = rCard.Left() + L.px(space::M);
-+        const tools::Long nWidth = rCard.GetWidth() - L.px(space::XL);
++        const tools::Long nX = rCard.Left() + L.px(SOLUTION_PAD);
++        const tools::Long nWidth = SolutionTextWidth(L.fScale);
 +        UseFont(rDev, design::type::CardTitle);
 +        const tools::Long nNameH = rDev.GetTextHeight();
-+        drawLine(rDev, nX, rCard.Top() + L.px(space::S) + nNameH / 2, nWidth, maTexts.aSolutionName[i], maPalette.aText);
++        const tools::Long nTop = rCard.Top() + L.px(SOLUTION_PAD);
++        drawLine(rDev, nX, nTop + nNameH / 2, nWidth, maTexts.aSolutionName[i], maPalette.aText);
++        // the tagline wraps within the card (the layout made the cards tall enough): never cut
 +        UseFont(rDev, design::type::Caption);
-+        drawLine(rDev, nX, rCard.Top() + L.px(space::S) + nNameH + rDev.GetTextHeight() / 2, nWidth,
-+                 maTexts.aSolutionTagline[i], maPalette.aMuted);
++        rDev.SetTextColor(maPalette.aMuted);
++        rDev.DrawText(tools::Rectangle(Point(nX, nTop + nNameH + L.px(1)),
++                                       Size(nWidth, rCard.Bottom() - nTop - nNameH)),
++                      maTexts.aSolutionTagline[i],
++                      DrawTextFlags::Left | DrawTextFlags::Top | DrawTextFlags::WordBreak | DrawTextFlags::MultiLine);
 +    }
 +    const Hit aMore{ Part::MoreSolutions, 0 };
 +    vcl::Font aLink;
@@ -3175,7 +3284,7 @@ index 0000000..b80f1b3
 +
 +        const tools::Long nY = aRow.Center().Y();
 +        PaintFileIcon(rDev, rFile, centred(aRow, nIcon, L.nColIcon));
-+        UseFont(rDev, design::type::Body);
++        UseFont(rDev, design::type::Row);
 +        drawLine(rDev, L.nColName, nY, L.nColOpened - L.nColName - L.px(space::M), rFile.aName, maPalette.aText);
 +        auto it = maModel.aTimes.find(rFile.aURL);
 +        if (it != maModel.aTimes.end())
@@ -3231,22 +3340,22 @@ index 0000000..b80f1b3
 +        if (ShowFocus(aHit))
 +            DrawFocusRing(rDev, aInset, L.px(radius::Row), maPalette, L.fScale);
 +
-+        UseFont(rDev, design::type::Body);
++        UseFont(rDev, design::type::Row);
 +        const tools::Long nName = rDev.GetTextHeight();
-+        UseFont(rDev, design::type::Caption);
++        UseFont(rDev, design::type::Body);
 +        const tools::Long nSmall = rDev.GetTextHeight();
 +        const tools::Long nTop = aItem.Top() + (aItem.GetHeight() - nName - L.px(space::XS) - nSmall) / 2;
 +        const tools::Long nX = aItem.Left() + L.px(space::S);
 +        PaintFileIcon(rDev, rFile, tools::Rectangle(Point(nX, nTop + (nName - nIcon) / 2), Size(nIcon, nIcon)));
 +        const tools::Long nTextX = nX + nIcon + L.px(space::M);
 +        const tools::Long nWidth = aItem.Right() - nTextX - L.px(space::S);
-+        UseFont(rDev, design::type::Body);
++        UseFont(rDev, design::type::Row);
 +        drawLine(rDev, nTextX, nTop + nName / 2, nWidth, rFile.aName, maPalette.aText);
 +        const tools::Long nLine = nTop + nName + L.px(space::XS);
 +        const tools::Long nGlyph = std::min(nSmall, L.px(icon::Caption));
 +        DrawGlyph(rDev, tools::Rectangle(Point(nTextX, nLine + (nSmall - nGlyph) / 2), Size(nGlyph, nGlyph)),
 +                  Glyph::Open, maPalette.aMuted);
-+        UseFont(rDev, design::type::Caption);
++        UseFont(rDev, design::type::Body);
 +        const tools::Long nFolderX = nTextX + nGlyph + L.px(space::S);
 +        drawLine(rDev, nFolderX, nLine + nSmall / 2, aItem.Right() - nFolderX - L.px(space::S), rFile.aFolder,
 +                 maPalette.aMuted);
@@ -3723,10 +3832,10 @@ index 0000000..a59e37a
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterlayout.cxx b/sfx2/source/startcenter/hststartcenterlayout.cxx
 new file mode 100644
-index 0000000..436b070
+index 0000000..84cd984
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterlayout.cxx
-@@ -0,0 +1,328 @@
+@@ -0,0 +1,337 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -3777,6 +3886,14 @@ index 0000000..436b070
 +}
 +}
 +
++tools::Long SolutionTextWidth(double fScale)
++{
++    Layout L;
++    L.fScale = fScale > 0 ? fScale : 1.0;
++    const tools::Long nInner = L.px(LEFT_WIDTH) - 2 * L.px(LEFT_PAD);
++    return (nInner - L.px(CARD_GAP)) / 2 - 2 * L.px(SOLUTION_PAD);
++}
++
 +Layout ComputeLayout(const LayoutInput& rIn)
 +{
 +    Layout L;
@@ -3823,7 +3940,8 @@ index 0000000..436b070
 +        L.aSolutionsTitle = rect(nPad, y, nInner, rIn.nSolutionsTitle);
 +        y += rIn.nSolutionsTitle + L.px(6);
 +        const tools::Long nCardW = (nInner - L.px(CARD_GAP)) / 2;
-+        const tools::Long nCardH = L.px(8) + rIn.nBody + L.px(1) + rIn.nSmall + L.px(8);
++        const tools::Long nCardH = L.px(SOLUTION_PAD) + rIn.nBody + L.px(1)
++                                   + std::max(1, rIn.nSolutionLines) * rIn.nSmall + L.px(SOLUTION_PAD);
 +        for (int i = 0; i < SOLUTION_COUNT; ++i)
 +        {
 +            const int nRow = i / 2;
@@ -3912,7 +4030,7 @@ index 0000000..436b070
 +        const tools::Long nBodyTop = L.aPinnedTitle.Bottom() + L.px(12);
 +        L.aPinnedBody = rect(nX + L.px(14), nBodyTop, L.px(RIGHT_WIDTH - 28),
 +                             nCardBottom - L.px(10) - nBodyTop);
-+        L.nPinnedHeight = std::max(L.px(60), rIn.nBody + rIn.nSmall + L.px(28));
++        L.nPinnedHeight = std::max(L.px(60), rIn.nRow + rIn.nBody + L.px(28));
 +        L.nPinned = std::max(0, rIn.nPinned);
 +        L.nPinnedFirst
 +            = std::clamp(rIn.nPinnedFirst, 0, std::max(0, L.nPinned - L.PinnedVisibleItems()));
@@ -4057,10 +4175,10 @@ index 0000000..436b070
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterlayout.hxx b/sfx2/source/startcenter/hststartcenterlayout.hxx
 new file mode 100644
-index 0000000..2e4a0cd
+index 0000000..b26d598
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterlayout.hxx
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,143 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -4123,7 +4241,9 @@ index 0000000..2e4a0cd
 +    tools::Long nNav = 18; ///< the menu items
 +    tools::Long nWelcome = 40; ///< "Chào mừng bạn quay lại"
 +    tools::Long nTitle = 22; ///< "Tạo nhanh tài liệu mới", "Gần đây", "Được ghim"
-+    tools::Long nSmall = 14; ///< folders under pinned names, solution taglines
++    tools::Long nSmall = 14; ///< solution taglines
++    tools::Long nRow = 18; ///< the names, dates and folders of the file lists
++    int nSolutionLines = 1; ///< lines of the longest solution tagline (they wrap, never cut)
 +    tools::Long nSolutionsTitle = 36; ///< the HASON TECH heading, wrapped to the column
 +    Size aBannerRatio = Size(1200, 340); ///< the banner's width : height
 +    int nRecent = 0; ///< rows of the Recent table
@@ -4195,6 +4315,10 @@ index 0000000..2e4a0cd
 +};
 +
 +Layout ComputeLayout(const LayoutInput& rIn);
++/** The width the tagline of a solution card wraps to, in device pixels. */
++tools::Long SolutionTextWidth(double fScale);
++/** Padding inside a solution card, in layout pixels. */
++constexpr double SOLUTION_PAD = 8;
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -4756,10 +4880,10 @@ index 0000000..dcb957f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
 new file mode 100644
-index 0000000..4c4d49e
+index 0000000..1173206
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
-@@ -0,0 +1,791 @@
+@@ -0,0 +1,799 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -4826,28 +4950,35 @@ index 0000000..4c4d49e
 +struct Solution
 +{
 +    OUString aName;
-+    OUString aTagline;
++    OUString aTagline; ///< in full: the tooltip and the accessible description
++    OUString aShort; ///< on the card (empty: the full tagline, wrapped)
 +    OUString aURL;
 +};
 +
 +const Solution aSolutions[] = {
 +    { u"AIOS"_ustr,
 +      u"Trợ lý AI cá nhân, như một trợ lý thực thụ"_ustr,
++      u"Trợ lý AI cá nhân thực thụ"_ustr,
 +      u"https://aios.hasontech.vn"_ustr },
 +    { u"eChatbot"_ustr,
 +      u"Chatbot AI – trợ lý số cho cơ quan chính quyền, doanh nghiệp, giáo dục"_ustr,
++      u"Chatbot AI cho cơ quan, doanh nghiệp"_ustr,
 +      u"https://echatbot.vn"_ustr },
 +    { u"Zalo Mini App"_ustr,
 +      u"Mini App trên ứng dụng Zalo dành cho chính quyền số, doanh nghiệp"_ustr,
++      u"Mini App trên Zalo cho chính quyền số"_ustr,
 +      u"https://espace.vn/zaloapp"_ustr },
 +    { u"HST SEO"_ustr,
 +      u"SEO tự động hóa thông minh bằng AI"_ustr,
++      u"SEO tự động hóa bằng AI"_ustr,
 +      u"https://seo.hasontech.vn"_ustr },
 +    { u"HST Post"_ustr,
 +      u"Công cụ đăng bài bằng AI trên hàng loạt nền tảng mạng xã hội"_ustr,
++      u"Đăng bài AI lên nhiều mạng xã hội"_ustr,
 +      u"https://post.hasontech.vn"_ustr },
 +    { u"AI Dễ Lắm"_ustr,
 +      u"Bộ công cụ hỗ trợ sử dụng AI thành thạo"_ustr,
++      u"Công cụ giúp dùng AI thành thạo"_ustr,
 +      u"https://aidelam.com"_ustr },
 +};
 +static_assert(std::size(aSolutions) == SOLUTION_COUNT);
@@ -5111,7 +5242,8 @@ index 0000000..4c4d49e
 +    for (int i = 0; i < SOLUTION_COUNT; ++i)
 +    {
 +        aTexts.aSolutionName[i] = aSolutions[i].aName;
-+        aTexts.aSolutionTagline[i] = aSolutions[i].aTagline;
++        aTexts.aSolutionTagline[i] = aSolutions[i].aShort.isEmpty() ? aSolutions[i].aTagline : aSolutions[i].aShort;
++        aTexts.aSolutionDescription[i] = aSolutions[i].aTagline;
 +    }
 +    mxCanvas->SetTexts(std::move(aTexts));
 +}
@@ -5547,7 +5679,7 @@ index 0000000..4c4d49e
 +            mxCanvas->FocusRegion(Part::Nav);
 +        return;
 +    }
-+    mxCanvas->FocusRegion(Part::Nav);
++    mxCanvas->FocusRegion(Part::Nav, false); // no focus ring before the keyboard is used
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -5876,7 +6008,7 @@ index 0012ff3..1850d53 100644
      vcl/source/gdi/region \
 diff --git a/vcl/source/hst/designtokens.cxx b/vcl/source/hst/designtokens.cxx
 new file mode 100644
-index 0000000..2221e95
+index 0000000..9618e01
 --- /dev/null
 +++ b/vcl/source/hst/designtokens.cxx
 @@ -0,0 +1,107 @@
@@ -5910,7 +6042,7 @@ index 0000000..2221e95
 +    p.aSideBottom = Color(0xE6, 0xF0, 0xFD);
 +    p.aText = Color(0x1F, 0x29, 0x37);
 +    p.aMuted = Color(0x6B, 0x72, 0x80);
-+    p.aHeading = Color(0x15, 0x4A, 0x9E);
++    p.aHeading = Color(0x0A, 0x47, 0x96);
 +    p.aAccent = Color(0x1A, 0x56, 0xC8);
 +    p.aPill = Color(0xD5, 0xE5, 0xFA);
 +    p.aHover = Color(0xE1, 0xEC, 0xFB);
@@ -5989,10 +6121,10 @@ index 0000000..2221e95
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/vcl/source/hst/drawhelpers.cxx b/vcl/source/hst/drawhelpers.cxx
 new file mode 100644
-index 0000000..edb4405
+index 0000000..5802a8e
 --- /dev/null
 +++ b/vcl/source/hst/drawhelpers.cxx
-@@ -0,0 +1,185 @@
+@@ -0,0 +1,194 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -6054,23 +6186,31 @@ index 0000000..edb4405
 +{
 +    if (rRect.IsEmpty())
 +        return;
-+    // pixel centres: a 1 px outline lies on whole pixels, the fill covers the rectangle
-+    const basegfx::B2DPolygon aShape = roundedRect(
-+        basegfx::B2DRange(rRect.Left() + 0.5, rRect.Top() + 0.5, rRect.Right() + 0.5, rRect.Bottom() + 0.5),
-+        fRadius);
++    // Cairo fills polygons on pixel edges and strokes lines half a pixel further (it adds that offset
++    // itself; Skia adds it to lines and to rounded fills alike). So the fill covers the rectangle's
++    // pixels, and an outline of width w lies w/2 - 0.5 inside the edge: its outer edge is the edge
++    // pixel, crisp at any w. Under an outline the fill stops half a pixel inside, where the outline
++    // paints over it on both backends, so no fill bleeds beside the border.
++    const bool bBorder = rBorder != COL_TRANSPARENT;
++    const double fFillIn = bBorder ? 0.5 : 0.0;
++    const basegfx::B2DRange aFillRange(rRect.Left() + fFillIn, rRect.Top() + fFillIn,
++                                       rRect.Right() + 1.0 - fFillIn, rRect.Bottom() + 1.0 - fFillIn);
++    const double fInset = std::max(0.0, fBorderWidth / 2 - 0.5);
++    const basegfx::B2DRange aLineRange(rRect.Left() + fInset, rRect.Top() + fInset, rRect.Right() - fInset,
++                                       rRect.Bottom() - fInset);
 +    auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
 +    ScopedAntialiasing aAntialiasing(rDev);
 +    if (rFill != COL_TRANSPARENT)
 +    {
 +        rDev.SetLineColor();
 +        rDev.SetFillColor(rFill);
-+        rDev.DrawPolygon(aShape);
++        rDev.DrawPolygon(roundedRect(aFillRange, fRadius));
 +    }
-+    if (rBorder != COL_TRANSPARENT)
++    if (bBorder)
 +    {
 +        rDev.SetFillColor();
 +        rDev.SetLineColor(rBorder);
-+        rDev.DrawPolyLine(aShape, fBorderWidth);
++        rDev.DrawPolyLine(roundedRect(aLineRange, std::max(0.0, fRadius - fInset)), fBorderWidth);
 +    }
 +}
 +
@@ -6124,7 +6264,8 @@ index 0000000..edb4405
 +void DrawFocusRing(OutputDevice& rDev, const tools::Rectangle& rRect, double fRadius,
 +                   const Palette& rPalette, double fScale)
 +{
-+    const tools::Long nOut = static_cast<tools::Long>(FOCUS_RING_GAP * fScale + 0.5);
++    // the ring is drawn inside its rectangle, so that lies the gap and the ring's width outside
++    const tools::Long nOut = static_cast<tools::Long>((FOCUS_RING_GAP + FOCUS_RING_WIDTH) * fScale + 0.5);
 +    tools::Rectangle aRing(rRect);
 +    aRing.expand(nOut);
 +    DrawRoundRect(rDev, aRing, fRadius + nOut, COL_TRANSPARENT, rPalette.aAccent, FOCUS_RING_WIDTH * fScale);
