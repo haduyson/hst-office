@@ -55,21 +55,44 @@ def _role(name):
     return uno.getConstantByName("com.sun.star.accessibility.AccessibleRole." + name)
 
 
+def _near_top(context, depth=0):
+    """Yield the showing contexts whose box starts above BAND; a subtree below it (the document) is not walked."""
+    try:
+        if not wg.showing(context) or context.getLocationOnScreen().Y > BAND:
+            return
+        count = min(context.getAccessibleChildCount(), 400)
+    except Exception:  # noqa: BLE001 - widgets come and go
+        return
+    yield context
+    if depth >= 20:
+        return
+    for index in range(count):
+        try:
+            child = context.getAccessibleChild(index)
+            child = child.getAccessibleContext() if child is not None else None
+        except Exception:  # noqa: BLE001
+            continue
+        if child is not None:
+            yield from _near_top(child, depth + 1)
+
+
 def boxes(office):
     """{"tabs": [[name, box]], "banners": [box], "widgets": [box]} of the showing nodes near the window's top."""
     page_tab, row_roles = _role("PAGE_TAB"), {_role(r) for r in ROW_ROLES}
     found = {"tabs": [], "banners": [], "widgets": []}
     window = office.desktop.getCurrentFrame().getContainerWindow()
-    for context, _depth in wg.walk(window, limit=20):
+    try:
+        root = window.getAccessibleContext()
+    except AttributeError:  # toolkit windows hand their XAccessible out as a property (VCLXWindow)
+        root = window.getProperty("XAccessible").getAccessibleContext()
+    for context in _near_top(root):
         try:
-            if not wg.showing(context):
-                continue
             role, name = context.getAccessibleRole(), context.getAccessibleName() or ""
             where, size = context.getLocationOnScreen(), context.getSize()
         except Exception:  # noqa: BLE001 - widgets come and go
             continue
         box = [where.X, where.Y, size.Width, size.Height]
-        if size.Width <= 0 or size.Height <= 0 or where.Y > BAND:
+        if size.Width <= 0 or size.Height <= 0:
             continue
         if role == page_tab:
             found["tabs"].append([name, box])
@@ -103,14 +126,10 @@ def collect_app(office, app, theme, args, res):
         return None
     wg.foreground(window[0])
     time.sleep(1)
-    names = [name for name, _box in boxes(office)["tabs"] if name not in SKIP_TABS]
-    res(f"[{case}] ribbon tabs found", len(names) >= 4, names)
-    for index, name in enumerate(names):
-        tab = [box for tab_name, box in boxes(office)["tabs"] if tab_name == name]
-        if not tab:
-            res(f"[{case}] tab {name} shown", False)
-            continue
-        wg.click(tab[0][0] + tab[0][2] // 2, tab[0][1] + tab[0][3] // 2)
+    tabs = [(name, box) for name, box in boxes(office)["tabs"] if name not in SKIP_TABS]
+    res(f"[{case}] ribbon tabs found", len(tabs) >= 4, [name for name, _box in tabs])
+    for index, (name, box) in enumerate(tabs):  # the titles stay where they are when another tab opens
+        wg.click(box[0] + box[2] // 2, box[1] + box[3] // 2)
         time.sleep(2.5)
         shot = os.path.join(args.out, "shots", f"{case}-{index:02d}.png")
         wg.screenshot(shot, cursor=False)
