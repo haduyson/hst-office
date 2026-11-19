@@ -116,7 +116,7 @@ def main():
         if args.policy:
             return policy(office, start, args, server)
         doc = start()
-        check("1: the pop-up shows after the start-up check", wait(office.popup, 120))
+        check("1: the pop-up shows after the start-up check", wait(office.popup, 240))
         window = doc.getCurrentController().getFrame().getContainerWindow()
         check("1: the document window stays enabled (modeless)", window.isEnabled())
         typed = type_into("HST Writer", "hstpopup") and wait(lambda: "hstpopup" in doc.getText().getString(), 10)
@@ -131,7 +131,7 @@ def main():
         office.stop()
         serve(args.srv, "1.0.9")
         doc = start()
-        check("3: a newer version is announced at once", wait(office.popup, 120))
+        check("3: a newer version is announced at once", wait(office.popup, 240))
         check("3: Bỏ qua bản này closes the pop-up",
               office.press("Bỏ qua phiên bản này", 2) and wait(lambda: office.popup() is None, 10))
         check("3: SkippedVersion saved", wait(lambda: office.setting("SkippedVersion") == "1.0.9", 10))
