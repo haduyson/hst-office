@@ -59,8 +59,37 @@ def _open_merged(ctx, folder):
     if not names:
         raise RuntimeError("no merged document")
     desktop = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx)
-    url = uno.systemPathToFileUrl(os.path.join(folder, names[0]))
-    return desktop.loadComponentFromURL(url, "_blank", 0, (_prop("AsTemplate", True),))
+    path = os.path.join(folder, names[0])
+    mark_merge_result(path)
+    merged = desktop.loadComponentFromURL(uno.systemPathToFileUrl(path), "_blank", 0, (_prop("AsTemplate", True),))
+    try:  # blank pages the office would still add (a left-only or right-only page style) are not printed
+        merged.createInstance("com.sun.star.text.DocumentSettings").setPropertyValue("PrintEmptyPages", False)
+    except Exception:  # noqa: BLE001 - printing keeps the office default
+        from .diag_log import exception
+        exception("mail merge print settings")
+    return merged
+
+
+MERGE_RESULT = "HSTMergeResult"  # user-defined property: the layout adds no blank page where a recipient restarts
+META_FIELD = ('<meta:user-defined meta:name="%s" meta:value-type="boolean">true</meta:user-defined>' % MERGE_RESULT)
+
+
+def mark_merge_result(path):
+    """Mark a merged .odt as a mail-merge result before it is opened (the layout reads it while loading): each
+    recipient keeps its page as in Word (page numbering restarts at 1 without a blank page before it)."""
+    import shutil
+    import zipfile
+    marked = path + ".marked"
+    with zipfile.ZipFile(path) as source, zipfile.ZipFile(marked, "w") as target:
+        for item in source.infolist():
+            data = source.read(item.filename)
+            if item.filename == "meta.xml" and MERGE_RESULT.encode() not in data:
+                text = data.decode("utf-8")
+                text = (text.replace("</office:meta>", META_FIELD + "</office:meta>", 1) if "</office:meta>" in text
+                        else text.replace("<office:meta/>", "<office:meta>" + META_FIELD + "</office:meta>", 1))
+                data = text.encode("utf-8")
+            target.writestr(item, data)  # same order and compression: mimetype stays first and stored
+    shutil.move(marked, path)
 
 
 def _remove_tree(folder):
@@ -73,11 +102,28 @@ def run(ctx, doc, session, request, words=None):
     pattern = request.pattern if request.action in (PDF, DOCX) else ""
     source_name = session.stage(ctx, request.indexes, pattern, words)
     work = tempfile.mkdtemp(prefix="hst-tron-thu-")
+    engine = None
     try:
-        merged = _execute(ctx, _engine(ctx, doc, source_name, work), request, work)
+        engine = _engine(ctx, doc, source_name, work)
+        merged = _execute(ctx, engine, request, work)
     finally:
+        _release(engine)
+        engine = None
         _remove_tree(work)
     return merged, len(request.indexes)
+
+
+def _release(engine):
+    """Dispose the engine as soon as it has run: it holds the document it merged, and an engine still alive when
+    the office quits closes that document after Writer is gone (a crash on exit). No reference is kept anywhere."""
+    dispose = getattr(engine, "dispose", None) if engine is not None else None
+    if dispose is None:
+        return
+    try:
+        dispose()
+    except Exception:  # noqa: BLE001 - already disposed or the office is going away: nothing left to release
+        from .diag_log import exception
+        exception("mail merge engine dispose")
 
 
 def _execute(ctx, merge, request, work):

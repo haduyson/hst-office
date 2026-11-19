@@ -42,6 +42,40 @@ class CsvValues(unittest.TestCase):
         self.assertEqual(src.decode_csv("﻿Tên".encode("utf-8")), "Tên")
 
 
+TEXT_KEY, DATE_KEY, GENERAL_KEY = 100, 37, 0
+
+
+class _FakeFormats:
+    def getByKey(self, key):  # noqa: N802 - UNO name
+        return types.SimpleNamespace(Type={TEXT_KEY: src.TEXT_FLAG, DATE_KEY: src.DATE_FLAG}.get(key, 1))
+
+
+class _FakeSheet:
+    """The few XSpreadsheet calls sheet_grid makes: a used area from A1, one format range per column."""
+
+    def __init__(self, rows, text_columns=(), date_columns=()):
+        self.rows, self.text_columns, self.date_columns = rows, set(text_columns), set(date_columns)
+        self.area = types.SimpleNamespace(StartColumn=0, StartRow=0, EndColumn=len(rows[0]) - 1, EndRow=len(rows) - 1)
+
+    def createCursor(self):  # noqa: N802 - UNO name
+        sheet = self
+        return types.SimpleNamespace(gotoStartOfUsedArea=lambda _x: None, gotoEndOfUsedArea=lambda _x: None,
+                                     RangeAddress=sheet.area, getDataArray=lambda: tuple(sheet.rows))
+
+    def getCellRangeByPosition(self, *_area):  # noqa: N802 - UNO name
+        parts = []
+        for column in range(len(self.rows[0])):
+            key = TEXT_KEY if column in self.text_columns else DATE_KEY if column in self.date_columns else GENERAL_KEY
+            address = types.SimpleNamespace(StartColumn=column, EndColumn=column, StartRow=1, EndRow=len(self.rows) - 1)
+            parts.append(types.SimpleNamespace(NumberFormat=key, RangeAddress=address))
+        return types.SimpleNamespace(CellFormatRanges=types.SimpleNamespace(getCount=lambda: len(parts),
+                                                                            getByIndex=parts.__getitem__))
+
+    def getCellByPosition(self, column, row):  # noqa: N802 - UNO name
+        value = self.rows[row][column]
+        return types.SimpleNamespace(getString=lambda: value if isinstance(value, str) else "%g" % value)
+
+
 class Grid(unittest.TestCase):
     def test_headers_kinds_and_mixed_columns(self):
         grid = [[("", None), ("", None), ("", None)],
@@ -52,6 +86,18 @@ class Grid(unittest.TestCase):
         self.assertEqual(table.headers, ["Họ tên", "Số"])
         self.assertEqual(table.kinds, [fmt.COL_TEXT, fmt.COL_TEXT])
         self.assertEqual(table.rows, [("An", "5"), ("Bình", "chưa có")])
+
+    def test_text_formatted_numbers_stay_text(self):
+        """Years typed before the column was formatted as Text are numbers in a Text cell: merged as typed."""
+        sheet = _FakeSheet([("CCCD", "Năm sinh", "Số tiền", "Ngày"),
+                            ("001203004567", 2000.0, 1500000.0, 36526.0),
+                            ("079199001234", 1999.0, 2500.0, 36527.0)],
+                           text_columns={1}, date_columns={3})
+        table = src.table_from_grid(src.sheet_grid(sheet, _FakeFormats()))
+        self.assertEqual(table.kinds, [fmt.COL_TEXT, fmt.COL_TEXT, fmt.COL_NUMBER, fmt.COL_DATE])
+        self.assertEqual([row[1] for row in table.rows], ["2000", "1999"])
+        self.assertEqual(fmt.default_kind(table.kinds[1]), fmt.TEXT)
+        self.assertEqual(fmt.default_kind(table.kinds[2], [r[2] for r in table.rows]), fmt.NUMBER)
 
     def test_header_only_is_empty(self):
         with self.assertRaises(src.SourceError) as caught:

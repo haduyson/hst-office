@@ -9,6 +9,7 @@ from . import mail_merge_store as store
 from . import mail_merge_addressbook as book
 from . import mail_merge_rules as rules
 from . import mail_merge_table as mt
+from . import mail_merge_word_link as word_link
 
 _SESSIONS = {}
 
@@ -56,6 +57,7 @@ class Session:
         self.mtime = None if path.startswith(book.PREFIX) else os.path.getmtime(path)
         self.position = 0
         self.save()
+        word_link.set_link(self.doc, path, sheet)
         return table
 
     def save(self):
@@ -76,9 +78,12 @@ class Session:
         return self.table.rows[indexes[self.position]], self.position, len(indexes)
 
     def effective(self, indexes=None, pattern="", words=None):
-        """The rows the engine merges (default: all checked) with every computed column, as a Table."""
+        """The rows the engine merges (default: all checked) with every computed column, as a Table: the rules and
+        the Word fields of the document (mail_merge_word_link)."""
         rows = self.checked() if indexes is None else indexes
-        return mt.Table(*mt.staging(self.table, rows, pattern, words, rules.extra_columns(self.meta, self.table)))
+        extra = rules.extra_columns(self.meta, self.table) + word_link.extra_columns(
+            self.table, word_link.field_columns(self.doc))
+        return mt.Table(*mt.staging(self.table, rows, pattern, words, extra))
 
     def preview_row(self, words=None):
         """(effective table, row shown or None): what the preview writes into the fields."""

@@ -37,6 +37,7 @@ SERVICES = (
     ("vba_save_check", "VbaSaveCheckJob", "org.hst.office.vi.VbaSaveCheckJob", JOB),
     ("version_job", "PreviousVersionsJob", "org.hst.office.vi.PreviousVersionsJob", JOB),
     ("citation_save_job", "CitationSaveJob", "org.hst.office.vi.CitationSaveJob", JOB),
+    ("mail_merge_word_job", "MailMergeWordJob", "org.hst.office.vi.MailMergeWordJob", JOB),
     ("version_options", "PreviousVersionsOptionsHandler", "org.hst.office.vi.OptionsPreviousVersions",
      ("org.hst.office.vi.OptionsPreviousVersions",)),
     ("number_words_options", "NumberWordsOptionsHandler", "org.hst.office.vi.OptionsNumberWords",
