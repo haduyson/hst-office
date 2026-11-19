@@ -125,6 +125,7 @@ def run(uno, program, out, ui, loc, env):
         for address, formula, _ in date_cases:
             enter(address, formula)
         enter("P9", "1900-02-29")
+        enter("P12", "1899-12-31")
         doc.calculateAll()
         for address, formula, want in date_cases:
             # Numbers by value: a date result shows in a date format.
@@ -132,6 +133,9 @@ def run(uno, program, out, ui, loc, env):
             got = cell(address).getString() if text else cell(address).getValue()
             check(formula, got == (want if text else float(want)), got)
         check("typing 1900-02-29 gives serial 60", cell("P9").getValue() == 60, cell("P9").getValue())
+        check("typing 1899-12-31 gives serial 0, shown 00/01/1900",
+              cell("P12").getValue() == 0 and "00" in cell("P12").getString(),
+              (cell("P12").getValue(), cell("P12").getString()))
 
         # .ods round trip of the dynamic array.
         path = os.path.join(out, "dynamic.ods")
