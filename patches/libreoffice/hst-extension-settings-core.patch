@@ -1,7 +1,7 @@
 HST Office: the per-user settings of the bundled HST extension become core configuration schemas.
 
 The components org.hasontech.hstoffice.* (Welcome, DefaultApps, ErrorReport, FeatureSearch, SaveFormatCheck,
-NumberWords, Citations, Nd30, Banners, PreviousVersions, UpdateCheck, and AI of the AI assistant) were defined by
+NumberWords, Citations, Nd30, Banners, PreviousVersions, UpdateCheck, AI of the AI assistant and Formula of HST Công thức) were defined by
 .xcs files inside the bundled extension. configmgr learns a bundled extension's schemas at start only from the
 profile's registration cache (user/extensions/bundled/.../configmgr.ini); when that cache is missing, or was left without the HST schemas by a
 start ended while the extensions were registered again after an update, it skips the user's values of these
@@ -19,7 +19,7 @@ Test: tests/unit/test_extension_settings_core.py; tests/runtime/check-startup-ch
 ---
 --- a/officecfg/Configuration_officecfg.mk
 +++ b/officecfg/Configuration_officecfg.mk
-@@ -22,6 +22,28 @@
+@@ -22,6 +22,29 @@
  
  $(eval $(call gb_Configuration_add_schemas,registry,officecfg/registry/schema,\
  	$(addprefix org/openoffice/,$(addsuffix .xcs,$(officecfg_XCSFILES))) \
@@ -36,6 +36,7 @@ Test: tests/unit/test_extension_settings_core.py; tests/runtime/check-startup-ch
 +	DefaultApps \
 +	ErrorReport \
 +	FeatureSearch \
++	Formula \
 +	Nd30 \
 +	NumberWords \
 +	PreviousVersions \
@@ -50,7 +51,7 @@ Test: tests/unit/test_extension_settings_core.py; tests/runtime/check-startup-ch
  $(eval $(call gb_Configuration_add_datas,registry,officecfg/registry/data,\
 --- a/postprocess/CustomTarget_registry.mk
 +++ b/postprocess/CustomTarget_registry.mk
-@@ -278,6 +278,21 @@
+@@ -278,6 +278,22 @@
  	$(postprocess_MOD)/org/openoffice/TypeDetection/UISort-math.xcu \
  	$(postprocess_MOD)/org/openoffice/TypeDetection/UISort-writer.xcu
  
@@ -62,6 +63,7 @@ Test: tests/unit/test_extension_settings_core.py; tests/runtime/check-startup-ch
 +	DefaultApps.xcs \
 +	ErrorReport.xcs \
 +	FeatureSearch.xcs \
++	Formula.xcs \
 +	Nd30.xcs \
 +	NumberWords.xcs \
 +	PreviousVersions.xcs \
@@ -325,6 +327,36 @@ Test: tests/unit/test_extension_settings_core.py; tests/runtime/check-startup-ch
 +        <desc>Commands run from the search, most recent first, as "module-identifier command-URL" (at most 30
 +          entries); the empty search box lists the five latest of the current module.</desc>
 +      </info>
++    </prop>
++  </component>
++</oor:component-schema>
+--- /dev/null
++++ b/officecfg/registry/schema/org/hasontech/hstoffice/Formula.xcs
+@@ -0,0 +1,27 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * This file is part of the LibreOffice project.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema"
++                      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
++                      oor:name="Formula" oor:package="org.hasontech.hstoffice" xml:lang="en-US">
++  <info>
++    <desc>HST Công thức. "Mẫu công thức" (hst_office/formula_action.py) sets OpenTemplates before it inserts a
++      formula; the formula editor's Elements panel then opens on the "Mẫu Toán" category and clears it
++      (starmath/source/hst/elementtemplates.cxx, hst-math-constructs-mathtype5.patch).</desc>
++  </info>
++  <component>
++    <prop oor:name="OpenTemplates" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>The next Elements panel opens on the HST template categories (one time).</desc>
++      </info>
++      <value>false</value>
 +    </prop>
 +  </component>
 +</oor:component-schema>
