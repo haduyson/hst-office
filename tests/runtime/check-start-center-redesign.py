@@ -83,7 +83,9 @@ def side_by_side(mockup, shot, target):
     for label, image in (("mockup", mockup), ("HST Office", shot)):
         panes += ["(", image, "-resize", "x%d" % height, "-gravity", "north", "-background", "white",
                   "-splice", "0x28", "-pointsize", "18", "-annotate", "+0+4", label, ")"]
-    subprocess.run(["convert"] + panes + ["-background", "white", "-splice", "12x0", "+append", target],
+    # each pane is cut off from the gravity of its labels, then the panes are joined with a 12 px gap
+    subprocess.run(["convert", "-respect-parentheses"] + panes + ["+gravity", "-background", "white", "-bordercolor", "white",
+                                          "-border", "6x0", "+append", target],
                    check=True)
     return target
 
@@ -116,14 +118,33 @@ def main():
         office.start()
         samples = make_samples(office, os.path.join(out, "samples"))
         seed_history(office, samples)
-        # what the office does when no document is open (framework's StartModuleDispatcher)
-        last = office.desktop().findFrame("_blank", 0)
-        container = last.getContainerWindow()
-        container.setPosSize(0, 0, width, height, 15)
-        start = office.smgr.createInstanceWithArgumentsAndContext(
-            "com.sun.star.frame.StartModule", (container,), office.ctx)
-        last.setComponent(start, start)
-        start.attachFrame(last)
+        # the Start Center the office shows when no document is open; a second Start Center frame would
+        # join the first one's document tab group and show the tab strip a lone Start Center never has
+        last = None
+        frames = office.desktop().getFrames()
+        for i in range(frames.getCount()):
+            frame = frames.getByIndex(i)
+            controller = frame.getController()
+            if controller is not None and controller.getImplementationName() == "com.sun.star.comp.sfx2.BackingComp":
+                last = frame
+        container = None
+        if last is None:
+            # what the office does when no document is open (framework's StartModuleDispatcher)
+            last = office.desktop().findFrame("_blank", 0)
+            container = last.getContainerWindow()
+            container.setPosSize(0, 0, width, height, 15)
+            start = office.smgr.createInstanceWithArgumentsAndContext(
+                "com.sun.star.frame.StartModule", (container,), office.ctx)
+            last.setComponent(start, start)
+            start.attachFrame(last)
+        else:
+            # a fresh Start Center component in the office's own frame shows the seeded history
+            container = last.getContainerWindow()
+            container.setPosSize(0, 0, width, height, 15)
+            start = office.smgr.createInstanceWithArgumentsAndContext(
+                "com.sun.star.frame.StartModule", (container,), office.ctx)
+            last.setComponent(start, start)
+            start.attachFrame(last)
         container.setVisible(True)
         time.sleep(3)
         container.setPosSize(0, 0, width, height, 15)
