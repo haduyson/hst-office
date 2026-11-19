@@ -90,7 +90,7 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sw/source/uibase/hst/mathtypehintbar.cxx
 +++ b/sw/source/uibase/hst/mathtypehintbar.cxx
-@@ -0,0 +1,213 @@
+@@ -0,0 +1,215 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -102,7 +102,7 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +
 +#include <com/sun/star/embed/ElementModes.hpp>
 +#include <com/sun/star/embed/XStorage.hpp>
-+#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/frame/XModel3.hpp>
 +#include <comphelper/dispatchcommand.hxx>
 +#include <comphelper/lok.hxx>
 +#include <i18nlangtag/languagetag.hxx>
@@ -151,17 +151,17 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +}
 +
 +/// Documents that showed the bar in this session (kept alive on purpose: no destruction at exit)
-+std::vector<uno::WeakReference<frame::XModel>>& Shown()
++std::vector<cppu::WeakReferenceHelper>& Shown()
 +{
-+    static auto* pShown = new std::vector<uno::WeakReference<frame::XModel>>;
++    static auto* pShown = new std::vector<cppu::WeakReferenceHelper>;
 +    return *pShown;
 +}
 +
 +/// true the first time it is asked for xModel in this session
-+bool FirstTime(const uno::Reference<frame::XModel>& xModel)
++bool FirstTime(const uno::Reference<uno::XInterface>& xModel)
 +{
 +    auto& rShown = Shown();
-+    std::erase_if(rShown, [](const uno::WeakReference<frame::XModel>& r) { return !r.get().is(); });
++    std::erase_if(rShown, [](const cppu::WeakReferenceHelper& r) { return !r.get().is(); });
 +    for (const auto& r : rShown)
 +        if (r.get() == xModel)
 +            return false;
@@ -217,12 +217,12 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +// Buttons act after their click handler has returned: the bar (and the button) goes away.
 +void CloseClicked(void* pFrame, weld::Button&)
 +{
-+    Application::PostUserEvent(Link<void*, void>(pFrame, CloseLater));
++    Application::PostUserEvent(LINK_NONMEMBER(pFrame, CloseLater));
 +}
 +
 +void ConvertClicked(void* pFrame, weld::Button&)
 +{
-+    Application::PostUserEvent(Link<void*, void>(pFrame, ConvertLater));
++    Application::PostUserEvent(LINK_NONMEMBER(pFrame, ConvertLater));
 +}
 +
 +void Show(SwView& rView)
@@ -231,7 +231,7 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +    if (!pDocShell || pDocShell->IsReadOnly()
 +        || pDocShell->GetCreateMode() == SfxObjectCreateMode::EMBEDDED)
 +        return;
-+    const uno::Reference<frame::XModel> xModel = pDocShell->GetModel();
++    const uno::Reference<uno::XInterface> xModel(pDocShell->GetModel(), uno::UNO_QUERY);
 +    if (!xModel.is())
 +        return;
 +    const sal_Int32 nCount = CountMathTypeObjects(*pDocShell->GetDoc());
@@ -254,17 +254,17 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +        return;
 +    weld::Button& rConvert = pBar->addButton();
 +    rConvert.set_label(bVi ? u"Chuyển công thức"_ustr : u"Convert Equations"_ustr);
-+    rConvert.connect_clicked(Link<weld::Button&, void>(&rFrame, ConvertClicked));
++    rConvert.connect_clicked(LINK_NONMEMBER(static_cast<void*>(&rFrame), ConvertClicked));
 +    weld::Button& rClose = pBar->addButton();
 +    rClose.set_label(bVi ? u"Đóng"_ustr : u"Close"_ustr);
-+    rClose.connect_clicked(Link<weld::Button&, void>(&rFrame, CloseClicked));
++    rClose.connect_clicked(LINK_NONMEMBER(static_cast<void*>(&rFrame), CloseClicked));
 +}
 +
 +void ShowLater(void* pModel, void*)
 +{
-+    std::unique_ptr<uno::WeakReference<frame::XModel>> pWeak(
-+        static_cast<uno::WeakReference<frame::XModel>*>(pModel));
-+    const uno::Reference<frame::XModel> xModel = pWeak->get();
++    std::unique_ptr<cppu::WeakReferenceHelper> pWeak(
++        static_cast<cppu::WeakReferenceHelper*>(pModel));
++    const uno::Reference<uno::XInterface> xModel = pWeak->get();
 +    if (!xModel.is())
 +        return;
 +    auto* pDocShell = dynamic_cast<SwDocShell*>(SfxObjectShell::GetShellFromComponent(xModel));
@@ -298,8 +298,10 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +    if (!pDocShell || !pDocShell->GetModel().is())
 +        return;
 +    // the view is built while the document opens; the frame shows infobars once it has opened
-+    Application::PostUserEvent(Link<void*, void>(
-+        new uno::WeakReference<frame::XModel>(pDocShell->GetModel()), ShowLater));
++    Application::PostUserEvent(LINK_NONMEMBER(
++        static_cast<void*>(new cppu::WeakReferenceHelper(
++            uno::Reference<uno::XInterface>(pDocShell->GetModel(), uno::UNO_QUERY))),
++        ShowLater));
 +}
 +}
 +
