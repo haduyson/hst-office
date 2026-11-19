@@ -52,7 +52,7 @@ def menu_items(office):
     for window in office.top_windows():
         try:
             for context, _depth in wg.walk(base.accessible(window)):
-                if context.getAccessibleRole() == base.role("MENU_ITEM"):
+                if context.getAccessibleRole() == base.role("MENU_ITEM") and wg.showing(context):
                     names.append(context.getAccessibleName())
         except Exception:  # noqa: BLE001 - a window going away
             continue
@@ -72,16 +72,46 @@ def focus_tab_row(window):
     return False
 
 
-def open_menu_and_pick(office, hwnd, downs, shots, name):
-    """Shift+F10 on the focused ribbon part, `downs` x Down, Enter: True when the customize dialog opened (then closed
-    with Escape and checked to list the ribbon's tabs)."""
+def menu_entry(office, label):
+    """(shown, highlighted) for the popup menu entry `label`: a menu opened from the keyboard may start with no entry
+    highlighted, so the check moves to the entry by its accessible state rather than by a fixed count of Down keys."""
+    import uno
+    mask = 0
+    for state in ("SELECTED", "FOCUSED", "ARMED"):
+        mask |= uno.getConstantByName("com.sun.star.accessibility.AccessibleStateType." + state)
+    for window in office.top_windows():
+        try:
+            for context, _depth in wg.walk(base.accessible(window)):
+                if (context.getAccessibleRole() == base.role("MENU_ITEM") and context.getAccessibleName() == label
+                        and wg.showing(context)):
+                    return True, bool(context.getAccessibleStateSet() & mask)
+        except Exception:  # noqa: BLE001 - a window going away
+            continue
+    return False, False
+
+
+def open_menu_and_pick(office, hwnd, shots, name):
+    """Shift+F10 on the focused ribbon part, Down until the customize entry is highlighted, Enter: (True when the
+    customize dialog opened and Escape closed it, the dialog's texts or the menu's entries, what the menu did)."""
     wg.chord(SHIFT, F10, target=hwnd)
     time.sleep(1.5)
     items = menu_items(office)
     print(f"{name}: menu items {items}", flush=True)
-    wg.load_check("check-windows-quick-access").window_shot(hwnd, os.path.join(shots, name + "-menu.bmp"))
-    for _ in range(downs):
+    seen = {"shown": False, "downs": None}
+    for downs in range(8):
+        shown, highlighted = menu_entry(office, DIALOG)
+        seen["shown"] = seen["shown"] or shown
+        if not shown:
+            break
+        if highlighted:
+            seen["downs"] = downs
+            break
         wg.keys("down", target=hwnd, front=False)
+        time.sleep(0.3)
+    print(f"{name}: menu {seen}", flush=True)
+    if seen["downs"] is None:
+        wg.keys("escape", target=hwnd, front=False)
+        return False, items, seen
     wg.keys("enter", target=hwnd, front=False)
     deadline, window = time.time() + 15, None
     while time.time() < deadline and window is None:
@@ -89,7 +119,7 @@ def open_menu_and_pick(office, hwnd, downs, shots, name):
         time.sleep(0.5)
     if window is None:
         wg.keys("escape", target=hwnd, front=False)
-        return False, items
+        return False, items, seen
     time.sleep(1.5)
     listed = wg.texts(base.accessible(window), limit=300)
     dialog = wg.dialog_hwnd(window)
@@ -97,7 +127,7 @@ def open_menu_and_pick(office, hwnd, downs, shots, name):
         wg.load_check("check-windows-quick-access").window_shot(dialog, os.path.join(shots, name + "-dialog.bmp"))
     wg.keys("escape", target=dialog or hwnd)
     time.sleep(2)
-    return dialog_window(office) is None, listed
+    return dialog_window(office) is None, listed, seen
 
 
 def focus_command(window, label):
@@ -132,13 +162,14 @@ def check_app(office, app, out, res):
     hwnd = found[0]
     base.select_tab(window, base.HOME)
     focused = focus_tab_row(base.window_of(doc))
-    ok, listed = open_menu_and_pick(office, hwnd, 0, out, f"{app}-tabrow")
+    ok, listed, seen = open_menu_and_pick(office, hwnd, out, f"{app}-tabrow")
     res(f"[{app}] tab row focused", focused)
-    res(f"[{app}] tab row: Shift+F10 menu opens {DIALOG}, Escape closes it", ok, listed[:30])
+    res(f"[{app}] tab row: Shift+F10 menu shows {DIALOG}", seen["shown"], listed[:30])
+    res(f"[{app}] tab row: {DIALOG} opens the dialog, Escape closes it", ok, seen)
     res(f"[{app}] the dialog lists the ribbon's tabs", base.HOME in listed, listed[:30])
     focused = focus_command(base.window_of(doc), "Đậm")
-    ok, _listed = open_menu_and_pick(office, hwnd, 1, out, f"{app}-command")
-    res(f"[{app}] command Đậm: Shift+F10 menu, second entry opens {DIALOG}", focused and ok, focused)
+    ok, _listed, seen = open_menu_and_pick(office, hwnd, out, f"{app}-command")
+    res(f"[{app}] command Đậm: Shift+F10 menu, {DIALOG} opens the dialog", focused and ok, (focused, seen))
     helper = office.service("com.sun.star.frame.DispatchHelper")
     frame = doc.getCurrentController().getFrame()
     for command in base.USED:
