@@ -28,7 +28,7 @@ output (sw/source/core/hst/olereplacementpaint.cxx).
      sw/source/core/doc/rdfhelper \
 --- a/sw/qa/core/hst/olepreviewpaint.cxx
 +++ b/sw/qa/core/hst/olepreviewpaint.cxx
-@@ -0,0 +1,97 @@
+@@ -0,0 +1,79 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -40,19 +40,14 @@ output (sw/source/core/hst/olereplacementpaint.cxx).
 +
 +#include <vcl/BitmapReadAccess.hxx>
 +#include <vcl/graph.hxx>
-+#include <vcl/virdev.hxx>
 +
-+#include <cntfrm.hxx>
 +#include <doc.hxx>
 +#include <docsh.hxx>
-+#include <frame.hxx>
 +#include <ndole.hxx>
-+#include <rootfrm.hxx>
-+#include <wrtsh.hxx>
 +
 +namespace
 +{
-+/// Screen painting of OLE previews: the WMF/EMF Word keeps for MathType objects.
++/// Painting of OLE previews: the WMF/EMF Word keeps for MathType objects.
 +class HstOlePreviewPaintTest : public SwModelTestBase
 +{
 +public:
@@ -71,7 +66,7 @@ output (sw/source/core/hst/olereplacementpaint.cxx).
 +    return nullptr;
 +}
 +
-+/// Pixels clearly darker than the white background: the formula's glyphs and lines.
++/// Pixels clearly darker than the white page: glyphs and lines.
 +tools::Long countInkPixels(const Bitmap& rBitmap)
 +{
 +    BitmapScopedReadAccess pAccess(rBitmap);
@@ -86,43 +81,30 @@ output (sw/source/core/hst/olereplacementpaint.cxx).
 +
 +CPPUNIT_TEST_FIXTURE(HstOlePreviewPaintTest, testMathTypePreviewPaintsAsVectorsOnScreen)
 +{
-+    // One MathType (Equation.DSMT4) object; its preview is a WMF, i.e. vector graphic data.
++    // The page holds only one MathType (Equation.DSMT4) object; its preview is a WMF, i.e.
++    // vector graphic data.
 +    createSwDoc("fdo78906.docx");
 +    SwOLENode* pOle = findFirstOleNode(*getSwDoc());
 +    CPPUNIT_ASSERT(pOle);
 +    const Graphic* pGraphic = pOle->GetGraphic();
 +    CPPUNIT_ASSERT(pGraphic);
 +    CPPUNIT_ASSERT(pGraphic->getVectorGraphicData());
++    const Size aRasterBefore(pGraphic->GetBitmapRef().GetSizePixel());
 +
-+    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
-+    pWrtShell->CalcLayout();
-+    const SwFrame* pFrame = pOle->getLayoutFrame(pWrtShell->GetLayout());
-+    CPPUNIT_ASSERT(pFrame);
-+    const SwRect aArea(pFrame->getFrameArea());
-+
-+    // A screen-type device (not a printer, no metafile recording) at 300 % zoom, showing just
-+    // the object.
-+    ScopedVclPtrInstance<VirtualDevice> pDevice(DeviceFormat::WITHOUT_ALPHA);
-+    MapMode aMapMode(MapUnit::MapTwip);
-+    aMapMode.SetOrigin(Point(-aArea.Left(), -aArea.Top()));
-+    aMapMode.SetScaleX(3.0);
-+    aMapMode.SetScaleY(3.0);
-+    pDevice->SetMapMode(aMapMode);
-+    const Size aSizePixel(pDevice->LogicToPixel(aArea.SSize()));
-+    pDevice->SetOutputSizePixel(aSizePixel);
-+    pDevice->SetBackground(Wallpaper(COL_WHITE));
-+    pDevice->Erase();
-+    static_cast<SwViewShell*>(pWrtShell)->Paint(*pDevice, aArea.SVRect());
++    // Render the first page onto a plain VirtualDevice (not a printer, no metafile recording):
++    // the code path of screen painting.
++    const Bitmap aPage(getSwDocShell()->GetPreviewBitmap());
++    CPPUNIT_ASSERT(!aPage.IsEmpty());
 +
 +    // The formula was painted.
-+    const Bitmap aPainted(pDevice->GetBitmap(Point(), aSizePixel));
-+    CPPUNIT_ASSERT_GREATER(tools::Long(50), countInkPixels(aPainted));
++    CPPUNIT_ASSERT_GREATER(tools::Long(50), countInkPixels(aPage));
 +
 +    // ... as vectors resolved by the device. Before, Graphic::Draw rendered the WMF into a
-+    // bitmap of the painted pixel size (kept in the graphic) and blitted it: soft, blurry
-+    // glyph edges, worse at high zoom and on high-DPI displays.
-+    const Size aRasterised(pGraphic->GetBitmapRef().GetSizePixel());
-+    CPPUNIT_ASSERT_LESS(aSizePixel.Width() / 2, aRasterised.Width());
++    // bitmap of the painted pixel size, kept it in the graphic and blitted it: soft, blurry glyph
++    // edges, worse at high zoom and on high-DPI displays.
++    const Size aRasterAfter(pGraphic->GetBitmapRef().GetSizePixel());
++    CPPUNIT_ASSERT_EQUAL(aRasterBefore.Width(), aRasterAfter.Width());
++    CPPUNIT_ASSERT_EQUAL(aRasterBefore.Height(), aRasterAfter.Height());
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
