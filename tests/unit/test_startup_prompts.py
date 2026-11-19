@@ -30,6 +30,17 @@ NOW = 2_000_000_000
 
 
 class Order(unittest.TestCase):
+    def setUp(self):
+        patcher = mock.patch.object(sp, "_update_resume")
+        self.resume = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_documents_closed_by_an_update_are_reopened_before_any_question(self):
+        calls = []
+        self.resume.side_effect = lambda ctx: calls.append("update_resume")
+        sp.run(None, [("crash", lambda: calls.append("crash") or True)], after=lambda ctx: calls.append("update_check"))
+        self.assertEqual(calls, ["update_resume", "crash", "update_check"])
+
     def test_order_is_mac_move_profile_crash_welcome_launchers_default_apps_update(self):
         self.assertEqual(sp.ORDER, ("mac_move", "profile_repaired", "crash", "welcome", "mac_launchers",
                                     "default_apps", "update_outcome"))

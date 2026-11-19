@@ -29,6 +29,8 @@ SPEC = importlib.util.spec_from_file_location("generate_update_manifest",
                                             Path(_paths.ROOT) / "scripts/release/generate-update-manifest.py")
 generator = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(generator)
+# latest-2.json: no Windows installer (its Windows readers cannot run the updater), every other platform
+LEGACY_INSTALLERS = set(logic.PLATFORMS) - set(generator.LEGACY_NO_INSTALL)
 
 
 def metadata(platform="windows", content=b"installer"):
@@ -256,8 +258,10 @@ class ManifestGenerator(unittest.TestCase):
         self.assertEqual((beta["version"], beta["date"], beta["notes"], beta["critical"]),
                          (RELEASE, "2026-10-31", "https://office.hasontech.vn/#tai-ve", True))
         self.assertEqual(beta["downloads"], release("1.0.0")["downloads"])
-        self.assertEqual(set(beta["installers"]), set(logic.PLATFORMS))
+        self.assertEqual(set(beta["installers"]), LEGACY_INSTALLERS)
         for platform, name in NAMES.items():
+            if platform not in LEGACY_INSTALLERS:
+                continue
             # The generator publishes the site copy (tai/<version>/), not the GitHub asset.
             site = "https://office.hasontech.vn/tai/" + RELEASE + "/" + name
             self.assertEqual(beta["installers"][platform], dict(metadata(platform, self.contents[name]), url=site))
@@ -292,7 +296,7 @@ class ManifestGenerator(unittest.TestCase):
     def test_legacy_names_accepted_but_other_release_rejected(self):
         self.rename_release(RELEASE, "1.0.0")
         self.run_generator()
-        self.assertEqual(set(self.read_output("latest-2.json")["channels"]["beta"]["installers"]), set(logic.PLATFORMS))
+        self.assertEqual(set(self.read_output("latest-2.json")["channels"]["beta"]["installers"]), LEGACY_INSTALLERS)
         self.rename_release("1.0.0", "1.0.0-beta.3")
         with self.assertRaises(SystemExit):
             self.run_generator()
@@ -350,7 +354,7 @@ class ManifestGenerator(unittest.TestCase):
             self.run_generator(gh=True)
         self.assertEqual(run.call_args.args[0], ["gh", "release", "view", "v" + RELEASE, "--repo",
                                                "haduyson/hst-office", "--json", "assets"])
-        self.assertEqual(set(self.read_output("latest-2.json")["channels"]["beta"]["installers"]), set(logic.PLATFORMS))
+        self.assertEqual(set(self.read_output("latest-2.json")["channels"]["beta"]["installers"]), LEGACY_INSTALLERS)
         assets[0]["digest"] = "sha256:" + "0" * 64
         response.stdout = json.dumps({"assets": assets})
         with mock.patch.object(generator.subprocess, "run", return_value=response), self.assertRaises(SystemExit):

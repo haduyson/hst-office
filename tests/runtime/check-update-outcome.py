@@ -118,7 +118,8 @@ def run_cancel_at_save_prompt(instdir, srv, args):
     env = {"HST_UPDATE_TEST_URL": "http://127.0.0.1:%d/latest.json" % HTTP_PORT, "HST_UPDATE_DRY_RUN": "1",
            "XDG_CACHE_HOME": os.path.join(work, "cache")}
     install.serve_manifest(srv)
-    office = hst_gui.Office(instdir, work, UNO_PORT, display=args.display, nodefault=False, env=env)
+    office = hst_gui.Office(instdir, work, UNO_PORT, display=args.display, nodefault=False, env=env,
+                            config=install.NO_STARTUP_CHECK)  # no start-up pop-up: the manual flow only
     log = os.path.join(work, "cache", "hst-office", "update", "update.log")
     try:
         office.start()

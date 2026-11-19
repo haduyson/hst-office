@@ -148,6 +148,8 @@ def _broadcaster(ctx):
 def notify(ctx, release, installed):
     """Automatic check: infobar on the current document, else on the next document view that opens."""
     STATE["release"] = release
+    from .update_handler import set_available
+    set_available(release)
     frame = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx).getCurrentFrame()
     if show_infobar(frame, release, installed):
         return
