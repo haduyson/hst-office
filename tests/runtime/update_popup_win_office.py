@@ -55,12 +55,16 @@ class Office:
         the welcome dialog opens and the update pop-up (rightly) waits behind it. hst_gui does the same on Linux."""
         path = os.path.join(self.profile, "user", "registrymodifications.xcu")
         url = "file:///" + self.profile.replace("\\", "/")
+        lock = os.path.join(self.profile, ".lock")  # present while an office uses the profile
         for _attempt in range(2):  # a new profile may make the office restart itself once
-            if os.path.exists(path):
+            if os.path.exists(path) and not os.path.exists(lock):
                 return
             subprocess.run([os.path.join(self.program, "soffice.exe"), "-env:UserInstallation=" + url, "--headless",
                             "--norestore", "--terminate_after_init"], env=self.env, timeout=180, check=False)
-        if not os.path.exists(path):
+            # soffice.exe may return before soffice.bin has written the profile and let it go: a value seeded
+            # before that is overwritten when it exits.
+            wait(lambda: os.path.exists(path) and not os.path.exists(lock), 120)
+        if not os.path.exists(path) or os.path.exists(lock):
             raise RuntimeError("the office did not create its profile")
 
     def start(self):
