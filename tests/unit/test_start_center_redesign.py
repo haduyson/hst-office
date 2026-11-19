@@ -16,6 +16,7 @@ PATCH = "hst-start-center-redesign.patch"
 UI = "sfx2/uiconfig/ui/hststartcenter.ui"
 WINDOW = "sfx2/source/startcenter/hststartcenterwindow.cxx"
 ICONS = "sfx2/source/startcenter/hststartcentericons.cxx"
+LOGOS = "sfx2/source/startcenter/hststartcenterlogos.cxx"
 HRC = "sfx2/inc/startcenter/hststartcenter.hrc"
 PO = "translations/source/vi/sfx2/messages.po"
 HOOK = "sfx2/source/dialog/backingcomp.cxx"
@@ -122,7 +123,8 @@ class StartCenterRedesignTest(unittest.TestCase):
         self.assertEqual("Chào mừng bạn quay lại", self.po["hststartcenter|welcome"][1])
         self.assertEqual("Tìm kiếm tài liệu gần đây", self.po["hststartcenter|search"][1])
         self.assertEqual("Tạo nhanh tài liệu mới", self.po["hststartcenter|quicktitle"][1])
-        self.assertEqual("Các giải pháp chuyển đổi số của HASON TECH", self.po["hststartcenter|solutionstitle"][1])
+        self.assertEqual("HASON TECH - Giải pháp chuyển đổi số", self.po["hststartcenter|solutionstitle"][1])
+        self.assertEqual("HASON TECH - Digital transformation solutions", self.po["hststartcenter|solutionstitle"][0])
         self.assertEqual(["Tên", "Đã mở", "Vị trí"],
                          [self.po["hststartcenter|recentcol%d" % i][1] for i in range(3)])
         self.assertEqual("Được ghim", self.po["hststartcenter|pinnedtitle"][1])
@@ -136,10 +138,32 @@ class StartCenterRedesignTest(unittest.TestCase):
             with open(os.path.join(ROOT, "assets", "brand", "icons", asset), encoding="utf-8") as handle:
                 self.assertEqual(handle.read(), embedded.group(1), asset)
 
+    def test_solution_logos_are_the_assets(self):
+        # each card shows its solution's logo: the 24 and 48 px PNGs of solutions.json's "icon", embedded byte
+        # for byte, in the order of the cards
+        with open(os.path.join(ROOT, "data", "hst", "solutions.json"), encoding="utf-8") as handle:
+            solutions = json.load(handle)["solutions"]
+        logos = added(PATCH, LOGOS)
+        arrays = dict((name, bytes(int(b, 16) for b in re.findall(r"0x([0-9a-f]{2})", body)))
+                      for name, body in re.findall(r"constexpr sal_uInt8 (PNG_\w+)\[\] = \{(.*?)\};", logos, re.S))
+        order = re.findall(r"\{ (PNG_\w+)_24, sizeof", logos)
+        self.assertEqual(["PNG_" + s["id"].upper().replace("-", "_") for s in solutions], order)
+        for solution in solutions:
+            icon = solution.get("icon")
+            self.assertEqual("assets/start-center/solutions/%s-24.png" % solution["id"], icon)
+            for size in (24, 48):
+                path = os.path.join(ROOT, icon.replace("-24.png", "-%d.png" % size))
+                with open(path, "rb") as handle:
+                    data = handle.read()
+                self.assertEqual(b"\x89PNG", data[:4], path)
+                self.assertEqual((size, size), (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")))
+                name = "PNG_%s_%d" % (solution["id"].upper().replace("-", "_"), size)
+                self.assertEqual(data, arrays.get(name), name)
+
     def test_visual_constants_are_design_tokens(self):
         # every colour lives in the shared HST tokens; the Start Center's sources hold none of their own
         for path in sections(PATCH):
-            if "/startcenter/" in path and path != ICONS:
+            if "/startcenter/" in path and path not in (ICONS, LOGOS):
                 self.assertNotRegex(added(PATCH, path), r"Color\(0x|\bCOL_(?!TRANSPARENT\b|WHITE\b|BLACK\b)[A-Z]", path)
         tokens = added(PATCH, TOKENS)
         for hex_colour in ("0xEC, 0xF3, 0xFC", "0xEA, 0xF2, 0xFD", "0x0A, 0x47, 0x96", "0x1A, 0x56, 0xC8"):
