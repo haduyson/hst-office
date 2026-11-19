@@ -16,7 +16,7 @@ Test only: the info bar tests without the info bar.
  $(eval $(call gb_CppunitTest_use_libraries,sw_uibase_uiview, \
 --- a/sw/qa/uibase/hst/mathtypehintbar.cxx
 +++ b/sw/qa/uibase/hst/mathtypehintbar.cxx
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,81 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -32,6 +32,8 @@ Test only: the info bar tests without the info bar.
 +
 +#include <docsh.hxx>
 +#include <view.hxx>
++#include <viewopt.hxx>
++#include <wrtsh.hxx>
 +
 +namespace
 +{
@@ -44,12 +46,16 @@ Test only: the info bar tests without the info bar.
 +    {
 +    }
 +
-+    /// Opened hidden: the bar does not depend on painting, and painting a MathType preview
-+    /// needs its fonts (Symbol, MT Extra), which the test environment does not provide.
-+    void open(std::u16string_view aName, bool bReadOnly = false)
++    void open(std::u16string_view aName, bool bReadOnly = false, bool bHidden = false)
 +    {
-+        loadFromFile(aName, { comphelper::makePropertyValue(u"Hidden"_ustr, true),
++        loadFromFile(aName, { comphelper::makePropertyValue(u"Hidden"_ustr, bHidden),
 +                              comphelper::makePropertyValue(u"ReadOnly"_ustr, bReadOnly) });
++        // Pictures and objects as placeholders: painting a MathType preview needs its fonts
++        // (System, MT Extra), which the test environment does not provide.
++        SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++        SwViewOption aOptions(*pWrtShell->GetViewOptions());
++        aOptions.SetGraphic(false);
++        pWrtShell->ApplyViewOptions(aOptions);
 +    }
 +
 +    bool hasHintBar()
@@ -81,6 +87,13 @@ Test only: the info bar tests without the info bar.
 +    // The converter edits the document: nothing to offer when it cannot be edited.
 +    open(u"fdo78906.docx", true);
 +    CPPUNIT_ASSERT(getSwDocShell()->IsReadOnly());
++    CPPUNIT_ASSERT(!hasHintBar());
++}
++
++CPPUNIT_TEST_FIXTURE(HstMathTypeHintBarTest, testNotShownHidden)
++{
++    // A background load (mail merge, a script, a conversion) has no user to show the bar to.
++    open(u"fdo78906.docx", false, true);
 +    CPPUNIT_ASSERT(!hasHintBar());
 +}
 +
