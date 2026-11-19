@@ -21,7 +21,7 @@ Test: CppunitTest_sd_a11y.
  $(eval $(call gb_CppunitTest_use_libraries,sd_a11y, \
 --- /dev/null
 +++ b/sd/qa/unit/a11y/HstDocumentViewDisposeRace.cxx
-@@ -0,0 +1,121 @@
+@@ -0,0 +1,136 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; fill-column: 100 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -36,6 +36,9 @@ Test: CppunitTest_sd_a11y.
 +
 +#include <atomic>
 +#include <chrono>
++#include <cstdio>
++#include <cstdlib>
++#include <future>
 +#include <thread>
 +
 +#include <com/sun/star/accessibility/XAccessibleComponent.hpp>
@@ -77,6 +80,8 @@ Test: CppunitTest_sd_a11y.
 +        SolarMutexGuard aGuard;
 +        std::atomic<bool> bStarted(false);
 +        bool bDisposed = false;
++        std::promise<void> aDone;
++        std::future<void> aFinished = aDone.get_future();
 +        std::thread aReader([&] {
 +            bStarted = true;
 +            try
@@ -90,6 +95,7 @@ Test: CppunitTest_sd_a11y.
 +            catch (...)
 +            {
 +            }
++            aDone.set_value();
 +        });
 +        while (!bStarted)
 +            std::this_thread::yield();
@@ -98,6 +104,15 @@ Test: CppunitTest_sd_a11y.
 +        uno::Reference<lang::XComponent>(xView, uno::UNO_QUERY_THROW)->dispose();
 +        {
 +            SolarMutexReleaser aReleaser;
++            // Holding the view's own mutex while waiting for the SolarMutex deadlocks against
++            // dispose(); end the process instead of hanging the test run.
++            if (aFinished.wait_for(std::chrono::seconds(20)) != std::future_status::ready)
++            {
++                std::fprintf(stderr, "HstDocumentViewDisposeRace: the call is still blocked 20 s "
++                                     "after the SolarMutex was released: deadlock\n");
++                std::fflush(stderr);
++                std::_Exit(1);
++            }
 +            aReader.join();
 +        }
 +        return bDisposed;
