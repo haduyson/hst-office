@@ -34,10 +34,10 @@ Test: CppunitTest_sfx2_hst_startcenter.
 ---
 diff --git a/include/vcl/hst/designtokens.hxx b/include/vcl/hst/designtokens.hxx
 new file mode 100644
-index 0000000..ea73471
+index 0000000..3509a03
 --- /dev/null
 +++ b/include/vcl/hst/designtokens.hxx
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,136 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -126,6 +126,10 @@ index 0000000..ea73471
 +
 +/** The application font of rStyle at the size and weight of rType (its height in points). */
 +VCL_DLLPUBLIC vcl::Font MakeFont(const StyleSettings& rStyle, const TypeStyle& rType);
++
++/** The same font with its height in pixels for a device of nDpiY, without rounding the scaled size to
++    whole points first (MakeFont's 9.5 pt is 10 pt; here it stays 9.5 pt, 12.7 px at 96 DPI). */
++VCL_DLLPUBLIC vcl::Font MakePixelFont(const StyleSettings& rStyle, const TypeStyle& rType, sal_Int32 nDpiY);
 +
 +/** Corner radii. */
 +namespace radius
@@ -658,7 +662,7 @@ index 0000000..cfabd6a
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/qa/cppunit/hststartcenter.cxx b/sfx2/qa/cppunit/hststartcenter.cxx
 new file mode 100644
-index 0000000..f4d9d6f
+index 0000000..a0aaaa9
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
 @@ -0,0 +1,627 @@
@@ -1165,8 +1169,8 @@ index 0000000..f4d9d6f
 +    // Vietnamese "HASON TECH - Giải pháp chuyển đổi số" does (the column and the type grow together
 +    // with the DPI, so this holds at 125 % too)
 +    ScopedVclPtrInstance<VirtualDevice> xMeasure;
-+    pCanvas->SetPointFont(*xMeasure, ::hst::design::MakeFont(pCanvas->GetSettings().GetStyleSettings(),
-+                                                             ::hst::design::type::Strong));
++    xMeasure->SetFont(::hst::design::MakePixelFont(pCanvas->GetSettings().GetStyleSettings(),
++                                                      ::hst::design::type::Strong, pCanvas->GetOutDev()->GetDPIY()));
 +    const tools::Long nLine = xMeasure->GetTextHeight();
 +    const tools::Long nColumn = aSolutionsArea.GetWidth();
 +    CPPUNIT_ASSERT_LESS(nColumn, xMeasure->GetTextWidth(u"HASON TECH - Giải pháp chuyển đổi số"_ustr));
@@ -1189,11 +1193,11 @@ index 0000000..f4d9d6f
 +    // The test runs in the English UI, so these are the English short taglines (the Vietnamese ones
 +    // are checked by the Vietnamese screenshots)
 +    CPPUNIT_ASSERT(Application::GetSettings().GetUILanguageTag().getLanguage() != "vi");
-+    pCanvas->SetPointFont(*xMeasure, ::hst::design::MakeFont(pCanvas->GetSettings().GetStyleSettings(),
-+                                                             ::hst::design::type::CardTitle));
++    xMeasure->SetFont(::hst::design::MakePixelFont(pCanvas->GetSettings().GetStyleSettings(),
++                                                      ::hst::design::type::CardTitle, pCanvas->GetOutDev()->GetDPIY()));
 +    const tools::Long nName = xMeasure->GetTextHeight();
-+    pCanvas->SetPointFont(*xMeasure, ::hst::design::MakeFont(pCanvas->GetSettings().GetStyleSettings(),
-+                                                             ::hst::design::type::Caption));
++    xMeasure->SetFont(::hst::design::MakePixelFont(pCanvas->GetSettings().GetStyleSettings(),
++                                                      ::hst::design::type::Caption, pCanvas->GetOutDev()->GetDPIY()));
 +    const tools::Long nTwoLines = 8 + 24 + 4 + nName + 1 + 2 * xMeasure->GetTextHeight() + 8;
 +    for (sal_Int64 i = 0; i < 6; ++i)
 +        CPPUNIT_ASSERT_LESSEQUAL(nTwoLines, bounds(context(xSolutions->getAccessibleChild(i))).GetHeight());
@@ -2076,10 +2080,10 @@ index 0000000..bf38440
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcentercanvas.cxx b/sfx2/source/startcenter/hststartcentercanvas.cxx
 new file mode 100644
-index 0000000..cfc73b4
+index 0000000..f18b9b3
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvas.cxx
-@@ -0,0 +1,781 @@
+@@ -0,0 +1,780 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2214,9 +2218,8 @@ index 0000000..cfc73b4
 +
 +void HstStartCenterCanvas::UseFont(vcl::RenderContext& rDev, const ::hst::design::TypeStyle& rType) const
 +{
-+    // the type scale is in points: SetPointFont converts it to the device's pixels
-+    const_cast<HstStartCenterCanvas*>(this)->SetPointFont(
-+        rDev, ::hst::design::MakeFont(GetSettings().GetStyleSettings(), rType));
++    // the type scale is in points, converted to the device's pixels without rounding to whole points
++    rDev.SetFont(::hst::design::MakePixelFont(GetSettings().GetStyleSettings(), rType, GetOutDev()->GetDPIY()));
 +}
 +
 +void HstStartCenterCanvas::UpdatePalette()
@@ -3961,7 +3964,7 @@ index 0000000..a59e37a
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterlayout.cxx b/sfx2/source/startcenter/hststartcenterlayout.cxx
 new file mode 100644
-index 0000000..b0ea118
+index 0000000..9922823
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterlayout.cxx
 @@ -0,0 +1,346 @@
@@ -3984,7 +3987,7 @@ index 0000000..b0ea118
 +// 1366 x 768 window at 100 %.
 +constexpr double LEFT_COMPACT_WIDTH = 64;
 +constexpr double LOGO_HEIGHT = 36;
-+constexpr double NAV_HEIGHT = 33;
++constexpr double NAV_HEIGHT = 32;
 +constexpr double NAV_GAP = 1;
 +constexpr double CARD_GAP = 7; // between the solution cards
 +constexpr double RIGHT_WIDTH = 288;
@@ -4053,7 +4056,7 @@ index 0000000..b0ea118
 +    }
 +    else
 +        y += L.px(8);
-+    const tools::Long nNavH = std::max(L.px(NAV_HEIGHT), rIn.nNav + L.px(8));
++    const tools::Long nNavH = std::max(L.px(NAV_HEIGHT), rIn.nNav + L.px(7));
 +    for (int i = 0; i < NAV_COUNT; ++i)
 +    {
 +        L.aNav[i] = rect(nPad, y, nInner, nNavH);
@@ -7967,10 +7970,10 @@ index 0012ff3..1850d53 100644
      vcl/source/gdi/region \
 diff --git a/vcl/source/hst/designtokens.cxx b/vcl/source/hst/designtokens.cxx
 new file mode 100644
-index 0000000..9618e01
+index 0000000..5c6adbc
 --- /dev/null
 +++ b/vcl/source/hst/designtokens.cxx
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,117 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -8072,6 +8075,16 @@ index 0000000..9618e01
 +    vcl::Font aFont(rStyle.GetAppFont());
 +    const tools::Long nBase = aFont.GetFontHeight() > 0 ? aFont.GetFontHeight() : 9;
 +    aFont.SetFontHeight(static_cast<tools::Long>(nBase * rType.fScale + 0.5));
++    aFont.SetWeight(rType.eWeight);
++    return aFont;
++}
++
++vcl::Font MakePixelFont(const StyleSettings& rStyle, const TypeStyle& rType, sal_Int32 nDpiY)
++{
++    vcl::Font aFont(rStyle.GetAppFont());
++    const double fBase = aFont.GetFontHeight() > 0 ? aFont.GetFontHeight() : 9;
++    const double fDpi = nDpiY > 0 ? nDpiY : 96;
++    aFont.SetFontSize(Size(0, static_cast<tools::Long>(fBase * rType.fScale * fDpi / 72.0 + 0.5)));
 +    aFont.SetWeight(rType.eWeight);
 +    return aFont;
 +}
