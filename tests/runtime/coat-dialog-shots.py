@@ -20,22 +20,9 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 
-# name: (document factory, dispatch command)
-DIALOGS = {
-    "format-cells": ("scalc", ".uno:FormatCellDialog"),
-    "paragraph": ("swriter", ".uno:ParagraphDialog"),
-    "page-style": ("swriter", ".uno:PageDialog"),
-    "print": ("swriter", ".uno:Print"),
-    "options": ("swriter", ".uno:OptionsTreeDialog"),
-    "find-replace": ("swriter", ".uno:SearchDialog"),
-    "insert-table": ("swriter", ".uno:InsertTable"),
-    "character": ("swriter", ".uno:FontDialog"),
-    "insert-image": ("swriter", ".uno:InsertGraphic"),
-    "spelling": ("swriter", ".uno:SpellingAndGrammarDialog"),
-}
+from coat_dialog_cases import DIALOGS, NO_PROMPTS  # noqa: E402
+
 LOOKS = [(coat, theme, scale) for coat in ("before", "after") for theme in ("light", "dark") for scale in ("100", "125")]
-NO_PROMPTS = [("/org.openoffice.Office.HSTUpdate", "AutoCheck", "false"),
-              ("/org.hasontech.hstoffice.UpdateCheck", "AutoCheck", "false")]
 
 
 def look_env(coat, theme, scale):
