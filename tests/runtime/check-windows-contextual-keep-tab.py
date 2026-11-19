@@ -35,16 +35,40 @@ COMMANDS = {"picture": ".uno:GraphicFilterInvert", "table": ".uno:InsertRowsAfte
             "chart": ".uno:BringToFront", "pivot": ".uno:RecalcPivotTable"}
 CALC_TABLE_COMMAND = ".uno:Bold"  # on a cell of the Sheets table: the cursor stays in it
 CALC_TABLE_STYLE = "TableStyleMedium2"  # a built-in table style of core (defaulttablestyles.inc)
+# the contextual tabs each object opens (named as in Office; check-ribbon-contextual.py checks the same on Linux)
+EXPECTED = {"picture": ("Định dạng ảnh",), "table": ("Thiết kế bảng", "Bố trí bảng"),
+            "shape": ("Định dạng hình dạng",), "chart": ("Thiết kế biểu đồ", "Định dạng biểu đồ"),
+            "pivot": ("Phân tích bảng tổng hợp",)}
 MSAA = os.path.join(HERE, "windows-msaa-ribbon.ps1")
 SETTLE = 3
 
 
-def ribbon_tabs(office):
-    """[(name, selected)] of the shown ribbon tabs (MSAA page tabs; 0x2 selected)."""
+def msaa(office, *args):
     pid = office.bin_pids_of_profile()[0]
-    out = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", MSAA, "-Action", "dump",
+    out = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", MSAA, *args,
                           "-OfficePid", str(pid)], capture_output=True, timeout=180, check=False)
-    return parse_tabs(out.stdout.decode("utf-8", "replace"))
+    return out.stdout.decode("utf-8", "replace")
+
+
+def ribbon_tabs(office):
+    """[(name, selected)] of the SHOWN ribbon tabs, left to right. MSAA lists the hidden contextual tabs as well,
+    without the invisible state: only their empty rectangle tells them apart (rects); 0x2 of dump is the selected."""
+    shown = parse_rects(msaa(office, "-Action", "rects"))
+    selected = dict(parse_tabs(msaa(office, "-Action", "dump")))
+    return [(name, selected.get(name, False)) for name in shown]
+
+
+def parse_rects(text):
+    """Names of the ribbon tabs with an area, left to right, from "RECT x y w h name" lines (the tab row is at the
+    window's top: Sheets' sheet tabs and Draw's layer tabs are page tabs too)."""
+    tabs = []
+    for line in text.splitlines():
+        parts = line.strip().split(" ", 5)
+        if len(parts) == 6 and parts[0] == "RECT":
+            x, y, w, h = (int(v) for v in parts[1:5])
+            if w > 0 and h > 0 and y < 300:
+                tabs.append((x, parts[5]))
+    return [name for _, name in sorted(tabs)]
 
 
 def parse_tabs(text):
@@ -61,11 +85,7 @@ def parse_tabs(text):
 
 
 def select_tab(office, name):
-    pid = office.bin_pids_of_profile()[0]
-    out = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", MSAA, "-Action",
-                          "select-tab", "-Name", name, "-OfficePid", str(pid)], capture_output=True, timeout=180,
-                         check=False)
-    return out.stdout.decode("utf-8", "replace").startswith("OK")
+    return msaa(office, "-Action", "select-tab", "-Name", name).startswith("OK")
 
 
 def make_calc_table(doc):
@@ -104,6 +124,7 @@ def check_app(app, args, res):
     factory, title = APPS[app]
     office = wg.WinOffice(args.install, os.path.join(args.out, f"profile-{app}"), args.port, args.out, nodefault=True)
     office.start(fresh=True)
+    doc = None
     try:
         time.sleep(15)
         office.ctx = office._connect()
@@ -128,12 +149,16 @@ def check_app(app, args, res):
             park(app, doc, _Dispatcher(office))
             time.sleep(SETTLE)
             plain = {name for name, _ in ribbon_tabs(office)}
+            if not res(f"[{app}] {kind}: ribbon tabs read", bool(plain), sorted(plain)):
+                continue
             doc.CurrentController.select(objects[kind])
             time.sleep(SETTLE)
-            contextual = [name for name, _ in ribbon_tabs(office) if name not in plain]
-            if not res(f"[{app}] {kind}: contextual tab shown", bool(contextual), contextual):
+            now = [name for name, _ in ribbon_tabs(office)]
+            contextual = [name for name in now if name not in plain]
+            wanted = [name for name in contextual if name in EXPECTED[kind]]
+            if not res(f"[{app}] {kind}: contextual tab shown", bool(wanted), contextual or now):
                 continue
-            tab = contextual[0]
+            tab = wanted[0]
             select_tab(office, tab)
             time.sleep(SETTLE)
             before = [name for name, selected in ribbon_tabs(office) if selected]
@@ -145,9 +170,13 @@ def check_app(app, args, res):
             after = [name for name, selected in ribbon_tabs(office) if selected]
             res(f"[{app}] {kind}: {tab} still selected after {command}", after == [tab], after)
     finally:
+        # the document itself: with a chart selected the current component is the chart's model, and a modified
+        # sheet would hold the close on its save prompt
         try:
-            office.desktop.getCurrentComponent().setModified(False)
-        except Exception:  # noqa: BLE001 - no document, or the office is gone
+            if doc is not None:
+                park(app, doc, _Dispatcher(office))
+                doc.setModified(False)
+        except Exception:  # noqa: BLE001 - the office is gone
             pass
         office.stop()
 
@@ -165,7 +194,8 @@ def main():
         try:
             check_app(app, args, res)
         except Exception as error:  # noqa: BLE001 - one app's failure must not lose the others
-            res(f"[{app}] crashed", False, repr(error))
+            import traceback
+            res(f"[{app}] crashed", False, traceback.format_exc())
     return res.exit_code()
 
 

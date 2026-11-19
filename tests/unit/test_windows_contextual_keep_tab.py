@@ -25,6 +25,15 @@ class KeepTabTest(unittest.TestCase):
         text = "noise\nTABS Trang đầu[0x0] | Ảnh [x][0x2] | Chèn[0x100002]\nSMALL BUTTONS a[1,0x0]\n"
         self.assertEqual(self.keep.parse_tabs(text), [("Trang đầu", False), ("Ảnh [x]", True), ("Chèn", True)])
 
+    def test_parse_rects_keeps_the_shown_ribbon_tabs_left_to_right(self):
+        text = ("RECT 120 40 60 24 Chèn\nRECT 0 0 0 0 Định dạng ảnh\nRECT 50 40 60 24 Trang đầu\n"
+                "RECT 30 900 80 20 Trang tính 1\nnoise\n")
+        self.assertEqual(self.keep.parse_rects(text), ["Trang đầu", "Chèn"])
+
+    def test_every_object_expects_its_office_named_tabs(self):
+        self.assertEqual(self.keep.EXPECTED["table"], ("Thiết kế bảng", "Bố trí bảng"))
+        self.assertTrue(all(kind in self.keep.EXPECTED for kinds in self.keep.KINDS.values() for kind in kinds))
+
     def test_parse_tabs_without_a_tab_row(self):
         self.assertEqual(self.keep.parse_tabs("NOTFOUND\n"), [])
 
