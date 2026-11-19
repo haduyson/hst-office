@@ -38,6 +38,11 @@ fit = load_check("check-banner-fit")
 def judge_case(case, data, scale, shots_dir, catalogue):
     """[(name, ok, detail)] for one app/scale/theme of the collected data."""
     frame, tabs = data["client"], data["tabs"]
+    for tab in tabs:  # collections before the banner filter kept the window's own node "<document> — <app>"
+        window = [box for box in tab["banners"] if box[3] > 200]
+        tab["banners"] = [box for box in tab["banners"] if box[3] <= 200]
+        if frame[2] <= 0 and window:  # client box read after the window closed: its accessible box is the client area
+            frame = window[0]
     margin = round(fit.RIGHT_MARGIN * scale / 100)
     if not tabs:
         return [(case, False, "no tab collected")]

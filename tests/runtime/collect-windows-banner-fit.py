@@ -96,7 +96,7 @@ def boxes(office):
             continue
         if role == page_tab:
             found["tabs"].append([name, box])
-        elif " — " in name and size.Height >= 40:
+        elif " — " in name and 40 <= size.Height <= 200:  # the window's own node is "<document> — <app>"
             found["banners"].append(box)
         elif role in row_roles:
             found["widgets"].append(box)
@@ -134,13 +134,14 @@ def collect_app(office, app, theme, args, res):
         shot = os.path.join(args.out, "shots", f"{case}-{index:02d}.png")
         wg.screenshot(shot, cursor=False)
         shots.append(dict(tab=name, shot=os.path.basename(shot), **boxes(office)))
+    client = client_box(window[0])  # before the document (and its window) closes
     try:
         office.desktop.getCurrentComponent().setModified(False)
         office.desktop.getCurrentComponent().close(True)
     except Exception:  # noqa: BLE001 - the document is gone already
         pass
     time.sleep(2)
-    return {"client": client_box(window[0]), "tabs": shots}
+    return {"client": client, "tabs": shots}
 
 
 def collect_theme(theme, args, res, collected):
