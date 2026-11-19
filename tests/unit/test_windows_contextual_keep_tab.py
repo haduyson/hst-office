@@ -3,6 +3,8 @@
 import importlib.util
 import os
 import sys
+import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -24,6 +26,15 @@ class KeepTabTest(unittest.TestCase):
     def test_parse_tabs_reads_names_and_the_selected_state(self):
         text = "noise\nTABS Trang đầu[0x0] | Ảnh [x][0x2] | Chèn[0x100002]\nSMALL BUTTONS a[1,0x0]\n"
         self.assertEqual(self.keep.parse_tabs(text), [("Trang đầu", False), ("Ảnh [x]", True), ("Chèn", True)])
+
+    def test_parse_rects_keeps_the_shown_ribbon_tabs_left_to_right(self):
+        text = ("RECT 120 40 60 24 Chèn\nRECT 0 0 0 0 Định dạng ảnh\nRECT 50 40 60 24 Trang đầu\n"
+                "RECT 30 900 80 20 Trang tính 1\nnoise\n")
+        self.assertEqual(self.keep.parse_rects(text), ["Trang đầu", "Chèn"])
+
+    def test_every_object_expects_its_office_named_tabs(self):
+        self.assertEqual(self.keep.EXPECTED["table"], ("Thiết kế bảng", "Bố trí bảng"))
+        self.assertTrue(all(kind in self.keep.EXPECTED for kinds in self.keep.KINDS.values() for kind in kinds))
 
     def test_parse_tabs_without_a_tab_row(self):
         self.assertEqual(self.keep.parse_tabs("NOTFOUND\n"), [])
@@ -50,6 +61,27 @@ class KeepTabTest(unittest.TestCase):
         doc.DatabaseRanges.getByName.return_value.setPropertyValue.assert_called_once_with(
             "TableStyleName", "TableStyleMedium2")
         self.assertIs(cell, doc.Sheets.getByIndex.return_value.getCellByPosition.return_value)
+
+    def test_a_held_close_is_recorded_and_our_processes_end(self):
+        office, res = mock.MagicMock(), mock.MagicMock()
+        office.stop.side_effect = lambda: threading.Event().wait(5)
+        processes = mock.MagicMock()
+        shot = os.path.join(tempfile.mkdtemp(), "shot.png")
+        with mock.patch.dict(sys.modules, {"windows_gui_processes": processes}), \
+                mock.patch.object(self.keep, "msaa", return_value="WINDOW 1 9:Lưu thay đổi?[0x0]"):
+            self.keep.stop_office(office, shot, res, "impress", timeout=0.1)
+        with open(shot[:-4] + ".txt", encoding="utf-8") as handle:
+            self.assertIn("Lưu thay đổi?", handle.read())
+        self.assertIn("Lưu thay đổi?", res.call_args.args[2])
+        office.proc.kill.assert_called_once_with()
+        processes.terminate.assert_called_once_with(office.url)
+        self.assertFalse(res.call_args.args[1])
+
+    def test_a_clean_close_records_nothing(self):
+        office, res = mock.MagicMock(), mock.MagicMock()
+        self.keep.stop_office(office, "shot.png", res, "writer", timeout=5)
+        office.proc.kill.assert_not_called()
+        res.assert_not_called()
 
     def test_park_gets_a_dispatch_that_waits(self):
         office = mock.MagicMock()
