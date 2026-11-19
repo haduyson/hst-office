@@ -64,8 +64,10 @@ def shoot_frame_view(args, office, ui, name, look, failures):
     if not hwnd:
         failures.append(f"{name} {'-'.join(look)}: no document window")
         return
+    doc.getCurrentController().getFrame().getContainerWindow().setFocus()
+    time.sleep(2)
     ui.executeDialog(command)
-    time.sleep(8)  # the view lays out its preview
+    time.sleep(15)  # the view opens after the job is prepared, then lays out its preview
     if not capture(hwnd, os.path.join(args.out, f"{name}-{'-'.join(look)}-{args.scale}.png")):
         failures.append(f"{name} {'-'.join(look)}: capture failed")
     try:
