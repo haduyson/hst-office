@@ -100,7 +100,9 @@ class LargeOfficeOpenPatches(unittest.TestCase):
         self.assertIn("for (bool bHas = aIter.first(); bHas; bHas = aIter.next())", "\n".join(added))
         self.assertIn("testCondFormatDuplicateTopCacheCells", "\n".join(ch["sc/qa/unit/ucalc_condformat.cxx"][1]))
         qa = changes("hst-sc-qa-excel-formula-syntax.patch")
-        self.assertEqual(set(qa), {"sc/qa/unit/cond_format.cxx"})
+        # expectations only: the patch changes upstream sc tests and their data, never source code
+        self.assertIn("sc/qa/unit/cond_format.cxx", qa)
+        self.assertEqual([p for p in qa if not p.startswith("sc/qa/unit/")], [])
         self.assertNotIn("$Sheet", "\n".join(qa["sc/qa/unit/cond_format.cxx"][1]))
 
 
