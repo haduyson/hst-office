@@ -1,0 +1,371 @@
+HST Office: the Special Character dialog's search finds symbols by their Vietnamese names.
+
+The search compared the text only with the English Unicode names, so "hộp kiểm", "dấu tích", "mũi tên" or "đồng"
+found nothing. HST's svx/source/dialog/hstsymbolsearch.cxx (SPDX LicenseRef-HST-Proprietary) holds Vietnamese names
+for about 35 symbols office users look for (check boxes, ticks, crosses, arrows, math signs, currency, №, •) and
+matches any part of a name, ignoring case and diacritics, so "hop kiem" works too. Hook: SearchUpdateHdl lists a
+character of the current font when its English name or one of its Vietnamese names matches.
+
+License: the upstream files remain under their original license (MPL-2.0); the hst* files are HST's.
+Test: CppunitTest_svx_hst_symbol_search; tests/runtime/check-insert-symbol.py
+---
+--- /dev/null
++++ b/svx/CppunitTest_svx_hst_symbol_search.mk
+@@ -0,0 +1,22 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (c) HASON TECH. HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,svx_hst_symbol_search))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,svx_hst_symbol_search, \
++    svx/qa/unit/hstsymbolsearch \
++))
++
++$(eval $(call gb_CppunitTest_set_include,svx_hst_symbol_search,\
++    -I$(SRCDIR)/svx/source/dialog \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,svx_hst_symbol_search, \
++    sal \
++    svx \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/svx/Library_svx.mk
++++ b/svx/Library_svx.mk
+@@ -126,6 +126,7 @@ $(eval $(call gb_Library_add_exception_objects,svx,\
+     svx/source/dialog/_bmpmask \
+     svx/source/dialog/charmap \
+     svx/source/dialog/cuicharmap \
++    svx/source/dialog/hstsymbolsearch \
+     svx/source/dialog/searchcharmap \
+     svx/source/dialog/connctrl \
+     svx/source/dialog/_contdlg \
+--- a/svx/Module_svx.mk
++++ b/svx/Module_svx.mk
+@@ -42,6 +42,7 @@ $(eval $(call gb_Module_add_check_targets,svx,\
+ 	CppunitTest_svx_gallery_test \
+ 	CppunitTest_svx_removewhichrange \
+ 	CppunitTest_svx_core \
++	CppunitTest_svx_hst_symbol_search \
+ ))
+ 
+ # screenshots
+--- /dev/null
++++ b/svx/qa/unit/hstsymbolsearch.cxx
+@@ -0,0 +1,100 @@
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++/* Copyright (c) HASON TECH. HST Office. */
++
++#include <sal/config.h>
++
++#include <cppunit/TestAssert.h>
++#include <cppunit/TestFixture.h>
++#include <cppunit/extensions/HelperMacros.h>
++#include <cppunit/plugin/TestPlugIn.h>
++
++#include <hstsymbolsearch.hxx>
++
++namespace
++{
++class HstSymbolSearchTest : public CppUnit::TestFixture
++{
++    CPPUNIT_TEST_SUITE(HstSymbolSearchTest);
++    CPPUNIT_TEST(testFold);
++    CPPUNIT_TEST(testCheckBoxes);
++    CPPUNIT_TEST(testWithoutToneMarks);
++    CPPUNIT_TEST(testOtherSymbols);
++    CPPUNIT_TEST(testNoMatch);
++    CPPUNIT_TEST_SUITE_END();
++
++    static bool finds(std::u16string_view aQuery, sal_uInt32 cChar)
++    {
++        return hst::VietnameseSymbolSearch(aQuery).matches(cChar);
++    }
++
++    void testFold()
++    {
++        CPPUNIT_ASSERT_EQUAL(u"hop kiem"_ustr, hst::VietnameseSymbolSearch::fold(u"  Hộp   KIỂM "));
++        CPPUNIT_ASSERT_EQUAL(u"dau tich"_ustr, hst::VietnameseSymbolSearch::fold(u"Đấu tích"));
++        // Precomposed and decomposed input fold the same.
++        CPPUNIT_ASSERT_EQUAL(hst::VietnameseSymbolSearch::fold(u"mũi tên"),
++                             hst::VietnameseSymbolSearch::fold(u"mũi tên"));
++        CPPUNIT_ASSERT_EQUAL(OUString(), hst::VietnameseSymbolSearch::fold(u"   "));
++    }
++
++    void testCheckBoxes()
++    {
++        for (sal_uInt32 c : { 0x2610, 0x2611, 0x2612 })
++        {
++            CPPUNIT_ASSERT(finds(u"hộp chọn", c));
++            CPPUNIT_ASSERT(finds(u"ô đánh dấu", c));
++        }
++        CPPUNIT_ASSERT(finds(u"hộp kiểm", 0x2610));
++        CPPUNIT_ASSERT(finds(u"dấu tích", 0x2713));
++        CPPUNIT_ASSERT(finds(u"dấu tích", 0x2714));
++        CPPUNIT_ASSERT(finds(u"dấu tích", 0x2611));
++        CPPUNIT_ASSERT(finds(u"dấu x", 0x2717));
++        CPPUNIT_ASSERT(finds(u"dấu x", 0x2612));
++        CPPUNIT_ASSERT(!finds(u"dấu x", 0x2610));
++    }
++
++    void testWithoutToneMarks()
++    {
++        CPPUNIT_ASSERT(finds(u"hop kiem", 0x2610));
++        CPPUNIT_ASSERT(finds(u"HOP KIEM", 0x2610));
++        CPPUNIT_ASSERT(finds(u"dau tich", 0x2713));
++        CPPUNIT_ASSERT(finds(u"o vuong", 0x2610));
++        CPPUNIT_ASSERT(finds(u"kiem", 0x2610)); // part of a name
++    }
++
++    void testOtherSymbols()
++    {
++        CPPUNIT_ASSERT(finds(u"mũi tên phải", 0x2192));
++        CPPUNIT_ASSERT(finds(u"mũi tên", 0x2190));
++        CPPUNIT_ASSERT(!finds(u"mũi tên phải", 0x2190));
++        CPPUNIT_ASSERT(finds(u"đồng", 0x20AB));
++        CPPUNIT_ASSERT(finds(u"vnd", 0x20AB));
++        CPPUNIT_ASSERT(finds(u"số thứ tự", 0x2116));
++        CPPUNIT_ASSERT(finds(u"độ", 0x00B0));
++        CPPUNIT_ASSERT(finds(u"cộng trừ", 0x00B1));
++        CPPUNIT_ASSERT(finds(u"nhỏ hơn hoặc bằng", 0x2264));
++        CPPUNIT_ASSERT(finds(u"lớn hơn hoặc bằng", 0x2265));
++        CPPUNIT_ASSERT(finds(u"khác", 0x2260));
++        CPPUNIT_ASSERT(finds(u"xấp xỉ", 0x2248));
++        CPPUNIT_ASSERT(finds(u"vô cực", 0x221E));
++        CPPUNIT_ASSERT(finds(u"euro", 0x20AC));
++        CPPUNIT_ASSERT(finds(u"bản quyền", 0x00A9));
++    }
++
++    void testNoMatch()
++    {
++        CPPUNIT_ASSERT(!finds(u"", 0x2610));
++        CPPUNIT_ASSERT(!finds(u"   ", 0x2610));
++        CPPUNIT_ASSERT(!finds(u"không có ký hiệu này", 0x2610));
++        // A query never spans two alternative names of one symbol.
++        CPPUNIT_ASSERT(!finds(u"ô trống|ô đánh", 0x2610));
++        CPPUNIT_ASSERT(!finds(u"hộp kiểm", u'A'));
++    }
++};
++
++CPPUNIT_TEST_SUITE_REGISTRATION(HstSymbolSearchTest);
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/svx/source/dialog/cuicharmap.cxx
++++ b/svx/source/dialog/cuicharmap.cxx
+@@ -43,6 +43,7 @@
+ 
+ #include <svx/dialmgr.hxx>
+ #include <svx/cuicharmap.hxx>
++#include "hstsymbolsearch.hxx"
+ #include <svx/strings.hrc>
+ #include <sfx2/app.hxx>
+ #include <svx/svxids.hrc>
+@@ -500,6 +501,7 @@ IMPL_LINK_NOARG(SvxCharacterMap, SearchUpdateHdl, weld::Entry&, void)
+         toggleSearchView(true);
+ 
+         FontCharMapRef xFontCharMap = m_xSearchSet->GetFontCharMap();
++        const hst::VietnameseSymbolSearch aVietnameseNames(m_xSearchText->get_text());
+ 
+         for (sal_UCS4 ucs4 = xFontCharMap->GetFirstChar();; ucs4 = xFontCharMap->GetNextChar(ucs4))
+         {
+@@ -516,6 +518,11 @@ IMPL_LINK_NOARG(SvxCharacterMap, SearchUpdateHdl, weld::Entry&, void)
+                     bAdded = true;
+                 }
+             }
++            if (!bAdded && aVietnameseNames.matches(ucs4))
++            {
++                m_xSearchSet->AppendCharToList(ucs4);
++                bAdded = true;
++            }
+             if (!bAdded && !hex_code.isEmpty())
+             {
+                 OUString actual_number = OUString::number(ucs4, 16);
+--- /dev/null
++++ b/svx/source/dialog/hstsymbolsearch.cxx
+@@ -0,0 +1,139 @@
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++/* Copyright (c) HASON TECH. HST Office. */
++
++#include "hstsymbolsearch.hxx"
++
++#include <rtl/ustrbuf.hxx>
++#include <unicode/normalizer2.h>
++#include <unicode/uchar.h>
++#include <unicode/unistr.h>
++
++#include <algorithm>
++
++namespace hst
++{
++namespace
++{
++struct SymbolNames
++{
++    sal_uInt32 cChar;
++    std::u16string_view aNames; // '|' between alternative names
++};
++
++// Names as Vietnamese office users say them; the most used meaning first.
++constexpr SymbolNames aSymbolNames[] = {
++    { 0x00A9, u"bản quyền|ký hiệu bản quyền" },
++    { 0x00AE, u"đã đăng ký|nhãn hiệu đã đăng ký" },
++    { 0x00B0, u"độ|ký hiệu độ|độ c" },
++    { 0x00B1, u"cộng trừ|dấu cộng trừ" },
++    { 0x00D7, u"dấu nhân|nhân" },
++    { 0x00F7, u"dấu chia|chia" },
++    { 0x2022, u"chấm tròn|dấu chấm đầu dòng|gạch đầu dòng" },
++    { 0x2116, u"số|số thứ tự|ký hiệu số" },
++    { 0x20AB, u"đồng|đồng việt nam|vnd|tiền việt nam" },
++    { 0x20AC, u"euro|đồng euro" },
++    { 0x2122, u"nhãn hiệu|thương hiệu" },
++    { 0x2190, u"mũi tên trái|mũi tên sang trái" },
++    { 0x2191, u"mũi tên lên|mũi tên đi lên" },
++    { 0x2192, u"mũi tên phải|mũi tên sang phải" },
++    { 0x2193, u"mũi tên xuống|mũi tên đi xuống" },
++    { 0x2194, u"mũi tên hai chiều|mũi tên trái phải" },
++    { 0x21D0, u"mũi tên kép trái" },
++    { 0x21D2, u"mũi tên kép phải|suy ra|kéo theo" },
++    { 0x21D4, u"mũi tên kép hai chiều|tương đương|khi và chỉ khi" },
++    { 0x221E, u"vô cực|vô hạn|vô cùng" },
++    { 0x2248, u"xấp xỉ|gần bằng" },
++    { 0x2260, u"khác|không bằng|dấu khác" },
++    { 0x2264, u"nhỏ hơn hoặc bằng|bé hơn hoặc bằng" },
++    { 0x2265, u"lớn hơn hoặc bằng" },
++    { 0x25A0, u"ô vuông đen|hình vuông đen|ô vuông đặc" },
++    { 0x25A1, u"ô vuông trắng|hình vuông trắng|ô vuông rỗng" },
++    { 0x25CB, u"hình tròn trắng|vòng tròn" },
++    { 0x25CF, u"hình tròn đen|chấm tròn đặc" },
++    { 0x2610, u"hộp kiểm|ô kiểm|ô vuông|ô trống|ô đánh dấu|hộp đánh dấu|ô chọn|hộp chọn|ô tích" },
++    { 0x2611, u"hộp kiểm đã chọn|ô kiểm có dấu tích|ô vuông có dấu tích|ô đã tích|ô đánh dấu|hộp chọn|ô chọn|ô tích" },
++    { 0x2612, u"hộp kiểm dấu x|ô kiểm có dấu x|ô vuông có dấu x|ô đánh dấu|hộp chọn|ô chọn|ô gạch chéo" },
++    { 0x2713, u"dấu tích|dấu kiểm|dấu check|dấu đúng" },
++    { 0x2714, u"dấu tích đậm|dấu kiểm đậm|dấu đúng đậm" },
++    { 0x2717, u"dấu x|dấu nhân chéo|dấu sai|dấu gạch chéo" },
++    { 0x2718, u"dấu x đậm|dấu sai đậm" },
++};
++
++const icu::Normalizer2* decomposer()
++{
++    UErrorCode nError = U_ZERO_ERROR;
++    const icu::Normalizer2* pNfd = icu::Normalizer2::getNFDInstance(nError);
++    return U_SUCCESS(nError) ? pNfd : nullptr;
++}
++}
++
++OUString VietnameseSymbolSearch::fold(std::u16string_view rText)
++{
++    const icu::UnicodeString aSource(false, reinterpret_cast<const UChar*>(rText.data()),
++                                     static_cast<int32_t>(rText.size()));
++    icu::UnicodeString aDecomposed;
++    if (const icu::Normalizer2* pNfd = decomposer())
++    {
++        UErrorCode nError = U_ZERO_ERROR;
++        pNfd->normalize(aSource, aDecomposed, nError);
++        if (U_FAILURE(nError))
++            aDecomposed = aSource;
++    }
++    else
++        aDecomposed = aSource;
++
++    OUStringBuffer aFolded(aDecomposed.length());
++    bool bPendingSpace = false;
++    for (int32_t i = 0; i < aDecomposed.length(); i = aDecomposed.moveIndex32(i, 1))
++    {
++        UChar32 c = aDecomposed.char32At(i);
++        if (U_GET_GC_MASK(c) & U_GC_M_MASK) // tone marks and other combining marks
++            continue;
++        if (u_isUWhiteSpace(c))
++        {
++            bPendingSpace = !aFolded.isEmpty();
++            continue;
++        }
++        c = u_tolower(c);
++        if (c == 0x0111) // đ has no decomposition
++            c = 'd';
++        if (bPendingSpace)
++        {
++            aFolded.append(u' ');
++            bPendingSpace = false;
++        }
++        aFolded.appendUtf32(static_cast<sal_uInt32>(c));
++    }
++    return aFolded.makeStringAndClear();
++}
++
++VietnameseSymbolSearch::VietnameseSymbolSearch(std::u16string_view rSearchText)
++{
++    const OUString aQuery = fold(rSearchText);
++    if (aQuery.isEmpty())
++        return;
++
++    for (const SymbolNames& rEntry : aSymbolNames)
++    {
++        // The names are matched one by one, so a query never spans two alternatives.
++        const OUString aNames = fold(rEntry.aNames);
++        sal_Int32 nIndex = 0;
++        do
++        {
++            if (aNames.getToken(0, '|', nIndex).indexOf(aQuery) >= 0)
++            {
++                m_aMatches.push_back(rEntry.cChar);
++                break;
++            }
++        } while (nIndex >= 0);
++    }
++    std::sort(m_aMatches.begin(), m_aMatches.end());
++}
++
++bool VietnameseSymbolSearch::matches(sal_uInt32 cChar) const
++{
++    return std::binary_search(m_aMatches.begin(), m_aMatches.end(), cChar);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svx/source/dialog/hstsymbolsearch.hxx
+@@ -0,0 +1,37 @@
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++/* Copyright (c) HASON TECH. HST Office. */
++
++#pragma once
++
++#include <sal/types.h>
++#include <rtl/ustring.hxx>
++#include <svx/svxdllapi.h>
++
++#include <string_view>
++#include <vector>
++
++namespace hst
++{
++/** Vietnamese names for the symbols that office users look for most (check boxes, ticks, arrows,
++    math signs, currency), so the Special Character dialog's search finds them by "hộp kiểm",
++    "dấu tích", "mũi tên", "đồng"... as well as by their English Unicode names.
++
++    Matching ignores case, Vietnamese tone marks and other diacritics (so "hop kiem" finds the same
++    as "hộp kiểm"), and the search text may be any part of a name. */
++class SVX_DLLPUBLIC VietnameseSymbolSearch
++{
++public:
++    explicit VietnameseSymbolSearch(std::u16string_view rSearchText);
++
++    /// True when one of the Vietnamese names of cChar contains the search text.
++    bool matches(sal_uInt32 cChar) const;
++
++    /// Lower case, without diacritics, đ as d, runs of spaces as one space, trimmed.
++    static OUString fold(std::u16string_view rText);
++
++private:
++    std::vector<sal_uInt32> m_aMatches; // sorted
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
