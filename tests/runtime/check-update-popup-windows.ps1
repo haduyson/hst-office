@@ -22,7 +22,8 @@ switch ($Phase) {
         $program = Get-Program
         $ext = Join-Path (Split-Path $program) 'share\extensions\hst-vietnamese-tools'
         Remove-Item -Recurse -Force $ext
-        Expand-Archive -LiteralPath (Rename-Item -LiteralPath $Oxt -NewName 'test.zip' -PassThru).FullName -DestinationPath $ext
+        Copy-Item -LiteralPath $Oxt -Destination "$Dir\test-extension.zip" -Force  # Expand-Archive wants .zip
+        Expand-Archive -LiteralPath "$Dir\test-extension.zip" -DestinationPath $ext -Force
         & icacls.exe $Dir /grant "${User}:(OI)(CI)F" /q | Out-Null
         "program: $program; test extension: $(Test-Path "$ext\description.xml")"
     }
