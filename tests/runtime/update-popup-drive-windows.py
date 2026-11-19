@@ -24,7 +24,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from update_popup_win_office import NODE, Office, seed, type_into, wait  # noqa: E402
 
-SERVED, REQUESTS, RESULTS = {}, [], []
+SERVED, REQUESTS, RESULTS, SEEN = {}, [], [], []
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -82,7 +82,7 @@ def report(args):
     print("update pop-up (Windows): %d checks, %d failed" % (len(RESULTS), len(failed)), flush=True)
     if args.out:
         with open(args.out, "w", encoding="utf-8") as handle:
-            json.dump({"results": RESULTS, "requests": REQUESTS}, handle, ensure_ascii=False, indent=1)
+            json.dump({"results": RESULTS, "requests": REQUESTS, "seen": SEEN}, handle, ensure_ascii=False, indent=1)
     return 1 if failed else 0
 
 
@@ -122,7 +122,7 @@ def main():
         typed = type_into("HST Writer", "hstpopup") and wait(lambda: "hstpopup" in doc.getText().getString(), 10)
         check("1: typing reaches the document while the pop-up is open", typed and office.popup() is not None)
         check("1: no infobar while the pop-up shows it", not doc.getCurrentController().hasInfobar("hst-update-available"))
-        check("2: Để sau closes the pop-up", office.press("Để sau") and wait(lambda: office.popup() is None, 10))
+        check("2: Để sau closes the pop-up", office.press("Để sau", 1) and wait(lambda: office.popup() is None, 10))
         check("2: the version is remembered for the day", wait(lambda: json.load(open(reminder))["version"] == "1.0.8", 10))
         office.stop()
         doc = start()
@@ -133,7 +133,7 @@ def main():
         doc = start()
         check("3: a newer version is announced at once", wait(office.popup, 120))
         check("3: Bỏ qua bản này closes the pop-up",
-              office.press("Bỏ qua phiên bản này") and wait(lambda: office.popup() is None, 10))
+              office.press("Bỏ qua phiên bản này", 2) and wait(lambda: office.popup() is None, 10))
         check("3: SkippedVersion saved", wait(lambda: office.setting("SkippedVersion") == "1.0.9", 10))
         office.stop()
         doc = start()
@@ -149,6 +149,11 @@ def main():
     except Exception as error:  # noqa: BLE001 - report what happened instead of a bare traceback
         check("driver error: %r" % error, False)
     finally:
+        if any(not ok for _label, ok in RESULTS):
+            try:
+                SEEN.append(office.describe())
+            except Exception as error:  # noqa: BLE001 - the office is gone
+                SEEN.append(repr(error))
         office.stop()
         server.shutdown()
     return report(args)

@@ -78,28 +78,54 @@ class Office:
         time.sleep(3)
 
     def popup(self):
-        """The pop-up's accessible context, or None."""
+        """The pop-up's window handle (a visible top-level window titled TITLE), or None."""
+        found = windows(lambda title: title == TITLE)
+        return found[0] if found else None
+
+    def _accessible_popup(self):
         toolkit = self.service("com.sun.star.awt.Toolkit")
         for index in range(toolkit.getTopWindowCount()):
-            window = toolkit.getTopWindow(index)
-            context = accessible(window)
-            if context is not None and context.getAccessibleName() == TITLE and window.isVisible():
+            context = accessible(toolkit.getTopWindow(index))
+            if context is not None and context.getAccessibleName() == TITLE:
                 return context
         return None
 
-    def press(self, label):
-        """Press the pop-up's button `label` through its accessible action."""
+    def press(self, label, index):
+        """Press the pop-up's button `label` (its `index`-th button): its accessible action, else the keyboard (the
+        pop-up in front, Tab `index` times from the default first button, Space)."""
         def find(context):
-            for index in range(context.getAccessibleChildCount()):
-                child = context.getAccessibleChild(index).getAccessibleContext()
+            for child_index in range(context.getAccessibleChildCount()):
+                child = context.getAccessibleChild(child_index).getAccessibleContext()
                 if child.getAccessibleName() == label and hasattr(child, "doAccessibleAction"):
                     return child
                 found = find(child)
                 if found is not None:
                     return found
             return None
-        button = find(self.popup())
-        return bool(button is not None and button.doAccessibleAction(0))
+        try:
+            context = self._accessible_popup()
+            button = find(context) if context is not None else None
+            if button is not None:
+                return bool(button.doAccessibleAction(0))
+        except Exception:  # noqa: BLE001 - fall back to the keyboard
+            pass
+        hwnd = self.popup()
+        if hwnd is None or not to_front(hwnd):
+            return False
+        send_keys([0x09] * index + [0x20])
+        return True
+
+    def describe(self):
+        """What a failed run saw: the toolkit's top windows (accessible names) and the visible window titles."""
+        names = []
+        try:
+            toolkit = self.service("com.sun.star.awt.Toolkit")
+            for index in range(toolkit.getTopWindowCount()):
+                context = accessible(toolkit.getTopWindow(index))
+                names.append(context.getAccessibleName() if context is not None else None)
+        except Exception as error:  # noqa: BLE001
+            names.append(repr(error))
+        return {"toolkit": names, "windows": [t for _h, t in windows_titled(lambda title: bool(title))]}
 
     def setting(self, name):
         from com.sun.star.beans import PropertyValue
@@ -109,26 +135,56 @@ class Office:
             "com.sun.star.configuration.ConfigurationAccess", (arg,)).getPropertyValue(name)
 
 
-def type_into(title_part, text):
-    """Foreground the document window (title contains title_part) and type `text` with SendInput (real keys)."""
-    user32 = ctypes.windll.user32
-    found = []
+def windows_titled(predicate):
+    """[(hwnd, title)] of the visible top-level windows whose title passes `predicate`."""
+    user32, found = ctypes.windll.user32, []
     proc = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
 
     def each(hwnd, _):
         buffer = ctypes.create_unicode_buffer(512)
         user32.GetWindowTextW(hwnd, buffer, 512)
-        if title_part in buffer.value and user32.IsWindowVisible(hwnd):
-            found.append(hwnd)
+        if user32.IsWindowVisible(hwnd) and predicate(buffer.value):
+            found.append((hwnd, buffer.value))
         return True
     user32.EnumWindows(proc(each), 0)
-    if not found:
-        return False
-    user32.SetForegroundWindow(found[0])
-    time.sleep(1.0)
-    for char in text:
-        vk = user32.VkKeyScanW(ord(char)) & 0xFF
+    return found
+
+
+def windows(predicate):
+    return [hwnd for hwnd, _t in windows_titled(predicate)]
+
+
+def to_front(hwnd):
+    """SetForegroundWindow, with this thread's input attached to the foreground thread when the plain call is refused."""
+    user32, kernel32 = ctypes.windll.user32, ctypes.windll.kernel32
+    for attach in (False, True):
+        front = user32.GetForegroundWindow()
+        thread = user32.GetWindowThreadProcessId(front, None) if attach and front else 0
+        if thread:
+            user32.AttachThreadInput(kernel32.GetCurrentThreadId(), thread, True)
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+        if thread:
+            user32.AttachThreadInput(kernel32.GetCurrentThreadId(), thread, False)
+        time.sleep(0.5)
+        if user32.GetForegroundWindow() == hwnd:
+            return True
+    return False
+
+
+def send_keys(vks):
+    user32 = ctypes.windll.user32
+    for vk in vks:
         user32.keybd_event(vk, 0, 0, 0)
         user32.keybd_event(vk, 0, 2, 0)
-        time.sleep(0.05)
+        time.sleep(0.08)
+
+
+def type_into(title_part, text):
+    """Bring the document window (title contains title_part) to the front and type `text` with real key events."""
+    found = windows(lambda title: title_part in title)
+    if not found or not to_front(found[0]):
+        return False
+    time.sleep(0.5)
+    send_keys([ctypes.windll.user32.VkKeyScanW(ord(char)) & 0xFF for char in text])
     return True
