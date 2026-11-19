@@ -243,10 +243,10 @@ index 0000000..355cd4b
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sw/source/core/hst/formulashownsize.cxx b/sw/source/core/hst/formulashownsize.cxx
 new file mode 100644
-index 0000000..d5175f8
+index 0000000..d56cc22
 --- /dev/null
 +++ b/sw/source/core/hst/formulashownsize.cxx
-@@ -0,0 +1,118 @@
+@@ -0,0 +1,150 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -265,6 +265,8 @@ index 0000000..d5175f8
 +#include <rtl/ustrbuf.hxx>
 +#include <sot/exchange.hxx>
 +#include <tools/globname.hxx>
++#include <tools/stream.hxx>
++#include <vcl/gfxlink.hxx>
 +#include <vcl/graph.hxx>
 +#include <vcl/outdev.hxx>
 +
@@ -279,9 +281,32 @@ index 0000000..d5175f8
 +{
 +constexpr double TOLERANCE = 0.05; // Word's own rounding of a size at 100 %
 +// The WMF reader sizes an MM_ANISOTROPIC WMF smaller than its "inch" field to one inch on its longer side (emfio
-+// wmfreader), so a MathType preview under 1 inch is 2540 mm100 tall or wide whatever its size: not MathType's.
++// wmfreader), so a MathType preview under 1 inch is 2540 mm100 tall or wide whatever its size: its own placeable
++// header (bounding box, units per inch) tells the size; without one the scale is unknown.
 +constexpr tools::Long NORMALIZED_INCH = 2540; // mm100
 +constexpr tools::Long INCH_SLACK = 2;
++constexpr sal_uInt32 PLACEABLE_KEY = 0x9AC6CDD7;
++constexpr sal_uInt32 PLACEABLE_SIZE = 22;
++
++/// The height in mm100 the placeable header of the preview's own WMF data gives, 0 without one.
++tools::Long PlaceableHeight(const Graphic& rPreview)
++{
++    if (!rPreview.IsGfxLink())
++        return 0;
++    const GfxLink aLink = rPreview.GetGfxLink();
++    if (aLink.GetType() != GfxLinkType::NativeWmf || aLink.IsEMF() || aLink.GetDataSize() < PLACEABLE_SIZE)
++        return 0;
++    SvMemoryStream aStream(const_cast<sal_uInt8*>(aLink.GetData()), aLink.GetDataSize(), StreamMode::READ);
++    aStream.SetEndian(SvStreamEndian::LITTLE);
++    sal_uInt32 nKey = 0;
++    sal_Int16 nLeft = 0, nTop = 0, nRight = 0, nBottom = 0;
++    sal_uInt16 nInch = 0;
++    aStream.ReadUInt32(nKey).SeekRel(2);
++    aStream.ReadInt16(nLeft).ReadInt16(nTop).ReadInt16(nRight).ReadInt16(nBottom).ReadUInt16(nInch);
++    if (nKey != PLACEABLE_KEY || !nInch || !aStream.good())
++        return 0;
++    return std::lround(std::abs(nBottom - nTop) * double(NORMALIZED_INCH) / nInch);
++}
 +
 +OUString NumberText(double fValue)
 +{
@@ -296,6 +321,13 @@ index 0000000..d5175f8
 +    if (nShownHeight <= 0 || rPreview.GetType() == GraphicType::NONE
 +        || aPreviewMap.GetMapUnit() == MapUnit::MapPixel)
 +        return 0;
++    if (const tools::Long nPlaceable = PlaceableHeight(rPreview))
++    {
++        const tools::Long nNatural
++            = OutputDevice::LogicToLogic(Size(0, nPlaceable), MapMode(MapUnit::Map100thMM), MapMode(eUnit))
++                  .Height();
++        return nNatural > 0 ? double(nShownHeight) / nNatural : 0;
++    }
 +    const Size aPreview100
 +        = OutputDevice::LogicToLogic(rPreview.GetPrefSize(), aPreviewMap, MapMode(MapUnit::Map100thMM));
 +    if (std::abs(std::max(aPreview100.Width(), aPreview100.Height()) - NORMALIZED_INCH) <= INCH_SLACK)
