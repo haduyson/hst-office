@@ -1,0 +1,565 @@
+HST Office: acceptance tests of HST Sheets dynamic arrays, written by the spec author from the behaviour spec,
+independent of the engine's own tests (hst-sheets-dynamic-array-engine.patch).
+
+Test: CppunitTest_sc_hst_dynamic_array_acceptance: any array result spills when typed (one undo step, no
+selection left, a single value does not spill), #SPILL! with a blocker and after it is cleared, another array
+formula in the way gives #SPILL!, UNIQUE grows and shrinks, A1# / $A$1# (SUM, COUNT, A1#*10, #REF! without an
+array, error constants untouched; a one-cell dynamic array is a spill range and grows, a constant or a
+single-value formula is not), merged cells and a Sheets table block a spill (a database range without a
+table style does not), @ (implicit intersection, @SEQUENCE, #VALUE!), .xlsx export (cm, ref,
+_xlfn.ANCHORARRAY, _xlfn.SINGLE, metadata.xml, no cm on a Ctrl+Shift+Enter array) and import of a file written
+like the leading spreadsheet application writes it, Spill.xlsx saved by that application, and an .ods
+round trip keeping a dynamic array dynamic (the HST mark only on its anchor).
+---
+--- /dev/null
++++ b/sc/CppunitTest_sc_hst_dynamic_array_acceptance.mk
+@@ -0,0 +1,65 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# This file is part of the LibreOffice project.
++#
++# This Source Code Form is subject to the terms of the Mozilla Public
++# License, v. 2.0. If a copy of the MPL was not distributed with this
++# file, You can obtain one at http://mozilla.org/MPL/2.0/.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,sc_hst_dynamic_array_acceptance))
++
++$(eval $(call gb_CppunitTest_use_externals,sc_hst_dynamic_array_acceptance, \
++	boost_headers \
++	mdds_headers \
++	libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sc_hst_dynamic_array_acceptance, \
++    sc/qa/unit/uicalc/hstdynamicarrayacceptance \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sc_hst_dynamic_array_acceptance, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    editeng \
++    i18nlangtag \
++    sal \
++    sc \
++    scqahelper \
++    sfx \
++    sot \
++    subsequenttest \
++    svl \
++    svl \
++    svx \
++    svxcore \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++    $(if $(filter -fsanitize=vptr,$(gb_CXX)),salhelper) \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sc_hst_dynamic_array_acceptance,\
++    -I$(SRCDIR)/sc/source/ui/inc \
++    -I$(SRCDIR)/sc/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sc_hst_dynamic_array_acceptance))
++
++$(eval $(call gb_CppunitTest_use_ure,sc_hst_dynamic_array_acceptance))
++$(eval $(call gb_CppunitTest_use_vcl,sc_hst_dynamic_array_acceptance))
++
++$(eval $(call gb_CppunitTest_use_rdb,sc_hst_dynamic_array_acceptance,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sc_hst_dynamic_array_acceptance))
++
++$(eval $(call gb_CppunitTest_add_arguments,sc_hst_dynamic_array_acceptance, \
++    -env:arg-env=$(gb_Helper_LIBRARY_PATH_VAR)"$$$${$(gb_Helper_LIBRARY_PATH_VAR)+=$$$$$(gb_Helper_LIBRARY_PATH_VAR)}" \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/sc/Module_sc.mk
++++ b/sc/Module_sc.mk
+@@ -101,6 +101,7 @@ $(eval $(call gb_Module_add_slowcheck_targets,sc, \
+ 	CppunitTest_sc_subsequent_filters_test3 \
+ 	CppunitTest_sc_subsequent_filters_test4 \
+ 	CppunitTest_sc_hst_flash_fill \
++	CppunitTest_sc_hst_dynamic_array_acceptance \
+     CppunitTest_sc_subsequent_filters_test5 \
+ 	CppunitTest_sc_subsequent_export_test \
+ 	CppunitTest_sc_subsequent_export_test2 \
+--- /dev/null
++++ b/sc/qa/unit/uicalc/hstdynamicarrayacceptance.cxx
+@@ -0,0 +1,471 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// HST Office: acceptance tests of the dynamic arrays of Sheets, written from the behaviour spec
++// (independent of the engine's own tests): any array result spills when typed, #SPILL!, the spill
++// range operator A1# (also of a one-cell result), the @ operator, merged cells and tables blocking a
++// spill, .xlsx cm metadata, the HST .ods mark of dynamic arrays, _xlfn.ANCHORARRAY and _xlfn.SINGLE. The
++// .xlsx fixture is written the way the leading spreadsheet application writes its files
++// (ECMA-376 / MS-XLSX); Spill.xlsx was saved by that application.
++
++#include "../helper/qahelper.hxx"
++
++#include <comphelper/propertyvalue.hxx>
++#include <rtl/crc.h>
++#include <tools/stream.hxx>
++#include <vcl/scheduler.hxx>
++#include <dbdata.hxx>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <formulacell.hxx>
++#include <tabvwsh.hxx>
++#include <undomanager.hxx>
++#include <viewdata.hxx>
++
++#include <utility>
++#include <vector>
++
++namespace
++{
++class ScHstDynamicArrayAcceptanceTest : public ScModelTestBase
++{
++public:
++    ScHstDynamicArrayAcceptanceTest()
++        : ScModelTestBase(u"sc/qa/unit/data"_ustr)
++    {
++    }
++
++protected:
++    ScAddress pos(const char* pCell)
++    {
++        ScAddress aPos;
++        aPos.Parse(OUString::createFromAscii(pCell), *getScDoc());
++        return aPos;
++    }
++    ScFormulaCell* formulaCell(const char* pCell) { return getScDoc()->GetFormulaCell(pos(pCell)); }
++    OUString str(const char* pCell) { return getScDoc()->GetString(pos(pCell)); }
++    double val(const char* pCell) { return getScDoc()->GetValue(pos(pCell)); }
++    bool empty(const char* pCell) { return getScDoc()->GetCellType(pos(pCell)) == CELLTYPE_NONE; }
++    OUString formula(const char* pCell)
++    {
++        const ScAddress aPos = pos(pCell);
++        return getScDoc()->GetFormula(aPos.Col(), aPos.Row(), aPos.Tab());
++    }
++    bool dynamicAnchor(const char* pCell)
++    {
++        const ScFormulaCell* pFormula = formulaCell(pCell);
++        return pFormula && pFormula->GetMatrixFlag() == ScMatrixMode::Formula
++               && pFormula->IsDynamicArrayMaster();
++    }
++    void recalc()
++    {
++        getScDoc()->CalcAll();
++        Scheduler::ProcessEventsToIdle();
++    }
++};
++
++/// Writes a zip archive of stored (uncompressed) entries: enough for a minimal .xlsx.
++void writeStoredZip(const OUString& rURL, const std::vector<std::pair<OString, OString>>& rEntries)
++{
++    SvFileStream aStream(rURL, StreamMode::WRITE | StreamMode::TRUNC);
++    aStream.SetEndian(SvStreamEndian::LITTLE);
++    std::vector<sal_uInt32> aOffsets;
++    for (const auto& [rName, rData] : rEntries)
++    {
++        aOffsets.push_back(aStream.Tell());
++        const sal_uInt32 nCrc = rtl_crc32(0, rData.getStr(), rData.getLength());
++        aStream.WriteUInt32(0x04034b50).WriteUInt16(20).WriteUInt16(0).WriteUInt16(0);
++        aStream.WriteUInt16(0).WriteUInt16(0x21).WriteUInt32(nCrc);
++        aStream.WriteUInt32(rData.getLength()).WriteUInt32(rData.getLength());
++        aStream.WriteUInt16(rName.getLength()).WriteUInt16(0);
++        aStream.WriteBytes(rName.getStr(), rName.getLength());
++        aStream.WriteBytes(rData.getStr(), rData.getLength());
++    }
++    const sal_uInt32 nDirStart = aStream.Tell();
++    for (size_t i = 0; i < rEntries.size(); ++i)
++    {
++        const auto& [rName, rData] = rEntries[i];
++        const sal_uInt32 nCrc = rtl_crc32(0, rData.getStr(), rData.getLength());
++        aStream.WriteUInt32(0x02014b50).WriteUInt16(20).WriteUInt16(20).WriteUInt16(0).WriteUInt16(0);
++        aStream.WriteUInt16(0).WriteUInt16(0x21).WriteUInt32(nCrc);
++        aStream.WriteUInt32(rData.getLength()).WriteUInt32(rData.getLength());
++        aStream.WriteUInt16(rName.getLength()).WriteUInt16(0).WriteUInt16(0);
++        aStream.WriteUInt16(0).WriteUInt16(0).WriteUInt32(0).WriteUInt32(aOffsets[i]);
++        aStream.WriteBytes(rName.getStr(), rName.getLength());
++    }
++    const sal_uInt32 nDirSize = aStream.Tell() - nDirStart;
++    aStream.WriteUInt32(0x06054b50).WriteUInt16(0).WriteUInt16(0);
++    aStream.WriteUInt16(rEntries.size()).WriteUInt16(rEntries.size());
++    aStream.WriteUInt32(nDirSize).WriteUInt32(nDirStart).WriteUInt16(0);
++    CPPUNIT_ASSERT_EQUAL(ERRCODE_NONE, aStream.GetError());
++}
++
++constexpr OString aXml = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"_ostr;
++constexpr OString aRels = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"_ostr;
++constexpr OString aMain = "application/vnd.openxmlformats-officedocument.spreadsheetml"_ostr;
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArrayAcceptanceTest, testAnyArrayResultSpills)
++{
++    createScDoc();
++    for (int i = 0; i < 4; ++i)
++        getScDoc()->SetValue(ScAddress(1, i, 0), 10.0 * (i + 1));
++
++    insertStringToCell(u"D1"_ustr, u"=B1:B4*2");
++    CPPUNIT_ASSERT_EQUAL(20.0, val("D1"));
++    CPPUNIT_ASSERT_EQUAL(80.0, val("D4"));
++    CPPUNIT_ASSERT(dynamicAnchor("D1"));
++    CPPUNIT_ASSERT_EQUAL(ScMatrixMode::Reference, formulaCell("D2")->GetMatrixFlag());
++    // The spill range is not left selected.
++    CPPUNIT_ASSERT(!getViewShell()->GetViewData().GetMarkData().IsMarked());
++
++    // A single value does not spill.
++    insertStringToCell(u"F1"_ustr, u"=SUM(B1:B4)");
++    CPPUNIT_ASSERT_EQUAL(100.0, val("F1"));
++    CPPUNIT_ASSERT_EQUAL(ScMatrixMode::NONE, formulaCell("F1")->GetMatrixFlag());
++    CPPUNIT_ASSERT(empty("F2"));
++
++    // One undo step each removes a formula with its spill range.
++    getScDocShell()->GetUndoManager()->Undo();
++    getScDocShell()->GetUndoManager()->Undo();
++    CPPUNIT_ASSERT(empty("D1"));
++    CPPUNIT_ASSERT(empty("D4"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArrayAcceptanceTest, testSpillBlockedAndRecovered)
++{
++    createScDoc();
++    for (int i = 0; i < 4; ++i)
++        getScDoc()->SetValue(ScAddress(1, i, 0), 10.0 * (i + 1));
++    insertStringToCell(u"D3"_ustr, u"x");
++
++    insertStringToCell(u"D1"_ustr, u"=B1:B4*2");
++    CPPUNIT_ASSERT_EQUAL(u"#SPILL!"_ustr, str("D1"));
++    CPPUNIT_ASSERT_EQUAL(u"x"_ustr, str("D3"));
++    CPPUNIT_ASSERT(empty("D2"));
++
++    clearCell(u"D3"_ustr);
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(20.0, val("D1"));
++    CPPUNIT_ASSERT_EQUAL(60.0, val("D3"));
++
++    // Another array formula in the way gives #SPILL!, not an error dialog.
++    insertStringToCell(u"G2"_ustr, u"=SEQUENCE(3)");
++    insertStringToCell(u"G1"_ustr, u"=SEQUENCE(3)");
++    CPPUNIT_ASSERT_EQUAL(u"#SPILL!"_ustr, str("G1"));
++    CPPUNIT_ASSERT_EQUAL(1.0, val("G2"));
++    CPPUNIT_ASSERT_EQUAL(3.0, val("G4"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArrayAcceptanceTest, testTypedSpillFollowsResultSize)
++{
++    createScDoc();
++    insertStringToCell(u"A1"_ustr, u"a");
++    insertStringToCell(u"A2"_ustr, u"b");
++    insertStringToCell(u"A3"_ustr, u"a");
++    insertStringToCell(u"C1"_ustr, u"=UNIQUE(A1:A3)");
++    CPPUNIT_ASSERT_EQUAL(u"b"_ustr, str("C2"));
++    CPPUNIT_ASSERT(empty("C3"));
++
++    insertStringToCell(u"A3"_ustr, u"c");
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(u"c"_ustr, str("C3"));
++
++    insertStringToCell(u"A2"_ustr, u"a");
++    insertStringToCell(u"A3"_ustr, u"a");
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(u"a"_ustr, str("C1"));
++    CPPUNIT_ASSERT(empty("C2"));
++    CPPUNIT_ASSERT(empty("C3"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArrayAcceptanceTest, testSpillRangeOperator)
++{
++    createScDoc();
++    insertStringToCell(u"A1"_ustr, u"=SEQUENCE(4)");
++    insertStringToCell(u"C1"_ustr, u"=SUM(A1#)");
++    CPPUNIT_ASSERT_EQUAL(10.0, val("C1"));
++    CPPUNIT_ASSERT_EQUAL(u"=SUM(A1#)"_ustr, formula("C1"));
++    insertStringToCell(u"D1"_ustr, u"=A1#*10");
++    CPPUNIT_ASSERT_EQUAL(40.0, val("D4"));
++    insertStringToCell(u"E1"_ustr, u"=COUNT($A$1#)");
++    CPPUNIT_ASSERT_EQUAL(4.0, val("E1"));
++    CPPUNIT_ASSERT_EQUAL(u"=COUNT($A$1#)"_ustr, formula("E1"));
++
++    // The spill range follows the anchor's result.
++    insertStringToCell(u"A1"_ustr, u"=SEQUENCE(5)");
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(15.0, val("C1"));
++    CPPUNIT_ASSERT_EQUAL(50.0, val("D5"));
++
++    // No array at the anchor.
++    insertStringToCell(u"F1"_ustr, u"=SUM(H1#)");
++    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, str("F1"));
++    // Error constants keep their meaning.
++    insertStringToCell(u"F2"_ustr, u"=ISNA(#N/A)");
++    CPPUNIT_ASSERT_EQUAL(1.0, val("F2"));
++    CPPUNIT_ASSERT_EQUAL(u"=ISNA(#N/A)"_ustr, formula("F2"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArrayAcceptanceTest, testSingleValueOperator)
++{
++    createScDoc();
++    for (int i = 0; i < 5; ++i)
++        getScDoc()->SetValue(ScAddress(0, i, 0), i + 1.0);
++    insertStringToCell(u"C3"_ustr, u"=@A1:A5");
++    CPPUNIT_ASSERT_EQUAL(3.0, val("C3"));
++    CPPUNIT_ASSERT(empty("C4"));
++    CPPUNIT_ASSERT_EQUAL(u"=@A1:A5"_ustr, formula("C3"));
++    insertStringToCell(u"D1"_ustr, u"=@SEQUENCE(4)");
++    CPPUNIT_ASSERT_EQUAL(1.0, val("D1"));
++    CPPUNIT_ASSERT(empty("D2"));
++    insertStringToCell(u"C7"_ustr, u"=@A1:A5");
++    CPPUNIT_ASSERT_EQUAL(u"#VALUE!"_ustr, str("C7"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArrayAcceptanceTest, testXlsxExport)
++{
++    createScDoc();
++    for (int i = 0; i < 5; ++i)
++        getScDoc()->SetValue(ScAddress(0, i, 0), i + 1.0);
++    insertStringToCell(u"C1"_ustr, u"=SEQUENCE(3)");
++    insertStringToCell(u"D1"_ustr, u"=SUM(C1#)");
++    insertStringToCell(u"E3"_ustr, u"=@A1:A5+1");
++    insertArrayToCell(u"G1:G2"_ustr, u"=A1:A2*2"); // Ctrl+Shift+Enter on a selection: legacy
++
++    saveAndReload(TestFilter::XLSX);
++    xmlDocUniquePtr pSheet = parseExport(u"xl/worksheets/sheet1.xml"_ustr);
++    CPPUNIT_ASSERT(pSheet);
++    assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[1]/x:c[@r='C1']", "cm", u"1");
++    assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[1]/x:c[@r='C1']/x:f", "t", u"array");
++    assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[1]/x:c[@r='C1']/x:f", "ref", u"C1:C3");
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[1]/x:c[@r='D1']/x:f",
++                       u"SUM(_xlfn.ANCHORARRAY(C1))");
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[3]/x:c[@r='E3']/x:f",
++                       u"_xlfn.SINGLE(A1:A5)+1");
++    assertXPathNoAttribute(pSheet, "/x:worksheet/x:sheetData/x:row[1]/x:c[@r='G1']", "cm");
++    xmlDocUniquePtr pMetadata = parseExport(u"xl/metadata.xml"_ustr);
++    CPPUNIT_ASSERT(pMetadata);
++
++    // Read back.
++    CPPUNIT_ASSERT(dynamicAnchor("C1"));
++    CPPUNIT_ASSERT(!dynamicAnchor("G1"));
++    CPPUNIT_ASSERT_EQUAL(6.0, val("D1"));
++    CPPUNIT_ASSERT_EQUAL(u"=SUM(C1#)"_ustr, formula("D1"));
++    CPPUNIT_ASSERT_EQUAL(4.0, val("E3"));
++    CPPUNIT_ASSERT_EQUAL(u"=@A1:A5+1"_ustr, formula("E3"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArrayAcceptanceTest, testXlsxImport)
++{
++    // As the leading spreadsheet application writes them: C1 a dynamic array (cm="1"), E1 the
++    // spill range operator, F1 the @ operator, G1 a legacy array formula (no cm).
++    const OString aSheet
++        = aXml
++          + "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>"
++            "<row r=\"1\"><c r=\"A1\"><v>1</v></c>"
++            "<c r=\"C1\" cm=\"1\"><f t=\"array\" ref=\"C1:C3\">A1:A3*2</f><v>2</v></c>"
++            "<c r=\"E1\"><f>SUM(_xlfn.ANCHORARRAY(C1))</f><v>12</v></c>"
++            "<c r=\"F1\"><f>_xlfn.SINGLE(A1:A3)</f><v>1</v></c>"
++            "<c r=\"G1\"><f t=\"array\" ref=\"G1:G3\">A1:A3</f><v>1</v></c></row>"
++            "<row r=\"2\"><c r=\"A2\"><v>2</v></c><c r=\"C2\"><v>4</v></c><c r=\"G2\"><v>2</v></c></row>"
++            "<row r=\"3\"><c r=\"A3\"><v>3</v></c><c r=\"C3\"><v>6</v></c><c r=\"G3\"><v>3</v></c></row>"
++            "</sheetData></worksheet>";
++    const OString aMetadata
++        = aXml
++          + "<metadata xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" "
++            "xmlns:xda=\"http://schemas.microsoft.com/office/spreadsheetml/2017/dynamicarray\">"
++            "<metadataTypes count=\"1\"><metadataType name=\"XLDAPR\" minSupportedVersion=\"120000\" "
++            "copy=\"1\" pasteAll=\"1\" pasteValues=\"1\" merge=\"1\" splitFirst=\"1\" rowColShift=\"1\" "
++            "clearFormats=\"1\" clearComments=\"1\" assign=\"1\" coerce=\"1\" cellMeta=\"1\"/></metadataTypes>"
++            "<futureMetadata name=\"XLDAPR\" count=\"1\"><bk><extLst>"
++            "<ext uri=\"{bdbb8cdc-fa1e-496e-a857-3c3f30c029c3}\">"
++            "<xda:dynamicArrayProperties fDynamic=\"1\" fCollapsed=\"0\"/></ext></extLst></bk></futureMetadata>"
++            "<cellMetadata count=\"1\"><bk><rc t=\"1\" v=\"0\"/></bk></cellMetadata></metadata>";
++    writeStoredZip(
++        maTempFile.GetURL(),
++        { { "[Content_Types].xml"_ostr,
++            aXml + "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
++                   "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
++                   "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
++                   "<Override PartName=\"/xl/workbook.xml\" ContentType=\""
++                + aMain + ".sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\""
++                + aMain + ".worksheet+xml\"/><Override PartName=\"/xl/metadata.xml\" ContentType=\""
++                + aMain + ".sheetMetadata+xml\"/></Types>" },
++          { "_rels/.rels"_ostr,
++            aXml + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
++                   "<Relationship Id=\"rId1\" Type=\""
++                + aRels + "/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>" },
++          { "xl/workbook.xml"_ostr,
++            aXml + "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\""
++                + aRels + "\"><sheets><sheet name=\"Sheet1\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>" },
++          { "xl/_rels/workbook.xml.rels"_ostr,
++            aXml + "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
++                   "<Relationship Id=\"rId1\" Type=\""
++                + aRels + "/worksheet\" Target=\"worksheets/sheet1.xml\"/>"
++                          "<Relationship Id=\"rId2\" Type=\""
++                + aRels + "/sheetMetadata\" Target=\"metadata.xml\"/></Relationships>" },
++          { "xl/worksheets/sheet1.xml"_ostr, aSheet },
++          { "xl/metadata.xml"_ostr, aMetadata } });
++
++    loadFromURL(maTempFile.GetURL(),
++                { comphelper::makePropertyValue(u"FilterName"_ustr, u"Calc Office Open XML"_ustr) });
++    CPPUNIT_ASSERT(dynamicAnchor("C1"));
++    CPPUNIT_ASSERT(!dynamicAnchor("G1"));
++    CPPUNIT_ASSERT_EQUAL(6.0, val("C3"));
++    CPPUNIT_ASSERT_EQUAL(u"=SUM(C1#)"_ustr, formula("E1"));
++    CPPUNIT_ASSERT_EQUAL(u"=@A1:A3"_ustr, formula("F1"));
++    CPPUNIT_ASSERT_EQUAL(1.0, val("F1"));
++
++    insertStringToCell(u"A3"_ustr, u"30");
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(60.0, val("C3"));
++    CPPUNIT_ASSERT_EQUAL(66.0, val("E1"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArrayAcceptanceTest, testExcelFileArrayIsDynamic)
++{
++    // Saved by the leading spreadsheet application: C2 =UNIQUE($A$2:$A$5) spills to C2:C5.
++    createScDoc("xlsx/Spill.xlsx");
++    CPPUNIT_ASSERT(dynamicAnchor("C2"));
++    insertStringToCell(u"A3"_ustr, u"10");
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(10.0, val("C2"));
++    CPPUNIT_ASSERT_EQUAL(30.0, val("C3"));
++    CPPUNIT_ASSERT_EQUAL(40.0, val("C4"));
++    CPPUNIT_ASSERT(empty("C5"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArrayAcceptanceTest, testSpillRangeOfOneCell)
++{
++    createScDoc();
++    // A dynamic array whose result is one cell is still a spill range (A1# is that cell)...
++    insertStringToCell(u"A1"_ustr, u"a");
++    insertStringToCell(u"A2"_ustr, u"a");
++    insertStringToCell(u"A3"_ustr, u"a");
++    insertStringToCell(u"C1"_ustr, u"=UNIQUE(A1:A3)");
++    insertStringToCell(u"D1"_ustr, u"=COUNTA(C1#)");
++    CPPUNIT_ASSERT_EQUAL(u"a"_ustr, str("C1"));
++    CPPUNIT_ASSERT_EQUAL(1.0, val("D1"));
++    // ... and it spills when its result grows.
++    insertStringToCell(u"A2"_ustr, u"b");
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(u"b"_ustr, str("C2"));
++    CPPUNIT_ASSERT_EQUAL(2.0, val("D1"));
++
++    // A typed array function with a one-cell result is a dynamic array too.
++    getScDoc()->SetValue(ScAddress(4, 0, 0), 1.0);
++    getScDoc()->SetValue(ScAddress(4, 1, 0), 2.0);
++    getScDoc()->SetValue(ScAddress(4, 2, 0), 3.0);
++    insertStringToCell(u"G1"_ustr, u"=FILTER(E1:E3,E1:E3>2)");
++    CPPUNIT_ASSERT_EQUAL(3.0, val("G1"));
++    CPPUNIT_ASSERT(dynamicAnchor("G1"));
++    insertStringToCell(u"H1"_ustr, u"=ROWS(G1#)");
++    CPPUNIT_ASSERT_EQUAL(1.0, val("H1"));
++    insertStringToCell(u"E2"_ustr, u"5");
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(5.0, val("G1"));
++    CPPUNIT_ASSERT_EQUAL(3.0, val("G2"));
++    CPPUNIT_ASSERT_EQUAL(2.0, val("H1"));
++
++    // A constant or a formula with a single value is not a spill range.
++    insertStringToCell(u"A6"_ustr, u"5");
++    insertStringToCell(u"B6"_ustr, u"=SUM(A6#)");
++    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, str("B6"));
++    insertStringToCell(u"A7"_ustr, u"=SUM(E1:E3)");
++    insertStringToCell(u"B7"_ustr, u"=SUM(A7#)");
++    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, str("B7"));
++    CPPUNIT_ASSERT(!dynamicAnchor("A7"));
++    // Nor is a legacy array formula (Ctrl+Shift+Enter on a selection).
++    insertArrayToCell(u"J1:J2"_ustr, u"=E1:E2");
++    CPPUNIT_ASSERT_EQUAL(5.0, val("J2"));
++    insertStringToCell(u"K1"_ustr, u"=SUM(J1#)");
++    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, str("K1"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArrayAcceptanceTest, testSpillBlockedByMergedCells)
++{
++    createScDoc();
++    getScDoc()->DoMerge(2, 1, 3, 2, 0); // C2:D3, empty
++    insertStringToCell(u"C1"_ustr, u"=SEQUENCE(3)");
++    CPPUNIT_ASSERT_EQUAL(u"#SPILL!"_ustr, str("C1"));
++    CPPUNIT_ASSERT(empty("C2"));
++    CPPUNIT_ASSERT(getScDoc()->HasAttrib(ScRange(2, 1, 0, 3, 2, 0), HasAttrFlags::Merged));
++
++    // Unmerged, the array spills.
++    goToCell(u"C2:D3"_ustr);
++    dispatchCommand(mxComponent, u".uno:SplitCell"_ustr, {});
++    CPPUNIT_ASSERT(!getScDoc()->HasAttrib(ScRange(2, 1, 0, 3, 2, 0), HasAttrFlags::Merged));
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(1.0, val("C1"));
++    CPPUNIT_ASSERT_EQUAL(3.0, val("C3"));
++
++    // A merged cell outside the spill range does not matter.
++    getScDoc()->DoMerge(5, 1, 6, 1, 0); // F2:G2
++    insertStringToCell(u"E1"_ustr, u"=SEQUENCE(3)");
++    CPPUNIT_ASSERT_EQUAL(3.0, val("E3"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArrayAcceptanceTest, testSpillBlockedByTable)
++{
++    createScDoc();
++    // A Sheets table (a database range with a table style) at D4:E6, header row 4.
++    ScDocument* pDoc = getScDoc();
++    insertStringToCell(u"D4"_ustr, u"Name");
++    insertStringToCell(u"E4"_ustr, u"Price");
++    auto pTable = std::make_unique<ScDBData>(u"Table1"_ustr, 0, 3, 3, 4, 5);
++    ScTableStyleParam aStyle;
++    aStyle.maStyleID = u"TableStyleMedium2"_ustr;
++    pTable->SetTableStyleInfo(aStyle);
++    CPPUNIT_ASSERT(pDoc->GetDBCollection()->getNamedDBs().insert(std::move(pTable)));
++
++    // A spill range running into the table: #SPILL!, the table stays empty.
++    insertStringToCell(u"D1"_ustr, u"=SEQUENCE(5)");
++    CPPUNIT_ASSERT_EQUAL(u"#SPILL!"_ustr, str("D1"));
++    CPPUNIT_ASSERT(empty("D5"));
++    // An array typed inside the table: #SPILL!.
++    insertStringToCell(u"E5"_ustr, u"=SEQUENCE(2)");
++    CPPUNIT_ASSERT_EQUAL(u"#SPILL!"_ustr, str("E5"));
++    CPPUNIT_ASSERT(empty("E6"));
++    // A single value inside the table is an ordinary formula.
++    insertStringToCell(u"D5"_ustr, u"=1+1");
++    CPPUNIT_ASSERT_EQUAL(2.0, val("D5"));
++    // A database range without a table style is not a table: the array spills over it.
++    CPPUNIT_ASSERT(pDoc->GetDBCollection()->getNamedDBs().insert(
++        std::make_unique<ScDBData>(u"Plain"_ustr, 0, 7, 3, 7, 5)));
++    insertStringToCell(u"H1"_ustr, u"=SEQUENCE(5)");
++    CPPUNIT_ASSERT_EQUAL(5.0, val("H5"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArrayAcceptanceTest, testOdsKeepsDynamicArrays)
++{
++    createScDoc();
++    insertStringToCell(u"B1"_ustr, u"3");
++    insertStringToCell(u"A1"_ustr, u"=SEQUENCE(B1)");
++    insertStringToCell(u"C1"_ustr, u"=SUM(A1#)");
++    insertArrayToCell(u"G1:G2"_ustr, u"=B1:B2"); // Ctrl+Shift+Enter on a selection: legacy
++    CPPUNIT_ASSERT(dynamicAnchor("A1"));
++
++    saveAndReload(TestFilter::ODS);
++    // The HST mark, in its own namespace, on the dynamic anchor only.
++    xmlDocUniquePtr pContent = parseExport(u"content.xml"_ustr);
++    CPPUNIT_ASSERT(pContent);
++    assertXPath(pContent, "//table:table-cell[@*[local-name()='dynamic-array']='true']", 1);
++    assertXPath(pContent, "//table:table-cell[@table:number-matrix-rows-spanned]", 2);
++
++    CPPUNIT_ASSERT(dynamicAnchor("A1"));
++    CPPUNIT_ASSERT(!dynamicAnchor("G1"));
++    CPPUNIT_ASSERT_EQUAL(6.0, val("C1"));
++    // Still resizes with its result after reopening.
++    insertStringToCell(u"B1"_ustr, u"5");
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(5.0, val("A5"));
++    CPPUNIT_ASSERT_EQUAL(15.0, val("C1"));
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

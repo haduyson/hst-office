@@ -1,0 +1,776 @@
+HST Office: DURATION and MDURATION with the actual/actual basis, ODDFPRICE and ODDFYIELD as in the leading
+spreadsheet application (owner 18/11: in 1.0.3). Before, DURATION(DATE(2018,7,1),DATE(2048,1,1),0.08,0.09,2,1)
+gave 10.92157 (its vendor documents 10.9191453), MDURATION with basis 1 5.73392 (5.73567), and ODDFPRICE and
+ODDFYIELD were always #VALUE! (the algorithm was disabled upstream).
+
+Written clean-room from the vendor's public function documentation and general bond mathematics, without
+reading LibreOffice's implementation of these functions: sc analysis add-in
+scaddins/source/analysis/hstbondfunctions.cxx (SPDX LicenseRef-HST-Proprietary). Coupon schedule stepped back
+from maturity (DURATION) or from the first coupon (the odd period), day counts per basis 0-4; DURATION is the
+Macaulay duration over the coupons after settlement, MDURATION divides it by 1+yld/frequency; ODDFPRICE covers
+the short and the long odd first coupon period with the vendor's variables (NC, Nq, DCi, NLi, Ai, DSC, E, N);
+ODDFYIELD solves ODDFPRICE for the yield (Newton steps in a bracket, bisection fallback). Domain errors are
+#NUM! (frequency, basis, negative rate or yield, date order). Hooks: the four add-in entry points in
+financial.cxx call it.
+
+Test: CppunitTest_sc_hst_bond_functions (the vendor's examples: DURATION 10.9191453, MDURATION 5.73567,
+ODDFPRICE 113.597717, ODDFYIELD 7.72%; long first coupon prices with the yield round trip; #NUM! cases).
+---
+--- /dev/null
++++ b/sc/CppunitTest_sc_hst_bond_functions.mk
+@@ -0,0 +1,62 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (c) HASON TECH. HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,sc_hst_bond_functions))
++
++$(eval $(call gb_CppunitTest_use_externals,sc_hst_bond_functions, \
++	boost_headers \
++	mdds_headers \
++	libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sc_hst_bond_functions, \
++    sc/qa/unit/uicalc/hstbondfunctions \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sc_hst_bond_functions, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    editeng \
++    i18nlangtag \
++    sal \
++    sc \
++    scqahelper \
++    sfx \
++    sot \
++    subsequenttest \
++    svl \
++    svl \
++    svx \
++    svxcore \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++    $(if $(filter -fsanitize=vptr,$(gb_CXX)),salhelper) \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sc_hst_bond_functions,\
++    -I$(SRCDIR)/sc/source/ui/inc \
++    -I$(SRCDIR)/sc/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sc_hst_bond_functions))
++
++$(eval $(call gb_CppunitTest_use_ure,sc_hst_bond_functions))
++$(eval $(call gb_CppunitTest_use_vcl,sc_hst_bond_functions))
++
++$(eval $(call gb_CppunitTest_use_rdb,sc_hst_bond_functions,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sc_hst_bond_functions))
++
++$(eval $(call gb_CppunitTest_add_arguments,sc_hst_bond_functions, \
++    -env:arg-env=$(gb_Helper_LIBRARY_PATH_VAR)"$$$${$(gb_Helper_LIBRARY_PATH_VAR)+=$$$$$(gb_Helper_LIBRARY_PATH_VAR)}" \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/sc/Module_sc.mk
++++ b/sc/Module_sc.mk
+@@ -114,6 +114,7 @@
+ 	CppunitTest_sc_hst_dynamic_arrays \
+ 	CppunitTest_sc_hst_set_as_default \
+ 	CppunitTest_sc_hst_excel_parity \
++	CppunitTest_sc_hst_bond_functions \
+ 	CppunitTest_sc_vba_macro_test \
+ 	CppunitTest_sc_a11y \
+ 	CppunitTest_sc_filter_html \
+--- a/sc/qa/unit/data/functions/financial/fods/mduration.fods
++++ b/sc/qa/unit/data/functions/financial/fods/mduration.fods
+@@ -1051,11 +1051,11 @@
+      <table:table-cell table:style-name="ce32"/>
+     </table:table-row>
+     <table:table-row table:style-name="ro6">
+-     <table:table-cell table:formula="of:=MDURATION(&quot;2001-01-01&quot;; &quot;2006-01-01&quot;; 0.08; 0.09; 2; 3)" office:value-type="float" office:value="4.02068710841898" calcext:value-type="float">
+-      <text:p>4.02068710841898</text:p>
++     <table:table-cell table:formula="of:=MDURATION(&quot;2001-01-01&quot;; &quot;2006-01-01&quot;; 0.08; 0.09; 2; 3)" office:value-type="float" office:value="4.01806536102434" calcext:value-type="float">
++      <text:p>4.01806536102434</text:p>
+      </table:table-cell>
+-     <table:table-cell office:value-type="float" office:value="4.02068710841898" calcext:value-type="float">
+-      <text:p>4.02068710841898</text:p>
++     <table:table-cell office:value-type="float" office:value="4.01806536102434" calcext:value-type="float">
++      <text:p>4.01806536102434</text:p>
+      </table:table-cell>
+      <table:table-cell table:style-name="ce6" table:formula="of:=[.A2]=[.B2]" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
+       <text:p>TRUE</text:p>
+@@ -1080,11 +1080,11 @@
+      <table:table-cell table:style-name="ce32"/>
+     </table:table-row>
+     <table:table-row table:style-name="ro6">
+-     <table:table-cell table:style-name="ce11" table:formula="of:=MDURATION([.I2];[.I3];[.I4];[.I5];[.I6];[.I7])" office:value-type="float" office:value="5.73392357705927" calcext:value-type="float">
+-      <text:p>5.73392357705927</text:p>
++     <table:table-cell table:style-name="ce11" table:formula="of:=MDURATION([.I2];[.I3];[.I4];[.I5];[.I6];[.I7])" office:value-type="float" office:value="5.73566981391884" calcext:value-type="float">
++      <text:p>5.73566981391884</text:p>
+      </table:table-cell>
+-     <table:table-cell office:value-type="float" office:value="5.73392357705927" calcext:value-type="float">
+-      <text:p>5.73392357705927</text:p>
++     <table:table-cell office:value-type="float" office:value="5.73566981391884" calcext:value-type="float">
++      <text:p>5.73566981391884</text:p>
+      </table:table-cell>
+      <table:table-cell table:style-name="ce6" table:formula="of:=[.A3]=[.B3]" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
+       <text:p>TRUE</text:p>
+@@ -1190,11 +1190,11 @@
+      <table:table-cell table:style-name="ce32"/>
+     </table:table-row>
+     <table:table-row table:style-name="ro6">
+-     <table:table-cell table:formula="of:=MDURATION(&quot;2001-01-01&quot;; &quot;2006-01-01&quot;; 0.08; 0.09; 1; 3)" office:value-type="float" office:value="3.94457330439716" calcext:value-type="float">
+-      <text:p>3.94457330439716</text:p>
++     <table:table-cell table:formula="of:=MDURATION(&quot;2001-01-01&quot;; &quot;2006-01-01&quot;; 0.08; 0.09; 1; 3)" office:value-type="float" office:value="3.94205979428028" calcext:value-type="float">
++      <text:p>3.94205979428028</text:p>
+      </table:table-cell>
+-     <table:table-cell office:value-type="float" office:value="3.94457330439716" calcext:value-type="float">
+-      <text:p>3.94457330439716</text:p>
++     <table:table-cell office:value-type="float" office:value="3.94205979428028" calcext:value-type="float">
++      <text:p>3.94205979428028</text:p>
+      </table:table-cell>
+      <table:table-cell table:style-name="ce45" table:formula="of:=[.A7]=[.B7]" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
+       <text:p>TRUE</text:p>
+@@ -1216,11 +1216,11 @@
+      <table:table-cell table:style-name="ce26" table:number-columns-repeated="3"/>
+     </table:table-row>
+     <table:table-row table:style-name="ro6">
+-     <table:table-cell table:formula="of:=MDURATION(&quot;2001-01-01&quot;; &quot;2006-01-01&quot;; 0.08; 0.09; 4; 3)" office:value-type="float" office:value="4.06028229754139" calcext:value-type="float">
+-      <text:p>4.06028229754139</text:p>
++     <table:table-cell table:formula="of:=MDURATION(&quot;2001-01-01&quot;; &quot;2006-01-01&quot;; 0.08; 0.09; 4; 3)" office:value-type="float" office:value="4.05760285888379" calcext:value-type="float">
++      <text:p>4.05760285888379</text:p>
+      </table:table-cell>
+-     <table:table-cell office:value-type="float" office:value="4.06028229754139" calcext:value-type="float">
+-      <text:p>4.06028229754139</text:p>
++     <table:table-cell office:value-type="float" office:value="4.05760285888379" calcext:value-type="float">
++      <text:p>4.05760285888379</text:p>
+      </table:table-cell>
+      <table:table-cell table:style-name="ce45" table:formula="of:=[.A8]=[.B8]" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
+       <text:p>TRUE</text:p>
+@@ -1275,11 +1275,11 @@
+      <table:table-cell table:number-columns-repeated="6"/>
+     </table:table-row>
+     <table:table-row table:style-name="ro6">
+-     <table:table-cell table:formula="of:=MDURATION(&quot;2001-01-01&quot;; &quot;2006-01-01&quot;; 0.08; 0.09; 2; 1)" office:value-type="float" office:value="4.01850211949036" calcext:value-type="float">
+-      <text:p>4.01850211949036</text:p>
++     <table:table-cell table:formula="of:=MDURATION(&quot;2001-01-01&quot;; &quot;2006-01-01&quot;; 0.08; 0.09; 2; 1)" office:value-type="float" office:value="4.01806536102434" calcext:value-type="float">
++      <text:p>4.01806536102434</text:p>
+      </table:table-cell>
+-     <table:table-cell office:value-type="float" office:value="4.01850211949036" calcext:value-type="float">
+-      <text:p>4.01850211949036</text:p>
++     <table:table-cell office:value-type="float" office:value="4.01806536102434" calcext:value-type="float">
++      <text:p>4.01806536102434</text:p>
+      </table:table-cell>
+      <table:table-cell table:style-name="ce45" table:formula="of:=[.A11]=[.B11]" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
+       <text:p>TRUE</text:p>
+@@ -1292,11 +1292,11 @@
+      <table:table-cell table:number-columns-repeated="9"/>
+     </table:table-row>
+     <table:table-row table:style-name="ro6">
+-     <table:table-cell table:formula="of:=MDURATION(&quot;2001-01-01&quot;; &quot;2006-01-01&quot;; 0.08; 0.09; 2; 2)" office:value-type="float" office:value="4.08717753539967" calcext:value-type="float">
+-      <text:p>4.08717753539967</text:p>
++     <table:table-cell table:formula="of:=MDURATION(&quot;2001-01-01&quot;; &quot;2006-01-01&quot;; 0.08; 0.09; 2; 2)" office:value-type="float" office:value="4.01806536102434" calcext:value-type="float">
++      <text:p>4.01806536102434</text:p>
+      </table:table-cell>
+-     <table:table-cell office:value-type="float" office:value="4.08717753539967" calcext:value-type="float">
+-      <text:p>4.08717753539967</text:p>
++     <table:table-cell office:value-type="float" office:value="4.01806536102434" calcext:value-type="float">
++      <text:p>4.01806536102434</text:p>
+      </table:table-cell>
+      <table:table-cell table:style-name="ce45" table:formula="of:=[.A12]=[.B12]" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
+       <text:p>TRUE</text:p>
+--- /dev/null
++++ b/sc/qa/unit/uicalc/hstbondfunctions.cxx
+@@ -0,0 +1,160 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// HST Office: DURATION, MDURATION, ODDFPRICE and ODDFYIELD give the results documented for the
++// leading spreadsheet application, for every day-count basis, for short and long odd first
++// periods, and #NUM! for arguments outside the functions' domain.
++
++#include "../helper/qahelper.hxx"
++
++#include <rtl/string.hxx>
++#include <vcl/scheduler.hxx>
++#include <document.hxx>
++
++namespace
++{
++class ScHstBondFunctionsTest : public ScModelTestBase
++{
++public:
++    ScHstBondFunctionsTest()
++        : ScModelTestBase(u"sc/qa/unit/data"_ustr)
++    {
++    }
++
++protected:
++    ScAddress pos(const char* pCell)
++    {
++        ScAddress aPos;
++        aPos.Parse(OUString::createFromAscii(pCell), *getScDoc());
++        return aPos;
++    }
++    OUString str(const char* pCell) { return getScDoc()->GetString(pos(pCell)); }
++    double val(const char* pCell) { return getScDoc()->GetValue(pos(pCell)); }
++    void recalc()
++    {
++        getScDoc()->CalcAll();
++        Scheduler::ProcessEventsToIdle();
++    }
++};
++
++CPPUNIT_TEST_FIXTURE(ScHstBondFunctionsTest, testDuration)
++{
++    createScDoc();
++    // documented example (actual/actual): 10.9191453
++    insertStringToCell(u"A1"_ustr, u"=DURATION(DATE(2018,7,1),DATE(2048,1,1),0.08,0.09,2,1)");
++    // the settlement is a coupon date, so US 30/360 gives the same duration
++    insertStringToCell(u"A2"_ustr, u"=DURATION(DATE(2018,7,1),DATE(2048,1,1),0.08,0.09,2,0)");
++    // settlement inside a coupon period, month-end schedule, quarterly coupons
++    insertStringToCell(u"A3"_ustr, u"=DURATION(DATE(2015,4,1),DATE(2025,3,31),0.1,0.08,4,0)");
++    recalc();
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(10.9191453, val("A1"), 1e-7);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(10.9191453, val("A2"), 1e-7);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(6.671645, val("A3"), 1e-6);
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstBondFunctionsTest, testMduration)
++{
++    createScDoc();
++    insertStringToCell(u"A1"_ustr, u"=MDURATION(DATE(2008,1,1),DATE(2016,1,1),0.08,0.09,2,0)");
++    insertStringToCell(u"A2"_ustr, u"=MDURATION(DATE(2008,1,1),DATE(2016,1,1),0.08,0.09,2,1)");
++    recalc();
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(5.73567, val("A1"), 1e-5);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(5.73567, val("A2"), 1e-5);
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstBondFunctionsTest, testOddFirstPeriod)
++{
++    createScDoc();
++    // documented example, short first period: 113.597717
++    insertStringToCell(
++        u"A1"_ustr,
++        u"=ODDFPRICE(DATE(2008,11,11),DATE(2021,3,1),DATE(2008,10,15),DATE(2009,3,1),0.0785,0.0625,100,2,1)");
++    // documented example: 7.72%
++    insertStringToCell(
++        u"A2"_ustr,
++        u"=ODDFYIELD(DATE(2008,11,11),DATE(2021,3,1),DATE(2008,10,15),DATE(2009,3,1),0.0575,84.5,100,2,0)");
++    // long first period: issued more than one coupon period before the first coupon
++    insertStringToCell(
++        u"A3"_ustr,
++        u"=ODDFPRICE(DATE(2008,11,11),DATE(2021,3,1),DATE(2008,1,15),DATE(2009,3,1),0.0785,0.0625,100,2,1)");
++    insertStringToCell(
++        u"A4"_ustr,
++        u"=ODDFYIELD(DATE(2008,11,11),DATE(2021,3,1),DATE(2008,1,15),DATE(2009,3,1),0.0785,A3,100,2,1)");
++    // long first period with the settlement in an earlier quasi-coupon period, US 30/360
++    insertStringToCell(
++        u"A5"_ustr,
++        u"=ODDFPRICE(DATE(2008,5,20),DATE(2021,3,1),DATE(2008,1,15),DATE(2009,3,1),0.0785,0.0625,100,2,0)");
++    insertStringToCell(
++        u"A6"_ustr,
++        u"=ODDFYIELD(DATE(2008,5,20),DATE(2021,3,1),DATE(2008,1,15),DATE(2009,3,1),0.0785,A5,100,2,0)");
++    recalc();
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(113.597717, val("A1"), 1e-6);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(0.0772, val("A2"), 5e-5);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(113.4889408, val("A3"), 1e-6);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(0.0625, val("A4"), 1e-9);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(113.7626999, val("A5"), 1e-6);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(0.0625, val("A6"), 1e-9);
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstBondFunctionsTest, testExcelResultsForAllBases)
++{
++    // Results of Excel 2021 (16.0.15601, CalculateFull) for the same formulas: settlement between
++    // two coupon dates with the bases 2 and 3, and the odd first period with the bases 2 and 3.
++    createScDoc();
++    const std::pair<const char16_t*, double> aCases[] = {
++        { u"=DURATION(DATE(2001,3,15),DATE(2006,1,1),0.08,0.09,2,2)", 3.9961005244926557 },
++        { u"=DURATION(DATE(2001,3,15),DATE(2006,1,1),0.08,0.09,2,3)", 3.9988783022704335 },
++        { u"=DURATION(DATE(2018,8,15),DATE(2048,1,1),0.08,0.09,4,3)", 10.585355698127559 },
++        { u"=MDURATION(DATE(2001,3,15),DATE(2006,1,1),0.08,0.09,2,2)", 3.8240196406628288 },
++        { u"=MDURATION(DATE(2001,3,15),DATE(2006,1,1),0.08,0.09,2,3)", 3.8266778012157263 },
++        { u"=MDURATION(DATE(2001,1,1),DATE(2006,1,1),0.08,0.09,2,3)", 4.0180653610243393 },
++        { u"=ODDFPRICE(DATE(2008,11,11),DATE(2021,3,1),DATE(2008,10,15),DATE(2009,3,1),0.0785,0.0625,100,2,2)",
++          113.59879960832529 },
++        { u"=ODDFPRICE(DATE(2008,11,11),DATE(2021,3,1),DATE(2008,10,15),DATE(2009,3,1),0.0785,0.0625,100,2,3)",
++          113.5961125952049 },
++        { u"=ODDFYIELD(DATE(2008,11,11),DATE(2021,3,1),DATE(2008,10,15),DATE(2009,3,1),0.0575,84.5,100,2,2)",
++          0.077245021920679544 },
++        { u"=ODDFYIELD(DATE(2008,11,11),DATE(2021,3,1),DATE(2008,10,15),DATE(2009,3,1),0.0575,84.5,100,2,3)",
++          0.0772500780535923 },
++    };
++    ScDocument* pDoc = getScDoc();
++    for (size_t i = 0; i < std::size(aCases); ++i)
++    {
++        const ScAddress aPos(0, SCROW(i), 0);
++        pDoc->SetString(aPos, OUString(aCases[i].first));
++        CPPUNIT_ASSERT_DOUBLES_EQUAL_MESSAGE(
++            std::string(OUStringToOString(aCases[i].first, RTL_TEXTENCODING_UTF8)), aCases[i].second, pDoc->GetValue(aPos), 1e-9);
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstBondFunctionsTest, testDomainErrors)
++{
++    createScDoc();
++    insertStringToCell(u"A1"_ustr, u"=DURATION(DATE(2018,7,1),DATE(2048,1,1),0.08,0.09,3,1)");
++    insertStringToCell(u"A2"_ustr, u"=DURATION(DATE(2018,7,1),DATE(2048,1,1),0.08,0.09,2,5)");
++    insertStringToCell(u"A3"_ustr, u"=DURATION(DATE(2048,1,1),DATE(2048,1,1),0.08,0.09,2,0)");
++    insertStringToCell(u"A4"_ustr, u"=MDURATION(DATE(2049,1,1),DATE(2048,1,1),0.08,0.09,2,0)");
++    insertStringToCell(
++        u"A5"_ustr,
++        u"=ODDFPRICE(DATE(2008,11,11),DATE(2021,3,1),DATE(2008,10,15),DATE(2009,3,1),0.0785,0.0625,100,3,1)");
++    insertStringToCell(
++        u"A6"_ustr,
++        u"=ODDFPRICE(DATE(2009,3,1),DATE(2021,3,1),DATE(2008,10,15),DATE(2009,3,1),0.0785,0.0625,100,2,1)");
++    insertStringToCell(
++        u"A7"_ustr,
++        u"=ODDFYIELD(DATE(2008,11,11),DATE(2021,3,1),DATE(2008,10,15),DATE(2009,3,1),0.0575,84.5,100,2,5)");
++    insertStringToCell(
++        u"A8"_ustr,
++        u"=ODDFYIELD(DATE(2008,11,11),DATE(2021,3,1),DATE(2008,10,15),DATE(2009,3,1),0.0575,0,100,2,0)");
++    recalc();
++    for (const char* pCell : { "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8" })
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(pCell, u"#NUM!"_ustr, str(pCell));
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/scaddins/Library_analysis.mk
++++ b/scaddins/Library_analysis.mk
+@@ -48,6 +48,7 @@ $(eval $(call gb_Library_add_exception_objects,analysis,\
+ 	scaddins/source/analysis/analysishelper \
+ 	scaddins/source/analysis/bessel \
+ 	scaddins/source/analysis/financial \
++	scaddins/source/analysis/hstbondfunctions \
+ ))
+ 
+ # vim: set noet sw=4 ts=4:
+--- a/scaddins/source/analysis/financial.cxx
++++ b/scaddins/source/analysis/financial.cxx
+@@ -20,6 +20,7 @@
+ #include "analysisdefs.hxx"
+ #include "analysis.hxx"
+ #include "analysishelper.hxx"
++#include "hstbondfunctions.hxx"
+ #include <o3tl/temporary.hxx>
+ #include <o3tl/untaint.hxx>
+ 
+@@ -102,11 +103,8 @@ double SAL_CALL AnalysisAddIn::getDisc( const css::uno::Reference< css::beans::X
+ double SAL_CALL AnalysisAddIn::getDuration( const css::uno::Reference< css::beans::XPropertySet >& xOpt,
+     sal_Int32 nSettle, sal_Int32 nMat, double fCoup, double fYield, sal_Int32 nFreq, const css::uno::Any& rOB )
+ {
+-    if( fCoup < 0.0 || fYield < 0.0 || isFreqInvalid(nFreq) || nSettle >= nMat )
+-        throw css::lang::IllegalArgumentException();
+-
+-    double fRet = GetDuration( GetNullDate( xOpt ),  nSettle, nMat, fCoup, fYield, nFreq, getDateMode( xOpt, rOB ) );
+-    return finiteOrThrow( fRet );
++    // HST Office: computed as the leading spreadsheet application documents it
++    return finiteOrThrow( hst::bondDuration( GetNullDate( xOpt ), nSettle, nMat, fCoup, fYield, nFreq, getDateMode( xOpt, rOB ) ) );
+ }
+ 
+ 
+@@ -246,12 +244,8 @@ double SAL_CALL AnalysisAddIn::getPricemat( const css::uno::Reference< css::bean
+ double SAL_CALL AnalysisAddIn::getMduration( const css::uno::Reference< css::beans::XPropertySet >& xOpt,
+     sal_Int32 nSettle, sal_Int32 nMat, double fCoup, double fYield, sal_Int32 nFreq, const css::uno::Any& rOB )
+ {
+-    if( fCoup < 0.0 || fYield < 0.0 || isFreqInvalid(nFreq) )
+-        throw css::lang::IllegalArgumentException();
+-
+-    double      fRet = GetDuration( GetNullDate( xOpt ),  nSettle, nMat, fCoup, fYield, nFreq, getDateMode( xOpt, rOB ) );
+-    fRet /= 1.0 + ( fYield / double( nFreq ) );
+-    return finiteOrThrow( fRet );
++    // HST Office: computed as the leading spreadsheet application documents it
++    return finiteOrThrow( hst::bondModifiedDuration( GetNullDate( xOpt ), nSettle, nMat, fCoup, fYield, nFreq, getDateMode( xOpt, rOB ) ) );
+ }
+ 
+ 
+@@ -402,11 +396,8 @@ double SAL_CALL AnalysisAddIn::getOddfprice( const css::uno::Reference< css::bea
+     sal_Int32 nSettle, sal_Int32 nMat, sal_Int32 nIssue, sal_Int32 nFirstCoup,
+     double fRate, double fYield, double fRedemp, sal_Int32 nFreq, const css::uno::Any& rOB )
+ {
+-    if( fRate < 0.0 || fYield < 0.0 || isFreqInvalid(nFreq) || nMat <= nFirstCoup || nFirstCoup <= nSettle || nSettle <= nIssue )
+-        throw css::lang::IllegalArgumentException();
+-
+-    double fRet = GetOddfprice( GetNullDate( xOpt ), nSettle, nMat, nIssue, nFirstCoup, fRate, fYield, fRedemp, nFreq, getDateMode( xOpt, rOB ) );
+-    return finiteOrThrow( fRet );
++    // HST Office: computed as the leading spreadsheet application documents it
++    return finiteOrThrow( hst::oddFirstPrice( GetNullDate( xOpt ), nSettle, nMat, nIssue, nFirstCoup, fRate, fYield, fRedemp, nFreq, getDateMode( xOpt, rOB ) ) );
+ }
+ 
+ SAL_WNOUNREACHABLE_CODE_POP
+@@ -420,12 +411,8 @@ double SAL_CALL AnalysisAddIn::getOddfyield( const css::uno::Reference< css::bea
+     sal_Int32 nSettle, sal_Int32 nMat, sal_Int32 nIssue, sal_Int32 nFirstCoup,
+     double fRate, double fPrice, double fRedemp, sal_Int32 nFreq, const css::uno::Any& rOB )
+ {
+-    if( fRate < 0.0 || fPrice <= 0.0 || isFreqInvalid(nFreq) || nMat <= nFirstCoup || nFirstCoup <= nSettle || nSettle <= nIssue )
+-        throw css::lang::IllegalArgumentException();
+-
+-    double fRet = GetOddfyield( GetNullDate( xOpt ), nSettle, nMat, nIssue, nFirstCoup, fRate, fPrice, fRedemp, nFreq,
+-                        getDateMode( xOpt, rOB ) );
+-    return finiteOrThrow( fRet );
++    // HST Office: computed as the leading spreadsheet application documents it
++    return finiteOrThrow( hst::oddFirstYield( GetNullDate( xOpt ), nSettle, nMat, nIssue, nFirstCoup, fRate, fPrice, fRedemp, nFreq, getDateMode( xOpt, rOB ) ) );
+ }
+ 
+ SAL_WNOUNREACHABLE_CODE_POP
+--- /dev/null
++++ b/scaddins/source/analysis/hstbondfunctions.cxx
+@@ -0,0 +1,299 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#include "hstbondfunctions.hxx"
++#include "analysishelper.hxx"
++
++#include <com/sun/star/lang/IllegalArgumentException.hpp>
++
++#include <algorithm>
++#include <cmath>
++#include <vector>
++
++// Bond math used below. Coupons fall on a schedule stepping 12 / frequency months back from an
++// anchor date (the maturity, or the first coupon for the odd first period); the day is the
++// anchor's day clamped to the month, or the month's last day when the anchor is a month end.
++// For a (quasi-)coupon period, E is its normal length (360/f for bases 0, 2 and 4, 365/f for
++// basis 3, the actual days for basis 1); A is the days from its start to the settlement and DSC
++// the days from the settlement to its end, counted with the basis (for basis 0, DSC = E - A;
++// DURATION and MDURATION take DSC = E - A with every basis).
++// With C = 100 * rate / f and v = 1 / (1 + yield / f), a cash flow at t periods from the
++// settlement is discounted by v^t, the first one falling at t = DSC / E.
++
++namespace sca::analysis::hst
++{
++namespace
++{
++[[noreturn]] void domainError() { throw css::lang::IllegalArgumentException(); }
++
++struct Ymd
++{
++    sal_Int32 nYear;
++    sal_Int32 nMonth;
++    sal_Int32 nDay;
++};
++
++Ymd toYmd(sal_Int32 nNullDate, sal_Int32 nSerial)
++{
++    sal_uInt16 nDay, nMonth, nYear;
++    DaysToDate(nNullDate + nSerial, nDay, nMonth, nYear);
++    return { nYear, nMonth, nDay };
++}
++
++sal_Int32 toDays(const Ymd& r)
++{
++    return DateToDays(static_cast<sal_uInt16>(r.nDay), static_cast<sal_uInt16>(r.nMonth),
++                      static_cast<sal_uInt16>(r.nYear));
++}
++
++sal_Int32 daysInMonth(sal_Int32 nYear, sal_Int32 nMonth)
++{
++    return DaysInMonth(static_cast<sal_uInt16>(nMonth), static_cast<sal_uInt16>(nYear));
++}
++
++bool isMonthEnd(const Ymd& r) { return r.nDay == daysInMonth(r.nYear, r.nMonth); }
++
++/// The anchor moved by nMonths whole months (negative: backwards).
++Ymd addMonths(const Ymd& rAnchor, sal_Int32 nMonths, bool bMonthEnd)
++{
++    const sal_Int32 nTotal = rAnchor.nYear * 12 + rAnchor.nMonth - 1 + nMonths;
++    const sal_Int32 nYear = nTotal / 12;
++    if (nTotal < 12 || nYear > 9999)
++        domainError();
++    const sal_Int32 nMonth = nTotal % 12 + 1;
++    const sal_Int32 nLast = daysInMonth(nYear, nMonth);
++    return { nYear, nMonth, bMonthEnd ? nLast : std::min(rAnchor.nDay, nLast) };
++}
++
++/// Days from r1 to r2 counted with the basis.
++double dayCount(const Ymd& r1, const Ymd& r2, sal_Int32 nBase)
++{
++    if (nBase != 0 && nBase != 4)
++        return toDays(r2) - toDays(r1);
++    sal_Int32 nDay1 = r1.nDay, nDay2 = r2.nDay;
++    if (nBase == 4)
++    {
++        nDay1 = std::min<sal_Int32>(nDay1, 30);
++        nDay2 = std::min<sal_Int32>(nDay2, 30);
++    }
++    else
++    {
++        // US (NASD) 30/360: the end of February counts as day 30
++        const bool bFebEnd1 = r1.nMonth == 2 && isMonthEnd(r1);
++        const bool bFebEnd2 = r2.nMonth == 2 && isMonthEnd(r2);
++        if (bFebEnd1 && bFebEnd2)
++            nDay2 = 30;
++        if (bFebEnd1)
++            nDay1 = 30;
++        if (nDay2 == 31 && nDay1 >= 30)
++            nDay2 = 30;
++        if (nDay1 == 31)
++            nDay1 = 30;
++    }
++    return (r2.nYear - r1.nYear) * 360.0 + (r2.nMonth - r1.nMonth) * 30.0 + (nDay2 - nDay1);
++}
++
++/// Normal length E of the (quasi-)coupon period rStart..rEnd.
++double periodLength(const Ymd& rStart, const Ymd& rEnd, sal_Int32 nFreq, sal_Int32 nBase)
++{
++    if (nBase == 1)
++        return toDays(rEnd) - toDays(rStart);
++    return (nBase == 3 ? 365.0 : 360.0) / nFreq;
++}
++
++/// Coupon period of the schedule anchored at rAnchor holding rDate (rPrev <= rDate < rNext);
++/// returns the number of schedule dates after rDate up to the anchor.
++sal_Int32 findPeriod(const Ymd& rAnchor, const Ymd& rDate, sal_Int32 nFreq, Ymd& rPrev, Ymd& rNext)
++{
++    const sal_Int32 nStep = 12 / nFreq;
++    const bool bMonthEnd = isMonthEnd(rAnchor);
++    const sal_Int32 nDate = toDays(rDate);
++    const sal_Int32 nMonths
++        = (rAnchor.nYear - rDate.nYear) * 12 + rAnchor.nMonth - rDate.nMonth;
++    sal_Int32 nBack = std::max<sal_Int32>(nMonths / nStep, 0);
++    while (toDays(addMonths(rAnchor, -nBack * nStep, bMonthEnd)) > nDate)
++        ++nBack;
++    while (nBack > 0 && toDays(addMonths(rAnchor, -(nBack - 1) * nStep, bMonthEnd)) <= nDate)
++        --nBack;
++    rPrev = addMonths(rAnchor, -nBack * nStep, bMonthEnd);
++    rNext = addMonths(rAnchor, -(nBack - 1) * nStep, bMonthEnd);
++    return nBack;
++}
++
++void checkFreqAndBasis(sal_Int32 nFreq, sal_Int32 nBase)
++{
++    if ((nFreq != 1 && nFreq != 2 && nFreq != 4) || nBase < 0 || nBase > 4)
++        domainError();
++}
++
++/// Schedule quantities of the odd first period, which spans one (short) or several (long)
++/// quasi-coupon periods ending on the first coupon.
++struct OddFirstTerms
++{
++    double fAccruedFraction; ///< sum of A_i / NL_i over the quasi periods
++    double fCouponFraction; ///< sum of DC_i / NL_i over the quasi periods
++    double fFirstTime; ///< periods from the settlement to the first coupon: Nq + DSC / E
++    sal_Int32 nRegular; ///< regular coupons after the first coupon, up to the maturity
++};
++
++OddFirstTerms oddFirstTerms(sal_Int32 nNullDate, sal_Int32 nSettle, sal_Int32 nMat,
++                            sal_Int32 nIssue, sal_Int32 nFirstCoup, sal_Int32 nFreq,
++                            sal_Int32 nBase)
++{
++    checkFreqAndBasis(nFreq, nBase);
++    if (!(nMat > nFirstCoup && nFirstCoup > nSettle && nSettle > nIssue))
++        domainError();
++    const Ymd aSettle = toYmd(nNullDate, nSettle);
++    const Ymd aIssue = toYmd(nNullDate, nIssue);
++    const Ymd aFirst = toYmd(nNullDate, nFirstCoup);
++    const sal_Int32 nStep = 12 / nFreq;
++    const bool bMonthEnd = isMonthEnd(aFirst);
++
++    // quasi-coupon dates from the first coupon back to the first one not after the issue
++    std::vector<Ymd> aQuasi{ aFirst };
++    while (toDays(aQuasi.back()) > nNullDate + nIssue)
++        aQuasi.push_back(
++            addMonths(aFirst, -static_cast<sal_Int32>(aQuasi.size()) * nStep, bMonthEnd));
++    std::reverse(aQuasi.begin(), aQuasi.end());
++
++    OddFirstTerms aTerms{ 0.0, 0.0, 0.0, 0 };
++    const sal_Int32 nPeriods = static_cast<sal_Int32>(aQuasi.size()) - 1;
++    for (sal_Int32 i = 0; i < nPeriods; ++i)
++    {
++        const Ymd& rStart = aQuasi[i];
++        const Ymd& rEnd = aQuasi[i + 1];
++        const double fLength = periodLength(rStart, rEnd, nFreq, nBase);
++        const Ymd& rFrom = i == 0 ? aIssue : rStart;
++        aTerms.fCouponFraction += dayCount(rFrom, rEnd, nBase) / fLength;
++        if (nSettle > (i == 0 ? nIssue : toDays(rStart) - nNullDate))
++        {
++            const Ymd& rTo = toDays(rEnd) - nNullDate < nSettle ? rEnd : aSettle;
++            aTerms.fAccruedFraction += dayCount(rFrom, rTo, nBase) / fLength;
++        }
++        if (toDays(rStart) - nNullDate <= nSettle && nSettle < toDays(rEnd) - nNullDate)
++        {
++            const double fDsc = nBase == 0 ? fLength - dayCount(rStart, aSettle, nBase)
++                                           : dayCount(aSettle, rEnd, nBase);
++            aTerms.fFirstTime = (nPeriods - 1 - i) + fDsc / fLength;
++        }
++    }
++
++    Ymd aPrev, aNext;
++    aTerms.nRegular = findPeriod(toYmd(nNullDate, nMat), aFirst, nFreq, aPrev, aNext);
++    return aTerms;
++}
++
++double oddFirstPriceOf(const OddFirstTerms& rTerms, double fRate, double fYield, double fRedemp,
++                       sal_Int32 nFreq)
++{
++    const double fCoupon = 100.0 * fRate / nFreq;
++    const double fBase = 1.0 + fYield / nFreq;
++    const double t0 = rTerms.fFirstTime;
++    double fPrice = fRedemp / std::pow(fBase, rTerms.nRegular + t0)
++                    + fCoupon * rTerms.fCouponFraction / std::pow(fBase, t0);
++    for (sal_Int32 k = 1; k <= rTerms.nRegular; ++k)
++        fPrice += fCoupon / std::pow(fBase, k + t0);
++    return fPrice - fCoupon * rTerms.fAccruedFraction;
++}
++}
++
++double bondDuration(sal_Int32 nNullDate, sal_Int32 nSettle, sal_Int32 nMat, double fCoup,
++                    double fYield, sal_Int32 nFreq, sal_Int32 nBase)
++{
++    checkFreqAndBasis(nFreq, nBase);
++    if (fCoup < 0.0 || fYield < 0.0 || nSettle >= nMat)
++        domainError();
++    const Ymd aSettle = toYmd(nNullDate, nSettle);
++    Ymd aPrev, aNext;
++    const sal_Int32 nCoupons = findPeriod(toYmd(nNullDate, nMat), aSettle, nFreq, aPrev, aNext);
++    const double fLength = periodLength(aPrev, aNext, nFreq, nBase);
++    // DURATION counts DSC as E - A with every basis (results of Excel 2021 for bases 0-4).
++    const double fDsc = fLength - dayCount(aPrev, aSettle, nBase);
++    const double fCoupon = 100.0 * fCoup / nFreq;
++    const double fBase = 1.0 + fYield / nFreq;
++
++    // present-value weighted average time of the cash flows, in coupon periods
++    double fWeighted = 0.0, fPresent = 0.0;
++    for (sal_Int32 k = 1; k <= nCoupons; ++k)
++    {
++        const double t = k - 1 + fDsc / fLength;
++        const double fValue = (fCoupon + (k == nCoupons ? 100.0 : 0.0)) / std::pow(fBase, t);
++        fWeighted += t * fValue;
++        fPresent += fValue;
++    }
++    if (!(fPresent > 0.0))
++        domainError();
++    return fWeighted / fPresent / nFreq;
++}
++
++double bondModifiedDuration(sal_Int32 nNullDate, sal_Int32 nSettle, sal_Int32 nMat, double fCoup,
++                            double fYield, sal_Int32 nFreq, sal_Int32 nBase)
++{
++    return bondDuration(nNullDate, nSettle, nMat, fCoup, fYield, nFreq, nBase)
++           / (1.0 + fYield / nFreq);
++}
++
++double oddFirstPrice(sal_Int32 nNullDate, sal_Int32 nSettle, sal_Int32 nMat, sal_Int32 nIssue,
++                     sal_Int32 nFirstCoup, double fRate, double fYield, double fRedemp,
++                     sal_Int32 nFreq, sal_Int32 nBase)
++{
++    if (fRate < 0.0 || fYield < 0.0 || fRedemp <= 0.0)
++        domainError();
++    const OddFirstTerms aTerms
++        = oddFirstTerms(nNullDate, nSettle, nMat, nIssue, nFirstCoup, nFreq, nBase);
++    return oddFirstPriceOf(aTerms, fRate, fYield, fRedemp, nFreq);
++}
++
++double oddFirstYield(sal_Int32 nNullDate, sal_Int32 nSettle, sal_Int32 nMat, sal_Int32 nIssue,
++                     sal_Int32 nFirstCoup, double fRate, double fPrice, double fRedemp,
++                     sal_Int32 nFreq, sal_Int32 nBase)
++{
++    if (fRate < 0.0 || fPrice <= 0.0 || fRedemp <= 0.0)
++        domainError();
++    const OddFirstTerms aTerms
++        = oddFirstTerms(nNullDate, nSettle, nMat, nIssue, nFirstCoup, nFreq, nBase);
++    auto excess = [&](double fYield) {
++        return oddFirstPriceOf(aTerms, fRate, fYield, fRedemp, nFreq) - fPrice;
++    };
++
++    // the price falls as the yield grows: bracket the yield in [fLow, fHigh] with fLow >= 0,
++    // then refine by Newton steps, falling back to bisection when a step leaves the bracket
++    double fLow = 0.0, fHigh = 1.0;
++    if (excess(fLow) < 0.0)
++        domainError(); // only a negative yield gives this price
++    while (excess(fHigh) > 0.0)
++    {
++        fHigh *= 2.0;
++        if (fHigh > 1e6)
++            domainError();
++    }
++    double fYield = (fRate > fLow && fRate < fHigh) ? fRate : 0.5 * (fLow + fHigh);
++    for (int nIter = 0; nIter < 200; ++nIter)
++    {
++        const double fExcess = excess(fYield);
++        if (std::fabs(fExcess) < 1e-12)
++            break;
++        if (fExcess > 0.0)
++            fLow = fYield;
++        else
++            fHigh = fYield;
++        const double fStep = 1e-7;
++        const double fSlope = (excess(fYield + fStep) - excess(fYield - fStep)) / (2.0 * fStep);
++        double fNext = fSlope < 0.0 ? fYield - fExcess / fSlope : 0.5 * (fLow + fHigh);
++        if (!(fNext > fLow && fNext < fHigh))
++            fNext = 0.5 * (fLow + fHigh);
++        if (std::fabs(fNext - fYield) < 1e-15)
++        {
++            fYield = fNext;
++            break;
++        }
++        fYield = fNext;
++    }
++    return fYield;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/scaddins/source/analysis/hstbondfunctions.hxx
+@@ -0,0 +1,39 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++#include <sal/types.h>
++
++// HST Office: bond functions of the Analysis add-in computed like the leading spreadsheet
++// application documents them. Dates are serial numbers relative to the document null date
++// (nNullDate, an absolute day number as returned by GetNullDate()). Frequency is 1, 2 or 4 and
++// basis 0 (US 30/360), 1 (actual/actual), 2 (actual/360), 3 (actual/365) or 4 (European 30/360).
++// Every function throws css::lang::IllegalArgumentException for an argument outside the
++// function's domain, which the spreadsheet shows as #NUM!.
++
++namespace sca::analysis::hst
++{
++/// Macaulay duration (in years) of a security paying periodic coupons, assumed par 100.
++double bondDuration(sal_Int32 nNullDate, sal_Int32 nSettle, sal_Int32 nMat, double fCoup,
++                    double fYield, sal_Int32 nFreq, sal_Int32 nBase);
++
++/// Modified duration: the Macaulay duration divided by (1 + yield / frequency).
++double bondModifiedDuration(sal_Int32 nNullDate, sal_Int32 nSettle, sal_Int32 nMat, double fCoup,
++                            double fYield, sal_Int32 nFreq, sal_Int32 nBase);
++
++/// Price per 100 face value of a security with an odd (short or long) first period.
++double oddFirstPrice(sal_Int32 nNullDate, sal_Int32 nSettle, sal_Int32 nMat, sal_Int32 nIssue,
++                     sal_Int32 nFirstCoup, double fRate, double fYield, double fRedemp,
++                     sal_Int32 nFreq, sal_Int32 nBase);
++
++/// Yield of a security with an odd (short or long) first period, the inverse of oddFirstPrice().
++double oddFirstYield(sal_Int32 nNullDate, sal_Int32 nSettle, sal_Int32 nMat, sal_Int32 nIssue,
++                     sal_Int32 nFirstCoup, double fRate, double fPrice, double fRedemp,
++                     sal_Int32 nFreq, sal_Int32 nBase);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
