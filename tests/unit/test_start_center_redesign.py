@@ -20,7 +20,8 @@ HOOK = "sfx2/source/dialog/backingcomp.cxx"
 SERIES = os.path.join(ROOT, "patches", "libreoffice", "series")
 
 MENU = [("nav_home", "Home", "Trang chủ"), ("nav_new", "New Document", "Tài liệu mới"),
-        ("open_all", "Open File", "Mở tệp"), ("nav_recent", "Recent", "Gần đây"),
+        ("open_all", "Open File", "Mở tệp"), ("nav_unsaved", "Unsaved Documents", "Tài liệu chưa lưu"),
+        ("nav_recent", "Recent", "Gần đây"),
         ("nav_pinned", "Pinned", "Đã ghim"), ("nav_update", "Update HST Office", "Cập nhật HST Office")]
 TILES = [("writer_all", "Văn bản"), ("calc_all", "Bảng tính"), ("impress_all", "Trình chiếu")]
 
@@ -85,6 +86,7 @@ class StartCenterRedesignTest(unittest.TestCase):
         self.assertIn('{ u"calc_all"_ustr, u"private:factory/scalc"_ustr }', window)
         self.assertIn('{ u"impress_all"_ustr, u"private:factory/simpress?slot=6686"_ustr }', window)
         self.assertIn('UPDATE_CHECK = u"org.hst.office.update:Check"_ustr', window)
+        self.assertIn('UNSAVED_DOCUMENTS = u"org.hst.office.vi:UnsavedDocuments"_ustr', window)
 
     def test_solutions_mirror_data(self):
         with open(os.path.join(ROOT, "data", "hst", "solutions.json"), encoding="utf-8") as handle:

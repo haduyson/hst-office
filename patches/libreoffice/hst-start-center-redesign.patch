@@ -1,7 +1,7 @@
 HST Office: the new Start Center (the window shown when no document is open).
 
 - Left: the HST Office logo; Trang chủ, Tài liệu mới (menu: Văn bản, Bảng tính, Trình chiếu, Bản vẽ, Từ mẫu…),
-  Mở tệp, Gần đây, Đã ghim, Cập nhật HST Office (org.hst.office.update:Check, the ribbon Help tab's update
+  Mở tệp, Tài liệu chưa lưu (org.hst.office.vi:UnsavedDocuments), Gần đây, Đã ghim, Cập nhật HST Office (org.hst.office.update:Check, the ribbon Help tab's update
   check); below a separator the HASON TECH block: the rotating banner (vcl HstBannerWidget, signed feed fetched
   on worker threads), the six solutions and the link to hasontech.vn. No shared files, no account.
 - Centre: welcome, a search box that filters the recent documents by name with or without Vietnamese accents,
@@ -179,10 +179,10 @@ index 0000000..3db49e3
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/inc/startcenter/hststartcenterwindow.hxx b/sfx2/inc/startcenter/hststartcenterwindow.hxx
 new file mode 100644
-index 0000000..5debe75
+index 0000000..d0b33f5
 --- /dev/null
 +++ b/sfx2/inc/startcenter/hststartcenterwindow.hxx
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,199 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -346,6 +346,7 @@ index 0000000..5debe75
 +    std::unique_ptr<weld::Button> mxMathButton; ///< kept for automation, not shown
 +    std::unique_ptr<weld::Button> mxBaseButton; ///< kept for automation, not shown
 +    std::unique_ptr<weld::Label> mxRecentTitle;
++    std::unique_ptr<weld::Widget> mxRecentScroll;
 +    std::unique_ptr<weld::TreeView> mxRecentList;
 +    std::unique_ptr<weld::Label> mxRecentEmpty;
 +    std::unique_ptr<weld::Menu> mxFileMenu;
@@ -353,6 +354,7 @@ index 0000000..5debe75
 +    // right column
 +    std::unique_ptr<weld::Container> mxRight;
 +    std::unique_ptr<weld::Label> mxPinnedTitle;
++    std::unique_ptr<weld::Widget> mxPinnedScroll;
 +    std::unique_ptr<weld::TreeView> mxPinnedList;
 +    std::unique_ptr<weld::Label> mxPinnedEmpty;
 +
@@ -382,10 +384,10 @@ index 0000000..5debe75
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/qa/cppunit/hststartcenter.cxx b/sfx2/qa/cppunit/hststartcenter.cxx
 new file mode 100644
-index 0000000..0bc36f1
+index 0000000..cc971eb
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
-@@ -0,0 +1,329 @@
+@@ -0,0 +1,335 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -440,7 +442,8 @@ index 0000000..0bc36f1
 +    uno::Reference<frame::XDispatch> SAL_CALL queryDispatch(const util::URL& rURL, const OUString& rTarget,
 +                                                            sal_Int32 nFlags) override
 +    {
-+        if (rURL.Complete.startsWith("org.hst.office.update:"))
++        if (rURL.Complete.startsWith("org.hst.office.update:")
++            || rURL.Complete == "org.hst.office.vi:UnsavedDocuments")
 +            return this;
 +        return mxSlave.is() ? mxSlave->queryDispatch(rURL, rTarget, nFlags) : nullptr;
 +    }
@@ -603,7 +606,8 @@ index 0000000..0bc36f1
 +    openStartCenter();
 +    const std::pair<OUString, OUString> aMenu[]
 +        = { { u"nav_home"_ustr, u"Home"_ustr },         { u"nav_new"_ustr, u"New Document"_ustr },
-+            { u"open_all"_ustr, u"Open File"_ustr },    { u"nav_recent"_ustr, u"Recent"_ustr },
++            { u"open_all"_ustr, u"Open File"_ustr },    { u"nav_unsaved"_ustr, u"Unsaved Documents"_ustr },
++            { u"nav_recent"_ustr, u"Recent"_ustr },
 +            { u"nav_pinned"_ustr, u"Pinned"_ustr },     { u"nav_update"_ustr, u"Update HST Office"_ustr } };
 +    for (const auto& [rId, rLabel] : aMenu)
 +    {
@@ -635,9 +639,13 @@ index 0000000..0bc36f1
 +    xInterception->registerDispatchProviderInterceptor(xInterceptor);
 +    child(u"nav_update"_ustr)->execute(u"CLICK"_ustr, {});
 +    Scheduler::ProcessEventsToIdle();
++    // "Tài liệu chưa lưu" opens the bundled extension's dialog of documents closed without saving
++    child(u"nav_unsaved"_ustr)->execute(u"CLICK"_ustr, {});
++    Scheduler::ProcessEventsToIdle();
 +    xInterception->releaseDispatchProviderInterceptor(xInterceptor);
-+    CPPUNIT_ASSERT_EQUAL(size_t(1), xInterceptor->maDispatched.size());
++    CPPUNIT_ASSERT_EQUAL(size_t(2), xInterceptor->maDispatched.size());
 +    CPPUNIT_ASSERT_EQUAL(u"org.hst.office.update:Check"_ustr, xInterceptor->maDispatched[0]);
++    CPPUNIT_ASSERT_EQUAL(u"org.hst.office.vi:UnsavedDocuments"_ustr, xInterceptor->maDispatched[1]);
 +}
 +
 +CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testSearchFiltersRecent)
@@ -757,7 +765,7 @@ index 7bddf0c..a122fb5 100644
  
 diff --git a/sfx2/source/startcenter/hststartcenterfiles.cxx b/sfx2/source/startcenter/hststartcenterfiles.cxx
 new file mode 100644
-index 0000000..347170d
+index 0000000..f4ce57f
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterfiles.cxx
 @@ -0,0 +1,467 @@
@@ -943,7 +951,7 @@ index 0000000..347170d
 +    else
 +        mxRecentEmpty->set_label(maRecentEmptyText);
 +    mxRecentEmpty->set_visible(bEmpty);
-+    mxRecentList->set_visible(!bEmpty);
++    mxRecentScroll->set_visible(!bEmpty);
 +    mxRecentTitle->set_label(mbPinnedOnly ? mxPinnedTitle->get_label() : maRecentTitleText);
 +    selectRow(*mxRecentList, aKeep);
 +}
@@ -961,7 +969,7 @@ index 0000000..347170d
 +    mxPinnedList->thaw();
 +    const bool bEmpty = mxPinnedList->n_children() == 0;
 +    mxPinnedEmpty->set_visible(bEmpty);
-+    mxPinnedList->set_visible(!bEmpty);
++    mxPinnedScroll->set_visible(!bEmpty);
 +    selectRow(*mxPinnedList, aKeep);
 +}
 +
@@ -1103,7 +1111,7 @@ index 0000000..347170d
 +IMPL_LINK_NOARG(HstStartCenterWindow, SearchActivateHdl, weld::Entry&, bool)
 +{
 +    // Enter in the search box: to the first file found
-+    if (mxRecentList->get_visible() && mxRecentList->n_children() > 0)
++    if (mxRecentScroll->get_visible() && mxRecentList->n_children() > 0)
 +    {
 +        mxRecentList->set_cursor(0);
 +        mxRecentList->grab_focus();
@@ -1230,10 +1238,10 @@ index 0000000..347170d
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterpaint.cxx b/sfx2/source/startcenter/hststartcenterpaint.cxx
 new file mode 100644
-index 0000000..86b370d
+index 0000000..bd0c56b
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterpaint.cxx
-@@ -0,0 +1,289 @@
+@@ -0,0 +1,296 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1403,6 +1411,13 @@ index 0000000..86b370d
 +                              true));
 +            stroke(rDev, aGrid, aGrid.line({ { 2, 9 }, { 18, 9 } }));
 +            break;
++        case Glyph::Unsaved:
++            // a page with a small clock: kept documents waiting to be recovered
++            stroke(rDev, aGrid, aGrid.line({ { 10, 18 }, { 3.5, 18 }, { 3.5, 2 }, { 10.5, 2 }, { 14.5, 6 }, { 14.5, 9 } }));
++            stroke(rDev, aGrid, aGrid.line({ { 10.5, 2 }, { 10.5, 6 }, { 14.5, 6 } }));
++            stroke(rDev, aGrid, aGrid.arc(14.5, 14.5, 4.5, 0, 360));
++            stroke(rDev, aGrid, aGrid.line({ { 14.5, 12 }, { 14.5, 14.5 }, { 16.5, 15.5 } }));
++            break;
 +        case Glyph::Recent:
 +            stroke(rDev, aGrid, aGrid.arc(10, 10, 7.5, 0, 360));
 +            stroke(rDev, aGrid, aGrid.line({ { 10, 5.5 }, { 10, 10 }, { 13.5, 12 } }));
@@ -1525,10 +1540,10 @@ index 0000000..86b370d
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterpaint.hxx b/sfx2/source/startcenter/hststartcenterpaint.hxx
 new file mode 100644
-index 0000000..c81985f
+index 0000000..22485da
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterpaint.hxx
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,77 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1580,6 +1595,7 @@ index 0000000..c81985f
 +    Home,
 +    NewDocument,
 +    Open,
++    Unsaved,
 +    Recent,
 +    Pinned,
 +    Update,
@@ -1948,10 +1964,10 @@ index 0000000..dcb957f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
 new file mode 100644
-index 0000000..7497f52
+index 0000000..cf37ce6
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
-@@ -0,0 +1,751 @@
+@@ -0,0 +1,761 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2005,6 +2021,8 @@ index 0000000..7497f52
 +{
 +// The update check of the bundled HST extension (the same command as the ribbon's Help tab).
 +constexpr OUString UPDATE_CHECK = u"org.hst.office.update:Check"_ustr;
++// "Tài liệu chưa lưu" of the bundled HST extension (the same command as the File panel's entry).
++constexpr OUString UNSAVED_DOCUMENTS = u"org.hst.office.vi:UnsavedDocuments"_ustr;
 +
 +// The HASON TECH solutions: name, tagline and site, in display order (the same as the solutions of
 +// data/hst/solutions.json; tests/unit checks that they stay alike). The texts are Vietnamese in
@@ -2137,11 +2155,13 @@ index 0000000..7497f52
 +    , mxMathButton(m_xBuilder->weld_button(u"math_all"_ustr))
 +    , mxBaseButton(m_xBuilder->weld_button(u"database_all"_ustr))
 +    , mxRecentTitle(m_xBuilder->weld_label(u"recenttitle"_ustr))
++    , mxRecentScroll(m_xBuilder->weld_widget(u"recentscroll"_ustr))
 +    , mxRecentList(m_xBuilder->weld_tree_view(u"recentlist"_ustr))
 +    , mxRecentEmpty(m_xBuilder->weld_label(u"recentempty"_ustr))
 +    , mxFileMenu(m_xBuilder->weld_menu(u"filemenu"_ustr))
 +    , mxRight(m_xBuilder->weld_container(u"rightcol"_ustr))
 +    , mxPinnedTitle(m_xBuilder->weld_label(u"pinnedtitle"_ustr))
++    , mxPinnedScroll(m_xBuilder->weld_widget(u"pinnedscroll"_ustr))
 +    , mxPinnedList(m_xBuilder->weld_tree_view(u"pinnedlist"_ustr))
 +    , mxPinnedEmpty(m_xBuilder->weld_label(u"pinnedempty"_ustr))
 +    , mpPalette(std::make_unique<Palette>())
@@ -2216,9 +2236,11 @@ index 0000000..7497f52
 +    mxBaseButton.reset();
 +    mxRecentTitle.reset();
 +    mxRecentList.reset();
++    mxRecentScroll.reset();
 +    mxRecentEmpty.reset();
 +    mxPinnedTitle.reset();
 +    mxPinnedList.reset();
++    mxPinnedScroll.reset();
 +    mxPinnedEmpty.reset();
 +    mxRight.reset();
 +    mxCentre.reset();
@@ -2230,7 +2252,8 @@ index 0000000..7497f52
 +{
 +    const std::pair<OUString, Glyph> aItems[] = {
 +        { u"nav_home"_ustr, Glyph::Home },     { u"nav_new"_ustr, Glyph::NewDocument },
-+        { u"open_all"_ustr, Glyph::Open },     { u"nav_recent"_ustr, Glyph::Recent },
++        { u"open_all"_ustr, Glyph::Open },     { u"nav_unsaved"_ustr, Glyph::Unsaved },
++        { u"nav_recent"_ustr, Glyph::Recent },
 +        { u"nav_pinned"_ustr, Glyph::Pinned }, { u"nav_update"_ustr, Glyph::Update },
 +    };
 +    for (const auto& [rId, eGlyph] : aItems)
@@ -2566,6 +2589,9 @@ index 0000000..7497f52
 +    else if (aId == "open_all")
 +        Dispatch(u".uno:Open"_ustr, OUString(), true,
 +                 { comphelper::makePropertyValue(u"Referer"_ustr, u"private:user"_ustr) });
++    else if (aId == "nav_unsaved")
++        // documents closed without saving, kept for 7 days (dialog of the bundled HST extension)
++        Dispatch(UNSAVED_DOCUMENTS, OUString(), true);
 +    else if (aId == "nav_recent")
 +    {
 +        mbPinnedOnly = false;
@@ -2629,9 +2655,9 @@ index 0000000..7497f52
 +{
 +    // F6 regions: the left menu, the search box, the recent table, the pinned list
 +    std::vector<weld::Widget*> aRegions{ maMenu.front().xButton.get(), mxSearch.get() };
-+    if (mxRecentList->get_visible())
++    if (mxRecentScroll->get_visible())
 +        aRegions.push_back(mxRecentList.get());
-+    if (mbShowRight && mxPinnedList->get_visible())
++    if (mbShowRight && mxPinnedScroll->get_visible())
 +        aRegions.push_back(mxPinnedList.get());
 +    int nCurrent = -1;
 +    for (size_t i = 0; i < aRegions.size(); ++i)
@@ -2705,10 +2731,10 @@ index 0000000..7497f52
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/uiconfig/ui/hststartcenter.ui b/sfx2/uiconfig/ui/hststartcenter.ui
 new file mode 100644
-index 0000000..71ded26
+index 0000000..bd48321
 --- /dev/null
 +++ b/sfx2/uiconfig/ui/hststartcenter.ui
-@@ -0,0 +1,817 @@
+@@ -0,0 +1,831 @@
 +<?xml version="1.0" encoding="UTF-8"?>
 +<!-- SPDX-License-Identifier: LicenseRef-HST-Proprietary
 +     HST Office: the Start Center, see sfx2/source/startcenter/hststartcenterwindow.cxx.
@@ -2916,6 +2942,20 @@ index 0000000..71ded26
 +                <child>
 +                  <object class="GtkButton" id="open_all">
 +                    <property name="label" translatable="yes" context="hststartcenter|open_all">Open File</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="relief">none</property>
++                    <property name="halign">start</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="nav_unsaved">
++                    <property name="label" translatable="yes" context="hststartcenter|nav_unsaved">Unsaved Documents</property>
 +                    <property name="visible">True</property>
 +                    <property name="can-focus">True</property>
 +                    <property name="receives-default">False</property>
@@ -3527,10 +3567,10 @@ index 0000000..71ded26
 +  </object>
 +</interface>
 diff --git a/translations/source/vi/sfx2/messages.po b/translations/source/vi/sfx2/messages.po
-index ba92fe4..6d8d949 100644
+index ba92fe4..543ea3e 100644
 --- a/translations/source/vi/sfx2/messages.po
 +++ b/translations/source/vi/sfx2/messages.po
-@@ -9298,6 +9298,240 @@ msgctxt "tabbar|menubutton|tool_tip"
+@@ -9298,6 +9298,246 @@ msgctxt "tabbar|menubutton|tool_tip"
  msgid "Sidebar Settings"
  msgstr "Cài đặt Thanh bên"
  
@@ -3611,6 +3651,12 @@ index ba92fe4..6d8d949 100644
 +msgctxt "hststartcenter|open_all"
 +msgid "Open File"
 +msgstr "Mở tệp"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|nav_unsaved"
++msgid "Unsaved Documents"
++msgstr "Tài liệu chưa lưu"
 +
 +#. hstSC
 +#: sfx2/uiconfig/ui/hststartcenter.ui

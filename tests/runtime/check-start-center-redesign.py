@@ -57,17 +57,22 @@ def make_samples(office, root):
     return urls
 
 
-def pin(office, urls):
+def seed_history(office, samples):
+    """The samples as the recent documents, most recent first, the PINNED ones pinned (the profile's history)."""
     provider = office.service("com.sun.star.configuration.ConfigurationProvider")
     access = provider.createInstanceWithArguments(
         "com.sun.star.configuration.ConfigurationUpdateAccess",
-        (prop("nodepath", "/org.openoffice.Office.Histories/Histories/PickList/ItemList"),))
-    names = access.getElementNames()
-    for url in names:
-        if url in urls:
-            access.getByName(url).setPropertyValue("Pinned", True)
+        (prop("nodepath", "/org.openoffice.Office.Histories/Histories/PickList"),))
+    items, order = access.getByName("ItemList"), access.getByName("OrderList")
+    for index, (name, url) in enumerate(samples):
+        item = items.createInstance()
+        item.setPropertyValue("Title", name)
+        item.setPropertyValue("Pinned", name in PINNED)
+        items.insertByName(url, item)
+        entry = order.createInstance()
+        entry.setPropertyValue("HistoryItemRef", url)
+        order.insertByName(str(index), entry)
     access.commitChanges()
-    return len(names)
 
 
 def main():
@@ -96,26 +101,30 @@ def main():
     try:
         office.start()
         samples = make_samples(office, os.path.join(out, "samples"))
-        frames = []
-        for _name, url in samples:
-            doc = office.desktop().loadComponentFromURL(url, "_blank", 0, (prop("OnMainThread", True),))
-            frames.append(doc.getCurrentController().getFrame())
-        print("recent documents in the history:", pin(office, [url for name, url in samples if name in PINNED]))
-        for frame in frames[:-1]:
-            frame.close(True)
-        last = frames[-1]
-        last.getContainerWindow().setPosSize(0, 0, width, height, 15)
-        office.dispatch(last, ".uno:CloseDoc")
+        seed_history(office, samples)
+        # what the office does when no document is open (framework's StartModuleDispatcher)
+        last = office.desktop().findFrame("_blank", 0)
+        container = last.getContainerWindow()
+        container.setPosSize(0, 0, width, height, 15)
+        start = office.smgr.createInstanceWithArgumentsAndContext(
+            "com.sun.star.frame.StartModule", (container,), office.ctx)
+        last.setComponent(start, start)
+        start.attachFrame(last)
+        container.setVisible(True)
         time.sleep(3)
-        last.getContainerWindow().setPosSize(0, 0, width, height, 15)
+        container.setPosSize(0, 0, width, height, 15)
         time.sleep(4)  # the Start Center replaces the document; its banner settles
         component = last.getController()
         shown = component is not None and component.getImplementationName() == "com.sun.star.comp.sfx2.BackingComp"
         if not shown:
-            failures.append("the Start Center is not shown after Close Document")
+            failures.append("the Start Center is not shown")
         size = last.getContainerWindow().getPosSize()
         if size.Width > width + 2:
             failures.append("the window grew to %d px: a column does not fit" % size.Width)
+        # no tooltip in the picture: the pointer rests in the corner
+        subprocess.run(["xdotool", "mousemove", str(width - 2), str(height - 2)],
+                       env=dict(os.environ, DISPLAY=args.display), check=False)
+        time.sleep(1)
         shot = office.screenshot(os.path.join(out, "start-center-%s.png" % look))
         print("screenshot:", shot)
     finally:
