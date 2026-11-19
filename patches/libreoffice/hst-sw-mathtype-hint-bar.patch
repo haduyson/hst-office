@@ -16,7 +16,7 @@ Test only: the info bar tests without the info bar.
  $(eval $(call gb_CppunitTest_use_libraries,sw_uibase_uiview, \
 --- a/sw/qa/uibase/hst/mathtypehintbar.cxx
 +++ b/sw/qa/uibase/hst/mathtypehintbar.cxx
-@@ -0,0 +1,60 @@
+@@ -0,0 +1,68 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -44,6 +44,14 @@ Test only: the info bar tests without the info bar.
 +    {
 +    }
 +
++    /// Opened hidden: the bar does not depend on painting, and painting a MathType preview
++    /// needs its fonts (Symbol, MT Extra), which the test environment does not provide.
++    void open(std::u16string_view aName, bool bReadOnly = false)
++    {
++        loadFromFile(aName, { comphelper::makePropertyValue(u"Hidden"_ustr, true),
++                              comphelper::makePropertyValue(u"ReadOnly"_ustr, bReadOnly) });
++    }
++
 +    bool hasHintBar()
 +    {
 +        Scheduler::ProcessEventsToIdle(); // the bar comes once the document has opened
@@ -57,21 +65,21 @@ Test only: the info bar tests without the info bar.
 +CPPUNIT_TEST_FIXTURE(HstMathTypeHintBarTest, testShownForMathType)
 +{
 +    // One MathType (Equation.DSMT4) OLE object with its WMF preview.
-+    createSwDoc("fdo78906.docx");
++    open(u"fdo78906.docx");
 +    CPPUNIT_ASSERT(hasHintBar());
 +}
 +
 +CPPUNIT_TEST_FIXTURE(HstMathTypeHintBarTest, testNotShownWithoutMathType)
 +{
 +    // No embedded objects at all.
-+    createSwDoc("fdo64256.docx");
++    open(u"fdo64256.docx");
 +    CPPUNIT_ASSERT(!hasHintBar());
 +}
 +
 +CPPUNIT_TEST_FIXTURE(HstMathTypeHintBarTest, testNotShownReadOnly)
 +{
 +    // The converter edits the document: nothing to offer when it cannot be edited.
-+    loadFromFile(u"fdo78906.docx", { comphelper::makePropertyValue(u"ReadOnly"_ustr, true) });
++    open(u"fdo78906.docx", true);
 +    CPPUNIT_ASSERT(getSwDocShell()->IsReadOnly());
 +    CPPUNIT_ASSERT(!hasHintBar());
 +}
