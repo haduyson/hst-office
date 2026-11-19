@@ -34,10 +34,10 @@ Test: CppunitTest_sfx2_hst_startcenter.
 ---
 diff --git a/include/vcl/hst/designtokens.hxx b/include/vcl/hst/designtokens.hxx
 new file mode 100644
-index 0000000..3509a03
+index 0000000..5479202
 --- /dev/null
 +++ b/include/vcl/hst/designtokens.hxx
-@@ -0,0 +1,136 @@
+@@ -0,0 +1,137 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -82,6 +82,7 @@ index 0000000..3509a03
 +    Color aCardBorder;
 +    Color aSeparator; ///< lines between rows
 +    Color aIcon; ///< outline glyphs
++    Color aLogoTile; ///< behind a brand logo on a dark card, so dark artwork stays legible (light: none)
 +    Color aShadow; ///< the card shadow's colour (see SHADOW_OPACITY)
 +    /** Tinted surfaces (the quick-create tiles): fill, border and hover per tint. */
 +    Color aTint[3];
@@ -663,10 +664,10 @@ index 0000000..cfabd6a
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/qa/cppunit/hststartcenter.cxx b/sfx2/qa/cppunit/hststartcenter.cxx
 new file mode 100644
-index 0000000..a0aaaa9
+index 0000000..5456c23
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
-@@ -0,0 +1,627 @@
+@@ -0,0 +1,688 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -710,6 +711,7 @@ index 0000000..a0aaaa9
 +#include <vcl/hst/designtokens.hxx>
 +#include <vcl/hst/drawhelpers.hxx>
 +#include <vcl/scheduler.hxx>
++#include <vcl/settings.hxx>
 +#include <vcl/svapp.hxx>
 +#include <vcl/uitest/uiobject.hxx>
 +#include <vcl/vclevent.hxx>
@@ -718,6 +720,7 @@ index 0000000..a0aaaa9
 +#include <vcl/window.hxx>
 +
 +#include <chrono>
++#include <cmath>
 +#include <set>
 +#include <thread>
 +#include <vector>
@@ -1288,6 +1291,65 @@ index 0000000..a0aaaa9
 +    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Left(), nMidY)));
 +    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Left() + 1, nMidY)));
 +    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Left() + 2, nMidY)));
++}
++
++/** The WCAG contrast ratio of two colours. */
++double contrast(const Color& rA, const Color& rB)
++{
++    const auto luminance = [](const Color& rColor) {
++        const auto channel = [](sal_uInt8 n) {
++            const double f = n / 255.0;
++            return f <= 0.03928 ? f / 12.92 : std::pow((f + 0.055) / 1.055, 2.4);
++        };
++        return 0.2126 * channel(rColor.GetRed()) + 0.7152 * channel(rColor.GetGreen())
++               + 0.0722 * channel(rColor.GetBlue());
++    };
++    const double fA = luminance(rA), fB = luminance(rB);
++    return (std::max(fA, fB) + 0.05) / (std::min(fA, fB) + 0.05);
++}
++
++/** Puts back the application's settings when it goes out of scope. */
++struct SettingsGuard
++{
++    AllSettings maOld = Application::GetSettings();
++    ~SettingsGuard()
++    {
++        Application::SetSettings(maOld);
++        Scheduler::ProcessEventsToIdle();
++    }
++};
++
++CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testDarkLogoTiles)
++{
++    // the logos keep their own artwork; on the dark cards each sits on a light tile that stands out
++    // from the card (3:1), and the light cards need none
++    const ::hst::design::Palette& rDark = ::hst::design::GetPalette(true);
++    CPPUNIT_ASSERT_GREATEREQUAL(3.0, contrast(rDark.aLogoTile, rDark.aCard));
++    CPPUNIT_ASSERT_EQUAL(COL_TRANSPARENT, ::hst::design::GetPalette(false).aLogoTile);
++
++    openStartCenter();
++    SettingsGuard aGuard;
++    AllSettings aSettings(aGuard.maOld);
++    StyleSettings aStyle(aSettings.GetStyleSettings());
++    aStyle.SetWindowColor(Color(0x1E, 0x1E, 0x1E)); // a dark theme
++    aSettings.SetStyleSettings(aStyle);
++    Application::SetSettings(aSettings);
++    Scheduler::ProcessEventsToIdle();
++
++    vcl::Window* pCanvas = canvas();
++    ScopedVclPtrInstance<VirtualDevice> xDev;
++    xDev->SetOutputSizePixel(pCanvas->GetOutputSizePixel());
++    pCanvas->PaintToDevice(*xDev, Point(0, 0));
++    uno::Reference<XAccessibleContext> xSolutions = region(u"HASON TECH - Digital solutions");
++    const tools::Rectangle aArea = bounds(xSolutions);
++    for (sal_Int64 i = 0; i < 6; ++i)
++    {
++        tools::Rectangle aCard = bounds(context(xSolutions->getAccessibleChild(i)));
++        aCard.Move(aArea.Left(), aArea.Top());
++        // the card is dark; one pixel above the middle of the logo (8 px below the card's top) is the tile
++        CPPUNIT_ASSERT_EQUAL(rDark.aCard, xDev->GetPixel(Point(aCard.Left() + 3, aCard.Center().Y())));
++        CPPUNIT_ASSERT_EQUAL(rDark.aLogoTile, xDev->GetPixel(Point(aCard.Left() + 9 + 12, aCard.Top() + 7)));
++    }
 +}
 +}
 +
@@ -3080,10 +3142,10 @@ index 0000000..3df1ab5
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcentercanvaspaint.cxx b/sfx2/source/startcenter/hststartcentercanvaspaint.cxx
 new file mode 100644
-index 0000000..349f943
+index 0000000..e9a01af
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvaspaint.cxx
-@@ -0,0 +1,414 @@
+@@ -0,0 +1,421 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -3232,6 +3294,13 @@ index 0000000..349f943
 +        const tools::Long nTop = aCard.Top() + L.px(SOLUTION_PAD_TOP);
 +        const tools::Long nLogo = L.px(SOLUTION_LOGO);
 +        const Bitmap& rSolutionLogo = SolutionLogo(i, nLogo);
++        if (maPalette.aLogoTile != COL_TRANSPARENT)
++        {
++            // a light rounded tile behind the logo, as the logo's own artwork expects a light ground
++            tools::Rectangle aTile(Point(nX, nTop), Size(nLogo, nLogo));
++            aTile.expand(L.px(space::XXS));
++            DrawRoundRect(rDev, aTile, radius::Row * L.fScale, maPalette.aLogoTile, COL_TRANSPARENT);
++        }
 +        if (!rSolutionLogo.IsEmpty())
 +            rDev.DrawBitmap(Point(nX, nTop), rSolutionLogo);
 +        const tools::Long nMark = L.px(icon::Caption);
@@ -7971,10 +8040,10 @@ index 0012ff3..1850d53 100644
      vcl/source/gdi/region \
 diff --git a/vcl/source/hst/designtokens.cxx b/vcl/source/hst/designtokens.cxx
 new file mode 100644
-index 0000000..5c6adbc
+index 0000000..c2bab23
 --- /dev/null
 +++ b/vcl/source/hst/designtokens.cxx
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,119 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -8024,6 +8093,7 @@ index 0000000..5c6adbc
 +        p.aTintBorder[i] = aBorder[i];
 +        p.aTintHover[i] = aHover[i];
 +    }
++    p.aLogoTile = COL_TRANSPARENT;
 +    return p;
 +}
 +
@@ -8058,6 +8128,7 @@ index 0000000..5c6adbc
 +        p.aTintBorder[i] = aBorder[i];
 +        p.aTintHover[i] = aHover[i];
 +    }
++    p.aLogoTile = Color(0xFF, 0xFF, 0xFF);
 +    return p;
 +}
 +}
