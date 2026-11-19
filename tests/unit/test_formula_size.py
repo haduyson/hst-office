@@ -29,19 +29,19 @@ class FakeEmbedded:
 
 
 class FakeGraphic:
-    def __init__(self, height):
-        self.height = height
+    def __init__(self, height, width=1406):
+        self.height, self.width = height, width
 
     def getPropertyValue(self, name):
-        return FakeSize(1406, self.height)
+        return FakeSize(self.width, self.height)
 
 
 class FakeEquation:
     """The OLE equation Word shows at shown mm100: its own size and its preview picture are at MathType's 100 %."""
-    def __init__(self, shown, own=None, preview=None):
+    def __init__(self, shown, own=None, preview=None, preview_width=1406):
         self.Size, self.EmbeddedObject = FakeSize(0, shown), FakeEmbedded(own, MM100)
         if preview is not None:
-            self.ReplacementGraphic = FakeGraphic(preview)
+            self.ReplacementGraphic = FakeGraphic(preview, preview_width)
 
 
 class FakeModel:
@@ -79,6 +79,15 @@ class WordScaleTest(unittest.TestCase):
         self.assertEqual(1.0, formula_size.keep_word_scale(model, FakeEquation(706, own=706)))
         self.assertEqual(1.0, formula_size.keep_word_scale(model, FakeEquation(316)))  # scale unknown
         self.assertEqual(" size 12{em}", model.Formula)
+
+    def test_preview_sized_to_one_inch_by_the_reader_is_not_a_scale(self):
+        # s037.docx: "m=0", 0.35 x 0.57 cm in its WMF (bounds 320 x 512 at 2307 per inch) and shown so in Word; the
+        # WMF reader makes it one inch on its longer side (1588 x 2540), which drew the formula at 23 %
+        model = FakeModel(" size 12{m = 0}")
+        self.assertEqual(1.0, formula_size.keep_word_scale(model, FakeEquation(575, preview=2540, preview_width=1588)))
+        self.assertEqual(1.0, formula_size.keep_word_scale(model, FakeEquation(1185 * 480 // 1055, preview=1185,
+                                                                                preview_width=2540)))
+        self.assertEqual(" size 12{m = 0}", model.Formula)
 
 
 if __name__ == "__main__":

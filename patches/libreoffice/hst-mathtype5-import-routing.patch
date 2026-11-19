@@ -243,10 +243,10 @@ index 0000000..355cd4b
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sw/source/core/hst/formulashownsize.cxx b/sw/source/core/hst/formulashownsize.cxx
 new file mode 100644
-index 0000000..db6e85c
+index 0000000..d5175f8
 --- /dev/null
 +++ b/sw/source/core/hst/formulashownsize.cxx
-@@ -0,0 +1,110 @@
+@@ -0,0 +1,118 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -278,6 +278,10 @@ index 0000000..db6e85c
 +namespace
 +{
 +constexpr double TOLERANCE = 0.05; // Word's own rounding of a size at 100 %
++// The WMF reader sizes an MM_ANISOTROPIC WMF smaller than its "inch" field to one inch on its longer side (emfio
++// wmfreader), so a MathType preview under 1 inch is 2540 mm100 tall or wide whatever its size: not MathType's.
++constexpr tools::Long NORMALIZED_INCH = 2540; // mm100
++constexpr tools::Long INCH_SLACK = 2;
 +
 +OUString NumberText(double fValue)
 +{
@@ -292,6 +296,10 @@ index 0000000..db6e85c
 +    if (nShownHeight <= 0 || rPreview.GetType() == GraphicType::NONE
 +        || aPreviewMap.GetMapUnit() == MapUnit::MapPixel)
 +        return 0;
++    const Size aPreview100
++        = OutputDevice::LogicToLogic(rPreview.GetPrefSize(), aPreviewMap, MapMode(MapUnit::Map100thMM));
++    if (std::abs(std::max(aPreview100.Width(), aPreview100.Height()) - NORMALIZED_INCH) <= INCH_SLACK)
++        return 0; // the reader's size, not the equation's: the scale is unknown
 +    const tools::Long nPreview
 +        = OutputDevice::LogicToLogic(rPreview.GetPrefSize(), aPreviewMap, MapMode(eUnit)).Height();
 +    return nPreview > 0 ? double(nShownHeight) / nPreview : 0;
