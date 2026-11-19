@@ -19,7 +19,10 @@ HOST_ALLOW = ("openoffice.org", "libreoffice.org", "w3.org", "hasontech.vn", "su
 CITATION_HOSTS = (("python/hst_office/citation_lookup", ("doi.org", "crossref.org", "datacite.org", "nih.gov",
                                                          "arxiv.org", "openlibrary.org")),
                   ("python/hst_office/citation_csl_parse.py", ("purl.org",)),
-                  ("python/hst_office/citation_", ("doi.org",)))
+                  ("python/hst_office/citation_", ("doi.org",)),
+                  # Trợ lý AI: the three provider APIs (only after the user presses Gửi) and their API-key pages
+                  ("python/hst_office/ai_", ("api.openai.com", "platform.openai.com", "googleapis.com",
+                                             "aistudio.google.com", "api.anthropic.com", "platform.claude.com")))
 CITATION_STYLES = ("data/citation/styles", "data/citation-styles/")  # source folder, packaged folder
 NETWORK_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess|ctypes)\b", re.M)
 # HTTPS is confined to transport helpers; only the deadline supervisor may spawn its private helper.
@@ -28,6 +31,7 @@ BANNER_DEADLINE = "python/hst_office/banner_fetch.py"  # fixed Python helper; no
 UPDATE_FETCH = "python/hst_office/update_fetch.py"
 ERROR_REPORT_HTTP = "python/hst_office/error_report_http.py"  # one POST of an error report, after the user's click
 CITATION_LOOKUP_HTTP = "python/hst_office/citation_lookup_http.py"  # one GET of a reference lookup, after the click
+AI_HTTP = "python/hst_office/ai_http.py"  # one request to the AI provider the user chose, after the click
 UPDATE_DOWNLOAD = "python/hst_office/update_download.py"  # installer download after the user's click
 UPDATE_LAUNCH = "python/hst_office/update_launch.py"  # starts the external update helper
 USB_TOKEN_WORKER = "python/hst_office/usb_token_worker.py"
@@ -43,7 +47,10 @@ DEFAULT_APPS = ("python/hst_office/default_apps_linux.py", "python/hst_office/de
 LOCAL_SYSTEM = ("python/hst_office/screen_work_area.py",  # ctypes user32 SystemParametersInfoW: the taskbar-free work area
                 "python/hst_office/system_boot.py",  # boot time: ctypes GetTickCount64 (Windows), `sysctl -n kern.boottime` (macOS)
                 "python/hst_office/update_linux_install.py",  # `dpkg-query -S` / `rpm -qf` on its own soffice: deb, rpm or AppImage
-                "python/hst_office/windows_fault_note.py")  # ctypes kernel32 SetEnvironmentVariableW: the crash note's path
+                "python/hst_office/windows_fault_note.py",  # ctypes kernel32 SetEnvironmentVariableW: the crash note's path
+                # the AI API keys in the OS credential store: advapi32 Cred*, Security.framework, libsecret (local D-Bus)
+                "python/hst_office/ai_keystore_windows.py", "python/hst_office/ai_keystore_macos.py",
+                "python/hst_office/ai_keystore_linux.py")
 UPDATE_LAUNCH_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|ctypes)\b", re.M)
 LOCAL_TOOL_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc)\b", re.M)
 USB_WORKER_IMPORT = re.compile(r"^\s*(?:import|from)\s+(socket|urllib(?!\.parse\b)|http|ftplib|smtplib|requests|ssl|xmlrpc|subprocess)\b", re.M)
@@ -144,7 +151,7 @@ def check_content(zf, names, errors):
                 errors.append("%s: not an ASCII Windows .reg file" % name)
         if name.endswith(".py"):
             text = data.decode("utf-8")
-            if (LOCAL_TOOL_IMPORT if name in DEFAULT_APPS + LOCAL_SYSTEM else USB_WORKER_IMPORT if name in (USB_TOKEN_WORKER, UPDATE_ELEVATE) else UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD, BANNER_FETCH, ERROR_REPORT_HTTP, CITATION_LOOKUP_HTTP) else UPDATE_LAUNCH_IMPORT
+            if (LOCAL_TOOL_IMPORT if name in DEFAULT_APPS + LOCAL_SYSTEM else USB_WORKER_IMPORT if name in (USB_TOKEN_WORKER, UPDATE_ELEVATE) else UPDATE_FETCH_IMPORT if name in (UPDATE_FETCH, UPDATE_DOWNLOAD, BANNER_FETCH, ERROR_REPORT_HTTP, CITATION_LOOKUP_HTTP, AI_HTTP) else UPDATE_LAUNCH_IMPORT
                     if name in (UPDATE_LAUNCH, USB_TOKEN_NSS, BANNER_DEADLINE, CRASH_SIGNATURE) else NETWORK_IMPORT).search(text):
                 errors.append("network/process module imported in %s" % name)
             if text.count("\n") + 1 > MAX_LINES:

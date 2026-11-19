@@ -1,0 +1,1499 @@
+HST Office: Sheets tables behave like the tables of the familiar office suite while typing.
+
+Tables are the database ranges with a table style (Insert ▸ Table, or a table of an .xlsx file).
+- Calculated columns: a formula typed into a data cell of a table column whose other data cells
+  are empty, or all hold one common formula, is filled into every data row of the column
+  (a new formula typed into a calculated column replaces it in the whole column). A column of
+  other content keeps it. The state is derived from the cells (every data row holds the same
+  formula in relative form), so it needs no storage and survives copy, undo, .ods and .xlsx.
+- Auto-expansion: typing into the row directly below a table (without a total row) or the
+  column directly right of it grows the table by that row or column. The new cells take the
+  formatting of the row above or the column to the left (not merging, autofilter buttons or
+  conditional formats), a new row takes the formulas of the calculated columns, a new column
+  gets a unique "ColumnN" header unless the header itself was typed. The autofilter buttons
+  and range and the structured references (Table1[Price]) follow the new range
+  (ScDBDocFunc::ModifyDBData).
+- Each of them is its own undo step after the input ("Table AutoExpansion", "Calculated
+  Column"), so Ctrl+Z right after it undoes only the growth or the fill and keeps the typed
+  content, like "Undo Table AutoExpansion"; .uno:HstTableUndoAutoExpand does that only while
+  the growth is the last step (for a later smart tag / contextual Table tab button).
+- Data ▸ Table ▸ "Automatically Expand Tables" (.uno:HstTableAutoExpand) and "Fill Formulas in
+  Tables" (.uno:HstTableCalculatedColumns) switch them off; officecfg
+  Office.Calc/Input/HstTableAutoExpand and HstTableCalculatedColumns, default on.
+- .xlsx export writes <calculatedColumnFormula> for calculated columns (their cells keep their
+  formulas, so the import needs no change).
+Not done on user input that is not typing (paste, fill, API), with change tracking on or on a
+protected sheet.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: CppunitTest_sc_hst_table_input (sc/qa/unit/uicalc/hsttableinput.cxx).
+---
+--- a/officecfg/registry/data/org/openoffice/Office/UI/CalcCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/CalcCommands.xcu
+@@ -1887,6 +1887,27 @@
+           <value>1</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HstTableAutoExpand" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Automatically ~Expand Tables</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Grow a table when you type in the row below it or the column to its right</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstTableCalculatedColumns" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">~Fill Formulas in Tables</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Fill a formula typed into a table column into the whole column (calculated column)</value>
++        </prop>
++      </node>
++      <node oor:name=".uno:HstTableUndoAutoExpand" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">Undo Table AutoExpansion</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:InsertSparkline" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Sparkline...</value>
+--- a/officecfg/registry/schema/org/openoffice/Office/Calc.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Calc.xcs
+@@ -814,6 +814,22 @@
+         </info>
+         <value>true</value>
+       </prop>
++      <prop oor:name="HstTableAutoExpand" oor:type="xs:boolean" oor:nillable="false">
++        <!-- UIHints: Data - Table - Automatically Expand Tables -->
++        <info>
++          <desc>HST Office: typing into the row directly below a table or the column directly right of it grows the table by that row or column.</desc>
++          <label>Automatically expand tables</label>
++        </info>
++        <value>true</value>
++      </prop>
++      <prop oor:name="HstTableCalculatedColumns" oor:type="xs:boolean" oor:nillable="false">
++        <!-- UIHints: Data - Table - Fill Formulas in Tables -->
++        <info>
++          <desc>HST Office: a formula typed into a table column whose other cells are empty or hold one common formula is filled into every row of the column (calculated column).</desc>
++          <label>Fill formulas in tables to create calculated columns</label>
++        </info>
++        <value>true</value>
++      </prop>
+     </group>
+     <group oor:name="Grid">
+       <info>
+--- /dev/null
++++ b/sc/CppunitTest_sc_hst_table_input.mk
+@@ -0,0 +1,65 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# This file is part of the LibreOffice project.
++#
++# This Source Code Form is subject to the terms of the Mozilla Public
++# License, v. 2.0. If a copy of the MPL was not distributed with this
++# file, You can obtain one at http://mozilla.org/MPL/2.0/.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,sc_hst_table_input))
++
++$(eval $(call gb_CppunitTest_use_externals,sc_hst_table_input, \
++	boost_headers \
++	mdds_headers \
++	libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sc_hst_table_input, \
++    sc/qa/unit/uicalc/hsttableinput \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sc_hst_table_input, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    editeng \
++    i18nlangtag \
++    sal \
++    sc \
++    scqahelper \
++    sfx \
++    sot \
++    subsequenttest \
++    svl \
++    svl \
++    svx \
++    svxcore \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++    $(if $(filter -fsanitize=vptr,$(gb_CXX)),salhelper) \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sc_hst_table_input,\
++    -I$(SRCDIR)/sc/source/ui/inc \
++    -I$(SRCDIR)/sc/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sc_hst_table_input))
++
++$(eval $(call gb_CppunitTest_use_ure,sc_hst_table_input))
++$(eval $(call gb_CppunitTest_use_vcl,sc_hst_table_input))
++
++$(eval $(call gb_CppunitTest_use_rdb,sc_hst_table_input,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sc_hst_table_input))
++
++$(eval $(call gb_CppunitTest_add_arguments,sc_hst_table_input, \
++    -env:arg-env=$(gb_Helper_LIBRARY_PATH_VAR)"$$$${$(gb_Helper_LIBRARY_PATH_VAR)+=$$$$$(gb_Helper_LIBRARY_PATH_VAR)}" \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/sc/Library_sc.mk
++++ b/sc/Library_sc.mk
+@@ -243,6 +243,7 @@
+     sc/source/core/tool/compiler \
+     sc/source/core/tool/consoli  \
+     sc/source/core/tool/dbdata \
++    sc/source/core/tool/hsttablecolumns \
+     sc/source/core/tool/ddelink \
+     sc/source/core/tool/defaultsoptions \
+     sc/source/core/tool/detdata  \
+@@ -632,6 +633,7 @@
+     sc/source/ui/undo/undoconvert \
+     sc/source/ui/undo/undodat \
+     sc/source/ui/undo/undodraw \
++    sc/source/ui/undo/undohsttable \
+     sc/source/ui/undo/undoolk \
+     sc/source/ui/undo/undorangename \
+     sc/source/ui/undo/undosort \
+@@ -726,6 +728,8 @@
+     sc/source/ui/view/gridwin4 \
+     sc/source/ui/view/gridwin5 \
+     sc/source/ui/view/hdrcont \
++    sc/source/ui/view/hsttableinput \
++    sc/source/ui/view/hsttablesettings \
+     sc/source/ui/view/hsttextnumberbutton \
+     sc/source/ui/view/hsttextnumberconvert \
+     sc/source/ui/view/hsttextnumbergridwin \
+--- a/sc/Module_sc.mk
++++ b/sc/Module_sc.mk
+@@ -110,6 +110,7 @@
+ 	CppunitTest_sc_uicalc \
+ 	CppunitTest_sc_uicalc2 \
+ 	CppunitTest_sc_hst_set_as_default \
++	CppunitTest_sc_hst_table_input \
+ 	CppunitTest_sc_vba_macro_test \
+ 	CppunitTest_sc_a11y \
+ 	CppunitTest_sc_filter_html \
+--- a/sc/inc/globstr.hrc
++++ b/sc/inc/globstr.hrc
+@@ -74,6 +74,8 @@
+ #define STR_UNDO_DBADDTABLE                     NC_("STR_UNDO_DBTABLE", "Create table")
+ #define STR_UNDO_DBREMTABLE                     NC_("STR_UNDO_DBTABLE", "Delete table")
+ #define STR_UNDO_DBDATA                         NC_("STR_UNDO_DBDATA", "Change Database Range")
++#define STR_HST_UNDO_TABLE_AUTOEXPAND           NC_("STR_HST_UNDO_TABLE_AUTOEXPAND", "Table AutoExpansion")
++#define STR_HST_UNDO_TABLE_CALCCOLUMN           NC_("STR_HST_UNDO_TABLE_CALCCOLUMN", "Calculated Column")
+ #define STR_UNDO_IMPORTDATA                     NC_("STR_UNDO_IMPORTDATA", "Importing")
+ #define STR_UNDO_REPEATDB                       NC_("STR_UNDO_REPEATDB", "Refresh range")
+ #define STR_UNDO_LISTNAMES                      NC_("STR_UNDO_LISTNAMES", "List names")
+--- /dev/null
++++ b/sc/inc/hsttablecolumns.hxx
+@@ -0,0 +1,42 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include "scdllapi.h"
++#include "types.hxx"
++
++class ScDBData;
++class ScDocument;
++class ScFormulaCell;
++
++/** HST Office: calculated columns of Sheets tables (database ranges with a table style).
++
++    A table column is a calculated column when every data row of it (the rows between the
++    header row and the total row) holds the same formula in relative form, as the familiar
++    office suite fills one formula into the whole column. The state is derived from the cells,
++    so it needs no storage: it survives copy, undo, .ods and .xlsx unchanged, and .xlsx export
++    writes it as <calculatedColumnFormula>. */
++namespace sc::hsttable
++{
++/** First and last data row of the table (without the header and the total row).
++    @return false when the table has no data row. */
++SC_DLLPUBLIC bool GetDataRows(const ScDBData& rData, SCROW& rFirstRow, SCROW& rLastRow);
++
++/** Whether the two formula cells hold the same formula in relative form (the same formula
++    filled down a column). */
++SC_DLLPUBLIC bool IsSameColumnFormula(const ScFormulaCell& rCell, const ScFormulaCell& rOther);
++
++/** The formula cell that defines the calculated column nCol of the table: every data row of the
++    column, except nIgnoreRow, holds a formula equal to it in relative form (no array formula).
++    @return the first such cell, or nullptr when the column is not a calculated column. */
++SC_DLLPUBLIC const ScFormulaCell* GetCalculatedColumnCell(const ScDocument& rDoc,
++                                                          const ScDBData& rData, SCCOL nCol,
++                                                          SCROW nIgnoreRow = -1);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/inc/sc.hrc
++++ b/sc/inc/sc.hrc
+@@ -680,6 +680,10 @@
+ #define SID_SC_ATTR_PAGE_SIZE   (SC_RESOURCE_START+21)
+ #define SID_SC_ATTR_PAGE_MARGIN   (SC_RESOURCE_START+22)
+ #define SID_HST_UNFREEZE_PANES    (SC_RESOURCE_START+24) // HST: remove frozen panes only
++// HST Office: Sheets tables grow while typing and fill calculated columns (hsttableinput.cxx)
++#define SID_HST_TABLE_AUTOEXPAND            (SC_RESOURCE_START+40)
++#define SID_HST_TABLE_CALCULATED_COLUMNS    (SC_RESOURCE_START+41)
++#define SID_HST_TABLE_UNDO_AUTOEXPAND       (SC_RESOURCE_START+42)
+ 
+ #endif
+ 
+--- /dev/null
++++ b/sc/qa/unit/uicalc/hsttableinput.cxx
+@@ -0,0 +1,246 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: Sheets tables grow while typing and fill calculated columns
++// (sc/source/ui/view/hsttableinput.cxx, sc/source/core/tool/hsttablecolumns.cxx)
++
++#include "../helper/qahelper.hxx"
++
++#include <comphelper/scopeguard.hxx>
++#include <editeng/brushitem.hxx>
++#include <tools/color.hxx>
++
++#include <attrib.hxx>
++#include <dbdata.hxx>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <hsttablecolumns.hxx>
++#include <hsttableinput.hxx>
++#include <queryparam.hxx>
++#include <scitems.hxx>
++#include <tablestyle.hxx>
++
++namespace
++{
++class ScHstTableInputTest : public ScModelTestBase
++{
++public:
++    ScHstTableInputTest()
++        : ScModelTestBase(u"sc/qa/unit/uicalc/data"_ustr)
++    {
++    }
++
++protected:
++    /** A1:C3 as the table "Table1": Item / Price / Total, rows a 10 and b 20. With
++        bCalculated, C2:C3 hold =B2*2 and =B3*2. */
++    ScDBData* createTable(bool bCalculated);
++    ScRange tableArea();
++};
++
++ScDBData* ScHstTableInputTest::createTable(bool bCalculated)
++{
++    createScDoc();
++    ScDocument* pDoc = getScDoc();
++    pDoc->InitDrawLayer(getScDocShell()); // the default table styles
++    pDoc->SetString(0, 0, 0, u"Item"_ustr);
++    pDoc->SetString(1, 0, 0, u"Price"_ustr);
++    pDoc->SetString(2, 0, 0, u"Total"_ustr);
++    pDoc->SetString(0, 1, 0, u"a"_ustr);
++    pDoc->SetValue(1, 1, 0, 10.0);
++    pDoc->SetString(0, 2, 0, u"b"_ustr);
++    pDoc->SetValue(1, 2, 0, 20.0);
++    if (bCalculated)
++    {
++        pDoc->SetString(2, 1, 0, u"=B2*2"_ustr);
++        pDoc->SetString(2, 2, 0, u"=B3*2"_ustr);
++    }
++
++    auto pNew = std::make_unique<ScDBData>(u"Table1"_ustr, 0, 0, 0, 2, 2, true, true, false,
++                                           u""_ustr, u"TableStyleMedium2"_ustr);
++    pNew->SetAutoFilter(true);
++    pDoc->ApplyFlagsTab(0, 0, 2, 0, 0, ScMF::Auto);
++    CPPUNIT_ASSERT(pDoc->GetDBCollection()->getNamedDBs().insert(std::move(pNew)));
++    ScDBData* pData = pDoc->GetDBCollection()->getNamedDBs().findByUpperName(u"TABLE1"_ustr);
++    CPPUNIT_ASSERT(pData);
++    pData->RefreshTableColumnNames(pDoc);
++    return pData;
++}
++
++ScRange ScHstTableInputTest::tableArea()
++{
++    ScDBData* pData
++        = getScDoc()->GetDBCollection()->getNamedDBs().findByUpperName(u"TABLE1"_ustr);
++    CPPUNIT_ASSERT(pData);
++    ScRange aArea;
++    pData->GetArea(aArea);
++    return aArea;
++}
++}
++
++// A formula typed into an empty table column fills every data row; Ctrl+Z undoes only the fill.
++CPPUNIT_TEST_FIXTURE(ScHstTableInputTest, testCalculatedColumnFill)
++{
++    createTable(false);
++    ScDocument* pDoc = getScDoc();
++
++    insertStringToCell(u"C2"_ustr, u"=B2*2");
++    CPPUNIT_ASSERT_EQUAL(u"=B3*2"_ustr, pDoc->GetFormula(2, 2, 0));
++    CPPUNIT_ASSERT_EQUAL(40.0, pDoc->GetValue(2, 2, 0));
++    CPPUNIT_ASSERT(sc::hsttable::GetCalculatedColumnCell(
++        *pDoc, *pDoc->GetDBCollection()->getNamedDBs().findByUpperName(u"TABLE1"_ustr), 2));
++    // the table itself does not grow
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 2, 2, 0), tableArea());
++
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(CELLTYPE_NONE, pDoc->GetCellType(ScAddress(2, 2, 0)));
++    CPPUNIT_ASSERT_EQUAL(u"=B2*2"_ustr, pDoc->GetFormula(2, 1, 0));
++
++    // A new formula typed into a calculated column replaces the formula of the whole column.
++    dispatchCommand(mxComponent, u".uno:Redo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(u"=B3*2"_ustr, pDoc->GetFormula(2, 2, 0));
++    insertStringToCell(u"C3"_ustr, u"=B3*3");
++    CPPUNIT_ASSERT_EQUAL(u"=B2*3"_ustr, pDoc->GetFormula(2, 1, 0));
++    CPPUNIT_ASSERT_EQUAL(30.0, pDoc->GetValue(2, 1, 0));
++}
++
++// A column with other content keeps it: no fill.
++CPPUNIT_TEST_FIXTURE(ScHstTableInputTest, testCalculatedColumnKeepsData)
++{
++    createTable(false);
++    ScDocument* pDoc = getScDoc();
++    pDoc->SetValue(2, 2, 0, 5.0);
++
++    insertStringToCell(u"C2"_ustr, u"=B2*2");
++    CPPUNIT_ASSERT_EQUAL(5.0, pDoc->GetValue(2, 2, 0));
++    CPPUNIT_ASSERT_EQUAL(CELLTYPE_VALUE, pDoc->GetCellType(ScAddress(2, 2, 0)));
++}
++
++// Typing below the table adds a row: it takes the column formulas and the formatting of the row
++// above, the autofilter range and the structured references follow.
++CPPUNIT_TEST_FIXTURE(ScHstTableInputTest, testAutoExpandRow)
++{
++    createTable(true);
++    ScDocument* pDoc = getScDoc();
++    pDoc->ApplyAttr(1, 2, 0, SvxBrushItem(COL_YELLOW, ATTR_BACKGROUND));
++    pDoc->SetString(5, 0, 0, u"=SUM(Table1[Price])"_ustr);
++    CPPUNIT_ASSERT_EQUAL(30.0, pDoc->GetValue(5, 0, 0));
++
++    insertStringToCell(u"A4"_ustr, u"c");
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 2, 3, 0), tableArea());
++    CPPUNIT_ASSERT_EQUAL(u"c"_ustr, pDoc->GetString(0, 3, 0));
++    CPPUNIT_ASSERT_EQUAL(u"=B4*2"_ustr, pDoc->GetFormula(2, 3, 0));
++    CPPUNIT_ASSERT_EQUAL(COL_YELLOW, pDoc->GetAttr(1, 3, 0, ATTR_BACKGROUND).GetColor());
++
++    ScQueryParam aQuery;
++    pDoc->GetDBCollection()->getNamedDBs().findByUpperName(u"TABLE1"_ustr)->GetQueryParam(aQuery);
++    CPPUNIT_ASSERT_EQUAL(SCROW(3), aQuery.nRow2);
++
++    // the new row is a table row now: no further growth, the column formula follows the input
++    insertStringToCell(u"B4"_ustr, u"30");
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 2, 3, 0), tableArea());
++    CPPUNIT_ASSERT_EQUAL(60.0, pDoc->GetValue(2, 3, 0));
++    CPPUNIT_ASSERT_EQUAL(60.0, pDoc->GetValue(5, 0, 0));
++}
++
++// Ctrl+Z right after the growth undoes only the growth and keeps the typed content.
++CPPUNIT_TEST_FIXTURE(ScHstTableInputTest, testAutoExpandUndo)
++{
++    createTable(true);
++    ScDocument* pDoc = getScDoc();
++
++    insertStringToCell(u"A4"_ustr, u"c");
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 2, 3, 0), tableArea());
++    CPPUNIT_ASSERT(sc::hsttable::IsAutoExpansionUndoable(*getScDocShell()));
++
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 2, 2, 0), tableArea());
++    CPPUNIT_ASSERT_EQUAL(u"c"_ustr, pDoc->GetString(0, 3, 0));
++    CPPUNIT_ASSERT_EQUAL(CELLTYPE_NONE, pDoc->GetCellType(ScAddress(2, 3, 0)));
++    CPPUNIT_ASSERT(!sc::hsttable::IsAutoExpansionUndoable(*getScDocShell()));
++
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(CELLTYPE_NONE, pDoc->GetCellType(ScAddress(0, 3, 0)));
++
++    dispatchCommand(mxComponent, u".uno:Redo"_ustr, {});
++    dispatchCommand(mxComponent, u".uno:Redo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 2, 3, 0), tableArea());
++    CPPUNIT_ASSERT_EQUAL(u"=B4*2"_ustr, pDoc->GetFormula(2, 3, 0));
++
++    // the dedicated command undoes the growth only while it is the last step
++    dispatchCommand(mxComponent, u".uno:HstTableUndoAutoExpand"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 2, 2, 0), tableArea());
++    dispatchCommand(mxComponent, u".uno:HstTableUndoAutoExpand"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(u"c"_ustr, pDoc->GetString(0, 3, 0));
++}
++
++// Typing right of the table adds a column with a generated header and an autofilter button;
++// typing into the header row right of it names the new column.
++CPPUNIT_TEST_FIXTURE(ScHstTableInputTest, testAutoExpandColumn)
++{
++    createTable(false);
++    ScDocument* pDoc = getScDoc();
++
++    insertStringToCell(u"D2"_ustr, u"x");
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 3, 2, 0), tableArea());
++    CPPUNIT_ASSERT_EQUAL(u"Column4"_ustr, pDoc->GetString(3, 0, 0));
++    CPPUNIT_ASSERT(pDoc->GetAttr(3, 0, 0, ATTR_MERGE_FLAG).HasAutoFilter());
++
++    insertStringToCell(u"E1"_ustr, u"Qty");
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 4, 2, 0), tableArea());
++    CPPUNIT_ASSERT_EQUAL(u"Qty"_ustr, pDoc->GetString(4, 0, 0));
++
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 3, 2, 0), tableArea());
++    CPPUNIT_ASSERT_EQUAL(u"Qty"_ustr, pDoc->GetString(4, 0, 0));
++    CPPUNIT_ASSERT(!pDoc->GetAttr(4, 0, 0, ATTR_MERGE_FLAG).HasAutoFilter());
++}
++
++// .uno:HstTableAutoExpand switches the growth off (and on again).
++CPPUNIT_TEST_FIXTURE(ScHstTableInputTest, testAutoExpandSwitch)
++{
++    createTable(true);
++    ScDocument* pDoc = getScDoc();
++    comphelper::ScopeGuard aReset([] { sc::hsttable::SetAutoExpandEnabled(true); });
++
++    CPPUNIT_ASSERT(sc::hsttable::IsAutoExpandEnabled());
++    dispatchCommand(mxComponent, u".uno:HstTableAutoExpand"_ustr, {});
++    CPPUNIT_ASSERT(!sc::hsttable::IsAutoExpandEnabled());
++
++    insertStringToCell(u"A4"_ustr, u"c");
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 2, 2, 0), tableArea());
++    CPPUNIT_ASSERT_EQUAL(CELLTYPE_NONE, pDoc->GetCellType(ScAddress(2, 3, 0)));
++
++    dispatchCommand(mxComponent, u".uno:HstTableAutoExpand"_ustr, {});
++    CPPUNIT_ASSERT(sc::hsttable::IsAutoExpandEnabled());
++    insertStringToCell(u"A5"_ustr, u"d");
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 2, 2, 0), tableArea()); // A5 is not next to the table
++}
++
++// .xlsx: the calculated column is written as <calculatedColumnFormula> and still grows with the
++// table after reload.
++CPPUNIT_TEST_FIXTURE(ScHstTableInputTest, testCalculatedColumnXlsx)
++{
++    createTable(true);
++    CPPUNIT_ASSERT(getScDoc()->GetTableStyles()->GetTableStyle(u"TableStyleMedium2"_ustr));
++
++    saveAndReload(TestFilter::XLSX);
++    xmlDocUniquePtr pTable = parseExport(u"xl/tables/table1.xml"_ustr);
++    CPPUNIT_ASSERT(pTable);
++    assertXPath(pTable, "/x:table/x:tableColumns/x:tableColumn[2]/x:calculatedColumnFormula", 0);
++    assertXPathContent(pTable, "/x:table/x:tableColumns/x:tableColumn[3]/x:calculatedColumnFormula",
++                       u"B2*2");
++
++    ScDocument* pDoc = getScDoc();
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 2, 2, 0), tableArea());
++    insertStringToCell(u"A4"_ustr, u"c");
++    CPPUNIT_ASSERT_EQUAL(ScRange(0, 0, 0, 2, 3, 0), tableArea());
++    CPPUNIT_ASSERT_EQUAL(u"=B4*2"_ustr, pDoc->GetFormula(2, 3, 0));
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/sdi/scalc.sdi
++++ b/sc/sdi/scalc.sdi
+@@ -337,6 +337,63 @@
+ ]
+ 
+ 
++// HST Office: Sheets tables grow while typing (Data ▸ Table ▸ Automatically Expand Tables)
++SfxBoolItem HstTableAutoExpand SID_HST_TABLE_AUTOEXPAND
++
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = TRUE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Options;
++]
++
++// HST Office: a formula typed into a table column fills the column (Data ▸ Table)
++SfxBoolItem HstTableCalculatedColumns SID_HST_TABLE_CALCULATED_COLUMNS
++
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = TRUE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Options;
++]
++
++// HST Office: undoes the last table auto-expansion and keeps the typed content
++SfxVoidItem HstTableUndoAutoExpand SID_HST_TABLE_UNDO_AUTOEXPAND
++()
++[
++    AutoUpdate = FALSE,
++    FastCall = FALSE,
++    ReadOnlyDoc = FALSE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    RecordPerSet;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Edit;
++]
++
++
+ SfxVoidItem AutoFill FID_FILL_AUTO
+ (SfxStringItem EndCell FID_FILL_AUTO,SfxBoolItem Copy FN_PARAM_1)
+ [
+--- a/sc/sdi/tabvwsh.sdi
++++ b/sc/sdi/tabvwsh.sdi
+@@ -263,6 +263,10 @@
+     SID_UNDO            [ ExecMethod = ExecuteUndo; StateMethod = GetUndoState; ]
+     SID_REDO            [ ExecMethod = ExecuteUndo; StateMethod = GetUndoState; ]
+ 
++    SID_HST_TABLE_AUTOEXPAND         [ ExecMethod = ExecuteHstTable; StateMethod = GetHstTableState; ]
++    SID_HST_TABLE_CALCULATED_COLUMNS [ ExecMethod = ExecuteHstTable; StateMethod = GetHstTableState; ]
++    SID_HST_TABLE_UNDO_AUTOEXPAND    [ ExecMethod = ExecuteHstTable; StateMethod = GetHstTableState; ]
++
+     SID_OPT_LOCALE_CHANGED  [ ExecMethod = Execute; ]
+ 
+     SID_READONLY_MODE   [ StateMethod = GetState; ]
+--- /dev/null
++++ b/sc/source/core/tool/hsttablecolumns.cxx
+@@ -0,0 +1,77 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <hsttablecolumns.hxx>
++
++#include <algorithm>
++
++#include <address.hxx>
++#include <dbdata.hxx>
++#include <document.hxx>
++#include <formulacell.hxx>
++
++namespace sc::hsttable
++{
++bool GetDataRows(const ScDBData& rData, SCROW& rFirstRow, SCROW& rLastRow)
++{
++    ScRange aArea;
++    rData.GetArea(aArea);
++    rFirstRow = aArea.aStart.Row() + (rData.HasHeader() ? 1 : 0);
++    rLastRow = aArea.aEnd.Row() - (rData.HasTotals() ? 1 : 0);
++    return rFirstRow <= rLastRow;
++}
++
++bool IsSameColumnFormula(const ScFormulaCell& rCell, const ScFormulaCell& rOther)
++{
++    if (rCell.GetMatrixFlag() != ScMatrixMode::NONE || rOther.GetMatrixFlag() != ScMatrixMode::NONE)
++        return false;
++    const ScFormulaCellGroupRef& xGroup = rCell.GetCellGroup();
++    if (xGroup && xGroup.get() == rOther.GetCellGroup().get())
++        return true;
++    if (rCell.CompareByTokenArray(rOther) != ScFormulaCell::NotEqual)
++        return true;
++    // Formulas that cannot be shared (structured references to the same row, for example) are
++    // compared by their R1C1 text, which is the same for a formula filled down a column.
++    constexpr formula::FormulaGrammar::Grammar eGrammar
++        = formula::FormulaGrammar::GRAM_ENGLISH_XL_R1C1;
++    return rCell.GetFormula(eGrammar) == rOther.GetFormula(eGrammar);
++}
++
++const ScFormulaCell* GetCalculatedColumnCell(const ScDocument& rDoc, const ScDBData& rData,
++                                             SCCOL nCol, SCROW nIgnoreRow)
++{
++    ScRange aArea;
++    rData.GetArea(aArea);
++    SCROW nFirstRow = 0;
++    SCROW nLastRow = 0;
++    if (nCol < aArea.aStart.Col() || nCol > aArea.aEnd.Col()
++        || !GetDataRows(rData, nFirstRow, nLastRow))
++        return nullptr;
++
++    const SCTAB nTab = aArea.aStart.Tab();
++    const ScFormulaCell* pColumnCell = nullptr;
++    for (SCROW nRow = nFirstRow; nRow <= nLastRow; ++nRow)
++    {
++        if (nRow == nIgnoreRow)
++            continue;
++        const ScFormulaCell* pCell = rDoc.GetFormulaCell(ScAddress(nCol, nRow, nTab));
++        if (!pCell || pCell->GetMatrixFlag() != ScMatrixMode::NONE)
++            return nullptr;
++        if (!pColumnCell)
++            pColumnCell = pCell;
++        else if (!IsSameColumnFormula(*pColumnCell, *pCell))
++            return nullptr;
++        // The rest of a formula group holds the same formula: skip it.
++        if (pCell->IsShared())
++            nRow = std::max(nRow, std::min(nLastRow, pCell->GetSharedTopRow()
++                                                         + pCell->GetSharedLength() - 1));
++    }
++    return pColumnCell;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/filter/excel/xedbdata.cxx
++++ b/sc/source/filter/excel/xedbdata.cxx
+@@ -10,6 +10,8 @@
+ #include <xedbdata.hxx>
+ #include <excrecds.hxx>
+ #include <dbdata.hxx>
++#include <formulacell.hxx>
++#include <hsttablecolumns.hxx>
+ #include <document.hxx>
+ #include <querytablebuffer.hxx>
+ #include <tablestyle.hxx>
+@@ -266,10 +268,6 @@
+ 
+         for (size_t i=0, n=rColNames.size(); i < n; ++i)
+         {
+-            // OOXTODO: write <calculatedColumnFormula> once we support it, in
+-            // which case we'd need start/endElement XML_tableColumn for such
+-            // column.
+-
+             std::optional<OUString> uniqueName = std::nullopt;
+ 
+             // uniqueName should only be used when this table's tableType is queryTable or xml.
+@@ -298,6 +296,20 @@
+                     // OOXTODO: XML_uniqueName, ...
+             );
+ 
++            // HST Office: a column holding one formula in every data row is a calculated column
++            if (const ScFormulaCell* pColumnCell = sc::hsttable::GetCalculatedColumnCell(
++                    rStrm.GetRoot().GetDoc(), rData, static_cast<SCCOL>(aRange.aStart.Col() + i)))
++            {
++                if (pColumnCell->GetCode()->GetCodeError() == FormulaError::NONE)
++                {
++                    pTableStrm->startElement(XML_calculatedColumnFormula);
++                    pTableStrm->writeEscaped(XclXmlUtils::ToOUString(
++                        rStrm.GetRoot().GetCompileFormulaContext(), pColumnCell->aPos,
++                        pColumnCell->GetCode()));
++                    pTableStrm->endElement(XML_calculatedColumnFormula);
++                }
++            }
++
+             if (i < rTableColumnModel.size() && rTableColumnModel[i].mxXmlColumnPr)
+             {
+                 // export <xmlColumnPr>
+--- /dev/null
++++ b/sc/source/ui/inc/hsttableinput.hxx
+@@ -0,0 +1,46 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <scdllapi.h>
++
++class ScAddress;
++class ScDocShell;
++class ScViewData;
++
++/** HST Office: Sheets tables (database ranges with a table style) behave like the tables of the
++    familiar office suite when the user types into cells:
++    - auto-expansion: typing into the row directly below a table (without a total row) or the
++      column directly right of it grows the table by that row or column; the new cells take the
++      formatting of the row above or the column to the left, the formulas of the calculated
++      columns and, for a new column, a "ColumnN" header; the autofilter range and the
++      structured references follow the table range;
++    - calculated columns: a formula typed into a data cell of a table column whose other data
++      cells are empty or hold one common formula is filled into every data row of the column.
++    Each of them is a separate undo step after the input itself, so Ctrl+Z right after it undoes
++    only the expansion or the fill and keeps the typed content. Both can be switched off
++    (.uno:HstTableAutoExpand, .uno:HstTableCalculatedColumns; officecfg
++    Office.Calc/Input/HstTableAutoExpand and HstTableCalculatedColumns). */
++namespace sc::hsttable
++{
++/// Id of the undo list action of a table auto-expansion (its new cells and its new range).
++inline constexpr sal_uInt16 HST_TABLE_AUTOEXPAND_UNDO_ID = 0x4854;
++
++/** Called after the user entered content into rPos (the input is already its own undo step). */
++void AfterCellInput(ScViewData& rViewData, const ScAddress& rPos);
++
++SC_DLLPUBLIC bool IsAutoExpandEnabled();
++SC_DLLPUBLIC void SetAutoExpandEnabled(bool bEnable);
++SC_DLLPUBLIC bool IsCalculatedColumnsEnabled();
++SC_DLLPUBLIC void SetCalculatedColumnsEnabled(bool bEnable);
++
++/** Whether the next undo step of the document is a table auto-expansion. */
++SC_DLLPUBLIC bool IsAutoExpansionUndoable(ScDocShell& rDocSh);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/inc/tabvwsh.hxx
++++ b/sc/source/ui/inc/tabvwsh.hxx
+@@ -326,6 +326,10 @@
+     void            ExecuteUndo(SfxRequest& rReq);
+     void            GetUndoState(SfxItemSet &rSet);
+ 
++    // HST Office: table auto-expansion and calculated column switches (hsttableinput.cxx)
++    void            ExecuteHstTable(SfxRequest& rReq);
++    void            GetHstTableState(SfxItemSet& rSet);
++
+     void            ExecuteObject(const SfxRequest& rReq);
+     void            GetObjectState(SfxItemSet &rSet);
+ 
+--- /dev/null
++++ b/sc/source/ui/inc/undohsttable.hxx
+@@ -0,0 +1,44 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include "undobase.hxx"
++#include <address.hxx>
++#include <document.hxx>
++#include <global.hxx>
++#include <unotools/resmgr.hxx>
++
++/** HST Office: undo of the cells a Sheets table changed by itself after an input (the formula of
++    a calculated column filled into its rows, or the new row or column of an auto-expanded
++    table: header name, column formulas and formatting). Restores the range from the documents
++    taken before and after the change. */
++class ScUndoHstTableCells final : public ScSimpleUndo
++{
++public:
++    ScUndoHstTableCells(ScDocShell& rDocSh, const ScRange& rRange, InsertDeleteFlags nFlags,
++                        ScDocumentUniquePtr pUndoDoc, ScDocumentUniquePtr pRedoDoc,
++                        TranslateId pComment);
++
++    virtual void Undo() override;
++    virtual void Redo() override;
++    virtual void Repeat(SfxRepeatTarget& rTarget) override;
++    virtual bool CanRepeat(SfxRepeatTarget& rTarget) const override;
++    virtual OUString GetComment() const override;
++    virtual std::optional<ScRange> getAffectedRange() const override { return maRange; }
++
++private:
++    void DoChange(ScDocument& rSource);
++
++    ScRange maRange;
++    InsertDeleteFlags mnFlags;
++    ScDocumentUniquePtr mpUndoDoc;
++    ScDocumentUniquePtr mpRedoDoc;
++    TranslateId mpComment;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/ui/undo/undohsttable.cxx
+@@ -0,0 +1,61 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <undohsttable.hxx>
++
++#include <docsh.hxx>
++#include <document.hxx>
++#include <scresid.hxx>
++
++#include <utility>
++
++ScUndoHstTableCells::ScUndoHstTableCells(ScDocShell& rDocSh, const ScRange& rRange,
++                                         InsertDeleteFlags nFlags, ScDocumentUniquePtr pUndoDoc,
++                                         ScDocumentUniquePtr pRedoDoc, TranslateId pComment)
++    : ScSimpleUndo(rDocSh)
++    , maRange(rRange)
++    , mnFlags(nFlags)
++    , mpUndoDoc(std::move(pUndoDoc))
++    , mpRedoDoc(std::move(pRedoDoc))
++    , mpComment(pComment)
++{
++}
++
++OUString ScUndoHstTableCells::GetComment() const { return ScResId(mpComment); }
++
++void ScUndoHstTableCells::DoChange(ScDocument& rSource)
++{
++    ScDocument& rDoc = rDocShell.GetDocument();
++    rDoc.DeleteAreaTab(maRange, mnFlags);
++    rSource.UndoToDocument(maRange, mnFlags, false, rDoc);
++    BroadcastChanges(maRange);
++    rDocShell.PostPaint(maRange, PaintPartFlags::Grid);
++    rDocShell.PostDataChanged();
++    ShowTable(maRange);
++}
++
++void ScUndoHstTableCells::Undo()
++{
++    BeginUndo();
++    if (mpUndoDoc)
++        DoChange(*mpUndoDoc);
++    EndUndo();
++}
++
++void ScUndoHstTableCells::Redo()
++{
++    BeginRedo();
++    if (mpRedoDoc)
++        DoChange(*mpRedoDoc);
++    EndRedo();
++}
++
++void ScUndoHstTableCells::Repeat(SfxRepeatTarget& /*rTarget*/) {}
++
++bool ScUndoHstTableCells::CanRepeat(SfxRepeatTarget& /*rTarget*/) const { return false; }
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/ui/view/hsttableinput.cxx
+@@ -0,0 +1,346 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <hsttableinput.hxx>
++
++#include <algorithm>
++#include <memory>
++#include <vector>
++
++#include <svl/undo.hxx>
++#include <unotools/transliterationwrapper.hxx>
++
++#include <dbdata.hxx>
++#include <dbdocfun.hxx>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <formulacell.hxx>
++#include <globstr.hrc>
++#include <hsttablecolumns.hxx>
++#include <patattr.hxx>
++#include <scitems.hxx>
++#include <scresid.hxx>
++#include <stlsheet.hxx>
++#include <stringutil.hxx>
++#include <tabvwsh.hxx>
++#include <undohsttable.hxx>
++#include <viewdata.hxx>
++
++namespace
++{
++/// The cell contents a table changes by itself (values, text, formulas), without notes.
++const InsertDeleteFlags HST_TABLE_CONTENT_FLAGS
++    = InsertDeleteFlags::VALUE | InsertDeleteFlags::DATETIME | InsertDeleteFlags::STRING
++      | InsertDeleteFlags::FORMULA | InsertDeleteFlags::EDITATTR;
++
++ScDocumentUniquePtr CopyRange(ScDocument& rDoc, const ScRange& rRange, InsertDeleteFlags nFlags)
++{
++    ScDocumentUniquePtr pCopy(new ScDocument(SCDOCMODE_UNDO));
++    pCopy->InitUndo(rDoc, rRange.aStart.Tab(), rRange.aEnd.Tab());
++    rDoc.CopyToDocument(rRange, nFlags, false, *pCopy);
++    return pCopy;
++}
++
++bool IsChangeable(const ScDocument& rDoc, const ScRange& rRange)
++{
++    return rDoc.IsBlockEditable(rRange.aStart.Tab(), rRange.aStart.Col(), rRange.aStart.Row(),
++                                rRange.aEnd.Col(), rRange.aEnd.Row())
++           && !rDoc.HasAttrib(rRange, HasAttrFlags::Merged | HasAttrFlags::Overlapped);
++}
++
++/** Gives the cells of rRange (one row or one column) the formatting of the cells nDx/nDy away,
++    run by run of equal formatting. Merging, autofilter buttons and conditional formats stay
++    with their own ranges. The input cell takes it only when the input left it unformatted. */
++void CopyFormats(ScDocument& rDoc, const ScRange& rRange, SCCOL nDx, SCROW nDy,
++                 const ScAddress& rInput)
++{
++    const SCTAB nTab = rRange.aStart.Tab();
++    const bool bRow = rRange.aStart.Row() == rRange.aEnd.Row();
++    const SCCOLROW nCount = bRow ? rRange.aEnd.Col() - rRange.aStart.Col() + 1
++                                 : rRange.aEnd.Row() - rRange.aStart.Row() + 1;
++    auto aCellAt = [&](SCCOLROW n) {
++        return bRow ? ScAddress(static_cast<SCCOL>(rRange.aStart.Col() + n), rRange.aStart.Row(),
++                                nTab)
++                    : ScAddress(rRange.aStart.Col(), rRange.aStart.Row() + n, nTab);
++    };
++    auto aApply = [&](const ScPatternAttr* pSource, const ScAddress& rFirst,
++                      const ScAddress& rLast) {
++        if (!pSource || pSource->isDefault())
++            return;
++        if (const ScStyleSheet* pStyle = pSource->GetStyleSheet())
++            rDoc.ApplyStyleAreaTab(rFirst.Col(), rFirst.Row(), rLast.Col(), rLast.Row(), nTab,
++                                   *pStyle);
++        ScPatternAttr aPattern(*pSource);
++        aPattern.ItemSetClearItem(ATTR_MERGE);
++        aPattern.ItemSetClearItem(ATTR_MERGE_FLAG);
++        aPattern.ItemSetClearItem(ATTR_CONDITIONAL);
++        rDoc.ApplyPatternAreaTab(rFirst.Col(), rFirst.Row(), rLast.Col(), rLast.Row(), nTab,
++                                 aPattern);
++    };
++
++    const ScPatternAttr* pRunSource = nullptr;
++    ScAddress aRunFirst;
++    ScAddress aRunLast;
++    for (SCCOLROW n = 0; n < nCount; ++n)
++    {
++        const ScAddress aPos = aCellAt(n);
++        const ScPatternAttr* pSource
++            = rDoc.GetPattern(static_cast<SCCOL>(aPos.Col() + nDx), aPos.Row() + nDy, nTab);
++        if (aPos == rInput)
++        {
++            aApply(pRunSource, aRunFirst, aRunLast);
++            pRunSource = nullptr;
++            const ScPatternAttr* pInputPattern = rDoc.GetPattern(aPos);
++            if (pInputPattern && pInputPattern->isDefault())
++                aApply(pSource, aPos, aPos);
++            continue;
++        }
++        if (pRunSource && pSource == pRunSource)
++        {
++            aRunLast = aPos;
++            continue;
++        }
++        aApply(pRunSource, aRunFirst, aRunLast);
++        pRunSource = pSource;
++        aRunFirst = aPos;
++        aRunLast = aPos;
++    }
++    aApply(pRunSource, aRunFirst, aRunLast);
++}
++
++/// "ColumnN" for the table column at nIndex, unique among the other column names.
++OUString MakeColumnName(ScDocument& rDoc, ScDBData& rData, SCCOL nIndex)
++{
++    rData.RefreshTableColumnNames(&rDoc);
++    const std::vector<OUString>& rNames = rData.GetTableColumnNames();
++    const OUString aBase(ScResId(STR_COLUMN));
++    for (sal_Int32 n = nIndex + 1;; ++n)
++    {
++        const OUString aName = aBase + OUString::number(n);
++        if (std::none_of(rNames.begin(), rNames.end(), [&aName](const OUString& rName) {
++                return ScGlobal::GetTransliteration().isEqual(rName, aName);
++            }))
++            return aName;
++    }
++}
++
++/// The table whose next row (without a total row) or next column contains rPos.
++ScDBData* FindTableToExpand(ScDocument& rDoc, const ScAddress& rPos, bool& rbNewRow)
++{
++    for (const auto& rxData : rDoc.GetDBCollection()->getNamedDBs())
++    {
++        if (!rxData->GetTableStyleInfo() || rxData->GetTab() != rPos.Tab())
++            continue;
++        ScRange aArea;
++        rxData->GetArea(aArea);
++        if (!rxData->HasTotals() && rPos.Row() == aArea.aEnd.Row() + 1
++            && rPos.Col() >= aArea.aStart.Col() && rPos.Col() <= aArea.aEnd.Col())
++        {
++            rbNewRow = true;
++            return rxData.get();
++        }
++        if (rPos.Col() == aArea.aEnd.Col() + 1 && rPos.Row() >= aArea.aStart.Row()
++            && rPos.Row() <= aArea.aEnd.Row())
++        {
++            rbNewRow = false;
++            return rxData.get();
++        }
++    }
++    return nullptr;
++}
++
++void ExpandTable(ScDocShell& rDocSh, const ScAddress& rPos, ViewShellId nViewShellId)
++{
++    ScDocument& rDoc = rDocSh.GetDocument();
++    // A cell that belongs to a database range already never grows another one.
++    if (rDoc.GetDBAtCursor(rPos.Col(), rPos.Row(), rPos.Tab(), ScDBDataPortion::AREA))
++        return;
++
++    bool bNewRow = false;
++    ScDBData* pData = FindTableToExpand(rDoc, rPos, bNewRow);
++    if (!pData)
++        return;
++
++    const SCTAB nTab = rPos.Tab();
++    ScRange aArea;
++    pData->GetArea(aArea);
++    const ScRange aStrip = bNewRow ? ScRange(aArea.aStart.Col(), rPos.Row(), nTab,
++                                             aArea.aEnd.Col(), rPos.Row(), nTab)
++                                   : ScRange(rPos.Col(), aArea.aStart.Row(), nTab, rPos.Col(),
++                                             aArea.aEnd.Row(), nTab);
++    if (!IsChangeable(rDoc, aStrip))
++        return;
++    // The new cells must not belong to another database range.
++    for (const ScDBData* pOther :
++         rDoc.GetAllNamedDBsInArea(aStrip.aStart.Col(), aStrip.aStart.Row(), aStrip.aEnd.Col(),
++                                   aStrip.aEnd.Row(), nTab))
++    {
++        if (pOther != pData)
++            return;
++    }
++    if (const ScDBData* pSheetData = rDoc.GetAnonymousDBData(nTab))
++    {
++        ScRange aSheetArea;
++        pSheetData->GetArea(aSheetArea);
++        if (aSheetArea.Intersects(aStrip))
++            return;
++    }
++
++    ScDocShellModificator aModificator(rDocSh);
++    const InsertDeleteFlags nFlags = HST_TABLE_CONTENT_FLAGS | InsertDeleteFlags::ATTRIB;
++    const bool bRecord = rDoc.IsUndoEnabled();
++    ScDocumentUniquePtr pUndoDoc;
++    if (bRecord)
++        pUndoDoc = CopyRange(rDoc, aStrip, nFlags);
++
++    if (bNewRow)
++    {
++        SCROW nFirstRow = 0;
++        SCROW nLastRow = 0;
++        // Formatting and column formulas come from the last data row (not from the header).
++        if (sc::hsttable::GetDataRows(*pData, nFirstRow, nLastRow))
++        {
++            CopyFormats(rDoc, aStrip, 0, nLastRow - rPos.Row(), rPos);
++            for (SCCOL nCol = aArea.aStart.Col(); nCol <= aArea.aEnd.Col(); ++nCol)
++            {
++                const ScAddress aCell(nCol, rPos.Row(), nTab);
++                if (aCell == rPos || rDoc.GetCellType(aCell) != CELLTYPE_NONE)
++                    continue;
++                if (const ScFormulaCell* pColumnCell
++                    = sc::hsttable::GetCalculatedColumnCell(rDoc, *pData, nCol))
++                    rDoc.SetFormulaCell(aCell, new ScFormulaCell(*pColumnCell, rDoc, aCell));
++            }
++        }
++    }
++    else
++    {
++        CopyFormats(rDoc, aStrip, -1, 0, rPos);
++        const ScAddress aHeader(rPos.Col(), aArea.aStart.Row(), nTab);
++        if (pData->HasHeader() && aHeader != rPos && rDoc.GetCellType(aHeader) == CELLTYPE_NONE)
++        {
++            ScSetStringParam aParam;
++            aParam.setTextInput();
++            rDoc.SetString(aHeader,
++                           MakeColumnName(rDoc, *pData,
++                                          static_cast<SCCOL>(rPos.Col() - aArea.aStart.Col())),
++                           &aParam);
++        }
++    }
++    rDocSh.PostPaint(aStrip, PaintPartFlags::Grid);
++
++    SfxUndoManager* pUndoMgr = bRecord ? rDocSh.GetUndoManager() : nullptr;
++    if (pUndoMgr)
++    {
++        const OUString aComment(ScResId(STR_HST_UNDO_TABLE_AUTOEXPAND));
++        pUndoMgr->EnterListAction(aComment, aComment, sc::hsttable::HST_TABLE_AUTOEXPAND_UNDO_ID,
++                                  nViewShellId);
++        pUndoMgr->AddUndoAction(std::make_unique<ScUndoHstTableCells>(
++            rDocSh, aStrip, nFlags, std::move(pUndoDoc), CopyRange(rDoc, aStrip, nFlags),
++            STR_HST_UNDO_TABLE_AUTOEXPAND));
++    }
++
++    // The new range moves the autofilter buttons and recompiles the structured references
++    // (its own undo action inside the list action).
++    ScRange aNewArea(aArea);
++    aNewArea.ExtendTo(aStrip);
++    ScDBData aNewData(*pData);
++    aNewData.SetArea(nTab, aNewArea.aStart.Col(), aNewArea.aStart.Row(), aNewArea.aEnd.Col(),
++                     aNewArea.aEnd.Row());
++    ScDBDocFunc(rDocSh).ModifyDBData(aNewData);
++
++    if (pUndoMgr)
++        pUndoMgr->LeaveListAction();
++    aModificator.SetDocumentModified();
++}
++
++void FillCalculatedColumn(ScDocShell& rDocSh, const ScDBData& rData, const ScAddress& rPos)
++{
++    ScDocument& rDoc = rDocSh.GetDocument();
++    const ScFormulaCell* pInput = rDoc.GetFormulaCell(rPos);
++    if (!pInput || pInput->GetMatrixFlag() != ScMatrixMode::NONE)
++        return;
++    SCROW nFirstRow = 0;
++    SCROW nLastRow = 0;
++    if (!sc::hsttable::GetDataRows(rData, nFirstRow, nLastRow) || nFirstRow == nLastRow
++        || rPos.Row() < nFirstRow || rPos.Row() > nLastRow)
++        return;
++
++    const SCCOL nCol = rPos.Col();
++    const SCTAB nTab = rPos.Tab();
++    const bool bOthersEmpty
++        = (rPos.Row() == nFirstRow || rDoc.IsBlockEmpty(nCol, nFirstRow, nCol, rPos.Row() - 1, nTab))
++          && (rPos.Row() == nLastRow
++              || rDoc.IsBlockEmpty(nCol, rPos.Row() + 1, nCol, nLastRow, nTab));
++    if (!bOthersEmpty)
++    {
++        // A column of other content stays as it is; a calculated column takes the new formula.
++        const ScFormulaCell* pColumnCell
++            = sc::hsttable::GetCalculatedColumnCell(rDoc, rData, nCol, rPos.Row());
++        if (!pColumnCell || sc::hsttable::IsSameColumnFormula(*pColumnCell, *pInput))
++            return;
++    }
++
++    const ScRange aRange(nCol, nFirstRow, nTab, nCol, nLastRow, nTab);
++    if (!IsChangeable(rDoc, aRange))
++        return;
++
++    ScDocShellModificator aModificator(rDocSh);
++    const bool bRecord = rDoc.IsUndoEnabled();
++    ScDocumentUniquePtr pUndoDoc;
++    if (bRecord)
++        pUndoDoc = CopyRange(rDoc, aRange, HST_TABLE_CONTENT_FLAGS);
++
++    // Clone from a copy: setting the other cells regroups the formula cells of the column.
++    ScFormulaCell aTemplate(*pInput, rDoc, rPos);
++    for (SCROW nRow = nFirstRow; nRow <= nLastRow; ++nRow)
++    {
++        if (nRow == rPos.Row())
++            continue;
++        const ScAddress aCell(nCol, nRow, nTab);
++        rDoc.SetFormulaCell(aCell, new ScFormulaCell(aTemplate, rDoc, aCell));
++    }
++    rDocSh.PostPaint(aRange, PaintPartFlags::Grid);
++
++    if (bRecord)
++    {
++        rDocSh.GetUndoManager()->AddUndoAction(std::make_unique<ScUndoHstTableCells>(
++            rDocSh, aRange, HST_TABLE_CONTENT_FLAGS, std::move(pUndoDoc),
++            CopyRange(rDoc, aRange, HST_TABLE_CONTENT_FLAGS), STR_HST_UNDO_TABLE_CALCCOLUMN));
++    }
++    aModificator.SetDocumentModified();
++}
++}
++
++namespace sc::hsttable
++{
++void AfterCellInput(ScViewData& rViewData, const ScAddress& rPos)
++{
++    ScDocShell* pDocSh = rViewData.GetDocShell();
++    if (!pDocSh)
++        return;
++    ScDocument& rDoc = pDocSh->GetDocument();
++    // Change tracking records user edits only; a protected sheet keeps its tables as they are.
++    if (!rDoc.GetDBCollection() || rDoc.GetDBCollection()->getNamedDBs().empty()
++        || rDoc.GetChangeTrack() || rDoc.IsTabProtected(rPos.Tab())
++        || rDoc.GetCellType(rPos) == CELLTYPE_NONE)
++        return;
++
++    if (IsAutoExpandEnabled())
++    {
++        const ScTabViewShell* pViewShell = rViewData.GetViewShell();
++        ExpandTable(*pDocSh, rPos, pViewShell ? pViewShell->GetViewShellId() : ViewShellId(-1));
++    }
++    if (IsCalculatedColumnsEnabled())
++    {
++        if (const ScDBData* pData = rDoc.GetTableDBAtCursor(rPos.Col(), rPos.Row(), rPos.Tab(),
++                                                            ScDBDataPortion::AREA))
++            FillCalculatedColumn(*pDocSh, *pData, rPos);
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/ui/view/hsttablesettings.cxx
+@@ -0,0 +1,142 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the switches of the Sheets table input behaviour (hsttableinput.cxx) and their
++// commands .uno:HstTableAutoExpand, .uno:HstTableCalculatedColumns, .uno:HstTableUndoAutoExpand
++
++#include <hsttableinput.hxx>
++
++#include <memory>
++
++#include <com/sun/star/uno/Exception.hpp>
++#include <comphelper/configuration.hxx>
++#include <comphelper/diagnose_ex.hxx>
++#include <officecfg/Office/Calc.hxx>
++#include <sfx2/bindings.hxx>
++#include <sfx2/request.hxx>
++#include <sfx2/viewfrm.hxx>
++#include <svl/eitem.hxx>
++#include <svl/itemset.hxx>
++#include <svl/undo.hxx>
++#include <svl/whiter.hxx>
++
++#include <docsh.hxx>
++#include <sc.hrc>
++#include <tabvwsh.hxx>
++#include <viewdata.hxx>
++
++namespace
++{
++void StoreSetting(bool bAutoExpand, bool bEnable)
++{
++    try
++    {
++        std::shared_ptr<comphelper::ConfigurationChanges> xBatch(
++            comphelper::ConfigurationChanges::create());
++        if (bAutoExpand)
++            officecfg::Office::Calc::Input::HstTableAutoExpand::set(bEnable, xBatch);
++        else
++            officecfg::Office::Calc::Input::HstTableCalculatedColumns::set(bEnable, xBatch);
++        xBatch->commit();
++    }
++    catch (const css::uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sc.ui", "cannot store the table input setting");
++    }
++}
++}
++
++namespace sc::hsttable
++{
++bool IsAutoExpandEnabled() { return officecfg::Office::Calc::Input::HstTableAutoExpand::get(); }
++
++void SetAutoExpandEnabled(bool bEnable) { StoreSetting(true, bEnable); }
++
++bool IsCalculatedColumnsEnabled()
++{
++    return officecfg::Office::Calc::Input::HstTableCalculatedColumns::get();
++}
++
++void SetCalculatedColumnsEnabled(bool bEnable) { StoreSetting(false, bEnable); }
++
++bool IsAutoExpansionUndoable(ScDocShell& rDocSh)
++{
++    const SfxUndoManager* pUndoMgr = rDocSh.GetUndoManager();
++    if (!pUndoMgr || pUndoMgr->GetUndoActionCount() == 0)
++        return false;
++    const auto* pList = dynamic_cast<const SfxListUndoAction*>(pUndoMgr->GetUndoAction());
++    return pList && pList->GetId() == HST_TABLE_AUTOEXPAND_UNDO_ID;
++}
++}
++
++void ScTabViewShell::ExecuteHstTable(SfxRequest& rReq)
++{
++    const sal_uInt16 nSlot = rReq.GetSlot();
++    switch (nSlot)
++    {
++        case SID_HST_TABLE_AUTOEXPAND:
++        case SID_HST_TABLE_CALCULATED_COLUMNS:
++        {
++            const bool bAutoExpand = nSlot == SID_HST_TABLE_AUTOEXPAND;
++            bool bEnable = !(bAutoExpand ? sc::hsttable::IsAutoExpandEnabled()
++                                         : sc::hsttable::IsCalculatedColumnsEnabled());
++            const SfxItemSet* pArgs = rReq.GetArgs();
++            const SfxPoolItem* pItem = nullptr;
++            if (pArgs && pArgs->GetItemState(nSlot, true, &pItem) == SfxItemState::SET)
++                bEnable = static_cast<const SfxBoolItem*>(pItem)->GetValue();
++            if (bAutoExpand)
++                sc::hsttable::SetAutoExpandEnabled(bEnable);
++            else
++                sc::hsttable::SetCalculatedColumnsEnabled(bEnable);
++            GetViewFrame().GetBindings().Invalidate(nSlot);
++            rReq.AppendItem(SfxBoolItem(nSlot, bEnable));
++            rReq.Done();
++            break;
++        }
++        case SID_HST_TABLE_UNDO_AUTOEXPAND:
++        {
++            ScDocShell* pDocSh = GetViewData().GetDocShell();
++            if (pDocSh && sc::hsttable::IsAutoExpansionUndoable(*pDocSh))
++            {
++                SfxRequest aUndo(GetViewFrame(), SID_UNDO);
++                ExecuteUndo(aUndo);
++            }
++            rReq.Done();
++            break;
++        }
++        default:
++            break;
++    }
++}
++
++void ScTabViewShell::GetHstTableState(SfxItemSet& rSet)
++{
++    SfxWhichIter aIter(rSet);
++    for (sal_uInt16 nWhich = aIter.FirstWhich(); nWhich; nWhich = aIter.NextWhich())
++    {
++        switch (nWhich)
++        {
++            case SID_HST_TABLE_AUTOEXPAND:
++                rSet.Put(SfxBoolItem(nWhich, sc::hsttable::IsAutoExpandEnabled()));
++                break;
++            case SID_HST_TABLE_CALCULATED_COLUMNS:
++                rSet.Put(SfxBoolItem(nWhich, sc::hsttable::IsCalculatedColumnsEnabled()));
++                break;
++            case SID_HST_TABLE_UNDO_AUTOEXPAND:
++            {
++                ScDocShell* pDocSh = GetViewData().GetDocShell();
++                if (!pDocSh || !sc::hsttable::IsAutoExpansionUndoable(*pDocSh))
++                    rSet.DisableItem(nWhich);
++                break;
++            }
++            default:
++                break;
++        }
++    }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/view/viewfunc.cxx
++++ b/sc/source/ui/view/viewfunc.cxx
+@@ -44,6 +44,7 @@
+ #include <osl/diagnose.h>
+ 
+ #include <viewfunc.hxx>
++#include <hsttableinput.hxx>
+ #include <tabvwsh.hxx>
+ #include <docsh.hxx>
+ #include <attrib.hxx>
+@@ -488,6 +489,10 @@
+     ScDocument& rDoc = rViewData.GetDocument();
+     lcl_PostRepaintCondFormat(rDoc.GetCondFormat(nCol, nRow, nTab), pDocSh);
+     lcl_PostRepaintSparkLine(rDoc.GetSparklineList(nTab), ScRange(nCol, nRow, nTab), pDocSh);
++
++    // HST Office: tables grow and fill calculated columns, each as its own undo step
++    if (!rString.empty())
++        sc::hsttable::AfterCellInput(rViewData, ScAddress(nCol, nRow, nTab));
+ }
+ 
+ void finalizeFormulaProcessing(const std::shared_ptr<FormulaProcessingContext>& context)
+@@ -1008,6 +1013,10 @@
+             HelperNotifyChanges::NotifyIfChangesListeners(*pDocSh, rMark, nCol, nRow, aType);
+ 
+             aModificator.SetDocumentModified();
++
++            // HST Office: tables grow and fill calculated columns, each as its own undo step
++            if (!bIsEmpty)
++                sc::hsttable::AfterCellInput(GetViewData(), ScAddress(nCol, nRow, nTab));
+         }
+         lcl_PostRepaintCondFormat( rDoc.GetCondFormat( nCol, nRow, nTab ), pDocSh );
+     }
+--- a/sc/uiconfig/scalc/popupmenu/datatablemenu.xml
++++ b/sc/uiconfig/scalc/popupmenu/datatablemenu.xml
+@@ -10,4 +10,7 @@
+ <menu:menupopup xmlns:menu="http://openoffice.org/2001/menu">
+   <menu:menuitem menu:id=".uno:RunInsCalcTable"/>
+   <menu:menuitem menu:id=".uno:RemoveCalcTable"/>
++  <menu:menuseparator/>
++  <menu:menuitem menu:id=".uno:HstTableAutoExpand"/>
++  <menu:menuitem menu:id=".uno:HstTableCalculatedColumns"/>
+ </menu:menupopup>
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -3684,6 +3684,56 @@
+ msgid "Delete Table"
+ msgstr ""
+ 
++#. hstTableAutoExpandCmd
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstTableAutoExpand\n"
++"Label\n"
++"value.text"
++msgid "Automatically ~Expand Tables"
++msgstr "Tự động ~mở rộng bảng"
++
++#. hstTableAutoExpandTip
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstTableAutoExpand\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Grow a table when you type in the row below it or the column to its right"
++msgstr "Mở rộng bảng khi nhập dữ liệu vào hàng ngay bên dưới hoặc cột ngay bên phải bảng"
++
++#. hstTableCalcColumnsCmd
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstTableCalculatedColumns\n"
++"Label\n"
++"value.text"
++msgid "~Fill Formulas in Tables"
++msgstr "~Điền công thức trong bảng"
++
++#. hstTableCalcColumnsTip
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstTableCalculatedColumns\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Fill a formula typed into a table column into the whole column (calculated column)"
++msgstr "Áp dụng công thức nhập vào một cột của bảng cho cả cột (cột tính toán)"
++
++#. hstTableUndoAutoExpandCmd
++#: CalcCommands.xcu
++msgctxt ""
++"CalcCommands.xcu\n"
++"..CalcCommands.UserInterface.Commands..uno:HstTableUndoAutoExpand\n"
++"Label\n"
++"value.text"
++msgid "Undo Table AutoExpansion"
++msgstr "Hoàn tác tự mở rộng bảng"
++
+ #. A3aEa
+ #: CalcCommands.xcu
+ msgctxt ""
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -411,6 +411,18 @@
+ msgid "Change Database Range"
+ msgstr "Đổi phạm vi cơ sở dữ liệu"
+ 
++#. hstTableAutoExpandUndo
++#: sc/inc/globstr.hrc
++msgctxt "STR_HST_UNDO_TABLE_AUTOEXPAND"
++msgid "Table AutoExpansion"
++msgstr "Tự mở rộng bảng"
++
++#. hstTableCalcColumnUndo
++#: sc/inc/globstr.hrc
++msgctxt "STR_HST_UNDO_TABLE_CALCCOLUMN"
++msgid "Calculated Column"
++msgstr "Cột tính toán"
++
+ #. x3Rcg
+ #: sc/inc/globstr.hrc:77
+ msgctxt "STR_UNDO_IMPORTDATA"

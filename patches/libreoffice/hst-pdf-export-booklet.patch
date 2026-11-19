@@ -1,0 +1,593 @@
+HST Office: booklet (saddle-stitch) PDF export, imposed by the PDF filter.
+
+A new PDF export option lays the exported pages out two per sheet side in folding order, so one PDF
+can be printed double-sided on any printer or at a print shop and folded into a booklet:
+- FilterData "Booklet" (boolean, default false) for every *_pdf_Export filter (Writer, Sheets, Slides,
+  Draw, also a PDF opened in Draw), from macros/UNO, the command line JSON filter options, and a new
+  "Booklet" checkbox in the Range section of the PDF Options dialog (General tab). The checkbox is not
+  stored in the configuration: each export starts unchecked.
+- PDFExport records every page as before but keeps the metafiles; after the whole selection is
+  rendered they are placed on sheets: the page count is padded with blank pages to a multiple of 4
+  and the sides follow the saddle-stitch order (8 pages: 8|1, 2|7, 6|3, 4|5) for duplex printing
+  flipped on the short edge. Placement reuses the N-up technique of the vcl print path (scale, move,
+  clip each page to its half); watermarks, PDF/A, transparency removal and redaction keep working
+  on the sheets.
+- Sheet size: the first page turned by 90 degrees (A4 document -> A4 landscape sheets carrying two
+  A5-sized pages, the same paper as the document). FilterData "BookletKeepPageSize" (boolean) instead
+  makes the sheet two pages at 100 % (A5 document -> A4 sheets). Portrait pages sit side by side;
+  landscape pages are stacked on a portrait sheet (fold on the horizontal centre line).
+- A booklet is for printing: tags, PDF/UA, links, outlines, comment annotations, form fields and
+  slide transitions are not exported in this mode (they address document pages, which the
+  imposed file no longer has).
+- vi filter/messages.po: the Vietnamese label and tip.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: CppunitTest_filter_pdf (testBookletEightPages, testBookletFivePages: page count padded to a
+multiple of 4, sheet size, page order on each sheet side).
+---
+--- a/filter/qa/pdf.cxx
++++ b/filter/qa/pdf.cxx
+@@ -15,18 +15,28 @@
+ #include <com/sun/star/drawing/XDrawPageSupplier.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ #include <com/sun/star/graphic/XGraphic.hpp>
++#include <com/sun/star/style/BreakType.hpp>
++#include <com/sun/star/style/XStyleFamiliesSupplier.hpp>
++#include <com/sun/star/text/ControlCharacter.hpp>
++#include <com/sun/star/text/XTextDocument.hpp>
+ 
+ #include <basegfx/matrix/b2dhommatrix.hxx>
++#include <basegfx/vector/b2dsize.hxx>
+ #include <comphelper/lok.hxx>
+ #include <comphelper/propertyvalue.hxx>
++#include <o3tl/unit_conversion.hxx>
+ #include <tools/color.hxx>
+ #include <tools/stream.hxx>
+ #include <unotools/streamwrap.hxx>
+ #include <vcl/filter/PDFiumLibrary.hxx>
+ #include <vcl/ITiledRenderable.hxx>
+ #include <vcl/vectorgraphicdata.hxx>
++#include <vcl/pdf/PDFPageObjectType.hxx>
+ #include <tools/helpers.hxx>
+ 
++#include <utility>
++#include <vector>
++
+ using namespace ::com::sun::star;
+ 
+ namespace
+@@ -42,6 +52,10 @@ public:
+ 
+     void setUp() override;
+     void doTestCommentsInMargin(bool commentsInMarginEnabled);
++    void insertNumberedPages(int nPages);
++    std::vector<std::pair<OUString, OUString>> exportBookletSides(vcl::pdf::PDFium& rPDFium);
++    void checkBookletSides(const std::vector<std::pair<OUString, OUString>>& rExpected,
++                           const std::vector<std::pair<OUString, OUString>>& rActual);
+ };
+ 
+ void Test::setUp()
+@@ -473,6 +487,152 @@ CPPUNIT_TEST_FIXTURE(Test, testSignCertificatePEM)
+     CPPUNIT_ASSERT_EQUAL(1, pPdfDocument->getSignatureCount());
+ }
+ #endif
++
++/// Fills the Writer document with nPages pages, the text of page N being "PN".
++void Test::insertNumberedPages(int nPages)
++{
++    uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XText> xText = xTextDocument->getText();
++    uno::Reference<text::XTextCursor> xCursor = xText->createTextCursor();
++    for (int nPage = 1; nPage <= nPages; ++nPage)
++    {
++        if (nPage > 1)
++        {
++            xText->insertControlCharacter(xCursor, text::ControlCharacter::PARAGRAPH_BREAK, false);
++            uno::Reference<beans::XPropertySet> xParagraph(xCursor, uno::UNO_QUERY_THROW);
++            xParagraph->setPropertyValue(u"BreakType"_ustr, uno::Any(style::BreakType_PAGE_BEFORE));
++        }
++        xText->insertString(xCursor, OUString("P" + OUString::number(nPage)), false);
++    }
++}
++
++/// Exports the document as a booklet PDF and returns the text on the first (left) and second
++/// (right) half of every sheet side.
++std::vector<std::pair<OUString, OUString>> Test::exportBookletSides(vcl::pdf::PDFium& rPDFium)
++{
++    uno::Reference<css::lang::XMultiServiceFactory> xFactory = getMultiServiceFactory();
++    uno::Reference<document::XFilter> xFilter(
++        xFactory->createInstance(u"com.sun.star.document.PDFFilter"_ustr), uno::UNO_QUERY);
++    uno::Reference<document::XExporter> xExporter(xFilter, uno::UNO_QUERY);
++    xExporter->setSourceDocument(mxComponent);
++    SvMemoryStream aStream;
++    uno::Reference<io::XOutputStream> xOutputStream(new utl::OStreamWrapper(aStream));
++    uno::Sequence<beans::PropertyValue> aFilterData{
++        comphelper::makePropertyValue(u"Booklet"_ustr, true),
++    };
++    uno::Sequence<beans::PropertyValue> aDescriptor{
++        comphelper::makePropertyValue(u"FilterName"_ustr, u"writer_pdf_Export"_ustr),
++        comphelper::makePropertyValue(u"FilterData"_ustr, aFilterData),
++        comphelper::makePropertyValue(u"OutputStream"_ustr, xOutputStream),
++    };
++    xFilter->filter(aDescriptor);
++
++    // The size of the document pages, in mm100.
++    uno::Reference<style::XStyleFamiliesSupplier> xStyleFamiliesSupplier(mxComponent,
++                                                                         uno::UNO_QUERY_THROW);
++    uno::Reference<container::XNameAccess> xPageStyles(
++        xStyleFamiliesSupplier->getStyleFamilies()->getByName(u"PageStyles"_ustr),
++        uno::UNO_QUERY_THROW);
++    uno::Reference<beans::XPropertySet> xPageStyle(xPageStyles->getByName(u"Standard"_ustr),
++                                                   uno::UNO_QUERY_THROW);
++    sal_Int32 nPageWidth = 0;
++    sal_Int32 nPageHeight = 0;
++    xPageStyle->getPropertyValue(u"Width"_ustr) >>= nPageWidth;
++    xPageStyle->getPropertyValue(u"Height"_ustr) >>= nPageHeight;
++    CPPUNIT_ASSERT_LESS(nPageHeight, nPageWidth);
++
++    std::unique_ptr<vcl::pdf::PDFiumDocument> pPdfDocument
++        = rPDFium.openDocument(aStream.GetData(), aStream.GetSize(), OString());
++    CPPUNIT_ASSERT(pPdfDocument);
++    std::vector<std::pair<OUString, OUString>> aSides;
++    for (int nSheetSide = 0; nSheetSide < pPdfDocument->getPageCount(); ++nSheetSide)
++    {
++        // Each sheet is the document page turned to landscape: same paper, two pages on it.
++        const basegfx::B2DSize aSheetSize = pPdfDocument->getPageSize(nSheetSide);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(
++            o3tl::convert(double(nPageHeight), o3tl::Length::mm100, o3tl::Length::pt),
++            aSheetSize.getWidth(), 1.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(
++            o3tl::convert(double(nPageWidth), o3tl::Length::mm100, o3tl::Length::pt),
++            aSheetSize.getHeight(), 1.0);
++
++        std::unique_ptr<vcl::pdf::PDFiumPage> pPdfPage = pPdfDocument->openPage(nSheetSide);
++        CPPUNIT_ASSERT(pPdfPage);
++        std::unique_ptr<vcl::pdf::PDFiumTextPage> pTextPage = pPdfPage->getTextPage();
++        std::pair<OUString, OUString> aSide;
++        for (int i = 0; i < pPdfPage->getObjectCount(); ++i)
++        {
++            std::unique_ptr<vcl::pdf::PDFiumPageObject> pObject = pPdfPage->getObject(i);
++            if (pObject->getType() != vcl::pdf::PDFPageObjectType::Text)
++                continue;
++            const OUString aText = pObject->getText(pTextPage).trim();
++            if (aText.isEmpty())
++                continue;
++            if (pObject->getBounds().getCenterX() < aSheetSize.getWidth() / 2)
++                aSide.first += aText;
++            else
++                aSide.second += aText;
++        }
++        aSides.push_back(aSide);
++    }
++    return aSides;
++}
++
++void Test::checkBookletSides(const std::vector<std::pair<OUString, OUString>>& rExpected,
++                             const std::vector<std::pair<OUString, OUString>>& rActual)
++{
++    CPPUNIT_ASSERT_EQUAL(rExpected.size(), rActual.size());
++    for (size_t i = 0; i < rExpected.size(); ++i)
++    {
++        const OString aMessage = "sheet side " + OString::number(i);
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aMessage.getStr(), rExpected[i].first, rActual[i].first);
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aMessage.getStr(), rExpected[i].second, rActual[i].second);
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(Test, testBookletEightPages)
++{
++    std::shared_ptr<vcl::pdf::PDFium> pPDFium = vcl::pdf::PDFiumLibrary::get();
++    if (!pPDFium)
++        return;
++
++    // Given a Writer document with 8 pages:
++    loadFromURL(u"private:factory/swriter"_ustr);
++    insertNumberedPages(8);
++
++    // When exporting it as a booklet PDF:
++    std::vector<std::pair<OUString, OUString>> aSides = exportBookletSides(*pPDFium);
++
++    // Then the 8 pages are on 2 sheets (4 sheet sides) in saddle-stitch order, printed duplex
++    // with a flip on the short edge: 8|1 and 2|7 on the outer sheet, 6|3 and 4|5 inside.
++    checkBookletSides({ { u"P8"_ustr, u"P1"_ustr },
++                        { u"P2"_ustr, u"P7"_ustr },
++                        { u"P6"_ustr, u"P3"_ustr },
++                        { u"P4"_ustr, u"P5"_ustr } },
++                      aSides);
++}
++
++CPPUNIT_TEST_FIXTURE(Test, testBookletFivePages)
++{
++    std::shared_ptr<vcl::pdf::PDFium> pPDFium = vcl::pdf::PDFiumLibrary::get();
++    if (!pPDFium)
++        return;
++
++    // Given a Writer document with 5 pages:
++    loadFromURL(u"private:factory/swriter"_ustr);
++    insertNumberedPages(5);
++
++    // When exporting it as a booklet PDF:
++    std::vector<std::pair<OUString, OUString>> aSides = exportBookletSides(*pPDFium);
++
++    // Then the page count is padded to 8 with blank pages at the end, so the halves of pages
++    // 6-8 are empty and the order stays that of an 8-page booklet.
++    checkBookletSides({ { u""_ustr, u"P1"_ustr },
++                        { u"P2"_ustr, u""_ustr },
++                        { u""_ustr, u"P3"_ustr },
++                        { u"P4"_ustr, u"P5"_ustr } },
++                      aSides);
++}
+ }
+ 
+ CPPUNIT_PLUGIN_IMPLEMENT();
+--- a/filter/source/pdf/impdialog.cxx
++++ b/filter/source/pdf/impdialog.cxx
+@@ -478,6 +478,7 @@ Sequence< PropertyValue > ImpPDFTabDialog::GetFilterData()
+     aRet.push_back(comphelper::makePropertyValue(u"SignatureCertificate"_ustr, maSignCertificate));
+     aRet.push_back(comphelper::makePropertyValue(u"SignatureTSA"_ustr, msSignTSA));
+     aRet.push_back(comphelper::makePropertyValue(u"UseReferenceXObject"_ustr, mbUseReferenceXObject));
++    aRet.push_back(comphelper::makePropertyValue(u"Booklet"_ustr, mbBooklet));
+ 
+     return comphelper::concatSequences(maConfigItem.GetFilterData(), comphelper::containerToSequence(aRet));
+ }
+@@ -515,6 +516,7 @@ ImpPDFTabGeneralPage::ImpPDFTabGeneralPage(weld::Container* pPage, weld::DialogC
+     , mxCbExportNotes(m_xBuilder->weld_check_button(u"comments"_ustr))
+     , mxCbExportNotesInMargin(m_xBuilder->weld_check_button(u"commentsinmargin"_ustr))
+     , mxCbViewPDF(m_xBuilder->weld_check_button(u"viewpdf"_ustr))
++    , mxCbBooklet(m_xBuilder->weld_check_button(u"booklet"_ustr))
+     , mxCbUseReferenceXObject(m_xBuilder->weld_check_button(u"usereferencexobject"_ustr))
+     , mxCbExportNotesPages(m_xBuilder->weld_check_button(u"notes"_ustr))
+     , mxCbExportOnlyNotesPages(m_xBuilder->weld_check_button(u"onlynotes"_ustr))
+@@ -685,6 +687,8 @@ void ImpPDFTabGeneralPage::SetFilterConfigItem(ImpPDFTabDialog* pParent)
+        mxCbViewPDF->set_sensitive(!pParent->maConfigItem.IsReadOnly(u"ViewPDFAfterExport"_ustr));
+     }
+ 
++    mxCbBooklet->set_active(pParent->mbBooklet);
++
+     if ( mbIsPresentation )
+     {
+         mxRbPageRange->set_label(mxSlidesFt->get_label());
+@@ -757,6 +761,7 @@ void ImpPDFTabGeneralPage::GetFilterConfigItem( ImpPDFTabDialog* pParent )
+     if (mbIsWriter)
+         pParent->mbExportNotesInMargin = mxCbExportNotesInMargin->get_active();
+     pParent->mbViewPDF = mxCbViewPDF->get_active();
++    pParent->mbBooklet = mxCbBooklet->get_active();
+     pParent->mbUseReferenceXObject = mxCbUseReferenceXObject->get_active();
+     if ( mbIsPresentation )
+     {
+--- a/filter/source/pdf/impdialog.hxx
++++ b/filter/source/pdf/impdialog.hxx
+@@ -107,6 +107,8 @@ class ImpPDFTabDialog final : public SfxTabDialogController
+     bool mbExportBookmarksUserSelection = true;
+     bool mbExportHiddenSlides = false;
+     bool mbSinglePageSheets = false;
++    // booklet (saddle-stitch) imposition; deliberately not stored in the configuration
++    bool mbBooklet = false;
+     sal_Int32 mnOpenBookmarkLevels = -1;
+ 
+     bool mbHideViewerToolbar = false;
+@@ -217,6 +219,7 @@ class ImpPDFTabGeneralPage : public SfxTabPage
+     std::unique_ptr<weld::CheckButton> mxCbExportNotes;
+     std::unique_ptr<weld::CheckButton> mxCbExportNotesInMargin;
+     std::unique_ptr<weld::CheckButton> mxCbViewPDF;
++    std::unique_ptr<weld::CheckButton> mxCbBooklet;
+     std::unique_ptr<weld::CheckButton> mxCbUseReferenceXObject;
+     std::unique_ptr<weld::CheckButton> mxCbExportNotesPages;
+     std::unique_ptr<weld::CheckButton> mxCbExportOnlyNotesPages;
+--- a/filter/source/pdf/pdfexport.cxx
++++ b/filter/source/pdf/pdfexport.cxx
+@@ -31,6 +31,9 @@
+ #include <vcl/gdimtf.hxx>
+ #include <vcl/graph.hxx>
+ #include <vcl/graphic/GraphicMetadata.hxx>
++#include <vcl/metaact.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/rendercontext/State.hxx>
+ #include <vcl/pdf/PDFEncryptionInitialization.hxx>
+ #include <rtl/ustring.hxx>
+ #include <comphelper/propertyvalue.hxx>
+@@ -71,8 +74,11 @@
+ #include <com/sun/star/beans/XMaterialHolder.hpp>
+ #include <com/sun/star/xml/crypto/SEInitializer.hpp>
+ 
++#include <algorithm>
++#include <cmath>
+ #include <memory>
+ #include <optional>
++#include <vector>
+ 
+ #include <rtl/bootstrap.hxx>
+ #include <config_features.h>
+@@ -102,6 +108,8 @@ PDFExport::PDFExport( const Reference< XComponent >& rxSrcDoc,
+     mbRemoveTransparencies      ( false ),
+ 
+     mbIsRedactMode              ( false ),
++    mbBooklet                   ( false ),
++    mbBookletKeepPageSize       ( false ),
+     maWatermarkColor            ( COL_LIGHTGREEN ),
+     maWatermarkFontName         ( u"Helvetica"_ustr )
+ {
+@@ -213,7 +221,16 @@ bool PDFExport::ExportSelection( vcl::pdf::PDFWriter& rPDFWriter,
+                             }
+                         }
+ 
+-                        ImplExportPage(rPDFWriter, rPDFExtOutDevData, aMtf);
++                        if (mbBooklet)
++                        {
++                            // Imposed later in ImplExportBooklet; the page's sync actions
++                            // (structure, form controls) refer to this metafile only and are
++                            // dropped, booklet mode exports neither.
++                            rPDFExtOutDevData.ResetSyncData(nullptr);
++                            maBookletPages.push_back(aMtf);
++                        }
++                        else
++                            ImplExportPage(rPDFWriter, rPDFExtOutDevData, aMtf);
+                         bRet = true;
+                     }
+                     else
+@@ -726,6 +743,11 @@ bool PDFExport::Export( const OUString& rFile, const Sequence< PropertyValue >&
+                 // Redaction & bitmap related stuff
+                 else if ( rProp.Name == "IsRedactMode" )
+                     rProp.Value >>= mbIsRedactMode;
++                // Booklet (saddle-stitch) imposition
++                else if ( rProp.Name == "Booklet" )
++                    rProp.Value >>= mbBooklet;
++                else if ( rProp.Name == "BookletKeepPageSize" )
++                    rProp.Value >>= mbBookletKeepPageSize;
+                 // Math-specific render options
+                 else if (rProp.Name == "TitleRow")
+                     oMathTitleRow = rProp;
+@@ -814,6 +836,20 @@ bool PDFExport::Export( const OUString& rFile, const Sequence< PropertyValue >&
+                 break;
+             }
+ 
++            if (mbBooklet)
++            {
++                // The pages are imposed two per sheet side, so everything that addresses a
++                // document page (structure tags, links, outlines, annotations, form fields,
++                // transitions) would point at the wrong place: a booklet is for printing only.
++                bUseTaggedPDF = false;
++                bPDFUACompliance = false;
++                bExportNotes = false;
++                bExportFormFields = false;
++                bExportBookmarks = false;
++                bExportBmkToDest = false;
++                bUseTransitionEffects = false;
++            }
++
+             // PDF/UA support
+             aContext.UniversalAccessibilityCompliance = bPDFUACompliance;
+             if (bPDFUACompliance)
+@@ -1193,6 +1229,9 @@ bool PDFExport::Export( const OUString& rFile, const Sequence< PropertyValue >&
+                     rExportNotesValue <<= true;
+                     bRet = ExportSelection( aPDFWriter, xRenderable, aSelection, aRangeEnum, aRenderOptions, nPageCount );
+                 }
++
++                if ( bRet && mbBooklet )
++                    ImplExportBooklet( aPDFWriter, aPDFExtOutDevData );
+                 if ( mxStatusIndicator.is() )
+                     mxStatusIndicator->end();
+ 
+@@ -1203,7 +1242,10 @@ bool PDFExport::Export( const OUString& rFile, const Sequence< PropertyValue >&
+ 
+                 if( bRet )
+                 {
+-                    aPDFExtOutDevData.PlayGlobalActions( aPDFWriter );
++                    // Global actions (links, destinations, outlines, notes) carry document page
++                    // numbers, which do not exist in an imposed booklet.
++                    if ( !mbBooklet )
++                        aPDFExtOutDevData.PlayGlobalActions( aPDFWriter );
+                     bRet = aPDFWriter.Emit();
+                     aErrors = aPDFWriter.GetErrors();
+                 }
+@@ -1354,6 +1396,108 @@ void PDFExport::ImplExportPage( vcl::pdf::PDFWriter& rWriter, vcl::PDFExtOutDevD
+ }
+ 
+ 
++namespace
++{
++/// Saddle-stitch page order. For every sheet side, in output order, the indices of the pages on
++/// its first half (left, or top when the sheet is portrait) and second half (right, or bottom).
++/// The page count is padded to a multiple of four; an index >= nPages is a blank half.
++/// Sides alternate front/back of a sheet for duplex printing flipped on the short edge:
++/// with 8 pages the sides are 8|1, 2|7, 6|3, 4|5.
++std::vector<std::pair<sal_Int32, sal_Int32>> lcl_getBookletSides(sal_Int32 nPages)
++{
++    const sal_Int32 nPadded = (nPages + 3) / 4 * 4;
++    std::vector<std::pair<sal_Int32, sal_Int32>> aSides;
++    aSides.reserve(nPadded / 2);
++    for (sal_Int32 nSide = 0; nSide < nPadded / 2; ++nSide)
++    {
++        if (nSide % 2 == 0) // front of a sheet: the outer page of the pair on the first half
++            aSides.emplace_back(nPadded - 1 - nSide, nSide);
++        else // back of the same sheet
++            aSides.emplace_back(nSide, nPadded - 1 - nSide);
++    }
++    return aSides;
++}
++
++/// Scales rPage (pref map mode 1/100 mm) to fit the cell, centres it there and appends it to
++/// rSheet clipped to its own area. Same technique as the N-up print path in vcl (print3.cxx).
++void lcl_appendBookletPage(GDIMetaFile& rSheet, const GDIMetaFile& rPage, const Point& rCellPos,
++                           const Size& rCellSize, sal_Int32 nDPIX, sal_Int32 nDPIY)
++{
++    const Size aPageSize(rPage.GetPrefSize());
++    if (aPageSize.Width() <= 0 || aPageSize.Height() <= 0)
++        return;
++
++    const double fScale = std::min(double(rCellSize.Width()) / aPageSize.Width(),
++                                   double(rCellSize.Height()) / aPageSize.Height());
++    const Size aScaledSize(static_cast<tools::Long>(std::round(aPageSize.Width() * fScale)),
++                           static_cast<tools::Long>(std::round(aPageSize.Height() * fScale)));
++    const Point aPos(rCellPos.X() + (rCellSize.Width() - aScaledSize.Width()) / 2,
++                     rCellPos.Y() + (rCellSize.Height() - aScaledSize.Height()) / 2);
++    const tools::Rectangle aClipRect(aPos, aScaledSize);
++
++    GDIMetaFile aPage(rPage);
++    aPage.WindStart();
++    aPage.Scale(fScale, fScale);
++    aPage.WindStart();
++    aPage.Move(aPos.X(), aPos.Y(), nDPIX, nDPIY);
++    // the page's own clip regions must not reach into the other half of the sheet
++    aPage.WindStart();
++    aPage.Clip(aClipRect);
++
++    rSheet.AddAction(new MetaPushAction(vcl::PushFlags::ALL));
++    rSheet.AddAction(new MetaISectRectClipRegionAction(aClipRect));
++    aPage.WindStart();
++    aPage.Play(rSheet);
++    rSheet.AddAction(new MetaPopAction());
++}
++}
++
++void PDFExport::ImplExportBooklet( vcl::pdf::PDFWriter& rWriter, vcl::PDFExtOutDevData& rPDFExtOutDevData )
++{
++    if (maBookletPages.empty())
++        return;
++
++    // The sheet is the first page turned by 90 degrees (an A4 document gives A4 landscape
++    // sheets with two A5-sized pages), or with BookletKeepPageSize twice the page at 100%.
++    // Portrait pages sit side by side (fold on the vertical centre line); landscape pages are
++    // stacked (fold on the horizontal centre line). Either way the PDF is printed duplex,
++    // flipped on the short edge, and the stack is folded in the middle.
++    const Size aFirstPage(maBookletPages.front().GetPrefSize());
++    const bool bStacked = aFirstPage.Width() > aFirstPage.Height();
++    Size aSheetSize;
++    if (mbBookletKeepPageSize)
++        aSheetSize = bStacked ? Size(aFirstPage.Width(), 2 * aFirstPage.Height())
++                              : Size(2 * aFirstPage.Width(), aFirstPage.Height());
++    else
++        aSheetSize = Size(aFirstPage.Height(), aFirstPage.Width());
++
++    const Size aCellSize = bStacked ? Size(aSheetSize.Width(), aSheetSize.Height() / 2)
++                                    : Size(aSheetSize.Width() / 2, aSheetSize.Height());
++    const Point aSecondCellPos = bStacked ? Point(0, aCellSize.Height())
++                                          : Point(aCellSize.Width(), 0);
++
++    const OutputDevice* pRefDev = rWriter.GetReferenceDevice();
++    const sal_Int32 nDPIX = pRefDev ? pRefDev->GetDPIX() : 96;
++    const sal_Int32 nDPIY = pRefDev ? pRefDev->GetDPIY() : 96;
++
++    const sal_Int32 nPages = static_cast<sal_Int32>(maBookletPages.size());
++    for (const auto& [nFirst, nSecond] : lcl_getBookletSides(nPages))
++    {
++        GDIMetaFile aSheet;
++        aSheet.SetPrefMapMode(MapMode(MapUnit::Map100thMM));
++        aSheet.SetPrefSize(aSheetSize);
++        if (nFirst < nPages)
++            lcl_appendBookletPage(aSheet, maBookletPages[nFirst], Point(), aCellSize, nDPIX, nDPIY);
++        if (nSecond < nPages)
++            lcl_appendBookletPage(aSheet, maBookletPages[nSecond], aSecondCellPos, aCellSize,
++                                  nDPIX, nDPIY);
++        aSheet.WindStart();
++        ImplExportPage(rWriter, rPDFExtOutDevData, aSheet);
++    }
++    maBookletPages.clear();
++}
++
++
+ void PDFExport::ImplWriteWatermark( vcl::pdf::PDFWriter& rWriter, const Size& rPageSize )
+ {
+     vcl::Font aFont( maWatermarkFontName, Size( 0, moWatermarkFontHeight ? *moWatermarkFontHeight : 3*rPageSize.Height()/4 ) );
+--- a/filter/source/pdf/pdfexport.hxx
++++ b/filter/source/pdf/pdfexport.hxx
+@@ -20,6 +20,7 @@
+ #pragma once
+ 
+ #include <tools/multisel.hxx>
++#include <vcl/gdimtf.hxx>
+ #include <vcl/pdfwriter.hxx>
+ #include <vcl/pdfextoutdevdata.hxx>
+ #include <com/sun/star/beans/PropertyValue.hpp>
+@@ -30,7 +31,8 @@
+ #include <com/sun/star/uno/XComponentContext.hpp>
+ #include <com/sun/star/view/XRenderable.hpp>
+ 
+-class GDIMetaFile;
++#include <vector>
++
+ class Size;
+ 
+ class PDFExport
+@@ -52,6 +54,12 @@ private:
+ 
+     bool                mbIsRedactMode;
+ 
++    // Booklet (saddle-stitch) imposition: the recorded pages are kept here and placed two per
++    // sheet side in fold order once the whole selection has been rendered.
++    bool                mbBooklet;
++    bool                mbBookletKeepPageSize;
++    std::vector<GDIMetaFile> maBookletPages;
++
+     OUString            msWatermark;
+     Color               maWatermarkColor;
+     std::optional<sal_Int32> moWatermarkFontHeight;
+@@ -62,6 +70,8 @@ private:
+     void                ImplExportPage( vcl::pdf::PDFWriter& rWriter, vcl::PDFExtOutDevData& rPDFExtOutDevData,
+                                         const GDIMetaFile& rMtf );
+ 
++    void                ImplExportBooklet( vcl::pdf::PDFWriter& rWriter, vcl::PDFExtOutDevData& rPDFExtOutDevData );
++
+     void                ImplWriteWatermark( vcl::pdf::PDFWriter& rWriter, const Size& rPageSize );
+     void                ImplWriteTiledWatermark( vcl::pdf::PDFWriter& rWriter, const Size& rPageSize );
+     css::uno::Reference<css::security::XCertificate> GetCertificateFromSubjectName(std::u16string_view rSubjectName) const;
+--- a/filter/uiconfig/ui/pdfgeneralpage.ui
++++ b/filter/uiconfig/ui/pdfgeneralpage.ui
+@@ -29,7 +29,7 @@
+             <property name="label-xalign">0</property>
+             <property name="shadow-type">none</property>
+             <child>
+-              <!-- n-columns=2 n-rows=5 -->
++              <!-- n-columns=2 n-rows=6 -->
+               <object class="GtkGrid" id="grid1">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+@@ -206,6 +206,27 @@
+                     <property name="width">2</property>
+                   </packing>
+                 </child>
++                <child>
++                  <object class="GtkCheckButton" id="booklet">
++                    <property name="label" translatable="yes" context="pdfgeneralpage|booklet">Boo_klet (two pages per sheet side, fold in half)</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="halign">start</property>
++                    <property name="use-underline">True</property>
++                    <property name="draw-indicator">True</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="booklet-atkobject">
++                        <property name="AtkObject::accessible-description" translatable="yes" context="pdfgeneralpage|extended_tip|booklet">Arranges the pages two per sheet side in folding order, adding blank pages up to a multiple of four. Print the PDF double-sided, flipping on the short edge, then fold the stack in half. Tags, links, outlines, comments and form fields are not exported.</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="left-attach">0</property>
++                    <property name="top-attach">5</property>
++                    <property name="width">2</property>
++                  </packing>
++                </child>
+                 <child>
+                   <object class="GtkLabel" id="selectedsheets">
+                     <property name="can-focus">False</property>
+--- a/translations/source/vi/filter/messages.po
++++ b/translations/source/vi/filter/messages.po
+@@ -465,6 +465,18 @@ msgctxt "pdfgeneralpage|extended_tip|viewpdf"
+ msgid "Open the exported document in the system default PDF viewer."
+ msgstr "Mở tài liệu đã xuất trong trình xem PDF mặc định của hệ thống."
+ 
++#. hstBk
++#: filter/uiconfig/ui/pdfgeneralpage.ui
++msgctxt "pdfgeneralpage|booklet"
++msgid "Boo_klet (two pages per sheet side, fold in half)"
++msgstr "Xếp trang thành sách gấp đôi (2 trang mỗi mặt giấy)"
++
++#. hstBt
++#: filter/uiconfig/ui/pdfgeneralpage.ui
++msgctxt "pdfgeneralpage|extended_tip|booklet"
++msgid "Arranges the pages two per sheet side in folding order, adding blank pages up to a multiple of four. Print the PDF double-sided, flipping on the short edge, then fold the stack in half. Tags, links, outlines, comments and form fields are not exported."
++msgstr "Xếp hai trang trên mỗi mặt giấy theo thứ tự gấp sách, thêm trang trắng cho đủ bội số của bốn. In tệp tin PDF hai mặt, lật theo cạnh ngắn, rồi gấp đôi chồng giấy. Thẻ, liên kết, dàn ý, chú thích và trường biểu mẫu không được xuất."
++
+ #. aWj7F
+ #: filter/uiconfig/ui/pdfgeneralpage.ui:214
+ msgctxt "pdfgeneralpage|selectedsheets"

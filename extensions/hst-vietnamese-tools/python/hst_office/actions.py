@@ -2,10 +2,9 @@
 """User-facing HST commands: gather UI input, call the logic modules, report results. One function per command."""
 import unohelper
 
-from . import diag_log
 from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_duplex, nd30_insertion, nd30_layout,
                nd30_open, nd30_writer, blank_rows_calc, number_words_action, sheets, vba, vietnamese_calc)
-from . import citation_command_names, open_in_hst_pdf
+from . import chem_formula_action, citation_command_names, diag_log, open_in_hst_pdf
 from .dialogs import message_box
 from .wizard_convert import ConvertWizard
 from .wizard_csv import CsvWizard
@@ -189,6 +188,7 @@ COMMANDS = {
     "EditVba": vba.run,
     "NumberToWords": number_words_action.run,
     "OpenInHstPdf": open_in_hst_pdf.run,  # Xuất/PDF ▸ Mở trong HST PDF (HST Draw's ribbon)
+    "ChemFormula": chem_formula_action.run,  # HST ▸ Định dạng công thức hoá học (Writer, Slides, Draw)
     "RemoveDiacritics": sheet_utility(vietnamese_calc.remove_diacritics),
     "SplitName": sheet_utility(vietnamese_calc.split_name),
     "SortByGivenName": sheet_utility(vietnamese_calc.sort_by_given_name),

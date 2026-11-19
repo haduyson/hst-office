@@ -45,6 +45,9 @@ SERVICES = (
     ("save_format_check", "SaveFormatCheck", "org.hst.office.vi.SaveFormatCheck", ("org.hst.office.vi.SaveFormatCheck",)),
     ("banner_uno", "BannerService", "org.hst.office.BannerFeed", ("org.hst.office.BannerFeed",) + JOB),
     ("banner_uno", "BannerStartup", "org.hst.office.BannerStartup", ("org.hst.office.BannerStartup",) + JOB),
+    # Trợ lý AI: org.hst.office.ai:* commands and its options page (off by default; ai.xcs)
+    ("ai_handler", "AiHandler", "org.hst.office.vi.AiDispatchProvider", PROTOCOL_HANDLER),
+    ("ai_options", "AiOptionsHandler", "org.hst.office.vi.OptionsAI", ("org.hst.office.vi.OptionsAI",)),
 )
 
 
