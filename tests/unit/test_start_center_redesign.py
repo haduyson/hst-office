@@ -161,6 +161,30 @@ class StartCenterRedesignTest(unittest.TestCase):
                 name = "PNG_%s_%d" % (solution["id"].upper().replace("-", "_"), size)
                 self.assertEqual(data, arrays.get(name), name)
 
+    def test_app_icon_rasters_are_the_brand_icons(self):
+        # the application icons come from the brand's own PNGs (no SVG rendered at start-up), byte for byte, each
+        # name with its sizes in ascending order (the lookup takes the first one large enough)
+        logos = added(PATCH, LOGOS)
+        arrays = dict((name, bytes(int(b, 16) for b in re.findall(r"0x([0-9a-f]{2})", body)))
+                      for name, body in re.findall(r"constexpr sal_uInt8 (PNG_\w+)\[\] = \{(.*?)\};", logos, re.S))
+        rows = re.findall(r'\{ "([a-z-]+)", (\d+), (PNG_\w+), sizeof\(\3\) \},', logos)
+        names = ["hst-writer", "hst-sheets", "hst-slides", "hst-draw", "hst-pdf"]
+        self.assertEqual(names, list(dict.fromkeys(name for name, _size, _array in rows)))
+        for name in names:
+            sizes = [int(size) for row, size, _array in rows if row == name]
+            self.assertEqual(sorted(sizes), sizes, name)
+            self.assertIn(24, sizes, name)
+        for name, size, array in rows:
+            path = os.path.join(ROOT, "assets", "brand", "icons", "%s-%s.png" % (name, size))
+            with open(path, "rb") as handle:
+                data = handle.read()
+            self.assertEqual((int(size), int(size)), (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")))
+            self.assertEqual(data, arrays.get(array), array)
+        icons = added(PATCH, ICONS)
+        for name in names:
+            self.assertIn('return "%s";' % name, icons)
+        self.assertLess(icons.index("RenderAppIconRaster("), icons.index("ImportGraphic("))
+
     def test_visual_constants_are_design_tokens(self):
         # every colour lives in the shared HST tokens; the Start Center's sources hold none of their own
         for path in sections(PATCH):
