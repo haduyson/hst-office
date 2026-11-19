@@ -1,0 +1,244 @@
+HST Office: in Word layouts the text beside a float starts at the float, not again after the paragraph indent (Writer).
+
+In a document laid out like Word before 2013 (.doc, and .docx/.rtf in an older compatibility mode, where Writer
+sets TabOverMargin), Word starts the lines next to a float at the float's wrap edge: the paragraph's left indent,
+measured from the margin, is already covered by the float. Writer added the indent once more after the float
+(SwTextFormatter::CalcFlyWidth), so each line beside a picture in an indented paragraph was narrower by the indent;
+in s036.doc the formulas next to a figure broke onto an extra line each (+18 pt per paragraph on page 8). Writer
+already leaves the indent out for split (floating table) frames; hst::sw::IgnoreIndentBesideFly now does the same
+for other floats in these layouts (left-to-right paragraphs only). Native documents and Word 2013+ layouts are
+unchanged.
+
+Test: CppunitTest_sw_core_text testIndentNotAddedBesideFloatInWordLayout and testIndentAddedBesideFloatOtherwise
+(minimal .docx in compatibility mode 14 and 15, stored in base64).
+
+License: the new files sw/source/core/text/hstindentbesidefly.{hxx,cxx} are LicenseRef-HST-Proprietary; the
+upstream files remain under their original license (MPL-2.0).
+---
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -416,6 +416,7 @@
+     sw/source/core/text/porexp \
+     sw/source/core/text/porfld \
+     sw/source/core/text/porfly \
++    sw/source/core/text/hstindentbesidefly \
+     sw/source/core/text/hstwideobjectbesidefly \
+     sw/source/core/text/porglue \
+     sw/source/core/text/porlay \
+--- /dev/null
++++ b/sw/source/core/text/hstindentbesidefly.hxx
+@@ -0,0 +1,26 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++class SwTextFrame;
++
++namespace hst::sw
++{
++/** Whether a paragraph's left indent is left out of the room a float at the left of a line takes.
++
++    Word (layouts imported with content allowed over the right margin: .doc, and .docx/.rtf before Word 2013)
++    starts the text beside a float at the float's wrap edge; the paragraph's left indent, measured from the
++    margin, is already covered by the float. Writer adds the indent again after the float, so every line next to
++    a picture in an indented paragraph lost the indent's width and wide formulas broke onto an extra line.
++    Writer already does this for split (floating table) frames.
++
++    True only with DocumentSettingId::TAB_OVER_MARGIN, a left-to-right paragraph and a float that is no split
++    frame. */
++bool IgnoreIndentBesideFly(const SwTextFrame& rFrame, bool bSplitFly);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/core/text/hstindentbesidefly.cxx
+@@ -0,0 +1,23 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#include "hstindentbesidefly.hxx"
++
++#include <IDocumentSettingAccess.hxx>
++#include <doc.hxx>
++#include <txtfrm.hxx>
++
++namespace hst::sw
++{
++bool IgnoreIndentBesideFly(const SwTextFrame& rFrame, bool bSplitFly)
++{
++    if (bSplitFly || rFrame.IsRightToLeft())
++        return false;
++    return rFrame.GetDoc().getIDocumentSettingAccess().get(DocumentSettingId::TAB_OVER_MARGIN);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/core/text/itrform2.cxx
++++ b/sw/source/core/text/itrform2.cxx
+@@ -71,6 +71,7 @@
+ #include <com/sun/star/rdf/XLiteral.hpp>
+ #include <com/sun/star/text/XTextContent.hpp>
+ #include <unotxdoc.hxx>
++#include "hstindentbesidefly.hxx"
+ 
+ using namespace ::com::sun::star;
+ 
+@@ -3092,6 +3093,9 @@
+         }
+         else
+             nAddMar = nLeftMar - nFrameLeft;
++        // Word starts the text at the float's edge, the indent is already covered by the float
++        if (nAddMar > 0 && hst::sw::IgnoreIndentBesideFly(*GetTextFrame(), bSplitFly))
++            nAddMar = 0;
+ 
+         aInter.Width( aInter.Width() + nAddMar );
+         // For a negative first line indent, we set this flag to show
+--- a/sw/qa/core/text/txtfly.cxx
++++ b/sw/qa/core/text/txtfly.cxx
+@@ -49,6 +49,15 @@
+         aDocx.CloseStream();
+         loadFromURL(aDocx.GetURL());
+     }
++
++    /// Width of the float's room at the start of the first line of the first paragraph.
++    sal_Int32 getFirstLineFlyPortionWidth(const xmlDocUniquePtr& pXmlDoc)
++    {
++        return getXPath(pXmlDoc,
++                        "//txt[1]/SwParaPortion/SwLineLayout[1]/child::*[@type='PortionType::Fly']",
++                        "width")
++            .toInt32();
++    }
+ };
+ 
+ CPPUNIT_TEST_FIXTURE(Test, testClearingBreakWrapThrough)
+@@ -101,6 +110,35 @@
+     sal_Int32 nInlineTop = getXPath(pXmlDoc, "//txt[2]/anchored/fly/infos/bounds", "top").toInt32();
+     CPPUNIT_ASSERT_GREATEREQUAL(nFloatBottom, nInlineTop);
+ }
++
++CPPUNIT_TEST_FIXTURE(Test, testIndentNotAddedBesideFloatInWordLayout)
++{
++    // Given a Word 2010 document: a paragraph with a 0.5 inch left indent that holds a square-wrapped 2 inch
++    // picture at the left of the column (1 inch margin, 1/8 inch wrap distance), then text beside it:
++    loadBase64Docx(u"hst-indent-beside-float.docx.b64");
++
++    // When laying out that document:
++    calcLayout();
++
++    // Then the text starts at the float's wrap edge (1440 + 2880 + 180 twips), as in Word: the float's room
++    // reaches from the indented text start (1440 + 720) to there.
++    xmlDocUniquePtr pXmlDoc = parseLayoutDump();
++    // Without the accompanying fix in place, the indent was added again after the float: 3060.
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(2340.0, double(getFirstLineFlyPortionWidth(pXmlDoc)), 30.0);
++}
++
++CPPUNIT_TEST_FIXTURE(Test, testIndentAddedBesideFloatOtherwise)
++{
++    // Given the same content saved by Word 2013 or later:
++    loadBase64Docx(u"hst-indent-beside-float-word2013.docx.b64");
++
++    // When laying out that document:
++    calcLayout();
++
++    // Then the indent still follows the float:
++    xmlDocUniquePtr pXmlDoc = parseLayoutDump();
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(3060.0, double(getFirstLineFlyPortionWidth(pXmlDoc)), 30.0);
++}
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/qa/core/text/data/hst-indent-beside-float.docx.b64
+@@ -0,0 +1,41 @@
++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
+--- /dev/null
++++ b/sw/qa/core/text/data/hst-indent-beside-float-word2013.docx.b64
+@@ -0,0 +1,41 @@
++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

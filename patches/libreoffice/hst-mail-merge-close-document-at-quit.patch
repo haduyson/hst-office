@@ -1,0 +1,211 @@
+HST Office: the office no longer crashes on quit when a mail merge engine is still held over UNO (Writer).
+
+com.sun.star.text.MailMerge loads its DocumentURL as a hidden document and closes it in its destructor. A client
+that still holds the engine when the office quits (Trộn thư's "Trộn ra văn bản" over UNO, released when the URP
+bridge goes away at shutdown) had that destructor run after Writer's module was gone: the default frame format's
+attributes found no pool default, SIGSEGV in SwDoc::~SwDoc (lcl_DelFormatIndices), seen on Linux with 1.0.2 and
+26.8.3.1. The engine now also closes its document when the office terminates (a terminate listener on the Desktop,
+in the new hst::sw::MailMergeTerminationGuard); the destructor disarms it and closes as before.
+
+License: the new files sw/source/uibase/inc/hstmailmergetermination.hxx and
+sw/source/uibase/uno/hstmailmergetermination.cxx are LicenseRef-HST-Proprietary; the upstream files remain under
+their original license (MPL-2.0).
+Test: tests/runtime/check-mail-merge-engine-at-quit.py.
+---
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -789,6 +789,7 @@
+     sw/source/uibase/uno/unodefaults \
+     sw/source/uibase/uno/unodispatch \
+     sw/source/uibase/uno/unodoc \
++    sw/source/uibase/uno/hstmailmergetermination \
+     sw/source/uibase/uno/unomailmerge \
+     sw/source/uibase/uno/unomod \
+     sw/source/uibase/uno/unomodule \
+--- a/sw/source/uibase/inc/unomailmerge.hxx
++++ b/sw/source/uibase/inc/unomailmerge.hxx
+@@ -34,6 +34,7 @@
+ #include <com/sun/star/util/XCancellable.hpp>
+ #include <svl/itemprop.hxx>
+ #include <sfx2/objsh.hxx>
++#include <rtl/ref.hxx>
+ 
+ namespace com::sun::star {
+ 
+@@ -57,6 +58,7 @@
+     OPropertyListenerContainerHelper;
+ 
+ class SwDBManager;
++namespace hst::sw { class MailMergeTerminationGuard; }
+ 
+ /**
+  * Gives UNO access to the global mail merge functionality, via the com.sun.star.text.MailMerge
+@@ -122,6 +124,9 @@
+ 
+     bool        m_bDisposing;
+     SwDBManager     *m_pMgr;
++    rtl::Reference<hst::sw::MailMergeTerminationGuard> m_xHstTermination; ///< closes the document on quit
++
++    void    CloseDocument();
+ 
+     void    launchEvent( const css::beans::PropertyChangeEvent &rEvt ) const;
+ 
+--- a/sw/source/uibase/uno/unomailmerge.cxx
++++ b/sw/source/uibase/uno/unomailmerge.cxx
+@@ -53,6 +53,7 @@
+ #include <printdata.hxx>
+ #include <swevent.hxx>
+ #include <unomailmerge.hxx>
++#include <hstmailmergetermination.hxx>
+ #include <unoprnms.hxx>
+ #include <unomap.hxx>
+ #include <swunohelper.hxx>
+@@ -384,12 +385,24 @@
+     SwView *pView = static_cast<SwView*>( pFrame->GetViewShell() );
+     pView->AttrChangedNotify(nullptr); //So that SelectShell is called.
+     m_xModel = m_xDocSh->GetModel();
++    // the document must be closed while Writer is alive, also when a client still holds this engine at quit
++    m_xHstTermination = new hst::sw::MailMergeTerminationGuard([this] { CloseDocument(); });
+ }
+ 
+ SwXMailMerge::~SwXMailMerge()
+ {
++    if (m_xHstTermination)
++        m_xHstTermination->disarm();
++    CloseDocument();
++}
++
++void SwXMailMerge::CloseDocument()
++{
+     if (!m_aTmpFileName.isEmpty())
++    {
+         DeleteTmpFile_Impl( m_xModel, m_xDocSh, m_aTmpFileName );
++        m_aTmpFileName.clear(); // handled: at quit, and then again in the destructor
++    }
+     else    // there was no temporary file in use
+     {
+         //! we still need to close the model and doc shell manually
+--- /dev/null
++++ b/sw/source/uibase/inc/hstmailmergetermination.hxx
+@@ -0,0 +1,46 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <com/sun/star/frame/XTerminateListener.hpp>
++#include <cppuhelper/implbase.hxx>
++
++#include <functional>
++
++namespace hst::sw
++{
++/* HST Office: runs a callback once when the office terminates, while Writer is still alive.
++
++   The mail merge engine (com.sun.star.text.MailMerge) owns the hidden document it loads from its
++   DocumentURL and closes it when the engine is destroyed. A client that still holds the engine when
++   the office quits (a script over UNO, released when the bridge goes away at shutdown) had that
++   document destroyed after Writer's module was gone: its pool defaults were freed, and SwDoc's
++   destructor crashed. The engine now closes the document in notifyTermination.
++
++   The guard registers itself with the Desktop; disarm() drops the callback and unregisters. The
++   callback and disarm() run under the SolarMutex. */
++class MailMergeTerminationGuard final
++    : public cppu::WeakImplHelper<css::frame::XTerminateListener>
++{
++public:
++    explicit MailMergeTerminationGuard(std::function<void()> aOnTermination);
++
++    /// The owner is going away: never call back, stop listening.
++    void disarm();
++
++    // XTerminateListener
++    void SAL_CALL queryTermination(const css::lang::EventObject& rEvent) override;
++    void SAL_CALL notifyTermination(const css::lang::EventObject& rEvent) override;
++    // XEventListener
++    void SAL_CALL disposing(const css::lang::EventObject& rEvent) override;
++
++private:
++    std::function<void()> m_aOnTermination;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/uibase/uno/hstmailmergetermination.cxx
+@@ -0,0 +1,72 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#include <hstmailmergetermination.hxx>
++
++#include <com/sun/star/frame/Desktop.hpp>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/diagnose_ex.hxx>
++#include <rtl/ref.hxx>
++#include <vcl/svapp.hxx>
++
++using namespace css;
++
++namespace hst::sw
++{
++MailMergeTerminationGuard::MailMergeTerminationGuard(std::function<void()> aOnTermination)
++    : m_aOnTermination(std::move(aOnTermination))
++{
++    try
++    {
++        frame::Desktop::create(comphelper::getProcessComponentContext())->addTerminateListener(this);
++    }
++    catch (const uno::Exception&)
++    {
++        // no Desktop (a unit test without one): the engine closes its document in its destructor
++        TOOLS_WARN_EXCEPTION("sw.uno", "mail merge: no terminate listener");
++        m_aOnTermination = nullptr;
++    }
++}
++
++void MailMergeTerminationGuard::disarm()
++{
++    {
++        SolarMutexGuard aGuard;
++        if (!m_aOnTermination)
++            return;
++        m_aOnTermination = nullptr;
++    }
++    // keep this alive while the Desktop drops its reference
++    rtl::Reference<MailMergeTerminationGuard> xKeepAlive(this);
++    try
++    {
++        frame::Desktop::create(comphelper::getProcessComponentContext())->removeTerminateListener(this);
++    }
++    catch (const uno::Exception&)
++    {
++        // the Desktop is already gone: nothing to unregister from
++    }
++}
++
++void MailMergeTerminationGuard::queryTermination(const lang::EventObject&) {}
++
++void MailMergeTerminationGuard::notifyTermination(const lang::EventObject&)
++{
++    SolarMutexGuard aGuard;
++    std::function<void()> aOnTermination = std::move(m_aOnTermination);
++    m_aOnTermination = nullptr;
++    if (aOnTermination)
++        aOnTermination();
++}
++
++void MailMergeTerminationGuard::disposing(const lang::EventObject&)
++{
++    SolarMutexGuard aGuard;
++    m_aOnTermination = nullptr;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
