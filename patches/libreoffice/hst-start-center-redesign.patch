@@ -381,10 +381,10 @@ index 0000000..d8c107b
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/qa/cppunit/hststartcenter.cxx b/sfx2/qa/cppunit/hststartcenter.cxx
 new file mode 100644
-index 0000000..83240a6
+index 0000000..0bc36f1
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
-@@ -0,0 +1,309 @@
+@@ -0,0 +1,329 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -541,6 +541,24 @@ index 0000000..83240a6
 +        Scheduler::ProcessEventsToIdle();
 +    }
 +
++    vcl::Window* window() const
++    {
++        return VCLUnoHelper::GetWindow(mxFrame->getComponentWindow());
++    }
++
++    static vcl::Window* findWindow(vcl::Window* pParent, std::u16string_view aId)
++    {
++        for (vcl::Window* pChild = pParent ? pParent->GetWindow(GetWindowType::FirstChild) : nullptr; pChild;
++             pChild = pChild->GetWindow(GetWindowType::Next))
++        {
++            if (pChild->get_id() == aId)
++                return pChild;
++            if (vcl::Window* pFound = findWindow(pChild, aId))
++                return pFound;
++        }
++        return nullptr;
++    }
++
 +    std::unique_ptr<UIObject> child(const OUString& rId)
 +    {
 +        std::unique_ptr<UIObject> xChild = mxRoot->get_child(rId);
@@ -588,9 +606,11 @@ index 0000000..83240a6
 +            { u"nav_pinned"_ustr, u"Pinned"_ustr },     { u"nav_update"_ustr, u"Update HST Office"_ustr } };
 +    for (const auto& [rId, rLabel] : aMenu)
 +    {
-+        StringMap aState = child(rId)->get_state();
-+        CPPUNIT_ASSERT_EQUAL_MESSAGE(rId.toUtf8().getStr(), rLabel, aState[u"Text"_ustr]);
-+        CPPUNIT_ASSERT_EQUAL_MESSAGE(rId.toUtf8().getStr(), u"true"_ustr, aState[u"ReallyVisible"_ustr]);
++        // the painted items carry their text as accessible name
++        vcl::Window* pItem = findWindow(window(), rId);
++        CPPUNIT_ASSERT_MESSAGE(rId.toUtf8().getStr(), pItem);
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(rId.toUtf8().getStr(), rLabel, pItem->GetAccessibleName());
++        CPPUNIT_ASSERT_MESSAGE(rId.toUtf8().getStr(), pItem->IsReallyVisible());
 +    }
 +    // HST has no accounts: nothing is shared and there is no account or avatar anywhere
 +    const std::set<OUString> aIds = mxRoot->get_children();
@@ -601,10 +621,10 @@ index 0000000..83240a6
 +        CPPUNIT_ASSERT_MESSAGE(rId.toUtf8().getStr(), aLower.indexOf("share") < 0);
 +        CPPUNIT_ASSERT_MESSAGE(rId.toUtf8().getStr(), aLower.indexOf("account") < 0);
 +        CPPUNIT_ASSERT_MESSAGE(rId.toUtf8().getStr(), aLower.indexOf("avatar") < 0);
-+        if (std::unique_ptr<UIObject> xChild = mxRoot->get_child(rId))
++        if (vcl::Window* pChild = findWindow(window(), rId))
 +        {
-+            const OUString aText = xChild->get_state()[u"Text"_ustr];
-+            CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText != "Shared" && aText != u"Được chia sẻ");
++            for (const OUString& rText : { pChild->GetText(), pChild->GetAccessibleName() })
++                CPPUNIT_ASSERT_MESSAGE(rText.toUtf8().getStr(), rText != "Shared" && rText != u"Được chia sẻ");
 +        }
 +    }
 +
@@ -1927,10 +1947,10 @@ index 0000000..dcb957f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
 new file mode 100644
-index 0000000..968c7db
+index 0000000..b761c7a
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
-@@ -0,0 +1,744 @@
+@@ -0,0 +1,748 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2217,8 +2237,11 @@ index 0000000..968c7db
 +        MenuItem aItem;
 +        aItem.xButton = m_xBuilder->weld_button(rId);
 +        aItem.eGlyph = eGlyph;
++        // glyph and text are painted into the button's face; the translated label stays its
++        // accessible name (a label left on the button would be drawn over the face)
 +        aItem.aText = aItem.xButton->get_label();
 +        aItem.xButton->set_accessible_name(aItem.aText);
++        aItem.xButton->set_label(OUString());
 +        aItem.xButton->connect_clicked(LINK(this, HstStartCenterWindow, MenuClickHdl));
 +        aItem.xHover.reset(new HoverWatch(*this, maMenu.size(), -1));
 +        aItem.xButton->connect_mouse_move(LINK(aItem.xHover.get(), HoverWatch, MouseHdl));
@@ -2271,6 +2294,7 @@ index 0000000..968c7db
 +        aTile.aText = aTile.xButton->get_label();
 +        aTile.aFactory = aTiles[i].second;
 +        aTile.xButton->set_accessible_name(aTile.aText);
++        aTile.xButton->set_label(OUString());
 +        aTile.xButton->set_sensitive(bInstalled[i]);
 +        aTile.xButton->connect_clicked(LINK(this, HstStartCenterWindow, TileClickHdl));
 +        aTile.xHover.reset(new HoverWatch(*this, -1, maTiles.size()));
