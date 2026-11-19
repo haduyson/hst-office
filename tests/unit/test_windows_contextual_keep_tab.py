@@ -3,6 +3,8 @@
 import importlib.util
 import os
 import sys
+import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -59,6 +61,27 @@ class KeepTabTest(unittest.TestCase):
         doc.DatabaseRanges.getByName.return_value.setPropertyValue.assert_called_once_with(
             "TableStyleName", "TableStyleMedium2")
         self.assertIs(cell, doc.Sheets.getByIndex.return_value.getCellByPosition.return_value)
+
+    def test_a_held_close_is_recorded_and_our_processes_end(self):
+        office, res = mock.MagicMock(), mock.MagicMock()
+        office.stop.side_effect = lambda: threading.Event().wait(5)
+        processes = mock.MagicMock()
+        shot = os.path.join(tempfile.mkdtemp(), "shot.png")
+        with mock.patch.dict(sys.modules, {"windows_gui_processes": processes}), \
+                mock.patch.object(self.keep, "msaa", return_value="WINDOW 1 9:Lưu thay đổi?[0x0]"):
+            self.keep.stop_office(office, shot, res, "impress", timeout=0.1)
+        with open(shot[:-4] + ".txt", encoding="utf-8") as handle:
+            self.assertIn("Lưu thay đổi?", handle.read())
+        self.assertIn("Lưu thay đổi?", res.call_args.args[2])
+        office.proc.kill.assert_called_once_with()
+        processes.terminate.assert_called_once_with(office.url)
+        self.assertFalse(res.call_args.args[1])
+
+    def test_a_clean_close_records_nothing(self):
+        office, res = mock.MagicMock(), mock.MagicMock()
+        self.keep.stop_office(office, "shot.png", res, "writer", timeout=5)
+        office.proc.kill.assert_not_called()
+        res.assert_not_called()
 
     def test_park_gets_a_dispatch_that_waits(self):
         office = mock.MagicMock()
