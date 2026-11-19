@@ -155,6 +155,20 @@ class MenuButtonMetricsTest(unittest.TestCase):
             self.assertIn("SPDX-License-Identifier: LicenseRef-HST-Proprietary", added(PATCH, path), path)
 
 
+class SettleTest(unittest.TestCase):
+    def test_layout_passes_are_counted_in_dump_mode(self):
+        box = added(PATCH, "vcl/source/control/HstRibbonV3MergedBox.cxx")
+        self.assertIn('const OString aPath = OString(pDir) + "/layout-passes";', box)
+        self.assertIn("void PriorityMergedHBox::HstApplyV3(tools::Long nWidth)\n{\n    countLayoutPass();", box)
+
+    def test_widgets_fit_a_row_and_folded_names_sit_on_the_caption_line(self):
+        layout = added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx")
+        self.assertIn("pItemWindow->SetSizePixel(Size(pItemWindow->GetSizePixel().Width(), nRow));", layout)
+        self.assertIn("if (cLook == 'M' || cLook == 'S')\n            fitItemWindowsToRow(*pBox);", layout)
+        self.assertIn('rOut.append(",\\"want\\":{\\"w\\":"', layout)
+        self.assertIn("constexpr long FOLDED_LABEL_BOTTOM = 2;", added(PATCH, "vcl/inc/HstRibbonGeometry.hxx"))
+
+
 class BannerSizeTest(unittest.TestCase):
     def test_banner_asks_for_its_width_and_again_at_another_standard_size(self):
         core = added(PATCH, "vcl/source/control/HstBannerCore.cxx")

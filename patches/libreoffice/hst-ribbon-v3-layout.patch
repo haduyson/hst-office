@@ -1061,6 +1061,17 @@ License: these upstream files remain under their original license (MPL-2.0).
      vcl/source/control/NotebookbarPopup \
      vcl/source/control/PriorityHBox \
      vcl/source/control/PriorityMergedHBox \
+--- a/vcl/inc/HstRibbonGeometry.hxx
++++ b/vcl/inc/HstRibbonGeometry.hxx
+@@ -58,7 +58,7 @@ constexpr long FOLDED_HEIGHT = 98; // a
+ constexpr long FOLDED_MIN_WIDTH = 48;
+ constexpr long FOLDED_PAD = 6; // above the icon, left and right of the label
+ constexpr long FOLDED_LABEL_MAX = 84; // the folded group's name wraps over this width
+-constexpr long FOLDED_LABEL_BOTTOM = 4; // under the name's last line: the name sits on the caption line
++constexpr long FOLDED_LABEL_BOTTOM = 2; // under the name's last line: the name sits on the groups' caption line
+ constexpr long FOLDED_ARROW_GAP = 4;
+ 
+ /** nLogical logical px in device px at fScale (GetDPIScaleFactor()), rounded once. */
 --- a/vcl/inc/HstRibbonLadder.hxx
 +++ b/vcl/inc/HstRibbonLadder.hxx
 @@ -16,6 +16,10 @@
@@ -2383,7 +2394,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
-@@ -0,0 +1,617 @@
+@@ -0,0 +1,642 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2640,6 +2651,23 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    }
 +}
 +
++/// a widget of a medium or small toolbox (the fill style's lists) one row high: taller (a list box of the X11 look is
++/// 34 px), the row cut its bottom off
++void fitItemWindowsToRow(ToolBox& rBox)
++{
++    const tools::Long nRow = px(ROW, rBox);
++    for (ToolBox::ImplToolItems::size_type i = 0; i < rBox.GetItemCount(); ++i)
++    {
++        const ToolBoxItemId nId = rBox.GetItemId(i);
++        vcl::Window* pItemWindow = rBox.GetItemWindow(nId);
++        if (!pItemWindow || pItemWindow->GetSizePixel().Height() <= nRow)
++            continue;
++        pItemWindow->SetSizePixel(Size(pItemWindow->GetSizePixel().Width(), nRow));
++        rBox.SetItemWindow(nId, pItemWindow); // the item takes the window's new size
++        rBox.queue_resize();
++    }
++}
++
 +void setLook(Group& rData, vcl::Window& rCommand, char cLook, char cGallery, int nExtra)
 +{
 +    rData.looks[&rCommand] = cLook;
@@ -2648,6 +2676,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        if (!rData.size32.count(&rCommand))
 +            rData.size32[&rCommand] = pBox->GetToolboxButtonSize() == ToolBoxButtonSize::Size32;
 +        lookToolBox(*pBox, cLook, rData.size32[&rCommand]);
++        if (cLook == 'M' || cLook == 'S')
++            fitItemWindowsToRow(*pBox);
 +        if (cLook == 'G')
 +            lookGallery(rCommand, cGallery, nExtra);
 +    }
@@ -2946,8 +2976,11 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    if (cState == 'C')
 +    {
 +        appendRect(rOut, rFold);
++        // its name in the groups' caption band: under the content and its gap, 2 px over the body's bottom
++        const tools::Long nBand = px(6, rGroup) + px(CONTENT, rGroup) + px(4, rGroup);
 +        rOut.append(",\"caption_rect\":");
-+        appendRect(rOut, rFold);
++        appendRect(rOut, tools::Rectangle(Point(rFold.Left(), rFold.Top() + nBand),
++                                          Size(rFold.GetWidth(), rFold.GetHeight() - nBand - px(2, rGroup))));
 +        rOut.append(",\"caption_needed\":0,\"blocks\":[{\"type\":\"fold\",\"items\":[{\"id\":\"fold\",\"kind\":\"C\","
 +                    "\"rect\":");
 +        appendRect(rOut, rFold);
@@ -2986,10 +3019,13 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                if (const tools::Long nNeed = menuButtonNeed(rCommand, rCell.look))
 +                    aWant = Size(nNeed, aRect.GetHeight() + (largeMenuLinesCut(rCommand, rCell.look) ? 1 : 0));
 +                const bool bLabelled = rCell.look == 'L' || rCell.look == 'M';
++                const bool bCut
++                    = bLabelled && (aWant.Width() > aRect.GetWidth() || aWant.Height() > aRect.GetHeight());
 +                rOut.append(",\"label_cut\":");
-+                rOut.append(bLabelled && (aWant.Width() > aRect.GetWidth() || aWant.Height() > aRect.GetHeight())
-+                                ? "true"
-+                                : "false");
++                rOut.append(bCut ? "true" : "false");
++                if (bCut) // the size it asked for, to tell a stale width from a short one
++                    rOut.append(",\"want\":{\"w\":" + OString::number(sal_Int64(aWant.Width())) + ",\"h\":"
++                                + OString::number(sal_Int64(aWant.Height())) + "}");
 +                rOut.append("}");
 +                bFirst = false;
 +            }
@@ -3003,7 +3039,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3MergedBox.cxx
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,359 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -3047,8 +3083,28 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    return bAny;
 +}
 +
++namespace
++{
++/// with HST_RIBBON_DUMP_LAYOUT: the fit passes of every ribbon page so far, in <dir>/layout-passes, so that a check
++/// sees whether the layout settles (a pass asking for the next one laid the ribbon out without end)
++void countLayoutPass()
++{
++    static const char* const pDir = std::getenv("HST_RIBBON_DUMP_LAYOUT");
++    if (!pDir || !*pDir)
++        return;
++    static sal_uInt64 nPasses = 0;
++    const OString aPath = OString(pDir) + "/layout-passes";
++    if (FILE* pFile = std::fopen(aPath.getStr(), "w"))
++    {
++        std::fprintf(pFile, "%llu\n", static_cast<unsigned long long>(++nPasses));
++        std::fclose(pFile);
++    }
++}
++}
++
 +void PriorityMergedHBox::HstApplyV3(tools::Long nWidth)
 +{
++    countLayoutPass();
 +    // HST Office (1.0.3): the owner-locked mockup's fit(): every group large; on a sparse tab (more than 40 % free)
 +    // the groups turn large from the left and then every large button widens to 96 px; when the row is too wide the
 +    // galleries shrink first, then the groups from the right go medium, small, then to their "Caption ▾" button;
