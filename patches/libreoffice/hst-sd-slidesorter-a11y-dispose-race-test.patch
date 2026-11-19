@@ -1,0 +1,175 @@
+Regression test: slide sorter accessibles disposed while a call waits for the SolarMutex.
+
+AT-SPI clients reach the gtk3 accessibility bridge from the main loop, which runs with the
+SolarMutex released; another thread holding it (a UNO client terminating the office) can dispose
+the slide sorter's accessibles and destroy the slide sorter meanwhile. HST Draw crashed on Linux
+(SIGSEGV in SlideSorterModel::GetPageDescriptor from AccessibleSlideSorterObject::getAccessibleName
+or getAccessibleStateSet) when the AT-SPI tree had been walked and the office was terminated over
+UNO. The test holds the SolarMutex, starts the call on another thread, disposes the accessible slide
+sorter view and expects DisposedException.
+
+License: the new test file is HST-owned (LicenseRef-HST-Proprietary); the makefile keeps MPL-2.0.
+Test: CppunitTest_sd_a11y.
+---
+--- a/sd/CppunitTest_sd_a11y.mk
++++ b/sd/CppunitTest_sd_a11y.mk
+@@ -11,9 +11,11 @@
+ 
+ $(eval $(call gb_CppunitTest_add_exception_objects,sd_a11y, \
+ 	sd/qa/unit/a11y/layout \
++	sd/qa/unit/a11y/HstSlideSorterDisposeRace \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,sd_a11y, \
++	comphelper \
+ 	sal \
+ 	cppu \
+ 	subsequenttest \
+--- /dev/null
++++ b/sd/qa/unit/a11y/HstSlideSorterDisposeRace.cxx
+@@ -0,0 +1,145 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; fill-column: 100 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. All rights reserved.
++ */
++
++// Accessibility clients (AT-SPI through the gtk3 bridge) call into the slide sorter's accessible
++// objects from the main loop without holding the SolarMutex, while another thread that holds it
++// (a UNO client terminating the office) may be disposing them and destroying the slide sorter.
++// A call that is already waiting for the SolarMutex must therefore find out that the object was
++// disposed in the meantime and throw DisposedException, instead of using the dead slide sorter.
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <thread>
++
++#include <com/sun/star/accessibility/XAccessible.hpp>
++#include <com/sun/star/accessibility/XAccessibleContext.hpp>
++#include <com/sun/star/lang/DisposedException.hpp>
++#include <com/sun/star/lang/XComponent.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++
++#include <comphelper/dispatchcommand.hxx>
++#include <vcl/scheduler.hxx>
++#include <vcl/svapp.hxx>
++
++#include <test/a11y/accessibletestbase.hxx>
++
++using namespace css;
++
++namespace
++{
++uno::Reference<accessibility::XAccessibleContext>
++findByImplementationName(const uno::Reference<accessibility::XAccessibleContext>& xContext,
++                         std::u16string_view sName, int nDepth = 0)
++{
++    if (!xContext.is() || nDepth > 25)
++        return {};
++    uno::Reference<lang::XServiceInfo> xInfo(xContext, uno::UNO_QUERY);
++    if (xInfo.is() && xInfo->getImplementationName() == sName)
++        return xContext;
++    const sal_Int64 nCount = std::min<sal_Int64>(xContext->getAccessibleChildCount(), 500);
++    for (sal_Int64 i = 0; i < nCount; ++i)
++    {
++        uno::Reference<accessibility::XAccessible> xChild = xContext->getAccessibleChild(i);
++        if (!xChild.is())
++            continue;
++        auto xFound = findByImplementationName(xChild->getAccessibleContext(), sName, nDepth + 1);
++        if (xFound.is())
++            return xFound;
++    }
++    return {};
++}
++
++class HstSlideSorterDisposeRace : public test::AccessibleTestBase
++{
++protected:
++    uno::Reference<accessibility::XAccessibleContext> windowContext()
++    {
++        return uno::Reference<accessibility::XAccessibleContext>(getWindowAccessible());
++    }
++
++    uno::Reference<accessibility::XAccessibleContext> loadDrawWithSlideSorter()
++    {
++        load(u"private:factory/sdraw"_ustr);
++        Scheduler::ProcessEventsToIdle();
++        auto xView = findByImplementationName(windowContext(), u"AccessibleSlideSorterView");
++        if (!xView.is())
++        {
++            // the page pane is hidden in this profile: show it
++            comphelper::dispatchCommand(u".uno:LeftPaneDraw"_ustr, {});
++            Scheduler::ProcessEventsToIdle();
++            xView = findByImplementationName(windowContext(), u"AccessibleSlideSorterView");
++        }
++        CPPUNIT_ASSERT_MESSAGE("no accessible slide sorter in Draw", xView.is());
++        return xView;
++    }
++
++    /** Runs rCall on another thread while this thread holds the SolarMutex, disposes the slide
++        sorter's accessible view (which disposes its page objects) once the call is underway, and
++        returns whether the call ended with DisposedException. */
++    template <typename F>
++    bool disposedWhileWaiting(const uno::Reference<accessibility::XAccessibleContext>& xView,
++                              F rCall)
++    {
++        SolarMutexGuard aGuard;
++        std::atomic<bool> bStarted(false);
++        bool bDisposed = false;
++        std::thread aReader([&] {
++            bStarted = true;
++            try
++            {
++                rCall();
++            }
++            catch (const lang::DisposedException&)
++            {
++                bDisposed = true;
++            }
++        });
++        while (!bStarted)
++            std::this_thread::yield();
++        // the reader is now inside the call; a correct implementation waits for the SolarMutex
++        std::this_thread::sleep_for(std::chrono::milliseconds(300));
++        uno::Reference<lang::XComponent>(xView, uno::UNO_QUERY_THROW)->dispose();
++        {
++            SolarMutexReleaser aReleaser;
++            aReader.join();
++        }
++        return bDisposed;
++    }
++};
++}
++
++CPPUNIT_TEST_FIXTURE(HstSlideSorterDisposeRace, testPageObjectNameAfterDisposeWhileWaiting)
++{
++    auto xView = loadDrawWithSlideSorter();
++    CPPUNIT_ASSERT(xView->getAccessibleChildCount() > 0);
++    uno::Reference<accessibility::XAccessibleContext> xPage
++        = xView->getAccessibleChild(0)->getAccessibleContext();
++    CPPUNIT_ASSERT(!xPage->getAccessibleName().isEmpty());
++
++    CPPUNIT_ASSERT_MESSAGE("getAccessibleName on a page object disposed while it waited",
++                           disposedWhileWaiting(xView, [&] { xPage->getAccessibleName(); }));
++}
++
++CPPUNIT_TEST_FIXTURE(HstSlideSorterDisposeRace, testPageObjectStateSetAfterDisposeWhileWaiting)
++{
++    auto xView = loadDrawWithSlideSorter();
++    uno::Reference<accessibility::XAccessibleContext> xPage
++        = xView->getAccessibleChild(0)->getAccessibleContext();
++
++    CPPUNIT_ASSERT_MESSAGE("getAccessibleStateSet on a page object disposed while it waited",
++                           disposedWhileWaiting(xView, [&] { xPage->getAccessibleStateSet(); }));
++}
++
++CPPUNIT_TEST_FIXTURE(HstSlideSorterDisposeRace, testViewChildCountAfterDisposeWhileWaiting)
++{
++    auto xView = loadDrawWithSlideSorter();
++
++    CPPUNIT_ASSERT_MESSAGE("getAccessibleChildCount on a slide sorter view disposed while it waited",
++                           disposedWhileWaiting(xView, [&] { xView->getAccessibleChildCount(); }));
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

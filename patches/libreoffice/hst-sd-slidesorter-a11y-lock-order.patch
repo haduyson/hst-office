@@ -1,0 +1,212 @@
+Slide sorter accessibles: take the SolarMutex before the disposed check.
+
+AccessibleSlideSorterObject and AccessibleSlideSorterView checked ensureAlive()/ThrowIfDisposed()
+and only then took the SolarMutex (getAccessibleChildCount/getAccessibleChild of the view took no
+SolarMutex at all). The gtk3 accessibility bridge calls them from the main loop, which runs with the
+SolarMutex released, so a call could pass the check, wait for the SolarMutex held by another thread
+that disposes the objects and destroys the slide sorter (Desktop::terminate over UNO), and then use
+the destroyed slide sorter: SIGSEGV in SlideSorterModel::GetPageDescriptor /
+SlideSorterController::GetPageSelector on HST Draw with AT-SPI active. Locking first makes the check
+see the disposal, so the call throws DisposedException, which the bridge handles. Upstream bug
+(same code in LibreOffice 26.8.1.1 and 26.8.3.1).
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: CppunitTest_sd_a11y (hst-sd-slidesorter-a11y-dispose-race-test.patch),
+tests/runtime/check-draw-a11y-walk-terminate.py.
+---
+--- a/sd/source/ui/accessibility/AccessibleSlideSorterObject.cxx
++++ b/sd/source/ui/accessibility/AccessibleSlideSorterObject.cxx
+@@ -93,8 +93,8 @@
+ 
+ sal_Int64 SAL_CALL AccessibleSlideSorterObject::getAccessibleIndexInParent()
+ {
+-    ensureAlive();
+     const SolarMutexGuard aSolarGuard;
++    ensureAlive();
+     sal_Int64 nIndexInParent(-1);
+ 
+     if (mxParent.is())
+@@ -125,8 +125,8 @@
+ 
+ OUString SAL_CALL AccessibleSlideSorterObject::getAccessibleName()
+ {
+-    ensureAlive();
+     const SolarMutexGuard aSolarGuard;
++    ensureAlive();
+ 
+     SdPage* pPage = GetPage();
+     if (pPage != nullptr)
+@@ -145,8 +145,8 @@
+ sal_Int64 SAL_CALL
+     AccessibleSlideSorterObject::getAccessibleStateSet()
+ {
+-    ensureAlive();
+     const SolarMutexGuard aSolarGuard;
++    ensureAlive();
+     sal_Int64 nStateSet = 0;
+ 
+     if (mxParent.is())
+--- a/sd/source/ui/accessibility/AccessibleSlideSorterView.cxx
++++ b/sd/source/ui/accessibility/AccessibleSlideSorterView.cxx
+@@ -159,6 +159,7 @@
+ 
+ sal_Int64 SAL_CALL AccessibleSlideSorterView::getAccessibleChildCount()
+ {
++    const SolarMutexGuard aSolarGuard;
+     ThrowIfDisposed();
+     ::osl::MutexGuard aGuard (m_aMutex);
+     return mpImpl->GetVisibleChildCount();
+@@ -167,6 +168,7 @@
+ Reference<XAccessible > SAL_CALL
+     AccessibleSlideSorterView::getAccessibleChild (sal_Int64 nIndex)
+ {
++    const SolarMutexGuard aSolarGuard;
+     ThrowIfDisposed();
+     ::osl::MutexGuard aGuard (m_aMutex);
+ 
+@@ -178,8 +180,8 @@
+ 
+ Reference<XAccessible > SAL_CALL AccessibleSlideSorterView::getAccessibleParent()
+ {
+-    ThrowIfDisposed();
+-    const SolarMutexGuard aSolarGuard;
++    const SolarMutexGuard aSolarGuard;
++    ThrowIfDisposed();
+     Reference<XAccessible> xParent;
+ 
+     if (mpContentWindow != nullptr)
+@@ -191,8 +193,8 @@
+ sal_Int64 SAL_CALL AccessibleSlideSorterView::getAccessibleIndexInParent()
+ {
+     OSL_ASSERT(getAccessibleParent().is());
+-    ThrowIfDisposed();
+-    const SolarMutexGuard aSolarGuard;
++    const SolarMutexGuard aSolarGuard;
++    ThrowIfDisposed();
+     sal_Int64 nIndexInParent(-1);
+ 
+     Reference<XAccessibleContext> xParentContext (getAccessibleParent()->getAccessibleContext());
+@@ -219,16 +221,16 @@
+ 
+ OUString SAL_CALL AccessibleSlideSorterView::getAccessibleDescription()
+ {
+-    ThrowIfDisposed();
+     SolarMutexGuard aGuard;
++    ThrowIfDisposed();
+ 
+     return SdResId(SID_SD_A11Y_I_SLIDEVIEW_D);
+ }
+ 
+ OUString SAL_CALL AccessibleSlideSorterView::getAccessibleName()
+ {
+-    ThrowIfDisposed();
+     SolarMutexGuard aGuard;
++    ThrowIfDisposed();
+ 
+     return SdResId(SID_SD_A11Y_I_SLIDEVIEW_N);
+ }
+@@ -241,8 +243,8 @@
+ 
+ sal_Int64 SAL_CALL AccessibleSlideSorterView::getAccessibleStateSet()
+ {
+-    ThrowIfDisposed();
+-    const SolarMutexGuard aSolarGuard;
++    const SolarMutexGuard aSolarGuard;
++    ThrowIfDisposed();
+     sal_Int64 nStateSet = 0;
+ 
+     nStateSet |= AccessibleStateType::FOCUSABLE;
+@@ -282,9 +284,9 @@
+ Reference<XAccessible> SAL_CALL
+     AccessibleSlideSorterView::getAccessibleAtPoint (const awt::Point& aPoint)
+ {
++    const SolarMutexGuard aSolarGuard;
+     ThrowIfDisposed();
+     Reference<XAccessible> xAccessible;
+-    const SolarMutexGuard aSolarGuard;
+ 
+     const Point aTestPoint (aPoint.X, aPoint.Y);
+     ::sd::slidesorter::model::SharedPageDescriptor pHitDescriptor (
+@@ -316,8 +318,8 @@
+ 
+ void SAL_CALL AccessibleSlideSorterView::grabFocus()
+ {
+-    ThrowIfDisposed();
+-    const SolarMutexGuard aSolarGuard;
++    const SolarMutexGuard aSolarGuard;
++    ThrowIfDisposed();
+ 
+     if (mpContentWindow)
+         mpContentWindow->GrabFocus();
+@@ -342,8 +344,8 @@
+ 
+ void SAL_CALL AccessibleSlideSorterView::selectAccessibleChild (sal_Int64 nChildIndex)
+ {
+-    ThrowIfDisposed();
+-    const SolarMutexGuard aSolarGuard;
++    const SolarMutexGuard aSolarGuard;
++    ThrowIfDisposed();
+ 
+     if (nChildIndex < 0 || nChildIndex >= getAccessibleChildCount())
+         throw lang::IndexOutOfBoundsException();
+@@ -357,9 +359,9 @@
+ 
+ sal_Bool SAL_CALL AccessibleSlideSorterView::isAccessibleChildSelected (sal_Int64 nChildIndex)
+ {
++    const SolarMutexGuard aSolarGuard;
+     ThrowIfDisposed();
+     bool bIsSelected = false;
+-    const SolarMutexGuard aSolarGuard;
+ 
+     if (nChildIndex < 0 || nChildIndex >= getAccessibleChildCount())
+         throw lang::IndexOutOfBoundsException();
+@@ -376,32 +378,32 @@
+ 
+ void SAL_CALL AccessibleSlideSorterView::clearAccessibleSelection()
+ {
+-    ThrowIfDisposed();
+-    const SolarMutexGuard aSolarGuard;
++    const SolarMutexGuard aSolarGuard;
++    ThrowIfDisposed();
+ 
+     mrSlideSorter.GetController().GetPageSelector().DeselectAllPages();
+ }
+ 
+ void SAL_CALL AccessibleSlideSorterView::selectAllAccessibleChildren()
+ {
+-    ThrowIfDisposed();
+-    const SolarMutexGuard aSolarGuard;
++    const SolarMutexGuard aSolarGuard;
++    ThrowIfDisposed();
+ 
+     mrSlideSorter.GetController().GetPageSelector().SelectAllPages();
+ }
+ 
+ sal_Int64 SAL_CALL AccessibleSlideSorterView::getSelectedAccessibleChildCount()
+ {
++    const SolarMutexGuard aSolarGuard;
+     ThrowIfDisposed ();
+-    const SolarMutexGuard aSolarGuard;
+     return mrSlideSorter.GetController().GetPageSelector().GetSelectedPageCount();
+ }
+ 
+ Reference<XAccessible > SAL_CALL
+     AccessibleSlideSorterView::getSelectedAccessibleChild (sal_Int64 nSelectedChildIndex )
+ {
++    const SolarMutexGuard aSolarGuard;
+     ThrowIfDisposed ();
+-    const SolarMutexGuard aSolarGuard;
+ 
+     if (nSelectedChildIndex < 0 || nSelectedChildIndex >= getSelectedAccessibleChildCount())
+         throw lang::IndexOutOfBoundsException();
+@@ -431,8 +433,8 @@
+ 
+ void SAL_CALL AccessibleSlideSorterView::deselectAccessibleChild (sal_Int64 nChildIndex)
+ {
+-    ThrowIfDisposed();
+-    const SolarMutexGuard aSolarGuard;
++    const SolarMutexGuard aSolarGuard;
++    ThrowIfDisposed();
+ 
+     if (nChildIndex < 0 || nChildIndex >= getAccessibleChildCount())
+         throw lang::IndexOutOfBoundsException();
