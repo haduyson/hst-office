@@ -32,6 +32,42 @@ def cell_name(cell):
     return cell.AbsoluteName.split(".")[-1].replace("$", "") if cell is not None else ""
 
 
+MAX_COLUMNS = 40
+
+
+def _address(sheet, start_col, start_row, end_col, end_row):
+    return cell_name(sheet.getCellRangeByPosition(start_col, start_row, end_col, end_row))
+
+
+def data_region(controller, cell):
+    """(address, [(column letter, name)]) of the data a new formula in `cell` is about: the cell's current region,
+    or the sheet's used area when the cell stands alone. Only text cells of the region's first row (the column
+    names) are read; no data value ever leaves the sheet. None without a header row or outside Sheets."""
+    try:
+        sheet = controller.getActiveSheet()
+        cursor = sheet.createCursorByRange(cell)
+        cursor.collapseToCurrentRegion()
+        area = cursor.getRangeAddress()
+        if area.StartColumn == area.EndColumn and area.StartRow == area.EndRow:
+            cursor = sheet.createCursor()
+            cursor.gotoStartOfUsedArea(False)
+            cursor.gotoEndOfUsedArea(True)
+            area = cursor.getRangeAddress()
+        if area.EndRow <= area.StartRow:
+            return None
+        headers = []
+        for col in range(area.StartColumn, min(area.EndColumn, area.StartColumn + MAX_COLUMNS - 1) + 1):
+            header = sheet.getCellByPosition(col, area.StartRow)
+            if header.getType().value == "TEXT" and header.getString().strip():
+                headers.append((cell_name(header).rstrip("0123456789"), header.getString().strip()[:60]))
+        if not headers:
+            return None
+        return _address(sheet, area.StartColumn, area.StartRow, area.EndColumn, area.EndRow), headers
+    except Exception:  # noqa: BLE001 - no context: the description alone is sent
+        diag_log.exception("ai_document")
+        return None
+
+
 def _text_target(controller):
     """(read, write) of the selected text: a Writer text range, the text of one selected shape, or a Sheets cell."""
     selection = controller.getSelection()

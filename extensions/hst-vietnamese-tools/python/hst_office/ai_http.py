@@ -79,8 +79,17 @@ def main():
         status, body = send(args)
         sys.stdout.buffer.write(json.dumps({"status": status, "body": body.decode("utf-8", "replace")}).encode())
         return 0
-    except Exception:  # noqa: BLE001 - never echo the key, URLs, proxy credentials or TLS details
+    except Exception as error:  # noqa: BLE001 - never echo the key, URLs, proxy credentials or TLS details
+        if _timed_out(error):  # the provider stopped answering: not a connection problem of the user
+            sys.stdout.buffer.write(b'{"timeout": true}')
+            return 0
         return 1
+
+
+def _timed_out(error):
+    """A connect or read timeout, bare or wrapped by urllib (socket.timeout is TimeoutError)."""
+    return isinstance(error, TimeoutError) or (isinstance(error, urllib.error.URLError)
+                                               and isinstance(error.reason, TimeoutError))
 
 
 if __name__ == "__main__":

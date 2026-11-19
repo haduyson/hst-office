@@ -69,6 +69,11 @@ def http_transport(timeout=DEADLINE):
             raise AiError("network") from exc
         try:
             reply = json.loads(data)
+        except ValueError as exc:
+            raise AiError("reply") from exc
+        if isinstance(reply, dict) and reply.get("timeout") is True:  # the helper's own socket timeout fired
+            raise AiError("timeout")
+        try:
             return int(reply["status"]), reply.get("body", "").encode("utf-8")
         except (ValueError, KeyError, TypeError) as exc:
             raise AiError("reply") from exc

@@ -28,7 +28,7 @@ from hst_office.ai_document import excel_to_api  # noqa: E402
 from hst_office.ai_handler import command_enabled  # noqa: E402
 from hst_office.ai_options import changes_from_page, provider_at  # noqa: E402
 from hst_office.ai_providers import AiError  # noqa: E402
-from hst_office.ai_texts import ERRORS, WRITING_MODES, error_text, extract_formula, writing_system  # noqa: E402
+from hst_office.ai_texts import ERRORS, TEXT, WRITING_MODES, error_text, extract_formula, writing_system  # noqa: E402
 
 
 def answer(provider, text="Xin chào", **extra):
@@ -303,6 +303,145 @@ class KeystoreTests(unittest.TestCase):
     def test_platform_choice(self):
         with mock.patch("hst_office.ai_keystore_linux.Store", side_effect=OSError("no libsecret")):
             self.assertIsNone(ai_keystore.os_store("linux"))
+
+
+class FormulaColumnsTests(unittest.TestCase):
+    """"Viết công thức" sends the data region's address and column names, never a data value."""
+    DATA = [("Khu vực", "Tháng", "Doanh thu"), ("Hà Nội", 1, 120), ("Đà Nẵng", 1, 80), ("Hà Nội", 2, 150),
+            ("TP.HCM", 2, 200), ("Hà Nội", 3, 90)]
+
+    def sheet(self, data):
+        rows, cols = len(data), max(len(r) for r in data)
+
+        class Address:
+            def __init__(self, c1, r1, c2, r2):
+                self.StartColumn, self.StartRow, self.EndColumn, self.EndRow = c1, r1, c2, r2
+
+        def name(col, row):
+            return "$%s$%d" % (chr(65 + col), row + 1)
+
+        class Cell:
+            def __init__(self, col, row):
+                self.col, self.row = col, row
+                value = data[row][col] if row < rows and col < len(data[row]) else None
+                self.value = value
+                self.AbsoluteName = "$Sheet1." + name(col, row)
+
+            def getType(self):
+                kind = "EMPTY" if self.value is None else "TEXT" if isinstance(self.value, str) else "VALUE"
+                return types.SimpleNamespace(value=kind)
+
+            def getString(self):
+                return "" if self.value is None else str(self.value)
+
+        class Cursor:
+            def __init__(self, cell=None):
+                self.cell = cell
+                self.area = Address(cell.col, cell.row, cell.col, cell.row) if cell else None
+
+            def collapseToCurrentRegion(self):
+                if self.cell.col < cols and self.cell.row < rows:
+                    self.area = Address(0, 0, cols - 1, rows - 1)
+
+            def gotoStartOfUsedArea(self, expand):
+                pass
+
+            def gotoEndOfUsedArea(self, expand):
+                self.area = Address(0, 0, cols - 1, rows - 1)
+
+            def getRangeAddress(self):
+                return self.area
+
+        class Sheet:
+            def createCursorByRange(self, cell):
+                return Cursor(cell)
+
+            def createCursor(self):
+                return Cursor()
+
+            def getCellByPosition(self, col, row):
+                return Cell(col, row)
+
+            def getCellRangeByPosition(self, c1, r1, c2, r2):
+                return types.SimpleNamespace(AbsoluteName="$Sheet1.%s:%s" % (name(c1, r1), name(c2, r2)))
+        return Sheet(), Cell
+
+    def request(self, data, col, row):
+        from hst_office.ai_document import cell_name, data_region
+        from hst_office.ai_texts import formula_request
+        sheet, cell_type = self.sheet(data)
+        controller = mock.Mock(getActiveSheet=mock.Mock(return_value=sheet))
+        cell = cell_type(col, row)
+        region = data_region(controller, cell)
+        return region, formula_request("Tổng doanh thu của khu vực Hà Nội", cell_name(cell), region)
+
+    def test_headers_and_range_are_sent_but_no_data_value(self):
+        region, text = self.request(self.DATA, 4, 1)  # E2, next to the data
+        self.assertEqual(region, ("A1:C6", [("A", "Khu vực"), ("B", "Tháng"), ("C", "Doanh thu")]))
+        for wanted in ("E2", "A1:C6", "A = Khu vực", "B = Tháng", "C = Doanh thu"):
+            self.assertIn(wanted, text)
+        for value in ("Đà Nẵng", "TP.HCM", "120", "80", "150", "200", "90"):
+            self.assertNotIn(value, text)
+        self.assertEqual(text.count("Hà Nội"), 1)  # only the user's own description
+
+    def test_no_header_row_sends_the_description_alone(self):
+        numbers = [(1, 2), (3, 4)]
+        region, text = self.request(numbers, 3, 0)
+        self.assertIsNone(region)
+        self.assertEqual(text, "Tổng doanh thu của khu vực Hà Nội Công thức sẽ đặt tại ô D1.")
+
+    def test_dialog_note_says_only_column_names(self):
+        self.assertEqual(TEXT["columns_note"], "Sẽ gửi tên cột của bảng (không gửi số liệu).")
+
+
+class LiveProviderFindingsTests(unittest.TestCase):
+    """What a real free-tier Gemini key showed: the default model must answer, an overloaded model must point to
+    another one, a stalled connection is a timeout (not "no connection"), and a rate limit is not "out of money"."""
+
+    def test_default_gemini_model_is_the_one_that_answers_on_the_free_tier(self):
+        self.assertEqual(ai_config.model_for({}, "gemini"), "gemini-3.6-flash")
+        self.assertIn("gemini-3.8-flash", providers.PROVIDERS["gemini"]["models"])
+
+    def test_overloaded_server_suggests_another_model(self):
+        text = error_text(AiError("server", "This model is currently experiencing high demand."))
+        self.assertIn("chọn mô hình khác", text)
+        self.assertIn("Tùy chọn", text)
+        self.assertTrue(text.endswith("(This model is currently experiencing high demand.)"))
+
+    def test_quota_says_rate_or_plan_limit_and_keeps_the_provider_text(self):
+        text = error_text(AiError("quota", "You exceeded your current quota."))
+        self.assertIn("vượt hạn mức (giới hạn số lượt hoặc hết hạn mức của gói)", text)
+        self.assertNotIn("hết tiền", text)
+        self.assertTrue(text.endswith("(You exceeded your current quota.)"))
+
+    def _helper_reply(self, raised):
+        import io
+        stdin = io.BytesIO(json.dumps({"provider": "gemini"}).encode())
+        stdout = io.BytesIO()
+        with mock.patch.object(ai_http, "send", side_effect=raised), \
+                mock.patch.object(sys, "stdin", mock.Mock(buffer=stdin)), \
+                mock.patch.object(sys, "stdout", mock.Mock(buffer=stdout)):
+            code = ai_http.main()
+        return code, stdout.getvalue()
+
+    def test_helper_reports_a_read_or_connect_timeout_as_timeout(self):
+        import socket
+        import urllib.error
+        for raised in (socket.timeout("timed out"), TimeoutError("timed out"),
+                       urllib.error.URLError(socket.timeout("timed out"))):
+            code, out = self._helper_reply(raised)
+            self.assertEqual((code, json.loads(out)), (0, {"timeout": True}), raised)
+        code, out = self._helper_reply(urllib.error.URLError(ConnectionRefusedError()))
+        self.assertEqual((code, out), (1, b""))
+
+    def test_client_maps_the_helper_timeout_to_the_timeout_message(self):
+        from hst_office import banner_fetch
+        settings = ai_client.Settings("gemini", "gemini-3.6-flash", "test-key-12345678", "1.0.3")
+        request = providers.chat_request("gemini", "gemini-3.6-flash", "s", "p")
+        with mock.patch.object(banner_fetch, "_run", return_value=b'{"timeout": true}'):
+            with self.assertRaises(AiError) as caught:
+                ai_client.http_transport()(request, settings)
+        self.assertEqual(caught.exception.kind, "timeout")
 
 
 if __name__ == "__main__":
