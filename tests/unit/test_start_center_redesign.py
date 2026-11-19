@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """The new Start Center (hst-start-center-redesign.patch), read from the patch: the menu of the left column
 (no shared files, no account), the HASON TECH solutions that mirror data/hst/solutions.json, the tiles and the
-ids automation uses, the Vietnamese texts, and the thin hook into LibreOffice's files."""
+ids automation uses, the Vietnamese texts, the HST application icons, the shared HST design tokens and the thin
+hook into LibreOffice's files."""
 import json
 import os
 import re
@@ -14,16 +15,26 @@ from patch_sections import added, po_entries, sections
 PATCH = "hst-start-center-redesign.patch"
 UI = "sfx2/uiconfig/ui/hststartcenter.ui"
 WINDOW = "sfx2/source/startcenter/hststartcenterwindow.cxx"
+ICONS = "sfx2/source/startcenter/hststartcentericons.cxx"
 HRC = "sfx2/inc/startcenter/hststartcenter.hrc"
 PO = "translations/source/vi/sfx2/messages.po"
 HOOK = "sfx2/source/dialog/backingcomp.cxx"
+TOKENS_HXX = "include/vcl/hst/designtokens.hxx"
+TOKENS = "vcl/source/hst/designtokens.cxx"
+HELPERS = "vcl/source/hst/drawhelpers.cxx"
 SERIES = os.path.join(ROOT, "patches", "libreoffice", "series")
 
-MENU = [("nav_home", "Home", "Trang chủ"), ("nav_new", "New Document", "Tài liệu mới"),
-        ("open_all", "Open File", "Mở tệp"), ("nav_unsaved", "Unsaved Documents", "Tài liệu chưa lưu"),
-        ("nav_recent", "Recent", "Gần đây"),
-        ("nav_pinned", "Pinned", "Đã ghim"), ("nav_update", "Update HST Office", "Cập nhật HST Office")]
+# the menu, in display order: its string, its context and its texts
+MENU = [("STR_HST_SC_NAV_HOME", "nav_home", "Home", "Trang chủ"),
+        ("STR_HST_SC_NAV_NEW", "nav_new", "New Document", "Tài liệu mới"),
+        ("STR_HST_SC_NAV_OPEN", "open_all", "Open File", "Mở tệp"),
+        ("STR_HST_SC_NAV_UNSAVED", "nav_unsaved", "Unsaved Documents", "Tài liệu chưa lưu"),
+        ("STR_HST_SC_NAV_RECENT", "nav_recent", "Recent", "Gần đây"),
+        ("STR_HST_SC_NAV_PINNED", "nav_pinned", "Pinned", "Đã ghim"),
+        ("STR_HST_SC_NAV_UPDATE", "nav_update", "Update HST Office", "Cập nhật HST Office")]
 TILES = [("writer_all", "Văn bản"), ("calc_all", "Bảng tính"), ("impress_all", "Trình chiếu")]
+ICON_ASSETS = {"SVG_WRITER": "hst-writer.svg", "SVG_SHEETS": "hst-sheets.svg", "SVG_SLIDES": "hst-slides.svg",
+               "SVG_DRAW": "hst-draw.svg", "SVG_PDF": "hst-pdf.svg"}
 
 
 def decode(literal):
@@ -37,16 +48,12 @@ class StartCenterRedesignTest(unittest.TestCase):
         cls.ui_text = added(PATCH, UI)
         cls.ui = ET.fromstring(cls.ui_text.encode("utf-8"))
         cls.po = po_entries(added(PATCH, PO))
+        cls.hrc = dict((name, (context, english)) for name, context, english in re.findall(
+            r'#define (STR_HST_SC_\w+)\s+NC_\("([^"]+)", "([^"]*)"\)', added(PATCH, HRC)))
+        cls.window = added(PATCH, WINDOW)
 
-    def ids(self, element):
-        return [o.get("id") for o in element.iter("object") if o.get("id")]
-
-    def label(self, object_id):
-        for o in self.ui.iter("object"):
-            if o.get("id") == object_id:
-                prop = o.find("property[@name='label']")
-                return prop.text if prop is not None else None
-        return None
+    def ids(self):
+        return [o.get("id") for o in self.ui.iter("object") if o.get("id")]
 
     def test_series_position(self):
         with open(SERIES, encoding="utf-8") as handle:
@@ -57,55 +64,55 @@ class StartCenterRedesignTest(unittest.TestCase):
             self.assertLess(names.index(earlier), names.index(PATCH))
 
     def test_menu_items_in_order(self):
-        left = next(o for o in self.ui.iter("object") if o.get("id") == "leftcol")
-        buttons = [o.get("id") for o in left.iter("object") if o.get("class") == "GtkButton"
-                   and o.get("id").startswith(("nav_", "open_all"))]
-        self.assertEqual([m[0] for m in MENU], buttons)
-        for object_id, english, vietnamese in MENU:
-            self.assertEqual(english, self.label(object_id))
-            self.assertEqual((english, vietnamese), self.po["hststartcenter|" + object_id])
+        order = re.search(r"const TranslateId aNav\[NAV_COUNT\]\s*=\s*\{([^}]*)\}", self.window)
+        self.assertEqual([m[0] for m in MENU], re.findall(r"STR_HST_SC_NAV_\w+", order.group(1)))
+        for name, context, english, vietnamese in MENU:
+            self.assertEqual(("hststartcenter|" + context, english), self.hrc[name])
+            self.assertEqual((english, vietnamese), self.po["hststartcenter|" + context])
+
+    def test_only_search_and_banner_are_widgets(self):
+        # everything else is drawn by the canvas
+        self.assertEqual(["SearchBox", "search", "search-atkobject", "BannerBox", "banner", "banner-atkobject"],
+                         self.ids())
 
     def test_no_shared_files_and_no_account(self):
-        for object_id in self.ids(self.ui):
-            self.assertNotRegex(object_id.lower(), "share|account|avatar|user")
-        for text in re.findall(r">([^<>]+)</property>", self.ui_text):
-            self.assertNotIn(text.strip(), ("Shared", "Shared with Me", "Account", "Được chia sẻ"))
+        for name, (context, english) in self.hrc.items():
+            self.assertNotRegex((context + english).lower(), "share|account|avatar")
         for _, msgstr in self.po.values():
             self.assertNotIn("chia sẻ", msgstr)
+        self.assertNotRegex(self.window.lower(), "account|avatar")
 
     def test_tiles_and_automation_ids(self):
-        ids = self.ids(self.ui)
         for object_id, vietnamese in TILES:
-            self.assertIn(object_id, ids)
             self.assertEqual(vietnamese, self.po["hststartcenter|" + object_id][1])
-        # the former Start Center's ids: LibreOffice's UI tests create documents through them
-        for object_id in ("draw_all", "math_all", "database_all", "open_all"):
-            self.assertIn(object_id, ids)
-        window = added(PATCH, WINDOW)
-        self.assertIn('{ u"writer_all"_ustr, u"private:factory/swriter"_ustr }', window)
-        self.assertIn('{ u"calc_all"_ustr, u"private:factory/scalc"_ustr }', window)
-        self.assertIn('{ u"impress_all"_ustr, u"private:factory/simpress?slot=6686"_ustr }', window)
-        self.assertIn('UPDATE_CHECK = u"org.hst.office.update:Check"_ustr', window)
-        self.assertIn('UNSAVED_DOCUMENTS = u"org.hst.office.vi:UnsavedDocuments"_ustr', window)
+        self.assertIn('{ u"writer_all"_ustr, u"private:factory/swriter"_ustr }', self.window)
+        self.assertIn('{ u"calc_all"_ustr, u"private:factory/scalc"_ustr }', self.window)
+        self.assertIn('{ u"impress_all"_ustr, u"private:factory/simpress?slot=6686"_ustr }', self.window)
+        # the former Start Center's ids: automation creates documents through them
+        for object_id in ("draw_all", "math_all", "database_all"):
+            self.assertRegex(self.window, r'\{ u"%s"_ustr, u"private:factory/' % object_id)
+        self.assertIn('u"open_all"_ustr', self.window)
+        self.assertIn('UPDATE_CHECK = u"org.hst.office.update:Check"_ustr', self.window)
+        self.assertIn('UNSAVED_DOCUMENTS = u"org.hst.office.vi:UnsavedDocuments"_ustr', self.window)
 
     def test_solutions_mirror_data(self):
         with open(os.path.join(ROOT, "data", "hst", "solutions.json"), encoding="utf-8") as handle:
             expected = [(s["name"], s["tagline"], s["url"]) for s in json.load(handle)["solutions"]]
         rows = re.findall(r'^\s*\{ u"([^"]*)"_ustr,\n\s*u"([^"]*)"_ustr,\n\s*u"([^"]*)"_ustr \},',
-                          added(PATCH, WINDOW), re.M)
+                          self.window, re.M)
         self.assertEqual(expected, [tuple(decode(part) for part in row) for row in rows])
-        self.assertIn("utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0",
-                      added(PATCH, WINDOW))
+        self.assertIn("utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0", self.window)
+        self.assertIn('MORE_SOLUTIONS_TEXT = u"Xem thêm các giải pháp khác →"_ustr', self.window)
 
     def test_every_text_is_translated(self):
         for match in re.finditer(r'context="(hststartcenter\|[^"]+)">([^<]+)<', self.ui_text):
             context, english = match.group(1), match.group(2)
-            self.assertIn(context, self.po)
             self.assertEqual(english, self.po[context][0])
             self.assertTrue(self.po[context][1])
-        for context, english in re.findall(r'NC_\("(STR_HST_SC_\w+)", "([^"]*)"\)', added(PATCH, HRC)):
-            self.assertEqual(english, self.po[context][0])
-            self.assertTrue(self.po[context][1])
+        for name, (context, english) in self.hrc.items():
+            self.assertIn(context, self.po, name)
+            self.assertEqual(english, self.po[context][0], name)
+            self.assertTrue(self.po[context][1], name)
         self.assertEqual("Chào mừng bạn quay lại", self.po["hststartcenter|welcome"][1])
         self.assertEqual("Tìm kiếm tài liệu gần đây", self.po["hststartcenter|search"][1])
         self.assertEqual("Tạo nhanh tài liệu mới", self.po["hststartcenter|quicktitle"][1])
@@ -113,6 +120,31 @@ class StartCenterRedesignTest(unittest.TestCase):
         self.assertEqual(["Tên", "Đã mở", "Vị trí"],
                          [self.po["hststartcenter|recentcol%d" % i][1] for i in range(3)])
         self.assertEqual("Được ghim", self.po["hststartcenter|pinnedtitle"][1])
+
+    def test_app_icons_are_the_brand_assets(self):
+        # the HST application icons, embedded verbatim (the branding files are not all installed)
+        icons = added(PATCH, ICONS)
+        for constant, asset in ICON_ASSETS.items():
+            embedded = re.search(r'%s = R"HSTSVG\((.*?)\)HSTSVG"' % constant, icons, re.S)
+            self.assertIsNotNone(embedded, constant)
+            with open(os.path.join(ROOT, "assets", "brand", "icons", asset), encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), embedded.group(1), asset)
+
+    def test_visual_constants_are_design_tokens(self):
+        # every colour lives in the shared HST tokens; the Start Center's sources hold none of their own
+        for path in sections(PATCH):
+            if "/startcenter/" in path and path != ICONS:
+                self.assertNotRegex(added(PATCH, path), r"Color\(0x|\bCOL_(?!TRANSPARENT\b|WHITE\b|BLACK\b)[A-Z]", path)
+        tokens = added(PATCH, TOKENS)
+        for hex_colour in ("0xEC, 0xF3, 0xFC", "0xEA, 0xF2, 0xFD", "0x15, 0x4A, 0x9E", "0x1A, 0x56, 0xC8"):
+            self.assertIn(hex_colour, tokens)
+        header = added(PATCH, TOKENS_HXX)
+        for token in ("namespace radius", "namespace space", "namespace type", "namespace icon",
+                      "SHADOW_LAYERS", "FOCUS_RING_WIDTH", "aPressed", "aHover"):
+            self.assertIn(token, header)
+        helpers = added(PATCH, HELPERS)
+        for helper in ("DrawRoundRect", "DrawCard", "DrawPill", "DrawBadge", "DrawFocusRing", "DrawBackground"):
+            self.assertIn("void %s(" % helper, helpers)
 
     def test_ui_has_no_empty_property(self):
         # VclBuilder (Windows, macOS, gen) nests the following siblings into a self-closing property element
@@ -123,7 +155,8 @@ class StartCenterRedesignTest(unittest.TestCase):
         hook = [line for line in parts[HOOK] if line[:1] in "+-" and not line.startswith(("+++", "---"))]
         self.assertLessEqual(len(hook), 8)
         for path in parts:
-            if "/startcenter/" in path or path.endswith(("hststartcenter.ui", "CppunitTest_sfx2_hst_startcenter.mk")):
+            if ("/startcenter/" in path or "/hst/" in path
+                    or path.endswith(("hststartcenter.ui", "CppunitTest_sfx2_hst_startcenter.mk"))):
                 self.assertIn("LicenseRef-HST-Proprietary", added(PATCH, path), path)
 
 
