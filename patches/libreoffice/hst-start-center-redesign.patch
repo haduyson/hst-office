@@ -1,0 +1,3970 @@
+HST Office: the new Start Center (the window shown when no document is open).
+
+- Left: the HST Office logo; Trang chủ, Tài liệu mới (menu: Văn bản, Bảng tính, Trình chiếu, Bản vẽ, Từ mẫu…),
+  Mở tệp, Tài liệu chưa lưu (org.hst.office.vi:UnsavedDocuments), Gần đây, Đã ghim, Cập nhật HST Office (org.hst.office.update:Check, the ribbon Help tab's update
+  check); below a separator the HASON TECH block: the rotating banner (vcl HstBannerWidget, signed feed fetched
+  on worker threads), the six solutions and the link to hasontech.vn. No shared files, no account.
+- Centre: welcome, a search box that filters the recent documents by name with or without Vietnamese accents,
+  three tiles (text document, spreadsheet, presentation) and the recent documents table (Tên, Đã mở, Vị trí,
+  pin, "⋯" menu: Mở, Mở vị trí tệp, Ghim/Bỏ ghim, Xóa khỏi danh sách).
+- Right: the pinned files (the history's own pinned flag, kept in the profile).
+- Narrow windows: the pinned column folds into the table, then the menu shows glyphs only. File times are read
+  on a worker thread; no thumbnails are loaded.
+
+Hook: sfx2/source/dialog/backingcomp.cxx creates HstStartCenterWindow instead of BackingWindow (4 lines);
+makefile and translation entries. The logic is in new HST files (LicenseRef-HST-Proprietary):
+sfx2/source/startcenter/*, sfx2/inc/startcenter/*, sfx2/uiconfig/ui/hststartcenter.ui.
+Test: CppunitTest_sfx2_hst_startcenter.
+---
+diff --git a/sfx2/CppunitTest_sfx2_hst_startcenter.mk b/sfx2/CppunitTest_sfx2_hst_startcenter.mk
+new file mode 100644
+index 0000000..3be376d
+--- /dev/null
++++ b/sfx2/CppunitTest_sfx2_hst_startcenter.mk
+@@ -0,0 +1,56 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++# HST Office: the Start Center (menu, search, pinning, update command, tiles).
++
++$(eval $(call gb_CppunitTest_CppunitTest,sfx2_hst_startcenter))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sfx2_hst_startcenter, \
++    sfx2/qa/cppunit/hststartcenter \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sfx2_hst_startcenter,\
++    -I$(SRCDIR)/sfx2/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,sfx2_hst_startcenter,\
++    boost_headers \
++    libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sfx2_hst_startcenter, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    sal \
++    sfx \
++    subsequenttest \
++    test \
++    tk \
++    tl \
++    unotest \
++    utl \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sfx2_hst_startcenter))
++
++$(eval $(call gb_CppunitTest_use_ure,sfx2_hst_startcenter))
++$(eval $(call gb_CppunitTest_use_vcl,sfx2_hst_startcenter))
++
++$(eval $(call gb_CppunitTest_use_rdb,sfx2_hst_startcenter,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sfx2_hst_startcenter))
++
++$(eval $(call gb_CppunitTest_use_uiconfigs,sfx2_hst_startcenter, \
++    modules/scalc \
++    modules/simpress \
++    modules/swriter \
++    sfx \
++    svt \
++    svx \
++))
++
++# vim: set noet sw=4 ts=4:
+diff --git a/sfx2/Library_sfx.mk b/sfx2/Library_sfx.mk
+index 7aebd3e..8422110 100644
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -91,6 +91,11 @@ ifneq ($(ENABLE_WASM_STRIP_RECENT),TRUE)
+ $(eval $(call gb_Library_add_exception_objects,sfx,\
+     sfx2/source/dialog/backingcomp \
+     sfx2/source/dialog/backingwindow \
++    sfx2/source/startcenter/hststartcenterfiles \
++    sfx2/source/startcenter/hststartcenterpaint \
++    sfx2/source/startcenter/hststartcenterrecent \
++    sfx2/source/startcenter/hststartcentersearch \
++    sfx2/source/startcenter/hststartcenterwindow \
+     sfx2/source/backstage/hstbackstage \
+     sfx2/source/backstage/hstbackstagedata \
+     sfx2/source/backstage/hstbackstageprint \
+diff --git a/sfx2/Module_sfx2.mk b/sfx2/Module_sfx2.mk
+index 7ab6a96..bda8838 100644
+--- a/sfx2/Module_sfx2.mk
++++ b/sfx2/Module_sfx2.mk
+@@ -39,6 +39,7 @@ $(eval $(call gb_Module_add_check_targets,sfx2,\
+     CppunitTest_sfx2_doc \
+     CppunitTest_sfx2_autoredaction \
+     CppunitTest_sfx2_hst_update_dot \
++    CppunitTest_sfx2_hst_startcenter \
+ ))
+ 
+ $(eval $(call gb_Module_add_subsequentcheck_targets,sfx2,\
+diff --git a/sfx2/UIConfig_sfx.mk b/sfx2/UIConfig_sfx.mk
+index 92f4b4e..8495a8c 100644
+--- a/sfx2/UIConfig_sfx.mk
++++ b/sfx2/UIConfig_sfx.mk
+@@ -44,6 +44,7 @@ $(eval $(call gb_UIConfig_add_uifiles,sfx,\
+ 	sfx2/uiconfig/ui/hstbackstage \
+ 	sfx2/uiconfig/ui/hstribboncustomizedialog \
+ 	sfx2/uiconfig/ui/hstdefaultscopedialog \
++	sfx2/uiconfig/ui/hststartcenter \
+ 	sfx2/uiconfig/ui/infobar \
+ 	sfx2/uiconfig/ui/inputdialog \
+ 	sfx2/uiconfig/ui/licensedialog \
+diff --git a/sfx2/inc/startcenter/hststartcenter.hrc b/sfx2/inc/startcenter/hststartcenter.hrc
+new file mode 100644
+index 0000000..157a7e3
+--- /dev/null
++++ b/sfx2/inc/startcenter/hststartcenter.hrc
+@@ -0,0 +1,21 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <unotools/resmgr.hxx>
++
++// HST Office Start Center texts set by the code (the others are in sfx2/uiconfig/ui/hststartcenter.ui);
++// the Vietnamese translations are in translations/source/vi/sfx2/messages.po.
++
++#define NC_(Context, String) TranslateId(Context, u8##String)
++
++#define STR_HST_SC_NO_MATCH             NC_("STR_HST_SC_NO_MATCH", "No recent document matches “%1”.")
++#define STR_HST_SC_RECENT_HINT          NC_("STR_HST_SC_RECENT_HINT", "Enter opens the file, Space pins or unpins it, the context menu key shows more actions.")
++#define STR_HST_SC_PINNED_STATE         NC_("STR_HST_SC_PINNED_STATE", "Pinned")
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/inc/startcenter/hststartcentersearch.hxx b/sfx2/inc/startcenter/hststartcentersearch.hxx
+new file mode 100644
+index 0000000..3db49e3
+--- /dev/null
++++ b/sfx2/inc/startcenter/hststartcentersearch.hxx
+@@ -0,0 +1,28 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <sfx2/dllapi.h>
++
++#include <string_view>
++
++/* HST Office Start Center: the search box over the recent documents finds a file whether the user
++   types its name with Vietnamese accents or without them ("bao cao" finds "Báo cáo quý 3.docx"). */
++namespace sfx2::hst::startcenter
++{
++/** The text in lower case, every accent and tone mark removed and đ/Đ written as d. */
++SFX2_DLLPUBLIC OUString FoldForSearch(std::u16string_view aText);
++
++/** True when every word of the folded query occurs in the folded name (in any order).
++    An empty or blank query matches every name. */
++SFX2_DLLPUBLIC bool MatchesFoldedQuery(std::u16string_view aFoldedName,
++                                       std::u16string_view aFoldedQuery);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/inc/startcenter/hststartcenterwindow.hxx b/sfx2/inc/startcenter/hststartcenterwindow.hxx
+new file mode 100644
+index 0000000..0e87d1e
+--- /dev/null
++++ b/sfx2/inc/startcenter/hststartcenterwindow.hxx
+@@ -0,0 +1,207 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <com/sun/star/datatransfer/dnd/XDropTarget.hpp>
++#include <com/sun/star/datatransfer/dnd/XDropTargetListener.hpp>
++#include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <com/sun/star/frame/XFrame.hpp>
++#include <rtl/ustring.hxx>
++#include <tools/datetime.hxx>
++#include <vcl/InterimItemWindow.hxx>
++#include <vcl/weld/TreeView.hxx>
++
++#include <memory>
++#include <unordered_map>
++#include <vector>
++
++class CommandEvent;
++class KeyEvent;
++class MouseEvent;
++
++class HstBannerWidget;
++struct ImplSVEvent;
++namespace svt
++{
++class AcceleratorExecute;
++}
++namespace weld
++{
++class Button;
++class Container;
++class CustomWeld;
++class Entry;
++class Image;
++class Label;
++class Menu;
++class TreeIter;
++class TreeView;
++class Widget;
++}
++namespace sfx2::hst::startcenter
++{
++struct Palette;
++struct RecentFile;
++class RecentFileTimes;
++}
++
++/** HST Office: the Start Center, the window shown when no document is open (sfx/ui/hststartcenter.ui).
++    Left: the HST Office logo, the menu (Home, New document, Open file, Recent, Pinned, Update HST Office)
++    and the HASON TECH solutions; centre: the welcome, a search over the recent documents, three tiles
++    that create a text document, a spreadsheet or a presentation, and the recent documents table;
++    right: the pinned files. The recent documents and their pinning are the profile's history. */
++class HstStartCenterWindow final : public InterimItemWindow
++{
++public:
++    explicit HstStartCenterWindow(vcl::Window* pParent);
++    virtual ~HstStartCenterWindow() override;
++    virtual void dispose() override;
++
++    virtual bool PreNotify(NotifyEvent& rNEvt) override;
++    virtual void Resize() override;
++    virtual void GetFocus() override;
++    virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
++
++    /** The frame the Start Center is shown in (dispatches and accelerators go through it). */
++    void setOwningFrame(const css::uno::Reference<css::frame::XFrame>& xFrame);
++    /** The recent documents history was cleared: show it again. */
++    void clearRecentFileList();
++
++    /** Pins a recent file that is not pinned and unpins a pinned one. */
++    void TogglePinned(const OUString& rURL);
++
++private:
++    struct MenuItem;
++    struct Tile;
++    class HoverWatch;
++    enum class Section
++    {
++        Home,
++        Recent,
++        Pinned
++    };
++
++    void InitMenu();
++    void InitSolutions();
++    void InitTiles();
++    void InitLists();
++    void ApplyStyle();
++    void UpdateLayout();
++    void PaintMenuItem(size_t nIndex);
++    void PaintTile(size_t nIndex);
++    void SetHover(int nMenu, int nTile);
++    void SelectSection(Section eSection);
++
++    void ReloadFiles();
++    void FillRecentList();
++    void FillPinnedList();
++    void SetFileTimes(const std::vector<OUString>& rURLs, const std::vector<DateTime>& rTimes);
++    const sfx2::hst::startcenter::RecentFile* FindFile(const OUString& rURL) const;
++
++    void OpenFile(const OUString& rURL);
++    void OpenFolder(const OUString& rURL);
++    void RemoveFromList(const OUString& rURL);
++    void ShowFileMenu(weld::TreeView& rList, const OUString& rURL, const tools::Rectangle& rRect);
++    void PostAction(const OUString& rAction, const OUString& rURL, weld::TreeView* pList = nullptr,
++                    const tools::Rectangle& rRect = tools::Rectangle());
++    void RunAction(const OUString& rAction, const OUString& rURL, weld::TreeView* pList,
++                   const tools::Rectangle& rRect);
++    void ShowContextMenu(weld::TreeView& rList, const CommandEvent& rEvent);
++    void Dispatch(const OUString& rURL, const OUString& rTarget, bool bViaFrame,
++                  const css::uno::Sequence<css::beans::PropertyValue>& rArgs = {});
++    void FocusRegion(int nDelta);
++
++    DECL_LINK(MenuClickHdl, weld::Button&, void);
++    DECL_LINK(TileClickHdl, weld::Button&, void);
++    DECL_LINK(SolutionClickHdl, weld::Button&, void);
++    DECL_LINK(SearchChangedHdl, weld::Entry&, void);
++    DECL_LINK(SearchActivateHdl, weld::Entry&, bool);
++    DECL_LINK(RecentActivatedHdl, const weld::TreeIter&, bool);
++    DECL_LINK(PinnedActivatedHdl, const weld::TreeIter&, bool);
++    DECL_LINK(RecentKeyHdl, const KeyEvent&, bool);
++    DECL_LINK(PinnedKeyHdl, const KeyEvent&, bool);
++    DECL_LINK(RecentMouseHdl, const MouseEvent&, bool);
++    DECL_LINK(RecentCommandHdl, const CommandEvent&, bool);
++    DECL_LINK(PinnedCommandHdl, const CommandEvent&, bool);
++    DECL_LINK(RecentTooltipHdl, const weld::TreeIter&, OUString);
++    DECL_LINK(PinnedTooltipHdl, const weld::TreeIter&, OUString);
++    DECL_LINK(PinnedRowSizeHdl, weld::TreeView::get_size_args, Size);
++    DECL_LINK(PinnedRowRenderHdl, weld::TreeView::render_args, void);
++    DECL_LINK(TileSizeHdl, const Size&, void);
++    DECL_LINK(RecentSizeHdl, const Size&, void);
++    DECL_LINK(PendingActionHdl, void*, void);
++
++    css::uno::Reference<css::frame::XDispatchProvider> mxDesktop;
++    css::uno::Reference<css::frame::XFrame> mxFrame;
++    css::uno::Reference<css::datatransfer::dnd::XDropTarget> mxDropTarget;
++    css::uno::Reference<css::datatransfer::dnd::XDropTargetListener> mxDropListener;
++    std::unique_ptr<svt::AcceleratorExecute> mpAccExec;
++
++    // left column
++    std::unique_ptr<weld::Widget> mxLeftView; ///< the scrolled area behind the left column
++    std::unique_ptr<weld::Container> mxLeft;
++    std::unique_ptr<weld::Image> mxLogo;
++    std::vector<MenuItem> maMenu;
++    std::unique_ptr<weld::Menu> mxNewMenu;
++    std::unique_ptr<weld::Widget> mxSeparator;
++    std::unique_ptr<weld::Container> mxSolutions;
++    std::unique_ptr<weld::Label> mxSolutionsTitle;
++    std::unique_ptr<HstBannerWidget> mxBanner;
++    std::unique_ptr<weld::CustomWeld> mxBannerWeld;
++    std::vector<std::unique_ptr<weld::Button>> maSolutionButtons;
++    std::unique_ptr<weld::Button> mxMoreSolutions;
++
++    // centre
++    std::unique_ptr<weld::Container> mxCentre;
++    std::unique_ptr<weld::Label> mxWelcome;
++    std::unique_ptr<weld::Entry> mxSearch;
++    std::unique_ptr<weld::Label> mxQuickTitle;
++    std::vector<Tile> maTiles;
++    std::unique_ptr<weld::Button> mxDrawButton; ///< kept for automation, not shown
++    std::unique_ptr<weld::Button> mxMathButton; ///< kept for automation, not shown
++    std::unique_ptr<weld::Button> mxBaseButton; ///< kept for automation, not shown
++    std::unique_ptr<weld::Label> mxRecentTitle;
++    /// GTK keeps the scrolled window around a list; VCL folds it into the list (then this is null)
++    std::unique_ptr<weld::Widget> mxRecentScroll;
++    std::unique_ptr<weld::TreeView> mxRecentList;
++    std::unique_ptr<weld::Label> mxRecentEmpty;
++    std::unique_ptr<weld::Menu> mxFileMenu;
++
++    // right column
++    std::unique_ptr<weld::Container> mxRight;
++    std::unique_ptr<weld::Label> mxPinnedTitle;
++    std::unique_ptr<weld::Widget> mxPinnedScroll;
++    std::unique_ptr<weld::TreeView> mxPinnedList;
++    std::unique_ptr<weld::Label> mxPinnedEmpty;
++
++    std::unique_ptr<sfx2::hst::startcenter::Palette> mpPalette;
++    std::vector<sfx2::hst::startcenter::RecentFile> maFiles;
++    std::unordered_map<OUString, DateTime> maTimes; ///< file times by URL, once read
++    std::unique_ptr<sfx2::hst::startcenter::RecentFileTimes> mpTimes;
++    std::vector<int> maRecentWidths; ///< fixed widths of the recent table's columns
++    OUString maRecentTitleText;
++    OUString maRecentEmptyText;
++    OUString maPinnedEmptyText;
++    OUString maPendingAction;
++    OUString maPendingURL;
++    weld::TreeView* mpPendingList = nullptr;
++    tools::Rectangle maPendingRect;
++    ImplSVEvent* mpPendingEvent = nullptr;
++    Section meSection = Section::Home;
++    int mnHoverMenu = -1;
++    int mnHoverTile = -1;
++    double mfScale = 1.0;
++    weld::Widget* mpRecentFrame = nullptr; ///< what hides an empty list: its scrolled window, or the list
++    weld::Widget* mpPinnedFrame = nullptr;
++    int mnLeftWidth = 0; ///< device pixels, once laid out
++    bool mbCompact = false;
++    bool mbShowRight = true;
++    bool mbPinnedOnly = false;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/qa/cppunit/hststartcenter.cxx b/sfx2/qa/cppunit/hststartcenter.cxx
+new file mode 100644
+index 0000000..bbc78b6
+--- /dev/null
++++ b/sfx2/qa/cppunit/hststartcenter.cxx
+@@ -0,0 +1,336 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++// HST Office Start Center: the menu, the search over the recent documents (with and without
++// Vietnamese accents), pinning that stays in the profile, the update command and the three tiles.
++// The window is driven through its widgets, as automation and assistive tools see them.
++
++#include <test/unoapi_test.hxx>
++
++#include <startcenter/hststartcentersearch.hxx>
++
++#include <com/sun/star/awt/XWindow.hpp>
++#include <com/sun/star/frame/DispatchDescriptor.hpp>
++#include <com/sun/star/frame/StartModule.hpp>
++#include <com/sun/star/frame/XDispatch.hpp>
++#include <com/sun/star/frame/XDispatchProviderInterception.hpp>
++#include <com/sun/star/frame/XDispatchProviderInterceptor.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/util/XCloseable.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <rtl/ref.hxx>
++#include <toolkit/helper/vclunohelper.hxx>
++#include <tools/urlobj.hxx>
++#include <unotools/historyoptions.hxx>
++#include <vcl/event.hxx>
++#include <vcl/scheduler.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/uitest/uiobject.hxx>
++#include <vcl/vclevent.hxx>
++#include <vcl/window.hxx>
++
++#include <set>
++
++using namespace css;
++using sfx2::hst::startcenter::FoldForSearch;
++using sfx2::hst::startcenter::MatchesFoldedQuery;
++
++namespace
++{
++/** Records the commands the Start Center dispatches to its frame (the update check is a command of
++    the bundled extension, which the test environment does not have). */
++class RecordingInterceptor final
++    : public cppu::WeakImplHelper<frame::XDispatchProviderInterceptor, frame::XDispatch>
++{
++public:
++    std::vector<OUString> maDispatched;
++
++    uno::Reference<frame::XDispatch> SAL_CALL queryDispatch(const util::URL& rURL, const OUString& rTarget,
++                                                            sal_Int32 nFlags) override
++    {
++        if (rURL.Complete.startsWith("org.hst.office.update:")
++            || rURL.Complete == "org.hst.office.vi:UnsavedDocuments")
++            return this;
++        return mxSlave.is() ? mxSlave->queryDispatch(rURL, rTarget, nFlags) : nullptr;
++    }
++    uno::Sequence<uno::Reference<frame::XDispatch>>
++        SAL_CALL queryDispatches(const uno::Sequence<frame::DispatchDescriptor>& rRequests) override
++    {
++        uno::Sequence<uno::Reference<frame::XDispatch>> aResult(rRequests.getLength());
++        for (sal_Int32 i = 0; i < rRequests.getLength(); ++i)
++            aResult.getArray()[i] = queryDispatch(rRequests[i].FeatureURL, rRequests[i].FrameName,
++                                                  rRequests[i].SearchFlags);
++        return aResult;
++    }
++    uno::Reference<frame::XDispatchProvider> SAL_CALL getSlaveDispatchProvider() override { return mxSlave; }
++    void SAL_CALL setSlaveDispatchProvider(const uno::Reference<frame::XDispatchProvider>& x) override
++    {
++        mxSlave = x;
++    }
++    uno::Reference<frame::XDispatchProvider> SAL_CALL getMasterDispatchProvider() override { return mxMaster; }
++    void SAL_CALL setMasterDispatchProvider(const uno::Reference<frame::XDispatchProvider>& x) override
++    {
++        mxMaster = x;
++    }
++    void SAL_CALL dispatch(const util::URL& rURL, const uno::Sequence<beans::PropertyValue>&) override
++    {
++        maDispatched.push_back(rURL.Complete);
++    }
++    void SAL_CALL addStatusListener(const uno::Reference<frame::XStatusListener>&, const util::URL&) override {}
++    void SAL_CALL removeStatusListener(const uno::Reference<frame::XStatusListener>&, const util::URL&) override {}
++
++private:
++    uno::Reference<frame::XDispatchProvider> mxSlave;
++    uno::Reference<frame::XDispatchProvider> mxMaster;
++};
++
++OUString fileURL(std::u16string_view aName)
++{
++    INetURLObject aURL(u"file:///hst-start-center-test/Reports");
++    aURL.Append(aName);
++    return aURL.GetMainURL(INetURLObject::DecodeMechanism::NONE);
++}
++
++const std::u16string_view aNames[] = { u"Báo cáo tổng kết quý 3.docx", u"Kế hoạch ngân sách 2027.xlsx",
++                                       u"Bài thuyết trình giới thiệu sản phẩm.pptx" };
++
++class HstStartCenterTest : public UnoApiTest
++{
++public:
++    HstStartCenterTest()
++        : UnoApiTest(u"/sfx2/qa/cppunit/data/"_ustr)
++    {
++    }
++
++    void setUp() override
++    {
++        UnoApiTest::setUp();
++        SvtHistoryOptions::Clear(EHistoryType::PickList);
++        for (std::u16string_view aName : aNames)
++            SvtHistoryOptions::AppendItem(EHistoryType::PickList, fileURL(aName), OUString(),
++                                          OUString(aName), std::nullopt, std::nullopt);
++    }
++
++    void tearDown() override
++    {
++        closeFrame();
++        SvtHistoryOptions::Clear(EHistoryType::PickList);
++        UnoApiTest::tearDown();
++    }
++
++protected:
++    /** Shows the Start Center in a new frame, as the office does when no document is open. */
++    void openStartCenter()
++    {
++        closeFrame();
++        mxFrame = mxDesktop->findFrame(u"_blank"_ustr, 0);
++        uno::Reference<awt::XWindow> xContainer = mxFrame->getContainerWindow();
++        uno::Reference<frame::XController> xStart
++            = frame::StartModule::createWithParentWindow(m_xContext, xContainer);
++        uno::Reference<awt::XWindow> xComponentWindow(xStart, uno::UNO_QUERY_THROW);
++        mxFrame->setComponent(xComponentWindow, xStart);
++        xStart->attachFrame(mxFrame);
++        xContainer->setVisible(true);
++        Scheduler::ProcessEventsToIdle();
++
++        VclPtr<vcl::Window> pWindow = VCLUnoHelper::GetWindow(mxFrame->getComponentWindow());
++        CPPUNIT_ASSERT(pWindow);
++        mxRoot = pWindow->GetUITestFactory()(pWindow.get());
++        CPPUNIT_ASSERT(mxRoot);
++    }
++
++    void closeFrame()
++    {
++        mxRoot.reset();
++        if (!mxFrame.is())
++            return;
++        uno::Reference<util::XCloseable> xCloseable(mxFrame, uno::UNO_QUERY);
++        if (xCloseable.is())
++            xCloseable->close(true);
++        mxFrame.clear();
++        Scheduler::ProcessEventsToIdle();
++    }
++
++    vcl::Window* window() const
++    {
++        return VCLUnoHelper::GetWindow(mxFrame->getComponentWindow());
++    }
++
++    static vcl::Window* findWindow(vcl::Window* pParent, std::u16string_view aId)
++    {
++        for (vcl::Window* pChild = pParent ? pParent->GetWindow(GetWindowType::FirstChild) : nullptr; pChild;
++             pChild = pChild->GetWindow(GetWindowType::Next))
++        {
++            if (pChild->get_id() == aId)
++                return pChild;
++            if (vcl::Window* pFound = findWindow(pChild, aId))
++                return pFound;
++        }
++        return nullptr;
++    }
++
++    std::unique_ptr<UIObject> child(const OUString& rId)
++    {
++        std::unique_ptr<UIObject> xChild = mxRoot->get_child(rId);
++        CPPUNIT_ASSERT_MESSAGE(rId.toUtf8().getStr(), xChild);
++        return xChild;
++    }
++
++    sal_Int32 rows(const OUString& rList)
++    {
++        return child(rList)->get_state()[u"Children"_ustr].toInt32();
++    }
++
++    void search(const OUString& rText)
++    {
++        child(u"search"_ustr)->execute(u"SET"_ustr, { { u"TEXT"_ustr, rText } });
++        Scheduler::ProcessEventsToIdle();
++    }
++
++    uno::Reference<frame::XFrame> mxFrame;
++    std::unique_ptr<UIObject> mxRoot;
++};
++
++CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testFoldForSearch)
++{
++    CPPUNIT_ASSERT_EQUAL(u"bao cao tong ket quy 3.docx"_ustr, FoldForSearch(u"Báo cáo tổng kết quý 3.docx"));
++    CPPUNIT_ASSERT_EQUAL(u"da nang dong thap"_ustr, FoldForSearch(u"ĐÀ NẴNG Đồng Tháp"));
++    // composed and decomposed input fold alike
++    CPPUNIT_ASSERT_EQUAL(FoldForSearch(u"Kế hoạch"), FoldForSearch(u"Kế hoạch"));
++
++    const OUString aName = FoldForSearch(u"Kế hoạch ngân sách 2027.xlsx");
++    CPPUNIT_ASSERT(MatchesFoldedQuery(aName, FoldForSearch(u"ke hoach")));
++    CPPUNIT_ASSERT(MatchesFoldedQuery(aName, FoldForSearch(u"Kế Hoạch")));
++    CPPUNIT_ASSERT(MatchesFoldedQuery(aName, FoldForSearch(u"  2027   ngan ")));
++    CPPUNIT_ASSERT(MatchesFoldedQuery(aName, FoldForSearch(u"")));
++    CPPUNIT_ASSERT(!MatchesFoldedQuery(aName, FoldForSearch(u"bao cao")));
++    CPPUNIT_ASSERT(!MatchesFoldedQuery(aName, FoldForSearch(u"ke hoach 2026")));
++}
++
++CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testMenuItems)
++{
++    openStartCenter();
++    const std::pair<OUString, OUString> aMenu[]
++        = { { u"nav_home"_ustr, u"Home"_ustr },         { u"nav_new"_ustr, u"New Document"_ustr },
++            { u"open_all"_ustr, u"Open File"_ustr },    { u"nav_unsaved"_ustr, u"Unsaved Documents"_ustr },
++            { u"nav_recent"_ustr, u"Recent"_ustr },
++            { u"nav_pinned"_ustr, u"Pinned"_ustr },     { u"nav_update"_ustr, u"Update HST Office"_ustr } };
++    for (const auto& [rId, rLabel] : aMenu)
++    {
++        // the painted items carry their text as accessible name
++        vcl::Window* pItem = findWindow(window(), rId);
++        CPPUNIT_ASSERT_MESSAGE(rId.toUtf8().getStr(), pItem);
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(rId.toUtf8().getStr(), rLabel, pItem->GetAccessibleName());
++        CPPUNIT_ASSERT_MESSAGE(rId.toUtf8().getStr(), pItem->IsReallyVisible());
++    }
++    // HST has no accounts: nothing is shared and there is no account or avatar anywhere
++    const std::set<OUString> aIds = mxRoot->get_children();
++    CPPUNIT_ASSERT(aIds.contains(u"nav_home"_ustr));
++    for (const OUString& rId : aIds)
++    {
++        const OUString aLower = rId.toAsciiLowerCase();
++        CPPUNIT_ASSERT_MESSAGE(rId.toUtf8().getStr(), aLower.indexOf("share") < 0);
++        CPPUNIT_ASSERT_MESSAGE(rId.toUtf8().getStr(), aLower.indexOf("account") < 0);
++        CPPUNIT_ASSERT_MESSAGE(rId.toUtf8().getStr(), aLower.indexOf("avatar") < 0);
++        if (vcl::Window* pChild = findWindow(window(), rId))
++        {
++            for (const OUString& rText : { pChild->GetText(), pChild->GetAccessibleName() })
++                CPPUNIT_ASSERT_MESSAGE(rText.toUtf8().getStr(), rText != "Shared" && rText != u"Được chia sẻ");
++        }
++    }
++
++    // "Update HST Office" runs the update check of the bundled extension
++    rtl::Reference<RecordingInterceptor> xInterceptor(new RecordingInterceptor);
++    uno::Reference<frame::XDispatchProviderInterception> xInterception(mxFrame, uno::UNO_QUERY_THROW);
++    xInterception->registerDispatchProviderInterceptor(xInterceptor);
++    child(u"nav_update"_ustr)->execute(u"CLICK"_ustr, {});
++    Scheduler::ProcessEventsToIdle();
++    // "Tài liệu chưa lưu" opens the bundled extension's dialog of documents closed without saving
++    child(u"nav_unsaved"_ustr)->execute(u"CLICK"_ustr, {});
++    Scheduler::ProcessEventsToIdle();
++    xInterception->releaseDispatchProviderInterceptor(xInterceptor);
++    CPPUNIT_ASSERT_EQUAL(size_t(2), xInterceptor->maDispatched.size());
++    CPPUNIT_ASSERT_EQUAL(u"org.hst.office.update:Check"_ustr, xInterceptor->maDispatched[0]);
++    CPPUNIT_ASSERT_EQUAL(u"org.hst.office.vi:UnsavedDocuments"_ustr, xInterceptor->maDispatched[1]);
++}
++
++CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testSearchFiltersRecent)
++{
++    openStartCenter();
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(3), rows(u"recentlist"_ustr));
++
++    search(u"bao cao"_ustr); // without accents
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), rows(u"recentlist"_ustr));
++    search(u"Báo cáo"_ustr); // with accents
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), rows(u"recentlist"_ustr));
++    search(u"ngan sach"_ustr);
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), rows(u"recentlist"_ustr));
++    // the row's text is its columns joined by tabs where the toolkit lists them so (VCL)
++    const OUString aRow = child(u"recentlist"_ustr)->get_child(u"0"_ustr)->get_state()[u"Text"_ustr];
++    CPPUNIT_ASSERT_EQUAL(OUString(aNames[1]), aRow.getToken(0, '\t'));
++    search(u"không có tệp này"_ustr);
++    CPPUNIT_ASSERT_EQUAL(u"true"_ustr, child(u"recentempty"_ustr)->get_state()[u"ReallyVisible"_ustr]);
++    search(OUString());
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(3), rows(u"recentlist"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testPinPersists)
++{
++    openStartCenter();
++    CPPUNIT_ASSERT_EQUAL(u"true"_ustr, child(u"pinnedempty"_ustr)->get_state()[u"ReallyVisible"_ustr]);
++
++    // keyboard: find the file, Enter goes to it in the table, Space pins it
++    search(u"ke hoach"_ustr);
++    std::unique_ptr<UIObject> xSearch = child(u"search"_ustr);
++    xSearch->execute(u"FOCUS"_ustr, {});
++    xSearch->execute(u"TYPE"_ustr, { { u"KEYCODE"_ustr, u"RETURN"_ustr } });
++    Scheduler::ProcessEventsToIdle();
++    std::unique_ptr<UIObject> xRecent = child(u"recentlist"_ustr);
++    CPPUNIT_ASSERT_EQUAL(u"true"_ustr, xRecent->get_state()[u"HasFocus"_ustr]);
++    const KeyEvent aSpace(' ', vcl::KeyCode(KEY_SPACE));
++    vcl::Window* pFocus = Application::GetFocusWindow();
++    CPPUNIT_ASSERT(pFocus);
++    Application::PostKeyEvent(VclEventId::WindowKeyInput, pFocus, &aSpace);
++    Application::PostKeyEvent(VclEventId::WindowKeyUp, pFocus, &aSpace);
++    Scheduler::ProcessEventsToIdle();
++
++    bool bPinned = false;
++    for (const SvtHistoryOptions::HistoryItem& rItem : SvtHistoryOptions::GetList(EHistoryType::PickList))
++        if (rItem.sURL == fileURL(aNames[1]))
++            bPinned = rItem.isPinned;
++    CPPUNIT_ASSERT(bPinned);
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), rows(u"pinnedlist"_ustr));
++
++    // a new Start Center (as after a restart) reads the pin back from the profile
++    openStartCenter();
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), rows(u"pinnedlist"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"false"_ustr, child(u"pinnedempty"_ustr)->get_state()[u"ReallyVisible"_ustr]);
++}
++
++CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testTilesCreateDocuments)
++{
++    const std::pair<OUString, OUString> aTiles[]
++        = { { u"writer_all"_ustr, u"com.sun.star.text.TextDocument"_ustr },
++            { u"calc_all"_ustr, u"com.sun.star.sheet.SpreadsheetDocument"_ustr },
++            { u"impress_all"_ustr, u"com.sun.star.presentation.PresentationDocument"_ustr } };
++    for (const auto& [rTile, rService] : aTiles)
++    {
++        openStartCenter();
++        child(rTile)->execute(u"CLICK"_ustr, {});
++        Scheduler::ProcessEventsToIdle();
++        uno::Reference<frame::XController> xController = mxFrame->getController();
++        CPPUNIT_ASSERT_MESSAGE(rTile.toUtf8().getStr(), xController.is());
++        uno::Reference<lang::XServiceInfo> xModel(xController->getModel(), uno::UNO_QUERY);
++        CPPUNIT_ASSERT_MESSAGE(rTile.toUtf8().getStr(), xModel.is());
++        CPPUNIT_ASSERT_MESSAGE(rService.toUtf8().getStr(), xModel->supportsService(rService));
++    }
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/source/dialog/backingcomp.cxx b/sfx2/source/dialog/backingcomp.cxx
+index 7bddf0c..a122fb5 100644
+--- a/sfx2/source/dialog/backingcomp.cxx
++++ b/sfx2/source/dialog/backingcomp.cxx
+@@ -17,7 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ 
+-#include "backingwindow.hxx"
++#include <startcenter/hststartcenterwindow.hxx> // HST Office: the Start Center window
+ 
+ #include <com/sun/star/frame/XDispatchProvider.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
+@@ -376,7 +376,7 @@ void SAL_CALL BackingComp::attachFrame( /*IN*/ const css::uno::Reference< css::f
+     }
+ 
+     // inform BackingWindow about frame
+-    BackingWindow* pBack = dynamic_cast<BackingWindow*>(pWindow.get());
++    HstStartCenterWindow* pBack = dynamic_cast<HstStartCenterWindow*>(pWindow.get());
+     if( pBack )
+         pBack->setOwningFrame( m_xFrame );
+ 
+@@ -644,7 +644,7 @@ void SAL_CALL BackingComp::initialize( /*IN*/ const css::uno::Sequence< css::uno
+ 
+     // create the component window
+     VclPtr<vcl::Window> pParent = VCLUnoHelper::GetWindow(xParentWindow);
+-    VclPtr<vcl::Window> pWindow = VclPtr<BackingWindow>::Create(pParent);
++    VclPtr<vcl::Window> pWindow = VclPtr<HstStartCenterWindow>::Create(pParent);
+     m_xWindow = VCLUnoHelper::GetInterface(pWindow);
+ 
+     if (!m_xWindow.is())
+@@ -708,7 +708,7 @@ void SAL_CALL BackingComp::dispatch( const css::util::URL& aURL, const css::uno:
+         return;
+ 
+     VclPtr<vcl::Window> pWindow = VCLUnoHelper::GetWindow(m_xWindow);
+-    BackingWindow* pBack = dynamic_cast<BackingWindow*>(pWindow.get());
++    HstStartCenterWindow* pBack = dynamic_cast<HstStartCenterWindow*>(pWindow.get());
+     if( !pBack )
+         return;
+ 
+diff --git a/sfx2/source/startcenter/hststartcenterfiles.cxx b/sfx2/source/startcenter/hststartcenterfiles.cxx
+new file mode 100644
+index 0000000..9a1dc65
+--- /dev/null
++++ b/sfx2/source/startcenter/hststartcenterfiles.cxx
+@@ -0,0 +1,535 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++// The Start Center's recent documents table and pinned files column: filling, searching, pinning,
++// opening and the actions of the "⋯" menu.
++
++#include <startcenter/hststartcenterwindow.hxx>
++
++#include "hststartcenterpaint.hxx"
++#include "hststartcenterrecent.hxx"
++#include "../backstage/hstbackstagedata.hxx"
++
++#include <startcenter/hststartcenter.hrc>
++#include <startcenter/hststartcentersearch.hxx>
++
++#include <com/sun/star/system/SystemShellExecute.hpp>
++#include <com/sun/star/system/SystemShellExecuteFlags.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <unotools/historyoptions.hxx>
++#include <vcl/commandevent.hxx>
++#include <vcl/event.hxx>
++#include <vcl/image.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/rendercontext/AntialiasingFlags.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/virdev.hxx>
++#include <vcl/wall.hxx>
++#include <vcl/weld/Entry.hxx>
++#include <vcl/weld/Label.hxx>
++#include <vcl/weld/Menu.hxx>
++#include <vcl/weld/TreeView.hxx>
++
++#include <utility>
++
++using namespace css;
++using namespace sfx2::hst::startcenter;
++
++namespace
++{
++// columns of the recent table as weld numbers them (the file icon shares the name's column)
++constexpr int COL_OPENED = 1;
++constexpr int COL_FOLDER_GLYPH = 2;
++constexpr int COL_FOLDER = 3;
++constexpr int COL_PIN = 4;
++constexpr int COL_MORE = 5;
++// the rows of the recent table are this tall (its glyph images set the height on every toolkit)
++constexpr double ROW_HEIGHT = 34;
++
++/** A glyph of the table as a small image on the window colour. */
++ScopedVclPtr<VirtualDevice> glyphImage(weld::Widget& rWidget, double fScale, Glyph eGlyph,
++                                       const Color& rColor, const Color& rBack, bool bFilled)
++{
++    ScopedVclPtr<VirtualDevice> xDev = rWidget.create_virtual_device();
++    const tools::Long nSize = static_cast<tools::Long>(16 * fScale + 0.5);
++    const tools::Long nHeight = static_cast<tools::Long>(ROW_HEIGHT * fScale + 0.5);
++    xDev->SetOutputSizePixel(Size(nSize, nHeight));
++    xDev->SetAntialiasing(AntialiasingFlags::Enable);
++    xDev->SetBackground(Wallpaper(rBack));
++    xDev->Erase();
++    DrawGlyph(*xDev, tools::Rectangle(Point(0, (nHeight - nSize) / 2), Size(nSize, nSize)), eGlyph, rColor,
++              bFilled);
++    return xDev;
++}
++
++/** Selects and focuses the row of rURL, if the list shows it. */
++void selectRow(weld::TreeView& rList, const OUString& rURL)
++{
++    const int nRow = rURL.isEmpty() ? -1 : rList.find_id(rURL);
++    if (nRow >= 0)
++        rList.set_cursor(nRow);
++}
++}
++
++void HstStartCenterWindow::InitLists()
++{
++    maRecentTitleText = mxRecentTitle->get_label();
++    maRecentEmptyText = mxRecentEmpty->get_label();
++    maPinnedEmptyText = mxPinnedEmpty->get_label();
++
++    mxRecentList->set_accessible_description(SfxResId(STR_HST_SC_RECENT_HINT));
++    mxRecentList->connect_item_activated(LINK(this, HstStartCenterWindow, RecentActivatedHdl));
++    mxRecentList->connect_key_press(LINK(this, HstStartCenterWindow, RecentKeyHdl));
++    mxRecentList->connect_mouse_release(LINK(this, HstStartCenterWindow, RecentMouseHdl));
++    mxRecentList->connect_command(LINK(this, HstStartCenterWindow, RecentCommandHdl));
++    mxRecentList->connect_query_tooltip(LINK(this, HstStartCenterWindow, RecentTooltipHdl));
++    mxRecentList->connect_size_allocate(LINK(this, HstStartCenterWindow, RecentSizeHdl));
++
++    mxPinnedList->set_accessible_description(SfxResId(STR_HST_SC_RECENT_HINT));
++    mxPinnedList->connect_item_activated(LINK(this, HstStartCenterWindow, PinnedActivatedHdl));
++    mxPinnedList->connect_key_press(LINK(this, HstStartCenterWindow, PinnedKeyHdl));
++    mxPinnedList->connect_command(LINK(this, HstStartCenterWindow, PinnedCommandHdl));
++    mxPinnedList->connect_query_tooltip(LINK(this, HstStartCenterWindow, PinnedTooltipHdl));
++    // a pinned file: its icon and name, and below them its folder (the list's text is the name)
++    mxPinnedList->connect_custom_get_size(LINK(this, HstStartCenterWindow, PinnedRowSizeHdl));
++    mxPinnedList->connect_custom_render(LINK(this, HstStartCenterWindow, PinnedRowRenderHdl));
++    mxPinnedList->set_column_custom_renderer(0, true);
++
++    mxSearch->connect_activate(LINK(this, HstStartCenterWindow, SearchActivateHdl));
++}
++
++void HstStartCenterWindow::ReloadFiles()
++{
++    maFiles = LoadRecentFiles();
++    FillRecentList();
++    FillPinnedList();
++
++    // file times not read yet: on a worker thread, the table shows them when they arrive
++    std::vector<OUString> aURLs;
++    for (const RecentFile& rFile : maFiles)
++        if (maTimes.find(rFile.aURL) == maTimes.end())
++            aURLs.push_back(rFile.aURL);
++    if (aURLs.empty())
++        return;
++    mpTimes->Start(aURLs, [this, aURLs](const std::vector<DateTime>& rTimes) {
++        SetFileTimes(aURLs, rTimes);
++    });
++}
++
++void HstStartCenterWindow::SetFileTimes(const std::vector<OUString>& rURLs,
++                                        const std::vector<DateTime>& rTimes)
++{
++    if (!mxRecentList)
++        return;
++    for (size_t i = 0; i < rURLs.size() && i < rTimes.size(); ++i)
++        maTimes.insert_or_assign(rURLs[i], rTimes[i]);
++    // only the date column changes: the rows, the selection and the scroll position stay
++    const DateTime aNow(DateTime::SYSTEM);
++    const int nRows = mxRecentList->n_children();
++    for (int nRow = 0; nRow < nRows; ++nRow)
++    {
++        auto it = maTimes.find(mxRecentList->get_id(nRow));
++        if (it != maTimes.end())
++            mxRecentList->set_text(nRow, sfx2::hst::FormatRecentDate(it->second, aNow), COL_OPENED);
++    }
++}
++
++const RecentFile* HstStartCenterWindow::FindFile(const OUString& rURL) const
++{
++    for (const RecentFile& rFile : maFiles)
++        if (rFile.aURL == rURL)
++            return &rFile;
++    return nullptr;
++}
++
++void HstStartCenterWindow::FillRecentList()
++{
++    if (!mxRecentList || !mpPalette)
++        return;
++    const Palette& rPalette = *mpPalette;
++    const OUString aQuery = FoldForSearch(mxSearch->get_text());
++    const OUString aKeep = mxRecentList->get_selected_id();
++
++    ScopedVclPtr<VirtualDevice> xPinned
++        = glyphImage(*mxRecentList, mfScale, Glyph::Pinned, rPalette.aAccent, rPalette.aWindow, true);
++    ScopedVclPtr<VirtualDevice> xUnpinned
++        = glyphImage(*mxRecentList, mfScale, Glyph::Pinned, rPalette.aMuted, rPalette.aWindow, false);
++    ScopedVclPtr<VirtualDevice> xMore
++        = glyphImage(*mxRecentList, mfScale, Glyph::More, rPalette.aMuted, rPalette.aWindow, false);
++    ScopedVclPtr<VirtualDevice> xFolder
++        = glyphImage(*mxRecentList, mfScale, Glyph::Open, rPalette.aMuted, rPalette.aWindow, false);
++
++    const DateTime aNow(DateTime::SYSTEM);
++    mxRecentList->freeze();
++    mxRecentList->clear();
++    for (const RecentFile& rFile : maFiles)
++    {
++        if ((mbPinnedOnly && !rFile.bPinned) || !MatchesFoldedQuery(rFile.aFolded, aQuery))
++            continue;
++        mxRecentList->insert(-1, rFile.aName, &rFile.aURL, nullptr, nullptr);
++        const int nRow = mxRecentList->n_children() - 1;
++        // the document type's icon before the name (-1: the image of the first column)
++        mxRecentList->set_image(nRow, rFile.aIcon, -1);
++        auto it = maTimes.find(rFile.aURL);
++        mxRecentList->set_text(nRow, it == maTimes.end() ? OUString()
++                                                          : sfx2::hst::FormatRecentDate(it->second, aNow),
++                               COL_OPENED);
++        mxRecentList->set_image(nRow, *xFolder, COL_FOLDER_GLYPH);
++        mxRecentList->set_text(nRow, rFile.aFolder, COL_FOLDER);
++        mxRecentList->set_image(nRow, rFile.bPinned ? *xPinned : *xUnpinned, COL_PIN);
++        mxRecentList->set_image(nRow, *xMore, COL_MORE);
++    }
++    mxRecentList->thaw();
++
++    const bool bEmpty = mxRecentList->n_children() == 0;
++    if (bEmpty && !maFiles.empty() && !aQuery.isEmpty())
++        mxRecentEmpty->set_label(SfxResId(STR_HST_SC_NO_MATCH).replaceFirst("%1", mxSearch->get_text()));
++    else if (bEmpty && mbPinnedOnly)
++        mxRecentEmpty->set_label(maPinnedEmptyText);
++    else
++        mxRecentEmpty->set_label(maRecentEmptyText);
++    mxRecentEmpty->set_visible(bEmpty);
++    mpRecentFrame->set_visible(!bEmpty);
++    mxRecentTitle->set_label(mbPinnedOnly ? mxPinnedTitle->get_label() : maRecentTitleText);
++    selectRow(*mxRecentList, aKeep);
++}
++
++void HstStartCenterWindow::FillPinnedList()
++{
++    if (!mxPinnedList)
++        return;
++    const OUString aKeep = mxPinnedList->get_selected_id();
++    mxPinnedList->freeze();
++    mxPinnedList->clear();
++    for (const RecentFile& rFile : maFiles)
++        if (rFile.bPinned)
++            mxPinnedList->insert(-1, rFile.aName, &rFile.aURL, nullptr, nullptr);
++    mxPinnedList->thaw();
++    const bool bEmpty = mxPinnedList->n_children() == 0;
++    mxPinnedEmpty->set_visible(bEmpty);
++    mpPinnedFrame->set_visible(!bEmpty);
++    selectRow(*mxPinnedList, aKeep);
++}
++
++void HstStartCenterWindow::clearRecentFileList()
++{
++    maTimes.clear();
++    ReloadFiles();
++}
++
++void HstStartCenterWindow::TogglePinned(const OUString& rURL)
++{
++    if (!FindFile(rURL))
++        return;
++    // the history keeps the pin in the profile, so it stays after a restart
++    SvtHistoryOptions::TogglePinItem(EHistoryType::PickList, rURL);
++    ReloadFiles();
++    selectRow(*mxRecentList, rURL);
++}
++
++void HstStartCenterWindow::RemoveFromList(const OUString& rURL)
++{
++    // removes the entry from the history only; the file itself stays where it is
++    SvtHistoryOptions::DeleteItem(EHistoryType::PickList, rURL, true);
++    maTimes.erase(rURL);
++    ReloadFiles();
++}
++
++void HstStartCenterWindow::OpenFile(const OUString& rURL)
++{
++    const RecentFile* pFile = FindFile(rURL);
++    if (!pFile)
++        return;
++    uno::Sequence<beans::PropertyValue> aArgs{
++        comphelper::makePropertyValue(u"Referer"_ustr, u"private:user"_ustr),
++        comphelper::makePropertyValue(u"AsTemplate"_ustr, false) // a recent file is never a template
++    };
++    if (pFile->bReadOnly)
++    {
++        aArgs.realloc(3);
++        aArgs.getArray()[2] = comphelper::makePropertyValue(u"ReadOnly"_ustr, true);
++    }
++    Dispatch(rURL, u"_default"_ustr, false, aArgs);
++}
++
++void HstStartCenterWindow::OpenFolder(const OUString& rURL)
++{
++    const RecentFile* pFile = FindFile(rURL);
++    if (!pFile || pFile->aFolderURL.isEmpty())
++        return;
++    try
++    {
++        system::SystemShellExecute::create(comphelper::getProcessComponentContext())
++            ->execute(pFile->aFolderURL, OUString(), system::SystemShellExecuteFlags::URIS_ONLY);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.startcenter", "opening the folder failed");
++    }
++}
++
++void HstStartCenterWindow::ShowFileMenu(weld::TreeView& rList, const OUString& rURL,
++                                        const tools::Rectangle& rRect)
++{
++    const RecentFile* pFile = FindFile(rURL);
++    if (!pFile)
++        return;
++    mxFileMenu->set_visible(u"menu_pin"_ustr, !pFile->bPinned);
++    mxFileMenu->set_visible(u"menu_unpin"_ustr, pFile->bPinned);
++    mxFileMenu->set_sensitive(u"menu_folder"_ustr, pFile->aFolderURL.startsWithIgnoreAsciiCase("file:"));
++    const OUString aChoice = mxFileMenu->popup_at_rect(&rList, rRect);
++    if (aChoice == "menu_open")
++        OpenFile(rURL);
++    else if (aChoice == "menu_folder")
++        OpenFolder(rURL);
++    else if (aChoice == "menu_pin" || aChoice == "menu_unpin")
++        TogglePinned(rURL);
++    else if (aChoice == "menu_remove")
++        RemoveFromList(rURL);
++}
++
++void HstStartCenterWindow::PostAction(const OUString& rAction, const OUString& rURL,
++                                      weld::TreeView* pList, const tools::Rectangle& rRect)
++{
++    // the lists are rebuilt by most actions: never inside their own event handlers
++    maPendingAction = rAction;
++    maPendingURL = rURL;
++    mpPendingList = pList;
++    maPendingRect = rRect;
++    if (!mpPendingEvent)
++        mpPendingEvent = Application::PostUserEvent(LINK(this, HstStartCenterWindow, PendingActionHdl));
++}
++
++IMPL_LINK_NOARG(HstStartCenterWindow, PendingActionHdl, void*, void)
++{
++    mpPendingEvent = nullptr;
++    const OUString aAction = std::exchange(maPendingAction, OUString());
++    RunAction(aAction, maPendingURL, mpPendingList, maPendingRect);
++}
++
++void HstStartCenterWindow::RunAction(const OUString& rAction, const OUString& rURL,
++                                     weld::TreeView* pList, const tools::Rectangle& rRect)
++{
++    if (rAction == "pin")
++        TogglePinned(rURL);
++    else if (rAction == "open")
++        OpenFile(rURL);
++    else if (rAction == "menu" && pList)
++        ShowFileMenu(*pList, rURL, rRect);
++}
++
++void HstStartCenterWindow::ShowContextMenu(weld::TreeView& rList, const CommandEvent& rEvent)
++{
++    std::unique_ptr<weld::TreeIter> xIter;
++    tools::Rectangle aRect;
++    if (rEvent.IsMouseEvent())
++    {
++        xIter = rList.get_dest_row_at_pos(rEvent.GetMousePosPixel(), false, false);
++        aRect = tools::Rectangle(rEvent.GetMousePosPixel(), Size(1, 1));
++    }
++    else
++    {
++        xIter = rList.get_cursor();
++        if (xIter)
++            aRect = rList.get_row_area(*xIter);
++    }
++    if (!xIter)
++        return;
++    rList.set_cursor(*xIter);
++    PostAction(u"menu"_ustr, rList.get_id(*xIter), &rList, aRect);
++}
++
++IMPL_LINK_NOARG(HstStartCenterWindow, SearchChangedHdl, weld::Entry&, void)
++{
++    if (meSection != Section::Home)
++        SelectSection(Section::Home);
++    FillRecentList();
++}
++
++IMPL_LINK_NOARG(HstStartCenterWindow, SearchActivateHdl, weld::Entry&, bool)
++{
++    // Enter in the search box: to the first file found
++    if (mpRecentFrame->get_visible() && mxRecentList->n_children() > 0)
++    {
++        mxRecentList->set_cursor(0);
++        mxRecentList->grab_focus();
++    }
++    return true;
++}
++
++IMPL_LINK(HstStartCenterWindow, RecentActivatedHdl, const weld::TreeIter&, rIter, bool)
++{
++    PostAction(u"open"_ustr, mxRecentList->get_id(rIter));
++    return true;
++}
++
++IMPL_LINK(HstStartCenterWindow, PinnedActivatedHdl, const weld::TreeIter&, rIter, bool)
++{
++    PostAction(u"open"_ustr, mxPinnedList->get_id(rIter));
++    return true;
++}
++
++IMPL_LINK(HstStartCenterWindow, RecentKeyHdl, const KeyEvent&, rEvent, bool)
++{
++    // Space pins or unpins the file of the focused row
++    if (rEvent.GetKeyCode().GetFullCode() != KEY_SPACE)
++        return false;
++    std::unique_ptr<weld::TreeIter> xIter = mxRecentList->get_cursor();
++    if (!xIter)
++        return false;
++    PostAction(u"pin"_ustr, mxRecentList->get_id(*xIter));
++    return true;
++}
++
++IMPL_LINK(HstStartCenterWindow, PinnedKeyHdl, const KeyEvent&, rEvent, bool)
++{
++    if (rEvent.GetKeyCode().GetFullCode() != KEY_SPACE)
++        return false;
++    std::unique_ptr<weld::TreeIter> xIter = mxPinnedList->get_cursor();
++    if (!xIter)
++        return false;
++    PostAction(u"pin"_ustr, mxPinnedList->get_id(*xIter));
++    return true;
++}
++
++IMPL_LINK(HstStartCenterWindow, RecentMouseHdl, const MouseEvent&, rEvent, bool)
++{
++    // a click on the pin or on "⋯" of a row
++    if (!rEvent.IsLeft() || rEvent.GetClicks() != 1 || maRecentWidths.size() <= COL_MORE)
++        return false;
++    const Point aPos = rEvent.GetPosPixel();
++    std::unique_ptr<weld::TreeIter> xIter = mxRecentList->get_dest_row_at_pos(aPos, false, false);
++    if (!xIter)
++        return false;
++    tools::Long nRight = 0;
++    int nColumn = -1;
++    for (size_t i = 0; i < maRecentWidths.size(); ++i)
++    {
++        nRight += maRecentWidths[i];
++        if (aPos.X() < nRight)
++        {
++            nColumn = i;
++            break;
++        }
++    }
++    if (nColumn < 0) // the last column takes the rest of the width
++        nColumn = COL_MORE;
++    const OUString aURL = mxRecentList->get_id(*xIter);
++    if (nColumn == COL_PIN)
++        PostAction(u"pin"_ustr, aURL);
++    else if (nColumn == COL_MORE)
++        PostAction(u"menu"_ustr, aURL, mxRecentList.get(), tools::Rectangle(aPos, Size(1, 1)));
++    else
++        return false;
++    return true;
++}
++
++IMPL_LINK(HstStartCenterWindow, RecentCommandHdl, const CommandEvent&, rEvent, bool)
++{
++    if (rEvent.GetCommand() != CommandEventId::ContextMenu)
++        return false;
++    ShowContextMenu(*mxRecentList, rEvent);
++    return true;
++}
++
++IMPL_LINK(HstStartCenterWindow, PinnedCommandHdl, const CommandEvent&, rEvent, bool)
++{
++    if (rEvent.GetCommand() != CommandEventId::ContextMenu)
++        return false;
++    ShowContextMenu(*mxPinnedList, rEvent);
++    return true;
++}
++
++IMPL_LINK(HstStartCenterWindow, RecentTooltipHdl, const weld::TreeIter&, rIter, OUString)
++{
++    const RecentFile* pFile = FindFile(mxRecentList->get_id(rIter));
++    if (!pFile)
++        return OUString();
++    return pFile->bPinned ? pFile->aFolderPath + u" · "_ustr + SfxResId(STR_HST_SC_PINNED_STATE)
++                          : pFile->aFolderPath;
++}
++
++IMPL_LINK(HstStartCenterWindow, PinnedTooltipHdl, const weld::TreeIter&, rIter, OUString)
++{
++    const RecentFile* pFile = FindFile(mxPinnedList->get_id(rIter));
++    return pFile ? pFile->aFolderPath : OUString();
++}
++
++IMPL_LINK(HstStartCenterWindow, RecentSizeHdl, const Size&, rSize, void)
++{
++    // name (with the file icon) | opened | folder glyph | folder | pin | ⋯ ; the name takes what is left
++    const auto px = [this](double f) { return static_cast<int>(f * mfScale + 0.5); };
++    const bool bNarrow = rSize.Width() < px(560);
++    const int nOpened = px(bNarrow ? 110 : 130);
++    const int nGlyph = px(24);
++    const int nFolder = px(bNarrow ? 90 : 130);
++    const int nPin = px(36);
++    const int nMore = px(36);
++    const int nName = std::max(px(120), static_cast<int>(rSize.Width()) - nOpened - nGlyph - nFolder - nPin
++                                            - nMore - px(4));
++    std::vector<int> aWidths{ nName, nOpened, nGlyph, nFolder, nPin, nMore };
++    if (aWidths == maRecentWidths)
++        return;
++    maRecentWidths = aWidths;
++    aWidths.pop_back(); // the last column fills the rest
++    mxRecentList->set_column_fixed_widths(aWidths);
++}
++
++IMPL_LINK(HstStartCenterWindow, PinnedRowSizeHdl, weld::TreeView::get_size_args, aArgs, Size)
++{
++    vcl::RenderContext& rDev = aArgs.first;
++    const RecentFile* pFile = FindFile(aArgs.second);
++    const tools::Long nText = rDev.GetTextHeight();
++    const tools::Long nName = pFile ? rDev.GetTextWidth(pFile->aName) : 0;
++    return Size(nName + static_cast<tools::Long>(32 * mfScale),
++                2 * nText + static_cast<tools::Long>(14 * mfScale));
++}
++
++IMPL_LINK(HstStartCenterWindow, PinnedRowRenderHdl, weld::TreeView::render_args, aArgs, void)
++{
++    vcl::RenderContext& rDev = std::get<0>(aArgs);
++    const tools::Rectangle& rRect = std::get<1>(aArgs);
++    const bool bSelected = std::get<2>(aArgs);
++    const RecentFile* pFile = FindFile(std::get<3>(aArgs));
++    if (!pFile || !mpPalette)
++        return;
++    const StyleSettings& rStyle = Application::GetSettings().GetStyleSettings();
++    const Color aText = bSelected ? rStyle.GetHighlightTextColor() : mpPalette->aText;
++    const Color aMuted = bSelected ? rStyle.GetHighlightTextColor() : mpPalette->aMuted;
++    auto aPop = rDev.ScopedPush(vcl::PushFlags::TEXTCOLOR | vcl::PushFlags::FONT);
++
++    const auto px = [this](double f) { return static_cast<tools::Long>(f * mfScale + 0.5); };
++    const tools::Long nText = rDev.GetTextHeight();
++    const tools::Long nTop = rRect.Top() + std::max<tools::Long>(0, (rRect.GetHeight() - 2 * nText - px(4)) / 2);
++    const tools::Long nTextX = rRect.Left() + px(28);
++
++    // the document type's icon, beside the name
++    const Image aIcon(StockImage::Yes, pFile->aIcon);
++    const Size aIconSize = aIcon.GetSizePixel();
++    rDev.DrawImage(Point(rRect.Left() + px(4), nTop + (nText - aIconSize.Height()) / 2), aIcon);
++    rDev.SetTextColor(aText);
++    rDev.DrawText(Point(nTextX, nTop),
++                  rDev.GetEllipsisString(pFile->aName, rRect.Right() - nTextX - px(4)));
++
++    // the folder: a small folder glyph and its name, in the muted colour
++    const tools::Long nLine = nTop + nText + px(4);
++    const tools::Long nGlyph = std::min(nText, px(14));
++    DrawGlyph(rDev, tools::Rectangle(Point(nTextX, nLine + (nText - nGlyph) / 2), Size(nGlyph, nGlyph)),
++              Glyph::Open, aMuted, false);
++    const tools::Long nFolderX = nTextX + nGlyph + px(6);
++    vcl::Font aSmall(rDev.GetFont());
++    aSmall.SetFontHeight(aSmall.GetFontHeight() * 9 / 10);
++    rDev.SetFont(aSmall);
++    rDev.SetTextColor(aMuted);
++    rDev.DrawText(Point(nFolderX, nLine),
++                  rDev.GetEllipsisString(pFile->aFolder, rRect.Right() - nFolderX - px(4)));
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/source/startcenter/hststartcenterpaint.cxx b/sfx2/source/startcenter/hststartcenterpaint.cxx
+new file mode 100644
+index 0000000..2894c93
+--- /dev/null
++++ b/sfx2/source/startcenter/hststartcenterpaint.cxx
+@@ -0,0 +1,296 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include "hststartcenterpaint.hxx"
++
++#include <basegfx/point/b2dpoint.hxx>
++#include <basegfx/polygon/b2dpolygon.hxx>
++#include <com/sun/star/drawing/LineCap.hpp>
++#include <vcl/font.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/rendercontext/AntialiasingFlags.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/wall.hxx>
++
++#include <cmath>
++#include <initializer_list>
++
++namespace sfx2::hst::startcenter
++{
++namespace
++{
++Color merged(Color aBase, const Color& rOther, sal_uInt8 nKeep)
++{
++    aBase.Merge(rOther, nKeep);
++    return aBase;
++}
++
++/** Maps glyph coordinates (a 20 x 20 design grid) into the box. */
++class Grid
++{
++public:
++    explicit Grid(const tools::Rectangle& rBox)
++        : mfX(rBox.Left())
++        , mfY(rBox.Top())
++        , mfUnit(std::min(rBox.GetWidth(), rBox.GetHeight()) / 20.0)
++    {
++    }
++
++    basegfx::B2DPoint at(double fX, double fY) const
++    {
++        return basegfx::B2DPoint(mfX + fX * mfUnit, mfY + fY * mfUnit);
++    }
++
++    basegfx::B2DPolygon line(std::initializer_list<std::pair<double, double>> aPoints,
++                             bool bClosed = false) const
++    {
++        basegfx::B2DPolygon aPoly;
++        for (const auto& [fX, fY] : aPoints)
++            aPoly.append(at(fX, fY));
++        aPoly.setClosed(bClosed);
++        return aPoly;
++    }
++
++    basegfx::B2DPolygon arc(double fCX, double fCY, double fR, double fFromDeg, double fToDeg) const
++    {
++        basegfx::B2DPolygon aPoly;
++        const int nSteps = 32;
++        for (int i = 0; i <= nSteps; ++i)
++        {
++            const double fAngle = (fFromDeg + (fToDeg - fFromDeg) * i / nSteps) * M_PI / 180.0;
++            aPoly.append(at(fCX + fR * std::cos(fAngle), fCY + fR * std::sin(fAngle)));
++        }
++        return aPoly;
++    }
++
++    double unit() const { return mfUnit; }
++
++private:
++    double mfX;
++    double mfY;
++    double mfUnit;
++};
++
++void stroke(OutputDevice& rDev, const Grid& rGrid, const basegfx::B2DPolygon& rPoly)
++{
++    rDev.DrawPolyLine(rPoly, std::max(1.0, 1.5 * rGrid.unit()), basegfx::B2DLineJoin::Round,
++                      css::drawing::LineCap_ROUND);
++}
++
++void fill(OutputDevice& rDev, const basegfx::B2DPolygon& rPoly, const Color& rColor)
++{
++    rDev.SetLineColor();
++    rDev.SetFillColor(rColor);
++    rDev.DrawPolygon(rPoly);
++}
++
++/** Draws a tile's application mark: a rounded square in the tile colour with a white sign. */
++void drawAppMark(OutputDevice& rDev, const tools::Rectangle& rBox, int nKind, const Color& rColor)
++{
++    const tools::Long nRadius = rBox.GetWidth() / 5;
++    rDev.SetLineColor();
++    rDev.SetFillColor(rColor);
++    rDev.DrawRect(rBox, nRadius, nRadius);
++    tools::Rectangle aInner(rBox);
++    aInner.shrink(rBox.GetWidth() / 5);
++    const Glyph eGlyph = nKind == 0 ? Glyph::Document
++                         : nKind == 1 ? Glyph::Spreadsheet
++                                      : Glyph::Presentation;
++    DrawGlyph(rDev, aInner, eGlyph, COL_WHITE);
++}
++
++/** Text, shortened with an ellipsis to nMaxWidth, vertically centred on nCentreY. */
++void drawText(OutputDevice& rDev, tools::Long nX, tools::Long nCentreY, tools::Long nMaxWidth,
++              const OUString& rText)
++{
++    if (nMaxWidth <= 0)
++        return;
++    const OUString aShown = rDev.GetEllipsisString(rText, nMaxWidth);
++    rDev.DrawText(Point(nX, nCentreY - rDev.GetTextHeight() / 2), aShown);
++}
++}
++
++Palette MakePalette(const StyleSettings& rStyle)
++{
++    Palette aPalette;
++    aPalette.aWindow = rStyle.GetWindowColor();
++    aPalette.aText = rStyle.GetWindowTextColor();
++    aPalette.bDark = aPalette.aWindow.IsDark();
++    const bool bDark = aPalette.bDark;
++    aPalette.aAccent = bDark ? Color(0x8A, 0xB4, 0xF8) : Color(0x1A, 0x56, 0xC8);
++    aPalette.aMuted = merged(aPalette.aText, aPalette.aWindow, 150);
++    aPalette.aSide = bDark ? merged(aPalette.aWindow, COL_WHITE, 242)
++                           : merged(aPalette.aWindow, Color(0x1A, 0x56, 0xC8), 236); // a soft light blue
++    aPalette.aSelected = merged(aPalette.aSide, aPalette.aAccent, bDark ? 205 : 220);
++    aPalette.aHover = merged(aPalette.aSide, aPalette.aAccent, bDark ? 232 : 240);
++    aPalette.aBorder = merged(aPalette.aWindow, aPalette.aText, 222);
++    aPalette.aCard = bDark ? merged(aPalette.aWindow, COL_WHITE, 248) : aPalette.aWindow;
++
++    // Document blue, Spreadsheet green, Presentation orange
++    const Color aHue[3] = { Color(0x2B, 0x6C, 0xE6), Color(0x1E, 0x9E, 0x54), Color(0xF0, 0x6E, 0x22) };
++    for (int i = 0; i < 3; ++i)
++    {
++        aPalette.aTileAccent[i] = aHue[i];
++        aPalette.aTile[i] = merged(aPalette.aWindow, aHue[i], bDark ? 215 : 240);
++        aPalette.aTileBorder[i] = merged(aPalette.aWindow, aHue[i], bDark ? 160 : 205);
++    }
++    return aPalette;
++}
++
++void DrawGlyph(OutputDevice& rDev, const tools::Rectangle& rBox, Glyph eGlyph, const Color& rColor,
++               bool bFilled)
++{
++    const Grid aGrid(rBox);
++    rDev.SetLineColor(rColor);
++    rDev.SetFillColor();
++    switch (eGlyph)
++    {
++        case Glyph::Home:
++            stroke(rDev, aGrid, aGrid.line({ { 2, 10 }, { 10, 3 }, { 18, 10 } }));
++            stroke(rDev, aGrid, aGrid.line({ { 4.5, 8.5 }, { 4.5, 17 }, { 15.5, 17 }, { 15.5, 8.5 } }));
++            stroke(rDev, aGrid, aGrid.line({ { 8.5, 17 }, { 8.5, 12 }, { 11.5, 12 }, { 11.5, 17 } }));
++            break;
++        case Glyph::NewDocument:
++            stroke(rDev, aGrid,
++                   aGrid.line({ { 4.5, 2 }, { 11.5, 2 }, { 15.5, 6 }, { 15.5, 18 }, { 4.5, 18 } }, true));
++            stroke(rDev, aGrid, aGrid.line({ { 11.5, 2 }, { 11.5, 6 }, { 15.5, 6 } }));
++            stroke(rDev, aGrid, aGrid.line({ { 10, 9 }, { 10, 15 } }));
++            stroke(rDev, aGrid, aGrid.line({ { 7, 12 }, { 13, 12 } }));
++            break;
++        case Glyph::Open:
++            stroke(rDev, aGrid,
++                   aGrid.line({ { 2, 4.5 }, { 7.5, 4.5 }, { 9.5, 6.5 }, { 18, 6.5 }, { 18, 16 }, { 2, 16 } },
++                              true));
++            stroke(rDev, aGrid, aGrid.line({ { 2, 9 }, { 18, 9 } }));
++            break;
++        case Glyph::Unsaved:
++            // a page with a small clock: kept documents waiting to be recovered
++            stroke(rDev, aGrid, aGrid.line({ { 10, 18 }, { 3.5, 18 }, { 3.5, 2 }, { 10.5, 2 }, { 14.5, 6 }, { 14.5, 9 } }));
++            stroke(rDev, aGrid, aGrid.line({ { 10.5, 2 }, { 10.5, 6 }, { 14.5, 6 } }));
++            stroke(rDev, aGrid, aGrid.arc(14.5, 14.5, 4.5, 0, 360));
++            stroke(rDev, aGrid, aGrid.line({ { 14.5, 12 }, { 14.5, 14.5 }, { 16.5, 15.5 } }));
++            break;
++        case Glyph::Recent:
++            stroke(rDev, aGrid, aGrid.arc(10, 10, 7.5, 0, 360));
++            stroke(rDev, aGrid, aGrid.line({ { 10, 5.5 }, { 10, 10 }, { 13.5, 12 } }));
++            break;
++        case Glyph::Pinned:
++        {
++            // a push pin leaning to the left: head at the top right, needle to the bottom left
++            const basegfx::B2DPolygon aPin = aGrid.line(
++                { { 12, 2.5 }, { 17.5, 8 }, { 15.5, 9 }, { 12, 12.5 }, { 12.5, 15.5 }, { 4.5, 7.5 },
++                  { 7.5, 8 }, { 11, 4.5 } },
++                true);
++            if (bFilled)
++                fill(rDev, aPin, rColor);
++            rDev.SetLineColor(rColor);
++            stroke(rDev, aGrid, aPin);
++            stroke(rDev, aGrid, aGrid.line({ { 8.5, 11.5 }, { 3, 17 } }));
++            break;
++        }
++        case Glyph::Update:
++        {
++            stroke(rDev, aGrid, aGrid.arc(10, 10, 7, -60, 240));
++            // arrow head at the start of the arc (the upper right)
++            const basegfx::B2DPoint aTip = aGrid.at(10 + 7 * std::cos(-M_PI / 3), 10 + 7 * std::sin(-M_PI / 3));
++            basegfx::B2DPolygon aHead;
++            aHead.append(basegfx::B2DPoint(aTip.getX() - 4 * aGrid.unit(), aTip.getY()));
++            aHead.append(aTip);
++            aHead.append(basegfx::B2DPoint(aTip.getX(), aTip.getY() - 4 * aGrid.unit()));
++            stroke(rDev, aGrid, aHead);
++            break;
++        }
++        case Glyph::More:
++            for (double fX : { 4.0, 10.0, 16.0 })
++                fill(rDev, aGrid.arc(fX, 10, 1.6, 0, 360), rColor);
++            break;
++        case Glyph::Chevron:
++            stroke(rDev, aGrid, aGrid.line({ { 8, 5 }, { 13, 10 }, { 8, 15 } }));
++            break;
++        case Glyph::Document:
++            for (double fY : { 5.0, 10.0, 15.0 })
++                stroke(rDev, aGrid, aGrid.line({ { 3, fY }, { fY == 15.0 ? 12.0 : 17.0, fY } }));
++            break;
++        case Glyph::Spreadsheet:
++            stroke(rDev, aGrid, aGrid.line({ { 3, 3 }, { 17, 3 }, { 17, 17 }, { 3, 17 } }, true));
++            stroke(rDev, aGrid, aGrid.line({ { 3, 8 }, { 17, 8 } }));
++            stroke(rDev, aGrid, aGrid.line({ { 3, 12.5 }, { 17, 12.5 } }));
++            stroke(rDev, aGrid, aGrid.line({ { 9, 3 }, { 9, 17 } }));
++            break;
++        case Glyph::Presentation:
++            stroke(rDev, aGrid, aGrid.line({ { 2.5, 3.5 }, { 17.5, 3.5 }, { 17.5, 13.5 }, { 2.5, 13.5 } }, true));
++            stroke(rDev, aGrid, aGrid.line({ { 10, 13.5 }, { 10, 17.5 } }));
++            fill(rDev, aGrid.line({ { 8.5, 6 }, { 13, 8.5 }, { 8.5, 11 } }, true), rColor);
++            break;
++    }
++}
++
++void PaintMenuItem(OutputDevice& rDev, const Size& rSize, double fScale, Glyph eGlyph,
++                   const OUString& rText, const vcl::Font& rFont, const Palette& rPalette,
++                   bool bSelected, bool bHover, bool bCompact)
++{
++    const auto px = [fScale](double f) { return static_cast<tools::Long>(f * fScale + 0.5); };
++    rDev.SetAntialiasing(AntialiasingFlags::Enable);
++    rDev.SetBackground(Wallpaper(rPalette.aSide));
++    rDev.Erase();
++    if (bSelected || bHover)
++    {
++        rDev.SetLineColor();
++        rDev.SetFillColor(bSelected ? rPalette.aSelected : rPalette.aHover);
++        rDev.DrawRect(tools::Rectangle(Point(0, 0), rSize), px(8), px(8));
++    }
++    const Color aInk = bSelected ? rPalette.aAccent : rPalette.aText;
++    const tools::Long nGlyph = px(20);
++    const tools::Long nGlyphX = bCompact ? (rSize.Width() - nGlyph) / 2 : px(14);
++    DrawGlyph(rDev, tools::Rectangle(Point(nGlyphX, (rSize.Height() - nGlyph) / 2), Size(nGlyph, nGlyph)),
++              eGlyph, aInk);
++    if (bCompact)
++        return;
++    vcl::Font aFont(rFont);
++    aFont.SetWeight(bSelected ? WEIGHT_BOLD : WEIGHT_NORMAL);
++    aFont.SetColor(aInk);
++    rDev.SetFont(aFont);
++    rDev.SetTextColor(aInk);
++    const tools::Long nTextX = nGlyphX + nGlyph + px(14);
++    drawText(rDev, nTextX, rSize.Height() / 2, rSize.Width() - nTextX - px(8), rText);
++}
++
++void PaintTile(OutputDevice& rDev, const Size& rSize, double fScale, int nKind,
++               const OUString& rText, const vcl::Font& rFont, const Palette& rPalette, bool bHover)
++{
++    const auto px = [fScale](double f) { return static_cast<tools::Long>(f * fScale + 0.5); };
++    rDev.SetAntialiasing(AntialiasingFlags::Enable);
++    rDev.SetBackground(Wallpaper(rPalette.aWindow));
++    rDev.Erase();
++    const tools::Rectangle aTile(Point(0, 0), Size(rSize.Width() - 1, rSize.Height() - 1));
++    rDev.SetLineColor(bHover ? rPalette.aTileAccent[nKind] : rPalette.aTileBorder[nKind]);
++    rDev.SetFillColor(bHover ? merged(rPalette.aTile[nKind], rPalette.aTileAccent[nKind], 225)
++                             : rPalette.aTile[nKind]);
++    rDev.DrawRect(aTile, px(10), px(10));
++
++    const tools::Long nMark = std::min(px(40), rSize.Height() - px(16));
++    const tools::Long nMarkX = px(16);
++    drawAppMark(rDev, tools::Rectangle(Point(nMarkX, (rSize.Height() - nMark) / 2), Size(nMark, nMark)),
++                nKind, rPalette.aTileAccent[nKind]);
++
++    const tools::Long nChevron = px(16);
++    const tools::Long nChevronX = rSize.Width() - nChevron - px(12);
++    DrawGlyph(rDev, tools::Rectangle(Point(nChevronX, (rSize.Height() - nChevron) / 2),
++                                     Size(nChevron, nChevron)),
++              Glyph::Chevron, rPalette.aText);
++
++    vcl::Font aFont(rFont);
++    aFont.SetWeight(WEIGHT_SEMIBOLD);
++    aFont.SetColor(rPalette.aText);
++    rDev.SetFont(aFont);
++    rDev.SetTextColor(rPalette.aText);
++    const tools::Long nTextX = nMarkX + nMark + px(14);
++    drawText(rDev, nTextX, rSize.Height() / 2, nChevronX - nTextX - px(6), rText);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/source/startcenter/hststartcenterpaint.hxx b/sfx2/source/startcenter/hststartcenterpaint.hxx
+new file mode 100644
+index 0000000..22485da
+--- /dev/null
++++ b/sfx2/source/startcenter/hststartcenterpaint.hxx
+@@ -0,0 +1,77 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <tools/color.hxx>
++#include <tools/gen.hxx>
++
++class Image;
++class OutputDevice;
++class StyleSettings;
++namespace vcl
++{
++class Font;
++}
++
++/* HST Office Start Center: colours of the light and dark looks, and the drawing of the parts the
++   toolkits cannot style alike on every platform (the left menu items, the three "create" tiles and
++   the small glyphs of the recent table). Every glyph is drawn here from simple lines, in the text
++   colour of the theme, so it follows light and dark without image files. */
++namespace sfx2::hst::startcenter
++{
++struct Palette
++{
++    bool bDark = false;
++    Color aWindow; ///< centre and right column
++    Color aText;
++    Color aMuted; ///< secondary text (folders, dates, hints)
++    Color aSide; ///< the left column
++    Color aAccent; ///< headings, the selected menu item, a pinned file
++    Color aSelected; ///< background of the selected menu item
++    Color aHover; ///< background of a hovered menu item
++    Color aBorder; ///< card and tile borders, the separator
++    Color aCard; ///< the "Pinned" card
++    Color aTile[3]; ///< Document, Spreadsheet, Presentation tiles
++    Color aTileBorder[3];
++    Color aTileAccent[3];
++};
++
++Palette MakePalette(const StyleSettings& rStyle);
++
++enum class Glyph
++{
++    Home,
++    NewDocument,
++    Open,
++    Unsaved,
++    Recent,
++    Pinned,
++    Update,
++    More,
++    Chevron,
++    Document,
++    Spreadsheet,
++    Presentation,
++};
++
++/** Draws rGlyph in the square rBox with strokes in rColor; bFilled fills the pin. */
++void DrawGlyph(OutputDevice& rDev, const tools::Rectangle& rBox, Glyph eGlyph, const Color& rColor,
++               bool bFilled = false);
++
++/** One item of the left menu (bCompact: the glyph alone, for a narrow window). */
++void PaintMenuItem(OutputDevice& rDev, const Size& rSize, double fScale, Glyph eGlyph,
++                   const OUString& rText, const vcl::Font& rFont, const Palette& rPalette,
++                   bool bSelected, bool bHover, bool bCompact);
++
++/** A "create" tile: nKind 0 Document, 1 Spreadsheet, 2 Presentation. */
++void PaintTile(OutputDevice& rDev, const Size& rSize, double fScale, int nKind,
++               const OUString& rText, const vcl::Font& rFont, const Palette& rPalette, bool bHover);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/source/startcenter/hststartcenterrecent.cxx b/sfx2/source/startcenter/hststartcenterrecent.cxx
+new file mode 100644
+index 0000000..3bc4cd9
+--- /dev/null
++++ b/sfx2/source/startcenter/hststartcenterrecent.cxx
+@@ -0,0 +1,180 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include "hststartcenterrecent.hxx"
++
++#include "../backstage/hstbackstagedata.hxx"
++
++#include <startcenter/hststartcentersearch.hxx>
++
++#include <algorithm>
++
++#include <osl/file.hxx>
++#include <osl/time.h>
++#include <rtl/ref.hxx>
++#include <salhelper/thread.hxx>
++#include <sal/log.hxx>
++#include <svtools/imagemgr.hxx>
++#include <tools/link.hxx>
++#include <tools/urlobj.hxx>
++#include <unotools/historyoptions.hxx>
++#include <vcl/svapp.hxx>
++
++namespace sfx2::hst::startcenter
++{
++namespace
++{
++DateTime toLocalDateTime(const TimeValue& rUTC)
++{
++    TimeValue aLocal;
++    oslDateTime aParts;
++    if (!osl_getLocalTimeFromSystemTime(&rUTC, &aLocal)
++        || !osl_getDateTimeFromTimeValue(&aLocal, &aParts))
++        return DateTime(DateTime::EMPTY);
++    return DateTime(Date(aParts.Day, aParts.Month, aParts.Year),
++                    tools::Time(aParts.Hours, aParts.Minutes, aParts.Seconds));
++}
++
++/** Modification time of a local file, empty for other schemes or when it cannot be read. */
++DateTime readModifyTime(const OUString& rURL)
++{
++    if (!rURL.startsWithIgnoreAsciiCase("file:"))
++        return DateTime(DateTime::EMPTY);
++    osl::DirectoryItem aItem;
++    osl::FileStatus aStatus(osl_FileStatus_Mask_ModifyTime);
++    if (osl::DirectoryItem::get(rURL, aItem) != osl::FileBase::E_None
++        || aItem.getFileStatus(aStatus) != osl::FileBase::E_None
++        || !aStatus.isValid(osl_FileStatus_Mask_ModifyTime))
++        return DateTime(DateTime::EMPTY);
++    return toLocalDateTime(aStatus.getModifyTime());
++}
++
++/** What the worker hands to the main thread. */
++struct TimesResult
++{
++    std::shared_ptr<RecentFileTimes::Guard> pGuard;
++    RecentFileTimes::Callback aCallback;
++    std::vector<DateTime> aTimes;
++};
++
++void deliverTimes(void*, void* pData)
++{
++    std::unique_ptr<TimesResult> pResult(static_cast<TimesResult*>(pData));
++    {
++        std::scoped_lock aLock(pResult->pGuard->aMutex);
++        if (pResult->pGuard->bCancelled)
++            return;
++    }
++    // main thread: Cancel() also runs here, so the window cannot go away during the call
++    pResult->aCallback(pResult->aTimes);
++}
++
++class TimesThread final : public salhelper::Thread
++{
++public:
++    TimesThread(std::vector<OUString> aURLs, std::shared_ptr<RecentFileTimes::Guard> pGuard,
++                RecentFileTimes::Callback aCallback)
++        : salhelper::Thread("HstStartCenterTimes")
++        , maURLs(std::move(aURLs))
++        , mpGuard(std::move(pGuard))
++        , maCallback(std::move(aCallback))
++    {
++    }
++
++private:
++    void execute() override
++    {
++        std::vector<DateTime> aTimes;
++        aTimes.reserve(maURLs.size());
++        for (const OUString& rURL : maURLs)
++        {
++            {
++                std::scoped_lock aLock(mpGuard->aMutex);
++                if (mpGuard->bCancelled)
++                    return;
++            }
++            aTimes.push_back(readModifyTime(rURL));
++        }
++        auto pResult = std::make_unique<TimesResult>(
++            TimesResult{ mpGuard, std::move(maCallback), std::move(aTimes) });
++        // posting under the guard: once Cancel() returned (before VCL shuts down) nothing is posted
++        std::scoped_lock aLock(mpGuard->aMutex);
++        if (mpGuard->bCancelled)
++            return;
++        if (Application::PostUserEvent(LINK_NONMEMBER(nullptr, deliverTimes), pResult.get()))
++            pResult.release();
++    }
++
++    std::vector<OUString> maURLs;
++    std::shared_ptr<RecentFileTimes::Guard> mpGuard;
++    RecentFileTimes::Callback maCallback;
++};
++}
++
++std::vector<RecentFile> LoadRecentFiles()
++{
++    std::vector<RecentFile> aFiles;
++    for (const SvtHistoryOptions::HistoryItem& rItem :
++         SvtHistoryOptions::GetList(EHistoryType::PickList))
++    {
++        if (rItem.sURL.isEmpty())
++            continue;
++        const INetURLObject aURL(rItem.sURL);
++        RecentFile aFile;
++        aFile.aURL = rItem.sURL;
++        aFile.aName = aURL.getName(INetURLObject::LAST_SEGMENT, true,
++                                   INetURLObject::DecodeMechanism::WithCharset);
++        if (aFile.aName.isEmpty())
++            aFile.aName = rItem.sTitle;
++        INetURLObject aFolder(aURL);
++        if (aFolder.removeSegment())
++        {
++            aFile.aFolderURL = aFolder.GetMainURL(INetURLObject::DecodeMechanism::NONE);
++            aFile.aFolder = aFolder.getName(INetURLObject::LAST_SEGMENT, true,
++                                            INetURLObject::DecodeMechanism::WithCharset);
++            aFile.aFolderPath = sfx2::hst::GetDisplayPath(aFile.aFolderURL);
++            if (aFile.aFolder.isEmpty()) // a file at the root of a drive
++                aFile.aFolder = aFile.aFolderPath;
++        }
++        aFile.aIcon = SvFileInformationManager::GetFileImageId(aURL); // by the extension: no disk access
++        aFile.aFolded = FoldForSearch(aFile.aName);
++        aFile.bPinned = rItem.isPinned;
++        aFile.bReadOnly = rItem.isReadOnly;
++        aFiles.push_back(std::move(aFile));
++    }
++    std::stable_partition(aFiles.begin(), aFiles.end(),
++                          [](const RecentFile& rFile) { return rFile.bPinned; });
++    return aFiles;
++}
++
++void RecentFileTimes::Start(std::vector<OUString> aURLs, Callback aCallback)
++{
++    Cancel();
++    mpGuard = std::make_shared<Guard>();
++    try
++    {
++        rtl::Reference<TimesThread> xThread(
++            new TimesThread(std::move(aURLs), mpGuard, std::move(aCallback)));
++        xThread->launch();
++    }
++    catch (const std::exception& rException)
++    {
++        // without the worker the column simply stays empty
++        SAL_WARN("sfx.startcenter", "file times not read: " << rException.what());
++    }
++}
++
++void RecentFileTimes::Cancel()
++{
++    if (!mpGuard)
++        return;
++    std::scoped_lock aLock(mpGuard->aMutex);
++    mpGuard->bCancelled = true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/source/startcenter/hststartcenterrecent.hxx b/sfx2/source/startcenter/hststartcenterrecent.hxx
+new file mode 100644
+index 0000000..05454e4
+--- /dev/null
++++ b/sfx2/source/startcenter/hststartcenterrecent.hxx
+@@ -0,0 +1,69 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <tools/datetime.hxx>
++
++#include <functional>
++#include <memory>
++#include <mutex>
++#include <vector>
++
++/* HST Office Start Center: the recent documents as the table and the pinned column show them.
++   The list itself comes from the profile's history (the same list, order and pinning as the
++   rest of the office); reading it touches no file on disk. The file times shown in the "Opened"
++   column are read on a worker thread, because a recent file on a slow or unreachable drive must
++   never hold up the start of the office. */
++namespace sfx2::hst::startcenter
++{
++struct RecentFile
++{
++    OUString aURL;
++    OUString aName; ///< file name with its extension
++    OUString aFolder; ///< name of the folder that holds the file
++    OUString aFolderURL;
++    OUString aFolderPath; ///< system path of that folder, for tooltips
++    OUString aIcon; ///< image id of the file type
++    OUString aFolded; ///< FoldForSearch(aName)
++    bool bPinned = false;
++    bool bReadOnly = false;
++};
++
++/** The recent documents, pinned ones first, each group in history order. */
++std::vector<RecentFile> LoadRecentFiles();
++
++/** Hands the modification times of files to the main thread. Start() reads them on a worker
++    thread; the callback then runs on the main thread with one DateTime per URL (empty when the
++    file could not be read), unless Cancel() was called first. */
++class RecentFileTimes
++{
++public:
++    using Callback = std::function<void(const std::vector<DateTime>&)>;
++
++    RecentFileTimes() = default;
++    ~RecentFileTimes() { Cancel(); }
++    RecentFileTimes(const RecentFileTimes&) = delete;
++    RecentFileTimes& operator=(const RecentFileTimes&) = delete;
++
++    void Start(std::vector<OUString> aURLs, Callback aCallback);
++    /** No callback runs after this returns (the worker itself is left to finish on its own). */
++    void Cancel();
++
++    struct Guard
++    {
++        std::mutex aMutex;
++        bool bCancelled = false;
++    };
++
++private:
++    std::shared_ptr<Guard> mpGuard;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/source/startcenter/hststartcentersearch.cxx b/sfx2/source/startcenter/hststartcentersearch.cxx
+new file mode 100644
+index 0000000..dcb957f
+--- /dev/null
++++ b/sfx2/source/startcenter/hststartcentersearch.cxx
+@@ -0,0 +1,74 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include <startcenter/hststartcentersearch.hxx>
++
++#include <rtl/ustrbuf.hxx>
++
++#include <unicode/normalizer2.h>
++#include <unicode/uchar.h>
++#include <unicode/unistr.h>
++
++namespace sfx2::hst::startcenter
++{
++namespace
++{
++bool isSpace(sal_Unicode c) { return c == ' ' || c == '\t' || c == 0x00A0 || c == 0x3000; }
++
++/** Decomposed form (NFD), so that every Vietnamese letter is a base letter followed by its marks.
++    Falls back to the text itself if ICU cannot provide the normalizer. */
++icu::UnicodeString decompose(std::u16string_view aText)
++{
++    const icu::UnicodeString aSource(false, reinterpret_cast<const UChar*>(aText.data()),
++                                     static_cast<int32_t>(aText.size()));
++    UErrorCode nError = U_ZERO_ERROR;
++    const icu::Normalizer2* pNFD = icu::Normalizer2::getNFDInstance(nError);
++    if (U_FAILURE(nError) || !pNFD)
++        return aSource;
++    icu::UnicodeString aResult = pNFD->normalize(aSource, nError);
++    return U_FAILURE(nError) ? aSource : aResult;
++}
++}
++
++OUString FoldForSearch(std::u16string_view aText)
++{
++    const icu::UnicodeString aDecomposed = decompose(aText);
++    OUStringBuffer aFolded(aDecomposed.length());
++    for (int32_t i = 0; i < aDecomposed.length(); i = aDecomposed.moveIndex32(i, 1))
++    {
++        UChar32 c = aDecomposed.char32At(i);
++        const int8_t nType = u_charType(c);
++        if (nType == U_NON_SPACING_MARK || nType == U_ENCLOSING_MARK
++            || nType == U_COMBINING_SPACING_MARK)
++            continue;
++        if (c == 0x0110 || c == 0x0111) // Đ đ have no decomposition
++            c = 'd';
++        aFolded.appendUtf32(u_tolower(c));
++    }
++    return aFolded.makeStringAndClear();
++}
++
++bool MatchesFoldedQuery(std::u16string_view aFoldedName, std::u16string_view aFoldedQuery)
++{
++    size_t nPos = 0;
++    while (nPos < aFoldedQuery.size())
++    {
++        while (nPos < aFoldedQuery.size() && isSpace(aFoldedQuery[nPos]))
++            ++nPos;
++        size_t nEnd = nPos;
++        while (nEnd < aFoldedQuery.size() && !isSpace(aFoldedQuery[nEnd]))
++            ++nEnd;
++        if (nEnd > nPos
++            && aFoldedName.find(aFoldedQuery.substr(nPos, nEnd - nPos)) == std::u16string_view::npos)
++            return false;
++        nPos = nEnd;
++    }
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
+new file mode 100644
+index 0000000..efe60c4
+--- /dev/null
++++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
+@@ -0,0 +1,781 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++// The Start Center window: construction, layout, colours, the left menu, the tiles, the HASON TECH
++// solutions and the keyboard. The recent and pinned lists are in hststartcenterfiles.cxx.
++
++#include <startcenter/hststartcenterwindow.hxx>
++
++#include "hststartcenterpaint.hxx"
++#include "hststartcenterrecent.hxx"
++
++#include <com/sun/star/frame/Desktop.hpp>
++#include <com/sun/star/frame/XDispatch.hpp>
++#include <com/sun/star/frame/XFramesSupplier.hpp>
++#include <com/sun/star/system/SystemShellExecute.hpp>
++#include <com/sun/star/system/SystemShellExecuteFlags.hpp>
++#include <com/sun/star/util/URLTransformer.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <sfx2/app.hxx>
++#include <svtools/acceleratorexecute.hxx>
++#include <svtools/openfiledroptargetlistener.hxx>
++#include <unotools/moduleoptions.hxx>
++#include <vcl/event.hxx>
++#include <vcl/HstBanner.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/virdev.hxx>
++#include <vcl/wall.hxx>
++#include <vcl/weld/Builder.hxx>
++#include <vcl/weld/Button.hxx>
++#include <vcl/weld/Container.hxx>
++#include <vcl/weld/Entry.hxx>
++#include <vcl/weld/Image.hxx>
++#include <vcl/weld/Label.hxx>
++#include <vcl/weld/Menu.hxx>
++#include <vcl/weld/TreeView.hxx>
++#include <vcl/weld/customweld.hxx>
++
++#include <algorithm>
++
++using namespace css;
++using namespace sfx2::hst::startcenter;
++
++namespace
++{
++// The update check of the bundled HST extension (the same command as the ribbon's Help tab).
++constexpr OUString UPDATE_CHECK = u"org.hst.office.update:Check"_ustr;
++// "Tài liệu chưa lưu" of the bundled HST extension (the same command as the File panel's entry).
++constexpr OUString UNSAVED_DOCUMENTS = u"org.hst.office.vi:UnsavedDocuments"_ustr;
++
++// The HASON TECH solutions: name, tagline and site, in display order (the same as the solutions of
++// data/hst/solutions.json; tests/unit checks that they stay alike). The texts are Vietnamese in
++// every interface language, as everywhere HASON TECH presents itself in HST Office.
++struct Solution
++{
++    OUString aName;
++    OUString aTagline;
++    OUString aURL;
++};
++
++const Solution aSolutions[] = {
++    { u"AIOS"_ustr,
++      u"Trợ lý AI cá nhân, như một trợ lý thực thụ"_ustr,
++      u"https://aios.hasontech.vn"_ustr },
++    { u"eChatbot"_ustr,
++      u"Chatbot AI – trợ lý số cho cơ quan chính quyền, doanh nghiệp, giáo dục"_ustr,
++      u"https://echatbot.vn"_ustr },
++    { u"Zalo Mini App"_ustr,
++      u"Mini App trên ứng dụng Zalo dành cho chính quyền số, doanh nghiệp"_ustr,
++      u"https://espace.vn/zaloapp"_ustr },
++    { u"HST SEO"_ustr,
++      u"SEO tự động hóa thông minh bằng AI"_ustr,
++      u"https://seo.hasontech.vn"_ustr },
++    { u"HST Post"_ustr,
++      u"Công cụ đăng bài bằng AI trên hàng loạt nền tảng mạng xã hội"_ustr,
++      u"https://post.hasontech.vn"_ustr },
++    { u"AI Dễ Lắm"_ustr,
++      u"Bộ công cụ hỗ trợ sử dụng AI thành thạo"_ustr,
++      u"https://aidelam.com"_ustr },
++};
++constexpr OUString MORE_SOLUTIONS_URL = u"https://hasontech.vn"_ustr;
++// UTM only tells the site where the click came from; the application sends no data.
++constexpr OUString SOLUTION_UTM
++    = u"utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0"_ustr;
++
++// Layout in device-independent pixels (multiplied by the DPI factor).
++constexpr double RIGHT_COLUMN_MIN_WINDOW = 1180; // narrower: the pinned column folds away
++constexpr double COMPACT_WINDOW = 860; // narrower: the left menu shows its glyphs only
++constexpr double LEFT_WIDTH = 248;
++constexpr double LEFT_COMPACT_WIDTH = 56;
++constexpr double MENU_HEIGHT = 38;
++constexpr double TILE_HEIGHT = 72;
++constexpr double MIN_WINDOW_WIDTH = 720;
++
++struct ImplDispatch
++{
++    uno::Reference<frame::XDispatch> xDispatch;
++    util::URL aURL;
++    uno::Sequence<beans::PropertyValue> aArgs;
++};
++
++void dispatchLater(void*, void* pData)
++{
++    std::unique_ptr<ImplDispatch> pDispatch(static_cast<ImplDispatch*>(pData));
++    try
++    {
++        pDispatch->xDispatch->dispatch(pDispatch->aURL, pDispatch->aArgs);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.startcenter", "dispatch of " << pDispatch->aURL.Complete);
++    }
++}
++}
++
++/** A left menu item: a button whose face is painted (glyph and text) so it looks alike on every
++    platform; its accessible name is its text. */
++struct HstStartCenterWindow::MenuItem
++{
++    std::unique_ptr<weld::Button> xButton;
++    Glyph eGlyph;
++    OUString aText;
++    std::unique_ptr<HoverWatch> xHover;
++};
++
++/** One of the three "create" tiles. */
++struct HstStartCenterWindow::Tile
++{
++    std::unique_ptr<weld::Button> xButton;
++    OUString aText;
++    OUString aFactory;
++    std::unique_ptr<HoverWatch> xHover;
++    tools::Long nWidth = 0;
++};
++
++/** Tells the window which menu item or tile the mouse is over (a painted face hides the toolkit's
++    own hover look). */
++class HstStartCenterWindow::HoverWatch
++{
++public:
++    HoverWatch(HstStartCenterWindow& rWindow, int nMenu, int nTile)
++        : mrWindow(rWindow)
++        , mnMenu(nMenu)
++        , mnTile(nTile)
++    {
++    }
++    DECL_LINK(MouseHdl, const MouseEvent&, bool);
++
++private:
++    HstStartCenterWindow& mrWindow;
++    int mnMenu;
++    int mnTile;
++};
++
++IMPL_LINK(HstStartCenterWindow::HoverWatch, MouseHdl, const MouseEvent&, rEvent, bool)
++{
++    if (rEvent.IsLeaveWindow())
++        mrWindow.SetHover(-1, -1);
++    else
++        mrWindow.SetHover(mnMenu, mnTile);
++    return false;
++}
++
++HstStartCenterWindow::HstStartCenterWindow(vcl::Window* pParent)
++    : InterimItemWindow(pParent, u"sfx/ui/hststartcenter.ui"_ustr, u"StartCenter"_ustr, false)
++    , mxLeftView(m_xBuilder->weld_widget(u"leftview"_ustr))
++    , mxLeft(m_xBuilder->weld_container(u"leftcol"_ustr))
++    , mxLogo(m_xBuilder->weld_image(u"logo"_ustr))
++    , mxNewMenu(m_xBuilder->weld_menu(u"newmenu"_ustr))
++    , mxSeparator(m_xBuilder->weld_widget(u"separator"_ustr))
++    , mxSolutions(m_xBuilder->weld_container(u"solutions"_ustr))
++    , mxSolutionsTitle(m_xBuilder->weld_label(u"solutionstitle"_ustr))
++    , mxMoreSolutions(m_xBuilder->weld_button(u"btnMoreSolutions"_ustr))
++    , mxCentre(m_xBuilder->weld_container(u"centrecol"_ustr))
++    , mxWelcome(m_xBuilder->weld_label(u"welcome"_ustr))
++    , mxSearch(m_xBuilder->weld_entry(u"search"_ustr))
++    , mxQuickTitle(m_xBuilder->weld_label(u"quicktitle"_ustr))
++    , mxDrawButton(m_xBuilder->weld_button(u"draw_all"_ustr))
++    , mxMathButton(m_xBuilder->weld_button(u"math_all"_ustr))
++    , mxBaseButton(m_xBuilder->weld_button(u"database_all"_ustr))
++    , mxRecentTitle(m_xBuilder->weld_label(u"recenttitle"_ustr))
++    , mxRecentScroll(m_xBuilder->weld_widget(u"recentscroll"_ustr))
++    , mxRecentList(m_xBuilder->weld_tree_view(u"recentlist"_ustr))
++    , mxRecentEmpty(m_xBuilder->weld_label(u"recentempty"_ustr))
++    , mxFileMenu(m_xBuilder->weld_menu(u"filemenu"_ustr))
++    , mxRight(m_xBuilder->weld_container(u"rightcol"_ustr))
++    , mxPinnedTitle(m_xBuilder->weld_label(u"pinnedtitle"_ustr))
++    , mxPinnedScroll(m_xBuilder->weld_widget(u"pinnedscroll"_ustr))
++    , mxPinnedList(m_xBuilder->weld_tree_view(u"pinnedlist"_ustr))
++    , mxPinnedEmpty(m_xBuilder->weld_label(u"pinnedempty"_ustr))
++    , mpPalette(std::make_unique<Palette>())
++    , mpTimes(std::make_unique<RecentFileTimes>())
++{
++    SetPaintTransparent(false);
++    SetStyle(GetStyle() | WB_DIALOGCONTROL);
++    mfScale = std::max(1.0, static_cast<double>(GetDPIScaleFactor()));
++    set_width_request(static_cast<int>(MIN_WINDOW_WIDTH * mfScale));
++
++    try
++    {
++        mxDesktop = frame::Desktop::create(comphelper::getProcessComponentContext());
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.startcenter", "no desktop");
++    }
++
++    mpRecentFrame = mxRecentScroll ? mxRecentScroll.get() : static_cast<weld::Widget*>(mxRecentList.get());
++    mpPinnedFrame = mxPinnedScroll ? mxPinnedScroll.get() : static_cast<weld::Widget*>(mxPinnedList.get());
++    InitMenu();
++    InitSolutions();
++    InitTiles();
++    InitLists();
++    ApplyStyle();
++    ReloadFiles();
++    mxDropTarget = m_xContainer->get_drop_target();
++}
++
++HstStartCenterWindow::~HstStartCenterWindow() { disposeOnce(); }
++
++void HstStartCenterWindow::dispose()
++{
++    mpTimes->Cancel(); // no file times arrive after this
++    if (mpPendingEvent)
++    {
++        Application::RemoveUserEvent(mpPendingEvent);
++        mpPendingEvent = nullptr;
++    }
++    if (mxDropTarget.is() && mxDropListener.is())
++    {
++        try
++        {
++            mxDropTarget->removeDropTargetListener(mxDropListener);
++            mxDropTarget->setActive(false);
++        }
++        catch (const uno::Exception&)
++        {
++            TOOLS_WARN_EXCEPTION("sfx.startcenter", "drop target");
++        }
++    }
++    mxDropTarget.clear();
++    mxDropListener.clear();
++    mpAccExec.reset();
++
++    mxBannerWeld.reset(); // before the drawing area goes with the builder
++    mxBanner.reset();
++    maMenu.clear();
++    maTiles.clear();
++    maSolutionButtons.clear();
++    mxNewMenu.reset();
++    mxFileMenu.reset();
++    mxLogo.reset();
++    mxSeparator.reset();
++    mxSolutions.reset();
++    mxSolutionsTitle.reset();
++    mxMoreSolutions.reset();
++    mxWelcome.reset();
++    mxSearch.reset();
++    mxQuickTitle.reset();
++    mxDrawButton.reset();
++    mxMathButton.reset();
++    mxBaseButton.reset();
++    mxRecentTitle.reset();
++    mpRecentFrame = nullptr;
++    mpPinnedFrame = nullptr;
++    mxRecentList.reset();
++    mxRecentScroll.reset();
++    mxRecentEmpty.reset();
++    mxPinnedTitle.reset();
++    mxPinnedList.reset();
++    mxPinnedScroll.reset();
++    mxPinnedEmpty.reset();
++    mxRight.reset();
++    mxCentre.reset();
++    mxLeft.reset();
++    mxLeftView.reset();
++    InterimItemWindow::dispose();
++}
++
++void HstStartCenterWindow::InitMenu()
++{
++    const std::pair<OUString, Glyph> aItems[] = {
++        { u"nav_home"_ustr, Glyph::Home },     { u"nav_new"_ustr, Glyph::NewDocument },
++        { u"open_all"_ustr, Glyph::Open },     { u"nav_unsaved"_ustr, Glyph::Unsaved },
++        { u"nav_recent"_ustr, Glyph::Recent },
++        { u"nav_pinned"_ustr, Glyph::Pinned }, { u"nav_update"_ustr, Glyph::Update },
++    };
++    for (const auto& [rId, eGlyph] : aItems)
++    {
++        MenuItem aItem;
++        aItem.xButton = m_xBuilder->weld_button(rId);
++        aItem.eGlyph = eGlyph;
++        // glyph and text are painted into the button's face; the translated label stays its
++        // accessible name (a label left on the button would be drawn over the face)
++        aItem.aText = aItem.xButton->get_label();
++        aItem.xButton->set_accessible_name(aItem.aText);
++        aItem.xButton->set_label(OUString());
++        aItem.xButton->connect_clicked(LINK(this, HstStartCenterWindow, MenuClickHdl));
++        aItem.xHover.reset(new HoverWatch(*this, maMenu.size(), -1));
++        aItem.xButton->connect_mouse_move(LINK(aItem.xHover.get(), HoverWatch, MouseHdl));
++        maMenu.push_back(std::move(aItem));
++    }
++
++    // "New document": every kind of document the installation can create, and the templates
++    SvtModuleOptions aModules;
++    mxNewMenu->set_visible(u"new_writer"_ustr, aModules.IsWriterInstalled());
++    mxNewMenu->set_visible(u"new_calc"_ustr, aModules.IsCalcInstalled());
++    mxNewMenu->set_visible(u"new_impress"_ustr, aModules.IsImpressInstalled());
++    mxNewMenu->set_visible(u"new_draw"_ustr, aModules.IsDrawInstalled());
++}
++
++void HstStartCenterWindow::InitSolutions()
++{
++    for (size_t i = 0; i < std::size(aSolutions); ++i)
++    {
++        std::unique_ptr<weld::Button> xButton
++            = m_xBuilder->weld_button(u"btnSolution" + OUString::number(i));
++        xButton->set_label(aSolutions[i].aName);
++        xButton->set_tooltip_text(aSolutions[i].aTagline);
++        xButton->set_accessible_name(aSolutions[i].aName);
++        xButton->set_accessible_description(aSolutions[i].aTagline);
++        xButton->connect_clicked(LINK(this, HstStartCenterWindow, SolutionClickHdl));
++        maSolutionButtons.push_back(std::move(xButton));
++    }
++    mxMoreSolutions->set_label(u"Xem thêm các giải pháp khác →"_ustr);
++    mxMoreSolutions->connect_clicked(LINK(this, HstStartCenterWindow, SolutionClickHdl));
++
++    // the rotating HASON TECH banner: signed feed, fetched and counted on worker threads
++    mxBanner.reset(new HstBannerWidget(this));
++    mxBannerWeld.reset(new weld::CustomWeld(*m_xBuilder, u"banner"_ustr, *mxBanner));
++}
++
++void HstStartCenterWindow::InitTiles()
++{
++    const std::pair<OUString, OUString> aTiles[] = {
++        { u"writer_all"_ustr, u"private:factory/swriter"_ustr },
++        { u"calc_all"_ustr, u"private:factory/scalc"_ustr },
++        { u"impress_all"_ustr, u"private:factory/simpress?slot=6686"_ustr },
++    };
++    SvtModuleOptions aModules;
++    const bool bInstalled[] = { aModules.IsWriterInstalled(), aModules.IsCalcInstalled(),
++                                aModules.IsImpressInstalled() };
++    for (size_t i = 0; i < std::size(aTiles); ++i)
++    {
++        Tile aTile;
++        aTile.xButton = m_xBuilder->weld_button(aTiles[i].first);
++        aTile.aText = aTile.xButton->get_label();
++        aTile.aFactory = aTiles[i].second;
++        aTile.xButton->set_accessible_name(aTile.aText);
++        aTile.xButton->set_label(OUString());
++        aTile.xButton->set_sensitive(bInstalled[i]);
++        aTile.xButton->connect_clicked(LINK(this, HstStartCenterWindow, TileClickHdl));
++        // the grid shares the centre between the tiles: each face is painted as wide as its button
++        aTile.xButton->connect_size_allocate(LINK(this, HstStartCenterWindow, TileSizeHdl));
++        aTile.xHover.reset(new HoverWatch(*this, -1, maTiles.size()));
++        aTile.xButton->connect_mouse_move(LINK(aTile.xHover.get(), HoverWatch, MouseHdl));
++        maTiles.push_back(std::move(aTile));
++    }
++    // not shown, but automation creates these documents from the Start Center by their ids
++    for (weld::Button* pButton : { mxDrawButton.get(), mxMathButton.get(), mxBaseButton.get() })
++        pButton->connect_clicked(LINK(this, HstStartCenterWindow, TileClickHdl));
++
++    mxSearch->connect_changed(LINK(this, HstStartCenterWindow, SearchChangedHdl));
++}
++
++void HstStartCenterWindow::ApplyStyle()
++{
++    const StyleSettings& rStyle = Application::GetSettings().GetStyleSettings();
++    *mpPalette = MakePalette(rStyle);
++    const Palette& rPalette = *mpPalette;
++
++    SetBackground(Wallpaper(rPalette.aWindow));
++    m_xContainer->set_background(rPalette.aWindow);
++    // the column's border is the viewport's: both in the colour of the side
++    if (mxLeftView)
++        mxLeftView->set_background(rPalette.aSide);
++    mxLeft->set_background(rPalette.aSide);
++    mxSolutions->set_background(rPalette.aSide);
++    mxSeparator->set_background(rPalette.aBorder);
++    mxRight->set_background(rPalette.aCard);
++
++    const vcl::Font& rLabelFont = rStyle.GetLabelFont();
++    vcl::Font aWelcome(rLabelFont);
++    aWelcome.SetFontHeight(rLabelFont.GetFontHeight() * 2.2);
++    aWelcome.SetWeight(WEIGHT_BOLD);
++    mxWelcome->set_font(aWelcome);
++    mxWelcome->set_font_color(rPalette.aAccent);
++
++    vcl::Font aHeading(rLabelFont);
++    aHeading.SetFontHeight(rLabelFont.GetFontHeight() * 1.3);
++    aHeading.SetWeight(WEIGHT_BOLD);
++    for (weld::Label* pLabel : { mxQuickTitle.get(), mxRecentTitle.get(), mxPinnedTitle.get() })
++        pLabel->set_font(aHeading);
++
++    vcl::Font aSmallHeading(rLabelFont);
++    aSmallHeading.SetWeight(WEIGHT_BOLD);
++    mxSolutionsTitle->set_font(aSmallHeading);
++    for (weld::Label* pLabel : { mxRecentEmpty.get(), mxPinnedEmpty.get() })
++        pLabel->set_font_color(rPalette.aMuted);
++
++    // the logo: the light or the inverted artwork, as wide as the menu leaves room for
++    Bitmap aLogo;
++    if (SfxApplication::loadBrandSvg(rPalette.bDark ? u"shell/logo-sc_inverted" : u"shell/logo-sc",
++                                     aLogo, static_cast<int>(170 * mfScale)))
++    {
++        ScopedVclPtr<VirtualDevice> xDev = mxLogo->create_virtual_device();
++        xDev->SetOutputSizePixel(aLogo.GetSizePixel());
++        xDev->SetBackground(Wallpaper(rPalette.aSide));
++        xDev->Erase();
++        xDev->DrawBitmap(Point(0, 0), aLogo);
++        mxLogo->set_image(xDev.get());
++    }
++
++    for (size_t i = 0; i < maMenu.size(); ++i)
++        PaintMenuItem(i);
++    for (size_t i = 0; i < maTiles.size(); ++i)
++        PaintTile(i);
++    FillRecentList(); // the glyphs of the table follow the colours
++}
++
++void HstStartCenterWindow::PaintMenuItem(size_t nIndex)
++{
++    MenuItem& rItem = maMenu[nIndex];
++    const bool bSelected = (nIndex == 0 && meSection == Section::Home)
++                           || (rItem.eGlyph == Glyph::Recent && meSection == Section::Recent)
++                           || (rItem.eGlyph == Glyph::Pinned && meSection == Section::Pinned);
++    // the column's width less its border (16 on each side) and the button's own padding
++    const tools::Long nColumn = mnLeftWidth > 0 ? mnLeftWidth : static_cast<tools::Long>(LEFT_WIDTH * mfScale);
++    const Size aSize(nColumn - static_cast<tools::Long>((mbCompact ? 20 : 44) * mfScale),
++                     static_cast<tools::Long>(MENU_HEIGHT * mfScale));
++    ScopedVclPtr<VirtualDevice> xDev = rItem.xButton->create_virtual_device();
++    xDev->SetOutputSizePixel(aSize);
++    vcl::Font aFont(Application::GetSettings().GetStyleSettings().GetLabelFont());
++    aFont.SetFontHeight(aFont.GetFontHeight() * 1.1);
++    // the style font height is in points, the device draws in pixels
++    aFont.SetFontHeight(aFont.GetFontHeight() * xDev->GetDPIY() / 72.0);
++    sfx2::hst::startcenter::PaintMenuItem(*xDev, aSize, mfScale, rItem.eGlyph, rItem.aText, aFont,
++                                          *mpPalette, bSelected, static_cast<int>(nIndex) == mnHoverMenu,
++                                          mbCompact);
++    rItem.xButton->set_size_request(aSize.Width(), aSize.Height());
++    rItem.xButton->set_custom_button(xDev.get());
++    rItem.xButton->set_tooltip_text(mbCompact ? rItem.aText : OUString());
++}
++
++void HstStartCenterWindow::PaintTile(size_t nIndex)
++{
++    Tile& rTile = maTiles[nIndex];
++    const tools::Long nWidth
++        = std::max<tools::Long>(rTile.nWidth, static_cast<tools::Long>(150 * mfScale));
++    const Size aSize(nWidth, static_cast<tools::Long>(TILE_HEIGHT * mfScale));
++    ScopedVclPtr<VirtualDevice> xDev = rTile.xButton->create_virtual_device();
++    xDev->SetOutputSizePixel(aSize);
++    vcl::Font aFont(Application::GetSettings().GetStyleSettings().GetLabelFont());
++    aFont.SetFontHeight(aFont.GetFontHeight() * 1.25 * xDev->GetDPIY() / 72.0);
++    sfx2::hst::startcenter::PaintTile(*xDev, aSize, mfScale, nIndex, rTile.aText, aFont, *mpPalette,
++                                      static_cast<int>(nIndex) == mnHoverTile);
++    // only the smallest size is asked for, so the tiles shrink with the window again
++    rTile.xButton->set_size_request(static_cast<tools::Long>(150 * mfScale), aSize.Height());
++    rTile.xButton->set_custom_button(xDev.get());
++}
++
++IMPL_LINK(HstStartCenterWindow, TileSizeHdl, const Size&, rSize, void)
++{
++    // the tiles are equally wide (a homogeneous grid); a face repaints only when its width changes
++    for (size_t i = 0; i < maTiles.size(); ++i)
++    {
++        if (std::abs(maTiles[i].nWidth - rSize.Width()) > 2)
++        {
++            maTiles[i].nWidth = rSize.Width();
++            PaintTile(i);
++        }
++    }
++}
++
++void HstStartCenterWindow::SetHover(int nMenu, int nTile)
++{
++    const int nOldMenu = mnHoverMenu;
++    const int nOldTile = mnHoverTile;
++    mnHoverMenu = nMenu;
++    mnHoverTile = nTile;
++    for (int nIndex : { nOldMenu, nMenu })
++        if (nIndex >= 0 && nOldMenu != nMenu)
++            PaintMenuItem(nIndex);
++    for (int nIndex : { nOldTile, nTile })
++        if (nIndex >= 0 && nOldTile != nTile)
++            PaintTile(nIndex);
++}
++
++void HstStartCenterWindow::Resize()
++{
++    InterimItemWindow::Resize();
++    UpdateLayout();
++}
++
++void HstStartCenterWindow::UpdateLayout()
++{
++    if (!mxLeft)
++        return;
++    const double fWidth = GetOutputSizePixel().Width() / mfScale;
++    if (fWidth <= 0)
++        return;
++    const bool bCompact = fWidth < COMPACT_WINDOW;
++    const bool bShowRight = fWidth >= RIGHT_COLUMN_MIN_WINDOW;
++    // the left column is at least as wide as the banner needs
++    const Size aBanner = HstBannerWidget::MinimumSize(GetDPIScaleFactor());
++    const int nLeft = bCompact ? static_cast<int>(LEFT_COMPACT_WIDTH * mfScale)
++                               : std::max(static_cast<int>(LEFT_WIDTH * mfScale),
++                                          static_cast<int>(aBanner.Width() + 32 * mfScale));
++    if (bCompact != mbCompact || nLeft != mnLeftWidth)
++    {
++        mbCompact = bCompact;
++        mnLeftWidth = nLeft;
++        mxLeft->set_size_request(nLeft, -1);
++        for (size_t i = 0; i < maMenu.size(); ++i)
++            PaintMenuItem(i);
++        mxSolutions->set_visible(!mbCompact);
++        mxSeparator->set_visible(!mbCompact);
++        mxLogo->set_visible(!mbCompact);
++    }
++
++    if (bShowRight != mbShowRight)
++    {
++        mbShowRight = bShowRight;
++        mxRight->set_visible(mbShowRight);
++        if (mbShowRight && mbPinnedOnly)
++        {
++            // the pinned files have their own column again
++            mbPinnedOnly = false;
++            FillRecentList();
++        }
++    }
++}
++
++void HstStartCenterWindow::SelectSection(Section eSection)
++{
++    meSection = eSection;
++    for (size_t i = 0; i < maMenu.size(); ++i)
++        PaintMenuItem(i);
++}
++
++void HstStartCenterWindow::setOwningFrame(const uno::Reference<frame::XFrame>& xFrame)
++{
++    mxFrame = xFrame;
++    if (mxDropTarget.is() && !mxDropListener.is())
++    {
++        try
++        {
++            mxDropListener.set(new OpenFileDropTargetListener(
++                comphelper::getProcessComponentContext(), mxFrame));
++            mxDropTarget->addDropTargetListener(mxDropListener);
++            mxDropTarget->setActive(true);
++        }
++        catch (const uno::Exception&)
++        {
++            TOOLS_WARN_EXCEPTION("sfx.startcenter", "drop target");
++        }
++    }
++    uno::Reference<frame::XFramesSupplier> xFrames(mxDesktop, uno::UNO_QUERY);
++    if (xFrames.is())
++        xFrames->setActiveFrame(mxFrame);
++}
++
++void HstStartCenterWindow::Dispatch(const OUString& rURL, const OUString& rTarget, bool bViaFrame,
++                                    const uno::Sequence<beans::PropertyValue>& rArgs)
++{
++    uno::Reference<frame::XDispatchProvider> xProvider(
++        bViaFrame ? uno::Reference<frame::XDispatchProvider>(mxFrame, uno::UNO_QUERY) : mxDesktop);
++    if (!xProvider.is())
++        return;
++    try
++    {
++        auto pDispatch = std::make_unique<ImplDispatch>();
++        pDispatch->aURL.Complete = rURL;
++        util::URLTransformer::create(comphelper::getProcessComponentContext())
++            ->parseStrict(pDispatch->aURL);
++        pDispatch->xDispatch = xProvider->queryDispatch(pDispatch->aURL, rTarget, 0);
++        if (!pDispatch->xDispatch.is())
++        {
++            SAL_WARN("sfx.startcenter", "no dispatch for " << rURL);
++            return;
++        }
++        pDispatch->aArgs = rArgs;
++        // after this click returns: the dispatch may replace this window
++        if (Application::PostUserEvent(LINK_NONMEMBER(nullptr, dispatchLater), pDispatch.get()))
++            pDispatch.release();
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.startcenter", "dispatch of " << rURL);
++    }
++}
++
++IMPL_LINK(HstStartCenterWindow, MenuClickHdl, weld::Button&, rButton, void)
++{
++    const OUString aId = rButton.get_buildable_name();
++    if (aId == "nav_home")
++    {
++        mbPinnedOnly = false;
++        mxSearch->set_text(OUString());
++        FillRecentList();
++        SelectSection(Section::Home);
++        mxSearch->grab_focus();
++    }
++    else if (aId == "nav_new")
++    {
++        int nX, nY, nWidth, nHeight;
++        if (!rButton.get_extents_relative_to(rButton, nX, nY, nWidth, nHeight))
++            return;
++        const OUString aChoice
++            = mxNewMenu->popup_at_rect(&rButton, tools::Rectangle(Point(0, 0), Size(nWidth, nHeight)),
++                                       weld::Placement::End);
++        if (aChoice == "new_writer")
++            Dispatch(maTiles[0].aFactory, u"_default"_ustr, false);
++        else if (aChoice == "new_calc")
++            Dispatch(maTiles[1].aFactory, u"_default"_ustr, false);
++        else if (aChoice == "new_impress")
++            Dispatch(maTiles[2].aFactory, u"_default"_ustr, false);
++        else if (aChoice == "new_draw")
++            Dispatch(u"private:factory/sdraw"_ustr, u"_default"_ustr, false);
++        else if (aChoice == "new_template")
++            Dispatch(u".uno:NewDoc"_ustr, OUString(), true);
++    }
++    else if (aId == "open_all")
++        Dispatch(u".uno:Open"_ustr, OUString(), true,
++                 { comphelper::makePropertyValue(u"Referer"_ustr, u"private:user"_ustr) });
++    else if (aId == "nav_unsaved")
++        // documents closed without saving, kept for 7 days (dialog of the bundled HST extension)
++        Dispatch(UNSAVED_DOCUMENTS, OUString(), true);
++    else if (aId == "nav_recent")
++    {
++        mbPinnedOnly = false;
++        FillRecentList();
++        SelectSection(Section::Recent);
++        mxRecentList->grab_focus();
++    }
++    else if (aId == "nav_pinned")
++    {
++        SelectSection(Section::Pinned);
++        if (mbShowRight)
++            mxPinnedList->grab_focus();
++        else
++        {
++            // no room for the pinned column: the recent table shows the pinned files
++            mbPinnedOnly = true;
++            FillRecentList();
++            mxRecentList->grab_focus();
++        }
++    }
++    else if (aId == "nav_update")
++        Dispatch(UPDATE_CHECK, OUString(), true);
++}
++
++IMPL_LINK(HstStartCenterWindow, TileClickHdl, weld::Button&, rButton, void)
++{
++    for (const Tile& rTile : maTiles)
++        if (rTile.xButton.get() == &rButton)
++            return Dispatch(rTile.aFactory, u"_default"_ustr, false);
++    if (&rButton == mxDrawButton.get())
++        Dispatch(u"private:factory/sdraw"_ustr, u"_default"_ustr, false);
++    else if (&rButton == mxMathButton.get())
++        Dispatch(u"private:factory/smath"_ustr, u"_default"_ustr, false);
++    else if (&rButton == mxBaseButton.get())
++        Dispatch(u"private:factory/sdatabase?Interactive"_ustr, u"_default"_ustr, false);
++}
++
++IMPL_LINK(HstStartCenterWindow, SolutionClickHdl, weld::Button&, rButton, void)
++{
++    OUString aURL;
++    if (&rButton == mxMoreSolutions.get())
++        aURL = MORE_SOLUTIONS_URL;
++    for (size_t i = 0; aURL.isEmpty() && i < maSolutionButtons.size(); ++i)
++        if (maSolutionButtons[i].get() == &rButton)
++            aURL = aSolutions[i].aURL;
++    if (aURL.isEmpty())
++        return;
++    try
++    {
++        system::SystemShellExecute::create(comphelper::getProcessComponentContext())
++            ->execute(aURL + "?" + SOLUTION_UTM, OUString(),
++                      system::SystemShellExecuteFlags::URIS_ONLY);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.startcenter", "opening the HASON TECH page failed");
++    }
++}
++
++void HstStartCenterWindow::FocusRegion(int nDelta)
++{
++    // F6 regions: the left menu, the search box, the recent table, the pinned list
++    std::vector<weld::Widget*> aRegions{ maMenu.front().xButton.get(), mxSearch.get() };
++    if (mpRecentFrame->get_visible())
++        aRegions.push_back(mxRecentList.get());
++    if (mbShowRight && mpPinnedFrame->get_visible())
++        aRegions.push_back(mxPinnedList.get());
++    int nCurrent = -1;
++    for (size_t i = 0; i < aRegions.size(); ++i)
++        if (aRegions[i]->has_focus())
++            nCurrent = i;
++    if (nCurrent < 0)
++        for (const MenuItem& rItem : maMenu)
++            if (rItem.xButton->has_focus())
++                nCurrent = 0;
++    const int nCount = aRegions.size();
++    const int nNext = nCurrent < 0 ? 0 : (nCurrent + nDelta + nCount) % nCount;
++    aRegions[nNext]->grab_focus();
++}
++
++bool HstStartCenterWindow::PreNotify(NotifyEvent& rNEvt)
++{
++    if (rNEvt.GetType() == NotifyEventType::KEYINPUT && mxSearch)
++    {
++        const vcl::KeyCode& rKey = rNEvt.GetKeyEvent()->GetKeyCode();
++        // Space in a list: the lists' key handlers take it first where the toolkit delivers keys to
++        // them (GTK, and VCL's key listeners for keys typed); a key event posted to the window reaches
++        // only this point, so it pins here too (each key is taken once: a handled key stops earlier)
++        if (rKey.GetFullCode() == KEY_SPACE)
++        {
++            if (mxRecentList->has_focus())
++                return LINK(this, HstStartCenterWindow, RecentKeyHdl).Call(*rNEvt.GetKeyEvent());
++            if (mxPinnedList->has_focus())
++                return LINK(this, HstStartCenterWindow, PinnedKeyHdl).Call(*rNEvt.GetKeyEvent());
++        }
++        if (rKey.GetCode() == KEY_F6 && !rKey.IsMod1() && !rKey.IsMod2())
++        {
++            FocusRegion(rKey.IsShift() ? -1 : 1);
++            return true;
++        }
++        // the office's shortcuts (Ctrl+N, Ctrl+O, Ctrl+Q...), except the editing keys of the search box
++        const bool bTyping = mxSearch->has_focus() && (!rKey.IsMod1() || rKey.GetCode() == KEY_A
++                                                       || rKey.GetCode() == KEY_C || rKey.GetCode() == KEY_V
++                                                       || rKey.GetCode() == KEY_X || rKey.GetCode() == KEY_Z
++                                                       || rKey.GetCode() == KEY_Y);
++        if (!bTyping && mxFrame.is())
++        {
++            if (!mpAccExec)
++            {
++                mpAccExec = svt::AcceleratorExecute::createAcceleratorHelper();
++                mpAccExec->init(comphelper::getProcessComponentContext(), mxFrame);
++            }
++            const OUString aCommand
++                = mpAccExec->findCommand(svt::AcceleratorExecute::st_VCLKey2AWTKey(rKey));
++            if (aCommand != "vnd.sun.star.findbar:FocusToFindbar" && mpAccExec->execute(rKey))
++                return true;
++        }
++    }
++    return InterimItemWindow::PreNotify(rNEvt);
++}
++
++void HstStartCenterWindow::GetFocus()
++{
++    const GetFocusFlags nFlags = GetParent()->GetGetFocusFlags();
++    if (mxSearch && (nFlags & GetFocusFlags::F6))
++    {
++        if (nFlags & GetFocusFlags::Forward)
++            maMenu.front().xButton->grab_focus();
++        else
++            mxRecentList->grab_focus();
++        return;
++    }
++    InterimItemWindow::GetFocus();
++}
++
++void HstStartCenterWindow::DataChanged(const DataChangedEvent& rDCEvt)
++{
++    InterimItemWindow::DataChanged(rDCEvt);
++    if (rDCEvt.GetType() == DataChangedEventType::SETTINGS
++        && (rDCEvt.GetFlags() & AllSettingsFlags::STYLE) && mxLeft)
++    {
++        ApplyStyle();
++        Invalidate();
++    }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/uiconfig/ui/hststartcenter.ui b/sfx2/uiconfig/ui/hststartcenter.ui
+new file mode 100644
+index 0000000..275c1e3
+--- /dev/null
++++ b/sfx2/uiconfig/ui/hststartcenter.ui
+@@ -0,0 +1,883 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!-- SPDX-License-Identifier: LicenseRef-HST-Proprietary
++     HST Office: the Start Center, see sfx2/source/startcenter/hststartcenterwindow.cxx.
++     The children are in their visual order and carry no packing position. No property may be empty
++     (a self-closing property element): VclBuilder (the VCL plugins of Windows, macOS and gen) then nests the
++     following siblings into the object before them. The menu items and the tiles are painted by the code;
++     their label is their accessible name. writer_all, calc_all, impress_all, draw_all, math_all and
++     database_all keep the ids of the former Start Center, which automation uses to create documents. -->
++<interface domain="sfx">
++  <requires lib="gtk+" version="3.24"/>
++  <object class="GtkMenu" id="newmenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="new_writer">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hststartcenter|new_writer">_Text Document</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="new_calc">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hststartcenter|new_calc">_Spreadsheet</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="new_impress">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hststartcenter|new_impress">_Presentation</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="new_draw">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hststartcenter|new_draw">_Drawing</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkSeparatorMenuItem" id="newsep">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="new_template">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hststartcenter|new_template">From T_emplate…</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkMenu" id="filemenu">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <child>
++      <object class="GtkMenuItem" id="menu_open">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hststartcenter|menu_open">_Open</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="menu_folder">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hststartcenter|menu_folder">Open File _Location</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="menu_pin">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hststartcenter|menu_pin">_Pin</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="menu_unpin">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hststartcenter|menu_unpin">Un_pin</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++    <child>
++      <object class="GtkMenuItem" id="menu_remove">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="label" translatable="yes" context="hststartcenter|menu_remove">_Remove from List</property>
++        <property name="use-underline">True</property>
++      </object>
++    </child>
++  </object>
++  <object class="GtkListStore" id="recentstore">
++    <columns>
++      <!-- column-name icon -->
++      <column type="GdkPixbuf"/>
++      <!-- column-name name -->
++      <column type="gchararray"/>
++      <!-- column-name opened -->
++      <column type="gchararray"/>
++      <!-- column-name foldericon -->
++      <column type="GdkPixbuf"/>
++      <!-- column-name folder -->
++      <column type="gchararray"/>
++      <!-- column-name pin -->
++      <column type="GdkPixbuf"/>
++      <!-- column-name more -->
++      <column type="GdkPixbuf"/>
++      <!-- column-name id -->
++      <column type="gchararray"/>
++    </columns>
++  </object>
++  <object class="GtkListStore" id="pinnedstore">
++    <columns>
++      <!-- column-name name -->
++      <column type="gchararray"/>
++      <!-- column-name id -->
++      <column type="gchararray"/>
++    </columns>
++  </object>
++  <object class="GtkBox" id="StartCenter">
++    <property name="visible">True</property>
++    <property name="can-focus">False</property>
++    <property name="hexpand">True</property>
++    <property name="vexpand">True</property>
++    <child>
++      <object class="GtkScrolledWindow" id="leftscroll">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="vexpand">True</property>
++        <property name="hscrollbar-policy">never</property>
++        <property name="shadow-type">none</property>
++        <child>
++          <object class="GtkViewport" id="leftview">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="shadow-type">none</property>
++            <child>
++              <object class="GtkBox" id="leftcol">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="vexpand">True</property>
++                <property name="orientation">vertical</property>
++                <property name="spacing">2</property>
++                <property name="border-width">16</property>
++                <child>
++                  <object class="GtkImage" id="logo">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="halign">start</property>
++                    <property name="margin-start">6</property>
++                    <property name="margin-top">4</property>
++                    <property name="margin-bottom">24</property>
++                    <child internal-child="accessible">
++                      <object class="AtkObject" id="logo-atkobject">
++                        <property name="AtkObject::accessible-name">HST Office</property>
++                      </object>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="nav_home">
++                    <property name="label" translatable="yes" context="hststartcenter|nav_home">Home</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="relief">none</property>
++                    <property name="halign">start</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="nav_new">
++                    <property name="label" translatable="yes" context="hststartcenter|nav_new">New Document</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="relief">none</property>
++                    <property name="halign">start</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="open_all">
++                    <property name="label" translatable="yes" context="hststartcenter|open_all">Open File</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="relief">none</property>
++                    <property name="halign">start</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="nav_unsaved">
++                    <property name="label" translatable="yes" context="hststartcenter|nav_unsaved">Unsaved Documents</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="relief">none</property>
++                    <property name="halign">start</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="nav_recent">
++                    <property name="label" translatable="yes" context="hststartcenter|nav_recent">Recent</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="relief">none</property>
++                    <property name="halign">start</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="nav_pinned">
++                    <property name="label" translatable="yes" context="hststartcenter|nav_pinned">Pinned</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="relief">none</property>
++                    <property name="halign">start</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkButton" id="nav_update">
++                    <property name="label" translatable="yes" context="hststartcenter|nav_update">Update HST Office</property>
++                    <property name="visible">True</property>
++                    <property name="can-focus">True</property>
++                    <property name="receives-default">False</property>
++                    <property name="relief">none</property>
++                    <property name="halign">start</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkSeparator" id="separator">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="margin-start">6</property>
++                    <property name="margin-end">6</property>
++                    <property name="margin-top">20</property>
++                    <property name="margin-bottom">16</property>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++                <child>
++                  <object class="GtkBox" id="solutions">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="orientation">vertical</property>
++                    <property name="spacing">8</property>
++                    <child>
++                      <object class="GtkLabel" id="solutionstitle">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="label" translatable="yes" context="hststartcenter|solutionstitle">HASON TECH digital transformation solutions</property>
++                        <property name="wrap">True</property>
++                        <property name="max-width-chars">30</property>
++                        <property name="xalign">0</property>
++                        <property name="margin-start">6</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkDrawingArea" id="banner">
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="halign">center</property>
++                        <child internal-child="accessible">
++                          <object class="AtkObject" id="banner-atkobject">
++                            <property name="AtkObject::accessible-name">HASON TECH</property>
++                          </object>
++                        </child>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkGrid" id="solutiongrid">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="row-spacing">2</property>
++                        <property name="column-spacing">2</property>
++                        <property name="column-homogeneous">True</property>
++                        <child>
++                          <object class="GtkButton" id="btnSolution0">
++                            <property name="label">AIOS</property>
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="receives-default">False</property>
++                            <property name="relief">none</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkButton" id="btnSolution1">
++                            <property name="label">eChatbot</property>
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="receives-default">False</property>
++                            <property name="relief">none</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">0</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkButton" id="btnSolution2">
++                            <property name="label">Zalo Mini App</property>
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="receives-default">False</property>
++                            <property name="relief">none</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkButton" id="btnSolution3">
++                            <property name="label">HST SEO</property>
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="receives-default">False</property>
++                            <property name="relief">none</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">1</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkButton" id="btnSolution4">
++                            <property name="label">HST Post</property>
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="receives-default">False</property>
++                            <property name="relief">none</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">0</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                        <child>
++                          <object class="GtkButton" id="btnSolution5">
++                            <property name="label">AI Dễ Lắm</property>
++                            <property name="visible">True</property>
++                            <property name="can-focus">True</property>
++                            <property name="receives-default">False</property>
++                            <property name="relief">none</property>
++                          </object>
++                          <packing>
++                            <property name="left-attach">1</property>
++                            <property name="top-attach">2</property>
++                          </packing>
++                        </child>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkButton" id="btnMoreSolutions">
++                        <property name="label">HASON TECH</property>
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="receives-default">False</property>
++                        <property name="relief">none</property>
++                        <property name="halign">start</property>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                      </packing>
++                    </child>
++                  </object>
++                  <packing>
++                    <property name="expand">False</property>
++                    <property name="fill">True</property>
++                  </packing>
++                </child>
++              </object>
++            </child>
++          </object>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkBox" id="centrecol">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="hexpand">True</property>
++        <property name="vexpand">True</property>
++        <property name="orientation">vertical</property>
++        <property name="spacing">12</property>
++        <property name="border-width">24</property>
++        <child>
++          <object class="GtkLabel" id="welcome">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hststartcenter|welcome">Welcome back</property>
++            <property name="xalign">0</property>
++            <property name="ellipsize">end</property>
++            <property name="margin-top">12</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <!-- the search box: a magnifier and a frameless entry inside one border (a scrolled
++               window without scrollbars draws the same border on every toolkit) -->
++          <object class="GtkScrolledWindow" id="searchframe">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="hexpand">True</property>
++            <property name="hscrollbar-policy">never</property>
++            <property name="vscrollbar-policy">never</property>
++            <property name="shadow-type">in</property>
++            <child>
++              <object class="GtkViewport" id="searchview">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="shadow-type">none</property>
++                <child>
++                  <object class="GtkBox" id="searchbox">
++                    <property name="visible">True</property>
++                    <property name="can-focus">False</property>
++                    <property name="spacing">6</property>
++                    <property name="margin-start">8</property>
++                    <child>
++                      <object class="GtkImage" id="searchicon">
++                        <property name="visible">True</property>
++                        <property name="can-focus">False</property>
++                        <property name="icon-name">cmd/sc_recsearch.png</property>
++                        <child internal-child="accessible">
++                          <object class="AtkObject" id="searchicon-atkobject">
++                            <property name="AtkObject::accessible-role">static</property>
++                          </object>
++                        </child>
++                      </object>
++                      <packing>
++                        <property name="expand">False</property>
++                        <property name="fill">True</property>
++                      </packing>
++                    </child>
++                    <child>
++                      <object class="GtkEntry" id="search">
++                        <property name="visible">True</property>
++                        <property name="can-focus">True</property>
++                        <property name="hexpand">True</property>
++                        <property name="has-frame">False</property>
++                        <property name="width-chars">16</property>
++                        <property name="placeholder-text" translatable="yes" context="hststartcenter|search">Search recent documents</property>
++                        <child internal-child="accessible">
++                          <object class="AtkObject" id="search-atkobject">
++                            <property name="AtkObject::accessible-name" translatable="yes" context="hststartcenter|search-atkobject">Search recent documents</property>
++                          </object>
++                        </child>
++                      </object>
++                      <packing>
++                        <property name="expand">True</property>
++                        <property name="fill">True</property>
++                      </packing>
++                    </child>
++                  </object>
++                </child>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkLabel" id="quicktitle">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hststartcenter|quicktitle">Quickly Create a New Document</property>
++            <property name="xalign">0</property>
++            <property name="ellipsize">end</property>
++            <property name="margin-top">12</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkGrid" id="tiles">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="column-spacing">12</property>
++            <property name="column-homogeneous">True</property>
++            <child>
++              <object class="GtkButton" id="writer_all">
++                <property name="label" translatable="yes" context="hststartcenter|writer_all">Document</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="relief">none</property>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkButton" id="calc_all">
++                <property name="label" translatable="yes" context="hststartcenter|calc_all">Spreadsheet</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="relief">none</property>
++              </object>
++              <packing>
++                <property name="left-attach">1</property>
++                <property name="top-attach">0</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkButton" id="impress_all">
++                <property name="label" translatable="yes" context="hststartcenter|impress_all">Presentation</property>
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++                <property name="relief">none</property>
++              </object>
++              <packing>
++                <property name="left-attach">2</property>
++                <property name="top-attach">0</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkBox" id="otherapps">
++            <property name="can-focus">False</property>
++            <child>
++              <object class="GtkButton" id="draw_all">
++                <property name="label" translatable="yes" context="hststartcenter|draw_all">Drawing</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkButton" id="math_all">
++                <property name="label" translatable="yes" context="hststartcenter|math_all">Formula</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++            <child>
++              <object class="GtkButton" id="database_all">
++                <property name="label" translatable="yes" context="hststartcenter|database_all">Database</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">False</property>
++              </object>
++              <packing>
++                <property name="expand">False</property>
++                <property name="fill">True</property>
++              </packing>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkLabel" id="recenttitle">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hststartcenter|recenttitle">Recent</property>
++            <property name="xalign">0</property>
++            <property name="margin-top">12</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkScrolledWindow" id="recentscroll">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="hexpand">True</property>
++            <property name="vexpand">True</property>
++            <property name="hscrollbar-policy">never</property>
++            <property name="shadow-type">in</property>
++            <child>
++              <object class="GtkTreeView" id="recentlist">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="hexpand">True</property>
++                <property name="vexpand">True</property>
++                <property name="model">recentstore</property>
++                <property name="search-column">1</property>
++                <property name="show-expanders">False</property>
++                <property name="enable-search">False</property>
++                <child internal-child="selection">
++                  <object class="GtkTreeSelection" id="recentlist-selection"/>
++                </child>
++                <child>
++                  <object class="GtkTreeViewColumn" id="recentcol0">
++                    <property name="resizable">True</property>
++                    <property name="spacing">8</property>
++                    <property name="title" translatable="yes" context="hststartcenter|recentcol0">Name</property>
++                    <property name="expand">True</property>
++                    <child>
++                      <object class="GtkCellRendererPixbuf" id="recentcell0"/>
++                      <attributes>
++                        <attribute name="pixbuf">0</attribute>
++                      </attributes>
++                    </child>
++                    <child>
++                      <object class="GtkCellRendererText" id="recentcell1">
++                        <property name="ellipsize">end</property>
++                      </object>
++                      <attributes>
++                        <attribute name="text">1</attribute>
++                      </attributes>
++                    </child>
++                  </object>
++                </child>
++                <child>
++                  <object class="GtkTreeViewColumn" id="recentcol1">
++                    <property name="resizable">True</property>
++                    <property name="spacing">6</property>
++                    <property name="title" translatable="yes" context="hststartcenter|recentcol1">Opened</property>
++                    <child>
++                      <object class="GtkCellRendererText" id="recentcell2">
++                        <property name="ellipsize">end</property>
++                      </object>
++                      <attributes>
++                        <attribute name="text">2</attribute>
++                      </attributes>
++                    </child>
++                  </object>
++                </child>
++                <child>
++                  <object class="GtkTreeViewColumn" id="recentcolfolder">
++                    <child>
++                      <object class="GtkCellRendererPixbuf" id="recentcellfolder"/>
++                      <attributes>
++                        <attribute name="pixbuf">3</attribute>
++                      </attributes>
++                    </child>
++                  </object>
++                </child>
++                <child>
++                  <object class="GtkTreeViewColumn" id="recentcol2">
++                    <property name="resizable">True</property>
++                    <property name="spacing">6</property>
++                    <property name="title" translatable="yes" context="hststartcenter|recentcol2">Location</property>
++                    <child>
++                      <object class="GtkCellRendererText" id="recentcell3">
++                        <property name="ellipsize">end</property>
++                      </object>
++                      <attributes>
++                        <attribute name="text">4</attribute>
++                      </attributes>
++                    </child>
++                  </object>
++                </child>
++                <child>
++                  <object class="GtkTreeViewColumn" id="recentcol3">
++                    <child>
++                      <object class="GtkCellRendererPixbuf" id="recentcell4"/>
++                      <attributes>
++                        <attribute name="pixbuf">5</attribute>
++                      </attributes>
++                    </child>
++                  </object>
++                </child>
++                <child>
++                  <object class="GtkTreeViewColumn" id="recentcol4">
++                    <child>
++                      <object class="GtkCellRendererPixbuf" id="recentcell5"/>
++                      <attributes>
++                        <attribute name="pixbuf">6</attribute>
++                      </attributes>
++                    </child>
++                  </object>
++                </child>
++                <child internal-child="accessible">
++                  <object class="AtkObject" id="recentlist-atkobject">
++                    <property name="AtkObject::accessible-name" translatable="yes" context="hststartcenter|recentlist-atkobject">Recent documents</property>
++                  </object>
++                </child>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkLabel" id="recentempty">
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hststartcenter|recentempty">No recent documents yet. The documents you open or save appear here.</property>
++            <property name="wrap">True</property>
++            <property name="xalign">0</property>
++            <property name="yalign">0</property>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">True</property>
++        <property name="fill">True</property>
++      </packing>
++    </child>
++    <child>
++      <object class="GtkBox" id="rightcol">
++        <property name="visible">True</property>
++        <property name="can-focus">False</property>
++        <property name="width-request">270</property>
++        <property name="vexpand">True</property>
++        <property name="orientation">vertical</property>
++        <property name="spacing">8</property>
++        <property name="border-width">16</property>
++        <property name="margin-top">96</property>
++        <child>
++          <object class="GtkLabel" id="pinnedtitle">
++            <property name="visible">True</property>
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hststartcenter|pinnedtitle">Pinned</property>
++            <property name="xalign">0</property>
++          </object>
++          <packing>
++            <property name="expand">False</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkScrolledWindow" id="pinnedscroll">
++            <property name="visible">True</property>
++            <property name="can-focus">True</property>
++            <property name="vexpand">True</property>
++            <property name="hscrollbar-policy">never</property>
++            <property name="shadow-type">in</property>
++            <child>
++              <object class="GtkTreeView" id="pinnedlist">
++                <property name="visible">True</property>
++                <property name="can-focus">True</property>
++                <property name="receives-default">True</property>
++                <property name="hexpand">True</property>
++                <property name="vexpand">True</property>
++                <property name="model">pinnedstore</property>
++                <property name="headers-visible">False</property>
++                <property name="search-column">0</property>
++                <property name="show-expanders">False</property>
++                <property name="enable-search">False</property>
++                <child internal-child="selection">
++                  <object class="GtkTreeSelection" id="pinnedlist-selection"/>
++                </child>
++                <child>
++                  <object class="GtkTreeViewColumn" id="pinnedcol0">
++                    <property name="spacing">8</property>
++                    <child>
++                      <object class="GtkCellRendererText" id="pinnedcell1">
++                        <property name="ellipsize">end</property>
++                      </object>
++                      <attributes>
++                        <attribute name="text">0</attribute>
++                      </attributes>
++                    </child>
++                  </object>
++                </child>
++                <child internal-child="accessible">
++                  <object class="AtkObject" id="pinnedlist-atkobject">
++                    <property name="AtkObject::accessible-name" translatable="yes" context="hststartcenter|pinnedlist-atkobject">Pinned files</property>
++                  </object>
++                </child>
++              </object>
++            </child>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++        <child>
++          <object class="GtkLabel" id="pinnedempty">
++            <property name="can-focus">False</property>
++            <property name="label" translatable="yes" context="hststartcenter|pinnedempty">Pin the files you use often to keep them here.</property>
++            <property name="wrap">True</property>
++            <property name="max-width-chars">28</property>
++            <property name="xalign">0</property>
++            <property name="yalign">0</property>
++          </object>
++          <packing>
++            <property name="expand">True</property>
++            <property name="fill">True</property>
++          </packing>
++        </child>
++      </object>
++      <packing>
++        <property name="expand">False</property>
++        <property name="fill">True</property>
++      </packing>
++    </child>
++  </object>
++</interface>
+diff --git a/translations/source/vi/sfx2/messages.po b/translations/source/vi/sfx2/messages.po
+index ba92fe4..543ea3e 100644
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -9298,6 +9298,246 @@ msgctxt "tabbar|menubutton|tool_tip"
+ msgid "Sidebar Settings"
+ msgstr "Cài đặt Thanh bên"
+ 
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|new_writer"
++msgid "_Text Document"
++msgstr "_Văn bản"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|new_calc"
++msgid "_Spreadsheet"
++msgstr "_Bảng tính"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|new_impress"
++msgid "_Presentation"
++msgstr "_Trình chiếu"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|new_draw"
++msgid "_Drawing"
++msgstr "_Bản vẽ"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|new_template"
++msgid "From T_emplate…"
++msgstr "Từ _mẫu…"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|menu_open"
++msgid "_Open"
++msgstr "_Mở"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|menu_folder"
++msgid "Open File _Location"
++msgstr "Mở _vị trí tệp"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|menu_pin"
++msgid "_Pin"
++msgstr "_Ghim"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|menu_unpin"
++msgid "Un_pin"
++msgstr "_Bỏ ghim"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|menu_remove"
++msgid "_Remove from List"
++msgstr "_Xóa khỏi danh sách"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|nav_home"
++msgid "Home"
++msgstr "Trang chủ"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|nav_new"
++msgid "New Document"
++msgstr "Tài liệu mới"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|open_all"
++msgid "Open File"
++msgstr "Mở tệp"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|nav_unsaved"
++msgid "Unsaved Documents"
++msgstr "Tài liệu chưa lưu"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|nav_recent"
++msgid "Recent"
++msgstr "Gần đây"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|nav_pinned"
++msgid "Pinned"
++msgstr "Đã ghim"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|nav_update"
++msgid "Update HST Office"
++msgstr "Cập nhật HST Office"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|solutionstitle"
++msgid "HASON TECH digital transformation solutions"
++msgstr "Các giải pháp chuyển đổi số của HASON TECH"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|welcome"
++msgid "Welcome back"
++msgstr "Chào mừng bạn quay lại"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|search"
++msgid "Search recent documents"
++msgstr "Tìm kiếm tài liệu gần đây"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|search-atkobject"
++msgid "Search recent documents"
++msgstr "Tìm kiếm tài liệu gần đây"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|quicktitle"
++msgid "Quickly Create a New Document"
++msgstr "Tạo nhanh tài liệu mới"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|writer_all"
++msgid "Document"
++msgstr "Văn bản"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|calc_all"
++msgid "Spreadsheet"
++msgstr "Bảng tính"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|impress_all"
++msgid "Presentation"
++msgstr "Trình chiếu"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|draw_all"
++msgid "Drawing"
++msgstr "Bản vẽ"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|math_all"
++msgid "Formula"
++msgstr "Công thức"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|database_all"
++msgid "Database"
++msgstr "Cơ sở dữ liệu"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|recenttitle"
++msgid "Recent"
++msgstr "Gần đây"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|recentcol0"
++msgid "Name"
++msgstr "Tên"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|recentcol1"
++msgid "Opened"
++msgstr "Đã mở"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|recentcol2"
++msgid "Location"
++msgstr "Vị trí"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|recentlist-atkobject"
++msgid "Recent documents"
++msgstr "Tài liệu gần đây"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|recentempty"
++msgid "No recent documents yet. The documents you open or save appear here."
++msgstr "Chưa có tài liệu gần đây. Các tài liệu bạn mở hoặc lưu sẽ hiện ở đây."
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|pinnedtitle"
++msgid "Pinned"
++msgstr "Được ghim"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|pinnedlist-atkobject"
++msgid "Pinned files"
++msgstr "Tệp được ghim"
++
++#. hstSC
++#: sfx2/uiconfig/ui/hststartcenter.ui
++msgctxt "hststartcenter|pinnedempty"
++msgid "Pin the files you use often to keep them here."
++msgstr "Ghim các tệp bạn hay dùng để giữ chúng ở đây."
++
++#. hstSC
++#: sfx2/inc/startcenter/hststartcenter.hrc
++msgctxt "STR_HST_SC_NO_MATCH"
++msgid "No recent document matches “%1”."
++msgstr "Không có tài liệu gần đây nào khớp với “%1”."
++
++#. hstSC
++#: sfx2/inc/startcenter/hststartcenter.hrc
++msgctxt "STR_HST_SC_RECENT_HINT"
++msgid "Enter opens the file, Space pins or unpins it, the context menu key shows more actions."
++msgstr "Enter để mở tệp, Space để ghim hoặc bỏ ghim, phím menu ngữ cảnh để xem thêm thao tác."
++
++#. hstSC
++#: sfx2/inc/startcenter/hststartcenter.hrc
++msgctxt "STR_HST_SC_PINNED_STATE"
++msgid "Pinned"
++msgstr "Đã ghim"
++
+ #. XBaqU
+ #: sfx2/uiconfig/ui/templatecategorydlg.ui:16
+ msgctxt "templatecategorydlg|TemplatesCategoryDialog"
