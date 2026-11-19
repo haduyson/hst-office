@@ -16,6 +16,7 @@ A crash counts by a new soffice.bin dump in %LOCALAPPDATA%\\CrashDumps (Windows 
 Calls over the UNO bridge thread (Desktop.terminate() from this script) are not a case: they run off the main
 thread (common rules, UNO load from test harnesses).
 Usage: <office python> check-backstage-print-close.py --soffice PATH --out DIR [--cases a,b] [--apps swriter,scalc]
+       [--shot CMD]
 Exit 1 on a failure.
 """
 import argparse
@@ -108,8 +109,9 @@ def start(case, work, soffice):
     return office
 
 
-def run(case, app, out, soffice):
+def run(case, app, out, soffice, shot_cmd=None):
     work = os.path.join(out, f"{case}-{app}")
+    shot = (lambda name: subprocess.run(shot_cmd.format(os.path.join(out, name + ".png")), shell=True))         if shot_cmd else (lambda name: None)
     office = start(case, work, soffice)
     tag, doc = f"{case} {app}", None
     try:
@@ -130,6 +132,7 @@ def run(case, app, out, soffice):
             CB.check(False, f"{tag}: the Print page opens")
             return
         time.sleep(3)  # the preview is painted on idle
+        shot(f"{case}-{app}-page")
         hwnd = (windows_of(pids, title) or [None])[0]
         if case == "sessionend":
             end_session(pids)
@@ -147,6 +150,7 @@ def run(case, app, out, soffice):
             keys(*([(VK_CONTROL, 0), (VK_W, 0), (VK_W, 1), (VK_CONTROL, 1)] if case == "ctrlw"
                    else [(VK_ESCAPE, 0), (VK_ESCAPE, 1)]))
         time.sleep(12)
+        shot(f"{case}-{app}-after")
         code = office.proc.poll()
         if case in ("sessionend", "macroterm", "quit"):
             CB.check(code == 0, f"{tag}: the office ended with exit code 0 (got {code})")
@@ -176,13 +180,14 @@ def main():
     parser.add_argument("--out", default=tempfile.mkdtemp(prefix="hst-bsprint-close-"))
     parser.add_argument("--cases", default=",".join(CASES))
     parser.add_argument("--apps", default="swriter,scalc")
+    parser.add_argument("--shot", help="screenshot command with {} for the file")
     args = parser.parse_args()
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
     for case in args.cases.split(","):
         for app in args.apps.split(","):
             try:
-                run(case, app, out, args.soffice)
+                run(case, app, out, args.soffice, args.shot)
             except Exception as error:  # noqa: BLE001 - one case's failure is its result
                 CB.check(False, f"{case} {app}: run ({type(error).__name__}: {error})")
     print(f"{len(CB.failures)} failure(s)", flush=True)
