@@ -1,0 +1,393 @@
+HST Office: the File panel is a part of the document's window; moving the window keeps it open.
+
+The File panel ("Tệp tin", also the Print page that Ctrl+P opens) was a weld::Popover: on Windows, macOS and gen a
+floating popup window of its own. A press on the window's title bar closes every popup (vcl win salframe:
+WM_NCLBUTTONDOWN calls ImplCallClosePopupsHdl), so dragging the window by its title bar closed the panel, and the
+Print page cancelled its print job; with the mouse captured by the popup (after a click inside it) the press only
+closed the popup and the window did not move at all. Win+arrow, maximize and restore left the popup where it was.
+The reference suite keeps its File view while the window moves (user report: the print screen cannot be dragged
+as in Word).
+
+- sfx2/source/backstage/hstbackstagewindow.*: the panel is a child window of the document window's client window
+  (BackstagePanelHost, an InterimItemWindow filled by the "panel" box of hstbackstage.ui), placed where the
+  drop-down opened (BackstageWindow::GetPlacement, unchanged: under the ribbon and the document tab strip, left of
+  the banner) and above the document and the ribbon's other children; its sibling windows (the document's container,
+  the document tab strip) clip it out (Window::EnableClipSiblings), else they paint over it. It moves with the window; a resize of the
+  window (maximize, restore, snap) places it again. It still closes on Esc, Alt+F, the File tab, the "←" of the
+  title band and when one of its commands runs, and on a mouse press in its window outside the panel and the title
+  band (an application event listener while it is open), so the document click still closes it. The keyboard
+  handling, the pages and the Print page's job are unchanged.
+- sfx2/source/backstage/hstbackstage.cxx: a click on the File tab that closed the open panel (a click outside it)
+  does not open it again.
+- sfx2/uiconfig/ui/hstbackstage.ui: the GtkPopover "HstFilePanel" around the "panel" box is gone.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-backstage.py (the panel is in the document's window and stays open when it moves).
+---
+diff --git a/sfx2/source/backstage/hstbackstage.cxx b/sfx2/source/backstage/hstbackstage.cxx
+index f90d826..2a19ab1 100644
+--- a/sfx2/source/backstage/hstbackstage.cxx
++++ b/sfx2/source/backstage/hstbackstage.cxx
+@@ -106,7 +106,8 @@ void lcl_openBackstageAsync(void*, void* pArg)
+         static_cast<uno::WeakReference<frame::XFrame>*>(pArg));
+     uno::Reference<frame::XFrame> xFrame(*xWeak);
+     BackstageWindow* pBackstage = xFrame.is() ? lcl_findBackstage(xFrame) : nullptr;
+-    if (xFrame.is() && !(pBackstage && pBackstage->IsOpen()))
++    // a click on the File tab while the panel was open closed it (a click outside): it stays closed
++    if (xFrame.is() && !(pBackstage && (pBackstage->IsOpen() || pBackstage->WasJustDismissed())))
+         ToggleBackstage(xFrame);
+ }
+ 
+diff --git a/sfx2/source/backstage/hstbackstagewindow.cxx b/sfx2/source/backstage/hstbackstagewindow.cxx
+index e095763..4874e7a 100644
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -60,6 +60,8 @@
+ #include <vcl/tabctrl.hxx>
+ #include <vcl/tabpage.hxx>
+ #include <vcl/settings.hxx>
++#include <tools/time.hxx>
++#include <vcl/InterimItemWindow.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/syswin.hxx>
+ #include <vcl/virdev.hxx>
+@@ -277,14 +279,41 @@ OUString lcl_navIconCommand(std::u16string_view rId)
+         return u".uno:OptionsTreeDialog"_ustr;
+     return OUString();
+ }
++
++/// The client window of the top-level window around pContainer: the panel's parent.
++vcl::Window* lcl_clientWindow(vcl::Window* pContainer)
++{
++    vcl::Window* pFrameWindow = pContainer ? pContainer->GetFrameWindow() : nullptr;
++    return pFrameWindow ? pFrameWindow->GetWindow(GetWindowType::Client) : nullptr;
++}
++
++/// A click outside the panel that came this long ago or less is the one that closed it.
++constexpr sal_uInt64 DISMISS_CLICK_MS = 500;
+ }
+ 
++/// The window of the File panel: a child of the document's window, filled by the "panel" box of
++/// hstbackstage.ui. It is shown above the document area and the ribbon's other children.
++class BackstagePanelHost final : public InterimItemWindow
++{
++public:
++    explicit BackstagePanelHost(vcl::Window* pParent)
++        : InterimItemWindow(pParent, u"sfx/ui/hstbackstage.ui"_ustr, u"panel"_ustr,
++                            /*bAllowCycleFocusOut=*/false)
++    {
++    }
++    weld::Builder& GetBuilder() { return *m_xBuilder; }
++};
++
+ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::XFrame> xFrame)
+     : m_xFrame(std::move(xFrame))
+     , m_pFrameWeld(pContainer->GetFrameWeld())
+-    // the panel's widgets belong to the document's top-level window, they are not a part of it:
+-    // the popover is shown in a window of its own
+-    , m_xBuilder(Application::CreateBuilder(m_pFrameWeld, u"sfx/ui/hstbackstage.ui"_ustr))
++    // the panel is a part of the document's window, as in the reference suite: it moves and
++    // resizes with it, and the window's title bar does not close it
++    , m_xHost(VclPtr<BackstagePanelHost>::Create(lcl_clientWindow(pContainer)))
++    , m_xClient(lcl_clientWindow(pContainer))
++    , m_xBuilder(&m_xHost->GetBuilder())
++    , m_pPendingPlace(nullptr)
++    , m_nDismissedAt(0)
+     , m_eApp(lcl_detectApp(m_xFrame))
+     , m_aNavColor(lcl_navColor(m_eApp))
+     , m_ePage(Page::Home)
+@@ -294,7 +323,6 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+     , m_nHoverNav(-1)
+     , m_nNavWidth(0)
+     , m_fScale(std::max(1.0f, pContainer->GetDPIScaleFactor()))
+-    , m_xPopover(m_xBuilder->weld_popover(u"HstFilePanel"_ustr))
+     , m_xPanel(m_xBuilder->weld_container(u"HstBackstage"_ustr))
+     , m_xAccent(m_xBuilder->weld_container(u"accent"_ustr))
+     , m_xShortcut(m_xBuilder->weld_label(u"shortcut"_ustr))
+@@ -409,7 +437,7 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+             else
+                 OpenOn(Page::Print);
+         });
+-    m_xPopover->connect_closed(LINK(this, BackstageWindow, PopoverClosedHdl));
++    m_xHost->Hide();
+ 
+     ApplyColors();
+     ShowPage(Page::Home);
+@@ -422,8 +450,13 @@ BackstageWindow::~BackstageWindow()
+     if (m_bOpen)
+     {
+         m_bOpen = false;
+-        m_xPopover->popdown();
++        Application::RemoveEventListener(LINK(this, BackstageWindow, AppEventHdl));
++        if (m_xClient)
++            m_xClient->RemoveEventListener(LINK(this, BackstageWindow, ClientEventHdl));
++        m_xHost->Hide();
+     }
++    if (m_pPendingPlace)
++        Application::RemoveUserEvent(m_pPendingPlace);
+     m_xTitleBand.disposeAndClear();
+     if (m_pPendingSaveAs)
+     {
+@@ -702,11 +735,9 @@ void BackstageWindow::ShowPage(Page ePage)
+     else if (ePage == Page::Print && m_xPrintPage)
+         m_xPrintPage->Activate();
+ 
+-    // The floating popup of the other plugins (SalInstancePopover: Windows, macOS, gen) lays its
+-    // content out only when it pops up, so a page shown afterwards kept no size and stayed blank
+-    // (every page but Home, the page of the popup): lay the panel out again for the new page.
+-    if (m_bOpen && m_xPopover->get_visible() && !Application::GetToolkitName().startsWith("gtk"))
+-        m_xPopover->resize_to_request();
++    // the panel keeps its size; its content is laid out again for the new page
++    if (m_bOpen)
++        m_xHost->queue_resize();
+ }
+ 
+ void BackstageWindow::FillRecentLists()
+@@ -1157,20 +1188,119 @@ bool BackstageWindow::OpenOn(Page ePage)
+     ShowPage(ePage);
+     m_xRecentTabs->set_current_page(0);
+ 
+-    m_xPanel->set_size_request(aSize.Width(), aSize.Height());
+     ShowTitleBand(true);
+-    m_xPopover->popup_at_rect(m_pFrameWeld, aAnchor, weld::Placement::Under);
++    if (!Place())
++    {
++        m_bOpen = false;
++        ShowTitleBand(false);
++        return false;
++    }
++    m_xHost->Show();
++    m_xHost->Invalidate(InvalidateFlags::Children);
++    if (m_xClient)
++        m_xClient->AddEventListener(LINK(this, BackstageWindow, ClientEventHdl));
++    Application::AddEventListener(LINK(this, BackstageWindow, AppEventHdl));
+     m_aNav[m_nSelectedNav].xButton->grab_focus();
+     return true;
+ }
+ 
++vcl::Window* BackstageWindow::GetClientWindow() const { return m_xClient.get(); }
++
++bool BackstageWindow::Place()
++{
++    tools::Rectangle aAnchor;
++    Size aSize;
++    vcl::Window* pClient = GetClientWindow();
++    vcl::Window* pContainer = VCLUnoHelper::GetWindow(m_xFrame->getContainerWindow());
++    vcl::Window* pFrameWindow = pContainer ? pContainer->GetFrameWindow() : nullptr;
++    if (!pClient || !pFrameWindow || !GetPlacement(aAnchor, aSize))
++        return false;
++    // GetPlacement gives the anchor of a drop-down: in the frame window's pixels for GTK, else in
++    // its client window's; the panel's top-left corner is the anchor's
++    vcl::Window* pOrigin = Application::GetToolkitName().startsWith("gtk")
++                               ? pFrameWindow
++                               : pFrameWindow->GetWindow(GetWindowType::Client);
++    if (!pOrigin)
++        return false;
++    const Point aPos
++        = pClient->AbsoluteScreenToOutputPixel(pOrigin->OutputToAbsoluteScreenPixel(aAnchor.TopLeft()));
++    m_xPanel->set_size_request(aSize.Width(), aSize.Height());
++    m_xHost->InvalidateChildSizeCache();
++    const Size aWant = m_xHost->GetOptimalSize();
++    // never past the window's bottom and right edges: the pages scroll inside
++    const Size aRoom(pClient->GetOutputSizePixel().Width() - aPos.X(),
++                     pClient->GetOutputSizePixel().Height() - aPos.Y());
++    m_xHost->SetPosSizePixel(aPos, Size(std::min(aWant.Width(), aRoom.Width()),
++                                        std::min(aWant.Height(), aRoom.Height())));
++    m_xHost->SetZOrder(nullptr, ZOrderFlags::First); // above the document and the ribbon
++    // VCL clips a child window out of its siblings only when they ask for it: without this the
++    // document (and the document tab strip) painted over the panel. The panel asks too, so that
++    // showing or moving it makes the windows after it compute their clip region again. With the
++    // panel hidden the flag changes nothing, so it stays.
++    m_xHost->EnableClipSiblings(true);
++    for (vcl::Window* pSibling = pClient->GetWindow(GetWindowType::FirstChild); pSibling;
++         pSibling = pSibling->GetWindow(GetWindowType::Next))
++    {
++        if (pSibling != m_xHost.get())
++            pSibling->EnableClipSiblings(true);
++    }
++    return true;
++}
++
++IMPL_LINK(BackstageWindow, ClientEventHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++    {
++        m_xClient->RemoveEventListener(LINK(this, BackstageWindow, ClientEventHdl));
++        m_xClient.reset();
++        return;
++    }
++    // maximize, restore, snap and resize: the ribbon lays itself out first
++    if (rEvent.GetId() == VclEventId::WindowResize && m_bOpen && !m_pPendingPlace)
++        m_pPendingPlace = Application::PostUserEvent(LINK(this, BackstageWindow, PlaceHdl));
++}
++
++IMPL_LINK_NOARG(BackstageWindow, PlaceHdl, void*, void)
++{
++    m_pPendingPlace = nullptr;
++    if (m_bOpen && !Place())
++        Close(); // no room under the ribbon any more
++}
++
++/* A press of a mouse button in the panel's window (the document, the ribbon and its tabs) but
++   outside the panel and the File title band closes the panel, as the click outside a drop-down did. The window's title bar and frame are not
++   VCL windows: moving, snapping and resizing the window keep the panel open. */
++IMPL_LINK(BackstageWindow, AppEventHdl, VclSimpleEvent&, rEvent, void)
++{
++    if (!m_bOpen || rEvent.GetId() != VclEventId::WindowMouseButtonDown)
++        return;
++    vcl::Window* pWindow = static_cast<VclWindowEvent&>(rEvent).GetWindow();
++    // the ribbon is a child of the window's border window, not of its client window
++    vcl::Window* pFrameWindow = m_xClient ? m_xClient->GetFrameWindow() : nullptr;
++    if (!pWindow || !pFrameWindow || !pFrameWindow->IsWindowOrChild(pWindow))
++        return; // another window: a dialog, another document
++    if (m_xHost->IsWindowOrChild(pWindow)
++        || (m_xTitleBand && !m_xTitleBand->isDisposed() && m_xTitleBand->IsWindowOrChild(pWindow)))
++        return;
++    m_nDismissedAt = tools::Time::GetSystemTicks();
++    Close();
++}
++
++bool BackstageWindow::WasJustDismissed() const
++{
++    return m_nDismissedAt && tools::Time::GetSystemTicks() - m_nDismissedAt <= DISMISS_CLICK_MS;
++}
++
+ void BackstageWindow::Close()
+ {
+     if (!m_bOpen)
+         return;
+     m_bOpen = false;
++    Application::RemoveEventListener(LINK(this, BackstageWindow, AppEventHdl));
++    if (m_xClient)
++        m_xClient->RemoveEventListener(LINK(this, BackstageWindow, ClientEventHdl));
+     m_xPrintPage->Deactivate(); // a print job waiting on the Print page is cancelled
+-    m_xPopover->popdown();
++    m_xHost->Hide();
+     ShowTitleBand(false);
+     FocusDocument();
+ }
+@@ -1189,17 +1319,6 @@ void BackstageWindow::FocusDocument()
+     }
+ }
+ 
+-// Esc and a click outside close the popover by themselves
+-IMPL_LINK_NOARG(BackstageWindow, PopoverClosedHdl, weld::Popover&, void)
+-{
+-    if (!m_bOpen)
+-        return; // closed by Close()
+-    m_bOpen = false;
+-    m_xPrintPage->Deactivate();
+-    ShowTitleBand(false);
+-    FocusDocument();
+-}
+-
+ void BackstageWindow::CloseAndDispatch(const OUString& rCommand,
+                                        const uno::Sequence<beans::PropertyValue>& rArgs)
+ {
+diff --git a/sfx2/source/backstage/hstbackstagewindow.hxx b/sfx2/source/backstage/hstbackstagewindow.hxx
+index 5f170d5..009a78d 100644
+--- a/sfx2/source/backstage/hstbackstagewindow.hxx
++++ b/sfx2/source/backstage/hstbackstagewindow.hxx
+@@ -31,10 +31,11 @@
+ #include <vcl/weld/LinkButton.hxx>
+ #include <vcl/weld/Menu.hxx>
+ #include <vcl/weld/Notebook.hxx>
+-#include <vcl/weld/Popover.hxx>
+ #include <vcl/weld/TreeView.hxx>
+ 
+ class KeyEvent;
++class VclSimpleEvent;
++class VclWindowEvent;
+ class MouseEvent;
+ class OutputDevice;
+ struct ImplSVEvent;
+@@ -47,15 +48,18 @@ class Window;
+ namespace sfx2::hst
+ {
+ class FileTitleBand;
++class BackstagePanelHost;
+ 
+ /* HST Office: the File panel ("Tệp tin") of one document frame, a drop-down panel.
+ 
+-   The panel is a popover: its own floating window (a popup window under X11, Windows and macOS),
+-   opened under the ribbon's File tab with its top edge on the bottom edge of the ribbon. The
+-   ribbon and the document stay visible and live; nothing of the frame is hidden, collapsed or
+-   replaced, and the panel shows no image of the document. Left: the navigation; right: the page
+-   of the selected item. It closes on Esc, on a click outside and when one of its commands runs;
+-   commands are dispatched to the frame after it closed. */
++   The panel is a child window of the document's window (BackstagePanelHost), laid over the document
++   area with its top edge on the bottom edge of the ribbon (and of the document tab strip). As in the
++   reference suite it is a part of the window: it moves, snaps, maximizes and resizes with it, and a
++   press on the window's title bar does not close it. The ribbon and the document stay visible and
++   live; nothing of the frame is hidden, collapsed or replaced, and the panel shows no image of the
++   document. Left: the navigation; right: the page of the selected item. It closes on Esc, on a
++   click outside it in the same window, on the File tab and Alt+F, and when one of its commands
++   runs; commands are dispatched to the frame after it closed. */
+ class BackstageWindow final
+ {
+ public:
+@@ -72,6 +76,9 @@ public:
+     /// cannot show it (no document of the four applications, no room): the print dialog shows it.
+     bool ShowPrintJob(const std::shared_ptr<vcl::PrinterController>& rxController);
+     bool IsOpen() const { return m_bOpen; }
++    /// True right after a click outside closed the panel: the click that lands on the File tab
++    /// must not open it again.
++    bool WasJustDismissed() const;
+     /// False when the frame now holds a document of another application (a reused frame).
+     bool ShowsCurrentDocument() const;
+     const css::uno::Reference<css::frame::XFrame>& GetFrame() const { return m_xFrame; }
+@@ -173,11 +180,22 @@ private:
+     DECL_LINK(SaveAsFormatHdl, void*, void);
+     DECL_LINK(TemplateActivatedHdl, const weld::TreeIter&, bool);
+     DECL_LINK(KeyPressHdl, const KeyEvent&, bool);
+-    DECL_LINK(PopoverClosedHdl, weld::Popover&, void);
++    /// Puts the panel under the ribbon in the window; false without room.
++    bool Place();
++    /// The window the panel is a child of: the client window of the document's top-level window.
++    vcl::Window* GetClientWindow() const;
++    DECL_LINK(ClientEventHdl, VclWindowEvent&, void);
++    DECL_LINK(PlaceHdl, void*, void);
++    DECL_LINK(AppEventHdl, VclSimpleEvent&, void);
+ 
+     css::uno::Reference<css::frame::XFrame> m_xFrame;
+     weld::Window* m_pFrameWeld; // owned by the frame window, which outlives this panel
+-    std::unique_ptr<weld::Builder> m_xBuilder;
++    /// The panel's window and its builder; first: disposed last, after every widget below
++    ScopedVclPtr<BackstagePanelHost> m_xHost;
++    VclPtr<vcl::Window> m_xClient; // the parent of m_xHost, listened to while the panel is open
++    weld::Builder* m_xBuilder; // m_xHost's
++    ImplSVEvent* m_pPendingPlace;
++    sal_uInt64 m_nDismissedAt; // tools::Time::GetSystemTicks() of the last click outside
+     BackstageApp m_eApp;
+     Color m_aNavColor; // the application colour, dark enough for white text
+     Color m_aAccent; // the selection bar and the top edge of the panel
+@@ -191,7 +209,6 @@ private:
+     float m_fScale;
+     std::unique_ptr<svt::AcceleratorExecute> m_xAccExec;
+ 
+-    std::unique_ptr<weld::Popover> m_xPopover;
+     std::unique_ptr<weld::Container> m_xPanel;
+     std::unique_ptr<weld::Container> m_xAccent;
+     std::unique_ptr<weld::Label> m_xShortcut;
+diff --git a/sfx2/uiconfig/ui/hstbackstage.ui b/sfx2/uiconfig/ui/hstbackstage.ui
+index 6aa1e6e..f6d821b 100644
+--- a/sfx2/uiconfig/ui/hstbackstage.ui
++++ b/sfx2/uiconfig/ui/hstbackstage.ui
+@@ -105,10 +105,6 @@
+       </object>
+     </child>
+   </object>
+-  <object class="GtkPopover" id="HstFilePanel">
+-    <property name="can-focus">False</property>
+-    <property name="position">bottom</property>
+-    <child>
+   <object class="GtkBox" id="panel">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+@@ -2015,6 +2011,4 @@
+       </object>
+     </child>
+   </object>
+-    </child>
+-  </object>
+ </interface>

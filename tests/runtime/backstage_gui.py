@@ -16,6 +16,7 @@ _spec.loader.exec_module(nd30)
 
 ROWS = []
 COMMAND = ".uno:HSTBackstage"
+PANEL_NAMES = ("Tệp tin", "File")  # the accessible name of the panel's box
 ALL_ITEMS = ["Trang chủ", "Mới", "Mở", "Thông tin", "Lưu", "Lưu thành", "In", "Xuất", "Ký số", "Đóng",
              "Giới thiệu HST Office", "Tùy chọn"]
 
@@ -49,9 +50,15 @@ def showing(found):
 
 
 def view_items():
-    """Showing push buttons by name without a trailing ellipsis; the panel is open when the whole left column shows."""
+    """Showing push buttons by name without a trailing ellipsis; the panel is open when the whole left column shows.
+    The panel is a part of the document's window, so a ribbon or toolbar button of the same name ("Lưu") is found too:
+    the panel's own buttons win."""
     found = showing(walk(nd30.office_app(), []))
-    return {name.rstrip("…."): node for role, name, node in found if role == "push button" and name}
+    items = {name.rstrip("…."): node for role, name, node in found if role == "push button" and name}
+    for role, name, node in found:
+        if name in PANEL_NAMES and role not in ("page tab", "push button"):
+            items.update({n.rstrip("…."): b for r, n, b in showing(walk(node, [])) if r == "push button" and n})
+    return items
 
 
 def is_open():
@@ -79,8 +86,10 @@ def press(node):
 
 def focused_name():
     import pyatspi
-    for _role, name, node in walk(nd30.office_app(), []):
-        if node.getState().contains(pyatspi.STATE_FOCUSED):
+    # the ribbon's paragraph style preview (an "icon") keeps the focused state under gtk3 although it has no keyboard
+    # focus; it is no answer
+    for role, name, node in walk(nd30.office_app(), []):
+        if role != "icon" and node.getState().contains(pyatspi.STATE_FOCUSED):
             return name
     return None
 
@@ -94,6 +103,8 @@ def make_interceptor(stubbed):
 
         def __init__(self):
             self.calls = []
+            self.args = {}  # command -> the arguments of its last call
+            self.states = {}  # command -> IsEnabled sent to the status listeners of a stubbed command
             self.slave = self.master = None
             self.stubbed = set(stubbed)
 
@@ -117,11 +128,16 @@ def make_interceptor(stubbed):
         def setMasterDispatchProvider(self, provider):
             self.master = provider
 
-        def dispatch(self, url, _args):
+        def dispatch(self, url, args):
             self.calls.append(url.Complete)
+            self.args[url.Complete] = args
 
-        def addStatusListener(self, _listener, _url):
-            pass
+        def addStatusListener(self, listener, url):
+            if url.Complete in self.states:
+                import uno
+                event = uno.createUnoStruct("com.sun.star.frame.FeatureStateEvent")
+                event.FeatureURL, event.IsEnabled, event.Source = url, self.states[url.Complete], self
+                listener.statusChanged(event)
 
         def removeStatusListener(self, _listener, _url):
             pass

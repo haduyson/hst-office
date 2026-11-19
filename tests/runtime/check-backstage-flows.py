@@ -4,7 +4,7 @@
 
 Usage (needs a running X display; never started or stopped here; runs the office as the build user):
     python3 tests/runtime/check-backstage-flows.py [--instdir upstream/libreoffice/instdir]
-        [--out tests/output/backstage-flows] [--display :93] [--port 2165]
+        [--out tests/output/backstage-flows] [--display :93] [--port N]
 
   0. the left column shows a hover highlight that ends when the pointer leaves;
   1. New: a compact list of this application's templates (upstream's language samples are not installed); a template
@@ -14,7 +14,9 @@ Usage (needs a running X display; never started or stopped here; runs the office
   3. Save As: activating a format closes the panel and opens the save dialog;
   4. keyboard: the Alt, F KeyTip opens the panel; Right moves from the left column into the page;
   4b. Info shows "—" for an empty value; the .uno:HSTBackstage label reads "Bảng Tệp tin";
-  5. classic menu bar: its File menu opens with Alt+T as before.
+  5. classic menu bar: its File menu opens with Alt+T as before;
+  6. Export: "Xuất PDF dạng sách" exports with FilterData Booklet; Info: "Cập nhật HST Office" runs the extension's
+     update command and says when a new version is known.
 Screenshots stay in --out. Exit status 1 on any FAIL. When started as root the script re-executes itself as the build
 user under dbus-run-session (AT-SPI needs a session bus).
 """
@@ -29,6 +31,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
 import backstage_gui as gui  # noqa: E402
+from backstage_entry_steps import STUBBED, check_booklet_and_update, check_extension_answers  # noqa: E402
 from backstage_flow_steps import ND30, check_info_and_label, check_keyboard, check_new, found, menu_items, named  # noqa: E402,E501
 from backstage_guardrails import FILE_TAB_NAMES  # noqa: E402
 from backstage_visual import check_hover  # noqa: E402
@@ -96,9 +99,12 @@ def check_classic(office, frame, out):
     time.sleep(3)
     gui.record("the classic menu bar has the File menu", any(named(name, "menu") for name in FILE_TAB_NAMES))
     gui.xdo(display, "key", "alt+t")
-    time.sleep(1.5)
+    deadline, items = time.time() + 4, []
+    while not items and time.time() < deadline:  # the menu can take more than a second to show under AT-SPI
+        time.sleep(0.5)
+        items = menu_items()
     hst_gui.screenshot(os.path.join(out, "menu-tap-tin.png"), display)
-    gui.record("Alt+T opens the File menu", bool(menu_items()), menu_items()[:5])
+    gui.record("Alt+T opens the File menu", bool(items), items[:5])
     gui.xdo(display, "key", "Escape")
     time.sleep(0.5)
 
@@ -108,7 +114,8 @@ def main():
     parser.add_argument("--instdir", default=os.path.join(hst_gui.ROOT, "upstream", "libreoffice", "instdir"))
     parser.add_argument("--out", default=OUT_DEFAULT)
     parser.add_argument("--display", default=":93")
-    parser.add_argument("--port", type=int, default=2165)
+    parser.add_argument("--port", type=int, default=int(os.environ.get("HST_UNO_PORT") or 0) or hst_gui.free_port(),
+                        help="UNO port (default: HST_UNO_PORT, else a free one)")
     parser.add_argument("--dark", action="store_true", help="in the dark GTK theme")
     args = parser.parse_args()
     if os.geteuid() == 0:
@@ -131,7 +138,8 @@ def main():
         frame = document.CurrentController.Frame
         time.sleep(3)
         office.raise_windows()
-        interceptor = gui.make_interceptor({ND30, ".uno:SaveAs", ".uno:NewDoc"})
+        check_extension_answers(office, frame)
+        interceptor = gui.make_interceptor({ND30, ".uno:SaveAs", ".uno:NewDoc"} | STUBBED)
         frame.registerDispatchProviderInterceptor(interceptor)
         for step in (lambda: check_hover(office, frame, args.out),
                      lambda: check_new(office, frame, interceptor, args.out),
@@ -139,6 +147,7 @@ def main():
                      lambda: check_format(office, frame, args.out),
                      lambda: check_keyboard(office, frame, args.out),
                      lambda: check_info_and_label(office, frame),
+                     lambda: check_booklet_and_update(office, frame, interceptor),
                      lambda: check_classic(office, frame, args.out)):
             try:
                 step()
