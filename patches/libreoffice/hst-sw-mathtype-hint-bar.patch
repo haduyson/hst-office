@@ -27,7 +27,7 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
      sw/source/uibase/uiview/view2 \
 --- a/sw/qa/uibase/hst/mathtypehintbar.cxx
 +++ b/sw/qa/uibase/hst/mathtypehintbar.cxx
-@@ -0,0 +1,68 @@
+@@ -0,0 +1,81 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -43,6 +43,8 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +
 +#include <docsh.hxx>
 +#include <view.hxx>
++#include <viewopt.hxx>
++#include <wrtsh.hxx>
 +
 +namespace
 +{
@@ -55,12 +57,16 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +    {
 +    }
 +
-+    /// Opened hidden: the bar does not depend on painting, and painting a MathType preview
-+    /// needs its fonts (Symbol, MT Extra), which the test environment does not provide.
-+    void open(std::u16string_view aName, bool bReadOnly = false)
++    void open(std::u16string_view aName, bool bReadOnly = false, bool bHidden = false)
 +    {
-+        loadFromFile(aName, { comphelper::makePropertyValue(u"Hidden"_ustr, true),
++        loadFromFile(aName, { comphelper::makePropertyValue(u"Hidden"_ustr, bHidden),
 +                              comphelper::makePropertyValue(u"ReadOnly"_ustr, bReadOnly) });
++        // Pictures and objects as placeholders: painting a MathType preview needs its fonts
++        // (System, MT Extra), which the test environment does not provide.
++        SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++        SwViewOption aOptions(*pWrtShell->GetViewOptions());
++        aOptions.SetGraphic(false);
++        pWrtShell->ApplyViewOptions(aOptions);
 +    }
 +
 +    bool hasHintBar()
@@ -95,10 +101,17 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +    CPPUNIT_ASSERT(!hasHintBar());
 +}
 +
++CPPUNIT_TEST_FIXTURE(HstMathTypeHintBarTest, testNotShownHidden)
++{
++    // A background load (mail merge, a script, a conversion) has no user to show the bar to.
++    open(u"fdo78906.docx", false, true);
++    CPPUNIT_ASSERT(!hasHintBar());
++}
++
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sw/source/uibase/hst/mathtypehintbar.cxx
 +++ b/sw/source/uibase/hst/mathtypehintbar.cxx
-@@ -0,0 +1,215 @@
+@@ -0,0 +1,226 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -115,9 +128,12 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +#include <comphelper/lok.hxx>
 +#include <i18nlangtag/languagetag.hxx>
 +#include <cppuhelper/weakref.hxx>
++#include <sfx2/docfile.hxx>
 +#include <sfx2/infobar.hxx>
++#include <sfx2/sfxsids.hrc>
 +#include <sfx2/viewfrm.hxx>
 +#include <sot/storage.hxx>
++#include <svl/eitem.hxx>
 +#include <tools/globname.hxx>
 +#include <comphelper/diagnose_ex.hxx>
 +#include <unotools/ucbstreamhelper.hxx>
@@ -236,8 +252,16 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +void Show(SwView& rView)
 +{
 +    SwDocShell* pDocShell = rView.GetDocShell();
-+    if (!pDocShell || pDocShell->IsReadOnly()
-+        || pDocShell->GetCreateMode() == SfxObjectCreateMode::EMBEDDED)
++    if (!pDocShell || pDocShell->IsReadOnly() || pDocShell->IsPreview()
++        || pDocShell->GetCreateMode() != SfxObjectCreateMode::STANDARD)
++        return;
++    // No bar without a user to see it. Background loads open hidden: soffice --convert-to and
++    // --print-to (also read-only), mail merge working documents, scripts and API conversions.
++    // Previews and thumbnails render the document without a view.
++    const SfxMedium* pMedium = pDocShell->GetMedium();
++    const SfxBoolItem* pHidden
++        = pMedium ? pMedium->GetItemSet().GetItemIfSet(SID_HIDDEN, false) : nullptr;
++    if (pHidden && pHidden->GetValue())
 +        return;
 +    const uno::Reference<uno::XInterface> xModel(pDocShell->GetModel(), uno::UNO_QUERY);
 +    if (!xModel.is())
