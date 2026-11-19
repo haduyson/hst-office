@@ -1,0 +1,634 @@
+HST Office: centimetres are the default measurement unit in Writer, Sheets, Slides and Draw, whatever the locale.
+
+Upstream picks the unit from the locale: Sheets, Slides and Draw read Layout/Other/MeasureUnit/Metric (cm) or
+NonMetric (inch), and Writer (also Writer/Web) has no Layout/Other/MeasureUnit default, so it falls back to cm or
+inch by the locale's measurement system. An en-US system therefore showed inches on the rulers and in Format › Page.
+Both variants are now centimetres (2) and Writer's and Writer/Web's MeasureUnit default is centimetres. A unit the user
+chose in Tools › Options stays in the user profile (registrymodifications.xcu) and still wins over these defaults.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_measure_unit_cm.py; tests/runtime/check-measure-unit-cm.py
+---
+--- a/officecfg/registry/schema/org/openoffice/Office/Calc.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Calc.xcs
+@@ -491,121 +491,121 @@
+             <constraints>
+               <enumeration oor:value="1">
+                 <info>
+                   <desc>Millimeter</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="2">
+                 <info>
+                   <desc>Centimeter</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="6">
+                 <info>
+                   <desc>Point</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="7">
+                 <info>
+                   <desc>Pica</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="8">
+                 <info>
+                   <desc>Inch</desc>
+                 </info>
+               </enumeration>
+             </constraints>
+             <value>2</value>
+           </prop>
+           <prop oor:name="NonMetric" oor:type="xs:int" oor:nillable="false">
+             <info>
+               <desc>Specifies the measurement unit that is used with locales that don't use the metric system.</desc>
+             </info>
+             <constraints>
+               <enumeration oor:value="1">
+                 <info>
+                   <desc>Millimeter</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="2">
+                 <info>
+                   <desc>Centimeter</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="6">
+                 <info>
+                   <desc>Point</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="7">
+                 <info>
+                   <desc>Pica</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="8">
+                 <info>
+                   <desc>Inch</desc>
+                 </info>
+               </enumeration>
+             </constraints>
+-            <value>8</value>
++            <value>2</value>
+           </prop>
+         </group>
+       </group>
+       <group oor:name="Zoom">
+         <info>
+           <desc>Specifies the zoom for new spreadsheet documents.</desc>
+         </info>
+         <prop oor:name="Type" oor:type="xs:int" oor:nillable="false">
+           <!-- UIHints: (Status Bar) -->
+           <info>
+             <desc>Specifies the zoom type.</desc>
+             <label>Zoom Type</label>
+           </info>
+           <constraints>
+             <enumeration oor:value="0">
+               <info>
+                 <desc>Percentage value</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="2">
+               <info>
+                 <desc>Whole page</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="3">
+               <info>
+                 <desc>Width of a page</desc>
+               </info>
+             </enumeration>
+           </constraints>
+           <value>0</value>
+         </prop>
+         <prop oor:name="Value" oor:type="xs:int" oor:nillable="false">
+           <!-- UIHints: (Status Bar) -->
+           <info>
+             <desc>Specifies the percentage value to which the view is scaled.</desc>
+             <label>Zoom Value</label>
+           </info>
+           <value>100</value>
+         </prop>
+         <prop oor:name="Synchronize" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Options - Spreadsheets - View - [Section] Zoom -->
+           <info>
+             <desc>Specifies if zoom is applied to all sheets of a document.</desc>
+             <label>Synchronize sheets</label>
+           </info>
+           <value>true</value>
+         </prop>
+       </group>
+     </group>
+     <group oor:name="Input">
+       <info>
+         <desc>Contains settings that affect cell input.</desc>
+       </info>
+       <prop oor:name="MoveSelection" oor:type="xs:boolean" oor:nillable="false">
+         <!-- UIHints: Tools - Options -Spreadsheets - Input - [Section] Input -->
+         <info>
+           <desc>Specifies whether pressing the Enter key should move the selection.</desc>
+           <label>Press Enter to move selection</label>
+         </info>
+--- a/officecfg/registry/schema/org/openoffice/Office/Draw.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Draw.xcs
+@@ -120,121 +120,121 @@
+               <enumeration oor:value="1">
+                 <info>
+                   <desc>Millimeter</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="2">
+                 <info>
+                   <desc>Centimeter</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="6">
+                 <info>
+                   <desc>Point</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="7">
+                 <info>
+                   <desc>Pica</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="8">
+                 <info>
+                   <desc>Inch</desc>
+                 </info>
+               </enumeration>
+             </constraints>
+             <value>2</value>
+           </prop>
+           <prop oor:name="NonMetric" oor:type="xs:int" oor:nillable="false">
+             <info>
+               <desc>Specifies the unit used for specification of distances and sizes in a non metric environment.</desc>
+               <label>Measurement unit</label>
+             </info>
+             <constraints>
+               <enumeration oor:value="1">
+                 <info>
+                   <desc>Millimeter</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="2">
+                 <info>
+                   <desc>Centimeter</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="6">
+                 <info>
+                   <desc>Point</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="7">
+                 <info>
+                   <desc>Pica</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="8">
+                 <info>
+                   <desc>Inch</desc>
+                 </info>
+               </enumeration>
+             </constraints>
+-            <value>8</value>
++            <value>2</value>
+           </prop>
+         </group>
+       </group>
+     </group>
+     <group oor:name="Content">
+       <info>
+         <desc>Contains the specification of how to display the content of Draw documents.</desc>
+       </info>
+       <group oor:name="Display">
+         <info>
+           <desc>Contains the specification of how to display the content of Draw documents on screen.</desc>
+         </info>
+         <prop oor:name="PicturePlaceholder" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Options  Drawing - Contents - [Section] Alternative display -->
+           <info>
+             <desc>Indicates whether to show only outlines of graphical objects.</desc>
+             <label>Image placeholders</label>
+             <deprecated>Not used anymore</deprecated>
+           </info>
+           <value>false</value>
+         </prop>
+         <prop oor:name="ContourMode" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Options  Drawing - Contents - [Section] Alternative display -->
+           <info>
+             <desc>Indicates whether to show only outlines of draw objects.</desc>
+             <label>Contour mode</label>
+             <deprecated>Not used anymore</deprecated>
+           </info>
+           <value>false</value>
+         </prop>
+         <prop oor:name="TextPlaceholder" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Options  Drawing - Contents - [Section] Alternative display -->
+           <info>
+             <desc>Indicates whether to use placeholders for text in draw objects.</desc>
+             <label>Text placeholders</label>
+             <deprecated>Not used anymore</deprecated>
+           </info>
+           <value>false</value>
+         </prop>
+         <prop oor:name="LineContour" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Options  Drawing - Contents - [Section] Alternative display -->
+           <info>
+             <desc>Indicates whether to show only hairlines instead of an object's linestyle.</desc>
+             <label>Line contour only</label>
+             <deprecated>Not used anymore</deprecated>
+           </info>
+           <value>false</value>
+         </prop>
+       </group>
+     </group>
+     <group oor:name="Misc">
+       <info>
+         <desc>Contains a collection of configuration items for the Draw application that do not fit into another category.</desc>
+       </info>
+       <prop oor:name="BackgroundCache" oor:type="xs:boolean" oor:nillable="false">
+         <!-- UIHints: Tools - Options - Draw - Other  [Section] Other -->
+         <info>
+           <desc>Indicates whether to store master pages in a cache to speed up drawing.</desc>
+           <label>Use background cache</label>
+         </info>
+--- a/officecfg/registry/schema/org/openoffice/Office/Impress.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Impress.xcs
+@@ -215,121 +215,121 @@
+               <enumeration oor:value="1">
+                 <info>
+                   <desc>Millimeter</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="2">
+                 <info>
+                   <desc>Centimeter</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="6">
+                 <info>
+                   <desc>Point</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="7">
+                 <info>
+                   <desc>Pica</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="8">
+                 <info>
+                   <desc>Inch</desc>
+                 </info>
+               </enumeration>
+             </constraints>
+             <value>2</value>
+           </prop>
+           <prop oor:name="NonMetric" oor:type="xs:int" oor:nillable="false">
+             <info>
+               <desc>Specifies the measurement unit to be used when the non-metric system is selected.</desc>
+               <label>Measurement unit</label>
+             </info>
+             <constraints>
+               <enumeration oor:value="1">
+                 <info>
+                   <desc>Millimeter</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="2">
+                 <info>
+                   <desc>Centimeter</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="6">
+                 <info>
+                   <desc>Point</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="7">
+                 <info>
+                   <desc>Pica</desc>
+                 </info>
+               </enumeration>
+               <enumeration oor:value="8">
+                 <info>
+                   <desc>Inch</desc>
+                 </info>
+               </enumeration>
+             </constraints>
+-            <value>8</value>
++            <value>2</value>
+           </prop>
+         </group>
+       </group>
+     </group>
+     <group oor:name="Content">
+       <info>
+         <desc>Contains content related configuration items.</desc>
+       </info>
+       <group oor:name="Display">
+         <info>
+           <desc>Contains configuration items related to the display of Impress documents.</desc>
+         </info>
+         <prop oor:name="PicturePlaceholder" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Options - Impress - Contents - [Section] Alternative display -->
+           <info>
+             <desc>Indicates whether to show only the bounding box of graphic-objects like bitmaps and drawings.</desc>
+             <label>Image placeholders</label>
+             <deprecated>Not used anymore</deprecated>
+           </info>
+           <value>false</value>
+         </prop>
+         <prop oor:name="ContourMode" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Options - Impress - Contents - [Section] Alternative display -->
+           <info>
+             <desc>Indicates whether to show only outlines of objects such as filled rectangles and filled ellipses.</desc>
+             <label>Contour mode</label>
+             <deprecated>Not used anymore</deprecated>
+           </info>
+           <value>false</value>
+         </prop>
+         <prop oor:name="TextPlaceholder" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Options - Impress - Contents - [Section] Alternative display -->
+           <info>
+             <desc>Indicates whether to show only a placeholder for text in graphical objects.</desc>
+             <label>Text placeholders</label>
+             <deprecated>Not used anymore</deprecated>
+           </info>
+           <value>false</value>
+         </prop>
+         <prop oor:name="LineContour" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Options - Impress - Contents - [Section] Alternative display -->
+           <info>
+             <desc>Indicates whether to show only hairlines instead of the true line styles.</desc>
+             <label>Line contour only</label>
+             <deprecated>Not used anymore</deprecated>
+           </info>
+           <value>false</value>
+         </prop>
+       </group>
+     </group>
+     <group oor:name="Misc">
+       <info>
+         <desc>Contains a collection of configuration items for the Impress application that do not fit into another category.</desc>
+       </info>
+       <prop oor:name="BackgroundCache" oor:type="xs:boolean" oor:nillable="false">
+         <!-- UIHints: Tools - Options - Impress - Other  [Section] Other -->
+         <info>
+           <desc>Indicates whether to store master pages in a cache to speed up drawing.</desc>
+           <label>Use background cache</label>
+         </info>
+--- a/officecfg/registry/schema/org/openoffice/Office/Writer.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Writer.xcs
+@@ -1352,120 +1352,121 @@
+           <!-- UIHints: none yet -->
+           <info>
+             <desc>Automatically align the baseline of Math objects with the baseline of the surrounding text.</desc>
+             <label>Align Math objects</label>
+           </info>
+           <value>true</value>
+         </prop>
+         <prop oor:name="MeasureUnit" oor:type="xs:int">
+           <!-- UIHints: Tools - Options - Text document - Layout - [Section] Meas. Units -->
+           <info>
+             <desc>Specifies the measurement units.</desc>
+             <label>Measure unit</label>
+           </info>
+           <constraints>
+             <enumeration oor:value="1">
+               <info>
+                 <desc>Millimeter</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="2">
+               <info>
+                 <desc>Centimeter</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="3">
+               <info>
+                 <desc>Meter</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="4">
+               <info>
+                 <desc>Kilometer</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="6">
+               <info>
+                 <desc>Point</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="7">
+               <info>
+                 <desc>Pica</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="8">
+               <info>
+                 <desc>Inch</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="9">
+               <info>
+                 <desc>Foot</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="10">
+               <info>
+                 <desc>Miles</desc>
+               </info>
+             </enumeration>
+           </constraints>
++          <value>2</value>
+         </prop>
+         <prop oor:name="TabStop" oor:type="xs:int" oor:nillable="false" oor:localized="true">
+           <!-- UIHints: Tools - Options - Text document - Layout - [Section] Tab stops -->
+           <!-- Notice: The default value is valid for the English Version (depends, if a metric system is used on the platform); NonMetric: 1270 1/100 mm-->
+           <info>
+             <desc>Specifies the distance between tab stops [UNIT=1/100 mm].</desc>
+             <label>Tab stops</label>
+           </info>
+           <value>1250</value>
+         </prop>
+         <prop oor:name="IsSquaredPageMode" oor:type="xs:boolean" oor:nillable="false">
+           <info>
+             <desc>Specified which kind of paper mode is used in the whole document </desc>
+             <label>Use squared paper mode</label>
+           </info>
+           <value>true</value>
+         </prop>
+         <!-- added for apply char unit 2006-12-1 -->
+         <prop oor:name="ApplyCharUnit" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Options - Text document - Layout - [Section] Apply char unit -->
+           <info>
+             <desc>apply char unit to calculate the paragraph's indent</desc>
+             <label>apply char unit</label>
+           </info>
+           <value>true</value>
+         </prop>
+       </group>
+       <group oor:name="Zoom">
+         <info>
+           <desc>Contains zoom settings.</desc>
+         </info>
+         <prop oor:name="Type" oor:type="xs:int" oor:nillable="false">
+           <!-- UIHints: (Status Bar) -->
+           <info>
+             <desc>Specifies the zoom type.</desc>
+             <label>Zoom Type</label>
+           </info>
+           <constraints>
+             <enumeration oor:value="0">
+               <info>
+                 <desc>Percent</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="2">
+               <info>
+                 <desc>Whole Page</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="3">
+               <info>
+                 <desc>Page Width</desc>
+               </info>
+             </enumeration>
+           </constraints>
+           <value>0</value>
+         </prop>
+         <prop oor:name="Value" oor:type="xs:int" oor:nillable="false">
+           <!-- UIHints: (Status Bar) -->
+           <info>
+             <desc>Specifies the zoom value.</desc>
+--- a/officecfg/registry/schema/org/openoffice/Office/WriterWeb.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/WriterWeb.xcs
+@@ -325,120 +325,121 @@
+           <!-- UIHints: none yet -->
+           <info>
+             <desc>Automatically align the baseline of Math objects with the baseline of the surrounding text.</desc>
+             <label>Align Math objects</label>
+           </info>
+           <value>true</value>
+         </prop>
+         <prop oor:name="MeasureUnit" oor:type="xs:int">
+           <!-- UIHints: Tools - Option - HTML-Document - Layout - [Section] Meas. Unit -->
+           <info>
+             <desc>Specifies the measurement units.</desc>
+             <label>Measure unit</label>
+           </info>
+           <constraints>
+             <enumeration oor:value="1">
+               <info>
+                 <desc>Millimeter</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="2">
+               <info>
+                 <desc>Centimeter</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="3">
+               <info>
+                 <desc>Meter</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="4">
+               <info>
+                 <desc>Kilometer</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="6">
+               <info>
+                 <desc>Point</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="7">
+               <info>
+                 <desc>Pica</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="8">
+               <info>
+                 <desc>Inch</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="9">
+               <info>
+                 <desc>Foot</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="10">
+               <info>
+                 <desc>Miles</desc>
+               </info>
+             </enumeration>
+           </constraints>
++          <value>2</value>
+         </prop>
+       </group>
+       <group oor:name="Zoom">
+         <info>
+           <desc>Contains zoom specific settings.</desc>
+         </info>
+         <prop oor:name="Type" oor:type="xs:int" oor:nillable="false">
+           <!-- UIHints: (Status Bar) -->
+           <info>
+             <desc>Specifies the zoom type.</desc>
+             <label>Zoom Type</label>
+           </info>
+           <constraints>
+             <enumeration oor:value="0">
+               <info>
+                 <desc>Percent</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="2">
+               <info>
+                 <desc>Whole Page</desc>
+               </info>
+             </enumeration>
+             <enumeration oor:value="3">
+               <info>
+                 <desc>Page Width</desc>
+               </info>
+             </enumeration>
+           </constraints>
+           <value>0</value>
+         </prop>
+         <prop oor:name="Value" oor:type="xs:int" oor:nillable="false">
+           <!-- UIHints: (Status Bar) -->
+           <info>
+             <desc>Specifies the zoom value.</desc>
+             <label>Zoom Value</label>
+           </info>
+           <value>100</value>
+         </prop>
+       </group>
+     </group>
+     <group oor:name="Grid">
+       <info>
+         <desc>Contains various items for the grid that are not listed in other sections.</desc>
+       </info>
+       <group oor:name="Option">
+         <info>
+           <desc>Contains options for the grid.</desc>
+         </info>
+         <prop oor:name="SnapToGrid" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Option - HTML-Document  Grid - [Section] Option -->
+           <info>
+             <desc>Moves frames, drawing elements, and form functions only between the grid points.</desc>
+             <label>Snap to grid</label>
+           </info>
+           <value>false</value>
+         </prop>
+         <prop oor:name="VisibleGrid" oor:type="xs:boolean" oor:nillable="false">
+           <!-- UIHints: Tools - Option - HTML-Document  Grid - [Section] Option -->
+           <info>
