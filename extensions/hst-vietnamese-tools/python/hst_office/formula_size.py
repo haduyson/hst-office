@@ -8,6 +8,9 @@ import re
 
 CONTENT = 1  # com.sun.star.embed.Aspects.MSOLE_CONTENT
 TOLERANCE = 0.05  # Word's own rounding of a size at 100 %
+# The WMF reader sizes an MM_ANISOTROPIC WMF smaller than its "inch" field to one inch on its longer side (emfio
+# wmfreader), so a MathType preview under 1 inch is reported 2540 mm100 tall or wide whatever its size: not MathType's.
+NORMALIZED_INCH, INCH_SLACK = 2540, 2
 # com.sun.star.embed.EmbedMapUnits -> mm100 per unit; a formula's visible area is in twips
 MM100_PER_UNIT = {0: 1, 1: 10, 2: 100, 3: 1000, 4: 2.54, 5: 25.4, 6: 254, 7: 2540, 8: 2540 / 72, 9: 127 / 72}
 SIZE = re.compile(r"(?<![A-Za-z0-9])size[ \t]+(\d+(?:\.\d+)?)")
@@ -22,16 +25,20 @@ def visual_size(embedded):
 
 
 def native_height(old):
-    """The equation's height at 100 % in mm100: the OLE object's own size (.doc), else its preview picture."""
+    """The equation's height at 100 % in mm100: the OLE object's own size (.doc), else its preview picture; 0 when
+    neither tells it."""
     try:
         return visual_size(old.EmbeddedObject).Height
     except Exception:  # noqa: BLE001 - no own size (.docx, .rtf) or the object cannot tell
         pass
     for name in ("ReplacementGraphic", "Graphic"):  # Writer objects, shapes
         try:
-            return getattr(old, name).getPropertyValue("Size100thMM").Height
+            size = getattr(old, name).getPropertyValue("Size100thMM")
         except Exception:  # noqa: BLE001 - no such picture
             continue
+        if abs(max(size.Width, size.Height) - NORMALIZED_INCH) <= INCH_SLACK:
+            return 0  # the reader's size, not the equation's: the scale is unknown
+        return size.Height
     return 0
 
 
