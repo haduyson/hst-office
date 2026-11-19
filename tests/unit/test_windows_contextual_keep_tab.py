@@ -127,6 +127,12 @@ class KeepTabTest(unittest.TestCase):
         office = mock.MagicMock()
         self.keep._Dispatcher(office).dispatch("frame", ".uno:Escape")
         office.dispatch_async.assert_called_once_with("frame", ".uno:Escape")
+
+    def test_main_thread_dispatch_passes_on_main_thread(self):
+        office = mock.MagicMock()
+        with mock.patch.dict(self.keep.DISPATCH_ARGS, {"OnMainThread": True}):
+            self.keep._Dispatcher(office).dispatch("frame", ".uno:Escape")
+        office.dispatch_async.assert_called_once_with("frame", ".uno:Escape", OnMainThread=True)
         office.dispatch_async.return_value.join.assert_called_once_with(30)
 
 

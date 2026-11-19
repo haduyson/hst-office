@@ -42,6 +42,9 @@ EXPECTED = {"picture": ("Định dạng ảnh",), "table": ("Thiết kế bảng
             "pivot": ("Phân tích bảng tổng hợp",)}
 MSAA = os.path.join(HERE, "windows-msaa-ribbon.ps1")
 SETTLE = 3
+# --main-thread: the dispatches run on the office's main thread (DispatchHelper's OnMainThread), as a user's click
+# does; without it they run on the UNO bridge thread (a harness-only path that can deadlock with accessibility)
+DISPATCH_ARGS = {}
 STEP_TIMEOUT = 240  # seconds for one object: four MSAA reads, three settles and the command
 
 
@@ -135,7 +138,7 @@ class _Dispatcher:
         self.office = office
 
     def dispatch(self, frame, command):
-        self.office.dispatch_async(frame, command).join(30)
+        self.office.dispatch_async(frame, command, **DISPATCH_ARGS).join(30)
 
 
 def check_kind(app, kind, doc, objects, frame, office, res, args):
@@ -158,7 +161,7 @@ def check_kind(app, kind, doc, objects, frame, office, res, args):
     if not res(f"[{app}] {kind}: {tab} selected", before == [tab], before):
         return
     command = command_for(app, kind)
-    dispatch = office.dispatch_async(frame, command)
+    dispatch = office.dispatch_async(frame, command, **DISPATCH_ARGS)
     dispatch.join(30)
     if dispatch.is_alive():  # the command opened something modal: what it is decides harness or product
         shot = os.path.join(args.out, f"{app}-{kind}-command-held.png")
@@ -265,7 +268,10 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--apps", default="writer,calc,impress,draw")
     parser.add_argument("--port", type=int, default=2384)
+    parser.add_argument("--main-thread", action="store_true", help="dispatch on the office's main thread")
     args = parser.parse_args()
+    if args.main_thread:
+        DISPATCH_ARGS["OnMainThread"] = True
     os.makedirs(args.out, exist_ok=True)
     res = wg.Results(args.out, os.path.join(args.out, "profile"))
     for app in args.apps.split(","):
