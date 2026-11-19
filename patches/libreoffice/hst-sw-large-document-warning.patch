@@ -1,0 +1,106 @@
+HST Office: opening a very large Writer file gives no hint that it may take long or not open at
+all on a 16 GB machine. When a .docx, .doc or .odt over 100 MB opens editable and visible, a
+warning bar names its size and the limits, with [Close]. Hidden, read-only, preview and embedded
+Test only: the large-file warning tests without the warning.
+
+--- a/sw/CppunitTest_sw_uibase_docvw.mk
++++ b/sw/CppunitTest_sw_uibase_docvw.mk
+@@ -15,6 +15,7 @@
+ 
+ $(eval $(call gb_CppunitTest_add_exception_objects,sw_uibase_docvw, \
+     sw/qa/uibase/docvw/docvw \
++    sw/qa/uibase/hst/largedocwarning \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,sw_uibase_docvw, \
+--- a/sw/qa/uibase/hst/largedocwarning.cxx
++++ b/sw/qa/uibase/hst/largedocwarning.cxx
+@@ -0,0 +1,88 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <comphelper/propertyvalue.hxx>
++#include <osl/process.h>
++#include <sfx2/viewfrm.hxx>
++#include <vcl/scheduler.hxx>
++
++#include <docsh.hxx>
++#include <view.hxx>
++
++namespace
++{
++/// The warning bar for very large Writer files. The fixture is small: the tests lower the limit
++/// (HST_LARGE_DOCUMENT_BYTES) instead of storing a 100 MB file.
++class HstLargeDocWarningTest : public SwModelTestBase
++{
++public:
++    HstLargeDocWarningTest()
++        : SwModelTestBase(u"/sw/qa/uibase/uiview/data/"_ustr)
++    {
++    }
++
++    void tearDown() override
++    {
++        osl_clearEnvironment(u"HST_LARGE_DOCUMENT_BYTES"_ustr.pData);
++        SwModelTestBase::tearDown();
++    }
++
++    static void lowerLimit()
++    {
++        osl_setEnvironment(u"HST_LARGE_DOCUMENT_BYTES"_ustr.pData, u"1"_ustr.pData);
++    }
++
++    void open(bool bReadOnly = false, bool bHidden = false)
++    {
++        loadFromFile(u"editinsection.odt",
++                     { comphelper::makePropertyValue(u"Hidden"_ustr, bHidden),
++                       comphelper::makePropertyValue(u"ReadOnly"_ustr, bReadOnly) });
++    }
++
++    bool hasWarning()
++    {
++        Scheduler::ProcessEventsToIdle(); // the bar comes once the document has opened
++        SwView* pView = getSwDocShell()->GetView();
++        CPPUNIT_ASSERT(pView);
++        return pView->GetViewFrame().HasInfoBarWithID(u"hst-large-document");
++    }
++};
++}
++
++CPPUNIT_TEST_FIXTURE(HstLargeDocWarningTest, testShownAboveLimit)
++{
++    lowerLimit();
++    open();
++    CPPUNIT_ASSERT(hasWarning());
++}
++
++CPPUNIT_TEST_FIXTURE(HstLargeDocWarningTest, testNotShownBelowLimit)
++{
++    // the real limit, 100 MB
++    open();
++    CPPUNIT_ASSERT(!hasWarning());
++}
++
++CPPUNIT_TEST_FIXTURE(HstLargeDocWarningTest, testNotShownReadOnly)
++{
++    lowerLimit();
++    open(true);
++    CPPUNIT_ASSERT(getSwDocShell()->IsReadOnly());
++    CPPUNIT_ASSERT(!hasWarning());
++}
++
++CPPUNIT_TEST_FIXTURE(HstLargeDocWarningTest, testNotShownHidden)
++{
++    // a background load (mail merge, a script, a conversion) has no user to show the bar to
++    lowerLimit();
++    open(false, true);
++    CPPUNIT_ASSERT(!hasWarning());
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
