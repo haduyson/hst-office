@@ -2394,7 +2394,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
-@@ -0,0 +1,642 @@
+@@ -0,0 +1,699 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2651,8 +2651,46 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    }
 +}
 +
++/// a box with a native frame (list, combo, spin and edit fields)
++bool hasNativeFrame(const vcl::Window& rWindow)
++{
++    switch (rWindow.GetType())
++    {
++        case WindowType::EDIT:
++        case WindowType::COMBOBOX:
++        case WindowType::LISTBOX:
++        case WindowType::SPINFIELD:
++        case WindowType::PATTERNFIELD:
++        case WindowType::METRICFIELD:
++        case WindowType::FORMATTEDFIELD:
++        case WindowType::CURRENCYFIELD:
++        case WindowType::DATEFIELD:
++        case WindowType::TIMEFIELD:
++            return true;
++        default:
++            return false;
++    }
++}
++
++/// the boxes under rWindow that still draw a native frame in less height than they ask for
++void nativeBoxesCut(vcl::Window& rWindow, std::vector<vcl::Window*>& rCut)
++{
++    if (hasNativeFrame(rWindow))
++    {
++        if (rWindow.IsNativeWidgetEnabled() && rWindow.IsVisible()
++            && rWindow.get_preferred_size().Height() > rWindow.GetSizePixel().Height())
++            rCut.push_back(&rWindow);
++        return; // its own parts (button, sub edit) follow it
++    }
++    for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++        nativeBoxesCut(*pChild, rCut);
++}
++
 +/// a widget of a medium or small toolbox (the fill style's lists) one row high: taller (a list box of the X11 look is
-+/// 34 px), the row cut its bottom off
++/// 34 px), the row cut its bottom off. A box that then has less height than it asks for (Windows: the native frame
++/// of a list or spin box at 125 % text is 27 px) draws its own flat frame inside the row, as the native theme does
++/// not fit its frame into a smaller box and loses its bottom edge
 +void fitItemWindowsToRow(ToolBox& rBox)
 +{
 +    const tools::Long nRow = px(ROW, rBox);
@@ -2660,11 +2698,22 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    {
 +        const ToolBoxItemId nId = rBox.GetItemId(i);
 +        vcl::Window* pItemWindow = rBox.GetItemWindow(nId);
-+        if (!pItemWindow || pItemWindow->GetSizePixel().Height() <= nRow)
++        if (!pItemWindow)
 +            continue;
-+        pItemWindow->SetSizePixel(Size(pItemWindow->GetSizePixel().Width(), nRow));
-+        rBox.SetItemWindow(nId, pItemWindow); // the item takes the window's new size
-+        rBox.queue_resize();
++        if (pItemWindow->GetSizePixel().Height() > nRow)
++        {
++            pItemWindow->SetSizePixel(Size(pItemWindow->GetSizePixel().Width(), nRow));
++            rBox.SetItemWindow(nId, pItemWindow); // the item takes the window's new size
++            rBox.queue_resize();
++        }
++        std::vector<vcl::Window*> aCut;
++        nativeBoxesCut(*pItemWindow, aCut);
++        for (vcl::Window* pCut : aCut)
++        {
++            pCut->EnableNativeWidget(false); // its parts too
++            pCut->SetBorderStyle(WindowBorderStyle::MONO);
++            pCut->Invalidate();
++        }
 +    }
 +}
 +
@@ -3026,6 +3075,14 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                if (bCut) // the size it asked for, to tell a stale width from a short one
 +                    rOut.append(",\"want\":{\"w\":" + OString::number(sal_Int64(aWant.Width())) + ",\"h\":"
 +                                + OString::number(sal_Int64(aWant.Height())) + "}");
++                // a box of the command that still draws a native frame in less height than it asks for
++                std::vector<vcl::Window*> aNativeCut;
++                if (const ToolBox* pBox = dynamic_cast<const ToolBox*>(&rCommand))
++                    for (ToolBox::ImplToolItems::size_type n = 0; n < pBox->GetItemCount(); ++n)
++                        if (vcl::Window* pItemWindow = pBox->GetItemWindow(pBox->GetItemId(n)))
++                            nativeBoxesCut(*pItemWindow, aNativeCut);
++                rOut.append(",\"native_cut\":");
++                rOut.append(aNativeCut.empty() ? "false" : "true");
 +                rOut.append("}");
 +                bFirst = false;
 +            }

@@ -7,6 +7,7 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "tests", "runtime"))
+import ribbon_v3_rules as R  # noqa: E402
 from ribbon_v3_rules import RULES, dump_findings, dump_summary, dump_width, summarize  # noqa: E402
 
 
@@ -263,6 +264,38 @@ class LabelAndWidening(unittest.TestCase):
         d["groups"][1]["blocks"][0]["items"][0]["label_cut"] = True
         self.assertTrue(failed(d, "label_cut"))
 
+    @staticmethod
+    def cut_box(extra_w, extra_h, scale=1):
+        """The baseline with a box whose size request is its rect plus extra_w, extra_h device px."""
+        d = baseline()
+        d["scale"] = scale
+        box = d["groups"][1]["blocks"][0]["items"][0]
+        box.update(label_cut=True, want={"w": box["rect"]["w"] + extra_w, "h": box["rect"]["h"] + extra_h})
+        return d
+
+    def test_a_box_asking_a_little_more_height_than_its_row_passes(self):
+        self.assertEqual(failed(self.cut_box(0, 3), "label_cut"), [])
+
+    def test_a_box_asking_much_more_height_than_its_row_fails(self):
+        self.assertTrue(failed(self.cut_box(0, 5), "label_cut"))
+
+    def test_a_box_asking_more_width_fails(self):
+        self.assertTrue(failed(self.cut_box(1, 0), "label_cut"))
+
+    def test_the_slack_is_in_logical_px(self):
+        self.assertEqual(failed(self.cut_box(0, 8, scale=2), "label_cut"), [])
+        self.assertTrue(failed(self.cut_box(0, 9, scale=2), "label_cut"))
+
+    def test_a_box_drawing_its_native_frame_cut_fails(self):
+        d = baseline()
+        d["groups"][1]["blocks"][0]["items"][0]["native_cut"] = True
+        self.assertEqual(failed(d, "label_cut"), ["gdB bxB1 native box frame cut"])
+
+    def test_a_box_with_its_frame_whole_passes(self):
+        d = baseline()
+        d["groups"][1]["blocks"][0]["items"][0]["native_cut"] = False
+        self.assertEqual(failed(d, "label_cut"), [])
+
     def test_a_wide_dump_needs_large_items_of_96(self):
         d = baseline()
         d["wide"] = True
@@ -311,6 +344,31 @@ class Summary(unittest.TestCase):
 
     def test_summarize_of_no_dump_has_no_banner_statistics(self):
         self.assertIsNone(summarize([])["banner"])
+
+
+class OrderRuleTest(unittest.TestCase):
+    """The groups stand left to right in the design's order."""
+
+    @staticmethod
+    def dump(ids_by_x):
+        return {"app": "draw", "groups": [{"id": g, "rect": {"x": x}} for g, x in ids_by_x]}
+
+    def test_design_order_passes(self):
+        dump = self.dump([("gdEdit", 0), ("gdPdf", 130), ("gdSign", 390)])
+        self.assertEqual(R._order(dump, [["gdEdit", "gdPdf", "gdSign", "gdHst"]]), [("order", True, "pass")])
+
+    def test_a_group_shown_first_out_of_order_fails(self):
+        dump = self.dump([("gdSign", 0), ("gdHst", 176), ("gdEdit", 268), ("gdPdf", 398)])
+        (rule, ok, detail), = R._order(dump, [["gdEdit", "gdPdf", "gdSign", "gdHst"]])
+        self.assertEqual((rule, ok), ("order", False))
+        self.assertIn("gdSign", detail)
+
+    def test_a_tab_missing_from_the_data_is_information(self):
+        self.assertEqual(R._order(self.dump([("gdOther", 0)]), [["gdEdit"]])[0][1], None)
+
+    def test_the_real_data_knows_every_app(self):
+        for app in ("writer", "calc", "impress", "draw"):
+            self.assertTrue(R._tab_orders(app), app)
 
 
 if __name__ == "__main__":

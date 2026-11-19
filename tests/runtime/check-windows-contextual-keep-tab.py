@@ -160,6 +160,8 @@ def check_kind(app, kind, doc, objects, frame, office, res, args):
     before = [name for name, selected in ribbon_tabs(office) if selected]
     if not res(f"[{app}] {kind}: {tab} selected", before == [tab], before):
         return
+    if args.shots:  # the contextual tab as the user sees it, before the command
+        wg.screenshot(os.path.join(args.out, "shots", f"{app}-{kind}.png"), cursor=False)
     command = command_for(app, kind)
     dispatch = office.dispatch_async(frame, command, **DISPATCH_ARGS)
     dispatch.join(30)
@@ -269,6 +271,7 @@ def main():
     parser.add_argument("--apps", default="writer,calc,impress,draw")
     parser.add_argument("--port", type=int, default=2384)
     parser.add_argument("--main-thread", action="store_true", help="dispatch on the office's main thread")
+    parser.add_argument("--shots", action="store_true", help="screenshot each contextual tab once selected")
     args = parser.parse_args()
     if args.main_thread:
         DISPATCH_ARGS["OnMainThread"] = True
