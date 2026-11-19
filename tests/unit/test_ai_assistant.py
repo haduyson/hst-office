@@ -153,6 +153,52 @@ class ClientTests(unittest.TestCase):
             self.assertEqual((payload["key"], payload["provider"], run.call_args[0][2]),
                              ("sk-test-12345678", "openai", "ai_http.py"))
 
+    def test_helper_that_never_answers_ends_in_the_timeout_message(self):
+        """A real helper process that hangs (stuck DNS, proxy or TLS) is killed at the deadline and the dialog gets
+        the "timeout" message; it must never wait for the process by itself."""
+        import time
+        from hst_office import banner_fetch
+        settings = ai_client.Settings("openai", "gpt-6.2-sol", "sk-test-12345678", "1.0.3")
+        request = providers.chat_request("openai", "gpt-6.2-sol", "s", "p")
+        hang = ([sys.executable, "-c", "import sys, time; sys.stdin.read(); time.sleep(60)"], None)
+        with mock.patch.object(banner_fetch, "helper_command", return_value=hang):
+            started = time.monotonic()
+            with self.assertRaises(AiError) as caught:
+                ai_client.http_transport(timeout=1.5)(request, settings)
+            elapsed = time.monotonic() - started
+        self.assertEqual(caught.exception.kind, "timeout")
+        self.assertLess(elapsed, 10)
+        self.assertIn("2 phút", error_text(caught.exception))
+
+    def test_request_stuck_before_its_helper_starts_still_times_out(self):
+        """Queued behind banner helpers, or a slow interpreter probe: the dialog still gets the timeout message at
+        DEADLINE + GRACE, never an endless "sending"."""
+        import threading
+        import time
+        from hst_office import banner_fetch
+        settings = ai_client.Settings("claude", "claude-sonnet-5-5", "sk-ant-test-12345678", "1.0.3")
+        request = providers.chat_request("claude", "claude-sonnet-5-5", "s", "p")
+        never = threading.Event()
+        with mock.patch.object(banner_fetch, "_run", side_effect=lambda *a: never.wait(30)), \
+                mock.patch.object(ai_client, "GRACE", 0.5):
+            started = time.monotonic()
+            with self.assertRaises(AiError) as caught:
+                ai_client.http_transport(timeout=0.5)(request, settings)
+            elapsed = time.monotonic() - started
+        never.set()
+        self.assertEqual(caught.exception.kind, "timeout")
+        self.assertLess(elapsed, 5)
+
+    def test_helper_that_exits_without_answer_is_the_network_message(self):
+        from hst_office import banner_fetch
+        settings = ai_client.Settings("gemini", "gemini-3.8-flash", "test-key-12345678", "1.0.3")
+        request = providers.chat_request("gemini", "gemini-3.8-flash", "s", "p")
+        failing = ([sys.executable, "-c", "import sys; sys.stdin.read(); sys.exit(1)"], None)
+        with mock.patch.object(banner_fetch, "helper_command", return_value=failing):
+            with self.assertRaises(AiError) as caught:
+                ai_client.http_transport(timeout=10)(request, settings)
+        self.assertEqual(caught.exception.kind, "network")
+
 
 class HelperTests(unittest.TestCase):
     def test_only_the_chosen_provider_host(self):
