@@ -3,6 +3,8 @@
 administrator settings) and the query string. The request itself: test_update_install_id_request.py."""
 import os
 import unittest
+
+import core_settings_schemas as core_schemas  # noqa: E402
 import uuid
 import xml.etree.ElementTree as ET
 from unittest import mock
@@ -121,7 +123,7 @@ class Settings(unittest.TestCase):
         self.assertIn("SendInstallId", cfg.ADMIN_KEYS)
 
     def test_schema_declares_both_properties(self):
-        root = ET.parse(os.path.join(EXT, "update.xcs")).getroot()
+        root = core_schemas.schema_root("UpdateCheck")
         props = {p.get(OOR + "name"): p for p in root.iter("prop")}
         self.assertEqual(props["SendInstallId"].get(OOR + "type"), "xs:boolean")
         self.assertEqual(props["SendInstallId"].find("value").text, "true")

@@ -4,6 +4,8 @@ with an argument left out, the shortest formula the dialog may write, the user d
 import os
 import re
 import unittest
+
+import core_settings_schemas as core_schemas  # noqa: E402
 import xml.etree.ElementTree as ET
 from unittest import mock
 
@@ -118,14 +120,14 @@ class UserDefault(unittest.TestCase):
             self.assertFalse(prefs.save(None, USER))
 
     def test_schema_matches_the_keys_and_program_default(self):
-        root = ET.parse(os.path.join(EXT, "numberwords.xcs")).getroot()
+        root = core_schemas.schema_root("NumberWords")
         self.assertEqual("/%s.%s" % (root.get(OOR + "package"), root.get(OOR + "name")), prefs.CONFIG_PATH)
         stored = {p.get(OOR + "name"): p.findtext("value") or "" for p in root.iter("prop")}
         expected = {name: str(defaults.DEFAULTS[key]).lower() if isinstance(defaults.DEFAULTS[key], bool)
                     else defaults.DEFAULTS[key] for key, name in prefs.KEYS.items()}
         self.assertEqual(stored, expected)
         with open(os.path.join(EXT, "META-INF", "manifest.xml"), encoding="utf-8") as manifest:
-            self.assertIn('full-path="numberwords.xcs"', manifest.read())
+            self.assertNotIn(".xcs", manifest.read())  # core schema (hst-extension-settings-core.patch)
 
 
 class OptionsPageAndAddIn(unittest.TestCase):

@@ -11,6 +11,8 @@ import pathlib
 import re
 import types
 import unittest
+
+import core_settings_schemas as core_schemas  # noqa: E402
 from unittest import mock
 
 import _paths
@@ -21,7 +23,6 @@ from hst_office import citation_entry_dialog as entry  # noqa: E402 - after the 
 from hst_office import citation_lookup, citation_lookup_action, citation_style, citation_texts, citation_ui
 
 PYTHON = pathlib.Path(_paths.ROOT, "extensions", "hst-vietnamese-tools", "python", "hst_office")
-XCS = pathlib.Path(_paths.ROOT, "extensions", "hst-vietnamese-tools", "citations.xcs")
 HINTS = {
     "vi": ("Nút Tra cứu gửi mã DOI/ISBN bạn gõ tới dịch vụ tra cứu ở nước ngoài.",
            "Dòng này (tối đa 500 ký tự) sẽ được gửi tới Crossref (api.crossref.org) để tìm thông tin thư mục."),
@@ -153,7 +154,7 @@ class LookupSettingsTest(unittest.TestCase):
             self.assertEqual((True, ""), (citation_lookup_action.config(None).enabled,
                                           citation_lookup_action.config(None).contact))  # default: no address
         self.assertEqual("/org.hasontech.hstoffice.Citations/OnlineLookup", citation_lookup_action.KEY)
-        schema = XCS.read_text(encoding="utf-8")
+        schema = core_schemas.schema_text("Citations")
         self.assertRegex(schema, r'oor:name="OnlineLookup" oor:type="xs:boolean"[^>]*>\s*<info>[\s\S]*?'
                                  r'<value>true</value>')
 

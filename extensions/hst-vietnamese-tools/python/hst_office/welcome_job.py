@@ -1,9 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Show-once logic for the welcome dialog plus the Jobs.xcu job (event onFirstVisibleTask).
 
-Persistent flag: /org.hasontech.hstoffice.Welcome/Shown (boolean, per user; schema in welcome.xcs). It is
-written as soon as the dialog is displayed, so a crash or kill never makes the dialog loop. The "do not show
-again" tick is on by default; closing with it cleared writes Shown=false so the dialog appears again next start.
+Persistent flag: "welcome_shown" in the profile's startup-choices.json (startup_choices: it survives what erases the
+extension's configuration values) and /org.hasontech.hstoffice.Welcome/Shown (boolean, per user;
+core schema, hst-extension-settings-core.patch), which older versions sharing the profile read and an administrator can set. Either one true means
+shown; a true found only in the configuration is copied into the file. It is written as soon as the dialog is
+displayed, so a crash or kill never makes the dialog loop. The "do not show again" tick is on by default; closing
+with it cleared writes false to both so the dialog appears again next start.
 """
 
 import unohelper
@@ -13,10 +16,11 @@ from com.sun.star.task import XJob
 
 from .data_files import load_locale
 from .welcome_dialog import Welcome
-from . import diag_log
+from . import diag_log, startup_choices
 
 JOB_NAME = "org.hst.office.vi.WelcomeJob"
 CONFIG_PATH = "/org.hasontech.hstoffice.Welcome"
+CHOICE = "welcome_shown"
 DEFER_TURNS = 1  # event-loop passes to wait before the dialog opens
 LOAD_POLL = 0.25  # seconds between checks while a document is still loading
 LOAD_WAIT = 300  # seconds after which a modal start-up step runs even if a load never ends
@@ -32,10 +36,18 @@ def _access(ctx, writable):
 
 
 def is_shown(ctx):
-    return bool(_access(ctx, False).getPropertyValue("Shown"))
+    """True when the welcome dialog was displayed and not asked back (the file or the configuration says so)."""
+    if startup_choices.get(ctx, CHOICE):
+        return True
+    configured = bool(_access(ctx, False).getPropertyValue("Shown"))
+    if configured:
+        startup_choices.put(ctx, CHOICE, True)  # migrate an answer given by a version without the file
+    return configured
 
 
 def set_shown(ctx, value):
+    """Store the answer in the file first (it never raises), then in the configuration."""
+    startup_choices.put(ctx, CHOICE, bool(value))
     node = _access(ctx, True)
     node.setPropertyValue("Shown", bool(value))
     node.commitChanges()

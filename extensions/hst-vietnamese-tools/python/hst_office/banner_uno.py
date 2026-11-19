@@ -30,9 +30,14 @@ def feed_for_context(ctx):
         release = load_data("release.json")
         # The test feed URL/key environment is honoured only by test-stamped packages.
         _FEEDS[profile] = BannerFeed(profile, release["release"], override, proxy(ctx),
-                                     test_mode=test_mode_from_release(release))
+                                     test_mode=test_mode_from_release(release), ready=lambda: _ui_idle(ctx))
         _flush_on_exit(ctx, _FEEDS[profile])
     return _FEEDS[profile]
+
+
+def _ui_idle(ctx):
+    from . import ui_idle  # imported on the feed worker, after the start-up
+    ui_idle.wait(ctx)
 
 
 class _FlushOnExit(unohelper.Base, XTerminateListener):
