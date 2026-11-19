@@ -91,16 +91,32 @@ class Office:
         return self.ctx.ServiceManager.createInstanceWithContext(name, self.ctx)
 
     def stop(self):
+        """Quit; the text a check typed is discarded first, so no "save changes?" question holds the quit."""
         try:
-            self.service("com.sun.star.frame.Desktop").terminate()
+            desktop = self.service("com.sun.star.frame.Desktop")
+            components = desktop.getComponents().createEnumeration()
+            while components.hasMoreElements():
+                component = components.nextElement()
+                if hasattr(component, "setModified"):
+                    component.setModified(False)
+            desktop.terminate()
         except Exception:  # noqa: BLE001 - the bridge goes away with the office
             pass
         try:
             self.proc.wait(60)
         except subprocess.TimeoutExpired:
-            self.proc.kill()  # our own soffice only
+            pass
+        self.kill()
         subprocess.run(["taskkill", "/F", "/T", "/FI", "WINDOWTITLE eq " + TITLE], capture_output=True, check=False)
         time.sleep(3)
+
+    def kill(self):
+        """End this run's office: soffice.exe only launches soffice.bin, so match every soffice process by our profile."""
+        profile = self.profile.replace("\\", "/")
+        script = ("Get-CimInstance Win32_Process -Filter \"Name like 'soffice%%'\" | "
+                  "Where-Object { $_.CommandLine -and $_.CommandLine.Replace('\\', '/') -like '*%s*' } | "
+                  "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" % profile)
+        subprocess.run(["powershell", "-NoProfile", "-Command", script], capture_output=True, check=False, timeout=60)
 
     def popup(self):
         """The pop-up's window handle (a visible top-level window titled TITLE), or None."""

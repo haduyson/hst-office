@@ -121,8 +121,8 @@ def main():
         check("driver timeout: a step did not return within %g minutes" % args.max_minutes, False)
         report(args)
         try:
-            office.proc.kill()  # our own soffice only
-        except Exception:  # noqa: BLE001 - not started or already gone
+            office.kill()  # this run's soffice.exe and soffice.bin only (matched by its profile)
+        except Exception:  # noqa: BLE001 - nothing to end
             pass
         os._exit(1)
     watchdog = threading.Timer(args.max_minutes * 60, give_up)
