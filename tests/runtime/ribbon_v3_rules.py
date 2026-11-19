@@ -14,6 +14,7 @@ BODY_MIN_H = 106
 ROW_TOPS, ROW_BOTTOMS = (6, 32, 58), (30, 56, 82)  # small items, boxes: the three rows of a group
 LARGE_TOP, LARGE_BOTTOM, LARGE_W = 6, 82, 96  # large buttons and galleries; widened large buttons
 GAP, SLACK = 8, 4  # the banner's gap to the last group, and the slack allowed above it
+CHEVRON = 22  # the collapse chevron's own room after the last group (18 px and its 4 px inset), as in the mockup
 CLIPBOARD = "gdHomeClipboard"  # Paste (large) with one column of three icons: the only mixed group allowed
 RULES = ("body", "band", "edge", "one_size", "equal_width", "lone_col", "cols_3plus1", "banner", "elastic_fill",
          "captions", "clip", "label_cut", "widening")
@@ -164,8 +165,8 @@ def _elastic(dump):
     width = banner["w"] / scale
     if width >= BANNER_MAX_W - TOLERANCE:
         return [("elastic_fill", None, f"banner at {BANNER_MAX_W}: {free:.1f} px free (allowed)")]
-    if free > GAP + SLACK + TOLERANCE:
-        return _verdict("elastic_fill", [f"{free:.1f} px free before the banner (limit {GAP + SLACK})"])
+    if free > GAP + CHEVRON + SLACK + TOLERANCE:
+        return _verdict("elastic_fill", [f"{free:.1f} px free before the banner (limit {GAP + CHEVRON + SLACK})"])
     return _verdict("elastic_fill", [])
 
 

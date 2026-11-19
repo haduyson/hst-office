@@ -107,7 +107,7 @@ GROUPS = {
     "gdHelpHst": {"columns": [
         [("box", "bxHstHelpIndex")],
         [("new", "btnHelpHstWhereIsCommand", VI + "WhereIsCommand", "L",
-          {"tlabel": ("Where Is\nThat Command?", "Lệnh quen thuộc\nở đâu?"), "icon": "cmd/32/extendedhelp.png"})],
+          {"tlabel": ("Where Is\nThat Command?", "Lệnh quen\nthuộc ở đâu?"), "icon": "cmd/32/extendedhelp.png"})],
         [("new", "btnHelpHstKeyboardShortcuts", VI + "KeyboardShortcuts", "S",
           {"tlabel": ("Keyboard Shortcuts", "Phím tắt"), "icon": "cmd/sc_configuredialog.png"}),
          ("box", "bxHstTipOfTheDay", "S")],

@@ -57,10 +57,33 @@ def start(instdir, app, display, work, dumps):
     return office, windows[0]
 
 
+def settle(live, fallback, longest=10.0):
+    """Waits until the ribbon's layout settles: its fit pass count (<live>/layout-passes, hst-ribbon-v3-layout.patch)
+    unchanged for a second, at most LONGEST seconds; a build without the count: FALLBACK seconds. A dump taken
+    sooner could catch a layout pass half done (every group large past the banner while the fit was redone)."""
+    path = os.path.join(live, "layout-passes")
+    if not os.path.exists(path):
+        time.sleep(fallback)
+        return
+    end, last, stable_since = time.monotonic() + longest, None, time.monotonic()
+    while time.monotonic() < end:
+        try:
+            with open(path, encoding="ascii") as handle:
+                now = handle.read().strip()
+        except OSError:
+            now = None
+        if now != last:
+            last, stable_since = now, time.monotonic()
+        elif time.monotonic() - stable_since >= 1.0:
+            return
+        time.sleep(0.2)
+
+
 def move_dumps(live, target):
     os.makedirs(target, exist_ok=True)
     for name in os.listdir(live):
-        os.replace(os.path.join(live, name), os.path.join(target, name))
+        if name != "layout-passes":  # the office's running count, not a dump
+            os.replace(os.path.join(live, name), os.path.join(target, name))
     return len(os.listdir(target))
 
 
@@ -88,17 +111,17 @@ def collect_contextual(args, app, office, window, live, root):
     try:
         for width in args.contextual:
             gui.xdo(args.display, "windowsize", window, str(width), str(args.height))
-            time.sleep(3)
+            settle(live, 3)
             park(app, doc, office)
             plain = set(gui.visible_names())
             for kind, target in sorted(objects.items(), key=lambda item: item[0] == "chart"):
                 doc.CurrentController.select(target)
-                time.sleep(2)
+                settle(live, 2)
                 tabs = [n for n in gui.visible_names() if n and n not in plain]
                 for index, name in enumerate(tabs):
                     if not gui.open_tab(args.display, name):
                         continue
-                    time.sleep(1.5)
+                    settle(live, 1.5)
                     if args.shots:
                         shot = os.path.join(args.out, "shots", f"{app}-ctx-{kind}-w{width}-{index}.png")
                         os.makedirs(os.path.dirname(shot), exist_ok=True)
@@ -136,7 +159,7 @@ def collect_app(args, app):
     try:
         for width in args.widths:
             gui.xdo(args.display, "windowsize", window, str(width), str(args.height))
-            time.sleep(3)
+            settle(live, 3)
             names = [n for n in gui.visible_names() if n and n != "Tệp tin"]
             if not names and args.shots:  # no ribbon tab found: keep the screen to see why
                 shot = os.path.join(args.out, "shots", f"{app}-w{width}-notabs.png")
@@ -146,7 +169,7 @@ def collect_app(args, app):
                 if not gui.open_tab(args.display, name):
                     print(f"{app} w{width}: cannot open {name}", flush=True)
                     continue
-                time.sleep(1.5)
+                settle(live, 1.5)
                 if args.shots:
                     shot = os.path.join(args.out, "shots", f"{app}-w{width}-{index:02d}.png")
                     os.makedirs(os.path.dirname(shot), exist_ok=True)

@@ -12,7 +12,7 @@ from . import banner_store as store
 from . import banner_verify
 from .banner_fetch import fetch, post_status
 from .banner_impressions import Counter
-from .banner_schema import INTERVAL, MAX_MANIFEST, active, image_specs, parse_manifest
+from .banner_schema import INTERVAL, MAX_MANIFEST, active, client_specs, parse_manifest
 from .banner_snapshot import Banner as Banner, prepare
 from .banner_urls import FEED_URL, TEST_KEY_ENV, TEST_URL_ENV, feed_url, transport_url
 from .data_files import EXT_ROOT, load_data
@@ -56,7 +56,7 @@ class BannerFeed:
         self.impressions, self._poster = Counter(self.root, clock), poster
         self.utm = load_data("solutions.json")["utm"]
         self.bundle = parse_manifest(json.dumps(load_data("banners.json"), ensure_ascii=False).encode("utf-8"), bundled=True)
-        self.bundle_images = {i["id"]: {s: (Path(EXT_ROOT) / v["url"]).read_bytes() for s, v in image_specs(i)}
+        self.bundle_images = {i["id"]: {s: (Path(EXT_ROOT) / v["url"]).read_bytes() for s, v in client_specs(i)}
                               for i in self.bundle["items"]}
         try:
             encoded = load_data("banner-snapshots.json")  # prepared by the package builder
@@ -98,7 +98,7 @@ class BannerFeed:
             blobs = {}
             for item in doc["items"]:
                 blobs[item["id"]] = {}
-                for scale, spec in image_specs(item):
+                for scale, spec in client_specs(item):
                     try:
                         blob = cache.cached_image(self.root, spec, scale)
                     except (OSError, ValueError):

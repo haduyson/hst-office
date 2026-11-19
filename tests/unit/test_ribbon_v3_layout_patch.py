@@ -24,6 +24,21 @@ class LayoutTest(unittest.TestCase):
         # the caption is the child at row 3 (generate-ribbon-v3-ui.py)
         self.assertIn("return rChild.get_grid_top_attach() >= 3;", code)
 
+    def test_style_list_rows_are_24_px_in_gtk_and_vcl(self):
+        code = added(PATCH, "svx/source/tbxctrls/StylesPreviewWindow.cxx")
+        # vcl's builder sets the .ui's item padding 2 as the icon view's spacing: 4 px of room in both toolkits
+        self.assertIn("constexpr tools::Long nRoom = 4;", code)
+        self.assertIn("constexpr tools::Long HST_LIST_ROW = 24;", code)
+
+    def test_medium_menu_button_measured_as_painted(self):
+        code = added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx")
+        self.assertIn("std::max<tools::Long>(1, 1 + (nTextHeight - 10) / 2);", code)
+        self.assertIn("tools::Long nWidth = nFrame + 2 * nSymbol;", code)
+        self.assertIn("it = rWidths.emplace(nKey, commandWidth(rCommand, cLook)).first;", code)
+        # a large one: its label's lines ("Bam\\ndinh \u25be"), each centred in the frame, not its words
+        self.assertIn("MenuButtonTextWidth(*pMenu, aText.getToken(0, '\\n', nIndex))", code)
+        self.assertIn("if (const tools::Long nNeed = menuButtonNeed(rCommand, rCell.look))", code)
+
     def test_one_button_stretches_over_its_cell(self):
         code = added(PATCH, "vcl/source/window/toolbox.cxx")
         self.assertIn("if ( nButtons == 1 && !pOnly->maRect.IsEmpty() && nRight > pOnly->maRect.Right() + 1 )", code)
@@ -55,11 +70,112 @@ class BannerTest(unittest.TestCase):
         self.assertIn("nMin = hst::banner::scaled(360, fDpi), nMax = hst::banner::scaled(960, fDpi)", code)
         self.assertIn("Size(nBanner, hst::banner::scaled(96, fDpi))", code)
         self.assertIn("hst::ribbon::SetPageSlack(*pPage, nSmallest - nPageWidth);", code)
+        # the collapse chevron's room after the last group, out of the fit and before the banner
+        self.assertIn("const tools::Long nChevron = m_pHstCompact ? hst::banner::scaled(22, fDpi) : 0;", code)
+        self.assertIn("nRight - nMin - nGap - aPage.x - nChevron", code)
+        # the chevron's room at the smallest banner is a slack below 0
+        self.assertIn("pBox->HstSetSlack(nSlack);", added(PATCH, "vcl/source/control/HstRibbonV3MergedBox.cxx"))
 
     def test_old_artwork_left_aligned_with_fill(self):
         code = added(PATCH, "vcl/source/control/HstBannerCore.cxx")
         self.assertIn("aFit = Rect{ 0, 0, nWidth, nHeight };", code)
         self.assertIn("bool BannerFillsWidth() const override { return true; }", added(PATCH, "vcl/source/control/HstBanner.cxx"))
+
+
+class UpdateDotTest(unittest.TestCase):
+    def test_status_listener_on_the_frame_sets_the_dot(self):
+        listener = added(PATCH, "sfx2/source/notebookbar/HstUpdateDot.cxx")
+        self.assertIn("mxDispatch = xFrame->queryDispatch(maURL, OUString(), 0);", listener)
+        self.assertIn("mxDispatch->addStatusListener(this, maURL);", listener)
+        self.assertIn("show(rEvent.IsEnabled);", listener)
+        self.assertNotIn("void release();", added(PATCH, "sfx2/inc/notebookbar/HstUpdateDot.hxx"))  # XInterface's
+        self.assertIn('u"org.hst.office.update:Available"_ustr',
+                      added(PATCH, "sfx2/inc/notebookbar/HstUpdateDot.hxx"))
+        box = added(PATCH, "sfx2/source/notebookbar/NotebookbarTabControl.cxx")
+        self.assertIn("[this](bool bShow) { hst::ribbon::SetUpdateDot(*this, bShow); });", box)
+        self.assertIn("m_xHstUpdateDot->Stop();", box)
+        self.assertIn("CppunitTest_sfx2_hst_update_dot", added(PATCH, "sfx2/Module_sfx2.mk"))
+        self.assertIn("testNoHandlerNoDot", added(PATCH, "sfx2/qa/cppunit/test_hstupdatedot.cxx"))
+
+    def test_dot_is_painted_in_the_file_button_without_resizing_tabs(self):
+        tabs = added(PATCH, "vcl/source/control/tabctrl.cxx")
+        self.assertIn("hst::ribbon::DrawUpdateDot(rRenderContext, pItem->maRect);", tabs)
+        for sizing in ("ImplPlaceTabs", "FileTabExtraWidth", "maRect.Set", "SetSizePixel"):  # tabs keep their sizes
+            self.assertNotIn(sizing, tabs)
+        self.assertIn("const tools::Rectangle aFill = FileTabFill(rDev, rItem);",
+                      added(PATCH, "vcl/source/control/HstRibbonUpdateDot.cxx"))
+
+    def test_new_files_are_hst_owned(self):
+        for path in ("include/vcl/HstRibbonUpdateDot.hxx", "vcl/source/control/HstRibbonUpdateDot.cxx",
+                     "sfx2/inc/notebookbar/HstUpdateDot.hxx", "sfx2/source/notebookbar/HstUpdateDot.cxx",
+                     "sfx2/qa/cppunit/test_hstupdatedot.cxx", "sfx2/CppunitTest_sfx2_hst_update_dot.mk"):
+            self.assertIn("SPDX-License-Identifier: LicenseRef-HST-Proprietary", added(PATCH, path), path)
+
+
+class MenuButtonMetricsTest(unittest.TestCase):
+    def test_layout_measures_menu_labels_as_the_paint_draws_them(self):
+        button = added(PATCH, "vcl/source/control/button.cxx")
+        self.assertIn("hst::ribbon::MenuButtonPainted(*this, *pDev, aInRect, nImageSep);", button)
+        metrics = added(PATCH, "vcl/source/control/HstRibbonMenuButtonMetrics.cxx")
+        self.assertIn("rDev.GetTextWidth(rString), rButton.GetTextWidth(rString)", metrics)
+        self.assertIn("Application::PostUserEvent(LINK(nullptr, PaintedMetrics, RelayoutHdl))", metrics)
+        self.assertIn("xBox->DataChanged(DataChangedEvent(DataChangedEventType::FONTS));", metrics)
+        layout = added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx")
+        self.assertIn("nWidth += MenuButtonTextWidth(*pMenu, aText);", layout)
+        self.assertIn("const tools::Long nTextHeight = MenuButtonTextHeight(*pMenu);", layout)
+        ladder = added(PATCH, "vcl/source/control/HstRibbonLadder.cxx")
+        self.assertIn("const tools::Long nTextHeight = MenuButtonTextHeight(rButton);", ladder)
+
+    def test_large_label_lines_fit_under_the_image(self):
+        metrics = added(PATCH, "vcl/source/control/HstRibbonMenuButtonMetrics.cxx")
+        self.assertIn("rInner.GetHeight() - aImage.GetSizePixel().Height() - nLines * rDev.GetTextHeight();", metrics)
+        self.assertIn("rImageSep = static_cast<sal_Int32>(std::max<tools::Long>(1, nRoom));", metrics)
+        # the dump reports a large label whose lines do not fit as cut
+        self.assertIn("(largeMenuLinesCut(rCommand, rCell.look) ? 1 : 0)", added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx"))
+        self.assertIn("PaintedMetrics::metrics()[&rButton].linesFit = nRoom >= 1;", metrics)
+
+    def test_medium_label_stays_on_one_line_with_its_accents(self):
+        layout = added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx")
+        self.assertIn("nStyle = (rLabel.nStyle & ~(WB_CENTER | WB_RIGHT | WB_WORDBREAK)) | WB_LEFT;",
+                      added(PATCH, "vcl/source/control/HstRibbonLadder.cxx"))
+        # one owner of the style: the group's look keeps the word break the menu button's look chose (both setting
+        # it differently laid the ribbon out again and again)
+        self.assertNotIn("WB_RIGHT | WB_WORDBREAK)) | (cLook", layout)
+        metrics = added(PATCH, "vcl/source/control/HstRibbonMenuButtonMetrics.cxx")
+        self.assertIn("if (cLook == 'M' && nPaintHeight > rInner.GetHeight())", metrics)
+        self.assertIn("rDev.SetClipRegion(vcl::Region(aClip));", metrics)
+        self.assertIn(": rLabel.aText.replace('\\n', ' ');", added(PATCH, "vcl/source/control/HstRibbonLadder.cxx"))
+        # a toolbox label right of its icon joins its authored break with a space
+        tools = added(PATCH, "vcl/source/window/toolbox.cxx")
+        self.assertIn("return rText.replaceAll(u\"/\\n\", u\"/\").replace('\\n', ' ');", tools)
+        self.assertIn("GetCtrlTextWidth( ImplHstOneLine( *mpData, item.maText, meTextPosition ) )", tools)
+
+    def test_new_files_are_hst_owned(self):
+        for path in ("vcl/inc/HstRibbonMenuButtonMetrics.hxx", "vcl/source/control/HstRibbonMenuButtonMetrics.cxx"):
+            self.assertIn("SPDX-License-Identifier: LicenseRef-HST-Proprietary", added(PATCH, path), path)
+
+
+class SettleTest(unittest.TestCase):
+    def test_layout_passes_are_counted_in_dump_mode(self):
+        box = added(PATCH, "vcl/source/control/HstRibbonV3MergedBox.cxx")
+        self.assertIn('const OString aPath = OString(pDir) + "/layout-passes";', box)
+        self.assertIn("void PriorityMergedHBox::HstApplyV3(tools::Long nWidth)\n{\n    countLayoutPass();", box)
+
+    def test_widgets_fit_a_row_and_folded_names_sit_on_the_caption_line(self):
+        layout = added(PATCH, "vcl/source/control/HstRibbonV3Layout.cxx")
+        self.assertIn("pItemWindow->SetSizePixel(Size(pItemWindow->GetSizePixel().Width(), nRow));", layout)
+        self.assertIn("if (cLook == 'M' || cLook == 'S')\n            fitItemWindowsToRow(*pBox);", layout)
+        self.assertIn('rOut.append(",\\"want\\":{\\"w\\":"', layout)
+        self.assertIn("constexpr long FOLDED_LABEL_BOTTOM = 2;", added(PATCH, "vcl/inc/HstRibbonGeometry.hxx"))
+
+
+class BannerSizeTest(unittest.TestCase):
+    def test_banner_asks_for_its_width_and_again_at_another_standard_size(self):
+        core = added(PATCH, "vcl/source/control/HstBannerCore.cxx")
+        self.assertIn('{ u"Width"_ustr, uno::Any(nWidth) } })', core)
+        self.assertIn('rData.nStandardWidth = rItem.get<sal_Int32>("standard_width", 0);', core)
+        self.assertIn("(mnSourceWidth > 0 && StandardWidth(LogicalWidth()) != mnSourceWidth)", core)
+        self.assertIn("for (const sal_Int32 nWidth : { 640, 960 })", core)
 
 
 class DetailsTest(unittest.TestCase):

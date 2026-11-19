@@ -120,6 +120,48 @@ class TreeCheckTest(unittest.TestCase):
         props = [(p.get("name"), p.text) for p in obj.findall("property")]
         self.assertEqual(props, [("can-focus", "True"), ("halign", "fill"), ("valign", "fill")])
 
+    def test_new_uno_command_takes_its_texts_from_the_command(self):
+        from lxml import etree as ET
+        import ribbon_v3_ui as V
+        toolbox = ET.fromstring(
+            '<object class="sfxlo-NotebookbarToolBox" id="bxDataTextToColumns"><child>'
+            '<object class="GtkToolButton" id="btnDataTextToColumns"><property name="label">TextToColumns</property>'
+            '<property name="hst-ribbon-label" translatable="yes">Text to Columns</property>'
+            '<property name="hst-ribbon-description" translatable="yes">Split the text</property>'
+            '<property name="action-name">.uno:TextToColumns</property></object></child></object>')
+        units = V.units_of(toolbox, ET.Element("child"))
+        unit = V.new_unit({"k": "FlashFill", "kind": "M", "t": "Tự điền nhanh", "clone": "TextToColumns",
+                           "new": True}, units, "Data")
+        obj = unit.element.find("object")
+        self.assertEqual(obj.get("id"), "btnDataHstFlashFill")
+        # the neighbour's label and descriptions go: the command's own label and tooltip show (CalcCommands.xcu)
+        self.assertEqual([(p.get("name"), p.text) for p in obj.findall("property")],
+                         [("label", "FlashFill"), ("action-name", ".uno:FlashFill")])
+
+    def test_new_group_is_a_skeleton_of_its_tab(self):
+        import importlib.util
+        from lxml import etree as ET
+        spec = importlib.util.spec_from_file_location(
+            "generate_ribbon_v3_ui", os.path.join(ROOT, "scripts/patches/generate-ribbon-v3-ui.py"))
+        G = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(G)
+        commands = TOOL.format(name="Paste", left=0)
+        root = ET.fromstring(UI.format(spec="kinds=L", commands=commands).encode("utf-8"))
+        template = next(o for o in root.iter("object") if o.get("id") == "gdHomeClipboard")
+        caption = next(o for o in template.iter("object") if o.get("id") == "lbClipboard")
+        ET.SubElement(ET.SubElement(caption, "accessibility"), "relation", type="label-for", target="gdHomeClipboard")
+        ET.SubElement(ET.SubElement(template, "accessibility"), "relation", type="labelled-by", target="lbClipboard")
+        used = {o.get("id") for o in root.iter("object")}
+        grid = G.new_group([template], {"id": "gdHomeHstAI", "cap": "Trợ lý AI", "new": True, "items": []}, used)
+        self.assertIs(grid.getparent().getprevious(), template.getparent())  # after the tab's last group
+        self.assertEqual([o.get("class") for o in grid.iter("object")], ["GtkGrid", "GtkLabel", "GtkSeparator"])
+        label = grid.find("child/object[@class='GtkLabel']")
+        self.assertEqual((label.get("id"), label.find("property[@name='label']").text), ("lbHomeHstAI", "Trợ lý AI"))
+        relations = {r.get("type"): r.get("target") for r in grid.iter("relation")}
+        self.assertEqual(relations, {"labelled-by": "lbHomeHstAI", "label-for": "gdHomeHstAI"})
+        self.assertEqual(grid.find("child/object[@class='GtkSeparator']").get("id"), "sepHomeHstAI")
+        self.assertIn("gdHomeHstAI", used)
+
     def test_merged_box_and_tab_fill_the_page_height(self):
         import importlib.util
         from lxml import etree as ET

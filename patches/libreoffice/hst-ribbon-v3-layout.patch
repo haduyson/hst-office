@@ -49,6 +49,55 @@ License: these upstream files remain under their original license (MPL-2.0).
      void HstApplyColumns();
  
  public:
+--- a/include/vcl/HstRibbonPaint.hxx
++++ b/include/vcl/HstRibbonPaint.hxx
+@@ -97,6 +97,9 @@ SAL_DLLPRIVATE tools::Long FileTabExtraW
+ /** Logical px height of the File button (the approved mockup's .hw-file), centred in the tab row. */
+ inline constexpr tools::Long FILE_BUTTON_HEIGHT = 24;
+ 
++/** The filled shape of the File button drawn in rItem (DrawFileTab; the update dot stands in it). */
++SAL_DLLPRIVATE tools::Rectangle FileTabFill(const OutputDevice& rDev, const tools::Rectangle& rItem);
++
+ /** The filled, rounded File button inside rItem: FILE_BUTTON_HEIGHT high, centred in rItem vertically, 2 px in
+     from its left and right;
+     in high contrast with an outline in the text colour while hovered or pressed. Returns the
+--- /dev/null
++++ b/include/vcl/HstRibbonUpdateDot.hxx
+@@ -0,0 +1,34 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++// HST Office: the update dot of the ribbon's File button ("Tệp tin"). sfx2 listens to the update status of the
++// document's frame (org.hst.office.update:Available, sfx2/inc/notebookbar/HstUpdateDot.hxx) and sets the dot of
++// its tab control; the tab control paints it inside the File button, over its top right corner. The tabs keep
++// their sizes: the dot takes no room.
++
++#include <tools/gen.hxx>
++#include <vcl/dllapi.h>
++#include <vcl/outdev.hxx>
++
++namespace vcl
++{
++class Window;
++}
++
++namespace hst::ribbon
++{
++/** Show (an update is known) or hide the dot of rTabControl's File button; repaints the tabs when it changes. */
++VCL_DLLPUBLIC void SetUpdateDot(vcl::Window& rTabControl, bool bShow);
++
++/** rTabControl's File button shows the dot. */
++VCL_DLLPUBLIC bool HasUpdateDot(const vcl::Window& rTabControl);
++
++/** Paint the dot in the File button drawn in rItem (the tab's rectangle, as DrawFileTab got it). */
++SAL_DLLPRIVATE void DrawUpdateDot(vcl::RenderContext& rDev, const tools::Rectangle& rItem);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/include/vcl/HstRibbonWidth.hxx
 +++ b/include/vcl/HstRibbonWidth.hxx
 @@ -9,6 +9,7 @@
@@ -95,9 +144,146 @@ License: these upstream files remain under their original license (MPL-2.0).
      /// HST Office: the toolbox is a ribbon group's dialog launcher (↘) on the caption line: its buttons are as
      /// high as the caption band, the icon centred (HstRibbonLadder.cxx)
      void                HstSetLauncher( bool bLauncher );
+--- /dev/null
++++ b/sfx2/CppunitTest_sfx2_hst_update_dot.mk
+@@ -0,0 +1,39 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,sfx2_hst_update_dot))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sfx2_hst_update_dot, \
++    sfx2/qa/cppunit/test_hstupdatedot \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sfx2_hst_update_dot,\
++    -I$(SRCDIR)/sfx2/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sfx2_hst_update_dot))
++
++$(eval $(call gb_CppunitTest_use_libraries,sfx2_hst_update_dot, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    sal \
++    sfx \
++    test \
++    unotest \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,sfx2_hst_update_dot, \
++    boost_headers \
++))
++
++$(eval $(call gb_CppunitTest_use_ure,sfx2_hst_update_dot))
++$(eval $(call gb_CppunitTest_use_vcl,sfx2_hst_update_dot))
++$(eval $(call gb_CppunitTest_use_rdb,sfx2_hst_update_dot,services))
++$(eval $(call gb_CppunitTest_use_configuration,sfx2_hst_update_dot))
++
++# vim: set noet sw=4 ts=4:
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -266,6 +266,7 @@ $(eval $(call gb_Library_add_exception_o
+     sfx2/source/notebookbar/HstRibbonCompactWidgets \
+     sfx2/source/notebookbar/HstQuickAccess \
+     sfx2/source/notebookbar/HstQuickAccessStore \
++    sfx2/source/notebookbar/HstUpdateDot \
+     sfx2/source/notebookbar/NotebookbarTabControl \
+     sfx2/source/notebookbar/HstRibbonKeyTips \
+     sfx2/source/notebookbar/HstChartCommands \
+--- a/sfx2/Module_sfx2.mk
++++ b/sfx2/Module_sfx2.mk
+@@ -38,6 +38,7 @@ $(eval $(call gb_Module_add_check_target
+     CppunitTest_sfx2_view \
+     CppunitTest_sfx2_doc \
+     CppunitTest_sfx2_autoredaction \
++    CppunitTest_sfx2_hst_update_dot \
+ ))
+ 
+ $(eval $(call gb_Module_add_subsequentcheck_targets,sfx2,\
+--- /dev/null
++++ b/sfx2/inc/notebookbar/HstUpdateDot.hxx
+@@ -0,0 +1,56 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++// HST Office: the update dot of the ribbon's File button. The HST extension's status command
++// org.hst.office.update:Available is enabled while a newer release is known; UpdateDot listens to it on the
++// document's frame and tells its owner (the ribbon's tab control, vcl/HstRibbonUpdateDot.hxx) to show or hide
++// the dot. Without the command (no handler, an older extension) or after any failure there is no dot.
++
++#include <sfx2/dllapi.h>
++#include <com/sun/star/frame/XDispatch.hpp>
++#include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <com/sun/star/frame/XStatusListener.hpp>
++#include <com/sun/star/util/URL.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <rtl/ustring.hxx>
++
++#include <functional>
++
++namespace hst::notebookbar
++{
++inline constexpr OUString UPDATE_AVAILABLE_URL = u"org.hst.office.update:Available"_ustr;
++
++class SFX2_DLLPUBLIC UpdateDot final : public cppu::WeakImplHelper<css::frame::XStatusListener>
++{
++public:
++    /** aShow(true) shows the dot, aShow(false) hides it; called on the main thread with the SolarMutex held. */
++    explicit UpdateDot(std::function<void(bool)> aShow);
++
++    /** Listen to the update status of the dispatch xFrame (the document's frame) provides for the command (the same
++        frame again: nothing changes). No dispatch for the command: no dot. */
++    void SetFrame(const css::uno::Reference<css::frame::XDispatchProvider>& xFrame);
++
++    /** Stop listening and forget the owner: no call of aShow after this. */
++    void Stop();
++
++    // XStatusListener
++    virtual void SAL_CALL statusChanged(const css::frame::FeatureStateEvent& rEvent) override;
++    // XEventListener
++    virtual void SAL_CALL disposing(const css::lang::EventObject& rEvent) override;
++
++private:
++    void show(bool bShow);
++    void stopListening();
++
++    std::function<void(bool)> maShow;
++    css::uno::Reference<css::frame::XDispatchProvider> mxFrame;
++    css::uno::Reference<css::frame::XDispatch> mxDispatch;
++    css::util::URL maURL;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
 +++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
-@@ -42,6 +42,8 @@ public:
+@@ -12,6 +12,7 @@
+ #include <chrono>
+ #include <map>
+ #include <memory>
++#include <rtl/ref.hxx>
+ #include <vcl/tabctrl.hxx>
+ 
+ #include <com/sun/star/frame/XFrame.hpp>
+@@ -22,6 +23,7 @@ class HstRibbonBanner;
+ class HstRibbonCompact;
+ class HstQuickAccess;
+ class HstTabSearchBox;
++namespace hst::notebookbar { class UpdateDot; }
+ class VclWindowEvent;
+ struct ImplSVEvent;
+ 
+@@ -42,6 +44,8 @@ public:
      virtual void dispose() override;
      virtual void MouseButtonDown( const MouseEvent& rMEvt ) override;
      virtual bool PreNotify( NotifyEvent& rNEvt ) override;
@@ -106,6 +292,187 @@ License: these upstream files remain under their original license (MPL-2.0).
  
  private:
      // HST Office: HASON TECH solution banner beside the groups (Writer, Calc, Impress, Draw Tabbed UI)
+@@ -67,6 +71,8 @@ private:
+     std::unique_ptr<HstRibbonCompact> m_pHstCompact;
+     // HST Office (1.0.2 ribbon): the quick access toolbar (the shortcuts toolbox); see HstQuickAccess.hxx
+     std::unique_ptr<HstQuickAccess> m_pHstQat;
++    // HST Office (1.0.3): the update dot of the File button (HstUpdateDot.hxx)
++    rtl::Reference<hst::notebookbar::UpdateDot> m_xHstUpdateDot;
+     DECL_LINK(HstQatPlacementHdl, LinkParamNone*, void);
+     tools::Long HstQatRow() const;
+     void HstResizeBar();
+--- /dev/null
++++ b/sfx2/qa/cppunit/test_hstupdatedot.cxx
+@@ -0,0 +1,169 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++// The update dot of the ribbon's File button follows the status of org.hst.office.update:Available, with fakes
++// for the frame (a dispatch provider) and the extension's handler (a dispatch that reports a status).
++
++#include <test/bootstrapfixture.hxx>
++
++#include <notebookbar/HstUpdateDot.hxx>
++
++#include <com/sun/star/frame/FeatureStateEvent.hpp>
++#include <com/sun/star/frame/XDispatch.hpp>
++#include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <cppuhelper/implbase.hxx>
++#include <rtl/ref.hxx>
++
++#include <algorithm>
++#include <vector>
++
++using namespace css;
++
++namespace
++{
++/// the extension's handler: answers addStatusListener with its status, as the real one does
++class FakeDispatch final : public cppu::WeakImplHelper<frame::XDispatch>
++{
++public:
++    explicit FakeDispatch(bool bAvailable)
++        : mbAvailable(bAvailable)
++    {
++    }
++    void report(bool bAvailable)
++    {
++        mbAvailable = bAvailable;
++        const auto aListeners = maListeners;
++        for (const auto& xListener : aListeners)
++            xListener->statusChanged(event());
++    }
++    std::size_t listeners() const { return maListeners.size(); }
++    OUString maAsked;
++
++    void SAL_CALL dispatch(const util::URL&, const uno::Sequence<beans::PropertyValue>&) override {}
++    void SAL_CALL addStatusListener(const uno::Reference<frame::XStatusListener>& xListener,
++                                    const util::URL& rURL) override
++    {
++        maAsked = rURL.Complete;
++        maListeners.push_back(xListener);
++        xListener->statusChanged(event());
++    }
++    void SAL_CALL removeStatusListener(const uno::Reference<frame::XStatusListener>& xListener,
++                                       const util::URL&) override
++    {
++        maListeners.erase(std::remove(maListeners.begin(), maListeners.end(), xListener), maListeners.end());
++    }
++
++private:
++    frame::FeatureStateEvent event() const
++    {
++        frame::FeatureStateEvent aEvent;
++        aEvent.FeatureURL.Complete = hst::notebookbar::UPDATE_AVAILABLE_URL;
++        aEvent.IsEnabled = mbAvailable;
++        return aEvent;
++    }
++    bool mbAvailable;
++    std::vector<uno::Reference<frame::XStatusListener>> maListeners;
++};
++
++/// the document's frame: provides the handler's dispatch for the command, or none (no handler)
++class FakeFrame final : public cppu::WeakImplHelper<frame::XDispatchProvider>
++{
++public:
++    explicit FakeFrame(rtl::Reference<FakeDispatch> xDispatch)
++        : mxDispatch(std::move(xDispatch))
++    {
++    }
++    uno::Reference<frame::XDispatch> SAL_CALL queryDispatch(const util::URL& rURL, const OUString&,
++                                                            sal_Int32) override
++    {
++        if (rURL.Complete != hst::notebookbar::UPDATE_AVAILABLE_URL)
++            return {};
++        return mxDispatch;
++    }
++    uno::Sequence<uno::Reference<frame::XDispatch>>
++        SAL_CALL queryDispatches(const uno::Sequence<frame::DispatchDescriptor>&) override
++    {
++        return {};
++    }
++
++private:
++    rtl::Reference<FakeDispatch> mxDispatch;
++};
++
++class HstUpdateDotTest : public test::BootstrapFixture
++{
++protected:
++    std::vector<bool> maShown;
++    rtl::Reference<hst::notebookbar::UpdateDot> dot()
++    {
++        return new hst::notebookbar::UpdateDot([this](bool bShow) { maShown.push_back(bShow); });
++    }
++};
++
++CPPUNIT_TEST_FIXTURE(HstUpdateDotTest, testShowsWhileAnUpdateIsKnown)
++{
++    rtl::Reference<FakeDispatch> xHandler(new FakeDispatch(true));
++    rtl::Reference<hst::notebookbar::UpdateDot> xDot = dot();
++    xDot->SetFrame(new FakeFrame(xHandler));
++    CPPUNIT_ASSERT_EQUAL(hst::notebookbar::UPDATE_AVAILABLE_URL, xHandler->maAsked);
++    CPPUNIT_ASSERT_EQUAL(std::size_t(1), maShown.size());
++    CPPUNIT_ASSERT(maShown[0]);
++    xHandler->report(false); // a later check finds no newer release
++    xHandler->report(true);
++    CPPUNIT_ASSERT_EQUAL(std::size_t(3), maShown.size());
++    CPPUNIT_ASSERT(!maShown[1]);
++    CPPUNIT_ASSERT(maShown[2]);
++    xDot->Stop();
++    CPPUNIT_ASSERT_EQUAL(std::size_t(0), xHandler->listeners());
++    xHandler->report(false); // nothing reaches a stopped dot
++    CPPUNIT_ASSERT_EQUAL(std::size_t(3), maShown.size());
++}
++
++CPPUNIT_TEST_FIXTURE(HstUpdateDotTest, testNoHandlerNoDot)
++{
++    rtl::Reference<hst::notebookbar::UpdateDot> xDot = dot();
++    xDot->SetFrame(new FakeFrame(nullptr));
++    CPPUNIT_ASSERT_EQUAL(std::size_t(1), maShown.size());
++    CPPUNIT_ASSERT(!maShown[0]);
++    xDot->SetFrame(nullptr);
++    CPPUNIT_ASSERT_EQUAL(std::size_t(2), maShown.size());
++    CPPUNIT_ASSERT(!maShown[1]);
++    xDot->Stop();
++}
++
++CPPUNIT_TEST_FIXTURE(HstUpdateDotTest, testNewFrameLeavesTheOldHandler)
++{
++    rtl::Reference<FakeDispatch> xOld(new FakeDispatch(true));
++    rtl::Reference<FakeDispatch> xNew(new FakeDispatch(false));
++    rtl::Reference<hst::notebookbar::UpdateDot> xDot = dot();
++    uno::Reference<frame::XDispatchProvider> xFrame(new FakeFrame(xOld));
++    xDot->SetFrame(xFrame);
++    xDot->SetFrame(xFrame); // the same frame again: no second listener
++    CPPUNIT_ASSERT_EQUAL(std::size_t(1), xOld->listeners());
++    xDot->SetFrame(new FakeFrame(xNew));
++    CPPUNIT_ASSERT_EQUAL(std::size_t(0), xOld->listeners());
++    CPPUNIT_ASSERT_EQUAL(std::size_t(1), xNew->listeners());
++    CPPUNIT_ASSERT_EQUAL(std::size_t(2), maShown.size());
++    CPPUNIT_ASSERT(maShown[0]);
++    CPPUNIT_ASSERT(!maShown[1]);
++    xDot->Stop();
++}
++
++CPPUNIT_TEST_FIXTURE(HstUpdateDotTest, testHandlerGoneHidesTheDot)
++{
++    rtl::Reference<FakeDispatch> xHandler(new FakeDispatch(true));
++    rtl::Reference<hst::notebookbar::UpdateDot> xDot = dot();
++    xDot->SetFrame(new FakeFrame(xHandler));
++    const lang::EventObject aEvent(static_cast<cppu::OWeakObject*>(xHandler.get()));
++    xDot->disposing(aEvent);
++    CPPUNIT_ASSERT_EQUAL(std::size_t(2), maShown.size());
++    CPPUNIT_ASSERT(!maShown[1]);
++    xDot->Stop();
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sfx2/source/notebookbar/HstRibbonTooltip.cxx
 +++ b/sfx2/source/notebookbar/HstRibbonTooltip.cxx
 @@ -9,6 +9,7 @@
@@ -125,9 +492,109 @@ License: these upstream files remain under their original license (MPL-2.0).
      const tools::Rectangle aScreenRect(rToolBox.OutputToScreenPixel(aItemRect.TopLeft()),
                                         rToolBox.OutputToScreenPixel(aItemRect.BottomRight()));
      Help::ShowQuickHelp(&rToolBox, aScreenRect, aText, QuickHelpFlags::RichTitle);
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstUpdateDot.cxx
+@@ -0,0 +1,97 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include <notebookbar/HstUpdateDot.hxx>
++
++#include <com/sun/star/util/URLTransformer.hpp>
++#include <comphelper/processfactory.hxx>
++#include <vcl/svapp.hxx>
++
++using namespace css;
++
++namespace hst::notebookbar
++{
++UpdateDot::UpdateDot(std::function<void(bool)> aShow)
++    : maShow(std::move(aShow))
++{
++    maURL.Complete = UPDATE_AVAILABLE_URL;
++}
++
++void UpdateDot::SetFrame(const uno::Reference<frame::XDispatchProvider>& xFrame)
++{
++    if (xFrame == mxFrame)
++        return;
++    stopListening();
++    mxFrame = xFrame;
++    bool bListening = false;
++    try
++    {
++        uno::Reference<util::XURLTransformer> xTransformer
++            = util::URLTransformer::create(comphelper::getProcessComponentContext());
++        xTransformer->parseStrict(maURL);
++        if (xFrame.is())
++            mxDispatch = xFrame->queryDispatch(maURL, OUString(), 0);
++        if (mxDispatch.is())
++        {
++            // the handler answers at once with the current status, then whenever a check finds an update or none
++            mxDispatch->addStatusListener(this, maURL);
++            bListening = true;
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        mxDispatch.clear(); // no handler or a failing one: no dot
++    }
++    if (!bListening)
++        show(false);
++}
++
++void UpdateDot::Stop()
++{
++    maShow = nullptr;
++    stopListening();
++    mxFrame.clear();
++}
++
++void UpdateDot::stopListening()
++{
++    uno::Reference<frame::XDispatch> xDispatch;
++    std::swap(xDispatch, mxDispatch);
++    if (!xDispatch.is())
++        return;
++    try
++    {
++        xDispatch->removeStatusListener(this, maURL);
++    }
++    catch (const uno::Exception&)
++    {
++        // the handler is gone already
++    }
++}
++
++void UpdateDot::show(bool bShow)
++{
++    // the handler may call from its own thread
++    SolarMutexGuard aGuard;
++    if (maShow)
++        maShow(bShow);
++}
++
++void SAL_CALL UpdateDot::statusChanged(const frame::FeatureStateEvent& rEvent)
++{
++    show(rEvent.IsEnabled);
++}
++
++void SAL_CALL UpdateDot::disposing(const lang::EventObject& rEvent)
++{
++    if (rEvent.Source == mxDispatch)
++    {
++        mxDispatch.clear();
++        show(false);
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
 +++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
-@@ -37,6 +37,7 @@
+@@ -37,12 +37,15 @@
  #include <vcl/HstBanner.hxx>
  #include <vcl/HstBannerGeometry.hxx>
  #include <vcl/HstRibbonPaint.hxx>
@@ -135,7 +602,27 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <vcl/lineinfo.hxx>
  #include <sfx2/sfxresid.hxx>
  #include <sfx2/strings.hrc>
-@@ -510,6 +511,22 @@ void NotebookbarTabControl::dispose()
+ #include <vcl/settings.hxx>
+ #if __has_include(<notebookbar/HstFeatureSearch.hxx>)
+ #include <notebookbar/HstFeatureSearch.hxx>
++#include <notebookbar/HstUpdateDot.hxx>
++#include <vcl/HstRibbonUpdateDot.hxx>
+ #define HST_HAVE_FEATURE_SEARCH 1
+ #endif
+ #include <algorithm>
+@@ -499,6 +502,11 @@ void NotebookbarTabControl::dispose()
+         m_pHstCompact.reset();
+     }
+     m_pHstQat.reset();
++    if (m_xHstUpdateDot.is())
++    {
++        m_xHstUpdateDot->Stop();
++        m_xHstUpdateDot.clear();
++    }
+     if (m_pHstBanner)
+     {
+         RemoveChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
+@@ -510,6 +518,22 @@ void NotebookbarTabControl::dispose()
  
  // HST Office: the Tabbed notebookbar (notebookbar.ui) of Writer, Calc, Impress and Draw shows the banner
  // beside its groups; with the other notebookbars the window's border shows it beside the bar.
@@ -158,7 +645,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  void NotebookbarTabControl::HstCreateBanner()
  {
      if (m_pHstBanner)
-@@ -529,6 +546,7 @@ void NotebookbarTabControl::HstCreateBan
+@@ -529,6 +553,7 @@ void NotebookbarTabControl::HstCreateBan
              pBar->HstSetOwnBanner(true); // the window shows no second banner beside the bar
              hst::keytips::Attach(*this, *pBar, GetToolBox(), m_pHstBanner.get());
              AddChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
@@ -166,7 +653,7 @@ License: these upstream files remain under their original license (MPL-2.0).
              const OUString aApp = rFile.indexOf("/swriter/") >= 0  ? u"writer"_ustr
                                    : rFile.indexOf("/scalc/") >= 0  ? u"calc"_ustr
                                    : rFile.indexOf("/simpress/") >= 0 ? u"impress"_ustr
-@@ -603,13 +621,25 @@ void NotebookbarTabControl::HstLayoutBan
+@@ -603,13 +628,29 @@ void NotebookbarTabControl::HstLayoutBan
              // the document window's (its frame), not the SystemWindow's client, which is narrower than the window
              // (a 1920 px window got a 357 px banner); 1.0.2 mockup: 8 px from the window's right edge, w x w*104/360
              // centred in the 106 px body (360 x 104 at 1920, 260 x 75 up to 1440)
@@ -185,12 +672,16 @@ License: these upstream files remain under their original license (MPL-2.0).
 +            const tools::Long nMin = hst::banner::scaled(360, fDpi), nMax = hst::banner::scaled(960, fDpi);
 +            const tools::Long nGap = hst::banner::scaled(8, fDpi);
 +            const tools::Long nRight = HstBannerRight();
++            // the collapse chevron (˄) has its own room after the last group, as in the mockup (HstRibbonCompact.cxx
++            // places it 4 px from the page's right edge): it covered the last group's caption ("Phân tíc˄")
++            const tools::Long nChevron = m_pHstCompact ? hst::banner::scaled(22, fDpi) : 0;
 +            const tools::Long nUsed = hst::ribbon::PageUsedRight(*pPage);
 +            const tools::Long nBanner
-+                = nUsed < 0 ? nMin : std::clamp<tools::Long>(nRight - (aPage.x + nUsed) - nGap - 1, nMin, nMax);
++                = nUsed < 0 ? nMin
++                            : std::clamp<tools::Long>(nRight - (aPage.x + nUsed + nChevron) - nGap - 1, nMin, nMax);
 +            const tools::Rectangle aSlot(Point(nRight - nBanner, aPage.y + hst::banner::scaled(6, fDpi)),
 +                                         Size(nBanner, hst::banner::scaled(96, fDpi)));
-+            const tools::Long nSmallest = std::max<tools::Long>(0, nRight - nMin - nGap - aPage.x);
++            const tools::Long nSmallest = std::max<tools::Long>(0, nRight - nMin - nGap - aPage.x - nChevron);
 +            nPageWidth = std::max<tools::Long>(0, aSlot.Left() - nGap - aPage.x);
 +            hst::ribbon::SetPageSlack(*pPage, nSmallest - nPageWidth);
 +            m_pHstBanner->Place(aSlot);
@@ -199,6 +690,17 @@ License: these upstream files remain under their original license (MPL-2.0).
          }
          else
              m_pHstBanner->Place(tools::Rectangle());
+@@ -977,6 +1018,10 @@ void NotebookbarTabControl::StateChanged
+         FillShortcutsToolBox( xContext, m_xFrame, aModuleName, pToolBox );
+         if (m_pHstQat)
+             m_pHstQat->SetFrame(m_xFrame);
++        if (!m_xHstUpdateDot.is())
++            m_xHstUpdateDot = new hst::notebookbar::UpdateDot(
++                [this](bool bShow) { hst::ribbon::SetUpdateDot(*this, bShow); });
++        m_xHstUpdateDot->SetFrame(Reference<XDispatchProvider>(m_xFrame, UNO_QUERY));
+ 
+         Size aSize( pToolBox->GetOptimalSize() );
+         Point aPos( ICON_SIZE + 10, 0 );
 --- a/svx/qa/unit/HstThemeGalleryColumnsTest.cxx
 +++ b/svx/qa/unit/HstThemeGalleryColumnsTest.cxx
 @@ -15,7 +15,7 @@ class HstThemeGalleryColumnsTest : publi
@@ -313,12 +815,17 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
 --- a/svx/source/tbxctrls/StylesPreviewWindow.cxx
 +++ b/svx/source/tbxctrls/StylesPreviewWindow.cxx
-@@ -105,16 +105,8 @@ namespace
- // HST Office: a preview of the ribbon gallery is a 96 x 74 tile: its image and the icon view's room around it,
- // the item padding 2 on each side in gtk (92 x 70) or vcl's own 5 px (86 x 64; vcl's builder makes the
- // icon view its own scrolled window, so "stylesscroll" does not exist there)
+@@ -102,19 +102,10 @@
+ 
+ namespace
+ {
+-// HST Office: a preview of the ribbon gallery is a 96 x 74 tile: its image and the icon view's room around it,
+-// the item padding 2 on each side in gtk (92 x 70) or vcl's own 5 px (86 x 64; vcl's builder makes the
+-// icon view its own scrolled window, so "stylesscroll" does not exist there)
 -constexpr tools::Long HST_TILE_WIDTH = 96;
 -constexpr tools::Long HST_TILE_HEIGHT = 74;
++// HST Office: whether the icon view is vcl's (vcl's builder makes the icon view its own scrolled window, so
++// "stylesscroll" does not exist there); its frame then takes 2 px more
  bool g_bHstVclIconView = false;
  
 -Size lcl_HstPreviewImageSize(double fScale)
@@ -330,7 +837,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  // HST Office: the module of the current document ("swriter", "scalc"...): Writer's gallery shows paragraph
  // styles with short names, Calc's (the same control, whose style family Para is Calc's cell styles) cell styles
  bool lcl_HstModuleIs(std::u16string_view aModule)
-@@ -122,6 +114,20 @@ bool lcl_HstModuleIs(std::u16string_view
+@@ -122,6 +113,22 @@ bool lcl_HstModuleIs(std::u16string_view
      const SfxObjectShell* pShell = SfxObjectShell::Current();
      return pShell && pShell->GetFactory().GetFactoryName().startsWith(aModule);
  }
@@ -343,15 +850,17 @@ License: these upstream files remain under their original license (MPL-2.0).
 +
 +tools::Long lcl_HstListWidth() { return lcl_HstModuleIs(u"scalc") ? 104 : 132; }
 +
++// the image of a list row: the row less the icon view's room around it, the .ui's item padding of 2 on each side in
++// gtk and in vcl (its builder sets the padding as the icon view's spacing); 10 here left vcl's rows 18 px high
 +Size lcl_HstPreviewImageSize(double fScale)
 +{
-+    const tools::Long nRoom = g_bHstVclIconView ? 10 : 4;
++    constexpr tools::Long nRoom = 4;
 +    return Size(std::lround(lcl_HstListWidth() * fScale) - nRoom, std::lround(HST_LIST_ROW * fScale) - nRoom);
 +}
  }
  
  namespace
-@@ -405,9 +411,10 @@ void StyleItemController::DrawEntry(vcl:
+@@ -405,9 +412,10 @@ void StyleItemController::DrawEntry(vcl:
          const MapUnit eUnit = pItemSet->GetPool() ? pItemSet->GetPool()->GetMetric(pFontHeightItem->Which())
                                                    : pShell->GetMapUnit();
          Size aPixelSize(rRenderContext.LogicToPixel(aFontSize, MapMode(eUnit)));
@@ -365,7 +874,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  
          SvxFont aFont = GetFontFromItems(pFontItem, aPixelSize, pItemSet);
          rRenderContext.SetFont(aFont);
-@@ -436,15 +443,16 @@ void StyleItemController::DrawEntry(vcl:
+@@ -436,15 +444,16 @@ void StyleItemController::DrawEntry(vcl:
          }
      }
  
@@ -385,7 +894,7 @@ License: these upstream files remain under their original license (MPL-2.0).
      }
  
      if (aFontHighlight != COL_AUTO)
-@@ -465,14 +473,21 @@ void StyleItemController::DrawContentBac
+@@ -465,14 +474,21 @@ void StyleItemController::DrawContentBac
      rRenderContext.DrawRect(rContentRect);
  }
  
@@ -410,7 +919,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  void StyleItemController::DrawHighlight(vcl::RenderContext& rRenderContext, Color aFontBack)
-@@ -482,15 +497,16 @@ void StyleItemController::DrawHighlight(
+@@ -482,15 +498,16 @@ void StyleItemController::DrawHighlight(
      rRenderContext.DrawRect(HstTextRect(rRenderContext, StylesPreviewWindow_Base::HstTileLabel(m_aStyleName)));
  }
  
@@ -431,7 +940,18 @@ License: these upstream files remain under their original license (MPL-2.0).
  }
  
  StylesPreviewWindow_Base::StylesPreviewWindow_Base(
-@@ -1308,9 +1324,9 @@ StylesPreviewWindow_Impl::StylesPreviewW
+@@ -1147,8 +1164,8 @@ Bitmap StylesPreviewWindow_Base::GetCach
+     else
+     {
+         ScopedVclPtrInstance<VirtualDevice> pImg;
+-        // HST Office: the image of a 96 x 74 tile (lcl_HstPreviewImageSize); the room around it is the frame
+-        // of the selected preview, and the gallery's 1 px frame makes it 76 tall
++        // HST Office: the image of a list row (lcl_HstPreviewImageSize); the room around it is the frame of the
++        // selected style, three 24 px rows and the gallery's frame make it 76 tall
+         const Size aSize(lcl_HstPreviewImageSize(Application::GetDefaultDevice()->GetDPIScaleFactor()));
+         pImg->SetOutputSizePixel(aSize);
+ 
+@@ -1308,9 +1325,9 @@ StylesPreviewWindow_Impl::StylesPreviewW
  
  namespace
  {
@@ -444,7 +964,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  constexpr tools::Long HST_GALLERY_HEIGHT = 76;
  }
  
-@@ -1318,17 +1334,18 @@ void StylesPreviewWindow_Impl::HstApplyP
+@@ -1318,17 +1335,18 @@ void StylesPreviewWindow_Impl::HstApplyP
  {
      const double fScale = GetDPIScaleFactor();
      const int nTiles = HST_PREVIEWS[m_nHstState];
@@ -530,15 +1050,28 @@ License: these upstream files remain under their original license (MPL-2.0).
  msgctxt "STR_HST_SET_DEFAULT"
 --- a/vcl/Library_vcl.mk
 +++ b/vcl/Library_vcl.mk
-@@ -264,6 +264,8 @@ $(eval $(call gb_Library_add_exception_o
+@@ -264,6 +264,10 @@ $(eval $(call gb_Library_add_exception_o
      vcl/source/control/HstRibbonDrop \
      vcl/source/control/HstRibbonLadder \
      vcl/source/control/HstRibbonPaint \
++    vcl/source/control/HstRibbonMenuButtonMetrics \
++    vcl/source/control/HstRibbonUpdateDot \
 +    vcl/source/control/HstRibbonV3Layout \
 +    vcl/source/control/HstRibbonV3MergedBox \
      vcl/source/control/NotebookbarPopup \
      vcl/source/control/PriorityHBox \
      vcl/source/control/PriorityMergedHBox \
+--- a/vcl/inc/HstRibbonGeometry.hxx
++++ b/vcl/inc/HstRibbonGeometry.hxx
+@@ -58,7 +58,7 @@ constexpr long FOLDED_HEIGHT = 98; // a
+ constexpr long FOLDED_MIN_WIDTH = 48;
+ constexpr long FOLDED_PAD = 6; // above the icon, left and right of the label
+ constexpr long FOLDED_LABEL_MAX = 84; // the folded group's name wraps over this width
+-constexpr long FOLDED_LABEL_BOTTOM = 4; // under the name's last line: the name sits on the caption line
++constexpr long FOLDED_LABEL_BOTTOM = 2; // under the name's last line: the name sits on the groups' caption line
+ constexpr long FOLDED_ARROW_GAP = 4;
+ 
+ /** nLogical logical px in device px at fScale (GetDPIScaleFactor()), rounded once. */
 --- a/vcl/inc/HstRibbonLadder.hxx
 +++ b/vcl/inc/HstRibbonLadder.hxx
 @@ -16,6 +16,10 @@
@@ -552,7 +1085,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  
  namespace vcl
  {
-@@ -44,6 +48,15 @@ bool collapseLadderEnabled();
+@@ -44,6 +48,21 @@ bool collapseLadderEnabled();
  /** Apply nState to every toolbox inside rGroup (authored styles are remembered on first use). */
  void SetGroupState(vcl::Window& rGroup, int nState);
  
@@ -565,9 +1098,59 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    button's content rectangle, nSymbol the symbol's size; an empty rectangle for every other button (VCL's place). */
 +tools::Rectangle MenuArrowAfterLabel(const PushButton& rButton, const tools::Rectangle& rInner, tools::Long nSymbol);
 +
++/** The look SetMenuButtonLook gave rButton ('L', 'M', 'S'), 0 for a button it did not. */
++char MenuButtonLook(const PushButton& rButton);
++
++/** Place a menu button of a v3 group again at its look (its label's metrics changed, HstRibbonMenuButtonMetrics.hxx). */
++void RefreshMenuButton(PushButton& rButton);
++
  /** The caption of a ribbon group: its "labelled-by" label, else its first label (no mnemonic). */
  OUString GroupCaption(vcl::Window& rGroup);
  
+--- /dev/null
++++ b/vcl/inc/HstRibbonMenuButtonMetrics.hxx
+@@ -0,0 +1,41 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++// HST Office: the text metrics of the ribbon's menu buttons as their paint draws them. The ribbon lays a menu button
++// out from its label's width and height; on Windows at 125 % the button's window measured a smaller font than the
++// one its paint draws with, so the label lost its end ("Sắp xếp và l…") or its second line ("Bám …"). The paint
++// tells what it drew with (MenuButtonPainted); the layout measures with that from then on and lays out again once.
++
++#include <rtl/ustring.hxx>
++#include <sal/types.h>
++#include <tools/gen.hxx>
++#include <tools/long.hxx>
++
++class OutputDevice;
++class PushButton;
++
++namespace hst::ribbon
++{
++/** Called by PushButton's paint (button.cxx) with the device it draws on and its content rectangle, before it lays
++    its image and label out with the image-text gap rImageSep. A menu button of a v3 group remembers the paint's
++    metrics of its label, and when they differ from what its layout measured, the ribbon lays it out again. A large
++    one (image above a label of lines) gets a gap its lines fit under, not less than 1 px; a medium one whose font is
++    taller than its content draws over its frame's inner edge. Any other button: nothing. */
++void MenuButtonPainted(PushButton& rButton, OutputDevice& rDev, const tools::Rectangle& rInner,
++                       sal_Int32& rImageSep);
++
++/** The width of rText (no mnemonic) as rButton's paint draws it; its window's measure before its first paint. */
++tools::Long MenuButtonTextWidth(const PushButton& rButton, const OUString& rText);
++
++/** The height of a line of rButton's label as its paint draws it; its window's measure before its first paint. */
++tools::Long MenuButtonTextHeight(const PushButton& rButton);
++
++/** Whether the lines of a large menu button's label fitted under its image at its last paint (true before one). */
++bool MenuButtonLinesFit(const PushButton& rButton);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/inc/HstRibbonV3Layout.hxx
 @@ -0,0 +1,74 @@
@@ -1088,7 +1671,131 @@ License: these upstream files remain under their original license (MPL-2.0).
  #include <tools/stream.hxx>
  #include <vcl/graph.hxx>
  #include <vcl/graphicfilter.hxx>
-@@ -622,9 +623,37 @@ void Core::DrawArt(vcl::RenderContext& r
+@@ -70,6 +71,7 @@ struct Data
+     sal_Int32 nRotateSeconds = 10;
+     sal_Int32 nSlot = 0;
+     int nScale = 1;
++    sal_Int32 nStandardWidth = 0; // the standard size of the artwork (360, 640, 960); 0: the legacy art
+     bool bOk = false;
+     bool bLast = true; // the worker posts nothing after this result
+ };
+@@ -116,6 +118,7 @@ bool parseService(const OUString& rJson,
+     rData.aName = fromUtf8(rItem.get<std::string>("name"));
+     rData.aTagline = fromUtf8(rItem.get<std::string>("tagline"));
+     rData.aUrl = fromUtf8(rItem.get<std::string>("click_url_with_utm"));
++    rData.nStandardWidth = rItem.get<sal_Int32>("standard_width", 0);
+     uno::Sequence<sal_Int8> aBytes;
+     comphelper::Base64::decode(aBytes, fromUtf8(rItem.get<std::string>("image_base64")));
+     if (aBytes.getLength() == 0 || aBytes.getLength() > MAX_IMAGE_BYTES)
+@@ -132,7 +135,7 @@ uno::Reference<task::XJob> feed()
+         uno::UNO_QUERY);
+ }
+ 
+-bool fromService(sal_Int32 nSlot, int nScale, Data& rData)
++bool fromService(sal_Int32 nSlot, int nScale, sal_Int32 nWidth, Data& rData)
+ {
+     try
+     {
+@@ -140,8 +143,10 @@ bool fromService(sal_Int32 nSlot, int nS
+         if (!xFeed.is())
+             return false;
+         OUString aJson;
++        // Width: the banner's logical width, which picks the standard size of an item that has them
+         if (!(xFeed->execute({ { u"Scale"_ustr, uno::Any(static_cast<double>(nScale)) },
+-                               { u"Slot"_ustr, uno::Any(nSlot) } })
++                               { u"Slot"_ustr, uno::Any(nSlot) },
++                               { u"Width"_ustr, uno::Any(nWidth) } })
+               >>= aJson)
+             || aJson.isEmpty())
+             return false;
+@@ -215,11 +220,12 @@ bool fromBundled(sal_Int32 nSlot, int nS
+ class FetchThread final : public salhelper::Thread
+ {
+ public:
+-    FetchThread(Core* pCore, sal_Int32 nSlot, int nScale, bool bBundledFirst)
++    FetchThread(Core* pCore, sal_Int32 nSlot, int nScale, sal_Int32 nWidth, bool bBundledFirst)
+         : salhelper::Thread("HstBanner")
+         , mxCore(pCore)
+         , mnSlot(nSlot)
+         , mnScale(nScale)
++        , mnWidth(nWidth)
+         , mbBundledFirst(bBundledFirst)
+     {
+     }
+@@ -239,7 +245,7 @@ private:
+         }
+         auto pData = std::make_unique<Data>();
+         pData->nScale = mnScale;
+-        pData->bOk = fromService(mnSlot, mnScale, *pData);
++        pData->bOk = fromService(mnSlot, mnScale, mnWidth, *pData);
+         if (!pData->bOk && !mbBundledFirst)
+         {
+             // service unavailable: the installed defaults decide
+@@ -262,6 +268,7 @@ private:
+     rtl::Reference<Core> mxCore;
+     sal_Int32 mnSlot;
+     int mnScale;
++    sal_Int32 mnWidth;
+     bool mbBundledFirst;
+ };
+ 
+@@ -411,6 +418,23 @@ int Core::ScaleForSize() const
+     return sourceScale(std::lround(aImage.h * mpView->BannerSurfaceScale()));
+ }
+ 
++sal_Int32 Core::LogicalWidth() const
++{
++    const double fDpi = mpView->BannerDpi();
++    const tools::Long nWidth = mpView->BannerSize().Width();
++    return static_cast<sal_Int32>(fDpi > 0 ? std::lround(nWidth / fDpi) : nWidth);
++}
++
++sal_Int32 Core::StandardWidth(sal_Int32 nLogical)
++{
++    // banner_sizes.fit_width: the largest standard width that fits, at least the narrowest
++    sal_Int32 nFit = 360;
++    for (const sal_Int32 nWidth : { 640, 960 })
++        if (nWidth <= nLogical)
++            nFit = nWidth;
++    return nFit;
++}
++
+ void Core::Request(sal_Int32 nSlot)
+ {
+     if (mbRequested || !mpView)
+@@ -418,7 +442,7 @@ void Core::Request(sal_Int32 nSlot)
+     mbRequested = true; // the previous worker has posted its last result
+     try
+     {
+-        mxThread = new FetchThread(this, nSlot, ScaleForSize(), maId.isEmpty());
++        mxThread = new FetchThread(this, nSlot, ScaleForSize(), LogicalWidth(), maId.isEmpty());
+         mxThread->launch();
+     }
+     catch (const std::exception&)
+@@ -483,6 +507,7 @@ IMPL_LINK(Core, DeliverHdl, void*, p, vo
+     maImage = aBitmap;
+     maImageScaled = Bitmap();
+     mnSourceScale = pData->nScale;
++    mnSourceWidth = pData->nStandardWidth;
+     maId = pData->aId;
+     maUrl = pData->aUrl;
+     if (maId != maShownId)
+@@ -591,8 +616,12 @@ void Core::Shown(bool bResized)
+         mbShownInView = false; // the full second starts at the next check
+         maShownTimer.Start();
+     }
+-    if (maId.isEmpty() || (bResized && ScaleForSize() != mnSourceScale))
+-        Request(mnSlot); // first content, or the same slot again for the new scale
++    // first content, or the same slot again for the new scale or another standard size
++    if (maId.isEmpty()
++        || (bResized
++            && (ScaleForSize() != mnSourceScale
++                || (mnSourceWidth > 0 && StandardWidth(LogicalWidth()) != mnSourceWidth))))
++        Request(mnSlot);
+     else if (!maRotateTimer.IsActive() && !mbRequested)
+         maRotateTimer.Start();
+ }
+@@ -622,9 +651,37 @@ void Core::DrawArt(vcl::RenderContext& r
      // the image's own pixel size never changes the slot: aspect-fit, centred
      const Rect aBox{ nInset, nInset, static_cast<long>(aOut.Width()) - 2 * nInset,
                       static_cast<long>(aOut.Height()) - 2 * nInset };
@@ -1140,17 +1847,99 @@ License: these upstream files remain under their original license (MPL-2.0).
  };
  
  class Core final : public salhelper::SimpleReferenceObject
+@@ -93,6 +97,10 @@ public:
+ private:
+     void Request(sal_Int32 nSlot);
+     int ScaleForSize() const;
++    /** The slot's width in logical px: picks the standard size of an artwork (banner_sizes.py). */
++    sal_Int32 LogicalWidth() const;
++    /** The standard width (360, 640, 960) shown in nLogical px, as banner_sizes.fit_width. */
++    static sal_Int32 StandardWidth(sal_Int32 nLogical);
+     const Bitmap& Prepared(const Bitmap& rSource, Bitmap& rCache, const Size& rDevice);
+     void DrawArt(vcl::RenderContext& rRenderContext, const Bitmap& rSource, Bitmap& rCache, double fAlpha);
+     bool InView() const;
+@@ -128,6 +136,7 @@ private:
+     sal_Int32 mnRotateSeconds = 10;
+     sal_Int32 mnFailures = 0;
+     int mnSourceScale = 0;
++    sal_Int32 mnSourceWidth = 0; // standard width of the shown artwork; 0: legacy art, kept at any width
+     int mnFadeStep = 0;
+     bool mbRequested = false;
+ };
 --- a/vcl/source/control/HstRibbonLadder.cxx
 +++ b/vcl/source/control/HstRibbonLadder.cxx
-@@ -10,6 +10,7 @@
+@@ -8,8 +8,10 @@
+  */
+ 
  #include <HstRibbonLadder.hxx>
++#include <HstRibbonMenuButtonMetrics.hxx>
  #include <HstRibbonGeometry.hxx>
  #include <HstRibbonGrid.hxx>
 +#include <HstRibbonV3Layout.hxx>
  
  #include <comphelper/lok.hxx>
  #include <officecfg/Office/HSTRibbon.hxx>
-@@ -981,6 +982,31 @@ std::set<const ToolBox*> stackLargeButto
+@@ -297,9 +299,9 @@ tools::Long smallMenuButtonWidth(const M
+ {
+     const tools::Long nText = rButton.GetText().isEmpty()
+                                   ? 0
+-                                  : geometry::imageTextGap(rButton.GetTextHeight())
+-                                        + rButton.GetOutDev()->GetTextWidth(rButton.GetText().replaceAll("~", ""));
+-    return 8 + rButton.GetModeImage().GetSizePixel().Width() + nText + 2 * (rButton.GetTextHeight() / 2 + 1);
++                                  : geometry::imageTextGap(MenuButtonTextHeight(rButton))
++                                        + MenuButtonTextWidth(rButton, rButton.GetText().replaceAll("~", ""));
++    return 8 + rButton.GetModeImage().GetSizePixel().Width() + nText + 2 * (MenuButtonTextHeight(rButton) / 2 + 1);
+ }
+ 
+ /** A large menu button (Select ▾) at the place of the large tool buttons beside it (HstRibbonGeometry.hxx
+@@ -320,18 +322,19 @@ void placeLargeMenuButton(MenuButton& rB
+     {
+         const OUString aText = rButton.GetText().replaceAll("~", "");
+         const sal_Int32 nBreak = aText.indexOf('\n');
+-        const tools::Long nFirst = rButton.GetOutDev()->GetTextWidth(nBreak < 0 ? aText : aText.copy(0, nBreak));
+-        const tools::Long nSecond = nBreak < 0 ? 0 : rButton.GetOutDev()->GetTextWidth(aText.copy(nBreak + 1));
++        const tools::Long nFirst = MenuButtonTextWidth(rButton, nBreak < 0 ? aText : aText.copy(0, nBreak));
++        const tools::Long nSecond = nBreak < 0 ? 0 : MenuButtonTextWidth(rButton, aText.copy(nBreak + 1));
+         const Size aImage = rButton.GetModeImage().GetSizePixel();
++        const tools::Long nTextHeight = MenuButtonTextHeight(rButton);
+         const geometry::LargeButton aLarge = geometry::largeButton(
+-            aImage.Width(), std::max(nFirst, nSecond), 0, false, rButton.GetTextHeight(), rButton.GetDPIScaleFactor());
++            aImage.Width(), std::max(nFirst, nSecond), 0, false, nTextHeight, rButton.GetDPIScaleFactor());
+         const tools::Long nInner
+             = rButton.IsNativeControlSupported(ControlType::Pushbutton, ControlPart::Entire) ? 4 : 2;
+         nStyle = (rLabel.nStyle & ~(WB_VCENTER | WB_BOTTOM | WB_LEFT | WB_RIGHT)) | WB_TOP | WB_CENTER | WB_WORDBREAK;
+         eVAlign = VclAlign::Start;
+         // the label on the large buttons' label line whatever the image's size (PushButton puts it under the image)
+         nMarginTop = static_cast<sal_Int32>(std::max<tools::Long>(
+-            0, aLarge.textY - geometry::imageTextGap(rButton.GetTextHeight()) - aImage.Height() - nInner));
++            0, aLarge.textY - geometry::imageTextGap(nTextHeight) - aImage.Height() - nInner));
+         // with a little room: PushButton breaks its label again where a line fills its text area to the pixel
+         nWidth = static_cast<sal_Int32>(aLarge.width + geometry::px(geometry::ARROW_GAP, rButton.GetDPIScaleFactor()));
+         nHeight = static_cast<sal_Int32>(aLarge.height - nMarginTop);
+@@ -342,7 +345,9 @@ void placeLargeMenuButton(MenuButton& rB
+         // and small tool buttons (VCL's PushButton asks 12 px more than its 16 px icon), its icon at the left of
+         // its 4 px frame as theirs, not centred with its label in the room PushButton asks for
+         nHeight = static_cast<sal_Int32>(geometry::px(geometry::SMALL_ROW, rButton.GetDPIScaleFactor()));
+-        nStyle = (rLabel.nStyle & ~(WB_CENTER | WB_RIGHT)) | WB_LEFT;
++        // one line: a label filling its text area to the pixel broke onto a second line the row has no room for
++        // and lost its end ("Sắp xếp và l…")
++        nStyle = (rLabel.nStyle & ~(WB_CENTER | WB_RIGHT | WB_WORDBREAK)) | WB_LEFT;
+         nWidth = static_cast<sal_Int32>(smallMenuButtonWidth(rButton));
+     }
+     bool bChanged = false;
+@@ -413,7 +418,10 @@ void applyToMenuButton(MenuButton& rButt
+     const bool bImage = !!rButton.GetModeImage();
+     const bool bHide = nState == GroupSmall && bImage && !keepsLarge(rButton);
+     const bool bLarge = !bHide && bImage && rButton.GetImageAlign() == ImageAlign::Top;
+-    const OUString aText = bHide ? OUString() : bLarge ? largeMenuLabel(rLabel.aText) : rLabel.aText;
++    // beside its image a label is one line: an authored break ("Sort and\nFilter") put its second line under the row
++    const OUString aText = bHide    ? OUString()
++                           : bLarge ? largeMenuLabel(rLabel.aText)
++                                    : rLabel.aText.replace('\n', ' ');
+     const PushButtonDropdownStyle eArrow = bLarge ? PushButtonDropdownStyle::NONE : PushButtonDropdownStyle::MenuButton;
+     if (bHide && !rLabel.bTip && rButton.GetQuickHelpText().isEmpty())
+     {
+@@ -981,6 +989,31 @@ std::set<const ToolBox*> stackLargeButto
      return aLone;
  }
  
@@ -1182,7 +1971,7 @@ License: these upstream files remain under their original license (MPL-2.0).
  template <typename F> void forMenuButtons(vcl::Window& rWindow, const F& rFunction)
  {
      for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
-@@ -1029,8 +1055,68 @@ bool collapseLadderEnabled()
+@@ -1029,8 +1062,81 @@ bool collapseLadderEnabled()
      return bEnabled;
  }
  
@@ -1221,6 +2010,19 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    applyToMenuButton(rButton, cLook == 'S' ? GroupSmall : GroupLarge);
 +}
 +
++char MenuButtonLook(const PushButton& rButton)
++{
++    const auto it = MenuLookStocks::looks().find(&rButton);
++    return it == MenuLookStocks::looks().end() ? 0 : it->second;
++}
++
++void RefreshMenuButton(PushButton& rButton)
++{
++    MenuButton* pMenu = dynamic_cast<MenuButton*>(&rButton);
++    if (const char cLook = MenuButtonLook(rButton); pMenu && cLook)
++        applyToMenuButton(*pMenu, cLook == 'S' ? GroupSmall : GroupLarge);
++}
++
 +tools::Rectangle MenuArrowAfterLabel(const PushButton& rButton, const tools::Rectangle& rInner, tools::Long nSymbol)
 +{
 +    const auto it = MenuLookStocks::looks().find(&rButton);
@@ -1231,7 +2033,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    const OUString aText = rButton.GetText().replaceAll("~", "");
 +    tools::Long nRight = rInner.Left() + (!!aImage ? aImage.GetSizePixel().Width() : 0);
 +    if (!aText.isEmpty())
-+        nRight += (!!aImage ? nSymbol : 0) + rButton.GetTextWidth(aText);
++        nRight += (!!aImage ? nSymbol : 0) + MenuButtonTextWidth(rButton, aText);
 +    const tools::Long nLeft = std::min(rInner.Right() - nSymbol, nRight + nSymbol / 2);
 +    return tools::Rectangle(Point(nLeft, rInner.Top()), Size(nSymbol, rInner.GetHeight()));
 +}
@@ -1252,8 +2054,347 @@ License: these upstream files remain under their original license (MPL-2.0).
      forToolBoxes(rGroup, [&aToolBoxes](ToolBox& rToolBox) { aToolBoxes.push_back(&rToolBox); });
      int nCommands = 0;
 --- /dev/null
++++ b/vcl/source/control/HstRibbonMenuButtonMetrics.cxx
+@@ -0,0 +1,216 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include <HstRibbonMenuButtonMetrics.hxx>
++#include <HstRibbonLadder.hxx>
++#include <HstRibbonV3Layout.hxx>
++#include <PriorityMergedHBox.hxx>
++
++#include <vcl/event.hxx>
++#include <vcl/image.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/region.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/toolkit/button.hxx>
++#include <vcl/vclevent.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <map>
++#include <vector>
++
++namespace hst::ribbon
++{
++namespace
++{
++/// what a menu button's paint measured: each string the layout asks for (the label, and each line of a large one's),
++/// the paint's width and its window's, and the height of a line
++struct Painted
++{
++    OUString label;
++    std::map<OUString, std::pair<tools::Long, tools::Long>> widths; // paint, window
++    tools::Long height = 0;
++    bool linesFit = true; // a large one's lines under its image at the last paint
++};
++
++struct PaintedMetrics
++{
++    static std::map<const vcl::Window*, Painted>& metrics()
++    {
++        static std::map<const vcl::Window*, Painted> aMetrics;
++        return aMetrics;
++    }
++    /// the buttons whose metrics changed since their layout, laid out again together after the paint
++    static std::vector<VclPtr<PushButton>>& pending()
++    {
++        static std::vector<VclPtr<PushButton>> aPending;
++        return aPending;
++    }
++    static ImplSVEvent*& event()
++    {
++        static ImplSVEvent* pEvent = nullptr;
++        return pEvent;
++    }
++    DECL_STATIC_LINK(PaintedMetrics, DyingHdl, VclWindowEvent&, void);
++    DECL_STATIC_LINK(PaintedMetrics, RelayoutHdl, void*, void);
++};
++
++IMPL_STATIC_LINK(PaintedMetrics, DyingHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        PaintedMetrics::metrics().erase(rEvent.GetWindow());
++}
++
++IMPL_STATIC_LINK_NOARG(PaintedMetrics, RelayoutHdl, void*, void)
++{
++    PaintedMetrics::event() = nullptr;
++    std::vector<VclPtr<PushButton>> aButtons;
++    aButtons.swap(PaintedMetrics::pending());
++    std::vector<VclPtr<PriorityMergedHBox>> aBoxes;
++    for (const VclPtr<PushButton>& xButton : aButtons)
++    {
++        if (xButton->isDisposed())
++            continue;
++        // the button's own place (a large one's width and label line), then the widths its group and tab measured
++        RefreshMenuButton(*xButton);
++        for (vcl::Window* pParent = xButton->GetParent(); pParent; pParent = pParent->GetParent())
++        {
++            if (v3::IsGroup(*pParent))
++                v3::Forget(*pParent);
++            if (PriorityMergedHBox* pBox = dynamic_cast<PriorityMergedHBox*>(pParent))
++            {
++                if (std::find(aBoxes.begin(), aBoxes.end(), pBox) == aBoxes.end())
++                    aBoxes.emplace_back(pBox);
++                break;
++            }
++        }
++        xButton->queue_resize();
++    }
++    for (const VclPtr<PriorityMergedHBox>& xBox : aBoxes)
++    {
++        if (xBox->isDisposed())
++            continue;
++        // the tab's box measures its groups again, as after a font change
++        xBox->DataChanged(DataChangedEvent(DataChangedEventType::FONTS));
++        xBox->queue_resize();
++    }
++}
++
++/// the strings the layout measures of a label: the label, and each of its lines when it has several
++std::vector<OUString> measuredStrings(const OUString& rText)
++{
++    std::vector<OUString> aStrings{ rText };
++    if (rText.indexOf('\n') >= 0)
++    {
++        sal_Int32 nIndex = 0;
++        do
++            aStrings.push_back(rText.getToken(0, '\n', nIndex));
++        while (nIndex >= 0);
++    }
++    return aStrings;
++}
++}
++
++void MenuButtonPainted(PushButton& rButton, OutputDevice& rDev, const tools::Rectangle& rInner,
++                       sal_Int32& rImageSep)
++{
++    const char cLook = MenuButtonLook(rButton);
++    if (cLook != 'L' && cLook != 'M')
++        return;
++    const OUString aText = rButton.GetText().replaceAll("~", "");
++    Painted aNow;
++    aNow.label = aText;
++    aNow.height = rDev.GetTextHeight();
++    for (const OUString& rString : measuredStrings(aText))
++        aNow.widths[rString] = { rDev.GetTextWidth(rString), rButton.GetTextWidth(rString) };
++
++    // the layout measured with what was known before this paint (the window's measure before the first one)
++    const tools::Long nPaintHeight = aNow.height;
++    const bool bChanged = aNow.height != MenuButtonTextHeight(rButton)
++                          || std::any_of(aNow.widths.begin(), aNow.widths.end(), [&rButton](const auto& rWidth) {
++                                 return rWidth.second.first != MenuButtonTextWidth(rButton, rWidth.first);
++                             });
++    auto& rMetrics = PaintedMetrics::metrics();
++    auto it = rMetrics.find(&rButton);
++    if (it == rMetrics.end())
++    {
++        rButton.AddEventListener(LINK(nullptr, PaintedMetrics, DyingHdl));
++        rMetrics.emplace(&rButton, std::move(aNow));
++    }
++    else
++    {
++        // keep the strings of the other looks: the layout plans every look of the button
++        it->second.label = aNow.label;
++        it->second.height = aNow.height;
++        for (auto& [rString, rWidths] : aNow.widths)
++            it->second.widths[rString] = rWidths;
++    }
++    if (bChanged)
++    {
++        auto& rPending = PaintedMetrics::pending();
++        if (std::find(rPending.begin(), rPending.end(), &rButton) == rPending.end())
++            rPending.emplace_back(&rButton);
++        if (!PaintedMetrics::event())
++            PaintedMetrics::event() = Application::PostUserEvent(LINK(nullptr, PaintedMetrics, RelayoutHdl));
++    }
++
++    // a medium one: a font taller than its row's content (Windows at 125 %: 20 px in 16 px) draws its accents and
++    // the dots under its letters into the frame, which the paint's clip cut off ("Tìm và chon")
++    if (cLook == 'M' && nPaintHeight > rInner.GetHeight())
++    {
++        const tools::Long nOver = (nPaintHeight - rInner.GetHeight() + 1) / 2;
++        tools::Rectangle aClip(rInner);
++        aClip.AdjustTop(-nOver);
++        aClip.AdjustBottom(nOver);
++        rDev.SetClipRegion(vcl::Region(aClip));
++    }
++
++    // a large button: its lines under its image, the gap shrunk when the font is too tall for the content at the
++    // usual one (Windows at 125 %: 2 lines of 20 px under a 24 px icon in 68 px)
++    const Image aImage = rButton.GetModeImage();
++    if (cLook == 'L' && !aText.isEmpty() && !!aImage && rButton.GetImageAlign() == ImageAlign::Top)
++    {
++        const auto nLines = static_cast<tools::Long>(1 + std::count(aText.getStr(), aText.getStr() + aText.getLength(), u'\n'));
++        const tools::Long nRoom
++            = rInner.GetHeight() - aImage.GetSizePixel().Height() - nLines * rDev.GetTextHeight();
++        if (nRoom < rImageSep)
++            rImageSep = static_cast<sal_Int32>(std::max<tools::Long>(1, nRoom));
++        PaintedMetrics::metrics()[&rButton].linesFit = nRoom >= 1;
++    }
++}
++
++tools::Long MenuButtonTextWidth(const PushButton& rButton, const OUString& rText)
++{
++    const tools::Long nWindow = rButton.GetTextWidth(rText);
++    const auto it = PaintedMetrics::metrics().find(&rButton);
++    if (it == PaintedMetrics::metrics().end())
++        return nWindow;
++    const auto itText = it->second.widths.find(rText);
++    if (itText != it->second.widths.end())
++        return itText->second.first;
++    // a string the paint did not draw (the label of another look): the window's measure at the paint's ratio
++    const auto itLabel = it->second.widths.find(it->second.label);
++    if (itLabel == it->second.widths.end())
++        return nWindow;
++    const auto& [nPaint, nWindowLabel] = itLabel->second;
++    if (nWindowLabel <= 0 || nPaint == nWindowLabel)
++        return nWindow;
++    return static_cast<tools::Long>(std::ceil(double(nWindow) * nPaint / nWindowLabel));
++}
++
++bool MenuButtonLinesFit(const PushButton& rButton)
++{
++    const auto it = PaintedMetrics::metrics().find(&rButton);
++    return it == PaintedMetrics::metrics().end() || it->second.linesFit;
++}
++
++tools::Long MenuButtonTextHeight(const PushButton& rButton)
++{
++    const auto it = PaintedMetrics::metrics().find(&rButton);
++    return it == PaintedMetrics::metrics().end() ? rButton.GetTextHeight() : it->second.height;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/control/HstRibbonPaint.cxx
++++ b/vcl/source/control/HstRibbonPaint.cxx
+@@ -245,16 +245,21 @@ FileTabColors fileTabColorsFor(const Sty
+ 
+ tools::Long FileTabExtraWidth(const OutputDevice& rDev) { return scaled(rDev, 14); }
+ 
++tools::Rectangle FileTabFill(const OutputDevice& rDev, const tools::Rectangle& rItem)
++{
++    const tools::Long nInset = scaled(rDev, 2);
++    // the approved mockup's File button: 24 logical px high, centred in the tab row (whatever the row's height)
++    const tools::Long nHeight = std::min<tools::Long>(rItem.GetHeight(), scaled(rDev, FILE_BUTTON_HEIGHT));
++    return tools::Rectangle(Point(rItem.Left() + nInset, rItem.Top() + (rItem.GetHeight() - nHeight) / 2),
++                            Size(std::max<tools::Long>(1, rItem.GetWidth() - 2 * nInset), nHeight));
++}
++
+ Color DrawFileTab(vcl::RenderContext& rDev, const tools::Rectangle& rItem, bool bPressed,
+                   bool bHover)
+ {
+     const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
+     const FileTabColors aColors = fileTabColorsFor(rStyle, bPressed, bHover);
+-    const tools::Long nInset = scaled(rDev, 2);
+-    // the approved mockup's File button: 24 logical px high, centred in the tab row (whatever the row's height)
+-    const tools::Long nHeight = std::min<tools::Long>(rItem.GetHeight(), scaled(rDev, FILE_BUTTON_HEIGHT));
+-    tools::Rectangle aFill(Point(rItem.Left() + nInset, rItem.Top() + (rItem.GetHeight() - nHeight) / 2),
+-                           Size(std::max<tools::Long>(1, rItem.GetWidth() - 2 * nInset), nHeight));
++    const tools::Rectangle aFill = FileTabFill(rDev, rItem);
+     rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
+     // high contrast has one fill colour only: the state shows as an outline
+     if (rStyle.GetHighContrastMode() && (bPressed || bHover))
+--- /dev/null
++++ b/vcl/source/control/HstRibbonUpdateDot.cxx
+@@ -0,0 +1,88 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include <vcl/HstRibbonUpdateDot.hxx>
++#include <vcl/HstRibbonPaint.hxx>
++
++#include <tools/link.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/vclevent.hxx>
++#include <vcl/window.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <set>
++
++namespace hst::ribbon
++{
++namespace
++{
++/// the tab controls whose File button shows the dot; a control leaves the set when it dies
++struct UpdateDots
++{
++    static std::set<const vcl::Window*>& shown()
++    {
++        static std::set<const vcl::Window*> aShown;
++        return aShown;
++    }
++    DECL_STATIC_LINK(UpdateDots, WindowEventHdl, VclWindowEvent&, void);
++};
++
++IMPL_STATIC_LINK(UpdateDots, WindowEventHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        UpdateDots::shown().erase(rEvent.GetWindow());
++}
++
++/// the accent of the dot: an orange that stands out from the File button's blue in both themes, with a ring of
++/// the button's text colour around it; high contrast has the system's colours only
++constexpr Color DOT_COLOR(0xF7, 0x63, 0x0C);
++}
++
++void SetUpdateDot(vcl::Window& rTabControl, bool bShow)
++{
++    std::set<const vcl::Window*>& rShown = UpdateDots::shown();
++    const bool bShown = rShown.count(&rTabControl) > 0;
++    if (bShow == bShown)
++        return;
++    if (bShow)
++    {
++        rShown.insert(&rTabControl);
++        rTabControl.AddEventListener(LINK(nullptr, UpdateDots, WindowEventHdl));
++    }
++    else
++    {
++        rShown.erase(&rTabControl);
++        rTabControl.RemoveEventListener(LINK(nullptr, UpdateDots, WindowEventHdl));
++    }
++    if (!rTabControl.isDisposed())
++        rTabControl.Invalidate();
++}
++
++bool HasUpdateDot(const vcl::Window& rTabControl) { return UpdateDots::shown().count(&rTabControl) > 0; }
++
++void DrawUpdateDot(vcl::RenderContext& rDev, const tools::Rectangle& rItem)
++{
++    const tools::Rectangle aFill = FileTabFill(rDev, rItem);
++    const double fScale = rDev.GetDPIScaleFactor();
++    const tools::Long nRadius = std::max<tools::Long>(2, std::lround(3 * fScale));
++    const tools::Long nRing = std::max<tools::Long>(1, std::lround(fScale));
++    const tools::Long nEdge = std::max<tools::Long>(nRadius + nRing, std::lround(6 * fScale));
++    const Point aCenter(aFill.Right() - nEdge, aFill.Top() + nEdge);
++    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++    const FileTabColors aColors = fileTabColorsFor(rStyle, false, false);
++    rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    rDev.SetLineColor();
++    rDev.SetFillColor(aColors.aText);
++    rDev.DrawEllipse(tools::Rectangle(aCenter.X() - nRadius - nRing, aCenter.Y() - nRadius - nRing,
++                                      aCenter.X() + nRadius + nRing, aCenter.Y() + nRadius + nRing));
++    rDev.SetFillColor(rStyle.GetHighContrastMode() ? aColors.aFill : DOT_COLOR);
++    rDev.DrawEllipse(tools::Rectangle(aCenter.X() - nRadius, aCenter.Y() - nRadius, aCenter.X() + nRadius,
++                                      aCenter.Y() + nRadius));
++    rDev.Pop();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
-@@ -0,0 +1,599 @@
+@@ -0,0 +1,642 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1262,10 +2403,12 @@ License: these upstream files remain under their original license (MPL-2.0).
 +#include <HstRibbonV3Layout.hxx>
 +#include <HstRibbonV3Pack.hxx>
 +#include <HstRibbonLadder.hxx>
++#include <HstRibbonMenuButtonMetrics.hxx>
 +
 +#include <vcl/event.hxx>
 +#include <vcl/image.hxx>
 +#include <vcl/layout.hxx>
++#include <vcl/salnativewidgets.hxx>
 +#include <vcl/toolbox.hxx>
 +#include <vcl/toolkit/fixed.hxx>
 +#include <vcl/toolkit/MenuButton.hxx>
@@ -1390,26 +2533,53 @@ License: these upstream files remain under their original license (MPL-2.0).
 +
 +tools::Long px(long nLogical, const vcl::Window& rWindow) { return scaled(nLogical, scaleOf(rWindow)); }
 +
-+/// the width a command needs at a look. A medium menu button draws as PushButton's paint does (button.cxx): 4 px of
-+/// frame each side, the image, its separator, the label, and two symbol widths kept for the ▾. Its size request
-+/// misses the separator and the frame, so the widest button of a column had its label cut ("Sắp xếp và l…")
-+tools::Long commandWidth(const vcl::Window& rCommand, char cLook)
++/// the width a menu button's paint needs at a look (0: any). PushButton keeps its frame inside the button, 4 px
++/// each side (2 without a native one). A medium button draws the image, its separator, the label and two symbol
++/// widths for the ▾ (button.cxx); a large one its label's lines ("Bám\ndính ▾", HstRibbonLadder.cxx) centred, and
++/// breaks a line again when it fills the text area to the pixel, so it keeps 1 px each side more.
++tools::Long menuButtonNeed(const vcl::Window& rCommand, char cLook)
 +{
-+    const tools::Long nRequest = VclContainer::getLayoutRequisition(rCommand).Width();
 +    const MenuButton* pMenu = dynamic_cast<const MenuButton*>(&rCommand);
-+    if (!pMenu || cLook != 'M')
-+        return nRequest;
-+    const tools::Long nTextHeight = pMenu->GetTextHeight();
++    if (!pMenu || (cLook != 'M' && cLook != 'L'))
++        return 0;
++    const tools::Long nFrame
++        = 2 * (pMenu->IsNativeControlSupported(ControlType::Pushbutton, ControlPart::Entire) ? 4 : 2);
++    const OUString aText = pMenu->GetText().replaceAll("~", "");
++    if (cLook == 'L')
++    {
++        tools::Long nLine = 0;
++        sal_Int32 nIndex = 0;
++        do
++            nLine = std::max(nLine, MenuButtonTextWidth(*pMenu, aText.getToken(0, '\n', nIndex)));
++        while (nIndex >= 0);
++        return nFrame + 2 + nLine;
++    }
++    const tools::Long nTextHeight = MenuButtonTextHeight(*pMenu);
 +    const tools::Long nSymbol = nTextHeight / 2 + 1;
 +    const tools::Long nImageSep = std::max<tools::Long>(1, 1 + (nTextHeight - 10) / 2);
-+    const OUString aText = pMenu->GetText().replaceAll("~", "");
 +    const Image aImage = pMenu->GetModeImage();
-+    tools::Long nWidth = 2 * 4 + 2 * nSymbol;
++    tools::Long nWidth = nFrame + 2 * nSymbol;
 +    if (!!aImage)
 +        nWidth += aImage.GetSizePixel().Width() + (aText.isEmpty() ? 0 : nImageSep);
 +    if (!aText.isEmpty())
-+        nWidth += pMenu->GetTextWidth(aText);
-+    return std::max(nRequest, nWidth);
++        nWidth += MenuButtonTextWidth(*pMenu, aText);
++    return nWidth;
++}
++
++/// a large menu button whose label's lines did not fit under its image at its last paint (the paint measures its
++/// own frame, image and font: HstRibbonMenuButtonMetrics.hxx)
++bool largeMenuLinesCut(const vcl::Window& rCommand, char cLook)
++{
++    const MenuButton* pMenu = dynamic_cast<const MenuButton*>(&rCommand);
++    return pMenu && cLook == 'L' && !MenuButtonLinesFit(*pMenu);
++}
++
++/// the width a command needs at a look: its size request, and what a menu button's paint needs (the request of a
++/// medium one misses the image separator and the frame: the widest button of a column had its label cut, "Sắp xếp
++/// và l…"; a large one at 125 % lost its second line, "Bám ...")
++tools::Long commandWidth(const vcl::Window& rCommand, char cLook)
++{
++    return std::max(VclContainer::getLayoutRequisition(rCommand).Width(), menuButtonNeed(rCommand, cLook));
 +}
 +
 +/// the look of a toolbox: L a large button (image above its label), M a small one with its label, S its image only
@@ -1481,6 +2651,23 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    }
 +}
 +
++/// a widget of a medium or small toolbox (the fill style's lists) one row high: taller (a list box of the X11 look is
++/// 34 px), the row cut its bottom off
++void fitItemWindowsToRow(ToolBox& rBox)
++{
++    const tools::Long nRow = px(ROW, rBox);
++    for (ToolBox::ImplToolItems::size_type i = 0; i < rBox.GetItemCount(); ++i)
++    {
++        const ToolBoxItemId nId = rBox.GetItemId(i);
++        vcl::Window* pItemWindow = rBox.GetItemWindow(nId);
++        if (!pItemWindow || pItemWindow->GetSizePixel().Height() <= nRow)
++            continue;
++        pItemWindow->SetSizePixel(Size(pItemWindow->GetSizePixel().Width(), nRow));
++        rBox.SetItemWindow(nId, pItemWindow); // the item takes the window's new size
++        rBox.queue_resize();
++    }
++}
++
 +void setLook(Group& rData, vcl::Window& rCommand, char cLook, char cGallery, int nExtra)
 +{
 +    rData.looks[&rCommand] = cLook;
@@ -1489,6 +2676,8 @@ License: these upstream files remain under their original license (MPL-2.0).
 +        if (!rData.size32.count(&rCommand))
 +            rData.size32[&rCommand] = pBox->GetToolboxButtonSize() == ToolBoxButtonSize::Size32;
 +        lookToolBox(*pBox, cLook, rData.size32[&rCommand]);
++        if (cLook == 'M' || cLook == 'S')
++            fitItemWindowsToRow(*pBox);
 +        if (cLook == 'G')
 +            lookGallery(rCommand, cGallery, nExtra);
 +    }
@@ -1787,8 +2976,11 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    if (cState == 'C')
 +    {
 +        appendRect(rOut, rFold);
++        // its name in the groups' caption band: under the content and its gap, 2 px over the body's bottom
++        const tools::Long nBand = px(6, rGroup) + px(CONTENT, rGroup) + px(4, rGroup);
 +        rOut.append(",\"caption_rect\":");
-+        appendRect(rOut, rFold);
++        appendRect(rOut, tools::Rectangle(Point(rFold.Left(), rFold.Top() + nBand),
++                                          Size(rFold.GetWidth(), rFold.GetHeight() - nBand - px(2, rGroup))));
 +        rOut.append(",\"caption_needed\":0,\"blocks\":[{\"type\":\"fold\",\"items\":[{\"id\":\"fold\",\"kind\":\"C\","
 +                    "\"rect\":");
 +        appendRect(rOut, rFold);
@@ -1822,26 +3014,18 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                appendRect(rOut, aRect);
 +                // a labelled command (large, or medium with its label) asks for more room than its cell gives it:
 +                // its label is cut (a box keeps the design's width, an icon-only command shows no label)
++                // a menu button as its paint lays its label out (menuButtonNeed), any other as its size request
 +                Size aWant = VclContainer::getLayoutRequisition(rCommand);
-+                const MenuButton* pMenu = dynamic_cast<const MenuButton*>(&rCommand);
-+                if (pMenu && rCell.look == 'M')
-+                    aWant = Size(commandWidth(rCommand, 'M'), aRect.GetHeight()); // as its paint lays it out
-+                if (pMenu && rCell.look == 'L')
-+                {
-+                    // a large menu button breaks its label at the spaces: cut when its longest word does not fit
-+                    tools::Long nWord = 0;
-+                    const OUString aText = pMenu->GetText().replaceAll("~", "");
-+                    sal_Int32 nIndex = 0;
-+                    do
-+                        nWord = std::max(nWord, pMenu->GetTextWidth(aText.getToken(0, ' ', nIndex)));
-+                    while (nIndex >= 0);
-+                    aWant = Size(nWord + 2 * px(4, rCommand), aRect.GetHeight());
-+                }
++                if (const tools::Long nNeed = menuButtonNeed(rCommand, rCell.look))
++                    aWant = Size(nNeed, aRect.GetHeight() + (largeMenuLinesCut(rCommand, rCell.look) ? 1 : 0));
 +                const bool bLabelled = rCell.look == 'L' || rCell.look == 'M';
++                const bool bCut
++                    = bLabelled && (aWant.Width() > aRect.GetWidth() || aWant.Height() > aRect.GetHeight());
 +                rOut.append(",\"label_cut\":");
-+                rOut.append(bLabelled && (aWant.Width() > aRect.GetWidth() || aWant.Height() > aRect.GetHeight())
-+                                ? "true"
-+                                : "false");
++                rOut.append(bCut ? "true" : "false");
++                if (bCut) // the size it asked for, to tell a stale width from a short one
++                    rOut.append(",\"want\":{\"w\":" + OString::number(sal_Int64(aWant.Width())) + ",\"h\":"
++                                + OString::number(sal_Int64(aWant.Height())) + "}");
 +                rOut.append("}");
 +                bFirst = false;
 +            }
@@ -1855,7 +3039,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3MergedBox.cxx
-@@ -0,0 +1,339 @@
+@@ -0,0 +1,359 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1899,8 +3083,28 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    return bAny;
 +}
 +
++namespace
++{
++/// with HST_RIBBON_DUMP_LAYOUT: the fit passes of every ribbon page so far, in <dir>/layout-passes, so that a check
++/// sees whether the layout settles (a pass asking for the next one laid the ribbon out without end)
++void countLayoutPass()
++{
++    static const char* const pDir = std::getenv("HST_RIBBON_DUMP_LAYOUT");
++    if (!pDir || !*pDir)
++        return;
++    static sal_uInt64 nPasses = 0;
++    const OString aPath = OString(pDir) + "/layout-passes";
++    if (FILE* pFile = std::fopen(aPath.getStr(), "w"))
++    {
++        std::fprintf(pFile, "%llu\n", static_cast<unsigned long long>(++nPasses));
++        std::fclose(pFile);
++    }
++}
++}
++
 +void PriorityMergedHBox::HstApplyV3(tools::Long nWidth)
 +{
++    countLayoutPass();
 +    // HST Office (1.0.3): the owner-locked mockup's fit(): every group large; on a sparse tab (more than 40 % free)
 +    // the groups turn large from the left and then every large button widens to 96 px; when the row is too wide the
 +    // galleries shrink first, then the groups from the right go medium, small, then to their "Caption ▾" button;
@@ -2154,7 +3358,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +void hst::ribbon::SetPageSlack(vcl::Window& rPage, tools::Long nSlack)
 +{
 +    if (PriorityMergedHBox* pBox = lcl_HstPageBox(rPage))
-+        pBox->HstSetSlack(std::max<tools::Long>(0, nSlack));
++        pBox->HstSetSlack(nSlack); // less than 0: the collapse chevron's room at the smallest banner
 +}
 +
 +void hst::ribbon::DumpPageLayout(const vcl::Window& rPage, const tools::Rectangle& rBanner)
@@ -2261,16 +3465,25 @@ License: these upstream files remain under their original license (MPL-2.0).
          Size aSize;
 --- a/vcl/source/control/button.cxx
 +++ b/vcl/source/control/button.cxx
-@@ -55,6 +55,8 @@
+@@ -55,6 +55,9 @@
  #include <tools/mapunit.hxx>
  #include <tools/stream.hxx>
  
 +#include <HstRibbonLadder.hxx>
++#include <HstRibbonMenuButtonMetrics.hxx>
 +
  
  using namespace css;
  
-@@ -871,6 +873,12 @@ void PushButton::ImplDrawPushButtonConte
+@@ -851,6 +854,7 @@ void PushButton::ImplDrawPushButtonConte
+     sal_Int32 nImageSep = 1 + (pDev->GetTextHeight()-10)/2;
+     if( nImageSep < 1 )
+         nImageSep = 1;
++    hst::ribbon::MenuButtonPainted(*this, *pDev, aInRect, nImageSep); // HST Office: ribbon label metrics
+     if ( mnDDStyle == PushButtonDropdownStyle::MenuButton )
+     {
+         tools::Long nSeparatorX = 0;
+@@ -871,6 +875,12 @@ void PushButton::ImplDrawPushButtonConte
          // center symbol rectangle in the separated area
          aSymbolRect.AdjustRight( -(nSymbolSize/2) );
          aSymbolRect.SetLeft( aSymbolRect.Right() - nSymbolSize );
@@ -2285,7 +3498,29 @@ License: these upstream files remain under their original license (MPL-2.0).
                                nTextStyle, nullptr, true );
 --- a/vcl/source/control/tabctrl.cxx
 +++ b/vcl/source/control/tabctrl.cxx
-@@ -2610,6 +2610,10 @@ void NotebookbarTabControlBase::HstSetPa
+@@ -24,6 +24,7 @@
+ #include <tools/mapunit.hxx>
+ #include <vcl/HstRibbonContext.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
++#include <vcl/HstRibbonUpdateDot.hxx>
+ #include <algorithm>
+ #include <chrono>
+ #include <cmath>
+@@ -895,9 +896,13 @@ void TabControl::ImplDrawItem(vcl::Rende
+                              && hst::ribbon::ownerDrawEnabled();
+     Color aHstFileText;
+     if (bHstFileTab)
++    {
+         aHstFileText = hst::ribbon::DrawFileTab(rRenderContext, pItem->maRect,
+                                                 bool(nState & ControlState::SELECTED),
+                                                 bool(nState & ControlState::ROLLOVER));
++        if (hst::ribbon::HasUpdateDot(*this)) // HST Office: an update is known (HstRibbonUpdateDot.hxx)
++            hst::ribbon::DrawUpdateDot(rRenderContext, pItem->maRect);
++    }
+     else if (bHstOwnerDraw)
+         hst::ribbon::DrawTabItem(rRenderContext, pItem->maRect,
+                                  rRenderContext.GetCtrlTextWidth(pItem->maFormatText),
+@@ -2610,6 +2615,10 @@ void NotebookbarTabControlBase::HstSetPa
          return;
      m_nHstPageReserve = nWidth;
      ImplPosCurTabPage();
@@ -2339,7 +3574,32 @@ License: these upstream files remain under their original license (MPL-2.0).
      return true;
 --- a/vcl/source/window/toolbox.cxx
 +++ b/vcl/source/window/toolbox.cxx
-@@ -2635,6 +2635,26 @@ void ToolBox::ImplFormat( bool bResize )
+@@ -127,6 +127,15 @@ OUString ImplHstLabel(const ToolBox& rTo
+     return nFirst == 0 || nFirst >= aWords.size() ? rText : rText.replaceAt(aSpaces[nFirst - 1], 1, u"\n");
+ }
+ 
++// HST Office: a ribbon label right of its image is one line: an authored break ("Văn bản\nhành chính") joins with a
++// space, which VCL drew and measured as nothing ("Văn bảnhành chính"); after a slash without one ("Chấp nhận/Từ chối")
++OUString ImplHstOneLine(const ImplToolBoxPrivateData& rData, const OUString& rText, ToolBoxTextPosition ePosition)
++{
++    if (!rData.mbHstOwnerDraw || ePosition != ToolBoxTextPosition::Right)
++        return rText;
++    return rText.replaceAll(u"/\n", u"/").replace('\n', ' ');
++}
++
+ // HST Office: how the ribbon draws a button at the approved mockup's geometry (HstRibbonGeometry.hxx): Large for
+ // an image above its label (L), Small for an image with its label on the right or alone (M, S); None for every
+ // other toolbox, item window and text-only button, drawn as before.
+@@ -1650,7 +1659,7 @@ bool ToolBox::ImplCalcItem()
+                     else
+                     {
+                         // we're drawing images and text
+-                        item.maItemSize.setWidth( bText ? GetOutDev()->GetCtrlTextWidth( item.maText )+TB_TEXTOFFSET : 0 );
++                        item.maItemSize.setWidth( bText ? GetOutDev()->GetCtrlTextWidth( ImplHstOneLine( *mpData, item.maText, meTextPosition ) )+TB_TEXTOFFSET : 0 );
+                         item.maItemSize.setHeight( bText ? GetTextHeight() : 0 );
+                         const OUString aHstLabel = bText ? ImplHstLabel(*this, *mpData, item.maText, meTextPosition)
+                                                          : item.maText;
+@@ -2635,6 +2644,26 @@ void ToolBox::ImplFormat( bool bResize )
              item.maRect = item.maCalcRect;
      }
  
@@ -2366,7 +3626,17 @@ License: these upstream files remain under their original license (MPL-2.0).
      // indicate formatting is done
      mbFormat = false;
  }
-@@ -4221,6 +4241,14 @@ void ToolBox::HstSetLauncher( bool bLaun
+@@ -3018,7 +3047,8 @@ void ToolBox::ImplDrawItem(vcl::RenderCo
+             const tools::Long nX = nImageOffX + aImageSize.Width()
+                                    + hst::ribbon::geometry::px(hst::ribbon::geometry::SMALL_ICON_GAP, fHstScale);
+             const tools::Long nY = pItem->maRect.Top() + (aBtnSize.Height() - GetTextHeight()) / 2;
+-            rRenderContext.DrawCtrlText(Point(nX, nY), pItem->maText, 0, pItem->maText.getLength(), nHstTextStyle);
++            const OUString aLine = ImplHstOneLine(*mpData, pItem->maText, meTextPosition);
++            rRenderContext.DrawCtrlText(Point(nX, nY), aLine, 0, aLine.getLength(), nHstTextStyle);
+         }
+         else
+         {
+@@ -4221,6 +4251,14 @@ void ToolBox::HstSetLauncher( bool bLaun
      ImplInvalidate( true );
  }
  

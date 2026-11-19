@@ -91,6 +91,7 @@ Relative locators are never accepted from the network, even with a valid signatu
 | `image.*.url` | Allowed HTTPS URL online; restricted relative PNG path for installed defaults only. At most 2048 characters. |
 | `image.*.sha256` | Required 64 lowercase hexadecimal digits over the exact downloaded bytes. |
 | `image.*.size` | Required integer byte count, `1…307200` (300 KiB), exact match required. |
+| `sizes` | Optional (from 1.0.3; older clients ignore it). Exactly three entries in order: `{"width": 360\|640\|960, "height": 96, "1x": …, "2x": …}`, image descriptors as in `image`; files must be PNG or JPEG (`.png`/`.jpg`/`.jpeg` URL, bytes checked), ≤ 300 KiB, exact pixels width×96 at 1x and ×2 at 2x. Bundled paths: `banners/<id>-<w>x96@<n>x.png\|jpg`. The client shows the largest width that fits, never stretched (`banner_sizes.fit_width`); `image` stays required so 1.0.2 clients keep working. Advertiser rules: [BANNER_ADVERTISER_SPEC](BANNER_ADVERTISER_SPEC.md); check with `scripts/brand/validate-banner-manifest.py`. |
 | `startAt`, `endAt` | Optional UTC timestamps with the same syntax. Start inclusive; end exclusive; start must precede end. |
 | `minVersion`, `maxVersion` | Optional SemVer strings, at most 80 characters; inclusive endpoints, minimum ≤ maximum. Compared to HST product release, not the LibreOffice engine version. |
 | `weight` | Optional integer `1…10`, default `1`. Deterministic weighted round robin, not profiling/random targeting. |
