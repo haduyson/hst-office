@@ -3,8 +3,9 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 - Push buttons, input fields, spin fields, combo and list boxes (with their drop-down and spin buttons),
   check boxes, radio buttons, tab controls and scroll bars are drawn with the tokens of
   <vcl/hst/designtokens.hxx>: rounded corners, token borders, an accent focus border, hover/pressed/disabled
-  fills, an accent check mark and radio dot, tab pages on a card with an accent bar under the selected tab, a
-  pill-shaped scroll thumb. Light and dark palettes follow the theme. No .ui file changes.
+  fills, an accent check mark and radio dot, a pill-shaped scroll thumb. A tab control's tab row and pages are
+  one continuous surface in the control's own background colour (a notebook bar's tint too) over the full width,
+  the pages outlined, the selected tab marked by an accent bar. Light and dark palettes follow the theme. No .ui file changes.
 - One hook in OutputDevice::DrawNativeControl hands each request to hst::coat first. The coat draws a part
   only where the platform already draws it natively (Windows, macOS; the VCL-drawn controls of gtk3); every
   size and content region still comes from the platform, so all layouts stay as they were.
@@ -218,7 +219,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/qa/cppunit/hst/coat-test.cxx
 +++ b/vcl/qa/cppunit/hst/coat-test.cxx
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,387 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -244,6 +245,8 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +{
 +// a colour the coat never paints: what is left of it was not painted
 +constexpr Color MARKER(0xFF, 0x00, 0xFF);
++// a tab control's own background, e.g. a notebook bar's tint
++constexpr Color SURFACE(0xE4, 0xEE, 0xF8);
 +
 +/* The coat drawn on a VirtualDevice of the headless backend, which has no native look of its own:
 +   ForceForTesting makes the coat draw there, so its shapes and colours can be probed pixel by
@@ -452,23 +455,70 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    const auto& p = light();
 +    {
 +        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 28));
++        pDev->SetBackground(Wallpaper(SURFACE));
 +        CPPUNIT_ASSERT(draw(*pDev, ControlType::TabItem, ControlPart::Entire,
 +                            ENABLED | ControlState::SELECTED));
 +        assertPixel("indicator on the page side", *pDev, 40, 27, p.aTabIndicator);
 +        assertPixel("indicator thickness", *pDev, 40, 26, p.aTabIndicator);
-+        assertPixel("tab face", *pDev, 40, 5, Color(0xF0, 0xF0, 0xF0));
++        assertPixel("tab face is the control's surface", *pDev, 40, 5, SURFACE);
 +    }
 +    {
 +        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 28));
++        pDev->SetBackground(Wallpaper(SURFACE));
 +        draw(*pDev, ControlType::TabItem, ControlPart::Entire, ENABLED);
-+        assertPixel("unselected: no indicator", *pDev, 40, 27, Color(0xF0, 0xF0, 0xF0));
++        assertPixel("unselected: no indicator", *pDev, 40, 27, SURFACE);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 28));
++        pDev->SetBackground(Wallpaper(SURFACE));
++        draw(*pDev, ControlType::TabItem, ControlPart::Entire, ENABLED | ControlState::ROLLOVER);
++        assertPixel("hovered tab", *pDev, 40, 14, p.aHover);
 +    }
 +    {
 +        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 120));
++        pDev->SetBackground(Wallpaper(SURFACE));
 +        CPPUNIT_ASSERT(draw(*pDev, ControlType::TabPane, ControlPart::Entire, ENABLED));
-+        assertPixel("pane corner", *pDev, 0, 0, MARKER);
++        assertPixel("pane corner: the same surface", *pDev, 0, 0, SURFACE);
 +        assertPixel("pane border", *pDev, 0, 60, p.aCardBorder);
-+        assertPixel("pane fill", *pDev, 100, 60, p.aCard);
++        assertPixel("pane inside: the same surface", *pDev, 100, 60, SURFACE);
++    }
++}
++
++/* The tab row and the pages are one surface across the control's full width: a TabControl's paint
++   (pane, header over the full width, the tabs) leaves one colour from the first tab to the right
++   edge, with or without the platform drawing the header. */
++CPPUNIT_TEST_FIXTURE(CoatTest, testTabRowIsOneSurfaceAcrossTheFullWidth)
++{
++    constexpr tools::Long nWidth = 600, nRow = 28, nHeight = 120;
++    for (bool bHeader : { true, false })
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(nWidth, nHeight));
++        pDev->SetBackground(Wallpaper(SURFACE));
++        pDev->Erase(); // the window's own erase before its paint
++        const ImplControlValue aValue;
++        CPPUNIT_ASSERT(pDev->DrawNativeControl(ControlType::TabPane, ControlPart::Entire,
++                                               tools::Rectangle(0, nRow, nWidth - 1, nHeight - 1),
++                                               ENABLED, aValue, OUString()));
++        if (bHeader)
++            CPPUNIT_ASSERT(pDev->DrawNativeControl(ControlType::TabHeader, ControlPart::Entire,
++                                                   tools::Rectangle(0, 0, nWidth - 1, nRow - 1),
++                                                   ENABLED, aValue, OUString()));
++        for (int i = 0; i < 3; ++i)
++        {
++            const ControlState eState = i == 1 ? ENABLED | ControlState::SELECTED : ENABLED;
++            CPPUNIT_ASSERT(pDev->DrawNativeControl(
++                ControlType::TabItem, ControlPart::Entire,
++                tools::Rectangle(4 + 80 * i, 0, 83 + 80 * i, nRow - 1), eState, aValue, OUString()));
++        }
++        for (tools::Long x = 4; x < nWidth; ++x)
++        {
++            assertPixel("header row", *pDev, x, 5, SURFACE);
++            // the bottom row is the surface except under the selected tab's accent bar
++            if (x < 84 || x > 163)
++                assertPixel("header bottom row", *pDev, x, nRow - 1, SURFACE);
++        }
++        for (tools::Long x = 1; x < nWidth - 1; ++x)
++            assertPixel("page row", *pDev, x, 70, SURFACE);
 +    }
 +}
 +
@@ -1135,7 +1185,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/source/hst/coat/coat-tabs-scrollbars.cxx
 +++ b/vcl/source/hst/coat/coat-tabs-scrollbars.cxx
-@@ -0,0 +1,178 @@
+@@ -0,0 +1,210 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1144,8 +1194,10 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 + */
 +
 +/* Tab controls and scroll bars.
-+   Tabs: the pages sit on a card (card colour and border); a tab is flat in the dialog colour, tinted
-+   under the mouse, and the selected tab carries an accent bar on the side facing its page.
++   Tabs: the tab row and the pages are one continuous surface in the control's own background colour
++   (a notebook bar's tint included), across the full width: the pages are outlined by a rounded border,
++   a tab is tinted under the mouse, and the selected tab carries an accent bar on the side facing its
++   page. No part fills a colour of its own, so no partial-width band can appear behind the tabs.
 +   Scroll bars: a plain track, a pill-shaped thumb narrower than the bar, chevrons for the buttons. */
 +
 +#include "coat-paint.hxx"
@@ -1153,6 +1205,8 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +#include <vcl/hst/designtokens.hxx>
 +#include <vcl/outdev.hxx>
 +#include <vcl/settings.hxx>
++#include <vcl/wall.hxx>
++#include <vcl/window.hxx>
 +
 +#include <algorithm>
 +
@@ -1165,6 +1219,37 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    rCtx.rDev.SetLineColor();
 +    rCtx.rDev.SetFillColor(rColor);
 +    rCtx.rDev.DrawRect(rRect);
++}
++
++bool plainColour(const Wallpaper& rWallpaper, Color& rColour)
++{
++    if (rWallpaper.IsBitmap() || rWallpaper.IsGradient() || rWallpaper.GetColor() == COL_TRANSPARENT
++        || rWallpaper.GetColor() == COL_AUTO)
++        return false;
++    rColour = rWallpaper.GetColor();
++    return true;
++}
++
++/** The one colour of a tab control's surface: the colour the request carries, else the background
++    of the nearest window that paints one (a tab page is transparent: its tab control's), else the
++    dialog colour. */
++Color surfaceColour(const PaintContext& rCtx)
++{
++    if (rCtx.aBackground != COL_AUTO)
++        return rCtx.aBackground;
++    Color aColour;
++    if (const vcl::Window* pWindow = rCtx.rDev.GetOwnerWindow())
++    {
++        for (; pWindow; pWindow = pWindow->GetParent())
++        {
++            if (!pWindow->IsPaintTransparent() && pWindow->IsBackground()
++                && plainColour(pWindow->GetBackground(), aColour))
++                return aColour;
++        }
++    }
++    else if (rCtx.rDev.IsBackground() && plainColour(rCtx.rDev.GetBackground(), aColour))
++        return aColour;
++    return rCtx.rStyle.GetDialogColor();
 +}
 +
 +/** The accent bar of the selected tab, on the side of rTab facing the page. */
@@ -1233,18 +1318,18 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    if (ePart != ControlPart::Entire)
 +        return false;
 +    const auto& p = rCtx.rPalette;
++    const Color aSurface = surfaceColour(rCtx);
 +    switch (eType)
 +    {
 +        case ControlType::TabPane:
-+            FillAndStroke(rCtx, rCtx.aRect, rCtx.Px(hst::design::radius::Control), p.aCard,
++            fillRect(rCtx, rCtx.aRect, aSurface);
++            FillAndStroke(rCtx, rCtx.aRect, rCtx.Px(hst::design::radius::Control), aSurface,
 +                          p.aCardBorder, rCtx.Px(hst::design::stroke::Border));
 +            return true;
 +        case ControlType::TabBody:
-+            // the page inside the pane: the card's colour, inside the pane's border
-+            fillRect(rCtx, rCtx.aRect, p.aCard);
-+            return true;
 +        case ControlType::TabHeader:
-+            fillRect(rCtx, rCtx.aRect, rCtx.rStyle.GetDialogColor());
++            // the full rectangle, whatever part of the control it is
++            fillRect(rCtx, rCtx.aRect, aSurface);
 +            return true;
 +        case ControlType::TabItem:
 +        {
@@ -1254,12 +1339,9 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +                      ? static_cast<const TabitemValue&>(rValue).meTabBarPosition
 +                      : TabBarPosition::Top;
 +            const bool bSelected = bool(rCtx.eState & ControlState::SELECTED);
-+            Color aFill = rCtx.rStyle.GetDialogColor();
++            fillRect(rCtx, rCtx.aRect, aSurface);
 +            if (rCtx.IsEnabled() && !bSelected && rCtx.IsHover())
-+                aFill = p.aHover;
-+            fillRect(rCtx, rCtx.aRect, rCtx.rStyle.GetDialogColor());
-+            if (aFill != rCtx.rStyle.GetDialogColor())
-+                FillAndStroke(rCtx, rCtx.aRect, rCtx.Px(hst::design::radius::Row), aFill,
++                FillAndStroke(rCtx, rCtx.aRect, rCtx.Px(hst::design::radius::Row), p.aHover,
 +                              COL_TRANSPARENT, 0);
 +            if (bSelected)
 +                fillRect(rCtx, indicatorRect(rCtx, rCtx.aRect, ePosition),
