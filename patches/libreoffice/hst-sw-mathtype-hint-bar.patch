@@ -1,0 +1,359 @@
+HST Office: a Writer document with MathType equations (Equation.DSMT*) kept as OLE objects
+shows them as their preview picture, and nothing tells the user that HST can turn them into
+editable formulas. When such a document opens editable, an info bar names the number of
+MathType equations and offers [Convert Equations], which runs HST's formula converter
+(org.hst.office.vi:ConvertFormulas), and [Close]. It never converts by itself and shows once
+per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
+
+--- a/sw/CppunitTest_sw_uibase_uiview.mk
++++ b/sw/CppunitTest_sw_uibase_uiview.mk
+@@ -15,6 +15,7 @@
+ 
+ $(eval $(call gb_CppunitTest_add_exception_objects,sw_uibase_uiview, \
+     sw/qa/uibase/uiview/uiview \
++    sw/qa/uibase/hst/mathtypehintbar \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,sw_uibase_uiview, \
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -770,6 +770,7 @@
+     sw/source/uibase/uiview/swcli \
+     sw/source/uibase/uiview/uivwimp \
+     sw/source/uibase/uiview/view \
++    sw/source/uibase/hst/mathtypehintbar \
+     sw/source/uibase/uiview/view0 \
+     sw/source/uibase/uiview/view1 \
+     sw/source/uibase/uiview/view2 \
+--- a/sw/qa/uibase/hst/mathtypehintbar.cxx
++++ b/sw/qa/uibase/hst/mathtypehintbar.cxx
+@@ -0,0 +1,60 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <comphelper/propertyvalue.hxx>
++#include <sfx2/viewfrm.hxx>
++#include <vcl/scheduler.hxx>
++
++#include <docsh.hxx>
++#include <view.hxx>
++
++namespace
++{
++/// The hint bar offering to convert MathType equations when a Writer document opens.
++class HstMathTypeHintBarTest : public SwModelTestBase
++{
++public:
++    HstMathTypeHintBarTest()
++        : SwModelTestBase(u"/sw/qa/core/data/ooxml/pass/"_ustr)
++    {
++    }
++
++    bool hasHintBar()
++    {
++        Scheduler::ProcessEventsToIdle(); // the bar comes once the document has opened
++        SwView* pView = getSwDocShell()->GetView();
++        CPPUNIT_ASSERT(pView);
++        return pView->GetViewFrame().HasInfoBarWithID(u"hst-mathtype");
++    }
++};
++}
++
++CPPUNIT_TEST_FIXTURE(HstMathTypeHintBarTest, testShownForMathType)
++{
++    // One MathType (Equation.DSMT4) OLE object with its WMF preview.
++    createSwDoc("fdo78906.docx");
++    CPPUNIT_ASSERT(hasHintBar());
++}
++
++CPPUNIT_TEST_FIXTURE(HstMathTypeHintBarTest, testNotShownWithoutMathType)
++{
++    // No embedded objects at all.
++    createSwDoc("fdo64256.docx");
++    CPPUNIT_ASSERT(!hasHintBar());
++}
++
++CPPUNIT_TEST_FIXTURE(HstMathTypeHintBarTest, testNotShownReadOnly)
++{
++    // The converter edits the document: nothing to offer when it cannot be edited.
++    loadFromFile(u"fdo78906.docx", { comphelper::makePropertyValue(u"ReadOnly"_ustr, true) });
++    CPPUNIT_ASSERT(getSwDocShell()->IsReadOnly());
++    CPPUNIT_ASSERT(!hasHintBar());
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/hst/mathtypehintbar.cxx
++++ b/sw/source/uibase/hst/mathtypehintbar.cxx
+@@ -0,0 +1,213 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <hstmathtypehintbar.hxx>
++
++#include <com/sun/star/embed/ElementModes.hpp>
++#include <com/sun/star/embed/XStorage.hpp>
++#include <com/sun/star/frame/XModel.hpp>
++#include <comphelper/dispatchcommand.hxx>
++#include <comphelper/lok.hxx>
++#include <i18nlangtag/languagetag.hxx>
++#include <cppuhelper/weakref.hxx>
++#include <sfx2/infobar.hxx>
++#include <sfx2/viewfrm.hxx>
++#include <sot/storage.hxx>
++#include <tools/globname.hxx>
++#include <comphelper/diagnose_ex.hxx>
++#include <unotools/ucbstreamhelper.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/weld.hxx>
++
++#include <doc.hxx>
++#include <docsh.hxx>
++#include <ndarr.hxx>
++#include <ndole.hxx>
++#include <view.hxx>
++
++#include <algorithm>
++#include <vector>
++
++using namespace css;
++
++namespace hst::mathtype
++{
++namespace
++{
++constexpr OUString HINT_BAR_ID = u"hst-mathtype"_ustr;
++// HST Công thức (the hst-vietnamese-tools extension): converts the document's MathType equations
++// to Math formulas, one Undo step
++constexpr OUString CONVERT_COMMAND = u"org.hst.office.vi:ConvertFormulas"_ustr;
++
++/// MathType 3-7, "Equation.DSMT*": the class ID of the equation's compound file
++const SvGlobalName& MathTypeClassId()
++{
++    static const SvGlobalName aId(0x0002ce03, 0x0000, 0x0000, 0xc0, 0x00, 0x00, 0x00, 0x00, 0x00,
++                                  0x00, 0x46);
++    return aId;
++}
++
++bool Vietnamese()
++{
++    return Application::GetSettings().GetUILanguageTag().getLanguage() == "vi";
++}
++
++/// Documents that showed the bar in this session (kept alive on purpose: no destruction at exit)
++std::vector<uno::WeakReference<frame::XModel>>& Shown()
++{
++    static auto* pShown = new std::vector<uno::WeakReference<frame::XModel>>;
++    return *pShown;
++}
++
++/// true the first time it is asked for xModel in this session
++bool FirstTime(const uno::Reference<frame::XModel>& xModel)
++{
++    auto& rShown = Shown();
++    std::erase_if(rShown, [](const uno::WeakReference<frame::XModel>& r) { return !r.get().is(); });
++    for (const auto& r : rShown)
++        if (r.get() == xModel)
++            return false;
++    rShown.emplace_back(xModel);
++    return true;
++}
++
++bool IsMathType(const uno::Reference<embed::XStorage>& xStorage, const OUString& rName)
++{
++    try
++    {
++        if (rName.isEmpty() || !xStorage->hasByName(rName) || xStorage->isStorageElement(rName))
++            return false; // an own (ODF) object, not an OLE compound file
++        uno::Reference<io::XStream> xStream
++            = xStorage->openStreamElement(rName, embed::ElementModes::READ);
++        std::unique_ptr<SvStream> pStream = utl::UcbStreamHelper::CreateStream(xStream);
++        if (!pStream || !SotStorage::IsStorageFile(pStream.get()))
++            return false;
++        rtl::Reference<SotStorage> xOle = new SotStorage(*pStream);
++        return !xOle->GetError() && xOle->GetClassName() == MathTypeClassId();
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sw.ui", "hst::mathtype: cannot read an OLE object");
++        return false;
++    }
++}
++
++bool FrameAlive(const SfxViewFrame* pFrame)
++{
++    for (SfxViewFrame* p = SfxViewFrame::GetFirst(nullptr, false); p;
++         p = SfxViewFrame::GetNext(*p, nullptr, false))
++        if (p == pFrame)
++            return true;
++    return false;
++}
++
++void CloseLater(void* pFrame, void*)
++{
++    if (FrameAlive(static_cast<SfxViewFrame*>(pFrame)))
++        static_cast<SfxViewFrame*>(pFrame)->RemoveInfoBar(HINT_BAR_ID);
++}
++
++void ConvertLater(void* pFrame, void*)
++{
++    auto* pViewFrame = static_cast<SfxViewFrame*>(pFrame);
++    if (!FrameAlive(pViewFrame))
++        return;
++    pViewFrame->RemoveInfoBar(HINT_BAR_ID);
++    comphelper::dispatchCommand(CONVERT_COMMAND, pViewFrame->GetFrame().GetFrameInterface(), {});
++}
++
++// Buttons act after their click handler has returned: the bar (and the button) goes away.
++void CloseClicked(void* pFrame, weld::Button&)
++{
++    Application::PostUserEvent(Link<void*, void>(pFrame, CloseLater));
++}
++
++void ConvertClicked(void* pFrame, weld::Button&)
++{
++    Application::PostUserEvent(Link<void*, void>(pFrame, ConvertLater));
++}
++
++void Show(SwView& rView)
++{
++    SwDocShell* pDocShell = rView.GetDocShell();
++    if (!pDocShell || pDocShell->IsReadOnly()
++        || pDocShell->GetCreateMode() == SfxObjectCreateMode::EMBEDDED)
++        return;
++    const uno::Reference<frame::XModel> xModel = pDocShell->GetModel();
++    if (!xModel.is())
++        return;
++    const sal_Int32 nCount = CountMathTypeObjects(*pDocShell->GetDoc());
++    if (nCount <= 0 || !FirstTime(xModel))
++        return;
++
++    SfxViewFrame& rFrame = rView.GetViewFrame();
++    const sal_uInt16 nId = SfxInfoBarContainerChild::GetChildWindowId();
++    if (!rFrame.HasChildWindow(nId))
++        rFrame.ToggleChildWindow(nId);
++    const bool bVi = Vietnamese();
++    const OUString aMessage
++        = (bVi ? u"Tài liệu có %N công thức MathType. Chuyển sang công thức HST để sửa được?"_ustr
++               : u"This document has %N MathType equations. Convert them to HST formulas so they "
++                 "can be edited?"_ustr)
++              .replaceFirst("%N", OUString::number(nCount));
++    VclPtr<SfxInfoBarWindow> pBar
++        = rFrame.AppendInfoBar(HINT_BAR_ID, OUString(), aMessage, InfobarType::INFO, false);
++    if (!pBar)
++        return;
++    weld::Button& rConvert = pBar->addButton();
++    rConvert.set_label(bVi ? u"Chuyển công thức"_ustr : u"Convert Equations"_ustr);
++    rConvert.connect_clicked(Link<weld::Button&, void>(&rFrame, ConvertClicked));
++    weld::Button& rClose = pBar->addButton();
++    rClose.set_label(bVi ? u"Đóng"_ustr : u"Close"_ustr);
++    rClose.connect_clicked(Link<weld::Button&, void>(&rFrame, CloseClicked));
++}
++
++void ShowLater(void* pModel, void*)
++{
++    std::unique_ptr<uno::WeakReference<frame::XModel>> pWeak(
++        static_cast<uno::WeakReference<frame::XModel>*>(pModel));
++    const uno::Reference<frame::XModel> xModel = pWeak->get();
++    if (!xModel.is())
++        return;
++    auto* pDocShell = dynamic_cast<SwDocShell*>(SfxObjectShell::GetShellFromComponent(xModel));
++    if (pDocShell && pDocShell->GetView())
++        Show(*pDocShell->GetView());
++}
++}
++
++sal_Int32 CountMathTypeObjects(const SwDoc& rDoc)
++{
++    const SwDocShell* pDocShell = rDoc.GetDocShell();
++    if (!pDocShell)
++        return 0;
++    const uno::Reference<embed::XStorage> xStorage = pDocShell->getStorage();
++    if (!xStorage.is())
++        return 0;
++    sal_Int32 nCount = 0;
++    const SwNodes& rNodes = rDoc.GetNodes();
++    for (SwNodeOffset n(0); n < rNodes.Count(); ++n)
++        if (const SwOLENode* pOle = rNodes[n]->GetOLENode())
++            if (IsMathType(xStorage, pOle->GetOLEObj().GetCurrentPersistName()))
++                ++nCount;
++    return nCount;
++}
++
++void ScheduleHintBar(const SwView& rView)
++{
++    if (comphelper::LibreOfficeKit::isActive())
++        return;
++    const SwDocShell* pDocShell = rView.GetDocShell();
++    if (!pDocShell || !pDocShell->GetModel().is())
++        return;
++    // the view is built while the document opens; the frame shows infobars once it has opened
++    Application::PostUserEvent(Link<void*, void>(
++        new uno::WeakReference<frame::XModel>(pDocShell->GetModel()), ShowLater));
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/inc/hstmathtypehintbar.hxx
++++ b/sw/source/uibase/inc/hstmathtypehintbar.hxx
+@@ -0,0 +1,29 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <sal/types.h>
++
++class SwDoc;
++class SwView;
++
++/// The hint bar a Writer document with MathType equations (Equation.DSMT*, kept as OLE objects
++/// with their preview picture) shows when it opens: it offers HST's formula converter. It never
++/// converts by itself.
++namespace hst::mathtype
++{
++/// The number of MathType OLE objects in rDoc: the class ID of each object's stored compound file,
++/// read without loading the object.
++sal_Int32 CountMathTypeObjects(const SwDoc& rDoc);
++
++/// After the document has opened: shows the hint bar in rView's frame when the document is
++/// editable, has MathType objects and has not shown the bar in this session.
++void ScheduleHintBar(const SwView& rView);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/uiview/view.cxx
++++ b/sw/source/uibase/uiview/view.cxx
+@@ -86,6 +86,7 @@
+ #include <wdocsh.hxx>
+ #include <wrtsh.hxx>
+ #include <hsttableautofit.hxx>
++#include <hstmathtypehintbar.hxx>
+ #include <barcfg.hxx>
+ #include <pview.hxx>
+ #include <swdtflvr.hxx>
+@@ -1155,6 +1156,10 @@
+     if (!bFuzzing)
+         GetViewFrame().GetWindow().AddChildEventListener(LINK(this, SwView, WindowChildEventListener));
+ 
++    // HST Office: offer to convert MathType equations (sw/source/uibase/hst/mathtypehintbar.cxx)
++    if (!bFuzzing)
++        hst::mathtype::ScheduleHintBar(*this);
++
+     m_aBringToAttentionBlinkTimer.SetInvokeHandler(
+                 LINK(this, SwView, BringToAttentionBlinkTimerHdl));
+     m_aBringToAttentionBlinkTimer.SetTimeout(350);
