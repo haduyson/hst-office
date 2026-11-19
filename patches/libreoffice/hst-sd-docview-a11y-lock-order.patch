@@ -1,0 +1,85 @@
+sd document view accessibles: take the SolarMutex before the disposed check.
+
+AccessibleDocumentViewBase::getAccessibleChild/getAccessibleAtPoint/getBackground and the
+getAccessibleChildCount/getAccessibleChild overrides of AccessibleDrawDocumentView and
+AccessibleOutlineView called ensureAlive() and then took only the object's own mutex (or none).
+Called from the gtk3 accessibility bridge, which runs without the SolarMutex, they could pass the
+check while another thread holding the SolarMutex disposed the view and its children manager.
+They now take the SolarMutex first. The overrides must lock too: otherwise a call holding the
+object's mutex would wait for the SolarMutex in the base class while dispose(), under the
+SolarMutex, waits for the object's mutex. Upstream bug (same code in LibreOffice 26.8.1.1 and
+26.8.3.1).
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: CppunitTest_sd_a11y (hst-sd-docview-a11y-dispose-race-test.patch).
+---
+--- a/sd/source/ui/accessibility/AccessibleDocumentViewBase.cxx
++++ b/sd/source/ui/accessibility/AccessibleDocumentViewBase.cxx
+@@ -31,6 +31,7 @@
+ #include <com/sun/star/accessibility/AccessibleRole.hpp>
+ #include <sfx2/objsh.hxx>
+ #include <tools/debug.hxx>
++#include <vcl/svapp.hxx>
+ #include <vcl/vclevent.hxx>
+ 
+ #include <cppuhelper/queryinterface.hxx>
+@@ -239,6 +240,7 @@
+ Reference<XAccessible> SAL_CALL
+     AccessibleDocumentViewBase::getAccessibleChild (sal_Int64 nIndex)
+ {
++    const SolarMutexGuard aSolarGuard;
+     ensureAlive();
+ 
+     ::osl::MutexGuard aGuard (m_aMutex);
+@@ -259,6 +261,7 @@
+     AccessibleDocumentViewBase::getAccessibleAtPoint (
+         const awt::Point& aPoint)
+ {
++    const SolarMutexGuard aSolarGuard;
+     ensureAlive();
+ 
+     ::osl::MutexGuard aGuard (m_aMutex);
+@@ -688,6 +691,7 @@
+ 
+ sal_Int32 SAL_CALL AccessibleDocumentViewBase::getBackground(  )
+ {
++    const SolarMutexGuard aSolarGuard;
+     ensureAlive();
+     ::osl::MutexGuard aGuard (m_aMutex);
+     return sal_Int32(mpViewShell->GetView()->getColorConfig().GetColorValue( ::svtools::DOCCOLOR ).nColor);
+--- a/sd/source/ui/accessibility/AccessibleDrawDocumentView.cxx
++++ b/sd/source/ui/accessibility/AccessibleDrawDocumentView.cxx
+@@ -184,6 +184,7 @@
+ sal_Int64 SAL_CALL
+     AccessibleDrawDocumentView::getAccessibleChildCount()
+ {
++    const SolarMutexGuard aSolarGuard;
+     ensureAlive();
+ 
+     sal_Int64 nChildCount = AccessibleDocumentViewBase::getAccessibleChildCount();
+@@ -198,6 +199,7 @@
+ uno::Reference<XAccessible> SAL_CALL
+     AccessibleDrawDocumentView::getAccessibleChild (sal_Int64 nIndex)
+ {
++    const SolarMutexGuard aSolarGuard;
+     ensureAlive();
+ 
+     ::osl::ClearableMutexGuard aGuard (m_aMutex);
+--- a/sd/source/ui/accessibility/AccessibleOutlineView.cxx
++++ b/sd/source/ui/accessibility/AccessibleOutlineView.cxx
+@@ -94,6 +94,7 @@
+ sal_Int64 SAL_CALL
+     AccessibleOutlineView::getAccessibleChildCount()
+ {
++    const SolarMutexGuard aSolarGuard;
+     ensureAlive();
+ 
+     // forward
+@@ -103,6 +104,7 @@
+ uno::Reference<XAccessible> SAL_CALL
+     AccessibleOutlineView::getAccessibleChild (sal_Int64 nIndex)
+ {
++    const SolarMutexGuard aSolarGuard;
+     ensureAlive();
+     // Forward request to children manager.
+     return maTextHelper.GetChild(nIndex);
