@@ -4,7 +4,8 @@ merge base with the integration branch). The series is applied with `patch -p1`,
   - every `diff --git` header needs the a/ and b/ prefixes ("diff --git sw/x sw/x" makes -p1 strip the module
     directory and write x at the source root);
   - every `--- `/`+++ ` header outside a hunk is /dev/null or a/<path> / b/<path>, and <path> (after -p1) lies under
-    a top-level directory of the LibreOffice tree, or is an existing file at its root.
+    a top-level directory of the LibreOffice tree, or is an existing file at its root. A file created from
+    /dev/null may start a new top-level directory (an HST-owned module such as hst/), but never sit at the root.
 `submit` and `train add` refuse a commit with such a patch (the integrator can override with --force).
 """
 import os
@@ -24,7 +25,7 @@ def tree_layout(tree):
     return dirs, set(names) - dirs
 
 
-def _check_path(path, prefix, where, dirs, root_files, problems):
+def _check_path(path, prefix, where, dirs, root_files, problems, new_file=False):
     if path == "/dev/null":
         return
     if not path.startswith(prefix):
@@ -34,8 +35,8 @@ def _check_path(path, prefix, where, dirs, root_files, problems):
     if dirs is None:
         return
     top = rel.split("/", 1)[0]
-    if "/" in rel and top in dirs:
-        return
+    if "/" in rel and (top in dirs or new_file):
+        return                            # a new file may start a new HST-owned module (e.g. hst/)
     if "/" not in rel and rel in root_files:
         return
     problems.append(f"{where}: {rel!r} is not under a LibreOffice module directory (with -p1 it lands at "
@@ -46,6 +47,7 @@ def lint_patch(name, text, dirs=None, root_files=None):
     """Problems ("<patch>:<line>: ...") of one patch; dirs/root_files from tree_layout (None: prefixes only)."""
     problems = []
     old_left = new_left = 0
+    old_is_devnull = False
     for no, line in enumerate(text.splitlines(), 1):
         if old_left > 0 or new_left > 0:   # inside a hunk: "--- x" may be a removed line starting with "-- "
             tag = line[:1]
@@ -71,9 +73,13 @@ def lint_patch(name, text, dirs=None, root_files=None):
             if len(parts) != 2 or not parts[0].startswith("a/") or not parts[1].startswith("b/"):
                 problems.append(f"{where}: {line.strip()!r} lacks the a/ and b/ prefixes")
         elif line.startswith("--- "):
-            _check_path(line[4:].split("\t")[0].strip(), "a/", where, dirs, root_files, problems)
+            old = line[4:].split("\t")[0].strip()
+            old_is_devnull = old == "/dev/null"
+            _check_path(old, "a/", where, dirs, root_files, problems)
         elif line.startswith("+++ "):
-            _check_path(line[4:].split("\t")[0].strip(), "b/", where, dirs, root_files, problems)
+            _check_path(line[4:].split("\t")[0].strip(), "b/", where, dirs, root_files, problems,
+                        new_file=old_is_devnull)
+            old_is_devnull = False
     return problems
 
 

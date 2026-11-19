@@ -40,6 +40,14 @@ class LintPatchTest(unittest.TestCase):
         self.assertIn("qa/, which the tree does not have", lint.lint_patch("q.patch", unknown_dir, DIRS, ROOT_FILES)[0])
         self.assertEqual(lint.lint_patch("q.patch", unknown_dir), [])   # no reference tree: prefixes only
 
+    def test_a_new_file_may_start_a_new_hst_module_but_an_edit_may_not(self):
+        new_module = ("diff --git a/hst/source/core.cxx b/hst/source/core.cxx\nnew file mode 100644\n--- /dev/null\n"
+                      "+++ b/hst/source/core.cxx\n@@ -0,0 +1 @@\n+int x;\n")
+        edit_unknown = ("diff --git a/hst/source/core.cxx b/hst/source/core.cxx\n--- a/hst/source/core.cxx\n"
+                        "+++ b/hst/source/core.cxx\n@@ -1 +1 @@\n-a\n+b\n")
+        self.assertEqual(lint.lint_patch("n.patch", new_module, DIRS, ROOT_FILES), [])
+        self.assertEqual(len(lint.lint_patch("e.patch", edit_unknown, DIRS, ROOT_FILES)), 2)
+
     def test_tree_layout(self):
         with tempfile.TemporaryDirectory() as tree:
             os.mkdir(os.path.join(tree, "sw"))
