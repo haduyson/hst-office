@@ -1,0 +1,1660 @@
+HST Office: the HST "coat", every dialog's controls drawn in the HST look from the design tokens.
+
+- Push buttons, input fields, spin fields, combo and list boxes (with their drop-down and spin buttons),
+  check boxes, radio buttons, tab controls and scroll bars are drawn with the tokens of
+  <vcl/hst/designtokens.hxx>: rounded corners, token borders, an accent focus border, hover/pressed/disabled
+  fills, an accent check mark and radio dot, tab pages on a card with an accent bar under the selected tab, a
+  pill-shaped scroll thumb. Light and dark palettes follow the theme. No .ui file changes.
+- One hook in OutputDevice::DrawNativeControl hands each request to hst::coat first. The coat draws a part
+  only where the platform already draws it natively (Windows, macOS; the VCL-drawn controls of gtk3); every
+  size and content region still comes from the platform, so all layouts stay as they were.
+- gtk3: the GTK-drawn (welded) dialogs get a GTK CSS provider generated from the same tokens, above the theme
+  and below the user's gtk.css. It sets colours, radii and focus marks only, never sizes.
+- Off in high-contrast mode, and when org.openoffice.Office.HSTAppearance/UiCoat/Enabled is false or
+  HST_UI_COAT=0 (read once at start-up).
+- CppunitTest_vcl_hst_coat probes the pixels of every covered control and state on a VirtualDevice, and checks
+  the high-contrast and setting switches and the generated CSS.
+
+--- a/officecfg/files.mk
++++ b/officecfg/files.mk
+@@ -29,6 +29,7 @@
+     Office/ExtensionDependencies \
+     Office/ExtensionManager \
+     Office/FormWizard \
++    Office/HSTAppearance \
+     Office/HSTPdfViewer \
+     Office/HSTRibbon \
+     Office/HSTUpdate \
+--- a/officecfg/registry/schema/org/openoffice/Office/HSTAppearance.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/HSTAppearance.xcs
+@@ -0,0 +1,29 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!--
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ -->
++
++<!DOCTYPE oor:component-schema SYSTEM "../../../../component-schema.dtd">
++<oor:component-schema xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" oor:name="HSTAppearance" oor:package="org.openoffice.Office" xml:lang="en-US">
++  <info>
++    <desc>The HST Office look of the application's own controls.</desc>
++  </info>
++  <component>
++    <group oor:name="UiCoat">
++      <info>
++        <desc>The HST coat: buttons, fields, check boxes, radio buttons, tabs and scroll bars of every
++          dialog drawn in the HST style. It is always off in high-contrast mode.</desc>
++      </info>
++      <prop oor:name="Enabled" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>Draw the controls in the HST style. False: the platform's own look, as in LibreOffice.
++            Read at start-up; the environment variable HST_UI_COAT=0 or 1 overrides it.</desc>
++          <label>HST style for controls</label>
++        </info>
++        <value>true</value>
++      </prop>
++    </group>
++  </component>
++</oor:component-schema>
+--- a/postprocess/CustomTarget_registry.mk
++++ b/postprocess/CustomTarget_registry.mk
+@@ -147,6 +147,7 @@
+ 	$(postprocess_XCS)/Office/ExtensionDependencies.xcs \
+ 	$(postprocess_XCS)/Office/ExtensionManager.xcs \
+ 	$(postprocess_XCS)/Office/FormWizard.xcs \
++	$(postprocess_XCS)/Office/HSTAppearance.xcs \
+ 	$(postprocess_XCS)/Office/HSTPdfViewer.xcs \
+ 	$(postprocess_XCS)/Office/HSTRibbon.xcs \
+ 	$(postprocess_XCS)/Office/HSTUpdate.xcs \
+--- a/vcl/CppunitTest_vcl_hst_coat.mk
++++ b/vcl/CppunitTest_vcl_hst_coat.mk
+@@ -0,0 +1,53 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++# This file is part of HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,vcl_hst_coat))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,vcl_hst_coat, \
++    vcl/qa/cppunit/hst/coat-test \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,vcl_hst_coat,\
++    boost_headers \
++))
++
++$(eval $(call gb_CppunitTest_set_include,vcl_hst_coat,\
++    $$(INCLUDE) \
++    -I$(SRCDIR)/vcl/inc \
++))
++
++$(eval $(call gb_CppunitTest_use_custom_headers,vcl_hst_coat,\
++    officecfg/registry \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,vcl_hst_coat, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    sal \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,vcl_hst_coat))
++
++$(eval $(call gb_CppunitTest_use_ure,vcl_hst_coat))
++$(eval $(call gb_CppunitTest_use_vcl,vcl_hst_coat))
++
++$(eval $(call gb_CppunitTest_use_components,vcl_hst_coat,\
++    configmgr/source/configmgr \
++    i18npool/util/i18npool \
++    ucb/source/core/ucb1 \
++    unotools/util/utl \
++))
++
++$(eval $(call gb_CppunitTest_use_configuration,vcl_hst_coat))
++
++# vim: set noet sw=4 ts=4:
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -378,6 +378,12 @@
+     vcl/source/gdi/hstprinterstatusquery \
+     vcl/source/hst/designtokens \
+     vcl/source/hst/drawhelpers \
++    vcl/source/hst/coat/coat \
++    vcl/source/hst/coat/coat-buttons \
++    vcl/source/hst/coat/coat-fields \
++    vcl/source/hst/coat/coat-gtk-css \
++    vcl/source/hst/coat/coat-shapes \
++    vcl/source/hst/coat/coat-tabs-scrollbars \
+     vcl/source/gdi/print \
+     vcl/source/gdi/regband \
+     vcl/source/gdi/region \
+--- a/vcl/Library_vclplug_gtk3.mk
++++ b/vcl/Library_vclplug_gtk3.mk
+@@ -107,6 +107,7 @@
+     vcl/unx/gtk3/gtksys \
+     vcl/unx/gtk3/gtkcairo \
+     vcl/unx/gtk3/custom-theme \
++    vcl/unx/gtk3/hst-coat-gtk \
+     vcl/unx/gtk3/salnativewidgets-gtk \
+     vcl/unx/gtk3/gtkframe \
+     vcl/unx/gtk3/gtkobject \
+--- a/vcl/Module_vcl.mk
++++ b/vcl/Module_vcl.mk
+@@ -237,6 +237,7 @@
+     CppunitTest_vcl_fontfeature \
+     CppunitTest_vcl_fontmetric \
+     CppunitTest_vcl_fontvariation \
++    CppunitTest_vcl_hst_coat \
+     CppunitTest_vcl_text \
+     CppunitTest_vcl_textlayout \
+     CppunitTest_vcl_treeview \
+--- a/vcl/inc/hst/coat.hxx
++++ b/vcl/inc/hst/coat.hxx
+@@ -0,0 +1,55 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <rtl/string.hxx>
++#include <tools/color.hxx>
++#include <tools/gen.hxx>
++#include <vcl/dllapi.h>
++#include <vcl/salnativewidgets.hxx>
++
++class OutputDevice;
++class StyleSettings;
++
++/* The HST "coat": the native controls of every dialog (buttons, fields, check and radio boxes, tabs,
++   scroll bars...) drawn in the HST look from the design tokens of <vcl/hst/designtokens.hxx>.
++
++   Only the drawing changes: a part is drawn by the coat only where the platform already draws it
++   natively, and every size and content region still comes from the platform, so layouts are exactly
++   as without the coat. The coat is off in high-contrast mode and when switched off by the expert
++   setting org.openoffice.Office.HSTAppearance/UiCoat/Enabled or the environment variable
++   HST_UI_COAT=0 (read once per process). */
++namespace hst::coat
++{
++/** Draw a part of a native control in the HST look. rRegion and the rectangles inside rValue are in
++    rDev's logical coordinates, as given to OutputDevice::DrawNativeControl. Returns false when the coat
++    does not draw this part (switched off, high contrast, not covered, or no native look on this
++    platform): the caller then draws it as usual. */
++bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
++                       const tools::Rectangle& rRegion, ControlState eState,
++                       const ImplControlValue& rValue, const Color& rBackground);
++
++/** Whether the coat is switched on (setting and environment), not looking at high contrast. */
++VCL_PLUGIN_PUBLIC bool IsSwitchedOn();
++
++/** Whether the coat applies with these style settings: switched on and not in high-contrast mode. */
++VCL_PLUGIN_PUBLIC bool IsActive(const StyleSettings& rStyle);
++
++/** The GTK CSS of the coat for the welded (GTK-drawn) widgets, from the same tokens. It changes
++    colours, corner radii and focus marks only, never borders' widths, paddings or sizes. */
++VCL_PLUGIN_PUBLIC OString CreateGtkCss(bool bDark);
++
++/** Tests: draw every covered part even where the platform has no native look (the headless backend
++    has none), so the coat's drawing can be checked on a VirtualDevice. */
++VCL_DLLPUBLIC void ForceForTesting(bool bForce);
++
++/** Tests: read the switch (setting and environment) again on its next use. */
++VCL_DLLPUBLIC void ResetSwitchForTesting();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/qa/cppunit/hst/coat-test.cxx
++++ b/vcl/qa/cppunit/hst/coat-test.cxx
+@@ -0,0 +1,338 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include <test/bootstrapfixture.hxx>
++
++#include <comphelper/configuration.hxx>
++#include <officecfg/Office/HSTAppearance.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/salnativewidgets.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/virdev.hxx>
++
++#include <hst/coat.hxx>
++
++#include <cstdlib>
++
++namespace
++{
++// a colour the coat never paints: what is left of it was not painted
++constexpr Color MARKER(0xFF, 0x00, 0xFF);
++
++/* The coat drawn on a VirtualDevice of the headless backend, which has no native look of its own:
++   ForceForTesting makes the coat draw there, so its shapes and colours can be probed pixel by
++   pixel. */
++class CoatTest : public test::BootstrapFixture
++{
++public:
++    CoatTest()
++        : test::BootstrapFixture(true, false)
++    {
++    }
++
++    void setUp() override
++    {
++        test::BootstrapFixture::setUp();
++        unsetenv("HST_UI_COAT");
++        setSwitch(true);
++        hst::coat::ForceForTesting(true);
++    }
++
++    void tearDown() override
++    {
++        hst::coat::ForceForTesting(false);
++        setSwitch(true);
++        test::BootstrapFixture::tearDown();
++    }
++
++protected:
++    static void setSwitch(bool bOn)
++    {
++        auto xChanges = comphelper::ConfigurationChanges::create();
++        officecfg::Office::HSTAppearance::UiCoat::Enabled::set(bOn, xChanges);
++        xChanges->commit();
++        hst::coat::ResetSwitchForTesting();
++    }
++
++    static ScopedVclPtr<VirtualDevice> makeDevice(const Size& rSize, bool bDark = false,
++                                                  bool bHighContrast = false)
++    {
++        ScopedVclPtr<VirtualDevice> pDev = VclPtr<VirtualDevice>::Create();
++        AllSettings aSettings = pDev->GetSettings();
++        StyleSettings aStyle = aSettings.GetStyleSettings();
++        aStyle.SetHighContrastMode(bHighContrast);
++        if (bDark)
++        {
++            aStyle.SetWindowColor(Color(0x20, 0x20, 0x20));
++            aStyle.SetFieldColor(Color(0x2A, 0x2A, 0x2A));
++            aStyle.SetDialogColor(Color(0x28, 0x28, 0x28));
++        }
++        else
++        {
++            aStyle.SetWindowColor(COL_WHITE);
++            aStyle.SetFieldColor(COL_WHITE);
++            aStyle.SetDialogColor(Color(0xF0, 0xF0, 0xF0));
++        }
++        aSettings.SetStyleSettings(aStyle);
++        pDev->SetSettings(aSettings);
++        pDev->SetOutputSizePixel(rSize);
++        pDev->SetBackground(Wallpaper(MARKER));
++        pDev->Erase();
++        return pDev;
++    }
++
++    static const hst::design::Palette& light() { return hst::design::GetPalette(false); }
++
++    static bool draw(VirtualDevice& rDev, ControlType eType, ControlPart ePart,
++                     ControlState eState, const ImplControlValue& rValue = ImplControlValue())
++    {
++        return rDev.DrawNativeControl(eType, ePart,
++                                      tools::Rectangle(Point(), rDev.GetOutputSizePixel()),
++                                      eState, rValue, OUString());
++    }
++
++    /** rExpected at (nX, nY), give or take the rounding of the anti-aliasing backend. */
++    static void assertPixel(const char* pWhat, const VirtualDevice& rDev, tools::Long nX,
++                            tools::Long nY, const Color& rExpected)
++    {
++        const Color aActual = rDev.GetPixel(Point(nX, nY));
++        const bool bClose = std::abs(aActual.GetRed() - rExpected.GetRed()) <= 2
++                            && std::abs(aActual.GetGreen() - rExpected.GetGreen()) <= 2
++                            && std::abs(aActual.GetBlue() - rExpected.GetBlue()) <= 2;
++        CPPUNIT_ASSERT_MESSAGE(OString(OString::Concat(pWhat) + ": expected "
++                                       + rExpected.AsRGBHexString().toUtf8() + " at "
++                                       + OString::number(nX) + "," + OString::number(nY)
++                                       + ", got " + aActual.AsRGBHexString().toUtf8())
++                                   .getStr(),
++                               bClose);
++    }
++
++    static constexpr ControlState ENABLED = ControlState::ENABLED;
++};
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testPushButtonRoundedAndTokenColours)
++{
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30));
++    CPPUNIT_ASSERT(draw(*pDev, ControlType::Pushbutton, ControlPart::Entire, ENABLED));
++    assertPixel("rounded corner left unpainted", *pDev, 0, 0, MARKER);
++    assertPixel("border", *pDev, 0, 15, light().aControlBorder);
++    assertPixel("fill", *pDev, 40, 15, light().aControlFill);
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testPushButtonStates)
++{
++    const auto& p = light();
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30));
++        draw(*pDev, ControlType::Pushbutton, ControlPart::Entire, ENABLED | ControlState::ROLLOVER);
++        assertPixel("hover fill", *pDev, 40, 15, p.aHover);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30));
++        draw(*pDev, ControlType::Pushbutton, ControlPart::Entire, ENABLED | ControlState::PRESSED);
++        assertPixel("pressed fill", *pDev, 40, 15, p.aPressed);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30));
++        draw(*pDev, ControlType::Pushbutton, ControlPart::Entire, ControlState::NONE);
++        assertPixel("disabled fill", *pDev, 40, 15, p.aDisabledFill);
++        assertPixel("disabled border", *pDev, 0, 15, p.aDisabledBorder);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30));
++        draw(*pDev, ControlType::Pushbutton, ControlPart::Entire, ENABLED | ControlState::FOCUSED);
++        assertPixel("focus border, outer pixel", *pDev, 0, 15, p.aAccent);
++        assertPixel("focus border, inner pixel", *pDev, 1, 15, p.aAccent);
++        assertPixel("focused fill", *pDev, 40, 15, p.aControlFill);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30));
++        draw(*pDev, ControlType::Pushbutton, ControlPart::Entire, ENABLED | ControlState::DEFAULT);
++        assertPixel("default button border", *pDev, 0, 15, p.aAccent);
++        assertPixel("default button: one pixel", *pDev, 1, 15, p.aControlFill);
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testDarkPalette)
++{
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30), true);
++    draw(*pDev, ControlType::Pushbutton, ControlPart::Entire, ENABLED);
++    assertPixel("dark fill", *pDev, 40, 15, hst::design::GetPalette(true).aControlFill);
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testFieldsKeepTheFieldColour)
++{
++    for (ControlType eType : { ControlType::Editbox, ControlType::Combobox, ControlType::Listbox })
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(120, 26));
++        CPPUNIT_ASSERT(draw(*pDev, eType, ControlPart::Entire, ENABLED));
++        assertPixel("field corner", *pDev, 0, 0, MARKER);
++        assertPixel("field border", *pDev, 0, 13, light().aFieldBorder);
++        assertPixel("field fill is the theme's field colour", *pDev, 60, 13, COL_WHITE);
++    }
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(120, 26));
++    draw(*pDev, ControlType::Editbox, ControlPart::Entire, ENABLED | ControlState::FOCUSED);
++    assertPixel("focused field, outer pixel", *pDev, 0, 13, light().aAccent);
++    assertPixel("focused field, inner pixel", *pDev, 1, 13, light().aAccent);
++    assertPixel("focused field, inside", *pDev, 2, 13, COL_WHITE);
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testDropDownButton)
++{
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(20, 24));
++    CPPUNIT_ASSERT(draw(*pDev, ControlType::Listbox, ControlPart::ButtonDown, ENABLED));
++    assertPixel("drop button background", *pDev, 1, 1, COL_WHITE);
++    // the chevron's tip is below the centre, in the muted glyph colour
++    bool bGlyph = false;
++    for (tools::Long y = 10; y < 16 && !bGlyph; ++y)
++        bGlyph = pDev->GetPixel(Point(10, y)) != COL_WHITE;
++    CPPUNIT_ASSERT_MESSAGE("chevron drawn", bGlyph);
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testCheckBox)
++{
++    const auto& p = light();
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(16, 16));
++        CPPUNIT_ASSERT(draw(*pDev, ControlType::Checkbox, ControlPart::Entire, ENABLED,
++                            ImplControlValue(ButtonValue::Off)));
++        assertPixel("unchecked border", *pDev, 0, 8, p.aControlBorder);
++        assertPixel("unchecked inside", *pDev, 8, 8, COL_WHITE);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(16, 16));
++        draw(*pDev, ControlType::Checkbox, ControlPart::Entire, ENABLED,
++             ImplControlValue(ButtonValue::On));
++        assertPixel("checked fill, away from the mark", *pDev, 3, 13, p.aAccent);
++        assertPixel("checked border", *pDev, 0, 8, p.aAccent);
++        // the middle of the mark's short stroke, in the on-accent colour
++        assertPixel("check mark", *pDev, 5, 9, p.aOnAccent);
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testRadioButton)
++{
++    const auto& p = light();
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(16, 16));
++    CPPUNIT_ASSERT(draw(*pDev, ControlType::Radiobutton, ControlPart::Entire, ENABLED,
++                        ImplControlValue(ButtonValue::On)));
++    assertPixel("round: corner unpainted", *pDev, 1, 1, MARKER);
++    assertPixel("selected ring", *pDev, 3, 8, p.aAccent);
++    assertPixel("dot", *pDev, 8, 8, p.aOnAccent);
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testTabs)
++{
++    const auto& p = light();
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 28));
++        CPPUNIT_ASSERT(draw(*pDev, ControlType::TabItem, ControlPart::Entire,
++                            ENABLED | ControlState::SELECTED));
++        assertPixel("indicator on the page side", *pDev, 40, 27, p.aTabIndicator);
++        assertPixel("indicator thickness", *pDev, 40, 26, p.aTabIndicator);
++        assertPixel("tab face", *pDev, 40, 5, Color(0xF0, 0xF0, 0xF0));
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 28));
++        draw(*pDev, ControlType::TabItem, ControlPart::Entire, ENABLED);
++        assertPixel("unselected: no indicator", *pDev, 40, 27, Color(0xF0, 0xF0, 0xF0));
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 120));
++        CPPUNIT_ASSERT(draw(*pDev, ControlType::TabPane, ControlPart::Entire, ENABLED));
++        assertPixel("pane corner", *pDev, 0, 0, MARKER);
++        assertPixel("pane border", *pDev, 0, 60, p.aCardBorder);
++        assertPixel("pane fill", *pDev, 100, 60, p.aCard);
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testScrollBar)
++{
++    const auto& p = light();
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(16, 60));
++        CPPUNIT_ASSERT(draw(*pDev, ControlType::Scrollbar, ControlPart::ThumbVert, ENABLED));
++        assertPixel("track beside the thumb", *pDev, 0, 30, p.aScrollTrack);
++        assertPixel("thumb", *pDev, 8, 30, p.aScrollThumb);
++        assertPixel("pill end", *pDev, 3, 1, p.aScrollTrack);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(16, 60));
++        draw(*pDev, ControlType::Scrollbar, ControlPart::ThumbVert,
++             ENABLED | ControlState::PRESSED);
++        assertPixel("pressed thumb", *pDev, 8, 30, p.aScrollThumbPressed);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(16, 60));
++        CPPUNIT_ASSERT(
++            draw(*pDev, ControlType::Scrollbar, ControlPart::TrackVertUpper, ENABLED));
++        assertPixel("track", *pDev, 8, 30, p.aScrollTrack);
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testHighContrastSwitchesTheCoatOff)
++{
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30), false, true);
++    CPPUNIT_ASSERT(!draw(*pDev, ControlType::Pushbutton, ControlPart::Entire, ENABLED));
++    assertPixel("nothing painted", *pDev, 40, 15, MARKER);
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testSettingSwitchesTheCoatOff)
++{
++    setSwitch(false);
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30));
++    CPPUNIT_ASSERT(!hst::coat::IsSwitchedOn());
++    CPPUNIT_ASSERT(!draw(*pDev, ControlType::Pushbutton, ControlPart::Entire, ENABLED));
++    assertPixel("nothing painted", *pDev, 40, 15, MARKER);
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testEnvironmentOverridesTheSetting)
++{
++    setenv("HST_UI_COAT", "0", 1);
++    hst::coat::ResetSwitchForTesting();
++    CPPUNIT_ASSERT(!hst::coat::IsSwitchedOn());
++    unsetenv("HST_UI_COAT");
++    hst::coat::ResetSwitchForTesting();
++    CPPUNIT_ASSERT(hst::coat::IsSwitchedOn());
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testOnlyWhereThePlatformHasANativeLook)
++{
++    // the headless backend draws no native controls: without the test override the coat must not
++    // either, or VCL's own drawing (and its sizes) would change there
++    hst::coat::ForceForTesting(false);
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30));
++    CPPUNIT_ASSERT(!draw(*pDev, ControlType::Pushbutton, ControlPart::Entire, ENABLED));
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testUncoveredPartsAreLeftToThePlatform)
++{
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30));
++    CPPUNIT_ASSERT(!draw(*pDev, ControlType::Pushbutton, ControlPart::Focus, ENABLED));
++    CPPUNIT_ASSERT(!draw(*pDev, ControlType::Progress, ControlPart::Entire, ENABLED));
++    assertPixel("nothing painted", *pDev, 40, 15, MARKER);
++}
++
++CPPUNIT_TEST_FIXTURE(CoatTest, testGtkCss)
++{
++    const OString aLight = hst::coat::CreateGtkCss(false);
++    const OString aDark = hst::coat::CreateGtkCss(true);
++    CPPUNIT_ASSERT(aLight.indexOf(OString("#" + light().aAccent.AsRGBHexString().toUtf8())) >= 0);
++    CPPUNIT_ASSERT(
++        aDark.indexOf(OString("#" + hst::design::GetPalette(true).aAccent.AsRGBHexString().toUtf8())) >= 0);
++    CPPUNIT_ASSERT(aLight != aDark);
++    // the coat must not change any widget's size
++    for (const char* pMetric : { "padding", "margin", "min-height", "min-width", "border-width",
++                                 "font" })
++        CPPUNIT_ASSERT_MESSAGE(pMetric, aLight.indexOf(pMetric) < 0);
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/coat-buttons.cxx
++++ b/vcl/source/hst/coat/coat-buttons.cxx
+@@ -0,0 +1,145 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* Push buttons, check boxes and radio buttons. The label is drawn by the control itself, in the
++   theme's button text colour, so the fills behind it stay light in a light theme and dark in a
++   dark one: the accent only marks a default button's border, a checked box and a selected radio. */
++
++#include "coat-paint.hxx"
++
++#include <basegfx/point/b2dpoint.hxx>
++#include <basegfx/polygon/b2dpolygontools.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/outdev.hxx>
++
++#include <algorithm>
++
++namespace hst::coat
++{
++namespace
++{
++/** The square box of a check or radio mark, centred in the part's region. */
++tools::Rectangle markBox(const tools::Rectangle& rRegion)
++{
++    const tools::Long nSide = std::min(rRegion.GetWidth(), rRegion.GetHeight());
++    const Point aTopLeft(rRegion.Left() + (rRegion.GetWidth() - nSide) / 2,
++                         rRegion.Top() + (rRegion.GetHeight() - nSide) / 2);
++    return tools::Rectangle(aTopLeft, Size(nSide, nSide));
++}
++
++/** Fill and border of a check box or a radio button. */
++void markColours(const PaintContext& rCtx, bool bOn, Color& rFill, Color& rBorder)
++{
++    const auto& p = rCtx.rPalette;
++    if (!rCtx.IsEnabled())
++    {
++        rFill = bOn ? p.aDisabledBorder : p.aDisabledFill;
++        rBorder = p.aDisabledBorder;
++    }
++    else if (bOn)
++    {
++        rFill = rCtx.IsPressed() ? p.aAccentPressed : rCtx.IsHover() ? p.aAccentHover : p.aAccent;
++        rBorder = rFill;
++    }
++    else
++    {
++        rFill = rCtx.IsPressed() ? p.aPressed : rCtx.IsHover() ? p.aHover : rCtx.FieldFill();
++        rBorder = rCtx.IsHover() || rCtx.IsFocused() ? p.aAccent : p.aControlBorder;
++    }
++}
++}
++
++bool PaintPushButton(const PaintContext& rCtx, ControlPart ePart)
++{
++    if (ePart != ControlPart::Entire)
++        return false;
++    const auto& p = rCtx.rPalette;
++    Color aFill = p.aControlFill;
++    Color aBorder = p.aControlBorder;
++    double fBorder = rCtx.Px(hst::design::stroke::Border);
++    if (!rCtx.IsEnabled())
++    {
++        aFill = p.aDisabledFill;
++        aBorder = p.aDisabledBorder;
++    }
++    else
++    {
++        if (rCtx.IsPressed())
++            aFill = p.aPressed;
++        else if (rCtx.IsHover())
++            aFill = p.aHover;
++        if (rCtx.IsFocused())
++        {
++            aBorder = p.aAccent;
++            fBorder = rCtx.Px(hst::design::FIELD_FOCUS_BORDER);
++        }
++        else if (rCtx.eState & ControlState::DEFAULT)
++            aBorder = p.aAccent;
++    }
++    FillAndStroke(rCtx, rCtx.aRect, ControlRadius(rCtx, rCtx.aRect.GetHeight()), aFill, aBorder,
++                  fBorder);
++    return true;
++}
++
++bool PaintCheckBox(const PaintContext& rCtx, ControlPart ePart, ButtonValue eValue)
++{
++    if (ePart != ControlPart::Entire)
++        return false;
++    const tools::Rectangle aBox = markBox(rCtx.aRect);
++    const bool bOn = eValue == ButtonValue::On || eValue == ButtonValue::Mixed;
++    Color aFill, aBorder;
++    markColours(rCtx, bOn, aFill, aBorder);
++    FillAndStroke(rCtx, aBox, rCtx.Px(hst::design::radius::Check), aFill, aBorder,
++                  rCtx.Px(hst::design::stroke::Border));
++    if (!bOn)
++        return true;
++
++    const Color aMark = rCtx.IsEnabled() ? rCtx.rPalette.aOnAccent : rCtx.rPalette.aDisabledText;
++    const double fSide = aBox.GetWidth();
++    const double fX = aBox.Left();
++    const double fY = aBox.Top();
++    basegfx::B2DPolygon aLine;
++    if (eValue == ButtonValue::Mixed)
++    {
++        aLine.append({ fX + fSide * 0.28, fY + fSide * 0.5 });
++        aLine.append({ fX + fSide * 0.72, fY + fSide * 0.5 });
++    }
++    else
++    {
++        aLine.append({ fX + fSide * 0.26, fY + fSide * 0.52 });
++        aLine.append({ fX + fSide * 0.43, fY + fSide * 0.69 });
++        aLine.append({ fX + fSide * 0.75, fY + fSide * 0.34 });
++    }
++    StrokePolyLine(rCtx, aLine, aMark, rCtx.Px(hst::design::stroke::CheckMark));
++    return true;
++}
++
++bool PaintRadioButton(const PaintContext& rCtx, ControlPart ePart, ButtonValue eValue)
++{
++    if (ePart != ControlPart::Entire)
++        return false;
++    const tools::Rectangle aBox = markBox(rCtx.aRect);
++    const bool bOn = eValue == ButtonValue::On;
++    Color aFill, aBorder;
++    markColours(rCtx, bOn, aFill, aBorder);
++    // a circle is a rounded square of half its side
++    FillAndStroke(rCtx, aBox, aBox.GetWidth() / 2.0, aFill, aBorder,
++                  rCtx.Px(hst::design::stroke::Border));
++    if (!bOn)
++        return true;
++
++    const Color aDot = rCtx.IsEnabled() ? rCtx.rPalette.aOnAccent : rCtx.rPalette.aDisabledText;
++    const double fSide = aBox.GetWidth();
++    const basegfx::B2DPoint aCentre(aBox.Left() + fSide / 2, aBox.Top() + fSide / 2);
++    rCtx.rDev.SetLineColor();
++    rCtx.rDev.SetFillColor(aDot);
++    rCtx.rDev.DrawPolygon(basegfx::utils::createPolygonFromCircle(aCentre, fSide * 0.2));
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/coat-fields.cxx
++++ b/vcl/source/hst/coat/coat-fields.cxx
+@@ -0,0 +1,102 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* Input fields (entries, multi-line entries, spin fields), combo and list boxes, their drop-down
++   buttons and the buttons of spin fields. The field's inner window paints its own background in the
++   field colour; the coat fills with the same colour, so only the border and the rounded corners
++   change. */
++
++#include "coat-paint.hxx"
++
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/outdev.hxx>
++
++namespace hst::coat
++{
++namespace
++{
++Color glyphColour(const PaintContext& rCtx, ControlState eState)
++{
++    const auto& p = rCtx.rPalette;
++    if (!(eState & ControlState::ENABLED))
++        return p.aDisabledText;
++    if (eState & ControlState::PRESSED)
++        return p.aAccent;
++    return eState & ControlState::ROLLOVER ? p.aText : p.aMuted;
++}
++
++/** The glyph of a button inside a field: field colour behind, a hover or pressed tint, a chevron. */
++void paintFieldButton(const PaintContext& rCtx, const tools::Rectangle& rBox, ControlState eState,
++                      Chevron eDirection)
++{
++    if (rBox.IsEmpty())
++        return;
++    const auto& p = rCtx.rPalette;
++    Color aFill = rCtx.FieldFill();
++    if (eState & ControlState::ENABLED)
++    {
++        if (eState & ControlState::PRESSED)
++            aFill = p.aPressed;
++        else if (eState & ControlState::ROLLOVER)
++            aFill = p.aHover;
++    }
++    rCtx.rDev.SetLineColor();
++    rCtx.rDev.SetFillColor(aFill);
++    rCtx.rDev.DrawRect(rBox);
++    DrawChevron(rCtx, rBox, eDirection, glyphColour(rCtx, eState));
++}
++}
++
++bool PaintField(const PaintContext& rCtx, ControlType eType, ControlPart ePart)
++{
++    if (ePart == ControlPart::ButtonDown)
++    {
++        if (eType != ControlType::Combobox && eType != ControlType::Listbox)
++            return false;
++        paintFieldButton(rCtx, rCtx.aRect, rCtx.eState, Chevron::Down);
++        return true;
++    }
++    if (ePart != ControlPart::Entire && ePart != ControlPart::ListboxWindow)
++        return false;
++
++    const auto& p = rCtx.rPalette;
++    Color aBorder = p.aFieldBorder;
++    double fBorder = rCtx.Px(hst::design::stroke::Border);
++    if (!rCtx.IsEnabled())
++        aBorder = p.aDisabledBorder;
++    else if (rCtx.IsFocused())
++    {
++        aBorder = p.aAccent;
++        fBorder = rCtx.Px(hst::design::FIELD_FOCUS_BORDER);
++    }
++    else if (rCtx.IsHover())
++        aBorder = p.aMuted;
++    // a list window holds rows up to its border: a small radius keeps the rows' corners inside
++    const double fRadius = ePart == ControlPart::ListboxWindow
++                               ? rCtx.Px(hst::design::radius::Check)
++                               : ControlRadius(rCtx, rCtx.aRect.GetHeight());
++    FillAndStroke(rCtx, rCtx.aRect, fRadius, rCtx.FieldFill(), aBorder, fBorder);
++
++    // a spin field draws its buttons in the same request on some platforms
++    if (eType == ControlType::Spinbox && !rCtx.aUpper.IsEmpty())
++        PaintSpinButtons(rCtx, ControlPart::AllButtons);
++    return true;
++}
++
++bool PaintSpinButtons(const PaintContext& rCtx, ControlPart ePart)
++{
++    if (ePart != ControlPart::AllButtons || rCtx.aUpper.IsEmpty() || rCtx.aLower.IsEmpty())
++        return false;
++    // up and down buttons stacked, or side by side (left: down, right: up)
++    const bool bStacked = rCtx.aUpper.Bottom() <= rCtx.aLower.Top();
++    paintFieldButton(rCtx, rCtx.aUpper, rCtx.eUpperState, bStacked ? Chevron::Up : Chevron::Right);
++    paintFieldButton(rCtx, rCtx.aLower, rCtx.eLowerState, bStacked ? Chevron::Down : Chevron::Left);
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/coat-gtk-css.cxx
++++ b/vcl/source/hst/coat/coat-gtk-css.cxx
+@@ -0,0 +1,124 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* The coat for GTK-drawn dialogs: the same tokens as the VCL painters, written as GTK 3 CSS.
++   Only colours, corner radii and focus marks are set. Border widths, paddings, margins and minimum
++   sizes stay the theme's, so no widget changes size. A focused field gets its second border pixel
++   from an inset shadow, which takes no space. */
++
++#include <hst/coat.hxx>
++
++#include <rtl/ustrbuf.hxx>
++#include <vcl/hst/designtokens.hxx>
++
++#include <cmath>
++
++namespace hst::coat
++{
++namespace
++{
++OUString hex(const Color& rColor) { return u"#" + rColor.AsRGBHexString(); }
++
++OUString px(double fLength) { return OUString::number(std::lround(fLength)) + u"px"; }
++}
++
++OString CreateGtkCss(bool bDark)
++{
++    const hst::design::Palette& p = hst::design::GetPalette(bDark);
++    namespace d = hst::design;
++    const OUString aRadius = px(d::radius::Control / 2); // GTK's controls are small; see ControlRadius
++    const OUString aBorder = px(d::stroke::Border);
++
++    OUStringBuffer aCss(4096);
++    // push buttons, combo box buttons, spin buttons
++    aCss.append(u"button { background-image: none; background-color: " + hex(p.aControlFill)
++                + u"; border-color: " + hex(p.aControlBorder) + u"; border-radius: " + aRadius
++                + u"; box-shadow: none; text-shadow: none; }\n"
++                  u"button:hover { background-color: "
++                + hex(p.aHover) + u"; }\n"
++                  u"button:active, button:checked { background-color: "
++                + hex(p.aPressed) + u"; }\n"
++                  u"button:disabled { background-color: "
++                + hex(p.aDisabledFill) + u"; border-color: " + hex(p.aDisabledBorder)
++                + u"; color: " + hex(p.aDisabledText) + u"; }\n"
++                  u"button.default { border-color: "
++                + hex(p.aAccent) + u"; }\n"
++                  u"button:focus { border-color: "
++                + hex(p.aAccent) + u"; box-shadow: inset 0 0 0 " + aBorder + u" "
++                + hex(p.aAccent) + u"; }\n");
++    // flat buttons (toolbars, the buttons inside entries) keep no frame until hovered
++    aCss.append(u"button.flat { background-color: transparent; border-color: transparent; }\n"
++                u"button.flat:hover { background-color: "
++                + hex(p.aHover) + u"; }\n");
++    // entries, spin buttons and the entry of combo boxes
++    aCss.append(u"entry, spinbutton:not(.vertical), textview.view { border-color: "
++                + hex(p.aFieldBorder) + u"; border-radius: " + aRadius
++                + u"; background-image: none; box-shadow: none; }\n"
++                  u"entry:hover, spinbutton:not(.vertical):hover { border-color: "
++                + hex(p.aMuted) + u"; }\n"
++                  u"entry:focus, spinbutton:not(.vertical):focus { border-color: "
++                + hex(p.aAccent) + u"; box-shadow: inset 0 0 0 " + aBorder + u" "
++                + hex(p.aAccent) + u"; outline: none; }\n"
++                  u"entry:disabled, spinbutton:disabled { border-color: "
++                + hex(p.aDisabledBorder) + u"; color: " + hex(p.aDisabledText) + u"; }\n"
++                  u"spinbutton button, combobox entry + button { background-color: "
++                  u"transparent; border-color: transparent; }\n");
++    // check boxes and radio buttons
++    aCss.append(u"check, radio { background-image: none; background-color: "
++                + hex(p.aFieldFill) + u"; border-color: " + hex(p.aControlBorder)
++                + u"; color: " + hex(p.aOnAccent) + u"; box-shadow: none; }\n"
++                  u"check { border-radius: "
++                + px(d::radius::Check) + u"; }\n"
++                  u"check:hover, radio:hover { border-color: "
++                + hex(p.aAccent) + u"; }\n"
++                  u"check:checked, check:indeterminate, radio:checked { background-color: "
++                + hex(p.aAccent) + u"; border-color: " + hex(p.aAccent) + u"; }\n"
++                  u"check:checked:hover, check:indeterminate:hover, radio:checked:hover { "
++                  u"background-color: "
++                + hex(p.aAccentHover) + u"; }\n"
++                  u"check:disabled, radio:disabled { background-color: "
++                + hex(p.aDisabledFill) + u"; border-color: " + hex(p.aDisabledBorder)
++                + u"; color: " + hex(p.aDisabledText) + u"; }\n");
++    // notebooks: the page on a card, the selected tab marked by an accent bar
++    aCss.append(u"notebook > stack:not(:only-child) { background-color: " + hex(p.aCard)
++                + u"; }\n"
++                  u"notebook.frame { border-color: "
++                + hex(p.aCardBorder) + u"; border-radius: " + px(d::radius::Control)
++                + u"; }\n"
++                  u"notebook > header { background-color: transparent; border-color: "
++                + hex(p.aCardBorder) + u"; }\n"
++                  u"notebook > header tab { background-color: transparent; box-shadow: none; "
++                  u"border-color: transparent; }\n"
++                  u"notebook > header tab:hover { background-color: "
++                + hex(p.aHover) + u"; }\n"
++                  u"notebook > header.top tab:checked { box-shadow: inset 0 -"
++                + px(d::size::TabIndicator) + u" " + hex(p.aTabIndicator)
++                + u"; }\n"
++                  u"notebook > header.bottom tab:checked { box-shadow: inset 0 "
++                + px(d::size::TabIndicator) + u" " + hex(p.aTabIndicator)
++                + u"; }\n"
++                  u"notebook > header.left tab:checked { box-shadow: inset -"
++                + px(d::size::TabIndicator) + u" 0 " + hex(p.aTabIndicator)
++                + u"; }\n"
++                  u"notebook > header.right tab:checked { box-shadow: inset "
++                + px(d::size::TabIndicator) + u" 0 " + hex(p.aTabIndicator) + u"; }\n");
++    // scroll bars: a plain track, a pill thumb
++    aCss.append(u"scrollbar, scrollbar trough { background-color: " + hex(p.aScrollTrack)
++                + u"; background-image: none; }\n"
++                  u"scrollbar slider { background-color: "
++                + hex(p.aScrollThumb)
++                + u"; border-radius: 999px; }\n"
++                  u"scrollbar slider:hover { background-color: "
++                + hex(p.aScrollThumbHover)
++                + u"; }\n"
++                  u"scrollbar slider:active { background-color: "
++                + hex(p.aScrollThumbPressed) + u"; }\n");
++    return OUStringToOString(aCss, RTL_TEXTENCODING_UTF8);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/coat-paint.hxx
++++ b/vcl/source/hst/coat/coat-paint.hxx
+@@ -0,0 +1,90 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <basegfx/polygon/b2dpolygon.hxx>
++#include <tools/color.hxx>
++#include <tools/gen.hxx>
++#include <vcl/salnativewidgets.hxx>
++
++class OutputDevice;
++class StyleSettings;
++
++namespace hst::design
++{
++struct Palette;
++}
++
++/* What the painters of the coat share. A painter draws one part of one control in device pixels
++   (the dispatcher has switched the map mode off and saved the device state) and returns false when it
++   leaves the part to the platform. */
++namespace hst::coat
++{
++/** One paint request, in device pixels. */
++struct PaintContext
++{
++    OutputDevice& rDev;
++    const hst::design::Palette& rPalette;
++    const StyleSettings& rStyle;
++    double fScale; ///< the DPI scale: token lengths are multiplied by it
++    ControlState eState;
++    Color aBackground; ///< the control's own background, or COL_AUTO
++    tools::Rectangle aRect; ///< the part's region
++    /** The two buttons of a spin field (SpinbuttonValue), when the request carries them. */
++    tools::Rectangle aUpper{};
++    tools::Rectangle aLower{};
++    ControlState eUpperState = ControlState::NONE;
++    ControlState eLowerState = ControlState::NONE;
++
++    bool IsEnabled() const { return bool(eState & ControlState::ENABLED); }
++    bool IsPressed() const { return bool(eState & ControlState::PRESSED); }
++    bool IsHover() const { return bool(eState & ControlState::ROLLOVER); }
++    bool IsFocused() const { return bool(eState & ControlState::FOCUSED); }
++    double Px(double fLogical) const { return fLogical * fScale; }
++    /** The fill of an input field: the control's own background, else the theme's field colour, so
++        the field's inner window (painted by the control itself) has the same colour. */
++    Color FieldFill() const;
++};
++
++/** Directions of a chevron glyph. */
++enum class Chevron
++{
++    Up,
++    Down,
++    Left,
++    Right,
++};
++
++/** The corner radius of a control of height nHeight: the token radius, but at most a fifth of
++    the height so small controls are not drawn as pills. */
++double ControlRadius(const PaintContext& rCtx, tools::Long nHeight);
++
++/** A rounded rectangle with a border of fBorder pixels drawn inside rRect, so the border never
++    reaches outside the part's region. */
++void FillAndStroke(const PaintContext& rCtx, const tools::Rectangle& rRect, double fRadius,
++                   const Color& rFill, const Color& rBorder, double fBorder);
++
++/** A chevron of the given direction centred in rBox. */
++void DrawChevron(const PaintContext& rCtx, const tools::Rectangle& rBox, Chevron eDirection,
++                 const Color& rColor);
++
++/** An open polyline with round joins and caps, fWidth pixels wide. */
++void StrokePolyLine(const PaintContext& rCtx, const basegfx::B2DPolygon& rLine, const Color& rColor,
++                    double fWidth);
++
++bool PaintPushButton(const PaintContext& rCtx, ControlPart ePart);
++bool PaintCheckBox(const PaintContext& rCtx, ControlPart ePart, ButtonValue eValue);
++bool PaintRadioButton(const PaintContext& rCtx, ControlPart ePart, ButtonValue eValue);
++bool PaintField(const PaintContext& rCtx, ControlType eType, ControlPart ePart);
++bool PaintSpinButtons(const PaintContext& rCtx, ControlPart ePart);
++bool PaintTab(const PaintContext& rCtx, ControlType eType, ControlPart ePart,
++              const ImplControlValue& rValue);
++bool PaintScrollBar(const PaintContext& rCtx, ControlPart ePart);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/coat-shapes.cxx
++++ b/vcl/source/hst/coat/coat-shapes.cxx
+@@ -0,0 +1,100 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include "coat-paint.hxx"
++
++#include <basegfx/point/b2dpoint.hxx>
++#include <com/sun/star/drawing/LineCap.hpp>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/drawhelpers.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/settings.hxx>
++
++#include <algorithm>
++#include <cmath>
++
++namespace hst::coat
++{
++Color PaintContext::FieldFill() const
++{
++    return aBackground == COL_AUTO ? rStyle.GetFieldColor() : aBackground;
++}
++
++double ControlRadius(const PaintContext& rCtx, tools::Long nHeight)
++{
++    return std::min(rCtx.Px(hst::design::radius::Control), nHeight / 5.0);
++}
++
++void FillAndStroke(const PaintContext& rCtx, const tools::Rectangle& rRect, double fRadius,
++                   const Color& rFill, const Color& rBorder, double fBorder)
++{
++    if (rRect.IsEmpty())
++        return;
++    hst::design::DrawRoundRect(rCtx.rDev, rRect, fRadius, rFill, COL_TRANSPARENT);
++    if (rBorder == COL_TRANSPARENT || fBorder <= 0)
++        return;
++    // whole-pixel rings from the edge inwards: a wide border (the focus border) stays crisp and
++    // inside rRect, where one wide stroke on the pixel centres would blur over three pixels and
++    // reach half a pixel outside
++    const tools::Long nRings = std::max<tools::Long>(1, std::lround(fBorder));
++    tools::Rectangle aPath(rRect);
++    for (tools::Long i = 0; i < nRings && !aPath.IsEmpty(); ++i)
++    {
++        hst::design::DrawRoundRect(rCtx.rDev, aPath, std::max(0.0, fRadius - i), COL_TRANSPARENT,
++                                   rBorder, 1.0);
++        aPath.shrink(1);
++    }
++}
++
++void StrokePolyLine(const PaintContext& rCtx, const basegfx::B2DPolygon& rLine, const Color& rColor,
++                    double fWidth)
++{
++    rCtx.rDev.SetFillColor();
++    rCtx.rDev.SetLineColor(rColor);
++    rCtx.rDev.DrawPolyLine(rLine, fWidth, basegfx::B2DLineJoin::Round,
++                           css::drawing::LineCap_ROUND);
++}
++
++void DrawChevron(const PaintContext& rCtx, const tools::Rectangle& rBox, Chevron eDirection,
++                 const Color& rColor)
++{
++    if (rBox.IsEmpty())
++        return;
++    // a chevron of 8 x 4 logical pixels, smaller when the box is
++    const double fHalf = std::min(rCtx.Px(4), std::min(rBox.GetWidth(), rBox.GetHeight()) / 3.0);
++    const double fDepth = fHalf / 2;
++    const basegfx::B2DPoint aCentre((rBox.Left() + rBox.Right() + 1) / 2.0,
++                                    (rBox.Top() + rBox.Bottom() + 1) / 2.0);
++    basegfx::B2DPolygon aLine;
++    switch (eDirection)
++    {
++        case Chevron::Down:
++            aLine.append({ aCentre.getX() - fHalf, aCentre.getY() - fDepth });
++            aLine.append({ aCentre.getX(), aCentre.getY() + fDepth });
++            aLine.append({ aCentre.getX() + fHalf, aCentre.getY() - fDepth });
++            break;
++        case Chevron::Up:
++            aLine.append({ aCentre.getX() - fHalf, aCentre.getY() + fDepth });
++            aLine.append({ aCentre.getX(), aCentre.getY() - fDepth });
++            aLine.append({ aCentre.getX() + fHalf, aCentre.getY() + fDepth });
++            break;
++        case Chevron::Right:
++            aLine.append({ aCentre.getX() - fDepth, aCentre.getY() - fHalf });
++            aLine.append({ aCentre.getX() + fDepth, aCentre.getY() });
++            aLine.append({ aCentre.getX() - fDepth, aCentre.getY() + fHalf });
++            break;
++        case Chevron::Left:
++            aLine.append({ aCentre.getX() + fDepth, aCentre.getY() - fHalf });
++            aLine.append({ aCentre.getX() - fDepth, aCentre.getY() });
++            aLine.append({ aCentre.getX() + fDepth, aCentre.getY() + fHalf });
++            break;
++    }
++    StrokePolyLine(rCtx, aLine, rColor, rCtx.Px(hst::design::stroke::CheckMark));
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/coat-tabs-scrollbars.cxx
++++ b/vcl/source/hst/coat/coat-tabs-scrollbars.cxx
+@@ -0,0 +1,178 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* Tab controls and scroll bars.
++   Tabs: the pages sit on a card (card colour and border); a tab is flat in the dialog colour, tinted
++   under the mouse, and the selected tab carries an accent bar on the side facing its page.
++   Scroll bars: a plain track, a pill-shaped thumb narrower than the bar, chevrons for the buttons. */
++
++#include "coat-paint.hxx"
++
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/settings.hxx>
++
++#include <algorithm>
++
++namespace hst::coat
++{
++namespace
++{
++void fillRect(const PaintContext& rCtx, const tools::Rectangle& rRect, const Color& rColor)
++{
++    rCtx.rDev.SetLineColor();
++    rCtx.rDev.SetFillColor(rColor);
++    rCtx.rDev.DrawRect(rRect);
++}
++
++/** The accent bar of the selected tab, on the side of rTab facing the page. */
++tools::Rectangle indicatorRect(const PaintContext& rCtx, const tools::Rectangle& rTab,
++                               TabBarPosition ePosition)
++{
++    const tools::Long nThick
++        = std::max<tools::Long>(1, std::lround(rCtx.Px(hst::design::size::TabIndicator)));
++    // the bar is inset from the tab's ends so it reads as a mark, not as a border
++    const tools::Long nInsetX = std::min<tools::Long>(rTab.GetWidth() / 4, std::lround(rCtx.Px(8)));
++    const tools::Long nInsetY = std::min<tools::Long>(rTab.GetHeight() / 4, std::lround(rCtx.Px(6)));
++    switch (ePosition)
++    {
++        case TabBarPosition::Top:
++            return tools::Rectangle(rTab.Left() + nInsetX, rTab.Bottom() - nThick + 1,
++                                    rTab.Right() - nInsetX, rTab.Bottom());
++        case TabBarPosition::Bottom:
++            return tools::Rectangle(rTab.Left() + nInsetX, rTab.Top(), rTab.Right() - nInsetX,
++                                    rTab.Top() + nThick - 1);
++        case TabBarPosition::Left:
++            return tools::Rectangle(rTab.Right() - nThick + 1, rTab.Top() + nInsetY, rTab.Right(),
++                                    rTab.Bottom() - nInsetY);
++        case TabBarPosition::Right:
++            return tools::Rectangle(rTab.Left(), rTab.Top() + nInsetY, rTab.Left() + nThick - 1,
++                                    rTab.Bottom() - nInsetY);
++    }
++    return rTab;
++}
++
++/** The thumb: a pill along the bar, a little narrower than the bar. */
++void paintThumb(const PaintContext& rCtx, bool bHorizontal)
++{
++    const auto& p = rCtx.rPalette;
++    const Color aFill = !rCtx.IsEnabled() ? p.aDisabledBorder
++                        : rCtx.IsPressed() ? p.aScrollThumbPressed
++                        : rCtx.IsHover()   ? p.aScrollThumbHover
++                                           : p.aScrollThumb;
++    fillRect(rCtx, rCtx.aRect, p.aScrollTrack);
++    tools::Rectangle aPill(rCtx.aRect);
++    const tools::Long nAcross = bHorizontal ? aPill.GetHeight() : aPill.GetWidth();
++    const tools::Long nInset = std::min<tools::Long>(nAcross / 4, std::lround(rCtx.Px(3)));
++    if (bHorizontal)
++    {
++        aPill.AdjustTop(nInset);
++        aPill.AdjustBottom(-nInset);
++        aPill.AdjustLeft(1);
++        aPill.AdjustRight(-1);
++    }
++    else
++    {
++        aPill.AdjustLeft(nInset);
++        aPill.AdjustRight(-nInset);
++        aPill.AdjustTop(1);
++        aPill.AdjustBottom(-1);
++    }
++    if (aPill.IsEmpty())
++        return;
++    const double fRadius = std::min(aPill.GetWidth(), aPill.GetHeight()) / 2.0;
++    FillAndStroke(rCtx, aPill, fRadius, aFill, COL_TRANSPARENT, 0);
++}
++}
++
++bool PaintTab(const PaintContext& rCtx, ControlType eType, ControlPart ePart,
++              const ImplControlValue& rValue)
++{
++    if (ePart != ControlPart::Entire)
++        return false;
++    const auto& p = rCtx.rPalette;
++    switch (eType)
++    {
++        case ControlType::TabPane:
++            FillAndStroke(rCtx, rCtx.aRect, rCtx.Px(hst::design::radius::Control), p.aCard,
++                          p.aCardBorder, rCtx.Px(hst::design::stroke::Border));
++            return true;
++        case ControlType::TabBody:
++            // the page inside the pane: the card's colour, inside the pane's border
++            fillRect(rCtx, rCtx.aRect, p.aCard);
++            return true;
++        case ControlType::TabHeader:
++            fillRect(rCtx, rCtx.aRect, rCtx.rStyle.GetDialogColor());
++            return true;
++        case ControlType::TabItem:
++        {
++            // the tab bar is above the pages unless the request says otherwise
++            const TabBarPosition ePosition
++                = rValue.getType() == ControlType::TabItem
++                      ? static_cast<const TabitemValue&>(rValue).meTabBarPosition
++                      : TabBarPosition::Top;
++            const bool bSelected = bool(rCtx.eState & ControlState::SELECTED);
++            Color aFill = rCtx.rStyle.GetDialogColor();
++            if (rCtx.IsEnabled() && !bSelected && rCtx.IsHover())
++                aFill = p.aHover;
++            fillRect(rCtx, rCtx.aRect, rCtx.rStyle.GetDialogColor());
++            if (aFill != rCtx.rStyle.GetDialogColor())
++                FillAndStroke(rCtx, rCtx.aRect, rCtx.Px(hst::design::radius::Row), aFill,
++                              COL_TRANSPARENT, 0);
++            if (bSelected)
++                fillRect(rCtx, indicatorRect(rCtx, rCtx.aRect, ePosition),
++                         rCtx.IsEnabled() ? p.aTabIndicator : p.aDisabledBorder);
++            return true;
++        }
++        default:
++            return false;
++    }
++}
++
++bool PaintScrollBar(const PaintContext& rCtx, ControlPart ePart)
++{
++    const auto& p = rCtx.rPalette;
++    switch (ePart)
++    {
++        case ControlPart::DrawBackgroundHorz:
++        case ControlPart::DrawBackgroundVert:
++        case ControlPart::TrackHorzLeft:
++        case ControlPart::TrackHorzRight:
++        case ControlPart::TrackVertUpper:
++        case ControlPart::TrackVertLower:
++            fillRect(rCtx, rCtx.aRect, p.aScrollTrack);
++            return true;
++        case ControlPart::ThumbHorz:
++            paintThumb(rCtx, true);
++            return true;
++        case ControlPart::ThumbVert:
++            paintThumb(rCtx, false);
++            return true;
++        case ControlPart::ButtonUp:
++        case ControlPart::ButtonDown:
++        case ControlPart::ButtonLeft:
++        case ControlPart::ButtonRight:
++        {
++            fillRect(rCtx, rCtx.aRect, p.aScrollTrack);
++            const Color aGlyph = !rCtx.IsEnabled() ? p.aDisabledText
++                                 : rCtx.IsPressed() ? p.aAccent
++                                 : rCtx.IsHover()   ? p.aText
++                                                    : p.aMuted;
++            const Chevron eDirection = ePart == ControlPart::ButtonUp     ? Chevron::Up
++                                       : ePart == ControlPart::ButtonDown ? Chevron::Down
++                                       : ePart == ControlPart::ButtonLeft ? Chevron::Left
++                                                                          : Chevron::Right;
++            DrawChevron(rCtx, rCtx.aRect, eDirection, aGlyph);
++            return true;
++        }
++        default:
++            return false;
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/coat.cxx
++++ b/vcl/source/hst/coat/coat.cxx
+@@ -0,0 +1,195 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include <hst/coat.hxx>
++#include "coat-paint.hxx"
++
++#include <officecfg/Office/HSTAppearance.hxx>
++#include <sal/log.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/rendercontext/AntialiasingFlags.hxx>
++#include <vcl/settings.hxx>
++
++#include <atomic>
++#include <cstdlib>
++#include <string_view>
++
++namespace hst::coat
++{
++namespace
++{
++// 0: not read yet, 1: off, 2: on
++std::atomic<int> g_nSwitch{ 0 };
++std::atomic<bool> g_bForced{ false };
++
++bool readSwitch()
++{
++    if (const char* pEnv = std::getenv("HST_UI_COAT"))
++        return std::string_view(pEnv) != "0";
++    try
++    {
++        return officecfg::Office::HSTAppearance::UiCoat::Enabled::get();
++    }
++    catch (const css::uno::Exception&)
++    {
++        // no configuration (e.g. very early in start-up): the coat's default
++        SAL_WARN("vcl.hst", "coat: the UiCoat/Enabled setting could not be read, using on");
++        return true;
++    }
++}
++
++/** Whether eType/ePart is one of the parts the coat draws. */
++bool isCovered(ControlType eType, ControlPart ePart)
++{
++    switch (eType)
++    {
++        case ControlType::Pushbutton:
++        case ControlType::Checkbox:
++        case ControlType::Radiobutton:
++            return ePart == ControlPart::Entire;
++        case ControlType::Editbox:
++        case ControlType::MultilineEditbox:
++        case ControlType::Spinbox:
++            return ePart == ControlPart::Entire
++                   || (eType == ControlType::Spinbox && ePart == ControlPart::AllButtons);
++        case ControlType::Combobox:
++        case ControlType::Listbox:
++            return ePart == ControlPart::Entire || ePart == ControlPart::ButtonDown
++                   || (eType == ControlType::Listbox && ePart == ControlPart::ListboxWindow);
++        case ControlType::SpinButtons:
++            return ePart == ControlPart::AllButtons;
++        case ControlType::TabItem:
++        case ControlType::TabPane:
++        case ControlType::TabHeader:
++        case ControlType::TabBody:
++            return ePart == ControlPart::Entire;
++        case ControlType::Scrollbar:
++            switch (ePart)
++            {
++                case ControlPart::DrawBackgroundHorz:
++                case ControlPart::DrawBackgroundVert:
++                case ControlPart::ButtonUp:
++                case ControlPart::ButtonDown:
++                case ControlPart::ButtonLeft:
++                case ControlPart::ButtonRight:
++                case ControlPart::ThumbHorz:
++                case ControlPart::ThumbVert:
++                case ControlPart::TrackHorzLeft:
++                case ControlPart::TrackHorzRight:
++                case ControlPart::TrackVertUpper:
++                case ControlPart::TrackVertLower:
++                    return true;
++                default:
++                    return false;
++            }
++        default:
++            return false;
++    }
++}
++
++bool paint(const PaintContext& rCtx, ControlType eType, ControlPart ePart,
++           const ImplControlValue& rValue)
++{
++    switch (eType)
++    {
++        case ControlType::Pushbutton:
++            return PaintPushButton(rCtx, ePart);
++        case ControlType::Checkbox:
++            return PaintCheckBox(rCtx, ePart, rValue.getTristateVal());
++        case ControlType::Radiobutton:
++            return PaintRadioButton(rCtx, ePart, rValue.getTristateVal());
++        case ControlType::Spinbox:
++        case ControlType::SpinButtons:
++            if (ePart == ControlPart::AllButtons)
++                return PaintSpinButtons(rCtx, ePart);
++            return PaintField(rCtx, eType, ePart);
++        case ControlType::Editbox:
++        case ControlType::MultilineEditbox:
++        case ControlType::Combobox:
++        case ControlType::Listbox:
++            return PaintField(rCtx, eType, ePart);
++        case ControlType::TabItem:
++        case ControlType::TabPane:
++        case ControlType::TabHeader:
++        case ControlType::TabBody:
++            return PaintTab(rCtx, eType, ePart, rValue);
++        case ControlType::Scrollbar:
++            return PaintScrollBar(rCtx, ePart);
++        default:
++            return false;
++    }
++}
++}
++
++bool IsSwitchedOn()
++{
++    int nSwitch = g_nSwitch.load(std::memory_order_relaxed);
++    if (nSwitch == 0)
++    {
++        nSwitch = readSwitch() ? 2 : 1;
++        g_nSwitch.store(nSwitch, std::memory_order_relaxed);
++    }
++    return nSwitch == 2;
++}
++
++bool IsActive(const StyleSettings& rStyle)
++{
++    return !rStyle.GetHighContrastMode() && IsSwitchedOn();
++}
++
++void ForceForTesting(bool bForce) { g_bForced.store(bForce, std::memory_order_relaxed); }
++
++void ResetSwitchForTesting() { g_nSwitch.store(0, std::memory_order_relaxed); }
++
++bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
++                       const tools::Rectangle& rRegion, ControlState eState,
++                       const ImplControlValue& rValue, const Color& rBackground)
++{
++    if (!isCovered(eType, ePart) || rRegion.IsEmpty())
++        return false;
++    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++    if (!IsActive(rStyle))
++        return false;
++    // only where the platform has a native look: elsewhere VCL's own drawing and metrics stay
++    if (!g_bForced.load(std::memory_order_relaxed) && !rDev.IsNativeControlSupported(eType, ePart))
++        return false;
++
++    PaintContext aCtx{ rDev,
++                       hst::design::GetPalette(rStyle),
++                       rStyle,
++                       std::max(1.0, double(rDev.GetDPIScaleFactor())),
++                       eState,
++                       rBackground,
++                       rDev.LogicToPixel(rRegion) };
++    if (rValue.getType() == ControlType::SpinButtons || rValue.getType() == ControlType::Spinbox)
++    {
++        const auto& rSpin = static_cast<const SpinbuttonValue&>(rValue);
++        aCtx.aUpper = rDev.LogicToPixel(rSpin.maUpperRect);
++        aCtx.aLower = rDev.LogicToPixel(rSpin.maLowerRect);
++        aCtx.eUpperState = rSpin.mnUpperState;
++        aCtx.eLowerState = rSpin.mnLowerState;
++    }
++
++    // Native controls are not recorded in metafiles; neither are the coat's shapes.
++    GDIMetaFile* pMetaFile = rDev.GetConnectMetaFile();
++    rDev.SetConnectMetaFile(nullptr);
++    const AntialiasingFlags eAntialiasing = rDev.GetAntialiasing();
++    rDev.Push(vcl::PushFlags::MAPMODE | vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    rDev.EnableMapMode(false);
++    rDev.SetAntialiasing(eAntialiasing | AntialiasingFlags::Enable);
++
++    const bool bDrawn = paint(aCtx, eType, ePart, rValue);
++
++    rDev.Pop();
++    rDev.SetAntialiasing(eAntialiasing);
++    rDev.SetConnectMetaFile(pMetaFile);
++    return bDrawn;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/outdev/nativecontrols.cxx
++++ b/vcl/source/outdev/nativecontrols.cxx
+@@ -25,6 +25,7 @@
+ #include <vcl/window.hxx>
+ 
+ #include <salgdi.hxx>
++#include <hst/coat.hxx>
+ #include <toolbarvalue.hxx>
+ #include <menubarvalue.hxx>
+ #include <scrollbarvalue.hxx>
+@@ -281,6 +282,9 @@
+     if ( mbInitFillColor )
+         InitFillColor();
+ 
++    if (hst::coat::DrawNativeControl(*this, nType, nPart, rControlRegion, nState, aValue, rBackgroundColor))
++        return true;
++
+     // Convert the coordinates from relative to Window-absolute, so we draw
+     // in the correct place in platform code
+     std::unique_ptr< ImplControlValue > aScreenCtrlValue( TransformControlValue( aValue, *this ) );
+--- a/vcl/unx/gtk3/hst-coat-gtk.cxx
++++ b/vcl/unx/gtk3/hst-coat-gtk.cxx
+@@ -0,0 +1,77 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include "hst-coat-gtk.hxx"
++
++#include <hst/coat.hxx>
++#include <sal/log.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/settings.hxx>
++
++namespace hst::coat
++{
++namespace
++{
++enum class Installed
++{
++    None,
++    Light,
++    Dark,
++};
++
++// main thread only (settings updates)
++GtkCssProvider* g_pProvider = nullptr;
++GdkScreen* g_pScreen = nullptr;
++Installed g_eInstalled = Installed::None;
++
++void removeProvider()
++{
++    if (!g_pProvider)
++        return;
++    if (g_pScreen)
++        gtk_style_context_remove_provider_for_screen(g_pScreen, GTK_STYLE_PROVIDER(g_pProvider));
++    g_object_unref(g_pProvider);
++    g_pProvider = nullptr;
++    g_pScreen = nullptr;
++    g_eInstalled = Installed::None;
++}
++}
++
++void ApplyGtkCoat(GdkScreen* pScreen, const StyleSettings& rStyle)
++{
++    if (!pScreen)
++        return;
++    const Installed eWanted = !IsActive(rStyle)                      ? Installed::None
++                              : hst::design::IsDark(rStyle) ? Installed::Dark
++                                                                     : Installed::Light;
++    if (eWanted == g_eInstalled && (eWanted == Installed::None || pScreen == g_pScreen))
++        return;
++    removeProvider();
++    if (eWanted == Installed::None)
++        return;
++
++    const OString aCss = CreateGtkCss(eWanted == Installed::Dark);
++    GtkCssProvider* pProvider = gtk_css_provider_new();
++    GError* pError = nullptr;
++    if (!gtk_css_provider_load_from_data(pProvider, aCss.getStr(), aCss.getLength(), &pError))
++    {
++        SAL_WARN("vcl.hst", "coat: GTK CSS rejected: " << (pError ? pError->message : "?"));
++        if (pError)
++            g_error_free(pError);
++        g_object_unref(pProvider);
++        return;
++    }
++    // above the theme and LibreOffice's own CSS, below the user's gtk.css
++    gtk_style_context_add_provider_for_screen(pScreen, GTK_STYLE_PROVIDER(pProvider),
++                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
++    g_pProvider = pProvider;
++    g_pScreen = pScreen;
++    g_eInstalled = eWanted;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/unx/gtk3/hst-coat-gtk.hxx
++++ b/vcl/unx/gtk3/hst-coat-gtk.hxx
+@@ -0,0 +1,21 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <gtk/gtk.h>
++
++class StyleSettings;
++
++namespace hst::coat
++{
++/** Install, replace or remove the coat's CSS for the GTK-drawn widgets of pScreen to match rStyle:
++    none in high-contrast mode or when the coat is switched off, else the light or dark coat. */
++void ApplyGtkCoat(GdkScreen* pScreen, const StyleSettings& rStyle);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/unx/gtk3/salnativewidgets-gtk.cxx
++++ b/vcl/unx/gtk3/salnativewidgets-gtk.cxx
+@@ -28,6 +28,9 @@
+ 
+ #include <IconThemeSelector.hxx>
+ #include "custom-theme.hxx"
++#if !GTK_CHECK_VERSION(4, 0, 0)
++#include "hst-coat-gtk.hxx"
++#endif
+ #include <vcl/themecolors.hxx>
+ #include "gtkcairo.hxx"
+ 
+@@ -2701,6 +2704,9 @@
+     aStyleSet.SetHighContrastMode(g_strcmp0(pThemeName, "HighContrast") == 0);
+     g_free(pThemeName);
+     aStyleSet.SetSystemColorsLoaded(true);
++#if !GTK_CHECK_VERSION(4, 0, 0)
++    hst::coat::ApplyGtkCoat(gtk_widget_get_screen(pTopLevel), aStyleSet);
++#endif
+ 
+     // finally update the collected settings
+     rSettings.SetStyleSettings( aStyleSet );
