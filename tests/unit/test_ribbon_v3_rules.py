@@ -264,6 +264,28 @@ class LabelAndWidening(unittest.TestCase):
         d["groups"][1]["blocks"][0]["items"][0]["label_cut"] = True
         self.assertTrue(failed(d, "label_cut"))
 
+    @staticmethod
+    def cut_box(extra_w, extra_h, scale=1):
+        """The baseline with a box whose size request is its rect plus extra_w, extra_h device px."""
+        d = baseline()
+        d["scale"] = scale
+        box = d["groups"][1]["blocks"][0]["items"][0]
+        box.update(label_cut=True, want={"w": box["rect"]["w"] + extra_w, "h": box["rect"]["h"] + extra_h})
+        return d
+
+    def test_a_box_asking_a_little_more_height_than_its_row_passes(self):
+        self.assertEqual(failed(self.cut_box(0, 3), "label_cut"), [])
+
+    def test_a_box_asking_much_more_height_than_its_row_fails(self):
+        self.assertTrue(failed(self.cut_box(0, 5), "label_cut"))
+
+    def test_a_box_asking_more_width_fails(self):
+        self.assertTrue(failed(self.cut_box(1, 0), "label_cut"))
+
+    def test_the_slack_is_in_logical_px(self):
+        self.assertEqual(failed(self.cut_box(0, 8, scale=2), "label_cut"), [])
+        self.assertTrue(failed(self.cut_box(0, 9, scale=2), "label_cut"))
+
     def test_a_wide_dump_needs_large_items_of_96(self):
         d = baseline()
         d["wide"] = True

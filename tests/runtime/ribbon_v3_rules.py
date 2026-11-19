@@ -17,6 +17,9 @@ ROW_TOPS, ROW_BOTTOMS = (6, 32, 58), (30, 56, 82)  # small items, boxes: the thr
 LARGE_TOP, LARGE_BOTTOM, LARGE_W = 6, 82, 96  # large buttons and galleries; widened large buttons
 GAP, SLACK = 8, 4  # the banner's gap to the last group, and the slack allowed above it
 CHEVRON = 22  # the collapse chevron's own room after the last group (18 px and its 4 px inset), as in the mockup
+# a box item (a native list box in its row) may ask for up to this many logical px more height than the row gives
+# it: fitItemWindowsToRow sets it to the row and the native control draws its frame and text inside (HST5 shots)
+BOX_HEIGHT_SLACK = 4
 CLIPBOARD = "gdHomeClipboard"  # Paste (large) with one column of three icons: the only mixed group allowed
 RULES = ("body", "band", "edge", "one_size", "equal_width", "lone_col", "cols_3plus1", "banner", "elastic_fill",
          "captions", "clip", "label_cut", "widening", "order")
@@ -210,9 +213,18 @@ def _clip(dump):
     return _verdict("clip", bad)
 
 
+def _row_fitted_box(item, scale):
+    """A cut that is only the box's own height request, within BOX_HEIGHT_SLACK of its row: not a cut label."""
+    want, rect = item.get("want"), item["rect"]
+    return (want is not None and want["w"] <= rect["w"]
+            and (want["h"] - rect["h"]) / scale <= BOX_HEIGHT_SLACK)
+
+
 def _label_cut(dump):
-    return _verdict("label_cut", [f"{g['id']} {i['id']} label cut" for g in dump["groups"] for i in _items(g)
-                                  if i.get("label_cut")])
+    scale = dump["scale"]
+    return _verdict("label_cut", [f"{g['id']} {i['id']} label cut" + (f", want {i['want']}" if i.get("want") else "")
+                                  for g in dump["groups"] for i in _items(g)
+                                  if i.get("label_cut") and not _row_fitted_box(i, scale)])
 
 
 def _widening(dump):
