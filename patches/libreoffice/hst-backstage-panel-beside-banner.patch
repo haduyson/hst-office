@@ -1,0 +1,77 @@
+HST Office: the File panel takes the window's width below the document tab strip.
+
+The panel stopped left of the HASON TECH banner, as it did when it dropped from the tab row over the ribbon's
+body, where the banner is. Since the panel starts below the document tab strip (owner, 14/11/2026), the banner
+is above it, yet the panel still stopped at the banner's left edge: in a 1042 px window at 125 % on Windows that
+left about 550 px, and the Print page lost its right part ("Quay lại", the printer's status, the preview). The
+panel now stops at the banner only where the banner reaches below the panel's top (no document tab strip).
+
+- sfx2/source/backstage/hstbackstageplacement.hxx (new, plain arithmetic, unit tested),
+  sfx2/source/backstage/hstbackstagewindow.cxx (BackstageWindow::GetPlacement).
+
+License: these upstream-derived files remain under their original license (MPL-2.0).
+Test: tests/unit/test_backstage_panel_placement.py; tests/runtime/check-backstage-print-fits.py (Windows, 125 %,
+windows 1024-1366 px wide: the Print page's widgets lie inside the panel).
+
+--- /dev/null
++++ b/sfx2/source/backstage/hstbackstageplacement.hxx
+@@ -0,0 +1,31 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <algorithm>
++
++namespace sfx2::backstage
++{
++/** The right edge of the File panel, in the pixels of the window it opens in. The panel spans the window up to
++    nInset from its right edge. It stops nInset left of the HASON TECH banner only where it would cover the banner:
++    when the banner reaches below the panel's top (no document tab strip: the panel starts at the tab row and
++    covers the ribbon's body, where the banner is). Below the document tab strip the banner is above the panel
++    and takes none of its width; stopping at the banner there left a 1042 px window at 125 % about 550 px of
++    panel, and the Print page lost its right part ("Quay lại", the printer's status). bBanner false: no banner.
++    Long: the pixel type (tools::Long). */
++template <typename Long>
++Long panelRight(Long nFrameWidth, Long nInset, Long nPanelTop, bool bBanner, Long nBannerLeft, Long nBannerBottom)
++{
++    const Long nRight = nFrameWidth - nInset;
++    if (!bBanner || nBannerBottom <= nPanelTop)
++        return nRight;
++    return std::min(nRight, nBannerLeft - nInset);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -9,6 +9,7 @@
+ 
+ #include "hstbackstagewindow.hxx"
+ #include "hstbackstagedata.hxx"
++#include "hstbackstageplacement.hxx"
+ 
+ #include <algorithm>
+ #include <functional>
+@@ -1200,10 +1201,13 @@ bool BackstageWindow::GetPlacement(tools::Rectangle& rAnchor, Size& rSize) const
+     const Size aFrame = pOrigin->GetOutputSizePixel();
+     const AbsoluteScreenPixelRectangle aScreen = pFrameWindow->GetDesktopRectPixel();
+     const tools::Long nInset = Scaled(PANEL_INSET);
+-    tools::Long nRight = aFrame.Width() - nInset; // right edge of the panel in pOrigin's pixels
+-    if (pBanner && pBanner->IsReallyVisible())
+-        nRight = std::min(nRight, pOrigin->AbsoluteScreenToOutputPixel(pBanner->OutputToAbsoluteScreenPixel(Point()))
+-                                          .X() - nInset);
++    // right edge of the panel in pOrigin's pixels: left of the banner only where the banner is beside the panel
++    const bool bBanner = pBanner && pBanner->IsReallyVisible();
++    const Point aBanner = bBanner ? pOrigin->AbsoluteScreenToOutputPixel(pBanner->OutputToAbsoluteScreenPixel(Point()))
++                                  : Point();
++    const tools::Long nRight = sfx2::backstage::panelRight(
++        aFrame.Width(), nInset, aTop.Y(), bBanner, aBanner.X(),
++        bBanner ? aBanner.Y() + pBanner->GetOutputSizePixel().Height() : tools::Long(0));
+     const tools::Long nWidth = nRight - (aTop.X() + nInset);
+     const tools::Long nHeight = std::min(aFrame.Height() - aTop.Y() - nInset, aScreen.Bottom() - aEdgeTop.Y() - nInset);
+     if (nWidth <= 0 || nHeight <= 0)
