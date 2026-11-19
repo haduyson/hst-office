@@ -41,7 +41,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 def check(label, ok):
     RESULTS.append((label, bool(ok)))
-    print("%-4s %s" % ("PASS" if ok else "FAIL", label), flush=True)
+    line = "%-4s %s" % ("PASS" if ok else "FAIL", label)
+    try:
+        print(line, flush=True)
+    except Exception:  # noqa: BLE001 - a console that cannot show the text must not end the run
+        print(line.encode("ascii", "backslashreplace").decode("ascii"), flush=True)
 
 
 def serve(srv, version):
@@ -174,4 +178,15 @@ def main():
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")  # the console task's code page is cp1252
+    try:
+        code = main()
+    except BaseException:  # noqa: BLE001 - print it, then end at once
+        import traceback
+        traceback.print_exc()
+        code = 1
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)  # the UNO bridge's threads must not keep a finished run waiting
