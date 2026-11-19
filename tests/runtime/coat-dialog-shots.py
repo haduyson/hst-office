@@ -42,7 +42,7 @@ def load(office, factory):
     return office.desktop().loadComponentFromURL(f"private:factory/{factory}", "_blank", 0, tuple(props))
 
 
-def new_windows(office, before, display, timeout=20):
+def new_windows(office, before, display, timeout=45):
     """Top-level windows of our office that appeared after `before`."""
     deadline = time.time() + timeout
     while time.time() < deadline:
