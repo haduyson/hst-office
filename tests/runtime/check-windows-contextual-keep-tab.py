@@ -42,6 +42,9 @@ EXPECTED = {"picture": ("Định dạng ảnh",), "table": ("Thiết kế bảng
             "pivot": ("Phân tích bảng tổng hợp",)}
 MSAA = os.path.join(HERE, "windows-msaa-ribbon.ps1")
 SETTLE = 3
+# --main-thread: the dispatches run on the office's main thread (DispatchHelper's OnMainThread), as a user's click
+# does; without it they run on the UNO bridge thread (a harness-only path that can deadlock with accessibility)
+DISPATCH_ARGS = {}
 STEP_TIMEOUT = 240  # seconds for one object: four MSAA reads, three settles and the command
 
 
@@ -135,7 +138,7 @@ class _Dispatcher:
         self.office = office
 
     def dispatch(self, frame, command):
-        self.office.dispatch_async(frame, command).join(30)
+        self.office.dispatch_async(frame, command, **DISPATCH_ARGS).join(30)
 
 
 def check_kind(app, kind, doc, objects, frame, office, res, args):
@@ -158,7 +161,7 @@ def check_kind(app, kind, doc, objects, frame, office, res, args):
     if not res(f"[{app}] {kind}: {tab} selected", before == [tab], before):
         return
     command = command_for(app, kind)
-    dispatch = office.dispatch_async(frame, command)
+    dispatch = office.dispatch_async(frame, command, **DISPATCH_ARGS)
     dispatch.join(30)
     if dispatch.is_alive():  # the command opened something modal: what it is decides harness or product
         shot = os.path.join(args.out, f"{app}-{kind}-command-held.png")
@@ -169,15 +172,16 @@ def check_kind(app, kind, doc, objects, frame, office, res, args):
 
 
 def leave_unmodified(app, doc, office):
+    """The checked document goes without a save prompt: unmodified, its controller suspended, then closed."""
     try:
         doc.setModified(False)
     except Exception as error:  # noqa: BLE001 - the office is gone
         print("setModified:", repr(error), flush=True)
     try:
-        park(app, doc, _Dispatcher(office))
-        doc.setModified(False)
-    except Exception as error:  # noqa: BLE001 - the selection stays; the document is unmodified already
-        print("park:", repr(error), flush=True)
+        doc.CurrentController.suspend(True)
+        doc.close(True)
+    except Exception as error:  # noqa: BLE001 - the quit then shows what still holds it
+        print("close:", repr(error), flush=True)
 
 
 def what_holds(office, shot):
@@ -187,6 +191,25 @@ def what_holds(office, shot):
         windows = msaa(office, "-Action", "tabs")
     except Exception as error:  # noqa: BLE001 - the screenshot stays the evidence
         windows = repr(error)
+    # a prompt answers and shows above; a hung UI thread answers nothing: then a dump of the office for its stack
+    try:
+        import windows_hang_probe as hang
+        states = hang.ui_state()
+        windows += "\nUI " + "; ".join(f"{title}: {state}" for _hwnd, title, state in states)
+        if any(state == "hung" for _hwnd, _title, state in states):
+            dump = os.path.splitext(shot)[0] + ".dmp"
+            pid = office.bin_pids_of_profile()[0]
+            windows += f"\nDUMP {dump}: {hang.write_minidump(pid, dump)}"
+            program = getattr(office, "program", "")
+            stacks = hang.thread_stacks(pid, os.environ.get("HST_PDB_PATH", program))
+            if stacks is not None:
+                with open(os.path.splitext(shot)[0] + "-stacks.txt", "w", encoding="utf-8") as handle:
+                    handle.write(stacks)
+                windows += f"\nSTACKS {os.path.splitext(shot)[0]}-stacks.txt"
+            else:
+                windows += "\nSTACKS no cdb.exe on this machine"
+    except Exception as error:  # noqa: BLE001 - the screenshot and the names stay the evidence
+        windows += f"\nUI state unknown: {error!r}"
     with open(os.path.splitext(shot)[0] + ".txt", "w", encoding="utf-8") as handle:
         handle.write(windows)
     return windows
@@ -245,7 +268,10 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--apps", default="writer,calc,impress,draw")
     parser.add_argument("--port", type=int, default=2384)
+    parser.add_argument("--main-thread", action="store_true", help="dispatch on the office's main thread")
     args = parser.parse_args()
+    if args.main_thread:
+        DISPATCH_ARGS["OnMainThread"] = True
     os.makedirs(args.out, exist_ok=True)
     res = wg.Results(args.out, os.path.join(args.out, "profile"))
     for app in args.apps.split(","):
