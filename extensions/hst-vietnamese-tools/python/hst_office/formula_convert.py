@@ -3,17 +3,16 @@
 Sheets, Slides and Draw, one object or all as one undo step. The object's OLE data is read back (storeToEntry), a new
 Math object takes its place and reads it with com.sun.star.comp.Math.MathTypeFilter (MTEF 5: HST's patch); if that
 fails the equation stays. The formula keeps the scale Word shows (formula_size). In Writer a formula anchored as a
-character sits on the text baseline (Word's run position shift is dropped); elsewhere it keeps the picture's corner."""
+character sits on the text baseline inside the room its equation took (formula_place); elsewhere it keeps the
+picture's corner."""
 import time
 
-from . import formula_ole, formula_size
+from . import formula_ole, formula_place, formula_size
 
 FILTER = "com.sun.star.comp.Math.MathTypeFilter"
 OLE_SHAPE = "com.sun.star.drawing.OLE2Shape"
 LOADED = 0  # com.sun.star.embed.EmbedStates.LOADED
 PROGRESS_SECONDS = 0.5  # each progress update lets the office lay out and repaint: hundreds cost more than converting
-AS_CHARACTER = 1  # com.sun.star.text.TextContentAnchorType.AS_CHARACTER
-NONE = 0  # com.sun.star.text.VertOrientation.NONE
 KEEP_TEXT = ("AnchorType", "HoriOrient", "HoriOrientPosition", "HoriOrientRelation", "VertOrientRelation", "TextWrap")
 
 
@@ -83,11 +82,7 @@ def _replace_text_object(ctx, doc, old, data):
         return False
     formula_size.keep_word_scale(model, old)
     new.Size = formula_size.visual_size(new.EmbeddedObject)
-    for name in ("LeftMargin", "RightMargin", "TopMargin", "BottomMargin"):
-        new.setPropertyValue(name, 0)
-    if new.AnchorType == AS_CHARACTER:  # formula baseline on the text baseline
-        new.VertOrient = NONE
-        new.VertOrientPosition = -int(model.BaseLine)
+    formula_place.keep_room(new, old, model.BaseLine)  # the pages do not move
     old.dispose()
     return True
 
