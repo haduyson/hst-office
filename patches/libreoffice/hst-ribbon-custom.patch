@@ -6,7 +6,9 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
     on tabs, groups, commands, labels and ids), its merge into the default ribbon and diff against it; the
     export/import bundle of every app; the customize dialog's edits (custom tabs and groups, add, remove,
     move, rename, hide, reset one tab); the usage history (30 days, at most 300 commands, score
-    count x 0.5^(age/7), documented noise list); the recently used tab's groups by home tab.
+    count x 0.5^(age/7), documented noise list); the usage store (the tab's switch and every app's
+    history without I/O: switching the tab off stops recording and keeps every history, only "Xóa lịch sử"
+    clears them); the recently used tab's groups by home tab.
     StaticLibrary_hst_ribbon_core, CppunitTest_hst_ribbon_core.
   - hst/ribbon/lo: the adapter linked into sfx (hst-ribbon-custom-hooks.patch). The controller reads the
     built Tabbed ribbon (v3 groups via their "hst-ribbon-layout" spec) and applies the customization before the
@@ -72,7 +74,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +# vim: set noet sw=4 ts=4:
 --- /dev/null
 +++ b/hst/README.md
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,33 @@
 +# HST Office modules
 +
 +<!-- SPDX-License-Identifier: LicenseRef-HST-Proprietary -->
@@ -87,8 +89,9 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +
 +- `ribbon/core`: data and rules in standard C++ only. It includes no office or toolkit headers. It holds the JSON
 +  reader and writer, the default and effective ribbon layouts, the customization file and its merge and diff, the
-+  edits of the customize dialog, the usage history with its ranking, noise list and pruning, and the plan of the
-+  recently used tab. It is built as the static library `hst_ribbon_core` and unit tested by
++  edits of the customize dialog, the usage history with its ranking, noise list and pruning, the usage store (the
++  recently used tab's switch and every app's history; switching the tab off keeps the history, only "Xóa lịch sử"
++  clears it), and the plan of the recently used tab. It is built as the static library `hst_ribbon_core` and unit tested by
 +  `CppunitTest_hst_ribbon_core` (`qa/unit/ribbon-core-test.cxx`).
 +- `ribbon/lo`: the adapter linked into sfx2.
 +  - `ribbon-custom-controller`: reads the ribbon as built and applies the customization before its first layout.
@@ -107,7 +110,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +- `settings.json`: the recently used tab's switch.
 --- /dev/null
 +++ b/hst/StaticLibrary_hst_ribbon_core.mk
-@@ -0,0 +1,20 @@
+@@ -0,0 +1,21 @@
 +# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
 +#
 +# SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -124,13 +127,14 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +	hst/ribbon/core/ribbon-layout-model \
 +	hst/ribbon/core/ribbon-recent-plan \
 +	hst/ribbon/core/ribbon-usage-history \
++	hst/ribbon/core/ribbon-usage-store \
 +	hst/ribbon/lo/ribbon-ui-markup \
 +))
 +
 +# vim: set noet sw=4 ts=4:
 --- /dev/null
 +++ b/hst/qa/unit/ribbon-core-test.cxx
-@@ -0,0 +1,419 @@
+@@ -0,0 +1,475 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -151,8 +155,11 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +#include "../../ribbon/core/ribbon-layout-model.hxx"
 +#include "../../ribbon/core/ribbon-recent-plan.hxx"
 +#include "../../ribbon/core/ribbon-usage-history.hxx"
++#include "../../ribbon/core/ribbon-usage-store.hxx"
 +#include "../../ribbon/lo/ribbon-ui-markup.hxx"
 +
++#include <map>
++#include <optional>
 +#include <string>
 +
 +using namespace hst::ribbon::core;
@@ -454,6 +461,58 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +        CPPUNIT_ASSERT(!UsageSettings::parse(aOff.write()).recentEnabled);
 +    }
 +
++    void testSwitchingOffKeepsTheHistory()
++    {
++        // the profile folder: name -> text
++        std::map<std::string, std::string> aProfile;
++        const UsageStore::Files aFiles{
++            [&aProfile](const std::string& rName) -> std::optional<std::string> {
++                const auto it = aProfile.find(rName);
++                return it == aProfile.end() ? std::nullopt : std::optional<std::string>(it->second);
++            },
++            [&aProfile](const std::string& rName, const std::string& rText) {
++                aProfile[rName] = rText;
++                return true;
++            },
++            [&aProfile](const std::string& rName) { return aProfile.erase(rName) == 1; }
++        };
++        const Day nToday = 20000;
++        UsageStore aStore(aFiles);
++        CPPUNIT_ASSERT(aStore.recentEnabled());
++        CPPUNIT_ASSERT(aStore.record("writer", ".uno:Bold", nToday));
++        CPPUNIT_ASSERT(aStore.record("calc", ".uno:AutoSum", nToday));
++        aStore.flush(nToday);
++        CPPUNIT_ASSERT_EQUAL(std::size_t(1), aProfile.count(UsageStore::usageFile("writer")));
++
++        // off: nothing is recorded, every history stays in memory and in the profile
++        const unsigned nRevision = aStore.revision("writer");
++        aStore.setRecentEnabled(false);
++        CPPUNIT_ASSERT(!aStore.recentEnabled());
++        CPPUNIT_ASSERT(!aStore.record("writer", ".uno:Italic", nToday));
++        CPPUNIT_ASSERT_EQUAL(nRevision, aStore.revision("writer"));
++        aStore.flush(nToday);
++        CPPUNIT_ASSERT_EQUAL(std::size_t(1), aProfile.count(UsageStore::usageFile("writer")));
++        CPPUNIT_ASSERT_EQUAL(std::size_t(1), aProfile.count(UsageStore::usageFile("calc")));
++        CPPUNIT_ASSERT(std::vector<std::string>{ ".uno:Bold" } == aStore.ranked("writer", nToday, 10));
++
++        // the next start reads the switch and the same history
++        UsageStore aNextStart(aFiles);
++        CPPUNIT_ASSERT(!aNextStart.recentEnabled());
++        aNextStart.setRecentEnabled(true);
++        CPPUNIT_ASSERT(std::vector<std::string>{ ".uno:Bold" } == aNextStart.ranked("writer", nToday + 1, 10));
++        CPPUNIT_ASSERT(std::vector<std::string>{ ".uno:AutoSum" } == aNextStart.ranked("calc", nToday + 1, 10));
++        CPPUNIT_ASSERT(aNextStart.record("writer", ".uno:Italic", nToday + 1));
++        CPPUNIT_ASSERT_EQUAL(std::size_t(2), aNextStart.ranked("writer", nToday + 1, 10).size());
++
++        // only "Xóa lịch sử" forgets: memory and profile, every app
++        CPPUNIT_ASSERT(aNextStart.clearAll().empty());
++        CPPUNIT_ASSERT(aNextStart.ranked("writer", nToday + 1, 10).empty());
++        CPPUNIT_ASSERT(aNextStart.ranked("calc", nToday + 1, 10).empty());
++        CPPUNIT_ASSERT_EQUAL(std::size_t(0), aProfile.count(UsageStore::usageFile("writer")));
++        CPPUNIT_ASSERT_EQUAL(std::size_t(0), aProfile.count(UsageStore::usageFile("calc")));
++        CPPUNIT_ASSERT_EQUAL(std::size_t(1), aProfile.count("settings.json"));
++    }
++
 +    void testRecentGroups()
 +    {
 +        const Layout aDefaults = defaults();
@@ -539,6 +598,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +    CPPUNIT_TEST(testUsageNoise);
 +    CPPUNIT_TEST(testUsagePruneAndCap);
 +    CPPUNIT_TEST(testSettings);
++    CPPUNIT_TEST(testSwitchingOffKeepsTheHistory);
 +    CPPUNIT_TEST(testRecentGroups);
 +    CPPUNIT_TEST(testMarkup);
 +    CPPUNIT_TEST(testLayoutSpecs);
@@ -2599,6 +2659,205 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +    bool recentEnabled = true;
 +    std::string write() const;
 +    static UsageSettings parse(std::string_view aJson);
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/hst/ribbon/core/ribbon-usage-store.cxx
+@@ -0,0 +1,112 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include "ribbon-usage-store.hxx"
++
++#include <utility>
++
++namespace hst::ribbon::core
++{
++const std::vector<std::string>& UsageStore::apps()
++{
++    static const std::vector<std::string> aApps{ "writer", "calc", "impress", "draw" };
++    return aApps;
++}
++
++std::string UsageStore::usageFile(const std::string& rApp) { return "usage-" + rApp + ".json"; }
++
++UsageStore::UsageStore(Files aFiles)
++    : m_aFiles(std::move(aFiles))
++{
++}
++
++const UsageSettings& UsageStore::settings()
++{
++    if (!m_oSettings)
++    {
++        const std::optional<std::string> aText = m_aFiles.read(std::string(SETTINGS_FILE));
++        m_oSettings = aText ? UsageSettings::parse(*aText) : UsageSettings();
++    }
++    return *m_oSettings;
++}
++
++UsageStore::App& UsageStore::app(const std::string& rApp, Day nToday)
++{
++    App& rState = m_aApps[rApp];
++    if (!rState.loaded)
++    {
++        rState.loaded = true;
++        if (const std::optional<std::string> aText = m_aFiles.read(usageFile(rApp)))
++            rState.history = UsageHistory::parse(*aText, nToday);
++    }
++    return rState;
++}
++
++bool UsageStore::recentEnabled() { return settings().recentEnabled; }
++
++void UsageStore::setRecentEnabled(bool bEnabled)
++{
++    UsageSettings aSettings = settings();
++    aSettings.recentEnabled = bEnabled;
++    m_oSettings = aSettings;
++    m_aFiles.write(std::string(SETTINGS_FILE), aSettings.write());
++}
++
++bool UsageStore::record(const std::string& rApp, std::string_view aCommand, Day nToday)
++{
++    if (!settings().recentEnabled)
++        return false;
++    App& rState = app(rApp, nToday);
++    if (!rState.history.record(aCommand, nToday))
++        return false;
++    rState.dirty = true;
++    ++rState.revision;
++    return true;
++}
++
++std::vector<std::string> UsageStore::ranked(const std::string& rApp, Day nToday, std::size_t nLimit)
++{
++    std::vector<std::string> aOut;
++    for (const UsageHistory::Ranked& rItem : app(rApp, nToday).history.ranked(nToday, nLimit))
++        aOut.push_back(rItem.command);
++    return aOut;
++}
++
++unsigned UsageStore::revision(const std::string& rApp) const
++{
++    const auto it = m_aApps.find(rApp);
++    return it == m_aApps.end() ? 0 : it->second.revision;
++}
++
++std::vector<std::string> UsageStore::clearAll()
++{
++    std::vector<std::string> aKept;
++    for (const std::string& rApp : apps())
++    {
++        App& rState = m_aApps[rApp];
++        rState.history.clear();
++        rState.loaded = true;
++        rState.dirty = false;
++        ++rState.revision;
++        // a missing file is already cleared
++        if (!m_aFiles.remove(usageFile(rApp)) && m_aFiles.read(usageFile(rApp)))
++            aKept.push_back(rApp);
++    }
++    return aKept;
++}
++
++void UsageStore::flush(Day nToday)
++{
++    for (auto& [rApp, rState] : m_aApps)
++    {
++        if (!rState.dirty)
++            continue;
++        rState.history.prune(nToday);
++        rState.dirty = !m_aFiles.write(usageFile(rApp), rState.history.write());
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/hst/ribbon/core/ribbon-usage-store.hxx
+@@ -0,0 +1,81 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++// HST Office ribbon core: the recently used tab's state for every app, without I/O. It holds the switch
++// (settings.json) and each app's usage history (usage-<app>.json), read on first use and written through the
++// Files callbacks the adapter supplies (the user profile). Standard C++ only; not thread-safe, the adapter
++// serialises every call.
++//
++// Switching the tab off stops recording and hides the tab, but keeps every history, in memory and in the
++// profile: switching it on again shows the same commands. Only clearAll() ("Xóa lịch sử") forgets them.
++
++#include "ribbon-usage-history.hxx"
++
++#include <functional>
++#include <map>
++#include <optional>
++#include <string>
++#include <string_view>
++#include <vector>
++
++namespace hst::ribbon::core
++{
++class UsageStore
++{
++public:
++    /// the profile folder by file name: read (nullopt when missing or unreadable), write whole, remove
++    struct Files
++    {
++        std::function<std::optional<std::string>(const std::string& rName)> read;
++        std::function<bool(const std::string& rName, const std::string& rText)> write;
++        std::function<bool(const std::string& rName)> remove;
++    };
++
++    static constexpr std::string_view SETTINGS_FILE = "settings.json";
++    /// the apps the recently used tab exists in
++    static const std::vector<std::string>& apps();
++    /// "usage-<app>.json"
++    static std::string usageFile(const std::string& rApp);
++
++    explicit UsageStore(Files aFiles);
++
++    bool recentEnabled();
++    /// writes the switch; never touches a history
++    void setRecentEnabled(bool bEnabled);
++
++    /// counts a run of aCommand in the app's history; false (nothing changed) when the switch is off, or for
++    /// noise and malformed commands
++    bool record(const std::string& rApp, std::string_view aCommand, Day nToday);
++    /// the app's commands, most used first (UsageHistory::ranked), at most nLimit
++    std::vector<std::string> ranked(const std::string& rApp, Day nToday, std::size_t nLimit);
++    /// changes whenever the app's history does
++    unsigned revision(const std::string& rApp) const;
++
++    /// forgets every app's history, in memory and in the profile; the apps whose file was not removed
++    std::vector<std::string> clearAll();
++    /// writes the changed histories, pruned to the window ending nToday; a failed write is tried again later
++    void flush(Day nToday);
++
++private:
++    struct App
++    {
++        UsageHistory history;
++        bool loaded = false;
++        bool dirty = false;
++        unsigned revision = 0;
++    };
++
++    const UsageSettings& settings();
++    App& app(const std::string& rApp, Day nToday);
++
++    Files m_aFiles;
++    std::optional<UsageSettings> m_oSettings;
++    std::map<std::string, App> m_aApps;
 +};
 +}
 +
@@ -4955,7 +5214,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/hst/ribbon/lo/ribbon-usage-recorder.cxx
-@@ -0,0 +1,242 @@
+@@ -0,0 +1,183 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -4963,7 +5222,7 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +
 +#include "ribbon-usage-recorder.hxx"
 +#include "ribbon-profile-files.hxx"
-+#include "../core/ribbon-usage-history.hxx"
++#include "../core/ribbon-usage-store.hxx"
 +
 +#include <com/sun/star/frame/Desktop.hpp>
 +#include <com/sun/star/frame/XTerminateListener.hpp>
@@ -4977,7 +5236,6 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +#include <vcl/svapp.hxx>
 +#include <vcl/timer.hxx>
 +
-+#include <map>
 +#include <memory>
 +#include <mutex>
 +
@@ -4988,17 +5246,6 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +namespace
 +{
 +constexpr sal_uInt64 FLUSH_DELAY_MS = 60 * 1000;
-+constexpr std::u16string_view SETTINGS_FILE = u"settings.json";
-+
-+OUString UsageFile(const std::string& rApp) { return "usage-" + FromUtf8(rApp) + ".json"; }
-+
-+struct AppUsage
-+{
-+    core::UsageHistory history;
-+    bool loaded = false;
-+    bool dirty = false;
-+    unsigned revision = 0;
-+};
 +
 +class FlushTimer : public Timer
 +{
@@ -5019,13 +5266,19 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +    virtual void SAL_CALL disposing(const css::lang::EventObject&) override {}
 +};
 +
++/// the store's files are the profile's hst-ribbon/ folder
++core::UsageStore::Files profileFiles()
++{
++    return { [](const std::string& rName) { return ReadProfileFile(FromUtf8(rName)); },
++             [](const std::string& rName, const std::string& rText) { return WriteProfileFile(FromUtf8(rName), rText); },
++             [](const std::string& rName) { return RemoveProfileFile(FromUtf8(rName)); } };
++}
++
 +/// the process's usage state; never destroyed (its timer must not outlive the toolkit at exit)
 +struct Usage
 +{
 +    std::mutex mutex;
-+    std::map<std::string, AppUsage> apps;
-+    bool settingsLoaded = false;
-+    core::UsageSettings settings;
++    core::UsageStore store{ profileFiles() };
 +    std::unique_ptr<FlushTimer> timer;
 +    bool listening = false;
 +    bool terminated = false;
@@ -5035,31 +5288,6 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +{
 +    static Usage* const pUsage = new Usage;
 +    return *pUsage;
-+}
-+
-+/// call with the mutex held
-+const core::UsageSettings& settingsLocked(Usage& rUsage)
-+{
-+    if (!rUsage.settingsLoaded)
-+    {
-+        rUsage.settingsLoaded = true;
-+        if (const std::optional<std::string> aText = ReadProfileFile(SETTINGS_FILE))
-+            rUsage.settings = core::UsageSettings::parse(*aText);
-+    }
-+    return rUsage.settings;
-+}
-+
-+/// call with the mutex held
-+AppUsage& appLocked(Usage& rUsage, const std::string& rApp)
-+{
-+    AppUsage& rState = rUsage.apps[rApp];
-+    if (!rState.loaded)
-+    {
-+        rState.loaded = true;
-+        if (const std::optional<std::string> aText = ReadProfileFile(UsageFile(rApp)))
-+            rState.history = core::UsageHistory::parse(*aText, Today());
-+    }
-+    return rState;
 +}
 +
 +/// the first record starts the flush timer and the listener that writes the histories when the office ends
@@ -5121,79 +5349,51 @@ HST Office: ribbon customization and the "Sử dụng gần đây" (recently use
 +        return;
 +    Usage& rUsage = usage();
 +    std::scoped_lock aLock(rUsage.mutex);
-+    if (!settingsLocked(rUsage).recentEnabled)
-+        return;
-+    AppUsage& rApp = appLocked(rUsage, aApp);
-+    if (!rApp.history.record(".uno:" + ToUtf8(aPath), Today()))
-+        return;
-+    rApp.dirty = true;
-+    ++rApp.revision;
-+    armFlush(rUsage);
++    if (rUsage.store.record(aApp, ".uno:" + ToUtf8(aPath), Today()))
++        armFlush(rUsage);
 +}
 +
 +std::vector<std::string> RankedCommands(const std::string& rApp, std::size_t nLimit)
 +{
 +    Usage& rUsage = usage();
 +    std::scoped_lock aLock(rUsage.mutex);
-+    std::vector<std::string> aOut;
-+    for (const auto& rItem : appLocked(rUsage, rApp).history.ranked(Today(), nLimit))
-+        aOut.push_back(rItem.command);
-+    return aOut;
++    return rUsage.store.ranked(rApp, Today(), nLimit);
 +}
 +
 +unsigned UsageRevision(const std::string& rApp)
 +{
 +    Usage& rUsage = usage();
 +    std::scoped_lock aLock(rUsage.mutex);
-+    return rUsage.apps[rApp].revision;
++    return rUsage.store.revision(rApp);
 +}
 +
 +bool RecentEnabled()
 +{
 +    Usage& rUsage = usage();
 +    std::scoped_lock aLock(rUsage.mutex);
-+    return settingsLocked(rUsage).recentEnabled;
++    return rUsage.store.recentEnabled();
 +}
 +
 +void SetRecentEnabled(bool bEnabled)
 +{
 +    Usage& rUsage = usage();
 +    std::scoped_lock aLock(rUsage.mutex);
-+    core::UsageSettings aSettings = settingsLocked(rUsage);
-+    aSettings.recentEnabled = bEnabled;
-+    rUsage.settings = aSettings;
-+    WriteProfileFile(SETTINGS_FILE, aSettings.write());
++    rUsage.store.setRecentEnabled(bEnabled); // off keeps every history (UsageStore)
 +}
 +
 +void ClearHistory()
 +{
 +    Usage& rUsage = usage();
 +    std::scoped_lock aLock(rUsage.mutex);
-+    for (const char* pApp : { "writer", "calc", "impress", "draw" })
-+    {
-+        AppUsage& rApp = rUsage.apps[pApp];
-+        rApp.history.clear();
-+        rApp.loaded = true;
-+        rApp.dirty = false;
-+        ++rApp.revision;
-+        if (!RemoveProfileFile(UsageFile(pApp)))
-+            SAL_WARN("sfx.notebookbar", "HST ribbon: the usage history of " << pApp << " was not removed");
-+    }
++    for (const std::string& rApp : rUsage.store.clearAll())
++        SAL_WARN("sfx.notebookbar", "HST ribbon: the usage history of " << rApp << " was not removed");
 +}
 +
 +void FlushHistory()
 +{
 +    Usage& rUsage = usage();
 +    std::scoped_lock aLock(rUsage.mutex);
-+    const sal_Int64 nToday = Today();
-+    for (auto& [rApp, rState] : rUsage.apps)
-+    {
-+        if (!rState.dirty)
-+            continue;
-+        rState.history.prune(nToday);
-+        // a failed write is tried again with the next change
-+        rState.dirty = !WriteProfileFile(UsageFile(rApp), rState.history.write());
-+    }
++    rUsage.store.flush(Today());
 +}
 +}
 +

@@ -115,6 +115,16 @@ class Handler(unittest.TestCase):
         self.assertEqual(service.calls[-1], {"Action": "setRecentEnabled", "Enabled": True})
         self.assertTrue(service.enabled)
 
+    def test_switching_the_tab_off_never_clears_the_history(self):
+        service = FakeService(enabled=True)
+        page = handler(service)
+        window, controls = make_window()
+        page.callHandlerMethod(window, "initialize", "external_event")
+        controls["recentEnabled"].getState.return_value = 0
+        page.callHandlerMethod(window, "ok", "external_event")
+        self.assertEqual(service.calls[1:], [{"Action": "setRecentEnabled", "Enabled": False}])
+        self.assertNotIn("clearHistory", [c["Action"] for c in service.calls])
+
     def test_back_reloads_and_cancel_writes_nothing(self):
         service = FakeService(enabled=True)
         page = handler(service)
