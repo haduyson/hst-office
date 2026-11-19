@@ -7,7 +7,8 @@ preview were stacked once more per opening. Run like check-backstage-print-margi
         <office python> check-backstage-print-repeat.py --soffice PATH --out DIR [--rounds N] [--shot CMD]
 Writer, Sheets, Slides and Draw: .uno:Print (Ctrl+P) opens the page, the panel closes (its job is cancelled), N times.
 Each opening: exactly one panel, its labels in Vietnamese. After all: no job printed (the generic PDF printer of the
-profile wrote nothing) and the office's memory grew by less than MAX_GROWTH_KIB. Exit 1 on a failure.
+profile wrote nothing), the office's memory grew by less than MAX_GROWTH_KIB, and after WARM_UP openings of an
+application each further opening adds less than MAX_GROWTH_PER_OPENING_KIB. Exit 1 on a failure.
 """
 import argparse, importlib.util, json, os, socket, subprocess, sys, tempfile, time  # noqa: E401
 
@@ -21,6 +22,9 @@ ATSPI = os.path.join(HERE, "backstage_print_atspi.py")
 APPS = ("swriter", "scalc", "simpress", "sdraw")
 # a cancelled job and its panel are freed; what stays per opening (caches, the preview's bitmaps) is small
 MAX_GROWTH_KIB = 150 * 1024
+# once the first openings filled the caches an opening costs about nothing; each job's printer kept its own font
+# list alive before (the font files mapped again, about 20 MB per opening)
+WARM_UP, MAX_GROWTH_PER_OPENING_KIB = 2, 4 * 1024
 
 
 def free_port():
@@ -121,6 +125,13 @@ def main():
         last = list(memory.values())[-1][-1]
         check(first > 0 and last - first < MAX_GROWTH_KIB,
               f"memory grows by less than {MAX_GROWTH_KIB} KiB over all openings ({first} -> {last} KiB)")
+        for app, values in memory.items():
+            later = values[WARM_UP - 1:]
+            if len(later) > 1:
+                per_opening = (later[-1] - later[0]) / (len(later) - 1)
+                check(per_opening < MAX_GROWTH_PER_OPENING_KIB,
+                      f"{app}: after {WARM_UP} openings each opening adds less than {MAX_GROWTH_PER_OPENING_KIB} KiB "
+                      f"({per_opening:.0f} KiB)")
         printed = os.listdir(printer_dir)
         check(not printed, f"no cancelled job printed ({printed})")
     finally:
