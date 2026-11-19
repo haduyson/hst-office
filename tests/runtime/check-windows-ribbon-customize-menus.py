@@ -31,6 +31,7 @@ _spec = importlib.util.spec_from_file_location("ribbon_win", os.path.join(HERE, 
 base = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(base)
 DIALOG = "Tùy chỉnh ribbon"
+RIBBON_TREE = "Tùy chỉnh ribbon:"  # the dialog's ribbon tree is named by its label
 SHIFT, F10 = 0x10, 0x79
 APPS = {"writer": base.APPS["writer"], "calc": base.APPS["calc"]}
 
@@ -44,6 +45,22 @@ def dialog_window(office):
         except Exception:  # noqa: BLE001 - a window going away
             continue
     return None
+
+
+def ribbon_tabs(dialog, tree_role=None):
+    """Top-level rows of the dialog's ribbon tree (its tabs), read from the tree's own children whatever their SHOWING
+    state: VCL exposes a row without a check box (a tab) as a LABEL that is not showing, while the rows of its
+    collapsed groups say they are showing, so a walk over the showing names never meets the tabs."""
+    tree_role = base.role("TREE") if tree_role is None else tree_role
+    for context, _depth in wg.walk(dialog):
+        try:
+            if context.getAccessibleRole() != tree_role or context.getAccessibleName() != RIBBON_TREE:
+                continue
+            return [context.getAccessibleChild(i).getAccessibleContext().getAccessibleName()
+                    for i in range(context.getAccessibleChildCount())]
+        except Exception:  # noqa: BLE001 - a row going away
+            continue
+    return []
 
 
 def menu_items(office):
@@ -128,6 +145,7 @@ def open_menu_and_pick(office, hwnd, shots, name):
         return False, items, seen
     time.sleep(1.5)
     listed = wg.texts(base.accessible(window), limit=300)
+    seen["tabs"] = ribbon_tabs(base.accessible(window))
     dialog = wg.dialog_hwnd(window)
     if dialog:
         wg.load_check("check-windows-quick-access").window_shot(dialog, os.path.join(shots, name + "-dialog.bmp"))
@@ -172,15 +190,19 @@ def check_app(office, app, out, res):
     res(f"[{app}] tab row focused", focused)
     res(f"[{app}] tab row: Shift+F10 menu shows {DIALOG}", seen["shown"], listed[:30])
     res(f"[{app}] tab row: {DIALOG} opens the dialog, Escape closes it", ok, seen)
-    res(f"[{app}] the dialog lists the ribbon's tabs", base.HOME in listed, listed[:30])
+    res(f"[{app}] the dialog lists the ribbon's tabs", base.HOME in seen.get("tabs", []), seen.get("tabs"))
     focused = focus_command(base.window_of(doc), "Đậm")
     ok, _listed, seen = open_menu_and_pick(office, hwnd, out, f"{app}-command")
     res(f"[{app}] command Đậm: Shift+F10 menu, {DIALOG} opens the dialog", focused and ok, (focused, seen))
     helper = office.service("com.sun.star.frame.DispatchHelper")
     frame = doc.getCurrentController().getFrame()
+    job = office.service("vn.hasontech.hst.RibbonCustomization")
+    # Commands are recorded only while the tab is on (UsageStore::record), and the previous app's part ends with it
+    # off for the restart check: switch it on before using the commands, or this app has no history to keep.
+    job.execute((NamedValue("Action", "setRecentEnabled"), NamedValue("Enabled", True)))
+    time.sleep(3)
     for command in base.USED:
         helper.executeDispatch(frame, command, "", 0, ())
-    job = office.service("vn.hasontech.hst.RibbonCustomization")
     job.execute((NamedValue("Action", "setRecentEnabled"), NamedValue("Enabled", False)))
     time.sleep(5)
     res(f"[{app}] tab off", base.RECENT not in [n for n, _c in base.tabs(base.window_of(doc))])

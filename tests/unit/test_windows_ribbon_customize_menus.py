@@ -34,5 +34,44 @@ class MenuEntryTest(unittest.TestCase):
         self.assertFalse(self.menus.entry_matches(None, self.menus.DIALOG))
 
 
+class _Context:
+    def __init__(self, role, name, children=()):
+        self.role, self.name, self.children = role, name, list(children)
+
+    def getAccessibleRole(self):
+        return self.role
+
+    def getAccessibleName(self):
+        return self.name
+
+    def getAccessibleChildCount(self):
+        return len(self.children)
+
+    def getAccessibleChild(self, index):
+        return mock.Mock(getAccessibleContext=mock.Mock(return_value=self.children[index]))
+
+
+class RibbonTabsTest(unittest.TestCase):
+    """The dialog's tabs are the top-level rows of the tree named "Tùy chỉnh ribbon:", as VCL exposes them."""
+    menus = load()
+    TREE, LABEL, CHECK = 65, 27, 2
+
+    def walk_of(self, *contexts):
+        return lambda _dialog: iter([(c, 0) for c in contexts])
+
+    def test_tab_rows_are_read_from_the_ribbon_tree(self):
+        groups = [_Context(self.CHECK, "Bảng tạm", [_Context(self.CHECK, "Dán")])]
+        ribbon = _Context(self.TREE, "Tùy chỉnh ribbon:", [_Context(self.LABEL, "Trang đầu", groups),
+                                                           _Context(self.LABEL, "Chèn")])
+        commands = _Context(self.TREE, "Lệnh", [_Context(self.LABEL, ".uno:AboveSpacing")])
+        with mock.patch.object(self.menus.wg, "walk", self.walk_of(commands, ribbon)):
+            self.assertEqual(self.menus.ribbon_tabs(object(), self.TREE), ["Trang đầu", "Chèn"])
+
+    def test_no_ribbon_tree_gives_no_tabs(self):
+        commands = _Context(self.TREE, "Lệnh", [_Context(self.LABEL, "Trang đầu")])
+        with mock.patch.object(self.menus.wg, "walk", self.walk_of(commands)):
+            self.assertEqual(self.menus.ribbon_tabs(object(), self.TREE), [])
+
+
 if __name__ == "__main__":
     unittest.main()
