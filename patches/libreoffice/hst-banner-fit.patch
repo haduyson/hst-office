@@ -21,6 +21,10 @@ and wherever else it is shown (owner, 19/11/2026: no letterbox, no filler band, 
   qt only the page paints the body, and the page stops before the room: the room is now painted in the body's
   colour (the window colour, as the other toolkits' tab control paints its whole panel), so the body is one
   surface behind the banner instead of a step after the last group.
+- vcl TabControl::Paint: for the same reason the native tab header (behind the quick access toolbar, the tab titles,
+  the search box and the menu button) ran only to the page's right end with gtk, so the later tab titles stood on
+  the tab control's own background; the ribbon's header now runs to the control's right end, one surface across
+  the window like the body.
 
 License: these upstream files remain under their original license (MPL-2.0).
 Test: tests/unit/test_banner_fit_geometry.py; tests/runtime/check-banner-fit.py.
@@ -441,3 +445,19 @@ Test: tests/unit/test_banner_fit_geometry.py; tests/runtime/check-banner-fit.py.
      if (!GetOutputSizePixel().IsEmpty())
          mxCore->Shown(true);
  }
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -1223,6 +1223,13 @@ void TabControl::Paint( vcl::RenderContext& rRenderContext, const tools::Rectang
+                 aHeaderRect.SetRight(nRight);
+             }
+         }
++        // HST Office: the ribbon's page stops before the banner's room, so the header (behind the quick access
++        // toolbar, the tab titles, the search box and the menu button) ran only to the page's right end and the later
++        // tab titles stood on another surface. The ribbon's header runs to the control's right end, as its body does
++        // (only where the header is drawn natively below; the other backends' panes take their header's width).
++        if (!bPaneWithHeader && dynamic_cast<NotebookbarTabControlBase*>(this)
++            && rRenderContext.IsNativeControlSupported(ControlType::TabHeader, ControlPart::Entire))
++            aHeaderRect.SetRight(std::max<tools::Long>(aHeaderRect.Right(), GetOutputSizePixel().Width() - 1));
+ 
+         const TabPaneValue aTabPaneValue(aHeaderRect, pCurItem ? pCurItem->maRect : tools::Rectangle());
+ 
