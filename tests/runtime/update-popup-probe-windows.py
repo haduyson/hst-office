@@ -30,6 +30,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+def windows_foreground():
+    import ctypes
+    user32 = ctypes.windll.user32
+    buffer = ctypes.create_unicode_buffer(512)
+    user32.GetWindowTextW(user32.GetForegroundWindow(), buffer, 512)
+    return buffer.value
+
+
 def frames(office):
     out = []
     desktop = office.service("com.sun.star.frame.Desktop")
@@ -72,6 +80,12 @@ def main():
                 entry["frames"] = frames(office)
             except Exception as error:  # noqa: BLE001
                 entry["frames"] = repr(error)
+            try:
+                current = office.service("com.sun.star.frame.Desktop").getCurrentFrame()
+                entry["current_frame"] = None if current is None else current.getName() or "(unnamed)"
+            except Exception as error:  # noqa: BLE001
+                entry["current_frame"] = repr(error)
+            entry["foreground"] = windows_foreground()
             entry["popup"] = [t for _h, t in windows_titled(lambda title: "HST" in title)]
             log.append(entry)
             print(json.dumps(entry, ensure_ascii=False), flush=True)
