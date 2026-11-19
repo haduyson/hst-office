@@ -12,6 +12,8 @@ does) and per theme (the office's own appearance setting), in a window of --size
     pixel of rounding): a wider box is a filler band, a taller one a letterbox;
   - the box shows that artwork edge to edge: the screenshot inside the box matches the artwork scaled to the whole
     box (no inset, no background around it);
+  - the ribbon's body is one surface behind the banner: left of it and right of it the screenshot shows the body's
+    colour (the most common colour of the body beside the groups), not the tab control's own background;
   - on every tab of the ribbon (each one opened by a click on it; Tệp tin opens the File panel and is left out) the
     banner stands flush with the right end of the ribbon's content area: its right edge is the window's right edge
     less the 8 px margin, the same box on every tab (owner decision 19/11/2026), the free room left of it.
@@ -100,6 +102,19 @@ def flush_right_on_every_tab(args, frame):
     return not bad, "; ".join(bad) or f"{len(seen)} tabs, banner at {next(iter(seen.values()))}"
 
 
+def body_continuous(shot_path, box, frame):
+    """(ok, detail): the colour just left and just right of the banner is the body's own colour."""
+    shot = Image.open(shot_path).convert("RGB")
+    x, y, w, h = box
+    region = numpy.asarray(shot.crop((frame[0] + 10, y, max(frame[0] + 11, x - 8), y + h)), dtype=int).reshape(-1, 3)
+    colours, counts = numpy.unique(region, axis=0, return_counts=True)
+    body = tuple(int(v) for v in colours[counts.argmax()])
+    mid = y + h // 2
+    beside = {"left": shot.getpixel((x - 4, mid)), "right": shot.getpixel((frame[0] + frame[2] - 3, mid))}
+    off = {k: v for k, v in beside.items() if max(abs(a - b) for a, b in zip(v, body)) > 6}
+    return not off, (f"body {body}, beside the banner {off}" if off else f"body {body} on both sides")
+
+
 def set_scale(display, scale):
     subprocess.run(["xrdb", "-display", display, "-merge", "-"], input="Xft.dpi: %d\n" % round(96 * scale),
                    text=True, check=False)
@@ -133,7 +148,9 @@ def run_case(args, app, scale, theme, catalogue, results):
                 ok, detail = False, f"{len(boxes)} banners visible"
             else:
                 ok, detail = judge(boxes[0], path, catalogue)
-                detail = f"{detail} at {boxes[0]}"
+                same, surface = body_continuous(path, boxes[0], frame)
+                ok = ok and same
+                detail = f"{detail} at {boxes[0]}; {surface}"
             if ok:
                 break
             time.sleep(1.5)

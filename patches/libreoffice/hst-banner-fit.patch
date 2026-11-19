@@ -17,7 +17,10 @@ and wherever else it is shown (owner, 19/11/2026: no letterbox, no filler band, 
 - sfx2 NotebookbarTabControl: the Tabbed ribbon's banner room is unchanged (360 to 960 logical px, 96 high, from
   8 px after the last group to 8 px before the window's right edge); the banner takes its artwork's width flush
   with the room's right end (owner, 19/11/2026), so it stands at the same place on every tab and the free room
-  between the last group and the banner is the ribbon's own background. The groups' fit is unchanged.
+  between the last group and the banner is the ribbon's own background. The groups' fit is unchanged. With gtk and
+  qt only the page paints the body, and the page stops before the room: the room is now painted in the body's
+  colour (the window colour, as the other toolkits' tab control paints its whole panel), so the body is one
+  surface behind the banner instead of a step after the last group.
 
 License: these upstream files remain under their original license (MPL-2.0).
 Test: tests/unit/test_banner_fit_geometry.py; tests/runtime/check-banner-fit.py.
@@ -139,6 +142,17 @@ Test: tests/unit/test_banner_fit_geometry.py; tests/runtime/check-banner-fit.py.
  /** Artwork variant (1, 2 or 3) for an image drawn nDeviceHeight device pixels high: the exact
      variant when the size matches one, else the next larger one so that it is only ever
      downscaled (high quality) and never upscaled. */
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -44,6 +44,8 @@ public:
+     virtual void dispose() override;
+     virtual void MouseButtonDown( const MouseEvent& rMEvt ) override;
+     virtual bool PreNotify( NotifyEvent& rNEvt ) override;
++    /// HST Office: the ribbon's body continues behind the banner (see HstPaintBodyBesidePage)
++    virtual void Paint( vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect ) override;
+     /// HST Office (1.0.3 ribbon): the banner is placed again once the current layout pass is over
+     void HstQueueLayout();
+ 
 --- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
 +++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
 @@ -649,7 +649,12 @@ void NotebookbarTabControl::HstLayoutBanner()
@@ -155,6 +169,35 @@ Test: tests/unit/test_banner_fit_geometry.py; tests/runtime/check-banner-fit.py.
              hst::ribbon::DumpPageLayout(*pPage, tools::Rectangle(Point(aSlot.Left() - aPage.x, aSlot.Top() - aPage.y),
                                                                   aSlot.GetSize()));
          }
+@@ -714,6 +719,28 @@ void NotebookbarTabControl::Resize()
+     HstLayoutBanner();
+ }
+ 
++// HST Office: the page stops before the banner's room (HstLayoutBanner), and with gtk and qt only the page paints the
++// ribbon's body (the native tab body, the window colour), so the room beside it showed the tab control's dialog
++// colour: a step after the last group, with the banner on another surface. The room is painted as the body; the
++// other toolkits' tab control paints the whole panel itself already (TabControl::Paint), in the same colour.
++void NotebookbarTabControl::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect)
++{
++    NotebookbarTabControlBase::Paint(rRenderContext, rRect);
++    TabPage* pPage = GetTabPage(GetCurPageId());
++    if (!m_pHstBanner || !pPage || !pPage->IsVisible() || pPage->GetSizePixel().Height() <= 0)
++        return;
++    const tools::Rectangle aPage(pPage->GetPosPixel(), pPage->GetSizePixel());
++    const tools::Rectangle aBeside(Point(aPage.Right() + 1, aPage.Top()),
++                                   Point(GetOutputSizePixel().Width() - 1, aPage.Bottom()));
++    if (aBeside.IsEmpty() || aBeside.Left() > aBeside.Right())
++        return;
++    rRenderContext.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    rRenderContext.SetLineColor();
++    rRenderContext.SetFillColor(rRenderContext.GetSettings().GetStyleSettings().GetWindowColor());
++    rRenderContext.DrawRect(aBeside);
++    rRenderContext.Pop();
++}
++
+ tools::Long NotebookbarTabControl::HstBannerRight() const
+ {
+     // the document window's right edge in this control's pixels (this control may stop before it: the margins of
 --- a/vcl/source/control/HstBanner.cxx
 +++ b/vcl/source/control/HstBanner.cxx
 @@ -13,6 +13,8 @@
