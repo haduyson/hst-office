@@ -1,0 +1,222 @@
+HST Office: a picture saved as .rtf keeps its shown size (Word's whole-percent \picscalex).
+
+The RTF export wrote a picture's size as its original size (\picwgoal / \pichgoal) times a scale (\picscalex /
+\picscaley) that RTF keeps as a whole percent, so a picture shown at 65.9 % was written at 65 % and came back 1-2 %
+smaller after every save (s037: 20 pictures, together with the next patch two pages short of Word). An uncropped
+picture now gets its shown size as the goal, at 100 %; a cropped one keeps its original size as the goal, as before,
+since its crops are in those units (sw/source/filter/ww8/hst/rtfpicturescale.cxx).
+
+Test: CppunitTest_sw_rtfexport8 testHstPictureShownSizeKept (a picture at 65.9 % round-trips within 1 twip).
+
+License: these upstream files remain under their original license (MPL-2.0); the new files under
+sw/source/filter/ww8/hst/ are HST's own work (LicenseRef-HST-Proprietary).
+---
+diff --git a/sw/Library_msword.mk b/sw/Library_msword.mk
+index febb427..9bd0522 100644
+--- a/sw/Library_msword.mk
++++ b/sw/Library_msword.mk
+@@ -90,6 +90,7 @@ $(eval $(call gb_Library_add_exception_objects,msword,\
+     sw/source/filter/ww8/docxsdrexport \
+     sw/source/filter/ww8/docxtableexport \
+     sw/source/filter/ww8/docxtablestyleexport \
++    sw/source/filter/ww8/hst/rtfpicturescale \
+     sw/source/filter/ww8/rtfattributeoutput \
+     sw/source/filter/ww8/rtfexport \
+     sw/source/filter/ww8/rtfexportfilter \
+diff --git a/sw/qa/extras/rtfexport/rtfexport8.cxx b/sw/qa/extras/rtfexport/rtfexport8.cxx
+index 948f1a0..1123a22 100644
+--- a/sw/qa/extras/rtfexport/rtfexport8.cxx
++++ b/sw/qa/extras/rtfexport/rtfexport8.cxx
+@@ -14,6 +14,8 @@
+ #include <com/sun/star/drawing/FillStyle.hpp>
+ #include <com/sun/star/table/XTableColumns.hpp>
+ #include <com/sun/star/text/GraphicCrop.hpp>
++#include <com/sun/star/graphic/XGraphic.hpp>
++#include <com/sun/star/text/TextContentAnchorType.hpp>
+ #include <com/sun/star/text/XFootnote.hpp>
+ #include <com/sun/star/text/XFootnotesSupplier.hpp>
+ #include <com/sun/star/text/XEndnotesSupplier.hpp>
+@@ -33,6 +35,10 @@
+ #include <officecfg/Office/Common.hxx>
+ #include <test/commontesttools.hxx>
+ 
++#include <vcl/bitmap.hxx>
++#include <vcl/graph.hxx>
++#include <vcl/mapmod.hxx>
++
+ #include <unotxdoc.hxx>
+ #include <docsh.hxx>
+ #include <wrtsh.hxx>
+@@ -1374,6 +1380,35 @@ CPPUNIT_TEST_FIXTURE(Test, testTdf134614_TOC_indent)
+                            !isInsideScope(nInnerFldrslt, nParAfterLastEntry));
+ }
+ 
++// HST Office
++CPPUNIT_TEST_FIXTURE(Test, testHstPictureShownSizeKept)
++{
++    // A picture shown at 65.9 % of its size was written as \picscalex65 (a whole percent), so it came back 1 %
++    // smaller after every save; the shown size is now the goal, at 100 %.
++    createSwDoc();
++    Graphic aGraphic(Bitmap(Size(100, 75), vcl::PixelFormat::N24_BPP));
++    aGraphic.SetPrefMapMode(MapMode(MapUnit::Map100thMM));
++    aGraphic.SetPrefSize(Size(5000, 3750));
++    uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY);
++    uno::Reference<beans::XPropertySet> xPicture(
++        xFactory->createInstance(u"com.sun.star.text.TextGraphicObject"_ustr), uno::UNO_QUERY);
++    xPicture->setPropertyValue(u"Graphic"_ustr, uno::Any(aGraphic.GetXGraphic()));
++    xPicture->setPropertyValue(u"AnchorType"_ustr,
++                               uno::Any(text::TextContentAnchorType_AS_CHARACTER));
++    uno::Reference<text::XTextDocument> xDocument(mxComponent, uno::UNO_QUERY);
++    uno::Reference<text::XText> xText = xDocument->getText();
++    xText->insertTextContent(xText->getEnd(),
++                             uno::Reference<text::XTextContent>(xPicture, uno::UNO_QUERY), false);
++    const awt::Size aShown(3295, 2471); // 65.9 %
++    xPicture->setPropertyValue(u"Size"_ustr, uno::Any(aShown));
++
++    saveAndReload(TestFilter::RTF);
++    // within 1 twip (1.76 mm100); 3250 x 2437 before
++    const awt::Size aSize = getShape(1)->getSize();
++    CPPUNIT_ASSERT_LESSEQUAL(sal_Int32(2), std::abs(aSize.Width - aShown.Width));
++    CPPUNIT_ASSERT_LESSEQUAL(sal_Int32(2), std::abs(aSize.Height - aShown.Height));
++}
++
+ } // end of anonymous namespace
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+diff --git a/sw/source/filter/ww8/hst/rtfpicturescale.cxx b/sw/source/filter/ww8/hst/rtfpicturescale.cxx
+new file mode 100644
+index 0000000..60f70bc
+--- /dev/null
++++ b/sw/source/filter/ww8/hst/rtfpicturescale.cxx
+@@ -0,0 +1,40 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "rtfpicturescale.hxx"
++
++namespace sw::hst
++{
++namespace
++{
++/// Percent of the cropped size that is shown (100 for a picture of no size, which once crashed the export).
++tools::Long CroppedScale(tools::Long nShown, tools::Long nCropped)
++{
++    return nCropped ? 100 * nShown / nCropped : 100;
++}
++}
++
++RtfPictureGoal RtfShownPictureGoal(const Size& rOrig, const Size& rRendered, tools::Long nCropLeft,
++                                   tools::Long nCropRight, tools::Long nCropTop, tools::Long nCropBottom)
++{
++    RtfPictureGoal aGoal;
++    const bool bCropped = nCropLeft || nCropRight || nCropTop || nCropBottom;
++    if (!bCropped && rRendered.Width() > 0 && rRendered.Height() > 0)
++    {
++        aGoal.nWidth = rRendered.Width();
++        aGoal.nHeight = rRendered.Height();
++        return aGoal;
++    }
++    aGoal.nWidth = rOrig.Width();
++    aGoal.nHeight = rOrig.Height();
++    aGoal.nScaleX = CroppedScale(rRendered.Width(), rOrig.Width() - nCropLeft - nCropRight);
++    aGoal.nScaleY = CroppedScale(rRendered.Height(), rOrig.Height() - nCropTop - nCropBottom);
++    return aGoal;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/filter/ww8/hst/rtfpicturescale.hxx b/sw/source/filter/ww8/hst/rtfpicturescale.hxx
+new file mode 100644
+index 0000000..7dcd09e
+--- /dev/null
++++ b/sw/source/filter/ww8/hst/rtfpicturescale.hxx
+@@ -0,0 +1,31 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <tools/gen.hxx>
++
++namespace sw::hst
++{
++/// The size fields RTF writes for a picture: \picwgoal, \pichgoal in twips, \picscalex, \picscaley in percent.
++struct RtfPictureGoal
++{
++    tools::Long nWidth = 0;
++    tools::Long nHeight = 0;
++    tools::Long nScaleX = 100;
++    tools::Long nScaleY = 100;
++};
++
++/** The goal and scale of a picture of size rOrig (twips) shown at rRendered. Word and the RTF reader keep the scale as
++    a whole percent, so a picture shown at 65.9 % came back at 65 %, 1-2 % smaller on every save: an uncropped picture
++    gets its shown size as the goal, at 100 %. A cropped one keeps its size as the goal (the crops are in its units, and
++    the reader crops the picture data by them) and the scale of its cropped size, as before. */
++RtfPictureGoal RtfShownPictureGoal(const Size& rOrig, const Size& rRendered, tools::Long nCropLeft,
++                                   tools::Long nCropRight, tools::Long nCropTop, tools::Long nCropBottom);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/filter/ww8/rtfattributeoutput.cxx b/sw/source/filter/ww8/rtfattributeoutput.cxx
+index c56aff7..89bc25b 100644
+--- a/sw/source/filter/ww8/rtfattributeoutput.cxx
++++ b/sw/source/filter/ww8/rtfattributeoutput.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include "rtfattributeoutput.hxx"
++#include "hst/rtfpicturescale.hxx"
+ #include <memory>
+ #include <cstring>
+ #include "rtfsdrexport.hxx"
+@@ -4777,22 +4778,13 @@ static OString ExportPICT(const SwFlyFrameFormat* pFlyFrameFormat, const Size& r
+             aRet.append("}"); //"}"
+         }
+ 
+-        tools::Long nXCroppedSize = rOrig.Width() - (rCr.GetLeft() + rCr.GetRight());
+-        tools::Long nYCroppedSize = rOrig.Height() - (rCr.GetTop() + rCr.GetBottom());
+-        /* Graphic with a zero height or width, typically copied from webpages, caused crashes. */
+-        if (!nXCroppedSize)
+-            nXCroppedSize = 100;
+-        if (!nYCroppedSize)
+-            nYCroppedSize = 100;
+-
+-        //Given the original size and taking cropping into account
+-        //first, how much has the original been scaled to get the
+-        //final rendered size
++        // HST Office: an uncropped picture has its shown size as the goal, at 100 % (a whole-percent scale made
++        // pictures smaller)
++        const sw::hst::RtfPictureGoal aGoal = sw::hst::RtfShownPictureGoal(
++            rOrig, rRendered, rCr.GetLeft(), rCr.GetRight(), rCr.GetTop(), rCr.GetBottom());
+         aRet.append(
+-            OOO_STRING_SVTOOLS_RTF_PICSCALEX
+-            + OString::number(static_cast<sal_Int32>((100 * rRendered.Width()) / nXCroppedSize))
+-            + OOO_STRING_SVTOOLS_RTF_PICSCALEY
+-            + OString::number(static_cast<sal_Int32>((100 * rRendered.Height()) / nYCroppedSize))
++            OOO_STRING_SVTOOLS_RTF_PICSCALEX + OString::number(static_cast<sal_Int32>(aGoal.nScaleX))
++            + OOO_STRING_SVTOOLS_RTF_PICSCALEY + OString::number(static_cast<sal_Int32>(aGoal.nScaleY))
+ 
+             + OOO_STRING_SVTOOLS_RTF_PICCROPL + OString::number(rCr.GetLeft())
+             + OOO_STRING_SVTOOLS_RTF_PICCROPR + OString::number(rCr.GetRight())
+@@ -4803,10 +4795,8 @@ static OString ExportPICT(const SwFlyFrameFormat* pFlyFrameFormat, const Size& r
+             + OOO_STRING_SVTOOLS_RTF_PICH
+             + OString::number(static_cast<sal_Int32>(rMapped.Height()))
+ 
+-            + OOO_STRING_SVTOOLS_RTF_PICWGOAL
+-            + OString::number(static_cast<sal_Int32>(rOrig.Width()))
+-            + OOO_STRING_SVTOOLS_RTF_PICHGOAL
+-            + OString::number(static_cast<sal_Int32>(rOrig.Height()))
++            + OOO_STRING_SVTOOLS_RTF_PICWGOAL + OString::number(static_cast<sal_Int32>(aGoal.nWidth))
++            + OOO_STRING_SVTOOLS_RTF_PICHGOAL + OString::number(static_cast<sal_Int32>(aGoal.nHeight))
+ 
+             + pBLIPType);
+         if (bIsWMF)
