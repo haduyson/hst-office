@@ -1,0 +1,61 @@
+HST Office: an unknown name typed in the Excel syntax keeps its spelling, as in the leading spreadsheet application.
+
+hst-sheets-excel-formula-conventions.patch makes Excel A1 the UI formula syntax. Upstream stores every unknown
+name of a formula in lowercase, so =Foo(1), =myName+1 or a Calc-style external reference such as
+='file:///Path/To/FileA.ods'#$Sheet1.A1A (#NAME? in the Excel syntax, tdf#89330) read back as =foo(1),
+=myname+1 and ='file:///path/to/filea.ods'#$sheet1.a1a. The leading application keeps what was typed.
+hst-sheets-excel-functions.patch already keeps the spelling for .xlsx formulas; the Excel A1 and R1C1
+syntaxes now do too. Known function names are uppercase either way (=sum(1,2) reads =SUM(1,2)); the Calc A1
+and ODF syntaxes are unchanged.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: make CppunitTest_sc_subsequent_filters_test2 (testErrorOnExternalReferences, testHstUnknownNameKeepsSpelling).
+---
+--- a/sc/qa/unit/subsequent_filters_test2.cxx
++++ b/sc/qa/unit/subsequent_filters_test2.cxx
+@@ -752,6 +752,30 @@ CPPUNIT_TEST_FIXTURE(ScFiltersTest2, testErrorOnExternalReferences)
+                                  pDoc->GetFormula(0, 0, 0));
+ }
+ 
++/// HST Office: in the Excel syntax an unknown name keeps the spelling it was typed with, a known
++/// function name is uppercase (hst-sheets-unknown-name-spelling.patch).
++CPPUNIT_TEST_FIXTURE(ScFiltersTest2, testHstUnknownNameKeepsSpelling)
++{
++    createScDoc();
++    ScDocument* pDoc = getScDoc();
++    CPPUNIT_ASSERT_EQUAL(formula::FormulaGrammar::CONV_XL_A1,
++                         formula::FormulaGrammar::extractRefConvention(pDoc->GetGrammar()));
++
++    const std::pair<OUString, OUString> aCases[] = {
++        { u"=Foo(1)"_ustr, u"=Foo(1)"_ustr },
++        { u"=myName+1"_ustr, u"=myName+1"_ustr },
++        { u"=sum(B1)"_ustr, u"=SUM(B1)"_ustr },
++    };
++    SCROW nRow = 0;
++    for (const auto& [rInput, rExpected] : aCases)
++    {
++        pDoc->SetString(ScAddress(0, nRow, 0), rInput);
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(rInput.toUtf8().getStr(), rExpected,
++                                     pDoc->GetFormula(0, nRow, 0));
++        ++nRow;
++    }
++}
++
+ CPPUNIT_TEST_FIXTURE(ScFiltersTest2, testTdf160371)
+ {
+     createScDoc("xlsx/tdf160371.xlsx");
+--- a/sc/source/core/tool/compiler.cxx
++++ b/sc/source/core/tool/compiler.cxx
+@@ -5176,7 +5176,11 @@ Label_Rewind:
+     // An unknown name in an .xlsx formula, e.g. a function of an online service
+     // of the file's author (_xlfn.STOCKHISTORY, CUBEVALUE, RTD), keeps the
+     // file's spelling so that the formula is written back unchanged.
+-    if (mxSymbols->isOOXML())
++    // HST Office: so does an unknown name typed in the Excel A1 or R1C1 syntax
++    // (=myName+1, =Foo(1)), as in the leading spreadsheet application; known
++    // function names are uppercase either way.
++    if (mxSymbols->isOOXML() || pConv->meConv == FormulaGrammar::CONV_XL_A1
++        || pConv->meConv == FormulaGrammar::CONV_XL_R1C1)
+         aUpper = OUString(cSymbol);
+     else
+         aUpper = ((bAsciiUpper || mbCharClassesDiffer) ? ScGlobal::getCharClass() : *pCharClass).lowercase( aUpper );

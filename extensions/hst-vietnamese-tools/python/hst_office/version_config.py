@@ -1,12 +1,12 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Setting "Lưu phiên bản trước khi ghi đè tệp" (Tùy chọn ▸ HST Office ▸ Phiên bản trước) and its administrator lock.
 
-The value lives in the extension schema /org.hasontech.hstoffice.PreviousVersions/Enabled (previousversions.xcs,
+The value lives in /org.hasontech.hstoffice.PreviousVersions/Enabled (core schema, hst-extension-settings-core.patch,
 default true). Administrators lock it for the whole machine (docs/PREVIOUS_VERSIONS.md):
 - Windows: HST Office's own policy key, HKLM (or HKCU) SOFTWARE\\Policies\\HASON TECH\\HST Office\\
   org.hasontech.hstoffice.PreviousVersions\\Enabled with "Value" = "true"/"false" and DWORD "Final" = 1, the format of
-  the update locks. The core reads HKLM before the bundled extension's schema exists, so it would drop that value;
-  this module reads the key itself (HKLM over HKCU).
+  the update locks. Releases before the core schema read HKLM before the bundled extension's schema existed and dropped that value;
+  this module reads the key itself (HKLM over HKCU), which works with either.
 - macOS: the dictionary "PreviousVersions" of the vn.hasontech.hstoffice managed preferences (update_config).
 - Any OS: a value finalized in the configuration (a shared policy extension, or the HKCU policy layer of the core).
 Precedence: Windows policy > macOS profile > finalized configuration > the user's value (default true).

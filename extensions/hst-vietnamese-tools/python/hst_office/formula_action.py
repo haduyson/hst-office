@@ -84,8 +84,9 @@ TEMPLATES_PATH = "/org.hasontech.hstoffice.Formula"
 
 
 def insert_templates(host):
-    """Mẫu công thức: a new formula, opened for editing with the Elements panel on the Mẫu Toán category (formula.xcs
-    tells the panel; its category list also has Mẫu Vật lí and Mẫu Hoá học) and the template bar of the editor."""
+    """Mẫu công thức: a new formula, opened for editing with the Elements panel on the Mẫu Toán category (Formula.xcs
+    in officecfg tells the panel; its category list also has Mẫu Vật lí and Mẫu Hoá học) and the template bar of the
+    editor."""
     from com.sun.star.beans import PropertyValue
     provider = host.ctx.ServiceManager.createInstanceWithContext(
         "com.sun.star.configuration.ConfigurationProvider", host.ctx)

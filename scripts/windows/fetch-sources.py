@@ -8,6 +8,7 @@ Exits non-zero on any download error or checksum mismatch (the bad file is delet
 import argparse
 import hashlib
 import json
+import re
 import sys
 import time
 import urllib.request
@@ -24,15 +25,38 @@ def sha256_of(path):
     return digest.hexdigest()
 
 
+TDF_REDIRECTOR = "https://download.documentfoundation.org/libreoffice/src/"
+TDF_ARCHIVE = "https://downloadarchive.documentfoundation.org/libreoffice/old/"
+FULL_VERSION = re.compile(r"-(\d+\.\d+\.\d+\.\d+)\.tar\.")
+
+
+def candidate_urls(url):
+    """The pinned URL first, then the TDF archive host for the same file.
+
+    The download.documentfoundation.org redirector sends each request to a
+    random mirror, and some mirrors serve a certificate chain the runner's
+    Python cannot verify. The archive host serves every release directly.
+    The sha256 from the lock file is checked afterwards either way.
+    """
+    urls = [url]
+    name = url.rsplit("/", 1)[-1]
+    match = FULL_VERSION.search(name)
+    if url.startswith(TDF_REDIRECTOR) and match:
+        urls.append(f"{TDF_ARCHIVE}{match.group(1)}/src/{name}")
+    return urls
+
+
 def download(url, target, attempts=4):
+    urls = candidate_urls(url)
     for attempt in range(1, attempts + 1):
+        source = urls[(attempt - 1) % len(urls)]
         try:
-            with urllib.request.urlopen(url, timeout=120) as response, target.open("wb") as out:
+            with urllib.request.urlopen(source, timeout=120) as response, target.open("wb") as out:
                 while chunk := response.read(1 << 20):
                     out.write(chunk)
             return
         except OSError as error:
-            print(f"download attempt {attempt} failed: {error}", file=sys.stderr)
+            print(f"download attempt {attempt} from {source} failed: {error}", file=sys.stderr)
             if attempt == attempts:
                 raise
             time.sleep(10 * attempt)

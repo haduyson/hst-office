@@ -11,6 +11,8 @@ import os
 import re
 import unicodedata
 import unittest
+
+import core_settings_schemas as core_schemas  # noqa: E402
 import xml.etree.ElementTree as ET
 
 from _paths import ROOT
@@ -165,7 +167,7 @@ class FeatureSearchUxTest(unittest.TestCase):
                 self.assertIn(command, words, (module, command))
 
     def test_schema_declares_suggestions_and_recent(self):
-        text = read(os.path.join(EXT, "search.xcs"))
+        text = core_schemas.schema_text("FeatureSearch")
         self.assertIn('<set oor:name="Suggestions" oor:node-type="Suggestion"/>', text)
         self.assertIn('<prop oor:name="Recent" oor:type="oor:string-list">', text)
         self.assertIn('"/org.hasontech.hstoffice.FeatureSearch"', read(PATCH))
