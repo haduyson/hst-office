@@ -34,7 +34,7 @@ Test: CppunitTest_sfx2_hst_startcenter.
 ---
 diff --git a/include/vcl/hst/designtokens.hxx b/include/vcl/hst/designtokens.hxx
 new file mode 100644
-index 0000000..a141778
+index 0000000..ea73471
 --- /dev/null
 +++ b/include/vcl/hst/designtokens.hxx
 @@ -0,0 +1,132 @@
@@ -121,7 +121,7 @@ index 0000000..a141778
 +constexpr TypeStyle Label{ 1.1, WEIGHT_SEMIBOLD }; ///< table headers
 +constexpr TypeStyle Strong{ 1.0, WEIGHT_BOLD }; ///< small section headings
 +constexpr TypeStyle CardTitle{ 0.95, WEIGHT_SEMIBOLD };
-+constexpr TypeStyle Caption{ 0.9, WEIGHT_NORMAL }; ///< second lines, taglines
++constexpr TypeStyle Caption{ 0.85, WEIGHT_NORMAL }; ///< second lines, taglines
 +}
 +
 +/** The application font of rStyle at the size and weight of rType (its height in points). */
@@ -658,10 +658,10 @@ index 0000000..cfabd6a
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/qa/cppunit/hststartcenter.cxx b/sfx2/qa/cppunit/hststartcenter.cxx
 new file mode 100644
-index 0000000..99aeac7
+index 0000000..00ff664
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
-@@ -0,0 +1,607 @@
+@@ -0,0 +1,622 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -984,10 +984,10 @@ index 0000000..99aeac7
 +    for (sal_Int64 i = 0; i < xCanvas->getAccessibleChildCount(); ++i)
 +    {
 +        uno::Reference<XAccessibleContext> xRegion = context(xCanvas->getAccessibleChild(i));
-+        std::vector<OUString> aNames{ xRegion->getAccessibleName() };
++        std::vector<OUString> aRegionNames{ xRegion->getAccessibleName() };
 +        for (sal_Int64 j = 0; j < xRegion->getAccessibleChildCount(); ++j)
-+            aNames.push_back(context(xRegion->getAccessibleChild(j))->getAccessibleName());
-+        for (const OUString& rName : aNames)
++            aRegionNames.push_back(context(xRegion->getAccessibleChild(j))->getAccessibleName());
++        for (const OUString& rName : aRegionNames)
 +        {
 +            const OUString aLower = rName.toAsciiLowerCase();
 +            CPPUNIT_ASSERT_MESSAGE(rName.toUtf8().getStr(), aLower.indexOf("share") < 0
@@ -1183,6 +1183,20 @@ index 0000000..99aeac7
 +            }
 +    CPPUNIT_ASSERT_MESSAGE("heading drawn", nInkTop >= 0);
 +    CPPUNIT_ASSERT_LESSEQUAL(nLines * nLine, nInkBottom - nInkTop + 1);
++
++    // the short taglines take at most two lines: no card is taller than its logo, name and two lines
++    pCanvas->SetPointFont(*xMeasure, ::hst::design::MakeFont(pCanvas->GetSettings().GetStyleSettings(),
++                                                             ::hst::design::type::CardTitle));
++    const tools::Long nName = xMeasure->GetTextHeight();
++    pCanvas->SetPointFont(*xMeasure, ::hst::design::MakeFont(pCanvas->GetSettings().GetStyleSettings(),
++                                                             ::hst::design::type::Caption));
++    const tools::Long nTwoLines = 8 + 24 + 4 + nName + 1 + 2 * xMeasure->GetTextHeight() + 8;
++    for (sal_Int64 i = 0; i < 6; ++i)
++        CPPUNIT_ASSERT_LESSEQUAL(nTwoLines, bounds(context(xSolutions->getAccessibleChild(i))).GetHeight());
++
++    // the left column does not scroll at 1366 x 741: the logo stays above the menu
++    const tools::Rectangle aMenu = bounds(region(u"Menu"));
++    CPPUNIT_ASSERT_GREATEREQUAL(tools::Long(40), aMenu.Top());
 +    // 1366 x 741 at 100 %: the whole column fits, down to "Xem thêm các giải pháp khác →"
 +    uno::Reference<XAccessibleContext> xMore = context(xSolutions->getAccessibleChild(6));
 +    CPPUNIT_ASSERT(xMore->getAccessibleStateSet() & AccessibleStateType::SHOWING);
@@ -1221,7 +1235,8 @@ index 0000000..99aeac7
 +    // the Recent table and the Pinned card are white cards
 +    const tools::Rectangle aRecent = bounds(region(u"Recent documents"));
 +    CPPUNIT_ASSERT_EQUAL(COL_WHITE, xDev->GetPixel(Point(aRecent.Right() - 2, aRecent.Bottom() - 2)));
-+    CPPUNIT_ASSERT_EQUAL(COL_WHITE, xDev->GetPixel(Point(aPinnedArea.Left() + 2, aPinnedArea.Bottom() - 2)));
++    // (below its one item: the middle of the list's empty bottom)
++    CPPUNIT_ASSERT_EQUAL(COL_WHITE, xDev->GetPixel(Point(aPinnedArea.Center().X(), aPinnedArea.Bottom() - 4)));
 +}
 +
 +CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testCrispBorders)
@@ -3941,7 +3956,7 @@ index 0000000..a59e37a
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterlayout.cxx b/sfx2/source/startcenter/hststartcenterlayout.cxx
 new file mode 100644
-index 0000000..9c50711
+index 0000000..b0ea118
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterlayout.cxx
 @@ -0,0 +1,346 @@
@@ -4025,11 +4040,11 @@ index 0000000..9c50711
 +    const tools::Long nPad = L.px(LEFT_PAD);
 +    const tools::Long nInner = nLeftW - 2 * nPad;
 +    // the column fits the 741 px of a 1366 x 768 screen below the menu bar without scrolling
-+    tools::Long y = L.px(12);
++    tools::Long y = L.px(10);
 +    if (!L.bCompact)
 +    {
 +        L.aLogo = rect(nPad + L.px(6), y, nInner - L.px(6), L.px(LOGO_HEIGHT));
-+        y += L.px(LOGO_HEIGHT) + L.px(8);
++        y += L.px(LOGO_HEIGHT) + L.px(6);
 +    }
 +    else
 +        y += L.px(8);
@@ -4041,9 +4056,9 @@ index 0000000..9c50711
 +    }
 +    if (!L.bCompact)
 +    {
-+        y += L.px(6);
++        y += L.px(5);
 +        L.aSeparator = rect(nPad, y, nInner, 1);
-+        y += L.px(8);
++        y += L.px(6);
 +        // the banner's slot has the banner's own aspect ratio at the column width: the image fills it
 +        if (rIn.aBannerRatio.Width() > 0 && rIn.aBannerRatio.Height() > 0)
 +        {
@@ -4053,7 +4068,7 @@ index 0000000..9c50711
 +            y += nBannerH + L.px(8);
 +        }
 +        L.aSolutionsTitle = rect(nPad, y, nInner, rIn.nSolutionsTitle);
-+        y += rIn.nSolutionsTitle + L.px(5);
++        y += rIn.nSolutionsTitle + L.px(4);
 +        // a card: its logo (with the external-link mark beside it), the name below, then the tagline
 +        const tools::Long nCardW = (nInner - L.px(CARD_GAP)) / 2;
 +        const tools::Long nCardH = L.px(SOLUTION_PAD_TOP) + L.px(SOLUTION_LOGO) + L.px(SOLUTION_NAME_GAP)
