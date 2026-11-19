@@ -106,7 +106,9 @@ class Shortcuts(unittest.TestCase):
         self.assertNotIn((SLIDES, "F8_MOD2"), keys)
         self.assertIn('<node oor:name="F8_MOD2" oor:op="replace">', read(os.path.join(
             _paths.ROOT, "patches", "libreoffice", "hst-msoffice-shortcuts-parity.patch")))
-        self.assertEqual(len([k for k, command in keys.items() if command != "org.hst.office.vi:CitationReinsert"]), 7)
+        # the other keys: citations, and the formula editor's template keys (HST Công thức)
+        self.assertEqual(len([k for k, command in keys.items() if command != "org.hst.office.vi:CitationReinsert"
+                              and k[0] != "com.sun.star.formula.FormulaProperties"]), 7)
 
     def test_manifest_registers_accelerators(self):
         manifest = read(os.path.join(EXT, "META-INF", "manifest.xml"))

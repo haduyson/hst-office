@@ -32,7 +32,8 @@ DUPLEX = "ToggleDuplex"  # HST ▸ In hai mặt: a check item showing the docume
 ACTION_COMMANDS = frozenset((
     "Nd30Wizard", "ToggleDuplex", "ConvertEncoding", "FormatDate", "FormatDateLong", "FormatMonthYear", "FormatDateDash",
     "FormatVnd", "FormatPercent", "ImportCsv", "EditVba", "NumberToWords", "RemoveDiacritics", "SplitName",
-    "SortByGivenName", "DeleteBlankRows", "PreviousVersions", "OpenInHstPdf", "ChemFormula")) | citation_command_names.NAMES
+    "SortByGivenName", "DeleteBlankRows", "PreviousVersions", "OpenInHstPdf", "ChemFormula", "ConvertFormulas",
+    "AskConvertFormula", "FormulaTemplates")) | citation_command_names.NAMES
 
 
 def _actions():

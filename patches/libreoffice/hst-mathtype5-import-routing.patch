@@ -1,0 +1,1211 @@
+HST Office: open MathType 4-7 equations as Math formulas when the user asks for it.
+
+New option Office.Common/Filter/Microsoft/Import/MathType5ToMath (default off). When it is on,
+.doc/.xls/.ppt (msfilter) and .docx/.rtf (writerfilter) convert "Equation.DSMT4" OLE objects.
+A formula that fails to convert keeps its OLE object. In Writer the converted formula is a
+normal Math object on the Math baseline; Word's run position shift only applies to the OLE
+objects that stay. The DOCX/RTF logic lives in sw/source/writerfilter/hst/.
+
+A converted equation keeps the scale Word shows it at: the shown size over the size of its
+preview picture, which MathType makes at 100 % (.docx shape, .rtf \objh/\pichgoal); in .doc the
+PICF vertical scale (my), as LibreOffice wrote the picture size of its own .doc files in twips
+where Word reads 1/100 mm. MathType's point sizes in the formula are multiplied by it unless it
+is within 5 % of 100 % (sw/source/core/hst/formulashownsize.cxx, shared by writerfilter and the
+ww8 reader). The shown size is not compared with the formula's: MathType's box is taller than
+Math's at the same size.
+
+An equation kept as an OLE object keeps its data when the document is saved as .rtf (OLE 1.0
+\objdata with the compound file byte for byte, the picture in \result), so MathType can still
+edit it; LibreOffice's RTF export wrote only the picture (sw/source/core/hst/mathtypeoledata.cxx).
+That picture has the shown size at 100 %: the RTF import sizes an object by its picture's goal.
+Its run position (MathType's baseline, VertOrient NONE) is written as \up/\dn around it, as
+Word does, and the RTF import sends an object's \up/\dn in a run with it, so the domain
+mapper places it as in a .docx run; it sat on the baseline and lines grew taller.
+An RTF object gets no margins: its replacement shape took the paragraph's space after as its
+bottom margin, which the object copied.
+The RTF import keeps the OLE data of equations (ProgID "Equation.*") in table cells too: the
+object is buffered with the cell (RTFBufferTypes::HstOleObject) and sent when the cell is
+replayed. LibreOffice read only the picture of objects in tables (fdo#53594), so saving again
+lost the equation; other OLE objects in tables are unchanged.
+The RTF export writes the text box of a shape inside a group from its text frame, as it does
+for other shapes: it wrote the shape's plain text, so equations in such text boxes vanished.
+The RTF export's memory streams nest: a text box anchored in a floating table replaced the
+table's stream, and the table's paragraphs written before it (text and equations) were lost.
+diff --git a/filter/source/msfilter/msdffimp.cxx b/filter/source/msfilter/msdffimp.cxx
+index b3184b2..7cffec4 100644
+--- a/filter/source/msfilter/msdffimp.cxx
++++ b/filter/source/msfilter/msdffimp.cxx
+@@ -7132,6 +7132,7 @@ css::uno::Reference < css::embed::XEmbeddedObject >  SvxMSDffManager::CheckForCo
+         } aArr[] {
+             { OLE_MATHTYPE_2_STARMATH, u"smath"_ustr, MSO_EQUATION3_CLASSID },
+             { OLE_MATHTYPE_2_STARMATH, u"smath"_ustr, MSO_EQUATION2_CLASSID },
++            { OLE_MATHTYPE5_2_STARMATH, u"smath"_ustr, MSO_EQUATION_DSMT4_CLASSID },
+             { OLE_WINWORD_2_STARWRITER, u"swriter"_ustr, MSO_WW8_CLASSID },
+             // Excel table
+             { OLE_EXCEL_2_STARCALC, u"scalc"_ustr, MSO_EXCEL5_CLASSID },
+diff --git a/include/filter/msfilter/classids.hxx b/include/filter/msfilter/classids.hxx
+index 2d32742..3e2eec5 100644
+--- a/include/filter/msfilter/classids.hxx
++++ b/include/filter/msfilter/classids.hxx
+@@ -17,6 +17,11 @@
+     0x0002ce02L, 0x0000, 0x0000, \
+     0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46
+ 
++// MathType 4-7 ("Equation.DSMT4")
++#define MSO_EQUATION_DSMT4_CLASSID \
++    0x0002ce03L, 0x0000, 0x0000, \
++    0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46
++
+ #define MSO_WW8_CLASSID \
+     0x00020906L, 0x0000, 0x0000, \
+     0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46
+diff --git a/include/filter/msfilter/msdffimp.hxx b/include/filter/msfilter/msdffimp.hxx
+index 9744ba5..b659aba 100644
+--- a/include/filter/msfilter/msdffimp.hxx
++++ b/include/filter/msfilter/msdffimp.hxx
+@@ -151,6 +151,8 @@ typedef ::std::multiset< std::shared_ptr<SvxMSDffShapeInfo>,
+ #define OLE_WINWORD_2_STARWRITER            0x0002
+ #define OLE_EXCEL_2_STARCALC                0x0004
+ #define OLE_POWERPOINT_2_STARIMPRESS        0x0008
++// HST Office: MathType 4-7 equations ("Equation.DSMT4", MTEF 5)
++#define OLE_MATHTYPE5_2_STARMATH            0x0010
+ 
+ struct SvxMSDffConnectorRule
+ {
+diff --git a/officecfg/registry/schema/org/openoffice/Office/Common.xcs b/officecfg/registry/schema/org/openoffice/Office/Common.xcs
+index a88f40e..1cee9e0 100644
+--- a/officecfg/registry/schema/org/openoffice/Office/Common.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/Common.xcs
+@@ -3275,6 +3275,14 @@
+             </info>
+             <value>true</value>
+           </prop>
++          <prop oor:name="MathType5ToMath" oor:type="xs:boolean" oor:nillable="false">
++            <info>
++              <desc>Specifies if MathType 4-7 equations (Equation.DSMT4) are converted
++              into Math objects when a document is opened. Otherwise they stay OLE objects
++              that can be converted on request.</desc>
++            </info>
++            <value>false</value>
++          </prop>
+           <prop oor:name="WinWordToWriter" oor:type="xs:boolean" oor:nillable="false">
+             <info>
+               <desc>Specifies if convertible WinWord OLE objects are converted
+diff --git a/sc/source/filter/excel/xiescher.cxx b/sc/source/filter/excel/xiescher.cxx
+index 1ad7e5c..2f27fd5 100644
+--- a/sc/source/filter/excel/xiescher.cxx
++++ b/sc/source/filter/excel/xiescher.cxx
+@@ -3350,6 +3350,8 @@ XclImpDffConverter::XclImpDffConverter( const XclImpRoot& rRoot, SvStream& rDffS
+ {
+     if( officecfg::Office::Common::Filter::Microsoft::Import::MathTypeToMath::get() )
+         mnOleImpFlags |= OLE_MATHTYPE_2_STARMATH;
++    if( officecfg::Office::Common::Filter::Microsoft::Import::MathType5ToMath::get() )
++        mnOleImpFlags |= OLE_MATHTYPE5_2_STARMATH;
+     if( officecfg::Office::Common::Filter::Microsoft::Import::WinWordToWriter::get() )
+         mnOleImpFlags |= OLE_WINWORD_2_STARWRITER;
+     if( officecfg::Office::Common::Filter::Microsoft::Import::PowerPointToImpress::get() )
+diff --git a/sd/source/filter/ppt/pptin.cxx b/sd/source/filter/ppt/pptin.cxx
+index 06e8f41..73e884f 100644
+--- a/sd/source/filter/ppt/pptin.cxx
++++ b/sd/source/filter/ppt/pptin.cxx
+@@ -199,6 +199,8 @@ ImplSdPPTImport::ImplSdPPTImport( SdDrawDocument& rDocument, SotStorage& rStorag
+         mnFilterOptions |= 1;
+     if ( officecfg::Office::Common::Filter::Microsoft::Import::MathTypeToMath::get() )
+         nSvxMSDffOLEConvFlags2 |= OLE_MATHTYPE_2_STARMATH;
++    if ( officecfg::Office::Common::Filter::Microsoft::Import::MathType5ToMath::get() )
++        nSvxMSDffOLEConvFlags2 |= OLE_MATHTYPE5_2_STARMATH;
+     if ( officecfg::Office::Common::Filter::Microsoft::Import::WinWordToWriter::get() )
+         nSvxMSDffOLEConvFlags2 |= OLE_WINWORD_2_STARWRITER;
+     if ( officecfg::Office::Common::Filter::Microsoft::Import::ExcelToCalc::get() )
+diff --git a/sw/Library_sw.mk b/sw/Library_sw.mk
+index 4be0f1f..55b0cd3 100644
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -353,6 +353,8 @@ $(eval $(call gb_Library_add_exception_objects,sw,\
+     sw/source/core/layout/flypos \
+     sw/source/core/layout/frmtool \
+     sw/source/core/layout/ftnfrm \
++    sw/source/core/hst/formulashownsize \
++    sw/source/core/hst/mathtypeoledata \
+     sw/source/core/layout/hstpageart \
+     sw/source/core/layout/hstpageartsets \
+     sw/source/core/layout/hffrm \
+diff --git a/sw/Library_sw_writerfilter.mk b/sw/Library_sw_writerfilter.mk
+index 224b73d..1184f4a 100644
+--- a/sw/Library_sw_writerfilter.mk
++++ b/sw/Library_sw_writerfilter.mk
+@@ -102,6 +102,7 @@ $(eval $(call gb_Library_add_exception_objects,sw_writerfilter,\
+     sw/source/writerfilter/dmapper/ModelEventListener \
+     sw/source/writerfilter/dmapper/NumberingManager \
+     sw/source/writerfilter/dmapper/OLEHandler \
++    sw/source/writerfilter/hst/mathtypeole \
+     sw/source/writerfilter/dmapper/PageBordersHandler \
+     sw/source/writerfilter/dmapper/PropertyIds \
+     sw/source/writerfilter/dmapper/PropertyMap \
+diff --git a/sw/inc/hstformulashownsize.hxx b/sw/inc/hstformulashownsize.hxx
+new file mode 100644
+index 0000000..7144387
+--- /dev/null
++++ b/sw/inc/hstformulashownsize.hxx
+@@ -0,0 +1,46 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <com/sun/star/uno/Reference.hxx>
++#include <rtl/ustring.hxx>
++#include <tools/long.hxx>
++#include <tools/mapunit.hxx>
++
++#include "swdllapi.h"
++
++#include <string_view>
++
++class Graphic;
++namespace com::sun::star::embed
++{
++class XEmbeddedObject;
++}
++
++// A MathType equation converted to a formula when a .docx, .rtf or .doc file is opened keeps the
++// scale Word shows it at. An equation resized in Word keeps MathType's point sizes in its data;
++// the resize lives only in its shown size (.docx shape style, .rtf \objh/\pichgoal, .doc PICF),
++// while its preview picture keeps MathType's size at 100 %. The shown height is not compared with
++// the formula's height: MathType's box is taller than Math's for the same point size.
++namespace sw::hst
++{
++/// Word's scale of an equation: its shown height (in eUnit) over the height of its preview
++/// picture. 0 if unknown.
++SW_DLLPUBLIC double WordScale(tools::Long nShownHeight, MapUnit eUnit, const Graphic& rPreview);
++
++/// Draws a formula converted from an equation Word shows at fScale (0 if unknown) at that scale,
++/// unless it is within 5 % of 100 %. Only Math objects are touched; never throws.
++SW_DLLPUBLIC void KeepWordScale(const css::uno::Reference<css::embed::XEmbeddedObject>& xFormula,
++                                double fScale);
++
++/// The formula text drawn fRatio times as large: each absolute "size N" outside quoted text is
++/// multiplied, and the text is wrapped in "size *fRatio" for the parts without a size.
++SW_DLLPUBLIC OUString ScaleFormulaSizes(std::u16string_view aFormula, double fRatio);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/inc/hstmathtypeole.hxx b/sw/inc/hstmathtypeole.hxx
+new file mode 100644
+index 0000000..355cd4b
+--- /dev/null
++++ b/sw/inc/hstmathtypeole.hxx
+@@ -0,0 +1,41 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <com/sun/star/uno/Reference.hxx>
++#include <rtl/string.hxx>
++#include <sal/types.h>
++
++#include "swdllapi.h"
++
++#include <vector>
++
++class SwFrameFormat;
++
++namespace com::sun::star::embed
++{
++class XEmbeddedObject;
++}
++
++// A MathType equation kept as an OLE object (not converted to a formula) keeps its OLE data when
++// the document is saved as .rtf, so MathType or Word can still edit it. LibreOffice's RTF export
++// writes only the picture of objects it does not know.
++namespace sw::hst
++{
++/// The OLE 1.0 data RTF stores in \objdata for the MathType equation xObj (its compound file,
++/// byte for byte, as native data) and its ProgID ("Equation.DSMT4"); empty for other objects.
++SW_DLLPUBLIC std::vector<sal_uInt8>
++MathTypeOle1Data(const css::uno::Reference<css::embed::XEmbeddedObject>& xObj, OString& rProgId);
++
++/// The run position (half-points, positive raises) Word gives an inline object whose top is
++/// placed from the baseline (VertOrient NONE): Word puts its bottom on the baseline and moves the
++/// run. 0 for other objects. RTF writes it as \up or \dn around the object.
++SW_DLLPUBLIC sal_Int32 InlineRunPosition(const SwFrameFormat& rFormat);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/core/hst/formulashownsize.cxx b/sw/source/core/hst/formulashownsize.cxx
+new file mode 100644
+index 0000000..db6e85c
+--- /dev/null
++++ b/sw/source/core/hst/formulashownsize.cxx
+@@ -0,0 +1,110 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <hstformulashownsize.hxx>
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/embed/EmbedStates.hpp>
++#include <com/sun/star/embed/XEmbeddedObject.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <rtl/character.hxx>
++#include <rtl/math.hxx>
++#include <rtl/ustrbuf.hxx>
++#include <sot/exchange.hxx>
++#include <tools/globname.hxx>
++#include <vcl/graph.hxx>
++#include <vcl/outdev.hxx>
++
++#include <algorithm>
++#include <cmath>
++
++using namespace css;
++
++namespace sw::hst
++{
++namespace
++{
++constexpr double TOLERANCE = 0.05; // Word's own rounding of a size at 100 %
++
++OUString NumberText(double fValue)
++{
++    return rtl::math::doubleToUString(fValue, rtl_math_StringFormat_Automatic,
++                                      rtl_math_DecimalPlaces_Max, '.', true);
++}
++}
++
++double WordScale(tools::Long nShownHeight, MapUnit eUnit, const Graphic& rPreview)
++{
++    const MapMode aPreviewMap = rPreview.GetPrefMapMode();
++    if (nShownHeight <= 0 || rPreview.GetType() == GraphicType::NONE
++        || aPreviewMap.GetMapUnit() == MapUnit::MapPixel)
++        return 0;
++    const tools::Long nPreview
++        = OutputDevice::LogicToLogic(rPreview.GetPrefSize(), aPreviewMap, MapMode(eUnit)).Height();
++    return nPreview > 0 ? double(nShownHeight) / nPreview : 0;
++}
++
++void KeepWordScale(const uno::Reference<embed::XEmbeddedObject>& xFormula, double fScale)
++{
++    if (!xFormula.is() || fScale <= 0 || std::abs(fScale - 1.0) <= TOLERANCE)
++        return;
++    try
++    {
++        if (!SotExchange::IsMath(SvGlobalName(xFormula->getClassID())))
++            return;
++        if (xFormula->getCurrentState() == embed::EmbedStates::LOADED)
++            xFormula->changeState(embed::EmbedStates::RUNNING);
++        uno::Reference<beans::XPropertySet> xProps(xFormula->getComponent(), uno::UNO_QUERY_THROW);
++        OUString aText;
++        xProps->getPropertyValue(u"Formula"_ustr) >>= aText;
++        xProps->setPropertyValue(u"Formula"_ustr, uno::Any(ScaleFormulaSizes(aText, fScale)));
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sw", "HST: formula keeps MathType's size");
++    }
++}
++
++OUString ScaleFormulaSizes(std::u16string_view aFormula, double fRatio)
++{
++    OUStringBuffer aBuf("size *" + NumberText(std::round(fRatio * 1000) / 1000) + " {");
++    bool bQuoted = false;
++    for (size_t i = 0; i < aFormula.size();)
++    {
++        const sal_Unicode c = aFormula[i];
++        if (c == '"')
++            bQuoted = !bQuoted;
++        else if (!bQuoted && aFormula.substr(i).starts_with(u"size")
++                 && (i == 0 || !rtl::isAsciiAlphanumeric(aFormula[i - 1])))
++        {
++            size_t nNumber = i + 4;
++            while (nNumber < aFormula.size()
++                   && (aFormula[nNumber] == ' ' || aFormula[nNumber] == '\t'))
++                ++nNumber;
++            size_t nEnd = nNumber;
++            while (nEnd < aFormula.size()
++                   && (rtl::isAsciiDigit(aFormula[nEnd]) || aFormula[nEnd] == '.'))
++                ++nEnd;
++            if (nNumber > i + 4 && nEnd > nNumber)
++            {
++                const double fSize = rtl::math::stringToDouble(
++                    OUString(aFormula.substr(nNumber, nEnd - nNumber)), '.', 0);
++                aBuf.append("size "
++                            + NumberText(std::max(1.0, std::round(fSize * fRatio * 10) / 10)));
++                i = nEnd;
++                continue;
++            }
++        }
++        aBuf.append(c);
++        ++i;
++    }
++    aBuf.append("}");
++    return aBuf.makeStringAndClear();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/core/hst/mathtypeoledata.cxx b/sw/source/core/hst/mathtypeoledata.cxx
+new file mode 100644
+index 0000000..1e44a44
+--- /dev/null
++++ b/sw/source/core/hst/mathtypeoledata.cxx
+@@ -0,0 +1,136 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <hstmathtypeole.hxx>
++
++#include <fmtornt.hxx>
++#include <fmtfsize.hxx>
++#include <frmfmt.hxx>
++
++#include <com/sun/star/embed/ElementModes.hpp>
++#include <com/sun/star/embed/XEmbeddedObject.hpp>
++#include <com/sun/star/embed/XEmbedPersist.hpp>
++#include <com/sun/star/embed/XStorage.hpp>
++#include <com/sun/star/io/XInputStream.hpp>
++#include <com/sun/star/io/XStream.hpp>
++#include <com/sun/star/text/VertOrientation.hpp>
++#include <comphelper/diagnose_ex.hxx>
++#include <comphelper/storagehelper.hxx>
++#include <rtl/ref.hxx>
++#include <sot/storage.hxx>
++#include <tools/stream.hxx>
++
++#include <cmath>
++#include <string_view>
++
++using namespace css;
++
++namespace sw::hst
++{
++namespace
++{
++constexpr std::string_view EQUATION_PREFIX = "Equation."; // Equation.DSMT4..6, Equation.3
++constexpr sal_uInt32 OLE_VERSION = 0x0501;
++constexpr sal_uInt32 EMBEDDED = 2; // ObjectHeader.FormatID of an embedded object (MS-OLEDS 2.2.4)
++constexpr sal_uInt32 NO_PRESENTATION = 0; // the picture is RTF's \result
++
++void Append32(std::vector<sal_uInt8>& rOut, sal_uInt32 n)
++{
++    for (int i = 0; i < 4; ++i)
++        rOut.push_back(static_cast<sal_uInt8>(n >> (8 * i)));
++}
++
++/// The compound file the object stores, byte for byte
++std::vector<sal_uInt8> StoredData(const uno::Reference<embed::XEmbeddedObject>& xObj)
++{
++    uno::Reference<embed::XEmbedPersist> xPersist(xObj, uno::UNO_QUERY);
++    if (!xPersist.is())
++        return {};
++    uno::Reference<embed::XStorage> xStorage = comphelper::OStorageHelper::GetTemporaryStorage();
++    const OUString aName(u"ole"_ustr);
++    xPersist->storeToEntry(xStorage, aName, {}, {});
++    uno::Reference<io::XInputStream> xIn
++        = xStorage->openStreamElement(aName, embed::ElementModes::READ)->getInputStream();
++    std::vector<sal_uInt8> aData;
++    uno::Sequence<sal_Int8> aChunk;
++    while (xIn->readBytes(aChunk, 65536) > 0)
++        aData.insert(aData.end(), aChunk.begin(), aChunk.end());
++    return aData;
++}
++
++/// The ProgID a compound file's \1CompObj names, if it is a MathType or Equation Editor one
++OString MathTypeProgId(const std::vector<sal_uInt8>& rCompObj)
++{
++    // \1CompObj: header, then length-prefixed AnsiUserType, clipboard format, ProgID
++    const std::string_view aText(reinterpret_cast<const char*>(rCompObj.data()), rCompObj.size());
++    for (size_t nPos = aText.find(EQUATION_PREFIX); nPos != std::string_view::npos;
++         nPos = aText.find(EQUATION_PREFIX, nPos + 1))
++    {
++        const size_t nEnd = aText.find('\0', nPos);
++        if (nEnd != std::string_view::npos && nPos >= 4
++            && static_cast<size_t>(static_cast<sal_uInt8>(aText[nPos - 4])) == nEnd - nPos + 1)
++            return OString(aText.substr(nPos, nEnd - nPos));
++    }
++    return {};
++}
++}
++
++std::vector<sal_uInt8> MathTypeOle1Data(const uno::Reference<embed::XEmbeddedObject>& xObj,
++                                        OString& rProgId)
++{
++    try
++    {
++        std::vector<sal_uInt8> aNative = StoredData(xObj);
++        if (aNative.empty())
++            return {};
++        SvMemoryStream aStream(aNative.data(), aNative.size(), StreamMode::READ);
++        rtl::Reference<SotStorage> xStorage = new SotStorage(aStream);
++        if (xStorage->GetError() || !xStorage->IsStream(u"Equation Native"_ustr))
++            return {};
++        rtl::Reference<SotStorageStream> xCompObj = xStorage->OpenSotStream(
++            u"\001CompObj"_ustr, StreamMode::READ | StreamMode::NOCREATE);
++        if (!xCompObj.is() || xCompObj->GetError())
++            return {};
++        std::vector<sal_uInt8> aCompObj(xCompObj->TellEnd());
++        xCompObj->Seek(0);
++        xCompObj->ReadBytes(aCompObj.data(), aCompObj.size());
++        rProgId = MathTypeProgId(aCompObj);
++        if (rProgId.isEmpty())
++            return {};
++
++        std::vector<sal_uInt8> aOut;
++        Append32(aOut, OLE_VERSION);
++        Append32(aOut, EMBEDDED);
++        Append32(aOut, static_cast<sal_uInt32>(rProgId.getLength() + 1)); // ClassName, its null
++        aOut.insert(aOut.end(), rProgId.getStr(), rProgId.getStr() + rProgId.getLength() + 1);
++        Append32(aOut, 0); // TopicName
++        Append32(aOut, 0); // ItemName
++        Append32(aOut, static_cast<sal_uInt32>(aNative.size()));
++        aOut.insert(aOut.end(), aNative.begin(), aNative.end());
++        Append32(aOut, OLE_VERSION);
++        Append32(aOut, NO_PRESENTATION);
++        return aOut;
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sw", "HST: MathType object written as a picture only");
++        return {};
++    }
++}
++
++sal_Int32 InlineRunPosition(const SwFrameFormat& rFormat)
++{
++    const SwFormatVertOrient& rVert = rFormat.GetVertOrient();
++    if (rVert.GetVertOrient() != css::text::VertOrientation::NONE)
++        return 0;
++    // twips to half-points; the object's top is GetPos() below the baseline
++    return static_cast<sal_Int32>(
++        std::round(-(rVert.GetPos() + rFormat.GetFrameSize().GetHeight()) / 10.0));
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/filter/ww8/rtfattributeoutput.cxx b/sw/source/filter/ww8/rtfattributeoutput.cxx
+index 87fcb95..c56aff7 100644
+--- a/sw/source/filter/ww8/rtfattributeoutput.cxx
++++ b/sw/source/filter/ww8/rtfattributeoutput.cxx
+@@ -68,6 +68,8 @@
+ #include <o3tl/unit_conversion.hxx>
+ #include <svx/svdouno.hxx>
+ #include <filter/msfilter/rtfutil.hxx>
++#include <hstmathtypeole.hxx>
++#include <cstdlib>
+ #include <svx/xfillit0.hxx>
+ #include <svx/xflgrit.hxx>
+ #include <unotools/securityoptions.hxx>
+@@ -4833,10 +4835,11 @@ static OString ExportPICT(const SwFlyFrameFormat* pFlyFrameFormat, const Size& r
+ }
+ 
+ void RtfAttributeOutput::FlyFrameOLEReplacement(const SwFlyFrameFormat* pFlyFrameFormat,
+-                                                SwOLENode& rOLENode, const Size& rSize)
++                                                SwOLENode& rOLENode, const Size& rSize,
++                                                bool bShownSize)
+ {
+     m_aRunText->append("{" OOO_STRING_SVTOOLS_RTF_IGNORE OOO_STRING_SVTOOLS_RTF_SHPPICT);
+-    Size aSize(rOLENode.GetTwipSize());
++    Size aSize(bShownSize ? rSize : rOLENode.GetTwipSize());
+     Size aRendered(aSize);
+     aRendered.setWidth(rSize.Width());
+     aRendered.setHeight(rSize.Height());
+@@ -4903,6 +4906,34 @@ void RtfAttributeOutput::FlyFrameOLE(const SwFlyFrameFormat* pFlyFrameFormat, Sw
+     if (FlyFrameOLEMath(pFlyFrameFormat, rOLENode, rSize))
+         return;
+ 
++    // HST Office: a MathType equation kept as OLE keeps its data, so it can still be edited
++    OString aProgId;
++    const std::vector<sal_uInt8> aOle1
++        = sw::hst::MathTypeOle1Data(rOLENode.GetOLEObj().GetOleRef(), aProgId);
++    if (!aOle1.empty())
++    {
++        // the run position the object had (MathType's baseline), as Word writes it
++        const sal_Int32 nPosition
++            = pFlyFrameFormat ? sw::hst::InlineRunPosition(*pFlyFrameFormat) : 0;
++        if (nPosition)
++            m_aRunText->append(OString(nPosition > 0 ? "{" OOO_STRING_SVTOOLS_RTF_UP
++                                                     : "{" OOO_STRING_SVTOOLS_RTF_DN)
++                               + OString::number(std::abs(nPosition)));
++        m_aRunText->append(OString(
++            "{" OOO_STRING_SVTOOLS_RTF_OBJECT OOO_STRING_SVTOOLS_RTF_OBJEMB OOO_STRING_SVTOOLS_RTF_OBJW
++            + OString::number(rSize.Width()) + OOO_STRING_SVTOOLS_RTF_OBJH
++            + OString::number(rSize.Height())
++            + "{" OOO_STRING_SVTOOLS_RTF_IGNORE OOO_STRING_SVTOOLS_RTF_OBJCLASS " " + aProgId
++            + "}{" OOO_STRING_SVTOOLS_RTF_IGNORE OOO_STRING_SVTOOLS_RTF_OBJDATA " "
++            + msfilter::rtfutil::WriteHex(aOle1.data(), static_cast<sal_uInt32>(aOle1.size()))
++            + "}{" OOO_STRING_SVTOOLS_RTF_RESULT " "));
++        FlyFrameOLEReplacement(pFlyFrameFormat, rOLENode, rSize, /*bShownSize=*/true);
++        m_aRunText->append("}}"); // result, object
++        if (nPosition)
++            m_aRunText->append('}');
++        return;
++    }
++
+     FlyFrameOLEReplacement(pFlyFrameFormat, rOLENode, rSize);
+ }
+ 
+diff --git a/sw/source/filter/ww8/rtfattributeoutput.hxx b/sw/source/filter/ww8/rtfattributeoutput.hxx
+index 5c1119f..ee6f3e9 100644
+--- a/sw/source/filter/ww8/rtfattributeoutput.hxx
++++ b/sw/source/filter/ww8/rtfattributeoutput.hxx
+@@ -513,8 +513,10 @@ private:
+     void FlyFrameGraphic(const SwFlyFrameFormat* pFlyFrameFormat, const SwGrfNode* pGrfNode);
+     void FlyFrameOLE(const SwFlyFrameFormat* pFlyFrameFormat, SwOLENode& rOLENode,
+                      const Size& rSize);
++    /// HST Office: bShownSize draws the picture at its shown size (scale 100 %), as the \result
++    /// of an OLE object: the RTF import sizes the object by the picture's goal size
+     void FlyFrameOLEReplacement(const SwFlyFrameFormat* pFlyFrameFormat, SwOLENode& rOLENode,
+-                                const Size& rSize);
++                                const Size& rSize, bool bShownSize = false);
+     /// Math export.
+     bool FlyFrameOLEMath(const SwFlyFrameFormat* pFlyFrameFormat, SwOLENode& rOLENode,
+                          const Size& rSize);
+diff --git a/sw/source/filter/ww8/rtfexport.cxx b/sw/source/filter/ww8/rtfexport.cxx
+index 81b30ad..29c69a4 100644
+--- a/sw/source/filter/ww8/rtfexport.cxx
++++ b/sw/source/filter/ww8/rtfexport.cxx
+@@ -1214,25 +1214,32 @@ RtfExport::~RtfExport() = default;
+ 
+ SvStream& RtfExport::Strm()
+ {
+-    if (m_pStream)
+-        return *m_pStream;
++    if (!m_aStreams.empty())
++        return *m_aStreams.back();
+ 
+     return m_pWriter->Strm();
+ }
+ 
+-void RtfExport::setStream() { m_pStream = std::make_unique<SvMemoryStream>(); }
++// HST Office: a nested stream no longer replaces the outer one, whose text was lost (the
++// paragraphs of a floating table written before a text box anchored in it)
++void RtfExport::setStream() { m_aStreams.push_back(std::make_unique<SvMemoryStream>()); }
+ 
+ OString RtfExport::getStream()
+ {
+     OString aRet;
+ 
+-    if (m_pStream)
+-        aRet = OString(static_cast<const char*>(m_pStream->GetData()), m_pStream->Tell());
++    if (!m_aStreams.empty())
++        aRet = OString(static_cast<const char*>(m_aStreams.back()->GetData()),
++                       m_aStreams.back()->Tell());
+ 
+     return aRet;
+ }
+ 
+-void RtfExport::resetStream() { m_pStream.reset(); }
++void RtfExport::resetStream()
++{
++    if (!m_aStreams.empty())
++        m_aStreams.pop_back();
++}
+ 
+ void RtfExport::OutUnicode(std::string_view pToken, std::u16string_view rContent, bool bUpr)
+ {
+diff --git a/sw/source/filter/ww8/rtfexport.hxx b/sw/source/filter/ww8/rtfexport.hxx
+index 87fd094..e63c126 100644
+--- a/sw/source/filter/ww8/rtfexport.hxx
++++ b/sw/source/filter/ww8/rtfexport.hxx
+@@ -21,6 +21,7 @@
+ #define INCLUDED_SW_SOURCE_FILTER_WW8_RTFEXPORT_HXX
+ 
+ #include <memory>
++#include <vector>
+ #include "wrtww8.hxx"
+ 
+ #include <unotools/securityoptions.hxx>
+@@ -235,7 +236,8 @@ private:
+     std::map<sal_uInt16, OString> m_aStyTable;
+     std::map<OUString, sal_uInt16> m_aRedlineTable;
+     /// If set, then Strm() returns this stream, instead of m_pWriter's stream.
+-    std::unique_ptr<SvMemoryStream> m_pStream;
++    /// HST Office: a stack, as they nest (a text box in a floating table); the innermost is used
++    std::vector<std::unique_ptr<SvMemoryStream>> m_aStreams;
+     /// Item set of the first page during export of a follow page format.
+     const SfxItemSet* m_pFirstPageItemSet = nullptr;
+     /// map authors to remove personal info
+diff --git a/sw/source/filter/ww8/rtfsdrexport.cxx b/sw/source/filter/ww8/rtfsdrexport.cxx
+index 356d3b6..0fd0c51 100644
+--- a/sw/source/filter/ww8/rtfsdrexport.cxx
++++ b/sw/source/filter/ww8/rtfsdrexport.cxx
+@@ -568,8 +568,11 @@ sal_Int32 RtfSdrExport::StartShape()
+     const SwFrameFormat* pShape = FindFrameFormat(m_pSdrObject);
+     if (pShape)
+     {
+-        if (SwFrameFormat* pTextBox
+-            = SwTextBoxHelper::getOtherTextBoxFormat(pShape, RES_DRAWFRMFMT))
++        // HST Office: the text box of a shape in a group belongs to that shape, not to the
++        // group's format; written from its text frame, the objects in it (equations) are kept
++        const bool bInGroup = m_pSdrObject->getParentSdrObjectFromSdrObject() != nullptr;
++        if (SwFrameFormat* pTextBox = SwTextBoxHelper::getOtherTextBoxFormat(
++                pShape, RES_DRAWFRMFMT, bInGroup ? m_pSdrObject : nullptr))
+         {
+             ww8::Frame* pFrame = nullptr;
+             for (auto& rFrame : m_rExport.m_aFrames)
+@@ -581,9 +584,13 @@ sal_Int32 RtfSdrExport::StartShape()
+                 }
+             }
+ 
++            const SwPosition* pAnchor = pTextBox->GetAnchor().GetContentAnchor();
+             if (pFrame)
+                 m_rAttrOutput.writeTextFrame(*pFrame, /*bTextBox=*/true);
+-            return m_nShapeType;
++            else if (bInGroup && pAnchor)
++                m_rAttrOutput.writeTextFrame(ww8::Frame(*pTextBox, *pAnchor), /*bTextBox=*/true);
++            if (pFrame || !bInGroup || pAnchor)
++                return m_nShapeType;
+         }
+     }
+ 
+diff --git a/sw/source/filter/ww8/ww8graf2.cxx b/sw/source/filter/ww8/ww8graf2.cxx
+index e90b0fc..e07cff8 100644
+--- a/sw/source/filter/ww8/ww8graf2.cxx
++++ b/sw/source/filter/ww8/ww8graf2.cxx
+@@ -389,7 +389,10 @@ SwFrameFormat* SwWW8ImplReader::MakeGrafInContent(const WW8_PIC& rPic,
+     SwFrameFormat* pFlyFormat = nullptr;
+ 
+     if (rFileName.isEmpty() && m_nObjLocFc)      // then it should be an OLE-Object
++    {
++        m_nHstShownScaleY = rPic.my; // HST Office
+         pFlyFormat = ImportOle(pGraph, &aFlySet, &rGrfSet);
++    }
+ 
+     if( !pFlyFormat )                          // then just as graphic
+     {
+@@ -664,7 +667,10 @@ SwFrameFormat* SwWW8ImplReader::ImportGraf(SdrTextObj const * pTextObj,
+                             const Graphic& rGraph = pGraphObject->GetGraphic();
+ 
+                             if (m_nObjLocFc)  // is it an OLE-Object?
++                            {
++                                m_nHstShownScaleY = aPic.my; // HST Office
+                                 pRet = ImportOle(&rGraph, &aAttrSet, &aGrSet, pObject->GetBLIPSizeRectangle());
++                            }
+ 
+                             if (!pRet)
+                             {
+diff --git a/sw/source/filter/ww8/ww8par.cxx b/sw/source/filter/ww8/ww8par.cxx
+index 59260bb..891acee 100644
+--- a/sw/source/filter/ww8/ww8par.cxx
++++ b/sw/source/filter/ww8/ww8par.cxx
+@@ -510,6 +510,8 @@ sal_uInt32 SwMSDffManager::GetFilterFlags()
+     sal_uInt32 nFlags(0);
+     if (officecfg::Office::Common::Filter::Microsoft::Import::MathTypeToMath::get())
+         nFlags |= OLE_MATHTYPE_2_STARMATH;
++    if (officecfg::Office::Common::Filter::Microsoft::Import::MathType5ToMath::get())
++        nFlags |= OLE_MATHTYPE5_2_STARMATH;
+     if (officecfg::Office::Common::Filter::Microsoft::Import::ExcelToCalc::get())
+         nFlags |= OLE_EXCEL_2_STARCALC;
+     if (officecfg::Office::Common::Filter::Microsoft::Import::PowerPointToImpress::get())
+diff --git a/sw/source/filter/ww8/ww8par.hxx b/sw/source/filter/ww8/ww8par.hxx
+index b90424e..db874a7 100644
+--- a/sw/source/filter/ww8/ww8par.hxx
++++ b/sw/source/filter/ww8/ww8par.hxx
+@@ -1326,6 +1326,8 @@ private:
+ 
+     sal_uLong m_nPicLocFc;            // Picture Location in File (FC)
+     sal_uLong m_nObjLocFc;            // Object Location in File (FC)
++    // HST Office: Word's vertical scale (PICF my, 1000 = 100 %) of the OLE object being read
++    sal_uInt16 m_nHstShownScaleY = 0;
+ 
+     sal_Int32 m_nIniFlyDx;            // X-offset of Flys
+     sal_Int32 m_nIniFlyDy;            // Y-offset of Flys
+diff --git a/sw/source/filter/ww8/ww8par4.cxx b/sw/source/filter/ww8/ww8par4.cxx
+index 1ea2f7c..6e5e4bd 100644
+--- a/sw/source/filter/ww8/ww8par4.cxx
++++ b/sw/source/filter/ww8/ww8par4.cxx
+@@ -37,6 +37,8 @@
+ 
+ #include <sot/exchange.hxx>
+ #include <fmtanchr.hxx>
++#include <hstformulashownsize.hxx>
++#include <utility>
+ #include <frmfmt.hxx>
+ #include <pam.hxx>
+ #include <docsh.hxx>
+@@ -242,6 +244,7 @@ SwFrameFormat* SwWW8ImplReader::ImportOle(const Graphic* pGrf,
+ {
+     ::SetProgressState(m_nProgress, m_pDocShell);     // Update
+     SwFrameFormat* pFormat = nullptr;
++    const sal_uInt16 nShownScaleY = std::exchange(m_nHstShownScaleY, 0); // HST Office
+ 
+     GraphicCtor();
+ 
+@@ -283,6 +286,9 @@ SwFrameFormat* SwWW8ImplReader::ImportOle(const Graphic* pGrf,
+     {
+         if (SdrOle2Obj *pOleObj = dynamic_cast<SdrOle2Obj*>(pRet.get()))
+         {
++            // HST Office: a converted equation keeps the scale Word shows it at. Not the shown
++            // size over the picture's: LibreOffice wrote the picture's size in the wrong unit
++            sw::hst::KeepWordScale(pOleObj->GetObjRef(), nShownScaleY / 1000.0);
+             pFormat = InsertOle(*pOleObj, *pFlySet, pGrfSet);
+             pRet.clear();     // we don't need this anymore
+         }
+diff --git a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
+index 8c4e14a..c5b41b7 100644
+--- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
++++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.cxx
+@@ -27,6 +27,7 @@
+ #include "SdtHelper.hxx"
+ #include "DomainMapperTableHandler.hxx"
+ #include "TagLogger.hxx"
++#include "../hst/mathtypeole.hxx"
+ #include <com/sun/star/uno/XComponentContext.hpp>
+ #include <com/sun/star/graphic/XGraphic.hpp>
+ #include <com/sun/star/beans/PropertyAttribute.hpp>
+@@ -3816,6 +3817,14 @@ void DomainMapper_Impl::appendOLE( const OUString& rStreamName, const std::share
+         if (!m_aTextAppendStack.empty())
+             m_aTextAppendStack.pop();
+ 
++        // HST Office: a MathType 4-7 equation converted on open sits on the Math baseline
++        // instead of Word's run position; if it can't be converted the OLE object stays
++        if (auto xFormula = writerfilter::hst::ConvertMathType5Ole(
++                pOLEHandler->getProgId(), pOLEHandler->getNativeData(), m_aBaseUrl,
++                pOLEHandler->getSize().Height, pOLEHandler->getReplacement());
++            xFormula.is())
++            return appendStarMathObject(xFormula, false);
++
+         appendTextContent( xOLE, uno::Sequence< beans::PropertyValue >() );
+         applyRunPositionToInlineObject(xOLE, aSize.Height);
+ 
+@@ -3836,13 +3845,18 @@ void DomainMapper_Impl::appendStarMath( const Value& val )
+     val.getAny() >>= formula;
+     if( !formula.is() )
+         return;
++    appendStarMathObject(formula);
++}
+ 
++void DomainMapper_Impl::appendStarMathObject(const uno::Reference<embed::XEmbeddedObject>& formula,
++                                             bool bScaleToText)
++{
+     try
+     {
+         rtl::Reference<SwXTextEmbeddedObject> xStarMath = m_xTextDocument->createTextEmbeddedObject();
+ 
+         xStarMath->setPropertyValue(getPropertyName( PROP_EMBEDDED_OBJECT ),
+-            val.getAny());
++            uno::Any(formula));
+         // tdf#66405: set zero margins for embedded object
+         xStarMath->setPropertyValue(getPropertyName( PROP_LEFT_MARGIN ),
+             uno::Any(sal_Int32(0)));
+@@ -3870,7 +3884,7 @@ void DomainMapper_Impl::appendStarMath( const Value& val )
+         // The object is laid out at 12 pt and scaled to the text size.
+         double fCharHeight = 0;
+         double fScale = 1.0;
+-        if ((GetAnyProperty(PROP_CHAR_HEIGHT, GetTopContext()) >>= fCharHeight) && fCharHeight >= 1
++        if (bScaleToText && (GetAnyProperty(PROP_CHAR_HEIGHT, GetTopContext()) >>= fCharHeight) && fCharHeight >= 1
+             && fCharHeight <= 400 && std::round(fCharHeight) != 12)
+         {
+             xComponentProperties->setPropertyValue(u"BaseFontHeight"_ustr,
+diff --git a/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx b/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx
+index 02d3929..7e1b263 100644
+--- a/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx
++++ b/sw/source/writerfilter/dmapper/DomainMapper_Impl.hxx
+@@ -851,6 +851,8 @@ public:
+     void appendTextContent(const css::uno::Reference<css::text::XTextContent>&, const css::uno::Sequence<css::beans::PropertyValue>&);
+     void appendOLE( const OUString& rStreamName, const std::shared_ptr<OLEHandler>& pOleHandler );
+     void appendStarMath( const Value& v);
++    void appendStarMathObject(const css::uno::Reference<css::embed::XEmbeddedObject>& formula,
++                              bool bScaleToText = true);
+     void adjustLastPara(sal_Int8 nAlign);
+     rtl::Reference<SwXTextSection> appendTextSectionAfter(css::uno::Reference<css::text::XTextRange> const & xBefore);
+ 
+diff --git a/sw/source/writerfilter/dmapper/OLEHandler.cxx b/sw/source/writerfilter/dmapper/OLEHandler.cxx
+index 94a8597..c3ee763 100644
+--- a/sw/source/writerfilter/dmapper/OLEHandler.cxx
++++ b/sw/source/writerfilter/dmapper/OLEHandler.cxx
+@@ -17,6 +17,7 @@
+  *   the License at http://www.apache.org/licenses/LICENSE-2.0 .
+  */
+ #include "OLEHandler.hxx"
++#include "../hst/mathtypeole.hxx"
+ #include "DomainMapper.hxx"
+ #include "GraphicHelpers.hxx"
+ 
+@@ -295,11 +296,14 @@ OUString OLEHandler::copyOLEOStream(rtl::Reference<SwXTextDocument> const& xText
+         {
+             const sal_Int32 nReadRequest = 0x1000;
+             uno::Sequence< sal_Int8 > aData;
++            const bool bKeepData = writerfilter::hst::WantsMathType5Data(m_sProgId);
+ 
+             while( true )
+             {
+                 sal_Int32 nRead = m_xInputStream->readBytes( aData, nReadRequest );
+                 xOLEStream->writeBytes( aData );
++                if (bKeepData)
++                    m_aNativeData.insert(m_aNativeData.end(), aData.begin(), aData.end());
+                 if( nRead < nReadRequest )
+                 {
+                     xOLEStream->closeOutput();
+diff --git a/sw/source/writerfilter/dmapper/OLEHandler.hxx b/sw/source/writerfilter/dmapper/OLEHandler.hxx
+index cd5d59d..715618f 100644
+--- a/sw/source/writerfilter/dmapper/OLEHandler.hxx
++++ b/sw/source/writerfilter/dmapper/OLEHandler.hxx
+@@ -24,6 +24,8 @@
+ #include <com/sun/star/text/WrapTextMode.hpp>
+ #include <rtl/ref.hxx>
+ 
++#include <vector>
++
+ class SwXTextDocument;
+ namespace com::sun::star{
+     namespace graphic{
+@@ -59,6 +61,7 @@ class OLEHandler : public LoggedProperties
+     css::uno::Reference<css::drawing::XShape> m_xShape;
+ 
+     css::uno::Reference<css::io::XInputStream> m_xInputStream;
++    std::vector<sal_Int8> m_aNativeData; ///< HST Office: kept for MathType 5 conversion
+     DomainMapper& m_rDomainMapper;
+ 
+     // Properties
+@@ -81,6 +84,9 @@ public:
+     /// Get the CLSID of the OLE object, in case we can find one based on m_sProgId.
+     OUString getCLSID() const;
+ 
++    const OUString& getProgId() const { return m_sProgId; }
++    const std::vector<sal_Int8>& getNativeData() const { return m_aNativeData; }
++
+     OUString const & GetDrawAspect() const;
+     OUString const & GetVisAreaWidth() const;
+     OUString const & GetVisAreaHeight() const;
+diff --git a/sw/source/writerfilter/hst/mathtypeole.cxx b/sw/source/writerfilter/hst/mathtypeole.cxx
+new file mode 100644
+index 0000000..25e97e0
+--- /dev/null
++++ b/sw/source/writerfilter/hst/mathtypeole.cxx
+@@ -0,0 +1,103 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "mathtypeole.hxx"
++
++#include <o3tl/string_view.hxx>
++
++#include <hstformulashownsize.hxx>
++#include <vcl/graph.hxx>
++
++#include <com/sun/star/document/XFilter.hpp>
++#include <com/sun/star/document/XImporter.hpp>
++#include <com/sun/star/io/XInputStream.hpp>
++#include <com/sun/star/lang/XComponent.hpp>
++#include <com/sun/star/lang/XMultiComponentFactory.hpp>
++#include <com/sun/star/uno/XComponentContext.hpp>
++#include <com/sun/star/util/XCloseable.hpp>
++#include <comphelper/classids.hxx>
++#include <comphelper/embeddedobjectcontainer.hxx>
++#include <comphelper/mimeconfighelper.hxx>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <comphelper/seqstream.hxx>
++#include <comphelper/storagehelper.hxx>
++#include <comphelper/diagnose_ex.hxx>
++#include <officecfg/Office/Common.hxx>
++
++using namespace css;
++
++namespace writerfilter::hst
++{
++bool WantsMathType5Data(std::u16string_view rProgId)
++{
++    return rProgId == u"Equation.DSMT4"
++           && officecfg::Office::Common::Filter::Microsoft::Import::MathType5ToMath::get();
++}
++
++bool KeepsOleInTable(std::u16string_view rProgId)
++{
++    return o3tl::starts_with(rProgId, u"Equation."); // Equation.DSMT4..6, Equation.3
++}
++
++uno::Reference<embed::XEmbeddedObject>
++ConvertMathType5Ole(std::u16string_view rProgId, const std::vector<sal_Int8>& rData,
++                    const OUString& rBaseURL, sal_Int32 nShownHeight,
++                    const uno::Reference<graphic::XGraphic>& xPreview)
++{
++    if (rData.empty() || !WantsMathType5Data(rProgId))
++        return {};
++    uno::Reference<embed::XEmbeddedObject> xObj;
++    try
++    {
++        // The container must not own its storage: an owning container disposes the storage when it goes
++        // out of scope, and the object, which stays in that storage until Writer moves it into the
++        // document, would then crash the document's EmbeddedObjectContainer::InsertEmbeddedObject.
++        comphelper::EmbeddedObjectContainer aContainer(
++            comphelper::OStorageHelper::GetTemporaryStorage());
++        OUString aName;
++        xObj = aContainer.CreateEmbeddedObject(
++            comphelper::MimeConfigurationHelper::GetSequenceClassID(SO3_SM_CLASSID), aName,
++            rBaseURL);
++        if (!xObj.is())
++            return {};
++        uno::Reference<uno::XComponentContext> xContext = comphelper::getProcessComponentContext();
++        uno::Reference<document::XImporter> xImporter(
++            xContext->getServiceManager()->createInstanceWithContext(
++                u"com.sun.star.comp.Math.MathTypeFilter"_ustr, xContext),
++            uno::UNO_QUERY_THROW);
++        xImporter->setTargetDocument(
++            uno::Reference<lang::XComponent>(xObj->getComponent(), uno::UNO_QUERY_THROW));
++        uno::Reference<io::XInputStream> xStream(new comphelper::SequenceInputStream(
++            uno::Sequence<sal_Int8>(rData.data(), rData.size())));
++        uno::Reference<document::XFilter> xFilter(xImporter, uno::UNO_QUERY_THROW);
++        if (xFilter->filter({ comphelper::makePropertyValue(u"InputStream"_ustr, xStream) }))
++        {
++            sw::hst::KeepWordScale(
++                xObj, sw::hst::WordScale(nShownHeight, MapUnit::Map100thMM, Graphic(xPreview)));
++            return xObj;
++        }
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("writerfilter", "MathType 5 equation not converted");
++    }
++    if (xObj.is())
++    {
++        try
++        {
++            xObj->close(true);
++        }
++        catch (const uno::Exception&)
++        {
++        }
++    }
++    return {};
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/writerfilter/hst/mathtypeole.hxx b/sw/source/writerfilter/hst/mathtypeole.hxx
+new file mode 100644
+index 0000000..157e9c0
+--- /dev/null
++++ b/sw/source/writerfilter/hst/mathtypeole.hxx
+@@ -0,0 +1,39 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <com/sun/star/embed/XEmbeddedObject.hpp>
++#include <com/sun/star/graphic/XGraphic.hpp>
++#include <com/sun/star/uno/Reference.hxx>
++#include <rtl/ustring.hxx>
++#include <sal/types.h>
++
++#include <string_view>
++#include <vector>
++
++// MathType 4-7 equations ("Equation.DSMT4") in DOCX and RTF: converted to Math objects on open
++// when the user turned that on; otherwise, or if conversion fails, they stay OLE objects.
++namespace writerfilter::hst
++{
++/// True if the OLE data of an object with this ProgId should be kept for conversion
++bool WantsMathType5Data(std::u16string_view rProgId);
++
++/// True if an RTF object with this ProgId keeps its OLE data in a table cell too: MathType and
++/// Equation Editor equations. LibreOffice reads only the picture of objects in tables
++/// (fdo#53594); an equation saved again would lose its data.
++bool KeepsOleInTable(std::u16string_view rProgId);
++
++/// A new Math object made from the OLE compound file data, or empty (keep the OLE object).
++/// nShownHeight (mm100, 0 if unknown) and xPreview give the scale Word shows the equation at.
++css::uno::Reference<css::embed::XEmbeddedObject>
++ConvertMathType5Ole(std::u16string_view rProgId, const std::vector<sal_Int8>& rData,
++                    const OUString& rBaseURL, sal_Int32 nShownHeight,
++                    const css::uno::Reference<css::graphic::XGraphic>& xPreview);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/writerfilter/rtftok/rtfdispatchdestination.cxx b/sw/source/writerfilter/rtftok/rtfdispatchdestination.cxx
+index 74f3c07..2f832dc 100644
+--- a/sw/source/writerfilter/rtftok/rtfdispatchdestination.cxx
++++ b/sw/source/writerfilter/rtftok/rtfdispatchdestination.cxx
+@@ -478,7 +478,13 @@ RTFError RTFDocumentImpl::dispatchDestination(RTFKeyword nKeyword)
+             break;
+             case RTFKeyword::OBJDATA:
+                 // check if the object is in a special container (e.g. a table)
+-                if (m_aStates.top().getCurrentBuffer())
++                if (m_aStates.top().getCurrentBuffer() && HstKeepsOleInTable())
++                {
++                    // HST Office: an equation keeps its OLE data, buffered with the cell
++                    m_bObject = true;
++                    m_aStates.top().setDestination(Destination::OBJDATA);
++                }
++                else if (m_aStates.top().getCurrentBuffer())
+                 {
+                     // the object is in a table or another container.
+                     // Use the \result (RTFKeyword::RESULT) element of the object instead,
+diff --git a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
+index 6ad758c..7500799 100644
+--- a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
++++ b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
+@@ -56,6 +56,7 @@
+ #include <vcl/svapp.hxx>
+ #include "rtfsdrimport.hxx"
+ #include "rtfreferenceproperties.hxx"
++#include "../hst/mathtypeole.hxx"
+ #include "rtfskipdestination.hxx"
+ #include "rtftokenizer.hxx"
+ #include "rtflookahead.hxx"
+@@ -2017,6 +2018,8 @@ void RTFDocumentImpl::replayBuffer(RTFBuffer_t& rBuffer, RTFSprms* const pSprms,
+         }
+         else if (std::get<0>(aTuple) == RTFBufferTypes::Picture)
+             m_aStates.top().getPicture() = std::get<1>(aTuple)->getPicture();
++        else if (std::get<0>(aTuple) == RTFBufferTypes::HstOleObject)
++            sendObject(std::get<1>(aTuple));
+         else if (std::get<0>(aTuple) == RTFBufferTypes::SetStyle)
+         {
+             if (!m_aStates.empty())
+@@ -2988,6 +2991,7 @@ RTFError RTFDocumentImpl::beforePopState(RTFParserState& rState)
+                 // if the object is in a special container we will use the \result
+                 // element instead of the \objdata
+                 // (see RTFKeyword::OBJECT in RTFDocumentImpl::dispatchDestination)
++                m_aOLEAttributes.clear(); // HST Office: not the class of the next object
+                 break;
+             }
+ 
+@@ -2995,23 +2999,18 @@ RTFError RTFDocumentImpl::beforePopState(RTFParserState& rState)
+             auto pOLEValue = new RTFValue(m_aOLEAttributes);
+             aObjectSprms.set(NS_ooxml::LN_OLEObject_OLEObject, pOLEValue);
+ 
+-            RTFSprms aObjAttributes;
+-            RTFSprms aObjSprms;
++            // HST Office: the run position (\up, \dn) Word gives the object, sent with it
++            if (RTFValue::Pointer_t pPosition
++                = m_aStates.top().getCharacterSprms().find(NS_ooxml::LN_EG_RPrBase_position))
++                m_aObjectAttributes.set(NS_ooxml::LN_EG_RPrBase_position, pPosition);
+             auto pValue = new RTFValue(m_aObjectAttributes, aObjectSprms);
+-            aObjSprms.set(NS_ooxml::LN_object, pValue);
+-            writerfilter::Reference<Properties>::Pointer_t pProperties
+-                = new RTFReferenceProperties(std::move(aObjAttributes), std::move(aObjSprms));
+-            uno::Reference<drawing::XShape> xShape;
+-            RTFValue::Pointer_t pShape = m_aObjectAttributes.find(NS_ooxml::LN_shape);
+-            OSL_ASSERT(pShape);
+-            if (pShape)
+-                pShape->getAny() >>= xShape;
+-            if (xShape.is())
+-            {
+-                Mapper().startShape(xShape);
+-                Mapper().props(pProperties);
+-                Mapper().endShape();
+-            }
++            OSL_ASSERT(m_aObjectAttributes.find(NS_ooxml::LN_shape));
++            // HST Office: in a table cell, sent when the cell is replayed
++            if (m_aStates.top().getCurrentBuffer())
++                m_aStates.top().getCurrentBuffer()->emplace_back(RTFBufferTypes::HstOleObject,
++                                                                 pValue, nullptr);
++            else
++                sendObject(pValue);
+             m_aObjectAttributes.clear();
+             m_aOLEAttributes.clear();
+             m_bObject = false;
+@@ -3929,6 +3928,59 @@ RTFError RTFDocumentImpl::popState()
+     return RTFError::OK;
+ }
+ 
++void RTFDocumentImpl::sendObject(const RTFValue::Pointer_t& pObject)
++{
++    // HST Office: a run around the object with its run position, which the domain mapper applies
++    // to the inline object as for a .docx run (the object's bottom on the baseline, then moved)
++    RTFValue::Pointer_t pPosition
++        = pObject->getAttributes().find(NS_ooxml::LN_EG_RPrBase_position);
++    if (pPosition)
++    {
++        pObject->getAttributes().erase(NS_ooxml::LN_EG_RPrBase_position);
++        RTFSprms aRunSprms;
++        aRunSprms.set(NS_ooxml::LN_EG_RPrBase_position, pPosition);
++        Mapper().startCharacterGroup();
++        Mapper().props(new RTFReferenceProperties(RTFSprms(), std::move(aRunSprms)));
++    }
++    RTFSprms aObjAttributes;
++    RTFSprms aObjSprms;
++    aObjSprms.set(NS_ooxml::LN_object, pObject);
++    writerfilter::Reference<Properties>::Pointer_t pProperties
++        = new RTFReferenceProperties(std::move(aObjAttributes), std::move(aObjSprms));
++    uno::Reference<drawing::XShape> xShape;
++    if (RTFValue::Pointer_t pShape = pObject->getAttributes().find(NS_ooxml::LN_shape))
++        pShape->getAny() >>= xShape;
++    if (xShape.is())
++    {
++        Mapper().startShape(xShape);
++        // HST Office: an RTF object has no wrap distance, but its replacement shape took the
++        // paragraph's space after as its bottom margin, which the object copies: every line
++        // with an equation grew by it
++        uno::Reference<beans::XPropertySet> xShapeProps(xShape, uno::UNO_QUERY);
++        try
++        {
++            for (const OUString& rMargin : { u"TopMargin"_ustr, u"BottomMargin"_ustr,
++                                             u"LeftMargin"_ustr, u"RightMargin"_ustr })
++                if (xShapeProps.is())
++                    xShapeProps->setPropertyValue(rMargin, uno::Any(sal_Int32(0)));
++        }
++        catch (const uno::Exception&)
++        {
++            TOOLS_WARN_EXCEPTION("writerfilter.rtf", "RTF object margins");
++        }
++        Mapper().props(pProperties);
++        Mapper().endShape();
++    }
++    if (pPosition)
++        Mapper().endCharacterGroup();
++}
++
++bool RTFDocumentImpl::HstKeepsOleInTable()
++{
++    RTFValue::Pointer_t pProgId = m_aOLEAttributes.find(NS_ooxml::LN_CT_OLEObject_ProgID);
++    return pProgId && writerfilter::hst::KeepsOleInTable(pProgId->getString());
++}
++
+ RTFError RTFDocumentImpl::handleEmbeddedObject()
+ {
+     OUStringBuffer* pCurrentDestinationText = m_aStates.top().getCurrentDestinationText();
+diff --git a/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx b/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx
+index 0436f51..ce826f8 100644
+--- a/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx
++++ b/sw/source/writerfilter/rtftok/rtfdocumentimpl.hxx
+@@ -88,7 +88,9 @@ enum class RTFBufferTypes
+     EndShape,
+     ResolveSubstream,
+     /// Restores RTFParserState::aPicture.
+-    Picture
++    Picture,
++    /// HST Office: an OLE object in a table cell (its NS_ooxml::LN_object value)
++    HstOleObject
+ };
+ 
+ /// Form field types
+@@ -819,6 +821,11 @@ private:
+     void restoreTableRowProperties();
+     /// Turns the destination text into an input stream of the current OLE attributes.
+     RTFError handleEmbeddedObject();
++    /// Sends an OLE object (its NS_ooxml::LN_object value) to the domain mapper, in a run with
++    /// the object's run position if it has one.
++    void sendObject(const RTFValue::Pointer_t& pObject);
++    /// HST Office: the OLE object being read keeps its data in a table cell (an equation).
++    bool HstKeepsOleInTable();
+ 
+     css::uno::Reference<css::uno::XComponentContext> const& m_xContext;
+     css::uno::Reference<css::io::XInputStream> const& m_xInputStream;
