@@ -6,7 +6,7 @@
 Both run only when their button is clicked, through citation_lookup_http.py in its own process with a hard
 deadline and the office's proxy setting (the same as the update check). The result only fills the form: the
 library is written when the user saves the form (docs/PRIVACY.md). Administrators switch both off with
-/org.hasontech.hstoffice.Citations/OnlineLookup = false (citations.xcs; lockable like every configuration key).
+/org.hasontech.hstoffice.Citations/OnlineLookup = false (core schema, hst-extension-settings-core.patch; lockable like every configuration key).
 """
 from . import citation_ui as ui
 

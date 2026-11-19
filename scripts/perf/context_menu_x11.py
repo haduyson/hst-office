@@ -28,6 +28,10 @@ class XWinAttr(ctypes.Structure):
 IS_VIEWABLE = 2
 XK_ESCAPE = 0xFF1B
 VP = ctypes.c_void_p
+# Windows can vanish between XQueryTree and XGetWindowAttributes (menus, tooltips); Xlib's default handler then exits
+# the whole run with BadWindow. Ignore protocol errors: the call returns 0 and the window is skipped.
+X_ERROR_HANDLER = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p)
+_IGNORE_X_ERRORS = X_ERROR_HANDLER(lambda _dpy, _event: 0)
 
 
 class X11Driver:
@@ -49,6 +53,9 @@ class X11Driver:
         self.t.XTestFakeMotionEvent.argtypes = [VP, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_ulong]
         self.t.XTestFakeButtonEvent.argtypes = [VP, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
         self.t.XTestFakeKeyEvent.argtypes = [VP, ctypes.c_uint, ctypes.c_int, ctypes.c_ulong]
+        self.x.XSetErrorHandler.argtypes = [X_ERROR_HANDLER]
+        self.x.XSetErrorHandler.restype = ctypes.c_void_p
+        self.x.XSetErrorHandler(_IGNORE_X_ERRORS)
         self.dpy = self.x.XOpenDisplay(display.encode())
         if not self.dpy:
             raise RuntimeError(f"cannot open X display {display}")
