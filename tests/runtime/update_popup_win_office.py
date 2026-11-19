@@ -49,23 +49,29 @@ class Office:
         self.profile = os.path.join(work, "profile")
 
     def init_profile(self):
-        """Create the profile with a headless start before anything is seeded into it.
+        """Create the profile and finish the bundled-extension sync before anything is seeded into it.
 
-        The first start of a new profile writes registrymodifications.xcu afresh: values seeded before it are lost,
-        the welcome dialog opens and the update pop-up (rightly) waits behind it. hst_gui does the same on Linux."""
-        path = os.path.join(self.profile, "user", "registrymodifications.xcu")
+        A --terminate_after_init start registers the extensions but never writes user/extensions/bundled/
+        lastsynchronized, so the next start synchronizes again and drops the values seeded for the extensions' schemas
+        (Welcome/Shown read back false: the welcome dialog opens and the update pop-up rightly waits behind it). A short
+        full headless run (converting an empty file) completes the sync, as hst_gui_profile.settle_extensions does on
+        Linux. The profile's .lock is gone once that office has let the profile go."""
+        marker = os.path.join(self.profile, "user", "extensions", "bundled", "lastsynchronized")
+        lock = os.path.join(self.profile, ".lock")
+        if os.path.exists(marker) and not os.path.exists(lock):
+            return
         url = "file:///" + self.profile.replace("\\", "/")
-        lock = os.path.join(self.profile, ".lock")  # present while an office uses the profile
-        for _attempt in range(2):  # a new profile may make the office restart itself once
-            if os.path.exists(path) and not os.path.exists(lock):
-                return
+        settle = os.path.join(self.work, "settle")
+        os.makedirs(settle, exist_ok=True)
+        empty = os.path.join(settle, "empty.txt")
+        open(empty, "w").close()
+        for _attempt in range(3):  # the first run may end asking for a restart after the sync
             subprocess.run([os.path.join(self.program, "soffice.exe"), "-env:UserInstallation=" + url, "--headless",
-                            "--norestore", "--terminate_after_init"], env=self.env, timeout=180, check=False)
-            # soffice.exe may return before soffice.bin has written the profile and let it go: a value seeded
-            # before that is overwritten when it exits.
-            wait(lambda: os.path.exists(path) and not os.path.exists(lock), 120)
-        if not os.path.exists(path) or os.path.exists(lock):
-            raise RuntimeError("the office did not create its profile")
+                            "--norestore", "--convert-to", "pdf", "--outdir", settle, empty],
+                           env=self.env, timeout=180, check=False, capture_output=True)
+            if wait(lambda: os.path.exists(marker) and not os.path.exists(lock), 60):
+                return
+        raise RuntimeError("the office did not finish setting up its profile")
 
     def start(self):
         url = "file:///" + self.profile.replace("\\", "/")
