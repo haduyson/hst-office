@@ -75,6 +75,19 @@ def seed_history(office, samples):
     access.commitChanges()
 
 
+def side_by_side(mockup, shot, target):
+    """The mockup and the screenshot at the same height, labelled, next to each other (ImageMagick)."""
+    height = int(subprocess.run(["identify", "-format", "%h", shot], capture_output=True, text=True,
+                                check=True).stdout)
+    panes = []
+    for label, image in (("mockup", mockup), ("HST Office", shot)):
+        panes += ["(", image, "-resize", "x%d" % height, "-gravity", "north", "-background", "white",
+                  "-splice", "0x28", "-pointsize", "18", "-annotate", "+0+4", label, ")"]
+    subprocess.run(["convert"] + panes + ["-background", "white", "-splice", "12x0", "+append", target],
+                   check=True)
+    return target
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--instdir", required=True)
@@ -85,6 +98,7 @@ def main():
     parser.add_argument("--lang", default="vi_VN.UTF-8")
     parser.add_argument("--size", default="1366x768")
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--mockup", help="also write <out>/side-by-side-<look>.png: this mockup | our screenshot")
     args = parser.parse_args()
     width, height = (int(v) for v in args.size.split("x"))
     look = "%s-%d" % (args.theme, round(args.scale * 100))
@@ -129,6 +143,8 @@ def main():
         time.sleep(1)
         shot = office.screenshot(os.path.join(out, "start-center-%s.png" % look))
         print("screenshot:", shot)
+        if args.mockup and shot:
+            print("side by side:", side_by_side(args.mockup, shot, os.path.join(out, "side-by-side-%s.png" % look)))
     finally:
         office.stop()
         subprocess.run(["xrdb", "-display", args.display, "-merge", "-"], input="Xft.dpi: 96\n", text=True, check=False)

@@ -5989,10 +5989,10 @@ index 0000000..2221e95
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/vcl/source/hst/drawhelpers.cxx b/vcl/source/hst/drawhelpers.cxx
 new file mode 100644
-index 0000000..425a992
+index 0000000..edb4405
 --- /dev/null
 +++ b/vcl/source/hst/drawhelpers.cxx
-@@ -0,0 +1,167 @@
+@@ -0,0 +1,185 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -6022,6 +6022,24 @@ index 0000000..425a992
 +{
 +namespace
 +{
++/** Anti-aliasing on for one shape, the device's own setting back afterwards (the device may be a
++    control's, whose later drawing must not change). */
++class ScopedAntialiasing
++{
++public:
++    explicit ScopedAntialiasing(OutputDevice& rDev)
++        : mrDev(rDev)
++        , meOld(rDev.GetAntialiasing())
++    {
++        rDev.SetAntialiasing(meOld | AntialiasingFlags::Enable);
++    }
++    ~ScopedAntialiasing() { mrDev.SetAntialiasing(meOld); }
++
++private:
++    OutputDevice& mrDev;
++    AntialiasingFlags meOld;
++};
++
 +basegfx::B2DPolygon roundedRect(const basegfx::B2DRange& rRange, double fRadius)
 +{
 +    const double fHalfW = std::max(1.0, rRange.getWidth() / 2);
@@ -6041,7 +6059,7 @@ index 0000000..425a992
 +        basegfx::B2DRange(rRect.Left() + 0.5, rRect.Top() + 0.5, rRect.Right() + 0.5, rRect.Bottom() + 0.5),
 +        fRadius);
 +    auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
-+    rDev.SetAntialiasing(rDev.GetAntialiasing() | AntialiasingFlags::Enable);
++    ScopedAntialiasing aAntialiasing(rDev);
 +    if (rFill != COL_TRANSPARENT)
 +    {
 +        rDev.SetLineColor();
@@ -6062,7 +6080,7 @@ index 0000000..425a992
 +    if (rRect.IsEmpty())
 +        return;
 +    auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
-+    rDev.SetAntialiasing(rDev.GetAntialiasing() | AntialiasingFlags::Enable);
++    ScopedAntialiasing aAntialiasing(rDev);
 +    rDev.SetLineColor();
 +    rDev.SetFillColor(rPalette.aShadow);
 +    const double fOpacity = rPalette.bDark ? SHADOW_OPACITY_DARK : SHADOW_OPACITY_LIGHT;
@@ -6132,7 +6150,7 @@ index 0000000..425a992
 +    const double fH = rArea.GetHeight();
 +    const basegfx::B2DPoint aCentre(rArea.Left() + fW * 1.08, rArea.Top() + fH * 0.92);
 +    const double fR = std::max(fW * 0.52, fH * 0.82);
-+    rDev.SetAntialiasing(rDev.GetAntialiasing() | AntialiasingFlags::Enable);
++    ScopedAntialiasing aAntialiasing(rDev);
 +    for (int nBand = 0; nBand < 2; ++nBand)
 +    {
 +        const basegfx::B2DPolygon aCircle
