@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Before/after screenshots of the HST coat on ten pilot dialogs, on Linux gtk3.
 
-Usage: coat-dialog-shots.py --instdir DIR --work DIR --out DIR [--display :143] [--port N] [dialog ...]
+Usage: coat-dialog-shots.py --instdir DIR --work DIR --out DIR [--display :143] [--port N] [--look after-light-100 ...]
+       [dialog ...]
 
 One package gives both looks: "before" runs with HST_UI_COAT=0 (the platform's look), "after" with the
 coat on. Each look is shot light and dark (GTK_THEME=Adwaita / Adwaita:dark) at 100 % and 125 %
@@ -119,6 +120,7 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--display", default=":143")
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--look", action="append", default=[], help="only these looks, e.g. after-dark-125")
     parser.add_argument("dialogs", nargs="*", help=", ".join(DIALOGS))
     args = parser.parse_args()
     unknown = [name for name in args.dialogs if name not in DIALOGS]
@@ -128,8 +130,11 @@ def main():
     os.environ["HST_VCLPLUGIN"] = "gtk3"
     hst_gui.setup_uno(args.instdir)
     names = args.dialogs or list(DIALOGS)
+    looks = [look for look in LOOKS if not args.look or "-".join(look) in args.look]
+    if not looks:
+        parser.error("no look matches " + ", ".join(args.look))
     failures = []
-    for look in LOOKS:
+    for look in looks:
         shoot_look(args, look, names, failures)
     with open(os.path.join(args.out, "failures.txt"), "w", encoding="utf-8") as out:
         out.write("".join(line + "\n" for line in failures))
