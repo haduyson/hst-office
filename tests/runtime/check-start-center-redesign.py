@@ -75,6 +75,21 @@ def seed_history(office, samples):
     access.commitChanges()
 
 
+def side_by_side(mockup, shot, target):
+    """The mockup and the screenshot at the same height, labelled, next to each other (ImageMagick)."""
+    height = int(subprocess.run(["identify", "-format", "%h", shot], capture_output=True, text=True,
+                                check=True).stdout)
+    panes = []
+    for label, image in (("mockup", mockup), ("HST Office", shot)):
+        panes += ["(", image, "-resize", "x%d" % height, "-gravity", "north", "-background", "white",
+                  "-splice", "0x28", "-pointsize", "18", "-annotate", "+0+4", label, ")"]
+    # each pane is cut off from the gravity of its labels, then the panes are joined with a 12 px gap
+    subprocess.run(["convert", "-respect-parentheses"] + panes + ["+gravity", "-background", "white", "-bordercolor", "white",
+                                          "-border", "6x0", "+append", target],
+                   check=True)
+    return target
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--instdir", required=True)
@@ -85,6 +100,7 @@ def main():
     parser.add_argument("--lang", default="vi_VN.UTF-8")
     parser.add_argument("--size", default="1366x768")
     parser.add_argument("--port", type=int, default=0)
+    parser.add_argument("--mockup", help="also write <out>/side-by-side-<look>.png: this mockup | our screenshot")
     args = parser.parse_args()
     width, height = (int(v) for v in args.size.split("x"))
     look = "%s-%d" % (args.theme, round(args.scale * 100))
@@ -102,14 +118,33 @@ def main():
         office.start()
         samples = make_samples(office, os.path.join(out, "samples"))
         seed_history(office, samples)
-        # what the office does when no document is open (framework's StartModuleDispatcher)
-        last = office.desktop().findFrame("_blank", 0)
-        container = last.getContainerWindow()
-        container.setPosSize(0, 0, width, height, 15)
-        start = office.smgr.createInstanceWithArgumentsAndContext(
-            "com.sun.star.frame.StartModule", (container,), office.ctx)
-        last.setComponent(start, start)
-        start.attachFrame(last)
+        # the Start Center the office shows when no document is open; a second Start Center frame would
+        # join the first one's document tab group and show the tab strip a lone Start Center never has
+        last = None
+        frames = office.desktop().getFrames()
+        for i in range(frames.getCount()):
+            frame = frames.getByIndex(i)
+            controller = frame.getController()
+            if controller is not None and controller.getImplementationName() == "com.sun.star.comp.sfx2.BackingComp":
+                last = frame
+        container = None
+        if last is None:
+            # what the office does when no document is open (framework's StartModuleDispatcher)
+            last = office.desktop().findFrame("_blank", 0)
+            container = last.getContainerWindow()
+            container.setPosSize(0, 0, width, height, 15)
+            start = office.smgr.createInstanceWithArgumentsAndContext(
+                "com.sun.star.frame.StartModule", (container,), office.ctx)
+            last.setComponent(start, start)
+            start.attachFrame(last)
+        else:
+            # a fresh Start Center component in the office's own frame shows the seeded history
+            container = last.getContainerWindow()
+            container.setPosSize(0, 0, width, height, 15)
+            start = office.smgr.createInstanceWithArgumentsAndContext(
+                "com.sun.star.frame.StartModule", (container,), office.ctx)
+            last.setComponent(start, start)
+            start.attachFrame(last)
         container.setVisible(True)
         time.sleep(3)
         container.setPosSize(0, 0, width, height, 15)
@@ -129,6 +164,8 @@ def main():
         time.sleep(1)
         shot = office.screenshot(os.path.join(out, "start-center-%s.png" % look))
         print("screenshot:", shot)
+        if args.mockup and shot:
+            print("side by side:", side_by_side(args.mockup, shot, os.path.join(out, "side-by-side-%s.png" % look)))
     finally:
         office.stop()
         subprocess.run(["xrdb", "-display", args.display, "-merge", "-"], input="Xft.dpi: 96\n", text=True, check=False)
