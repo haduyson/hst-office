@@ -273,7 +273,7 @@ Test: CppunitTest_sw_core_layout testPageCountAbove65535Pages.
  #include <ndtxt.hxx>
  #include <pagefrm.hxx>
  #include <rootfrm.hxx>
-@@ -275,6 +278,38 @@
+@@ -275,6 +278,39 @@
      }
  }
  
@@ -286,11 +286,13 @@ Test: CppunitTest_sw_core_layout testPageCountAbove65535Pages.
 +    SwRootFrame* pLayout = pDoc->getIDocumentLayoutAccess().GetCurrentLayout();
 +    SwPageFrame* pFirst = static_cast<SwPageFrame*>(pLayout->Lower());
 +    const sal_uInt32 nPages = 0x10000 + 11;
++    // page positions are not needed here (the lock is never released: no 65,000-page view layout)
 +    pLayout->LockViewLayout();
 +    pLayout->SetHstEstimatedPageInsert(true); // append behind the last page
 +    for (sal_uInt32 i = 1; i < nPages; ++i)
 +    {
-+        SwPageFrame* pPage = new SwPageFrame(pFirst->GetFormat(), pLayout, pFirst->GetPageDesc());
++        SwPageFrame* pPage
++            = new SwPageFrame(&pFirst->GetPageDesc()->GetMaster(), pLayout, pFirst->GetPageDesc());
 +        pPage->Paste(pLayout, nullptr);
 +    }
 +    pLayout->SetHstEstimatedPageInsert(false);
@@ -306,7 +308,6 @@ Test: CppunitTest_sw_core_layout testPageCountAbove65535Pages.
 +    // statistics: Tools - Word Count, File - Properties and the PageCount field
 +    pDoc->getIDocumentStatistics().DocInfoChgd(false);
 +    CPPUNIT_ASSERT_EQUAL(nPages, pDoc->getIDocumentStatistics().GetUpdatedDocStat(false, false).nPage);
-+    pLayout->UnlockViewLayout();
 +}
 +
  CPPUNIT_TEST_FIXTURE(Test, testSmallTextNotPaginated)
