@@ -1,0 +1,221 @@
+HST Office: OLE objects whose preview is vector data (the WMF/EMF Word stores for MathType,
+Equation 3.0, ChemDraw, ChemWindow objects) were drawn on screen with Graphic::Draw, which
+renders the vector graphic into a bitmap of the painted pixel size and blits it. Formulas
+looked blurry next to the body text, most visibly at high zoom and on scaled displays, and
+on some backends the glyphs were lost. Print and PDF export already painted them as
+primitives. Screen painting now does the same, through one HST helper used for every
+output (sw/source/core/hst/olereplacementpaint.cxx).
+
+--- a/sw/CppunitTest_sw_core_view.mk
++++ b/sw/CppunitTest_sw_core_view.mk
+@@ -15,6 +15,7 @@
+ 
+ $(eval $(call gb_CppunitTest_add_exception_objects,sw_core_view, \
+     sw/qa/core/view/view \
++    sw/qa/core/hst/olepreviewpaint \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,sw_core_view, \
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -248,6 +248,7 @@
+     sw/source/core/doc/lineinfo \
+     sw/source/core/doc/list \
+     sw/source/core/doc/notxtfrm \
++    sw/source/core/hst/olereplacementpaint \
+     sw/source/core/doc/number \
+     sw/source/core/doc/poolfmt \
+     sw/source/core/doc/rdfhelper \
+--- a/sw/qa/core/hst/olepreviewpaint.cxx
++++ b/sw/qa/core/hst/olepreviewpaint.cxx
+@@ -0,0 +1,79 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <vcl/BitmapReadAccess.hxx>
++#include <vcl/graph.hxx>
++
++#include <doc.hxx>
++#include <docsh.hxx>
++#include <ndole.hxx>
++
++namespace
++{
++/// Painting of OLE previews: the WMF/EMF Word keeps for MathType objects.
++class HstOlePreviewPaintTest : public SwModelTestBase
++{
++public:
++    HstOlePreviewPaintTest()
++        : SwModelTestBase(u"/sw/qa/core/data/ooxml/pass/"_ustr)
++    {
++    }
++};
++
++SwOLENode* findFirstOleNode(SwDoc& rDoc)
++{
++    SwNodes& rNodes = rDoc.GetNodes();
++    for (SwNodeOffset n(0); n < rNodes.Count(); ++n)
++        if (SwOLENode* pOle = rNodes[n]->GetOLENode())
++            return pOle;
++    return nullptr;
++}
++
++/// Pixels clearly darker than the white page: glyphs and lines.
++tools::Long countInkPixels(const Bitmap& rBitmap)
++{
++    BitmapScopedReadAccess pAccess(rBitmap);
++    tools::Long nInk = 0;
++    for (tools::Long y = 0; y < pAccess->Height(); ++y)
++        for (tools::Long x = 0; x < pAccess->Width(); ++x)
++            if (pAccess->GetColor(y, x).GetLuminance() < 128)
++                ++nInk;
++    return nInk;
++}
++}
++
++CPPUNIT_TEST_FIXTURE(HstOlePreviewPaintTest, testMathTypePreviewPaintsAsVectorsOnScreen)
++{
++    // The page holds only one MathType (Equation.DSMT4) object; its preview is a WMF, i.e.
++    // vector graphic data.
++    createSwDoc("fdo78906.docx");
++    SwOLENode* pOle = findFirstOleNode(*getSwDoc());
++    CPPUNIT_ASSERT(pOle);
++    const Graphic* pGraphic = pOle->GetGraphic();
++    CPPUNIT_ASSERT(pGraphic);
++    CPPUNIT_ASSERT(pGraphic->getVectorGraphicData());
++    const Size aRasterBefore(pGraphic->GetBitmapRef().GetSizePixel());
++
++    // Render the first page onto a plain VirtualDevice (not a printer, no metafile recording):
++    // the code path of screen painting.
++    const Bitmap aPage(getSwDocShell()->GetPreviewBitmap());
++    CPPUNIT_ASSERT(!aPage.IsEmpty());
++
++    // The formula was painted.
++    CPPUNIT_ASSERT_GREATER(tools::Long(50), countInkPixels(aPage));
++
++    // ... as vectors resolved by the device. Before, Graphic::Draw rendered the WMF into a
++    // bitmap of the painted pixel size, kept it in the graphic and blitted it: soft, blurry glyph
++    // edges, worse at high zoom and on high-DPI displays.
++    const Size aRasterAfter(pGraphic->GetBitmapRef().GetSizePixel());
++    CPPUNIT_ASSERT_EQUAL(aRasterBefore.Width(), aRasterAfter.Width());
++    CPPUNIT_ASSERT_EQUAL(aRasterBefore.Height(), aRasterAfter.Height());
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/core/doc/notxtfrm.cxx
++++ b/sw/source/core/doc/notxtfrm.cxx
+@@ -70,6 +70,7 @@
+ #include <basegfx/utils/b2dclipstate.hxx>
+ #include <drawinglayer/processor2d/processor2dtools.hxx>
+ #include <txtfly.hxx>
++#include <hstolereplacementpaint.hxx>
+ #include <drawinglayer/primitive2d/maskprimitive2d.hxx>
+ #include <drawinglayer/primitive2d/objectinfoprimitive2d.hxx>
+ #include <osl/diagnose.h>
+@@ -1427,21 +1428,9 @@
+ 
+     if ( pGraphic && pGraphic->GetType() != GraphicType::NONE )
+     {
+-        // HST Office: when printing or exporting (PDF), paint a vector replacement graphic (the
+-        // WMF/EMF preview of a MathType or ChemDraw object) as primitives, like a picture.
+-        // Graphic::Draw would rasterise it at the device resolution: slow, and the formula
+-        // would end up as a bitmap without text in the PDF.
+-        if (pGraphic->getVectorGraphicData()
+-            && (bPrn || pOut->GetConnectMetaFile() || pOut->GetOutDevType() == OUTDEV_PRINTER
+-                || pOut->GetOutDevType() == OUTDEV_PDF))
+-        {
+-            paintGraphicUsingPrimitivesHelper(
+-                *pOut, GraphicObject(*pGraphic), GraphicAttr(),
+-                basegfx::utils::createScaleTranslateB2DHomMatrix(
+-                    aSize.Width(), aSize.Height(), aPosition.X(), aPosition.Y()),
+-                OUString(), OUString(), OUString());
+-        }
+-        else
++        // HST Office: vector previews of MathType/ChemDraw objects paint as primitives on
++        // screen, print and PDF alike (sw/source/core/hst/olereplacementpaint.cxx).
++        if (!hst::ole::PaintVectorReplacement(*pOut, *pGraphic, aPosition, aSize))
+             pGraphic->Draw(*pOut, aPosition, aSize);
+ 
+         // shade the representation if the object is activated outplace
+--- a/sw/source/core/hst/olereplacementpaint.cxx
++++ b/sw/source/core/hst/olereplacementpaint.cxx
+@@ -0,0 +1,37 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <hstolereplacementpaint.hxx>
++
++#include <basegfx/matrix/b2dhommatrixtools.hxx>
++#include <vcl/GraphicAttributes.hxx>
++#include <vcl/GraphicObject.hxx>
++#include <vcl/graph.hxx>
++#include <vcl/outdev.hxx>
++
++#include <frmtool.hxx>
++
++namespace hst::ole
++{
++bool PaintVectorReplacement(OutputDevice& rOut, const Graphic& rGraphic, const Point& rPos,
++                            const Size& rSize)
++{
++    // Graphic::Draw renders vector data into a bitmap of the target's pixel size and blits it:
++    // text loses its hinting and edge contrast (blurry formulas), and a cached bitmap of the
++    // wrong size gets scaled. Primitives are resolved by the device itself instead.
++    if (!rGraphic.getVectorGraphicData() || rSize.Width() <= 0 || rSize.Height() <= 0)
++        return false;
++
++    const basegfx::B2DHomMatrix aPlacement(basegfx::utils::createScaleTranslateB2DHomMatrix(
++        rSize.Width(), rSize.Height(), rPos.X(), rPos.Y()));
++    paintGraphicUsingPrimitivesHelper(rOut, GraphicObject(rGraphic), GraphicAttr(), aPlacement,
++                                      OUString(), OUString(), OUString());
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/core/inc/hstolereplacementpaint.hxx
++++ b/sw/source/core/inc/hstolereplacementpaint.hxx
+@@ -0,0 +1,33 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++class Graphic;
++class OutputDevice;
++class Point;
++class Size;
++
++namespace hst::ole
++{
++/** Paints the replacement graphic of an OLE object when it holds vector data.
++
++    Word stores a preview picture with every OLE object; for MathType, Equation 3.0, ChemDraw
++    or ChemWindow objects it is a WMF or EMF. Without the object's server that preview is all
++    the user sees, so it has to look like Word draws it: as vectors, resolved at the real
++    device resolution. The graphic is painted as drawing-layer primitives into the rectangle
++    rPos/rSize (device logic units), the same way Writer paints a WMF picture. That keeps it
++    sharp at every zoom and display scale on screen and keeps text and lines as vectors when
++    printing or exporting.
++
++    Returns false, painting nothing, when the graphic is not vector data (bitmap previews,
++    plain metafiles) or the rectangle is empty; the caller then paints it as before. */
++bool PaintVectorReplacement(OutputDevice& rOut, const Graphic& rGraphic, const Point& rPos,
++                            const Size& rSize);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
