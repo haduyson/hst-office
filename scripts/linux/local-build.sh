@@ -292,7 +292,12 @@ resolve_source() {
 
 # ---------------------------------------------------------------- toolchain (base chroot, shared by all slots)
 deps_want() {
-  echo "clang=$CLANG $(sed -n '/^do_deps()/,/^}/p' "$CHECKOUT/scripts/linux/ci-build.sh" | sha256sum | cut -c1-16)"
+  # Fingerprint of what do_deps installs. Comments and network-robustness settings (apt Acquire:: retries and
+  # timeouts, curl --retry/--max-time) are left out: they change how packages are fetched, not which, so a branch
+  # that only adds them must not force an exclusive rebuild of the shared base chroot (that stalls every slot).
+  echo "clang=$CLANG $(sed -n '/^do_deps()/,/^}/p' "$CHECKOUT/scripts/linux/ci-build.sh" \
+    | grep -v -e '^[[:space:]]*#' -e 'Acquire::' -e '80hst-network' \
+    | sed -e 's/ --retry [0-9]*//g' -e 's/ --max-time [0-9]*//g' | sha256sum | cut -c1-16)"
 }
 base_current() { [ "$(cat "$BASE/.hst-image" 2>/dev/null)" = "$IMAGE" ] && [ "$(cat "$BASE/.hst-deps" 2>/dev/null)" = "$(deps_want)" ]; }
 
