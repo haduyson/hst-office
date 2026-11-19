@@ -2045,10 +2045,10 @@ index 0000000..dcb957f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
 new file mode 100644
-index 0000000..efe60c4
+index 0000000..970113f
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
-@@ -0,0 +1,781 @@
+@@ -0,0 +1,783 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2518,10 +2518,12 @@ index 0000000..efe60c4
 +
 +IMPL_LINK(HstStartCenterWindow, TileSizeHdl, const Size&, rSize, void)
 +{
-+    // the tiles are equally wide (a homogeneous grid); a face repaints only when its width changes
++    // the tiles are equally wide (a homogeneous grid); a face repaints when its width changes at
++    // all: GTK repeats a narrower face to fill the button. The size request stays the fixed
++    // minimum, so a repaint never changes the allocation (no loop)
 +    for (size_t i = 0; i < maTiles.size(); ++i)
 +    {
-+        if (std::abs(maTiles[i].nWidth - rSize.Width()) > 2)
++        if (maTiles[i].nWidth != rSize.Width())
 +        {
 +            maTiles[i].nWidth = rSize.Width();
 +            PaintTile(i);
