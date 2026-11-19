@@ -17,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from update_popup_win_office import NODE, Office, seed, windows_titled  # noqa: E402
 
 SERVED = {}
+WELCOME = "HST Office chào đón bạn"
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -58,6 +59,8 @@ def main():
     ap.add_argument("--srv", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--minutes", type=float, default=11)
+    ap.add_argument("--welcome-close", type=float, default=None,
+                    help="leave the welcome dialog to open (a real first start) and close it after this many seconds")
     args = ap.parse_args()
     shutil.rmtree(args.work, ignore_errors=True)
     local = os.path.join(args.work, "localappdata")
@@ -69,7 +72,9 @@ def main():
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 22196), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     office = Office(args.program, args.work, 22195, env)
-    seed(office.profile, [("/org.hasontech.hstoffice.Welcome", "Shown", "true"),
+    office.init_profile()
+    shown = "false" if args.welcome_close is not None else "true"
+    seed(office.profile, [("/org.hasontech.hstoffice.Welcome", "Shown", shown),
                           ("/org.hasontech.hstoffice.DefaultApps", "Ask", "false"), (NODE, "LastCheck", "0")])
     log, started = [], time.time()
     try:
@@ -87,11 +92,17 @@ def main():
                 entry["current_frame"] = repr(error)
             entry["foreground"] = windows_foreground()
             entry["popup"] = [t for _h, t in windows_titled(lambda title: "HST" in title)]
+            welcome = [h for h, t in windows_titled(lambda title: title == WELCOME)]
+            entry["welcome"] = bool(welcome)
+            if welcome and args.welcome_close is not None and entry["t"] >= args.welcome_close:
+                import ctypes
+                ctypes.windll.user32.PostMessageW(welcome[0], 0x0010, 0, 0)  # WM_CLOSE to our own dialog
+                entry["welcome_closed"] = True
             log.append(entry)
             print(json.dumps(entry), flush=True)  # ASCII: the Windows console is cp1252
             if any(t == "Cập nhật HST Office" for t in entry["popup"]):
                 break
-            time.sleep(5)
+            time.sleep(2 if args.welcome_close is not None else 5)
     finally:
         office.stop()
         server.shutdown()

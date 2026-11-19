@@ -108,6 +108,7 @@ def main():
             ("/org.openoffice.Office.Common/Misc", "ShowTipOfTheDay", "false")]
 
     def start(extra=()):
+        office.init_profile()
         seed(office.profile, base + [(NODE, "LastCheck", "0")] + list(extra))
         REQUESTS.clear()
         return office.start()
