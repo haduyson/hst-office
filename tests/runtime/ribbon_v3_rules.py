@@ -221,8 +221,8 @@ def _row_fitted_box(item, scale):
 
 
 def _label_cut(dump):
-    """A cut label, or a box of the item that draws a native frame in less height than it asks for (its frame loses
-    its bottom edge: native_cut, Windows at 125 % text)."""
+    """A cut label; a box of the item that draws a native frame in less height than it asks for (native_cut); or a box
+    that a window above it shows only in part (box_clip: Windows at 125 % text, the toolbox cut the fill box's bottom)."""
     scale, bad = dump["scale"], []
     for g in dump["groups"]:
         for i in _items(g):
@@ -230,6 +230,9 @@ def _label_cut(dump):
                 bad.append(f"{g['id']} {i['id']} label cut" + (f", want {i['want']}" if i.get("want") else ""))
             if i.get("native_cut"):
                 bad.append(f"{g['id']} {i['id']} native box frame cut")
+            clip = i.get("box_clip")
+            if clip and clip["shown"] < clip["h"]:
+                bad.append(f"{g['id']} {i['id']} box shown {clip['shown']} of {clip['h']} px (cut by {clip.get('by', '?')})")
     return _verdict("label_cut", bad)
 
 
