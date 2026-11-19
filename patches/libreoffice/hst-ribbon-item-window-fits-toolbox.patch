@@ -1,0 +1,81 @@
+HST Office: a ribbon toolbox shows all of its item windows.
+
+On Windows at 125 % text the native boxes ask for more height than the ribbon's 24 px row (fill style,
+line width and the picture's colour boxes 24-27 px, the font boxes 28 px). The toolbox centres each item
+on its line, which follows its tallest item, so a box sat 1-3 px below the toolbox's top or was taller
+than the toolbox, and the toolbox cut its bottom (a box shown 20-23 px of 24-28). A ribbon toolbox now
+places each item window inside its own height: as high as the window up to the toolbox's inner height,
+moved up just enough to end inside. Boxes keep their native drawing; nothing changes where they fit
+(100 %).
+
+- vcl/inc/HstRibbonItemFit.hxx (new, plain arithmetic, unit tested), vcl/source/window/toolbox.cxx.
+
+--- /dev/null
++++ b/vcl/inc/HstRibbonItemFit.hxx
+@@ -0,0 +1,35 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <algorithm>
++
++namespace hst::ribbon
++{
++/** The vertical place of a window in a ribbon toolbox item: its top and height in device px. */
++struct ItemSpan
++{
++    long top = 0;
++    long height = 0;
++};
++
++/** Where an item window of a ribbon toolbox goes so that the toolbox shows all of it: the toolbox shows the band
++    [nInnerTop, nInnerTop + nInner). A native box asks for more height when the text is larger (Windows at 125 %:
++    26-28 px in a 24 px row), and the toolbox's line, centred on the tallest item, put it lower than the band; the
++    toolbox then cut its bottom. The window keeps its height up to the band's, and moves up just enough to end in
++    it. A band not laid out yet (nInner <= 0) leaves it as it is. */
++inline ItemSpan fitItemWindow(long nTop, long nHeight, long nInnerTop, long nInner)
++{
++    if (nInner <= 0)
++        return { nTop, nHeight };
++    const long nFit = std::min(nHeight, nInner);
++    return { std::clamp(nTop, nInnerTop, nInnerTop + nInner - nFit), nFit };
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/window/toolbox.cxx
++++ b/vcl/source/window/toolbox.cxx
+@@ -63,6 +63,7 @@
+ 
+ #include "impldockingwrapper.hxx"
+ #include <HstToolbarRows.hxx>
++#include <HstRibbonItemFit.hxx>
+ 
+ #define SMALLBUTTON_HSIZE           7
+ #define SMALLBUTTON_VSIZE           7
+@@ -2558,6 +2559,20 @@ void ToolBox::ImplFormat( bool bResize )
+ 
+                         assert( item.maCalcRect.Top() >= 0 );
+ 
++                        // HST Office: a ribbon toolbox shows all of an item window: at most as high as the toolbox
++                        // and inside it (a native box of 125 % text asks for more than the row, HstRibbonItemFit.hxx)
++                        if ( mpData->mbHstOwnerDraw && mbHorz && !ImplIsFloatingMode() )
++                        {
++                            const hst::ribbon::ItemSpan aFit = hst::ribbon::fitItemWindow(
++                                item.maCalcRect.Top(), item.mpWindow->GetSizePixel().Height(), mnTopBorder,
++                                mnDY - mnTopBorder - mnBottomBorder );
++                            aPos.setY( aFit.top );
++                            if ( aFit.height != item.mpWindow->GetSizePixel().Height() )
++                                item.mpWindow->SetSizePixel( Size( item.mpWindow->GetSizePixel().Width(), aFit.height ) );
++                            item.maCalcRect.SetTop( aFit.top );
++                            item.maCalcRect.SetBottom( aFit.top + aFit.height - 1 );
++                        }
++
+                         item.mpWindow->SetPosPixel( aPos );
+                         item.mpWindow->Show();
+                     }
