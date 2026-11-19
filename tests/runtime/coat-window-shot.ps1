@@ -25,7 +25,7 @@ public static class CoatShot {
     }
   }
 }
-'@
+'@ -ReferencedAssemblies System.Drawing
 New-Item -ItemType Directory -Force (Split-Path -Parent $Path) | Out-Null
 [CoatShot]::Save([IntPtr]$Hwnd, $Path)
 "saved $Path"
