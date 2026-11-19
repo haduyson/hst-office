@@ -147,7 +147,7 @@ of the list, mail merge of instruction-named columns from a Calc staging copy).
              bool bCreateEnhancedField = false;
              bool bCreateField = true;
 +            const bool bWordMergeIf = aIt->second.eFieldId == FIELD_IF
-+                                      && ::hst::wordmerge::IsMergeIf(pContext->GetWordCode());
++                                      && hst::wordmerge::IsMergeIf(pContext->GetWordCode());
              switch (aIt->second.eFieldId)
              {
              case FIELD_HYPERLINK:
@@ -169,7 +169,7 @@ of the list, mail merge of instruction-named columns from a Calc staging copy).
 +                    {
 +                        xFieldInterface->attachTextFieldMaster(FindOrCreateFieldMaster(
 +                            "com.sun.star.text.FieldMaster.Database",
-+                            ::hst::wordmerge::CodeColumn(pContext->GetWordCode())));
++                            hst::wordmerge::CodeColumn(pContext->GetWordCode())));
 +                        break;
 +                    }
                      if (vArguments.size() < 3)
@@ -181,7 +181,7 @@ of the list, mail merge of instruction-named columns from a Calc staging copy).
                      rtl::Reference<SwXFieldMaster> xMaster =
 -                        FindOrCreateFieldMaster("com.sun.star.text.FieldMaster.Database", sFirstParam);
 +                        FindOrCreateFieldMaster("com.sun.star.text.FieldMaster.Database",
-+                            ::hst::wordmerge::MergeFieldColumn(pContext->GetWordCode(), sFirstParam, vSwitches));
++                            hst::wordmerge::MergeFieldColumn(pContext->GetWordCode(), sFirstParam, vSwitches));
  
  //                    xFieldInterface->setPropertyValue(
  //                             "FieldCode",
@@ -191,7 +191,7 @@ of the list, mail merge of instruction-named columns from a Calc staging copy).
              CloseFieldCommand();
 +        if (FieldContextPtr pOuter = GetParentFieldContext(m_StreamStateStack.top().m_aFieldStack);
 +            pOuter && !pOuter->IsCommandCompleted())
-+            pOuter->AppendWordCode(::hst::wordmerge::NestedCode(pContext->GetWordCode()));
++            pOuter->AppendWordCode(hst::wordmerge::NestedCode(pContext->GetWordCode()));
  
          if (!pContext->GetResult().isEmpty())
          {
