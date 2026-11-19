@@ -16,7 +16,9 @@ about them ("mac_launchers") comes after the welcome dialog, so a first start st
 Runs on the main thread after the Start Center has painted and after a document opened at start has loaded
 (welcome_job.run_later), never inside the job and never inside a document import. When the user has started working
 by then (startup_activity: documents opened or closed, a document modified), only the crash question still runs; the
-others wait for a later start, so no question lands on the user's work and holds closing a tab or quitting.
+others wait for a later start, so no question lands on the user's work and holds closing a tab or quitting. When other
+software started the office (automation_start: headless, invisible, --accept, a conversion), the welcome dialog, the
+notice about the macOS launchers and the default-apps question wait for a start by a person.
 """
 import platform
 
@@ -27,6 +29,8 @@ from . import diag_log
 
 JOB_NAME = "org.hst.office.vi.StartupPromptsJob"
 ORDER = ("mac_move", "profile_repaired", "crash", "welcome", "mac_launchers", "default_apps", "update_outcome")
+# skipped when other software started the office (automation_start)
+FOR_PERSON = ("welcome", "mac_launchers", "default_apps")
 
 
 def run_chain(steps):
@@ -119,6 +123,20 @@ def only_after_work(steps):
     return [(name, step) for name, step in steps if name == "crash"]
 
 
+def for_automation(steps):
+    """The steps without those meant for a person at the screen (FOR_PERSON), for a start by other software."""
+    return [(name, step) for name, step in steps if name not in FOR_PERSON]
+
+
+def _safe_automated():
+    try:
+        from .automation_start import started_by_automation
+        return started_by_automation()
+    except Exception:  # noqa: BLE001 - a broken check keeps the questions as before
+        diag_log.exception("startup_prompts")
+        return False
+
+
 def run(ctx, steps=None, after=None, before=None, prepare=None):
     """The whole start: the macOS launchers, the modal chain, then the non-modal update check. Returns the name of the
     modal shown.
@@ -175,7 +193,11 @@ class StartupPromptsJob(unohelper.Base, XServiceInfo, XJob):
         try:
             from .welcome_job import run_later
             before = _safe_snapshot(self.ctx)
-            run_later(self.ctx, lambda: run(self.ctx, before=before))
+            if _safe_automated():
+                steps = for_automation(steps_for(self.ctx))
+                run_later(self.ctx, lambda: run(self.ctx, steps=steps, before=before))
+            else:
+                run_later(self.ctx, lambda: run(self.ctx, before=before))
         except Exception:  # noqa: BLE001 - never block start-up
             diag_log.exception("startup_prompts")
         return None

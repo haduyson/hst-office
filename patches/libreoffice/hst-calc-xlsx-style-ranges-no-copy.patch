@@ -1,0 +1,30 @@
+HST Office: Sheets opens an .xlsx with many cell formats faster: no copy of every style's ranges per lookup.
+
+SheetDataBuffer::addColXfStyles groups the imported cell ranges by equal Xf. addIfNotInMyMap looks for an entry
+with std::find_if over a std::map<FormatKeyPair, ScRangeList>, but its lambda took
+const std::pair<FormatKeyPair, ScRangeList>&: the map's value_type has a const key, so every visited entry was
+converted into a temporary pair, copying its whole ScRangeList, for every key looked up. Profiled on the 50 MB
+xlsx-formats fixture (Linux, 1.0.2): ScRangeList's copy constructor plus its memmove/malloc were about a quarter of
+all samples of the sheet import thread. The lambda now takes the map's value_type; nothing else changes (the same
+entries are compared in the same order).
+
+License: this upstream file remains under its original license (MPL-2.0).
+Test: build; CppunitTest_sc_subsequent_filters_test2 (xlsx import with styles) unchanged; open-time before/after
+with scripts/perf/large-file-open.py on xlsx-formats-50mb.
+---
+diff --git a/sc/source/filter/oox/sheetdatabuffer.cxx b/sc/source/filter/oox/sheetdatabuffer.cxx
+index 586e103..02fe7ac 100644
+--- a/sc/source/filter/oox/sheetdatabuffer.cxx
++++ b/sc/source/filter/oox/sheetdatabuffer.cxx
+@@ -307,8 +307,10 @@ static void addIfNotInMyMap( const StylesBuffer& rStyles, std::map< FormatKeyPai
+     if ( !pXf1 )
+         return;
+ 
++    // HST Office: the map's value_type has a const key; a std::pair<FormatKeyPair, ScRangeList> parameter made a
++    // temporary copy of every visited entry's range list, which dominated the import of sheets with many formats
+     auto it = std::find_if(rMap.begin(), rMap.end(),
+-        [&nFormatId, &rStyles, &pXf1](const std::pair<FormatKeyPair, ScRangeList>& rEntry) {
++        [&nFormatId, &rStyles, &pXf1](const std::map<FormatKeyPair, ScRangeList>::value_type& rEntry) {
+             if (rEntry.first.second != nFormatId)
+                 return false;
+             Xf* pXf2 = rStyles.getCellXf( rEntry.first.first ).get();

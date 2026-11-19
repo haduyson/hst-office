@@ -41,6 +41,7 @@ class Session:
 
     def _env(self):
         extra = {"DISPLAY": self.display} if self.display else {}
+        extra["HST_OFFICE_INTERACTIVE_START"] = "1"  # the scenarios meet the start-up questions as a person does
         if self.unprivileged:
             extra.update(HOME=self.workdir, XDG_CACHE_HOME=os.path.join(self.workdir, "cache"), XDG_CONFIG_HOME=os.path.join(self.workdir, "config"))
         return clean_env(extra)

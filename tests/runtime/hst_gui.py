@@ -42,6 +42,8 @@ class Office(WindowMixin):
                        ("/org.openoffice.Office.Common/Misc", "ShowTipOfTheDay", "false")] + list(config)
         self.welcome = welcome  # True: leave the welcome dialog up (the caller closes it)
         self.extra_env = dict(env or {})
+        if welcome:  # an --accept start counts as automation, which skips the welcome (automation_start)
+            self.extra_env.setdefault("HST_OFFICE_INTERACTIVE_START", "1")
         self.restore = restore  # True: no --norestore (AutoRecovery/session restore active)
         self.proc = None
         self.ctx = None

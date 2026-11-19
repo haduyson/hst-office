@@ -1,0 +1,106 @@
+HST Office: Slides' theme gallery shows 6, 4 or 3 themes in a row on Windows and macOS too, as on Linux.
+
+The gallery narrows with the ribbon state (hst-ribbon-ux-gallery-fit.patch) by sizing the .ui's scrolled window
+"hstthemescroll". That window exists with the GTK builder only: the vcl builder (Windows, macOS, Qt, headless)
+drops a scrolled window whose child scrolls by itself (VclBuilder::cleanupWidgetOwnScrolling), so
+weld_scrolled_window() returned nothing there and the gallery kept the .ui's 680 px, about 6 themes, at every
+ribbon state: at 1366 px Thiết kế folded "Chủ đề ▾" where Linux shows 4 themes. Without the scrolled window the
+icon view itself is sized: as many of its own item widths as the state's columns, plus the frame and scroll bar;
+the vcl icon view lays out as many columns as that width holds.
+
+License: the edited upstream files keep their license (MPL-2.0); the new test file is HST-owned (LicenseRef-HST-Proprietary).
+Test: CppunitTest_svx_unit HstThemeGalleryColumnsTest (headless = vcl builder: the widths follow 6, 4, 3 columns).
+---
+diff --git a/svx/CppunitTest_svx_unit.mk b/svx/CppunitTest_svx_unit.mk
+index cb3d90f..153a177 100644
+--- a/svx/CppunitTest_svx_unit.mk
++++ b/svx/CppunitTest_svx_unit.mk
+@@ -36,6 +36,7 @@ $(eval $(call gb_CppunitTest_add_exception_objects,svx_unit, \
+ 	svx/qa/unit/xml \
+ 	svx/qa/unit/XTableImportExportTest \
+ 	svx/qa/unit/ThemeTest \
++	svx/qa/unit/HstThemeGalleryColumnsTest \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,svx_unit, \
+diff --git a/svx/qa/unit/HstThemeGalleryColumnsTest.cxx b/svx/qa/unit/HstThemeGalleryColumnsTest.cxx
+new file mode 100644
+index 0000000..9a0b1e0
+--- /dev/null
++++ b/svx/qa/unit/HstThemeGalleryColumnsTest.cxx
+@@ -0,0 +1,42 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++
++#include <test/bootstrapfixture.hxx>
++
++#include <svx/ThemeColorsToolBoxControl.hxx>
++#include <vcl/wrkwin.hxx>
++
++namespace
++{
++class HstThemeGalleryColumnsTest : public test::BootstrapFixture
++{
++};
++
++// The ribbon's theme gallery shows 6, 4 or 3 themes in a row at its large, medium and small state. The vcl builder
++// used here (headless) is the one of Windows and macOS: it drops the .ui's scrolled window, so the gallery must
++// size its icon view instead, or it keeps the width of the large state at every state.
++CPPUNIT_TEST_FIXTURE(HstThemeGalleryColumnsTest, testColumnsFollowTheRibbonState)
++{
++    ScopedVclPtrInstance<WorkWindow> pParent(nullptr, WB_STDWORK);
++    VclPtr<ThemeColorsPaneWrapper> pGallery
++        = VclPtr<ThemeColorsPaneWrapper>::Create(pParent.get(), nullptr);
++    const tools::Long nLarge = pGallery->GetSizePixel().Width();
++    CPPUNIT_ASSERT(pGallery->set_property(u"hst-gallery-state"_ustr, u"1"_ustr));
++    const tools::Long nMedium = pGallery->GetSizePixel().Width();
++    CPPUNIT_ASSERT(pGallery->set_property(u"hst-gallery-state"_ustr, u"2"_ustr));
++    const tools::Long nSmall = pGallery->GetSizePixel().Width();
++    CPPUNIT_ASSERT_GREATER(nMedium, nLarge);
++    CPPUNIT_ASSERT_GREATER(nSmall, nMedium);
++    // 6 -> 4 columns is two theme widths narrower, 4 -> 3 one
++    CPPUNIT_ASSERT_EQUAL(2 * (nMedium - nSmall), nLarge - nMedium);
++    // back to the large state: the first width again
++    CPPUNIT_ASSERT(pGallery->set_property(u"hst-gallery-state"_ustr, u"0"_ustr));
++    CPPUNIT_ASSERT_EQUAL(nLarge, pGallery->GetSizePixel().Width());
++    pGallery.disposeAndClear();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/svx/source/tbxctrls/ThemeColorsToolBoxControl.cxx b/svx/source/tbxctrls/ThemeColorsToolBoxControl.cxx
+index b308c15..53e4860 100644
+--- a/svx/source/tbxctrls/ThemeColorsToolBoxControl.cxx
++++ b/svx/source/tbxctrls/ThemeColorsToolBoxControl.cxx
+@@ -144,11 +144,24 @@ void ThemeColorsPaneWrapper::SetOptimalSize()
+ 
+ void ThemeColorsPaneWrapper::HstApplyColumns()
+ {
+-    if (!m_xHstScroll)
+-        return;
+     const double fScale = GetDPIScaleFactor();
+-    m_xHstScroll->set_size_request(
+-        (HST_COLUMNS[m_nHstState] * HST_ITEM_WIDTH + HST_FRAME_WIDTH) * fScale, HST_HEIGHT * fScale);
++    const int nColumns = HST_COLUMNS[m_nHstState];
++    if (m_xHstScroll)
++    {
++        m_xHstScroll->set_size_request((nColumns * HST_ITEM_WIDTH + HST_FRAME_WIDTH) * fScale,
++                                       HST_HEIGHT * fScale);
++        return;
++    }
++    if (!mxIconViewThemeColors)
++        return;
++    // The vcl builder (Windows, macOS, Qt, headless) drops the scrolled window, as the vcl icon view scrolls by
++    // itself, and the icon view lays out as many columns as its width holds: size the icon view for the columns,
++    // with its own item width (it grows to fit the theme previews and their names)
++    int nItemWidth = mxIconViewThemeColors->get_item_width();
++    if (nItemWidth <= 0)
++        nItemWidth = HST_ITEM_WIDTH * fScale;
++    mxIconViewThemeColors->set_size_request(nColumns * nItemWidth + HST_FRAME_WIDTH * fScale,
++                                            HST_HEIGHT * fScale);
+ }
+ 
+ bool ThemeColorsPaneWrapper::set_property(const OUString& rKey, const OUString& rValue)
