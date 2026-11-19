@@ -1,0 +1,131 @@
+HST Office: tests that the Print page of the File panel shows "Hủy" (Cancel) and "Quay lại" (Back) next to its
+"In" button (CppunitTest_vcl_hst_print_panel testCloseButtonsBesidePrint).
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+diff --git a/vcl/CppunitTest_vcl_hst_print_panel.mk b/vcl/CppunitTest_vcl_hst_print_panel.mk
+--- a/vcl/CppunitTest_vcl_hst_print_panel.mk
++++ b/vcl/CppunitTest_vcl_hst_print_panel.mk
+@@ -14,6 +14,11 @@
+ 	-I$(SRCDIR)/vcl/inc \
+ ))
+ 
++# the tests find the panel's buttons in the host's window tree (salvtables.hxx, vcl/toolkit)
++$(eval $(call gb_CppunitTest_add_defs,vcl_hst_print_panel,\
++	-DVCL_INTERNALS \
++))
++
+ $(eval $(call gb_CppunitTest_add_exception_objects,vcl_hst_print_panel, \
+ 	vcl/qa/cppunit/hstprintjobpanel \
+ ))
+diff --git a/vcl/qa/cppunit/hstprintjobpanel.cxx b/vcl/qa/cppunit/hstprintjobpanel.cxx
+--- a/vcl/qa/cppunit/hstprintjobpanel.cxx
++++ b/vcl/qa/cppunit/hstprintjobpanel.cxx
+@@ -11,21 +11,49 @@
+ 
+ #include <hstjobprinter.hxx>
+ #include <salinst.hxx>
++#include <salvtables.hxx>
+ #include <svdata.hxx>
+ 
++#include <set>
+ #include <stdexcept>
+ 
+ #include <com/sun/star/awt/Size.hpp>
+ #include <com/sun/star/view/PrintableState.hpp>
+ #include <comphelper/propertyvalue.hxx>
++#include <rtl/character.hxx>
+ #include <test/bootstrapfixture.hxx>
+ #include <vcl/hstprintjobpanel.hxx>
+ #include <vcl/print.hxx>
++#include <vcl/toolkit/button.hxx>
++#include <vcl/window.hxx>
+ #include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/Container.hxx>
+ 
+ namespace
+ {
++/// The widget of the panel with that .ui id, in the host's window tree; nullptr without one.
++vcl::Window* findById(vcl::Window* pParent, std::u16string_view aId)
++{
++    for (vcl::Window* pChild = pParent ? pParent->GetWindow(GetWindowType::FirstChild) : nullptr;
++         pChild; pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (pChild->get_id() == aId)
++            return pChild;
++        if (vcl::Window* pFound = findById(pChild, aId))
++            return pFound;
++    }
++    return nullptr;
++}
++
++/// The access key of a label ("I~n" -> 'N'), 0 without one.
++sal_Unicode accessKey(const OUString& rLabel)
++{
++    const sal_Int32 nPos = rLabel.indexOf('~');
++    return nPos >= 0 && nPos + 1 < rLabel.getLength()
++               ? static_cast<sal_Unicode>(rtl::toAsciiUpperCase(rLabel[nPos + 1]))
++               : 0;
++}
++
+ /// Three A4 pages; counts how often the job ended and how.
+ class TestController final : public vcl::PrinterController
+ {
+@@ -199,6 +227,49 @@
+         xGiven.disposeAndClear();
+     }
+ 
++
++    vcl::Window* hostWindow() const
++    {
++        auto* pHost = dynamic_cast<SalInstanceWidget*>(m_xHost.get());
++        return pHost ? pHost->getWidget() : nullptr;
++    }
++
++    void testCloseButtonsBesidePrint()
++    {
++        auto xJob = makeJob();
++        vcl::PrintJobPanel aPanel(xJob);
++        aPanel.Show(m_xHost.get());
++        vcl::Window* pOk = findById(hostWindow(), u"ok");
++        vcl::Window* pCancel = findById(hostWindow(), u"cancel");
++        vcl::Window* pBack = findById(hostWindow(), u"back");
++        CPPUNIT_ASSERT(pOk);
++        CPPUNIT_ASSERT_MESSAGE("no Cancel button", pCancel);
++        CPPUNIT_ASSERT_MESSAGE("no Back button", pBack);
++        for (vcl::Window* pButton : { pCancel, pBack })
++        {
++            // shown in the group of the print button, as tall as it, with a label of its own
++            CPPUNIT_ASSERT(pButton->IsVisible());
++            CPPUNIT_ASSERT(pButton->IsEnabled());
++            CPPUNIT_ASSERT_EQUAL(pOk->GetParent(), pButton->GetParent());
++            CPPUNIT_ASSERT(pButton->GetParent()->IsVisible());
++            CPPUNIT_ASSERT_EQUAL(pOk->get_height_request(), pButton->get_height_request());
++            CPPUNIT_ASSERT(!pButton->GetText().isEmpty());
++            CPPUNIT_ASSERT(!pButton->GetAccessibleName().isEmpty());
++            CPPUNIT_ASSERT(!pButton->GetAccessibleDescription().isEmpty());
++        }
++        // Print, Cancel, Back in this order (the tab order), each with its own access key
++        CPPUNIT_ASSERT(pOk->GetParent()->GetChildCount() >= 3);
++        CPPUNIT_ASSERT_EQUAL(pOk, pOk->GetParent()->GetChild(0));
++        CPPUNIT_ASSERT_EQUAL(pCancel, pOk->GetParent()->GetChild(1));
++        CPPUNIT_ASSERT_EQUAL(pBack, pOk->GetParent()->GetChild(2));
++        const std::set<sal_Unicode> aKeys{ accessKey(pOk->GetText()), accessKey(pCancel->GetText()),
++                                           accessKey(pBack->GetText()) };
++        CPPUNIT_ASSERT_EQUAL(size_t(3), aKeys.size());
++        CPPUNIT_ASSERT(!aKeys.contains(0));
++        // the job waits: showing the buttons does not end it
++        CPPUNIT_ASSERT(aPanel.IsPending());
++    }
++
+     DECL_STATIC_LINK(HstPrintJobPanelTest, MarginsHdl, vcl::PrintJobPanel&, void);
+ 
+     CPPUNIT_TEST_SUITE(HstPrintJobPanelTest);
+@@ -209,6 +280,7 @@
+     CPPUNIT_TEST(testMargins);
+     CPPUNIT_TEST(testJobPrinterEndsWithTheJob);
+     CPPUNIT_TEST(testGivenPrinterStaysWithItsOwner);
++    CPPUNIT_TEST(testCloseButtonsBesidePrint);
+     CPPUNIT_TEST_SUITE_END();
+ 
+ private:
