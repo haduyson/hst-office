@@ -664,10 +664,10 @@ index 0000000..cfabd6a
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/qa/cppunit/hststartcenter.cxx b/sfx2/qa/cppunit/hststartcenter.cxx
 new file mode 100644
-index 0000000..5456c23
+index 0000000..86df91f
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
-@@ -0,0 +1,688 @@
+@@ -0,0 +1,765 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -918,6 +918,34 @@ index 0000000..5456c23
 +    uno::Reference<XAccessibleContext> item(std::u16string_view aRegion, sal_Int64 nIndex) const
 +    {
 +        return context(region(aRegion)->getAccessibleChild(nIndex));
++    }
++
++    /** Types a key into the window that has the focus, as the keyboard does. */
++    static void key(sal_uInt16 nCode, bool bShift = false)
++    {
++        vcl::Window* pFocus = Application::GetFocusWindow();
++        CPPUNIT_ASSERT_MESSAGE("a window has the focus", pFocus);
++        const KeyEvent aKey(0, vcl::KeyCode(nCode, bShift, false, false, false));
++        Application::PostKeyEvent(VclEventId::WindowKeyInput, pFocus, &aKey);
++        Application::PostKeyEvent(VclEventId::WindowKeyUp, pFocus, &aKey);
++        Scheduler::ProcessEventsToIdle();
++    }
++
++    /** The region and the name of the drawn item with the keyboard focus ("" when none has it). */
++    std::pair<OUString, OUString> focused() const
++    {
++        uno::Reference<XAccessibleContext> xCanvas = canvasContext();
++        for (sal_Int64 i = 0; i < xCanvas->getAccessibleChildCount(); ++i)
++        {
++            uno::Reference<XAccessibleContext> xRegion = context(xCanvas->getAccessibleChild(i));
++            for (sal_Int64 j = 0; j < xRegion->getAccessibleChildCount(); ++j)
++            {
++                uno::Reference<XAccessibleContext> xItem = context(xRegion->getAccessibleChild(j));
++                if (xItem->getAccessibleStateSet() & AccessibleStateType::FOCUSED)
++                    return { xRegion->getAccessibleName(), xItem->getAccessibleName() };
++            }
++        }
++        return {};
 +    }
 +
 +    void press(std::u16string_view aRegion, sal_Int64 nIndex, sal_Int32 nAction = 0)
@@ -1291,6 +1319,55 @@ index 0000000..5456c23
 +    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Left(), nMidY)));
 +    CPPUNIT_ASSERT_EQUAL(aBorder, xDev->GetPixel(Point(aRect.Left() + 1, nMidY)));
 +    CPPUNIT_ASSERT_EQUAL(aBack, xDev->GetPixel(Point(aRect.Left() + 2, nMidY)));
++}
++
++CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testKeyboard)
++{
++    // the whole Start Center works from the keyboard: arrows, Home/End within a region, Tab from
++    // region to region (through the search field), Enter presses the focused item
++    openStartCenter();
++    canvas()->GrabFocus();
++    Scheduler::ProcessEventsToIdle();
++    CPPUNIT_ASSERT_EQUAL(u"Home"_ustr, focused().second);
++    key(KEY_DOWN);
++    CPPUNIT_ASSERT_EQUAL(u"New Document"_ustr, focused().second);
++    key(KEY_END);
++    CPPUNIT_ASSERT_EQUAL(u"Update HST Office"_ustr, focused().second);
++    key(KEY_HOME);
++    CPPUNIT_ASSERT_EQUAL(u"Home"_ustr, focused().second);
++
++    // Tab: the search field, then the tiles
++    key(KEY_TAB);
++    CPPUNIT_ASSERT(!canvas()->HasFocus());
++    CPPUNIT_ASSERT(window()->HasChildPathFocus());
++    key(KEY_TAB);
++    CPPUNIT_ASSERT(canvas()->HasFocus());
++    CPPUNIT_ASSERT_EQUAL(u"Quickly Create a New Document"_ustr, focused().first);
++    const OUString aFirstTile = focused().second;
++    key(KEY_RIGHT);
++    CPPUNIT_ASSERT_EQUAL(u"Quickly Create a New Document"_ustr, focused().first);
++    CPPUNIT_ASSERT(focused().second != aFirstTile);
++    // Shift+Tab goes back to the search field
++    key(KEY_TAB, true);
++    CPPUNIT_ASSERT(!canvas()->HasFocus());
++    key(KEY_TAB);
++    key(KEY_TAB); // from the tiles to the recent documents
++    CPPUNIT_ASSERT_EQUAL(u"Recent documents"_ustr, focused().first);
++    const OUString aFirstFile = focused().second;
++    key(KEY_DOWN);
++    CPPUNIT_ASSERT_EQUAL(u"Recent documents"_ustr, focused().first);
++    CPPUNIT_ASSERT(focused().second != aFirstFile);
++
++    // Enter on the Văn bản tile creates a text document
++    key(KEY_TAB, true);
++    CPPUNIT_ASSERT_EQUAL(u"Quickly Create a New Document"_ustr, focused().first);
++    key(KEY_HOME);
++    key(KEY_RETURN);
++    uno::Reference<frame::XController> xController = mxFrame->getController();
++    CPPUNIT_ASSERT(xController.is());
++    uno::Reference<lang::XServiceInfo> xModel(xController->getModel(), uno::UNO_QUERY);
++    CPPUNIT_ASSERT(xModel.is());
++    CPPUNIT_ASSERT(xModel->supportsService(u"com.sun.star.text.TextDocument"_ustr));
 +}
 +
 +/** The WCAG contrast ratio of two colours. */
