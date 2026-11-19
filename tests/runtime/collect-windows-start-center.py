@@ -41,13 +41,13 @@ def _const(group, name):
 def make_samples(office, root, samples, prop):
     """The sample documents (stored once, hidden) as [(name, url)]."""
     import uno
+    import uno_main_thread_load
     urls = []
     for folder, name, factory, filter_name in samples:
         os.makedirs(os.path.join(root, folder), exist_ok=True)
         path = os.path.join(root, folder, name)
         if not os.path.exists(path):
-            doc = office.desktop.loadComponentFromURL("private:factory/" + factory, "_blank", 0,
-                                                      (prop("Hidden", True),))
+            doc = uno_main_thread_load.load(office.desktop, "private:factory/" + factory, "_blank", Hidden=True)
             doc.storeToURL(uno.systemPathToFileUrl(path), (prop("FilterName", filter_name),))
             doc.close(True)
         urls.append((name, uno.systemPathToFileUrl(path)))
