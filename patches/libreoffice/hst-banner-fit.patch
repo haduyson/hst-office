@@ -14,8 +14,10 @@ and wherever else it is shown (owner, 19/11/2026: no letterbox, no filler band, 
 - vcl HstBannerWidget: HeightForWidth (the contract of hosts that size the slot themselves, with SetArtChangedHdl);
   the drawing area asks for the artwork's height at the width it was given, so the Start Center's slot is sized to
   the image, not the image to the slot.
-- sfx2 NotebookbarTabControl: the Tabbed ribbon's banner room is unchanged (360 to 960 logical px, 96 high, 8 px
-  after the last group); the banner takes its artwork's width at the left of it.
+- sfx2 NotebookbarTabControl: the Tabbed ribbon's banner room is unchanged (360 to 960 logical px, 96 high, from
+  8 px after the last group to 8 px before the window's right edge); the banner takes its artwork's width flush
+  with the room's right end (owner, 19/11/2026), so it stands at the same place on every tab and the free room
+  between the last group and the banner is the ribbon's own background. The groups' fit is unchanged.
 
 License: these upstream files remain under their original license (MPL-2.0).
 Test: tests/unit/test_banner_fit_geometry.py; tests/runtime/check-banner-fit.py.
@@ -139,14 +141,16 @@ Test: tests/unit/test_banner_fit_geometry.py; tests/runtime/check-banner-fit.py.
      downscaled (high quality) and never upscaled. */
 --- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
 +++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
-@@ -649,7 +649,10 @@ void NotebookbarTabControl::HstLayoutBanner()
+@@ -649,7 +649,12 @@ void NotebookbarTabControl::HstLayoutBanner()
              const tools::Long nSmallest = std::max<tools::Long>(0, nRight - nMin - nGap - aPage.x - nChevron);
              nPageWidth = std::max<tools::Long>(0, aSlot.Left() - nGap - aPage.x);
              hst::ribbon::SetPageSlack(*pPage, nSmallest - nPageWidth);
 -            m_pHstBanner->Place(aSlot);
-+            // the room is the slot above; the banner takes only its artwork's width at the room's height, at the
-+            // room's left (8 px after the last group): the rest is the ribbon's own background, no filler band
-+            m_pHstBanner->Place(aSlot, true);
++            // the room is the slot above; the banner takes only its artwork's width at the room's height, flush
++            // with the room's right end (8 px before the window's right edge, the same place on every tab): the free
++            // room between the last group and the banner is the ribbon's own background, no filler band (owner,
++            // 19/11/2026)
++            m_pHstBanner->Place(aSlot, false);
 +            // the layout dump keeps the room (the v3 rules check where the groups leave it)
              hst::ribbon::DumpPageLayout(*pPage, tools::Rectangle(Point(aSlot.Left() - aPage.x, aSlot.Top() - aPage.y),
                                                                   aSlot.GetSize()));

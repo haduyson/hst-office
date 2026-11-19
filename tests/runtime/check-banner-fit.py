@@ -11,7 +11,10 @@ does) and per theme (the office's own appearance setting), in a window of --size
   - the box has the ratio of the bundled artwork it shows (its width is the artwork's at the box's height, within a
     pixel of rounding): a wider box is a filler band, a taller one a letterbox;
   - the box shows that artwork edge to edge: the screenshot inside the box matches the artwork scaled to the whole
-    box (no inset, no background around it).
+    box (no inset, no background around it);
+  - on every tab of the ribbon (each one opened by a click on it; Tệp tin opens the File panel and is left out) the
+    banner stands flush with the right end of the ribbon's content area: its right edge is the window's right edge
+    less the 8 px margin, the same box on every tab (owner decision 19/11/2026), the free room left of it.
 Writes results.json and one screenshot per case (--shots: also copied there as <app>-<scale>-<theme>.png).
 The X display must already run (this script never starts or stops it). Run as root, it runs itself again as the
 build user under dbus-run-session (AT-SPI needs a session bus). Exit 1 when a case fails.
@@ -31,10 +34,13 @@ import numpy
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 import ribbon_banner_probe as probe  # noqa: E402
+import ribbon_tabs_gui as tabs_gui  # noqa: E402
 from banner_everywhere_cases import NAMES, visible_boxes  # noqa: E402
 from ribbon_banner_run import geometry, xdo  # noqa: E402
 
 MATCH = probe.MATCH  # mean absolute RGB difference of a matching artwork
+RIGHT_MARGIN = 8  # px between the banner and the window's right edge (NotebookbarTabControl::HstBannerRight)
+SKIP_TABS = ("Tệp tin",)  # opens the File panel
 
 
 def edge_to_edge(shot_path, box, art_path):
@@ -64,6 +70,34 @@ def judge(box, shot_path, catalogue):
     if best > MATCH:
         bad.append(f"the box does not show an artwork edge to edge (best {ident}: {best:.1f} > {MATCH})")
     return not bad, "; ".join(bad) or f"{ident} fills {w}x{h} edge to edge ({best:.1f})"
+
+
+def flush_right(box, frame):
+    """True when the banner box ends RIGHT_MARGIN px before the window's right edge (within a pixel)."""
+    return abs((box[0] + box[2]) - (frame[0] + frame[2] - RIGHT_MARGIN)) <= 1
+
+
+def flush_right_on_every_tab(args, frame):
+    """(ok, detail): the banner is flush right, at one place, on every tab of the ribbon."""
+    names = [n for n in tabs_gui.visible_names() if n not in SKIP_TABS]
+    if not names:
+        return False, "no ribbon tabs found"
+    seen, bad = {}, []
+    for name in names:
+        tabs_gui.open_tab(args.display, name)
+        time.sleep(1.5)
+        boxes = visible_boxes(frame)
+        if len(boxes) != 1:
+            bad.append(f"{name}: {len(boxes)} banners")
+            continue
+        seen[name] = tuple(boxes[0])
+        if not flush_right(boxes[0], frame):
+            bad.append(f"{name}: right edge {boxes[0][0] + boxes[0][2]}, expected {frame[0] + frame[2] - RIGHT_MARGIN}")
+    if len(set(seen.values())) > 1:
+        bad.append(f"the banner moves between tabs: {sorted(set(seen.values()))}")
+    if tabs_gui.visible_names():
+        tabs_gui.open_tab(args.display, names[0])
+    return not bad, "; ".join(bad) or f"{len(seen)} tabs, banner at {next(iter(seen.values()))}"
 
 
 def set_scale(display, scale):
@@ -108,6 +142,9 @@ def run_case(args, app, scale, theme, catalogue, results):
         if args.shots:
             os.makedirs(args.shots, exist_ok=True)
             shutil.copy(path, os.path.join(args.shots, f"{case}.png"))
+        ok, detail = flush_right_on_every_tab(args, frame)
+        results.append({"case": f"{case}-tabs", "status": "PASS" if ok else "FAIL", "detail": detail})
+        print(f"{'PASS' if ok else 'FAIL'}  {case}-tabs  {detail}", flush=True)
     finally:
         office.stop()
         set_scale(args.display, 1.0)
