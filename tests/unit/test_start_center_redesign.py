@@ -97,10 +97,16 @@ class StartCenterRedesignTest(unittest.TestCase):
 
     def test_solutions_mirror_data(self):
         with open(os.path.join(ROOT, "data", "hst", "solutions.json"), encoding="utf-8") as handle:
-            expected = [(s["name"], s["tagline"], s["url"]) for s in json.load(handle)["solutions"]]
-        rows = re.findall(r'^\s*\{ u"([^"]*)"_ustr,\n\s*u"([^"]*)"_ustr,\n\s*u"([^"]*)"_ustr \},',
+                solutions = json.load(handle)["solutions"]
+        # name, full tagline (tooltip and accessible description), short tagline (on the card), page
+        expected = [(s["name"], s["tagline"], s.get("short", ""), s["url"]) for s in solutions]
+        rows = re.findall(r'^\s*\{ u"([^"]*)"_ustr,\n\s*u"([^"]*)"_ustr,\n\s*u"([^"]*)"_ustr,\n\s*u"([^"]*)"_ustr \},',
                           self.window, re.M)
         self.assertEqual(expected, [tuple(decode(part) for part in row) for row in rows])
+        for solution in solutions:
+            # short enough for two lines of a card in two columns
+            self.assertLessEqual(len(solution.get("short", "")), 38, solution["id"])
+            self.assertTrue(solution.get("shortEn"), solution["id"])
         self.assertIn("utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0", self.window)
         self.assertIn('MORE_SOLUTIONS_TEXT = u"Xem thêm các giải pháp khác →"_ustr', self.window)
 
@@ -136,7 +142,7 @@ class StartCenterRedesignTest(unittest.TestCase):
             if "/startcenter/" in path and path != ICONS:
                 self.assertNotRegex(added(PATCH, path), r"Color\(0x|\bCOL_(?!TRANSPARENT\b|WHITE\b|BLACK\b)[A-Z]", path)
         tokens = added(PATCH, TOKENS)
-        for hex_colour in ("0xEC, 0xF3, 0xFC", "0xEA, 0xF2, 0xFD", "0x15, 0x4A, 0x9E", "0x1A, 0x56, 0xC8"):
+        for hex_colour in ("0xEC, 0xF3, 0xFC", "0xEA, 0xF2, 0xFD", "0x0A, 0x47, 0x96", "0x1A, 0x56, 0xC8"):
             self.assertIn(hex_colour, tokens)
         header = added(PATCH, TOKENS_HXX)
         for token in ("namespace radius", "namespace space", "namespace type", "namespace icon",
