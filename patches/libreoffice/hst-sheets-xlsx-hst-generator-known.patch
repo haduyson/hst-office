@@ -1,0 +1,26 @@
+HST Office: an .xlsx saved by HST Office keeps its cached formula results when it is opened again.
+
+hst-version-everywhere.patch writes the generator as "HSTOffice/<release>$<OS>_<ARCH>" instead of "LibreOffice/...",
+and maps it back for OpenDocument files (xmloff xmlmetai.cxx), but the .xlsx import only trusts the cached results
+of files whose generator starts with "Microsoft" or "LibreOffice" (WorkbookHelper, mbGeneratorKnownGood). For HST's
+own files every formula with a text result was calculated again on open, and a workbook whose numeric results are
+all 0 was recalculated in full; the reload of upstream testTdf147088 showed the recalculated U+FFFF instead of the
+saved result. "HSTOffice/" is a known generator now, like the engine it is built on.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: make CppunitTest_sc_subsequent_export_test4 (testTdf147088).
+---
+--- a/sc/source/filter/oox/workbookhelper.cxx
++++ b/sc/source/filter/oox/workbookhelper.cxx
+@@ -569,7 +569,10 @@ void WorkbookGlobals::initialize()
+         aCalcConfig.SetStringRefSyntax( formula::FormulaGrammar::CONV_XL_A1 ) ;
+         mpDoc->SetCalcConfig(aCalcConfig);
+     }
+-    else if (aGenerator.startsWithIgnoreAsciiCase("LibreOffice"))
++    // HST Office writes "HSTOffice/<release>$<OS>_<ARCH>" (hst-version-everywhere.patch): its own files
++    // keep their cached formula results like those of the engine it is built on
++    else if (aGenerator.startsWithIgnoreAsciiCase("LibreOffice")
++             || aGenerator.startsWithIgnoreAsciiCase("HSTOffice/"))
+     {
+         mbGeneratorKnownGood = true;
+     }

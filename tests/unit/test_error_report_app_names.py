@@ -9,7 +9,7 @@ import re
 import unittest
 
 import _paths  # noqa: F401
-import error_report_uno_stubs  # noqa: F401 - before the hst_office imports
+import uno_stubs  # noqa: F401 - before the hst_office imports
 from error_report_fake_server import invalid
 from hst_office import error_report_apps as apps
 from hst_office import error_report_crash as crash

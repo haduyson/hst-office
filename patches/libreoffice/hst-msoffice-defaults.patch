@@ -5,7 +5,9 @@ HST Office: new documents behave like Microsoft Office (owner decision 2026-11-0
 - officecfg VCL.xcu: default font of HST Sheets and HST Slides is Calibri, or bundled metric-compatible Carlito (upstream Liberation Sans). HST Writer stays Times New Roman (hst-defaults.patch).
 
 License: these upstream files remain under their original license (MPL-2.0).
-Test: tests/runtime/check-msoffice-save-format.py, tests/runtime/check-defaults.py.
+- sw qa core/text itrform2.cxx: testContentControlPDFComments expects the content control where the 2.54 cm margins put it
+  (X 53.249, Y 627.901; upstream's 2 cm margins give 41.749, 639.401).
+Test: tests/runtime/check-msoffice-save-format.py, tests/runtime/check-defaults.py. make CppunitTest_sw_core_text.
 ---
 --- a/officecfg/registry/data/org/openoffice/Setup.xcu
 +++ b/officecfg/registry/data/org/openoffice/Setup.xcu
@@ -63,3 +65,18 @@ Test: tests/runtime/check-msoffice-save-format.py, tests/runtime/check-defaults.
        </prop>
        <prop oor:name="LATIN_TEXT" oor:type="xs:string" oor:op="replace">
          <value>Liberation Serif;Thorndale AMT;Thorndale;Times New Roman;Tinos;Nimbus Roman No9 L;DejaVu Serif;Times;Lucida Serif;Lucida Bright;Timmons;New York;Serif</value>
+--- a/sw/qa/core/text/itrform2.cxx
++++ b/sw/qa/core/text/itrform2.cxx
+@@ -365,8 +365,10 @@
+     // - Actual  : (59.249,716.951)
+     // i.e. the content control rectangle was shifted towards the top right of the page, compared to
+     // where it's expected.
+-    CPPUNIT_ASSERT_DOUBLES_EQUAL(41.749, aAnnotTopLeft.getX(), 0.001);
+-    CPPUNIT_ASSERT_DOUBLES_EQUAL(639.401, aAnnotTopLeft.getY(), 0.001);
++    // HST Office: new documents have Word's 2.54 cm page margins (hst-msoffice-defaults.patch), upstream 2 cm:
++    // the page, scaled down for the comment margin, puts the control 11.5 pt further right and lower.
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(53.249, aAnnotTopLeft.getX(), 0.001);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(627.901, aAnnotTopLeft.getY(), 0.001);
+ }
+ }
+ 
