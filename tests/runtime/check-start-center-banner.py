@@ -31,6 +31,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import hst_gui  # noqa: E402
 
 ROOT = hst_gui.ROOT
+sys.path.insert(0, os.path.join(ROOT, "scripts", "l10n"))
+from catalog_paths import ui_mo_path  # noqa: E402
+
 UTM = "utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0"
 MORE = "https://hasontech.vn?" + UTM
 MORE_LABEL = "Xem thêm các giải pháp khác →"
@@ -83,9 +86,9 @@ def static_checks(instdir, check):
     en = ("HST _Writer — Document", "HST _Sheets — Spreadsheet", "HST S_lides — Presentation")
     vi = ("HST _Writer — Văn bản", "HST _Sheets — Bảng tính", "HST S_lides — Trình chiếu")
     check("startcenter.ui: en-US create labels are 'HST <app> — <type>'", all(f">{text}<" in ui for text in en))
-    mo = subprocess.run(["msgunfmt", os.path.join(instdir, "program/resource/vi/LC_MESSAGES/sfx.mo")],
-                        capture_output=True, text=True).stdout
-    check("vi sfx.mo: create labels are 'HST <app> — Văn bản / Bảng tính / Trình chiếu'",
+    mo = subprocess.run(["msgunfmt", ui_mo_path(instdir, ui_path)],
+                        capture_output=True, text=True).stdout if ui else ""
+    check("vi Start Center catalogue: create labels are 'HST <app> — Văn bản / Bảng tính / Trình chiếu'",
           all(f'msgid "{e}"\nmsgstr "{v}"' in mo for e, v in zip(en, vi)))
     banner = os.path.join(ROOT, "branding/libreoffice/hst-banner.png")
     installed = os.path.join(instdir, "program/shell/donate1.png")

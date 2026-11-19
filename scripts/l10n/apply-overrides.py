@@ -8,8 +8,8 @@ renames the (single-line) msgid first, for strings whose English source text was
 a patch (the translation key follows the source); a rerun finds the new msgid and skips it. Values use the
 escaped .po form (\\n, \\") like the rows merged by merge-vi.py. Run it after merge-vi.py
 so the overrides win. Then every Vietnamese .po gets the glossary-wide replacements of
-data/l10n/vi-glossary.json "replacements" (vi_terms.py: File is "tệp tin"; lines that an HST patch adds
-or keeps as context are left to the patch), no trailing ellipsis on labels (vi_ellipsis.py, exceptions in
+data/l10n/vi-glossary.json "replacements" (vi_terms.py: File is "tệp tin"; spellings in the HST catalog
+remain as authored), no trailing ellipsis on labels (vi_ellipsis.py, exceptions in
 data/l10n/vi-ellipsis-keep.json) and new-style oa/oe/uy tones (vi_tone.py:
 Xoá -> Xóa, huỷ -> hủy). It also copies the Vietnamese tip-of-the-day images of l10n/vi-tipoftheday/
 (scripts/l10n/build-tip-images.py) over extras/source/tipoftheday and icon-themes/*/res. Idempotent; every changed file must pass `msgfmt --check`; a key that

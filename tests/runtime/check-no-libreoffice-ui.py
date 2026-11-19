@@ -6,7 +6,7 @@ Usage: python3 tests/runtime/check-no-libreoffice-ui.py [--instdir upstream/libr
 
 (a) About: the copyright text built by cui/source/dialogs/about.cxx has no "LibreOffice", no
     URL and no "github", and that text is compiled into the installed program.
-(b) Every installed Vietnamese .mo is free of "LibreOffice" / "Document Foundation" except
+(b) Every active Vietnamese .mo is free of "LibreOffice" / "Document Foundation" except
     the allow-listed entries (legal texts, engine version notes).
 (c) The source-code notice (contact e-mail, no URL) is at the top of the licence document
     (LICENSE.html / LICENSE) and in the Help > License Information dialog source.
@@ -26,6 +26,9 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, "scripts", "l10n"))
+from catalog_paths import active_mos  # noqa: E402
+
 GITHUB = re.compile(r"github", re.IGNORECASE)
 CATALOGUE = re.compile(r"extensions\.libreoffice\.org|hub\.libreoffice\.org/extensions", re.IGNORECASE)
 NOTICE_MAIL = "lienhe@hasontech.vn"
@@ -155,7 +158,7 @@ def allowed(key, text):
 
 
 def check_mo(instdir, failures):
-    files = sorted(glob.glob(os.path.join(instdir, "program/resource/vi/LC_MESSAGES/*.mo")))
+    files = active_mos(os.path.join(instdir, "program/resource/vi/LC_MESSAGES"))
     if not files:
         failures.append("no Vietnamese .mo files installed")
     hits = 0

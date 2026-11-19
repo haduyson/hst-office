@@ -151,8 +151,19 @@ class Catalogs:
 
 def dump(source, install, hst):
     domains = module_domains(source)
-    configured = set(domains.values())
-    catalogs = Catalogs(install / "program/resource")
+    resource_dir = install / "program/resource"
+    catalogs = Catalogs(resource_dir)
+    upstream_mos = sorted(p.relative_to(resource_dir).as_posix()
+                          for p in resource_dir.glob("*/LC_MESSAGES/*.mo") if not p.stem.startswith("hst-"))
+    # A build target may exist without a shipped catalog (e.g. sdext and shell).
+    # The installer registers the public module domains in scp2.
+    package_file = source / "scp2/source/ooo/file_ooo.scp"
+    package_text = COMMENTS.sub(lambda m: "" if m[0].startswith("/") else m[0],
+                                package_file.read_text(encoding="utf-8"))
+    packaged = set(re.findall(r"^\s*MO_FILELIST_ALL_LANG\(\s*([\w-]+)\s*\)", package_text, re.M))
+    configured = set(domains.values()) & packaged
+    if not configured:
+        raise ValueError(f"{package_file}: no packaged gettext domains declared")
     if hst:
         header = source / "hst/l10n/domains.hxx"
         routed = set()
@@ -162,11 +173,13 @@ def dump(source, install, hst):
                 raise ValueError(f"{header}: unexpected domain declaration {line!r}")
             routed.add(match[1])
         if routed != configured:
-            raise ValueError(f"{header}: routes differ from module targets: {sorted(routed ^ configured)}")
-        for domain in sorted(configured):
-            for lang in LANGUAGES:
-                if not catalogs.messages.get((lang, "hst-" + domain)):
-                    raise ValueError(f"missing installed {lang}/hst-{domain}.mo")
+            raise ValueError(f"{header}: routes differ from packaged module targets: {sorted(routed ^ configured)}")
+        for lang in LANGUAGES:
+            installed = {domain.removeprefix("hst-") for locale, domain in catalogs.messages
+                         if locale == lang and domain.startswith("hst-")}
+            if configured != installed:
+                raise ValueError(f"{lang}: missing HST domains {sorted(configured - installed)}, "
+                                 f"unexpected HST domains {sorted(installed - configured)}")
     # embeddedobj calls Translate::Create("emo") despite having no MO target.
     domains.setdefault("embeddedobj", "emo")
     rows, inputs = {}, {}
@@ -219,7 +232,7 @@ def dump(source, install, hst):
             record(("hrc", rel.as_posix(), symbol), domain, context, singular, *plurals)
     if not hrc_count or not any(key[0] == "ui" for key in occurrences):
         raise ValueError("missing installed .ui or matching source .hrc resources")
-    return {"schema": 1, "hst": hst, "inputs": inputs, "catalogs": catalogs.digests,
+    return {"schema": 2, "hst": hst, "inputs": inputs, "catalogs": catalogs.digests, "upstream_mos": upstream_mos,
             "ui_files": len(ui_files), "hrc_messages": hrc_count, "rows": rows}
 
 
@@ -230,7 +243,7 @@ def write_json(path, data):
 
 
 def compare(base, candidate, output):
-    if base.get("schema") != 1 or candidate.get("schema") != 1 or base["hst"] or not candidate["hst"]:
+    if base.get("schema") != 2 or candidate.get("schema") != 2 or base["hst"] or not candidate["hst"]:
         raise ValueError("expected a base dump and a separated (--hst) candidate dump")
     for capture in (base, candidate):
         if not all(capture.get(k) for k in ("ui_files", "hrc_messages", "rows", "inputs", "catalogs")):
@@ -253,17 +266,22 @@ def compare(base, candidate, output):
     # An empty resource file disappearing also signals a packaging mismatch.
     missing = sorted(base["inputs"].keys() - candidate["inputs"].keys())
     added = sorted(candidate["inputs"].keys() - base["inputs"].keys())
+    old_mos, new_mos = set(base["upstream_mos"]), set(candidate["upstream_mos"])
     summary = {"base_rows": len(old), "candidate_rows": len(new), "text_differences": len(differences),
                "base_vi_fallbacks": sum(row["base"] is not None for row in fallbacks),
                "candidate_vi_fallbacks": sum(row["candidate"] is not None for row in fallbacks),
+               "introduced_vi_fallbacks": sum(row["base"] is None for row in fallbacks),
+               "resolved_vi_fallbacks": sum(row["candidate"] is None for row in fallbacks),
                "lost_translation_flags": len(untranslated),
+               "added_upstream_mos": sorted(new_mos - old_mos), "removed_upstream_mos": sorted(old_mos - new_mos),
                "added_resources": added, "removed_resources": missing}
     write_json(output / "differences.json", differences)
     write_json(output / "lost-translation-flags.json", untranslated)
     write_json(output / "vi-fallbacks.json", fallbacks)
     write_json(output / "summary.json", summary)
     print(json.dumps(summary, ensure_ascii=False))
-    return int(bool(differences or summary["candidate_vi_fallbacks"] or untranslated or missing or added))
+    return int(bool(differences or summary["candidate_vi_fallbacks"] or untranslated or missing or added
+                    or old_mos != new_mos))
 
 
 def main():

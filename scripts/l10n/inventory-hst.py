@@ -3,7 +3,8 @@
 """Inventory HST localization resources against an unpacked upstream release.
 
 Provide the applied tree including its *effective* vi POs after all baseline
-overlays. Compare source keys by location, so a key copied into an HST dialog
+overlays. Use --patches and --overrides from the same revision as that tree.
+Compare source keys by location, so a key copied into an HST dialog
 is listed even when it already exists upstream. JSONL values contain decoded
 text, not PO escapes. Source defaults are templates before runtime substitution.
 """
@@ -26,13 +27,11 @@ QUOTE = r'"(?:\\.|[^"\\])*"'
 LITERAL = rf'(?:(?:u8|u|L)?{QUOTE}\s*)+'
 CPP_COMMENTS = re.compile(QUOTE + r"""|'(?:\\.|[^'\\\n])*'|//[^\n]*|/\*[\s\S]*?\*/""")
 ID_CALL = re.compile(rf'\b(?:NC_|TranslateId)\s*\(\s*(nullptr|{QUOTE})\s*,\s*({LITERAL})\)')
+PLURAL_CALL = re.compile(rf'\bNNC_\s*\(\s*({QUOTE})\s*,\s*({LITERAL})\s*,\s*({LITERAL})\)')
 BILINGUAL = re.compile(rf'(?:\bbVi(?:etnamese)?|isVietnameseUi\(\)|getLanguage\(\)\s*==\s*"vi")\s*\?\s*'
                        rf'({LITERAL})(?:_ustr)?\s*:\s*({LITERAL})(?:_ustr)?')
 OOR = "{http://openoffice.org/2001/registry}"
 LANG = "{http://www.w3.org/XML/1998/namespace}lang"
-ALIASES = {"sfx": "sfx2", "fwk": "framework", "for": "formula", "dkt": "desktop",
-           "svt": "svtools", "fps": "fpicker", "sm": "starmath", "xsc": "xmlsecurity",
-           "chart": "chart2", "flt": "filter"}
 
 
 def decoded(value):
@@ -65,8 +64,8 @@ def module_of(path):
     return path.parts[1] if path.parts[0] == "include" else path.parts[0]
 
 
-def resource(kind, location, ctx, msgid, po=None, vi=None):
-    return kind, location, ctx, msgid, po, vi
+def resource(kind, location, ctx, msgid, po=None, vi=None, plural=None):
+    return kind, location, ctx, msgid, po, vi, plural
 
 
 def cpp_resources(path, content):
@@ -76,15 +75,18 @@ def cpp_resources(path, content):
     content = CPP_COMMENTS.sub(lambda m: " " if m[0].startswith("/") else m[0], content)
     module = module_of(path)
     po = module + "/messages.po"
-    for match in ID_CALL.finditer(content):
+    for match in (*ID_CALL.finditer(content), *PLURAL_CALL.finditer(content)):
         ctx = "" if match[1] == "nullptr" else cpp_text(match[1])
         text = cpp_text(match[2])
         prefix = content[content.rfind("\n", 0, match.start()) + 1:match.start()]
         symbol = re.search(r"(?:#define\s+|TranslateId\s+)(\w+)(?:\s*=)?\s*$", prefix)
         # Inline references in these dialogs intentionally reuse an upstream domain.
-        catalog = "svx/messages.po" if path.name == "ribbon-customize-dialog.cxx" and ctx.startswith(("paralrspacing|", "paraulspacing|")) else po
+        ribbon_spacing = (path.name == "ribbon-customize-dialog.cxx"
+                          and ctx.startswith(("paralrspacing|", "paraulspacing|")))
+        catalog = "svx/messages.po" if ribbon_spacing else po
+        plural = cpp_text(match[3]) if match.re is PLURAL_CALL else None
         yield resource("hrc" if path.suffix == ".hrc" else "cpp-id",
-                       symbol[1] if symbol else ctx, ctx, text, catalog)
+                       symbol[1] if symbol else ctx, ctx, text, catalog, plural=plural)
     for array in re.finditer(r"\bTranslateId\s+(\w+)\[\]\s*=\s*\{(.*?)\};", content, re.S):
         for match in re.finditer(rf'\{{\s*({QUOTE})\s*,\s*({LITERAL})\}}', array[2]):
             yield resource("cpp-id", array[1], cpp_text(match[1]), cpp_text(match[2]), po)
@@ -113,12 +115,46 @@ def cpp_resources(path, content):
             name, tagline = (cpp_text(field) for field in match.groups())
             yield resource("cpp-literal", name + "/name", "", name)
             yield resource("cpp-literal", name + "/tagline", "", tagline)
+    # These controls concatenate static copy with runtime vendor/product names
+    # or document data. Preserve the literal fragments, including whitespace.
+    fragments = {
+        "about.cxx": ("sVendorTextStr", "aCopyrightString"),
+        "recentdocsview.cxx": ("maWelcomeLine1", "maWelcomeLine2"),
+        "spsuppHelper.cxx": ("sErrorMsg",),
+        "hstbackstagewindow.cxx": ("aLine1", "aLine2"),
+    }
+    for symbol in fragments.get(path.name, ()):
+        pattern = rf'\b{symbol}\s*(?:\(|\+=|=)\s*(u{QUOTE}.*?)' + (
+            r'\)\s*\n' if symbol.startswith("maWelcomeLine") else r';\s*\n')
+        for init in re.finditer(pattern, content, re.S):
+            for match in re.finditer(LITERAL, init[1]):
+                value = cpp_text(match[0])
+                if value:
+                    yield resource("cpp-fragment", symbol, "", value)
+    if path.name == "dp_gui_dialog2.cxx":
+        for match in re.finditer(rf'bVietnamese\s*\?\s*xInfoBox->get_primary_text\(\)\s*:\s*({LITERAL})', content):
+            yield resource("cpp-context", "extension-warning", "RID_STR_WARNING_INSTALL_EXTENSION",
+                           cpp_text(match[1]), po)
+        button = rf'bVietnamese\s*\?\s*({LITERAL})_ustr\s*:\s*GetStandardText\(StandardButtonType::(\w+)\)'
+        for match in re.finditer(button, content):
+            for platform, mnemonic in (("Windows", ""), ("Unix", "~")):
+                yield resource("cpp-inline", "extension/" + match[2] + "/" + platform, "",
+                               mnemonic + match[2], vi=cpp_text(match[1]))
 
 
 def packaging_resources(path, content):
     if path.name == "control":
         for key, text in re.findall(r"(?m)^(Description|Maintainer): (.*)$", content):
             yield resource("packaging", key, "", text)
+        return
+    if path.suffix == ".scp":
+        for section, block in re.findall(r"(?ms)^FolderItem (\w+)\s*\n(.*?)^End$", content):
+            for key, text in re.findall(r'(?m)^\s*(Name|Tooltip) = "(.*?)";', block):
+                yield resource("packaging", section + "/" + key, "", text)
+        return
+    if path.suffix == ".rc":
+        for key, value in re.findall(r'(?m)^\s*VALUE "(ProductName|LegalCopyright)",\s*(' + QUOTE + ')', content):
+            yield resource("packaging", key, "", cpp_text(value).rstrip("\0"))
         return
     for block in re.findall(r"(?ms)^Start\n(.*?)^End$", content):
         fields = dict(re.findall(r'(?m)^(module|description|vendor|copyright) = "(.*)"$', block))
@@ -127,7 +163,7 @@ def packaging_resources(path, content):
                 yield resource("packaging", fields["module"] + "/" + key, "", fields[key])
 
 
-def xml_resources(path, content):
+def xml_resources(path, content, aliases):
     if path.suffix == ".xml" and not re.search(r'(?:menu:label|toolbar:text)="', content):
         return
     if path.suffix in {".xcu", ".xcs"} and 'xml:lang="en-US"' not in content:
@@ -137,7 +173,7 @@ def xml_resources(path, content):
     root = ET.fromstring(content)
     module = module_of(path)
     domain = root.get("domain", module)
-    po = ALIASES.get(domain, domain) + "/messages.po"
+    po = aliases.get(domain, domain) + "/messages.po"
     def walk(elem, widget="", parents=()):
         tag = elem.tag.rsplit("}", 1)[-1]
         if tag == "object":
@@ -196,17 +232,19 @@ def ini_resources(path, content):
                                    "sysui/desktop/share.po", values.get(key + "[vi]"))
 
 
-def resources(path, tree):
+def resources(path, tree, aliases):
     filename = tree / path
     if not filename.is_file():
         return set()
     if path.suffix in CXX:
         extractor = cpp_resources
     elif path.suffix in {".ui", ".xcu", ".xcs", ".xml"}:
-        extractor = xml_resources
+        extractor = functools.partial(xml_resources, aliases=aliases)
     elif path.suffix in {".ulf", ".desktop"}:
         extractor = ini_resources
-    elif path.parts[:3] == ("setup_native", "source", "packinfo") or str(path) == "sysui/desktop/debian/control":
+    elif (path.parts[:3] == ("setup_native", "source", "packinfo")
+          or path.name.startswith("folderitem_") and path.suffix == ".scp"
+          or str(path) in {"sysui/desktop/debian/control", "include/default.rc"}):
         extractor = packaging_resources
     else:
         return set()
@@ -280,18 +318,23 @@ def run(args):
             raise ValueError(f"missing Vietnamese release catalogs in {path}")
     owned = []
     seen = set()
+    aliases = {}
+    for makefile in args.pristine.glob("*/AllLangMoTarget_*.mk"):
+        for name, location in re.findall(r"gb_AllLangMoTarget_set_polocation,([\w-]+),([\w/-]+)\)",
+                                         makefile.read_text(encoding="utf-8")):
+            aliases[name] = location
     touched = touched_paths(args.patches)
     for path in touched:
         if not (args.tree / path).is_file():
             raise ValueError(f"missing series target {path} in {args.tree}")
-        added = resources(path, args.tree) - resources(path, args.pristine)
-        for kind, loc, ctx, msgid, po, inline_vi in sorted(added, key=repr):
+        added = resources(path, args.tree, aliases) - resources(path, args.pristine, aliases)
+        for kind, loc, ctx, msgid, po, inline_vi, plural in sorted(added, key=repr):
             entries, by_context = catalog(baseline, po)
             upstream, _ = catalog(args.upstream_vi, po)
             key = (ctx, msgid)
             # cfgex and ulfex locate translations by resource identifiers, even
             # when the English copy changed without a corresponding PO rename.
-            text = by_context.get(ctx) if kind in {"xcu", "ulf", "desktop"} else entries.get(key)
+            text = by_context.get(ctx) if kind in {"xcu", "ulf", "desktop", "cpp-context"} else entries.get(key)
             source = po if text else None
             if inline_vi and not text:
                 text, source = inline_vi, str(path)
@@ -302,6 +345,9 @@ def run(args):
             owned.append(dict(kind=kind, module=module_of(path), source=str(path), location=loc,
                               file=po, msgctxt=ctx, msgid=msgid, en=en, vi=text,
                               vi_source=source, in_upstream_catalog=key in upstream))
+            if plural:
+                owned[-1].update(msgid_plural=plural, en_plural=plural,
+                                 vi_plural=text if source != "source-default" else plural)
             seen.add((po, *key))
     overrides = []
     for line in args.overrides.read_text().splitlines():
@@ -319,12 +365,22 @@ def run(args):
     # Cross-check the other direction. Include orphaned PO entries and new keys
     # whose source representation is outside the supported extractors.
     extra = []
+    patch_overrides = []
     po_files = {str(Path(*path.parts[3:])) for path in touched
                 if path.parts[:3] == ("translations", "source", "vi") and path.suffix == ".po"}
     po_files.update(row["file"] for row in overrides if row["en"] != row["msgid"])
     for po in sorted(po_files):
         upstream, _ = catalog(args.upstream_vi, po)
         effective, _ = catalog(baseline, po)
+        if args.patch_vi:
+            patched, _ = catalog(args.patch_vi, po)
+            for key in sorted(upstream.keys() & patched.keys()):
+                if patched[key] == upstream[key]:
+                    continue
+                ctx, msgid = key
+                patch_overrides.append(dict(file=po, module=po.split("/")[0], msgctxt=ctx, msgid=msgid,
+                                            upstream_vi=upstream[key], patch_vi=patched[key],
+                                            effective_vi=effective.get(key), en=msgid))
         for ctx, msgid in sorted(effective.keys() - upstream.keys()):
             if (po, ctx, msgid) not in seen:
                 extra.append(dict(kind="catalog-only", module=po.split("/")[0], file=po,
@@ -334,6 +390,8 @@ def run(args):
     write_jsonl(args.out / "owned.jsonl", owned)
     write_jsonl(args.out / "overrides.jsonl", overrides)
     write_jsonl(args.out / "catalog-only.jsonl", extra)
+    if args.patch_vi:
+        write_jsonl(args.out / "patch-overrides.jsonl", patch_overrides)
     print(f"{len(owned)} added source records, {len(overrides)} overrides, {len(extra)} additional PO keys")
 
 

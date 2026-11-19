@@ -13,6 +13,7 @@ needed (hst-sheets-excel-formula-conventions.patch; runtime: tests/runtime/check
 import json
 import os
 import re
+import sys
 import tarfile
 import unittest
 from pathlib import Path
@@ -20,6 +21,9 @@ from pathlib import Path
 from test_vi_ui_default import new_side, series
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "scripts/l10n"))
+from po_io import parse_po  # noqa: E402
+
 PATCH = "hst-sheets-excel-formula-conventions.patch"
 TARBALL = Path(os.environ.get("HST_UPSTREAM_CACHE_ROOT", ROOT)) / "upstream/cache/libreoffice/libreoffice-translations-26.8.3.1.tar.xz"
 # Contexts of function names: built-in (formula), Analysis/DateFunc/Pricing add-ins (scaddins).
@@ -27,6 +31,11 @@ NAME_CONTEXT = re.compile(r"^(RID_STRLIST_FUNCTION_NAMES|[A-Z]+_FUNCNAME_\w+)$")
 
 
 def l10n_rows():
+    catalogs = ROOT / "l10n/hst/vi"
+    for path in sorted(catalogs.rglob("*.po")):
+        for row in parse_po(path):
+            if row["msgid"] and row["msgstr"] and not row["fuzzy"]:
+                yield path.relative_to(catalogs).as_posix(), row
     files = sorted((ROOT / "l10n/vi").glob("*.jsonl")) + [ROOT / "l10n/vi-overrides.jsonl"]
     for path in files:
         for line in path.read_text(encoding="utf-8").splitlines():
@@ -89,9 +98,15 @@ class SheetsExcelFormulaConventions(unittest.TestCase):
         self.assertIn("bool bValid = aTokenArray.GetCodeError() == FormulaError::NONE;", cxx)
 
     def test_ceiling_floor_help_does_not_name_a_product(self):
-        for ctx in ("ocCEIL_MS", "ocFLOOR_MS"):
+        expected = {
+            "ocCEIL_MS": ("Rounds a number away from zero to the nearest multiple of significance.",
+                          "Làm tròn một số ra xa số không đến bội số gần nhất của mức chính xác."),
+            "ocFLOOR_MS": ("Rounds number towards zero to the nearest multiple of absolute value of significance.",
+                           "Làm tròn số về phía số không đến bội số gần nhất của giá trị tuyệt đối của mức chính xác."),
+        }
+        for ctx, wording in expected.items():
             rows = [r for _, r in l10n_rows() if r["msgctxt"] == ctx and r["msgid"].startswith("Round")]
-            self.assertTrue(rows, ctx)
+            self.assertIn(wording, [(row["msgid"], row["msgstr"]) for row in rows], ctx)
             for row in rows:
                 self.assertNotIn("Microsoft", row["msgid"] + row["msgstr"])
 

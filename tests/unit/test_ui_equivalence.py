@@ -47,6 +47,12 @@ class Equivalence(unittest.TestCase):
         module = self.source / "sfx2"
         module.mkdir(parents=True)
         (module / "AllLangMoTarget_sfx2.mk").write_text("$(eval $(call gb_AllLangMoTarget_AllLangMoTarget,sfx))")
+        package_file = self.source / "scp2/source/ooo/file_ooo.scp"
+        package_file.parent.mkdir(parents=True)
+        package_file.write_text("MO_FILELIST_ALL_LANG(sfx)\n/* MO_FILELIST_ALL_LANG(sdext) */\n")
+        optional = self.source / "sdext/AllLangMoTarget_sdext.mk"
+        optional.parent.mkdir()
+        optional.write_text("$(eval $(call gb_AllLangMoTarget_AllLangMoTarget,sdext))")
         (module / "strings.hrc").write_text(
             '#define NNC_(Context, A, B) TranslateNId(Context, A, B)\n'
             '/* NNC_("skip", "x", "z") */\n'
@@ -63,6 +69,7 @@ class Equivalence(unittest.TestCase):
             path.write_text(UI.replace("DOMAIN", domain))
             self.catalog(install, domain, "vi", VI)
         self.catalog(self.candidate, "hst-sfx", "en_US", "")
+        self.catalog(self.candidate, "sfx", "vi", "")
 
     def catalog(self, install, domain, lang, body):
         path = install / f"program/resource/{lang}/LC_MESSAGES/{domain}.mo"
@@ -103,7 +110,7 @@ class Equivalence(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "still requests sfx"):
             check.dump(self.source, self.candidate, True)
         (self.candidate / "program/resource/en_US/LC_MESSAGES/hst-sfx.mo").unlink()
-        with self.assertRaisesRegex(ValueError, "missing installed en/hst-sfx.mo"):
+        with self.assertRaisesRegex(ValueError, "en: missing HST domains .*sfx"):
             check.dump(self.source, self.candidate, True)
 
     def test_unparsed_header_message_fails_closed(self):
@@ -116,6 +123,17 @@ class Equivalence(unittest.TestCase):
         path.write_text(path.read_text().replace('translatable="yes" context="dialog|ok"', 'context="dialog|ok"'))
         status, summary, _ = self.comparison()
         self.assertEqual((status, summary["text_differences"], summary["lost_translation_flags"]), (1, 0, 1))
+
+    def test_unpacked_optional_module_cannot_gain_an_alias(self):
+        self.catalog(self.candidate, "hst-sdext", "vi", "")
+        with self.assertRaisesRegex(ValueError, "unexpected HST domains .*sdext"):
+            check.dump(self.source, self.candidate, True)
+
+    def test_upstream_catalog_list_must_match_even_for_unused_domains(self):
+        self.catalog(self.base, "separate", "vi", "")
+        status, summary, _ = self.comparison()
+        self.assertEqual((status, summary["text_differences"]), (1, 0))
+        self.assertEqual(summary["removed_upstream_mos"], ["vi/LC_MESSAGES/separate.mo"])
 
 
 if __name__ == "__main__":

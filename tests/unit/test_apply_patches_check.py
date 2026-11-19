@@ -21,6 +21,7 @@ class ApplyPatchesCheckTest(unittest.TestCase):
         self.source.mkdir()
         scripts = self.root / "scripts"
         scripts.mkdir()
+        (scripts / "l10n").symlink_to(ROOT / "scripts/l10n", target_is_directory=True)
         self.script = scripts / "apply-patches.sh"
         shutil.copyfile(ROOT / "scripts/apply-patches.sh", self.script)
         self.patches = self.root / "patches/libreoffice"

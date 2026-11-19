@@ -101,6 +101,26 @@ class AccessKeysTest(unittest.TestCase):
                    msgstr=MOD.escape(msgstr), reason="fixture", **extra)
         self.overrides.write_text(json.dumps(row, ensure_ascii=False) + "\n", encoding="utf-8")
 
+    def test_composed_translations_take_precedence_on_prepared_trees(self):
+        builder = MOD.ModelBuilder(self.tree)
+        self.assertEqual(builder.label("~Open", UI, ctx("Open"))["vi"], "~Mở")
+        self.write("hst/l10n/translations/source/vi/" + UI,
+                   f'msgctxt "{MOD.escape(ctx("Open"))}"\nmsgid "~Open"\nmsgstr "~Khác"')
+        self.assertEqual(MOD.ModelBuilder(self.tree).label("~Open", UI, ctx("Open"))["vi"], "~Khác")
+
+    def test_offline_labels_use_authored_hst_catalog_and_explicit_overrides(self):
+        file = self.base / "hst/vi" / UI
+        file.parent.mkdir(parents=True)
+        file.write_text(f'#. HST override: mnemonic\nmsgctxt "{MOD.escape(ctx("Open"))}"\n'
+                        'msgid "~Open"\nmsgstr "~Khác"\n\n'
+                        'msgctxt "ordinary"\nmsgid "New"\nmsgstr "Mới"', encoding="utf-8")
+        key = (UI, ctx("Open"), "~Open")
+        overrides = MOD.load_overrides(self.overrides)
+        self.assertEqual(overrides[key], "~Khác")
+        self.assertNotIn((UI, "ordinary", "New"), overrides)
+        self.override(ctx("Open"), "~Open", "~Mở")
+        self.assertEqual(MOD.load_overrides(self.overrides)[key], "~Mở")
+
     def test_duplicate_and_override(self):
         result = self.check()
         self.assertEqual(result["strict_problems"], 1)

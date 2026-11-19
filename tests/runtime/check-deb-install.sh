@@ -163,16 +163,21 @@ step no-libreoffice-ui
 # Installed Vietnamese UI strings must not name the upstream project (same allow-list as
 # tests/runtime/check-no-libreoffice-ui.py: licence dialog, safe-mode zip file name).
 "$PY" - "/opt/hst-office@HSTV@/program/resource/vi/LC_MESSAGES" <<'PY' || { echo "FAIL no-libreoffice-ui"; exit 32; }
-import glob, gettext, re, sys
+import gettext, re, sys
+sys.path.insert(0, "/qa")
+from catalog_paths import active_mos
 names = re.compile(r"libreoffice|document\s*foundation", re.I)
 bad = []
-for path in sorted(glob.glob(sys.argv[1] + "/*.mo")):
+catalogs = active_mos(sys.argv[1])
+if not catalogs:
+    sys.exit("no Vietnamese UI catalogs installed")
+for path in catalogs:
     for key, text in gettext.GNUTranslations(open(path, "rb"))._catalog.items():
         if not key or not isinstance(text, str) or not names.search(text):
             continue
         if str(key).startswith("licensedialog|") or "libreoffice-profile.zip" in text:
             continue
-        bad.append((path.rsplit("/", 1)[-1], str(key)[:60]))
+        bad.append((path.name, str(key)[:60]))
 print("\n".join(map(str, bad)))
 sys.exit(1 if bad else 0)
 PY
@@ -215,7 +220,8 @@ su tester -c "cd ~/Documents && hst-office --headless --convert-to pdf keep.odt 
 INSIDE
 sed -i -e "s/@HSTV_RE@/${HSTV//./\\.}/g" -e "s/@HSTV@/$HSTV/g" "$OUT/inside.sh"
 
-docker run --rm --name "$NAME" -e MODE="$MODE" -v "$DEB:/pkg/hst.deb:ro" "${MOUNT_OLD[@]}" -v "$OUT/inside.sh:/inside.sh:ro" "$IMAGE" \
+docker run --rm --name "$NAME" -e MODE="$MODE" -v "$DEB:/pkg/hst.deb:ro" "${MOUNT_OLD[@]}" -v "$OUT/inside.sh:/inside.sh:ro" \
+  -v "$ROOT/scripts/l10n/catalog_paths.py:/qa/catalog_paths.py:ro" "$IMAGE" \
   bash /inside.sh 2>&1 | tee "$OUT/install-lifecycle.log"
 status=${PIPESTATUS[0]}
 grep -q '^FAIL' "$OUT/install-lifecycle.log" && status=1

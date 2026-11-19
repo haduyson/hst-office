@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 import re
 
+from po_io import parse_po
+
 OOR = "{http://openoffice.org/2001/registry}"
 MENU = "{http://openoffice.org/2001/menu}"
 LANG = "{http://www.w3.org/XML/1998/namespace}lang"
@@ -36,8 +38,16 @@ def strip_mnemonics(label):
 
 
 def load_overrides(path):
+    """Explicit corrections drive both offline labels and the strict dialog mnemonic check."""
+    path = Path(path)
+    catalog = path.parent / "hst/vi"
     result = {}
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
+    for po in sorted(catalog.rglob("*.po")):
+        file = po.relative_to(catalog).as_posix()
+        for row in parse_po(po):
+            if row["comments"].startswith("HST override: ") and row["msgid"] and row["msgstr"] and not row["fuzzy"]:
+                result[file, unescape(row["msgctxt"]), row["msgid"]] = row["msgstr"]
+    for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
             row = json.loads(line)
             result[(row["file"], unescape(row["msgctxt"]),

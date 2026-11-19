@@ -14,6 +14,8 @@ import unittest
 from _paths import ROOT
 
 sys.path.insert(0, os.path.join(ROOT, "scripts", "l10n"))
+from access_keys_labels import load_overrides  # noqa: E402
+from po_io import parse_po  # noqa: E402
 from vi_tone import fix as fix_tone  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location(
@@ -90,15 +92,12 @@ class Wording(unittest.TestCase):
 class ReferenceDesign(unittest.TestCase):
     """1.0.2 reference design: Writer sentences, toolbar wording, tips under the ribbon."""
 
-    def overrides(self):
-        with open(os.path.join(ROOT, "l10n", "vi-overrides.jsonl"), encoding="utf-8") as handle:
-            return [json.loads(line) for line in handle if line.strip()]
-
     def test_vietnamese_says_thanh_cong_cu(self):
         # owner rule 15/11: never "ribbon" or "dải lệnh" in text the user sees
         banned = re.compile(r"ribbon|dải lệnh", re.I)
         self.assertEqual([cmd for _w, cmd, text in sentences() if banned.search(text["vi"])], [])
-        self.assertEqual([r["msgctxt"] for r in self.overrides() if banned.search(r["msgstr"])], [])
+        overrides = load_overrides(os.path.join(ROOT, "l10n", "vi-overrides.jsonl"))
+        self.assertEqual([key for key, text in overrides.items() if banned.search(text)], [])
         patch = open(os.path.join(PATCHES, "hst-ribbon-mockup-tooltip.patch"), encoding="utf-8").read()
         self.assertIn('+msgstr "Ghim thanh công cụ (Ctrl+F1)"', patch)
         self.assertIn('NC_("STR_HST_RIBBON_PIN", "Pin the Toolbar (Ctrl+F1)")', patch)
@@ -110,10 +109,12 @@ class ReferenceDesign(unittest.TestCase):
         # sentences a Writer .ui line gives are replaced through the .po: the key must be such a line
         described = {t["en"] for kind in ("ui_described", "menu_described")
                      for t in INVENTORY["writer"].get(kind, {}).values()}
-        rows = [r for r in self.overrides() if r["msgctxt"] == "TabbedWriter|hstUxTip"]
+        rows = [r for r in parse_po(os.path.join(ROOT, "l10n/hst/vi/sw/messages.po"))
+                if r["msgctxt"] == "TabbedWriter|hstUxTip" and r["comments"].startswith("HST override: ")]
         self.assertGreaterEqual(len(rows), 30)
         self.assertEqual([r["msgid"] for r in rows if r["msgid"] not in described], [])
-        self.assertIn("Căn đều cả hai lề, thường dùng cho văn bản hành chính.", [r["msgstr"] for r in rows])
+        self.assertEqual({r["msgid"]: r["msgstr"] for r in rows}["Justify the paragraph."],
+                         "Căn đều cả hai lề, thường dùng cho văn bản hành chính.")
         # short bold names of the design: no full stop, no shortcut (added at run time), Writer only for now
         for cmd, app, en, vi in gen.titles(DATA):
             self.assertTrue(app in APPS and 0 < len(vi) <= 30 and not vi.endswith(".") and "(" not in vi, (cmd, vi))

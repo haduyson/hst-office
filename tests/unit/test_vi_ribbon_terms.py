@@ -6,22 +6,26 @@
 - the menu bar is "Thanh trình đơn", never "Thanh menu";
 - Media is "Đa phương tiện", never "Phương tiện" alone.
 
-The texts come from the layers HST owns, in the order the build applies them: the Vietnamese .po lines the patches
-add, l10n/vi/*.jsonl (fills only empty upstream strings) and l10n/vi-overrides.jsonl (wins). The labels HST matches
+The texts come from the HST Vietnamese PO catalogs, l10n/vi/*.jsonl (fills empty translations)
+and l10n/vi-overrides.jsonl (reviewed upstream corrections). The labels HST matches
 against in data/ribbon/ and the bundled help follow the same rules.
 """
 import glob
 import json
 import os
+from pathlib import Path
 import re
+import sys
 import unittest
 
 from _paths import ROOT
 
+sys.path.insert(0, os.path.join(ROOT, "scripts", "l10n"))
+from po_io import parse_po  # noqa: E402
+
 TABBED = re.compile(r"^Tabbed(?:Writer|Calc|Impress|Draw)\|(?:\w*TabLabel|\w*MenuButton|label\w+)$")
 # words that keep their capital letter inside a name
 PROPER = {"Việt", "Nam", "HASON", "TECH", "Unicode", "Basic", "Python"}
-PO_PREFIX = "+++ b/translations/source/vi/"
 
 
 def plain(text):
@@ -35,31 +39,6 @@ def capitalised_words(text):
             and not any(c.isdigit() for c in w)]
 
 
-def patch_po_entries():
-    """{(file, msgctxt, msgid): msgstr} of the Vietnamese .po entries the patches of the series add."""
-    entries = {}
-    series = os.path.join(ROOT, "patches", "libreoffice", "series")
-    with open(series, encoding="utf-8") as handle:
-        names = [n.strip() for n in handle if n.strip() and not n.startswith("#")]
-    for name in names:
-        current, fields = None, {}
-        with open(os.path.join(ROOT, "patches", "libreoffice", name), encoding="utf-8") as handle:
-            for line in handle.read().split("\n"):
-                if line.startswith("+++ "):
-                    current = line[len(PO_PREFIX):].split("\t")[0] if line.startswith(PO_PREFIX) else None
-                    continue
-                if not current or not line.startswith("+"):
-                    continue
-                match = re.match(r'^\+(msgctxt|msgid|msgstr) "(.*)"$', line)
-                if not match:
-                    continue
-                fields[match.group(1)] = match.group(2)
-                if match.group(1) == "msgstr" and "msgctxt" in fields and "msgid" in fields:
-                    entries[(current, fields["msgctxt"], fields["msgid"])] = fields["msgstr"]
-                    fields = {}
-    return entries
-
-
 def jsonl_rows(pattern):
     for path in sorted(glob.glob(os.path.join(ROOT, pattern))):
         with open(path, encoding="utf-8") as handle:
@@ -70,7 +49,13 @@ def jsonl_rows(pattern):
 
 def effective():
     """{(file, msgctxt, msgid): msgstr} as far as HST's own layers decide it."""
-    texts = dict(patch_po_entries())
+    catalogs = Path(ROOT) / "l10n/hst/vi"
+    texts = {}
+    for path in sorted(catalogs.rglob("*.po")):
+        filename = path.relative_to(catalogs).as_posix()
+        for row in parse_po(path):
+            if row["msgid"] and row["msgstr"] and not row["fuzzy"]:
+                texts[(filename, row["msgctxt"], row["msgid"])] = row["msgstr"]
     for row in jsonl_rows("l10n/vi/*.jsonl"):
         texts.setdefault((row["file"], row["msgctxt"], row["msgid"]), row["msgstr"])
     for row in jsonl_rows("l10n/vi-overrides.jsonl"):

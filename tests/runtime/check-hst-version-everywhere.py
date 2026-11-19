@@ -22,7 +22,6 @@ Exit 1 when a check fails.
 """
 import argparse
 import gettext
-import glob
 import json
 import os
 import re
@@ -37,6 +36,9 @@ import hst_dialog_uitest as uit  # noqa: E402
 import hst_gui  # noqa: E402
 
 ROOT = hst_gui.ROOT
+sys.path.insert(0, os.path.join(ROOT, "scripts", "l10n"))
+from catalog_paths import active_mos  # noqa: E402
+
 ROWS = []
 # Names of legacy clipboard and file formats ("Calc object of OpenOffice.org 1.0", "Impress 6"): kept.
 LEGACY_CONTEXTS = ("STR_FORMAT_ID_STARCALC_60", "STR_FORMAT_ID_STARIMPRESS_60", "STR_FORMAT_ID_STRING_TSVC",
@@ -221,7 +223,9 @@ def clipboard_text(harness):
 
 def check_catalogues(instdir, engine):
     leftovers, versions = [], []
-    for path in sorted(glob.glob(os.path.join(instdir, "program", "resource", "vi", "LC_MESSAGES", "*.mo"))):
+    files = active_mos(os.path.join(instdir, "program/resource/vi/LC_MESSAGES"))
+    record("Vietnamese UI catalogues are installed", bool(files))
+    for path in files:
         with open(path, "rb") as handle:
             catalog = gettext.GNUTranslations(handle)._catalog
         for key, value in catalog.items():

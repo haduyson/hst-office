@@ -3,6 +3,7 @@
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+from catalog_paths import vi_po_dir
 from po_io import parse_po
 from access_keys_labels import LANG, MENU, OOR, UI_PO, escape, resolve, strip_mnemonics, unescape
 
@@ -22,7 +23,7 @@ class ModelBuilder:
     def label(self, english, file=None, context=None, vi="", markers="~", name=False):
         msgid = escape(english)
         if file and file not in self.po:
-            path = self.tree / "translations/source/vi" / file
+            path = vi_po_dir(self.tree) / file
             self.po[file] = {(unescape(e["msgctxt"]), e["msgid"]): e
                              for e in parse_po(path)}
         entry = self.po.get(file, {}).get((context, msgid), {})

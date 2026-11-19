@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Prepare private gettext and build-time inputs for the HST language packs."""
 import collections
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -23,7 +24,13 @@ def domains(tree):
         result.update(LOCATION.findall(source))
     if not result:
         raise ValueError(f"{tree}: missing AllLangMoTarget definitions")
-    return result
+    # gbuild also compiles developer-only catalogs. Shipping those as aliases
+    # would translate previously untranslated labels in the released packages.
+    packaging = tree / "scp2/source/ooo/file_ooo.scp"
+    shipped = set(re.findall(r"^MO_FILELIST_ALL_LANG\((\w+)\)", packaging.read_text(), re.M))
+    if not shipped or shipped - result.keys():
+        raise ValueError(f"{packaging}: packaged domain missing from gbuild declarations")
+    return {name: result[name] for name in shipped}
 
 
 def gettext_key(block):
@@ -64,6 +71,21 @@ def combine(original, overlay, retired):
     original.write_text("\n\n".join(output) + "\n", encoding="utf-8")
 
 
+def verify_upstream(upstream):
+    """A reused pre-split checkout can still contain the previous translations."""
+    expected = {}
+    for line in (CATALOG / "upstream-vi.sha256").read_text(encoding="ascii").splitlines():
+        digest, filename = line.split("  ", 1)
+        expected[filename] = digest
+    actual = {p.relative_to(upstream).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
+              for p in upstream.rglob("*.po")}
+    changed = sorted(k for k in actual.keys() | expected.keys() if actual.get(k) != expected.get(k))
+    if changed:
+        raise ValueError(f"{upstream}: {len(changed)} catalogs differ from the pinned release "
+                         f"(first: {changed[0]}). Restore translations/source/vi from the "
+                         "translations tarball in upstream/libreoffice-lock.json before building.")
+
+
 def prepare(tree):
     """Always start from upstream, so a removed override cannot survive a retry."""
     tree = Path(tree)
@@ -74,6 +96,7 @@ def prepare(tree):
     if not (upstream / "sfx2/messages.po").is_file():
         raise ValueError(f"{upstream}: upstream Vietnamese catalogs missing")
 
+    verify_upstream(upstream)
     for generated in (source / "vi", source / "en-US", stage / "ui"):
         if generated.is_dir():
             shutil.rmtree(generated)

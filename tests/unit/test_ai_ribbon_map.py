@@ -12,9 +12,13 @@ the design is in the map under the same tab and group.
 """
 import json
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 import types
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 import _paths  # noqa: F401
@@ -33,11 +37,12 @@ for _name in ("uno", "unohelper", "com", "com.sun", "com.sun.star", "com.sun.sta
               "com.sun.star.awt"):
     sys.modules.setdefault(_name, _StubModule(_name))
 
-from hst_office import ai_ribbon_map as ribbon_map  # noqa: E402
+from hst_office import ai_ribbon_map as ribbon_map, ai_ribbon_map_uno  # noqa: E402
 from hst_office.ai_texts import HELP, help_system  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts" / "l10n"))
+from catalog_paths import vi_po_dir  # noqa: E402
 
 UI = """<?xml version="1.0" encoding="UTF-8"?>
 <interface domain="sw">
@@ -147,6 +152,27 @@ class HelpPromptTests(unittest.TestCase):
     def test_without_map_the_task_stays(self):
         self.assertEqual(help_system(""), HELP)
 
+    @unittest.skipUnless(shutil.which("msgfmt"), "GNU gettext required")
+    def test_installed_catalog_and_legacy_profile(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(ai_ribbon_map_uno, "_system_path", return_value=tmp):
+            root = Path(tmp) / "program/resource/en_US/LC_MESSAGES"
+            root.mkdir(parents=True)
+
+            def write(domain, label):
+                po = ('msgid ""\nmsgstr "Content-Type: text/plain; charset=UTF-8\\n"\n\n'
+                      f'msgctxt "tab"\nmsgid "File"\nmsgstr "{label}"\n')
+                subprocess.run(["msgfmt", "-", "-o", str(root / (domain + ".mo"))], input=po, text=True, check=True)
+
+            def lookup(domain):
+                return ai_ribbon_map_uno.catalogue(None, domain, "en-US").pgettext("tab", "File")
+
+            write("sw", "Legacy")
+            self.assertEqual(lookup("sw"), "Legacy")
+            self.assertIsNone(ai_ribbon_map_uno.catalogue(None, "hst-sw", "en-US"))
+            write("hst-sw", "HST")
+            self.assertEqual(lookup("hst-sw"), "HST")
+            self.assertEqual(lookup("sw"), "HST")
+
     def test_every_app_has_a_ribbon(self):
         self.assertEqual(set(ribbon_map.APPS), {"writer", "calc", "impress", "draw"})
 
@@ -158,7 +184,6 @@ UI_FILES = {"writer": "sw/uiconfig/swriter/ui/notebookbar.ui", "calc": "sc/uicon
 V3_APPS = {"writer": "writer", "sheets": "calc", "slides": "impress", "draw": "draw"}
 COMMAND_FILES = {"writer": "WriterCommands.xcu", "calc": "CalcCommands.xcu", "impress": "DrawImpressCommands.xcu",
                  "draw": "DrawImpressCommands.xcu"}
-VI_PO = "translations/source/vi"
 
 
 def _unescape(text):
@@ -176,7 +201,7 @@ def _catalogue(path):
 def _command_labels(tree):
     """{(xcu file, ".uno:X"): label} from the Vietnamese officecfg catalogue, as theUICommandDescription has them."""
     labels = {}
-    path = tree / VI_PO / "officecfg/registry/data/org/openoffice/Office/UI.po"
+    path = vi_po_dir(tree) / "officecfg/registry/data/org/openoffice/Office/UI.po"
     for (context, msgid), msgstr in _catalogue(path).items():
         parts = context.split("\n")
         if len(parts) < 3 or "..uno:" not in parts[1]:
@@ -198,7 +223,7 @@ class RealRibbonTests(unittest.TestCase):
         labels = _command_labels(tree)
         cls.maps = {}
         for kind, (module, domain, _module_id, _app) in ribbon_map.APPS.items():
-            catalogue = _catalogue(tree / VI_PO / domain / "messages.po")
+            catalogue = _catalogue(vi_po_dir(tree) / domain / "messages.po")
 
             def translate(context, msgid, catalogue=catalogue):
                 return catalogue.get((context, msgid)) or msgid

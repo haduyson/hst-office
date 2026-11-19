@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+from pathlib import Path
 import tempfile
 import unittest
 
@@ -113,6 +114,22 @@ class ParityTest(unittest.TestCase):
 
     def tearDown(self):
         self.tmp.cleanup()
+
+    def test_installed_dialog_domain_and_active_catalogs(self):
+        from catalog_paths import active_mos, ui_mo_path
+        tree = Path(self.tmp.name)
+        root = tree / "program/resource/vi/LC_MESSAGES"
+        root.mkdir(parents=True)
+        for name in ("sw.mo", "other.mo"):
+            (root / name).touch()
+        ui = Path(self.ui)
+        ui.write_text('<interface domain="sw"/>', encoding="utf-8")
+        self.assertEqual(ui_mo_path(tree, ui), root / "sw.mo")
+        self.assertEqual(active_mos(root), [root / "other.mo", root / "sw.mo"])
+        (root / "hst-sw.mo").touch()
+        ui.write_text('<interface domain="hst-sw"/>', encoding="utf-8")
+        self.assertEqual(ui_mo_path(tree, ui), root / "hst-sw.mo")
+        self.assertEqual(active_mos(root), [root / "hst-sw.mo", root / "other.mo"])
 
     def test_po_reader_joins_continued_lines(self):
         entries = parity.read_po(self.po)

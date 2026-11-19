@@ -3,6 +3,8 @@
 UI language and the command labels of theUICommandDescription. Main thread only."""
 import gettext
 import os
+import re
+import xml.etree.ElementTree as ET
 
 from . import diag_log
 from .ai_ribbon_map import APPS, format_map, parse_ribbon
@@ -43,17 +45,24 @@ def ui_file(ctx, module):
 
 def catalogue(ctx, domain, language):
     """The gettext catalogue of the module in the UI language, or None (English texts are shown as they are)."""
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", domain):
+        return None
     try:
         base = _system_path(ctx, "$(brandbaseurl)")
     except Exception:  # noqa: BLE001
         return None
-    tags = [language, language.split("-")[0]] if language else []
+    # Match the locale directory names installed by LibreOffice's solenv/bin/localestr.
+    special = {"ca-valencia": "ca@valencia", "kmr-Latn": "kmr@latin", "sr-Latn": "sr@latin", "hu-Hung": "hu@hung"}
+    tags = dict.fromkeys((special.get(language, language.replace("-", "_")), language.split("-")[0])) if language else ()
+    # A notebookbar saved in the user's profile may still have its original domain.
+    domains = (domain,) if domain.startswith("hst-") else ("hst-" + domain, domain)
     for folder in (os.path.join(base, "program", "resource"), os.path.join(base, "Resources", "resource")):
-        for tag in tags:
-            path = os.path.join(folder, tag, "LC_MESSAGES", domain + ".mo")
-            if os.path.isfile(path):
-                with open(path, "rb") as handle:
-                    return gettext.GNUTranslations(handle)
+        for name in domains:
+            for tag in tags:
+                path = os.path.join(folder, tag, "LC_MESSAGES", name + ".mo")
+                if os.path.isfile(path):
+                    with open(path, "rb") as handle:
+                        return gettext.GNUTranslations(handle)
     return None
 
 
@@ -96,11 +105,15 @@ def command_map(ctx, doc_kind):
             return ""
         key = (doc_kind, language, path, os.path.getmtime(path))
         if key not in _CACHE:
-            translations = catalogue(ctx, domain, language)
-
-            def translate(context, msgid):
-                return translations.pgettext(context, msgid) if translations is not None else msgid
             with open(path, "rb") as handle:
+                interface = next(ET.iterparse(handle, events=("start",)))[1]
+                domain = interface.get("domain", domain)
+                handle.seek(0)
+                translations = catalogue(ctx, domain, language)
+
+                def translate(context, msgid):
+                    return translations.pgettext(context, msgid) if translations is not None else msgid
+
                 tabs = parse_ribbon(handle.read(), translate, command_labels(ctx, module_id))
             _CACHE[key] = format_map(app_name, tabs) if tabs else ""
         return _CACHE[key]
