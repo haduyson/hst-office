@@ -83,6 +83,23 @@ class KeepTabTest(unittest.TestCase):
         office.proc.kill.assert_not_called()
         res.assert_not_called()
 
+    def test_a_held_command_is_recorded_with_what_holds_it(self):
+        office, res, doc = mock.MagicMock(), mock.MagicMock(), mock.MagicMock()
+        office.dispatch_async.return_value.is_alive.return_value = True
+        args = mock.MagicMock(out=tempfile.mkdtemp())
+        states = iter([[("Trang đầu", True)], [("Trang đầu", False), ("Định dạng ảnh", False)],
+                       [("Trang đầu", False), ("Định dạng ảnh", True)], [("Trang đầu", False), ("Định dạng ảnh", True)]])
+        with mock.patch.object(self.keep, "ribbon_tabs", side_effect=lambda _office: next(states)), \
+                mock.patch.object(self.keep, "select_tab"), mock.patch.object(self.keep, "park"), \
+                mock.patch.object(self.keep, "SETTLE", 0), \
+                mock.patch.object(self.keep, "msaa", return_value="WINDOW 7 9:Chèn hàng[0x0]"):
+            self.keep.check_kind("impress", "picture", doc, {"picture": "obj"}, "frame", office, res, args)
+        held = [c.args for c in res.call_args_list if "returned" in c.args[0]]
+        self.assertEqual(len(held), 1)
+        self.assertFalse(held[0][1])
+        self.assertIn("Chèn hàng", held[0][2])
+        self.assertTrue(res.call_args_list[-1].args[0].endswith("still selected after .uno:GraphicFilterInvert"))
+
     def test_park_gets_a_dispatch_that_waits(self):
         office = mock.MagicMock()
         self.keep._Dispatcher(office).dispatch("frame", ".uno:Escape")
