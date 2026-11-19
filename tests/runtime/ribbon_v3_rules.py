@@ -221,10 +221,16 @@ def _row_fitted_box(item, scale):
 
 
 def _label_cut(dump):
-    scale = dump["scale"]
-    return _verdict("label_cut", [f"{g['id']} {i['id']} label cut" + (f", want {i['want']}" if i.get("want") else "")
-                                  for g in dump["groups"] for i in _items(g)
-                                  if i.get("label_cut") and not _row_fitted_box(i, scale)])
+    """A cut label, or a box of the item that draws a native frame in less height than it asks for (its frame loses
+    its bottom edge: native_cut, Windows at 125 % text)."""
+    scale, bad = dump["scale"], []
+    for g in dump["groups"]:
+        for i in _items(g):
+            if i.get("label_cut") and not _row_fitted_box(i, scale):
+                bad.append(f"{g['id']} {i['id']} label cut" + (f", want {i['want']}" if i.get("want") else ""))
+            if i.get("native_cut"):
+                bad.append(f"{g['id']} {i['id']} native box frame cut")
+    return _verdict("label_cut", bad)
 
 
 def _widening(dump):
