@@ -658,10 +658,10 @@ index 0000000..cfabd6a
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/qa/cppunit/hststartcenter.cxx b/sfx2/qa/cppunit/hststartcenter.cxx
 new file mode 100644
-index 0000000..00ff664
+index 0000000..6705b8c
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
-@@ -0,0 +1,622 @@
+@@ -0,0 +1,626 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -696,6 +696,7 @@ index 0000000..00ff664
 +#include <com/sun/star/util/XCloseable.hpp>
 +#include <comphelper/OAccessible.hxx>
 +#include <cppuhelper/implbase.hxx>
++#include <i18nlangtag/languagetag.hxx>
 +#include <rtl/ref.hxx>
 +#include <toolkit/helper/vclunohelper.hxx>
 +#include <tools/urlobj.hxx>
@@ -1184,7 +1185,10 @@ index 0000000..00ff664
 +    CPPUNIT_ASSERT_MESSAGE("heading drawn", nInkTop >= 0);
 +    CPPUNIT_ASSERT_LESSEQUAL(nLines * nLine, nInkBottom - nInkTop + 1);
 +
-+    // the short taglines take at most two lines: no card is taller than its logo, name and two lines
++    // the short taglines take at most two lines: no card is taller than its logo, name and two lines.
++    // The test runs in the English UI, so these are the English short taglines (the Vietnamese ones
++    // are checked by the Vietnamese screenshots)
++    CPPUNIT_ASSERT(Application::GetSettings().GetUILanguageTag().getLanguage() != "vi");
 +    pCanvas->SetPointFont(*xMeasure, ::hst::design::MakeFont(pCanvas->GetSettings().GetStyleSettings(),
 +                                                             ::hst::design::type::CardTitle));
 +    const tools::Long nName = xMeasure->GetTextHeight();
@@ -2071,7 +2075,7 @@ index 0000000..bf38440
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcentercanvas.cxx b/sfx2/source/startcenter/hststartcentercanvas.cxx
 new file mode 100644
-index 0000000..eb91461
+index 0000000..cfc73b4
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvas.cxx
 @@ -0,0 +1,781 @@
@@ -2799,7 +2803,7 @@ index 0000000..eb91461
 +    const Hit aHit = itemOf(maLayout.HitTest(ScreenToOutputPixel(rHEvt.GetMousePosPixel())));
 +    OUString aText;
 +    if (aHit.ePart == Part::Recent || aHit.ePart == Part::Pinned)
-+        aText = ItemDescription(aHit);
++        aText = ItemName(aHit) + u"\n" + ItemDescription(aHit); // the full name: the row may cut it
 +    else if (aHit.ePart == Part::Solution)
 +        aText = ItemName(aHit) + u" — " + ItemDescription(aHit);
 +    else if (aHit.ePart == Part::Nav && maLayout.bCompact)
@@ -6823,10 +6827,10 @@ index 0000000..dcb957f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
 new file mode 100644
-index 0000000..50f4b1b
+index 0000000..31e91a4
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
-@@ -0,0 +1,799 @@
+@@ -0,0 +1,810 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -6867,6 +6871,7 @@ index 0000000..50f4b1b
 +#include <vcl/hst/designtokens.hxx>
 +#include <vcl/menu.hxx>
 +#include <vcl/settings.hxx>
++#include <i18nlangtag/languagetag.hxx>
 +#include <vcl/svapp.hxx>
 +#include <vcl/uitest/uiobject.hxx>
 +#include <vcl/weld/Builder.hxx>
@@ -6894,7 +6899,8 @@ index 0000000..50f4b1b
 +{
 +    OUString aName;
 +    OUString aTagline; ///< in full: the tooltip and the accessible description
-+    OUString aShort; ///< on the card (empty: the full tagline, wrapped)
++    OUString aShort; ///< on the card in a Vietnamese UI (empty: the full tagline, wrapped)
++    OUString aShortEn; ///< on the card in any other UI language
 +    OUString aURL;
 +};
 +
@@ -6902,26 +6908,32 @@ index 0000000..50f4b1b
 +    { u"AIOS"_ustr,
 +      u"Trợ lý AI cá nhân, như một trợ lý thực thụ"_ustr,
 +      u"Trợ lý AI cá nhân thực thụ"_ustr,
++      u"Your personal AI assistant"_ustr,
 +      u"https://aios.hasontech.vn"_ustr },
 +    { u"eChatbot"_ustr,
 +      u"Chatbot AI – trợ lý số cho cơ quan chính quyền, doanh nghiệp, giáo dục"_ustr,
 +      u"Chatbot AI cho cơ quan, doanh nghiệp"_ustr,
++      u"AI chatbot for agencies & firms"_ustr,
 +      u"https://echatbot.vn"_ustr },
 +    { u"Zalo Mini App"_ustr,
 +      u"Mini App trên ứng dụng Zalo dành cho chính quyền số, doanh nghiệp"_ustr,
 +      u"Mini App trên Zalo cho chính quyền số"_ustr,
++      u"Zalo Mini Apps for digital government"_ustr,
 +      u"https://espace.vn/zaloapp"_ustr },
 +    { u"HST SEO"_ustr,
 +      u"SEO tự động hóa thông minh bằng AI"_ustr,
 +      u"SEO tự động hóa bằng AI"_ustr,
++      u"AI-powered automated SEO"_ustr,
 +      u"https://seo.hasontech.vn"_ustr },
 +    { u"HST Post"_ustr,
 +      u"Công cụ đăng bài bằng AI trên hàng loạt nền tảng mạng xã hội"_ustr,
 +      u"Đăng bài AI lên nhiều mạng xã hội"_ustr,
++      u"AI posting across social networks"_ustr,
 +      u"https://post.hasontech.vn"_ustr },
 +    { u"AI Dễ Lắm"_ustr,
 +      u"Bộ công cụ hỗ trợ sử dụng AI thành thạo"_ustr,
 +      u"Công cụ giúp dùng AI thành thạo"_ustr,
++      u"Tools to master AI with ease"_ustr,
 +      u"https://aidelam.com"_ustr },
 +};
 +static_assert(std::size(aSolutions) == SOLUTION_COUNT);
@@ -7182,10 +7194,13 @@ index 0000000..50f4b1b
 +    aTexts.aPinnedName = SfxResId(STR_HST_SC_PINNED_NAME);
 +    aTexts.aSolutionsTitle = SfxResId(STR_HST_SC_SOLUTIONS_TITLE);
 +    aTexts.aMore = MORE_SOLUTIONS_TEXT;
++    // the short tagline in the UI's language: Vietnamese, or English for every other language
++    const bool bVietnamese = Application::GetSettings().GetUILanguageTag().getLanguage() == "vi";
 +    for (int i = 0; i < SOLUTION_COUNT; ++i)
 +    {
 +        aTexts.aSolutionName[i] = aSolutions[i].aName;
-+        aTexts.aSolutionTagline[i] = aSolutions[i].aShort.isEmpty() ? aSolutions[i].aTagline : aSolutions[i].aShort;
++        const OUString& rShort = bVietnamese ? aSolutions[i].aShort : aSolutions[i].aShortEn;
++        aTexts.aSolutionTagline[i] = rShort.isEmpty() ? aSolutions[i].aTagline : rShort;
 +        aTexts.aSolutionDescription[i] = aSolutions[i].aTagline;
 +    }
 +    mxCanvas->SetTexts(std::move(aTexts));
