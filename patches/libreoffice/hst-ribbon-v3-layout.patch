@@ -2394,7 +2394,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonV3Layout.cxx
-@@ -0,0 +1,699 @@
+@@ -0,0 +1,748 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2688,9 +2688,7 @@ License: these upstream files remain under their original license (MPL-2.0).
 +}
 +
 +/// a widget of a medium or small toolbox (the fill style's lists) one row high: taller (a list box of the X11 look is
-+/// 34 px), the row cut its bottom off. A box that then has less height than it asks for (Windows: the native frame
-+/// of a list or spin box at 125 % text is 27 px) draws its own flat frame inside the row, as the native theme does
-+/// not fit its frame into a smaller box and loses its bottom edge
++/// 34 px), the row cut its bottom off
 +void fitItemWindowsToRow(ToolBox& rBox)
 +{
 +    const tools::Long nRow = px(ROW, rBox);
@@ -2698,22 +2696,11 @@ License: these upstream files remain under their original license (MPL-2.0).
 +    {
 +        const ToolBoxItemId nId = rBox.GetItemId(i);
 +        vcl::Window* pItemWindow = rBox.GetItemWindow(nId);
-+        if (!pItemWindow)
++        if (!pItemWindow || pItemWindow->GetSizePixel().Height() <= nRow)
 +            continue;
-+        if (pItemWindow->GetSizePixel().Height() > nRow)
-+        {
-+            pItemWindow->SetSizePixel(Size(pItemWindow->GetSizePixel().Width(), nRow));
-+            rBox.SetItemWindow(nId, pItemWindow); // the item takes the window's new size
-+            rBox.queue_resize();
-+        }
-+        std::vector<vcl::Window*> aCut;
-+        nativeBoxesCut(*pItemWindow, aCut);
-+        for (vcl::Window* pCut : aCut)
-+        {
-+            pCut->EnableNativeWidget(false); // its parts too
-+            pCut->SetBorderStyle(WindowBorderStyle::MONO);
-+            pCut->Invalidate();
-+        }
++        pItemWindow->SetSizePixel(Size(pItemWindow->GetSizePixel().Width(), nRow));
++        rBox.SetItemWindow(nId, pItemWindow); // the item takes the window's new size
++        rBox.queue_resize();
 +    }
 +}
 +
@@ -2872,6 +2859,65 @@ License: these upstream files remain under their original license (MPL-2.0).
 +OString jsonText(const OUString& rText)
 +{
 +    return rText.replaceAll(u"\\", u"\\\\").replaceAll(u"\"", u"\\\"").replaceAll(u"~", u"").replace('\n', ' ').toUtf8();
++}
++
++/// the framed boxes (list, combo, spin, edit) under rWindow
++void framedBoxes(vcl::Window& rWindow, std::vector<vcl::Window*>& rBoxes)
++{
++    if (hasNativeFrame(rWindow))
++    {
++        if (rWindow.IsVisible())
++            rBoxes.push_back(&rWindow);
++        return;
++    }
++    for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++        framedBoxes(*pChild, rBoxes);
++}
++
++/// the most a framed box of the command loses to the windows above it, up to the group: its height, the height
++/// shown, and the window that cuts it (a box in a toolbox item is clipped by the toolbox when the item window sits
++/// lower than the toolbox's top)
++struct BoxClip
++{
++    tools::Long height = 0, shown = 0;
++    OString by;
++};
++
++BoxClip boxClip(const vcl::Window& rCommand, const vcl::Window& rGroup, const vcl::Window& rOrigin)
++{
++    BoxClip aWorst;
++    const ToolBox* pBox = dynamic_cast<const ToolBox*>(&rCommand);
++    if (!pBox)
++        return aWorst;
++    for (ToolBox::ImplToolItems::size_type n = 0; n < pBox->GetItemCount(); ++n)
++    {
++        vcl::Window* pItemWindow = pBox->GetItemWindow(pBox->GetItemId(n));
++        if (!pItemWindow || !pItemWindow->IsVisible())
++            continue;
++        std::vector<vcl::Window*> aBoxes;
++        framedBoxes(*pItemWindow, aBoxes);
++        for (const vcl::Window* pFramed : aBoxes)
++        {
++            tools::Rectangle aShown = rectIn(*pFramed, rOrigin);
++            const tools::Long nHeight = aShown.GetHeight();
++            OString aBy;
++            for (const vcl::Window* pParent = pFramed->GetParent(); pParent; pParent = pParent->GetParent())
++            {
++                const tools::Long nBefore = aShown.GetHeight();
++                aShown.Intersection(rectIn(*pParent, rOrigin));
++                if (aShown.GetHeight() < nBefore && aBy.isEmpty())
++                    aBy = OString::number(static_cast<sal_Int32>(pParent->GetType())) + ":" + jsonText(pParent->get_id())
++                          + ":" + OString::number(sal_Int64(rectIn(*pParent, rOrigin).GetHeight()));
++                if (pParent == &rGroup)
++                    break;
++            }
++            const tools::Long nShown = aShown.IsEmpty() ? 0 : aShown.GetHeight();
++            if (nHeight - nShown > aWorst.height - aWorst.shown)
++                aWorst = BoxClip{ nHeight, nShown, aBy };
++        }
++    }
++    return aWorst;
 +}
 +}
 +
@@ -3083,6 +3129,9 @@ License: these upstream files remain under their original license (MPL-2.0).
 +                            nativeBoxesCut(*pItemWindow, aNativeCut);
 +                rOut.append(",\"native_cut\":");
 +                rOut.append(aNativeCut.empty() ? "false" : "true");
++                if (const BoxClip aClip = boxClip(rCommand, rGroup, rOrigin); aClip.shown < aClip.height)
++                    rOut.append(",\"box_clip\":{\"h\":" + OString::number(sal_Int64(aClip.height)) + ",\"shown\":"
++                                + OString::number(sal_Int64(aClip.shown)) + ",\"by\":\"" + aClip.by + "\"}");
 +                rOut.append("}");
 +                bFirst = false;
 +            }
