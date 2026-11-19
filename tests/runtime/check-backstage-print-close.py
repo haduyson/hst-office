@@ -24,6 +24,7 @@ import ctypes
 import ctypes.wintypes as wt
 import importlib.util
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -37,7 +38,7 @@ _SPEC.loader.exec_module(CB)
 user32 = ctypes.windll.user32
 DUMPS = os.path.join(os.environ.get("LOCALAPPDATA", ""), "CrashDumps")
 WM_SYSCOMMAND, SC_CLOSE, WM_QUERYENDSESSION, WM_ENDSESSION, ENDSESSION_LOGOFF = 0x112, 0xF060, 0x11, 0x16, 0x80000000
-VK_CONTROL, VK_W, VK_ESCAPE = 0x11, 0x57, 0x1B
+VK_CONTROL, VK_W, VK_ESCAPE, VK_SHIFT = 0x11, 0x57, 0x1B, 0x10
 CASES = ("sessionend", "macroclose", "macroterm", "quit", "closex", "ctrlw", "esc")
 MACRO = """
 def close_doc(*args):
@@ -79,6 +80,30 @@ def keys(*strokes):
         time.sleep(0.05)
 
 
+def activate(hwnd):
+    """Bring the window to the foreground, as Alt+Tab does; True when it is there. Windows refuses
+    SetForegroundWindow to a process that did not get the last input, so a bare Shift press goes first (Alt would
+    show the ribbon's key tips, which take the next Esc) and the input of the foreground thread is shared while
+    asking."""
+    kernel32 = ctypes.windll.kernel32
+    for _ in range(5):
+        keys((VK_SHIFT, 0), (VK_SHIFT, 1))
+        front = user32.GetForegroundWindow()
+        theirs = user32.GetWindowThreadProcessId(ctypes.c_void_p(front), None) if front else 0
+        mine = kernel32.GetCurrentThreadId()
+        attached = bool(theirs) and theirs != mine and user32.AttachThreadInput(mine, theirs, True)
+        try:
+            user32.BringWindowToTop(ctypes.c_void_p(hwnd))
+            user32.SetForegroundWindow(ctypes.c_void_p(hwnd))
+        finally:
+            if attached:
+                user32.AttachThreadInput(mine, theirs, False)
+        time.sleep(1)
+        if (user32.GetForegroundWindow() or 0) & 0xFFFFFFFF == int(hwnd) & 0xFFFFFFFF:
+            return True
+    return False
+
+
 def end_session(pids):
     send = user32.SendMessageTimeoutW
     send.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_size_t, ctypes.c_ssize_t, ctypes.c_uint, ctypes.c_uint,
@@ -111,6 +136,7 @@ def start(case, work, soffice):
 
 def run(case, app, out, soffice, shot_cmd=None):
     work = os.path.join(out, f"{case}-{app}")
+    shutil.rmtree(work, ignore_errors=True)  # a profile left by an earlier run would offer its crash report
     shot = (lambda name: subprocess.run(shot_cmd.format(os.path.join(out, name + ".png")), shell=True))         if shot_cmd else (lambda name: None)
     office = start(case, work, soffice)
     tag, doc = f"{case} {app}", None
@@ -145,8 +171,10 @@ def run(case, app, out, soffice, shot_cmd=None):
         elif case == "closex":
             user32.PostMessageW(ctypes.c_void_p(hwnd), WM_SYSCOMMAND, SC_CLOSE, 0)
         else:  # the window activated again, then the key
-            user32.SetForegroundWindow(ctypes.c_void_p(hwnd))
-            time.sleep(1)
+            front = bool(hwnd) and activate(hwnd)
+            CB.check(front, f"{tag}: the document window is in the foreground")
+            if not front:
+                return
             keys(*([(VK_CONTROL, 0), (VK_W, 0), (VK_W, 1), (VK_CONTROL, 1)] if case == "ctrlw"
                    else [(VK_ESCAPE, 0), (VK_ESCAPE, 1)]))
         time.sleep(12)

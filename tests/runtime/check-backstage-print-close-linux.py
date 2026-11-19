@@ -20,6 +20,7 @@ import argparse
 import glob
 import importlib.util
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -89,6 +90,7 @@ def load(office, app):
 
 def run(case, app, args):
     work = os.path.join(args.out, f"{case}-{app}")
+    shutil.rmtree(work, ignore_errors=True)  # a profile left by an earlier run would offer its crash report
     office = start(case, work, args.soffice)
     tag, doc = f"{case} {app}", None
     shot = (lambda name: subprocess.run(args.shot.format(os.path.join(args.out, name + ".png")), shell=True)) \
