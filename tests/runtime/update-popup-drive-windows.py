@@ -94,6 +94,7 @@ def main():
     ap.add_argument("--out", default=None)
     ap.add_argument("--uno-port", type=int, default=22195)
     ap.add_argument("--http-port", type=int, default=22196)
+    ap.add_argument("--max-minutes", type=float, default=15, help="write the report and stop when a step never returns")
     ap.add_argument("--policy", action="store_true", help="only: the registry policy (set by the .ps1) locks AutoCheck off")
     args = ap.parse_args()
     shutil.rmtree(args.work, ignore_errors=True)
@@ -112,6 +113,17 @@ def main():
         seed(office.profile, base + [(NODE, "LastCheck", "0")] + list(extra))
         REQUESTS.clear()
         return office.start()
+    def give_up():
+        check("driver timeout: a step did not return within %g minutes" % args.max_minutes, False)
+        report(args)
+        try:
+            office.proc.kill()  # our own soffice only
+        except Exception:  # noqa: BLE001 - not started or already gone
+            pass
+        os._exit(1)
+    watchdog = threading.Timer(args.max_minutes * 60, give_up)
+    watchdog.daemon = True
+    watchdog.start()
     try:
         serve(args.srv, "1.0.8")
         if args.policy:
@@ -157,6 +169,7 @@ def main():
                 SEEN.append(repr(error))
         office.stop()
         server.shutdown()
+    watchdog.cancel()
     return report(args)
 
 

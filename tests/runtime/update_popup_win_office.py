@@ -107,33 +107,10 @@ class Office:
         found = windows(lambda title: title == TITLE)
         return found[0] if found else None
 
-    def _accessible_popup(self):
-        toolkit = self.service("com.sun.star.awt.Toolkit")
-        for index in range(toolkit.getTopWindowCount()):
-            context = accessible(toolkit.getTopWindow(index))
-            if context is not None and context.getAccessibleName() == TITLE:
-                return context
-        return None
-
     def press(self, label, index):
-        """Press the pop-up's button `label` (its `index`-th button): its accessible action, else the keyboard (the
-        pop-up in front, Tab `index` times from the default first button, Space)."""
-        def find(context):
-            for child_index in range(context.getAccessibleChildCount()):
-                child = context.getAccessibleChild(child_index).getAccessibleContext()
-                if child.getAccessibleName() == label and hasattr(child, "doAccessibleAction"):
-                    return child
-                found = find(child)
-                if found is not None:
-                    return found
-            return None
-        try:
-            context = self._accessible_popup()
-            button = find(context) if context is not None else None
-            if button is not None:
-                return bool(button.doAccessibleAction(0))
-        except Exception:  # noqa: BLE001 - fall back to the keyboard
-            pass
+        """Press the pop-up's button `label` (its `index`-th button) with real keys, as a user does: the pop-up in front,
+        Tab `index` times from the default first button, Space. Not its accessible action: over the UNO bridge that
+        runs the button's handler, which closes the pop-up, inside a synchronous remote call that did not return."""
         hwnd = self.popup()
         if hwnd is None or not to_front(hwnd):
             return False
