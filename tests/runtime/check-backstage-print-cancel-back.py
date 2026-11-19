@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
 """"Hủy" (Cancel) and "Quay lại" (Back) of the Print page of the File panel (hst-backstage-print-cancel-back.patch)
-in a visible office, driven by widget id through the UITest service (Linux X display, gtk3 or gen; Windows: the
-test user's own session).
+in a visible office, driven by widget id through the UITest service. The service sees VCL widgets only: on Linux run
+it with SAL_USE_VCLPLUGIN=gen (gtk3 builds the panel from native GTK widgets; there --shots-only takes the
+screenshots without the checks). Windows: the test user's own session.
 
 Per application (Writer, Sheets): .uno:Print opens the Print page; both buttons are there; a margins preset picked on
 the page, then "Quay lại": the page closes and the margins stay (one undo step); a preset picked again, then "Hủy":
 the page closes and the document has its margins of before. Screenshots of the page with --shot.
 Usage: <office python> check-backstage-print-cancel-back.py --soffice PATH --out DIR [--shot CMD] [--dark]
+       [--shots-only] [--apps swriter,scalc]
 Exit 1 on a failure.
 """
 import argparse
@@ -26,6 +28,15 @@ _SPEC.loader.exec_module(BASE)
 # the second entry of the margins box: "Hẹp" (narrow) in both applications
 NARROW = {"swriter": 1270, "scalc": 640}
 failures = []
+FRAME = []  # the frame of the document under test: its window holds the File panel
+
+
+def panel_window(office):
+    """The UI object of the document window (the File panel is a part of it), else the focused top window (a
+    prompt of the office may hold the focus)."""
+    if FRAME:
+        return office.ui.getWindow(FRAME[0].getContainerWindow())
+    return office.ui.getTopFocusWindow()
 
 
 def check(ok, text):
@@ -56,7 +67,7 @@ def panel_button(office, oid, timeout=20):
     """The UI object of the Print page's widget with that id, None when the page is not shown."""
     for _ in range(timeout * 2):
         try:
-            return office.ui.getTopFocusWindow().getChild(oid)
+            return panel_window(office).getChild(oid)
         except Exception:  # noqa: BLE001 - not (yet) there
             time.sleep(0.5)
     return None
@@ -65,7 +76,7 @@ def panel_button(office, oid, timeout=20):
 def is_closed(office, timeout=10):
     for _ in range(timeout * 2):
         try:
-            office.ui.getTopFocusWindow().getChild("back")
+            panel_window(office).getChild("back")
         except Exception:  # noqa: BLE001 - the page and its job are gone
             return True
         time.sleep(0.5)
@@ -80,6 +91,21 @@ def pick_narrow(office):
     time.sleep(2)  # the page style changes after the event, the preview follows
 
 
+def set_dark_appearance(soffice, out):
+    """The dark application appearance in the profile, before the office starts (it applies at start)."""
+    profile = os.path.join(out, "profile")
+    url = "file://" + profile
+    subprocess.run([soffice, "--headless", "--terminate_after_init", "-env:UserInstallation=" + url], timeout=300)
+    path = os.path.join(profile, "user", "registrymodifications.xcu")
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    item = ('<item oor:path="/org.openoffice.Office.Common/Appearance"><prop oor:name="ApplicationAppearance" '
+            'oor:op="fuse"><value>2</value></prop></item>\n')
+    if "ApplicationAppearance" not in text:
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(text.replace("</oor:items>", item + "</oor:items>"))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--soffice", required=True)
@@ -87,21 +113,29 @@ def main():
     parser.add_argument("--shot", help="screenshot command with {} for the file, e.g. 'import -window root {}'")
     parser.add_argument("--dark", action="store_true", help="the dark application appearance")
     parser.add_argument("--apps", default="swriter,scalc")
+    parser.add_argument("--shots-only", action="store_true", help="only open the Print page and take its screenshot")
     args = parser.parse_args()
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
     tag = "dark" if args.dark else "light"
     shot = lambda name: args.shot and subprocess.run(args.shot.format(os.path.join(out, name)), shell=True)  # noqa
+    if args.dark:
+        set_dark_appearance(args.soffice, out)
     office = BASE.VisibleOffice(args.soffice, out, None)
     try:
-        if args.dark:
-            office.set_config("/org.openoffice.Office.Common/Appearance", "ApplicationAppearance", 2)
         for app in args.apps.split(","):
             doc = load(office, app)
             office.close_welcome()
             frame = doc.getCurrentController().getFrame()
+            FRAME[:] = [frame]
             before = margins(doc, app)
             office.ui.executeCommandForProvider(".uno:Print", frame)
+            if args.shots_only:
+                time.sleep(8)  # the job comes back through the hand-over; the preview is painted on idle
+                shot(f"{app}-print-page-{tag}.png")
+                office.ui.executeCommandForProvider(".uno:HSTBackstage", frame)
+                doc.setModified(False)
+                continue
             cancel, back = panel_button(office, "cancel"), panel_button(office, "back")
             check(cancel is not None and back is not None, f"{app}: the Print page has Hủy and Quay lại")
             time.sleep(3)  # the preview is painted on idle
