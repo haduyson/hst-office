@@ -1,0 +1,24 @@
+Table cell accessible: take the SolarMutex before the disposed check in getAccessibleName.
+
+AccessibleCell::getAccessibleName called ensureAlive() before taking the SolarMutex, so a call from
+an accessibility bridge running without the SolarMutex (gtk3) could pass the check, wait while
+another thread disposed the cell (table rows changed, document closed), and then name a disposed
+cell. Same lock-order bug as the sd slide sorter (hst-sd-slidesorter-a11y-lock-order.patch).
+Upstream bug (same code in LibreOffice 26.8.1.1 and 26.8.3.1).
+
+License: modified upstream files keep their license (MPL-2.0).
+Test: CppunitTest_sd_a11y (hst-svx-table-cell-a11y-dispose-race-test.patch).
+---
+--- a/svx/source/table/accessiblecell.cxx
++++ b/svx/source/table/accessiblecell.cxx
+@@ -411,8 +411,8 @@
+ 
+ OUString SAL_CALL AccessibleCell::getAccessibleName()
+ {
+-    ensureAlive();
+-    SolarMutexGuard aSolarGuard;
++    SolarMutexGuard aSolarGuard;
++    ensureAlive();
+ 
+     if( pAccTable )
+     {

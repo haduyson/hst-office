@@ -1,0 +1,125 @@
+Regression test: table cell accessible disposed while getAccessibleName waits for the SolarMutex.
+
+A 2x2 table is inserted in Draw; the test holds the SolarMutex, calls getAccessibleName of a cell on
+another thread, disposes the cell and expects DisposedException.
+
+License: the new test file is HST-owned (LicenseRef-HST-Proprietary); the makefile keeps MPL-2.0.
+Test: CppunitTest_sd_a11y.
+---
+--- a/sd/CppunitTest_sd_a11y.mk
++++ b/sd/CppunitTest_sd_a11y.mk
+@@ -13,6 +13,7 @@
+ 	sd/qa/unit/a11y/layout \
+ 	sd/qa/unit/a11y/HstSlideSorterDisposeRace \
+ 	sd/qa/unit/a11y/HstDocumentViewDisposeRace \
++	sd/qa/unit/a11y/HstTableCellDisposeRace \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,sd_a11y, \
+--- /dev/null
++++ b/sd/qa/unit/a11y/HstTableCellDisposeRace.cxx
+@@ -0,0 +1,104 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; fill-column: 100 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. All rights reserved.
++ */
++
++// Accessibility clients reach a table cell's accessible from the main loop without the SolarMutex
++// (gtk3 bridge) while another thread holding it may dispose the cell (rows inserted or removed, the
++// document closed). getAccessibleName must wait for the SolarMutex before its disposed check and
++// then throw DisposedException, instead of naming a cell that is gone.
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <thread>
++
++#include <com/sun/star/accessibility/XAccessible.hpp>
++#include <com/sun/star/accessibility/XAccessibleContext.hpp>
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <com/sun/star/lang/DisposedException.hpp>
++#include <com/sun/star/lang/XComponent.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++
++#include <comphelper/dispatchcommand.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <vcl/scheduler.hxx>
++#include <vcl/svapp.hxx>
++
++#include <test/a11y/accessibletestbase.hxx>
++
++using namespace css;
++
++namespace
++{
++uno::Reference<accessibility::XAccessibleContext>
++findByImplementationName(const uno::Reference<accessibility::XAccessibleContext>& xContext,
++                         std::u16string_view sName, int nDepth = 0)
++{
++    if (!xContext.is() || nDepth > 25)
++        return {};
++    uno::Reference<lang::XServiceInfo> xInfo(xContext, uno::UNO_QUERY);
++    if (xInfo.is() && xInfo->getImplementationName() == sName)
++        return xContext;
++    const sal_Int64 nCount = std::min<sal_Int64>(xContext->getAccessibleChildCount(), 500);
++    for (sal_Int64 i = 0; i < nCount; ++i)
++    {
++        uno::Reference<accessibility::XAccessible> xChild = xContext->getAccessibleChild(i);
++        if (!xChild.is())
++            continue;
++        auto xFound = findByImplementationName(xChild->getAccessibleContext(), sName, nDepth + 1);
++        if (xFound.is())
++            return xFound;
++    }
++    return {};
++}
++}
++
++CPPUNIT_TEST_FIXTURE(test::AccessibleTestBase, testTableCellNameAfterDisposeWhileWaiting)
++{
++    load(u"private:factory/sdraw"_ustr);
++    Scheduler::ProcessEventsToIdle();
++    comphelper::dispatchCommand(u".uno:InsertTable"_ustr,
++                                { comphelper::makePropertyValue(u"Rows"_ustr, sal_Int32(2)),
++                                  comphelper::makePropertyValue(u"Columns"_ustr, sal_Int32(2)) });
++    Scheduler::ProcessEventsToIdle();
++
++    auto xTable = findByImplementationName(getDocumentAccessibleContext(),
++                                           u"com.sun.star.comp.accessibility.AccessibleTableShape");
++    CPPUNIT_ASSERT_MESSAGE("no accessible table shape in Draw", xTable.is());
++    CPPUNIT_ASSERT(xTable->getAccessibleChildCount() > 0);
++    uno::Reference<accessibility::XAccessibleContext> xCell
++        = xTable->getAccessibleChild(0)->getAccessibleContext();
++    CPPUNIT_ASSERT(!xCell->getAccessibleName().isEmpty());
++
++    SolarMutexGuard aGuard;
++    std::atomic<bool> bStarted(false);
++    bool bDisposed = false;
++    std::thread aReader([&] {
++        bStarted = true;
++        try
++        {
++            xCell->getAccessibleName();
++        }
++        catch (const lang::DisposedException&)
++        {
++            bDisposed = true;
++        }
++        catch (...)
++        {
++        }
++    });
++    while (!bStarted)
++        std::this_thread::yield();
++    // the reader is now inside the call; a correct implementation waits for the SolarMutex
++    std::this_thread::sleep_for(std::chrono::milliseconds(300));
++    uno::Reference<lang::XComponent>(xCell, uno::UNO_QUERY_THROW)->dispose();
++    {
++        SolarMutexReleaser aReleaser;
++        aReader.join();
++    }
++    CPPUNIT_ASSERT_MESSAGE("getAccessibleName on a table cell disposed while it waited", bDisposed);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
