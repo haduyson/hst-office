@@ -1,0 +1,93 @@
+sd: run DrawController::select from other threads on the main thread.
+
+Deadlock seen on Windows (Draw, after a table edit, a UNO client's select() from its bridge thread):
+the bridge thread holds the ViewShellManager mutex while the new selection context builds a sidebar
+panel; VCL creates the native window on the main thread through SendMessage with the SolarMutex
+released; the main thread takes the SolarMutex, runs a dispatcher slot that needs the
+ViewShellManager mutex, and the bridge thread can no longer get the SolarMutex back.
+Hook: two lines in DrawController::select forward to sd::hst::selectOnMainThread (HST-owned header,
+vcl::solarthread::syncExecute, the upstream sfx2 idiom). select and getSelection also take the
+SolarMutex before the disposed check.
+
+License: HstControllerMainThread.hxx is HST-owned (LicenseRef-HST-Proprietary); DrawController.cxx
+keeps MPL-2.0.
+Test: CppunitTest_sd_a11y (HstControllerSelectThread).
+---
+--- /dev/null
++++ b/sd/source/ui/inc/HstControllerMainThread.hxx
+@@ -0,0 +1,43 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; fill-column: 100 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. All rights reserved.
++ */
++
++#pragma once
++
++#include <com/sun/star/uno/Any.hxx>
++#include <com/sun/star/uno/Reference.hxx>
++#include <com/sun/star/view/XSelectionSupplier.hpp>
++#include <vcl/svapp.hxx>
++#include <vcl/threadex.hxx>
++
++namespace sd::hst
++{
++/** Runs a selection request made on a thread other than the main thread (a remote UNO client's
++    bridge thread) on the main thread instead.
++
++    Changing the selection rebuilds the view shell stack while holding the ViewShellManager's own
++    mutex, and the new sidebar context can create panel windows. On Windows a native window
++    created on another thread is created on the main thread through SendMessage, with the
++    SolarMutex released meanwhile; the main thread can then take the SolarMutex and need the
++    ViewShellManager mutex, while the calling thread waits for the SolarMutex: a deadlock (Draw
++    and Impress hang after a table edit followed by an API selection change).
++
++    @return false when called on the main thread (the caller selects as usual); otherwise true,
++    with the forwarded select() result in rSelected. */
++inline bool selectOnMainThread(css::view::XSelectionSupplier& rController,
++                               const css::uno::Any& rSelection, bool& rSelected)
++{
++    if (Application::IsMainThread())
++        return false;
++    const css::uno::Reference<css::view::XSelectionSupplier> xController(&rController);
++    // syncExecute releases the SolarMutex while it waits, so the calling thread must own it
++    const SolarMutexGuard aGuard;
++    rSelected = vcl::solarthread::syncExecute(
++        [xController, rSelection]() -> bool { return xController->select(rSelection); });
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sd/source/ui/unoidl/DrawController.cxx
++++ b/sd/source/ui/unoidl/DrawController.cxx
+@@ -44,6 +44,7 @@
+ #include <sal/log.hxx>
+ #include <svx/fmshell.hxx>
+ #include <vcl/svapp.hxx>
++#include <HstControllerMainThread.hxx>
+ #include <vcl/EnumContext.hxx>
+ #include <svx/sidebar/ContextChangeEventMultiplexer.hxx>
+ #include <comphelper/diagnose_ex.hxx>
+@@ -245,8 +246,10 @@
+ //------ XSelectionSupplier --------------------------------------------
+ sal_Bool SAL_CALL DrawController::select (const Any& aSelection)
+ {
+-    ThrowIfDisposed();
++    if (bool bSelected = false; sd::hst::selectOnMainThread(*this, aSelection, bSelected))
++        return bSelected;
+     SolarMutexGuard aGuard;
++    ThrowIfDisposed();
+ 
+     if (mxSubController.is())
+         return mxSubController->select(aSelection);
+@@ -256,8 +259,8 @@
+ 
+ Any SAL_CALL DrawController::getSelection()
+ {
+-    ThrowIfDisposed();
+     SolarMutexGuard aGuard;
++    ThrowIfDisposed();
+ 
+     if (mxSubController.is())
+         return mxSubController->getSelection();
