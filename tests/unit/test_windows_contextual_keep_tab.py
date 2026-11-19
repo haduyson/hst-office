@@ -3,6 +3,7 @@
 import importlib.util
 import os
 import sys
+import tempfile
 import threading
 import unittest
 from unittest import mock
@@ -65,8 +66,13 @@ class KeepTabTest(unittest.TestCase):
         office, res = mock.MagicMock(), mock.MagicMock()
         office.stop.side_effect = lambda: threading.Event().wait(5)
         processes = mock.MagicMock()
-        with mock.patch.dict(sys.modules, {"windows_gui_processes": processes}):
-            self.keep.stop_office(office, "shot.png", res, "impress", timeout=0.1)
+        shot = os.path.join(tempfile.mkdtemp(), "shot.png")
+        with mock.patch.dict(sys.modules, {"windows_gui_processes": processes}), \
+                mock.patch.object(self.keep, "msaa", return_value="WINDOW 1 9:Lưu thay đổi?[0x0]"):
+            self.keep.stop_office(office, shot, res, "impress", timeout=0.1)
+        with open(shot[:-4] + ".txt", encoding="utf-8") as handle:
+            self.assertIn("Lưu thay đổi?", handle.read())
+        self.assertIn("Lưu thay đổi?", res.call_args.args[2])
         office.proc.kill.assert_called_once_with()
         processes.terminate.assert_called_once_with(office.url)
         self.assertFalse(res.call_args.args[1])

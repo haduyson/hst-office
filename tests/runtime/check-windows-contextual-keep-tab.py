@@ -118,11 +118,19 @@ def stop_office(office, shot, res, app, timeout=120):
     worker.start()
     worker.join(timeout)
     if worker.is_alive():
+        # what holds the quit: the screen, and every window of the office with its accessible names (a save prompt
+        # of the document checked here is the harness; any other prompt is a product bug)
         wg.screenshot(shot, cursor=False)
+        try:
+            windows = msaa(office, "-Action", "tabs")
+        except Exception as error:  # noqa: BLE001 - the screenshot stays the evidence
+            windows = repr(error)
+        with open(os.path.splitext(shot)[0] + ".txt", "w", encoding="utf-8") as handle:
+            handle.write(windows)
         import windows_gui_processes as processes
         office.proc.kill()
         processes.terminate(office.url)
-        res(f"[{app}] office closed", False, f"Desktop.terminate held over {timeout} s: {shot}")
+        res(f"[{app}] office closed", False, f"Desktop.terminate held over {timeout} s: {shot}; {windows}")
 
 
 class _Dispatcher:
