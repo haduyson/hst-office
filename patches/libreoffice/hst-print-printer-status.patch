@@ -1,6 +1,8 @@
 HST Office: the Print page of the File panel shows the state of each printer: a dot before every printer name of
 its printer list and a short text beside the selected printer ("Trạng thái:").
 
+- Dots: 10 px across at 100 % (with the DPI scale and the list's font size), centred on the text line, with a 1 px
+  darker outline so amber and grey show on light, dark and highlighted rows.
 - Green: ready. Amber: busy or paused (printing, processing, warming up, toner low...). Red: offline or an error
   that stops it (paper jam, out of paper, door open, out of toner, offline, stopped CUPS queue). Grey: unknown.
 - Text: Sẵn sàng / Đang bận / Tạm dừng / Ngoại tuyến / Lỗi: hết giấy, kẹt giấy, nắp máy in đang mở, hết mực / Sắp
@@ -611,7 +613,7 @@ diff --git a/vcl/source/window/hstprinterstatus.cxx b/vcl/source/window/hstprint
 new file mode 100644
 --- /dev/null
 +++ b/vcl/source/window/hstprinterstatus.cxx
-@@ -0,0 +1,310 @@
+@@ -0,0 +1,318 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -635,6 +637,7 @@ new file mode 100644
 +#include <vcl/weld/Label.hxx>
 +
 +#include <algorithm>
++#include <cmath>
 +#include <exception>
 +#include <mutex>
 +#include <thread>
@@ -813,19 +816,26 @@ new file mode 100644
 +
 +    VclPtr<VirtualDevice> MakeDot(PrinterState eState) const
 +    {
-+        const tools::Long nSize
-+            = std::max<tools::Long>(Application::GetDefaultDevice()->GetTextHeight() * 2 / 3, 8);
++        // 10 px at 100 %, with the DPI scale and with the list's own font (GDK_DPI_SCALE, large fonts)
++        const int nTextHeight = m_rPrinters.get_text_height();
++        const tools::Long nDiameter = std::max<tools::Long>(
++            std::lround(10 * Application::GetDefaultDevice()->GetDPIScaleFactor()),
++            nTextHeight * 5 / 8);
++        // as high as a text line, the dot in its middle: centred on the text whatever the row height
++        const Size aSize(nDiameter + 2, std::max<tools::Long>(nDiameter, nTextHeight));
 +        VclPtr<VirtualDevice> xDev = VclPtr<VirtualDevice>::Create(DeviceFormat::WITH_ALPHA);
-+        xDev->SetOutputSizePixel(Size(nSize, nSize));
++        xDev->SetOutputSizePixel(aSize);
 +        xDev->SetBackground(Wallpaper(COL_TRANSPARENT));
 +        xDev->Erase();
 +        const Color aColor = PrinterStatusColor(eState);
-+        Color aRing(aColor);
-+        aRing.DecreaseLuminance(48);
++        Color aRing(aColor); // 1 px darker outline: amber and grey show on light, dark and highlight
++        aRing.DecreaseLuminance(80);
 +        xDev->SetAntialiasing(AntialiasingFlags::Enable);
 +        xDev->SetFillColor(aColor);
 +        xDev->SetLineColor(aRing);
-+        xDev->DrawEllipse(tools::Rectangle(Point(1, 1), Size(nSize - 2, nSize - 2)));
++        xDev->DrawEllipse(tools::Rectangle(
++            Point((aSize.Width() - nDiameter) / 2, (aSize.Height() - nDiameter) / 2),
++            Size(nDiameter, nDiameter)));
 +        return xDev;
 +    }
 +

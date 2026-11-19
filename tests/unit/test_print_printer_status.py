@@ -58,6 +58,13 @@ class PrinterStatus(unittest.TestCase):
         self.assertIn("connect_popup_toggled", added(PATCH, VIEW))  # fresh again when the list drops down
         self.assertNotIn("Printer::GetQueueInfo", view)  # the synchronous queue state of vcl
 
+    def test_dots_are_easy_to_see(self):
+        view = added(PATCH, VIEW)
+        self.assertIn("std::lround(10 * Application::GetDefaultDevice()->GetDPIScaleFactor())", view)  # 10 px at 100 %
+        self.assertIn("m_rPrinters.get_text_height()", view)  # grows with the list's font
+        self.assertIn("aRing.DecreaseLuminance(", view)  # darker outline
+        self.assertIn("(aSize.Height() - nDiameter) / 2", view)  # centred on the text line
+
     def test_gtk_printer_list_has_an_image_column(self):
         ui = added(PATCH, "vcl/uiconfig/ui/hstprintpanel.ui")
         self.assertIn('<object class="GtkComboBox" id="printersbox">', ui)
