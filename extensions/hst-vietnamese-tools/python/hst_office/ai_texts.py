@@ -78,6 +78,7 @@ TEXT = {
     "mode": "Việc cần làm:",
     "answer": "Câu trả lời:",
     "insert_formula": "Chèn vào ô %s",
+    "columns_note": "Sẽ gửi tên cột của bảng (không gửi số liệu).",
     "replace": "Thay vùng chọn",
     "insert_after": "Chèn sau vùng chọn",
     "empty": "Hãy nhập nội dung trước khi gửi.",
@@ -92,10 +93,12 @@ ERRORS = {
     "provider": "Chưa chọn nhà cung cấp. Chọn tại Tùy chọn ▸ HST Office ▸ Trợ lý AI.",
     "nokey": "Chưa có khóa API của nhà cung cấp này. Nhập khóa tại Tùy chọn ▸ HST Office ▸ Trợ lý AI.",
     "key": "Khóa API không hợp lệ hoặc không có quyền dùng mô hình này.",
-    "quota": "Nhà cung cấp từ chối vì vượt hạn mức hoặc hết tiền trong tài khoản. Hãy thử lại sau hoặc kiểm tra tài khoản.",
+    "quota": "Nhà cung cấp từ chối vì vượt hạn mức (giới hạn số lượt hoặc hết hạn mức của gói). Hãy thử lại sau "
+             "hoặc kiểm tra tài khoản.",
     "model": "Không tìm thấy mô hình này. Chọn mô hình khác trong Tùy chọn (nút \"Tải danh sách\").",
     "request": "Nhà cung cấp không nhận yêu cầu.",
-    "server": "Máy chủ của nhà cung cấp đang lỗi hoặc quá tải. Hãy thử lại sau.",
+    "server": "Máy chủ của nhà cung cấp đang lỗi hoặc quá tải. Hãy thử lại sau hoặc chọn mô hình khác trong "
+              "Tùy chọn ▸ HST Office ▸ Trợ lý AI.",
     "blocked": "Nhà cung cấp từ chối trả lời nội dung này.",
     "network": "Không kết nối được tới nhà cung cấp. Kiểm tra mạng, tường lửa hoặc proxy rồi thử lại.",
     "timeout": "Nhà cung cấp không trả lời trong 2 phút. Hãy thử lại hoặc chọn mô hình nhanh hơn.",
@@ -117,6 +120,17 @@ def writing_system(mode_index, instruction=""):
     if task is None:
         task = CUSTOM_TASK % instruction.strip()
     return WRITING % task
+
+
+def formula_request(description, cell, region=None):
+    """User text of "Viết công thức": the description, the target cell and, when the sheet has a data region, its
+    address and column names (header row only, never a data value): region = (address, [(column, name)])."""
+    text = description + (" Công thức sẽ đặt tại ô %s." % cell if cell else "")
+    if region:
+        address, headers = region
+        names = "; ".join("%s = %s" % (column, name) for column, name in headers)
+        text += " Dữ liệu ở vùng %s, dòng đầu là tên cột: %s." % (address, names)
+    return text
 
 
 def extract_formula(answer):

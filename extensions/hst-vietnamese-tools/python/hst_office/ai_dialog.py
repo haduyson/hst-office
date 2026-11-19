@@ -14,7 +14,7 @@ from .ai_client import Settings, complete
 from .ai_providers import MAX_PROMPT, PROVIDERS, AiError
 from .ai_ribbon_map_uno import command_map
 from .ai_texts import ACTIONS, FORMULA_EXPLAIN, FORMULA_WRITE, TEXT, WRITING_MODES, error_text, extract_formula, \
-    help_system, writing_system
+    formula_request, help_system, writing_system
 from .dialogs import Dialog, palette
 from .update_ui import on_main_thread
 
@@ -31,6 +31,8 @@ class AssistantDialog:
         self.answer, self.closed, self.dialog = "", False, None
         # read on the main thread now; the request itself runs on a worker
         self.ribbon_map = command_map(ctx, document.kind(self.model)) if action == "Help" else ""
+        self.region = (document.data_region(self.controller, self.cell)
+                       if action == "FormulaWrite" and self.cell is not None else None)
 
     def prefill(self):
         if self.action == "FormulaExplain" and self.cell is not None:
@@ -43,8 +45,7 @@ class AssistantDialog:
         """(system, user text) that "Gửi" sends now."""
         d, text = self.dialog, self.dialog.get("input").strip()
         if self.action == "FormulaWrite":
-            where = " Công thức sẽ đặt tại ô %s." % document.cell_name(self.cell) if self.cell is not None else ""
-            return FORMULA_WRITE, text + where
+            return FORMULA_WRITE, formula_request(text, document.cell_name(self.cell), self.region)
         if self.action == "FormulaExplain":
             return FORMULA_EXPLAIN, text
         if self.action == "Writing":
@@ -67,6 +68,9 @@ class AssistantDialog:
         d.edit("input", 8, y + 11, WIDTH - 16, 58 if self.action != "Writing" else 50, text=self.prefill(),
                multiline=True, help_text=TEXT[key.get(self.action, "input_help")])
         y += 72 if self.action != "Writing" else 64
+        if self.region:
+            d.label("columns_note", TEXT["columns_note"], 8, y, WIDTH - 16)
+            y += 11
         d.label("privacy", TEXT["privacy"] % self.label, 8, y, WIDTH - 16, 26, wrap=True).TextColor = muted
         d.button("preview", TEXT["preview"], 8, y + 28, 100, callback=self.show_preview)
         d.button("send", TEXT["send"], WIDTH - 8 - 60, y + 28, 60, callback=self.on_send, default=True)

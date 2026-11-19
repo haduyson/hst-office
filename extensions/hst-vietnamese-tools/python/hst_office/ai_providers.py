@@ -27,7 +27,7 @@ PROVIDERS = {
         "label": "Google Gemini",
         "host": "generativelanguage.googleapis.com",
         "auth": ("x-goog-api-key", ""),
-        "models": ("gemini-3.8-flash", "gemini-3.6-flash", "gemini-3.5-flash-lite"),
+        "models": ("gemini-3.6-flash", "gemini-3.8-flash", "gemini-3.5-flash-lite"),
         "keys_page": "https://aistudio.google.com/apikey",
     },
     "claude": {
