@@ -110,7 +110,17 @@ def normalize_tree(tree, patches, label, normalize):
     """Run normalize(path, rel, keep_lines) -> (changed, kept) on every Vietnamese .po; lines that an HST
     patch adds or keeps as context are passed as keep_lines and must stay. msgfmt checks each changed file."""
     root = os.path.join(tree, "translations", "source", "vi")
-    keep = patch_lines(patches)
+    if os.path.isfile(os.path.join(patches, "series")):
+        keep = patch_lines(patches)
+    else:
+        # Catalog-authored spellings are the reviewed form of these labels.
+        keep = {}
+        for folder, _, names in os.walk(patches):
+            for name in names:
+                if name.endswith(".po"):
+                    path = os.path.join(folder, name)
+                    with open(path, encoding="utf-8") as handle:
+                        keep[os.path.relpath(path, patches)] = set(handle.read().splitlines())
     files = lines = kept = errors = 0
     for folder, _dirs, names in os.walk(root):
         for name in sorted(names):
@@ -122,7 +132,7 @@ def normalize_tree(tree, patches, label, normalize):
                 before = handle.read()
             count, left = normalize(path, rel, frozenset(keep.get(rel, ())))
             if left:
-                print(f"warning: {rel}: {left} {label} lines come from an HST patch; fix the patch text instead")
+                print(f"warning: {rel}: {left} {label} lines have an explicit HST spelling")
                 kept += left
             if not count:
                 continue

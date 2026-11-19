@@ -1,9 +1,9 @@
 # Thuật ngữ giao diện tiếng Việt của HST Office
 
-Bản dịch giao diện gồm bản dịch tiếng Việt có sẵn của lõi, lớp bổ sung do AI dịch
+Các chuỗi giao diện riêng nằm trong [catalog HST](../l10n/hst/). Build ghép các mục này trong cây riêng với bản dịch tiếng Việt có sẵn của lõi, lớp bổ sung do AI dịch
 ([`l10n/vi/`](../l10n/vi/), chỉ điền chuỗi còn trống) và các sửa đè có lý do
 ([`l10n/vi-overrides.jsonl`](../l10n/vi-overrides.jsonl), áp bằng
-[`scripts/l10n/apply-overrides.py`](../scripts/l10n/apply-overrides.py) khi build). Danh sách máy đọc là
+[`scripts/l10n/apply-overrides.py`](../scripts/l10n/apply-overrides.py) khi build). [Quyết định kiến trúc](ADR/ADR-hst-l10n-catalog.md) mô tả cách tra cứu và đóng gói. Danh sách máy đọc là
 [`data/l10n/vi-glossary.json`](../data/l10n/vi-glossary.json) (`corrections`), dùng bởi
 [`scripts/l10n/term-report.py`](../scripts/l10n/term-report.py). **Chưa có người bản ngữ duyệt** toàn bộ bản dịch.
 

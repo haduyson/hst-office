@@ -63,18 +63,33 @@ def describe(key):
 
 def check(tree, lang, msguniq="msguniq", msgfmt="msgfmt", out=sys.stdout):
     """Number of stale catalogues; prints one line per catalogue checked with a difference."""
-    mos = sorted(glob.glob(os.path.join(tree, "instdir", "program", "resource", lang, "LC_MESSAGES", "*.mo")))
+    mos = sorted(glob.glob(os.path.join(tree, "instdir", "program", "resource", lang.replace("-", "_"), "LC_MESSAGES", "*.mo")))
     if not mos:
         print(f"check-mo-fresh: no {lang} catalogues in {tree}/instdir", file=out)
         return 1
     locations = polocations(tree)
     stale = checked = 0
+    stage = os.path.join(tree, "hst", "l10n")
+    manifest = os.path.join(stage, "domains.hxx")
+    if os.path.isfile(manifest):
+        with open(manifest, encoding="ascii") as handle:
+            domains = dict(re.findall(r"^HST_CATALOG\((\w+),(\w+)\)$", handle.read(), re.M))
+        shipped = {os.path.basename(mo)[:-3] for mo in mos}
+        for name in sorted(domains):
+            if "hst-" + name not in shipped:
+                print(f"MISSING {lang}/hst-{name}.mo", file=out)
+                stale += 1
+        locations.update(domains)
     with tempfile.TemporaryDirectory() as workdir:
         for mo in mos:
             name = os.path.basename(mo)[:-3]
-            location = locations.get(name, name)   # without set_polocation the .po directory is the module name
-            po = os.path.join(tree, "translations", "source", lang, location or "", "messages.po")
+            domain = name.removeprefix("hst-")
+            location = locations.get(domain, domain)   # without set_polocation the .po directory is the module name
+            po = os.path.join(stage if name.startswith("hst-") and lang in {"vi", "en-US"} else tree, "translations", "source", lang, location or "", "messages.po")
             if not os.path.isfile(po):
+                if name.startswith("hst-"):
+                    print(f"MISSING source for {name}.mo", file=out)
+                    stale += 1
                 continue   # catalogue without a translated .po (e.g. en-US only): nothing to compare
             checked += 1
             want = compile_po(po, msguniq, msgfmt, workdir)

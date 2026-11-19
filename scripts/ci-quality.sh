@@ -49,6 +49,7 @@ script scripts/generate-brand-assets.py --check
 script scripts/check-doc-links.py
 script scripts/check-workflows.py
 script scripts/l10n/check-access-keys.py --strict
+script scripts/l10n/check-catalog-boundary.py
 script scripts/l10n/check-ui-po-runs.py
 script scripts/windows/preflight-local.sh
 script scripts/macos/preflight-local.sh

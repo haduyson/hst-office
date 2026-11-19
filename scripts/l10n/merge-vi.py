@@ -7,7 +7,7 @@ Usage:
 
 l10n/vi/<module>.jsonl (committed) is the HST overlay: rows {file, msgctxt,
 msgid, msgstr} for strings upstream leaves untranslated. --apply fills only
-empty msgstr in translations/source/vi/**/*.po (upstream translations are never
+empty msgstr in the private hst/l10n/translations/source/vi/**/*.po (upstream translations are never
 replaced) and runs `msgfmt --check` on every changed file.
 """
 import argparse
@@ -22,6 +22,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 OVERLAY = os.path.join(ROOT, "l10n", "vi")
 sys.path.insert(0, HERE)
+from hst_catalog import prepare
 from po_io import fill_po  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("check", os.path.join(HERE, "check-translations.py"))
@@ -78,7 +79,7 @@ def main():
     if args.collect:
         return collect(args.collect)
     if args.apply:
-        return apply(args.tree)
+        return apply(prepare(args.tree))
     parser.error("use --collect or --apply")
     return 2
 

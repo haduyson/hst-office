@@ -383,7 +383,7 @@ sync_patches() {
 
 invalidate_translations() { # catalogues and the translated registry have no .po dependency (docs/SHARED_BUILD_SLOTS.md)
   local lang
-  sed -n 's|^translations/source/\([^/]*\)/.*\.po$|\1|p' "$SYNC/changed.txt" | sort -u | while IFS= read -r lang; do
+  sed -n 's|^\(hst/l10n/\)\?translations/source/\([^/]*\)/.*\.po$|\2|p' "$SYNC/changed.txt" | sort -u | while IFS= read -r lang; do
     log "translations changed for $lang: dropping its .mo catalogues and registry_$lang.xcd"
     rm -f "$SRC/workdir/MoTarget/"*"$lang.mo" "$SRC/workdir/XcdTarget/"*"$lang.xcd"
     rm -rf "$SRC/workdir/XcuResTarget/"*"/$lang"
@@ -392,7 +392,7 @@ invalidate_translations() { # catalogues and the translated registry have no .po
 
 invalidate_stale_translations() { # also catches a .po synced by a run that never got to rebuild its catalogues
   local dir lang oldest
-  for dir in "$SRC/translations/source"/*/; do
+  for dir in "$SRC/translations/source"/*/ "$SRC/hst/l10n/translations/source"/*/; do
     lang="$(basename "$dir")"
     # A fresh or wiped workdir has no MoTarget yet: find then fails, and pipefail must not end the build.
     oldest="$({ find "$SRC/workdir/MoTarget" -maxdepth 1 -name "*$lang.mo" -printf '%T@ %p\n' 2>/dev/null || true; } | sort -n | head -1 | cut -d' ' -f2-)"

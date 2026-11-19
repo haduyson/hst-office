@@ -25,7 +25,9 @@ def main():
     parser.add_argument("--tree", default="upstream/libreoffice")
     parser.add_argument("--out", default="work/l10n/todo")
     args = parser.parse_args()
-    root = os.path.join(args.tree, "translations", "source", "vi")
+    stage = os.path.join(args.tree, "hst", "l10n")
+    tree = stage if os.path.isdir(os.path.join(stage, "translations", "source", "vi")) else args.tree
+    root = os.path.join(tree, "translations", "source", "vi")
     os.makedirs(args.out, exist_ok=True)
     summary = {}
     for module in sorted(os.listdir(root)):

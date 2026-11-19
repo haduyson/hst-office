@@ -101,7 +101,7 @@ def rewrite_ulf(path, po_rel, translations, keys_filter, reviewed, problems, che
 
 
 def load_po(tree, rel):
-    return {e["msgctxt"]: e for e in parse_po(os.path.join(tree, "translations", "source", "vi", rel))}
+    return {e["msgctxt"]: e for e in parse_po(os.path.join(tree, "hst", "l10n", "translations", "source", "vi", rel))}
 
 
 def main():

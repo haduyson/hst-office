@@ -119,7 +119,9 @@ def replay(baseline, series_dir):
 
 
 def tree_problems(tree):
-    path = os.path.join(tree, UI_PO)
+    path = os.path.join(tree, "hst", "l10n", UI_PO)
+    if not os.path.isfile(path):
+        path = os.path.join(tree, UI_PO)
     if not os.path.isfile(path):
         return None, "no tree"
     with open(path, encoding="utf-8") as handle:

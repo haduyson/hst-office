@@ -51,7 +51,7 @@ if [ -f "$TARBALLS/libreoffice-26.8.3.1.tar.xz" ]; then
   done
   # MSI strings shown in the installer and in Windows "Programs and Features" must not point upstream.
   msi="$tmp/w/lo/instsetoo_native/inc_openoffice/windows/msi_languages"
-  vipo="$tmp/w/lo/translations/source/vi/instsetoo_native/inc_openoffice/windows/msi_languages.po"
+  vipo="$tmp/w/lo/hst/l10n/translations/source/vi/instsetoo_native/inc_openoffice/windows/msi_languages.po"
   if grep -nE '^en-US = ".*(libreoffice\.org|documentfoundation|LibreOffice Community)' "$msi/Property.ulf" "$msi/Control.ulf" \
      || grep -nE '^msgstr ".*(libreoffice\.org|documentfoundation|LibreOffice Community)' "$vipo"; then
     bad "installer strings still reference upstream"

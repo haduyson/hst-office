@@ -1,0 +1,548 @@
+HST Office: load and package the HST gettext domains.
+
+Build-time resources consume composed language inputs under hst/l10n.
+The upstream .mo files still compile from the original release inputs.
+Verify with scripts/l10n/check-ui-equivalence.py and check-mo-fresh.py.
+
+--- a/Repository.mk
++++ b/Repository.mk
+@@ -937,8 +937,10 @@
+ ))
+ endif
+ 
++# HST: bundle the application translation domains.
+ $(eval $(call gb_Helper_register_packages_for_install,ooo,\
+ 	$(if $(SYSTEM_LIBEXTTEXTCAT),,libexttextcat_fingerprint) \
++	postprocess_hst_catalogs \
+ 	officecfg_misc \
+ 	$(if $(filter $(OS),MACOSX), \
+ 		extensions_mdibundle \
+--- a/configure.ac
++++ b/configure.ac
+@@ -15483,6 +15483,8 @@
+ else
+     AC_MSG_RESULT([$WITH_LANG])
+     GIT_NEEDED_SUBMODULES="translations $GIT_NEEDED_SUBMODULES"
++fi
++# HST: the en-US catalog also requires the gettext build tools.
+     if test -z "$MSGFMT"; then
+         if test -n "$LODE_HOME" -a -x "$LODE_HOME/opt/bin/msgfmt" ; then
+             MSGFMT="$LODE_HOME/opt/bin/msgfmt"
+@@ -15507,7 +15509,6 @@
+             fi
+         fi
+     fi
+-fi
+ AC_SUBST(MSGFMT)
+ AC_SUBST(MSGUNIQ)
+ # check that the list is valid
+--- a/extras/CustomTarget_gallsystem.mk
++++ b/extras/CustomTarget_gallsystem.mk
+@@ -14,11 +14,12 @@
+     $(addsuffix .str,$(filter-out bullets fontwork symbolshapes,$(system_galleries))) \
+ ))
+ 
++# HST: use the composed Vietnamese resource catalog.
+ $(eval $(call gb_CustomTarget_ulfex_rule,\
+     $(gb_CustomTarget_workdir)/extras/gallsysstr/extras_gallsystem.ulf,\
+     $(SRCDIR)/extras/source/gallery/share/gallery_names.ulf,\
+     $(foreach lang,$(gb_TRANS_LANGS),\
+-        $(gb_POLOCATION)/$(lang)/extras/source/gallery/share.po)))
++        $(call gb_HstCatalog_langdir,$(lang))/extras/source/gallery/share.po)))
+ 
+ # desktop-translate.py is ugly af/doesn't play nice with make dependencies.
+ # It expects the target filename to exist and modifies it, so do the hack with own
+--- a/instsetoo_native/CustomTarget_install.mk
++++ b/instsetoo_native/CustomTarget_install.mk
+@@ -36,11 +36,12 @@
+ $(gb_CustomTarget_workdir)/instsetoo_native/install/win_ulffiles/%.ulf: \
+ 		| $(call gb_Postprocess_get_target,AllModulesButInstsetNative)
+ 
++# HST: use the composed Vietnamese resource catalog.
+ $(eval $(call gb_CustomTarget_ulfex_rule,\
+ 	$(gb_CustomTarget_workdir)/instsetoo_native/install/win_ulffiles/%.ulf,\
+ 	$(SRCDIR)/instsetoo_native/inc_openoffice/windows/msi_languages/%.ulf,\
+ 	$(foreach lang,$(gb_TRANS_LANGS),\
+-		$(gb_POLOCATION)/$(lang)/instsetoo_native/inc_openoffice/windows/msi_languages.po)))
++		$(call gb_HstCatalog_langdir,$(lang))/instsetoo_native/inc_openoffice/windows/msi_languages.po)))
+ 
+ export ENABLE_DOWNLOADSETS ?= TRUE
+ ifeq ($(OS),LINUX)
+--- a/librelogo/CustomTarget_librelogo.mk
++++ b/librelogo/CustomTarget_librelogo.mk
+@@ -11,8 +11,9 @@
+ 
+ librelogo_DIR := $(gb_CustomTarget_workdir)/librelogo/locproperties
+ 
++# HST: use the composed Vietnamese resource catalog.
+ define librelogo_Properties_Properties
+-$(call librelogo_Properties__Properties_impl,$(librelogo_DIR)/LibreLogo_$(1).properties,$(SRCDIR)/librelogo/source/pythonpath/LibreLogo_en_US.properties,$(gb_POLOCATION)/$(2)/librelogo/source/pythonpath.po,$(2))
++$(call librelogo_Properties__Properties_impl,$(librelogo_DIR)/LibreLogo_$(1).properties,$(SRCDIR)/librelogo/source/pythonpath/LibreLogo_en_US.properties,$(call gb_HstCatalog_langdir,$(2))/librelogo/source/pythonpath.po,$(2))
+ 
+ endef
+ 
+--- a/postprocess/Module_postprocess.mk
++++ b/postprocess/Module_postprocess.mk
+@@ -18,9 +18,11 @@
+ 	Rdb_services \
+ ))
+ ifeq ($(gb_Side),host)
++# HST: bundle the application translation domains.
+ $(eval $(call gb_Module_add_targets,postprocess,\
+ 	CustomTarget_images \
+ 	Package_images \
++	Package_hst_catalogs \
+ ))
+ endif
+ 
+--- /dev/null
++++ b/postprocess/Package_hst_catalogs.mk
+@@ -0,0 +1,34 @@
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Install the compiled HST domains via the core package's platform-specific file list.
++$(eval $(call gb_Package_Package,postprocess_hst_catalogs,$(WORKDIR)/MoTarget))
++$(eval $(call gb_Postprocess_register_target,AllResources,Package,postprocess_hst_catalogs))
++
++hst_catalog_manifest := $(SRCDIR)/hst/l10n/domains.hxx
++hst_catalog_pairs := $(shell awk -F '[(),]' '/^HST_CATALOG/ {print $$2 ":" $$3}' "$(hst_catalog_manifest)")
++ifeq ($(strip $(hst_catalog_pairs)),)
++$(error HST translation domains missing from $(hst_catalog_manifest))
++endif
++
++# Compile the two composed catalogs with the same MoTarget rule as their upstream counterparts.
++define hst_catalog_compile
++$(call gb_MoTarget_get_target,hst-$(1)$(3)) : private HST_CATALOG_PO := $(SRCDIR)/hst/l10n/translations/source/$(3)/$(2)/messages.po
++$(call gb_MoTarget_get_target,hst-$(1)$(3)) : $(SRCDIR)/hst/l10n/translations/source/$(3)/$(2)/messages.po
++$(call gb_Package_get_clean_target,postprocess_hst_catalogs) : FILES += $(call gb_MoTarget_get_target,hst-$(1)$(3))
++
++endef
++
++# Use the original compiled MO verbatim for languages without a separate overlay.
++define hst_catalog_install
++$(if $(filter vi en-US,$(3)),$(call hst_catalog_compile,$(1),$(2),$(3)))
++$(call gb_Package_add_file,postprocess_hst_catalogs,$(LIBO_SHARE_RESOURCE_FOLDER)/$(4)/LC_MESSAGES/hst-$(1).mo,$(if $(filter vi en-US,$(3)),hst-)$(1)$(3).mo)
++
++endef
++
++hst_catalog_langs := en-US $(filter-out en-US qtz,$(gb_WITH_LANG))
++$(foreach lang,$(hst_catalog_langs),$(eval hst_catalog_dir_$(lang) := $(shell $(SRCDIR)/solenv/bin/localestr $(lang))))
++$(foreach pair,$(hst_catalog_pairs), \
++    $(foreach lang,$(hst_catalog_langs), \
++        $(if $(or $(filter vi en-US,$(lang)),$(filter $(firstword $(subst :, ,$(pair))),$(gb_AllLangMoTarget_REGISTERED))), \
++            $(eval $(call hst_catalog_install,$(firstword $(subst :, ,$(pair))),$(lastword $(subst :, ,$(pair))),$(lang),$(hst_catalog_dir_$(lang)))))))
++
++$(call gb_Package_get_target,postprocess_hst_catalogs) : $(hst_catalog_manifest) $(gb_Helper_LANGSTARGET)
+--- a/readlicense_oo/CustomTarget_readme.mk
++++ b/readlicense_oo/CustomTarget_readme.mk
+@@ -23,16 +23,17 @@
+ else
+ readlicense_oo_README_XRM := $(readlicense_oo_DIR)/readme.xrm
+ 
++# HST: use the composed Vietnamese resource catalog.
+ $(readlicense_oo_DIR)/readme.xrm : \
+ 		$(SRCDIR)/readlicense_oo/docs/readme.xrm \
+ 		$(call gb_Executable_get_runtime_dependencies,xrmex) \
+-		$(foreach lang,$(filter-out qtz,$(filter-out en-US,$(gb_WITH_LANG))),$(gb_POLOCATION)/$(lang)/readlicense_oo/docs.po) \
++		$(foreach lang,$(filter-out qtz,$(filter-out en-US,$(gb_WITH_LANG))),$(call gb_HstCatalog_langdir,$(lang))/readlicense_oo/docs.po) \
+ 		| $(readlicense_oo_DIR)/.dir
+ 	$(call gb_Output_announce,$(subst $(WORKDIR)/,,$@),$(true),XRM,1)
+ 	$(call gb_Trace_StartRange,$(subst $(WORKDIR)/,,$@),XRM)
+ 	$(call gb_Helper_abbreviate_dirs, \
+         MERGEINPUT=`$(gb_MKTEMP)` && \
+-        echo $(foreach lang,$(filter-out qtz,$(filter-out en-US,$(gb_WITH_LANG))),$(gb_POLOCATION)/$(lang)/readlicense_oo/docs.po) > $${MERGEINPUT} && \
++        echo $(foreach lang,$(filter-out qtz,$(filter-out en-US,$(gb_WITH_LANG))),$(call gb_HstCatalog_langdir,$(lang))/readlicense_oo/docs.po) > $${MERGEINPUT} && \
+ 		$(call gb_Executable_get_command,xrmex) \
+ 			-i $< \
+ 			-o $@ \
+--- a/setup_native/CustomTarget_mac.mk
++++ b/setup_native/CustomTarget_mac.mk
+@@ -11,10 +11,11 @@
+ 
+ $(eval $(call gb_CustomTarget_register_target,setup_native/mac,macinstall.ulf))
+ 
++# HST: use the composed Vietnamese resource catalog.
+ $(eval $(call gb_CustomTarget_ulfex_rule,\
+ 	$(gb_CustomTarget_workdir)/setup_native/mac/macinstall.ulf,\
+ 	$(SRCDIR)/setup_native/source/mac/macinstall.ulf,\
+ 	$(foreach lang,$(gb_TRANS_LANGS),\
+-		$(gb_POLOCATION)/$(lang)/setup_native/source/mac.po)))
++		$(call gb_HstCatalog_langdir,$(lang))/setup_native/source/mac.po)))
+ 
+ # vim: set noet sw=4 ts=4:
+--- a/shell/CustomTarget_shlxthdl_res.mk
++++ b/shell/CustomTarget_shlxthdl_res.mk
+@@ -33,10 +33,11 @@
+ 			-rcf rcfooter.txt)
+ 	$(call gb_Trace_EndRange,$(subst $(WORKDIR)/,,$@),LCX)
+ 
++# HST: use the composed Vietnamese resource catalog.
+ $(eval $(call gb_CustomTarget_ulfex_rule,\
+ 	$(gb_CustomTarget_workdir)/shell/source/win32/shlxthandler/res/shlxthdl.ulf,\
+ 	$(SRCDIR)/shell/source/win32/shlxthandler/res/shlxthdl.ulf,\
+ 	$(foreach lang,$(gb_TRANS_LANGS),\
+-		$(gb_POLOCATION)/$(lang)/shell/source/win32/shlxthandler/res.po)))
++		$(call gb_HstCatalog_langdir,$(lang))/shell/source/win32/shlxthandler/res.po)))
+ 
+ # vim: set shiftwidth=4 tabstop=4 noexpandtab:
+--- a/solenv/gbuild/AllLangMoTarget.mk
++++ b/solenv/gbuild/AllLangMoTarget.mk
+@@ -34,15 +34,18 @@
+ 
+ # wsl1 seems to have issues with writing to stdout/pipes when running with high parallelism
+ # so as a workaround run the two statements in a single command run by a shell
+-$(call gb_MoTarget_get_target,%) : $(gb_Helper_MISCDUMMY)
++# HST: rebuild legacy MOs from pristine input when adopting the catalog split.
++$(call gb_MoTarget_get_target,%) : $(gb_Helper_MISCDUMMY) $(GBUILDDIR)/AllLangMoTarget.mk
+ 	$(call gb_Output_announce,$*,$(true),MO ,2)
+ 	$(call gb_Trace_StartRange,$*,MO )
+ 	$(call gb_Helper_abbreviate_dirs,mkdir -p $(dir $@)) && \
+-	$(call gb_Helper_wsl_path,$(WSL) /bin/sh -c "$(MSGUNIQ) --force-po $(gb_POLOCATION)/$(LANGUAGE)/$(POLOCATION)/messages.po | $(MSGFMT) - -o $@")
++	$(call gb_Helper_wsl_path,$(WSL) /bin/sh -c "$(MSGUNIQ) --force-po $(if $(filter hst-%,$*),$(HST_CATALOG_PO),$(gb_POLOCATION)/$(LANGUAGE)/$(POLOCATION)/messages.po) | $(MSGFMT) - -o $@")
+ 	$(call gb_Trace_EndRange,$*,MO )
+ 
+ #$(info $(call gb_MoTarget_get_target,$(1)))
+ define gb_MoTarget_MoTarget
++# HST: PO directories follow the source module even where the catalog name is abbreviated.
++$(call gb_MoTarget_get_target,$(1)) : $(wildcard $(gb_POLOCATION)/$(3)/$(gb_Module_CURRENTMODULE_NAME)/messages.po)
+ $(call gb_MoTarget_get_target,$(1)) : LIBRARY = $(2)
+ $(call gb_MoTarget_get_target,$(1)) : LANGUAGE = $(3)
+ $(call gb_MoTarget_get_target,$(1)) : POLOCATION = $(2)
+--- a/solenv/gbuild/Configuration.mk
++++ b/solenv/gbuild/Configuration.mk
+@@ -240,13 +240,14 @@
+ 		rm -f $(call gb_XcuMergeTarget_get_target,$*))
+ 
+ # $(call gb_XcuMergeTarget_XcuMergeTarget,target,configuration,prefix,xcufile)
++# HST: use the composed Vietnamese resource catalog.
+ define gb_XcuMergeTarget_XcuMergeTarget
+ $(call gb_XcuMergeTarget_get_target,$(1)) : \
+ 	$(SRCDIR)/$(3)/$(4) \
+-	$(wildcard $(foreach lang,$(gb_TRANS_LANGS),$(gb_POLOCATION)/$(lang)/$(patsubst %/,%,$(dir $(1))).po))
++	$(wildcard $(foreach lang,$(gb_TRANS_LANGS),$(call gb_HstCatalog_langdir,$(lang))/$(patsubst %/,%,$(dir $(1))).po))
+ $(call gb_XcuMergeTarget_get_target,$(1)) : \
+-	POFILES := $(foreach lang,$(gb_TRANS_LANGS),$(gb_POLOCATION)/$(lang)/$(patsubst %/,%,$(dir $(1))).po)
+-$(foreach lang,$(gb_TRANS_LANGS),$(gb_POLOCATION)/$(lang)/$(patsubst %/,%,$(dir $(1))).po) :
++	POFILES := $(foreach lang,$(gb_TRANS_LANGS),$(call gb_HstCatalog_langdir,$(lang))/$(patsubst %/,%,$(dir $(1))).po)
++$(foreach lang,$(gb_TRANS_LANGS),$(call gb_HstCatalog_langdir,$(lang))/$(patsubst %/,%,$(dir $(1))).po) :
+ endef
+ 
+ 
+--- a/solenv/gbuild/CustomTarget.mk
++++ b/solenv/gbuild/CustomTarget.mk
+@@ -74,7 +74,8 @@
+ 
+ # $(call gb_CustomTarget_ulfex_rule,ulftargetpattern,ulfsource,pofiles)
+ define gb_CustomTarget_ulfex_rule
+-$(1) : $(2) $(if $(WITH_LANG),$(call gb_Executable_get_runtime_dependencies,ulfex)) | $(dir $(1)).dir
++# HST: a regenerated translation must refresh its merged installer/desktop resource.
++$(1) : $(2) $(wildcard $(3)) $(if $(WITH_LANG),$(call gb_Executable_get_runtime_dependencies,ulfex)) | $(dir $(1)).dir
+ 	$$(call gb_CustomTarget_ulfex__command,$$@,$(subst %,$$*,$(strip $(2))),$(strip $(3)))
+ 
+ endef
+--- a/solenv/gbuild/Dictionary.mk
++++ b/solenv/gbuild/Dictionary.mk
+@@ -97,16 +97,17 @@
+ 	rm -f $(call gb_PropertiesTranslateTarget_get_target,$*)
+ 
+ # gb_PropertiesTranslateTarget_PropertiesTranslateTarget target source lang
++# HST: use the composed Vietnamese resource catalog.
+ define gb_PropertiesTranslateTarget_PropertiesTranslateTarget
+ $(call gb_PropertiesTranslateTarget_get_target,$(1)) : LANGUAGE := $(3)
+-$(call gb_PropertiesTranslateTarget_get_target,$(1)) : POFILE := $(gb_POLOCATION)/$(3)/$(patsubst %/,%,$(dir $(2))).po
++$(call gb_PropertiesTranslateTarget_get_target,$(1)) : POFILE := $(call gb_HstCatalog_langdir,$(3))/$(patsubst %/,%,$(dir $(2))).po
+ $(call gb_PropertiesTranslateTarget_get_target,$(1)) : PROPERTIES_FILE := $(SRCDIR)/$(2)
+ 
+ $(call gb_PropertiesTranslateTarget_get_target,$(1)) : $(SRCDIR)/$(2)
+ $(call gb_PropertiesTranslateTarget_get_target,$(1)) :| $(dir $(call gb_PropertiesTranslateTarget_get_target,$(1))).dir
+ 
+ $(if $(filter-out qtz,$(3)),\
+-	$(call gb_PropertiesTranslateTarget__PropertiesTranslateTarget_onelang,$(1),$(gb_POLOCATION)/$(3)/$(patsubst %/,%,$(dir $(2))).po) \
++	$(call gb_PropertiesTranslateTarget__PropertiesTranslateTarget_onelang,$(1),$(call gb_HstCatalog_langdir,$(3))/$(patsubst %/,%,$(dir $(2))).po) \
+ )
+ 
+ endef
+@@ -170,9 +171,9 @@
+ 
+ # gb_DescriptionTranslateTarget__DescriptionTranslateTarget_onelang target pobase lang
+ define gb_DescriptionTranslateTarget__DescriptionTranslateTarget_onelang
+-$(call gb_DescriptionTranslateTarget_get_target,$(1)) : POFILES += $(if $(filter-out qtz,$(3)),$(gb_POLOCATION)/$(3)/$(2).po)
++$(call gb_DescriptionTranslateTarget_get_target,$(1)) : POFILES += $(if $(filter-out qtz,$(3)),$(call gb_HstCatalog_langdir,$(3))/$(2).po)
+ $(if $(filter-out qtz,$(3)),\
+-	$(call gb_DescriptionTranslateTarget__DescriptionTranslateTarget_onelang_podeps,$(1),$(gb_POLOCATION)/$(3)/$(2).po))
++	$(call gb_DescriptionTranslateTarget__DescriptionTranslateTarget_onelang_podeps,$(1),$(call gb_HstCatalog_langdir,$(3))/$(2).po))
+ 
+ endef
+ 
+--- a/solenv/gbuild/Extension.mk
++++ b/solenv/gbuild/Extension.mk
+@@ -133,12 +133,13 @@
+ 
+ $(if $(filter nodeliver,$(3)),,$(call gb_Extension__Extension_deliver,$(1),Extension/$(1)))
+ 
++# HST: use the composed Vietnamese resource catalog.
+ ifneq ($(strip $(gb_WITH_LANG)),)
+ $(call gb_Extension_get_target,$(1)) : \
+-	POFILES := $(wildcard $(foreach lang,$(gb_TRANS_LANGS),$(gb_POLOCATION)/$(lang)/$(2).po))
++	POFILES := $(wildcard $(foreach lang,$(gb_TRANS_LANGS),$(call gb_HstCatalog_langdir,$(lang))/$(2).po))
+ $(gb_Extension_workdir)/$(1)/description.xml : \
+-	$(wildcard $(foreach lang,$(gb_TRANS_LANGS),$(gb_POLOCATION)/$(lang)/$(2).po))
+-$(foreach lang,$(gb_TRANS_LANGS),$(gb_POLOCATION)/$(lang)/$(2).po) :
++	$(wildcard $(foreach lang,$(gb_TRANS_LANGS),$(call gb_HstCatalog_langdir,$(lang))/$(2).po))
++$(foreach lang,$(gb_TRANS_LANGS),$(call gb_HstCatalog_langdir,$(lang))/$(2).po) :
+ endif
+ 
+ $(foreach lang,$(gb_Extension_ALL_LANGS), \
+@@ -296,10 +297,10 @@
+ ifneq ($(filter-out en-US,$(4)),)
+ ifneq ($(filter-out qtz,$(4)),)
+ $(call gb_Extension_get_rootdir,$(1))/$(2) : \
+-	POFILE := $(gb_POLOCATION)/$(or $(5),$(4))/$(patsubst /%/,%,$(subst $(SRCDIR),,$(dir $(3)))).po
++	POFILE := $(call gb_HstCatalog_langdir,$(or $(5),$(4)))/$(patsubst /%/,%,$(subst $(SRCDIR),,$(dir $(3)))).po
+ $(call gb_Extension_get_rootdir,$(1))/$(2) : \
+-	$(gb_POLOCATION)/$(or $(5),$(4))/$(patsubst /%/,%,$(subst $(SRCDIR),,$(dir $(3)))).po
+-$(gb_POLOCATION)/$(or $(5),$(4))/$(patsubst /%/,%,$(subst $(SRCDIR),,$(dir $(3)))).po :
++	$(call gb_HstCatalog_langdir,$(or $(5),$(4)))/$(patsubst /%/,%,$(subst $(SRCDIR),,$(dir $(3)))).po
++$(call gb_HstCatalog_langdir,$(or $(5),$(4)))/$(patsubst /%/,%,$(subst $(SRCDIR),,$(dir $(3)))).po :
+ endif
+ endif
+ $(call gb_Extension_get_target,$(1)) : $(call gb_Extension_get_rootdir,$(1))/$(2)
+@@ -348,10 +349,10 @@
+ ifneq ($(filter-out en-US,$(5)),)
+ ifneq ($(filter-out qtz,$(5)),)
+ $(gb_Extension_workdir)/$(1)/help/$(5)/$(3) : \
+-	POFILE := $(gb_POLOCATION)/$(5)$(subst $(SRCDIR),,$(2))$(patsubst %/,/%.po,$(patsubst ./,.po,$(dir $(or $(4),$(3)))))
++	POFILE := $(call gb_HstCatalog_langdir,$(5))$(subst $(SRCDIR),,$(2))$(patsubst %/,/%.po,$(patsubst ./,.po,$(dir $(or $(4),$(3)))))
+ $(gb_Extension_workdir)/$(1)/help/$(5)/$(3) : \
+-        $(gb_POLOCATION)/$(5)$(subst $(SRCDIR),,$(2))$(patsubst %/,/%.po,$(patsubst ./,.po,$(dir $(or $(4),$(3)))))
+-$(gb_POLOCATION)/$(5)$(subst $(SRCDIR),,$(2))$(patsubst %/,/%.po,$(patsubst ./,.po,$(dir $(or $(4),$(3))))) :
++        $(call gb_HstCatalog_langdir,$(5))$(subst $(SRCDIR),,$(2))$(patsubst %/,/%.po,$(patsubst ./,.po,$(dir $(or $(4),$(3)))))
++$(call gb_HstCatalog_langdir,$(5))$(subst $(SRCDIR),,$(2))$(patsubst %/,/%.po,$(patsubst ./,.po,$(dir $(or $(4),$(3))))) :
+ endif
+ endif
+ $(gb_Extension_workdir)/$(1)/help/$(5)/$(3) : \
+@@ -399,10 +400,10 @@
+ ifneq ($(filter-out en-US,$(5)),)
+ ifneq ($(filter-out qtz,$(5)),)
+ $(call gb_Extension_get_rootdir,$(1))/help/$(5)/$(3) : \
+-	POFILE := $(gb_POLOCATION)/$(5)$(subst $(SRCDIR),,$(2))$(patsubst %/,/%.po,$(patsubst ./,.po,$(dir $(4))))
++	POFILE := $(call gb_HstCatalog_langdir,$(5))$(subst $(SRCDIR),,$(2))$(patsubst %/,/%.po,$(patsubst ./,.po,$(dir $(4))))
+ $(call gb_Extension_get_rootdir,$(1))/help/$(5)/$(3) : \
+-        $(gb_POLOCATION)/$(5)$(subst $(SRCDIR),,$(2))$(patsubst %/,/%.po,$(patsubst ./,.po,$(dir $(4))))
+-$(gb_POLOCATION)/$(5)$(subst $(SRCDIR),,$(2))$(patsubst %/,/%.po,$(patsubst ./,.po,$(dir $(4)))) :
++        $(call gb_HstCatalog_langdir,$(5))$(subst $(SRCDIR),,$(2))$(patsubst %/,/%.po,$(patsubst ./,.po,$(dir $(4))))
++$(call gb_HstCatalog_langdir,$(5))$(subst $(SRCDIR),,$(2))$(patsubst %/,/%.po,$(patsubst ./,.po,$(dir $(4)))) :
+ endif
+ endif
+ $(call gb_Extension_get_rootdir,$(1))/help/$(5)/$(3) : \
+--- a/solenv/gbuild/Gallery.mk
++++ b/solenv/gbuild/Gallery.mk
+@@ -60,12 +60,12 @@
+ $(call gb_Gallery__get_final_target,%) :
+ 	touch $@
+ 
+-# difficult to determine source dep for this one...
+-$(gb_Gallery_workdir)/%.ulf : \
++# HST: rebuild gallery names when their translations change.
++gb_Gallery_name_pofiles = $(foreach lang,$(gb_TRANS_LANGS),$(call gb_HstCatalog_langdir,$(lang))/extras/source/gallery/share.po)
++$(gb_Gallery_workdir)/%.ulf : $(wildcard $(gb_Gallery_name_pofiles)) \
+ 		$(call gb_Executable_get_runtime_dependencies,ulfex)
+ 	$(call gb_CustomTarget_ulfex__command,$@,$(GALLERY_ULFFILE),\
+-		$(foreach lang,$(gb_TRANS_LANGS),\
+-			$(gb_POLOCATION)/$(lang)/extras/source/gallery/share.po))
++		$(gb_Gallery_name_pofiles))
+ 
+ $(gb_Gallery_workdir)/%.str : $(gb_Gallery_TRANSLATE) \
+ 		$(call gb_ExternalExecutable_get_dependencies,python)
+--- a/solenv/gbuild/HelpTarget.mk
++++ b/solenv/gbuild/HelpTarget.mk
+@@ -131,8 +131,9 @@
+ 
+ # use wildcard to avoid spurious rebuilds if translation is missing
+ # gb_HelpTranslateTarget__make_part module part lang dir
++# HST: use the composed Vietnamese resource catalog.
+ define gb_HelpTranslateTarget__make_part
+-$(call gb_HelpTranslatePartTarget_HelpTranslatePartTarget,$(2),$(3),$(wildcard $(gb_POLOCATION)/$(3)/$(patsubst %/,%,$(4)).po))
++$(call gb_HelpTranslatePartTarget_HelpTranslatePartTarget,$(2),$(3),$(wildcard $(call gb_HstCatalog_langdir,$(3))/$(patsubst %/,%,$(4)).po))
+ 
+ $(call gb_HelpTranslateTarget_get_target,$(1)) : $(call gb_HelpTranslatePartTarget_get_target,$(2))
+ $(call gb_HelpTranslateTarget_get_clean_target,$(1)) : clear_HelpTranslatePartTarget
+@@ -245,7 +246,7 @@
+ # use wildcard to avoid spurious rebuilds if translation is missing
+ # gb_HelpTreeTarget_set_treefile target treefile
+ define gb_HelpTreeTarget_set_treefile
+-$(call gb_HelpTreeTarget__set_pofiles,$(1),$(wildcard $(gb_POLOCATION)/$(lastword $(subst /, ,$(1)))/$(patsubst %/,%,$(dir $(2))).po))
++$(call gb_HelpTreeTarget__set_pofiles,$(1),$(wildcard $(call gb_HstCatalog_langdir,$(lastword $(subst /, ,$(1))))/$(patsubst %/,%,$(dir $(2))).po))
+ 
+ $(call gb_HelpTreeTarget_get_target,$(1)) : HELP_TREE := $(SRCDIR)/$(2).tree
+ $(call gb_HelpTreeTarget_get_target,$(1)) : $(SRCDIR)/$(2).tree
+--- a/solenv/gbuild/InstallModuleTarget.mk
++++ b/solenv/gbuild/InstallModuleTarget.mk
+@@ -93,13 +93,14 @@
+ 	rm -f $(call gb_ScpMergeTarget_get_target,$*)
+ 
+ # gb_ScpMergeTarget_ScpMergeTarget(<target>)
++# HST: use the composed Vietnamese resource catalog.
+ define gb_ScpMergeTarget_ScpMergeTarget
+ $(call gb_ScpMergeTarget_get_target,$(1)) :| $(dir $(call gb_ScpMergeTarget_get_target,$(1))).dir
+ $(call gb_ScpMergeTarget_get_target,$(1)) : \
+-	SCP_POFILES := $(foreach lang,$(gb_TRANS_LANGS),$(gb_POLOCATION)/$(lang)/$(patsubst %/,%,$(dir $(1))).po)
++	SCP_POFILES := $(foreach lang,$(gb_TRANS_LANGS),$(call gb_HstCatalog_langdir,$(lang))/$(patsubst %/,%,$(dir $(1))).po)
+ $(call gb_ScpMergeTarget_get_target,$(1)) : \
+-	$(foreach lang,$(gb_TRANS_LANGS),$(gb_POLOCATION)/$(lang)/$(patsubst %/,%,$(dir $(1))).po)
+-$(foreach lang,$(gb_TRANS_LANGS),$(gb_POLOCATION)/$(lang)/$(patsubst %/,%,$(dir $(1))).po) :
++	$(foreach lang,$(gb_TRANS_LANGS),$(call gb_HstCatalog_langdir,$(lang))/$(patsubst %/,%,$(dir $(1))).po)
++$(foreach lang,$(gb_TRANS_LANGS),$(call gb_HstCatalog_langdir,$(lang))/$(patsubst %/,%,$(dir $(1))).po) :
+ 
+ endef
+ 
+--- a/solenv/gbuild/TargetLocations.mk
++++ b/solenv/gbuild/TargetLocations.mk
+@@ -495,5 +495,7 @@
+ gb_Library_DLLDIR_FOR_BUILD := $(WORKDIR_FOR_BUILD)/LinkTarget/Library
+ gb_CppunitTest_DLLDIR := $(WORKDIR)/LinkTarget/CppunitTest
+ gb_POLOCATION := $(SRCDIR)/translations/source
++# HST: build-time resources consume composed Vietnamese POs.
++gb_HstCatalog_langdir = $(if $(filter vi,$(1)),$(SRCDIR)/hst/l10n/translations/source,$(gb_POLOCATION))/$(1)
+ 
+ # vim: set noet sw=4:
+--- a/solenv/gbuild/UIConfig.mk
++++ b/solenv/gbuild/UIConfig.mk
+@@ -200,7 +200,8 @@
+ 
+ # gb_UIConfig__package_uifile target package destfile srcfile
+ define gb_UIConfig__package_uifile
+-$(call gb_UIConfig__package_file,$(1),$(2),ui,$(3),$(4))
++# HST: use the composed gettext domain on installed dialogs.
++$(call gb_UIConfig__package_file,$(1),$(2),ui,$(3),$(if $(wildcard $(SRCDIR)/hst/l10n/ui/$(4)),hst/l10n/ui/$(4),$(4)))
+ 
+ endef
+ 
+--- a/sysui/CustomTarget_infoplist.mk
++++ b/sysui/CustomTarget_infoplist.mk
+@@ -39,10 +39,11 @@
+ 	iconv -f UTF-8 -t UTF-16 >$@
+ 	$(call gb_Trace_EndRange,$(subst $(WORKDIR)/,,$@),PRL)
+ 
++# HST: use the composed Vietnamese resource catalog.
+ $(eval $(call gb_CustomTarget_ulfex_rule,\
+ 	$(info_WORKDIR)/documents.ulf,\
+ 	$(SRCDIR)/sysui/desktop/share/documents.ulf,\
+ 	$(foreach lang,$(gb_TRANS_LANGS),\
+-		$(gb_POLOCATION)/$(lang)/sysui/desktop/share.po)))
++		$(call gb_HstCatalog_langdir,$(lang))/sysui/desktop/share.po)))
+ 
+ # vim: set noet sw=4 ts=4:
+--- a/sysui/CustomTarget_share.mk
++++ b/sysui/CustomTarget_share.mk
+@@ -215,10 +215,11 @@
+ 	touch $@
+ 	$(call gb_Trace_EndRange,$(subst $(WORKDIR)/,,$@),PRL)
+ 
++# HST: use the composed Vietnamese resource catalog.
+ $(eval $(call gb_CustomTarget_ulfex_rule,\
+ 	$(share_WORKDIR)/%.ulf,\
+ 	$(share_SRCDIR)/share/%.ulf,\
+ 	$(foreach lang,$(gb_TRANS_LANGS),\
+-		$(gb_POLOCATION)/$(lang)/sysui/desktop/share.po)))
++		$(call gb_HstCatalog_langdir,$(lang))/sysui/desktop/share.po)))
+ 
+ # vim: set noet sw=4 ts=4:
+--- /dev/null
++++ b/unotools/source/i18n/hstcatalog.hxx
+@@ -0,0 +1,16 @@
++// SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#pragma once
++
++#include <string>
++#include <string_view>
++
++namespace hst
++{
++inline std::string catalogDomain(std::string_view requested)
++{
++#define HST_CATALOG(domain, location) if (requested == #domain) return "hst-" #domain;
++#include "../../../hst/l10n/domains.hxx"
++#undef HST_CATALOG
++    return std::string(requested);
++}
++}
+--- a/unotools/source/i18n/resmgr.cxx
++++ b/unotools/source/i18n/resmgr.cxx
+@@ -42,6 +42,7 @@
+ 
+ #include <comphelper/lok.hxx>
+ #include <unotools/resmgr.hxx>
++#include "hstcatalog.hxx" // HST gettext domains
+ #include <osl/thread.h>
+ #include <osl/file.hxx>
+ #include <rtl/crc.h>
+@@ -144,11 +145,12 @@
+         gen.add_messages_path(std::string(sPath));
+ #if defined UNX && !defined MACOSX && !defined IOS && !defined ANDROID && !defined __EMSCRIPTEN__
+         // allow gettext to find these .mo files e.g. so gtk dialogs can use them
+-        bindtextdomain(aPrefixName.data(), sPath.getStr());
++        const std::string boundDomain(aPrefixName); // GTK may pass a slice of XML.
++        bindtextdomain(boundDomain.c_str(), sPath.getStr());
+         // tdf#131069 gtk, and anything sane, always wants utf-8 strings as output
+-        bind_textdomain_codeset(aPrefixName.data(), "UTF-8");
+-#endif
+-        gen.add_messages_domain(aPrefixName.data());
++        bind_textdomain_codeset(boundDomain.c_str(), "UTF-8");
++#endif
++        gen.add_messages_domain(hst::catalogDomain(aPrefixName));
+ 
+ #if defined(_WIN32) && defined(DBG_UTIL)
+         // With a newer C++ debug runtime (in an --enable-dbgutil build), passing an invalid locale
+--- a/vcl/unx/gtk3/hstuitranslate.cxx
++++ b/vcl/unx/gtk3/hstuitranslate.cxx
+@@ -95,8 +95,6 @@
+     if (!pMessagesLocale || !GettextIgnoresUILanguage(pMessagesLocale))
+         return {};
+     const LanguageTag& rUILanguage = Application::GetSettings().GetUILanguageTag();
+-    if (rUILanguage.getLanguage() == "en")
+-        return {}; // the .ui texts are English already
+     std::ifstream aFile(OUStringToOString(rSystemPath, osl_getThreadTextEncoding()).getStr(),
+                         std::ios::binary);
+     if (!aFile)
+--- a/vcl/unx/gtk3/hstuitranslate.hxx
++++ b/vcl/unx/gtk3/hstuitranslate.hxx
+@@ -23,8 +23,7 @@
+ 
+ /** The .ui file's translatable texts (translatable="yes", with their context) translated with LibreOffice's own
+     catalogs for the UI language, as VclBuilder does, and their translatable flags removed, so GtkBuilder takes them
+-    as they are. The interface's domain names the catalog. Empty when no translation is needed (gettext works, or
+-    the UI is English) or the file cannot be read. */
++    as they are. The interface's domain names the catalog. Empty when no translation is needed (gettext works) or the file cannot be read. */
+ OString TranslateUiFileForGtkBuilder(const OUString& rSystemPath);
+ }
+ 
+--- a/wizards/CustomTarget_wizards.mk
++++ b/wizards/CustomTarget_wizards.mk
+@@ -11,8 +11,9 @@
+ 
+ wizards_DIR := $(gb_CustomTarget_workdir)/wizards/locproperties
+ 
++# HST: use the composed Vietnamese resource catalog.
+ define wizards_Properties_Properties
+-$(call wizards_Properties__Properties_impl,$(wizards_DIR)/resources_$(1).properties,$(SRCDIR)/wizards/source/resources/resources_en_US.properties,$(gb_POLOCATION)/$(2)/wizards/source/resources.po,$(2))
++$(call wizards_Properties__Properties_impl,$(wizards_DIR)/resources_$(1).properties,$(SRCDIR)/wizards/source/resources/resources_en_US.properties,$(call gb_HstCatalog_langdir,$(2))/wizards/source/resources.po,$(2))
+ 
+ endef
+ 
+--- a/wizards/com/sun/star/wizards/common/strings.hrc
++++ b/wizards/com/sun/star/wizards/common/strings.hrc
+@@ -13,11 +13,12 @@
+ 
+ localeDir = "$BRAND_BASE_DIR/$BRAND_SHARE_RESOURCE_SUBDIR"
+ 
+-gettext.bindtextdomain('wiz', unohelper.fileUrlToSystemPath(
++domain = 'hst-wiz'  # HST wizard catalog
++gettext.bindtextdomain(domain, unohelper.fileUrlToSystemPath(
+     uno.getComponentContext().getByName(
+         "/singletons/com.sun.star.util.theMacroExpander").expandMacros(localeDir)))
+ 
+-gettext.textdomain('wiz')
++gettext.textdomain(domain)
+ 
+ def NC_(context, string):
+     # Contextual strings are stored with the concatenation of

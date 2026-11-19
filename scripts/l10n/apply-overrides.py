@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Apply l10n/vi-overrides.jsonl to the Vietnamese .po files of the LibreOffice tree.
+"""Apply l10n/vi-overrides.jsonl to the Vietnamese .po files of the HST staging tree.
 
 Each row {file, msgctxt, msgid, msgstr, reason} replaces the msgstr of exactly that
 (file, msgctxt, msgid) entry, overwriting an existing translation. An optional "msgid_new"
@@ -27,7 +27,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
 sys.path.insert(0, HERE)
-from po_io import fill_po, parse_po  # noqa: E402
+from po_io import fill_po, parse_block, parse_po, read_blocks  # noqa: E402
 from vi_tone import normalize_po  # noqa: E402
 from vi_terms import normalize_terms  # noqa: E402
 from vi_ellipsis import normalize_ellipsis  # noqa: E402
@@ -50,13 +50,23 @@ def load_rows(path):
 
 
 def rename_msgids(path, renames):
-    """Rename single-line msgids (old, new) in the .po text; already renamed ones are skipped."""
-    with open(path, encoding="utf-8") as handle:
-        text = handle.read()
-    for old, new in renames:
-        text = text.replace(f'\nmsgid "{old}"\n', f'\nmsgid "{new}"\n', 1)
+    """Retarget overrides by complete key, also when an HST catalog supplies the new ID."""
+    blocks = read_blocks(path)
+    keys = {}
+    for i, block in enumerate(blocks):
+        entry = parse_block(block)
+        if entry:
+            keys[entry["msgctxt"], entry["msgid"]] = i
+    for ctx, old, new in renames:
+        index = keys.get((ctx, old))
+        if index is None:
+            continue
+        if (ctx, new) in keys:
+            blocks[index] = None
+        else:
+            blocks[index] = blocks[index].replace(f'\nmsgid "{old}"\n', f'\nmsgid "{new}"\n', 1)
     with open(path, "w", encoding="utf-8") as handle:
-        handle.write(text)
+        handle.write("\n\n".join(b for b in blocks if b is not None))
 
 
 def apply(tree, overrides):
@@ -65,7 +75,7 @@ def apply(tree, overrides):
     renames = collections.defaultdict(list)
     for row in load_rows(overrides):
         if row.get("msgid_new"):
-            renames[row["file"]].append((row["msgid"], row["msgid_new"]))
+            renames[row["file"]].append((row["msgctxt"], row["msgid"], row["msgid_new"]))
         by_file[row["file"]][(row["msgctxt"], row.get("msgid_new") or row["msgid"])] = row["msgstr"]
     changed = errors = 0
     for rel, translations in sorted(by_file.items()):
@@ -155,11 +165,15 @@ def main():
     parser.add_argument("--tree", default=os.path.join(ROOT, "upstream", "libreoffice"))
     parser.add_argument("--overrides", default=os.path.join(ROOT, "l10n", "vi-overrides.jsonl"))
     parser.add_argument("--tip-images", default=os.path.join(ROOT, "l10n", "vi-tipoftheday"))
-    parser.add_argument("--patches", default=os.path.join(ROOT, "patches", "libreoffice"))
+    parser.add_argument("--patches", "--catalogs", default=os.path.join(ROOT, "l10n", "hst", "vi"),
+                        help="source of explicit HST spellings preserved by normalization")
     args = parser.parse_args()
-    status = apply(args.tree, args.overrides)
-    return (status | normalize_terms(args.tree, args.patches) | normalize_ellipsis(args.tree, args.patches)
-            | normalize_tones(args.tree)
+    stage = os.path.join(args.tree, "hst", "l10n")
+    if not os.path.isdir(os.path.join(stage, "translations", "source", "vi")):
+        parser.error("prepare HST catalogs with merge-vi.py --apply first")
+    status = apply(stage, args.overrides)
+    return (status | normalize_terms(stage, args.patches) | normalize_ellipsis(stage, args.patches)
+            | normalize_tones(stage)
             | apply_tip_images(args.tree, args.tip_images))
 
 

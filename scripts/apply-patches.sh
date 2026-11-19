@@ -11,14 +11,17 @@ SRC="${HST_LO_SRC:-$ROOT/upstream/libreoffice}"
 DIR="$ROOT/patches/libreoffice"
 CHECK_ONLY="${1:-}"
 
+scratch="$(mktemp -d)"
+trap 'rm -rf "$scratch"' EXIT
+mkdir -p "$scratch/active"
+python3 -B "$ROOT/scripts/l10n/check-catalog-boundary.py" --patch-dir "$DIR" --emit "$scratch/active"
 names=()
 while IFS= read -r name; do
   [[ -z "$name" || "$name" == \#* ]] && continue
-  names+=("$name")
+  [[ ! -f "$scratch/active/$name" ]] || names+=("$name")
 done < "$DIR/series"
 
-scratch="$(mktemp -d)"
-trap 'rm -rf "$scratch"' EXIT
+DIR="$scratch/active"
 copy_touched() { # fresh scratch copy of every file the series touches (missing files stay absent)
   rm -rf "$scratch/tree" && mkdir -p "$scratch/tree"
   local n f

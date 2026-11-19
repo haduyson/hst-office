@@ -114,7 +114,7 @@ fi
 # make regenerates them from this ref's translations. rsync above gives only rewritten files a new mtime.
 invalidate_stale_translations() {
   local dir lang oldest
-  for dir in "$LO/translations/source"/*/; do
+  for dir in "$LO/translations/source"/*/ "$LO/hst/l10n/translations/source"/*/; do
     lang="$(basename "$dir")"
     oldest="$(find "$LO/workdir/MoTarget" -maxdepth 1 -name "*$lang.mo" -printf '%T@ %p\n' 2>/dev/null | sort -n | head -1 | cut -d' ' -f2-)"
     [ -n "$oldest" ] || continue
