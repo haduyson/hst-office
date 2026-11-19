@@ -111,18 +111,21 @@ def write_rtf(docx, path, in_table=False):
     body = b"{\\object\\objemb\\objw600\\objh300{\\*\\objclass %s}{\\*\\objdata %s}%s}" % (
         name, ole1.hex().encode(), result)
     body = b"{\\f0\\fs24 A {\\dn6 " + body + b"} B}"  # MathType's baseline: Word lowers the run 3 pt
+    # space after the paragraph, as in Word's Normal style
+    body = b"\\pard%s\\sa160 " % (b"\\intbl" if in_table else b"") + body
     if in_table:
-        body = b"\\trowd\\cellx4000\\pard\\intbl " + body + b"\\cell\\row\\pard "
+        body = b"\\trowd\\cellx4000" + body + b"\\cell\\row\\pard "
     with open(path, "wb") as stream:
         stream.write(b"{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 Times New Roman;}}" + body + b"\\par}")
 
 
 def object_sizes(doc):
-    """(width, height, top from the baseline) in 1/100 mm of the OLE objects of a Writer document that are not Math
-    formulas (a formula, such as a converted Equation 3.0, is sized by its own layout when it is opened)."""
+    """(width, height, top from the baseline, top and bottom margin) in 1/100 mm of the OLE objects of a Writer
+    document that are not Math formulas (a formula, such as a converted Equation 3.0, is sized by its own layout when
+    it is opened)."""
     objects = [doc.getEmbeddedObjects().getByIndex(i) for i in range(doc.getEmbeddedObjects().getCount())]
-    return [(o.Size.Width, o.Size.Height, o.VertOrientPosition if o.VertOrient == 0 else -o.Size.Height)
-            for o in objects if not o.CLSID.upper().startswith(MATH_CLSID)]
+    return [(o.Size.Width, o.Size.Height, o.VertOrientPosition if o.VertOrient == 0 else -o.Size.Height,
+             o.TopMargin, o.BottomMargin) for o in objects if not o.CLSID.upper().startswith(MATH_CLSID)]
 
 
 def keeps_sizes(source, reopened):
@@ -158,6 +161,9 @@ def main():
             mathtype = [e for e in before if e[0].startswith("Equation.DSMT")]
             doc = office.load(office.url(source))
             sizes = object_sizes(doc)
+            if source in (rtf, in_table):  # an RTF object has no wrap distance, whatever the paragraph spacing
+                record("%s opens with no margin round the equation" % os.path.basename(source),
+                       sizes and all(size[3:] == (0, 0) for size in sizes), sizes)
             for extension, filter_name in FILTERS.items():
                 saved = os.path.join(workdir, os.path.basename(source) + ".saved" + extension)
                 doc.storeToURL(office.url(saved), headless_office.props(FilterName=filter_name))

@@ -21,6 +21,8 @@ That picture has the shown size at 100 %: the RTF import sizes an object by its 
 Its run position (MathType's baseline, VertOrient NONE) is written as \up/\dn around it, as
 Word does, and the RTF import sends an object's \up/\dn in a run with it, so the domain
 mapper places it as in a .docx run; it sat on the baseline and lines grew taller.
+An RTF object gets no margins: its replacement shape took the paragraph's space after as its
+bottom margin, which the object copied.
 The RTF import keeps the OLE data of equations (ProgID "Equation.*") in table cells too: the
 object is buffered with the cell (RTFBufferTypes::HstOleObject) and sent when the cell is
 replayed. LibreOffice read only the picture of objects in tables (fdo#53594), so saving again
@@ -990,7 +992,7 @@ index 74f3c07..2f832dc 100644
                      // the object is in a table or another container.
                      // Use the \result (RTFKeyword::RESULT) element of the object instead,
 diff --git a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
-index 6ad758c..9ec237f 100644
+index 6ad758c..7500799 100644
 --- a/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
 +++ b/sw/source/writerfilter/rtftok/rtfdocumentimpl.cxx
 @@ -56,6 +56,7 @@
@@ -1053,7 +1055,7 @@ index 6ad758c..9ec237f 100644
              m_aObjectAttributes.clear();
              m_aOLEAttributes.clear();
              m_bObject = false;
-@@ -3929,6 +3928,44 @@ RTFError RTFDocumentImpl::popState()
+@@ -3929,6 +3928,59 @@ RTFError RTFDocumentImpl::popState()
      return RTFError::OK;
  }
  
@@ -1082,6 +1084,21 @@ index 6ad758c..9ec237f 100644
 +    if (xShape.is())
 +    {
 +        Mapper().startShape(xShape);
++        // HST Office: an RTF object has no wrap distance, but its replacement shape took the
++        // paragraph's space after as its bottom margin, which the object copies: every line
++        // with an equation grew by it
++        uno::Reference<beans::XPropertySet> xShapeProps(xShape, uno::UNO_QUERY);
++        try
++        {
++            for (const OUString& rMargin : { u"TopMargin"_ustr, u"BottomMargin"_ustr,
++                                             u"LeftMargin"_ustr, u"RightMargin"_ustr })
++                if (xShapeProps.is())
++                    xShapeProps->setPropertyValue(rMargin, uno::Any(sal_Int32(0)));
++        }
++        catch (const uno::Exception&)
++        {
++            TOOLS_WARN_EXCEPTION("writerfilter.rtf", "RTF object margins");
++        }
 +        Mapper().props(pProperties);
 +        Mapper().endShape();
 +    }
