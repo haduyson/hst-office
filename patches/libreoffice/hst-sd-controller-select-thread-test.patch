@@ -1,0 +1,178 @@
+Regression test: a Draw or Impress selection change requested from another thread runs on the main thread.
+
+A remote UNO client (bridge thread) deselecting a shape rebuilds the view shell stack and sidebar
+panels. On Windows that deadlocks against the main thread (SolarMutex released for cross-thread
+window creation while the ViewShellManager mutex is held). The test deselects from a worker thread
+while the main thread handles events and checks that the selection change notification arrives on
+the main thread. DrawController serves Draw and Impress; both are tested.
+
+License: the new test file is HST-owned (LicenseRef-HST-Proprietary); the makefile keeps MPL-2.0.
+Test: CppunitTest_sd_a11y.
+---
+--- a/sd/CppunitTest_sd_a11y.mk
++++ b/sd/CppunitTest_sd_a11y.mk
+@@ -14,10 +14,12 @@
+ 	sd/qa/unit/a11y/HstSlideSorterDisposeRace \
+ 	sd/qa/unit/a11y/HstDocumentViewDisposeRace \
+ 	sd/qa/unit/a11y/HstTableCellDisposeRace \
++	sd/qa/unit/a11y/HstControllerSelectThread \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,sd_a11y, \
+ 	comphelper \
++	cppuhelper \
+ 	sal \
+ 	cppu \
+ 	subsequenttest \
+--- /dev/null
++++ b/sd/qa/unit/a11y/HstControllerSelectThread.cxx
+@@ -0,0 +1,149 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; fill-column: 100 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. All rights reserved.
++ */
++
++// A remote UNO client changes the selection of a Draw or Impress view from its bridge thread. The
++// change must run on the main thread: on Windows, rebuilding the view shell stack and the sidebar
++// panels on another thread deadlocks against the main thread (VCL releases the SolarMutex while it
++// creates the native windows on the main thread). DrawController serves both Draw and Impress, so
++// both are tested.
++
++#include <chrono>
++#include <cstdio>
++#include <cstdlib>
++#include <future>
++#include <mutex>
++#include <thread>
++#include <vector>
++
++#include <com/sun/star/awt/Point.hpp>
++#include <com/sun/star/awt/Size.hpp>
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/drawing/XDrawPagesSupplier.hpp>
++#include <com/sun/star/drawing/XShape.hpp>
++#include <com/sun/star/drawing/XShapes.hpp>
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/view/XSelectionChangeListener.hpp>
++#include <com/sun/star/view/XSelectionSupplier.hpp>
++
++#include <cppuhelper/implbase.hxx>
++#include <rtl/ref.hxx>
++#include <vcl/scheduler.hxx>
++#include <vcl/svapp.hxx>
++
++#include <test/a11y/accessibletestbase.hxx>
++
++using namespace css;
++
++namespace
++{
++/** Records the thread of every selection change notification. */
++class SelectionThreadRecorder : public cppu::WeakImplHelper<view::XSelectionChangeListener>
++{
++public:
++    void SAL_CALL selectionChanged(const lang::EventObject&) override
++    {
++        std::scoped_lock aLock(maMutex);
++        maThreads.push_back(std::this_thread::get_id());
++    }
++    void SAL_CALL disposing(const lang::EventObject&) override {}
++
++    std::vector<std::thread::id> threads()
++    {
++        std::scoped_lock aLock(maMutex);
++        return maThreads;
++    }
++
++private:
++    std::mutex maMutex;
++    std::vector<std::thread::id> maThreads;
++};
++
++class HstControllerSelectThread : public test::AccessibleTestBase
++{
++protected:
++    void checkDeselectFromOtherThread(const OUString& rFactoryURL)
++    {
++        load(rFactoryURL);
++        Scheduler::ProcessEventsToIdle();
++        uno::Reference<frame::XModel> xModel(mxDocument, uno::UNO_QUERY_THROW);
++
++        // a selected rectangle on the first page
++        uno::Reference<lang::XMultiServiceFactory> xFactory(xModel, uno::UNO_QUERY_THROW);
++        uno::Reference<drawing::XShape> xShape(
++            xFactory->createInstance(u"com.sun.star.drawing.RectangleShape"_ustr),
++            uno::UNO_QUERY_THROW);
++        xShape->setPosition(awt::Point(1000, 1000));
++        xShape->setSize(awt::Size(4000, 3000));
++        uno::Reference<drawing::XDrawPagesSupplier> xPages(xModel, uno::UNO_QUERY_THROW);
++        uno::Reference<drawing::XShapes> xPage(xPages->getDrawPages()->getByIndex(0),
++                                               uno::UNO_QUERY_THROW);
++        xPage->add(xShape);
++        uno::Reference<view::XSelectionSupplier> xController(xModel->getCurrentController(),
++                                                             uno::UNO_QUERY_THROW);
++        CPPUNIT_ASSERT(xController->select(uno::Any(xShape)));
++        Scheduler::ProcessEventsToIdle();
++
++        rtl::Reference<SelectionThreadRecorder> pRecorder(new SelectionThreadRecorder);
++        xController->addSelectionChangeListener(pRecorder);
++
++        // deselect from another thread while this (main) thread keeps handling events
++        const std::thread::id aMainThread = std::this_thread::get_id();
++        std::promise<void> aDone;
++        std::future<void> aFinished = aDone.get_future();
++        std::thread aClient([&] {
++            try
++            {
++                xController->select(uno::Any());
++            }
++            catch (...)
++            {
++            }
++            aDone.set_value();
++        });
++        {
++            SolarMutexGuard aGuard;
++            const auto aDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
++            while (aFinished.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
++            {
++                if (std::chrono::steady_clock::now() > aDeadline)
++                {
++                    std::fprintf(stderr, "HstControllerSelectThread: select() from another thread "
++                                         "did not return within 20 s\n");
++                    std::fflush(stderr);
++                    std::_Exit(1);
++                }
++                Application::Reschedule(true);
++                SolarMutexReleaser aReleaser;
++                std::this_thread::sleep_for(std::chrono::milliseconds(5));
++            }
++        }
++        aClient.join();
++        xController->removeSelectionChangeListener(pRecorder);
++
++        const std::vector<std::thread::id> aThreads = pRecorder->threads();
++        CPPUNIT_ASSERT_MESSAGE("deselecting sent no selection change", !aThreads.empty());
++        for (const std::thread::id& rThread : aThreads)
++            CPPUNIT_ASSERT_MESSAGE("the selection changed on the calling thread, not the main thread",
++                                   rThread == aMainThread);
++        uno::Reference<container::XIndexAccess> xSelected(xController->getSelection(),
++                                                          uno::UNO_QUERY);
++        CPPUNIT_ASSERT(!xSelected.is() || xSelected->getCount() == 0);
++    }
++};
++}
++
++CPPUNIT_TEST_FIXTURE(HstControllerSelectThread, testDrawSelectFromOtherThread)
++{
++    checkDeselectFromOtherThread(u"private:factory/sdraw"_ustr);
++}
++
++CPPUNIT_TEST_FIXTURE(HstControllerSelectThread, testImpressSelectFromOtherThread)
++{
++    checkDeselectFromOtherThread(u"private:factory/simpress"_ustr);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
