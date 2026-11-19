@@ -70,23 +70,45 @@ def depth(el):
 
 
 def reorder_tab(box, group_ids):
-    """Put the grid children of a tab's merged box in the data's order (other children keep their place after)."""
+    """The tab's groups in the data's order; True when the order changed."""
     kids = [c for c in box.findall("child") if c.find("object") is not None]
     by_id = {c.find("object").get("id"): c for c in kids}
     ordered = [by_id[g] for g in group_ids if g in by_id]
-    if [c for c in kids if c in ordered] == ordered:
-        return False
-    first = min(box.index(c) for c in ordered)
-    for c in ordered:
-        box.remove(c)
-    for i, c in enumerate(ordered):
-        box.insert(first + i, c)
+    changed = [c for c in kids if c in ordered] != ordered
+    if changed:
+        first = min(box.index(c) for c in ordered)
+        for c in ordered:
+            box.remove(c)
+        for i, c in enumerate(ordered):
+            box.insert(first + i, c)
+    number_positions(box)
+    return changed
+
+
+def number_positions(box):
+    """Every group of a box whose groups carry a packing position gets one, in file order: the builder sorts a
+    child without one (a group added by a later feature patch) before position 0, so it showed first."""
+    kids = [c for c in box.findall("child") if c.find("object") is not None]
+    if not any(c.find("packing/property[@name='position']") is not None for c in kids):
+        return
     for i, c in enumerate(kids):
+        indent = c.text or "\n"  # the whitespace before the child's <object>
         pack = c.find("packing")
-        pos = pack.find("property[@name='position']") if pack is not None else None
-        if pos is not None:
-            pos.text = str(box.index(c) - min(box.index(k) for k in kids))
-    return True
+        if pack is None:
+            obj = c.find("object")
+            pack = ET.Element("packing")
+            pack.tail, obj.tail = obj.tail, indent
+            obj.addnext(pack)
+            pack.text = indent + "  "
+        pos = pack.find("property[@name='position']")
+        if pos is None:
+            pos = ET.SubElement(pack, "property", name="position")
+            last = pos.getprevious()
+            if last is not None:
+                pos.tail, last.tail = last.tail, indent + "  "
+            else:
+                pos.tail = indent
+        pos.text = str(i)
 
 
 def borrow_units(root, grid, group, tab_grids):

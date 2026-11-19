@@ -178,6 +178,38 @@ class TreeCheckTest(unittest.TestCase):
         self.assertEqual(valign, ["fill", "fill"])
         self.assertEqual(root.find("child/packing/property[@name='expand']").text, "True")
 
+    def test_every_group_gets_a_position_in_its_order(self):
+        """A group a feature patch added without a packing position showed first (the builder sorts it before 0)."""
+        import importlib.util
+        from lxml import etree as ET
+        spec = importlib.util.spec_from_file_location(
+            "generate_ribbon_v3_ui", os.path.join(ROOT, "scripts/patches/generate-ribbon-v3-ui.py"))
+        G = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(G)
+        box = ET.fromstring(
+            '<object class="sfxlo-PriorityMergedHBox" id="pmhbExport">'
+            '<child><object class="GtkGrid" id="gdEdit"/><packing><property name="position">0</property></packing></child>'
+            '<child><object class="GtkGrid" id="gdPdf"/><packing><property name="position">1</property></packing></child>'
+            '<child><object class="GtkGrid" id="gdSign"/></child>'
+            '<child><object class="GtkGrid" id="gdHst"/><packing><property name="fill">True</property></packing></child>'
+            '</object>')
+        self.assertFalse(G.reorder_tab(box, ["gdEdit", "gdPdf", "gdSign", "gdHst"]))
+        positions = [(c.find("object").get("id"), c.find("packing/property[@name='position']").text)
+                     for c in box.findall("child")]
+        self.assertEqual(positions, [("gdEdit", "0"), ("gdPdf", "1"), ("gdSign", "2"), ("gdHst", "3")])
+        self.assertEqual(box.find("child[4]/packing/property[@name='fill']").text, "True")
+
+    def test_a_box_without_positions_stays_without(self):
+        import importlib.util
+        from lxml import etree as ET
+        spec = importlib.util.spec_from_file_location(
+            "generate_ribbon_v3_ui", os.path.join(ROOT, "scripts/patches/generate-ribbon-v3-ui.py"))
+        G = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(G)
+        box = ET.fromstring('<object id="b"><child><object id="a"/></child><child><object id="c"/></child></object>')
+        G.number_positions(box)
+        self.assertIsNone(box.find("child/packing"))
+
 
 if __name__ == "__main__":
     unittest.main()
