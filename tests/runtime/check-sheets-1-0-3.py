@@ -119,6 +119,8 @@ def run(uno, program, out, ui, loc, env):
             ("P6", "=WEEKNUM(60)", "9"),
             ("P7", "=EOMONTH(1,1)", "59"),
             ("P8", "=DAYS360(1,61)", "60"),
+            ("P10", "=TEXT(0,\"dd/mm/yyyy\")", "00/01/1900"),
+            ("P11", "=DAY(0)", "0"),
         ]
         for address, formula, _ in date_cases:
             enter(address, formula)
@@ -126,8 +128,9 @@ def run(uno, program, out, ui, loc, env):
         doc.calculateAll()
         for address, formula, want in date_cases:
             # Numbers by value: a date result shows in a date format.
-            got = cell(address).getString() if "-" in want else cell(address).getValue()
-            check(formula, got == (want if "-" in want else float(want)), got)
+            text = "-" in want or "/" in want
+            got = cell(address).getString() if text else cell(address).getValue()
+            check(formula, got == (want if text else float(want)), got)
         check("typing 1900-02-29 gives serial 60", cell("P9").getValue() == 60, cell("P9").getValue())
 
         # .ods round trip of the dynamic array.
