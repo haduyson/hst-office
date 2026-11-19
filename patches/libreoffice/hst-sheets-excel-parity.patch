@@ -1,0 +1,1458 @@
+HST Office: HST Sheets results and files follow the leading spreadsheet application (owner 18/11: in 1.0.3).
+
+- Booleans in text context: "a"&TRUE is "aTRUE" (was "a1"), and CONCATENATE, CONCAT, TEXTJOIN, LEFT, LEN,
+  UPPER, SUBSTITUTE, EXACT and TEXT see TRUE/FALSE as the text "TRUE"/"FALSE" (LEN(TRUE) 4, LEFT(TRUE,2) "TR",
+  EXACT(TRUE,"TRUE") TRUE). Any boolean result counts: TRUE/FALSE, comparisons, AND, ISNUMBER... Numbers and
+  arithmetic are unchanged. Scope: documents with the leading application's formula syntax (the HST Sheets
+  default), .xlsx/.xls files, and .ods saved by HST Sheets from now on; an .ods without the HST mark
+  (LibreOffice, HST Sheets 1.0.2 and older) keeps its numbers, also when recalculated and saved again.
+  Logic in sc/source/core/hst/hstlogicaltext.cxx; hooks: ScInterpreter::GetString and ScText, the document's
+  mode (ScDocument member), set by the .xlsx/.xls import.
+- .ods marks in an HST namespace (urn:hst-office:names:calc:xmlns:hstcalc:1.0, prefix hstcalc), ignored by
+  other ODF consumers: office:spreadsheet hstcalc:logical-text="text", and hstcalc:dynamic-array="true" on the
+  anchor of a dynamic array, so a spilling formula reopens as a dynamic array (before, an .ods round trip
+  turned it into a fixed Ctrl+Shift+Enter array). Logic in sc/source/filter/xml/hstodsextension.cxx; hooks in
+  the .ods export (namespace, office:spreadsheet, matrix anchor) and import (office:spreadsheet, cell,
+  matrix range).
+- MROUND of a number and a multiple of different signs is #NUM! (MROUND(5,-2) was 6), the vendor's documented
+  result; also in the OpenCL kernel. The upstream function test file expects the error.
+
+Test: CppunitTest_sc_hst_excel_parity (booleans in a new document, after .xlsx and .ods round trips, an older
+.ods keeps numbers, the HST mark; MROUND examples), CppunitTest_sc_hst_dynamic_array_acceptance
+(testOdsKeepsDynamicArrays), CppunitTest_sc_mathematical_functions_test (mround.fods).
+
+More results of the leading spreadsheet application (owner 18/11 21:15), same scope as the booleans:
+- #CALC!, a new error value (FormulaError::Calculation, no opcode: the compiler reads and writes the constant
+  "#CALC!"): an empty FILTER without if_empty, SEQUENCE with 0 rows or columns, GROUPBY/PIVOTBY without rows
+  (before #VALUE!). ERROR.TYPE gives 14 for it and 9 for #SPILL! (before #N/A). Status bar text with a
+  Vietnamese translation. .xlsx has no #CALC! cell value: the cached value is #VALUE! (as for #SPILL!) and
+  recalculation gives #CALC! again; .ods keeps the error and the constant. In an .ods without the HST mark the
+  old errors stay.
+- FILTERXML returns a node whose text is a plain decimal number as a number (ISNUMBER(FILTERXML("<a><b>1</b>
+  </a>","//b")) is TRUE).
+- SUM, AVERAGE, PRODUCT and SUMSQ count a number typed as text directly as an argument (SUM("1",2) is 3);
+  text in cells and ranges is still ignored, other text is still #VALUE!.
+- ISOMITTED is a boolean, also through LAMBDA and LET (=LAMBDA(a,b,ISOMITTED(b))(1,) shows TRUE, before 1):
+  the result of a LAMBDA call keeps the number format type of its body.
+Logic in sc/source/core/hst/hstexcelfunctions.cxx; hooks in the interpreter functions, the error tables
+(errorcodes.hxx, FormulaCompiler, ScGlobal, XclTools) and globstr.hrc.
+Test: CppunitTest_sc_hst_excel_parity (testCalcError, testFilterXmlNumbers, testTextNumberArguments,
+testIsOmittedIsLogical; testOlderOdsKeepsNumbers also for SUM).
+---
+--- a/formula/source/core/api/FormulaCompiler.cxx
++++ b/formula/source/core/api/FormulaCompiler.cxx
+@@ -1461,6 +1461,8 @@ FormulaError FormulaCompiler::GetErrorConstant( const OUString& rName ) const
+     }
+     else
+     {
++        if (rName.equalsIgnoreAsciiCase(u"#CALC!")) // HST: error without an opcode
++            return FormulaError::Calculation;
+         // Per convention recognize detailed "#ERRxxx!" constants, always
+         // untranslated. Error numbers are sal_uInt16 so at most 5 decimal
+         // digits.
+@@ -1513,6 +1515,9 @@ void FormulaCompiler::AppendErrorConstant( OUStringBuffer& rBuffer, FormulaError
+         case FormulaError::Spill:
+             eOp = ocErrSpill;
+             break;
++        case FormulaError::Calculation: // HST: error without an opcode
++            rBuffer.append("#CALC!");
++            return;
+         default:
+             {
+                 // Per convention create detailed "#ERRxxx!" constants, always
+--- a/include/formula/errorcodes.hxx
++++ b/include/formula/errorcodes.hxx
+@@ -91,6 +91,8 @@ enum class FormulaError : sal_uInt16
+     Spill                = 541,
+ // Expected function here; signaled when attempting to call a non-function
+     NotAFunction         = 542,
++// HST: an array result that is empty (FILTER without a match, SEQUENCE(0)...): #CALC!
++    Calculation          = 543,
+ 
+ // Interpreter: NA() not available condition, not a real error
+     NotAvailable         = 0x7fff
+@@ -182,6 +184,7 @@ inline bool isPublishedFormulaError( FormulaError nErr )
+         case FormulaError::LinkFormulaNeedingCheck:
+         case FormulaError::Spill:
+         case FormulaError::NotAFunction:
++        case FormulaError::Calculation:
+             return true;
+ 
+         case FormulaError::NotAvailable:
+--- /dev/null
++++ b/sc/CppunitTest_sc_hst_excel_parity.mk
+@@ -0,0 +1,65 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# This file is part of the LibreOffice project.
++#
++# This Source Code Form is subject to the terms of the Mozilla Public
++# License, v. 2.0. If a copy of the MPL was not distributed with this
++# file, You can obtain one at http://mozilla.org/MPL/2.0/.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,sc_hst_excel_parity))
++
++$(eval $(call gb_CppunitTest_use_externals,sc_hst_excel_parity, \
++	boost_headers \
++	mdds_headers \
++	libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sc_hst_excel_parity, \
++    sc/qa/unit/uicalc/hstexcelparity \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sc_hst_excel_parity, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    editeng \
++    i18nlangtag \
++    sal \
++    sc \
++    scqahelper \
++    sfx \
++    sot \
++    subsequenttest \
++    svl \
++    svl \
++    svx \
++    svxcore \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++    $(if $(filter -fsanitize=vptr,$(gb_CXX)),salhelper) \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sc_hst_excel_parity,\
++    -I$(SRCDIR)/sc/source/ui/inc \
++    -I$(SRCDIR)/sc/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sc_hst_excel_parity))
++
++$(eval $(call gb_CppunitTest_use_ure,sc_hst_excel_parity))
++$(eval $(call gb_CppunitTest_use_vcl,sc_hst_excel_parity))
++
++$(eval $(call gb_CppunitTest_use_rdb,sc_hst_excel_parity,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sc_hst_excel_parity))
++
++$(eval $(call gb_CppunitTest_add_arguments,sc_hst_excel_parity, \
++    -env:arg-env=$(gb_Helper_LIBRARY_PATH_VAR)"$$$${$(gb_Helper_LIBRARY_PATH_VAR)+=$$$$$(gb_Helper_LIBRARY_PATH_VAR)}" \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/sc/Library_sc.mk
++++ b/sc/Library_sc.mk
+@@ -104,10 +104,13 @@ $(eval $(call gb_Library_use_libraries,sc,\
+     xo \
+ ))
+ 
+-# HST Office: Flash Fill, spill barriers of dynamic arrays (sc/source/core/hst, sc/source/ui/hst)
++# HST Office: Flash Fill, dynamic arrays, booleans as text, .ods marks (sc/source/*/hst*)
+ $(eval $(call gb_Library_add_exception_objects,sc,\
+     sc/source/core/hst/hstflashfill \
+     sc/source/core/hst/hstspillbarrier \
++    sc/source/core/hst/hstlogicaltext \
++    sc/source/core/hst/hstexcelfunctions \
++    sc/source/filter/xml/hstodsextension \
+     sc/source/ui/hst/hstflashfillcommand \
+ ))
+ 
+--- a/sc/Module_sc.mk
++++ b/sc/Module_sc.mk
+@@ -113,6 +113,7 @@ $(eval $(call gb_Module_add_slowcheck_targets,sc, \
+ 	CppunitTest_sc_uicalc2 \
+ 	CppunitTest_sc_hst_dynamic_arrays \
+ 	CppunitTest_sc_hst_set_as_default \
++	CppunitTest_sc_hst_excel_parity \
+ 	CppunitTest_sc_vba_macro_test \
+ 	CppunitTest_sc_a11y \
+ 	CppunitTest_sc_filter_html \
+--- a/sc/inc/document.hxx
++++ b/sc/inc/document.hxx
+@@ -60,6 +60,7 @@
+ #include "drwlayer.hxx"
+ 
+ #include "SheetViewTypes.hxx"
++#include "hstlogicaltext.hxx"
+ 
+ #include <oox/helper/refvector.hxx>
+ 
+@@ -668,8 +669,11 @@ private:
+     OUString aCustomXmlFragmentPath;
+     bool mbXmlMapsXml = false;
+     std::string sXmlMapsContent;
++    sc::hst::LogicalTextMode meHstLogicalTextMode = sc::hst::LogicalTextMode::Default; // HST
+ 
+ public:
++    sc::hst::LogicalTextMode GetHstLogicalTextMode() const { return meHstLogicalTextMode; }
++    void SetHstLogicalTextMode(sc::hst::LogicalTextMode e) { meHstLogicalTextMode = e; }
+     bool                     IsCellInChangeTrack(const ScAddress &cell,Color *pColCellBorder);
+     void                     GetCellChangeTrackNote(const ScAddress &cell, OUString &strTrackText, bool &pbLeftEdge);
+ 
+--- a/sc/inc/globstr.hrc
++++ b/sc/inc/globstr.hrc
+@@ -565,6 +565,7 @@
+ #define STR_ERR_NAME_INVALID_CELL_REF           NC_("STR_ERR_NAME_INVALID_CELL_REF", "Invalid name. Reference to a cell, or a range of cells not allowed.")
+ #define STR_ERR_LONG_LINK_FORMULA_NEEDING_CHECK NC_("STR_ERR_LONG_LINK_FORMULA_NEEDING_CHECK", "External content disabled.")
+ #define STR_LONG_ERR_SPILL                      NC_("STR_LONG_ERR_SPILL", "Error: Array result could not expand because it would overwrite non-empty cells.")
++#define STR_HST_LONG_ERR_CALC                   NC_("STR_HST_LONG_ERR_CALC", "Error: the result is empty")
+ #define STR_TEXTORIENTANGLE                     NC_("STR_TEXTORIENTANGLE", "Text orientation angle")
+ #define STR_SHRINKTOFITCELL_ON                  NC_("STR_SHRINKTOFITCELL_ON", "Shrink to fit cell: On")
+ #define STR_SHRINKTOFITCELL_OFF                 NC_("STR_SHRINKTOFITCELL_OFF", "Shrink to fit cell: Off")
+--- /dev/null
++++ b/sc/inc/hstlogicaltext.hxx
+@@ -0,0 +1,59 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++#include <sal/types.h>
++#include "scdllapi.h"
++
++#include <formula/errorcodes.hxx>
++
++#include <string_view>
++
++class ScDocument;
++
++namespace sc::hst
++{
++/** Where a document's convention for booleans in text comes from. The leading spreadsheet
++    application turns TRUE/FALSE into the text "TRUE"/"FALSE" where text is needed ("a"&TRUE is
++    "aTRUE", LEN(TRUE) is 4); LibreOffice used the number ("a1", 1). */
++enum class LogicalTextMode : sal_uInt8
++{
++    /// A new document: the leading application's conventions when the formula syntax is its
++    /// syntax (the HST Sheets default).
++    Default,
++    /// An .ods saved by HST Sheets 1.0.3 or later: booleans as text like Default; dates keep the
++    /// ODF day count (hstexcel1900 does not apply to .ods files).
++    OdsMarked,
++    /// An .ods without the HST mark (LibreOffice, HST Sheets 1.0.2 and older): numbers, so the
++    /// results it was made with stay the same.
++    LegacyOds,
++    /// An .xlsx or .xls file: always text.
++    ExcelFile
++};
++
++/// Whether TRUE/FALSE become "TRUE"/"FALSE" (the document's boolean words) in text context.
++bool LogicalAsText(const ScDocument& rDoc);
++
++/** Whether the document counts days like the leading spreadsheet application's 1900 date system
++    (serial 60 is 29/02/1900, serials 1-59 one day later than LibreOffice's count): .xlsx/.xls
++    files and new documents with its formula syntax; never .ods files. */
++SC_DLLPUBLIC bool Excel1900Dates(const ScDocument& rDoc);
++
++/// Whether formula results follow the leading application where LibreOffice's differ (the
++/// scope of LogicalAsText; an .ods without the HST mark keeps LibreOffice's results).
++inline bool ExcelResults(const ScDocument& rDoc) { return LogicalAsText(rDoc); }
++
++/// The error of an empty array result (FILTER without a match, SEQUENCE(0), GROUPBY/PIVOTBY
++/// without rows): #CALC! where the document follows the leading application, else eLegacy.
++FormulaError EmptyResultError(const ScDocument& rDoc, FormulaError eLegacy);
++
++/// FILTERXML: whether a node's text is a number (rValue) the leading application returns as a
++/// number ("1", "-2.5", "1E3"; the XML number syntax, not the locale's).
++bool FilterXmlNumber(const ScDocument& rDoc, std::u16string_view rText, double& rValue);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/qa/unit/data/functions/mathematical/fods/mround.fods
++++ b/sc/qa/unit/data/functions/mathematical/fods/mround.fods
+@@ -2378,17 +2378,17 @@
+      <table:table-cell table:number-columns-repeated="5"/>
+     </table:table-row>
+     <table:table-row table:style-name="ro2">
+-     <table:table-cell table:style-name="ce54" table:formula="of:=MROUND(5; -2)" office:value-type="float" office:value="6" calcext:value-type="float">
+-      <text:p>6</text:p>
++     <table:table-cell table:style-name="ce54" table:formula="of:=ISERROR(MROUND(5; -2))" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
++      <text:p>TRUE</text:p>
+      </table:table-cell>
+-     <table:table-cell office:value-type="float" office:value="6" calcext:value-type="float">
+-      <text:p>6</text:p>
++     <table:table-cell office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
++      <text:p>TRUE</text:p>
+      </table:table-cell>
+      <table:table-cell table:style-name="ce14" table:formula="of:=ROUND([.A7];12)=ROUND([.B7];12)" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
+       <text:p>TRUE</text:p>
+      </table:table-cell>
+-     <table:table-cell table:style-name="ce20" table:formula="of:=FORMULA([.A7])" office:value-type="string" office:string-value="=MROUND(5, -2)" calcext:value-type="string">
+-      <text:p>=MROUND(5, -2)</text:p>
++     <table:table-cell table:style-name="ce20" table:formula="of:=FORMULA([.A7])" office:value-type="string" office:string-value="=ISERROR(MROUND(5, -2))" calcext:value-type="string">
++      <text:p>=ISERROR(MROUND(5, -2))</text:p>
+      </table:table-cell>
+      <table:table-cell/>
+      <table:table-cell table:style-name="ce21" table:number-columns-repeated="2"/>
+@@ -2532,17 +2532,17 @@
+      <table:table-cell table:number-columns-repeated="5"/>
+     </table:table-row>
+     <table:table-row table:style-name="ro2">
+-     <table:table-cell table:formula="of:=MROUND([.F14];[.G14])" office:value-type="float" office:value="18" calcext:value-type="float">
+-      <text:p>18</text:p>
++     <table:table-cell table:formula="of:=ISERROR(MROUND([.F14];[.G14]))" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
++      <text:p>TRUE</text:p>
+      </table:table-cell>
+-     <table:table-cell office:value-type="float" office:value="18" calcext:value-type="float">
+-      <text:p>18</text:p>
++     <table:table-cell office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
++      <text:p>TRUE</text:p>
+      </table:table-cell>
+      <table:table-cell table:style-name="ce14" table:formula="of:=ROUND([.A14];12)=ROUND([.B14];12)" office:value-type="boolean" office:boolean-value="true" calcext:value-type="boolean">
+       <text:p>TRUE</text:p>
+      </table:table-cell>
+-     <table:table-cell table:style-name="ce20" table:formula="of:=FORMULA([.A14])" office:value-type="string" office:string-value="=MROUND(F14,G14)" calcext:value-type="string">
+-      <text:p>=MROUND(F14,G14)</text:p>
++     <table:table-cell table:style-name="ce20" table:formula="of:=FORMULA([.A14])" office:value-type="string" office:string-value="=ISERROR(MROUND(F14,G14))" calcext:value-type="string">
++      <text:p>=ISERROR(MROUND(F14,G14))</text:p>
+      </table:table-cell>
+      <table:table-cell/>
+      <table:table-cell office:value-type="float" office:value="18" calcext:value-type="float">
+--- /dev/null
++++ b/sc/qa/unit/uicalc/hstexcelparity.cxx
+@@ -0,0 +1,303 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// HST Office: results of HST Sheets that follow the leading spreadsheet application, checked
++// against the results documented by its vendor: booleans become the text "TRUE"/"FALSE" where
++// text is needed ("a"&TRUE, CONCAT, TEXTJOIN, LEFT, LEN, UPPER, TEXT, SUBSTITUTE, EXACT) in new
++// documents, .xlsx files and .ods files saved by HST Sheets, while older .ods files keep their
++// results; MROUND of a number and a multiple of different signs is #NUM!; #CALC! for an empty
++// array result; FILTERXML numbers; a text number as an argument of SUM; ISOMITTED through LAMBDA.
++
++#include "../helper/qahelper.hxx"
++
++#include <comphelper/propertyvalue.hxx>
++#include <rtl/string.hxx>
++#include <rtl/ustring.hxx>
++#include <tools/stream.hxx>
++#include <vcl/scheduler.hxx>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <hstlogicaltext.hxx>
++
++namespace
++{
++class ScHstExcelParityTest : public ScModelTestBase
++{
++public:
++    ScHstExcelParityTest()
++        : ScModelTestBase(u"sc/qa/unit/data"_ustr)
++    {
++    }
++
++protected:
++    ScAddress pos(const char* pCell)
++    {
++        ScAddress aPos;
++        aPos.Parse(OUString::createFromAscii(pCell), *getScDoc());
++        return aPos;
++    }
++    OUString str(const char* pCell) { return getScDoc()->GetString(pos(pCell)); }
++    double val(const char* pCell) { return getScDoc()->GetValue(pos(pCell)); }
++    void recalc()
++    {
++        getScDoc()->CalcAll();
++        Scheduler::ProcessEventsToIdle();
++    }
++
++    /// Types the boolean-in-text cases into column A (rows 1-8).
++    void typeBooleanCases()
++    {
++        // Set, not typed: Enter after a trailing function name takes the autocompletion tip.
++        getScDoc()->SetString(pos("A1"), u"=\"a\"&TRUE"_ustr);
++        insertStringToCell(u"A2"_ustr, u"=CONCATENATE(\"x\",TRUE)");
++        insertStringToCell(u"A3"_ustr, u"=TEXTJOIN(\",\",TRUE,TRUE,1)");
++        insertStringToCell(u"A4"_ustr, u"=LEN(TRUE)");
++        insertStringToCell(u"A5"_ustr, u"=LEFT(TRUE,2)");
++        insertStringToCell(u"A6"_ustr, u"=UPPER(FALSE)");
++        insertStringToCell(u"A7"_ustr, u"=EXACT(TRUE,\"TRUE\")");
++        insertStringToCell(u"A8"_ustr, u"=\"a\"&(1=1)");
++    }
++    void checkBooleanCasesAsText()
++    {
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(
++            std::string(OUStringToOString(getScDoc()->GetFormula(0, 0, 0), RTL_TEXTENCODING_UTF8)),
++            u"aTRUE"_ustr, str("A1"));
++        CPPUNIT_ASSERT_EQUAL(u"xTRUE"_ustr, str("A2"));
++        CPPUNIT_ASSERT_EQUAL(u"TRUE,1"_ustr, str("A3"));
++        CPPUNIT_ASSERT_EQUAL(4.0, val("A4"));
++        CPPUNIT_ASSERT_EQUAL(u"TR"_ustr, str("A5"));
++        CPPUNIT_ASSERT_EQUAL(u"FALSE"_ustr, str("A6"));
++        CPPUNIT_ASSERT_EQUAL(u"TRUE"_ustr, str("A7"));
++        CPPUNIT_ASSERT_EQUAL(u"aTRUE"_ustr, str("A8"));
++    }
++
++    /// Writes a flat .ods holding ="a"&TRUE() in A1 (cached "a1"), with or without the HST mark.
++    void writeFlatOds(bool bHstMark)
++    {
++        const OString aMark = bHstMark ? " hstcalc:logical-text=\"text\""_ostr : OString();
++        const OString aXml
++            = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
++              "<office:document xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\""
++              " xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\""
++              " xmlns:text=\"urn:oasis:names:tc:opendocument:xmlns:text:1.0\""
++              " xmlns:of=\"urn:oasis:names:tc:opendocument:xmlns:of:1.2\""
++              " xmlns:hstcalc=\"urn:hst-office:names:calc:xmlns:hstcalc:1.0\""
++              " office:version=\"1.3\" office:mimetype=\"application/vnd.oasis.opendocument.spreadsheet\">"
++              "<office:body><office:spreadsheet"
++            + aMark
++            + "><table:table table:name=\"Sheet1\"><table:table-row>"
++              "<table:table-cell table:formula=\"of:=&quot;a&quot;&amp;TRUE()\""
++              " office:value-type=\"string\" office:string-value=\"a1\"><text:p>a1</text:p>"
++              "</table:table-cell><table:table-cell table:formula=\"of:=SUM(&quot;1&quot;;2)\""
++              " office:value-type=\"float\" office:value=\"0\"><text:p>0</text:p></table:table-cell>"
++              "</table:table-row></table:table></office:spreadsheet></office:body>"
++              "</office:document>";
++        SvFileStream aStream(maTempFile.GetURL(), StreamMode::WRITE | StreamMode::TRUNC);
++        aStream.WriteBytes(aXml.getStr(), aXml.getLength());
++        aStream.Close();
++        CPPUNIT_ASSERT_EQUAL(ERRCODE_NONE, aStream.GetError());
++    }
++    void loadFlatOds()
++    {
++        loadFromURL(maTempFile.GetURL(), { comphelper::makePropertyValue(
++                                               u"FilterName"_ustr,
++                                               u"OpenDocument Spreadsheet Flat XML"_ustr) });
++    }
++};
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcelParityTest, testBooleansInTextContext)
++{
++    createScDoc();
++    typeBooleanCases();
++    checkBooleanCasesAsText();
++
++    insertStringToCell(u"B1"_ustr, u"=FALSE&\"b\"");
++    CPPUNIT_ASSERT_EQUAL(u"FALSEb"_ustr, str("B1"));
++    insertStringToCell(u"B2"_ustr, u"=CONCAT(\"x\",FALSE)");
++    CPPUNIT_ASSERT_EQUAL(u"xFALSE"_ustr, str("B2"));
++    insertStringToCell(u"B3"_ustr, u"=SUBSTITUTE(TRUE,\"T\",\"t\")");
++    CPPUNIT_ASSERT_EQUAL(u"tRUE"_ustr, str("B3"));
++    insertStringToCell(u"B4"_ustr, u"=TEXT(TRUE,\"0\")");
++    CPPUNIT_ASSERT_EQUAL(u"TRUE"_ustr, str("B4"));
++    insertStringToCell(u"B5"_ustr, u"=LEN(ISNUMBER(1))");
++    CPPUNIT_ASSERT_EQUAL(4.0, val("B5"));
++    insertStringToCell(u"C1"_ustr, u"TRUE");
++    insertStringToCell(u"B6"_ustr, u"=\"a\"&C1");
++    CPPUNIT_ASSERT_EQUAL(u"aTRUE"_ustr, str("B6"));
++    // Cells holding a boolean, typed or computed, read as text too.
++    insertStringToCell(u"C2"_ustr, u"=1=2");
++    insertStringToCell(u"D1"_ustr, u"=LEN(C1)");
++    CPPUNIT_ASSERT_EQUAL(4.0, val("D1"));
++    insertStringToCell(u"D2"_ustr, u"=CONCAT(C1:C2)");
++    CPPUNIT_ASSERT_EQUAL(u"TRUEFALSE"_ustr, str("D2"));
++    insertStringToCell(u"D3"_ustr, u"=TEXTJOIN(\"-\",TRUE,C1:C2)");
++    CPPUNIT_ASSERT_EQUAL(u"TRUE-FALSE"_ustr, str("D3"));
++    insertStringToCell(u"D4"_ustr, u"=TEXT(C1,\"0\")");
++    CPPUNIT_ASSERT_EQUAL(u"TRUE"_ustr, str("D4"));
++    insertStringToCell(u"D5"_ustr, u"=\"x\"&C2");
++    CPPUNIT_ASSERT_EQUAL(u"xFALSE"_ustr, str("D5"));
++    insertStringToCell(u"D6"_ustr, u"=C1+1");
++    CPPUNIT_ASSERT_EQUAL(2.0, val("D6"));
++
++    // Numbers and arithmetic stay as they were.
++    insertStringToCell(u"B7"_ustr, u"=\"a\"&1");
++    CPPUNIT_ASSERT_EQUAL(u"a1"_ustr, str("B7"));
++    insertStringToCell(u"B8"_ustr, u"=TRUE+1");
++    CPPUNIT_ASSERT_EQUAL(2.0, val("B8"));
++    insertStringToCell(u"B9"_ustr, u"=LEN(12)");
++    CPPUNIT_ASSERT_EQUAL(2.0, val("B9"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcelParityTest, testBooleansInTextXlsx)
++{
++    createScDoc();
++    typeBooleanCases();
++    saveAndReload(TestFilter::XLSX);
++    CPPUNIT_ASSERT(getScDoc()->GetHstLogicalTextMode() == sc::hst::LogicalTextMode::ExcelFile);
++    recalc();
++    checkBooleanCasesAsText();
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcelParityTest, testBooleansInTextOds)
++{
++    // Saved by HST Sheets: the mark is written and read back.
++    createScDoc();
++    typeBooleanCases();
++    saveAndReload(TestFilter::ODS);
++    xmlDocUniquePtr pContent = parseExport(u"content.xml"_ustr);
++    CPPUNIT_ASSERT(pContent);
++    assertXPath(pContent,
++                "/office:document-content/office:body/office:spreadsheet"
++                "[@*[local-name()='logical-text']='text']");
++    recalc();
++    checkBooleanCasesAsText();
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcelParityTest, testOlderOdsKeepsNumbers)
++{
++    // An .ods without the mark (LibreOffice, older HST Sheets) keeps its results, also when
++    // recalculated and after saving it again.
++    writeFlatOds(false);
++    loadFlatOds();
++    CPPUNIT_ASSERT(getScDoc()->GetHstLogicalTextMode() == sc::hst::LogicalTextMode::LegacyOds);
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(u"a1"_ustr, str("A1"));
++    CPPUNIT_ASSERT_EQUAL(u"#VALUE!"_ustr, str("B1"));
++    saveAndReload(TestFilter::ODS);
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(u"a1"_ustr, str("A1"));
++
++    // With the mark: text.
++    dispose();
++    writeFlatOds(true);
++    loadFlatOds();
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(u"aTRUE"_ustr, str("A1"));
++    CPPUNIT_ASSERT_EQUAL(3.0, val("B1"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcelParityTest, testMroundSigns)
++{
++    // The vendor's MROUND examples: MROUND(10,3)=9, MROUND(-10,-3)=-9, MROUND(1.3,0.2)=1.4,
++    // MROUND(5,-2)=#NUM! ("If number and multiple have different signs, MROUND returns #NUM!").
++    createScDoc();
++    insertStringToCell(u"A1"_ustr, u"=MROUND(10,3)");
++    insertStringToCell(u"A2"_ustr, u"=MROUND(-10,-3)");
++    insertStringToCell(u"A3"_ustr, u"=MROUND(1.3,0.2)");
++    insertStringToCell(u"A4"_ustr, u"=MROUND(5,-2)");
++    insertStringToCell(u"A5"_ustr, u"=MROUND(-5,2)");
++    insertStringToCell(u"A6"_ustr, u"=MROUND(0,-2)");
++    CPPUNIT_ASSERT_EQUAL(9.0, val("A1"));
++    CPPUNIT_ASSERT_EQUAL(-9.0, val("A2"));
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(1.4, val("A3"), 1e-12);
++    CPPUNIT_ASSERT_EQUAL(u"#NUM!"_ustr, str("A4"));
++    CPPUNIT_ASSERT_EQUAL(u"#NUM!"_ustr, str("A5"));
++    CPPUNIT_ASSERT_EQUAL(0.0, val("A6"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcelParityTest, testCalcError)
++{
++    createScDoc();
++    for (int i = 0; i < 5; ++i)
++        getScDoc()->SetValue(ScAddress(0, i, 0), i + 1.0);
++    insertStringToCell(u"B1"_ustr, u"=FILTER(A1:A5,A1:A5>10)");
++    CPPUNIT_ASSERT_EQUAL(u"#CALC!"_ustr, str("B1"));
++    insertStringToCell(u"C1"_ustr, u"=ERROR.TYPE(FILTER(A1:A5,A1:A5>10))");
++    CPPUNIT_ASSERT_EQUAL(14.0, val("C1"));
++    insertStringToCell(u"C2"_ustr, u"=FILTER(A1:A5,A1:A5>10,\"none\")");
++    CPPUNIT_ASSERT_EQUAL(u"none"_ustr, str("C2"));
++    insertStringToCell(u"C3"_ustr, u"=SEQUENCE(0)");
++    CPPUNIT_ASSERT_EQUAL(u"#CALC!"_ustr, str("C3"));
++    insertStringToCell(u"C4"_ustr, u"=ERROR.TYPE(#CALC!)");
++    CPPUNIT_ASSERT_EQUAL(14.0, val("C4"));
++    insertStringToCell(u"C5"_ustr, u"=ISERROR(#CALC!)");
++    CPPUNIT_ASSERT_EQUAL(u"TRUE"_ustr, str("C5"));
++    insertStringToCell(u"C6"_ustr, u"=GROUPBY(A1:A5,A1:A5,SUM,,,,A1:A5>10)");
++    CPPUNIT_ASSERT_EQUAL(u"#CALC!"_ustr, str("C6"));
++    insertStringToCell(u"C7"_ustr, u"=ERROR.TYPE(1/0)");
++    CPPUNIT_ASSERT_EQUAL(2.0, val("C7"));
++
++    // .ods keeps the error and the constant.
++    saveAndReload(TestFilter::ODS);
++    CPPUNIT_ASSERT_EQUAL(u"#CALC!"_ustr, str("B1"));
++    CPPUNIT_ASSERT_EQUAL(u"=ERROR.TYPE(#CALC!)"_ustr,
++                        getScDoc()->GetFormula(2, 3, 0));
++    // .xlsx: the formulas round trip, the cached value is #VALUE! (no #CALC! cell value in the
++    // file format), recalculation gives #CALC! again.
++    saveAndReload(TestFilter::XLSX);
++    xmlDocUniquePtr pSheet = parseExport(u"xl/worksheets/sheet1.xml"_ustr);
++    CPPUNIT_ASSERT(pSheet);
++    assertXPathContent(pSheet, "/x:worksheet/x:sheetData/x:row[1]/x:c[@r='B1']/x:v", u"#VALUE!");
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(u"#CALC!"_ustr, str("B1"));
++    CPPUNIT_ASSERT_EQUAL(14.0, val("C4"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcelParityTest, testFilterXmlNumbers)
++{
++    createScDoc();
++    insertStringToCell(u"A1"_ustr, u"=FILTERXML(\"<a><b>1</b></a>\",\"//b\")");
++    CPPUNIT_ASSERT_EQUAL(CELLTYPE_FORMULA, getScDoc()->GetCellType(pos("A1")));
++    CPPUNIT_ASSERT_EQUAL(1.0, val("A1"));
++    insertStringToCell(u"A2"_ustr, u"=ISNUMBER(FILTERXML(\"<a><b>1</b></a>\",\"//b\"))");
++    CPPUNIT_ASSERT_EQUAL(u"TRUE"_ustr, str("A2"));
++    insertStringToCell(u"A3"_ustr, u"=ISNUMBER(FILTERXML(\"<a><b>-2.5E1</b></a>\",\"//b\"))");
++    CPPUNIT_ASSERT_EQUAL(u"TRUE"_ustr, str("A3"));
++    insertStringToCell(u"A4"_ustr, u"=FILTERXML(\"<a><b>x1</b></a>\",\"//b\")");
++    CPPUNIT_ASSERT_EQUAL(u"x1"_ustr, str("A4"));
++    insertStringToCell(u"A5"_ustr, u"=ISTEXT(FILTERXML(\"<a><b>1.2.3</b></a>\",\"//b\"))");
++    CPPUNIT_ASSERT_EQUAL(u"TRUE"_ustr, str("A5"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcelParityTest, testTextNumberArguments)
++{
++    // Numbers typed as text directly into the list of arguments are counted; text in a cell
++    // or a range is ignored; text that is no number is #VALUE!.
++    createScDoc();
++    insertStringToCell(u"A1"_ustr, u"=SUM(\"1\",2)");
++    CPPUNIT_ASSERT_EQUAL(3.0, val("A1"));
++    insertStringToCell(u"A2"_ustr, u"=AVERAGE(\"2\",4)");
++    CPPUNIT_ASSERT_EQUAL(3.0, val("A2"));
++    insertStringToCell(u"A3"_ustr, u"=SUM(\"a\",2)");
++    CPPUNIT_ASSERT_EQUAL(u"#VALUE!"_ustr, str("A3"));
++    getScDoc()->SetString(pos("C1"), u"'5"_ustr);
++    insertStringToCell(u"A4"_ustr, u"=SUM(C1,2)");
++    CPPUNIT_ASSERT_EQUAL(2.0, val("A4"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcelParityTest, testIsOmittedIsLogical)
++{
++    createScDoc();
++    insertStringToCell(u"A1"_ustr, u"=LAMBDA(a,b,ISOMITTED(b))(1,)");
++    CPPUNIT_ASSERT_EQUAL(u"TRUE"_ustr, str("A1"));
++    insertStringToCell(u"A2"_ustr, u"=LET(f,LAMBDA(a,b,ISOMITTED(b)),f(1,2))");
++    CPPUNIT_ASSERT_EQUAL(u"FALSE"_ustr, str("A2"));
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/core/data/global.cxx
++++ b/sc/source/core/data/global.cxx
+@@ -341,6 +341,8 @@ OUString ScGlobal::GetErrorString(FormulaError nErr)
+             return ScCompiler::GetNativeSymbol(ocErrNum);
+         case FormulaError::Spill:
+             return ScCompiler::GetNativeSymbol(ocErrSpill);
++        case FormulaError::Calculation:
++            return u"#CALC!"_ustr; // HST
+         default:
+             return ScCompiler::GetNativeSymbol(ocErrValue);
+     }
+@@ -431,6 +433,9 @@ OUString ScGlobal::GetLongErrorString(FormulaError nErr)
+         case FormulaError::Spill:
+             pErrNumber = STR_LONG_ERR_SPILL;
+         break;
++        case FormulaError::Calculation:
++            pErrNumber = STR_HST_LONG_ERR_CALC;
++        break;
+         case FormulaError::NoValue:
+             pErrNumber = STR_LONG_ERR_NO_VALUE;
+         break;
+@@ -458,6 +463,7 @@ bool ScGlobal::IsValidOOXMLError(FormulaError nErrNumber)
+         case FormulaError::NoRef:
+         case FormulaError::NoValue:
+         case FormulaError::Spill:
++        case FormulaError::Calculation:
+             return true;
+         default:
+             return false;
+--- /dev/null
++++ b/sc/source/core/hst/hstexcelfunctions.cxx
+@@ -0,0 +1,86 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// Function results of HST Sheets that follow the leading spreadsheet application where
++// LibreOffice's differ: #CALC! for an empty array result, FILTERXML numbers, a number typed as
++// text as an argument of SUM/AVERAGE/PRODUCT/SUMSQ. Scope: sc::hst::ExcelResults.
++
++#include <hstlogicaltext.hxx>
++
++#include <document.hxx>
++#include <interpre.hxx>
++
++#include <rtl/math.hxx>
++
++namespace sc::hst
++{
++FormulaError EmptyResultError(const ScDocument& rDoc, FormulaError eLegacy)
++{
++    return ExcelResults(rDoc) ? FormulaError::Calculation : eLegacy;
++}
++
++bool FilterXmlNumber(const ScDocument& rDoc, std::u16string_view rText, double& rValue)
++{
++    if (!ExcelResults(rDoc))
++        return false;
++    // Surrounding white space of the node text does not matter; inside, only the characters of
++    // a plain decimal number: digits, one sign, a point and an exponent.
++    size_t nStart = 0, nEnd = rText.size();
++    while (nStart < nEnd && rtl::isAsciiWhiteSpace(rText[nStart]))
++        ++nStart;
++    while (nEnd > nStart && rtl::isAsciiWhiteSpace(rText[nEnd - 1]))
++        --nEnd;
++    if (nStart == nEnd)
++        return false;
++    const std::u16string_view aNumber = rText.substr(nStart, nEnd - nStart);
++    bool bDigit = false;
++    for (const sal_Unicode c : aNumber)
++    {
++        if (rtl::isAsciiDigit(c))
++            bDigit = true;
++        else if (c != '+' && c != '-' && c != '.' && c != 'e' && c != 'E')
++            return false;
++    }
++    if (!bDigit)
++        return false;
++    rtl_math_ConversionStatus eStatus = rtl_math_ConversionStatus_Ok;
++    sal_Int32 nParsed = 0;
++    const double fValue = rtl::math::stringToDouble(aNumber, '.', 0, &eStatus, &nParsed);
++    if (eStatus != rtl_math_ConversionStatus_Ok || nParsed != static_cast<sal_Int32>(aNumber.size()))
++        return false;
++    rValue = fValue;
++    return true;
++}
++}
++
++void ScInterpreter::HstDirectTextNumber(ScIterFunc eFunc)
++{
++    switch (eFunc)
++    {
++        case ifSUM:
++        case ifAVERAGE:
++        case ifPRODUCT:
++        case ifSUMSQ:
++            break;
++        default:
++            return;
++    }
++    if (GetStackType() != formula::svString || !sc::hst::ExcelResults(mrDoc))
++        return;
++
++    const svl::SharedString aText = PopString();
++    const FormulaError eOldError = nGlobalError;
++    nGlobalError = FormulaError::NONE;
++    const double fValue = ConvertStringToValue(aText.getString());
++    const bool bNumber = nGlobalError == FormulaError::NONE;
++    nGlobalError = eOldError;
++    if (bNumber)
++        PushDouble(fValue);
++    else
++        PushString(aText); // no number: the caller reports #VALUE! as before
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/core/hst/hstlogicaltext.cxx
+@@ -0,0 +1,154 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// Booleans in text context: "a"&TRUE, CONCAT, TEXTJOIN, LEFT, LEN, UPPER, SUBSTITUTE, EXACT and
++// TEXT see TRUE/FALSE as the text "TRUE"/"FALSE", as in the leading spreadsheet application.
++
++#include <hstlogicaltext.hxx>
++
++#include <document.hxx>
++#include <global.hxx>
++#include <formulacell.hxx>
++#include <interpre.hxx>
++
++#include <formula/grammar.hxx>
++#include <formula/token.hxx>
++#include <svl/numformat.hxx>
++#include <svl/sharedstringpool.hxx>
++#include <svl/zforlist.hxx>
++
++namespace sc::hst
++{
++namespace
++{
++bool usesExcelSyntax(const ScDocument& rDoc)
++{
++    switch (formula::FormulaGrammar::extractRefConvention(rDoc.GetGrammar()))
++    {
++        case formula::FormulaGrammar::CONV_XL_A1:
++        case formula::FormulaGrammar::CONV_XL_R1C1:
++        case formula::FormulaGrammar::CONV_XL_OOX:
++            return true;
++        default:
++            return false;
++    }
++}
++}
++
++bool LogicalAsText(const ScDocument& rDoc)
++{
++    switch (rDoc.GetHstLogicalTextMode())
++    {
++        case LogicalTextMode::ExcelFile:
++            return true;
++        case LogicalTextMode::LegacyOds:
++            return false;
++        case LogicalTextMode::Default:
++        case LogicalTextMode::OdsMarked:
++            break;
++    }
++    return usesExcelSyntax(rDoc);
++}
++
++bool Excel1900Dates(const ScDocument& rDoc)
++{
++    switch (rDoc.GetHstLogicalTextMode())
++    {
++        case LogicalTextMode::ExcelFile:
++            return true;
++        case LogicalTextMode::Default:
++            return usesExcelSyntax(rDoc);
++        case LogicalTextMode::OdsMarked:
++        case LogicalTextMode::LegacyOds:
++            break;
++    }
++    return false;
++}
++
++}
++
++bool ScInterpreter::HstLogicalText(svl::SharedString& rText)
++{
++    if (sp == 0)
++        return false;
++    // A boolean result (TRUE, FALSE, a comparison, AND, ISNUMBER...) is a number typed logical.
++    const auto* pTop = dynamic_cast<const formula::FormulaDoubleToken*>(pStack[sp - 1]);
++    if (!pTop || static_cast<SvNumFormatType>(pTop->GetDoubleType()) != SvNumFormatType::LOGICAL)
++        return false;
++    if (!sc::hst::LogicalAsText(mrDoc))
++        return false;
++
++    rText = HstLogicalWord(PopDouble());
++    return true;
++}
++
++svl::SharedString ScInterpreter::HstLogicalWord(double fValue)
++{
++    // The document's boolean words, as a boolean cell shows them.
++    const sal_uInt32 nFormat = mrContext.NFGetStandardFormat(SvNumFormatType::LOGICAL, ScGlobal::eLnge);
++    OUString aText;
++    const Color* pColor = nullptr;
++    mrContext.NFGetOutputString(fValue, nFormat, aText, &pColor);
++    return mrStrPool.intern(aText);
++}
++
++bool ScInterpreter::HstIsLogicalCell(const ScRefCellValue& rCell, const ScAddress& rPos, double& rfValue)
++{
++    if (!sc::hst::LogicalAsText(mrDoc))
++        return false;
++    const sal_uInt32 nFormat = mrDoc.GetNumberFormat(mrContext, rPos);
++    const bool bLogicalFormat = mrContext.NFGetType(nFormat) == SvNumFormatType::LOGICAL;
++    switch (rCell.getType())
++    {
++        case CELLTYPE_VALUE:
++            rfValue = rCell.getDouble();
++            return bLogicalFormat;
++        case CELLTYPE_FORMULA:
++        {
++            // A formula cell shows a boolean result as TRUE/FALSE unless the cell has its own
++            // number format.
++            ScFormulaCell* pCell = rCell.getFormula();
++            if (pCell->GetErrCode() != FormulaError::NONE || !pCell->IsValue())
++                return false;
++            rfValue = pCell->GetValue();
++            return bLogicalFormat
++                   || (nFormat % SV_COUNTRY_LANGUAGE_OFFSET == 0
++                       && pCell->GetFormatType() == SvNumFormatType::LOGICAL);
++        }
++        default:
++            return false;
++    }
++}
++
++void ScInterpreter::HstLogicalCellText(svl::SharedString& rText, const ScRefCellValue& rCell,
++                                       const ScAddress& rPos)
++{
++    if (double fValue; HstIsLogicalCell(rCell, rPos, fValue))
++        rText = HstLogicalWord(fValue);
++}
++
++bool ScInterpreter::HstLogicalRefText(svl::SharedString& rText)
++{
++    if (sp == 0 || pStack[sp - 1]->GetType() != formula::svSingleRef)
++        return false;
++    formula::FormulaConstTokenRef xToken(PopToken());
++    PushTokenRef(xToken);
++    ScAddress aPos;
++    PopSingleRef(aPos);
++    if (nGlobalError == FormulaError::NONE)
++    {
++        const ScRefCellValue aCell(mrDoc, aPos);
++        if (double fValue; HstIsLogicalCell(aCell, aPos, fValue))
++        {
++            rText = HstLogicalWord(fValue);
++            return true;
++        }
++    }
++    PushTokenRef(xToken);
++    return false;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/core/inc/interpre.hxx
++++ b/sc/source/core/inc/interpre.hxx
+@@ -626,6 +626,17 @@
+     // HST: @ with implicit intersection and the spill range A1#, sc/source/core/hst
+     void ScHstSingleValue();
+     void ScAnchorArray();
++    /// HST: pops a boolean as its text where the document wants that (hstlogicaltext.cxx).
++    bool HstLogicalText(svl::SharedString& rText);
++    /// HST: the text of a boolean cell (a value or formula shown as TRUE/FALSE) read as text.
++    void HstLogicalCellText(svl::SharedString& rText, const ScRefCellValue& rCell, const ScAddress& rPos);
++    /// HST: pops a reference to a boolean cell as its text where the document wants that.
++    bool HstLogicalRefText(svl::SharedString& rText);
++    bool HstIsLogicalCell(const ScRefCellValue& rCell, const ScAddress& rPos, double& rfValue);
++    svl::SharedString HstLogicalWord(double fValue);
++    /// HST: a number typed as text as an argument of SUM, AVERAGE, PRODUCT, SUMSQ counts: replaces
++    /// it on the stack by its value (hstexcelfunctions.cxx).
++    void HstDirectTextNumber(ScIterFunc eFunc);
+     void ScPercentSign();
+     void ScIntersect();
+     void ScRangeFunc();
+--- a/sc/source/core/opencl/op_math.cxx
++++ b/sc/source/core/opencl/op_math.cxx
+@@ -309,6 +309,8 @@ void OpMROUND::GenerateCode( outputstream& ss ) const
+ {
+     ss<<"    if(arg1==0)\n";
+     ss<<"        return arg1;\n";
++    ss<<"    if((arg0<0 && arg1>0) || (arg0>0 && arg1<0))\n"; // HST: different signs are #NUM!
++    ss<<"        return CreateDoubleError(IllegalArgument);\n";
+     ss<<"    tmp=arg1 * round(arg0 / arg1);\n";
+     ss<<"    return tmp;\n";
+ }
+--- a/sc/source/core/tool/interpr1.cxx
++++ b/sc/source/core/tool/interpr1.cxx
+@@ -8431,8 +8431,8 @@
+     {
+         if (xNotFound && (xNotFound->GetType() != svMissing))
+             PushTokenRef(xNotFound);
+-        else
+-            PushError(FormulaError::NestedArray);
++        else // HST: #CALC!
++            PushError(sc::hst::EmptyResultError(mrDoc, FormulaError::NestedArray));
+         return;
+     }
+ 
+@@ -10115,6 +10115,7 @@
+         return;
+ 
+     auto pArg = PopToken();
++    nFuncFmtType = SvNumFormatType::LOGICAL; // HST: TRUE/FALSE
+     if (pArg->GetType() == svMissing)
+         PushInt(1);
+     else
+@@ -10737,7 +10738,11 @@
+             PushTokenRef(new ScMatrixToken(xMat->Clone()));
+         }
+         else if (xLambdaResult)
++        {
+             PushTokenRef(xLambdaResult);
++            nFuncFmtType = aInt.GetRetFormatType(); // HST: a boolean result stays TRUE/FALSE
++            nFuncFmtIndex = aInt.GetRetFormatIndex();
++        }
+         else if (nGlobalError != FormulaError::NONE)
+             PushError(nGlobalError);
+         else
+@@ -13220,9 +13225,19 @@
+             PopError();
+             break;
+         case svDouble:
++            if (HstLogicalText(aStr)) // HST: TEXT(TRUE,...) formats the text "TRUE"
++            {
++                bString = true;
++                break;
++            }
+             fVal = PopDouble();
+             break;
+         default:
++            if (HstLogicalRefText(aStr)) // HST: TEXT(A1,...) with TRUE in A1
++            {
++                bString = true;
++                break;
++            }
+             {
+                 FormulaConstTokenRef xTok( PopToken());
+                 if (nGlobalError == FormulaError::NONE)
+@@ -13493,6 +13508,12 @@
+         case FormulaError::NotAvailable :       // #N/A
+             nErrType = 7;
+             break;
++        case FormulaError::Spill :              // #SPILL!, HST
++            nErrType = 9;
++            break;
++        case FormulaError::Calculation :        // #CALC!, HST
++            nErrType = 14;
++            break;
+         /*
+         #GETTING_DATA is a message that can appear in Excel when a large or
+         complex worksheet is being calculated. In Excel 2007 and newer,
+--- a/sc/source/core/tool/interpr4.cxx
++++ b/sc/source/core/tool/interpr4.cxx
+@@ -2482,6 +2482,8 @@
+             return svl::SharedString::getEmptyString();
+         case svDouble:
+         {
++            if (svl::SharedString aText; HstLogicalText(aText)) // HST: "a"&TRUE is "aTRUE"
++                return aText;
+             return GetStringFromDouble( PopDouble() );
+         }
+         case svString:
+@@ -2497,6 +2499,7 @@
+                 ScRefCellValue aCell(mrDoc, aAdr);
+                 svl::SharedString aSS;
+                 GetCellString(aSS, aCell);
++                HstLogicalCellText(aSS, aCell, aAdr); // HST: "a"&A1 with TRUE in A1 is "aTRUE"
+                 return aSS;
+             }
+             else
+@@ -2512,6 +2515,7 @@
+                 ScRefCellValue aCell(mrDoc, aAdr);
+                 svl::SharedString aSS;
+                 GetCellString(aSS, aCell);
++                HstLogicalCellText(aSS, aCell, aAdr); // HST: "a"&A1 with TRUE in A1 is "aTRUE"
+                 return aSS;
+             }
+             else
+--- a/sc/source/core/tool/interpr5.cxx
++++ b/sc/source/core/tool/interpr5.cxx
+@@ -1136,7 +1136,8 @@ void ScInterpreter::ScMatSequence()
+         nColumns = GetInt32WithDefault(nColumns);
+         if (nColumns < 1)
+         {
+-            PushIllegalArgument();
++            PushError(nColumns == 0 ? sc::hst::EmptyResultError(mrDoc, FormulaError::IllegalArgument)
++                                    : FormulaError::IllegalArgument); // HST: #CALC!
+             return;
+         }
+     }
+@@ -1145,7 +1146,8 @@ void ScInterpreter::ScMatSequence()
+     sal_Int32 nRows = GetInt32WithDefault(1);
+     if (nRows < 1)
+     {
+-        PushIllegalArgument();
++        PushError(nRows == 0 ? sc::hst::EmptyResultError(mrDoc, FormulaError::IllegalArgument)
++                             : FormulaError::IllegalArgument); // HST: #CALC!
+         return;
+     }
+ 
+--- a/sc/source/core/tool/interpr6.cxx
++++ b/sc/source/core/tool/interpr6.cxx
+@@ -518,6 +518,7 @@ void ScInterpreter::IterateParameters( ScIterFunc eFunc, bool bTextAsZero )
+         nGlobalError = FormulaError::NONE;
+     while (nParamCount-- > 0)
+     {
++        HstDirectTextNumber(eFunc); // HST: SUM("1",2) is 3, a text number argument counts
+         switch (GetStackType())
+         {
+             case svString:
+--- a/sc/source/core/tool/interpr7.cxx
++++ b/sc/source/core/tool/interpr7.cxx
+@@ -188,7 +188,15 @@ void ScInterpreter::ScFilterXML()
+                             std::shared_ptr<xmlChar> pChar2(xmlNodeGetContent(cur), xmlFree);
+                             aResult = OStringToOUString(std::string_view(reinterpret_cast<char*>(pChar2.get())), RTL_TEXTENCODING_UTF8);
+                         }
+-                        if (xResMat)
++                        double fNumber = 0.0;
++                        if (sc::hst::FilterXmlNumber(mrDoc, aResult, fNumber)) // HST: numbers
++                        {
++                            if (xResMat)
++                                xResMat->PutDouble(fNumber, 0, nNode);
++                            else
++                                PushDouble(fNumber);
++                        }
++                        else if (xResMat)
+                             xResMat->PutString( mrStrPool.intern( aResult), 0, nNode);
+                         else
+                             PushString(aResult);
+--- a/sc/source/core/tool/interpr8.cxx
++++ b/sc/source/core/tool/interpr8.cxx
+@@ -1411,6 +1411,7 @@
+                 {
+                     svl::SharedString aSS;
+                     GetCellString( aSS, aCell);
++                    HstLogicalCellText(aSS, aCell, aAdr); // HST
+                     const OUString& rStr = aSS.getString();
+                     if (CheckStringResultLen(aResBuf, rStr.getLength()))
+                         aResBuf.append( rStr);
+@@ -1449,6 +1450,7 @@
+                         {
+                             svl::SharedString aSS;
+                             GetCellString( aSS, aCell);
++                            HstLogicalCellText(aSS, aCell, aAdr); // HST
+                             const OUString& rStr = aSS.getString();
+                             if (CheckStringResultLen(aResBuf, rStr.getLength()))
+                                 aResBuf.append( rStr);
+@@ -1536,6 +1538,7 @@
+             {
+                 svl::SharedString aSS;
+                 GetCellString( aSS, aCell);
++                HstLogicalCellText(aSS, aCell, aAdr); // HST
+                 aDelimiters.push_back( aSS.getString());
+             }
+         }
+@@ -1574,6 +1577,7 @@
+                     {
+                         svl::SharedString aSS;
+                         GetCellString( aSS, aCell);
++                        HstLogicalCellText(aSS, aCell, aAdr); // HST
+                         aDelimiters.push_back( aSS.getString());
+                     }
+                 }
+@@ -1671,6 +1675,7 @@
+                 {
+                     svl::SharedString aSS;
+                     GetCellString( aSS, aCell);
++                    HstLogicalCellText(aSS, aCell, aAdr); // HST
+                     aStr = aSS.getString();
+                 }
+                 if ( !aStr.isEmpty() || !bSkipEmpty )
+@@ -1726,6 +1731,7 @@
+                         {
+                             svl::SharedString aSS;
+                             GetCellString( aSS, aCell);
++                            HstLogicalCellText(aSS, aCell, aAdr); // HST
+                             aStr = aSS.getString();
+                         }
+                         if ( !aStr.isEmpty() || !bSkipEmpty )
+--- a/sc/source/core/tool/interpr_pivotby.cxx
++++ b/sc/source/core/tool/interpr_pivotby.cxx
+@@ -179,7 +179,7 @@ void ScInterpreter::ScGroupBy()
+     }
+     if (aRows.empty())
+     {
+-        PushError(FormulaError::NoValue);  // the reference application gives #CALC!
++        PushError(sc::hst::EmptyResultError(mrDoc, FormulaError::NoValue)); // #CALC!
+         return;
+     }
+     const bool bTwoArgs = GroupByCallableHasTwoArgs(pFunc);
+@@ -280,11 +280,16 @@ void ScInterpreter::ScPivotBy()
+     const sal_Int32 nMode = GroupByHeaderMode(nHeaders, pValues);
+     const bool bHasHeader = nMode == 1 || nMode == 3, bShowHeader = nMode == 2 || nMode == 3;
+     std::vector<SCSIZE> aRows;
+-    if (!GetGroupByRows(pFilter, nVR, bHasHeader ? 1 : 0, aRows) || aRows.empty())
++    if (!GetGroupByRows(pFilter, nVR, bHasHeader ? 1 : 0, aRows))
+     {
+         PushError(FormulaError::NoValue);
+         return;
+     }
++    if (aRows.empty())
++    {
++        PushError(sc::hst::EmptyResultError(mrDoc, FormulaError::NoValue)); // #CALC!
++        return;
++    }
+     const bool bTwoArgs = GroupByCallableHasTwoArgs(pFunc);
+     ScGroupByAxis aRowAxis(pRowKeys), aColAxis(pColKeys);
+     aRowAxis.Build(aRows, nRowDepth, false, aRowSort, nullptr);
+--- a/sc/source/filter/excel/impop.cxx
++++ b/sc/source/filter/excel/impop.cxx
+@@ -121,6 +121,7 @@ ImportExcel::ImportExcel( XclImpRootData& rImpData, SvStream& rStrm ):
+     ScDocOptions aOpt = rD.GetDocOptions();
+     aOpt.SetDate( 30, 12, 1899 );
+     rD.SetDocOptions( aOpt );
++    rD.SetHstLogicalTextMode(sc::hst::LogicalTextMode::ExcelFile); // HST: "a"&TRUE is "aTRUE"
+     rD.GetFormatTable()->ChangeNullDate( 30, 12, 1899 );
+ 
+     ScDocOptions aDocOpt( rD.GetDocOptions() );
+--- a/sc/source/filter/excel/xltools.cxx
++++ b/sc/source/filter/excel/xltools.cxx
+@@ -214,6 +214,7 @@ sal_uInt8 XclTools::GetXclErrorCode( FormulaError nScError )
+         case FormulaError::NoMacro:                return EXC_ERR_NAME;
+         case FormulaError::NotAvailable:           return EXC_ERR_NA;
+         case FormulaError::Spill:                  return EXC_ERR_SPILL;
++        case FormulaError::Calculation:            return EXC_ERR_VALUE; // HST: no #CALC! code in the file formats
+         default: break;
+     }
+     return EXC_ERR_NA;
+--- a/sc/source/filter/oox/workbookhelper.cxx
++++ b/sc/source/filter/oox/workbookhelper.cxx
+@@ -558,6 +558,7 @@ void WorkbookGlobals::initialize()
+ 
+     if (!mpDoc)
+         throw RuntimeException(u"Workbookhelper::getScDocument(): Failed to access ScDocument from model"_ustr);
++    mpDoc->SetHstLogicalTextMode(sc::hst::LogicalTextMode::ExcelFile); // HST: "a"&TRUE is "aTRUE"
+ 
+     Reference< XDocumentProperties > xDocProps = mxDoc->getDocumentProperties();
+     const OUString aGenerator( xDocProps->getGenerator());
+--- /dev/null
++++ b/sc/source/filter/xml/hstodsextension.cxx
+@@ -0,0 +1,76 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#include "hstodsextension.hxx"
++
++#include <document.hxx>
++#include <formulacell.hxx>
++#include <hstlogicaltext.hxx>
++
++#include <sax/fastattribs.hxx>
++#include <xmloff/namespacemap.hxx>
++#include <xmloff/xmlexp.hxx>
++
++#include <optional>
++
++namespace sc::hst::ods
++{
++namespace
++{
++constexpr OUString aNamespaceURI = u"urn:hst-office:names:calc:xmlns:hstcalc:1.0"_ustr;
++constexpr OUString aPrefix = u"hstcalc"_ustr;
++constexpr OUString aLogicalText = u"logical-text"_ustr;
++constexpr OUString aDynamicArray = u"dynamic-array"_ustr;
++
++/// The value of the HST attribute rLocalName, whatever prefix the file bound the namespace to.
++std::optional<OUString> findAttribute(sax_fastparser::FastAttributeList* pAttribs,
++                                      std::u16string_view rLocalName)
++{
++    if (!pAttribs)
++        return std::nullopt;
++    const css::uno::Sequence<css::xml::Attribute> aUnknown
++        = pAttribs->getUnknownAttributes();
++    for (const css::xml::Attribute& rAttribute : aUnknown)
++    {
++        if (rAttribute.NamespaceURL != aNamespaceURI)
++            continue;
++        const sal_Int32 nColon = rAttribute.Name.indexOf(':');
++        if (rAttribute.Name.subView(nColon + 1) == rLocalName)
++            return rAttribute.Value;
++    }
++    return std::nullopt;
++}
++}
++
++void RegisterNamespace(SvXMLNamespaceMap& rMap) { rMap.Add(aPrefix, aNamespaceURI); }
++
++void ExportSpreadsheetMarks(SvXMLExport& rExport, const ScDocument& rDoc)
++{
++    if (rDoc.GetHstLogicalTextMode() != LogicalTextMode::LegacyOds)
++        rExport.AddAttribute(aPrefix + ":" + aLogicalText, u"text"_ustr);
++}
++
++void ExportMatrixMarks(SvXMLExport& rExport, const ScFormulaCell* pAnchor)
++{
++    if (pAnchor && pAnchor->IsDynamicArrayMaster())
++        rExport.AddAttribute(aPrefix + ":" + aDynamicArray, u"true"_ustr);
++}
++
++void ImportSpreadsheetMarks(ScDocument& rDoc, sax_fastparser::FastAttributeList* pAttribs)
++{
++    const std::optional<OUString> oValue = findAttribute(pAttribs, aLogicalText);
++    rDoc.SetHstLogicalTextMode(oValue && *oValue == "text" ? LogicalTextMode::OdsMarked
++                                                           : LogicalTextMode::LegacyOds);
++}
++
++bool IsDynamicArrayAnchor(sax_fastparser::FastAttributeList* pAttribs)
++{
++    const std::optional<OUString> oValue = findAttribute(pAttribs, aDynamicArray);
++    return oValue && *oValue == "true";
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/filter/xml/hstodsextension.hxx
+@@ -0,0 +1,40 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++class ScDocument;
++class ScFormulaCell;
++class SvXMLExport;
++class SvXMLNamespaceMap;
++namespace sax_fastparser
++{
++class FastAttributeList;
++}
++
++/** HST Sheets marks in .ods files, in the HST namespace (prefix "hstcalc"). ODF lets a document
++    carry attributes of a foreign namespace; other ODF consumers ignore them, so the file stays
++    valid and keeps its meaning elsewhere.
++
++    - office:spreadsheet hstcalc:logical-text="text": the document shows TRUE/FALSE as text in
++      text context (hstlogicaltext.hxx). An .ods without it keeps LibreOffice's numbers.
++    - table:table-cell hstcalc:dynamic-array="true" on the anchor of a matrix: the formula is a
++      dynamic array (it spills and resizes with its result), not a Ctrl+Shift+Enter array. */
++namespace sc::hst::ods
++{
++/// Declares the HST namespace on the exported content.
++void RegisterNamespace(SvXMLNamespaceMap& rMap);
++/// Attributes of office:spreadsheet.
++void ExportSpreadsheetMarks(SvXMLExport& rExport, const ScDocument& rDoc);
++/// Attributes of the anchor cell of a matrix.
++void ExportMatrixMarks(SvXMLExport& rExport, const ScFormulaCell* pAnchor);
++/// Reads the attributes of office:spreadsheet into the document (also when there are none).
++void ImportSpreadsheetMarks(ScDocument& rDoc, sax_fastparser::FastAttributeList* pAttribs);
++/// Whether a cell's attributes mark it as the anchor of a dynamic array.
++bool IsDynamicArrayAnchor(sax_fastparser::FastAttributeList* pAttribs);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/filter/xml/xmlbodyi.cxx
++++ b/sc/source/filter/xml/xmlbodyi.cxx
+@@ -23,6 +23,7 @@
+ #include <sheetdata.hxx>
+ 
+ #include "xmlbodyi.hxx"
++#include "hstodsextension.hxx"
+ #include "xmltabi.hxx"
+ #include "xmlnexpi.hxx"
+ #include "xmldrani.hxx"
+@@ -87,6 +88,7 @@ ScXMLBodyContext::ScXMLBodyContext( ScXMLImport& rImport,
+                 eGrammar = formula::FormulaGrammar::GRAM_PODF;
+         }
+         pDoc->SetStorageGrammar( eGrammar);
++        sc::hst::ods::ImportSpreadsheetMarks(*pDoc, rAttrList.get()); // HST marks
+     }
+ 
+     if ( !rAttrList.is() )
+--- a/sc/source/filter/xml/xmlcelli.cxx
++++ b/sc/source/filter/xml/xmlcelli.cxx
+@@ -21,6 +21,7 @@
+ #include <memory>
+ #include "xmlcelli.hxx"
+ #include "xmlimprt.hxx"
++#include "hstodsextension.hxx"
+ #include "xmlannoi.hxx"
+ #include <global.hxx>
+ #include <cellvalue.hxx>
+@@ -174,6 +175,7 @@ ScXMLTableRowCellContext::ScXMLTableRowCellContext( ScXMLImport& rImport,
+                 case XML_ELEMENT( TABLE, XML_NUMBER_MATRIX_COLUMNS_SPANNED ):
+                     bIsMatrix = true;
+                     nMatrixCols = static_cast<SCCOL>(it.toInt32());
++                    mbHstDynamicArray = sc::hst::ods::IsDynamicArrayAnchor(rAttrList.get());
+                 break;
+                 case XML_ELEMENT( TABLE, XML_NUMBER_MATRIX_ROWS_SPANNED ):
+                     bIsMatrix = true;
+@@ -1455,7 +1457,8 @@ void ScXMLTableRowCellContext::AddFormulaCell( const ScAddress& rCellPos )
+                         rCellPos.Col(), rCellPos.Row(),
+                         std::min<SCCOL>(rCellPos.Col() + nMatrixCols - 1, pDoc->MaxCol()),
+                         std::min<SCROW>(rCellPos.Row() + nMatrixRows - 1, pDoc->MaxRow()),
+-                        maFormula->first, maFormula->second, eGrammar, bCachedSpill);
++                        maFormula->first, maFormula->second, eGrammar, bCachedSpill,
++                        mbHstDynamicArray);
+ 
+                 // Set the value/text of the top-left matrix position in its
+                 // cached result.  For import, we only need to set the correct
+--- a/sc/source/filter/xml/xmlcelli.hxx
++++ b/sc/source/filter/xml/xmlcelli.hxx
+@@ -83,6 +83,7 @@ class ScXMLTableRowCellContext : public ScXMLImportContext
+     sal_Int16   nCellType;
+     bool        bIsMerged;
+     bool        bIsMatrix;
++    bool        mbHstDynamicArray = false; // HST: hstcalc:dynamic-array
+     bool        bIsCovered;
+     bool        bIsEmpty;
+     bool        mbNewValueType;
+--- a/sc/source/filter/xml/xmlexprt.cxx
++++ b/sc/source/filter/xml/xmlexprt.cxx
+@@ -21,6 +21,7 @@
+ #include <sal/log.hxx>
+ 
+ #include "xmlexprt.hxx"
++#include "hstodsextension.hxx"
+ #include "XMLConverter.hxx"
+ #include "xmlstyle.hxx"
+ #include <unonames.hxx>
+@@ -364,6 +365,7 @@ ScXMLExport::ScXMLExport(
+         pValidationsContainer.reset( new ScMyValidationsContainer() );
+         mpCellsItr.reset(new ScMyNotEmptyCellsIterator(*this));
+         pDefaults.reset( new ScMyDefaultStyles );
++        sc::hst::ods::RegisterNamespace(GetNamespaceMap_()); // HST marks
+     }
+     pCellStyles.reset( new ScFormatRangeStyles() );
+ 
+@@ -1683,6 +1685,8 @@ void ScXMLExport::FillColumnRowGroups(ScDocument& rDoc)
+ void ScXMLExport::SetBodyAttributes()
+ {
+     ScDocument* pDoc = GetDocument();
++    if (pDoc)
++        sc::hst::ods::ExportSpreadsheetMarks(*this, *pDoc);
+     if (!(pDoc && pDoc->IsDocProtected()))
+         return;
+ 
+@@ -3193,6 +3197,8 @@ void ScXMLExport::WriteCell(ScDocument& rDoc, const ScMyCell& aCell, sal_Int32 n
+         SCROW nRows( aCell.aMatrixRange.aEnd.Row() - aCell.aMatrixRange.aStart.Row() + 1 );
+         AddAttribute(XML_NAMESPACE_TABLE, XML_NUMBER_MATRIX_COLUMNS_SPANNED, OUString::number(nColumns));
+         AddAttribute(XML_NAMESPACE_TABLE, XML_NUMBER_MATRIX_ROWS_SPANNED, OUString::number(nRows));
++        sc::hst::ods::ExportMatrixMarks(*this, aCell.maBaseCell.getType() == CELLTYPE_FORMULA
++                                                   ? aCell.maBaseCell.getFormula() : nullptr);
+     }
+     bool bIsEmpty(false);
+     switch (aCell.nType)
+--- a/sc/source/filter/xml/xmlsubti.cxx
++++ b/sc/source/filter/xml/xmlsubti.cxx
+@@ -261,7 +261,7 @@ void ScMyTables::AddOLE(const uno::Reference <drawing::XShape>& rShape,
+ void ScMyTables::AddMatrixRange(
+         const SCCOL nStartColumn, const SCROW nStartRow, const SCCOL nEndColumn, const SCROW nEndRow,
+         const OUString& rFormula, const OUString& rFormulaNmsp, const formula::FormulaGrammar::Grammar eGrammar,
+-        bool bCachedSpill)
++        bool bCachedSpill, bool bDynamicArray)
+ {
+     OSL_ENSURE(nEndRow >= nStartRow, "wrong row order");
+     OSL_ENSURE(nEndColumn >= nStartColumn, "wrong column order");
+@@ -282,7 +282,7 @@ void ScMyTables::AddMatrixRange(
+     ScTokenArray aCode(rDoc.getDoc());
+     aCode.AssignXMLString( rFormula,
+             ((eGrammar == formula::FormulaGrammar::GRAM_EXTERNAL) ? rFormulaNmsp : OUString()));
+-    rDoc.setMatrixCells(aScRange, aCode, eGrammar, bCachedSpill);
++    rDoc.setMatrixCells(aScRange, aCode, eGrammar, bCachedSpill, bDynamicArray);
+     rDoc.getDoc().IncXMLImportedFormulaCount( rFormula.getLength() );
+ }
+ 
+--- a/sc/source/filter/xml/xmlsubti.hxx
++++ b/sc/source/filter/xml/xmlsubti.hxx
+@@ -104,7 +104,8 @@ public:
+                         const OUString& rFormula,
+                         const OUString& rFormulaNmsp,
+                         const formula::FormulaGrammar::Grammar,
+-                        bool bCachedSpill = false);
++                        bool bCachedSpill = false,
++                        bool bDynamicArray = false);
+     bool                                IsPartOfMatrix( const ScAddress& rScAddress) const;
+ };
+ 
+--- a/scaddins/source/analysis/analysis.cxx
++++ b/scaddins/source/analysis/analysis.cxx
+@@ -554,6 +554,9 @@ double SAL_CALL AnalysisAddIn::getMround( double fNum, double fMult )
+ {
+     if( fMult == 0.0 )
+         return fMult;
++    // HST: a number and a multiple of different signs are #NUM!, as in the leading spreadsheet application.
++    if( ( fNum < 0.0 && fMult > 0.0 ) || ( fNum > 0.0 && fMult < 0.0 ) )
++        throw lang::IllegalArgumentException();
+ 
+     double fRet = fMult * ::rtl::math::round( ::rtl::math::approxValue( fNum / fMult));
+     return finiteOrThrow( fRet );
+--- a/translations/source/vi/sc/messages.po
++++ b/translations/source/vi/sc/messages.po
+@@ -5042,6 +5042,12 @@ msgctxt "STR_LONG_ERR_SPILL"
+ msgid "Error: Array result could not expand because it would overwrite non-empty cells."
+ msgstr ""
+ 
++#. hSTc1
++#: sc/inc/globstr.hrc:567
++msgctxt "STR_HST_LONG_ERR_CALC"
++msgid "Error: the result is empty"
++msgstr "Lỗi: kết quả rỗng"
++
+ #. RFrAD
+ #: sc/inc/globstr.hrc:567
+ msgctxt "STR_TEXTORIENTANGLE"

@@ -1,0 +1,106 @@
+HST Office: merged cells and Sheets tables block the spill of a dynamic array (#SPILL!), as in the
+leading spreadsheet application. Before, empty merged cells and empty table cells were filled.
+
+A Sheets table is a database range with a table style (an .xlsx table or one made with Insert > Table),
+the criterion of the tables' calculated columns. The logic is HST-owned
+(sc/source/core/hst/hstspillbarrier.cxx, SPDX LicenseRef-HST-Proprietary); ScDocument::IsMatrixSpillBlocked,
+used both when a dynamic array is entered and when it resizes on recalculation, gets a one-line hook.
+
+Test: CppunitTest_sc_hst_dynamic_array_acceptance (testSpillBlockedByMergedCells, testSpillBlockedByTable).
+---
+--- a/sc/Library_sc.mk
++++ b/sc/Library_sc.mk
+@@ -104,9 +104,10 @@ $(eval $(call gb_Library_use_libraries,sc,\
+     xo \
+ ))
+ 
+-# HST Office: Flash Fill (sc/source/core/hst, sc/source/ui/hst)
++# HST Office: Flash Fill, spill barriers of dynamic arrays (sc/source/core/hst, sc/source/ui/hst)
+ $(eval $(call gb_Library_add_exception_objects,sc,\
+     sc/source/core/hst/hstflashfill \
++    sc/source/core/hst/hstspillbarrier \
+     sc/source/ui/hst/hstflashfillcommand \
+ ))
+ 
+--- a/sc/source/core/data/documen4.cxx
++++ b/sc/source/core/data/documen4.cxx
+@@ -52,6 +52,7 @@
+ #include <tablestyle.hxx>
+ #include <tokenarray.hxx>
+ #include <tokenstringcontext.hxx>
++#include <hstspillbarrier.hxx>
+ #include <memory>
+ 
+ using namespace formula;
+@@ -255,6 +256,8 @@ bool ScDocument::Solver(SCCOL nFCol, SCROW nFRow, SCTAB nFTab,
+ bool ScDocument::IsMatrixSpillBlocked(const ScRange& rRange,
+                                       SCCOL nDeclCols, SCROW nDeclRows) const
+ {
++    if (sc::hst::IsSpillBarred(*this, rRange)) // HST: merged cells and tables
++        return true;
+     const ScAddress& rOrigin = rRange.aStart;
+     for (SCCOL nCol = rRange.aStart.Col(); nCol <= rRange.aEnd.Col(); ++nCol)
+     {
+--- /dev/null
++++ b/sc/source/core/hst/hstspillbarrier.cxx
+@@ -0,0 +1,36 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#include <hstspillbarrier.hxx>
++
++#include <attrib.hxx>
++#include <dbdata.hxx>
++#include <document.hxx>
++
++namespace sc::hst
++{
++bool IsSpillBarred(const ScDocument& rDoc, const ScRange& rRange)
++{
++    if (rDoc.HasAttrib(rRange, HasAttrFlags::Merged | HasAttrFlags::Overlapped))
++        return true;
++
++    const ScDBCollection* pDBs = rDoc.GetDBCollection();
++    if (!pDBs)
++        return false;
++    for (const auto& rxData : pDBs->getNamedDBs())
++    {
++        if (!rxData->GetTableStyleInfo())
++            continue;
++        ScRange aArea;
++        rxData->GetArea(aArea);
++        if (aArea.Intersects(rRange))
++            return true;
++    }
++    return false;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/core/inc/hstspillbarrier.hxx
+@@ -0,0 +1,21 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++class ScDocument;
++class ScRange;
++
++namespace sc::hst
++{
++/** Whether a dynamic array may not spill into rRange although its cells are empty, as in the
++    leading spreadsheet application: the range holds merged cells, or it overlaps a Sheets table
++    (a database range with a table style: an .xlsx table or one made with Insert > Table; the
++    same criterion as the tables' calculated columns). The anchor then shows #SPILL!. */
++bool IsSpillBarred(const ScDocument& rDoc, const ScRange& rRange);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
