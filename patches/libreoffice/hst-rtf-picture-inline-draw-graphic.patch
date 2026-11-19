@@ -1,0 +1,266 @@
+HST Office: an inline picture of a .docx stays inline when saved as .rtf.
+
+The .docx import makes a w:drawing inline picture a draw object (GraphicObjectShape) anchored as character. The RTF
+export wrote every draw object as a floating \shp in a SHAPE field, so the picture came back anchored at the character
+with wrap through: it took no room, lay over the text, and the document got shorter (s037: 9 pictures, 38 cm, about
+one and a half pages). An as-character draw object holding a graphic, not rotated or sheared, is now written as an
+inline \pict at its shown size (sw/source/filter/ww8/hst/rtfinlinedrawgraphic.cxx); other draw objects as before.
+
+Test: CppunitTest_sw_rtfexport8 testHstInlineDrawPictureStaysInline (an as-character GraphicObjectShape round-trips
+as character with the same size).
+
+License: these upstream files remain under their original license (MPL-2.0); the new files under
+sw/source/filter/ww8/hst/ are HST's own work (LicenseRef-HST-Proprietary).
+---
+diff --git a/sw/Library_msword.mk b/sw/Library_msword.mk
+index 9bd0522..7f2644f 100644
+--- a/sw/Library_msword.mk
++++ b/sw/Library_msword.mk
+@@ -90,6 +90,7 @@ $(eval $(call gb_Library_add_exception_objects,msword,\
+     sw/source/filter/ww8/docxsdrexport \
+     sw/source/filter/ww8/docxtableexport \
+     sw/source/filter/ww8/docxtablestyleexport \
++    sw/source/filter/ww8/hst/rtfinlinedrawgraphic \
+     sw/source/filter/ww8/hst/rtfpicturescale \
+     sw/source/filter/ww8/rtfattributeoutput \
+     sw/source/filter/ww8/rtfexport \
+diff --git a/sw/qa/extras/rtfexport/rtfexport8.cxx b/sw/qa/extras/rtfexport/rtfexport8.cxx
+index b26761a..b4c41c7 100644
+--- a/sw/qa/extras/rtfexport/rtfexport8.cxx
++++ b/sw/qa/extras/rtfexport/rtfexport8.cxx
+@@ -14,6 +14,7 @@
+ #include <com/sun/star/drawing/FillStyle.hpp>
+ #include <com/sun/star/table/XTableColumns.hpp>
+ #include <com/sun/star/text/GraphicCrop.hpp>
++#include <com/sun/star/drawing/XShape.hpp>
+ #include <com/sun/star/text/TextContentAnchorType.hpp>
+ #include <com/sun/star/text/XFootnote.hpp>
+ #include <com/sun/star/text/XFootnotesSupplier.hpp>
+@@ -1408,6 +1409,39 @@ CPPUNIT_TEST_FIXTURE(Test, testHstPictureShownSizeKept)
+     CPPUNIT_ASSERT_LESSEQUAL(sal_Int32(2), std::abs(aSize.Height - aShown.Height));
+ }
+ 
++// HST Office
++CPPUNIT_TEST_FIXTURE(Test, testHstInlineDrawPictureStaysInline)
++{
++    // The .docx import makes an inline picture a draw object anchored as character. The RTF export wrote it as a
++    // floating \shp, which came back anchored at the character with wrap through: it took no room and lay over the
++    // text. It is now an inline \pict.
++    createSwDoc();
++    Graphic aGraphic(Bitmap(Size(80, 60), vcl::PixelFormat::N24_BPP));
++    uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY);
++    uno::Reference<drawing::XShape> xShape(
++        xFactory->createInstance(u"com.sun.star.drawing.GraphicObjectShape"_ustr), uno::UNO_QUERY);
++    uno::Reference<beans::XPropertySet> xShapeProps(xShape, uno::UNO_QUERY);
++    xShapeProps->setPropertyValue(u"AnchorType"_ustr,
++                                  uno::Any(text::TextContentAnchorType_AS_CHARACTER));
++    uno::Reference<text::XTextDocument> xDocument(mxComponent, uno::UNO_QUERY);
++    uno::Reference<text::XText> xText = xDocument->getText();
++    xText->insertString(xText->getEnd(), u"before "_ustr, false);
++    xText->insertTextContent(xText->getEnd(),
++                             uno::Reference<text::XTextContent>(xShape, uno::UNO_QUERY), false);
++    xShapeProps->setPropertyValue(u"Graphic"_ustr, uno::Any(aGraphic.GetXGraphic()));
++    const awt::Size aShown(4000, 3000);
++    xShape->setSize(aShown);
++
++    saveAndReload(TestFilter::RTF);
++    CPPUNIT_ASSERT_EQUAL(1, getShapes());
++    uno::Reference<drawing::XShape> xBack = getShape(1);
++    CPPUNIT_ASSERT_EQUAL(text::TextContentAnchorType_AS_CHARACTER,
++                         getProperty<text::TextContentAnchorType>(xBack, u"AnchorType"_ustr));
++    // within 1 twip (1.76 mm100)
++    CPPUNIT_ASSERT_LESSEQUAL(sal_Int32(2), std::abs(xBack->getSize().Width - aShown.Width));
++    CPPUNIT_ASSERT_LESSEQUAL(sal_Int32(2), std::abs(xBack->getSize().Height - aShown.Height));
++}
++
+ } // end of anonymous namespace
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+diff --git a/sw/source/filter/ww8/hst/rtfinlinedrawgraphic.cxx b/sw/source/filter/ww8/hst/rtfinlinedrawgraphic.cxx
+new file mode 100644
+index 0000000..83fb9c8
+--- /dev/null
++++ b/sw/source/filter/ww8/hst/rtfinlinedrawgraphic.cxx
+@@ -0,0 +1,83 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "rtfinlinedrawgraphic.hxx"
++
++#include <svtools/rtfkeywd.hxx>
++#include <svx/sdgcpitm.hxx>
++#include <svx/svddef.hxx>
++#include <svx/svdograf.hxx>
++#include <tools/stream.hxx>
++#include <vcl/cvtgrf.hxx>
++#include <vcl/gfxlink.hxx>
++#include <vcl/graph.hxx>
++
++namespace sw::hst
++{
++namespace
++{
++/// The blip keyword of picture data RTF takes as it is, or nullptr.
++const char* NativeBlip(const GfxLink& rLink)
++{
++    switch (rLink.GetType())
++    {
++        case GfxLinkType::NativeJpg:
++            return OOO_STRING_SVTOOLS_RTF_JPEGBLIP;
++        case GfxLinkType::NativePng:
++            return OOO_STRING_SVTOOLS_RTF_PNGBLIP;
++        case GfxLinkType::NativeWmf:
++            return rLink.IsEMF() ? OOO_STRING_SVTOOLS_RTF_EMFBLIP : OOO_STRING_SVTOOLS_RTF_WMETAFILE;
++        default:
++            return nullptr;
++    }
++}
++
++bool IsCropped(const SdrGrafObj& rObj)
++{
++    const SdrGrafCropItem& rCrop = rObj.GetMergedItem(SDRATTR_GRAFCROP);
++    return rCrop.GetLeft() || rCrop.GetRight() || rCrop.GetTop() || rCrop.GetBottom();
++}
++}
++
++const char* RtfInlineDrawGraphic(const SdrObject& rObj, SvMemoryStream& rStream, Size& rShown, Size& rMapped)
++{
++    auto pGraf = dynamic_cast<const SdrGrafObj*>(&rObj);
++    if (!pGraf || pGraf->GetRotateAngle().get() || pGraf->GetShearAngle().get())
++        return nullptr;
++    // a cropped or mirrored picture is written as it is shown
++    const bool bAsShown = IsCropped(*pGraf) || pGraf->IsMirrored();
++    const Graphic aGraphic
++        = bAsShown ? pGraf->GetTransformedGraphic(SdrGrafObjTransformsAttrs::MIRROR) : pGraf->GetGraphic();
++    const GraphicType eType = aGraphic.GetType();
++    if (eType != GraphicType::Bitmap && eType != GraphicType::GdiMetafile)
++        return nullptr;
++
++    const char* pBlip = nullptr;
++    if (!bAsShown && aGraphic.IsGfxLink())
++    {
++        const GfxLink aLink = aGraphic.GetGfxLink();
++        pBlip = NativeBlip(aLink);
++        if (pBlip)
++            rStream.WriteBytes(aLink.GetData(), aLink.GetDataSize());
++    }
++    if (!pBlip)
++    {
++        const bool bBitmap = eType == GraphicType::Bitmap;
++        if (GraphicConverter::Export(rStream, aGraphic, bBitmap ? ConvertDataFormat::PNG : ConvertDataFormat::WMF)
++            != ERRCODE_NONE)
++            return nullptr;
++        pBlip = bBitmap ? OOO_STRING_SVTOOLS_RTF_PNGBLIP : OOO_STRING_SVTOOLS_RTF_WMETAFILE;
++    }
++    if (!rStream.TellEnd())
++        return nullptr;
++    rShown = pGraf->GetLogicRect().GetSize(); // twips: Writer's drawing layer
++    rMapped = eType == GraphicType::Bitmap ? aGraphic.GetSizePixel() : aGraphic.GetPrefSize();
++    return pBlip;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/filter/ww8/hst/rtfinlinedrawgraphic.hxx b/sw/source/filter/ww8/hst/rtfinlinedrawgraphic.hxx
+new file mode 100644
+index 0000000..951f474
+--- /dev/null
++++ b/sw/source/filter/ww8/hst/rtfinlinedrawgraphic.hxx
+@@ -0,0 +1,29 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <tools/gen.hxx>
++
++class SdrObject;
++class SvMemoryStream;
++
++namespace sw::hst
++{
++/** The picture RTF writes inline (\pict) for an as-character draw object that holds a graphic: the .docx import makes
++    a w:drawing inline picture such an object, and the RTF export wrote it as a floating \shp, which came back
++    anchored at the character with wrap through: it took no room and lay over the text.
++
++    Writes the picture data to rStream: the graphic's own JPEG, PNG, EMF or WMF data when it is not cropped or
++    mirrored, else (or for other formats) PNG for a bitmap and WMF for a vector graphic. rShown is the object's size and
++    rMapped the picture's pixel (bitmap) or preferred (vector) size, both as \picw / \pich need them.
++    Returns the blip keyword, or nullptr when an inline picture would not show the object (not a graphic, rotated,
++    sheared, or no picture data); the caller then writes the shape as before. */
++const char* RtfInlineDrawGraphic(const SdrObject& rObj, SvMemoryStream& rStream, Size& rShown, Size& rMapped);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sw/source/filter/ww8/rtfattributeoutput.cxx b/sw/source/filter/ww8/rtfattributeoutput.cxx
+index 89bc25b..965060d 100644
+--- a/sw/source/filter/ww8/rtfattributeoutput.cxx
++++ b/sw/source/filter/ww8/rtfattributeoutput.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include "rtfattributeoutput.hxx"
++#include "hst/rtfinlinedrawgraphic.hxx"
+ #include "hst/rtfpicturescale.hxx"
+ #include <memory>
+ #include <cstring>
+@@ -2642,6 +2643,9 @@ void RtfAttributeOutput::OutputFlyFrame_Impl(const ww8::Frame& rFrame, const Poi
+         case ww8::Frame::eDrawing:
+         {
+             const SdrObject* pSdrObj = rFrame.GetFrameFormat().FindRealSdrObject();
++            // HST Office: a .docx inline picture stays inline, not a floating shape over the text
++            if (pSdrObj && rFrame.IsInline() && FlyFrameDrawGraphic(*pSdrObj))
++                break;
+             if (pSdrObj)
+             {
+                 m_aRunText->append("{" OOO_STRING_SVTOOLS_RTF_FIELD "{");
+@@ -4927,6 +4931,20 @@ void RtfAttributeOutput::FlyFrameOLE(const SwFlyFrameFormat* pFlyFrameFormat, Sw
+     FlyFrameOLEReplacement(pFlyFrameFormat, rOLENode, rSize);
+ }
+ 
++bool RtfAttributeOutput::FlyFrameDrawGraphic(const SdrObject& rObj)
++{
++    SvMemoryStream aStream;
++    Size aShown;
++    Size aMapped;
++    const char* pBLIPType = sw::hst::RtfInlineDrawGraphic(rObj, aStream, aShown, aMapped);
++    if (!pBLIPType)
++        return false;
++    const sal_uInt8* pGraphicAry = static_cast<const sal_uInt8*>(aStream.GetData());
++    m_aRunText->append(ExportPICT(nullptr, aShown, aShown, aMapped, SwCropGrf(), pBLIPType, pGraphicAry,
++                                  aStream.TellEnd(), m_rExport));
++    return true;
++}
++
+ void RtfAttributeOutput::FlyFrameGraphic(const SwFlyFrameFormat* pFlyFrameFormat,
+                                          const SwGrfNode* pGrfNode)
+ {
+diff --git a/sw/source/filter/ww8/rtfattributeoutput.hxx b/sw/source/filter/ww8/rtfattributeoutput.hxx
+index ee6f3e9..2c19429 100644
+--- a/sw/source/filter/ww8/rtfattributeoutput.hxx
++++ b/sw/source/filter/ww8/rtfattributeoutput.hxx
+@@ -37,6 +37,7 @@
+ class SwGrfNode;
+ class SwOLENode;
+ class SwFlyFrameFormat;
++class SdrObject;
+ class RtfExport;
+ 
+ /// The class that has handlers for various resource types when exporting as RTF
+@@ -511,6 +512,8 @@ private:
+ 
+     /// Output graphic fly frames.
+     void FlyFrameGraphic(const SwFlyFrameFormat* pFlyFrameFormat, const SwGrfNode* pGrfNode);
++    /// HST Office: an as-character draw picture as an inline \pict; false when it is not one.
++    bool FlyFrameDrawGraphic(const SdrObject& rObj);
+     void FlyFrameOLE(const SwFlyFrameFormat* pFlyFrameFormat, SwOLENode& rOLENode,
+                      const Size& rSize);
+     /// HST Office: bShownSize draws the picture at its shown size (scale 100 %), as the \result
