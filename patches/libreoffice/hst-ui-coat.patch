@@ -1512,26 +1512,6 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
---- a/vcl/source/outdev/nativecontrols.cxx
-+++ b/vcl/source/outdev/nativecontrols.cxx
-@@ -25,6 +25,7 @@
- #include <vcl/window.hxx>
- 
- #include <salgdi.hxx>
-+#include <hst/coat.hxx>
- #include <toolbarvalue.hxx>
- #include <menubarvalue.hxx>
- #include <scrollbarvalue.hxx>
-@@ -281,6 +282,9 @@
-     if ( mbInitFillColor )
-         InitFillColor();
- 
-+    if (hst::coat::DrawNativeControl(*this, nType, nPart, rControlRegion, nState, aValue, rBackgroundColor))
-+        return true;
-+
-     // Convert the coordinates from relative to Window-absolute, so we draw
-     // in the correct place in platform code
-     std::unique_ptr< ImplControlValue > aScreenCtrlValue( TransformControlValue( aValue, *this ) );
 --- a/vcl/unx/gtk3/hst-coat-gtk.cxx
 +++ b/vcl/unx/gtk3/hst-coat-gtk.cxx
 @@ -0,0 +1,77 @@
