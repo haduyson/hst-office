@@ -173,12 +173,20 @@ def check_content_control(ctx, desktop, out):
     finally:
         doc.close(True)
     exported = checkbox_controls(desktop, first)
-    # Tick the second box as a user's click does (Checked), save again, and read it back.
-    doc = load(desktop, uno.systemPathToFileUrl(first), Hidden=True)
+    # Tick the second box as Word or a click in HST stores it (checked state and the ☒ glyph), then check that
+    # HST keeps the ticked state through a load and a save.
+    ticked = os.path.join(out, "checkbox-content-control-ticked.docx")
+    with zipfile.ZipFile(first) as package:
+        parts = {name: package.read(name) for name in package.namelist()}
+    xml = parts["word/document.xml"].decode("utf-8")
+    second_box = xml.rindex('<w14:checked w14:val="0"/>')
+    tail = xml[second_box:].replace('<w14:checked w14:val="0"/>', '<w14:checked w14:val="1"/>', 1)
+    parts["word/document.xml"] = (xml[:second_box] + tail.replace("<w:t>☐</w:t>", "<w:t>☒</w:t>", 1)).encode()
+    with zipfile.ZipFile(ticked, "w", zipfile.ZIP_DEFLATED) as package:
+        for name, data in parts.items():
+            package.writestr(name, data)
+    doc = load(desktop, uno.systemPathToFileUrl(ticked), Hidden=True)
     try:
-        controls = [p for p in _portions(doc) if p.TextPortionType == "ContentControl"]
-        if len(controls) >= 2:
-            controls[1].ContentControl.Checked = True
         doc.storeToURL(uno.systemPathToFileUrl(second), props(FilterName="MS Word 2007 XML"))
     finally:
         doc.close(True)
@@ -187,17 +195,9 @@ def check_content_control(ctx, desktop, out):
         xml = package.read("word/document.xml").decode("utf-8")
     ok = (len(exported) == 2 and all(c["checkbox"] for c in exported) and not any(c["checked"] for c in exported)
           and [c["checked"] for c in reread] == [False, True] and xml.count("<w14:checkbox>") == 2
-          and '<w14:checked w14:val="1"/>' in xml)
-    return ok, {"files": [first, second], "exported": exported, "after_tick": reread,
+          and '<w14:checked w14:val="1"/>' in xml and "☒" in xml)
+    return ok, {"files": [first, ticked, second], "exported": exported, "after_tick": reread,
                 "w14_checkboxes": xml.count("<w14:checkbox>")}
-
-
-def _portions(doc):
-    paragraphs = doc.getText().createEnumeration()
-    while paragraphs.hasMoreElements():
-        portions = paragraphs.nextElement().createEnumeration()
-        while portions.hasMoreElements():
-            yield portions.nextElement()
 
 
 def main():

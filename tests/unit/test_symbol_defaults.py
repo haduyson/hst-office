@@ -20,6 +20,9 @@ BOXES_AND_TICKS = "☐☑☒✓✔✗"
 FONTS = {"DejaVu Sans", "Times New Roman"}
 # DejaVu Sans only: Times New Roman and Liberation Serif have no ballot boxes, ticks or crosses.
 NEEDS_DEJAVU = set(BOXES_AND_TICKS + "⇒")
+# Glyphs of Windows' Times New Roman 7.03 (GlyphTypeface.CharacterToGlyphMap on a Windows 11 test PC); Liberation Serif,
+# its stand-in on Linux, has the same ones. A symbol pinned to Times New Roman must be one of them.
+TIMES_NEW_ROMAN_HAS = set("•→←↑↓°±×÷≤≥≠≈∞€©₫№")
 FAVOURITE_LIMIT = 16  # SfxCharmapContainer keeps at most 16 favourites and 16 recent characters
 RECENT_LIMIT = 16
 
@@ -61,6 +64,7 @@ class SymbolDefaults(unittest.TestCase):
         pairs = list(zip(self.favourites + self.recent, self.favourite_fonts + self.recent_fonts))
         self.assertEqual([font for _, font in pairs if font not in FONTS], [])
         self.assertEqual([c for c, font in pairs if c in NEEDS_DEJAVU and font != "DejaVu Sans"], [])
+        self.assertEqual([c for c, font in pairs if font == "Times New Roman" and c not in TIMES_NEW_ROMAN_HAS], [])
 
     def test_unicode_characters_not_symbol_font_code_points(self):
         for char in self.favourites + self.recent:
