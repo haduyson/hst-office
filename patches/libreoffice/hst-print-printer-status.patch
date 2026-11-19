@@ -14,6 +14,8 @@ its printer list and a short text beside the selected printer ("Trạng thái:")
   - Linux/BSD: CUPS printer-state (idle/processing/stopped), printer-is-accepting-jobs and printer-state-reasons
     (26.8.3.1's unx queue info leaves the state empty); the profile's generic printer is no CUPS queue: grey;
   - macOS and others: grey (the queue info has no state there).
+- Test runs only: HST_TEST_PRINTER_STATES="<printer>=ready|busy|paused|offline|paperout|unknown;..." overrides
+  the system for those printers (screenshots on a host without a print server).
 - Mapping flags to state and text: vcl::hst::ClassifyPrinterStatus / PrinterStatusText (hstprinterstatus.cxx).
 - Hook: PrintDialog (panel form only) owns a vcl::hst::PrinterStatusView over its printer list and status label;
   updatePrinterText tells it the selection changed.
@@ -356,7 +358,7 @@ diff --git a/vcl/source/gdi/hstprinterstatusquery.cxx b/vcl/source/gdi/hstprinte
 new file mode 100644
 --- /dev/null
 +++ b/vcl/source/gdi/hstprinterstatusquery.cxx
-@@ -0,0 +1,199 @@
+@@ -0,0 +1,246 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -370,6 +372,9 @@ new file mode 100644
 +#include <vcl/hstprinterstatus.hxx>
 +
 +#include <config_cups.h>
++
++#include <cstdlib>
++#include <string_view>
 +
 +#if defined(_WIN32)
 +#include <prewin.h>
@@ -423,7 +428,7 @@ new file mode 100644
 +        { PRINTER_STATUS_POWER_SAVE, PrintQueueFlags::PowerSave } };
 +}
 +
-+PrinterStatus QueryPrinterStatus(const OUString& rPrinterName)
++static PrinterStatus lcl_systemStatus(const OUString& rPrinterName)
 +{
 +    HANDLE hPrinter = nullptr;
 +    if (!OpenPrinterW(const_cast<LPWSTR>(o3tl::toW(rPrinterName.getStr())), &hPrinter, nullptr))
@@ -515,7 +520,7 @@ new file mode 100644
 +}
 +}
 +
-+PrinterStatus QueryPrinterStatus(const OUString& rPrinterName)
++static PrinterStatus lcl_systemStatus(const OUString& rPrinterName)
 +{
 +    // "queue/instance": the instance has the state of its queue
 +    const OString aName = OUStringToOString(rPrinterName, RTL_TEXTENCODING_UTF8);
@@ -547,12 +552,56 @@ new file mode 100644
 +}
 +
 +#else
-+PrinterStatus QueryPrinterStatus(const OUString&)
++static PrinterStatus lcl_systemStatus(const OUString&)
 +{
 +    // macOS and the rest: the system's queue information has no state here
 +    return ClassifyPrinterStatus(PrintQueueFlags::NONE, false);
 +}
 +#endif
++
++namespace
++{
++/* Test runs only: HST_TEST_PRINTER_STATES="<printer>=<state>;..." with the states ready, busy,
++   paused, offline, paperout, unknown gives those printers that state instead of the system's
++   (runtime screenshots on a host without a print server). */
++bool lcl_testStatus(const OUString& rPrinterName, PrinterStatus& rStatus)
++{
++    const char* pStates = std::getenv("HST_TEST_PRINTER_STATES");
++    if (!pStates)
++        return false;
++    const OUString aStates = OUString::fromUtf8(pStates);
++    for (sal_Int32 nIndex = 0; nIndex >= 0;)
++    {
++        const OUString aItem = aStates.getToken(0, ';', nIndex);
++        const sal_Int32 nEq = aItem.lastIndexOf('=');
++        if (nEq <= 0 || aItem.copy(0, nEq) != rPrinterName)
++            continue;
++        const std::u16string_view aState = aItem.subView(nEq + 1);
++        if (aState == u"ready")
++            rStatus = ClassifyPrinterStatus(PrintQueueFlags::NONE, true);
++        else if (aState == u"busy")
++            rStatus = ClassifyPrinterStatus(PrintQueueFlags::Printing, true);
++        else if (aState == u"paused")
++            rStatus = ClassifyPrinterStatus(PrintQueueFlags::Paused, true);
++        else if (aState == u"offline")
++            rStatus = ClassifyPrinterStatus(PrintQueueFlags::Offline, true);
++        else if (aState == u"paperout")
++            rStatus = ClassifyPrinterStatus(PrintQueueFlags::PaperOut, true);
++        else
++            rStatus = ClassifyPrinterStatus(PrintQueueFlags::NONE, false);
++        return true;
++    }
++    return false;
++}
++}
++
++PrinterStatus QueryPrinterStatus(const OUString& rPrinterName)
++{
++    PrinterStatus aStatus;
++    if (lcl_testStatus(rPrinterName, aStatus))
++        return aStatus;
++    return lcl_systemStatus(rPrinterName);
++}
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
