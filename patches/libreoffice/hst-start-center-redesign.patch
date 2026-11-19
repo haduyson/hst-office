@@ -179,10 +179,10 @@ index 0000000..3db49e3
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/inc/startcenter/hststartcenterwindow.hxx b/sfx2/inc/startcenter/hststartcenterwindow.hxx
 new file mode 100644
-index 0000000..d8c107b
+index 0000000..5debe75
 --- /dev/null
 +++ b/sfx2/inc/startcenter/hststartcenterwindow.hxx
-@@ -0,0 +1,196 @@
+@@ -0,0 +1,197 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -373,6 +373,7 @@ index 0000000..d8c107b
 +    int mnHoverMenu = -1;
 +    int mnHoverTile = -1;
 +    double mfScale = 1.0;
++    int mnLeftWidth = 0; ///< device pixels, once laid out
 +    bool mbCompact = false;
 +    bool mbShowRight = true;
 +    bool mbPinnedOnly = false;
@@ -1947,10 +1948,10 @@ index 0000000..dcb957f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
 new file mode 100644
-index 0000000..b761c7a
+index 0000000..7497f52
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
-@@ -0,0 +1,748 @@
+@@ -0,0 +1,751 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2366,7 +2367,9 @@ index 0000000..b761c7a
 +    const bool bSelected = (nIndex == 0 && meSection == Section::Home)
 +                           || (rItem.eGlyph == Glyph::Recent && meSection == Section::Recent)
 +                           || (rItem.eGlyph == Glyph::Pinned && meSection == Section::Pinned);
-+    const Size aSize(static_cast<tools::Long>((mbCompact ? LEFT_COMPACT_WIDTH - 12 : LEFT_WIDTH - 40) * mfScale),
++    // the column's width less its border (16 on each side) and the button's own padding
++    const tools::Long nColumn = mnLeftWidth > 0 ? mnLeftWidth : static_cast<tools::Long>(LEFT_WIDTH * mfScale);
++    const Size aSize(nColumn - static_cast<tools::Long>((mbCompact ? 20 : 44) * mfScale),
 +                     static_cast<tools::Long>(MENU_HEIGHT * mfScale));
 +    ScopedVclPtr<VirtualDevice> xDev = rItem.xButton->create_virtual_device();
 +    xDev->SetOutputSizePixel(aSize);
@@ -2427,21 +2430,22 @@ index 0000000..b761c7a
 +        return;
 +    const bool bCompact = fWidth < COMPACT_WINDOW;
 +    const bool bShowRight = fWidth >= RIGHT_COLUMN_MIN_WINDOW;
-+    if (bCompact != mbCompact)
++    // the left column is at least as wide as the banner needs
++    const Size aBanner = HstBannerWidget::MinimumSize(GetDPIScaleFactor());
++    const int nLeft = bCompact ? static_cast<int>(LEFT_COMPACT_WIDTH * mfScale)
++                               : std::max(static_cast<int>(LEFT_WIDTH * mfScale),
++                                          static_cast<int>(aBanner.Width() + 32 * mfScale));
++    if (bCompact != mbCompact || nLeft != mnLeftWidth)
 +    {
 +        mbCompact = bCompact;
++        mnLeftWidth = nLeft;
++        mxLeft->set_size_request(nLeft, -1);
 +        for (size_t i = 0; i < maMenu.size(); ++i)
 +            PaintMenuItem(i);
 +        mxSolutions->set_visible(!mbCompact);
 +        mxSeparator->set_visible(!mbCompact);
 +        mxLogo->set_visible(!mbCompact);
 +    }
-+    // the left column is at least as wide as the banner needs
-+    const Size aBanner = HstBannerWidget::MinimumSize(GetDPIScaleFactor());
-+    const int nLeft = mbCompact ? static_cast<int>(LEFT_COMPACT_WIDTH * mfScale)
-+                                : std::max(static_cast<int>(LEFT_WIDTH * mfScale),
-+                                           static_cast<int>(aBanner.Width() + 32 * mfScale));
-+    mxLeft->set_size_request(nLeft, -1);
 +
 +    if (bShowRight != mbShowRight)
 +    {
