@@ -111,7 +111,7 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sw/source/uibase/hst/mathtypehintbar.cxx
 +++ b/sw/source/uibase/hst/mathtypehintbar.cxx
-@@ -0,0 +1,225 @@
+@@ -0,0 +1,295 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -136,6 +136,7 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +#include <tools/globname.hxx>
 +#include <comphelper/diagnose_ex.hxx>
 +#include <unotools/ucbstreamhelper.hxx>
++#include <vcl/idle.hxx>
 +#include <vcl/settings.hxx>
 +#include <vcl/svapp.hxx>
 +#include <vcl/weld/Button.hxx>
@@ -248,27 +249,8 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +    Application::PostUserEvent(LINK_NONMEMBER(pFrame, ConvertLater));
 +}
 +
-+void Show(SwView& rView)
++void AppendBar(SwView& rView, sal_Int32 nCount)
 +{
-+    SwDocShell* pDocShell = rView.GetDocShell();
-+    if (!pDocShell || pDocShell->IsReadOnly() || pDocShell->IsPreview()
-+        || pDocShell->GetCreateMode() != SfxObjectCreateMode::STANDARD)
-+        return;
-+    // No bar without a user to see it. Background loads open hidden: soffice --convert-to and
-+    // --print-to (also read-only), mail merge working documents, scripts and API conversions.
-+    // Previews and thumbnails render the document without a view.
-+    const SfxMedium* pMedium = pDocShell->GetMedium();
-+    const SfxBoolItem* pHidden
-+        = pMedium ? pMedium->GetItemSet().GetItemIfSet(SID_HIDDEN, false) : nullptr;
-+    if (pHidden && pHidden->GetValue())
-+        return;
-+    const uno::Reference<uno::XInterface> xModel(pDocShell->GetModel(), uno::UNO_QUERY);
-+    if (!xModel.is())
-+        return;
-+    const sal_Int32 nCount = CountMathTypeObjects(*pDocShell->GetDoc());
-+    if (nCount <= 0 || !FirstTime(xModel))
-+        return;
-+
 +    SfxViewFrame& rFrame = rView.GetViewFrame();
 +    const sal_uInt16 nId = SfxInfoBarContainerChild::GetChildWindowId();
 +    if (!rFrame.HasChildWindow(nId))
@@ -291,14 +273,102 @@ per document per session (sw/source/uibase/hst/mathtypehintbar.cxx).
 +    rClose.connect_clicked(LINK_NONMEMBER(static_cast<void*>(&rFrame), CloseClicked));
 +}
 +
++SwDocShell* DocShellOf(const uno::Reference<uno::XInterface>& xModel)
++{
++    return xModel.is()
++               ? dynamic_cast<SwDocShell*>(SfxObjectShell::GetShellFromComponent(xModel))
++               : nullptr;
++}
++
++/// Counts the MathType objects a few at a time on an idle, so that a document with a thousand
++/// equations does not hold the user up after it has opened (each object's stream is copied to read
++/// its class ID), then shows the bar. Deletes itself when done or when the document is gone.
++class Counter
++{
++public:
++    Counter(const uno::Reference<uno::XInterface>& xModel, std::vector<OUString>&& rNames)
++        : m_aModel(xModel)
++        , m_aNames(std::move(rNames))
++        , m_aIdle("hst::mathtype::Counter")
++    {
++        m_aIdle.SetPriority(TaskPriority::LOWEST);
++        m_aIdle.SetInvokeHandler(LINK(this, Counter, Step));
++        m_aIdle.Start();
++    }
++
++private:
++    DECL_LINK(Step, Timer*, void);
++
++    static constexpr size_t STEP = 32; // objects per idle call, about 15 ms on s037.docx
++
++    uno::WeakReferenceHelper m_aModel;
++    std::vector<OUString> m_aNames;
++    size_t m_nNext = 0;
++    sal_Int32 m_nCount = 0;
++    Idle m_aIdle;
++};
++
++IMPL_LINK_NOARG(Counter, Step, Timer*, void)
++{
++    SwDocShell* pDocShell = DocShellOf(m_aModel.get());
++    const uno::Reference<embed::XStorage> xStorage
++        = pDocShell ? pDocShell->getStorage() : uno::Reference<embed::XStorage>();
++    if (!xStorage.is())
++    {
++        delete this;
++        return;
++    }
++    for (const size_t nEnd = std::min(m_aNames.size(), m_nNext + STEP); m_nNext < nEnd; ++m_nNext)
++        if (IsMathType(xStorage, m_aNames[m_nNext]))
++            ++m_nCount;
++    if (m_nNext < m_aNames.size())
++    {
++        m_aIdle.Start();
++        return;
++    }
++    if (m_nCount > 0 && pDocShell->GetView())
++        AppendBar(*pDocShell->GetView(), m_nCount);
++    delete this;
++}
++
++std::vector<OUString> OleNames(const SwDoc& rDoc)
++{
++    std::vector<OUString> aNames;
++    const SwNodes& rNodes = rDoc.GetNodes();
++    for (SwNodeOffset n(0); n < rNodes.Count(); ++n)
++        if (const SwOLENode* pOle = rNodes[n]->GetOLENode())
++            aNames.push_back(pOle->GetOLEObj().GetCurrentPersistName());
++    return aNames;
++}
++
++void Show(SwView& rView)
++{
++    SwDocShell* pDocShell = rView.GetDocShell();
++    if (!pDocShell || pDocShell->IsReadOnly() || pDocShell->IsPreview()
++        || pDocShell->GetCreateMode() != SfxObjectCreateMode::STANDARD)
++        return;
++    // No bar without a user to see it. Background loads open hidden: soffice --convert-to and
++    // --print-to (also read-only), mail merge working documents, scripts and API conversions.
++    // Previews and thumbnails render the document without a view.
++    const SfxMedium* pMedium = pDocShell->GetMedium();
++    const SfxBoolItem* pHidden
++        = pMedium ? pMedium->GetItemSet().GetItemIfSet(SID_HIDDEN, false) : nullptr;
++    if (pHidden && pHidden->GetValue())
++        return;
++    const uno::Reference<uno::XInterface> xModel(pDocShell->GetModel(), uno::UNO_QUERY);
++    if (!xModel.is())
++        return;
++    std::vector<OUString> aNames = OleNames(*pDocShell->GetDoc());
++    if (aNames.empty() || !FirstTime(xModel))
++        return;
++    new Counter(xModel, std::move(aNames));
++}
++
 +void ShowLater(void* pModel, void*)
 +{
 +    std::unique_ptr<uno::WeakReferenceHelper> pWeak(
 +        static_cast<uno::WeakReferenceHelper*>(pModel));
-+    const uno::Reference<uno::XInterface> xModel = pWeak->get();
-+    if (!xModel.is())
-+        return;
-+    auto* pDocShell = dynamic_cast<SwDocShell*>(SfxObjectShell::GetShellFromComponent(xModel));
++    SwDocShell* pDocShell = DocShellOf(pWeak->get());
 +    if (pDocShell && pDocShell->GetView())
 +        Show(*pDocShell->GetView());
 +}
