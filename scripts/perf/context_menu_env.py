@@ -83,6 +83,11 @@ def prepare_profile(cell: dict, work: Path, user_profile: Path | None) -> Path:
              '<item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="FirstRun" '
              'oor:op="fuse"><value>false</value></prop></item>\n'
              '<item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="ShowTipOfTheDay" '
+             'oor:op="fuse"><value>false</value></prop></item>\n'
+             # HST Office start-up dialogs are modal and would sit over the document being measured
+             '<item oor:path="/org.hasontech.hstoffice.Welcome"><prop oor:name="Shown" '
+             'oor:op="fuse"><value>true</value></prop></item>\n'
+             '<item oor:path="/org.hasontech.hstoffice.DefaultApps"><prop oor:name="Ask" '
              'oor:op="fuse"><value>false</value></prop></item>\n')
     if xcu.is_file():
         text = xcu.read_text(encoding="utf-8")

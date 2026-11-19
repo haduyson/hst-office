@@ -10,7 +10,7 @@ from xml.dom import minidom
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REQUIRED = ("description.xml", "META-INF/manifest.xml", "license/LICENSE.txt", "license/NOTICES.txt", "data/provenance.json", "data/solutions.json",
-            "data/release.json", "data/pkcs11-modules.json", "data/banners.json", "banners.xcs")
+            "data/release.json", "data/pkcs11-modules.json", "data/banners.json")
 SHARED_DATA = ("nd30.json", "number-formats.json", "encoding-maps.json", "provenance.json")
 GUIDE_SUPPORT_GROUP = "https://www.facebook.com/share/g/1TvVaU6q4V/"  # the one link outside hasontech.vn in the guide
 HOST_ALLOW = ("openoffice.org", "libreoffice.org", "w3.org", "hasontech.vn", "sun.com")
@@ -94,6 +94,10 @@ def check_registration(zf, names, errors):
     for need in REQUIRED:
         if need not in names:
             errors.append("missing required file: %s" % need)
+    # The HST settings schemas are core configuration (main.xcd, hst-extension-settings-core.patch): a copy in the
+    # extension would define them twice, and only the core copy is known before the user's values are read.
+    for name in sorted(n for n in names if n.endswith(".xcs")):
+        errors.append("configuration schema in the extension (it belongs in the core): %s" % name)
     if "META-INF/manifest.xml" not in names:
         return
     dom = parse_xml(zf.read("META-INF/manifest.xml"), errors, "manifest.xml")

@@ -34,13 +34,14 @@ def test_key(text):
 
 class BannerFeed:
     def __init__(self, profile_dir, version, override="", proxy=None, *, public_key=None, fetcher=fetch, clock=time.time,
-                 test_mode=False, environ=None, poster=post_status):
+                 test_mode=False, environ=None, poster=post_status, ready=None):
         """test_mode comes only from the package stamp (release.json update_test_mode, which release checks
         reject). Only then are HST_BANNER_TEST_URL (plain HTTP to the local test host, or HTTPS) and HST_BANNER_TEST_KEY read;
         test state lives in its own cache so it never mixes with the production feed.
 
         Display counting always runs and cannot be turned off: it is independent of SendInstallId and carries no
-        machine ID. poster: the display report transport, injected by unit tests only."""
+        machine ID. poster: the display report transport, injected by unit tests only. ready: called first on the
+        worker, blocks until the office's start-up work is done (banner_uno passes ui_idle.wait)."""
         self.allow_test = test_mode is True
         environ = (os.environ if environ is None else environ) if self.allow_test else {}
         self.root = Path(profile_dir) / ("hst-banners-test" if self.allow_test else "hst-banners")
@@ -65,6 +66,7 @@ class BannerFeed:
         self._bundle = prepare(((self.bundle, self.bundle_images),), self.utm, encoded)
         self._state = ()  # constructed privately by the worker, never mutated after its single assignment
         self._next_check, self._lock = 0, threading.Lock()
+        self._ready = ready
 
     def refresh_async(self):
         """Return the worker (or None); no cache verification or network work on the caller's thread."""
@@ -79,6 +81,11 @@ class BannerFeed:
         return thread
 
     def _refresh(self):
+        if self._ready is not None:
+            try:
+                self._ready()  # cache checks and helper processes wait until the start-up is over
+            except Exception:  # noqa: BLE001 - waiting is a courtesy; the refresh still runs
+                pass
         now = self.clock()
         self._next_check = now + INTERVAL
         try:

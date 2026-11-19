@@ -3,7 +3,7 @@
 (downloads do not: every update is a new download). docs/PRIVACY.md says what is sent and how to turn it off.
 
   * The ID is a random UUID4 (uuid.uuid4, from os.urandom), created at the first update check and stored in the user
-    profile at /org.hasontech.hstoffice.UpdateCheck/InstallId (update.xcs). It is derived from nothing on the machine:
+    profile at /org.hasontech.hstoffice.UpdateCheck/InstallId (core schema, hst-extension-settings-core.patch). It is derived from nothing on the machine:
     not the hardware, the network (MAC) address, the user or machine name. A new or reset profile gets a new ID.
   * It travels as ?i=<id> on the manifest request of the update check (feed_url); the User-Agent already carries the
     release and the OS, so nothing else is added. An error report the user sends carries the same ID in its own

@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Settings of the Trợ lý AI in /org.hasontech.hstoffice.AI (ai.xcs): Enabled (default off), Provider (default none)
+"""Settings of the Trợ lý AI in /org.hasontech.hstoffice.AI (core schema officecfg .../hstoffice/AI.xcs): Enabled (default off), Provider (default none)
 and one model per provider. The API keys are not settings: see ai_keystore. A value an administrator finalized is
 read as locked: the options page greys it out and never writes it."""
 from . import diag_log

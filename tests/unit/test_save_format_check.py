@@ -4,6 +4,8 @@ answer given to the core save code, and that the open document is only read."""
 import os
 import types
 import unittest
+
+import core_settings_schemas as core_schemas  # noqa: E402
 import xml.etree.ElementTree as ET
 from unittest import mock
 
@@ -159,11 +161,11 @@ class Prefs(unittest.TestCase):
         self.assertEqual([prefs.from_page_index(i) for i in (0, 1, 2, -1, 9)], ["", "convert", "keep", "", ""])
 
     def test_schema_page_and_manifest(self):
-        root = ET.parse(os.path.join(EXT, "saveformatcheck.xcs")).getroot()
+        root = core_schemas.schema_root("SaveFormatCheck")
         self.assertEqual("/%s.%s" % (root.get(OOR + "package"), root.get(OOR + "name")), prefs.CONFIG_PATH)
         self.assertEqual({p.get(OOR + "name"): p.findtext("value") or "" for p in root.iter("prop")}, {prefs.KEY: ""})
         with open(os.path.join(EXT, "META-INF", "manifest.xml"), encoding="utf-8") as manifest:
-            self.assertIn('full-path="saveformatcheck.xcs"', manifest.read())
+            self.assertNotIn(".xcs", manifest.read())  # core schema (hst-extension-settings-core.patch)
         ids = {e.get(DLG + "id") for e in ET.parse(os.path.join(EXT, "dialogs", "NumberWords.xdl")).getroot().iter()}
         self.assertIn("save_choice", ids)
 
