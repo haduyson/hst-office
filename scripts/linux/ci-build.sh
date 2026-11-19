@@ -61,6 +61,9 @@ do_deps() {
   # build with it. Ubuntu 22.04 (the glibc floor of the .deb) has no compiler new enough for
   # LibreOffice 26.8 (GCC 13 / Clang 18), and clang uses the distribution's own libstdc++ 12
   # headers, so the result needs no newer libstdc++ at run time.
+  # a mirror that stops answering fails the fetch (and is retried) instead of hanging the job
+  printf 'Acquire::Retries "3";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\n' \
+    | $SUDO tee /etc/apt/apt.conf.d/80hst-network >/dev/null || return 1
   local sources=/etc/apt/sources.list.d/ubuntu.sources
   if [ -f "$sources" ]; then
     $SUDO sed -i 's/^Types: deb$/Types: deb deb-src/' "$sources" || return 1
@@ -76,7 +79,7 @@ do_deps() {
   if [ -n "${HST_CLANG:-}" ]; then
     local key="$WORK/llvm.gpg.key" codename fpr
     codename="$(lsb_release -cs)" || return 1
-    curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o "$key" || return 1
+    curl -fsSL --retry 3 --max-time 60 https://apt.llvm.org/llvm-snapshot.gpg.key -o "$key" || return 1
     fpr="$(gpg --show-keys --with-colons "$key" | awk -F: '$1=="fpr"{print $10; exit}')"
     [ "$fpr" = 6084F3CF814B57C1CF12EFD515CF4D18AF4F7421 ] || { echo "deps: unexpected llvm key fingerprint $fpr"; return 1; }
     $SUDO mkdir -p /etc/apt/keyrings || return 1
