@@ -1,0 +1,314 @@
+sw: page count and page numbers that the user sees do not wrap after 65535 pages.
+
+The layout stores the page count and each page's physical number as sal_uInt16. A DOCX of about
+98,600 pages (docx-text 50 MB) reported 33,075 pages (98,611 mod 65,536) in the status bar, the
+statistics, the PageCount field and the API, and PDF export and printing stopped after page 33,075.
+
+HstPageCount / HstPhyPageNum / HstVirtPageNum (new hstpagecount.cxx) count the page frames
+instead, and are used where the count or the number reaches the user:
+- status bar "Page X of Y" (SwVisiblePageNumbers is widened to sal_uInt32);
+- document statistics (Word Count, File - Properties, the PageCount field);
+- the controller's PageCount property;
+- the pages prepared for printing and PDF export (CalcPagesForPrint takes sal_uInt32).
+The Go To Page dialog (svx, sal_uInt16) offers at most page 65535 instead of the wrapped count.
+The stored 16-bit numbers inside the layout are unchanged.
+
+Hook: sw/inc/viewsh.hxx, sw/source/core/view/{viewsh,vprint}.cxx, sw/source/uibase/uiview/view2.cxx,
+sw/source/uibase/uno/{unotxdoc,unotxvw}.cxx, sw/source/core/doc/DocumentStatisticsManager.cxx,
+sw/Library_sw.mk; logic in sw/inc/hstpagecount.hxx, sw/source/core/layout/hstpagecount.cxx.
+Test: CppunitTest_sw_core_layout testPageCountAbove65535Pages.
+---
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -354,6 +354,7 @@
+     sw/source/core/layout/frmtool \
+     sw/source/core/layout/ftnfrm \
+     sw/source/core/layout/hstlargedocxpagination \
++    sw/source/core/layout/hstpagecount \
+     sw/source/core/layout/hstpageart \
+     sw/source/core/layout/hstpageartsets \
+     sw/source/core/layout/hffrm \
+--- /dev/null
++++ b/sw/inc/hstpagecount.hxx
+@@ -0,0 +1,23 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++
++#pragma once
++
++#include <sal/types.h>
++#include "swdllapi.h"
++
++class SwPageFrame;
++class SwRootFrame;
++
++// The layout stores page numbers and the page count as 16-bit values, which wrap after 65535
++// pages. These count the page frames instead, for what the user sees: the status bar, the page
++// count of the statistics and of the PageCount field, the printed and exported pages.
++
++/// Number of pages in the layout.
++SW_DLLPUBLIC sal_uInt32 HstPageCount(const SwRootFrame& rRoot);
++/// Physical number of the page: 1 for the first page of the layout.
++SW_DLLPUBLIC sal_uInt32 HstPhyPageNum(const SwPageFrame& rPage);
++/// Page number with the numbering offsets of the page styles applied.
++SW_DLLPUBLIC sal_uInt32 HstVirtPageNum(const SwPageFrame& rPage);
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/inc/viewsh.hxx
++++ b/sw/inc/viewsh.hxx
+@@ -106,8 +106,8 @@
+ 
+ struct SwVisiblePageNumbers
+ {
+-    sal_uInt16 nFirstPhy, nLastPhy;
+-    sal_uInt16 nFirstVirt, nLastVirt;
++    sal_uInt32 nFirstPhy, nLastPhy; // HST: past 65535 pages
++    sal_uInt32 nFirstVirt, nLastVirt;
+     OUString sFirstCustomPhy, sLastCustomPhy;
+     OUString sFirstCustomVirt, sLastCustomVirt;
+ };
+@@ -405,7 +405,7 @@
+     void FillPrtDoc( SwDoc& rPrtDoc, const SfxPrinter* pPrt );
+ 
+     // Called internally for Shell. Formats pages.
+-    void CalcPagesForPrint( sal_uInt16 nMax );
++    void CalcPagesForPrint( sal_uInt32 nMax );
+ 
+     // All about fields.
+     SW_DLLPUBLIC void UpdateFields(bool bCloseDB = false, bool bSetModified = true);
+--- a/sw/source/core/doc/DocumentStatisticsManager.cxx
++++ b/sw/source/core/doc/DocumentStatisticsManager.cxx
+@@ -32,6 +32,7 @@
+ #include <com/sun/star/document/XDocumentPropertiesSupplier.hpp>
+ #include <com/sun/star/frame/XModel.hpp>
+ #include <com/sun/star/frame/XModel3.hpp>
++#include <hstpagecount.hxx>
+ 
+ using namespace ::com::sun::star;
+ 
+@@ -142,7 +143,7 @@
+         }
+     }
+ 
+-    mpDocStat->nPage     = m_rDoc.getIDocumentLayoutAccess().GetCurrentLayout() ? m_rDoc.getIDocumentLayoutAccess().GetCurrentLayout()->GetPageNum() : 0;
++    mpDocStat->nPage     = m_rDoc.getIDocumentLayoutAccess().GetCurrentLayout() ? HstPageCount(*m_rDoc.getIDocumentLayoutAccess().GetCurrentLayout()) : 0;
+     SetDocStatModified( false );
+ 
+     css::uno::Sequence < css::beans::NamedValue > aStat( mpDocStat->nPage ? 8 : 7);
+--- /dev/null
++++ b/sw/source/core/layout/hstpagecount.cxx
+@@ -0,0 +1,35 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++
++#include <hstpagecount.hxx>
++
++#include <pagefrm.hxx>
++#include <rootfrm.hxx>
++
++sal_uInt32 HstPageCount(const SwRootFrame& rRoot)
++{
++    sal_uInt32 nCount = 0;
++    for (const SwFrame* pPage = rRoot.Lower(); pPage; pPage = pPage->GetNext())
++        ++nCount;
++    return nCount;
++}
++
++sal_uInt32 HstPhyPageNum(const SwPageFrame& rPage)
++{
++    sal_uInt32 nNum = 1;
++    for (const SwFrame* pPage = rPage.GetPrev(); pPage; pPage = pPage->GetPrev())
++        ++nNum;
++    return nNum;
++}
++
++sal_uInt32 HstVirtPageNum(const SwPageFrame& rPage)
++{
++    // The stored virtual and physical numbers wrap alike, so their 16-bit difference is the
++    // numbering offset as long as it is smaller than 32768 pages.
++    const sal_Int16 nOffset = static_cast<sal_Int16>(
++        static_cast<sal_uInt16>(rPage.GetVirtPageNum() - rPage.GetPhyPageNum()));
++    const sal_Int64 nVirt = sal_Int64(HstPhyPageNum(rPage)) + nOffset;
++    return nVirt > 0 ? sal_uInt32(nVirt) : 1;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/core/view/viewsh.cxx
++++ b/sw/source/core/view/viewsh.cxx
+@@ -41,6 +41,7 @@
+ #include <rootfrm.hxx>
+ #include <pagefrm.hxx>
+ #include <viewimp.hxx>
++#include <hstpagecount.hxx>
+ #include <frmtool.hxx>
+ #include <viewopt.hxx>
+ #include <dview.hxx>
+@@ -2975,8 +2976,8 @@
+         if (rPageRect.Top() > 0)
+             rPageRect.AddBottom(-pPageFrame->GetBottomMargin());
+     }
+-    rVisiblePageNumbers.nFirstPhy = pPageFrame->GetPhyPageNum();
+-    rVisiblePageNumbers.nFirstVirt = pPageFrame->GetVirtPageNum();
++    rVisiblePageNumbers.nFirstPhy = HstPhyPageNum(*pPageFrame);
++    rVisiblePageNumbers.nFirstVirt = HstVirtPageNum(*pPageFrame);
+     const SvxNumberType& rFirstVisNum = pPageFrame->GetPageDesc()->GetNumType();
+     rVisiblePageNumbers.sFirstCustomPhy = rFirstVisNum.GetNumStr(rVisiblePageNumbers.nFirstPhy);
+     rVisiblePageNumbers.sFirstCustomVirt = rFirstVisNum.GetNumStr(rVisiblePageNumbers.nFirstVirt);
+@@ -2989,8 +2990,8 @@
+         rPageRect = pPageFrame->getFrameArea();
+         rPageRect.AddTop(pPageFrame->GetTopMargin());
+     }
+-    rVisiblePageNumbers.nLastPhy = pPageFrame->GetPhyPageNum();
+-    rVisiblePageNumbers.nLastVirt = pPageFrame->GetVirtPageNum();
++    rVisiblePageNumbers.nLastPhy = HstPhyPageNum(*pPageFrame);
++    rVisiblePageNumbers.nLastVirt = HstVirtPageNum(*pPageFrame);
+     const SvxNumberType& rLastVisNum = pPageFrame->GetPageDesc()->GetNumType();
+     rVisiblePageNumbers.sLastCustomPhy = rLastVisNum.GetNumStr(rVisiblePageNumbers.nLastPhy);
+     rVisiblePageNumbers.sLastCustomVirt = rLastVisNum.GetNumStr(rVisiblePageNumbers.nLastVirt);
+--- a/sw/source/core/view/vprint.cxx
++++ b/sw/source/core/view/vprint.cxx
+@@ -273,7 +273,7 @@
+     }
+ }
+ 
+-void SwViewShell::CalcPagesForPrint( sal_uInt16 nMax )
++void SwViewShell::CalcPagesForPrint( sal_uInt32 nMax )
+ {
+     CurrShell aCurr( this );
+ 
+@@ -283,7 +283,7 @@
+     SwLayAction aAction( pMyLayout, Imp() );
+ 
+     pMyLayout->StartAllAction();
+-    for ( sal_uInt16 i = 1; pPage && i <= nMax; pPage = pPage->GetNext(), ++i )
++    for ( sal_uInt32 i = 1; pPage && i <= nMax; pPage = pPage->GetNext(), ++i )
+     {
+         pPage->Calc(GetOut());
+         SwRect aOldVis( VisArea() );
+--- a/sw/source/uibase/uiview/view2.cxx
++++ b/sw/source/uibase/uiview/view2.cxx
+@@ -166,6 +166,7 @@
+ 
+ #include <svx/dialog/gotodlg.hxx>
+ #include <unotools/tempfile.hxx>
++#include <hstpagecount.hxx>
+ 
+ const char sStatusDelim[] = " : ";
+ 
+@@ -1328,7 +1329,8 @@
+ 
+             auto xDialog = std::make_shared<svx::GotoPageDlg>(
+                 GetViewFrame().GetFrameWeld(), SwResId(STR_GOTO_PAGE_DLG_TITLE),
+-                SwResId(ST_PGE) + ":", nPhyPage, GetWrtShell().GetPageCnt());
++                SwResId(ST_PGE) + ":", nPhyPage,
++                sal_uInt16(std::min<sal_uInt32>(HstPageCount(*GetWrtShell().GetLayout()), SAL_MAX_UINT16)));
+             weld::DialogController::runAsync(xDialog,[this, xDialog, xRequest=std::move(xRequest)](sal_uInt32 nResult) {
+                 if (nResult == RET_OK)
+                 {
+@@ -1822,7 +1824,7 @@
+                 OUString& sLastCustomPhy = aVisiblePageNumbers.sLastCustomPhy;
+                 OUString& sFirstCustomVirt = aVisiblePageNumbers.sFirstCustomVirt;
+                 OUString& sLastCustomVirt = aVisiblePageNumbers.sLastCustomVirt;
+-                OUString sPageCount = OUString::number(m_pWrtShell->GetPageCount());
++                OUString sPageCount = OUString::number(HstPageCount(*m_pWrtShell->GetLayout()));
+ 
+                 if (aVisiblePageNumbers.nFirstPhy == aVisiblePageNumbers.nFirstVirt)
+                 {
+--- a/sw/source/uibase/uno/unotxdoc.cxx
++++ b/sw/source/uibase/uno/unotxdoc.cxx
+@@ -187,6 +187,7 @@
+ #include <SwXTextDefaults.hxx>
+ 
+ #include <mutex>
++#include <hstpagecount.hxx>
+ 
+ using namespace ::com::sun::star;
+ using namespace ::com::sun::star::text;
+@@ -2816,7 +2817,7 @@
+             if( bStateChanged )
+                 pRenderDocShell->EnableSetModified();
+ 
+-            pViewShell->CalcPagesForPrint( pViewShell->GetPageCount() );
++            pViewShell->CalcPagesForPrint( HstPageCount(*pViewShell->GetLayout()) );
+ 
+             pViewShell->SetPDFExportOption( false );
+ 
+@@ -2824,7 +2825,7 @@
+             pViewShell->EndAction();
+         }
+ 
+-        const sal_Int32 nPageCount = pViewShell->GetPageCount();
++        const sal_Int32 nPageCount = HstPageCount(*pViewShell->GetLayout());
+ 
+         // get number of pages to be rendered
+ 
+--- a/sw/source/uibase/uno/unotxvw.cxx
++++ b/sw/source/uibase/uno/unotxvw.cxx
+@@ -75,6 +75,7 @@
+ #include <comphelper/dumpxmltostring.hxx>
+ #include <fmtanchr.hxx>
+ #include <names.hxx>
++#include <hstpagecount.hxx>
+ 
+ using namespace ::com::sun::star;
+ using namespace ::com::sun::star::uno;
+@@ -758,7 +759,7 @@
+ 
+             sal_Int32 nCount = -1;
+             if (nWID == WID_PAGE_COUNT)
+-                nCount = m_pView->GetWrtShell().GetPageCount();
++                nCount = HstPageCount(*m_pView->GetWrtShell().GetLayout());
+             else // WID_LINE_COUNT
+                 nCount = m_pView->GetWrtShell().GetLineCount();
+             aRet <<= nCount;
+--- a/sw/qa/core/layout/laycache.cxx
++++ b/sw/qa/core/layout/laycache.cxx
+@@ -28,6 +28,9 @@
+ #include <unotools/tempfile.hxx>
+ 
+ #include <IDocumentLayoutAccess.hxx>
++#include <IDocumentStatistics.hxx>
++#include <docstat.hxx>
++#include <hstpagecount.hxx>
+ #include <ndtxt.hxx>
+ #include <pagefrm.hxx>
+ #include <rootfrm.hxx>
+@@ -275,6 +278,38 @@
+     }
+ }
+ 
++CPPUNIT_TEST_FIXTURE(Test, testPageCountAbove65535Pages)
++{
++    // The layout keeps page numbers in 16 bits. A document with more pages must still show its
++    // real page count and page numbers.
++    createSwDoc();
++    SwDoc* pDoc = getSwDoc();
++    SwRootFrame* pLayout = pDoc->getIDocumentLayoutAccess().GetCurrentLayout();
++    SwPageFrame* pFirst = static_cast<SwPageFrame*>(pLayout->Lower());
++    const sal_uInt32 nPages = 0x10000 + 11;
++    pLayout->LockViewLayout();
++    pLayout->SetHstEstimatedPageInsert(true); // append behind the last page
++    for (sal_uInt32 i = 1; i < nPages; ++i)
++    {
++        SwPageFrame* pPage = new SwPageFrame(pFirst->GetFormat(), pLayout, pFirst->GetPageDesc());
++        pPage->Paste(pLayout, nullptr);
++    }
++    pLayout->SetHstEstimatedPageInsert(false);
++
++    const SwPageFrame* pLast = pLayout->GetLastPage();
++    // the stored values have wrapped
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(11), pLayout->GetPageNum());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(11), pLast->GetPhyPageNum());
++    CPPUNIT_ASSERT_EQUAL(nPages, HstPageCount(*pLayout));
++    CPPUNIT_ASSERT_EQUAL(nPages, HstPhyPageNum(*pLast));
++    CPPUNIT_ASSERT_EQUAL(nPages, HstVirtPageNum(*pLast));
++
++    // statistics: Tools - Word Count, File - Properties and the PageCount field
++    pDoc->getIDocumentStatistics().DocInfoChgd(false);
++    CPPUNIT_ASSERT_EQUAL(nPages, pDoc->getIDocumentStatistics().GetUpdatedDocStat(false, false).nPage);
++    pLayout->UnlockViewLayout();
++}
++
+ CPPUNIT_TEST_FIXTURE(Test, testSmallTextNotPaginated)
+ {
+     // Below the size threshold the frames all start on the first page, as before.
