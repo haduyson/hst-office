@@ -7,6 +7,7 @@ import time
 import unittest
 
 import _paths  # noqa: F401
+import uno_stubs  # noqa: F401 - before the hst_office imports
 from hst_office import profile_notice
 from hst_office import unsaved_store as store
 
