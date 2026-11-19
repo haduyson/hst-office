@@ -1,0 +1,145 @@
+Regression test: sd document view accessible disposed while a call waits for the SolarMutex.
+
+Same race as the slide sorter (hst-sd-slidesorter-a11y-lock-order.patch): the gtk3 accessibility
+bridge calls in from the main loop without the SolarMutex while another thread holding it disposes
+the document view. The test holds the SolarMutex, starts getAccessibleChildCount,
+getAccessibleChild, getAccessibleAtPoint or getBackground of the Draw document view on another
+thread, disposes the view and expects DisposedException.
+
+License: the new test file is HST-owned (LicenseRef-HST-Proprietary); the makefile keeps MPL-2.0.
+Test: CppunitTest_sd_a11y.
+---
+--- a/sd/CppunitTest_sd_a11y.mk
++++ b/sd/CppunitTest_sd_a11y.mk
+@@ -12,6 +12,7 @@
+ $(eval $(call gb_CppunitTest_add_exception_objects,sd_a11y, \
+ 	sd/qa/unit/a11y/layout \
+ 	sd/qa/unit/a11y/HstSlideSorterDisposeRace \
++	sd/qa/unit/a11y/HstDocumentViewDisposeRace \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,sd_a11y, \
+--- /dev/null
++++ b/sd/qa/unit/a11y/HstDocumentViewDisposeRace.cxx
+@@ -0,0 +1,121 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; fill-column: 100 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. All rights reserved.
++ */
++
++// Accessibility clients (AT-SPI through the gtk3 bridge) call into the document view's accessible
++// object from the main loop without holding the SolarMutex, while another thread that holds it (a
++// UNO client closing the document) may be disposing it. A call made meanwhile must wait for the
++// SolarMutex before its disposed check and then throw DisposedException, instead of running on
++// against a disposed view under the object's own mutex only.
++
++#include <atomic>
++#include <chrono>
++#include <thread>
++
++#include <com/sun/star/accessibility/XAccessibleComponent.hpp>
++#include <com/sun/star/accessibility/XAccessibleContext.hpp>
++#include <com/sun/star/lang/DisposedException.hpp>
++#include <com/sun/star/lang/XComponent.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++
++#include <vcl/scheduler.hxx>
++#include <vcl/svapp.hxx>
++
++#include <test/a11y/accessibletestbase.hxx>
++
++using namespace css;
++
++namespace
++{
++class HstDocumentViewDisposeRace : public test::AccessibleTestBase
++{
++protected:
++    uno::Reference<accessibility::XAccessibleContext> loadDrawDocumentView()
++    {
++        load(u"private:factory/sdraw"_ustr);
++        Scheduler::ProcessEventsToIdle();
++        uno::Reference<accessibility::XAccessibleContext> xView = getDocumentAccessibleContext();
++        CPPUNIT_ASSERT_MESSAGE("no accessible Draw document view", xView.is());
++        uno::Reference<lang::XServiceInfo> xInfo(xView, uno::UNO_QUERY_THROW);
++        CPPUNIT_ASSERT_EQUAL(u"AccessibleDrawDocumentView"_ustr, xInfo->getImplementationName());
++        return xView;
++    }
++
++    /** Runs rCall on another thread while this thread holds the SolarMutex, disposes the document
++        view's accessible once the call is underway, and returns whether the call ended with
++        DisposedException (any other outcome, a result or another exception, counts as false). */
++    template <typename F>
++    bool disposedWhileWaiting(const uno::Reference<accessibility::XAccessibleContext>& xView,
++                              F rCall)
++    {
++        SolarMutexGuard aGuard;
++        std::atomic<bool> bStarted(false);
++        bool bDisposed = false;
++        std::thread aReader([&] {
++            bStarted = true;
++            try
++            {
++                rCall();
++            }
++            catch (const lang::DisposedException&)
++            {
++                bDisposed = true;
++            }
++            catch (...)
++            {
++            }
++        });
++        while (!bStarted)
++            std::this_thread::yield();
++        // the reader is now inside the call; a correct implementation waits for the SolarMutex
++        std::this_thread::sleep_for(std::chrono::milliseconds(300));
++        uno::Reference<lang::XComponent>(xView, uno::UNO_QUERY_THROW)->dispose();
++        {
++            SolarMutexReleaser aReleaser;
++            aReader.join();
++        }
++        return bDisposed;
++    }
++};
++}
++
++CPPUNIT_TEST_FIXTURE(HstDocumentViewDisposeRace, testChildCountAfterDisposeWhileWaiting)
++{
++    auto xView = loadDrawDocumentView();
++    CPPUNIT_ASSERT(xView->getAccessibleChildCount() > 0);
++
++    CPPUNIT_ASSERT_MESSAGE("getAccessibleChildCount on a document view disposed while it waited",
++                           disposedWhileWaiting(xView, [&] { xView->getAccessibleChildCount(); }));
++}
++
++CPPUNIT_TEST_FIXTURE(HstDocumentViewDisposeRace, testChildAfterDisposeWhileWaiting)
++{
++    auto xView = loadDrawDocumentView();
++    CPPUNIT_ASSERT(xView->getAccessibleChild(0).is());
++
++    CPPUNIT_ASSERT_MESSAGE("getAccessibleChild on a document view disposed while it waited",
++                           disposedWhileWaiting(xView, [&] { xView->getAccessibleChild(0); }));
++}
++
++CPPUNIT_TEST_FIXTURE(HstDocumentViewDisposeRace, testAtPointAfterDisposeWhileWaiting)
++{
++    auto xView = loadDrawDocumentView();
++    uno::Reference<accessibility::XAccessibleComponent> xComponent(xView, uno::UNO_QUERY_THROW);
++
++    CPPUNIT_ASSERT_MESSAGE(
++        "getAccessibleAtPoint on a document view disposed while it waited",
++        disposedWhileWaiting(xView, [&] { xComponent->getAccessibleAtPoint(awt::Point(1, 1)); }));
++}
++
++CPPUNIT_TEST_FIXTURE(HstDocumentViewDisposeRace, testBackgroundAfterDisposeWhileWaiting)
++{
++    auto xView = loadDrawDocumentView();
++    uno::Reference<accessibility::XAccessibleComponent> xComponent(xView, uno::UNO_QUERY_THROW);
++
++    CPPUNIT_ASSERT_MESSAGE("getBackground on a document view disposed while it waited",
++                           disposedWhileWaiting(xView, [&] { xComponent->getBackground(); }));
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
