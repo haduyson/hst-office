@@ -1,0 +1,128 @@
+HST Office: sw layout tests draw the fonts HST changes or previews with the fonts their documents were made with.
+
+TestTdf150606 (CppunitTest_sw_layoutwriter): the style gallery of the HST ribbon draws each style's name in the style's
+own font, as the leading word processor does (hst-style-gallery.patch; upstream Writer has no such gallery in its
+default user interface). After the test deletes its table, the gallery draws a style of tdf150606-1-min.odt that uses
+Gentium Basic, which neither upstream nor HST bundles. On a user's system the font is substituted; in a CppunitTest the
+test-only guard SAL_NON_APPLICATION_FONT_USE=abort aborted the whole suite there and hid every later test. The test
+maps Gentium Basic to the bundled Liberation Serif for its duration; the document's text does not use the font (its
+layout would hit the same guard), so the layout it checks is unchanged.
+
+testTdf108021, testTdf125334, testTdf127304 (CppunitTest_sw_layoutwriter2): a chart without fonts of its own takes the
+first available default spreadsheet font, Calibri or else the bundled, narrower Carlito in HST
+(hst-msoffice-defaults.patch), so its axis labels need fewer lines and no rotation (4 instead of 8 and 0 instead of 4
+wrapped labels, no 90 degree labels). These tests check the label wrapping and rotation of documents made with
+upstream's Liberation Sans, so they draw Calibri and Carlito with Liberation Sans for their duration.
+
+Both substitutions are removed, and the font caches cleared, when the test ends.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: make CppunitTest_sw_layoutwriter CppunitTest_sw_layoutwriter2.
+---
+--- a/sw/qa/extras/layout/layout.cxx
++++ b/sw/qa/extras/layout/layout.cxx
+@@ -12,6 +12,8 @@
+ #include <osl/process.h>
+ #include <comphelper/scopeguard.hxx>
+ #include <comphelper/propertysequence.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/rendercontext/AddFontSubstituteFlags.hxx>
+ #include <vcl/scheduler.hxx>
+ #include <svx/svddef.hxx>
+ 
+@@ -1371,6 +1373,24 @@ CPPUNIT_TEST_FIXTURE(SwLayoutWriter, testRedlineFlysInHeader)
+ #if !defined(MACOSX)
+ CPPUNIT_TEST_FIXTURE(SwLayoutWriter, TestTdf150606)
+ {
++    // HST Office: the style gallery of the ribbon draws each style's name in the style's own font,
++    // as the leading word processor does (hst-style-gallery.patch). Once the table is deleted it
++    // draws a style of this document that uses Gentium Basic, which no build bundles: a user's
++    // system substitutes the font, but the test-only SAL_NON_APPLICATION_FONT_USE=abort guard ends
++    // the run. The text of the document does not use the font (its layout would hit the same
++    // guard), so the substitution leaves the layout this test checks unchanged.
++    OutputDevice::BeginFontSubstitution();
++    OutputDevice::AddFontSubstitute(u"Gentium Basic"_ustr, u"Liberation Serif"_ustr,
++                                    AddFontSubstituteFlags::ALWAYS);
++    OutputDevice::EndFontSubstitution();
++    comphelper::ScopeGuard aRemoveSubstitute([] {
++        // the font caches are cleared only on a change: the dummy entry is one
++        OutputDevice::BeginFontSubstitution();
++        OutputDevice::AddFontSubstitute(OUString(), OUString(), AddFontSubstituteFlags::NONE);
++        OutputDevice::RemoveFontsSubstitute();
++        OutputDevice::EndFontSubstitution();
++    });
++
+     createSwDoc("tdf150606-1-min.odt");
+ 
+     SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
+--- a/sw/qa/extras/layout/layout2.cxx
++++ b/sw/qa/extras/layout/layout2.cxx
+@@ -18,6 +18,8 @@
+ #include <editeng/unolingu.hxx>
+ #include <i18nlangtag/languagetag.hxx>
+ #include <o3tl/string_view.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/rendercontext/AddFontSubstituteFlags.hxx>
+ #include <vcl/scheduler.hxx>
+ 
+ #include <rootfrm.hxx>
+@@ -31,6 +33,35 @@
+ #include <fmtanchr.hxx>
+ #include <redline.hxx>
+ 
++
++namespace
++{
++/// HST Office: a chart without fonts of its own takes the first available default spreadsheet
++/// font, Calibri or else the bundled, narrower Carlito in HST Office (hst-msoffice-defaults.patch),
++/// so its axis labels need fewer lines and no rotation. These tests measure the label layout of
++/// documents made with upstream's default, Liberation Sans, so they draw those fonts with it.
++struct HstChartsInLiberationSans
++{
++    HstChartsInLiberationSans()
++    {
++        OutputDevice::BeginFontSubstitution();
++        OutputDevice::AddFontSubstitute(u"Calibri"_ustr, u"Liberation Sans"_ustr,
++                                        AddFontSubstituteFlags::ALWAYS);
++        OutputDevice::AddFontSubstitute(u"Carlito"_ustr, u"Liberation Sans"_ustr,
++                                        AddFontSubstituteFlags::ALWAYS);
++        OutputDevice::EndFontSubstitution();
++    }
++    ~HstChartsInLiberationSans()
++    {
++        // the font caches are cleared only on a change: the dummy entry is one
++        OutputDevice::BeginFontSubstitution();
++        OutputDevice::AddFontSubstitute(OUString(), OUString(), AddFontSubstituteFlags::NONE);
++        OutputDevice::RemoveFontsSubstitute();
++        OutputDevice::EndFontSubstitution();
++    }
++};
++}
++
+ /// Test to assert layout / rendering result of Writer.
+ class SwLayoutWriter2 : public SwModelTestBase
+ {
+@@ -1980,6 +2011,7 @@ CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf115630)
+ 
+ CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf108021)
+ {
++    HstChartsInLiberationSans aChartFont;
+     createSwDoc("tdf108021.odt");
+     SwDocShell* pShell = getSwDocShell();
+ 
+@@ -1995,6 +2027,7 @@ CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf108021)
+ 
+ CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf125334)
+ {
++    HstChartsInLiberationSans aChartFont;
+     createSwDoc("tdf125334.odt");
+     SwDocShell* pShell = getSwDocShell();
+ 
+@@ -2080,6 +2113,7 @@ CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf126244)
+ 
+ CPPUNIT_TEST_FIXTURE(SwLayoutWriter2, testTdf127304)
+ {
++    HstChartsInLiberationSans aChartFont;
+     createSwDoc("tdf127304.odt");
+     SwDocShell* pShell = getSwDocShell();
+ 

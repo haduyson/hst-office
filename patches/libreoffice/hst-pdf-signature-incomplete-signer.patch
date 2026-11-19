@@ -4,14 +4,16 @@ LibreOffice 26.8.3 made svl::crypto::Signing::Verify(SvStream&) return at once w
 the end of the file, before the CMS signature is read. HST reports such a file as an incomplete copy
 (PDFSignatureProblem::Incomplete, hst-pdf-signature-reason.patch) and shows who signed it; with the early return
 the signer's certificate was gone (testSignatureProblems: X509Datas empty). The range check stays: only the bytes
-the file holds are read, the signature is parsed for its signer, and the result is always "not verified".
+the file holds are read, the signature is parsed for its signer, and the result is always "not verified", even
+when the bytes the file holds match the CMS (testVerifyRangePastEndNeverVerifies). A range that starts past the
+end is skipped without reading.
 
 License: these upstream files remain under their original license (MPL-2.0).
-Test: make CppunitTest_xmlsecurity_pdfsigning (testSignatureProblems).
+Test: make CppunitTest_xmlsecurity_pdfsigning (testSignatureProblems, testVerifyRangePastEndNeverVerifies).
 ---
 --- a/svl/source/crypto/cryptosign.cxx
 +++ b/svl/source/crypto/cryptosign.cxx
-@@ -2431,24 +2431,35 @@
+@@ -2204,24 +2204,35 @@ bool Signing::Verify(SvStream& rStream,
      std::vector<unsigned char> buffer;
  
      const sal_uInt64 nStreamSize = rStream.TellEnd();
@@ -22,7 +24,8 @@ Test: make CppunitTest_xmlsecurity_pdfsigning (testSignatureProblems).
      // Copy the byte ranges into a single buffer.
      for (const auto& rByteRange : aByteRanges)
      {
-         // A signature covers a part of the file, so both ends of every range are inside it.
+-        // A signature covers a part of the file, so both ends of every range are inside it.
++        // A range past the end marks an incomplete copy: read only what exists, never verify.
 +        size_t nLength = rByteRange.second;
          if (rByteRange.first > nStreamSize || rByteRange.second > nStreamSize - rByteRange.first)
          {
@@ -51,3 +54,71 @@ Test: make CppunitTest_xmlsecurity_pdfsigning (testSignatureProblems).
  
  #else
      // Not implemented.
+--- a/xmlsecurity/qa/unit/pdfsigning/pdfsigning.cxx
++++ b/xmlsecurity/qa/unit/pdfsigning/pdfsigning.cxx
+@@ -18,6 +18,7 @@
+ 
+ #include <algorithm>
+ #include <iterator>
++#include <limits>
+ #include <string_view>
+ 
+ #include <com/sun/star/xml/crypto/SEInitializer.hpp>
+@@ -923,6 +924,57 @@ CPPUNIT_TEST_FIXTURE(PDFSigningTest, testSignatureRangesLongerThanFile)
+     }
+ }
+ 
++/// A range past the end of the stream never verifies, even when the bytes the stream holds match
++/// the CMS; the signer is still read. A range that starts past the end is skipped without reading.
++CPPUNIT_TEST_FIXTURE(PDFSigningTest, testVerifyRangePastEndNeverVerifies)
++{
++    uno::Reference<xml::crypto::XSEInitializer> xSEInitializer
++        = xml::crypto::SEInitializer::create(m_xContext);
++    uno::Reference<xml::crypto::XXMLSecurityContext> xSecurityContext
++        = xSEInitializer->createSecurityContext(OUString());
++    std::vector<char> aOriginal;
++    {
++        SvFileStream aFile(m_directories.getURLFromSrc(DATA_DIRECTORY) + "good-pades.pdf",
++                           StreamMode::READ);
++        aOriginal.resize(aFile.TellEnd());
++        CPPUNIT_ASSERT_EQUAL(aOriginal.size(), aFile.ReadBytes(aOriginal.data(), aOriginal.size()));
++    }
++    const std::vector<size_t> aRange = readByteRange(aOriginal);
++    const size_t nGapStart = aRange[0] + aRange[1];
++    const std::vector<unsigned char> aSignature = svl::crypto::DecodeHexString(
++        std::string_view(aOriginal.data() + nGapStart + 1, aRange[2] - nGapStart - 2));
++    SvMemoryStream aStream(aOriginal.data(), aOriginal.size(), StreamMode::READ);
++    const size_t nSize = aOriginal.size();
++    auto verifyRanges = [&](const std::vector<std::pair<size_t, size_t>>& rRanges,
++                      SignatureInformation& rInfo) {
++        return svl::crypto::Signing::Verify(aStream, rRanges, /*bNonDetached=*/false,
++                                            aSignature, rInfo);
++    };
++    {
++        // the signed ranges as written: the stream and the CMS agree
++        SignatureInformation aInfo(0);
++        CPPUNIT_ASSERT(
++            verifyRanges({ { aRange[0], aRange[1] }, { aRange[2], aRange[3] } }, aInfo));
++        CPPUNIT_ASSERT_EQUAL(xml::crypto::SecurityOperationStatus_OPERATION_SUCCEEDED,
++                             aInfo.nStatus);
++    }
++    {
++        // the last range is one byte longer than the file: every byte read still matches the CMS
++        SignatureInformation aInfo(0);
++        CPPUNIT_ASSERT(
++            !verifyRanges({ { aRange[0], aRange[1] }, { aRange[2], aRange[3] + 1 } }, aInfo));
++        CPPUNIT_ASSERT_EQUAL(xml::crypto::SecurityOperationStatus_UNKNOWN, aInfo.nStatus);
++        CPPUNIT_ASSERT(!aInfo.X509Datas.empty());
++    }
++    for (const size_t nStart : { nSize + 1, std::numeric_limits<size_t>::max() - 5 })
++    {
++        // a range that starts past the end of the file
++        SignatureInformation aInfo(0);
++        CPPUNIT_ASSERT(!verifyRanges({ { aRange[0], aRange[1] }, { nStart, 10 } }, aInfo));
++        CPPUNIT_ASSERT_EQUAL(xml::crypto::SecurityOperationStatus_UNKNOWN, aInfo.nStatus);
++    }
++}
++
+ /// The signer and time of an invalid signature are labelled as not verified in HST PDF.
+ CPPUNIT_TEST_FIXTURE(PDFSigningTest, testSignatureLineUnverified)
+ {

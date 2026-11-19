@@ -1,0 +1,35 @@
+HST Office: the CppunitTest missing-font guard accepts the bundled stand-ins of HST's default fonts.
+
+CppunitTests run with SAL_NON_APPLICATION_FONT_USE=abort, which ends the test run when a font that the build does not
+bundle has to be substituted. HST Writer's default font is Times New Roman (hst-defaults.patch) and HST Sheets' and
+Slides' is Calibri (hst-msoffice-defaults.patch); neither is bundled, and on a system without them their bundled
+metric-compatible fonts Liberation Serif and Carlito stand in, by design. Text in the default font that needs glyph
+fallback (CppunitTest_sw_layoutwriter testForcepoint94, an HTML document with a character no bundled font has)
+reached the guard with Times New Roman and aborted the whole suite. The guard now accepts these two pairs, as it
+already accepts Linux Libertine O for Linux Libertine G; any other substitution still aborts. Only the test guard
+changes: without the variable nothing aborts. The abort message names the substitute too.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: make CppunitTest_sw_layoutwriter.
+---
+--- a/vcl/unx/generic/fontmanager/fontconfig.cxx
++++ b/vcl/unx/generic/fontmanager/fontconfig.cxx
+@@ -1313,9 +1313,17 @@ void PrintFontManager::Substitute(vcl::font::FontSelectPattern &rPattern, OUStri
+         }
+         if (rPattern.maTargetName == "Linux Libertine G" && rPattern.maSearchName == "Linux Libertine O")
+             return;
++        // HST Office: the default fonts of HST Writer (Times New Roman) and of HST Sheets and Slides
++        // (Calibri) are not bundled; their bundled metric-compatible fonts stand in for them, as on a
++        // user's system without them (hst-defaults.patch, hst-msoffice-defaults.patch)
++        if ((rPattern.maTargetName == "Times New Roman" && rPattern.maSearchName == "Liberation Serif")
++            || (rPattern.maTargetName == "Calibri" && rPattern.maSearchName == "Carlito"))
++            return;
+         SAL_WARN("vcl.fonts", "PrintFontManager::Substitute: missing font: '" << rPattern.maTargetName <<
+                               "' try: " << rPattern.maSearchName << " instead");
+-        std::cerr << "terminating test due to missing font: " << rPattern.maTargetName << std::endl;
++        // HST Office: name the stand-in too, so a new default font or a missing pair is plain from the log
++        std::cerr << "terminating test due to missing font: " << rPattern.maTargetName
++                  << " (substitute: " << rPattern.maSearchName << ")" << std::endl;
+         std::abort();
+     }
+ }

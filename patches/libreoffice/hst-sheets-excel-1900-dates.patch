@@ -187,7 +187,7 @@ dates, .xlsx round trip, an older .ods unchanged, .ods export of such a document
  ))
 --- a/sc/Module_sc.mk
 +++ b/sc/Module_sc.mk
-@@ -115,6 +115,7 @@
+@@ -114,6 +114,7 @@
  	CppunitTest_sc_hst_set_as_default \
  	CppunitTest_sc_hst_excel_parity \
  	CppunitTest_sc_hst_bond_functions \
@@ -1278,7 +1278,7 @@ dates, .xlsx round trip, an older .ods unchanged, .ods export of such a document
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sc/source/core/inc/interpre.hxx
 +++ b/sc/source/core/inc/interpre.hxx
-@@ -631,6 +631,8 @@
+@@ -637,6 +637,8 @@
      /// HST: a number typed as text as an argument of SUM, AVERAGE, PRODUCT, SUMSQ counts: replaces
      /// it on the stack by its value (hstexcelfunctions.cxx).
      void HstDirectTextNumber(ScIterFunc eFunc);
@@ -1399,7 +1399,7 @@ dates, .xlsx round trip, an older .ods unchanged, .ods export of such a document
      sal_Int16 y1, y2;
 --- a/sc/source/core/tool/interpr4.cxx
 +++ b/sc/source/core/tool/interpr4.cxx
-@@ -2761,6 +2761,8 @@
+@@ -2763,6 +2763,8 @@
      sal_uInt8 nParamCount = GetByte();
      OUString aUnoName;
      OUString aFuncName( static_cast<const FormulaExternalToken*>(pCur)->GetExternal().toAsciiUpperCase());    // programmatic name
@@ -1549,8 +1549,8 @@ dates, .xlsx round trip, an older .ods unchanged, .ods export of such a document
      InitOptions(false);
 +    sc::hst::SyncExcel1900Dates(*m_pDocument); // HST: dates of the 1900 date system
  
-     const bool bNewWorkbook = GetMedium() && GetMedium()->GetName().isEmpty();
- 
+     // HST Office: not the clipboard document that a copy of a chart or other OLE object wraps in a shell
+     // (ScTransferObj::SetDrawClipDoc): it has no sheet whose rows could be sized.
 --- /dev/null
 +++ b/svl/CppunitTest_svl_hst_excel1900.mk
 @@ -0,0 +1,50 @@
