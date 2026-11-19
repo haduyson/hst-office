@@ -73,7 +73,7 @@ the results still follow the catalogue afterwards); tests/runtime/check-sheets-i
  #include <memory>
  #include <string_view>
  
-@@ -2787,6 +2790,95 @@
+@@ -2787,6 +2790,96 @@
      m_pDoc->DeleteTab(0);
  }
  
@@ -85,6 +85,7 @@ the results still follow the catalogue afterwards); tests/runtime/check-sheets-i
 +    // looked up in every broadcast slot the column spans (about 900), so one inserted or deleted
 +    // row in a workbook with 20 000 whole-column VLOOKUPs took seconds. The same lookups into a
 +    // bounded range give the reference time.
++    setenv("SC_NO_THREADED_CALCULATION", "1", 1); // diagnostic only
 +    sc::AutoCalcSwitch aACSwitch(*m_pDoc, true);
 +    m_pDoc->InsertTab(0, u"Whole"_ustr);
 +    m_pDoc->InsertTab(1, u"Bounded"_ustr);
