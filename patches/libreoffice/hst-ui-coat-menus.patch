@@ -475,23 +475,241 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/source/hst/coat/coat-menus.cxx
 +++ b/vcl/source/hst/coat/coat-menus.cxx
-@@ -20,6 +20,7 @@
-      with radius::MenuItem, so it stays clear of a rounded outline. */
+@@ -12,20 +12,27 @@
+    the text and shortcut positions and the menu's size stay VCL's and the platform's: they are laid
+    out before any of this is drawn.
+ 
+-   Where the menu's frame builds on this:
++   The menu's frame (under its own switch, FrameCoat/Menus; <hst/coat-menus.hxx>):
+    - paintSurface draws the whole menu (ControlPart::Entire; also behind the highlighted item, clipped
+-     to its row) as one flat surface with square corners. The menu's outline, a rounded content
+-     edge (radius::Menu) and a shadow belong there, under the frame's switch (FrameCoat/Menus).
++     to its row): the flat surface, and with the frame coat a thin outline in the menu border colour
++     rounded with radius::Menu at the edge of the content. The window itself keeps square corners;
++     the ring of its border window, whose width VCL keeps, takes the surface colour
++     (CoatMenuWindowFrame), so the rounded outline is the only one.
++   - a shortcut is drawn in the shortcut colour (MenuShortcutColour), where it stays readable.
+    - highlightRect is the shape of the highlighted item: inset from the menu's sides and rounded
+-     with radius::MenuItem, so it stays clear of a rounded outline. */
++     with radius::MenuItem, so it stays clear of the rounded outline. */
  
  #include "coat-paint.hxx"
 +#include <hst/coat-menus.hxx>
++#include <hst/coat.hxx>
  
  #include <basegfx/point/b2dpoint.hxx>
  #include <basegfx/polygon/b2dpolygontools.hxx>
-@@ -146,6 +147,11 @@ bool PaintMenu(const PaintContext& rCtx, ControlPart ePart, const ImplControlVal
+ #include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/framecoat.hxx>
+ #include <vcl/outdev.hxx>
+ #include <vcl/settings.hxx>
++#include <vcl/window.hxx>
+ 
+ #include <algorithm>
+ #include <cmath>
+@@ -34,11 +41,26 @@ namespace hst::coat
+ {
+ namespace
+ {
++/** The palette of a menu: the one its text (the theme's menu text colour) reads on, as for the
++    painters (coat.cxx). */
++const hst::design::Palette& menuPalette(const StyleSettings& rStyle)
++{
++    return hst::design::GetPalette(!rStyle.GetMenuTextColor().IsDark());
++}
++
+ void paintSurface(const PaintContext& rCtx)
+ {
+     rCtx.rDev.SetLineColor();
+     rCtx.rDev.SetFillColor(rCtx.rPalette.aMenuSurface);
+     rCtx.rDev.DrawRect(rCtx.aRect);
++    if (!FrameCoatActive(FrameComponent::Menus, rCtx.rStyle))
++        return;
++    // the menu's outline: one thin ring rounded at the edge of the content; outside its corners
++    // the surface stays (the window's corners are square)
++    const double fBorder
++        = std::max<double>(1, std::lround(rCtx.Px(hst::design::size::FrameDivider)));
++    FillAndStroke(rCtx, rCtx.aRect, rCtx.Px(hst::design::radius::Menu),
++                  rCtx.rPalette.aMenuSurface, rCtx.rPalette.aMenuBorder, fBorder);
+ }
+ 
+ /** The highlight of an item in rItem (the item's row between the menu's side borders). */
+@@ -67,14 +89,14 @@ double highlightRadius(const PaintContext& rCtx, const tools::Rectangle& rRect)
+ 
+ /** The highlight's fill: the menu hover, or where the theme's highlighted text would not read on it
+     (4.5:1), the other palette's hover, the accent, or the theme's own highlight colour. */
+-Color highlightFill(const PaintContext& rCtx)
++Color highlightFill(const hst::design::Palette& rPalette, const StyleSettings& rStyle)
+ {
+-    const Color aText = rCtx.rStyle.GetMenuHighlightTextColor();
+-    const hst::design::Palette& rOther = hst::design::GetPalette(!rCtx.rPalette.bDark);
+-    for (const Color& rCandidate : { rCtx.rPalette.aMenuHover, rOther.aMenuHover, rCtx.rPalette.aAccent })
++    const Color aText = rStyle.GetMenuHighlightTextColor();
++    const hst::design::Palette& rOther = hst::design::GetPalette(!rPalette.bDark);
++    for (const Color& rCandidate : { rPalette.aMenuHover, rOther.aMenuHover, rPalette.aAccent })
+         if (ContrastRatio(rCandidate, aText) >= 4.5)
+             return rCandidate;
+-    return rCtx.rStyle.GetMenuHighlightColor();
++    return rStyle.GetMenuHighlightColor();
+ }
+ 
+ Color markColour(const PaintContext& rCtx)
+@@ -96,7 +118,7 @@ bool PaintMenu(const PaintContext& rCtx, ControlPart ePart, const ImplControlVal
+             // the highlight of the item under the mouse or the keyboard; a disabled item shows it
+             // too, so the keyboard's position stays visible
+             const tools::Rectangle aRect = highlightRect(rCtx, rCtx.aRect);
+-            FillAndStroke(rCtx, aRect, highlightRadius(rCtx, aRect), highlightFill(rCtx),
++            FillAndStroke(rCtx, aRect, highlightRadius(rCtx, aRect), highlightFill(rCtx.rPalette, rCtx.rStyle),
+                           COL_TRANSPARENT, 0);
+             return true;
+         }
+@@ -146,6 +168,50 @@ bool PaintMenu(const PaintContext& rCtx, ControlPart ePart, const ImplControlVal
              return false;
      }
  }
-+bool MenuFrameCoated(const OutputDevice&) { return false; }
++bool MenuFrameCoated(const OutputDevice& rDev)
++{
++    // the coat draws this menu's items (it claims their submenu arrows exactly then: switched on,
++    // not in high contrast, a platform that draws the menu natively), and the frame's part is on
++    return ClaimsNativeControl(rDev, ControlType::MenuPopup, ControlPart::SubmenuArrow)
++           && FrameCoatActive(FrameComponent::Menus, rDev.GetSettings().GetStyleSettings());
++}
 +
-+std::optional<Color> MenuShortcutColour(const OutputDevice&, bool, bool) { return std::nullopt; }
++std::optional<Color> MenuShortcutColour(const OutputDevice& rDev, bool bHighlighted, bool bEnabled)
++{
++    if (!bEnabled || !MenuFrameCoated(rDev))
++        return std::nullopt;
++    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++    const hst::design::Palette& rPalette = menuPalette(rStyle);
++    const Color aBehind
++        = bHighlighted ? highlightFill(rPalette, rStyle) : rPalette.aMenuSurface;
++    if (ContrastRatio(rPalette.aMenuShortcut, aBehind) < 4.5)
++        return std::nullopt; // the item text's colour, which VCL chose to read on it
++    return rPalette.aMenuShortcut;
++}
 +
-+void CoatMenuWindowFrame(vcl::Window&) {}
++void CoatMenuWindowFrame(vcl::Window& rMenuWindow)
++{
++    vcl::Window* pBorder = rMenuWindow.GetWindow(GetWindowType::Border);
++    if (!pBorder || pBorder == &rMenuWindow || !MenuFrameCoated(*rMenuWindow.GetOutDev()))
++        return;
++    const Color aSurface = menuPalette(rMenuWindow.GetSettings().GetStyleSettings()).aMenuSurface;
++    AllSettings aSettings(pBorder->GetSettings());
++    StyleSettings aStyle(aSettings.GetStyleSettings());
++    // the colours VCL draws a menu's ring in (DecorationView, DrawFrameStyle::DoubleOut with the
++    // menu flag): the outer ring, and the inner one, drawn only without flat menus
++    if (aStyle.GetMenuBorderColor() == aSurface && aStyle.GetDarkShadowColor() == aSurface
++        && aStyle.GetLightColor() == aSurface && aStyle.GetShadowColor() == aSurface
++        && !aStyle.GetUseFlatMenus())
++        return;
++    aStyle.SetMenuBorderColor(aSurface);
++    aStyle.SetDarkShadowColor(aSurface);
++    aStyle.SetLightColor(aSurface);
++    aStyle.SetShadowColor(aSurface);
++    aStyle.SetUseFlatMenus(false);
++    aSettings.SetStyleSettings(aStyle);
++    pBorder->SetSettings(aSettings);
++    pBorder->Invalidate();
++}
  }
  
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/css/menus.cxx
++++ b/vcl/source/hst/coat/css/menus.cxx
+@@ -5,17 +5,53 @@
+  * This file is part of HST Office.
+  */
+ 
+-/* The GTK CSS of popup and context menus in the HST look (css-fragments.hxx). */
++/* The GTK CSS of popup and context menus in the HST look (css-fragments.hxx): the menu's surface,
++   its outline in the menu border colour, rounded with radius::Menu, and its item text. The items'
++   highlight, marks, arrows and shortcut colour come before, with the dialogs' CSS
++   (coat-gtk-css-lists-menus.cxx). Colours and corner radii only: the theme keeps every border
++   width, padding and margin, so no menu changes its size. Without a compositor the menu's window
++   is square: outside the rounded outline its corners show the window's background, the surface.
++
++   Where a compositor shows the menu's window with client-side decorations (GTK then draws no menu
++   border), the decoration's corners follow the menu's and its one-pixel outline ring takes the menu
++   border colour. That ring and the soft shadow keep Adwaita's geometry exactly (offset 1 px, blur
++   2 px, spread 1 px), because GTK sizes the shadow margin of a decorated window from them. */
+ 
+ #include "css-fragments.hxx"
+ 
+ #include <vcl/hst/designtokens.hxx>
+ 
++#include <cmath>
++
+ namespace hst::coat::gtkcss
+ {
+-OUString MenusCss(const hst::design::Palette& /*rPalette*/)
++namespace
++{
++OUString hex(const Color& rColor) { return u"#" + rColor.AsRGBHexString(); }
++
++OUString px(double fLength) { return OUString::number(std::lround(fLength)) + u"px"; }
++}
++
++OUString MenusCss(const hst::design::Palette& p)
+ {
+-    return OUString();
++    const OUString aRadius = px(hst::design::radius::Menu);
++    return u"menu, .menu, .context-menu { background-image: none; background-color: "
++           + hex(p.aMenuSurface) + u"; border-color: " + hex(p.aMenuBorder)
++           + u"; border-radius: " + aRadius
++           + u"; }\n"
++             u"menu menuitem, .menu menuitem, .context-menu menuitem { color: "
++           + hex(p.aText)
++           + u"; }\n"
++             u"menu > arrow, .menu > arrow { background-image: none; background-color: "
++           + hex(p.aMenuSurface) + u"; border-color: " + hex(p.aMenuBorder) + u"; color: "
++           + hex(p.aText)
++           + u"; }\n"
++             u"window.popup { background-image: none; background-color: "
++           + hex(p.aMenuSurface)
++           + u"; }\n"
++             u".csd.popup decoration { border-radius: "
++           + aRadius + u"; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 0 0 1px "
++           + hex(p.aMenuBorder) + u"; }\n";
+ }
+ }
+ 
+--- a/vcl/source/window/menu.cxx
++++ b/vcl/source/window/menu.cxx
+@@ -47,6 +47,7 @@
+ #include <window.h>
+ #include <salmenu.hxx>
+ #include <salframe.hxx>
++#include <hst/coat-menus.hxx>
+ 
+ #include "menubarwindow.hxx"
+ #include "menufloatingwindow.hxx"
+@@ -2020,7 +2021,11 @@ void Menu::ImplPaint(vcl::RenderContext& rRenderContext, Size const & rSize,
+                     aTmpPos.AdjustX( -nOuterSpaceX );
+                     aTmpPos.setY( aPos.Y() );
+                     aTmpPos.AdjustY(nTextOffsetY );
++                    const Color aItemTextColor = rRenderContext.GetTextColor();
++                    if (auto oShortcut = hst::coat::MenuShortcutColour(rRenderContext, pThisItemOnly && bHighlighted, !(nTextStyle & DrawTextFlags::Disable)))
++                        rRenderContext.SetTextColor(*oShortcut);
+                     rRenderContext.DrawCtrlText(aTmpPos, aAccText, 0, aAccText.getLength(), nTextStyle);
++                    rRenderContext.SetTextColor(aItemTextColor);
+                 }
+ 
+                 // SubMenu?
+--- a/vcl/source/window/menufloatingwindow.cxx
++++ b/vcl/source/window/menufloatingwindow.cxx
+@@ -25,6 +25,7 @@
+ #include <comphelper/OAccessible.hxx>
+ #include <sal/log.hxx>
+ #include <salframe.hxx>
++#include <hst/coat-menus.hxx>
+ #include <svdata.hxx>
+ #include <vcl/decoview.hxx>
+ #include <vcl/salnativewidgets.hxx>
+@@ -168,6 +169,7 @@ void MenuFloatingWindow::ApplySettings(vcl::RenderContext& rRenderContext)
+     rRenderContext.SetTextColor(rStyleSettings.GetMenuTextColor());
+     rRenderContext.SetTextFillColor();
+     rRenderContext.SetLineColor();
++    hst::coat::CoatMenuWindowFrame(*this);
+ }
+ 
+ /// Get a negative pixel offset for an offset menu
