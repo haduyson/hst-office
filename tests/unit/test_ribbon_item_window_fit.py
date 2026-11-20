@@ -78,8 +78,13 @@ class ItemWindowFitTest(unittest.TestCase):
         code = added(PATCH, "vcl/source/window/toolbox.cxx")
         self.assertIn("#include <HstRibbonItemFit.hxx>", code)
         self.assertIn("if ( ( mpData->mbHstOwnerDraw || mpData->mbHstStretch ) && mbHorz && !ImplIsFloatingMode() )", code)
-        self.assertIn("mnDY - mnTopBorder - mnBottomBorder", code)
+        self.assertIn("item.mpWindow->GetSizePixel().Height(), 0, mnDY );", code)  # the whole toolbox, borders too
         self.assertIn("aPos.setY( aFit.top );", code)
+
+    def test_a_toolbox_given_another_height_formats_again(self):
+        code = added(PATCH, "vcl/source/window/toolbox.cxx")
+        self.assertIn("if ( ( mpData->mbHstOwnerDraw || mpData->mbHstStretch ) && nOldDY != mnDY )", code)
+        self.assertIn("mbFormat = true;", code)
 
 
 if __name__ == "__main__":
