@@ -9,6 +9,7 @@ Linux (gtk3 on an Xvfb of your own, started and stopped outside this script; run
 tests/runtime/no-hst-telemetry.sh):
     check-context-menu-coat.py shoot --instdir DIR --work DIR --out DIR --display :161 [--look after-dark] [case ...]
     check-context-menu-coat.py latency --instdir DIR --work DIR --out DIR --display :161 [--rounds 4 --trials 15]
+    check-context-menu-coat.py verify --out DIR [--platform windows]   (pixel checks of shots taken without Pillow)
 Windows (the image's own python.exe in the console session; scaling is set outside, --scale names the files):
     python.exe check-context-menu-coat.py shoot --instdir IMG --work DIR --out DIR --scale 125
     python.exe check-context-menu-coat.py latency --instdir IMG --work DIR --out DIR
@@ -108,13 +109,27 @@ def toggle_ribbon_popup(doc, names):
 
 
 def picture(work):
-    """A small PNG for the picture case (generated, no outside asset)."""
+    """A small PNG for the picture case: a blue field with a yellow disc, written without any imaging library
+    (the office's own Python has none)."""
+    import struct
+    import zlib
     path = os.path.join(work, "menu-picture.png")
-    if not os.path.exists(path):
-        from PIL import Image, ImageDraw
-        image = Image.new("RGB", (160, 100), (0x2E, 0x6F, 0xD8))
-        ImageDraw.Draw(image).ellipse((50, 20, 110, 80), fill=(0xFF, 0xC1, 0x07))
-        image.save(path)
+    if os.path.exists(path):
+        return path
+    width, height = 160, 100
+    rows = bytearray()
+    for y in range(height):
+        rows.append(0)  # no filter
+        for x in range(width):
+            inside = (x - 80) ** 2 + (y - 50) ** 2 <= 30 ** 2
+            rows += bytes((0xFF, 0xC1, 0x07) if inside else (0x2E, 0x6F, 0xD8))
+
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
+    os.makedirs(work, exist_ok=True)
+    with open(path, "wb") as out:
+        out.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                  + chunk(b"IDAT", zlib.compress(bytes(rows))) + chunk(b"IEND", b""))
     return path
 
 
@@ -227,7 +242,11 @@ class Run:
         """The middle of the menu's left edge: Windows (VCL menus) after: the window's ring in the surface, and the
         outline either rounded just inside it (the coat's) or drawn by the system on the screen (Windows 11);
         Linux (GTK): the menu's surface colour inside its border."""
-        from PIL import Image
+        try:
+            from PIL import Image
+        except ImportError:  # the office's own Python (Windows): checked afterwards with `verify`
+            self.results.append({"shot": name, "coat": coat, "theme": theme, "screen": bool(screen), "ok": None})
+            return
         with Image.open(path) as image:
             rgb = image.convert("RGB")
             y = rgb.height // 2
@@ -246,7 +265,8 @@ class Run:
             ok = (outline and ring_is_surface) if coat == "after" else not ring_is_surface
         else:
             ok = near(rgb.getpixel((rgb.width // 2, 2)), token["surface"]) if coat == "after" else True
-        self.results.append({"shot": name, "edge": edge, "system_outline": system_outline, "ok": ok})
+        self.results.append({"shot": name, "coat": coat, "theme": theme, "screen": bool(screen), "edge": edge,
+                             "system_outline": system_outline, "ok": ok})
         print("check", name, "PASS" if ok else "FAIL", edge, flush=True)
         if not ok:
             self.note(f"{name}: menu edge {edge} does not match the {coat} look")
@@ -372,6 +392,22 @@ def latency(args):
     return 0 if ratio is not None and ratio <= 1.02 else 1
 
 
+def verify(args):
+    """The pixel checks of shots taken where Pillow was missing (Windows), from their results.json."""
+    global WINDOWS
+    WINDOWS = args.platform == "windows"
+    with open(os.path.join(args.out, "results.json"), encoding="utf-8") as src:
+        taken = json.load(src)["results"]
+    run = Run(args, None)
+    for shot in taken:
+        name = shot["shot"]
+        screen = os.path.join(args.out, name + "-screen.png")
+        run.check(name, os.path.join(args.out, name + ".png"), shot["coat"], shot["theme"],
+                  screen if os.path.exists(screen) else None)
+    run.save({"verified_from": "results.json"})
+    return 1 if run.failures else 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -386,10 +422,15 @@ def main():
     shot = sub.choices["shoot"]
     shot.add_argument("--look", action="append", default=[], help="only looks starting so, e.g. after-dark")
     shot.add_argument("cases", nargs="*", help=", ".join(CASES))
+    ver = sub.add_parser("verify")
+    ver.add_argument("--out", required=True)
+    ver.add_argument("--platform", choices=["windows", "linux"], default="windows")
     lat = sub.choices["latency"]
     lat.add_argument("--rounds", type=int, default=4)
     lat.add_argument("--trials", type=int, default=15)
     args = parser.parse_args()
+    if args.command == "verify":
+        return verify(args)
     if args.command == "shoot":
         unknown = [case for case in args.cases if case not in CASES]
         if unknown:
