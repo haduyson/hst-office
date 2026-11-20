@@ -6,9 +6,10 @@ on its line, which follows its tallest item, so a box sat 1-3 px below the toolb
 than the toolbox, and the toolbox cut its bottom (a box shown 20-23 px of 24-28). A ribbon toolbox now
 (owner drawn, or laid out by the v3 layout, which makes every one of its toolboxes stretch) places each
 item window inside its own height: as high as the window up to the toolbox's height, moved up just enough to
-end inside; a window already inside stays as it was (100 % is unchanged). A ribbon toolbox the layout gives
-another height (it formats at its own height, then gets the row's) formats again, so the fit sees the height
-it shows (the picture's Graf boxes stayed 26-27 px in a 24 px toolbox). Boxes keep their native drawing.
+end inside; a window already inside stays as it was (100 % is unchanged). A ribbon toolbox the layout gives a
+height below one of its item windows (it formats at its own height, then gets the row's) formats again, so the
+fit sees the height it shows (the picture's Graf boxes stayed 26-27 px in a 24 px toolbox); no other toolbox
+formats again. Boxes keep their native drawing.
 
 - vcl/inc/HstRibbonItemFit.hxx (new, plain arithmetic, unit tested), vcl/source/window/toolbox.cxx (ImplFormat,
   Resize).
@@ -83,13 +84,17 @@ it shows (the picture's Graf boxes stayed 26-27 px in a 24 px toolbox). Boxes ke
                          item.mpWindow->SetPosPixel( aPos );
                          item.mpWindow->Show();
                      }
-@@ -3912,6 +3928,11 @@
+@@ -3912,6 +3928,15 @@
  
      mnLastResizeDY = 0;
  
-+    // HST Office: a ribbon toolbox given another height formats again, so its item windows fit the new height
-+    // (the fit in ImplFormat; the layout sizes a toolbox after it formatted at its own height)
-+    if ( ( mpData->mbHstOwnerDraw || mpData->mbHstStretch ) && nOldDY != mnDY )
++    // HST Office: a ribbon toolbox given a height below one of its item windows formats again, so the window fits
++    // (the fit in ImplFormat; the layout sizes a toolbox after it formatted at its own height). Nothing else
++    // formats again, so a toolbox whose windows fit keeps its look.
++    if ( ( mpData->mbHstOwnerDraw || mpData->mbHstStretch ) && nOldDY != mnDY
++         && std::any_of( mpData->m_aItems.begin(), mpData->m_aItems.end(),
++                         [this]( const ImplToolItem& rItem )
++                         { return rItem.mpWindow && rItem.mpWindow->GetSizePixel().Height() > mnDY; } ) )
 +        mbFormat = true;
 +
      // invalidate everything to have gradient backgrounds properly drawn

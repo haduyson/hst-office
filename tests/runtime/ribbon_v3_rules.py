@@ -214,10 +214,11 @@ def _clip(dump):
 
 
 def _row_fitted_box(item, scale):
-    """A cut that is only the box's own height request, within BOX_HEIGHT_SLACK of its row: not a cut label."""
+    """A cut that is only the box's own height request: within BOX_HEIGHT_SLACK of its row, or of a box drawing its
+    native frame (native_cut: the toolbox fits it to the row, what shows is measured by box_clip). Not a cut label."""
     want, rect = item.get("want"), item["rect"]
     return (want is not None and want["w"] <= rect["w"]
-            and (want["h"] - rect["h"]) / scale <= BOX_HEIGHT_SLACK)
+            and (item.get("native_cut") or (want["h"] - rect["h"]) / scale <= BOX_HEIGHT_SLACK))
 
 
 def _label_cut(dump):

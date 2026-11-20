@@ -81,9 +81,10 @@ class ItemWindowFitTest(unittest.TestCase):
         self.assertIn("item.mpWindow->GetSizePixel().Height(), 0, mnDY );", code)  # the whole toolbox, borders too
         self.assertIn("aPos.setY( aFit.top );", code)
 
-    def test_a_toolbox_given_another_height_formats_again(self):
+    def test_a_toolbox_given_a_height_below_an_item_window_formats_again(self):
         code = added(PATCH, "vcl/source/window/toolbox.cxx")
-        self.assertIn("if ( ( mpData->mbHstOwnerDraw || mpData->mbHstStretch ) && nOldDY != mnDY )", code)
+        self.assertIn("if ( ( mpData->mbHstOwnerDraw || mpData->mbHstStretch ) && nOldDY != mnDY", code)
+        self.assertIn("rItem.mpWindow && rItem.mpWindow->GetSizePixel().Height() > mnDY", code)  # only a cut window
         self.assertIn("mbFormat = true;", code)
 
 
