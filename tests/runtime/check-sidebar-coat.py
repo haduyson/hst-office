@@ -50,6 +50,7 @@ TAB_STOPS = 6  # Tab presses after Ctrl+F5
 
 # The accent (aSelectedIndicator) of the design tokens, light and dark (vcl/source/hst/designtokens.cxx)
 ACCENT = {"light": (0x1A, 0x56, 0xC8), "dark": (0x8A, 0xB4, 0xF8)}
+PILL = {"light": (0xD5, 0xE5, 0xFA), "dark": (0x26, 0x3B, 0x5E)}
 
 
 def case_name(app, deck, look):
@@ -58,12 +59,12 @@ def case_name(app, deck, look):
 
 def tab_buttons(container, sidebar):
     """The tab bar's buttons: [name, role, checked, x, y, width, height] relative to the sidebar (x, y, w, h on the
-    screen), top to bottom: the showing buttons of tool bars inside the sidebar, in its rightmost column."""
+    screen), top to bottom: the showing buttons inside the sidebar in its rightmost column (the menu button and
+    the deck tabs)."""
     import uno
     from windows_gui_a11y import showing, walk
     role = {uno.getConstantByName("com.sun.star.accessibility.AccessibleRole." + name): name
             for name in ("TOGGLE_BUTTON", "PUSH_BUTTON", "BUTTON_MENU", "MENU_BUTTON") if _has_role(name)}
-    toolbar = uno.getConstantByName("com.sun.star.accessibility.AccessibleRole.TOOL_BAR")
     checked = uno.getConstantByName("com.sun.star.accessibility.AccessibleStateType.CHECKED")
     pressed = uno.getConstantByName("com.sun.star.accessibility.AccessibleStateType.PRESSED")
     sx, sy, sw, sh = sidebar
@@ -74,9 +75,6 @@ def tab_buttons(container, sidebar):
                 continue
             where, size = context.getLocationOnScreen(), context.getSize()
             if not (sx <= where.X < sx + sw and sy <= where.Y < sy + sh):
-                continue
-            parent = context.getAccessibleParent()
-            if parent is None or parent.getAccessibleContext().getAccessibleRole() != toolbar:
                 continue
             states = context.getAccessibleStateSet()
             found.append([context.getAccessibleName(), role[context.getAccessibleRole()],
@@ -162,7 +160,7 @@ class Run(shots.Run):
             origin = self.screen.origin(win)
             facts = {"sidebar": [w, h],
                      "tabs": tab_buttons(frame.getContainerWindow().getProperty("XAccessible"), parts["sidebar"])}
-            if not facts["tabs"]:
+            if not facts["tabs"] and WINDOWS:
                 self.note(f"{name}: no tab bar buttons found")
             path = os.path.join(self.args.out, name + "-window.png")
             if self.screen.capture(win, path):
@@ -174,7 +172,7 @@ class Run(shots.Run):
                 print("shot", name, flush=True)
             else:
                 self.note(f"{name}: capture failed")
-            if deck == "PropertyDeck":
+            if deck == "PropertyDeck" and WINDOWS:  # gtk3's sidebar is outside the office's accessibility tree
                 facts["focus"] = focus_walk(office, doc)
             self.facts[name] = facts
         finally:
@@ -255,6 +253,16 @@ def has_indicator(image_path, tab, accent, tolerance=40):
     return False
 
 
+def has_pill(image_path, pill, column=48, tolerance=6, least=200):
+    """Whether at least `least` pixels of the pill colour lie in the rightmost `column` pixels (the tab bar)."""
+    from PIL import Image
+    with Image.open(image_path) as image:
+        rgb = image.convert("RGB")
+        box = rgb.crop((max(0, rgb.width - column), 0, rgb.width, rgb.height))
+        return sum(1 for pixel in box.getdata()
+                   if all(abs(pixel[i] - pill[i]) <= tolerance for i in range(3))) >= least
+
+
 def compare(out_dirs):
     """Problems found in the facts of every before/after pair of the given output directories."""
     problems = []
@@ -273,6 +281,14 @@ def compare(out_dirs):
             for key in ("sidebar", "tabs", "focus"):
                 if before.get(key) != after.get(key):
                     problems.append(f"{out}: {name}: {key} differs: before {before.get(key)} after {after.get(key)}")
+            if not after.get("tabs") and not before.get("tabs"):
+                # gtk3: the sidebar is native GTK, outside the office's accessibility tree; the open deck's
+                # pill is looked for in the tab bar column instead
+                for look_name, want in ((name, True), (before_name, False)):
+                    path = os.path.join(out, look_name + ".png")
+                    if os.path.exists(path) and has_pill(path, PILL[theme]) != want:
+                        problems.append(f"{out}: {look_name}: open-deck pill {'missing' if want else 'present'}")
+                continue
             checked = [tab for tab in after.get("tabs", []) if tab[2]]
             if len(checked) != 1:
                 problems.append(f"{out}: {name}: {len(checked)} checked tabs")
