@@ -125,9 +125,15 @@ class Keys:
             hwnd = window_of(set(office_pids(self.office.profile)), title)
             return bool(hwnd) and activate(hwnd)
         env = dict(os.environ, DISPLAY=self.office.display)
-        found = subprocess.run(["xdotool", "search", "--onlyvisible", "--name", title], env=env,
-                               capture_output=True, text=True, timeout=30).stdout.split()
+        found = []
+        for wid in subprocess.run(["xdotool", "search", "--onlyvisible", "--pid", str(self.office.pid), "--name", "."],
+                                  env=env, capture_output=True, text=True, timeout=30).stdout.split():
+            name = subprocess.run(["xdotool", "getwindowname", wid], env=env, capture_output=True, text=True,
+                                  timeout=15).stdout.strip()
+            if title.split(".")[0] in name:
+                found.append(wid)
         if not found:
+            print(f"note: no visible window titled {title!r}", flush=True)
             return False
         self.target = found[0]
         subprocess.run(["xdotool", "windowfocus", "--sync", self.target], env=env, capture_output=True, timeout=15)
@@ -216,6 +222,16 @@ def goto_cell(doc, table, cell):
     time.sleep(0.5)
 
 
+def selection_kind(doc):
+    """What the selection is, as the API reports it (a table cell range for a whole-table selection)."""
+    selection = doc.getCurrentController().getSelection()
+    try:
+        return selection.getImplementationName() + (f" {selection.getRangeName()}"
+                                                    if hasattr(selection, "getRangeName") else "")
+    except Exception as error:  # noqa: BLE001 - diagnostic only
+        return type(error).__name__
+
+
 def cell_text(doc, table, cell):
     return doc.getTextTables().getByName(table).getCellByName(cell).getString()
 
@@ -230,12 +246,26 @@ def cursor_paragraph(doc):
     return para.getString()
 
 
-def run_case(office, case, out):
-    path = os.path.join(out, f"{case}.fodt")
+def write_document(out, name, nested):
+    """The case's document in a folder the office's user can write (Linux: the office runs as the build user; a
+    file it cannot write opens read-only and the keys change nothing)."""
+    folder = os.path.join(out, "docs")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, name + ".fodt")
     with open(path, "w", encoding="utf-8") as handle:
-        handle.write(document(case == "nested"))
-    doc = load(office, path)
+        handle.write(document(nested))
+    if not WINDOWS:
+        os.chmod(folder, 0o777)
+        os.chmod(path, 0o666)
+    return path
+
+
+def run_case(office, case, out):
+    doc = load(office, write_document(out, case, case == "nested"))
     time.sleep(3)
+    if not check(not doc.isReadonly(), f"{case}: the document opened for editing"):
+        doc.close(True)
+        return
     frame = doc.getCurrentController().getFrame()
     keys = Keys(office, frame)
     try:
@@ -252,6 +282,7 @@ def run_case(office, case, out):
             keys.press("shift+Right", 3)
         else:
             keys.press("ctrl+a", 2)
+        print(f"note: {case}: selection before the key: {selection_kind(doc)}", flush=True)
         keys.press("Delete" if case == "delete" else "BackSpace")
         count = doc.getTextTables().getCount()
         if case == "backspace":
@@ -312,10 +343,7 @@ def main():
     try:
         for case in args.cases.split(","):
             run_case(office, case, out)
-        path = os.path.join(out, "quit.fodt")
-        with open(path, "w", encoding="utf-8") as handle:
-            handle.write(document(False))
-        last = load(office, path)
+        last = load(office, write_document(out, "quit", False))
         time.sleep(2)
         quit_office(office, last)
     finally:
