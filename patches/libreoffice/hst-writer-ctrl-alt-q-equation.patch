@@ -1,0 +1,288 @@
+HST: Ctrl+Alt+Q starts a new equation, as MathType's key does in Word
+
+Users who come from Word with MathType start an inline equation with Ctrl+Alt+Q. The key was free
+in every application; it now runs the command of the Insert tab's equation button: Writer (text and
+master documents) and Sheets insert a new empty formula with .uno:InsertObjectStarMath, Slides and
+Draw with .uno:InsertMath. The formula opens in the HST Công thức editor (the Math editor with the
+template bar and the Elements panel). Menus and ribbon tooltips show the key from the accelerator
+configuration as usual.
+
+Test: CppunitTest_sw_hst_equation_shortcut.
+
+--- a/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/Accelerators.xcu
+@@ -637,6 +637,14 @@
+         </node>
+       </node>
+       <node oor:name="com.sun.star.sheet.SpreadsheetDocument" oor:op="replace">
++        <!-- HST Office: Ctrl+Alt+Q starts a new equation in HST Công thức, the key MathType users know
++             from Word; the same command as the Insert tab's equation button -->
++        <node oor:name="Q_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:InsertObjectStarMath</value>
++          </prop>
++        </node>
+         <!-- HST Office macOS: Control+H Find and Replace, as the reference suite on macOS -->
+         <node oor:name="H_MOD3" oor:op="replace">
+           <prop oor:name="Command">
+@@ -1823,6 +1831,14 @@
+         </node>
+       </node>
+       <node oor:name="com.sun.star.drawing.DrawingDocument" oor:op="replace">
++        <!-- HST Office: Ctrl+Alt+Q starts a new equation in HST Công thức, the key MathType users know
++             from Word; the same command as the Insert tab's equation button -->
++        <node oor:name="Q_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:InsertMath</value>
++          </prop>
++        </node>
+         <!-- HST Office macOS: Cmd+Shift+H Find and Replace, as the reference suite on macOS -->
+         <node oor:name="H_SHIFT_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+@@ -2338,6 +2354,14 @@
+         </node>
+       </node>
+       <node oor:name="com.sun.star.text.GlobalDocument" oor:op="replace">
++        <!-- HST Office: Ctrl+Alt+Q starts a new equation in HST Công thức, the key MathType users know
++             from Word; the same command as the Insert tab's equation button -->
++        <node oor:name="Q_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:InsertObjectStarMath</value>
++          </prop>
++        </node>
+         <node oor:name="0_MOD1" oor:op="replace">
+           <prop oor:name="Command">
+             <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
+@@ -3171,6 +3195,14 @@
+         </node>
+       </node>
+       <node oor:name="com.sun.star.presentation.PresentationDocument" oor:op="replace">
++        <!-- HST Office: Ctrl+Alt+Q starts a new equation in HST Công thức, the key MathType users know
++             from Word; the same command as the Insert tab's equation button -->
++        <node oor:name="Q_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:InsertMath</value>
++          </prop>
++        </node>
+         <!-- HST Office macOS: Cmd+Control+V Paste Special, as the reference suite on macOS -->
+         <node oor:name="V_MOD1_MOD3" oor:op="replace">
+           <prop oor:name="Command">
+@@ -6425,6 +6457,14 @@
+         </node>
+       </node>
+       <node oor:name="com.sun.star.text.TextDocument" oor:op="replace">
++        <!-- HST Office: Ctrl+Alt+Q starts a new equation in HST Công thức, the key MathType users know
++             from Word; the same command as the Insert tab's equation button -->
++        <node oor:name="Q_MOD1_MOD2" oor:op="replace">
++          <prop oor:name="Command">
++            <value xml:lang="x-no-translate">L10N SHORTCUTS - NO TRANSLATE</value>
++            <value xml:lang="en-US">.uno:InsertObjectStarMath</value>
++          </prop>
++        </node>
+         <!-- HST Office macOS: Cmd+Option+E endnote, as the reference suite on macOS -->
+         <node oor:name="E_MOD1_MOD2" oor:op="replace">
+           <prop oor:name="Command">
+--- /dev/null
++++ b/sw/CppunitTest_sw_hst_equation_shortcut.mk
+@@ -0,0 +1,51 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (C) HASON TECH. HST Office.
++#
++# Ctrl+Alt+Q starts a new equation (HST Công thức) in Writer; the key is also bound in Sheets, Slides and Draw.
++
++$(eval $(call gb_CppunitTest_CppunitTest,sw_hst_equation_shortcut))
++
++$(eval $(call gb_CppunitTest_use_common_precompiled_header,sw_hst_equation_shortcut))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sw_hst_equation_shortcut, \
++    sw/qa/extras/hst/hstequationshortcut \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sw_hst_equation_shortcut, \
++    $(sw_ooxmlexport_libraries) \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,sw_hst_equation_shortcut,\
++    boost_headers \
++    libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sw_hst_equation_shortcut,\
++    -I$(SRCDIR)/sw/inc \
++    -I$(SRCDIR)/sw/source/core/inc \
++    -I$(SRCDIR)/sw/source/uibase/inc \
++    -I$(SRCDIR)/sw/qa/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_api,sw_hst_equation_shortcut,\
++    udkapi \
++    offapi \
++    oovbaapi \
++))
++
++$(eval $(call gb_CppunitTest_use_ure,sw_hst_equation_shortcut))
++$(eval $(call gb_CppunitTest_use_vcl,sw_hst_equation_shortcut))
++
++$(eval $(call gb_CppunitTest_use_rdb,sw_hst_equation_shortcut,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sw_hst_equation_shortcut))
++
++$(eval $(call gb_CppunitTest_use_uiconfigs,sw_hst_equation_shortcut,\
++    modules/swriter \
++    modules/smath \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/sw/Module_sw.mk
++++ b/sw/Module_sw.mk
+@@ -112,6 +112,7 @@
+     CppunitTest_sw_ooxmlfieldexport \
+     CppunitTest_sw_hst_mailmerge_word \
+     CppunitTest_sw_hst_merge_result_pages \
++    CppunitTest_sw_hst_equation_shortcut \
+     CppunitTest_sw_ooxmllinks \
+     CppunitTest_sw_ooxmlw14export \
+     CppunitTest_sw_ooxmlencryption \
+--- /dev/null
++++ b/sw/qa/extras/hst/hstequationshortcut.cxx
+@@ -0,0 +1,133 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <com/sun/star/awt/Key.hpp>
++#include <com/sun/star/awt/KeyEvent.hpp>
++#include <com/sun/star/awt/KeyModifier.hpp>
++#include <com/sun/star/document/XEmbeddedObjectSupplier2.hpp>
++#include <com/sun/star/embed/EmbedStates.hpp>
++#include <com/sun/star/embed/XEmbeddedObject.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/text/TextContentAnchorType.hpp>
++#include <com/sun/star/text/XTextEmbeddedObjectsSupplier.hpp>
++#include <com/sun/star/ui/XAcceleratorConfiguration.hpp>
++#include <com/sun/star/ui/XUIConfigurationManager.hpp>
++#include <com/sun/star/ui/theModuleUIConfigurationManagerSupplier.hpp>
++
++#include <comphelper/lok.hxx>
++#include <comphelper/processfactory.hxx>
++#include <sfx2/ipclient.hxx>
++#include <LibreOfficeKit/LibreOfficeKitEnums.h>
++#include <vcl/keycodes.hxx>
++#include <vcl/scheduler.hxx>
++
++#include <unotxdoc.hxx>
++#include <view.hxx>
++#include <wrtsh.hxx>
++
++namespace
++{
++/// Ctrl+Alt+Q starts a new equation, as MathType's key in Word: the command of the Insert tab's equation
++/// button in each application (Writer and Sheets: InsertObjectStarMath, Slides and Draw: InsertMath).
++class HstEquationShortcutTest : public SwModelTestBase
++{
++public:
++    HstEquationShortcutTest()
++        : SwModelTestBase(u"/sw/qa/extras/hst/data/"_ustr)
++    {
++    }
++
++protected:
++    static OUString commandOfCtrlAltQ(const OUString& rModule)
++    {
++        uno::Reference<ui::XModuleUIConfigurationManagerSupplier> xSupplier
++            = ui::theModuleUIConfigurationManagerSupplier::get(comphelper::getProcessComponentContext());
++        uno::Reference<ui::XAcceleratorConfiguration> xShortcuts
++            = xSupplier->getUIConfigurationManager(rModule)->getShortCutManager();
++        awt::KeyEvent aKey;
++        aKey.KeyCode = awt::Key::Q;
++        aKey.Modifiers = awt::KeyModifier::MOD1 | awt::KeyModifier::MOD2;
++        try
++        {
++            return xShortcuts->getCommandByKeyEvent(aKey);
++        }
++        catch (const container::NoSuchElementException&)
++        {
++            return OUString(); // the key is not bound in this module
++        }
++    }
++};
++
++/// Turns the LibreOfficeKit mode on for one test, so the OLE object can go in-place active without a
++/// visible window, and off again even when an assertion fails.
++struct LokModeGuard
++{
++    LokModeGuard() { comphelper::LibreOfficeKit::setActive(true); }
++    ~LokModeGuard() { comphelper::LibreOfficeKit::setActive(false); }
++};
++
++CPPUNIT_TEST_FIXTURE(HstEquationShortcutTest, testCtrlAltQIsBoundInEveryApp)
++{
++    CPPUNIT_ASSERT_EQUAL(u".uno:InsertObjectStarMath"_ustr,
++                         commandOfCtrlAltQ(u"com.sun.star.text.TextDocument"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u".uno:InsertObjectStarMath"_ustr,
++                         commandOfCtrlAltQ(u"com.sun.star.text.GlobalDocument"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u".uno:InsertObjectStarMath"_ustr,
++                         commandOfCtrlAltQ(u"com.sun.star.sheet.SpreadsheetDocument"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u".uno:InsertMath"_ustr,
++                         commandOfCtrlAltQ(u"com.sun.star.presentation.PresentationDocument"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u".uno:InsertMath"_ustr,
++                         commandOfCtrlAltQ(u"com.sun.star.drawing.DrawingDocument"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstEquationShortcutTest, testCtrlAltQInsertsNewEquation)
++{
++    LokModeGuard aLok;
++    createSwDoc();
++    emulateTyping(u"x = ");
++
++    // Ctrl+Alt+Q as GTK and macOS deliver it: the key code with both modifiers and the letter.
++    SwXTextDocument* pTextDoc = getSwTextDoc();
++    pTextDoc->postKeyEvent(LOK_KEYEVENT_KEYINPUT, 'q', KEY_Q | KEY_MOD1 | KEY_MOD2);
++    pTextDoc->postKeyEvent(LOK_KEYEVENT_KEYUP, 'q', KEY_Q | KEY_MOD1 | KEY_MOD2);
++    Scheduler::ProcessEventsToIdle();
++
++    // The key types nothing: the paragraph still holds only the typed text and the new object.
++    uno::Reference<text::XTextEmbeddedObjectsSupplier> xSupplier(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<container::XIndexAccess> xObjects(xSupplier->getEmbeddedObjects(), uno::UNO_QUERY_THROW);
++    // Without the binding the key did nothing: 0 objects.
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xObjects->getCount());
++
++    // One new, empty formula, in the line at the cursor.
++    uno::Reference<beans::XPropertySet> xFrame(xObjects->getByIndex(0), uno::UNO_QUERY_THROW);
++    CPPUNIT_ASSERT_EQUAL(text::TextContentAnchorType_AS_CHARACTER,
++                         xFrame->getPropertyValue(u"AnchorType"_ustr).get<text::TextContentAnchorType>());
++    uno::Reference<document::XEmbeddedObjectSupplier2> xEmbedded(xFrame, uno::UNO_QUERY_THROW);
++    uno::Reference<lang::XServiceInfo> xFormula(xEmbedded->getEmbeddedObject(), uno::UNO_QUERY_THROW);
++    CPPUNIT_ASSERT(xFormula->supportsService(u"com.sun.star.formula.FormulaProperties"_ustr));
++    uno::Reference<beans::XPropertySet> xFormulaProps(xFormula, uno::UNO_QUERY_THROW);
++    CPPUNIT_ASSERT_EQUAL(OUString(), xFormulaProps->getPropertyValue(u"Formula"_ustr).get<OUString>());
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(-1), getParagraph(1)->getString().indexOf('q'));
++
++    // The equation editor is open on it.
++    uno::Reference<embed::XEmbeddedObject> xObject = xEmbedded->getExtendedControlOverEmbeddedObject();
++    const sal_Int32 nState = xObject->getCurrentState();
++    CPPUNIT_ASSERT_MESSAGE("the new equation is not open for editing",
++                           nState == embed::EmbedStates::INPLACE_ACTIVE
++                               || nState == embed::EmbedStates::UI_ACTIVE);
++
++    // Close the editor before the document goes away.
++    if (SfxInPlaceClient* pClient = getSwDocShell()->GetWrtShell()->GetView().GetIPClient())
++        pClient->DeactivateObject();
++    Scheduler::ProcessEventsToIdle();
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
