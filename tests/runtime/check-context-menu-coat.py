@@ -14,11 +14,13 @@ Windows (the image's own python.exe in the console session; scaling is set outsi
     python.exe check-context-menu-coat.py latency --instdir IMG --work DIR --out DIR
 
 Cases: writer-text, writer-table, writer-graphic (the context menus of text, a table cell and a picture),
-sheets-cell, slides-slide, and ribbon-dropdown (the Paste button's drop-down on Writer's Home tab). Each menu is
-opened from the keyboard (Shift+F10, posted through XToolkitRobot: a VCL event inside the office, not an input
-event of the operating system) or, for the ribbon, through the button's accessible action togglePopup, and its third item is highlighted with Down
-(GTK menus take the keys from the X server: xdotool on the test display). Shots: <case>-<coat>-<theme>-<scale>.png,
-each the menu's own window. "check" lines compare a menu's edge pixels with the tokens; results.json has them all.
+sheets-cell, slides-slide, and ribbon-dropdown (the Paste button's drop-down on Writer's Home tab). A context menu is
+opened with Shift+F10 posted through XToolkitRobot (a VCL event inside the office, not an input event of the
+operating system); the ribbon's drop-down through the button's accessible action togglePopup. Down highlights the
+third item (GTK menus take the keys from the X server: xdotool on the test display).
+Shots: <case>-<coat>-<theme>-<scale>.png, the menu's own window; on Windows also <...>-screen.png, the menu as shown
+on the screen (the system's rounded corners, outline and shadow; needs an active console). "check" lines compare a
+menu's edge pixels with the tokens; results.json has them all.
 
 latency: alternating rounds of an office with the part off and one with it on; each round opens and closes the
 Writer text menu --trials times and records the time from posting Shift+F10 to the menu's window being shown. The
@@ -205,9 +207,13 @@ class Run:
                 time.sleep(0.3)
             time.sleep(0.7)
             path = os.path.join(self.args.out, name + ".png")
+            screen = os.path.join(self.args.out, name + "-screen.png") if WINDOWS else None
+            if screen and not screen_shot(menu, screen):
+                screen = None
+                self.note(f"{name}: screen capture failed")
             if self.screen.capture(menu, path):
                 print("shot", path, flush=True)
-                self.check(name, path, coat, theme)
+                self.check(name, path, coat, theme, screen)
             else:
                 self.note(f"{name}: capture failed")
             keys.menu("escape")
@@ -217,9 +223,10 @@ class Run:
         except Exception as error:  # noqa: BLE001 - the office stops after the look anyway
             self.note(f"{name}: document did not close ({error})")
 
-    def check(self, name, path, coat, theme):
-        """The middle of the menu's left edge: Windows (VCL menus) after: the window's ring in the surface and the
-        rounded outline just inside it; Linux (GTK): the menu's surface colour inside its border."""
+    def check(self, name, path, coat, theme, screen=None):
+        """The middle of the menu's left edge: Windows (VCL menus) after: the window's ring in the surface, and the
+        outline either rounded just inside it (the coat's) or drawn by the system on the screen (Windows 11);
+        Linux (GTK): the menu's surface colour inside its border."""
         from PIL import Image
         with Image.open(path) as image:
             rgb = image.convert("RGB")
@@ -227,13 +234,19 @@ class Run:
             edge = [rgb.getpixel((x, y)) for x in range(6)]
         token = TOKENS[theme]
         near = lambda a, b: all(abs(p - q) <= 3 for p, q in zip(a, b))  # noqa: E731
+        system_outline = None
+        if screen:
+            with Image.open(screen) as image:
+                shown = image.convert("RGB")
+                # the window's top edge, mid-way, as shown (SCREEN_MARGIN around the window)
+                system_outline = near(shown.getpixel((shown.width // 2, SCREEN_MARGIN)), token["border"])
         if WINDOWS:
-            outline = any(near(p, token["border"]) for p in edge[1:4])
+            outline = any(near(p, token["border"]) for p in edge[1:4]) or bool(system_outline)
             ring_is_surface = near(edge[0], token["surface"])
             ok = (outline and ring_is_surface) if coat == "after" else not ring_is_surface
         else:
             ok = near(rgb.getpixel((rgb.width // 2, 2)), token["surface"]) if coat == "after" else True
-        self.results.append({"shot": name, "edge": edge, "ok": ok})
+        self.results.append({"shot": name, "edge": edge, "system_outline": system_outline, "ok": ok})
         print("check", name, "PASS" if ok else "FAIL", edge, flush=True)
         if not ok:
             self.note(f"{name}: menu edge {edge} does not match the {coat} look")
@@ -243,6 +256,21 @@ class Run:
         data.update(extra or {})
         with open(os.path.join(self.args.out, "results.json"), "w", encoding="utf-8") as out:
             json.dump(data, out, indent=1, ensure_ascii=False)
+
+
+SCREEN_MARGIN = 16
+
+
+def screen_shot(hwnd, path):
+    """The menu as shown on the screen, SCREEN_MARGIN pixels around its window (the system's corners and shadow)."""
+    import windows_gui_win32
+    left, top, right, bottom = windows_gui_win32.window_rect(hwnd)
+    m = SCREEN_MARGIN
+    result = subprocess.run(["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                             os.path.join(HERE, "coat-screen-shot.ps1"), "-Left", str(left - m), "-Top", str(top - m),
+                             "-Width", str(right - left + 2 * m), "-Height", str(bottom - top + 2 * m), "-Path", path],
+                            capture_output=True, text=True, timeout=120)
+    return result.returncode == 0
 
 
 def prepare_select_graphic(doc):
