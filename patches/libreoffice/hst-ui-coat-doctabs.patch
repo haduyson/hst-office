@@ -125,7 +125,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
  
      tools::Long GetOptimalHeight() const;
  
-@@ -42,8 +46,17 @@ public:
+@@ -42,13 +46,23 @@ public:
      virtual void RequestHelp(const HelpEvent& rHEvt) override;
      virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
      virtual void Resize() override;
@@ -143,7 +143,13 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
      struct TabLayout
      {
          DocumentTabInfo aInfo;
-@@ -59,6 +72,8 @@ private:
+         tools::Rectangle aRect;
+         tools::Rectangle aCloseRect;
++        bool bCompressed = false;
+     };
+ 
+     void ImplLayout();
+@@ -59,6 +73,8 @@ private:
      Point ImplDragPos(const Point& rEventPos);
  
      css::uno::WeakReference<css::frame::XFrame> m_xFrame;
@@ -271,7 +277,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/inc/uielement/hstdocumenttabcoat.hxx
-@@ -0,0 +1,74 @@
+@@ -0,0 +1,77 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -317,6 +323,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +    bool bModified = false;
 +    bool bHover = false;
 +    bool bHoverClose = false;
++    bool bCompressed = false;
 +};
 +
 +struct CoatStrip
@@ -340,6 +347,8 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +FWK_DLLPUBLIC void PaintStrip(vcl::RenderContext& rRenderContext, const CoatStrip& rStrip,
 +                const StyleSettings& rStyle, const CoatGlyphs& rGlyphs);
 +FWK_DLLPUBLIC tools::Long CoatTabChromeWidth(double fScale);
++FWK_DLLPUBLIC bool CoatHidesClose(const CoatTab& rTab, double fScale);
++FWK_DLLPUBLIC tools::Rectangle CoatTitleRect(const CoatTab& rTab, double fScale);
 +FWK_DLLPUBLIC tools::Rectangle CoatCloseRect(const tools::Rectangle& rTab, tools::Long nStripHeight,
 +                               double fScale);
 +FWK_DLLPUBLIC CoatGlyphs LoadGlyphs();
@@ -348,7 +357,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/qa/cppunit/hstdocumenttabcoat.cxx
-@@ -0,0 +1,461 @@
+@@ -0,0 +1,528 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -424,8 +433,6 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +{
 +    const tools::Long nHeight = px(32, fScale);
 +    const tools::Long nWidth = px(140, fScale);
-+    const tools::Long nBodyTop = px(4, fScale);
-+    const tools::Long nClose = px(20, fScale);
 +    tabs::CoatStrip aStrip;
 +    aStrip.aSize = Size(600, nHeight);
 +    aStrip.fScale = fScale;
@@ -435,11 +442,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +        tabs::CoatTab aTab;
 +        aTab.aRect = tools::Rectangle(Point(static_cast<tools::Long>(i) * nWidth, 0),
 +                                      Size(nWidth, nHeight));
-+        const tools::Long nCloseRight = aTab.aRect.Right() - px(5, fScale);
-+        // Supply the painter with valid layout even when the close-rectangle helper is empty.
-+        aTab.aCloseRect = tools::Rectangle(
-+            Point(nCloseRight - nClose + 1, nBodyTop + (nHeight - nBodyTop - nClose) / 2),
-+            Size(nClose, nClose));
++        aTab.aCloseRect = tabs::CoatCloseRect(aTab.aRect, nHeight, fScale);
 +        aTab.aTitle = aTitles[i];
 +        aTab.aMark = rPalette.aAppMark[i];
 +        aTab.bActive = i == 0;
@@ -617,7 +620,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +                                         pDevice->GetPixel(Point(nPlainX, nBodyY)));
 +            for (const tabs::CoatTab& rTab : aStrip.aTabs)
 +            {
-+                const tools::Long nDotX = rTab.aRect.Left() + px(10, fScale) + px(8, fScale) / 2;
++                const tools::Long nDotX = rTab.aRect.Left() + px(8, fScale) + px(6, fScale) / 2;
 +                const Point aDot(nDotX, rTab.aCloseRect.Center().Y());
 +                CPPUNIT_ASSERT_EQUAL_MESSAGE("app dot", rTab.aMark, pDevice->GetPixel(aDot));
 +            }
@@ -645,7 +648,6 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +        rTab.aTitle = u"Báo cáo quý 3"_ustr;
 +        rTab.aMark = rPalette.aAppMark[0];
 +        rTab.bActive = true;
-+        rTab.bModified = true;
 +
 +        auto pTight = makeStripDevice(aStrip, false);
 +        auto pWide = makeStripDevice(aStrip, false);
@@ -656,7 +658,11 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +        aBold.SetWeight(WEIGHT_BOLD);
 +        pTight->SetFont(aBold);
 +        const tools::Long nTitleWidth = pTight->GetTextWidth(rTab.aTitle);
-+        const tools::Long nTabWidth = nTitleWidth + tabs::CoatTabChromeWidth(fScale);
++        const tools::Long nTitleLeft = px(8, fScale) + px(6, fScale) + px(5, fScale);
++        const tools::Long nChromeWidth = tabs::CoatTabChromeWidth(fScale);
++        CPPUNIT_ASSERT_EQUAL(nTitleLeft + px(4, fScale) + px(20, fScale) + px(4, fScale),
++                             nChromeWidth);
++        const tools::Long nTabWidth = nTitleWidth + nChromeWidth;
 +        pTight->SetFont(aFont);
 +        pWide->SetFont(aFont);
 +
@@ -667,7 +673,6 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +        rTab.aCloseRect = tabs::CoatCloseRect(rTab.aRect, nHeight, fScale);
 +        tabs::PaintStrip(*pWide, aStrip, rStyle, tabs::CoatGlyphs{});
 +
-+        const tools::Long nTitleLeft = px(10, fScale) + px(8, fScale) + px(6, fScale);
 +        const tools::Long nFirstTextRow = px(4, fScale) + px(3, fScale);
 +        bool bFoundText = false;
 +        for (tools::Long y = nFirstTextRow; y < nHeight; ++y)
@@ -680,6 +685,42 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +                bFoundText |= aWidePixel != rPalette.aFrameSurfaceRaised;
 +            }
 +        CPPUNIT_ASSERT(bFoundText);
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testCompressedTitlesKeepRoom)
++{
++    const auto& rPalette = design::GetPalette(false);
++    for (double fScale : { 1.0, 1.25 })
++    {
++        const tools::Long nWidth = fScale == 1.0 ? 98 : 123;
++        const tools::Long nHeight = px(32, fScale);
++        tabs::CoatStrip aStrip;
++        aStrip.aSize = Size(2 * nWidth, nHeight);
++        aStrip.fScale = fScale;
++        for (bool bActive : { true, false })
++        {
++            auto& rTab = aStrip.aTabs.emplace_back();
++            rTab.aRect = tools::Rectangle(Point(bActive ? 0 : nWidth, 0), Size(nWidth, nHeight));
++            rTab.aCloseRect = tabs::CoatCloseRect(rTab.aRect, nHeight, fScale);
++            rTab.aTitle = u"Không tên 1"_ustr;
++            rTab.aMark = rPalette.aAppMark[0];
++            rTab.bActive = bActive;
++            rTab.bCompressed = true;
++        }
++
++        const tools::Long nPlatformRoom
++            = nWidth - px(10, fScale) - (px(5, fScale) + px(16, fScale) + 4);
++        for (const auto& rTab : aStrip.aTabs)
++            CPPUNIT_ASSERT_GREATEREQUAL(nPlatformRoom,
++                                        tabs::CoatTitleRect(rTab, fScale).GetWidth());
++
++        const auto& rActive = aStrip.aTabs[0];
++        const auto pDevice = renderStrip(aStrip, false);
++        const Point aDot(rActive.aRect.Left() + px(8, fScale) + px(6, fScale) / 2,
++                         rActive.aCloseRect.Center().Y());
++        CPPUNIT_ASSERT_MESSAGE("compressed active app dot",
++                               pDevice->GetPixel(aDot) != rActive.aMark);
 +    }
 +}
 +
@@ -721,6 +762,41 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +        }
 +}
 +
++CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testNarrowInactiveTabHidesClose)
++{
++    const auto& rPalette = design::GetPalette(false);
++    tabs::CoatStrip aStrip;
++    aStrip.aSize = Size(90, 32);
++    auto& rTab = aStrip.aTabs.emplace_back();
++    rTab.aRect = tools::Rectangle(Point(), aStrip.aSize);
++    rTab.aCloseRect = tabs::CoatCloseRect(rTab.aRect, aStrip.aSize.Height(), aStrip.fScale);
++    rTab.aTitle = u"Report"_ustr;
++    rTab.aMark = rPalette.aAppMark[0];
++
++    const auto hasCloseGlyph = [&] {
++        const auto pDevice = renderStrip(aStrip, false);
++        const auto& rClose = rTab.aCloseRect;
++        for (tools::Long y = rClose.Top(); y <= rClose.Bottom(); ++y)
++            for (tools::Long x = rClose.Left(); x <= rClose.Right(); ++x)
++                if (pDevice->GetPixel(Point(x, y)) == rPalette.aIcon)
++                    return true;
++        return false;
++    };
++    CPPUNIT_ASSERT_MESSAGE("idle narrow close glyph hidden", !hasCloseGlyph());
++    rTab.bHover = true;
++    CPPUNIT_ASSERT_MESSAGE("hovered narrow close glyph visible", hasCloseGlyph());
++    rTab.bHover = false;
++    rTab.bActive = true;
++    CPPUNIT_ASSERT_MESSAGE("active narrow close glyph visible", hasCloseGlyph());
++
++    rTab.bActive = false;
++    rTab.bModified = true;
++    const auto pDevice = renderStrip(aStrip, false);
++    const Point aMarker(rTab.aRect.Right() + 1 - 4 - 6 / 2, rTab.aCloseRect.Center().Y());
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("idle narrow modified marker", rPalette.aText,
++                                 pDevice->GetPixel(aMarker));
++}
++
 +CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testCloseRectSize)
 +{
 +    for (double fScale : { 1.0, 1.25 })
@@ -731,7 +807,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +        const tools::Long nClose = px(20, fScale);
 +        CPPUNIT_ASSERT_EQUAL(Size(nClose, nClose), aClose.GetSize());
 +        CPPUNIT_ASSERT(aTab.Contains(aClose));
-+        CPPUNIT_ASSERT_EQUAL(aTab.Right() - px(5, fScale), aClose.Right());
++        CPPUNIT_ASSERT_EQUAL(aTab.Right() - px(4, fScale), aClose.Right());
 +    }
 +}
 +
@@ -932,7 +1008,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
      vcl::Font aFont = rStyle.GetToolFont();
      SetPointFont(*GetOutDev(), aFont);
      SetBackground(rStyle.GetFaceColor());
-@@ -89,9 +112,12 @@ void DocumentTabBar::ImplLayout()
+@@ -89,12 +112,20 @@ void DocumentTabBar::ImplLayout()
      const tools::Long nClose = Px(*this, CLOSE_SIZE);
      const tools::Long nPad = Px(*this, TAB_PAD);
      const tools::Long nMin = Px(*this, TAB_MIN_WIDTH);
@@ -945,8 +1021,17 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 -    m_aTabs.clear();
  
      // Natural widths, then shrink evenly when they don't fit next to the "+" button.
-     std::vector<tools::Long> aWidths;
-@@ -103,8 +129,7 @@ void DocumentTabBar::ImplLayout()
+-    std::vector<tools::Long> aWidths;
++    struct TabWidth
++    {
++        tools::Long nWidth;
++        bool bCompressed = false;
++    };
++    std::vector<TabWidth> aWidths;
+     tools::Long nSum = 0;
+     // measure with the bold font of the active tab, so a tab doesn't change width on switch
+     GetOutDev()->Push(vcl::PushFlags::FONT);
+@@ -103,10 +134,9 @@ void DocumentTabBar::ImplLayout()
      GetOutDev()->SetFont(aBold);
      for (const DocumentTabInfo& rInfo : aInfos)
      {
@@ -954,9 +1039,34 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 -                           + Px(*this, 12) + nPad / 2;
 +        tools::Long nTab = GetOutDev()->GetTextWidth(rInfo.aTitle) + nChromeWidth;
          nTab = std::clamp<tools::Long>(nTab, nMin, Px(*this, TAB_MAX_WIDTH));
-         aWidths.push_back(nTab);
+-        aWidths.push_back(nTab);
++        aWidths.push_back({ nTab });
          nSum += nTab;
-@@ -134,6 +159,9 @@ void DocumentTabBar::ImplLayout()
+     }
+     GetOutDev()->Pop();
+@@ -115,8 +145,11 @@ void DocumentTabBar::ImplLayout()
+     {
+         const tools::Long nEach
+             = std::max<tools::Long>(nAvail / static_cast<tools::Long>(aInfos.size()), nMin);
+-        for (tools::Long& rWidth : aWidths)
+-            rWidth = std::min(rWidth, nEach);
++        for (auto& rWidth : aWidths)
++        {
++            rWidth.bCompressed = nEach < rWidth.nWidth;
++            rWidth.nWidth = std::min(rWidth.nWidth, nEach);
++        }
+     }
+ 
+     // With many tabs keep the active one in view: skip tabs on the left.
+@@ -128,35 +161,92 @@ void DocumentTabBar::ImplLayout()
+                 nActive = i;
+         tools::Long nUsed = 0;
+         for (size_t i = 0; i <= nActive && i < aWidths.size(); ++i)
+-            nUsed += aWidths[i];
++            nUsed += aWidths[i].nWidth;
+         while (nUsed > nAvail && nFirst < nActive)
+-            nUsed -= aWidths[nFirst++];
++            nUsed -= aWidths[nFirst++].nWidth;
      }
  
      tools::Long nX = 0;
@@ -965,15 +1075,20 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +    bool bLayoutChanged = false;
      for (size_t i = nFirst; i < aInfos.size(); ++i)
      {
-         if (nX + aWidths[i] > nAvail && i > nFirst)
-@@ -141,22 +169,73 @@ void DocumentTabBar::ImplLayout()
+-        if (nX + aWidths[i] > nAvail && i > nFirst)
++        const auto& rWidth = aWidths[i];
++        if (nX + rWidth.nWidth > nAvail && i > nFirst)
+             break;
          TabLayout aTab;
          aTab.aInfo = aInfos[i];
-         aTab.aRect = tools::Rectangle(Point(nX, 0), Size(aWidths[i], nHeight));
+-        aTab.aRect = tools::Rectangle(Point(nX, 0), Size(aWidths[i], nHeight));
 -        const tools::Long nCloseX = aTab.aRect.Right() - nPad / 2 - nClose;
 -        aTab.aCloseRect = tools::Rectangle(Point(nCloseX, (nHeight + Px(*this, ACCENT) - nClose) / 2),
 -                                           Size(nClose, nClose));
 -        m_aTabs.push_back(aTab);
+-        nX += aWidths[i];
++        aTab.aRect = tools::Rectangle(Point(nX, 0), Size(rWidth.nWidth, nHeight));
++        aTab.bCompressed = rWidth.bCompressed;
 +        if (bCoat)
 +            aTab.aCloseRect = hst::doctabs::CoatCloseRect(aTab.aRect, nHeight, GetDPIScaleFactor());
 +        else
@@ -1002,7 +1117,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +            rOld = std::move(aTab);
 +        }
 +        ++nLaidOut;
-         nX += aWidths[i];
++        nX += rWidth.nWidth;
      }
 +    bFramesChanged |= nLaidOut != m_aTabs.size();
 +    m_aTabs.resize(nLaidOut);
@@ -1038,7 +1153,8 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +            const bool bHover = static_cast<sal_Int32>(i) == m_nHoverTab;
 +            aStrip.aTabs.push_back({ rTab.aRect, rTab.aCloseRect, rTab.aInfo.aTitle,
 +                                     rTab.aInfo.aModuleColor, rTab.aInfo.bActive,
-+                                     rTab.aInfo.bModified, bHover, bHover && m_bHoverClose });
++                                     rTab.aInfo.bModified, bHover, bHover && m_bHoverClose,
++                                     rTab.bCompressed });
 +        }
 +        hst::doctabs::PaintStrip(rRenderContext, aStrip, rStyle, m_aCoatGlyphs);
 +        return;
@@ -1046,7 +1162,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
      const Color aFace = rStyle.GetFaceColor();
      const Color aActiveBg = rStyle.GetWindowColor();
      const Color aShadow = rStyle.GetShadowColor();
-@@ -528,6 +607,7 @@ void DocumentTabBar::DataChanged(const DataChangedEvent& rDCEvt)
+@@ -528,6 +618,7 @@ void DocumentTabBar::DataChanged(const DataChangedEvent& rDCEvt)
          && (rDCEvt.GetFlags() & AllSettingsFlags::STYLE))
      {
          ImplInitSettings();
@@ -1054,7 +1170,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
          Invalidate();
      }
  }
-@@ -535,8 +615,63 @@ void DocumentTabBar::DataChanged(const DataChangedEvent& rDCEvt)
+@@ -535,8 +626,63 @@ void DocumentTabBar::DataChanged(const DataChangedEvent& rDCEvt)
  void DocumentTabBar::Resize()
  {
      vcl::Window::Resize();
@@ -1703,7 +1819,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/source/uielement/hstdocumenttabcoat.cxx
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,46 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1713,7 +1829,17 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +
 +#include <uielement/hstdocumenttabcoat.hxx>
 +
++#include <basegfx/point/b2dpoint.hxx>
++#include <basegfx/polygon/b2dpolygontools.hxx>
++#include <basegfx/polygon/b2dpolypolygon.hxx>
 +#include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/drawhelpers.hxx>
++#include <vcl/hst/framecoat.hxx>
++#include <vcl/rendercontext/AntialiasingFlags.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/window.hxx>
++
++#include <algorithm>
 +
 +namespace framework::hst::doctabs
 +{
@@ -1729,6 +1855,10 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +void PaintStrip(vcl::RenderContext&, const CoatStrip&, const StyleSettings&, const CoatGlyphs&) {}
 +
 +tools::Long CoatTabChromeWidth(double) { return 0; }
++
++bool CoatHidesClose(const CoatTab&, double) { return false; }
++
++tools::Rectangle CoatTitleRect(const CoatTab&, double) { return {}; }
 +
 +tools::Rectangle CoatCloseRect(const tools::Rectangle&, tools::Long, double) { return {}; }
 +
