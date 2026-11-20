@@ -1,0 +1,901 @@
+HST Office: document tabs in the HST frame coat (tests and interfaces only; the look follows).
+
+- Application mark tokens (hst::design::AppMark, Palette::aAppMark) and the unit tests of the document tab
+  strip's coat: app marks reach 3:1 on the frame surfaces, the module-to-mark mapping, the strip's pixels in
+  light and dark at 100 and 125 %, the close-button hover, the vector fallback of the glyphs, the close
+  button's size, the strip height, and the strip's accessible tree (tabs, close buttons, "+").
+
+--- /dev/null
++++ b/framework/CppunitTest_framework_hst_documenttabcoat.mk
+@@ -0,0 +1,69 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++# This file is part of HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,framework_hst_documenttabcoat))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,framework_hst_documenttabcoat,\
++    framework/qa/cppunit/hstdocumenttabcoat \
++))
++
++$(eval $(call gb_CppunitTest_add_defs,framework_hst_documenttabcoat,\
++    -DFWK_DLLIMPLEMENTATION \
++))
++
++$(eval $(call gb_CppunitTest_set_include,framework_hst_documenttabcoat,\
++    -I$(SRCDIR)/framework/source/inc \
++    -I$(SRCDIR)/framework/inc \
++    -I$(WORKDIR)/CustomTarget/officecfg/registry \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,framework_hst_documenttabcoat,\
++    boost_headers \
++))
++
++$(eval $(call gb_CppunitTest_use_custom_headers,framework_hst_documenttabcoat,\
++    officecfg/registry \
++))
++
++$(eval $(call gb_CppunitTest_use_library_objects,framework_hst_documenttabcoat,\
++    fwk \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,framework_hst_documenttabcoat,\
++    comphelper \
++    cppu \
++    cppuhelper \
++    $(call gb_Helper_optional,BREAKPAD,crashreport) \
++    i18nlangtag \
++    sal \
++    salhelper \
++    sot \
++    svl \
++    svt \
++    test \
++    tk \
++    tl \
++    ucbhelper \
++    unotest \
++    utl \
++    vcl \
++))
++
++ifeq ($(OS),WNT)
++$(eval $(call gb_CppunitTest_use_system_win32_libs,framework_hst_documenttabcoat,\
++    advapi32 \
++))
++endif
++
++$(eval $(call gb_CppunitTest_use_sdk_api,framework_hst_documenttabcoat))
++$(eval $(call gb_CppunitTest_use_ure,framework_hst_documenttabcoat))
++$(eval $(call gb_CppunitTest_use_vcl,framework_hst_documenttabcoat))
++$(eval $(call gb_CppunitTest_use_rdb,framework_hst_documenttabcoat,services))
++$(eval $(call gb_CppunitTest_use_configuration,framework_hst_documenttabcoat))
++
++# vim: set noet sw=4 ts=4:
+--- a/framework/Library_fwk.mk
++++ b/framework/Library_fwk.mk
+@@ -154,6 +154,8 @@ $(eval $(call gb_Library_add_exception_objects,fwk,\
+     framework/source/layoutmanager/toolbarlayoutmanager \
+     framework/source/layoutmanager/uielement \
+     framework/source/uielement/documenttabbar \
++    framework/source/uielement/hstdocumenttabaccessible \
++    framework/source/uielement/hstdocumenttabcoat \
+     framework/source/loadenv/loadenv \
+     framework/source/loadenv/targethelper \
+     framework/source/recording/dispatchrecorder \
+--- a/framework/Module_framework.mk
++++ b/framework/Module_framework.mk
+@@ -25,6 +25,7 @@ $(eval $(call gb_Module_add_targets,framework,\
+     UIConfig_startmodule \
+ ))
+ 
++$(eval $(call gb_Module_add_check_targets,framework,CppunitTest_framework_hst_documenttabcoat))
+ $(eval $(call gb_Module_add_slowcheck_targets,framework,\
+     CppunitTest_framework_dispatch \
+     CppunitTest_framework_loadenv \
+--- a/framework/inc/uielement/documenttabbar.hxx
++++ b/framework/inc/uielement/documenttabbar.hxx
+@@ -10,6 +10,7 @@
+ #pragma once
+ 
+ #include <documenttabgroup.hxx>
++#include <uielement/hstdocumenttabaccessible.hxx>
+ #include <vcl/window.hxx>
+ 
+ namespace framework
+@@ -26,7 +27,7 @@ namespace framework
+     window (or onto the strip of another window that accepts it). The context menu of a tab
+     offers the same "move to new window".
+ */
+-class DocumentTabBar final : public vcl::Window
++class DocumentTabBar final : public vcl::Window, private hst::doctabs::DocumentTabStripHost
+ {
+ public:
+     DocumentTabBar(vcl::Window* pParent, const css::uno::Reference<css::frame::XFrame>& xFrame);
+@@ -42,8 +43,16 @@ public:
+     virtual void RequestHelp(const HelpEvent& rHEvt) override;
+     virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
+     virtual void Resize() override;
++    rtl::Reference<comphelper::OAccessible> CreateAccessible() override;
+ 
+ private:
++    std::vector<Tab> GetStripTabs() const override;
++    tools::Rectangle GetStripPlusRect() const override;
++    vcl::Window* GetStripWindow() override;
++    void ActivateStripTab(sal_Int32 nIndex) override;
++    void CloseStripTab(sal_Int32 nIndex) override;
++    void ShowStripNewMenu() override;
++
+     struct TabLayout
+     {
+         DocumentTabInfo aInfo;
+--- /dev/null
++++ b/framework/inc/uielement/hstdocumenttabaccessible.hxx
+@@ -0,0 +1,72 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <comphelper/OAccessible.hxx>
++#include <rtl/ustring.hxx>
++#include <tools/gen.hxx>
++
++#include <vector>
++
++namespace vcl
++{
++class Window;
++}
++
++namespace framework::hst::doctabs
++{
++class DocumentTabStripHost
++{
++public:
++    struct Tab
++    {
++        OUString aTitle;
++        bool bActive;
++        bool bModified;
++        tools::Rectangle aRect;
++        tools::Rectangle aCloseRect;
++    };
++
++    virtual ~DocumentTabStripHost() = default;
++    virtual std::vector<Tab> GetStripTabs() const = 0; ///< Laid-out tabs in visual order.
++    virtual tools::Rectangle GetStripPlusRect() const = 0;
++    virtual vcl::Window* GetStripWindow() = 0;
++    virtual void ActivateStripTab(sal_Int32 nIndex) = 0;
++    virtual void CloseStripTab(sal_Int32 nIndex) = 0;
++    virtual void ShowStripNewMenu() = 0;
++};
++
++class DocumentTabStripAccessible final : public comphelper::OAccessible
++{
++public:
++    explicit DocumentTabStripAccessible(DocumentTabStripHost& rHost);
++
++    void TabsChanged();
++
++    sal_Int64 SAL_CALL getAccessibleChildCount() override;
++    css::uno::Reference<css::accessibility::XAccessible> SAL_CALL
++    getAccessibleChild(sal_Int64 nIndex) override;
++    css::uno::Reference<css::accessibility::XAccessible> SAL_CALL getAccessibleParent() override;
++    sal_Int16 SAL_CALL getAccessibleRole() override;
++    OUString SAL_CALL getAccessibleDescription() override;
++    OUString SAL_CALL getAccessibleName() override;
++    css::uno::Reference<css::accessibility::XAccessibleRelationSet> SAL_CALL
++    getAccessibleRelationSet() override;
++    sal_Int64 SAL_CALL getAccessibleStateSet() override;
++    css::uno::Reference<css::accessibility::XAccessible> SAL_CALL
++    getAccessibleAtPoint(const css::awt::Point& rPoint) override;
++    void SAL_CALL grabFocus() override;
++    sal_Int32 SAL_CALL getForeground() override;
++    sal_Int32 SAL_CALL getBackground() override;
++
++protected:
++    css::awt::Rectangle implGetBounds() override;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/framework/inc/uielement/hstdocumenttabcoat.hxx
+@@ -0,0 +1,67 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <tools/color.hxx>
++#include <tools/gen.hxx>
++#include <vcl/image.hxx>
++#include <vcl/outdev.hxx>
++
++#include <string_view>
++#include <vector>
++
++class StyleSettings;
++namespace vcl
++{
++class Window;
++}
++namespace hst::design
++{
++struct Palette;
++}
++
++namespace framework::hst::doctabs
++{
++struct CoatTab
++{
++    tools::Rectangle aRect, aCloseRect;
++    OUString aTitle;
++    Color aMark;
++    bool bActive = false;
++    bool bModified = false;
++    bool bHover = false;
++    bool bHoverClose = false;
++};
++
++struct CoatStrip
++{
++    Size aSize;
++    std::vector<CoatTab> aTabs;
++    tools::Rectangle aPlusRect;
++    bool bHoverPlus = false;
++    double fScale = 1.0;
++};
++
++struct CoatGlyphs
++{
++    Image aClose, aNew; ///< Empty images use the vector fallback.
++};
++
++Color AppMarkColor(std::u16string_view aModuleIdentifier, bool bPdf,
++                   const ::hst::design::Palette& rPalette);
++void ApplyCoatSettings(vcl::Window& rWindow);
++bool CoatActive(const StyleSettings& rStyle);
++void PaintStrip(vcl::RenderContext& rRenderContext, const CoatStrip& rStrip,
++                const StyleSettings& rStyle, const CoatGlyphs& rGlyphs);
++tools::Rectangle CoatCloseRect(const tools::Rectangle& rTab, tools::Long nStripHeight,
++                               double fScale);
++CoatGlyphs LoadGlyphs();
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/framework/qa/cppunit/hstdocumenttabcoat.cxx
+@@ -0,0 +1,411 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include <classes/fwkresid.hxx>
++#include <strings.hrc>
++#include <uielement/documenttabbar.hxx>
++#include <uielement/hstdocumenttabaccessible.hxx>
++#include <uielement/hstdocumenttabcoat.hxx>
++
++#include <com/sun/star/accessibility/AccessibleRole.hpp>
++#include <com/sun/star/accessibility/AccessibleStateType.hpp>
++#include <com/sun/star/accessibility/XAccessibleAction.hpp>
++#include <comphelper/scopeguard.hxx>
++#include <rtl/ref.hxx>
++#include <test/bootstrapfixture.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/scheduler.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/virdev.hxx>
++#include <vcl/wall.hxx>
++#include <vcl/wrkwin.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <iterator>
++
++namespace
++{
++namespace a11y = css::accessibility;
++namespace design = hst::design;
++namespace tabs = framework::hst::doctabs;
++using css::uno::Reference;
++
++constexpr Color UNPAINTED(0xFF, 0x00, 0xFF);
++
++class DocumentTabCoatTest : public test::BootstrapFixture
++{
++public:
++    DocumentTabCoatTest()
++        : test::BootstrapFixture(true, false)
++    {
++    }
++};
++
++double relativeLuminance(const Color& rColor)
++{
++    const auto linear = [](sal_uInt8 nChannel) {
++        const double fChannel = nChannel / 255.0;
++        if (fChannel <= 0.04045)
++            return fChannel / 12.92;
++        return std::pow((fChannel + 0.055) / 1.055, 2.4);
++    };
++    return 0.2126 * linear(rColor.GetRed()) + 0.7152 * linear(rColor.GetGreen())
++           + 0.0722 * linear(rColor.GetBlue());
++}
++
++double contrastRatio(const Color& rMark, const Color& rSurface)
++{
++    const double fMark = relativeLuminance(rMark);
++    const double fSurface = relativeLuminance(rSurface);
++    return (std::max(fMark, fSurface) + 0.05) / (std::min(fMark, fSurface) + 0.05);
++}
++
++tools::Long px(double fLength, double fScale) { return std::lround(fLength * fScale); }
++
++tabs::CoatStrip makeStrip(const design::Palette& rPalette, double fScale)
++{
++    const tools::Long nHeight = px(32, fScale);
++    const tools::Long nWidth = px(140, fScale);
++    const tools::Long nBodyTop = px(4, fScale);
++    const tools::Long nClose = px(20, fScale);
++    tabs::CoatStrip aStrip;
++    aStrip.aSize = Size(600, nHeight);
++    aStrip.fScale = fScale;
++    const OUString aTitles[] = { u"A"_ustr, u"B"_ustr, u"C"_ustr };
++    for (std::size_t i = 0; i < std::size(aTitles); ++i)
++    {
++        tabs::CoatTab aTab;
++        aTab.aRect = tools::Rectangle(Point(static_cast<tools::Long>(i) * nWidth, 0),
++                                      Size(nWidth, nHeight));
++        const tools::Long nCloseRight = aTab.aRect.Right() - px(5, fScale);
++        // Supply the painter with valid layout even when the close-rectangle helper is empty.
++        aTab.aCloseRect = tools::Rectangle(
++            Point(nCloseRight - nClose + 1, nBodyTop + (nHeight - nBodyTop - nClose) / 2),
++            Size(nClose, nClose));
++        aTab.aTitle = aTitles[i];
++        aTab.aMark = rPalette.aAppMark[i];
++        aTab.bActive = i == 0;
++        aTab.bHover = i == 1;
++        aStrip.aTabs.push_back(aTab);
++    }
++    const tools::Long nPlusHeight = px(24, fScale);
++    aStrip.aPlusRect = tools::Rectangle(Point(3 * nWidth + 2, (nHeight - nPlusHeight) / 2),
++                                       Size(px(30, fScale) - 4, nPlusHeight));
++    return aStrip;
++}
++
++ScopedVclPtr<VirtualDevice> renderStrip(const tabs::CoatStrip& rStrip, bool bDark)
++{
++    ScopedVclPtr<VirtualDevice> pDevice = VclPtr<VirtualDevice>::Create();
++    AllSettings aSettings = pDevice->GetSettings();
++    StyleSettings aStyle = aSettings.GetStyleSettings();
++    aStyle.SetWindowColor(bDark ? Color(0x20, 0x20, 0x20) : COL_WHITE);
++    aStyle.SetHighContrastMode(false);
++    aSettings.SetStyleSettings(aStyle);
++    pDevice->SetSettings(aSettings);
++    pDevice->SetDPIScalePercentage(100 * rStrip.fScale);
++    pDevice->EnableMapMode(false);
++    CPPUNIT_ASSERT(pDevice->SetOutputSizePixel(rStrip.aSize));
++    pDevice->SetBackground(Wallpaper(UNPAINTED));
++    pDevice->Erase();
++    tabs::PaintStrip(*pDevice, rStrip, aStyle, tabs::CoatGlyphs{});
++    return pDevice;
++}
++
++void assertGlyphCenter(const char* pMessage, const VirtualDevice& rDevice,
++                       const tools::Rectangle& rRect, const Color& rIcon, const Color& rBackground)
++{
++    // With even dimensions, the intersection lies between pixels. Allow a small amount of
++    // anti-aliasing at the nearest centre pixels of the thin strokes.
++    constexpr int nTolerance = 8;
++    const Point aCenter = rRect.Center();
++    const tools::Long nLastX = rRect.Left() + rRect.GetWidth() / 2;
++    const tools::Long nLastY = rRect.Top() + rRect.GetHeight() / 2;
++    bool bFoundInk = false;
++    for (tools::Long y = aCenter.Y(); y <= nLastY; ++y)
++        for (tools::Long x = aCenter.X(); x <= nLastX; ++x)
++        {
++            const Color aPixel = rDevice.GetPixel(Point(x, y));
++            const int nDifference = std::max({ std::abs(aPixel.GetRed() - rIcon.GetRed()),
++                                               std::abs(aPixel.GetGreen() - rIcon.GetGreen()),
++                                               std::abs(aPixel.GetBlue() - rIcon.GetBlue()) });
++            bFoundInk |= aPixel != rBackground && nDifference <= nTolerance;
++        }
++    CPPUNIT_ASSERT_MESSAGE(pMessage, bFoundInk);
++}
++
++class TestStripHost final : public tabs::DocumentTabStripHost
++{
++public:
++    explicit TestStripHost(vcl::Window& rWindow)
++        : m_rWindow(rWindow)
++    {
++        const tabs::CoatStrip aStrip = makeStrip(design::GetPalette(false), 1.0);
++        for (const tabs::CoatTab& rTab : aStrip.aTabs)
++            aTabs.push_back({ rTab.aTitle, false, false, rTab.aRect, rTab.aCloseRect });
++        aTabs[1].bActive = true;
++        aTabs[2].bModified = true;
++        aPlusRect = aStrip.aPlusRect;
++    }
++
++    std::vector<Tab> GetStripTabs() const override { return aTabs; }
++    tools::Rectangle GetStripPlusRect() const override { return aPlusRect; }
++    vcl::Window* GetStripWindow() override { return &m_rWindow; }
++    void ActivateStripTab(sal_Int32) override {}
++    void CloseStripTab(sal_Int32 nIndex) override { nClosedTab = nIndex; }
++    void ShowStripNewMenu() override {}
++
++    std::vector<Tab> aTabs;
++    sal_Int32 nClosedTab = -1;
++
++private:
++    vcl::Window& m_rWindow;
++    tools::Rectangle aPlusRect;
++};
++
++Reference<a11y::XAccessibleContext> getChild(const Reference<a11y::XAccessibleContext>& xParent,
++                                            sal_Int64 nIndex)
++{
++    const Reference<a11y::XAccessible> xChild = xParent->getAccessibleChild(nIndex);
++    CPPUNIT_ASSERT(xChild.is());
++    auto xContext = xChild->getAccessibleContext();
++    CPPUNIT_ASSERT(xContext.is());
++    return xContext;
++}
++
++CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testAppMarksReachThreeToOne)
++{
++    constexpr Color aExpected[] = { Color(0x46, 0x6F, 0xE3), Color(0x1E, 0x8E, 0x3E),
++                                    Color(0xE8, 0x59, 0x0C), Color(0xA8, 0x6A, 0x00),
++                                    Color(0xE5, 0x48, 0x3F) };
++    for (bool bDark : { false, true })
++    {
++        const auto& rPalette = design::GetPalette(bDark);
++        CPPUNIT_ASSERT_EQUAL(std::size(aExpected), std::size(rPalette.aAppMark));
++        for (std::size_t i = 0; i < std::size(rPalette.aAppMark); ++i)
++        {
++            const Color& rMark = rPalette.aAppMark[i];
++            CPPUNIT_ASSERT_EQUAL(aExpected[i], rMark);
++            CPPUNIT_ASSERT_GREATEREQUAL(3.0, contrastRatio(rMark, rPalette.aFrameSurface));
++            CPPUNIT_ASSERT_GREATEREQUAL(3.0, contrastRatio(rMark, rPalette.aFrameSurfaceRaised));
++        }
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testAppMarkColorMapping)
++{
++    using design::AppMark;
++    struct Mapping
++    {
++        std::u16string_view aModule;
++        AppMark eMark;
++    };
++    constexpr Mapping aCases[] = {
++        { u"com.sun.star.text.TextDocument", AppMark::Writer },
++        { u"com.sun.star.text.WebDocument", AppMark::Writer },
++        { u"com.sun.star.text.GlobalDocument", AppMark::Writer },
++        { u"com.sun.star.sdb.OfficeDatabaseDocument", AppMark::Writer },
++        { u"com.sun.star.sdb.FormDesign", AppMark::Writer },
++        { u"com.sun.star.xforms.XMLFormDocument", AppMark::Writer },
++        { u"com.sun.star.sheet.SpreadsheetDocument", AppMark::Sheets },
++        { u"com.sun.star.presentation.PresentationDocument", AppMark::Slides },
++        { u"com.sun.star.drawing.DrawingDocument", AppMark::Draw },
++    };
++    for (bool bDark : { false, true })
++    {
++        const auto& rPalette = design::GetPalette(bDark);
++        const Color aPdf = rPalette.aAppMark[static_cast<int>(AppMark::Pdf)];
++        for (const auto& rCase : aCases)
++        {
++            CPPUNIT_ASSERT_EQUAL(rPalette.aAppMark[static_cast<int>(rCase.eMark)],
++                                 tabs::AppMarkColor(rCase.aModule, false, rPalette));
++            CPPUNIT_ASSERT_EQUAL(aPdf, tabs::AppMarkColor(rCase.aModule, true, rPalette));
++        }
++        CPPUNIT_ASSERT_EQUAL(aPdf, tabs::AppMarkColor(u"", true, rPalette));
++        CPPUNIT_ASSERT_EQUAL(rPalette.aMuted,
++                             tabs::AppMarkColor(u"org.example.UnknownDocument", false, rPalette));
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testStripPixels)
++{
++    for (bool bDark : { false, true })
++        for (double fScale : { 1.0, 1.25 })
++        {
++            const auto& rPalette = design::GetPalette(bDark);
++            const auto aStrip = makeStrip(rPalette, fScale);
++            auto pDevice = renderStrip(aStrip, bDark);
++            const tools::Long nBodyY = aStrip.aSize.Height() / 2;
++            const tools::Long nBottom = aStrip.aSize.Height() - 1;
++            const tools::Long nActiveX = aStrip.aTabs[0].aRect.Center().X();
++            const tools::Long nHoverX = aStrip.aTabs[1].aRect.Center().X();
++            const tools::Long nPlainX = aStrip.aTabs[2].aRect.Center().X();
++            CPPUNIT_ASSERT_EQUAL_MESSAGE("strip beyond the plus button", rPalette.aFrameSurface,
++                                         pDevice->GetPixel(Point(aStrip.aSize.Width() - 10, nBodyY)));
++            CPPUNIT_ASSERT_EQUAL_MESSAGE("active body", rPalette.aFrameSurfaceRaised,
++                                         pDevice->GetPixel(Point(nActiveX, nBodyY)));
++            CPPUNIT_ASSERT_EQUAL_MESSAGE("active identity bar", aStrip.aTabs[0].aMark,
++                                         pDevice->GetPixel(Point(nActiveX, px(4, fScale) + 1)));
++            CPPUNIT_ASSERT_EQUAL_MESSAGE("hovered body", rPalette.aHover,
++                                         pDevice->GetPixel(Point(nHoverX, nBodyY)));
++            CPPUNIT_ASSERT_EQUAL_MESSAGE("plain body", rPalette.aFrameSurface,
++                                         pDevice->GetPixel(Point(nPlainX, nBodyY)));
++            for (const tabs::CoatTab& rTab : aStrip.aTabs)
++            {
++                const tools::Long nDotX = rTab.aRect.Left() + px(10, fScale) + px(8, fScale) / 2;
++                const Point aDot(nDotX, rTab.aCloseRect.Center().Y());
++                CPPUNIT_ASSERT_EQUAL_MESSAGE("app dot", rTab.aMark, pDevice->GetPixel(aDot));
++            }
++            CPPUNIT_ASSERT_EQUAL_MESSAGE("bottom edge under inactive tab", rPalette.aFrameDivider,
++                                         pDevice->GetPixel(Point(nPlainX, nBottom)));
++            CPPUNIT_ASSERT_EQUAL_MESSAGE("bottom edge under active tab", rPalette.aFrameSurfaceRaised,
++                                         pDevice->GetPixel(Point(nActiveX, nBottom)));
++        }
++}
++
++CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testCloseHover)
++{
++    for (bool bDark : { false, true })
++        for (double fScale : { 1.0, 1.25 })
++        {
++            const auto& rPalette = design::GetPalette(bDark);
++            for (const bool bActive : { true, false })
++            {
++                auto aStrip = makeStrip(rPalette, fScale);
++                aStrip.aTabs[1].bHover = false;
++                auto& rTab = aStrip.aTabs[bActive ? 0 : 1];
++                rTab.bHover = true;
++                rTab.bHoverClose = true;
++                auto pDevice = renderStrip(aStrip, bDark);
++                const auto& rClose = rTab.aCloseRect;
++                const Point aProbe(rClose.Left() + px(2, fScale), rClose.Center().Y());
++                const char* pMessage = bActive ? "active close hover" : "inactive close hover";
++                CPPUNIT_ASSERT_EQUAL_MESSAGE(pMessage, bActive ? rPalette.aHover : rPalette.aPressed,
++                                             pDevice->GetPixel(aProbe));
++            }
++        }
++}
++
++CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testFallbackGlyphs)
++{
++    for (bool bDark : { false, true })
++        for (double fScale : { 1.0, 1.25 })
++        {
++            const auto& rPalette = design::GetPalette(bDark);
++            const auto aStrip = makeStrip(rPalette, fScale);
++            auto pDevice = renderStrip(aStrip, bDark);
++            assertGlyphCenter("close fallback at the centre of the X", *pDevice,
++                              aStrip.aTabs[0].aCloseRect, rPalette.aIcon, rPalette.aFrameSurfaceRaised);
++            assertGlyphCenter("new-tab fallback at the centre of the cross", *pDevice,
++                              aStrip.aPlusRect, rPalette.aIcon, rPalette.aFrameSurface);
++        }
++}
++
++CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testCloseRectSize)
++{
++    for (double fScale : { 1.0, 1.25 })
++    {
++        const tools::Long nHeight = px(32, fScale);
++        const tools::Rectangle aTab(Point(px(12, fScale), 0), Size(px(140, fScale), nHeight));
++        const tools::Rectangle aClose = tabs::CoatCloseRect(aTab, nHeight, fScale);
++        const tools::Long nClose = px(20, fScale);
++        CPPUNIT_ASSERT_EQUAL(Size(nClose, nClose), aClose.GetSize());
++        CPPUNIT_ASSERT(aTab.Contains(aClose));
++        CPPUNIT_ASSERT_EQUAL(aTab.Right() - px(5, fScale), aClose.Right());
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testStripHeightUnchanged)
++{
++    ScopedVclPtrInstance<WorkWindow> pParent(nullptr, WB_STDWORK);
++    ScopedVclPtrInstance<framework::DocumentTabBar> pBar(
++        pParent.get(), Reference<css::frame::XFrame>());
++    pBar->GetOutDev()->SetDPIScalePercentage(100);
++
++    AllSettings aSettings = pBar->GetSettings();
++    StyleSettings aStyle = aSettings.GetStyleSettings();
++    vcl::Font aToolFont = aStyle.GetToolFont();
++    aToolFont.SetFontHeight(9);
++    aToolFont.SetWeight(WEIGHT_BOLD);
++    aStyle.SetToolFont(aToolFont);
++    vcl::Font aAppFont = aStyle.GetAppFont();
++    aAppFont.SetFontHeight(9);
++    aStyle.SetAppFont(aAppFont);
++    aSettings.SetStyleSettings(aStyle);
++    pBar->SetSettings(aSettings);
++    pBar->SetPointFont(*pBar->GetOutDev(), aStyle.GetToolFont());
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("platform height", tools::Long(32), pBar->GetOptimalHeight());
++
++    tabs::ApplyCoatSettings(*pBar);
++    CPPUNIT_ASSERT_EQUAL_MESSAGE("coat height", tools::Long(32), pBar->GetOptimalHeight());
++    CPPUNIT_ASSERT_EQUAL(design::type::Body.eWeight, pBar->GetOutDev()->GetFont().GetWeight());
++}
++
++CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testAccessibleTree)
++{
++    ScopedVclPtrInstance<WorkWindow> pWindow(nullptr, WB_STDWORK);
++    pWindow->SetOutputSizePixel(Size(600, 32));
++    pWindow->Show();
++    TestStripHost aHost(*pWindow);
++    rtl::Reference<tabs::DocumentTabStripAccessible> xStrip
++        = new tabs::DocumentTabStripAccessible(aHost);
++    comphelper::ScopeGuard aDispose([&xStrip] { xStrip->dispose(); });
++    const auto xContext = xStrip->getAccessibleContext();
++    CPPUNIT_ASSERT(xContext.is());
++    CPPUNIT_ASSERT_EQUAL(a11y::AccessibleRole::PAGE_TAB_LIST, xContext->getAccessibleRole());
++    CPPUNIT_ASSERT_EQUAL(FwkResId(STR_DOCTAB_BAR), xContext->getAccessibleName());
++    CPPUNIT_ASSERT_EQUAL(sal_Int64(4), xContext->getAccessibleChildCount());
++
++    constexpr sal_Int64 nCommonStates = a11y::AccessibleStateType::ENABLED
++                                        | a11y::AccessibleStateType::SENSITIVE
++                                        | a11y::AccessibleStateType::VISIBLE
++                                        | a11y::AccessibleStateType::SHOWING;
++    for (sal_Int32 i = 0; i < 3; ++i)
++    {
++        const auto xTab = getChild(xContext, i);
++        CPPUNIT_ASSERT_EQUAL(a11y::AccessibleRole::PAGE_TAB, xTab->getAccessibleRole());
++        CPPUNIT_ASSERT_EQUAL(aHost.aTabs[i].aTitle, xTab->getAccessibleName());
++        CPPUNIT_ASSERT_EQUAL(i == 2 ? FwkResId(STR_DOCTAB_MODIFIED) : OUString(),
++                             xTab->getAccessibleDescription());
++        const sal_Int64 nTabStates = xTab->getAccessibleStateSet();
++        CPPUNIT_ASSERT_EQUAL(nCommonStates, nTabStates & nCommonStates);
++        CPPUNIT_ASSERT(nTabStates & a11y::AccessibleStateType::SELECTABLE);
++        CPPUNIT_ASSERT_EQUAL(i == 1, bool(nTabStates & a11y::AccessibleStateType::SELECTED));
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(1), xTab->getAccessibleChildCount());
++
++        const auto xClose = getChild(xTab, 0);
++        CPPUNIT_ASSERT_EQUAL(a11y::AccessibleRole::PUSH_BUTTON, xClose->getAccessibleRole());
++        CPPUNIT_ASSERT_EQUAL(FwkResId(STR_DOCTAB_CLOSE), xClose->getAccessibleName());
++        const sal_Int64 nButtonStates = xClose->getAccessibleStateSet();
++        CPPUNIT_ASSERT_EQUAL(nCommonStates, nButtonStates & nCommonStates);
++        CPPUNIT_ASSERT(!(nButtonStates & a11y::AccessibleStateType::FOCUSABLE));
++        const Reference<a11y::XAccessibleAction> xAction(xClose, css::uno::UNO_QUERY);
++        CPPUNIT_ASSERT(xAction.is());
++        CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xAction->getAccessibleActionCount());
++        if (i == 2)
++        {
++            CPPUNIT_ASSERT(xAction->doAccessibleAction(0));
++            CPPUNIT_ASSERT_EQUAL(sal_Int32(-1), aHost.nClosedTab);
++            Scheduler::ProcessEventsToIdle();
++            CPPUNIT_ASSERT_EQUAL(sal_Int32(2), aHost.nClosedTab);
++        }
++    }
++
++    const auto xNew = getChild(xContext, 3);
++    CPPUNIT_ASSERT_EQUAL(a11y::AccessibleRole::PUSH_BUTTON, xNew->getAccessibleRole());
++    CPPUNIT_ASSERT_EQUAL(FwkResId(STR_DOCTAB_NEW), xNew->getAccessibleName());
++    aHost.aTabs.pop_back();
++    xStrip->TabsChanged();
++    CPPUNIT_ASSERT_EQUAL(sal_Int64(3), xContext->getAccessibleChildCount());
++    CPPUNIT_ASSERT_EQUAL(FwkResId(STR_DOCTAB_NEW), getChild(xContext, 2)->getAccessibleName());
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/framework/source/uielement/documenttabbar.cxx
++++ b/framework/source/uielement/documenttabbar.cxx
+@@ -537,6 +537,45 @@ void DocumentTabBar::Resize()
+     vcl::Window::Resize();
+     Invalidate();
+ }
++
++rtl::Reference<comphelper::OAccessible> DocumentTabBar::CreateAccessible()
++{
++    return new hst::doctabs::DocumentTabStripAccessible(*this);
++}
++
++std::vector<hst::doctabs::DocumentTabStripHost::Tab> DocumentTabBar::GetStripTabs() const
++{
++    std::vector<Tab> aTabs;
++    aTabs.reserve(m_aTabs.size());
++    for (const TabLayout& rTab : m_aTabs)
++        aTabs.push_back({ rTab.aInfo.aTitle, rTab.aInfo.bActive, rTab.aInfo.bModified, rTab.aRect,
++                          rTab.aCloseRect });
++    return aTabs;
++}
++
++tools::Rectangle DocumentTabBar::GetStripPlusRect() const { return m_aPlusRect; }
++
++vcl::Window* DocumentTabBar::GetStripWindow() { return this; }
++
++void DocumentTabBar::ActivateStripTab(sal_Int32 nIndex)
++{
++    if (nIndex >= 0 && static_cast<size_t>(nIndex) < m_aTabs.size())
++    {
++        const auto xFrame = m_aTabs[nIndex].aInfo.xFrame;
++        DocumentTabGroup::get().activate(xFrame);
++    }
++}
++
++void DocumentTabBar::CloseStripTab(sal_Int32 nIndex)
++{
++    if (nIndex >= 0 && static_cast<size_t>(nIndex) < m_aTabs.size())
++    {
++        const auto xFrame = m_aTabs[nIndex].aInfo.xFrame;
++        DocumentTabGroup::get().closeTab(xFrame);
++    }
++}
++
++void DocumentTabBar::ShowStripNewMenu() { ImplShowNewMenu(); }
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/framework/source/uielement/hstdocumenttabaccessible.cxx
+@@ -0,0 +1,67 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include <uielement/hstdocumenttabaccessible.hxx>
++
++#include <com/sun/star/accessibility/AccessibleRole.hpp>
++#include <com/sun/star/accessibility/XAccessibleRelationSet.hpp>
++#include <com/sun/star/awt/Rectangle.hpp>
++#include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
++
++namespace framework::hst::doctabs
++{
++DocumentTabStripAccessible::DocumentTabStripAccessible(DocumentTabStripHost&) {}
++
++void DocumentTabStripAccessible::TabsChanged() {}
++
++sal_Int64 SAL_CALL DocumentTabStripAccessible::getAccessibleChildCount() { return 0; }
++
++css::uno::Reference<css::accessibility::XAccessible> SAL_CALL
++DocumentTabStripAccessible::getAccessibleChild(sal_Int64)
++{
++    throw css::lang::IndexOutOfBoundsException();
++}
++
++css::uno::Reference<css::accessibility::XAccessible> SAL_CALL
++DocumentTabStripAccessible::getAccessibleParent()
++{
++    return {};
++}
++
++sal_Int16 SAL_CALL DocumentTabStripAccessible::getAccessibleRole()
++{
++    return css::accessibility::AccessibleRole::PANEL;
++}
++
++OUString SAL_CALL DocumentTabStripAccessible::getAccessibleDescription() { return {}; }
++
++OUString SAL_CALL DocumentTabStripAccessible::getAccessibleName() { return {}; }
++
++css::uno::Reference<css::accessibility::XAccessibleRelationSet> SAL_CALL
++DocumentTabStripAccessible::getAccessibleRelationSet()
++{
++    return {};
++}
++
++sal_Int64 SAL_CALL DocumentTabStripAccessible::getAccessibleStateSet() { return 0; }
++
++css::uno::Reference<css::accessibility::XAccessible> SAL_CALL
++DocumentTabStripAccessible::getAccessibleAtPoint(const css::awt::Point&)
++{
++    return {};
++}
++
++void SAL_CALL DocumentTabStripAccessible::grabFocus() {}
++
++sal_Int32 SAL_CALL DocumentTabStripAccessible::getForeground() { return 0; }
++
++sal_Int32 SAL_CALL DocumentTabStripAccessible::getBackground() { return 0; }
++
++css::awt::Rectangle DocumentTabStripAccessible::implGetBounds() { return {}; }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/framework/source/uielement/hstdocumenttabcoat.cxx
+@@ -0,0 +1,30 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include <uielement/hstdocumenttabcoat.hxx>
++
++#include <vcl/hst/designtokens.hxx>
++
++namespace framework::hst::doctabs
++{
++Color AppMarkColor(std::u16string_view, bool, const ::hst::design::Palette& rPalette)
++{
++    return rPalette.aMuted;
++}
++
++void ApplyCoatSettings(vcl::Window&) {}
++
++bool CoatActive(const StyleSettings&) { return false; }
++
++void PaintStrip(vcl::RenderContext&, const CoatStrip&, const StyleSettings&, const CoatGlyphs&) {}
++
++tools::Rectangle CoatCloseRect(const tools::Rectangle&, tools::Long, double) { return {}; }
++
++CoatGlyphs LoadGlyphs() { return {}; }
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/include/vcl/hst/designtokens.hxx
++++ b/include/vcl/hst/designtokens.hxx
+@@ -89,6 +89,7 @@ struct Palette
+     Color aMenuHover; ///< the highlighted menu item
+     Color aMenuShortcut; ///< a menu item's shortcut text, readable (4.5:1) on aMenuSurface and aMenuHover
+     Color aSelectedIndicator; ///< the bar or pill marking the selected item of a frame part (aAccent)
++    Color aAppMark[5]; ///< per AppMark; 3:1 on aFrameSurface and aFrameSurfaceRaised
+     RibbonColors aRibbon;
+ };
+ 
+@@ -100,6 +101,10 @@ enum class Tint
+     Orange,
+ };
+ 
++/** The applications, in the order of Palette::aAppMark: the colour that marks a document of each one
++    (the document tab's identity bar and dot). */
++enum class AppMark { Writer, Sheets, Slides, Draw, Pdf };
++
+ /** Whether the theme of rStyle is dark (its window colour is). */
+ VCL_DLLPUBLIC bool IsDark(const StyleSettings& rStyle);
+ VCL_DLLPUBLIC const Palette& GetPalette(bool bDark);
+--- a/vcl/source/hst/designtokens.cxx
++++ b/vcl/source/hst/designtokens.cxx
+@@ -13,6 +13,15 @@ namespace hst::design
+ {
+ namespace
+ {
++void setAppMarks(Palette& rPalette)
++{
++    rPalette.aAppMark[static_cast<int>(AppMark::Writer)] = Color(0x46, 0x6F, 0xE3);
++    rPalette.aAppMark[static_cast<int>(AppMark::Sheets)] = Color(0x1E, 0x8E, 0x3E);
++    rPalette.aAppMark[static_cast<int>(AppMark::Slides)] = Color(0xE8, 0x59, 0x0C);
++    rPalette.aAppMark[static_cast<int>(AppMark::Draw)] = Color(0xA8, 0x6A, 0x00);
++    rPalette.aAppMark[static_cast<int>(AppMark::Pdf)] = Color(0xE5, 0x48, 0x3F);
++}
++
+ // The light look: a pale blue side panel, a blue-to-white background with a soft curve, white
+ // cards with light borders and tinted tiles. The dark look keeps the same structure and hues on a
+ // dark navy base, so the two never mix flat grey with colour.
+@@ -61,6 +70,7 @@ Palette makeLight()
+     p.aMenuHover = p.aHover;
+     p.aMenuShortcut = Color(0x5B, 0x64, 0x72);
+     p.aSelectedIndicator = p.aAccent;
++    setAppMarks(p);
+     // the ribbon's own colours (docs/design/ribbon-look/PROPOSAL.md), unchanged
+     p.aRibbon = { Color(0xE8, 0xF1, 0xFA), Color(0xC7, 0xE0, 0xF4), Color(0xE5, 0xF2, 0xFB),
+                   Color(0x00, 0x72, 0xBB), Color(0xDC, 0xE6, 0xF0), Color(0x53, 0x63, 0x79),
+@@ -123,6 +133,7 @@ Palette makeDark()
+     p.aMenuHover = p.aHover;
+     p.aMenuShortcut = Color(0xA7, 0xAE, 0xBA);
+     p.aSelectedIndicator = p.aAccent;
++    setAppMarks(p);
+     p.aRibbon = { Color(0x26, 0x3B, 0x50), Color(0x2D, 0x58, 0x78), Color(0x23, 0x47, 0x62),
+                   Color(0x78, 0xC5, 0xF4), Color(0x35, 0x48, 0x5C), Color(0xAF, 0xBD, 0xCE),
+                   Color(0x78, 0xC5, 0xF4), Color(0x26, 0x3B, 0x50) };
