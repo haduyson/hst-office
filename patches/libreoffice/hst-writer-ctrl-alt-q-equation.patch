@@ -152,7 +152,7 @@ Test: CppunitTest_sw_hst_equation_shortcut.
      CppunitTest_sw_ooxmlencryption \
 --- /dev/null
 +++ b/sw/qa/extras/hst/hstequationshortcut.cxx
-@@ -0,0 +1,133 @@
+@@ -0,0 +1,157 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -164,26 +164,22 @@ Test: CppunitTest_sw_hst_equation_shortcut.
 +#include <com/sun/star/awt/Key.hpp>
 +#include <com/sun/star/awt/KeyEvent.hpp>
 +#include <com/sun/star/awt/KeyModifier.hpp>
-+#include <com/sun/star/document/XEmbeddedObjectSupplier2.hpp>
-+#include <com/sun/star/embed/EmbedStates.hpp>
-+#include <com/sun/star/embed/XEmbeddedObject.hpp>
-+#include <com/sun/star/lang/XServiceInfo.hpp>
-+#include <com/sun/star/text/TextContentAnchorType.hpp>
-+#include <com/sun/star/text/XTextEmbeddedObjectsSupplier.hpp>
++#include <com/sun/star/frame/XDispatch.hpp>
++#include <com/sun/star/frame/XDispatchProviderInterception.hpp>
++#include <com/sun/star/frame/XDispatchProviderInterceptor.hpp>
 +#include <com/sun/star/ui/XAcceleratorConfiguration.hpp>
 +#include <com/sun/star/ui/XUIConfigurationManager.hpp>
 +#include <com/sun/star/ui/theModuleUIConfigurationManagerSupplier.hpp>
 +
-+#include <comphelper/lok.hxx>
-+#include <comphelper/processfactory.hxx>
-+#include <sfx2/ipclient.hxx>
 +#include <LibreOfficeKit/LibreOfficeKitEnums.h>
++#include <comphelper/processfactory.hxx>
++#include <cppuhelper/implbase.hxx>
 +#include <vcl/keycodes.hxx>
 +#include <vcl/scheduler.hxx>
 +
 +#include <unotxdoc.hxx>
-+#include <view.hxx>
-+#include <wrtsh.hxx>
++
++#include <vector>
 +
 +namespace
 +{
@@ -218,12 +214,58 @@ Test: CppunitTest_sw_hst_equation_shortcut.
 +    }
 +};
 +
-+/// Turns the LibreOfficeKit mode on for one test, so the OLE object can go in-place active without a
-+/// visible window, and off again even when an assertion fails.
-+struct LokModeGuard
++/// Records the formula commands that reach the document's frame and keeps them from running, so the test sees
++/// what the key dispatches without starting the in-place editor in a headless office. Every other command
++/// goes on to the frame.
++class FormulaCommandRecorder : public cppu::WeakImplHelper<frame::XDispatchProviderInterceptor, frame::XDispatch>
 +{
-+    LokModeGuard() { comphelper::LibreOfficeKit::setActive(true); }
-+    ~LokModeGuard() { comphelper::LibreOfficeKit::setActive(false); }
++public:
++    std::vector<OUString> m_aDispatched;
++
++    // XDispatchProvider
++    uno::Reference<frame::XDispatch> SAL_CALL queryDispatch(const util::URL& rURL, const OUString& rTarget,
++                                                            sal_Int32 nFlags) override
++    {
++        if (rURL.Complete == ".uno:InsertObjectStarMath" || rURL.Complete == ".uno:InsertMath")
++            return this;
++        return m_xSlave.is() ? m_xSlave->queryDispatch(rURL, rTarget, nFlags) : nullptr;
++    }
++    uno::Sequence<uno::Reference<frame::XDispatch>>
++        SAL_CALL queryDispatches(const uno::Sequence<frame::DispatchDescriptor>& rRequests) override
++    {
++        uno::Sequence<uno::Reference<frame::XDispatch>> aResult(rRequests.getLength());
++        auto pResult = aResult.getArray();
++        for (sal_Int32 i = 0; i < rRequests.getLength(); ++i)
++            pResult[i] = queryDispatch(rRequests[i].FeatureURL, rRequests[i].FrameName,
++                                       rRequests[i].SearchFlags);
++        return aResult;
++    }
++
++    // XDispatchProviderInterceptor
++    uno::Reference<frame::XDispatchProvider> SAL_CALL getSlaveDispatchProvider() override { return m_xSlave; }
++    void SAL_CALL setSlaveDispatchProvider(const uno::Reference<frame::XDispatchProvider>& xSlave) override
++    {
++        m_xSlave = xSlave;
++    }
++    uno::Reference<frame::XDispatchProvider> SAL_CALL getMasterDispatchProvider() override { return m_xMaster; }
++    void SAL_CALL setMasterDispatchProvider(const uno::Reference<frame::XDispatchProvider>& xMaster) override
++    {
++        m_xMaster = xMaster;
++    }
++
++    // XDispatch
++    void SAL_CALL dispatch(const util::URL& rURL, const uno::Sequence<beans::PropertyValue>&) override
++    {
++        m_aDispatched.push_back(rURL.Complete);
++    }
++    void SAL_CALL addStatusListener(const uno::Reference<frame::XStatusListener>&, const util::URL&) override {}
++    void SAL_CALL removeStatusListener(const uno::Reference<frame::XStatusListener>&, const util::URL&) override
++    {
++    }
++
++private:
++    uno::Reference<frame::XDispatchProvider> m_xSlave;
++    uno::Reference<frame::XDispatchProvider> m_xMaster;
 +};
 +
 +CPPUNIT_TEST_FIXTURE(HstEquationShortcutTest, testCtrlAltQIsBoundInEveryApp)
@@ -240,46 +282,28 @@ Test: CppunitTest_sw_hst_equation_shortcut.
 +                         commandOfCtrlAltQ(u"com.sun.star.drawing.DrawingDocument"_ustr));
 +}
 +
-+CPPUNIT_TEST_FIXTURE(HstEquationShortcutTest, testCtrlAltQInsertsNewEquation)
++CPPUNIT_TEST_FIXTURE(HstEquationShortcutTest, testCtrlAltQStartsNewEquation)
 +{
-+    LokModeGuard aLok;
 +    createSwDoc();
 +    emulateTyping(u"x = ");
 +
-+    // Ctrl+Alt+Q as GTK and macOS deliver it: the key code with both modifiers and the letter.
++    uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<frame::XDispatchProviderInterception> xFrame(
++        xModel->getCurrentController()->getFrame(), uno::UNO_QUERY_THROW);
++    rtl::Reference<FormulaCommandRecorder> pRecorder(new FormulaCommandRecorder);
++    xFrame->registerDispatchProviderInterceptor(pRecorder);
++
++    // Ctrl+Alt+Q in the text, as GTK and macOS deliver it: the key code with both modifiers and the letter.
 +    SwXTextDocument* pTextDoc = getSwTextDoc();
 +    pTextDoc->postKeyEvent(LOK_KEYEVENT_KEYINPUT, 'q', KEY_Q | KEY_MOD1 | KEY_MOD2);
 +    pTextDoc->postKeyEvent(LOK_KEYEVENT_KEYUP, 'q', KEY_Q | KEY_MOD1 | KEY_MOD2);
 +    Scheduler::ProcessEventsToIdle();
++    xFrame->releaseDispatchProviderInterceptor(pRecorder);
 +
-+    // The key types nothing: the paragraph still holds only the typed text and the new object.
-+    uno::Reference<text::XTextEmbeddedObjectsSupplier> xSupplier(mxComponent, uno::UNO_QUERY_THROW);
-+    uno::Reference<container::XIndexAccess> xObjects(xSupplier->getEmbeddedObjects(), uno::UNO_QUERY_THROW);
-+    // Without the binding the key did nothing: 0 objects.
-+    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), xObjects->getCount());
-+
-+    // One new, empty formula, in the line at the cursor.
-+    uno::Reference<beans::XPropertySet> xFrame(xObjects->getByIndex(0), uno::UNO_QUERY_THROW);
-+    CPPUNIT_ASSERT_EQUAL(text::TextContentAnchorType_AS_CHARACTER,
-+                         xFrame->getPropertyValue(u"AnchorType"_ustr).get<text::TextContentAnchorType>());
-+    uno::Reference<document::XEmbeddedObjectSupplier2> xEmbedded(xFrame, uno::UNO_QUERY_THROW);
-+    uno::Reference<lang::XServiceInfo> xFormula(xEmbedded->getEmbeddedObject(), uno::UNO_QUERY_THROW);
-+    CPPUNIT_ASSERT(xFormula->supportsService(u"com.sun.star.formula.FormulaProperties"_ustr));
-+    uno::Reference<beans::XPropertySet> xFormulaProps(xFormula, uno::UNO_QUERY_THROW);
-+    CPPUNIT_ASSERT_EQUAL(OUString(), xFormulaProps->getPropertyValue(u"Formula"_ustr).get<OUString>());
++    // The key runs the equation button's command once (without the binding: nothing, and a "q" was typed).
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pRecorder->m_aDispatched.size());
++    CPPUNIT_ASSERT_EQUAL(u".uno:InsertObjectStarMath"_ustr, pRecorder->m_aDispatched[0]);
 +    CPPUNIT_ASSERT_EQUAL(sal_Int32(-1), getParagraph(1)->getString().indexOf('q'));
-+
-+    // The equation editor is open on it.
-+    uno::Reference<embed::XEmbeddedObject> xObject = xEmbedded->getExtendedControlOverEmbeddedObject();
-+    const sal_Int32 nState = xObject->getCurrentState();
-+    CPPUNIT_ASSERT_MESSAGE("the new equation is not open for editing",
-+                           nState == embed::EmbedStates::INPLACE_ACTIVE
-+                               || nState == embed::EmbedStates::UI_ACTIVE);
-+
-+    // Close the editor before the document goes away.
-+    if (SfxInPlaceClient* pClient = getSwDocShell()->GetWrtShell()->GetView().GetIPClient())
-+        pClient->DeactivateObject();
-+    Scheduler::ProcessEventsToIdle();
 +}
 +}
 +
