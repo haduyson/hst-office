@@ -110,8 +110,8 @@ def measure(view, border, corner):
         rgb = view(x, y)
         return (ref - luminance(rgb)) / span if rgb else 0.0
 
-    if cover(x0, y0) > 0.5:
-        return None  # the corner pixel itself is border: two controls' edges meeting, not a rounded corner
+    if cover(x0, y0) > 0.5 or cover(x0 - 2, y0) > 0.5 or cover(x0, y0 - 2) > 0.5:
+        return None  # border at or beyond the corner pixel: the gap between two controls, not a rounded corner
     defects = []
     for name, value in (("top", cover(xs - 1, y0)), ("left", cover(x0, ys - 1))):
         if value < NOTCH:
