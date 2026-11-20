@@ -1,0 +1,497 @@
+HST Office: popup and context menus get the frame's coat: a rounded outline, the shortcut colour and the GTK menu surface.
+
+- Popup menus that VCL draws itself (Windows): with the frame's switch for menus on
+  (org.openoffice.Office.HSTAppearance/FrameCoat/Menus, under UiCoat/Enabled and HST_UI_COAT), the menu's surface
+  gets a thin outline in the menu border colour, rounded with radius::Menu at the edge of the content. The window
+  keeps square corners; the ring of its border window, whose width VCL keeps, takes the surface colour, so the
+  rounded outline is the only one. A shortcut is drawn in the shortcut colour where it reads (4.5:1) on the surface
+  or the highlight; a disabled item keeps VCL's disabled colour.
+- Nothing changes a size: item heights, the menu's border widths, the check/icon column and the text and shortcut
+  positions stay VCL's. The menus' order and commands are unchanged. High contrast, the coat switched off and
+  FrameCoat/Menus=false keep the previous look.
+- Thin hooks: MenuFloatingWindow::ApplySettings colours the border window's ring; Menu::ImplPaint asks for the
+  shortcut colour in its shortcut block only (the VCL-drawn path; the native menus are not touched).
+- GTK 3 (native menus): the menu surface, its outline colour, radius::Menu, the item text, the scroll arrows and
+  the popup window's background, plus the decoration's corners and outline ring under a compositor (Adwaita's
+  shadow geometry, so no window changes its size). Colours and corner radii only.
+- The logic is in vcl/source/hst/coat/coat-menus.cxx (<hst/coat-menus.hxx>) and vcl/source/hst/coat/css/menus.cxx;
+  CppunitTest_vcl_hst_menu_coat tests it.
+
+--- /dev/null
++++ b/vcl/CppunitTest_vcl_hst_menu_coat.mk
+@@ -0,0 +1,57 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++# This file is part of HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,vcl_hst_menu_coat))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,vcl_hst_menu_coat, \
++    vcl/qa/cppunit/hst/menu-coat-test \
++))
++
++$(eval $(call gb_CppunitTest_add_defs,vcl_hst_menu_coat,\
++    -DVCL_INTERNALS \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,vcl_hst_menu_coat,\
++    boost_headers \
++))
++
++$(eval $(call gb_CppunitTest_set_include,vcl_hst_menu_coat,\
++    $$(INCLUDE) \
++    -I$(SRCDIR)/vcl/inc \
++))
++
++$(eval $(call gb_CppunitTest_use_custom_headers,vcl_hst_menu_coat,\
++    officecfg/registry \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,vcl_hst_menu_coat, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    sal \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,vcl_hst_menu_coat))
++
++$(eval $(call gb_CppunitTest_use_ure,vcl_hst_menu_coat))
++$(eval $(call gb_CppunitTest_use_vcl,vcl_hst_menu_coat))
++
++$(eval $(call gb_CppunitTest_use_components,vcl_hst_menu_coat,\
++    configmgr/source/configmgr \
++    i18npool/util/i18npool \
++    ucb/source/core/ucb1 \
++    unotools/util/utl \
++))
++
++$(eval $(call gb_CppunitTest_use_configuration,vcl_hst_menu_coat))
++
++# vim: set noet sw=4 ts=4:
+--- a/vcl/Module_vcl.mk
++++ b/vcl/Module_vcl.mk
+@@ -239,6 +239,7 @@ $(eval $(call gb_Module_add_check_targets,vcl,\
+     CppunitTest_vcl_fontvariation \
+     CppunitTest_vcl_hst_coat \
+     CppunitTest_vcl_hst_coat_controls2 \
++    CppunitTest_vcl_hst_menu_coat \
+     CppunitTest_vcl_text \
+     CppunitTest_vcl_textlayout \
+     CppunitTest_vcl_treeview \
+--- /dev/null
++++ b/vcl/inc/hst/coat-menus.hxx
+@@ -0,0 +1,43 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <tools/color.hxx>
++#include <vcl/dllapi.h>
++
++#include <optional>
++
++class OutputDevice;
++namespace vcl
++{
++class Window;
++}
++
++/* The frame's coat of popup and context menus that VCL draws itself (Windows; the GTK menus get it
++   from css/menus.cxx). Under the frame's switch FrameCoat/Menus, and only where the coat already
++   draws the menu's items (hst::coat::DrawNativeControl): never in high contrast, never with the
++   coat off. Nothing here changes a size: item heights, the menu's border widths and the text and
++   shortcut positions stay VCL's. */
++namespace hst::coat
++{
++/** Whether the frame's menu coat draws the popup menu shown on rDev. */
++VCL_DLLPUBLIC bool MenuFrameCoated(const OutputDevice& rDev);
++
++/** The colour of a menu item's shortcut text on rDev (right-aligned by VCL), or nothing to keep
++    the item text's colour: a disabled item keeps VCL's disabled colour, and on the highlighted
++    item the shortcut colour is used only where it stays readable (4.5:1) on the highlight. */
++VCL_DLLPUBLIC std::optional<Color> MenuShortcutColour(const OutputDevice& rDev, bool bHighlighted,
++                                                      bool bEnabled);
++
++/** The border window around a popup menu's window (rMenuWindow is the client): its ring, whose
++    width VCL keeps, takes the menu's surface colour, so the menu's outline is the rounded one the
++    coat draws at the edge of the content. A no-op where the menu is not coated. */
++VCL_DLLPUBLIC void CoatMenuWindowFrame(vcl::Window& rMenuWindow);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/qa/cppunit/hst/menu-coat-test.cxx
+@@ -0,0 +1,337 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include <test/bootstrapfixture.hxx>
++
++#include <comphelper/configuration.hxx>
++#include <officecfg/Office/HSTAppearance.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/framecoat.hxx>
++#include <vcl/salnativewidgets.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/toolkit/floatwin.hxx>
++#include <vcl/virdev.hxx>
++#include <vcl/wrkwin.hxx>
++
++#include <hst/coat-menus.hxx>
++#include <hst/coat.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <cstdlib>
++#include <optional>
++
++namespace
++{
++// a colour the coat never paints: what is left of it was not painted
++constexpr Color MARKER(0xFF, 0x00, 0xFF);
++constexpr ControlState ENABLED = ControlState::ENABLED;
++
++/* The frame's coat of the popup menus VCL draws (Windows): the rounded outline inside the content,
++   the ring of the menu window's border in the surface colour, the shortcut colour, and the GTK CSS
++   of the menus. Drawn on VirtualDevices of the headless backend, where ForceForTesting stands in for
++   a platform that draws menus natively. */
++class MenuCoatTest : public test::BootstrapFixture
++{
++public:
++    MenuCoatTest()
++        : test::BootstrapFixture(true, false)
++    {
++    }
++
++    void setUp() override
++    {
++        test::BootstrapFixture::setUp();
++        unsetenv("HST_UI_COAT");
++        setSwitch(true);
++        setMenusSwitch(true);
++        hst::coat::ForceForTesting(true);
++    }
++
++    void tearDown() override
++    {
++        hst::coat::ForceForTesting(false);
++        unsetenv("HST_UI_COAT"); // a test that set it may have stopped at a failed assertion
++        setSwitch(true);
++        setMenusSwitch(true);
++        test::BootstrapFixture::tearDown();
++    }
++
++protected:
++    static void setSwitch(bool bOn)
++    {
++        auto xChanges = comphelper::ConfigurationChanges::create();
++        officecfg::Office::HSTAppearance::UiCoat::Enabled::set(bOn, xChanges);
++        xChanges->commit();
++        hst::coat::ResetSwitchForTesting();
++    }
++
++    static void setMenusSwitch(bool bOn)
++    {
++        auto xChanges = comphelper::ConfigurationChanges::create();
++        officecfg::Office::HSTAppearance::FrameCoat::Menus::set(bOn, xChanges);
++        xChanges->commit();
++        hst::coat::ResetFrameCoatForTesting();
++    }
++
++    /** The menu's style: text in the light (black) or dark (white) theme's colour, the highlighted
++        item's text in rHighlightText. */
++    static StyleSettings menuStyle(const StyleSettings& rBase, bool bDark, bool bHighContrast,
++                                   const Color& rHighlightText)
++    {
++        StyleSettings aStyle(rBase);
++        aStyle.SetHighContrastMode(bHighContrast);
++        aStyle.SetMenuTextColor(bDark ? COL_WHITE : COL_BLACK);
++        aStyle.SetMenuHighlightTextColor(rHighlightText);
++        aStyle.SetMenuHighlightColor(Color(0x33, 0x99, 0xFF));
++        return aStyle;
++    }
++
++    static ScopedVclPtr<VirtualDevice> makeDevice(const Size& rSize, bool bDark = false,
++                                                  bool bHighContrast = false,
++                                                  std::optional<Color> oHighlightText = {})
++    {
++        ScopedVclPtr<VirtualDevice> pDev = VclPtr<VirtualDevice>::Create();
++        AllSettings aSettings = pDev->GetSettings();
++        aSettings.SetStyleSettings(
++            menuStyle(aSettings.GetStyleSettings(), bDark, bHighContrast,
++                      oHighlightText ? *oHighlightText : (bDark ? COL_WHITE : COL_BLACK)));
++        pDev->SetSettings(aSettings);
++        pDev->SetOutputSizePixel(rSize);
++        pDev->SetBackground(Wallpaper(MARKER));
++        pDev->Erase();
++        return pDev;
++    }
++
++    static const hst::design::Palette& light() { return hst::design::GetPalette(false); }
++    static const hst::design::Palette& dark() { return hst::design::GetPalette(true); }
++
++    static bool drawSurface(VirtualDevice& rDev)
++    {
++        return rDev.DrawNativeControl(ControlType::MenuPopup, ControlPart::Entire,
++                                      tools::Rectangle(Point(), rDev.GetOutputSizePixel()),
++                                      ENABLED, ImplControlValue(), OUString());
++    }
++
++    static double contrast(const Color& rA, const Color& rB)
++    {
++        auto lum = [](const Color& c) {
++            auto ch = [](sal_uInt8 v) {
++                const double s = v / 255.0;
++                return s <= 0.04045 ? s / 12.92 : std::pow((s + 0.055) / 1.055, 2.4);
++            };
++            return 0.2126 * ch(c.GetRed()) + 0.7152 * ch(c.GetGreen()) + 0.0722 * ch(c.GetBlue());
++        };
++        const double a = lum(rA), b = lum(rB);
++        return (std::max(a, b) + 0.05) / (std::min(a, b) + 0.05);
++    }
++
++    static bool isNear(const Color& rA, const Color& rB, int nTolerance = 2)
++    {
++        return std::abs(rA.GetRed() - rB.GetRed()) <= nTolerance
++               && std::abs(rA.GetGreen() - rB.GetGreen()) <= nTolerance
++               && std::abs(rA.GetBlue() - rB.GetBlue()) <= nTolerance;
++    }
++
++    /** rExpected at (nX, nY), give or take the rounding of the anti-aliasing backend. */
++    static void assertPixel(const char* pWhat, const VirtualDevice& rDev, tools::Long nX,
++                            tools::Long nY, const Color& rExpected)
++    {
++        const Color aActual = rDev.GetPixel(Point(nX, nY));
++        CPPUNIT_ASSERT_MESSAGE(OString(OString::Concat(pWhat) + ": expected "
++                                       + rExpected.AsRGBHexString().toUtf8() + " at "
++                                       + OString::number(nX) + "," + OString::number(nY)
++                                       + ", got " + aActual.AsRGBHexString().toUtf8())
++                                   .getStr(),
++                               isNear(aActual, rExpected));
++    }
++
++    static OString hex(const Color& rColor) { return "#" + rColor.AsRGBHexString().toUtf8(); }
++
++    /** The menus' fragment of the GTK CSS: from its marker to the next frame part's. */
++    static OString menusCss(bool bDark)
++    {
++        const OString aCss = hst::coat::CreateGtkCss(bDark);
++        const OString aMarker("/* hst frame: menus */");
++        const sal_Int32 nStart = aCss.indexOf(aMarker);
++        if (nStart < 0)
++            return OString();
++        const sal_Int32 nEnd = aCss.indexOf("/* hst frame:", nStart + aMarker.getLength());
++        return nEnd < 0 ? aCss.copy(nStart) : aCss.copy(nStart, nEnd - nStart);
++    }
++};
++
++/* The menu's surface with a thin outline in the menu border colour at the edge of the content,
++   rounded with radius::Menu: the window's square corners keep the surface outside the arc. */
++CPPUNIT_TEST_FIXTURE(MenuCoatTest, testMenuOutlineRoundedInsideTheContent)
++{
++    for (bool bDark : { false, true })
++    {
++        const hst::design::Palette& p = bDark ? dark() : light();
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 120), bDark);
++        CPPUNIT_ASSERT(drawSurface(*pDev));
++        assertPixel("top outline", *pDev, 100, 0, p.aMenuBorder);
++        assertPixel("bottom outline", *pDev, 100, 119, p.aMenuBorder);
++        assertPixel("left outline", *pDev, 0, 60, p.aMenuBorder);
++        assertPixel("right outline", *pDev, 199, 60, p.aMenuBorder);
++        assertPixel("inside the outline", *pDev, 100, 1, p.aMenuSurface);
++        assertPixel("surface", *pDev, 100, 60, p.aMenuSurface);
++        // a rounded corner: outside the arc the surface, not the outline nor the marker
++        assertPixel("square window corner", *pDev, 0, 0, p.aMenuSurface);
++        assertPixel("outside the arc", *pDev, 1, 1, p.aMenuSurface);
++        assertPixel("bottom right corner", *pDev, 199, 119, p.aMenuSurface);
++    }
++}
++
++/* The frame part's switch off: the flat surface of the coat's menu items, no outline. High
++   contrast and the coat switched off leave the menu to the platform. */
++CPPUNIT_TEST_FIXTURE(MenuCoatTest, testMenuFrameSwitches)
++{
++    setMenusSwitch(false);
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 120));
++        CPPUNIT_ASSERT(drawSurface(*pDev));
++        assertPixel("no outline", *pDev, 100, 0, light().aMenuSurface);
++        CPPUNIT_ASSERT(!hst::coat::MenuFrameCoated(*pDev));
++        CPPUNIT_ASSERT(!hst::coat::MenuShortcutColour(*pDev, false, true));
++    }
++    setMenusSwitch(true);
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 120), false, true);
++        CPPUNIT_ASSERT(!drawSurface(*pDev));
++        CPPUNIT_ASSERT(!hst::coat::MenuFrameCoated(*pDev));
++        CPPUNIT_ASSERT(!hst::coat::MenuShortcutColour(*pDev, false, true));
++    }
++    setenv("HST_UI_COAT", "0", 1);
++    hst::coat::ResetSwitchForTesting();
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 120));
++        CPPUNIT_ASSERT(!drawSurface(*pDev));
++        CPPUNIT_ASSERT(!hst::coat::MenuShortcutColour(*pDev, false, true));
++    }
++    unsetenv("HST_UI_COAT");
++    hst::coat::ResetSwitchForTesting();
++    // without a platform that draws menus natively VCL draws the menu, and nothing changes
++    hst::coat::ForceForTesting(false);
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 120));
++        CPPUNIT_ASSERT(!hst::coat::MenuFrameCoated(*pDev));
++        CPPUNIT_ASSERT(!hst::coat::MenuShortcutColour(*pDev, false, true));
++    }
++}
++
++/* A shortcut is in the shortcut colour, readable on the surface and on the highlight; a disabled
++   item keeps VCL's disabled colour, and on a highlight it would not read on, the item's text colour
++   stays. */
++CPPUNIT_TEST_FIXTURE(MenuCoatTest, testShortcutColour)
++{
++    using hst::coat::MenuShortcutColour;
++    for (bool bDark : { false, true })
++    {
++        const hst::design::Palette& p = bDark ? dark() : light();
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(4, 4), bDark);
++        std::optional<Color> oShortcut = MenuShortcutColour(*pDev, false, true);
++        CPPUNIT_ASSERT(oShortcut);
++        CPPUNIT_ASSERT_EQUAL(p.aMenuShortcut, *oShortcut);
++        CPPUNIT_ASSERT_GREATEREQUAL(4.5, contrast(*oShortcut, p.aMenuSurface));
++        oShortcut = MenuShortcutColour(*pDev, true, true);
++        CPPUNIT_ASSERT(oShortcut);
++        CPPUNIT_ASSERT_EQUAL(p.aMenuShortcut, *oShortcut);
++        CPPUNIT_ASSERT_GREATEREQUAL(4.5, contrast(*oShortcut, p.aMenuHover));
++        CPPUNIT_ASSERT(!MenuShortcutColour(*pDev, false, false));
++        CPPUNIT_ASSERT(!MenuShortcutColour(*pDev, true, false));
++    }
++    // a light menu whose highlighted text is white: the highlight darkens (the dark palette's
++    // hover), where the light shortcut colour would not read
++    ScopedVclPtr<VirtualDevice> pWhite = makeDevice(Size(4, 4), false, false, COL_WHITE);
++    CPPUNIT_ASSERT(contrast(light().aMenuShortcut, dark().aMenuHover) < 4.5);
++    CPPUNIT_ASSERT(!MenuShortcutColour(*pWhite, true, false));
++    CPPUNIT_ASSERT(!MenuShortcutColour(*pWhite, true, true));
++    CPPUNIT_ASSERT(MenuShortcutColour(*pWhite, false, true));
++}
++
++/* The ring of a menu window's border (its width VCL's) takes the surface colour, in both of the
++   rings VCL draws for a menu; the switch off leaves it alone. */
++CPPUNIT_TEST_FIXTURE(MenuCoatTest, testMenuWindowRingTakesTheSurface)
++{
++    ScopedVclPtr<WorkWindow> pParent(VclPtr<WorkWindow>::Create(nullptr, WB_STDWORK));
++    for (bool bDark : { false, true })
++    {
++        ScopedVclPtr<FloatingWindow> pMenu(
++            VclPtr<FloatingWindow>::Create(pParent.get(), WB_BORDER | WB_SYSTEMWINDOW));
++        AllSettings aSettings(pMenu->GetSettings());
++        aSettings.SetStyleSettings(
++            menuStyle(aSettings.GetStyleSettings(), bDark, false, bDark ? COL_WHITE : COL_BLACK));
++        pMenu->SetSettings(aSettings);
++        vcl::Window* pBorder = pMenu->GetWindow(GetWindowType::Border);
++        CPPUNIT_ASSERT(pBorder);
++        CPPUNIT_ASSERT(pBorder != pMenu.get());
++        sal_Int32 nLeft, nTop, nRight, nBottom;
++        pMenu->GetBorder(nLeft, nTop, nRight, nBottom);
++        const Size aOuter = pBorder->GetSizePixel();
++
++        hst::coat::CoatMenuWindowFrame(*pMenu);
++        const Color aSurface = (bDark ? dark() : light()).aMenuSurface;
++        const StyleSettings& rRing = pBorder->GetSettings().GetStyleSettings();
++        CPPUNIT_ASSERT_EQUAL(aSurface, rRing.GetMenuBorderColor());
++        CPPUNIT_ASSERT_EQUAL(aSurface, rRing.GetDarkShadowColor());
++        CPPUNIT_ASSERT_EQUAL(aSurface, rRing.GetLightColor());
++        CPPUNIT_ASSERT_EQUAL(aSurface, rRing.GetShadowColor());
++        CPPUNIT_ASSERT(!rRing.GetUseFlatMenus());
++        // the menu's own settings and every size stay
++        CPPUNIT_ASSERT_EQUAL(bDark ? COL_WHITE : COL_BLACK,
++                             pMenu->GetSettings().GetStyleSettings().GetMenuTextColor());
++        sal_Int32 nLeft2, nTop2, nRight2, nBottom2;
++        pMenu->GetBorder(nLeft2, nTop2, nRight2, nBottom2);
++        CPPUNIT_ASSERT_EQUAL(nLeft, nLeft2);
++        CPPUNIT_ASSERT_EQUAL(nTop, nTop2);
++        CPPUNIT_ASSERT_EQUAL(nRight, nRight2);
++        CPPUNIT_ASSERT_EQUAL(nBottom, nBottom2);
++        CPPUNIT_ASSERT_EQUAL(aOuter, pBorder->GetSizePixel());
++        pMenu.disposeAndClear();
++    }
++    setMenusSwitch(false);
++    ScopedVclPtr<FloatingWindow> pMenu(
++        VclPtr<FloatingWindow>::Create(pParent.get(), WB_BORDER | WB_SYSTEMWINDOW));
++    vcl::Window* pBorder = pMenu->GetWindow(GetWindowType::Border);
++    const Color aBefore = pBorder->GetSettings().GetStyleSettings().GetMenuBorderColor();
++    hst::coat::CoatMenuWindowFrame(*pMenu);
++    CPPUNIT_ASSERT_EQUAL(aBefore, pBorder->GetSettings().GetStyleSettings().GetMenuBorderColor());
++}
++
++/* GTK menus: the surface, the outline colour, radius::Menu and the item text, colours and radii
++   only. */
++CPPUNIT_TEST_FIXTURE(MenuCoatTest, testMenusCss)
++{
++    for (bool bDark : { false, true })
++    {
++        const hst::design::Palette& p = bDark ? dark() : light();
++        const OString aCss = menusCss(bDark);
++        CPPUNIT_ASSERT_MESSAGE(aCss.getStr(),
++                               aCss.indexOf("menu, .menu, .context-menu { background-image: none; "
++                                            "background-color: "
++                                            + hex(p.aMenuSurface) + "; border-color: "
++                                            + hex(p.aMenuBorder) + "; border-radius: 8px; }")
++                                   >= 0);
++        CPPUNIT_ASSERT(aCss.indexOf("menu menuitem, .menu menuitem, .context-menu menuitem { color: "
++                                    + hex(p.aText) + "; }")
++                       >= 0);
++        CPPUNIT_ASSERT(aCss.indexOf(".csd.popup decoration { border-radius: 8px;") >= 0);
++        CPPUNIT_ASSERT(aCss.indexOf("0 0 0 1px " + hex(p.aMenuBorder)) >= 0);
++        for (const char* pMetric : { "padding", "margin", "min-", "width", "height", "font",
++                                     "border:", "border-style" })
++            CPPUNIT_ASSERT_MESSAGE(pMetric, aCss.indexOf(pMetric) < 0);
++    }
++    setMenusSwitch(false);
++    CPPUNIT_ASSERT(menusCss(false).isEmpty());
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/coat-menus.cxx
++++ b/vcl/source/hst/coat/coat-menus.cxx
+@@ -20,6 +20,7 @@
+      with radius::MenuItem, so it stays clear of a rounded outline. */
+ 
+ #include "coat-paint.hxx"
++#include <hst/coat-menus.hxx>
+ 
+ #include <basegfx/point/b2dpoint.hxx>
+ #include <basegfx/polygon/b2dpolygontools.hxx>
+@@ -146,6 +147,11 @@ bool PaintMenu(const PaintContext& rCtx, ControlPart ePart, const ImplControlVal
+             return false;
+     }
+ }
++bool MenuFrameCoated(const OutputDevice&) { return false; }
++
++std::optional<Color> MenuShortcutColour(const OutputDevice&, bool, bool) { return std::nullopt; }
++
++void CoatMenuWindowFrame(vcl::Window&) {}
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
