@@ -48,6 +48,13 @@ Neither `make build` nor a module build remakes:
 
 A new `sd.component` entry also does not reach `instdir/program/services/services.rdb`.
 
+A delivered file is copied again only when its source is newer than the copy. When a ref changes which
+source a `.ui` is delivered from (the HST catalogue patch delivered `hst/l10n/ui/...` with
+`<interface domain="hst-sc">`) and a later ref goes back to the plain source, the older source never replaces
+the copy, and the package ships dialogs in a domain without a catalogue (English text, 2026-11-20). The queue's
+tree sync (`invalidate_stale_ui_domains` in `scripts/windows/hst4-tree.sh` and `scripts/linux/local-build.sh`)
+drops every instdir `.ui` with an `hst-` domain that the current tree does not deliver.
+
 For a private test copy, use one of these:
 
 - compile the catalogue with `msgfmt` from the patched `.po`;

@@ -125,6 +125,28 @@ invalidate_stale_translations() {
   done
 }
 [ ! -d "$LO/workdir/MoTarget" ] || invalidate_stale_translations
+# An installed dialog keeps the gettext domain of the tree that delivered it. A patch that delivers .ui files from
+# hst/l10n/ui (root <interface domain="hst-sc">) and is then reverted leaves those copies in instdir: the copy rule
+# depends only on the source file, which is older than the copy, so make never delivers the plain dialog again and
+# the package ships dialogs whose domain has no catalogue (English UI). Drop every instdir .ui with an hst- domain
+# that no hst/l10n/ui file of the same name carries in this tree; make delivers it again from the current source.
+invalidate_stale_ui_domains() {
+  local cfg="$LO/instdir/share/config/soffice.cfg" keep="$1"
+  [ -d "$cfg" ] || return 0
+  { [ ! -d "$LO/hst/l10n/ui" ] || grep -r -o -m1 --include='*.ui' '<interface domain="hst-[^"]*"' "$LO/hst/l10n/ui" \
+      || true; } | awk '{ i = index($0, ":<interface "); p = substr($0, 1, i - 1); sub(/.*\//, "", p); print p "\t" substr($0, i + 1) }' \
+    | sort -u > "$keep"
+  { grep -r -o -m1 --include='*.ui' '<interface domain="hst-[^"]*"' "$cfg" || true; } \
+    | awk -v keep="$keep" 'BEGIN { while ((getline line < keep) > 0) k[line] }
+        { i = index($0, ":<interface "); p = substr($0, 1, i - 1); b = p; sub(/.*\//, "", b)
+          if (!((b "\t" substr($0, i + 1)) in k)) print p }' > "$keep.drop"
+  if [ -s "$keep.drop" ]; then
+    log "instdir has $(wc -l < "$keep.drop") .ui files with an hst- gettext domain this tree does not deliver: dropping them"
+    xargs -d '\n' -r rm -f -- < "$keep.drop"
+  fi
+  rm -f "$keep" "$keep.drop"
+}
+invalidate_stale_ui_domains "$STAGE/ui-domains.keep"
 # A package that delivers into program/python-core-<version> (libffi: libffi-8.dll next to _ctypes.pyd) is not
 # rebuilt when only the bundled Python version changes: its makefile text and tarball stay the same, so its filelist
 # keeps the old python-core path and the MSI ships the DLL in a directory the new Python never reads (import ctypes

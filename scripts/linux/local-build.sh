@@ -450,6 +450,28 @@ invalidate_stale_translations() { # also catches a .po synced by a run that neve
   done
 }
 
+# An installed dialog keeps the gettext domain of the tree that delivered it. A patch that delivers .ui files from
+# hst/l10n/ui (root <interface domain="hst-sc">) and is then reverted leaves those copies in instdir: the copy rule
+# depends only on the source file, which is older than the copy, so make never delivers the plain dialog again and
+# the package ships dialogs whose domain has no catalogue (English UI). Drop every instdir .ui with an hst- domain
+# that no hst/l10n/ui file of the same name carries in this tree; make delivers it again from the current source.
+invalidate_stale_ui_domains() {
+  local cfg="$SRC/instdir/share/config/soffice.cfg" keep="$1"
+  [ -d "$cfg" ] || return 0
+  { [ ! -d "$SRC/hst/l10n/ui" ] || grep -r -o -m1 --include='*.ui' '<interface domain="hst-[^"]*"' "$SRC/hst/l10n/ui" \
+      || true; } | awk '{ i = index($0, ":<interface "); p = substr($0, 1, i - 1); sub(/.*\//, "", p); print p "\t" substr($0, i + 1) }' \
+    | sort -u > "$keep"
+  { grep -r -o -m1 --include='*.ui' '<interface domain="hst-[^"]*"' "$cfg" || true; } \
+    | awk -v keep="$keep" 'BEGIN { while ((getline line < keep) > 0) k[line] }
+        { i = index($0, ":<interface "); p = substr($0, 1, i - 1); b = p; sub(/.*\//, "", b)
+          if (!((b "\t" substr($0, i + 1)) in k)) print p }' > "$keep.drop"
+  if [ -s "$keep.drop" ]; then
+    log "instdir has $(wc -l < "$keep.drop") .ui files with an hst- gettext domain this tree does not deliver: dropping them"
+    xargs -d '\n' -r rm -f -- < "$keep.drop"
+  fi
+  rm -f "$keep" "$keep.drop"
+}
+
 check_translations() { # the built catalogues must match this ref's .po (scripts/l10n/check-mo-fresh.py)
   # The deployed checker (older refs predate it) runs in the slot chroot with the image's gettext, not the host's.
   mkdir -p "$WORK/sync"; cp "$SELF_REPO/scripts/l10n/check-mo-fresh.py" "$WORK/sync/check-mo-fresh.py"
@@ -731,6 +753,7 @@ timed extract ensure_pristine
 timed patch sync_patches
 invalidate_translations
 invalidate_stale_translations
+mkdir -p "$SYNC"; invalidate_stale_ui_domains "$SYNC/ui-domains.keep"
 configure_if_needed
 if [ -n "$MODULES" ] && [ ! -x "$SRC/instdir/program/soffice" ]; then
   die "slot $SLOT has no complete build yet; --modules needs one full build in the slot first"
