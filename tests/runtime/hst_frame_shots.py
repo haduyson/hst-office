@@ -169,7 +169,11 @@ class Run:
 
     def context_menu(self, office, app, doc, look):
         name = shot_name(app, "context-menu", look)
-        doc.getCurrentController().getFrame().getContainerWindow().setFocus()
+        # the document view, not the sidebar or the ribbon, has the keyboard focus
+        view = doc.getCurrentController().getFrame().getComponentWindow()
+        view.setFocus()
+        # Escape first: it closes a start-up hint (Slides shows one) that would take the context-menu key
+        press_key(office, doc, "ESCAPE")
         time.sleep(1)
         before = self.screen.windows()
         press_key(office, doc, "F10", shift=True)
@@ -197,10 +201,11 @@ class Run:
                 continue
             if text:
                 doc.getText().setString(text)
+            # the context menu first: once the sidebar is open it keeps the keyboard focus
+            self.context_menu(office, app, doc, look)
             office.dispatch(doc.getCurrentController().getFrame(), SIDEBAR_COMMAND)
             time.sleep(3)
             self.window_state(office, app, doc, win, "window", look)
-            self.context_menu(office, app, doc, look)
             self.window_state(office, app, doc, win, "backstage", look)
             try:
                 doc.close(True)
