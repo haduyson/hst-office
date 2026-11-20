@@ -255,7 +255,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/coat-controls2-test.cxx
-@@ -0,0 +1,532 @@
+@@ -0,0 +1,545 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -335,6 +335,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +        aStyle.SetFieldColor(bDark ? Color(0x2A, 0x2A, 0x2A) : COL_WHITE);
 +        aStyle.SetDialogColor(bDark ? Color(0x28, 0x28, 0x28) : Color(0xF0, 0xF0, 0xF0));
 +        aStyle.SetMenuTextColor(aText);
++        aStyle.SetMenuHighlightTextColor(aText);
 +        aStyle.SetHelpTextColor(aText);
 +        aStyle.SetHighlightColor(Color(0x33, 0x99, 0xFF));
 +        aStyle.SetHighlightTextColor(COL_WHITE);
@@ -561,6 +562,18 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +        assertPixel("highlight's top row", *pDev, 100, 1, light().aMenuHover);
 +        assertPixel("inset from the side", *pDev, 1, 12, MARKER);
 +        assertPixel("a pixel of surface above", *pDev, 100, 0, MARKER);
++    }
++    {
++        // a theme whose highlighted menu text is white on a light menu: the highlight darkens so that
++        // text stays readable
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 24));
++        AllSettings aSettings = pDev->GetSettings();
++        StyleSettings aStyle = aSettings.GetStyleSettings();
++        aStyle.SetMenuHighlightTextColor(COL_WHITE);
++        aSettings.SetStyleSettings(aStyle);
++        pDev->SetSettings(aSettings);
++        menu(*pDev, ControlPart::MenuItem, ENABLED | ControlState::SELECTED);
++        assertPixel("readable highlight", *pDev, 100, 12, dark().aMenuHover);
 +    }
 +    {
 +        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 9));
