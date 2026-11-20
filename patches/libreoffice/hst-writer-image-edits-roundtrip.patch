@@ -18,13 +18,15 @@ What a format cannot store is applied to the written picture the way HST Office 
 same reopened in HST Office and in Word, with those settings back at their defaults:
 - DOCX: gamma, colour channels, invert, brightness together with contrast, a washout with brightness or contrast;
 - DOC: transparency, colour channels, invert, brightness together with contrast, a washout with either.
+An as-character picture with a border (an HST picture style) no longer becomes smaller on every .doc save: the
+reader now adds the room of its borders and shadow, which the export takes off, to the frame size.
 Linked pictures keep their link; for them only the storable settings are written, as before.
 
 The logic is in new HST files (sw/source/filter/ww8/hst/hstpictureadjust.*, sw/source/writerfilter/hst/
 hstpictureimport.*); the LibreOffice files only call them.
 
 Test: CppunitTest_sw_hst_image_edits_roundtrip (DOCX and DOC round trip per setting: kept properties, written XML,
-applied pixels compared with HST Office's drawing, rotation and size of floating, inline and flipped pictures).
+applied pixels compared with HST Office's drawing, rotation and size of floating, inline and flipped pictures, size of a bordered inline picture over two saves).
 ---
 --- a/sw/Library_msword.mk
 +++ b/sw/Library_msword.mk
@@ -221,6 +223,31 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
          aFSFA.nXaLeft = aObjSnapRect.Left();
          aFSFA.nYaTop = aObjSnapRect.Top();
          aFSFA.nXaRight = aObjSnapRect.Right();
+--- a/sw/source/filter/ww8/ww8graf2.cxx
++++ b/sw/source/filter/ww8/ww8graf2.cxx
+@@ -39,6 +39,7 @@
+ #include "ww8par.hxx"
+ #include "ww8par2.hxx"
+ #include "ww8graf.hxx"
++#include "hst/hstpictureadjust.hxx"
+ #include <vcl/gdimtf.hxx>
+ #include <vcl/graphicfilter.hxx>
+ #include <vcl/wmf.hxx>
+@@ -616,9 +617,11 @@
+                         pRecord->eShapeType, aInnerDist );
+ 
+                     // Set the size from the WinWord PIC-structure as graphic
+-                    // size
+-                    aAttrSet.Put( SwFormatFrameSize( SwFrameSize::Fixed, aPD.nWidth,
+-                        aPD.nHeight ) );
++                    // size (HST: and the room of its borders and shadow)
++                    const Size aHstFrameSize(sw::hst::GetInlinePictureFrameSize(
++                        aAttrSet, Size(aPD.nWidth, aPD.nHeight)));
++                    aAttrSet.Put( SwFormatFrameSize( SwFrameSize::Fixed, aHstFrameSize.Width(),
++                        aHstFrameSize.Height() ) );
+                 }
+ 
+                 // for the graphic
 --- a/sw/source/writerfilter/dmapper/GraphicImport.cxx
 +++ b/sw/source/writerfilter/dmapper/GraphicImport.cxx
 @@ -81,6 +81,7 @@
@@ -311,7 +338,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +# vim: set noet sw=4 ts=4:
 --- /dev/null
 +++ b/sw/qa/extras/hst/hstimageeditsroundtrip.cxx
-@@ -0,0 +1,400 @@
+@@ -0,0 +1,435 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -325,6 +352,9 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +#include <com/sun/star/drawing/ColorMode.hpp>
 +#include <com/sun/star/graphic/XGraphic.hpp>
 +#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/table/BorderLine2.hpp>
++#include <com/sun/star/table/ShadowFormat.hpp>
++#include <com/sun/star/table/ShadowLocation.hpp>
 +#include <com/sun/star/text/TextContentAnchorType.hpp>
 +#include <com/sun/star/text/XText.hpp>
 +#include <com/sun/star/text/XTextContent.hpp>
@@ -709,12 +739,44 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +    checkRotation(TestFilter::DOC, text::TextContentAnchorType_AT_CHARACTER, 2700, u"HoriMirroredOnOddPages"_ustr);
 +}
 +
++// DOC: an as-character picture with a border (and a shadow, as the HST picture styles give) became smaller on every
++// save: the reader took the picture's size without the room of its borders as the frame size.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocBorderedInlinePictureKeepsSize)
++{
++    uno::Reference<beans::XPropertySet> xPicture = insertPicture(text::TextContentAnchorType_AS_CHARACTER);
++    table::BorderLine2 aLine;
++    aLine.Color = 0x0072BB;
++    aLine.LineWidth = 53;
++    aLine.OuterLineWidth = 53;
++    for (const OUString& rSide : { u"TopBorder"_ustr, u"BottomBorder"_ustr, u"LeftBorder"_ustr, u"RightBorder"_ustr })
++        xPicture->setPropertyValue(rSide, uno::Any(aLine));
++    table::ShadowFormat aShadow;
++    aShadow.Location = table::ShadowLocation_BOTTOM_RIGHT;
++    aShadow.ShadowWidth = 106;
++    aShadow.Color = 0x000000;
++    xPicture->setPropertyValue(u"ShadowFormat"_ustr, uno::Any(aShadow));
++
++    awt::Size aSaved[2];
++    for (awt::Size& rSize : aSaved)
++    {
++        saveAndReload(TestFilter::DOC);
++        xPicture = writerPicture();
++        CPPUNIT_ASSERT(xPicture.is());
++        xPicture->getPropertyValue(u"Size"_ustr) >>= rSize;
++    }
++    // the same after the second save, and (up to Word's border units) the size it had
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(double(aSaved[0].Width), double(aSaved[1].Width), 5.0);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(double(aSaved[0].Height), double(aSaved[1].Height), 5.0);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSaved[1].Width), 60.0);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSaved[1].Height), 60.0);
++}
++
 +CPPUNIT_PLUGIN_IMPLEMENT();
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sw/source/filter/ww8/hst/hstpictureadjust.cxx
-@@ -0,0 +1,241 @@
+@@ -0,0 +1,279 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -724,7 +786,12 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +
 +#include "hstpictureadjust.hxx"
 +
++#include "../wrtww8.hxx"
++#include "../ww8struc.hxx"
++
 +#include <basegfx/numeric/ftools.hxx>
++#include <editeng/boxitem.hxx>
++#include <editeng/shaditem.hxx>
 +#include <filter/msfilter/escherex.hxx>
 +#include <oox/token/namespaces.hxx>
 +#include <oox/token/tokens.hxx>
@@ -953,12 +1020,45 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +    static_cast<SwRotationGrf&>(*pRotation).SetValue(Degree10(nRotation));
 +    rNode.SetAttr(*pRotation);
 +}
++
++Size GetInlinePictureFrameSize(const SfxItemSet& rFrameSet, const Size& rPicture)
++{
++    const SvxBoxItem* pBox = rFrameSet.GetItemIfSet(RES_BOX, false);
++    if (!pBox)
++        return rPicture;
++    bool bShadow = false;
++    if (const SvxShadowItem* pShadow = rFrameSet.GetItem<SvxShadowItem>(RES_SHADOW))
++        bShadow = pShadow->GetLocation() != SvxShadowLocation::NONE && pShadow->GetWidth() != 0;
++
++    tools::Long nWidth = rPicture.Width();
++    tools::Long nHeight = rPicture.Height();
++    for (SvxBoxItemLine eLine : { SvxBoxItemLine::TOP, SvxBoxItemLine::LEFT, SvxBoxItemLine::BOTTOM,
++                                  SvxBoxItemLine::RIGHT })
++    {
++        // the border as the export writes it into the picture header, and its room as Word takes it
++        WW8_BRC aBorder;
++        if (const editeng::SvxBorderLine* pLine = pBox->GetLine(eLine))
++        {
++            const WW8_BRCVer9 aBorder9 = WW8Export::TranslateBorderLine(*pLine, pBox->GetDistance(eLine), bShadow);
++            aBorder = WW8_BRC(aBorder9.dptLineWidth(), aBorder9.brcType(), 0, aBorder9.dptSpace(),
++                              aBorder9.fShadow(), aBorder9.fFrame());
++        }
++        short nSpacing = 0;
++        const short nThick = aBorder.DetermineBorderProperties(&nSpacing);
++        const tools::Long nRoom = (bShadow ? 2 * nThick : nThick) + nSpacing;
++        if (eLine == SvxBoxItemLine::TOP || eLine == SvxBoxItemLine::BOTTOM)
++            nHeight += nRoom;
++        else
++            nWidth += nRoom;
++    }
++    return Size(nWidth, nHeight);
++}
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sw/source/filter/ww8/hst/hstpictureadjust.hxx
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,84 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -975,6 +1075,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +#include <vcl/graph.hxx>
 +
 +class EscherPropertyContainer;
++class SfxItemSet;
 +class SdrObject;
 +class SwAttrSet;
 +class SwFrameFormat;
@@ -1034,6 +1135,11 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +
 +/// DOC import: gives rNode the rotation of rObject without the half turn the import adds for a vertical flip.
 +void SetImportedPictureRotation(SwGrfNode& rNode, const SdrObject& rObject, bool bFlipV);
++
++/// DOC import: the frame size of an as-character picture of rPicture (Word's size, without its borders) with the
++/// borders and shadow of rFrameSet around it, exactly what the export takes off again. Without it a bordered
++/// picture became smaller on every save.
++Size GetInlinePictureFrameSize(const SfxItemSet& rFrameSet, const Size& rPicture);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
