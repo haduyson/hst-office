@@ -1,31 +1,35 @@
 HST Office: the status bar of a document window in the HST look (the frame coat's StatusBar part).
 
-- Only colours and shapes change: the bar's height, the items' widths and their click areas are
-  exactly as without the coat (owner decision D9). The look applies to the bar of a document window (its
-  parent is the frame's work window) while org.openoffice.Office.HSTAppearance/FrameCoat/StatusBar and the
-  coat are on, and never in high contrast; the bars of dialogs keep the platform's look.
-- StatusBar (vcl/source/window/status.cxx, thin hooks): the frame surface instead of the native background,
-  item text in the text colour (the bar keeps its font, which sizes the bar and its items), a thin divider
-  of the frame divider colour, inset at both ends, instead of the 3D separator, the frame divider along the
-  top edge, and a rounded hover behind the items that open something on a single click (language,
-  selection mode, zoom percentage), repainted only when the item under the mouse changes and cleared when
-  the items move. A paint redraws only the items (and their dividers) in the invalidated area, so a word
-  count update repaints that item alone, not the zoom slider beside it.
+- Only colours and shapes change: the bar's height, the items' widths and their click areas are exactly as
+  without the coat (owner decision D9). The look applies to the bar of a document window (its parent is
+  the frame's work window) while org.openoffice.Office.HSTAppearance/FrameCoat/StatusBar and the coat are
+  on, and never in high contrast; the bars of dialogs keep the platform's look.
+- StatusBar (vcl/source/window/status.cxx, thin hooks): the frame surface instead of the native
+  background, item text in the text colour (the bar keeps its font, which sizes the bar and its items), a
+  thin divider of the frame divider colour, inset at both ends, instead of the 3D separator, the frame
+  divider along the top edge, and a rounded hover behind every item that does something on a single click
+  in Writer, Sheets and Slides (saved state, signature, language, zoom percentage; page number, word
+  count, accessibility check, page style, insert mode, selection mode; sheet position, page style,
+  AutoCalculate; slide number, slide layout, fit slide), not behind an item whose text is empty, repainted
+  only when the item under the mouse changes and cleared when the items move. A paint redraws only the
+  items (and their dividers) in the invalidated area, so a word count update repaints that item alone, not
+  the zoom slider beside it.
 - The zoom slider (svx/source/stbctrls/zoomsliderctrl.cxx): a groove of the scroll-track colour outlined
   with the frame divider, short marks for the snapping points, a longer 100 % mark in the text colour and
   a narrow upright accent pill for the thumb, all vector shapes at the window's scale. The decrease and
-  increase buttons stay the icon theme's images, where the control takes their clicks; their HST glyphs come with the icon
-  set.
+  increase buttons stay the icon theme's images, where the control takes their clicks; their HST glyphs
+  come with the icon set.
 - The drawing is in vcl/source/hst/coat/coat-statusbar.cxx behind <vcl/hst/statusbarcoat.hxx>: flat fills
   only, no gradient, no bitmap of its own.
-- CppunitTest_vcl_hst_statusbar_coat: the frame colours light and dark, the thin
-  dividers, the hover on clickable items only, the unchanged height and item rectangles, the platform look
-  in high contrast, for a dialog's bar and with the part switched off, the zoom slider's shapes and thumb
-  at 50/100/200 %, and no more item repaints with the coat than without over 1,000 text updates.
+- CppunitTest_vcl_hst_statusbar_coat: the frame colours light and dark, the thin dividers, the hover on
+  clickable items only and not on empty ones, the list of clickable commands, the unchanged height and
+  item rectangles, the platform look in high contrast, for a dialog's bar and with the part switched off,
+  the zoom slider's shapes and thumb at 50/100/200 %, and no more item repaints with the coat than without
+  over 1,000 text updates.
 
 --- /dev/null
 +++ b/include/vcl/hst/statusbarcoat.hxx
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,85 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -63,8 +67,9 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +    switched on and not in high contrast. */
 +VCL_DLLPUBLIC bool StatusBarCoatActive(const vcl::Window& rBar);
 +
-+/** Whether a status bar item with this command opens something on a single click, so it shows a
-+    hover: the language, the selection mode and the zoom percentage. */
++/** Whether a status bar item with this command does something on a single click (opens a dialog, a
++    menu or a deck, toggles a mode, saves), in Writer, Sheets or Slides, so it shows a hover. An item
++    whose text is empty (and that draws nothing of its own) shows none: the bar checks that. */
 +VCL_DLLPUBLIC bool IsStatusBarItemClickable(std::u16string_view aCommand);
 +
 +/** The background and text colour of the bar in the HST look, for rBar's theme. */
@@ -230,7 +235,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      CppunitTest_vcl_treeview \
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/statusbar-coat-test.cxx
-@@ -0,0 +1,374 @@
+@@ -0,0 +1,398 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -261,6 +266,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +#include <cmath>
 +#include <cstdlib>
 +#include <string>
++#include <string_view>
 +#include <utility>
 +#include <vector>
 +
@@ -271,9 +277,9 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +constexpr Color DARK_WINDOW(0x20, 0x20, 0x20);
 +constexpr tools::Long BAR_WIDTH = 400;
 +
-+// the items of the test bar: a page count, the zoom percentage (clickable) and the language
-+// (clickable); each STATUSBAR_OFFSET (5 px) apart, the first at x 5
-+constexpr sal_uInt16 ITEM_PAGE = 1;
++// the items of the test bar: a selection count (a click does nothing), the zoom percentage and the
++// language (both clickable); each STATUSBAR_OFFSET (5 px) apart, the first at x 5
++constexpr sal_uInt16 ITEM_INFO = 1;
 +constexpr sal_uInt16 ITEM_ZOOM = 2;
 +constexpr sal_uInt16 ITEM_LANGUAGE = 3;
 +
@@ -373,8 +379,8 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +        VclPtr<StatusBar> xBar = VclPtr<StatusBar>::Create(pParent, WB_LEFT | WB_3DLOOK);
 +        maWindows.emplace_back(xBar.get());
 +        setTheme(*xBar, bDark, bHighContrast);
-+        xBar->InsertItem(ITEM_PAGE, 80, StatusBarItemBits::Left | StatusBarItemBits::In);
-+        xBar->SetItemCommand(ITEM_PAGE, u".uno:StatePageNumber"_ustr);
++        xBar->InsertItem(ITEM_INFO, 80, StatusBarItemBits::Left | StatusBarItemBits::In);
++        xBar->SetItemCommand(ITEM_INFO, u".uno:RowColSelCount"_ustr);
 +        xBar->InsertItem(ITEM_ZOOM, 60);
 +        xBar->SetItemCommand(ITEM_ZOOM, u".uno:Zoom"_ustr);
 +        xBar->InsertItem(ITEM_LANGUAGE, 80);
@@ -382,7 +388,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +        xBar->SetPosSizePixel(Point(), Size(BAR_WIDTH, xBar->CalcWindowSizePixel().Height()));
 +        xFrame->Show();
 +        xBar->Show();
-+        xBar->SetItemText(ITEM_PAGE, u"Trang 1 / 1"_ustr);
++        xBar->SetItemText(ITEM_INFO, u"3 hàng, 2 cột"_ustr);
 +        xBar->SetItemText(ITEM_ZOOM, u"100%"_ustr);
 +        xBar->SetItemText(ITEM_LANGUAGE, u"Tiếng Việt"_ustr);
 +        Scheduler::ProcessEventsToIdle();
@@ -454,11 +460,13 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +{
 +    StatusBar& rBar = makeBar();
 +    const tools::Rectangle aZoom = rBar.GetItemRect(ITEM_ZOOM);
-+    const tools::Rectangle aPage = rBar.GetItemRect(ITEM_PAGE);
++    const tools::Rectangle aInfo = rBar.GetItemRect(ITEM_INFO);
++    const tools::Rectangle aLanguage = rBar.GetItemRect(ITEM_LANGUAGE);
 +    const tools::Long nMid = rBar.GetOutputSizePixel().Height() / 2;
-+    // left of the centred "100%" and of the left-aligned page text: no glyph there
++    // left of the centred texts, right of the left-aligned one: no glyph there
 +    const Point aInZoom(aZoom.Left() + 3, nMid);
-+    const Point aInPage(aPage.Right() - 3, nMid);
++    const Point aInInfo(aInfo.Right() - 3, nMid);
++    const Point aInLanguage(aLanguage.Left() + 3, nMid);
 +
 +    hover(rBar, aZoom.Center());
 +    const VirtualDevice* pShot = &shot(rBar);
@@ -466,10 +474,10 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +    // rounded: the hover's corner pixel is not filled
 +    CPPUNIT_ASSERT(light().aHover != pixel(*pShot, aZoom.Left() + 1, aZoom.Top() + 1));
 +
-+    // the page count does not open anything on a click: no hover, and the zoom item's is gone
-+    hover(rBar, aPage.Center());
++    // a click on the selection count does nothing: no hover, and the zoom item's is gone
++    hover(rBar, aInfo.Center());
 +    pShot = &shot(rBar);
-+    CPPUNIT_ASSERT_EQUAL(light().aFrameSurface, pixel(*pShot, aInPage.X(), aInPage.Y()));
++    CPPUNIT_ASSERT_EQUAL(light().aFrameSurface, pixel(*pShot, aInInfo.X(), aInInfo.Y()));
 +    CPPUNIT_ASSERT_EQUAL(light().aFrameSurface, pixel(*pShot, aInZoom.X(), aInZoom.Y()));
 +
 +    hover(rBar, aZoom.Center());
@@ -477,12 +485,33 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +    pShot = &shot(rBar);
 +    CPPUNIT_ASSERT_EQUAL(light().aFrameSurface, pixel(*pShot, aInZoom.X(), aInZoom.Y()));
 +
-+    CPPUNIT_ASSERT(hst::coat::IsStatusBarItemClickable(u".uno:LanguageStatus"));
-+    CPPUNIT_ASSERT(hst::coat::IsStatusBarItemClickable(u".uno:SelectionMode"));
-+    CPPUNIT_ASSERT(hst::coat::IsStatusBarItemClickable(u".uno:StatusSelectionMode"));
-+    CPPUNIT_ASSERT(hst::coat::IsStatusBarItemClickable(u".uno:Zoom"));
-+    CPPUNIT_ASSERT(!hst::coat::IsStatusBarItemClickable(u".uno:ZoomSlider"));
-+    CPPUNIT_ASSERT(!hst::coat::IsStatusBarItemClickable(u".uno:StateWordCount"));
++    // a clickable item with an empty text (e.g. Sheets' insert mode outside cell editing) does nothing
++    hover(rBar, aLanguage.Center());
++    pShot = &shot(rBar);
++    CPPUNIT_ASSERT_EQUAL(light().aHover, pixel(*pShot, aInLanguage.X(), aInLanguage.Y()));
++    hover(rBar, aLanguage.Center(), true);
++    rBar.SetItemText(ITEM_LANGUAGE, OUString());
++    hover(rBar, aLanguage.Center());
++    pShot = &shot(rBar);
++    CPPUNIT_ASSERT_EQUAL(light().aFrameSurface, pixel(*pShot, aInLanguage.X(), aInLanguage.Y()));
++}
++
++CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testEveryItemThatActsOnAClickIsClickable)
++{
++    // Writer, Sheets and Slides alike: the items a single click acts on
++    for (std::u16string_view aCommand :
++         { u".uno:ModifiedStatus", u".uno:Signature", u".uno:LanguageStatus", u".uno:Zoom",
++           u".uno:StatePageNumber", u".uno:StateWordCount", u".uno:StateAccessibilityCheck",
++           u".uno:PageStyleName", u".uno:InsertMode", u".uno:SelectionMode", u".uno:StatusDocPos",
++           u".uno:StatusPageStyle", u".uno:AutomaticCalculation", u".uno:StatusSelectionMode",
++           u".uno:PageStatus", u".uno:LayoutStatus", u".uno:ZoomPage" })
++        CPPUNIT_ASSERT_MESSAGE(OUString(aCommand).toUtf8().getStr(),
++                               hst::coat::IsStatusBarItemClickable(aCommand));
++    // a click does nothing (or only with a selection), or the item has buttons of its own
++    for (std::u16string_view aCommand : { u".uno:Size", u".uno:RowColSelCount", u".uno:Context",
++                                          u".uno:ViewLayout", u".uno:ZoomSlider", u"" })
++        CPPUNIT_ASSERT_MESSAGE(OUString(aCommand).toUtf8().getStr(),
++                               !hst::coat::IsStatusBarItemClickable(aCommand));
 +}
 +
 +CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testHeightAndClickAreasUnchanged)
@@ -495,7 +524,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +    CPPUNIT_ASSERT(!hst::coat::StatusBarCoatActive(rPlain));
 +
 +    CPPUNIT_ASSERT_EQUAL(rPlain.CalcWindowSizePixel().Height(), rCoat.CalcWindowSizePixel().Height());
-+    for (sal_uInt16 nId : { ITEM_PAGE, ITEM_ZOOM, ITEM_LANGUAGE })
++    for (sal_uInt16 nId : { ITEM_INFO, ITEM_ZOOM, ITEM_LANGUAGE })
 +        CPPUNIT_ASSERT_EQUAL(rPlain.GetItemRect(nId), rCoat.GetItemRect(nId));
 +}
 +
@@ -588,7 +617,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +        CPPUNIT_ASSERT_EQUAL(bCoat, hst::coat::StatusBarCoatActive(rBar));
 +        DrawCounter aCounter(rBar);
 +        for (int i = 1; i <= 1000; ++i)
-+            rBar.SetItemText(ITEM_PAGE, OUString::number(i) + u" từ");
++            rBar.SetItemText(ITEM_INFO, OUString::number(i) + u" từ");
 +        Scheduler::ProcessEventsToIdle();
 +        unsetenv("HST_UI_COAT");
 +        return aCounter.Count();
@@ -607,7 +636,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-statusbar.cxx
-@@ -0,0 +1,163 @@
+@@ -0,0 +1,188 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -632,6 +661,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +
 +#include <algorithm>
 +#include <cmath>
++#include <iterator>
 +
 +namespace hst::coat
 +{
@@ -673,9 +703,33 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +
 +bool IsStatusBarItemClickable(std::u16string_view aCommand)
 +{
-+    // the language menu, the selection mode menu (Writer and Sheets name it apart) and the Zoom dialog
-+    return aCommand == u".uno:LanguageStatus" || aCommand == u".uno:SelectionMode"
-+           || aCommand == u".uno:StatusSelectionMode" || aCommand == u".uno:Zoom";
++    // What a single click does (the item's controller, then the view shell's Execute of its slot).
++    // Not here: .uno:Size (acts only with an object, table or frame selected), .uno:RowColSelCount and
++    // .uno:Context (no Execute), .uno:ViewLayout and .uno:ZoomSlider (buttons of their own inside).
++    static constexpr std::u16string_view CLICKABLE[] = {
++        // every application
++        u".uno:ModifiedStatus", // saves a modified document
++        u".uno:Signature", // the Digital Signatures dialog
++        u".uno:LanguageStatus", // the language menu
++        u".uno:Zoom", // the Zoom dialog
++        // Writer
++        u".uno:StatePageNumber", // Go to Page
++        u".uno:StateWordCount", // the Word Count dialog
++        u".uno:StateAccessibilityCheck", // the accessibility check deck
++        u".uno:PageStyleName", // the Page Style dialog
++        u".uno:InsertMode", // insert / overwrite
++        u".uno:SelectionMode", // the selection mode menu
++        // Sheets
++        u".uno:StatusDocPos", // the Navigator
++        u".uno:StatusPageStyle", // the Page Style dialog
++        u".uno:AutomaticCalculation", // AutoCalculate on / off
++        u".uno:StatusSelectionMode", // the selection mode menu
++        // Slides and Draw
++        u".uno:PageStatus", // Go to Page
++        u".uno:LayoutStatus", // the slide layouts
++        u".uno:ZoomPage", // fit the slide to the window
++    };
++    return std::find(std::begin(CLICKABLE), std::end(CLICKABLE), aCommand) != std::end(CLICKABLE);
 +}
 +
 +Color StatusBarBackground(const vcl::Window& rBar) { return paletteOf(rBar).aFrameSurface; }
@@ -838,7 +892,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      }
  
      if (!rRenderContext.ImplIsRecordLayout())
-@@ -708,6 +727,22 @@ void StatusBar::MouseButtonDown( const MouseEvent& rMEvt )
+@@ -708,6 +727,23 @@ void StatusBar::MouseButtonDown( const MouseEvent& rMEvt )
          Click();
  }
  
@@ -847,8 +901,9 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +    // the HST look: a hover behind the clickable item under the mouse
 +    sal_uInt16 nId = mpImplData->mbHstCoat && !rMEvt.IsLeaveWindow() && !mbProgressMode
 +                         ? GetItemId(rMEvt.GetPosPixel()) : 0;
-+    if (nId && !hst::coat::IsStatusBarItemClickable(GetItemCommand(nId)))
-+        nId = 0;
++    if (nId && (!hst::coat::IsStatusBarItemClickable(GetItemCommand(nId))
++                || (!(GetItemBits(nId) & StatusBarItemBits::UserDraw) && GetItemText(nId).isEmpty())))
++        nId = 0; // not clickable, or an empty text item (it does nothing then)
 +    if (nId != mpImplData->mnHstHoverId)
 +    {
 +        for (sal_uInt16 nChanged : { mpImplData->mnHstHoverId, nId })
@@ -861,7 +916,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
  void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect)
  {
      if (mbFormat)
-@@ -743,11 +778,22 @@ void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle
+@@ -743,11 +779,22 @@ void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle
              rRenderContext.Erase(rRect);
  
          for (sal_uInt16 i = 0; i < nItemCount; i++)
