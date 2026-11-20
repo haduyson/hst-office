@@ -9,29 +9,25 @@ APPS = {
     "slides": ("simpress", None),
 }
 
-# The document view's UITest id per factory: the context menu is opened with Shift+F10 on it (a VCL key event
-# inside the office, not an input event of the operating system).
-DOCUMENT_VIEW = {"swriter": "writer_edit", "scalc": "grid_window", "simpress": "impress_win"}
-
 # The sidebar opens on its Properties deck; the File tab (backstage) opens and closes with its own command.
 SIDEBAR_COMMAND = ".uno:SidebarDeck.PropertyDeck"
 BACKSTAGE_COMMAND = ".uno:HSTBackstage"
 
 # Frame parts found in a document window's accessibility tree: (AccessibleRole names, accessible names in Vietnamese
 # or English, matched case-insensitively as substrings; empty: any name). The first showing match wins; a part that
-# is not found is listed in failures.txt and its shot keeps the whole window.
+# is not found is listed in failures.txt. The File tab (backstage) covers the document area, so its shot is the whole
+# window and is not cropped.
 REGIONS = {
-    "ribbon": (("PANEL", "TOOL_BAR", "FILLER"), ("notebookbar", "thanh lệnh", "ribbon")),
-    "sidebar": (("PANEL",), ("sidebar", "thanh bên")),
+    "ribbon": (("PAGE_TAB_LIST",), ()),  # the notebookbar's tabs and the selected tab's commands
+    "sidebar": (("SPLIT_PANE",), ()),  # the deck and its tab bar, beside the document
     "statusbar": (("STATUS_BAR",), ()),
-    "doctabs": (("PANEL", "PAGE_TAB_LIST", "WINDOW"), ("document tabs", "thẻ tài liệu")),
-    "backstage": (("PANEL", "SCROLL_PANE", "WINDOW"), ("backstage", "tệp tin", "file")),
+    "doctabs": (("PANEL",), ("thẻ tài liệu", "document tabs")),
 }
 
 # The parts cropped from each state's window shot; "context-menu" is shot as the menu's own window.
 STATES = {
     "window": ("ribbon", "sidebar", "statusbar", "doctabs"),
-    "backstage": ("backstage",),
+    "backstage": (),
     "context-menu": (),
 }
 

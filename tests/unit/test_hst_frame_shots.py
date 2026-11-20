@@ -19,11 +19,12 @@ import hst_frame_shots as shots  # noqa: E402
 class FrameShotCasesTest(unittest.TestCase):
     def test_parts_are_matched_by_role_and_name(self):
         self.assertTrue(cases.matches("statusbar", "STATUS_BAR", ""))
-        self.assertTrue(cases.matches("doctabs", "WINDOW", "Thẻ tài liệu"))
+        self.assertTrue(cases.matches("doctabs", "PANEL", "Thẻ tài liệu"))
         self.assertTrue(cases.matches("doctabs", "PANEL", "Document Tabs"))
-        self.assertTrue(cases.matches("sidebar", "PANEL", "Thanh bên"))
-        self.assertFalse(cases.matches("sidebar", "STATUS_BAR", "Thanh bên"))
-        self.assertFalse(cases.matches("doctabs", "PANEL", "Sidebar"))
+        self.assertTrue(cases.matches("sidebar", "SPLIT_PANE", ""))
+        self.assertTrue(cases.matches("ribbon", "PAGE_TAB_LIST", ""))
+        self.assertFalse(cases.matches("sidebar", "STATUS_BAR", ""))
+        self.assertFalse(cases.matches("doctabs", "PANEL", "Thuộc tính"))
 
     def test_every_look_and_state(self):
         self.assertEqual(len(cases.LOOKS), 8)
@@ -31,7 +32,6 @@ class FrameShotCasesTest(unittest.TestCase):
         self.assertEqual(set(cases.STATES), {"window", "backstage", "context-menu"})
         parts = {part for state in cases.STATES.values() for part in state}
         self.assertEqual(parts, set(cases.REGIONS))
-        self.assertEqual(set(cases.DOCUMENT_VIEW), {factory for factory, _text in cases.APPS.values()})
 
     def test_names(self):
         look = ("after", "light", "125")

@@ -27,8 +27,8 @@ import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from hst_frame_shot_cases import (APPS, BACKSTAGE_COMMAND, DOCUMENT_VIEW, LOOKS, NO_PROMPTS, SIDEBAR_COMMAND,  # noqa: E402
-                                  STATES, crop_name, matches, shot_name)
+from hst_frame_shot_cases import (APPS, BACKSTAGE_COMMAND, LOOKS, NO_PROMPTS, REGIONS,  # noqa: E402
+                                  SIDEBAR_COMMAND, STATES, crop_name, matches, shot_name)
 
 WINDOWS = sys.platform == "win32"
 REGIONS_FILE = "regions.json"
@@ -94,10 +94,13 @@ def find_parts(container, parts):
     """{part: (x, y, width, height) on the screen} of the showing frame parts under a frame's container window."""
     import uno
     from windows_gui_a11y import showing, walk
+    if not parts:
+        return {}
     roles = {uno.getConstantByName("com.sun.star.accessibility.AccessibleRole." + name): name
-             for name in ("PANEL", "TOOL_BAR", "FILLER", "STATUS_BAR", "PAGE_TAB_LIST", "WINDOW", "SCROLL_PANE")}
+             for name in {role for part in parts for role in REGIONS[part][0]}}
     found = {}
-    for context, _depth in walk(container, limit=10):
+    # toolkit windows hand their XAccessible out as a property (VCLXWindow); the frame parts lie near the root
+    for context, _depth in walk(container.getProperty("XAccessible"), limit=4):
         try:
             role = roles.get(context.getAccessibleRole())
             if role is None or not showing(context):
@@ -117,12 +120,18 @@ def relative(parts, origin):
     return {part: [x - origin[0], y - origin[1], w, h] for part, (x, y, w, h) in parts.items()}
 
 
-def press_key(ui, factory, keycode):
-    """A key on the document view, through the office's UI test API (no input event of the operating system)."""
-    from com.sun.star.beans import PropertyValue
-    prop = PropertyValue()
-    prop.Name, prop.Value = "KEYCODE", keycode
-    ui.getTopFocusWindow().getChild(DOCUMENT_VIEW[factory]).executeAction("TYPE", (prop,))
+def press_key(office, doc, key, shift=False):
+    """A key on the document view, posted through the office's toolkit (XToolkitRobot: a VCL event inside the office,
+    handled like typed input, so Shift+F10 opens the context menu; not an input event of the operating system)."""
+    import uno
+    from com.sun.star.awt import KeyEvent
+    event = KeyEvent()
+    event.Source = doc.getCurrentController().getFrame().getComponentWindow()
+    event.KeyCode = uno.getConstantByName("com.sun.star.awt.Key." + key)
+    event.Modifiers = uno.getConstantByName("com.sun.star.awt.KeyModifier.SHIFT") if shift else 0
+    toolkit = office.service("com.sun.star.awt.Toolkit")
+    toolkit.keyPress(event)
+    toolkit.keyRelease(event)
 
 
 class Run:
@@ -147,7 +156,7 @@ class Run:
         name = shot_name(app, state, look)
         if state == "backstage":
             office.dispatch(frame, BACKSTAGE_COMMAND)
-            time.sleep(4)
+            time.sleep(8)  # the File tab lays out its pages and pictures
         parts = find_parts(frame.getContainerWindow(), STATES[state])
         for part in STATES[state]:
             if part not in parts:
@@ -158,12 +167,12 @@ class Run:
             office.dispatch(frame, BACKSTAGE_COMMAND)  # back to the document
             time.sleep(2)
 
-    def context_menu(self, ui, app, factory, doc, look):
+    def context_menu(self, office, app, doc, look):
         name = shot_name(app, "context-menu", look)
         doc.getCurrentController().getFrame().getContainerWindow().setFocus()
         time.sleep(1)
         before = self.screen.windows()
-        press_key(ui, factory, "SHIFT+F10")
+        press_key(office, doc, "F10", shift=True)
         deadline, menu = time.time() + 10, None
         while menu is None and time.time() < deadline:
             time.sleep(0.5)
@@ -174,11 +183,10 @@ class Run:
             return
         time.sleep(1)
         self.shoot(menu, name)
-        press_key(ui, factory, "ESC")
+        press_key(office, doc, "ESCAPE")
         time.sleep(1)
 
     def look(self, office, look, apps):
-        ui = office.service("com.sun.star.ui.test.UITest")
         for app in apps:
             factory, text = APPS[app]
             before = self.screen.windows()
@@ -192,7 +200,7 @@ class Run:
             office.dispatch(doc.getCurrentController().getFrame(), SIDEBAR_COMMAND)
             time.sleep(3)
             self.window_state(office, app, doc, win, "window", look)
-            self.context_menu(ui, app, factory, doc, look)
+            self.context_menu(office, app, doc, look)
             self.window_state(office, app, doc, win, "backstage", look)
             try:
                 doc.close(True)
