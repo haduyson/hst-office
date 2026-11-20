@@ -286,10 +286,12 @@ class LabelAndWidening(unittest.TestCase):
         self.assertEqual(failed(self.cut_box(0, 8, scale=2), "label_cut"), [])
         self.assertTrue(failed(self.cut_box(0, 9, scale=2), "label_cut"))
 
-    def test_a_box_drawing_its_native_frame_cut_fails(self):
+    def test_a_box_drawing_its_native_frame_cut_is_only_information(self):
         d = baseline()
         d["groups"][1]["blocks"][0]["items"][0]["native_cut"] = True
-        self.assertEqual(failed(d, "label_cut"), ["gdB bxB1 native box frame cut"])
+        self.assertEqual(failed(d, "label_cut"), [])
+        self.assertEqual(dump_summary(d)["native_cut"], ["gdB bxB1"])
+        self.assertEqual(summarize([d])["native_cut"], [f"{d['app']} {d['tab']} @{dump_width(d)}: gdB bxB1"])
 
     def test_a_box_with_its_frame_whole_passes(self):
         d = baseline()
