@@ -1,5 +1,4 @@
-HST Office: the File tab (backstage) in the HST frame coat — tests and interface only (red build).
-
+HST Office: the File tab (backstage) in the HST frame coat.
 
 With the coat on (FrameCoat/Backstage under UiCoat/Enabled or HST_UI_COAT, never in high contrast) every colour
 of the File panel and its title band comes from the design tokens (<vcl/hst/designtokens.hxx>), and the left
@@ -365,7 +364,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sfx2/source/backstage/hstbackstagecoat.cxx
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,286 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of HST Office, based on LibreOffice.
@@ -375,38 +374,280 @@ LicenseRef-HST-Proprietary like the coat's other files.
 + * file, You can obtain one at http://mozilla.org/MPL/2.0/.
 + */
 +
-+// the interface of the File panel's coat before it is implemented: the tests build and fail
-+
 +#include "hstbackstagecoat.hxx"
++#include "hstbackstagelegacycolors.hxx"
 +
++#include <algorithm>
++#include <cmath>
++
++#include <tools/poly.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/drawhelpers.hxx>
++#include <vcl/hst/framecoat.hxx>
 +#include <vcl/image.hxx>
 +#include <vcl/outdev.hxx>
 +#include <vcl/settings.hxx>
 +#include <vcl/virdev.hxx>
++#include <vcl/wall.hxx>
 +
 +namespace sfx2::hst
 +{
-+BackstageColors GetBackstageColors(const StyleSettings&, BackstageApp, bool) { return BackstageColors(); }
-+
-+bool BackstageCoatActive(const StyleSettings&) { return false; }
-+
-+tools::Long CoatNavItemHeight(tools::Long, tools::Long, int, tools::Long, double) { return 0; }
-+
-+tools::Rectangle CoatNavPill(const Size&, double) { return tools::Rectangle(); }
-+
-+tools::Long CoatNavWidth(tools::Long, double) { return 0; }
-+
-+void PaintCoatNavItem(OutputDevice&, const StyleSettings&, const NavItemState&, const OUString&, const Image&,
-+                      bool, double)
++namespace
 +{
++namespace design = ::hst::design;
++
++tools::Long px(double fLength, double fScale)
++{
++    return static_cast<tools::Long>(std::lround(fLength * fScale));
 +}
 +
-+void PaintTilePage(VirtualDevice&, const BackstageColors&, const StyleSettings&, bool, bool, tools::Long,
-+                   tools::Long, double)
++double luminance(const Color& rColor)
 +{
++    auto lin = [](sal_uInt8 c) {
++        double v = c / 255.0;
++        return v <= 0.03928 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
++    };
++    return 0.2126 * lin(rColor.GetRed()) + 0.7152 * lin(rColor.GetGreen())
++           + 0.0722 * lin(rColor.GetBlue());
 +}
 +
-+void DrawHouse(OutputDevice&, const Point&, tools::Long, const Color&) {}
++/// The application colour of the earlier look, darkened until white text on it has at least a 4.5:1
++/// contrast (WCAG AA).
++Color legacyAppColor(BackstageApp eApp)
++{
++    const Color aBase = eApp == BackstageApp::Writer    ? legacy::WRITER_COLOR
++                        : eApp == BackstageApp::Calc    ? legacy::CALC_COLOR
++                        : eApp == BackstageApp::Impress ? legacy::IMPRESS_COLOR
++                        : eApp == BackstageApp::Draw    ? legacy::DRAW_COLOR
++                                                        : legacy::OTHER_COLOR;
++    for (double fFactor = 1.0; fFactor > 0.3; fFactor -= 0.02)
++    {
++        Color aColor(static_cast<sal_uInt8>(aBase.GetRed() * fFactor),
++                     static_cast<sal_uInt8>(aBase.GetGreen() * fFactor),
++                     static_cast<sal_uInt8>(aBase.GetBlue() * fFactor));
++        if (1.05 / (luminance(aColor) + 0.05) >= 4.5)
++            return aColor;
++    }
++    return aBase;
++}
++
++BackstageColors legacyColors(const StyleSettings& rStyle, BackstageApp eApp)
++{
++    BackstageColors c;
++    const Color aWindow(rStyle.GetWindowColor());
++    const Color aText(rStyle.GetWindowTextColor());
++    const bool bDark = aWindow.IsDark();
++    const Color aApp = legacyAppColor(eApp);
++    c.aAccent = aApp;
++    if (bDark)
++        c.aAccent.Merge(legacy::LIGHTEN, 150); // the darkened colour is too dark on a dark window
++    c.aPanel = aWindow;
++    c.aCard = aWindow;
++    c.aNavBack = aWindow;
++    c.aNavBack.Merge(bDark ? legacy::LIGHTEN : aApp, 244);
++    c.aNavSeparator = c.aNavBack;
++    c.aNavSeparator.Merge(aText, 215);
++    // the selected item is tinted with the accent and marked by a bar of it, the hovered one is tinted lightly
++    c.aNavSelected = c.aNavBack;
++    c.aNavSelected.Merge(c.aAccent, 220);
++    c.aNavHover = c.aNavBack;
++    c.aNavHover.Merge(c.aAccent, 238);
++    c.aNavText = aText;
++    c.aNavSelectedText = aText;
++    c.aNavGlyph = aText;
++    c.aNavSelectedGlyph = aText;
++    c.aPaper = legacy::PAPER;
++    c.aPaperBlank = legacy::PAPER_BLANK;
++    c.aPaperBorder = bDark ? legacy::PAPER_BORDER_DARK : legacy::PAPER_BORDER;
++    c.aPaperInk = legacy::PAPER_INK;
++    c.aPaperLines = legacy::PAPER_LINES;
++    c.aBand = aWindow;
++    c.aBandText = aText;
++    c.aBandMuted = aText;
++    c.aBandMuted.Merge(aWindow, 110); // a grey between text and window
++    c.aBandButtonRing = c.aBandMuted;
++    c.aBandButtonHover = rStyle.GetFaceColor();
++    c.aBandButtonHoverRing = rStyle.GetHighlightColor();
++    return c;
++}
++
++BackstageColors coatColors(const StyleSettings& rStyle)
++{
++    const design::Palette& p = design::GetPalette(rStyle);
++    BackstageColors c;
++    c.bCoat = true;
++    c.aAccent = p.aSelectedIndicator;
++    c.aPanel = p.aFrameSurface;
++    c.aCard = p.aCard;
++    c.aNavBack = p.aSide;
++    c.aNavSeparator = p.aCardBorder;
++    c.aNavSelected = p.aPill;
++    c.aNavHover = p.aHover;
++    c.aNavText = p.aText;
++    c.aNavSelectedText = p.aAccent;
++    c.aNavGlyph = p.aIcon;
++    c.aNavSelectedGlyph = p.aAccent;
++    c.aPaper = p.aFrameSurface;
++    c.aPaperBlank = p.aCard;
++    c.aPaperBorder = p.aCardBorder;
++    c.aPaperInk = p.aText;
++    c.aPaperLines = p.aCardBorder;
++    c.aBand = p.aFrameSurface;
++    c.aBandText = p.aText;
++    c.aBandMuted = p.aMuted;
++    c.aBandButtonRing = p.aCardBorder;
++    c.aBandButtonHover = p.aHover;
++    c.aBandButtonHoverRing = p.aAccent;
++    return c;
++}
++}
++
++BackstageColors GetBackstageColors(const StyleSettings& rStyle, BackstageApp eApp, bool bCoat)
++{
++    return bCoat ? coatColors(rStyle) : legacyColors(rStyle, eApp);
++}
++
++bool BackstageCoatActive(const StyleSettings& rStyle)
++{
++    return ::hst::coat::FrameCoatActive(::hst::coat::FrameComponent::Backstage, rStyle);
++}
++
++tools::Long CoatNavItemHeight(tools::Long nAvailable, tools::Long nFixed, int nItems,
++                              tools::Long nTextHeight, double fScale)
++{
++    const tools::Long nFloor
++        = std::max(px(coat::NAV_ITEM_MIN_HEIGHT, fScale), nTextHeight + px(4, fScale));
++    const tools::Long nFull = std::max(px(coat::NAV_ITEM_HEIGHT, fScale), nFloor);
++    if (nItems <= 0)
++        return nFull;
++    const tools::Long nFit = (nAvailable - nFixed) / nItems;
++    return std::clamp(nFit, nFloor, nFull);
++}
++
++tools::Rectangle CoatNavPill(const Size& rSize, double fScale)
++{
++    const tools::Long nInset = px(design::space::S, fScale);
++    return tools::Rectangle(Point(nInset, 0),
++                            Size(std::max<tools::Long>(1, rSize.Width() - 2 * nInset), rSize.Height()));
++}
++
++tools::Long CoatNavWidth(tools::Long nTextWidth, double fScale)
++{
++    // the pill's insets, the glyph with space::M on both sides, the text and space::S after it
++    const tools::Long nChrome = px(2 * design::space::S + 2 * design::space::M + design::icon::Nav
++                                       + design::space::S,
++                                   fScale);
++    return std::max(px(200, fScale), nTextWidth + nChrome);
++}
++
++void DrawHouse(OutputDevice& rDev, const Point& rTopLeft, tools::Long nSize, const Color& rColor)
++{
++    const tools::Long x = rTopLeft.X(), y = rTopLeft.Y();
++    auto at = [&](double fX, double fY) {
++        return Point(x + static_cast<tools::Long>(fX * nSize), y + static_cast<tools::Long>(fY * nSize));
++    };
++    rDev.SetLineColor(rColor);
++    rDev.SetFillColor();
++    const Point aOutline[] = { at(0.06, 0.5), at(0.5, 0.1), at(0.94, 0.5) };
++    rDev.DrawPolyLine(tools::Polygon(3, aOutline));
++    const Point aBody[] = { at(0.2, 0.38), at(0.2, 0.92), at(0.8, 0.92), at(0.8, 0.38) };
++    rDev.DrawPolyLine(tools::Polygon(4, aBody));
++    rDev.DrawRect(tools::Rectangle(at(0.42, 0.62), at(0.58, 0.92)));
++}
++
++void PaintCoatNavItem(OutputDevice& rDev, const StyleSettings& rStyle, const NavItemState& rState,
++                      const OUString& rText, const Image& rIcon, bool bHouse, double fScale)
++{
++    const design::Palette& p = design::GetPalette(rStyle);
++    const BackstageColors c = coatColors(rStyle);
++    const Size aSize = rDev.GetOutputSizePixel();
++    const tools::Rectangle aAll(Point(), aSize);
++    auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR
++                                | vcl::PushFlags::FONT | vcl::PushFlags::TEXTCOLOR);
++    // the side panel's colour at the item (its gradient is a step of a few levels top to bottom)
++    rDev.SetLineColor();
++    rDev.SetFillColor(c.aNavBack);
++    rDev.DrawRect(aAll);
++
++    const tools::Rectangle aPill = CoatNavPill(aSize, fScale);
++    if (rState.bSelected || rState.bHover)
++        design::DrawPill(rDev, aPill, p, rState.bSelected, fScale);
++    if (rState.bFocus)
++    {
++        // the item has no room around its pill: the ring lies on the pill's edge, inside the item
++        const tools::Long nOut = px(design::FOCUS_RING_GAP + design::FOCUS_RING_WIDTH, fScale);
++        tools::Rectangle aInner(aPill);
++        aInner.shrink(nOut);
++        design::DrawFocusRing(rDev, aInner, std::max(0.0, design::radius::Control * fScale - nOut), p,
++                              fScale);
++    }
++
++    const tools::Long nGlyph = px(design::icon::Nav, fScale);
++    const tools::Long nGlyphX = aPill.Left() + px(design::space::M, fScale);
++    const tools::Long nCentreY = aSize.Height() / 2;
++    if (bHouse)
++    {
++        const tools::Long nHouse = px(16, fScale);
++        DrawHouse(rDev, Point(nGlyphX + (nGlyph - nHouse) / 2, nCentreY - nHouse / 2), nHouse,
++                  rState.bSelected ? c.aNavSelectedGlyph : c.aNavGlyph);
++    }
++    else if (!rIcon.GetSizePixel().IsEmpty())
++    {
++        const Size aIcon(rIcon.GetSizePixel());
++        rDev.DrawImage(Point(nGlyphX + (nGlyph - aIcon.Width()) / 2, nCentreY - aIcon.Height() / 2), rIcon);
++    }
++
++    rDev.SetFont(design::MakePixelFont(rStyle, rState.bSelected ? design::type::NavSelected
++                                                                : design::type::Nav,
++                                       rDev.GetDPIY()));
++    const tools::Long nTextX = nGlyphX + nGlyph + px(design::space::M, fScale);
++    const tools::Long nMaxWidth = aPill.Right() - px(design::space::S, fScale) - nTextX;
++    if (nMaxWidth > 0 && !rText.isEmpty())
++    {
++        rDev.SetTextColor(rState.bSelected ? c.aNavSelectedText : c.aNavText);
++        rDev.DrawText(Point(nTextX, nCentreY - rDev.GetTextHeight() / 2),
++                      rDev.GetEllipsisString(rText, nMaxWidth));
++    }
++}
++
++void PaintTilePage(VirtualDevice& rDev, const BackstageColors& rColors, const StyleSettings& rStyle,
++                   bool bNd30, bool bBlank, tools::Long nWidth, tools::Long nHeight, double fScale)
++{
++    auto scaled = [fScale](tools::Long n) { return static_cast<tools::Long>(n * fScale + 0.5); };
++    rDev.SetOutputSizePixel(Size(nWidth, nHeight));
++    rDev.SetBackground(Wallpaper(rColors.aCard));
++    rDev.Erase();
++    const tools::Rectangle aPage(Point(0, 0), Size(nWidth, nHeight));
++    const Color aFill = bBlank ? rColors.aPaperBlank : rColors.aPaper;
++    if (rColors.bCoat)
++        design::DrawRoundRect(rDev, aPage, design::radius::Check * fScale, aFill, rColors.aPaperBorder);
++    else
++    {
++        rDev.SetLineColor(rColors.aPaperBorder);
++        rDev.SetFillColor(aFill);
++        rDev.DrawRect(aPage);
++    }
++    if (!bNd30)
++        return;
++    vcl::Font aFont(rStyle.GetAppFont());
++    aFont.SetFontHeight(scaled(5));
++    aFont.SetWeight(WEIGHT_BOLD);
++    aFont.SetColor(rColors.aPaperInk);
++    rDev.SetFont(aFont);
++    rDev.SetTextColor(rColors.aPaperInk);
++    const OUString aLine1(u"CỘNG HÒA XÃ HỘI"_ustr);
++    const OUString aLine2(u"CHỦ NGHĨA VIỆT NAM"_ustr);
++    const tools::Long nH = rDev.GetTextHeight();
++    rDev.DrawText(Point((nWidth - rDev.GetTextWidth(aLine1)) / 2, scaled(12)), aLine1);
++    rDev.DrawText(Point((nWidth - rDev.GetTextWidth(aLine2)) / 2, scaled(12) + nH), aLine2);
++    rDev.SetLineColor(rColors.aPaperInk);
++    rDev.DrawLine(Point(nWidth / 2 - scaled(14), scaled(14) + 2 * nH),
++                  Point(nWidth / 2 + scaled(14), scaled(14) + 2 * nH));
++    // text lines of the body
++    rDev.SetLineColor(rColors.aPaperLines);
++    for (tools::Long y = scaled(36); y < nHeight - scaled(12); y += scaled(6))
++        rDev.DrawLine(Point(scaled(10), y), Point(nWidth - scaled(10), y));
++}
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -527,3 +768,687 @@ LicenseRef-HST-Proprietary like the coat's other files.
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/backstage/hstbackstagelegacycolors.hxx
+@@ -0,0 +1,39 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <tools/color.hxx>
++
++/* HST Office: the colours of the File panel before the HST frame coat, kept as its fallback look
++   (FrameCoat/Backstage off, the coat off, high contrast). They are the only colour literals of the
++   File panel's code: the coat takes every colour from <vcl/hst/designtokens.hxx>
++   (GetBackstageColors, hstbackstagecoat.hxx). */
++namespace sfx2::hst::legacy
++{
++// the application colours, the same as the ribbon tint of NotebookBar::UpdateBackground()
++inline constexpr Color WRITER_COLOR(0x1a, 0x85, 0xd1);
++inline constexpr Color CALC_COLOR(0x3c, 0xbc, 0x45);
++inline constexpr Color IMPRESS_COLOR(0xe7, 0x57, 0x29);
++// HST Draw's amber (branding/icons/app/hst-draw.svg)
++inline constexpr Color DRAW_COLOR(0xf2, 0xa9, 0x00);
++inline constexpr Color OTHER_COLOR(0x5b, 0x6b, 0x7f);
++/// lightens the darkened application colour on a dark window
++inline constexpr Color LIGHTEN = COL_WHITE;
++
++// the page preview of a "create new" tile: the page stays white in dark mode (it is the paper)
++inline constexpr Color PAPER_BLANK = COL_WHITE;
++inline constexpr Color PAPER = Color(0xf7, 0xf8, 0xfa);
++inline constexpr Color PAPER_BORDER = Color(0xcf, 0xd6, 0xe0);
++inline constexpr Color PAPER_BORDER_DARK = Color(0x5f, 0x63, 0x68);
++inline constexpr Color PAPER_INK = Color(0x1d, 0x24, 0x33);
++inline constexpr Color PAPER_LINES = Color(0xcf, 0xd6, 0xe0);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/backstage/hstbackstagewindow.cxx
++++ b/sfx2/source/backstage/hstbackstagewindow.cxx
+@@ -47,7 +47,6 @@
+ #include <sfx2/viewfrm.hxx>
+ #include <sfx2/viewsh.hxx>
+ #include <toolkit/helper/vclunohelper.hxx>
+-#include <tools/poly.hxx>
+ #include <tools/urlobj.hxx>
+ #include <unotools/historyoptions.hxx>
+ #include <vcl/commandevent.hxx>
+@@ -55,6 +54,8 @@
+ #include <vcl/event.hxx>
+ #include <vcl/HstBanner.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/drawhelpers.hxx>
+ #include <vcl/ctrl.hxx>
+ #include <vcl/lineinfo.hxx>
+ #include <vcl/ptrstyle.hxx>
+@@ -76,14 +77,6 @@ namespace sfx2::hst
+ {
+ namespace
+ {
+-// HST Office application colours, the same as the ribbon tint of NotebookBar::UpdateBackground()
+-constexpr Color WRITER_COLOR(0x1a, 0x85, 0xd1);
+-constexpr Color CALC_COLOR(0x3c, 0xbc, 0x45);
+-constexpr Color IMPRESS_COLOR(0xe7, 0x57, 0x29);
+-// HST Draw's amber (branding/icons/app/hst-draw.svg)
+-constexpr Color DRAW_COLOR(0xf2, 0xa9, 0x00);
+-constexpr Color OTHER_COLOR(0x5b, 0x6b, 0x7f);
+-
+ // sizes at 100 %, scaled with the UI scale (BackstageWindow::Scaled)
+ constexpr size_t PAGE_TITLES = 6; // New, Open, Info, Save As, Print, Export: the rest of m_aTitles are headings
+ constexpr tools::Long PANEL_INSET = 8; // from the left edge of the ribbon, and kept free below the panel
+@@ -95,35 +88,6 @@ constexpr tools::Long TILE_WIDTH = 88;
+ constexpr tools::Long TILE_HEIGHT = 112;
+ constexpr size_t HOME_TILES = 4;
+ 
+-double lcl_luminance(const Color& rColor)
+-{
+-    auto lin = [](sal_uInt8 c) {
+-        double v = c / 255.0;
+-        return v <= 0.03928 ? v / 12.92 : std::pow((v + 0.055) / 1.055, 2.4);
+-    };
+-    return 0.2126 * lin(rColor.GetRed()) + 0.7152 * lin(rColor.GetGreen())
+-           + 0.0722 * lin(rColor.GetBlue());
+-}
+-
+-/// The application colour, darkened until white text on it has at least a 4.5:1 contrast (WCAG AA).
+-Color lcl_navColor(BackstageApp eApp)
+-{
+-    Color aBase = eApp == BackstageApp::Writer    ? WRITER_COLOR
+-                  : eApp == BackstageApp::Calc    ? CALC_COLOR
+-                  : eApp == BackstageApp::Impress ? IMPRESS_COLOR
+-                  : eApp == BackstageApp::Draw    ? DRAW_COLOR
+-                                                  : OTHER_COLOR;
+-    for (double fFactor = 1.0; fFactor > 0.3; fFactor -= 0.02)
+-    {
+-        Color aColor(static_cast<sal_uInt8>(aBase.GetRed() * fFactor),
+-                     static_cast<sal_uInt8>(aBase.GetGreen() * fFactor),
+-                     static_cast<sal_uInt8>(aBase.GetBlue() * fFactor));
+-        if (1.05 / (lcl_luminance(aColor) + 0.05) >= 4.5)
+-            return aColor;
+-    }
+-    return aBase;
+-}
+-
+ BackstageApp lcl_detectApp(const uno::Reference<frame::XFrame>& rxFrame)
+ {
+     try
+@@ -256,60 +220,6 @@ bool lcl_updateAvailable(const uno::Reference<frame::XFrame>& rxFrame)
+     return xProbe->m_bEnabled;
+ }
+ 
+-/// Paint the page preview of a "create new" tile: a page with a thin border; the
+-/// administrative document also shows the national motto heading. A generic page, never an
+-/// image of the current document.
+-void lcl_paintTile(VirtualDevice& rDev, bool bNd30, bool bBlank, float fScale)
+-{
+-    const StyleSettings& rStyle = Application::GetSettings().GetStyleSettings();
+-    const bool bDark = rStyle.GetWindowColor().IsDark();
+-    auto px = [fScale](tools::Long n) { return static_cast<tools::Long>(n * fScale + 0.5); };
+-    const tools::Long nWidth = px(TILE_WIDTH), nHeight = px(TILE_HEIGHT);
+-    rDev.SetOutputSizePixel(Size(nWidth, nHeight));
+-    rDev.SetBackground(Wallpaper(rStyle.GetWindowColor()));
+-    rDev.Erase();
+-    // the page stays white in dark mode (it is the paper), with a softer border
+-    rDev.SetLineColor(bDark ? Color(0x5f, 0x63, 0x68) : Color(0xcf, 0xd6, 0xe0));
+-    rDev.SetFillColor(bBlank ? COL_WHITE : Color(0xf7, 0xf8, 0xfa));
+-    rDev.DrawRect(tools::Rectangle(Point(0, 0), Size(nWidth, nHeight)));
+-    if (bNd30)
+-    {
+-        vcl::Font aFont(rStyle.GetAppFont());
+-        aFont.SetFontHeight(px(5));
+-        aFont.SetWeight(WEIGHT_BOLD);
+-        aFont.SetColor(Color(0x1d, 0x24, 0x33));
+-        rDev.SetFont(aFont);
+-        rDev.SetTextColor(Color(0x1d, 0x24, 0x33));
+-        const OUString aLine1(u"CỘNG HÒA XÃ HỘI"_ustr);
+-        const OUString aLine2(u"CHỦ NGHĨA VIỆT NAM"_ustr);
+-        const tools::Long nH = rDev.GetTextHeight();
+-        rDev.DrawText(Point((nWidth - rDev.GetTextWidth(aLine1)) / 2, px(12)), aLine1);
+-        rDev.DrawText(Point((nWidth - rDev.GetTextWidth(aLine2)) / 2, px(12) + nH), aLine2);
+-        rDev.SetLineColor(Color(0x1d, 0x24, 0x33));
+-        rDev.DrawLine(Point(nWidth / 2 - px(14), px(14) + 2 * nH), Point(nWidth / 2 + px(14), px(14) + 2 * nH));
+-        // text lines of the body
+-        rDev.SetLineColor(Color(0xcf, 0xd6, 0xe0));
+-        for (tools::Long y = px(36); y < nHeight - px(12); y += px(6))
+-            rDev.DrawLine(Point(px(10), y), Point(nWidth - px(10), y));
+-    }
+-}
+-
+-/// A house outline in a square of nSize pixels, the icon of the Home item.
+-void lcl_drawHouse(OutputDevice& rDev, const Point& rTopLeft, tools::Long nSize, const Color& rColor)
+-{
+-    const tools::Long x = rTopLeft.X(), y = rTopLeft.Y();
+-    auto at = [&](double fX, double fY) {
+-        return Point(x + static_cast<tools::Long>(fX * nSize), y + static_cast<tools::Long>(fY * nSize));
+-    };
+-    rDev.SetLineColor(rColor);
+-    rDev.SetFillColor();
+-    const Point aOutline[] = { at(0.06, 0.5), at(0.5, 0.1), at(0.94, 0.5) };
+-    rDev.DrawPolyLine(tools::Polygon(3, aOutline));
+-    const Point aBody[] = { at(0.2, 0.38), at(0.2, 0.92), at(0.8, 0.92), at(0.8, 0.38) };
+-    rDev.DrawPolyLine(tools::Polygon(4, aBody));
+-    rDev.DrawRect(tools::Rectangle(at(0.42, 0.62), at(0.58, 0.92)));
+-}
+-
+ /// The icon of a left-column item: the icon of the command it runs (or of its page), from the
+ /// icon theme of the frame (so the dark theme gets its own).
+ OUString lcl_navIconCommand(std::u16string_view rId)
+@@ -374,13 +284,14 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+     , m_pPendingPlace(nullptr)
+     , m_nDismissedAt(0)
+     , m_eApp(lcl_detectApp(m_xFrame))
+-    , m_aNavColor(lcl_navColor(m_eApp))
+     , m_ePage(Page::Home)
+     , m_bOpen(false)
+     , m_bNewPageInitialized(false)
+     , m_nSelectedNav(0)
+     , m_nHoverNav(-1)
++    , m_nFocusNav(-1)
+     , m_nNavWidth(0)
++    , m_nNavItemHeight(0)
+     , m_fScale(std::max(1.0f, pContainer->GetDPIScaleFactor()))
+     , m_xPanel(m_xBuilder->weld_container(u"HstBackstage"_ustr))
+     , m_xAccent(m_xBuilder->weld_container(u"accent"_ustr))
+@@ -442,6 +353,8 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+ {
+     InitNavigation();
+     InitHomePage();
++    for (const auto& rId : { u"tiles"_ustr, u"infogrid"_ustr, u"pageexportgrid"_ustr })
++        m_aCards.push_back(m_xBuilder->weld_container(rId));
+ 
+     // the page titles first (PAGE_TITLES), then the section headings
+     for (const auto& rId : { u"newtitle"_ustr, u"opentitle"_ustr, u"infotitle"_ustr,
+@@ -551,6 +464,8 @@ void BackstageWindow::InitNavigation()
+         aItem.xButton->connect_clicked(LINK(this, BackstageWindow, NavClickHdl));
+         aItem.xHover.reset(new NavHover(*this, m_aNav.size()));
+         aItem.xButton->connect_mouse_move(LINK(aItem.xHover.get(), NavHover, MouseHdl));
++        aItem.xButton->connect_focus_in(LINK(aItem.xHover.get(), NavHover, FocusInHdl));
++        aItem.xButton->connect_focus_out(LINK(aItem.xHover.get(), NavHover, FocusOutHdl));
+         m_aNav.push_back(std::move(aItem));
+     }
+ }
+@@ -569,11 +484,20 @@ tools::Long BackstageWindow::GetNavWidth()
+     if (!m_aNav.empty())
+     {
+         ScopedVclPtr<VirtualDevice> xDev = m_aNav.front().xButton->create_virtual_device();
+-        vcl::Font aFont(GetNavFont(*xDev));
+-        aFont.SetWeight(WEIGHT_BOLD); // the selected item
+-        xDev->SetFont(aFont);
++        if (m_aColors.bCoat)
++            xDev->SetFont(::hst::design::MakePixelFont(Application::GetSettings().GetStyleSettings(),
++                                                       ::hst::design::type::NavSelected, xDev->GetDPIY()));
++        else
++        {
++            vcl::Font aFont(GetNavFont(*xDev));
++            aFont.SetWeight(WEIGHT_BOLD); // the selected item
++            xDev->SetFont(aFont);
++        }
++        tools::Long nText = 0;
+         for (const NavItem& rItem : m_aNav)
+-            m_nNavWidth = std::max(m_nNavWidth, xDev->GetTextWidth(rItem.aText) + Scaled(NAV_TEXT_INDENT + 16));
++            nText = std::max(nText, xDev->GetTextWidth(rItem.aText));
++        m_nNavWidth = m_aColors.bCoat ? CoatNavWidth(nText, m_fScale)
++                                      : std::max(m_nNavWidth, nText + Scaled(NAV_TEXT_INDENT + 16));
+     }
+     return m_nNavWidth;
+ }
+@@ -587,32 +511,59 @@ vcl::Font BackstageWindow::GetNavFont(const OutputDevice& rDevice) const
+     return aFont;
+ }
+ 
++tools::Long BackstageWindow::GetNavItemHeight(tools::Long nPanelHeight)
++{
++    if (!m_aColors.bCoat || m_aNav.empty())
++        return Scaled(NAV_ITEM_HEIGHT);
++    ScopedVclPtr<VirtualDevice> xDev = m_aNav.front().xButton->create_virtual_device();
++    xDev->SetFont(::hst::design::MakePixelFont(Application::GetSettings().GetStyleSettings(),
++                                               ::hst::design::type::NavSelected, xDev->GetDPIY()));
++    // what the column holds besides its items (hstbackstage.ui, in unscaled pixels): the accent strip
++    // (3) above it, its margins (8 + 8), the separator (1 + 6 + 6) and the gaps between its 14 children
++    constexpr tools::Long NAV_FIXED = 3 + 16 + 13 + 13 * coat::NAV_ITEM_GAP;
++    return CoatNavItemHeight(nPanelHeight, NAV_FIXED, static_cast<int>(m_aNav.size()),
++                             xDev->GetTextHeight(), m_fScale);
++}
++
+ void BackstageWindow::PaintNavItem(size_t nIndex)
+ {
+     NavItem& rItem = m_aNav[nIndex];
+     const bool bSelected = static_cast<int>(nIndex) == m_nSelectedNav;
+     const tools::Long nWidth = GetNavWidth();
+-    const tools::Long nHeight = Scaled(NAV_ITEM_HEIGHT);
++    if (!m_nNavItemHeight)
++        m_nNavItemHeight = GetNavItemHeight(LONG_MAX / 2);
++    const tools::Long nHeight = m_nNavItemHeight;
+     ScopedVclPtr<VirtualDevice> xDev = rItem.xButton->create_virtual_device();
+     xDev->SetOutputSizePixel(Size(nWidth, nHeight));
++    rItem.xButton->set_size_request(nWidth, nHeight);
++    if (m_aColors.bCoat)
++    {
++        // the Start Center's menu: the side panel, a pill for the selected and the hovered item
++        NavItemState aState;
++        aState.bSelected = bSelected;
++        aState.bHover = static_cast<int>(nIndex) == m_nHoverNav;
++        aState.bFocus = static_cast<int>(nIndex) == m_nFocusNav;
++        PaintCoatNavItem(*xDev, Application::GetSettings().GetStyleSettings(), aState, rItem.aText,
++                         rItem.aIcon, rItem.aId == "navhome", m_fScale);
++        rItem.xButton->set_custom_button(xDev.get());
++        return;
++    }
+     // a light column: the selected item is tinted with the application colour and marked by a
+     // bar in that colour on its left edge, the hovered one is tinted more lightly
+-    Color aBack(m_aNavBack);
+-    if (bSelected)
+-        aBack.Merge(m_aAccent, 220);
+-    else if (static_cast<int>(nIndex) == m_nHoverNav)
+-        aBack.Merge(m_aAccent, 238);
++    const Color aBack = bSelected                                     ? m_aColors.aNavSelected
++                        : static_cast<int>(nIndex) == m_nHoverNav ? m_aColors.aNavHover
++                                                                      : m_aColors.aNavBack;
+     xDev->SetBackground(Wallpaper(aBack));
+     xDev->Erase();
+     if (bSelected)
+     {
+         xDev->SetLineColor();
+-        xDev->SetFillColor(m_aAccent);
++        xDev->SetFillColor(m_aColors.aAccent);
+         xDev->DrawRect(tools::Rectangle(Point(0, 0), Size(Scaled(NAV_ACCENT_WIDTH), nHeight)));
+     }
+-    const Color aText(Application::GetSettings().GetStyleSettings().GetWindowTextColor());
++    const Color aText(m_aColors.aNavText);
+     if (rItem.aId == "navhome") // Home runs no command, and the icon themes have no house
+-        lcl_drawHouse(*xDev, Point(Scaled(NAV_ICON_INDENT), (nHeight - Scaled(16)) / 2), Scaled(16), aText);
++        DrawHouse(*xDev, Point(Scaled(NAV_ICON_INDENT), (nHeight - Scaled(16)) / 2), Scaled(16), aText);
+     else if (!rItem.aIcon.GetSizePixel().IsEmpty())
+     {
+         const Size aIcon(rItem.aIcon.GetSizePixel());
+@@ -626,7 +577,6 @@ void BackstageWindow::PaintNavItem(size_t nIndex)
+     xDev->SetTextColor(aText);
+     const tools::Long nTextY = (nHeight - xDev->GetTextHeight()) / 2;
+     xDev->DrawText(Point(Scaled(NAV_TEXT_INDENT), nTextY), rItem.aText);
+-    rItem.xButton->set_size_request(nWidth, nHeight);
+     rItem.xButton->set_custom_button(xDev.get());
+ }
+ 
+@@ -640,6 +590,26 @@ IMPL_LINK(BackstageWindow::NavHover, MouseHdl, const MouseEvent&, rMEvt, bool)
+     return false;
+ }
+ 
++// the focus ring of the coat is a part of the item's image
++IMPL_LINK_NOARG(BackstageWindow::NavHover, FocusInHdl, weld::Widget&, void) { m_rWindow.SetNavFocus(m_nIndex, true); }
++
++IMPL_LINK_NOARG(BackstageWindow::NavHover, FocusOutHdl, weld::Widget&, void) { m_rWindow.SetNavFocus(m_nIndex, false); }
++
++void BackstageWindow::SetNavFocus(int nIndex, bool bFocus)
++{
++    const int nOld = m_nFocusNav;
++    if (bFocus)
++        m_nFocusNav = nIndex;
++    else if (nIndex == m_nFocusNav)
++        m_nFocusNav = -1;
++    if (nOld == m_nFocusNav || !m_aColors.bCoat)
++        return;
++    if (nOld >= 0)
++        PaintNavItem(nOld);
++    if (m_nFocusNav >= 0)
++        PaintNavItem(m_nFocusNav);
++}
++
+ void BackstageWindow::SetNavHover(int nIndex)
+ {
+     if (nIndex == m_nHoverNav)
+@@ -666,22 +636,22 @@ void BackstageWindow::PaintNavItems()
+ 
+ void BackstageWindow::ApplyColors()
+ {
+-    // called on every open, so a theme change (light, dark) between two opens is followed
++    // called on every open, so a theme change (light, dark, high contrast) between two opens is followed
+     const StyleSettings& rStyle = Application::GetSettings().GetStyleSettings();
+-    const Color aWindow(rStyle.GetWindowColor());
+-    const bool bDark = aWindow.IsDark();
+-    m_aAccent = m_aNavColor;
+-    if (bDark)
+-        m_aAccent.Merge(COL_WHITE, 150); // the darkened colour is too dark on a dark window
+-    m_aNavBack = aWindow;
+-    m_aNavBack.Merge(bDark ? COL_WHITE : m_aNavColor, 244);
+-    m_xNavBox->set_background(m_aNavBack);
+-    Color aSeparator(m_aNavBack);
+-    aSeparator.Merge(rStyle.GetWindowTextColor(), 215);
+-    m_xNavSeparator->set_background(aSeparator);
+-    m_xAccent->set_background(m_aAccent);
+-    m_xContent->set_background(aWindow);
+-    m_xPanel->set_background(aWindow);
++    const bool bWasCoat = m_aColors.bCoat;
++    m_aColors = GetBackstageColors(rStyle, m_eApp, BackstageCoatActive(rStyle));
++    if (bWasCoat != m_aColors.bCoat)
++    {
++        m_nNavWidth = 0; // the coat's type is another
++        m_nNavItemHeight = 0;
++    }
++    m_xNavBox->set_background(m_aColors.aNavBack);
++    m_xNavSeparator->set_background(m_aColors.aNavSeparator);
++    m_xAccent->set_background(m_aColors.aAccent);
++    m_xContent->set_background(m_aColors.aPanel);
++    m_xPanel->set_background(m_aColors.aPanel);
++    for (const auto& rCard : m_aCards)
++        rCard->set_background(m_aColors.aCard);
+     for (NavItem& rItem : m_aNav)
+         if (rItem.aId != "navhome")
+             rItem.aIcon = vcl::CommandInfoProvider::GetImageForCommand(lcl_navIconCommand(rItem.aId), m_xFrame);
+@@ -690,14 +660,19 @@ void BackstageWindow::ApplyColors()
+     vcl::Font aTitle(rStyle.GetLabelFont());
+     aTitle.SetFontHeight(aTitle.GetFontHeight() * 1.6);
+     aTitle.SetWeight(WEIGHT_SEMIBOLD);
++    if (m_aColors.bCoat)
++        aTitle = ::hst::design::MakeFont(rStyle, ::hst::design::type::Title);
+     m_xGreeting->set_font(aTitle);
+     for (size_t i = 0; i < m_aTitles.size(); ++i)
+     {
+-        vcl::Font aFont(rStyle.GetLabelFont());
+         // the first PAGE_TITLES are page titles, the others section headings
+         const bool bPageTitle = i < PAGE_TITLES;
++        vcl::Font aFont(rStyle.GetLabelFont());
+         aFont.SetFontHeight(aFont.GetFontHeight() * (bPageTitle ? 1.6 : 1.05));
+         aFont.SetWeight(bPageTitle ? WEIGHT_SEMIBOLD : WEIGHT_BOLD);
++        if (m_aColors.bCoat)
++            aFont = ::hst::design::MakeFont(rStyle, bPageTitle ? ::hst::design::type::Title
++                                                               : ::hst::design::type::Strong);
+         m_aTitles[i]->set_font(aFont);
+     }
+     for (TemplateTile& rTile : m_aTiles)
+@@ -708,7 +683,8 @@ void BackstageWindow::ApplyColors()
+ void BackstageWindow::PaintTile(TemplateTile& rTile)
+ {
+     ScopedVclPtr<VirtualDevice> xDev = rTile.xButton->create_virtual_device();
+-    lcl_paintTile(*xDev, rTile.bNd30, rTile.bBlank, m_fScale);
++    PaintTilePage(*xDev, m_aColors, Application::GetSettings().GetStyleSettings(), rTile.bNd30, rTile.bBlank,
++                  Scaled(TILE_WIDTH), Scaled(TILE_HEIGHT), m_fScale);
+     rTile.xButton->set_image(xDev.get());
+ }
+ 
+@@ -944,15 +920,21 @@ public:
+         Invalidate();
+     }
+ 
++    /// The colours of the File panel's look (GetBackstageColors)
++    void SetColors(const BackstageColors& rColors)
++    {
++        m_aColors = rColors;
++        Invalidate();
++    }
++
+     virtual void Paint(vcl::RenderContext& rDev, const tools::Rectangle&) override
+     {
+         const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
+         const double fDpi = GetDPIScaleFactor();
+         const Size aOut = GetOutputSizePixel();
+-        const Color aBack = rStyle.GetWindowColor();
+-        const Color aText = rStyle.GetWindowTextColor();
+-        Color aSoft(aText);
+-        aSoft.Merge(aBack, 110); // the subtitle and the button's ring: a grey between text and window
++        const Color aBack = m_aColors.aBand;
++        const Color aText = m_aColors.aBandText;
++        const Color aSoft = m_aColors.aBandMuted; // the subtitle and the button's ring
+         rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR | vcl::PushFlags::FONT
+                   | vcl::PushFlags::TEXTCOLOR);
+         rDev.SetLineColor();
+@@ -960,9 +942,16 @@ public:
+         rDev.DrawRect(tools::Rectangle(Point(), aOut));
+         // the back button: a ring with a left arrow, the accent ring while hovered
+         const tools::Rectangle aButton = ButtonRect();
+-        rDev.SetFillColor(m_bHover ? rStyle.GetFaceColor() : aBack);
+-        rDev.SetLineColor(m_bHover ? rStyle.GetHighlightColor() : aSoft);
+-        rDev.DrawEllipse(aButton);
++        if (m_aColors.bCoat)
++            ::hst::design::DrawRoundRect(rDev, aButton, aButton.GetWidth() / 2.0,
++                                         m_bHover ? m_aColors.aBandButtonHover : aBack,
++                                         m_bHover ? m_aColors.aBandButtonHoverRing : m_aColors.aBandButtonRing);
++        else
++        {
++            rDev.SetFillColor(m_bHover ? m_aColors.aBandButtonHover : aBack);
++            rDev.SetLineColor(m_bHover ? m_aColors.aBandButtonHoverRing : m_aColors.aBandButtonRing);
++            rDev.DrawEllipse(aButton);
++        }
+         const Point aCenter = aButton.Center();
+         const tools::Long nArm = std::lround(6 * fDpi), nHead = std::lround(4 * fDpi);
+         const LineInfo aLine(LineStyle::Solid, std::max<tools::Long>(1, std::lround(1.5 * fDpi)));
+@@ -975,7 +964,12 @@ public:
+         vcl::Font aTitleFont(rStyle.GetLabelFont());
+         aTitleFont.SetFontHeight(aTitleFont.GetFontHeight() * 1.6);
+         aTitleFont.SetWeight(WEIGHT_SEMIBOLD);
+-        const vcl::Font aSubFont(rStyle.GetLabelFont());
++        vcl::Font aSubFont(rStyle.GetLabelFont());
++        if (m_aColors.bCoat)
++        {
++            aTitleFont = ::hst::design::MakeFont(rStyle, ::hst::design::type::Title);
++            aSubFont = ::hst::design::MakeFont(rStyle, ::hst::design::type::Body);
++        }
+         rDev.SetFont(aTitleFont);
+         const tools::Long nTitle = rDev.GetTextHeight();
+         rDev.SetFont(aSubFont);
+@@ -1036,6 +1030,7 @@ private:
+     DECL_LINK(ParentEventHdl, VclWindowEvent&, void);
+ 
+     std::function<void()> m_aBack;
++    BackstageColors m_aColors;
+     OUString m_aGreeting;
+     OUString m_aSubtitle;
+     bool m_bHover = false;
+@@ -1153,6 +1148,7 @@ void BackstageWindow::ShowTitleBand(bool bShow)
+     }
+     const OUString aSubtitle = aFile.isEmpty() || aTitle.isEmpty() ? OUString(aFile + aTitle)
+                                                                     : OUString(aFile + u" · " + aTitle);
++    m_xTitleBand->SetColors(m_aColors);
+     m_xTitleBand->SetPosSizePixel(Point(0, nTop), Size(nRight, nBottom - nTop));
+     m_xTitleBand->SetTexts(m_xGreeting->get_label(), aSubtitle);
+     m_xTitleBand->SetZOrder(nullptr, ZOrderFlags::First); // above the tab page and the ribbon's other children
+@@ -1293,6 +1289,12 @@ bool BackstageWindow::Place()
+         return false;
+     const Point aPos
+         = pClient->AbsoluteScreenToOutputPixel(pOrigin->OutputToAbsoluteScreenPixel(aAnchor.TopLeft()));
++    // the coat's left column fits its items into the panel's height before they would be cut
++    if (const tools::Long nItem = GetNavItemHeight(aSize.Height()); nItem != m_nNavItemHeight)
++    {
++        m_nNavItemHeight = nItem;
++        PaintNavItems();
++    }
+     m_xPanel->set_size_request(aSize.Width(), aSize.Height());
+     m_xHost->InvalidateChildSizeCache();
+     const Size aWant = m_xHost->GetOptimalSize();
+--- a/sfx2/source/backstage/hstbackstagewindow.hxx
++++ b/sfx2/source/backstage/hstbackstagewindow.hxx
+@@ -9,6 +9,7 @@
+ 
+ #pragma once
+ 
++#include "hstbackstagecoat.hxx"
+ #include "hstbackstagedata.hxx"
+ #include "hstbackstageprint.hxx"
+ 
+@@ -97,7 +98,7 @@ private:
+         Export
+     };
+ 
+-    /// Tells the view which left-column item the pointer entered or left.
++    /// Tells the view which left-column item the pointer entered or left, and which has the focus.
+     class NavHover
+     {
+         BackstageWindow& m_rWindow;
+@@ -110,6 +111,8 @@ private:
+         {
+         }
+         DECL_LINK(MouseHdl, const MouseEvent&, bool);
++        DECL_LINK(FocusInHdl, weld::Widget&, void);
++        DECL_LINK(FocusOutHdl, weld::Widget&, void);
+     };
+ 
+     struct NavItem
+@@ -142,10 +145,13 @@ private:
+     tools::Long Scaled(tools::Long nPixels) const;
+     tools::Long GetNavWidth();
+     vcl::Font GetNavFont(const OutputDevice& rDevice) const;
++    /// The height of a left-column item: fixed in the earlier look, fitted to nPanelHeight in the coat.
++    tools::Long GetNavItemHeight(tools::Long nPanelHeight);
+     void PaintNavItem(size_t nIndex);
+     void PaintNavItems();
+     void SetNavHover(int nIndex);
+     void ClearNavHover(int nIndex);
++    void SetNavFocus(int nIndex, bool bFocus);
+     void ShowPage(Page ePage);
+     void FillRecentLists();
+     static void FillRecentList(weld::TreeView& rList, const std::vector<BackstageRecentFile>& rFiles,
+@@ -197,15 +203,16 @@ private:
+     ImplSVEvent* m_pPendingPlace;
+     sal_uInt64 m_nDismissedAt; // tools::Time::GetSystemTicks() of the last click outside
+     BackstageApp m_eApp;
+-    Color m_aNavColor; // the application colour, dark enough for white text
+-    Color m_aAccent; // the selection bar and the top edge of the panel
+-    Color m_aNavBack; // the left column
++    /// the colours of the panel in its look (the HST frame coat or the earlier one), set on every open
++    BackstageColors m_aColors;
+     Page m_ePage;
+     bool m_bOpen;
+     bool m_bNewPageInitialized;
+     int m_nSelectedNav;
+     int m_nHoverNav;
++    int m_nFocusNav;
+     tools::Long m_nNavWidth;
++    tools::Long m_nNavItemHeight;
+     float m_fScale;
+     std::unique_ptr<svt::AcceleratorExecute> m_xAccExec;
+ 
+@@ -215,6 +222,8 @@ private:
+     std::unique_ptr<weld::Container> m_xNavBox;
+     std::unique_ptr<weld::Container> m_xNavSeparator;
+     std::unique_ptr<weld::Container> m_xContent;
++    /// the blocks of the pages drawn as cards in the coat: the tiles, the properties, the export choices
++    std::vector<std::unique_ptr<weld::Container>> m_aCards;
+     std::vector<NavItem> m_aNav;
+ 
+     std::unique_ptr<weld::Container> m_xPageHome;
+--- a/sfx2/uiconfig/ui/hstbackstage.ui
++++ b/sfx2/uiconfig/ui/hstbackstage.ui
+@@ -127,11 +127,13 @@
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+     <child>
++      <!-- HST Office: the left column; its items are 4 px apart, as the Start Center's menu rows -->
+       <object class="GtkBox" id="nav">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="vexpand">True</property>
+         <property name="orientation">vertical</property>
++        <property name="spacing">4</property>
+         <property name="margin-top">8</property>
+         <property name="margin-bottom">8</property>
+         <child>
+@@ -328,6 +330,9 @@
+             <property name="fill">True</property>
+           </packing>
+         </child>
++        <style>
++          <class name="hst-backstage-nav"/>
++        </style>
+       </object>
+       <packing>
+         <property name="expand">False</property>
+@@ -380,6 +385,7 @@
+               <object class="GtkBox" id="tiles">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="border-width">12</property>
+                 <property name="spacing">10</property>
+                 <child>
+                   <object class="GtkBox" id="tilebox0">
+@@ -610,6 +616,9 @@
+                     <property name="fill">True</property>
+                   </packing>
+                 </child>
++                <style>
++                  <class name="hst-backstage-card"/>
++                </style>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+@@ -1222,6 +1231,7 @@
+               <object class="GtkGrid" id="infogrid">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="border-width">12</property>
+                 <property name="row-spacing">10</property>
+                 <property name="column-spacing">24</property>
+                 <child>
+@@ -1440,6 +1450,9 @@
+                     <property name="top-attach">7</property>
+                   </packing>
+                 </child>
++                <style>
++                  <class name="hst-backstage-card"/>
++                </style>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+@@ -1852,6 +1865,7 @@
+               <object class="GtkGrid" id="pageexportgrid">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="border-width">12</property>
+                 <property name="row-spacing">10</property>
+                 <property name="column-spacing">16</property>
+                 <child>
+@@ -1984,6 +1998,9 @@
+                     <property name="top-attach">4</property>
+                   </packing>
+                 </child>
++                <style>
++                  <class name="hst-backstage-card"/>
++                </style>
+               </object>
+               <packing>
+                 <property name="expand">False</property>
+--- a/vcl/source/hst/coat/css/backstage.cxx
++++ b/vcl/source/hst/coat/css/backstage.cxx
+@@ -5,17 +5,33 @@
+  * This file is part of HST Office.
+  */
+ 
+-/* The GTK CSS of the File tab (backstage) in the HST look (css-fragments.hxx). */
++/* The GTK CSS of the File tab (backstage) in the HST look (css-fragments.hxx).
++
++   The left column's items (sfx2/uiconfig/ui/hstbackstage.ui, class hst-backstage-nav) are images the
++   panel draws itself, side panel, pill and focus ring included (sfx2 hstbackstagecoat.cxx): the
++   theme's button fill, frame and focus mark stay off them. The blocks of the pages (class
++   hst-backstage-card; the panel sets their fill) get the card's corners and its 1 px border, drawn
++   as an inset shadow that takes no room. */
+ 
+ #include "css-fragments.hxx"
+ 
+ #include <vcl/hst/designtokens.hxx>
+ 
++#include <cmath>
++
+ namespace hst::coat::gtkcss
+ {
+-OUString BackstageCss(const hst::design::Palette& /*rPalette*/)
++OUString BackstageCss(const hst::design::Palette& rPalette)
+ {
+-    return OUString();
++    namespace d = hst::design;
++    const OUString aCardBorder = u"#" + rPalette.aCardBorder.AsRGBHexString();
++    const OUString aCardRadius = OUString::number(std::lround(d::radius::Card)) + u"px";
++    const OUString aBorder = OUString::number(std::lround(d::stroke::Border)) + u"px";
++    return u".hst-backstage-nav button, .hst-backstage-nav button:hover, .hst-backstage-nav button:active,"
++           u" .hst-backstage-nav button:focus { background-color: transparent; border-color: transparent;"
++           u" box-shadow: none; outline-style: none; }\n"
++           u".hst-backstage-card { border-radius: "
++           + aCardRadius + u"; box-shadow: inset 0 0 0 " + aBorder + u" " + aCardBorder + u"; }\n";
+ }
+ }
+ 
