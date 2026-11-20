@@ -13,7 +13,8 @@ HighContrast in the profile's GTK settings).
 - every look: a click on the zoom percentage opens the Zoom dialog; a click on the slider's middle sets 100 % and a
   drag to the right zooms in, to the same values with and without the coat.
 - coat-light against plain: the bar's height and every item's place (the click areas) are equal, and typing --chars
-  characters (the word count repaints on each) takes no longer than --slack times as long.
+  characters (the word count repaints on each) costs no more than --slack times the office's CPU time: both
+  offices run side by side and type in turn, five paired rounds, the median ratio.
 The pointer is moved and clicked with xdotool on the test display (real X events on this run's own Xvfb); keys are
 posted through the office's toolkit (XToolkitRobot). Shots of the bar go to --out. Only the office started here is
 stopped. Exit 0 when every check passes. Run it through tests/runtime/no-hst-telemetry.sh; it refuses to
@@ -86,8 +87,17 @@ def drag(display, x, y, x2):
     xdotool(display, "mouseup", 1)
 
 
+def cpu_seconds(pid):
+    """User + system CPU seconds of a process so far (Linux /proc)."""
+    with open(f"/proc/{pid}/stat", encoding="ascii") as stat:
+        fields = stat.read().rsplit(")", 1)[1].split()
+    return (int(fields[11]) + int(fields[12])) / os.sysconf("SC_CLK_TCK")
+
+
 def type_chars(office, doc, count):
-    """`count` letters typed into the document view; returns the seconds until the text holds them all."""
+    """`count` letters typed into the document view after its text; returns (wall seconds, soffice CPU seconds)
+    until the text holds them all. The CPU time is what the comparison uses: the wall time swings with the host's
+    load."""
     import uno
     from com.sun.star.awt import KeyEvent
     view = doc.getCurrentController().getFrame().getComponentWindow()
@@ -95,14 +105,15 @@ def type_chars(office, doc, count):
     event = KeyEvent()
     event.Source, event.KeyChar, event.KeyCode = view, "a", uno.getConstantByName("com.sun.star.awt.Key.A")
     robot = office.service("com.sun.star.awt.Toolkit")
-    start = time.monotonic()
+    target, pid = len(doc.getText().getString()) + count, office.pid
+    cpu, start = cpu_seconds(pid), time.monotonic()
     for _ in range(count):
         robot.keyPress(event)
         robot.keyRelease(event)
     deadline = start + 300
-    while len(doc.getText().getString()) < count and time.monotonic() < deadline:
+    while len(doc.getText().getString()) < target and time.monotonic() < deadline:
         time.sleep(0.05)
-    return time.monotonic() - start
+    return time.monotonic() - start, cpu_seconds(pid) - cpu
 
 
 def bar_items(container):
@@ -137,6 +148,40 @@ def set_zoom(doc, value):
     settings = doc.getCurrentController().getViewSettings()
     settings.setPropertyValue("ZoomType", 3)  # BY_VALUE
     settings.setPropertyValue("ZoomValue", value)
+
+
+def typing_bench(args, failures, rounds=5):
+    """The coat's repaint cost: a coat-light and a plain office side by side, each typing --chars letters into an
+    emptied Writer document in turn, `rounds` times. Side by side and in turn, both see the same host load; the
+    median of the per-round CPU ratios (coat / plain) must stay within --slack."""
+    import hst_gui
+    offices, docs = {}, {}
+    try:
+        for name in ("coat-light", "plain"):
+            port = args.port if name == "coat-light" else hst_gui.free_port()
+            offices[name] = hst_gui.Office(args.instdir, os.path.join(args.work, f"typing-{name}"), port,
+                                           display=args.display, config=NO_PROMPTS, env=dict(LOOKS[name])).start()
+            docs[name] = offices[name].load("private:factory/swriter")
+            set_zoom(docs[name], 100)
+        time.sleep(3)
+        ratios = []
+        for index in range(rounds):
+            cpu = {}
+            for name in (("coat-light", "plain") if index % 2 == 0 else ("plain", "coat-light")):
+                docs[name].getText().setString("")
+                time.sleep(0.5)
+                wall, cpu[name] = type_chars(offices[name], docs[name], args.chars)
+                print(f"typing round {index + 1} {name}: {wall:.2f} s, {cpu[name]:.2f} s CPU", flush=True)
+            ratios.append(cpu["coat-light"] / cpu["plain"])
+        ratio = sorted(ratios)[len(ratios) // 2]
+        failures.check(ratio <= args.slack, f"typing with the coat takes {ratio:.3f} times the CPU time "
+                                            f"(median of {rounds} paired rounds, <= {args.slack})")
+    finally:
+        for name, office in offices.items():
+            if name in docs:
+                docs[name].setModified(False)
+                docs[name].close(True)
+            office.stop()
 
 
 class Look:
@@ -299,10 +344,6 @@ class Look:
             hst_gui.send_close_request(dialog, self.args.display)
             time.sleep(1.5)
 
-        if self.name in ("coat-light", "plain") and self.args.chars:
-            set_zoom(doc, 100)
-            self.result["typing"] = type_chars(office, doc, self.args.chars)
-            print(f"{self.name}: {self.args.chars} characters typed in {self.result['typing']:.2f} s", flush=True)
 
 
 def telemetry_blocked():
@@ -344,9 +385,9 @@ def main():
     if "slider" in coat and "slider" in plain:
         failures.check(coat["slider"] == plain["slider"],
                        f"the slider zooms alike: {coat['slider']} / {plain['slider']}")
-    if "typing" in coat and "typing" in plain:
-        ratio = coat["typing"] / plain["typing"]
-        failures.check(ratio <= args.slack, f"typing with the coat takes {ratio:.3f} times as long (<= {args.slack})")
+    looks = args.look or list(LOOKS)
+    if args.chars and "coat-light" in looks and "plain" in looks:
+        typing_bench(args, failures)
     print("PASS" if not failures else f"{len(failures)} FAILED", flush=True)
     return 1 if failures else 0
 
