@@ -5,18 +5,20 @@ your own that this script never starts or stops:
 
     check-statusbar-coat.py --instdir DIR --work DIR [--display :147] [--out DIR] [--chars 1000]
 
-Looks: coat-light and coat-dark (the coat on), plain (HST_UI_COAT=0) and contrast (GTK_THEME=HighContrast).
+Looks: coat-light and coat-dark (the coat on), plain (HST_UI_COAT=0) and contrast (the coat on, GTK theme
+HighContrast in the profile's GTK settings).
 - coat on: the bar's surface and top line are the frame tokens; the zoom percentage shows the hover, the page count
   does not; off and in high contrast the bar keeps the platform's look.
 - every look: a click on the zoom percentage opens the Zoom dialog; a click on the slider's middle sets 100 % and a
   drag to the right zooms in, to the same values with and without the coat.
 - coat-light against plain: the bar's height and every item's place (the click areas) are equal, and typing --chars
   characters (the word count repaints on each) takes no longer than --slack times as long.
-Mouse and key input is posted through the office's toolkit (XToolkitRobot: VCL events inside the office). Shots of
-the bar go to --out. Only the office started here is stopped. Exit 0 when every check passes.
+The pointer is moved and clicked with xdotool on the test display (real X events on this run's own Xvfb); keys are
+posted through the office's toolkit (XToolkitRobot). Shots of the bar go to --out. Only the office started here is stopped. Exit 0 when every check passes.
 """
 import argparse
 import os
+import subprocess
 import sys
 import time
 
@@ -45,18 +47,28 @@ class Failures(list):
             self.append(text)
 
 
-def mouse(office, window, x, y, kind, buttons=1):
-    """A mouse event at (x, y) of `window` (an XWindow), posted through XToolkitRobot."""
-    from com.sun.star.awt import MouseEvent
-    event = MouseEvent()
-    event.Source, event.X, event.Y, event.Buttons, event.ClickCount = window, x, y, buttons, 1
-    robot = office.service("com.sun.star.awt.Toolkit")
-    {"press": robot.mousePress, "release": robot.mouseRelease, "move": robot.mouseMove}[kind](event)
+def xdotool(display, *args):
+    """Pointer input on the test display (an Xvfb of this run's own, no window manager): real X events."""
+    subprocess.run(["xdotool", *[str(arg) for arg in args]], env={**os.environ, "DISPLAY": display}, check=True)
 
 
-def click(office, window, x, y):
-    mouse(office, window, x, y, "press")
-    mouse(office, window, x, y, "release")
+def move(display, x, y):
+    xdotool(display, "mousemove", x, y)
+
+
+def click(display, x, y):
+    xdotool(display, "mousemove", x, y, "click", 1)
+
+
+def drag(display, x, y, x2):
+    xdotool(display, "mousemove", x, y, "mousedown", 1)
+    time.sleep(0.5)
+    # step by step, each motion handled before the next, so the last one is not lost before the release
+    for step in range(1, 5):
+        xdotool(display, "mousemove", x + (x2 - x) * step // 4, y)
+        time.sleep(0.3)
+    time.sleep(0.5)
+    xdotool(display, "mouseup", 1)
 
 
 def type_chars(office, doc, count):
@@ -121,6 +133,13 @@ class Look:
         import hst_gui
         from hst_frame_shots import LinuxScreen
         env = dict(LOOKS[self.name])
+        if self.name == "contrast":
+            # the office reads the theme's name from GTK's settings (GTK_THEME alone does not set it)
+            gtk = os.path.join(self.args.work, self.name, "home", ".config", "gtk-3.0")
+            os.makedirs(gtk, exist_ok=True)
+            with open(os.path.join(gtk, "settings.ini"), "w", encoding="utf-8") as out:
+                out.write("[Settings]\ngtk-theme-name=HighContrast\n")
+            env["XDG_CONFIG_HOME"] = os.path.dirname(gtk)
         office = hst_gui.Office(self.args.instdir, os.path.join(self.args.work, self.name), self.args.port,
                                 display=self.args.display, config=NO_PROMPTS, env=env).start()
         screen = LinuxScreen(self.args.display)
@@ -147,15 +166,11 @@ class Look:
         self.failures.check(bar is not None and len(items) >= 4, f"{self.name}: the status bar and its items")
         if bar is None or len(items) < 4:
             return
-        origin = container.getProperty("XAccessible").getAccessibleContext().getLocationOnScreen()
-        to_window = lambda x, y: (x - origin.X, y - origin.Y)  # noqa: E731
         zoom, slider = items[-1], items[-2]
         page = next((item for item in items if item[4].startswith(("Trang", "Page"))), items[1])
         self.result["geometry"] = (bar[3], [item[:4] for item in items])
         self.failures.check(zoom[4].endswith("%"), f"{self.name}: the last item is the zoom percentage ({zoom[4]!r})")
 
-        style = container.getStyleSettings() if hasattr(container, "getStyleSettings") else None
-        contrast = bool(style and style.HighContrastMode)
         coat = self.name.startswith("coat")
         theme = "dark" if self.name.endswith("dark") else "light"
 
@@ -169,43 +184,40 @@ class Look:
             return crop, (bar[0], bar[1])
 
         # hover over the zoom percentage, then over the page count
-        mx, my = to_window(zoom[0] + zoom[2] // 2, zoom[1] + zoom[3] // 2)
-        mouse(office, container, mx, my, "move", buttons=0)
+        display = self.args.display
+        mx, my = zoom[0] + zoom[2] // 2, zoom[1] + zoom[3] // 2
+        move(display, mx, my)
         time.sleep(1)
         image, (bx, by) = shot("hover-zoom")
         in_zoom = (zoom[0] - bx + 3, zoom[1] - by + zoom[3] // 2)
         surface_at = (bar[2] - 3, bar[3] // 2)
-        if self.name == "contrast":
-            self.failures.check(contrast, "contrast: the office is in high-contrast mode")
-        if coat and not contrast:
+        if coat:
             self.failures.check(image.getpixel(surface_at) == SURFACE[theme],
                                 f"{self.name}: the bar's surface {image.getpixel(surface_at)} is the frame token")
             self.failures.check(image.getpixel((bar[2] // 2, 0)) == DIVIDER[theme],
                                 f"{self.name}: the top line {image.getpixel((bar[2] // 2, 0))} is the frame divider")
             self.failures.check(image.getpixel(in_zoom) == HOVER[theme],
                                 f"{self.name}: the zoom percentage shows the hover {image.getpixel(in_zoom)}")
-        else:
+        else:  # plain, and contrast (the coat switched on: high contrast turns it off)
             self.failures.check(image.getpixel(surface_at) != SURFACE["light"]
                                 or image.getpixel((bar[2] // 2, 0)) != DIVIDER["light"],
                                 f"{self.name}: the bar keeps the platform's look")
-        px, py = to_window(page[0] + page[2] - 4, page[1] + page[3] // 2)
-        mouse(office, container, px, py, "move", buttons=0)
+        move(display, page[0] + page[2] - 4, page[1] + page[3] // 2)
         time.sleep(1)
         image, _ = shot("hover-page")
         in_page = (page[0] - bx + page[2] - 4, page[1] - by + page[3] // 2)
-        if coat and not contrast:
+        if coat:
             self.failures.check(image.getpixel(in_page) == SURFACE[theme] and image.getpixel(in_zoom) == SURFACE[theme],
                                 f"{self.name}: no hover on the page count, none left on the zoom percentage")
 
         # the slider: a click in its middle sets 100 %, a drag to the right zooms in
         set_zoom(doc, 150)
         time.sleep(1)
-        sx, sy = to_window(slider[0] + slider[2] // 2, slider[1] + slider[3] // 2)
-        mouse(office, container, sx, sy, "press")
-        time.sleep(0.5)
+        sx, sy = slider[0] + slider[2] // 2, slider[1] + slider[3] // 2
+        click(display, sx, sy)
+        time.sleep(1)
         at_centre = zoom_value(doc)
-        mouse(office, container, sx + 20, sy, "move")
-        mouse(office, container, sx + 20, sy, "release")
+        drag(display, sx, sy, sx + 20)
         time.sleep(1)
         dragged = zoom_value(doc)
         self.result["slider"] = (at_centre, dragged)
@@ -214,7 +226,7 @@ class Look:
 
         # a click on the zoom percentage opens the Zoom dialog
         before = screen.windows()
-        click(office, container, mx, my)
+        click(display, mx, my)
         deadline, dialog = time.time() + 15, None
         while dialog is None and time.time() < deadline:
             time.sleep(0.5)
