@@ -135,7 +135,7 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/menu-coat-test.cxx
-@@ -0,0 +1,336 @@
+@@ -0,0 +1,338 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -394,7 +394,7 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +}
 +
 +/* The ring of a menu window's border (its width VCL's) takes the surface colour, in both of the
-+   rings VCL draws for a menu; the switch off leaves it alone. */
++   rings VCL draws for a menu (the inner one only without flat menus); the switch off leaves it alone. */
 +CPPUNIT_TEST_FIXTURE(MenuCoatTest, testMenuWindowRingTakesTheSurface)
 +{
 +    ScopedVclPtr<WorkWindow> pParent(VclPtr<WorkWindow>::Create(nullptr, WB_STDWORK));
@@ -420,7 +420,6 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +        CPPUNIT_ASSERT_EQUAL(aSurface, rRing.GetDarkShadowColor());
 +        CPPUNIT_ASSERT_EQUAL(aSurface, rRing.GetLightColor());
 +        CPPUNIT_ASSERT_EQUAL(aSurface, rRing.GetShadowColor());
-+        CPPUNIT_ASSERT(!rRing.GetUseFlatMenus());
 +        // the menu's own settings and every size stay
 +        CPPUNIT_ASSERT_EQUAL(bDark ? COL_WHITE : COL_BLACK,
 +                             pMenu->GetSettings().GetStyleSettings().GetMenuTextColor());
@@ -458,8 +457,11 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +                            + hex(p.aText) + "; }");
 +        CPPUNIT_ASSERT(aCss.indexOf(aItem) >= 0);
 +        CPPUNIT_ASSERT(aCss.indexOf(".csd.popup decoration { border-radius: 8px;") >= 0);
-+        const OString aRing("0 0 0 1px " + hex(p.aMenuBorder));
-+        CPPUNIT_ASSERT(aCss.indexOf(aRing) >= 0);
++        const OString aWindow("window.popup:not(.csd) { background-image: none; background-color: "
++                              + hex(p.aMenuSurface) + "; }");
++        CPPUNIT_ASSERT(aCss.indexOf(aWindow) >= 0);
++        // GTK sizes a decorated popup's shadow margin from the theme's shadow: left alone
++        CPPUNIT_ASSERT(aCss.indexOf("box-shadow") < 0);
 +        for (const char* pMetric : { "padding", "margin", "min-", "width", "height", "font",
 +                                     "border:", "border-style" })
 +            CPPUNIT_ASSERT_MESSAGE(pMetric, aCss.indexOf(pMetric) < 0);
