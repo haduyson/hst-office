@@ -6,8 +6,9 @@ handler, mnemonic or accessibility change. Values from hst::design::layout:
 - groups 12 apart, two group columns 24 apart, rows of bordered controls 6 apart;
 - labels of a block share one start-aligned column and are centred on their control's row;
 - spin buttons of one column share one width (width-chars) instead of stretching over the dialog;
-- Slide Show Settings puts Range and the display group in two columns under Mode and Options, with Remote control
-  across the bottom, so the dialog fits a 1366x768 screen (it was 691 px tall on gtk3); the focus order is unchanged;
+- Slide Show Settings puts Range under Mode next to Options, then the display group and Remote control across the
+  dialog, so it fits a 1366x768 screen (it was 691 px tall on gtk3) with an unchanged focus order; the two Range
+  list boxes get a 160 px minimum width (VCL list boxes take no width-chars);
 - Position and Size, Line, Shadow, Duplicate, Insert Table, Bullets and Numbering, Interaction and Fontwork pages:
   the same columns and gaps on every tab, so switching tabs does not move the controls.
 Checked by tests/unit/test_ui_layout_rulebook.py (static) and tests/runtime/hst_dialog_layout_check.py (on screen,
@@ -1686,15 +1687,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                  <property name="label" translatable="yes" context="interactionpage|label2">Action at mouse click:</property>
                  <property name="use-underline">True</property>
                  <property name="mnemonic-widget">listbox</property>
-@@ -73,6 +74,7 @@
-               <object class="GtkComboBoxText" id="listbox">
-                 <property name="visible">True</property>
-                 <property name="can-focus">False</property>
-+                <property name="halign">start</property>
-                 <child internal-child="accessible">
-                   <object class="AtkObject" id="listbox-atkobject">
-                     <property name="AtkObject::accessible-description" translatable="yes" context="interactionpage|extended_tip|listbox">Specifies the action that will run when you click the selected object during a slide show.</property>
-@@ -88,6 +90,7 @@
+@@ -88,6 +89,7 @@
                <object class="GtkLabel" id="fttree">
                  <property name="visible">True</property>
                  <property name="can-focus">False</property>
@@ -1702,7 +1695,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                  <property name="label" translatable="yes" context="interactionpage|fttree">Target:</property>
                  <property name="use-underline">True</property>
                  <property name="mnemonic-widget">box3</property>
-@@ -299,6 +302,7 @@
+@@ -299,6 +301,7 @@
                  <property name="visible">True</property>
                  <property name="can-focus">False</property>
                  <property name="orientation">vertical</property>
@@ -1710,7 +1703,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                  <child>
                    <object class="GtkButton" id="browse">
                      <property name="label" translatable="yes" context="interactionpage|browse">_Browse...</property>
-@@ -349,6 +353,7 @@
+@@ -349,6 +352,7 @@
                  <property name="can-focus">False</property>
                  <property name="hexpand">True</property>
                  <property name="orientation">vertical</property>
@@ -1734,7 +1727,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
          </child>
          <child>
 -          <!-- n-columns=1 n-rows=4 -->
-+          <!-- n-columns=2 n-rows=3 -->
++          <!-- n-columns=2 n-rows=4 -->
            <object class="GtkGrid" id="grid1">
              <property name="visible">True</property>
              <property name="can-focus">False</property>
@@ -1777,7 +1770,15 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                              <property name="receives-default">False</property>
                              <property name="use-underline">True</property>
                              <property name="draw-indicator">True</property>
-@@ -172,23 +175,12 @@
+@@ -154,6 +157,7 @@
+                         </child>
+                         <child>
+                           <object class="GtkComboBoxText" id="from_cb">
++                            <property name="width-request">160</property>
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="hexpand">True</property>
+@@ -172,23 +176,12 @@
                              <property name="top-attach">0</property>
                            </packing>
                          </child>
@@ -1802,7 +1803,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                              <property name="receives-default">False</property>
                              <property name="use-underline">True</property>
                              <property name="draw-indicator">True</property>
-@@ -204,7 +196,7 @@
+@@ -204,11 +197,12 @@
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
@@ -1811,7 +1812,12 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                            </packing>
                          </child>
                          <child>
-@@ -223,13 +215,13 @@
+                           <object class="GtkComboBoxText" id="customslideshow_cb">
++                            <property name="width-request">160</property>
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="hexpand">True</property>
+@@ -223,13 +217,13 @@
                            </object>
                            <packing>
                              <property name="left-attach">1</property>
@@ -1827,7 +1833,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                        </packing>
                      </child>
                    </object>
-@@ -251,17 +243,17 @@
+@@ -251,17 +245,17 @@
                </packing>
              </child>
              <child>
@@ -1848,7 +1854,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                      <property name="label-xalign">0</property>
                      <property name="shadow-type">none</property>
                      <child>
-@@ -344,6 +336,7 @@
+@@ -344,6 +338,7 @@
                              <property name="tooltip-text" translatable="yes" context="presentationdialog|pauseduration|tooltip_text">Duration of pause</property>
                              <property name="margin-start">12</property>
                              <property name="activates-default">True</property>
@@ -1856,7 +1862,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                              <property name="truncate-multiline">True</property>
                              <property name="adjustment">adjustment1</property>
                              <accessibility>
-@@ -399,12 +392,24 @@
+@@ -399,12 +394,24 @@
                      <property name="top-attach">0</property>
                    </packing>
                  </child>
@@ -1882,7 +1888,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                      <property name="label-xalign">0</property>
                      <property name="shadow-type">none</property>
                      <child>
-@@ -564,13 +569,13 @@
+@@ -564,14 +571,15 @@
                      </child>
                    </object>
                    <packing>
@@ -1896,9 +1902,11 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
 -                <property name="left-attach">0</property>
 +                <property name="left-attach">1</property>
                  <property name="top-attach">0</property>
++                <property name="height">2</property>
                </packing>
              </child>
-@@ -579,7 +584,7 @@
+             <child>
+@@ -579,7 +587,7 @@
                  <property name="visible">True</property>
                  <property name="can-focus">False</property>
                  <property name="hexpand">True</property>
@@ -1907,7 +1915,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                  <property name="label-xalign">0</property>
                  <property name="shadow-type">none</property>
                  <child>
-@@ -620,6 +625,8 @@
+@@ -620,6 +628,8 @@
                            <object class="GtkLabel" id="presdisplay_label">
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
@@ -1916,7 +1924,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                              <property name="label" translatable="yes" context="presentationdialog|presdisplay_label">P_resentation display:</property>
                              <property name="use-underline">True</property>
                              <property name="mnemonic-widget">presdisplay_cb</property>
-@@ -651,6 +658,8 @@
+@@ -651,6 +661,8 @@
                            <object class="GtkLabel" id="console_label">
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
@@ -1925,7 +1933,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                              <property name="label" translatable="yes" context="presentationdialog|console_label">Presenter console:</property>
                              <property name="use-underline">True</property>
                              <property name="mnemonic-widget">console_cb</property>
-@@ -682,8 +691,10 @@
+@@ -682,8 +694,10 @@
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
                              <property name="halign">start</property>
@@ -1936,18 +1944,15 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
-@@ -782,8 +793,8 @@
-                 </child>
-               </object>
+@@ -784,6 +798,7 @@
                <packing>
--                <property name="left-attach">0</property>
--                <property name="top-attach">2</property>
-+                <property name="left-attach">1</property>
-+                <property name="top-attach">1</property>
+                 <property name="left-attach">0</property>
+                 <property name="top-attach">2</property>
++                <property name="width">2</property>
                </packing>
              </child>
              <child>
-@@ -791,7 +802,7 @@
+@@ -791,7 +806,7 @@
                  <property name="visible">True</property>
                  <property name="can-focus">False</property>
                  <property name="hexpand">True</property>
@@ -1956,7 +1961,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                  <property name="label-xalign">0</property>
                  <property name="shadow-type">none</property>
                  <child>
-@@ -804,6 +815,7 @@
+@@ -804,6 +819,7 @@
                      <property name="hexpand">True</property>
                      <property name="vexpand">True</property>
                      <property name="row-spacing">4</property>
@@ -1964,12 +1969,10 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                      <child>
                        <object class="GtkCheckButton" id="enableremote">
                          <property name="label" translatable="yes" context="presentationdialog|enableremote">Enable remote control</property>
-@@ -868,7 +880,8 @@
-               </object>
+@@ -869,6 +885,7 @@
                <packing>
                  <property name="left-attach">0</property>
--                <property name="top-attach">3</property>
-+                <property name="top-attach">2</property>
+                 <property name="top-attach">3</property>
 +                <property name="width">2</property>
                </packing>
              </child>
