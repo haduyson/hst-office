@@ -5,13 +5,14 @@ HST Office: the sidebar's frame in the HST look (FrameCoat/Sidebar): tab bar, de
   the deck and panel contents and the highlight keep their colours.
 - gtk3: tabbar.ui, deck.ui and panel.ui give the frame boxes style classes (hst-sidebar-tabbar,
   hst-sidebar-deck-title, hst-sidebar-panel-title) and vcl/source/hst/coat/css/sidebar.cxx styles them:
-  the tab bar's surface and divider towards the deck, its buttons flat until hovered, the open deck on an
+  the tab bar's surface and a divider along both edges (the deck lies on either side as the sidebar is docked
+  right or left), its buttons flat until hovered, the open deck on an
   aPill pill (radius::Control) with the accent bar (aSelectedIndicator) along its leading edge, the focus
   mark kept, RTL mirrored; the divider under the deck title and above each panel title; the title bars'
   small buttons flat until hovered. Colours, radii and inset shadows only: no widget changes size.
 - VCL backends (Windows, macOS): TabBar paints the surface, the divider and the open deck's accent bar in
-  the margin left of its button (Theme::DrawHstTabBarFrame); Deck gives each panel title a tiled
-  background of the frame surface with the divider along its top. The tab buttons keep VCL's own look
+  the margin left of its button (Theme::DrawHstTabBarFrame); Deck gives the deck title (bottom) and each
+  panel title (top) a background of the frame surface with the divider as a one-line bitmap. The tab buttons keep VCL's own look
   until the ribbon's button painter offers a paint-only look (the ribbon's owner-draw also changes the
   button geometry, so it is not used here).
 - The deck's name is set in type::Title while the coat is on.
@@ -19,7 +20,7 @@ HST Office: the sidebar's frame in the HST look (FrameCoat/Sidebar): tab bar, de
   without sizes, the VCL tab bar frame and its indicator.
 
 diff --git a/include/sfx2/sidebar/Theme.hxx b/include/sfx2/sidebar/Theme.hxx
-index e59b2e8..8f75583 100644
+index e59b2e8..c61c1a6 100644
 --- a/include/sfx2/sidebar/Theme.hxx
 +++ b/include/sfx2/sidebar/Theme.hxx
 @@ -28,6 +28,11 @@
@@ -34,12 +35,13 @@ index e59b2e8..8f75583 100644
  
  namespace sfx2::sidebar {
  
-@@ -83,6 +88,20 @@ public:
+@@ -83,6 +88,21 @@ public:
  
      static bool IsHighContrastMode();
  
 +    /** HST Office: the sidebar tab bar's frame in the sidebar's coat (FrameCoat/Sidebar) on the VCL backends,
-+        drawn under its buttons: the frame surface, the divider along the edge towards the deck and,
++        drawn under its buttons: the frame surface, a divider along both edges (the deck lies on
++        either side, as the sidebar is docked right or left) and,
 +        in the margin left of the open deck's button rChecked (empty: none open), the accent bar over
 +        the middle half of its height. Returns false and draws nothing when the coat is off or in high
 +        contrast. On gtk3 the tab bar's CSS (vcl/source/hst/coat/css/sidebar.cxx) draws the frame. */
@@ -133,10 +135,10 @@ index bda8838..61016aa 100644
  $(eval $(call gb_Module_add_subsequentcheck_targets,sfx2,\
 diff --git a/sfx2/qa/cppunit/hstsidebarcoat.cxx b/sfx2/qa/cppunit/hstsidebarcoat.cxx
 new file mode 100644
-index 0000000..e254509
+index 0000000..e4b4f25
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hstsidebarcoat.cxx
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,209 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -164,7 +166,7 @@ index 0000000..e254509
 +
 +#include <hst/coat.hxx>
 +
-+#include <cstdlib>
++#include <osl/process.h>
 +
 +using sfx2::sidebar::Theme;
 +
@@ -184,13 +186,13 @@ index 0000000..e254509
 +    void setUp() override
 +    {
 +        test::BootstrapFixture::setUp();
-+        unsetenv("HST_UI_COAT");
++        osl_clearEnvironment(u"HST_UI_COAT"_ustr.pData);
 +        setSwitches(true, true);
 +    }
 +
 +    void tearDown() override
 +    {
-+        unsetenv("HST_UI_COAT"); // a test that set it may have stopped at a failed assertion
++        osl_clearEnvironment(u"HST_UI_COAT"_ustr.pData); // a test that set it may have stopped at a failed assertion
 +        setSwitches(true, true);
 +        test::BootstrapFixture::tearDown();
 +    }
@@ -272,12 +274,13 @@ index 0000000..e254509
 +    for (Theme::ThemeItem eItem : FRAME_KEYS)
 +        CPPUNIT_ASSERT_EQUAL(DEFAULT, Theme::GetHstFrameColor(eItem, DEFAULT, style(false)));
 +    setSwitches(true, true);
-+    setenv("HST_UI_COAT", "0", 1);
++    osl_setEnvironment(u"HST_UI_COAT"_ustr.pData, u"0"_ustr.pData);
 +    hst::coat::ResetSwitchForTesting();
 +    for (Theme::ThemeItem eItem : FRAME_KEYS)
 +        CPPUNIT_ASSERT_EQUAL(DEFAULT, Theme::GetHstFrameColor(eItem, DEFAULT, style(false)));
 +}
 +
++#if defined LINUX // CreateGtkCss is exported for the gtk plugins only
 +/* The GTK CSS: the open deck's pill and accent bar, the dividers, and no size of any kind. */
 +CPPUNIT_TEST_FIXTURE(SidebarCoatTest, testGtkCssStylesTheFrameWithoutSizes)
 +{
@@ -290,7 +293,11 @@ index 0000000..e254509
 +        CPPUNIT_ASSERT(aCss.indexOf(".hst-sidebar-panel-title") >= 0);
 +        CPPUNIT_ASSERT(aCss.indexOf("button:checked") >= 0);
 +        CPPUNIT_ASSERT(aCss.indexOf(hex(p.aPill)) >= 0);
-+        CPPUNIT_ASSERT(aCss.indexOf(hex(p.aSelectedIndicator)) >= 0);
++        // the accent bar on the open deck's pill
++        CPPUNIT_ASSERT(aCss.indexOf(OString("toolbar button:checked { background-color: " + hex(p.aPill)
++                                            + "; box-shadow: inset 2px 0 0 0 "
++                                            + hex(p.aSelectedIndicator)))
++                       >= 0);
 +        CPPUNIT_ASSERT(aCss.indexOf(hex(p.aFrameDivider)) >= 0);
 +        CPPUNIT_ASSERT(aCss.indexOf(hex(p.aHover)) >= 0);
 +        for (const char* pMetric : { "padding", "margin", "min-height", "min-width", "border-width",
@@ -300,6 +307,7 @@ index 0000000..e254509
 +    setSwitches(true, false);
 +    CPPUNIT_ASSERT(sidebarCss(false).isEmpty());
 +}
++#endif
 +
 +/* The tab bar's frame on the VCL backends: the surface, the divider along the edge towards the deck
 +   and, left of the open deck's button, the accent bar over the middle of its height; nothing over the
@@ -320,6 +328,7 @@ index 0000000..e254509
 +        const tools::Rectangle aChecked(Point(4, 40), Size(32, 32));
 +        CPPUNIT_ASSERT(Theme::DrawHstTabBarFrame(*pDev, Size(40, 120), aChecked));
 +        CPPUNIT_ASSERT_EQUAL(p.aFrameDivider, pDev->GetPixel(Point(0, 5)));
++        CPPUNIT_ASSERT_EQUAL(p.aFrameDivider, pDev->GetPixel(Point(39, 5)));
 +        CPPUNIT_ASSERT_EQUAL(p.aFrameSurface, pDev->GetPixel(Point(20, 5)));
 +        CPPUNIT_ASSERT_EQUAL(p.aFrameSurface, pDev->GetPixel(Point(20, 56))); // under the button
 +        CPPUNIT_ASSERT_EQUAL(p.aSelectedIndicator, pDev->GetPixel(Point(2, 56)));
