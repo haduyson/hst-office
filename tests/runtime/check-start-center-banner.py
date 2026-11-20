@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Check the HASON TECH block of the Start Center: its heading, the banner, one real, separately clickable button per
-solution and the "Xem thêm" link, in the left column of the Start Center window (HstStartCenterWindow).
+"""Check the HASON TECH block of the Start Center: its heading, one real, separately clickable button per solution and
+the "Xem thêm" link, in the left column of the Start Center window (HstStartCenterWindow). The Start Center shows no
+HASON TECH banner (the owner took it out; the ribbon and the File panel keep theirs).
 
 Usage: python3 tests/runtime/check-start-center-banner.py [--instdir upstream/libreoffice/instdir]
            [--out tests/output/start-center-banner] [--shots tests/output/screenshots-banner]
@@ -8,13 +9,12 @@ Usage: python3 tests/runtime/check-start-center-banner.py [--instdir upstream/li
 
 Static part: the solution table of patches/libreoffice/hst-start-center-redesign.patch mirrors
 data/hst/solutions.json (name, tagline, URL, same order); the installed hststartcenter.ui has the block's widgets
-(heading, banner, six buttons, the more link); the installed program carries the texts; the vi sfx catalogue
+(heading, six buttons, the more link); the installed program carries the texts; the vi sfx catalogue
 translates the heading and the "Tài liệu chưa lưu" menu item.
 GUI part (unless --no-gui; needs a running X display, which the test never starts or stops; as root it re-executes
 itself as the build user under dbus-run-session for AT-SPI): the Start Center under an English and a Vietnamese UI
 (the profile's UILocale; the heading follows it, the solutions and the link are Vietnamese in both), with a fake
-xdg-open that logs the opened URL. Through AT-SPI: the heading and the rotating banner (named after the solution it
-shows) show; every solution button has
+xdg-open that logs the opened URL. Through AT-SPI: the heading shows and no banner does; every solution button has
 accessible name = name and description = tagline (also its tooltip); the block lies in the left column, inside the
 window, below the heading, without overlaps. Every button is clicked and must open
 url + "?utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0", "Xem thêm" opens hasontech.vn;
@@ -73,7 +73,7 @@ def static_checks(instdir, check):
     ui_path = os.path.join(instdir, UI)
     ui = open(ui_path, encoding="utf-8").read() if os.path.isfile(ui_path) else ""
     check("hststartcenter.ui is installed", bool(ui), ui_path)
-    for widget in ["solutions", "solutionstitle", "banner", "btnMoreSolutions", "nav_unsaved"] + [
+    for widget in ["solutions", "solutionstitle", "btnMoreSolutions", "nav_unsaved"] + [
             f"btnSolution{index}" for index in range(len(expected))]:
         check(f"hststartcenter.ui has {widget}", f'id="{widget}"' in ui)
     libs = [path for path in glob.glob(os.path.join(instdir, "program/lib*.so")) if os.path.getsize(path) > 1000]
@@ -149,7 +149,7 @@ def shown_widgets():
 
 def block(widgets, tag):
     """The HASON TECH block as AT-SPI shows it: {"buttons": [(name, description, box) or None] in solution order and
-    then the more link, "heading": box or None, "banner": box or None}."""
+    then the more link, "heading": box or None, "banner": box of a banner (there must be none) or None}."""
     names = [s["name"] for s in solutions()] + [MORE_LABEL]
     buttons = {name: (name, desc, box) for role, name, desc, box in widgets if role == "push button" and name in names}
     heading = next((box for role, name, _d, box in widgets if role == "label" and name == HEADING[tag]), None)
@@ -174,18 +174,19 @@ def inside(box, window):
 
 
 def layout_checks(tag, found, window, check):
-    """The heading, the banner, six buttons and the more link show, named and described, in the left column, inside
+    """The heading, six buttons and the more link show (and no banner), named and described, in the left column, inside
     the window, below the heading, without overlaps. Returns True when everything was found."""
     sols = solutions()
-    ok_found = all(found["buttons"]) and found["heading"] is not None and found["banner"] is not None
-    check(f"[{tag}] heading, banner, six solution buttons and the more link show", ok_found,
-          f"heading={found['heading']} banner={found['banner']} buttons={[b and b[0] for b in found['buttons']]}")
+    check(f"[{tag}] the Start Center shows no HASON TECH banner", found["banner"] is None, repr(found["banner"]))
+    ok_found = all(found["buttons"]) and found["heading"] is not None
+    check(f"[{tag}] heading, six solution buttons and the more link show", ok_found,
+          f"heading={found['heading']} buttons={[b and b[0] for b in found['buttons']]}")
     if not ok_found:
         return False
     check(f"[{tag}] accessible name = solution name, accessible description = tagline",
           all(b[0] == s["name"] and b[1] == s["tagline"] for b, s in zip(found["buttons"], sols)),
           repr([(b[0], b[1]) for b in found["buttons"][:6]])[:300])
-    boxes = [found["heading"], found["banner"]] + [b[2] for b in found["buttons"]]
+    boxes = [found["heading"]] + [b[2] for b in found["buttons"]]
     check(f"[{tag}] the block lies inside the window (not clipped)", all(inside(b, window) for b in boxes),
           repr(boxes)[:300])
     left_edge = window[0] + window[2] * LEFT_SHARE
@@ -194,7 +195,7 @@ def layout_checks(tag, found, window, check):
     clash = [(i, j) for i in range(len(boxes)) for j in range(i + 1, len(boxes)) if overlaps(boxes[i], boxes[j])]
     check(f"[{tag}] no two widgets of the block overlap", not clash, repr(clash))
     top = found["heading"][1] + found["heading"][3]
-    check(f"[{tag}] banner and buttons sit below the heading", all(b[1] >= top for b in boxes[1:]))
+    check(f"[{tag}] the buttons sit below the heading", all(b[1] >= top for b in boxes[1:]))
     return True
 
 
