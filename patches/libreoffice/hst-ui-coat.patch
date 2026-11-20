@@ -11,6 +11,12 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
   size and content region still comes from the platform, so all layouts stay as they were.
 - gtk3: the GTK-drawn (welded) dialogs get a GTK CSS provider generated from the same tokens, above the theme
   and below the user's gtk.css. It sets colours, radii and focus marks only, never sizes.
+- Rounded corners are the same smooth anti-aliased arcs on every backend: a border is one filled ring between
+  two concentric outlines (Skia draws a one-pixel stroke as a hairline, paler on the arc with a notch where it
+  meets the straight edge), and every filled shape is moved back by the half pixel Skia and GDI+ add to
+  polygons with curves. A field's corner keeps to its border pixel where the platform paints the field's inner
+  window opaquely (no HasBackgroundTexture, as on Windows). GTK linked groups (a combo box's entry and button)
+  meet with square corners again.
 - Off in high-contrast mode, and when org.openoffice.Office.HSTAppearance/UiCoat/Enabled is false or
   HST_UI_COAT=0 (read once at start-up).
 - CppunitTest_vcl_hst_coat probes the pixels of every covered control and state on a VirtualDevice, and checks
@@ -1034,9 +1040,9 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    const Color aDot = rCtx.IsEnabled() ? rCtx.rPalette.aOnAccent : rCtx.rPalette.aDisabledText;
 +    const double fSide = aBox.GetWidth();
 +    const basegfx::B2DPoint aCentre(aBox.Left() + fSide / 2, aBox.Top() + fSide / 2);
-+    rCtx.rDev.SetLineColor();
-+    rCtx.rDev.SetFillColor(aDot);
-+    rCtx.rDev.DrawPolygon(basegfx::utils::createPolygonFromCircle(aCentre, fSide * 0.2));
++    FillShape(rCtx,
++              basegfx::B2DPolyPolygon(basegfx::utils::createPolygonFromCircle(aCentre, fSide * 0.2)),
++              aDot);
 +    return true;
 +}
 +}
@@ -1044,7 +1050,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/source/hst/coat/coat-fields.cxx
 +++ b/vcl/source/hst/coat/coat-fields.cxx
-@@ -0,0 +1,102 @@
+@@ -0,0 +1,123 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1061,6 +1067,8 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +
 +#include <vcl/hst/designtokens.hxx>
 +#include <vcl/outdev.hxx>
++
++#include <algorithm>
 +
 +namespace hst::coat
 +{
@@ -1098,6 +1106,28 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +}
 +}
 +
++namespace
++{
++/** The window inside a field (the text of an entry, the selected entry of a list box, the
++    drop-down button) lies one pixel inside the field's border. Where the platform does not let
++    that window show the field's own drawing through (no ControlPart::HasBackgroundTexture, as on
++    Windows), it paints an opaque rectangle there, over every part of a corner arc that reaches past
++    the border's pixel: a large radius then shows as a gap at each corner. There the corner keeps to
++    the border's pixel, a softly rounded corner of FIELD_INNER_RADIUS pixels. A list window holds
++    rows up to its border: a small radius keeps the rows' corners inside. */
++constexpr double FIELD_INNER_RADIUS = 2.0;
++
++double fieldRadius(const PaintContext& rCtx, ControlType eType, ControlPart ePart)
++{
++    const double fRadius = ePart == ControlPart::ListboxWindow
++                               ? rCtx.Px(hst::design::radius::Check)
++                               : ControlRadius(rCtx, rCtx.aRect.GetHeight());
++    if (rCtx.rDev.IsNativeControlSupported(eType, ControlPart::HasBackgroundTexture))
++        return fRadius;
++    return std::min(fRadius, FIELD_INNER_RADIUS);
++}
++}
++
 +bool PaintField(const PaintContext& rCtx, ControlType eType, ControlPart ePart)
 +{
 +    if (ePart == ControlPart::ButtonDown)
@@ -1122,11 +1152,8 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    }
 +    else if (rCtx.IsHover())
 +        aBorder = p.aMuted;
-+    // a list window holds rows up to its border: a small radius keeps the rows' corners inside
-+    const double fRadius = ePart == ControlPart::ListboxWindow
-+                               ? rCtx.Px(hst::design::radius::Check)
-+                               : ControlRadius(rCtx, rCtx.aRect.GetHeight());
-+    FillAndStroke(rCtx, rCtx.aRect, fRadius, rCtx.FieldFill(), aBorder, fBorder);
++    FillAndStroke(rCtx, rCtx.aRect, fieldRadius(rCtx, eType, ePart), rCtx.FieldFill(), aBorder,
++                  fBorder);
 +
 +    // a spin field draws its buttons in the same request on some platforms
 +    if (eType == ControlType::Spinbox && !rCtx.aUpper.IsEmpty())
@@ -1149,7 +1176,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/source/hst/coat/coat-gtk-css.cxx
 +++ b/vcl/source/hst/coat/coat-gtk-css.cxx
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,135 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1219,6 +1246,17 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +                + hex(p.aDisabledBorder) + u"; color: " + hex(p.aDisabledText) + u"; }\n"
 +                  u"spinbutton button, combobox entry + button { background-color: "
 +                  u"transparent; border-color: transparent; }\n");
++    // Linked groups (a combo box's entry and its button, button boxes): the radii above outrank
++    // the theme's rules that square the corners where two members meet, so they are squared here
++    // again; otherwise each joint shows two rounded corners with a notch of background between.
++    aCss.append(u".linked:not(.vertical) > *:not(:first-child) { border-top-left-radius: 0; "
++                u"border-bottom-left-radius: 0; }\n"
++                u".linked:not(.vertical) > *:not(:last-child) { border-top-right-radius: 0; "
++                u"border-bottom-right-radius: 0; }\n"
++                u".linked.vertical > *:not(:first-child) { border-top-left-radius: 0; "
++                u"border-top-right-radius: 0; }\n"
++                u".linked.vertical > *:not(:last-child) { border-bottom-left-radius: 0; "
++                u"border-bottom-right-radius: 0; }\n");
 +    // check boxes and radio buttons
 +    aCss.append(u"check, radio { background-image: none; background-color: "
 +                + hex(p.aFieldFill) + u"; border-color: " + hex(p.aControlBorder)
@@ -1276,7 +1314,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/source/hst/coat/coat-paint.hxx
 +++ b/vcl/source/hst/coat/coat-paint.hxx
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,95 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1287,6 +1325,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +#pragma once
 +
 +#include <basegfx/polygon/b2dpolygon.hxx>
++#include <basegfx/polygon/b2dpolypolygon.hxx>
 +#include <tools/color.hxx>
 +#include <tools/gen.hxx>
 +#include <vcl/salnativewidgets.hxx>
@@ -1343,8 +1382,12 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    the height so small controls are not drawn as pills. */
 +double ControlRadius(const PaintContext& rCtx, tools::Long nHeight);
 +
-+/** A rounded rectangle with a border of fBorder pixels drawn inside rRect, so the border never
-+    reaches outside the part's region. */
++/** rShape (device pixels, on pixel edges) filled with rColor, anti-aliased, covering the same
++    pixels on every backend. */
++void FillShape(const PaintContext& rCtx, const basegfx::B2DPolyPolygon& rShape, const Color& rColor);
++
++/** A rounded rectangle with a border of fBorder pixels (rounded to whole pixels) drawn inside
++    rRect, so the border never reaches outside the part's region. */
 +void FillAndStroke(const PaintContext& rCtx, const tools::Rectangle& rRect, double fRadius,
 +                   const Color& rFill, const Color& rBorder, double fBorder);
 +
@@ -1369,7 +1412,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/source/hst/coat/coat-shapes.cxx
 +++ b/vcl/source/hst/coat/coat-shapes.cxx
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,181 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1379,12 +1422,16 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +
 +#include "coat-paint.hxx"
 +
++#include <basegfx/matrix/b2dhommatrixtools.hxx>
 +#include <basegfx/point/b2dpoint.hxx>
++#include <basegfx/polygon/b2dpolygontools.hxx>
++#include <basegfx/range/b2drange.hxx>
 +#include <com/sun/star/drawing/LineCap.hpp>
 +#include <vcl/hst/designtokens.hxx>
-+#include <vcl/hst/drawhelpers.hxx>
 +#include <vcl/outdev.hxx>
 +#include <vcl/settings.hxx>
++
++#include <salgdi.hxx>
 +
 +#include <algorithm>
 +#include <cmath>
@@ -1401,25 +1448,102 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    return std::min(rCtx.Px(hst::design::radius::Control), nHeight / 5.0);
 +}
 +
++namespace
++{
++/** How far the backend moves a filled polygon right and down from the coordinates it is given.
++    The coat lays its shapes out on pixel edges, as Cairo (svp, gtk3, gen) and Quartz fill them.
++    Skia takes the coordinates of a polygon with curves as pixel centres and moves it by half a
++    pixel (a polygon of axis-parallel edges only it leaves on the edges when anti-aliased); GDI+ puts
++    every pixel centre on whole coordinates. Without taking that back, a rounded shape lies half a
++    pixel lower and further right on Windows than on Linux: its straight edges blur over two pixel
++    rows and a fill reaches past the border at the bottom right corner. */
++double fillShift(OutputDevice& rDev, bool bCurved)
++{
++    const SalGraphics* pGraphics = rDev.GetGraphics();
++    if (!pGraphics)
++        return 0.0;
++    const OUString aBackend = pGraphics->getRenderBackendName();
++    if (aBackend == "skia")
++        return bCurved ? 0.5 : 0.0;
++    if (aBackend == "gdi")
++        return 0.5;
++    return 0.0;
++}
++
++/** rRange with corners of radius fRadius (in pixels; at most half the shorter side). */
++basegfx::B2DPolygon roundedRect(const basegfx::B2DRange& rRange, double fRadius)
++{
++    const double fHalfW = rRange.getWidth() / 2;
++    const double fHalfH = rRange.getHeight() / 2;
++    if (fRadius <= 0 || fHalfW <= 0 || fHalfH <= 0)
++        return basegfx::utils::createPolygonFromRect(rRange);
++    return basegfx::utils::createPolygonFromRect(rRange, std::min(1.0, fRadius / fHalfW),
++                                                 std::min(1.0, fRadius / fHalfH));
++}
++
++/** rOuter shrunk by fBy on every side, its corners concentric with rOuter's (radius fRadius). */
++basegfx::B2DPolygon insetRect(const basegfx::B2DRange& rOuter, double fRadius, double fBy)
++{
++    const basegfx::B2DRange aInner(rOuter.getMinX() + fBy, rOuter.getMinY() + fBy,
++                                   rOuter.getMaxX() - fBy, rOuter.getMaxY() - fBy);
++    if (aInner.getWidth() <= 0 || aInner.getHeight() <= 0)
++        return {};
++    return roundedRect(aInner, std::max(0.0, fRadius - fBy));
++}
++}
++
++void FillShape(const PaintContext& rCtx, const basegfx::B2DPolyPolygon& rShape, const Color& rColor)
++{
++    if (rColor == COL_TRANSPARENT || !rShape.count())
++        return;
++    basegfx::B2DPolyPolygon aShape(rShape);
++    const double fShift = fillShift(rCtx.rDev, aShape.areControlPointsUsed());
++    if (fShift != 0.0)
++        aShape.transform(basegfx::utils::createTranslateB2DHomMatrix(-fShift, -fShift));
++    rCtx.rDev.SetLineColor();
++    rCtx.rDev.SetFillColor(rColor);
++    rCtx.rDev.DrawPolyPolygon(aShape);
++}
++
 +void FillAndStroke(const PaintContext& rCtx, const tools::Rectangle& rRect, double fRadius,
 +                   const Color& rFill, const Color& rBorder, double fBorder)
 +{
 +    if (rRect.IsEmpty())
 +        return;
-+    hst::design::DrawRoundRect(rCtx.rDev, rRect, fRadius, rFill, COL_TRANSPARENT);
-+    if (rBorder == COL_TRANSPARENT || fBorder <= 0)
-+        return;
-+    // whole-pixel rings from the edge inwards: a wide border (the focus border) stays crisp and
-+    // inside rRect, where one wide stroke on the pixel centres would blur over three pixels and
-+    // reach half a pixel outside
-+    const tools::Long nRings = std::max<tools::Long>(1, std::lround(fBorder));
-+    tools::Rectangle aPath(rRect);
-+    for (tools::Long i = 0; i < nRings && !aPath.IsEmpty(); ++i)
++    // the pixels of rRect, edge to edge
++    const basegfx::B2DRange aOuter(rRect.Left(), rRect.Top(), rRect.Right() + 1.0,
++                                   rRect.Bottom() + 1.0);
++    const double fHalfSide = std::min(aOuter.getWidth(), aOuter.getHeight()) / 2;
++    const double fRad = std::clamp(fRadius, 0.0, fHalfSide);
++    const bool bBorder = rBorder != COL_TRANSPARENT && fBorder > 0;
++    // whole pixels, so the straight edges of the border are crisp pixel rows and columns
++    const double fWidth
++        = bBorder ? std::min(double(std::max<tools::Long>(1, std::lround(fBorder))), fHalfSide)
++                  : 0.0;
++
++    // Under a border the fill ends in the middle of it: the border covers the fill's anti-aliased
++    // edge, and no fill reaches beyond the border's outer edge.
++    if (rFill != COL_TRANSPARENT)
 +    {
-+        hst::design::DrawRoundRect(rCtx.rDev, aPath, std::max(0.0, fRadius - i), COL_TRANSPARENT,
-+                                   rBorder, 1.0);
-+        aPath.shrink(1);
++        const basegfx::B2DPolygon aFill
++            = bBorder ? insetRect(aOuter, fRad, fWidth / 2) : roundedRect(aOuter, fRad);
++        if (aFill.count())
++            FillShape(rCtx, basegfx::B2DPolyPolygon(aFill), rFill);
 +    }
++    if (!bBorder)
++        return;
++    // The border is one filled ring between two concentric outlines, never a stroke: a stroke one
++    // pixel wide is drawn by Skia as a hairline, a pixel per step along the curve, which leaves the
++    // arc paler than the straight edges and a light notch where they meet; several one-pixel
++    // strokes side by side leave pale seams between them on the arc.
++    basegfx::B2DPolyPolygon aRing(roundedRect(aOuter, fRad));
++    basegfx::B2DPolygon aHole = insetRect(aOuter, fRad, fWidth);
++    if (aHole.count())
++    {
++        aHole.flip(); // a hole under the even-odd and the non-zero rule alike
++        aRing.append(aHole);
++    }
++    FillShape(rCtx, aRing, rBorder);
 +}
 +
 +void StrokePolyLine(const PaintContext& rCtx, const basegfx::B2DPolygon& rLine, const Color& rColor,
