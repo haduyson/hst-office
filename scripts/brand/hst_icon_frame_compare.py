@@ -21,12 +21,15 @@ and measured on the light theme, where the outline ink is dark:
            tests/runtime/check-hst-icon-sharpness.py;
   halfpx   share of painted pixels at 30-70 % coverage (half-pixel lines).
 A glyph is flagged when a metric leaves its neighbours' range widened by TOLERANCE (fringe and
-halfpx only upwards: sharper is never an outlier). `outliers()` is the gate of
+halfpx only upwards: sharper is never an outlier; fringe never above the softest neighbour, so a
+circle may be as soft as Colibre's circles but no softer), or when its ink density is more than
+INK_MEDIAN from the neighbours' median. `outliers()` is the gate of
 tests/unit/test_hst_icon_frame_set.py. With --sheet, a side-by-side sheet (light and dark)
 and with --json the measurement table are written. Needs NumPy, Pillow, rsvg-convert.
 """
 import argparse
 import json
+import statistics
 from pathlib import Path
 import sys
 
@@ -47,17 +50,27 @@ NEIGHBOURS = {
     "previousversions": ["cmd/sc_signature", "cmd/sc_setdocumentproperties", "cmd/sc_versiondialog"],
     "unsaveddocuments": ["cmd/sc_signature", "cmd/sc_setdocumentproperties", "cmd/sc_versiondialog"],
     "toggleduplex": ["cmd/sc_print", "cmd/sc_printpreview", "cmd/sc_exporttopdf"],
-    "tabclose": ["cmd/sc_closedoc", "cmd/sc_newdoc", "cmd/sc_adddirect"],
-    "tabnew": ["cmd/sc_closedoc", "cmd/sc_newdoc", "cmd/sc_adddirect"],
+    # the tab marks stand beside LibreOffice's own close-button marks (vcl/res/closedoc is the × of its
+    # close buttons), not beside document icons
+    "tabclose": ["vcl/res/closedoc", "cmd/sc_closewin", "cmd/sc_delete"],
+    "tabnew": ["vcl/res/closedoc", "cmd/sc_closewin", "cmd/sc_delete"],
     "sidebar-property": ["cmd/sc_inspectordeck", "cmd/sc_basicshapes", "cmd/sc_showannotations"],
     "sidebar-style": ["cmd/sc_inspectordeck", "cmd/sc_basicshapes", "cmd/sc_showannotations"],
     "sidebar-navigator": ["cmd/sc_inspectordeck", "cmd/sc_basicshapes", "cmd/sc_showannotations"],
     "signature-status": ["svx/res/doc_modified_no", "svx/res/zoom_page_statusbar",
                          "svx/res/a11y_check_issues_not_found"],
 }
+# Small control marks drawn inside a button (the document tab's close and new), smaller and lighter than an
+# icon by owner decision of 20/11: judged on pen weight and sharpness, and never heavier than the icons.
+MARKS = {"tabclose", "tabnew"}
+# Measured, accepted exceptions: (glyph, display scale %) -> metrics not judged. At 250 % the 45-degree arms
+# of the tab-close mark snap to a 2 px pen, and any 2 px diagonal measures fringe 0.39 (pens 1.65-2.4 and
+# spans 8-10 units were swept on 20/11/2026); LibreOffice's own close mark is no sharper at 1x (0.44).
+EXCEPTIONS = {("tabclose", 250): {"fringe", "halfpx"}}
 SCALES = (100, 150, 200, 250)
 METRICS = ("size", "stroke", "ink", "fringe", "halfpx")
-TOLERANCE = {"size": 0.10, "stroke": 0.15, "ink": 0.20, "fringe": 0.10, "halfpx": 0.10}
+TOLERANCE = {"size": 0.10, "stroke": 0.15, "ink": 0.20, "fringe": 0.0, "halfpx": 0.10}
+INK_MEDIAN = 0.15  # ink density also within +-15 % of the neighbours' median: never heavier than Colibre on average
 ONE_SIDED = {"fringe", "halfpx"}
 INK_LUMA = 110  # light theme: Colibre's outline ink #3A3A38 and HST's currentColor are both darker than this
 
@@ -164,6 +177,8 @@ def compare(names, colibre):
                         neighbours[colibre_request(neighbour, size)] = measure(image)
                 flags = []
                 for metric in METRICS:
+                    if name in MARKS and metric in ("size", "ink") or metric in EXCEPTIONS.get((name, scale), ()):
+                        continue
                     values = [m[metric] for m in neighbours.values()]
                     if not values:
                         continue
@@ -173,6 +188,11 @@ def compare(names, colibre):
                         flags.append(f"{metric} {hst[metric]} > Colibre {high}")
                     elif metric not in ONE_SIDED and hst[metric] < low - span:
                         flags.append(f"{metric} {hst[metric]} < Colibre {low}")
+                if neighbours:
+                    middle = statistics.median(m["ink"] for m in neighbours.values())
+                    if (hst["ink"] > (1 + INK_MEDIAN) * middle if name in MARKS
+                            else abs(hst["ink"] - middle) > INK_MEDIAN * middle):
+                        flags.append(f"ink {hst['ink']} not within 15 % of the Colibre median {round(middle, 4)}")
                 report[name][f"{size}@{scale}"] = {"hst": hst, "colibre": neighbours, "flags": flags}
     return report
 
