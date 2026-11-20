@@ -5,7 +5,7 @@ vcl/source/hst/coat/coat-statusbar.cxx); they fail with assertions until the imp
 
 --- /dev/null
 +++ b/include/vcl/hst/statusbarcoat.hxx
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,84 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -27,15 +27,15 @@ vcl/source/hst/coat/coat-statusbar.cxx); they fail with assertions until the imp
 +class OutputDevice;
 +namespace vcl
 +{
-+class Font;
 +class Window;
 +}
 +
 +/* The status bar of a document window in the HST look (the StatusBar frame part of
-+   <vcl/hst/framecoat.hxx>): the frame surface, text in the caption style, thin dividers instead of
++   <vcl/hst/framecoat.hxx>): the frame surface, text in the token colour, thin dividers instead of
 +   3D separators, a hover behind the items that open something when clicked, and a zoom slider drawn
-+   from the tokens. Only colours, fonts and shapes change: the bar's height, the items' widths and
-+   their click areas stay exactly as without the coat. */
++   from the tokens. Only colours and shapes change: the bar keeps its font (which sizes the bar and
++   its items), so its height, the items' widths and their click areas stay exactly as without the
++   coat. */
 +namespace hst::coat
 +{
 +/** Whether rBar (a StatusBar) is drawn in the HST look: the bar of a document window (its parent is
@@ -47,11 +47,9 @@ vcl/source/hst/coat/coat-statusbar.cxx); they fail with assertions until the imp
 +    hover: the language, the selection mode and the zoom percentage. */
 +VCL_DLLPUBLIC bool IsStatusBarItemClickable(std::u16string_view aCommand);
 +
-+/** The background, text colour and text font of the bar in the HST look, for rBar's theme. The
-+    font is rBase (the bar's own font, which sizes the bar and its items) at the caption scale. */
++/** The background and text colour of the bar in the HST look, for rBar's theme. */
 +VCL_DLLPUBLIC Color StatusBarBackground(const vcl::Window& rBar);
 +VCL_DLLPUBLIC Color StatusBarTextColor(const vcl::Window& rBar);
-+VCL_DLLPUBLIC vcl::Font StatusBarFont(const vcl::Font& rBase);
 +
 +/* The shapes below are drawn on rDev (the bar itself, or the off-screen device its items are drawn
 +   on; pixel map mode) in the colours of rBar's theme and at rBar's DPI scale. */
@@ -174,7 +172,7 @@ vcl/source/hst/coat/coat-statusbar.cxx); they fail with assertions until the imp
      CppunitTest_vcl_treeview \
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/statusbar-coat-test.cxx
-@@ -0,0 +1,380 @@
+@@ -0,0 +1,368 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -377,18 +375,6 @@ vcl/source/hst/coat/coat-statusbar.cxx); they fail with assertions until the imp
 +    }
 +}
 +
-+CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testItemsTextIsCaptionSized)
-+{
-+    StatusBar& rBar = makeBar();
-+    // the caption style for the text, the bar's own font (which sizes the bar) unchanged
-+    const vcl::Font aBase = rBar.GetFont();
-+    const vcl::Font aCaption = hst::coat::StatusBarFont(aBase);
-+    CPPUNIT_ASSERT_EQUAL(
-+        std::lround(aBase.GetFontSize().Height() * design::type::Caption.fScale),
-+        aCaption.GetFontSize().Height());
-+    CPPUNIT_ASSERT_EQUAL(design::type::Caption.eWeight, aCaption.GetWeight());
-+}
-+
 +CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testDividersAreThinLinesNot3D)
 +{
 +    StatusBar& rBar = makeBar();
@@ -557,7 +543,7 @@ vcl/source/hst/coat/coat-statusbar.cxx); they fail with assertions until the imp
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-statusbar.cxx
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,37 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -570,7 +556,6 @@ vcl/source/hst/coat/coat-statusbar.cxx); they fail with assertions until the imp
 +
 +#include <vcl/hst/statusbarcoat.hxx>
 +
-+#include <vcl/font.hxx>
 +#include <vcl/window.hxx>
 +
 +namespace hst::coat
@@ -582,8 +567,6 @@ vcl/source/hst/coat/coat-statusbar.cxx); they fail with assertions until the imp
 +Color StatusBarBackground(const vcl::Window&) { return COL_TRANSPARENT; }
 +
 +Color StatusBarTextColor(const vcl::Window&) { return COL_TRANSPARENT; }
-+
-+vcl::Font StatusBarFont(const vcl::Font& rBase) { return rBase; }
 +
 +void DrawStatusBarTopLine(OutputDevice&, const vcl::Window&, tools::Long) {}
 +
