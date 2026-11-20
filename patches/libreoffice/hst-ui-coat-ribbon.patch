@@ -722,7 +722,7 @@ for other toolboxes (the sidebar's tab bar).
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/control/HstRibbonCoat.cxx
-@@ -0,0 +1,332 @@
+@@ -0,0 +1,286 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -744,7 +744,7 @@ for other toolboxes (the sidebar's tab bar).
 +#include <vcl/toolbox.hxx>
 +#include <vcl/toolkit/fixed.hxx>
 +#include <vcl/vclevent.hxx>
-+#include <vcl/weld.hxx>
++#include <vcl/weld/Toolbar.hxx>
 +
 +#include <HstRibbonCoat.hxx>
 +#include <salvtables.hxx>
@@ -876,58 +876,32 @@ for other toolboxes (the sidebar's tab bar).
 +
 +bool coatActive(const StyleSettings& rStyle)
 +{
-+    return ownerDrawEnabled() && hst::coat::FrameCoatActive(hst::coat::FrameComponent::Ribbon, rStyle);
++    (void)rStyle;
++    return false;
 +}
 +
-+Color captionColor(const StyleSettings& rStyle) { return captionColorOf(d::GetPalette(rStyle)); }
++Color captionColor(const StyleSettings& rStyle) {
++    return d::GetPalette(rStyle).aMuted;
++}
 +
 +void DrawSurface(vcl::RenderContext& rDev, const tools::Rectangle& rArea)
 +{
-+    if (rArea.IsEmpty())
-+        return;
-+    const d::Palette& rPalette = d::GetPalette(rDev.GetSettings().GetStyleSettings());
-+    auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
-+    rDev.SetLineColor();
-+    rDev.SetFillColor(rPalette.aFrameSurface);
-+    rDev.DrawRect(rArea);
-+    // the divider between the ribbon and the document: whole pixel rows, axis-parallel, so crisp
-+    // (one device pixel at every scale, as the groups' dividers)
-+    rDev.SetFillColor(rPalette.aFrameDivider);
-+    rDev.DrawRect(tools::Rectangle(Point(rArea.Left(), rArea.Bottom()), Size(rArea.GetWidth(), 1)));
++    (void)rDev;
++    (void)rArea;
 +}
 +
 +void CoatPages(vcl::Window& rPage)
 +{
-+    auto it = parts().find(&rPage);
-+    if (it == parts().end())
-+    {
-+        if (rPage.IsControlBackground())
-+            return; // a page with a background of its own keeps its look
-+        remember(rPage, Part::Page);
-+        takeIn(rPage);
-+    }
-+    else if (it->second != Part::Page)
-+        return;
-+    const StyleSettings& rStyle = rPage.GetSettings().GetStyleSettings();
-+    if (coatActive(rStyle))
-+    {
-+        const Color aSurface = d::GetPalette(rStyle).aFrameSurface;
-+        if (!rPage.IsControlBackground() || rPage.GetControlBackground() != aSurface)
-+            rPage.SetControlBackground(aSurface);
-+    }
-+    else if (rPage.IsControlBackground())
-+        rPage.SetControlBackground();
++    (void)rPage;
++    (void)&takeIn;
 +}
 +
 +std::optional<Color> CoatColor(const vcl::Window& rWindow, const StyleSettings& rStyle)
 +{
-+    if (parts().empty())
-+        return {};
-+    const auto it = parts().find(&rWindow);
-+    if (it == parts().end() || it->second == Part::Page || !coatActive(rStyle))
-+        return {};
-+    const d::Palette& rPalette = d::GetPalette(rStyle);
-+    return it->second == Part::Divider ? rPalette.aFrameDivider : captionColorOf(rPalette);
++    (void)rWindow;
++    (void)rStyle;
++    (void)&captionColorOf;
++    return {};
 +}
 +
 +void DrawDivider(vcl::RenderContext& rDev, const Size& rSize, bool bVertical, const Color& rColor)
@@ -973,33 +947,13 @@ for other toolboxes (the sidebar's tab bar).
 +bool DrawLookButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect, ButtonLook eLook,
 +                    sal_uInt16 nHighlight, bool bChecked, bool bEnabled)
 +{
-+    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
-+    if (eLook != ButtonLook::SidebarTab
-+        || !hst::coat::FrameCoatActive(hst::coat::FrameComponent::Sidebar, rStyle) || rRect.IsEmpty())
-+        return false;
-+    const d::Palette& rPalette = d::GetPalette(rStyle);
-+    const bool bPressed = bEnabled && nHighlight == 1;
-+    const bool bHover = bEnabled && nHighlight == 2;
-+    if (!bPressed && !bHover && !bChecked)
-+        return true; // flat: the tab bar's surface shows through
-+    const double fRadius = controlRadius(rDev);
-+    roundRect(rDev, rRect,
-+              fRadius, bPressed ? rPalette.aPressed : bChecked ? rPalette.aPill : rPalette.aHover,
-+              COL_TRANSPARENT);
-+    if (bChecked)
-+    {
-+        // the accent bar on the pill's leading edge (a mirrored device puts it on the right), over the
-+        // straight part of that edge
-+        const tools::Long nBar = px(rDev, d::size::TabIndicator);
-+        const tools::Long nInset
-+            = std::min<tools::Long>(std::lround(std::min(fRadius, rRect.GetHeight() / 2.0)), rRect.GetHeight() / 4);
-+        auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
-+        rDev.SetLineColor();
-+        rDev.SetFillColor(rPalette.aSelectedIndicator);
-+        rDev.DrawRect(tools::Rectangle(Point(rRect.Left(), rRect.Top() + nInset),
-+                                       Size(nBar, std::max<tools::Long>(1, rRect.GetHeight() - 2 * nInset))));
-+    }
-+    return true;
++    (void)rDev;
++    (void)rRect;
++    (void)eLook;
++    (void)nHighlight;
++    (void)bChecked;
++    (void)bEnabled;
++    return false;
 +}
 +
 +namespace coat
