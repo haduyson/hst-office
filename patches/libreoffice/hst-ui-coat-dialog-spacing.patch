@@ -1,0 +1,1686 @@
+HST Office: dialogs keep a minimum gap between stacked and neighbouring controls (dialog layout rulebook).
+
+Spacing properties only (row-spacing, column-spacing, spacing of grids and boxes in dialog and tab-page .ui
+files); no widget, id, label, string, order or accessibility change. Values from hst::design::layout:
+- two controls with a border (entry, spin button, combo box, list, button) stacked in a grid column or a
+  vertical box: RowGap 6 px apart (was 0-5; e.g. the 3 px spin-button stacks of Page Style's margins and
+  Paragraph's indents and spacing);
+- two such controls side by side: 6 px (was 0-3);
+- other stacked controls (labels, check and radio buttons, a check button over an entry): MinGap 4 px at least
+  (was 0-3; 6 kept where it was 6). Where margins already add to a pair, only the missing part is set.
+The intentional exceptions (a show-password toggle joined to its entry, alternatives shown one at a time...)
+are listed with their reasons in tests/unit/data/ui-layout-exceptions.json and left as they are. Checked by
+tests/unit/test_ui_layout_rulebook.py (static) and tests/runtime/hst_dialog_layout_check.py (on screen).
+
+--- a/basctl/uiconfig/basicide/ui/basicmacrodialog.ui
++++ b/basctl/uiconfig/basicide/ui/basicmacrodialog.ui
+@@ -292,7 +292,7 @@
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="orientation">vertical</property>
+-                    <property name="spacing">5</property>
++                    <property name="spacing">6</property>
+                     <property name="homogeneous">True</property>
+                     <property name="layout-style">start</property>
+                     <child>
+--- a/basctl/uiconfig/basicide/ui/colorscheme.ui
++++ b/basctl/uiconfig/basicide/ui/colorscheme.ui
+@@ -86,6 +86,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="orientation">vertical</property>
++                <property name="spacing">4</property>
+                 <child>
+                   <object class="GtkRadioButton" id="opt_appcolors">
+                     <property name="label" translatable="yes" context="colorscheme|opt_appcolors">Use Application Colors</property>
+--- a/basctl/uiconfig/basicide/ui/managebreakpoints.ui
++++ b/basctl/uiconfig/basicide/ui/managebreakpoints.ui
+@@ -164,7 +164,7 @@
+                     <property name="can_focus">False</property>
+                     <property name="hexpand">True</property>
+                     <property name="vexpand">True</property>
+-                    <property name="row_spacing">3</property>
++                    <property name="row_spacing">6</property>
+                     <child>
+                       <object class="GtkScrolledWindow">
+                         <property name="visible">True</property>
+--- a/chart2/uiconfig/ui/smoothlinesdlg.ui
++++ b/chart2/uiconfig/ui/smoothlinesdlg.ui
+@@ -155,7 +155,7 @@
+               <object class="GtkGrid" id="grid2">
+                 <property name="visible">True</property>
+                 <property name="can_focus">False</property>
+-                <property name="row_spacing">3</property>
++                <property name="row_spacing">6</property>
+                 <property name="column_spacing">6</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+--- a/chart2/uiconfig/ui/steppedlinesdlg.ui
++++ b/chart2/uiconfig/ui/steppedlinesdlg.ui
+@@ -86,7 +86,7 @@
+               <object class="GtkGrid" id="grid2">
+                 <property name="visible">True</property>
+                 <property name="can_focus">False</property>
+-                <property name="row_spacing">3</property>
++                <property name="row_spacing">4</property>
+                 <property name="column_spacing">6</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+--- a/chart2/uiconfig/ui/tp_3D_SceneIllumination.ui
++++ b/chart2/uiconfig/ui/tp_3D_SceneIllumination.ui
+@@ -419,6 +419,7 @@
+               <object class="GtkGrid">
+                 <property name="visible">True</property>
+                 <property name="can_focus">False</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <object class="GtkDrawingArea" id="CTL_LIGHT_PREVIEW">
+                     <property name="visible">True</property>
+--- a/chart2/uiconfig/ui/tp_Scale.ui
++++ b/chart2/uiconfig/ui/tp_Scale.ui
+@@ -340,6 +340,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="orientation">vertical</property>
++                <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkBox" id="box9">
+                     <property name="visible">True</property>
+--- a/cui/uiconfig/ui/appearance.ui
++++ b/cui/uiconfig/ui/appearance.ui
+@@ -36,7 +36,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">3</property>
++            <property name="spacing">6</property>
+             <child>
+               <object class="GtkBox">
+                 <property name="visible">True</property>
+@@ -100,7 +100,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="halign">start</property>
+                 <property name="valign">start</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">6</property>
+                 <property name="column-spacing">3</property>
+                 <child>
+                   <object class="GtkLabel" id="lbToolbar">
+@@ -261,7 +261,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">3</property>
++            <property name="spacing">4</property>
+             <child>
+               <object class="GtkBox">
+                 <property name="visible">True</property>
+@@ -375,7 +375,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="halign">start</property>
+-                <property name="spacing">3</property>
++                <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkComboBoxText" id="bitmapdropdown">
+                     <property name="visible">True</property>
+@@ -451,7 +451,7 @@
+             <property name="halign">start</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <property name="column-spacing">6</property>
+             <child>
+               <object class="GtkComboBoxText" id="registrydropdown">
+--- a/cui/uiconfig/ui/applylocalizedpage.ui
++++ b/cui/uiconfig/ui/applylocalizedpage.ui
+@@ -65,6 +65,7 @@
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+             <property name="column_homogeneous">True</property>
++            <property name="row-spacing">6</property>
+             <child>
+               <object class="GtkScrolledWindow">
+                 <property name="visible">True</property>
+--- a/cui/uiconfig/ui/borderpage.ui
++++ b/cui/uiconfig/ui/borderpage.ui
+@@ -215,7 +215,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">6</property>
+             <property name="column-spacing">6</property>
+             <child>
+               <object class="GtkLabel" id="label15">
+@@ -300,6 +300,7 @@
+               <object class="GtkBox">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkComboBoxText" id="linewidthlb">
+                     <property name="visible">True</property>
+@@ -381,7 +382,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">6</property>
+             <property name="column-spacing">6</property>
+             <child>
+               <object class="GtkLabel" id="leftft">
+@@ -543,7 +544,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">6</property>
+             <property name="column-spacing">6</property>
+             <child>
+               <object class="GtkLabel" id="label22">
+--- a/cui/uiconfig/ui/bulletandposition.ui
++++ b/cui/uiconfig/ui/bulletandposition.ui
+@@ -254,7 +254,7 @@
+                           <object class="GtkGrid" id="grid3">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+-                            <property name="row-spacing">3</property>
++                            <property name="row-spacing">6</property>
+                             <property name="column-spacing">6</property>
+                             <child>
+                               <object class="GtkLabel" id="label4">
+@@ -452,7 +452,7 @@
+                         <property name="can-focus">False</property>
+                         <property name="margin-start">12</property>
+                         <property name="margin-top">6</property>
+-                        <property name="row-spacing">3</property>
++                        <property name="row-spacing">6</property>
+                         <property name="column-spacing">6</property>
+                         <child>
+                           <object class="GtkLabel" id="prefixft">
+@@ -548,7 +548,7 @@
+                         <property name="can-focus">False</property>
+                         <property name="margin-start">12</property>
+                         <property name="margin-top">6</property>
+-                        <property name="row-spacing">3</property>
++                        <property name="row-spacing">6</property>
+                         <property name="column-spacing">6</property>
+                         <child>
+                           <object class="GtkBox" id="whbox">
+@@ -560,7 +560,7 @@
+                               <object class="GtkGrid">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
+-                                <property name="row-spacing">3</property>
++                                <property name="row-spacing">6</property>
+                                 <property name="column-spacing">6</property>
+                                 <child>
+                                   <object class="GtkLabel" id="widthft">
+@@ -799,7 +799,7 @@
+                         <property name="can-focus">False</property>
+                         <property name="margin-start">12</property>
+                         <property name="margin-top">6</property>
+-                        <property name="row-spacing">3</property>
++                        <property name="row-spacing">6</property>
+                         <property name="column-spacing">6</property>
+                         <child>
+                           <object class="GtkLabel" id="indent">
+@@ -1002,7 +1002,7 @@
+                         <property name="can-focus">False</property>
+                         <property name="margin-start">12</property>
+                         <property name="margin-top">6</property>
+-                        <property name="row-spacing">3</property>
++                        <property name="row-spacing">4</property>
+                         <property name="column-spacing">6</property>
+                         <child>
+                           <object class="GtkRadioButton" id="sliderb">
+--- a/cui/uiconfig/ui/colorpage.ui
++++ b/cui/uiconfig/ui/colorpage.ui
+@@ -241,7 +241,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="margin-top">6</property>
+-                <property name="column-spacing">3</property>
++                <property name="column-spacing">6</property>
+                 <property name="column-homogeneous">True</property>
+                 <child>
+                   <object class="GtkLabel" id="label22">
+--- a/cui/uiconfig/ui/colorpickerdialog.ui
++++ b/cui/uiconfig/ui/colorpickerdialog.ui
+@@ -287,7 +287,7 @@
+                         <property name="margin-top">6</property>
+                         <property name="hexpand">True</property>
+                         <property name="vexpand">True</property>
+-                        <property name="row-spacing">3</property>
++                        <property name="row-spacing">6</property>
+                         <property name="column-spacing">6</property>
+                         <child>
+                           <object class="GtkRadioButton" id="redRadiobutton">
+@@ -474,7 +474,7 @@
+                         <property name="margin-top">6</property>
+                         <property name="hexpand">True</property>
+                         <property name="vexpand">True</property>
+-                        <property name="row-spacing">3</property>
++                        <property name="row-spacing">6</property>
+                         <property name="column-spacing">6</property>
+                         <child>
+                           <object class="GtkRadioButton" id="hueRadiobutton">
+@@ -629,7 +629,7 @@
+                         <property name="margin-top">6</property>
+                         <property name="hexpand">True</property>
+                         <property name="vexpand">True</property>
+-                        <property name="row-spacing">3</property>
++                        <property name="row-spacing">6</property>
+                         <property name="column-spacing">6</property>
+                         <child>
+                           <object class="GtkLabel" id="label5">
+--- a/cui/uiconfig/ui/dbregisterpage.ui
++++ b/cui/uiconfig/ui/dbregisterpage.ui
+@@ -110,7 +110,7 @@
+                 <property name="visible">True</property>
+                 <property name="can_focus">False</property>
+                 <property name="halign">end</property>
+-                <property name="spacing">3</property>
++                <property name="spacing">6</property>
+                 <property name="layout_style">end</property>
+                 <child>
+                   <object class="GtkButton" id="new">
+--- a/cui/uiconfig/ui/diagramdialog.ui
++++ b/cui/uiconfig/ui/diagramdialog.ui
+@@ -20,7 +20,7 @@
+       <object class="GtkBox">
+         <property name="can_focus">False</property>
+         <property name="orientation">vertical</property>
+-        <property name="spacing">2</property>
++        <property name="spacing">6</property>
+         <child internal-child="action_area">
+           <object class="GtkButtonBox">
+             <property name="can_focus">False</property>
+@@ -104,6 +104,7 @@
+           <object class="GtkBox">
+             <property name="visible">True</property>
+             <property name="can_focus">False</property>
++            <property name="spacing">6</property>
+             <child>
+               <object class="GtkTextView" id="textAdd">
+                 <property name="visible">True</property>
+--- a/cui/uiconfig/ui/fmsearchdialog.ui
++++ b/cui/uiconfig/ui/fmsearchdialog.ui
+@@ -118,6 +118,7 @@
+                             <property name="hexpand">True</property>
+                             <property name="orientation">vertical</property>
+                             <property name="homogeneous">True</property>
++                            <property name="spacing">4</property>
+                             <child>
+                               <!-- n-columns=2 n-rows=1 -->
+                               <object class="GtkGrid" id="grid5">
+--- a/cui/uiconfig/ui/imagetabpage.ui
++++ b/cui/uiconfig/ui/imagetabpage.ui
+@@ -183,7 +183,7 @@
+                         <property name="margin-start">12</property>
+                         <property name="margin-top">6</property>
+                         <property name="orientation">vertical</property>
+-                        <property name="spacing">3</property>
++                        <property name="spacing">6</property>
+                         <child>
+                           <object class="GtkBox" id="box6">
+                             <property name="visible">True</property>
+@@ -370,7 +370,7 @@
+                         <property name="margin-start">12</property>
+                         <property name="margin-top">6</property>
+                         <property name="orientation">vertical</property>
+-                        <property name="spacing">3</property>
++                        <property name="spacing">6</property>
+                         <child>
+                           <object class="GtkBox" id="box9">
+                             <property name="visible">True</property>
+--- a/cui/uiconfig/ui/linetabpage.ui
++++ b/cui/uiconfig/ui/linetabpage.ui
+@@ -152,7 +152,7 @@
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+                 <property name="orientation">vertical</property>
+-                <property name="spacing">3</property>
++                <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkBox" id="box5">
+                     <property name="visible">True</property>
+@@ -374,7 +374,7 @@
+                       <object class="GtkGrid" id="grid2">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+-                        <property name="row-spacing">3</property>
++                        <property name="row-spacing">6</property>
+                         <property name="column-spacing">6</property>
+                         <child>
+                           <object class="GtkLabel" id="FT_LINE_ENDS_STYLE">
+@@ -417,7 +417,7 @@
+                           <object class="GtkGrid" id="boxSTART">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+-                            <property name="row-spacing">3</property>
++                            <property name="row-spacing">4</property>
+                             <property name="column-spacing">6</property>
+                             <child>
+                               <object class="GtkCheckButton" id="TSB_CENTER_START">
+@@ -503,7 +503,7 @@
+                       <object class="GtkGrid" id="grid3">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+-                        <property name="row-spacing">3</property>
++                        <property name="row-spacing">6</property>
+                         <property name="column-spacing">6</property>
+                         <child>
+                           <object class="GtkComboBox" id="LB_END_STYLE">
+@@ -546,7 +546,7 @@
+                           <object class="GtkGrid" id="boxEND">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+-                            <property name="row-spacing">3</property>
++                            <property name="row-spacing">4</property>
+                             <property name="column-spacing">6</property>
+                             <child>
+                               <object class="GtkLabel" id="FT_LINE_END_WIDTH">
+@@ -648,7 +648,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">6</property>
+                 <property name="column-spacing">6</property>
+                 <child>
+                   <object class="GtkLabel" id="FT_EDGE_STYLE">
+--- a/cui/uiconfig/ui/numberingoptionspage.ui
++++ b/cui/uiconfig/ui/numberingoptionspage.ui
+@@ -609,6 +609,7 @@
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+                         <property name="column-spacing">6</property>
++                        <property name="row-spacing">6</property>
+                         <child>
+                           <object class="GtkSpinButton" id="widthmf">
+                             <property name="visible">True</property>
+--- a/cui/uiconfig/ui/optaccessibilitypage.ui
++++ b/cui/uiconfig/ui/optaccessibilitypage.ui
+@@ -39,7 +39,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">3</property>
++            <property name="spacing">6</property>
+             <child>
+               <!-- n-columns=3 n-rows=1 -->
+               <object class="GtkGrid" id="animatedgraphicgrid">
+@@ -280,7 +280,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">3</property>
++            <property name="spacing">4</property>
+             <child>
+               <!-- n-columns=3 n-rows=1 -->
+               <object class="GtkGrid" id="highcontrastbox">
+@@ -530,7 +530,7 @@
+             <property name="margin-top">6</property>
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+-            <property name="row-spacing">5</property>
++            <property name="row-spacing">6</property>
+             <child>
+               <object class="GtkScrolledWindow" id="optionsscroll">
+                 <property name="visible">True</property>
+--- a/cui/uiconfig/ui/optchartcolorspage.ui
++++ b/cui/uiconfig/ui/optchartcolorspage.ui
+@@ -128,6 +128,7 @@
+             <property name="vexpand">True</property>
+             <property name="orientation">vertical</property>
+             <property name="column-spacing">12</property>
++            <property name="row-spacing">6</property>
+             <child>
+               <object class="GtkButtonBox" id="buttonbox1">
+                 <property name="visible">True</property>
+--- a/cui/uiconfig/ui/optfltrpage.ui
++++ b/cui/uiconfig/ui/optfltrpage.ui
+@@ -21,7 +21,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkCheckButton" id="wo_basic">
+                 <property name="label" translatable="yes" context="optfltrpage|wo_basic">Load Basic _code</property>
+@@ -151,7 +151,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkCheckButton" id="ex_basic">
+                 <property name="label" translatable="yes" context="optfltrpage|ex_basic">Lo_ad Basic code</property>
+@@ -281,7 +281,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkCheckButton" id="pp_basic">
+                 <property name="label" translatable="yes" context="optfltrpage|pp_basic">Load Ba_sic code</property>
+--- a/cui/uiconfig/ui/optgeneralpage.ui
++++ b/cui/uiconfig/ui/optgeneralpage.ui
+@@ -30,6 +30,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="column-spacing">6</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkCheckButton" id="exthelp">
+                 <property name="label" translatable="yes" context="optgeneralpage|exthelp">_Extended tips</property>
+@@ -147,6 +148,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="column-spacing">6</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkCheckButton" id="filedlg">
+                 <property name="label" translatable="yes" context="optgeneralpage|filedlg">_Use %PRODUCTNAME open/save dialogs</property>
+@@ -623,7 +625,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">18</property>
+                 <property name="margin-top">3</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">4</property>
+                 <property name="column-spacing">12</property>
+                 <child>
+                   <object class="GtkLabel" id="windowmodesinfo">
+--- a/cui/uiconfig/ui/optionsdialog.ui
++++ b/cui/uiconfig/ui/optionsdialog.ui
+@@ -142,7 +142,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="vexpand">True</property>
+                 <property name="orientation">vertical</property>
+-                <property name="spacing">4</property>
++                <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkEntry" id="searchEntry">
+                     <property name="visible">True</property>
+--- a/cui/uiconfig/ui/optonlineupdatepage.ui
++++ b/cui/uiconfig/ui/optonlineupdatepage.ui
+@@ -23,7 +23,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="hexpand">True</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <property name="column-spacing">6</property>
+             <child>
+               <object class="GtkCheckButton" id="autocheck">
+@@ -52,6 +52,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">18</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <object class="GtkRadioButton" id="everyday">
+                     <property name="label" translatable="yes" context="optonlineupdatepage|everyday">Every da_y</property>
+@@ -237,7 +238,7 @@
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+                 <property name="hexpand">True</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">4</property>
+                 <property name="column-spacing">6</property>
+                 <child>
+                   <object class="GtkCheckButton" id="autodownload">
+--- a/cui/uiconfig/ui/optsecuritypage.ui
++++ b/cui/uiconfig/ui/optsecuritypage.ui
+@@ -438,6 +438,7 @@ Do you want to delete password list and reset master password?</property>
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="row-homogeneous">True</property>
++                <property name="row-spacing">6</property>
+                 <child>
+                   <!-- n-columns=1 n-rows=1 -->
+                   <object class="GtkGrid" id="grid9">
+--- a/cui/uiconfig/ui/optviewpage.ui
++++ b/cui/uiconfig/ui/optviewpage.ui
+@@ -131,7 +131,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <object class="GtkCheckButton" id="useaccel">
+                     <property name="label" translatable="yes" context="optviewpage|useaccel">Use hard_ware acceleration</property>
+@@ -349,7 +349,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <object class="GtkCheckButton" id="showfontpreview">
+                     <property name="label" translatable="yes" context="optviewpage|showfontpreview">Show p_review of fonts</property>
+--- a/cui/uiconfig/ui/pageformatpage.ui
++++ b/cui/uiconfig/ui/pageformatpage.ui
+@@ -30,7 +30,7 @@
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+                 <property name="hexpand">True</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">6</property>
+                 <property name="column-spacing">6</property>
+                 <child>
+                   <object class="GtkBox" id="box3">
+@@ -323,7 +323,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="hexpand">True</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">6</property>
+                 <property name="column-spacing">6</property>
+                 <child>
+                   <object class="GtkLabel" id="labelFormat">
+@@ -531,7 +531,7 @@
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+                 <property name="hexpand">True</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">6</property>
+                 <property name="column-spacing">6</property>
+                 <child>
+                   <object class="GtkLabel" id="labelPageLayout">
+--- a/cui/uiconfig/ui/paragalignpage.ui
++++ b/cui/uiconfig/ui/paragalignpage.ui
+@@ -112,7 +112,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <object class="GtkRadioButton" id="radioBTN_LEFTALIGN">
+                     <property name="label" translatable="yes" context="paragalignpage|radioBTN_LEFTALIGN">Force _Left</property>
+@@ -468,6 +468,7 @@
+               <object class="GtkGrid" id="grid3">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <object class="GtkBox" id="box3">
+                     <property name="visible">True</property>
+--- a/cui/uiconfig/ui/paraindentspacing.ui
++++ b/cui/uiconfig/ui/paraindentspacing.ui
+@@ -177,7 +177,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">6</property>
+                 <property name="column-spacing">6</property>
+                 <child>
+                   <object class="GtkLabel" id="labelFT_LEFTINDENT">
+@@ -386,7 +386,7 @@
+                   <object class="GtkGrid" id="grid1">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="row-spacing">3</property>
++                    <property name="row-spacing">6</property>
+                     <property name="column-spacing">6</property>
+                     <child>
+                       <object class="GtkLabel" id="labelFT_TOPDIST">
+--- a/cui/uiconfig/ui/paratabspage.ui
++++ b/cui/uiconfig/ui/paratabspage.ui
+@@ -46,7 +46,7 @@
+             <property name="margin-top">6</property>
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">6</property>
+             <child>
+               <object class="GtkScrolledWindow">
+                 <property name="height-request">42</property>
+--- a/cui/uiconfig/ui/qrcodegen.ui
++++ b/cui/uiconfig/ui/qrcodegen.ui
+@@ -189,7 +189,7 @@
+                       <object class="GtkGrid">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+-                        <property name="row-spacing">2</property>
++                        <property name="row-spacing">4</property>
+                         <child>
+                           <object class="GtkRadioButton" id="button_low">
+                             <property name="label" translatable="yes" context="qrcodegen|ErrorCorrection">Low</property>
+--- a/cui/uiconfig/ui/shadowtabpage.ui
++++ b/cui/uiconfig/ui/shadowtabpage.ui
+@@ -35,7 +35,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">3</property>
++            <property name="spacing">4</property>
+             <child>
+               <object class="GtkCheckButton" id="TSB_SHOW_SHADOW">
+                 <property name="label" translatable="yes" context="shadowtabpage|TSB_SHOW_SHADOW">_Use shadow</property>
+@@ -63,7 +63,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">18</property>
+-                <property name="row-spacing">4</property>
++                <property name="row-spacing">6</property>
+                 <property name="column-spacing">6</property>
+                 <child>
+                   <object class="GtkScrolledWindow">
+--- a/cui/uiconfig/ui/specialcharacters.ui
++++ b/cui/uiconfig/ui/specialcharacters.ui
+@@ -261,7 +261,7 @@
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="halign">center</property>
+-                    <property name="row-spacing">3</property>
++                    <property name="row-spacing">6</property>
+                     <property name="column-spacing">6</property>
+                     <property name="row-homogeneous">True</property>
+                     <child>
+--- a/cui/uiconfig/ui/swpossizepage.ui
++++ b/cui/uiconfig/ui/swpossizepage.ui
+@@ -56,7 +56,7 @@
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+                 <property name="hexpand">True</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">6</property>
+                 <property name="column-spacing">6</property>
+                 <child>
+                   <object class="GtkLabel" id="widthft">
+--- a/cui/uiconfig/ui/textflowpage.ui
++++ b/cui/uiconfig/ui/textflowpage.ui
+@@ -690,7 +690,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">6</property>
+             <property name="column-spacing">6</property>
+             <child>
+               <object class="GtkCheckButton" id="checkInsert">
+--- a/cui/uiconfig/ui/uitabpage.ui
++++ b/cui/uiconfig/ui/uitabpage.ui
+@@ -21,7 +21,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">3</property>
++            <property name="spacing">4</property>
+             <child>
+               <object class="GtkRadioButton" id="rbButton1">
+                 <property name="label" translatable="yes" context="UITabPage|radiobutton1">Standard Toolbar</property>
+--- a/cui/uiconfig/ui/widgettestdialog.ui
++++ b/cui/uiconfig/ui/widgettestdialog.ui
+@@ -88,14 +88,14 @@
+           <object class="GtkGrid">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+-            <property name="row-spacing">5</property>
++            <property name="row-spacing">6</property>
+             <property name="column-spacing">5</property>
+             <child>
+               <!-- n-columns=2 n-rows=7 -->
+               <object class="GtkGrid">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+-                <property name="row-spacing">5</property>
++                <property name="row-spacing">6</property>
+                 <property name="column-spacing">5</property>
+                 <child>
+                   <object class="GtkEntry" id="entry_box_1">
+--- a/dbaccess/uiconfig/ui/authentificationpage.ui
++++ b/dbaccess/uiconfig/ui/authentificationpage.ui
+@@ -50,7 +50,7 @@
+         <property name="visible">True</property>
+         <property name="can_focus">False</property>
+         <property name="hexpand">True</property>
+-        <property name="row_spacing">2</property>
++        <property name="row_spacing">4</property>
+         <property name="column_spacing">6</property>
+         <child>
+           <object class="GtkLabel" id="generalUserNameLabel">
+--- a/dbaccess/uiconfig/ui/collectionviewdialog.ui
++++ b/dbaccess/uiconfig/ui/collectionviewdialog.ui
+@@ -109,7 +109,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="hexpand">True</property>
+-                <property name="spacing">3</property>
++                <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkLabel" id="currentPathLabel">
+                     <property name="visible">True</property>
+--- a/dbaccess/uiconfig/ui/directsqldialog.ui
++++ b/dbaccess/uiconfig/ui/directsqldialog.ui
+@@ -128,6 +128,7 @@
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="column-spacing">12</property>
++                    <property name="row-spacing">4</property>
+                     <child>
+                       <object class="GtkCheckButton" id="directsql">
+                         <property name="label" translatable="yes" context="directsqldialog|directsql">Run SQL command _directly</property>
+--- a/desktop/uiconfig/ui/updatedialog.ui
++++ b/desktop/uiconfig/ui/updatedialog.ui
+@@ -268,6 +268,7 @@
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="column-spacing">6</property>
++                    <property name="row-spacing">4</property>
+                     <child>
+                       <object class="GtkLabel" id="PUBLISHER_LABEL">
+                         <property name="visible">True</property>
+--- a/extensions/uiconfig/sbibliography/ui/generalpage.ui
++++ b/extensions/uiconfig/sbibliography/ui/generalpage.ui
+@@ -893,10 +893,12 @@
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="orientation">vertical</property>
++                    <property name="spacing">6</property>
+                     <child>
+                       <object class="GtkBox" id="localhbox">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="spacing">6</property>
+                         <child>
+                           <object class="GtkEntry" id="localurlcontrol">
+                             <property name="visible">True</property>
+--- a/extensions/uiconfig/spropctrlr/ui/datetimefield.ui
++++ b/extensions/uiconfig/spropctrlr/ui/datetimefield.ui
+@@ -11,7 +11,7 @@
+     <property name="visible">True</property>
+     <property name="can_focus">False</property>
+     <property name="hexpand">True</property>
+-    <property name="spacing">3</property>
++    <property name="spacing">6</property>
+     <child>
+       <object class="GtkMenuButton" id="datefield">
+         <property name="visible">True</property>
+--- a/filter/uiconfig/ui/pdfgeneralpage.ui
++++ b/filter/uiconfig/ui/pdfgeneralpage.ui
+@@ -271,7 +271,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">6</property>
+                 <property name="column-spacing">6</property>
+                 <child>
+                   <object class="GtkRadioButton" id="losslesscompress">
+@@ -561,7 +561,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <!-- n-columns=1 n-rows=1 -->
+                   <object class="GtkGrid">
+@@ -716,7 +716,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <object class="GtkCheckButton" id="forms">
+                     <property name="label" translatable="yes" context="pdfgeneralpage|forms">Create PDF for_m</property>
+@@ -858,7 +858,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <object class="GtkCheckButton" id="tagged">
+                     <property name="label" translatable="yes" context="pdfgeneralpage|tagged">_Tagged PDF (add document structure)</property>
+--- a/filter/uiconfig/ui/xmlfiltersettings.ui
++++ b/filter/uiconfig/ui/xmlfiltersettings.ui
+@@ -149,7 +149,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="orientation">vertical</property>
+-                <property name="spacing">3</property>
++                <property name="spacing">6</property>
+                 <property name="homogeneous">True</property>
+                 <property name="layout-style">start</property>
+                 <child>
+--- a/sc/uiconfig/scalc/ui/definedatabaserangedialog.ui
++++ b/sc/uiconfig/scalc/ui/definedatabaserangedialog.ui
+@@ -118,7 +118,7 @@
+                     <property name="margin-top">6</property>
+                     <property name="hexpand">True</property>
+                     <property name="vexpand">True</property>
+-                    <property name="row-spacing">3</property>
++                    <property name="row-spacing">6</property>
+                     <child>
+                       <object class="GtkScrolledWindow">
+                         <property name="visible">True</property>
+@@ -350,7 +350,7 @@
+                     <property name="margin-top">6</property>
+                     <property name="hexpand">True</property>
+                     <property name="orientation">vertical</property>
+-                    <property name="spacing">3</property>
++                    <property name="spacing">4</property>
+                     <child>
+                       <object class="GtkCheckButton" id="ContainsColumnLabels">
+                         <property name="label" translatable="yes" context="definedatabaserangedialog|ContainsColumnLabels">Co_ntains column labels</property>
+--- a/sc/uiconfig/scalc/ui/fourieranalysisdialog.ui
++++ b/sc/uiconfig/scalc/ui/fourieranalysisdialog.ui
+@@ -293,6 +293,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
++                <property name="row-spacing">1</property>
+                 <child>
+                   <object class="GtkCheckButton" id="inverse-check">
+                     <property name="label" translatable="yes" context="fourieranalysisdialog|inverse-check">Inverse</property>
+--- a/sc/uiconfig/scalc/ui/insertcells.ui
++++ b/sc/uiconfig/scalc/ui/insertcells.ui
+@@ -97,7 +97,7 @@
+               <object class="GtkGrid">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">6</property>
+                 <property name="column-spacing">6</property>
+                 <property name="row-homogeneous">True</property>
+                 <child>
+--- a/sc/uiconfig/scalc/ui/optcalculatepage.ui
++++ b/sc/uiconfig/scalc/ui/optcalculatepage.ui
+@@ -37,6 +37,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="hexpand">True</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkCheckButton" id="case">
+                 <property name="label" translatable="yes" context="optcalculatepage|case">Case se_nsitive</property>
+@@ -288,6 +289,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkRadioButton" id="datestd">
+                 <property name="label" translatable="yes" context="optcalculatepage|datestd">1899-12-30 (defa_ult)</property>
+@@ -401,6 +403,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkRadioButton" id="formulawildcards">
+                 <property name="label" translatable="yes" context="optcalculatepage|formulawildcards">Enable w_ildcards in formulas</property>
+@@ -512,7 +515,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">3</property>
++            <property name="spacing">4</property>
+             <child>
+               <object class="GtkBox">
+                 <property name="visible">True</property>
+@@ -564,7 +567,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">18</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">6</property>
+                 <property name="column-spacing">6</property>
+                 <child>
+                   <object class="GtkLabel" id="stepsft">
+--- a/sc/uiconfig/scalc/ui/pastespecial.ui
++++ b/sc/uiconfig/scalc/ui/pastespecial.ui
+@@ -472,7 +472,7 @@
+                         <property name="margin-start">12</property>
+                         <property name="margin-top">3</property>
+                         <property name="orientation">vertical</property>
+-                        <property name="spacing">3</property>
++                        <property name="spacing">4</property>
+                         <child>
+                           <object class="GtkRadioButton" id="no_shift">
+                             <property name="label" translatable="yes" context="pastespecial|no_shift">Don't shift</property>
+@@ -676,7 +676,7 @@
+                         <property name="margin-start">12</property>
+                         <property name="margin-top">3</property>
+                         <property name="orientation">vertical</property>
+-                        <property name="spacing">3</property>
++                        <property name="spacing">4</property>
+                         <child>
+                           <object class="GtkRadioButton" id="none">
+                             <property name="label" translatable="yes" context="pastespecial|none">None</property>
+--- a/sc/uiconfig/scalc/ui/pivotcalcfielddialog.ui
++++ b/sc/uiconfig/scalc/ui/pivotcalcfielddialog.ui
+@@ -199,7 +199,7 @@
+                     <property name="halign">center</property>
+                     <property name="valign">center</property>
+                     <property name="orientation">vertical</property>
+-                    <property name="spacing">5</property>
++                    <property name="spacing">6</property>
+                     <property name="layout-style">center</property>
+                     <child>
+                       <object class="GtkButton" id="addbtn">
+--- a/sc/uiconfig/scalc/ui/pivottablelayoutdialog.ui
++++ b/sc/uiconfig/scalc/ui/pivottablelayoutdialog.ui
+@@ -616,7 +616,7 @@
+                     <property name="can-focus">False</property>
+                     <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
+-                    <property name="row-spacing">3</property>
++                    <property name="row-spacing">4</property>
+                     <property name="column-spacing">12</property>
+                     <property name="column-homogeneous">True</property>
+                     <child>
+@@ -806,7 +806,7 @@
+                             <property name="margin-start">12</property>
+                             <property name="margin-top">6</property>
+                             <property name="hexpand">True</property>
+-                            <property name="row-spacing">3</property>
++                            <property name="row-spacing">6</property>
+                             <property name="column-spacing">6</property>
+                             <child>
+                               <object class="GtkRadioButton" id="destination-radio-new-sheet">
+@@ -942,7 +942,7 @@
+                             <property name="margin-start">12</property>
+                             <property name="margin-top">6</property>
+                             <property name="hexpand">True</property>
+-                            <property name="row-spacing">3</property>
++                            <property name="row-spacing">6</property>
+                             <property name="column-spacing">6</property>
+                             <child>
+                               <object class="GtkRadioButton" id="source-radio-selection">
+--- a/sc/uiconfig/scalc/ui/scgeneralpage.ui
++++ b/sc/uiconfig/scalc/ui/scgeneralpage.ui
+@@ -28,7 +28,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">6</property>
+             <property name="column-spacing">6</property>
+             <child>
+               <object class="GtkLabel" id="label4">
+@@ -154,7 +154,7 @@
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+                 <property name="orientation">vertical</property>
+-                <property name="spacing">3</property>
++                <property name="spacing">4</property>
+                 <child>
+                   <object class="GtkRadioButton" id="alwaysrb">
+                     <property name="label" translatable="yes" context="scgeneralpage|alwaysrb">_Always (from trusted locations)</property>
+@@ -269,7 +269,7 @@
+                     <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
+                     <property name="hexpand">True</property>
+-                    <property name="row-spacing">3</property>
++                    <property name="row-spacing">4</property>
+                     <property name="column-spacing">6</property>
+                     <child>
+                       <object class="GtkCheckButton" id="editmodecb">
+--- a/sc/uiconfig/scalc/ui/sortcriteriapage.ui
++++ b/sc/uiconfig/scalc/ui/sortcriteriapage.ui
+@@ -72,7 +72,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">6</property>
+             <property name="margin-top">3</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <property name="column-spacing">3</property>
+             <child>
+               <object class="GtkRadioButton" id="rbTopDown">
+--- a/sc/uiconfig/scalc/ui/sortoptionspage.ui
++++ b/sc/uiconfig/scalc/ui/sortoptionspage.ui
+@@ -67,7 +67,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="orientation">vertical</property>
+-                <property name="spacing">3</property>
++                <property name="spacing">4</property>
+                 <child>
+                   <object class="GtkCheckButton" id="naturalsort">
+                     <property name="label" translatable="yes" context="sortoptionspage|naturalsort">Enable natural sort</property>
+@@ -219,7 +219,7 @@
+               <object class="GtkBox">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+-                <property name="spacing">3</property>
++                <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkComboBoxText" id="outarealb">
+                     <property name="visible">True</property>
+@@ -292,7 +292,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="row-spacing">3</property>
+-                <property name="column-spacing">3</property>
++                <property name="column-spacing">6</property>
+                 <child>
+                   <object class="GtkLabel" id="label6">
+                     <property name="visible">True</property>
+--- a/sc/uiconfig/scalc/ui/sparklinedialog.ui
++++ b/sc/uiconfig/scalc/ui/sparklinedialog.ui
+@@ -261,7 +261,7 @@
+                     <property name="can-focus">False</property>
+                     <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
+-                    <property name="row-spacing">3</property>
++                    <property name="row-spacing">6</property>
+                     <property name="column-spacing">6</property>
+                     <child>
+                       <object class="GtkLabel" id="lbSeries">
+@@ -627,7 +627,7 @@
+                     <property name="valign">start</property>
+                     <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
+-                    <property name="row-spacing">3</property>
++                    <property name="row-spacing">6</property>
+                     <property name="column-spacing">6</property>
+                     <child>
+                       <object class="GtkLabel" id="lbLineWidth">
+@@ -807,7 +807,7 @@
+                     <property name="can-focus">False</property>
+                     <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
+-                    <property name="row-spacing">3</property>
++                    <property name="row-spacing">6</property>
+                     <property name="column-spacing">6</property>
+                     <child>
+                       <object class="GtkComboBoxText" id="cbMinAxisType">
+--- a/sc/uiconfig/scalc/ui/tpviewpage.ui
++++ b/sc/uiconfig/scalc/ui/tpviewpage.ui
+@@ -26,6 +26,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <object class="GtkCheckButton" id="formula">
+                     <property name="label" translatable="yes" context="tpviewpage|formula">_Formulas</property>
+@@ -408,6 +409,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <object class="GtkCheckButton" id="rowcolheader">
+                     <property name="label" translatable="yes" context="tpviewpage|rowcolheader">Colu_mn/row headers</property>
+@@ -695,7 +697,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">4</property>
+                 <property name="column-spacing">6</property>
+                 <child>
+                   <object class="GtkCheckButton" id="break">
+@@ -916,7 +918,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">6</property>
+                 <property name="column-spacing">3</property>
+                 <child>
+                   <object class="GtkLabel" id="objgrf_label">
+--- a/sd/uiconfig/sdraw/ui/copydlg.ui
++++ b/sd/uiconfig/sdraw/ui/copydlg.ui
+@@ -207,7 +207,7 @@
+                     <property name="visible">True</property>
+                     <property name="can_focus">False</property>
+                     <property name="hexpand">True</property>
+-                    <property name="row_spacing">3</property>
++                    <property name="row_spacing">6</property>
+                     <property name="column_spacing">6</property>
+                     <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
+@@ -343,7 +343,7 @@
+                     <property name="visible">True</property>
+                     <property name="can_focus">False</property>
+                     <property name="hexpand">True</property>
+-                    <property name="row_spacing">3</property>
++                    <property name="row_spacing">6</property>
+                     <property name="column_spacing">6</property>
+                     <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
+@@ -445,7 +445,7 @@
+                     <property name="visible">True</property>
+                     <property name="can_focus">False</property>
+                     <property name="hexpand">True</property>
+-                    <property name="row_spacing">3</property>
++                    <property name="row_spacing">6</property>
+                     <property name="column_spacing">6</property>
+                     <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
+--- a/sd/uiconfig/sdraw/ui/insertlayer.ui
++++ b/sd/uiconfig/sdraw/ui/insertlayer.ui
+@@ -224,6 +224,7 @@
+                     <property name="can-focus">False</property>
+                     <property name="margin-start">12</property>
+                     <property name="orientation">vertical</property>
++                    <property name="spacing">4</property>
+                     <child>
+                       <object class="GtkCheckButton" id="visible">
+                         <property name="label" translatable="yes" context="insertlayer|visible">_Visible</property>
+--- a/sd/uiconfig/simpress/ui/hstanimationgallery.ui
++++ b/sd/uiconfig/simpress/ui/hstanimationgallery.ui
+@@ -65,6 +65,7 @@
+         <property name="orientation">vertical</property>
+         <property name="homogeneous">True</property>
+         <property name="valign">center</property>
++        <property name="spacing">4</property>
+         <child>
+           <object class="GtkButton" id="prev">
+             <property name="visible">True</property>
+--- a/sd/uiconfig/simpress/ui/hsttransitiongallery.ui
++++ b/sd/uiconfig/simpress/ui/hsttransitiongallery.ui
+@@ -65,6 +65,7 @@
+         <property name="orientation">vertical</property>
+         <property name="homogeneous">True</property>
+         <property name="valign">center</property>
++        <property name="spacing">4</property>
+         <child>
+           <object class="GtkButton" id="prev">
+             <property name="visible">True</property>
+--- a/sd/uiconfig/simpress/ui/presentationdialog.ui
++++ b/sd/uiconfig/simpress/ui/presentationdialog.ui
+@@ -803,6 +803,7 @@
+                     <property name="margin-top">6</property>
+                     <property name="hexpand">True</property>
+                     <property name="vexpand">True</property>
++                    <property name="row-spacing">4</property>
+                     <child>
+                       <object class="GtkCheckButton" id="enableremote">
+                         <property name="label" translatable="yes" context="presentationdialog|enableremote">Enable remote control</property>
+--- a/sfx2/uiconfig/ui/documentfontspage.ui
++++ b/sfx2/uiconfig/ui/documentfontspage.ui
+@@ -23,6 +23,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="orientation">vertical</property>
++            <property name="spacing">4</property>
+             <child>
+               <object class="GtkCheckButton" id="embedFonts">
+                 <property name="label" translatable="yes" context="documentfontspage|embedFonts">_Embed fonts in the document</property>
+@@ -90,6 +91,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="orientation">vertical</property>
++            <property name="spacing">4</property>
+             <child>
+               <object class="GtkCheckButton" id="embedLatinScriptFonts">
+                 <property name="label" translatable="yes" context="documentfontspage|embedLatinScriptFonts">_Latin fonts</property>
+--- a/sfx2/uiconfig/ui/helpindexpage.ui
++++ b/sfx2/uiconfig/ui/helpindexpage.ui
+@@ -54,7 +54,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-top">6</property>
+                 <property name="vexpand">True</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">6</property>
+                 <child>
+                   <object class="GtkScrolledWindow">
+                     <property name="visible">True</property>
+--- a/sfx2/uiconfig/ui/linefragment.ui
++++ b/sfx2/uiconfig/ui/linefragment.ui
+@@ -73,7 +73,7 @@
+             <property name="can-focus">False</property>
+             <property name="no-show-all">True</property>
+             <property name="hexpand">True</property>
+-            <property name="spacing">3</property>
++            <property name="spacing">6</property>
+             <child>
+               <object class="GtkMenuButton" id="date">
+                 <property name="visible">True</property>
+@@ -120,7 +120,7 @@
+           <object class="GtkBox" id="durationbox">
+             <property name="can-focus">False</property>
+             <property name="no-show-all">True</property>
+-            <property name="spacing">3</property>
++            <property name="spacing">6</property>
+             <child>
+               <object class="GtkEntry" id="duration">
+                 <property name="visible">True</property>
+--- a/sfx2/uiconfig/ui/managestylepage.ui
++++ b/sfx2/uiconfig/ui/managestylepage.ui
+@@ -307,6 +307,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="halign">start</property>
+                 <property name="margin-top">6</property>
++                <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkToggleButton" id="viewprops">
+                     <property name="label" translatable="yes" context="managestylepage|viewprops">View</property>
+--- a/sfx2/uiconfig/ui/optprintpage.ui
++++ b/sfx2/uiconfig/ui/optprintpage.ui
+@@ -29,7 +29,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkRadioButton" id="printer">
+                 <property name="label" translatable="yes" context="optprintpage|printer">_Printer</property>
+@@ -103,7 +103,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkImage" id="lockconverttogray">
+                 <property name="can-focus">False</property>
+@@ -201,7 +201,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkImage" id="lockpapersize">
+                 <property name="can-focus">False</property>
+@@ -329,7 +329,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkImage" id="lockreducebitmap">
+                 <property name="can-focus">False</property>
+@@ -381,7 +381,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">18</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <!-- n-columns=2 n-rows=1 -->
+                   <object class="GtkGrid" id="grid12">
+@@ -514,7 +514,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkImage" id="lockreducegrad">
+                 <property name="can-focus">False</property>
+@@ -566,7 +566,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">18</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <!-- n-columns=2 n-rows=1 -->
+                   <object class="GtkGrid" id="grid6">
+@@ -679,7 +679,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <child>
+               <object class="GtkImage" id="lockreducetrans">
+                 <property name="can-focus">False</property>
+@@ -731,7 +731,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">18</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <object class="GtkRadioButton" id="reducetransauto">
+                     <property name="label" translatable="yes" context="optprintpage|reducetransauto">Auto_matically</property>
+--- a/starmath/uiconfig/smath/ui/fontdialog.ui
++++ b/starmath/uiconfig/smath/ui/fontdialog.ui
+@@ -103,7 +103,7 @@
+                     <property name="margin-top">6</property>
+                     <property name="hexpand">True</property>
+                     <property name="vexpand">True</property>
+-                    <property name="row-spacing">3</property>
++                    <property name="row-spacing">6</property>
+                     <child>
+                       <object class="GtkEntry" id="font">
+                         <property name="visible">True</property>
+--- a/starmath/uiconfig/smath/ui/matrixeditor.ui
++++ b/starmath/uiconfig/smath/ui/matrixeditor.ui
+@@ -169,7 +169,7 @@
+                     <property name="halign">start</property>
+                     <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
+-                    <property name="row-spacing">3</property>
++                    <property name="row-spacing">6</property>
+                     <property name="column-spacing">6</property>
+                     <child>
+                       <object class="GtkLabel" id="label_name">
+--- a/svtools/uiconfig/ui/graphicexport.ui
++++ b/svtools/uiconfig/ui/graphicexport.ui
+@@ -380,6 +380,7 @@
+                     <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
+                     <property name="column-spacing">6</property>
++                    <property name="row-spacing">4</property>
+                     <child>
+                       <object class="GtkCheckButton" id="losslesscb">
+                         <property name="label" translatable="yes" context="graphicexport|losslesscb">Lossless</property>
+@@ -652,6 +653,7 @@
+                     <property name="can-focus">False</property>
+                     <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
++                    <property name="row-spacing">4</property>
+                     <child>
+                       <object class="GtkRadioButton" id="binarycb">
+                         <property name="label" translatable="yes" context="graphicexport|binarycb">Binary</property>
+@@ -728,6 +730,7 @@
+                         <property name="can-focus">False</property>
+                         <property name="margin-start">12</property>
+                         <property name="margin-top">6</property>
++                        <property name="row-spacing">4</property>
+                         <child>
+                           <object class="GtkCheckButton" id="tiffpreviewcb">
+                             <property name="label" translatable="yes" context="graphicexport|tiffpreviewcb">Image preview (TIFF)</property>
+@@ -798,6 +801,7 @@
+                         <property name="can-focus">False</property>
+                         <property name="margin-start">12</property>
+                         <property name="margin-top">6</property>
++                        <property name="row-spacing">4</property>
+                         <child>
+                           <object class="GtkRadioButton" id="color1rb">
+                             <property name="label" translatable="yes" context="graphicexport|color1rb">Color</property>
+@@ -869,6 +873,7 @@
+                         <property name="can-focus">False</property>
+                         <property name="margin-start">12</property>
+                         <property name="margin-top">6</property>
++                        <property name="row-spacing">4</property>
+                         <child>
+                           <object class="GtkRadioButton" id="level1rb">
+                             <property name="label" translatable="yes" context="graphicexport|level1rb">Level 1</property>
+@@ -940,6 +945,7 @@
+                         <property name="can-focus">False</property>
+                         <property name="margin-start">12</property>
+                         <property name="margin-top">6</property>
++                        <property name="row-spacing">4</property>
+                         <child>
+                           <object class="GtkRadioButton" id="compresslzw">
+                             <property name="label" translatable="yes" context="graphicexport|compresslzw">LZW encoding</property>
+--- a/svx/uiconfig/ui/classificationdialog.ui
++++ b/svx/uiconfig/ui/classificationdialog.ui
+@@ -292,7 +292,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="hexpand">True</property>
+                 <property name="vexpand">True</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">6</property>
+                 <child>
+                   <object class="GtkLabel" id="classificationContentLabel">
+                     <property name="visible">True</property>
+@@ -313,6 +313,7 @@
+                   <object class="GtkBox">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
++                    <property name="spacing">6</property>
+                     <child>
+                       <object class="GtkToggleButton" id="toolbox">
+                         <property name="visible">True</property>
+--- a/svx/uiconfig/ui/hststylegallery.ui
++++ b/svx/uiconfig/ui/hststylegallery.ui
+@@ -64,6 +64,7 @@
+         <property name="orientation">vertical</property>
+         <property name="homogeneous">True</property>
+         <property name="valign">center</property>
++        <property name="spacing">4</property>
+         <child>
+           <object class="GtkButton" id="prev">
+             <property name="visible">True</property>
+--- a/svx/uiconfig/ui/redlineviewpage.ui
++++ b/svx/uiconfig/ui/redlineviewpage.ui
+@@ -299,7 +299,7 @@
+       <object class="GtkButtonBox" id="button_box_1">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+-        <property name="spacing">3</property>
++        <property name="spacing">6</property>
+         <property name="homogeneous">True</property>
+         <property name="layout-style">start</property>
+         <child>
+--- a/svx/uiconfig/ui/safemodedialog.ui
++++ b/svx/uiconfig/ui/safemodedialog.ui
+@@ -112,6 +112,7 @@ You can make one or more of the following changes to your user profile to return
+             <property name="visible">True</property>
+             <property name="can_focus">False</property>
+             <property name="orientation">vertical</property>
++            <property name="spacing">4</property>
+             <child>
+               <object class="GtkRadioButton" id="radio_restore">
+                 <property name="label" translatable="yes" context="safemodedialog|radio_restore">Restore from backup</property>
+@@ -134,6 +135,7 @@ You can make one or more of the following changes to your user profile to return
+                 <property name="margin-start">18</property>
+                 <property name="margin_bottom">6</property>
+                 <property name="orientation">vertical</property>
++                <property name="spacing">4</property>
+                 <child>
+                   <object class="GtkCheckButton" id="check_profilesafe_config">
+                     <property name="label" translatable="yes" context="safemodedialog|check_profilesafe_config">Restore user configuration to the last known working state</property>
+@@ -191,6 +193,7 @@ You can make one or more of the following changes to your user profile to return
+                 <property name="margin-start">18</property>
+                 <property name="margin_bottom">6</property>
+                 <property name="orientation">vertical</property>
++                <property name="spacing">4</property>
+                 <child>
+                   <object class="GtkCheckButton" id="check_disable_all_extensions">
+                     <property name="label" translatable="yes" context="safemodedialog|check_disable_all_extensions">Disable all user extensions</property>
+@@ -248,6 +251,7 @@ You can make one or more of the following changes to your user profile to return
+                 <property name="margin-start">18</property>
+                 <property name="margin_bottom">6</property>
+                 <property name="orientation">vertical</property>
++                <property name="spacing">4</property>
+                 <child>
+                   <object class="GtkCheckButton" id="check_deinstall_user_extensions">
+                     <property name="label" translatable="yes" context="safemodedialog|check_deinstall_user_extensions">Uninstall all user extensions</property>
+@@ -318,6 +322,7 @@ You can make one or more of the following changes to your user profile to return
+                 <property name="can_focus">False</property>
+                 <property name="margin-start">18</property>
+                 <property name="orientation">vertical</property>
++                <property name="spacing">4</property>
+                 <child>
+                   <object class="GtkCheckButton" id="check_reset_customizations">
+                     <property name="label" translatable="yes" context="safemodedialog|check_reset_customizations">Reset settings and user interface modifications</property>
+--- a/svx/uiconfig/ui/stylespreview.ui
++++ b/svx/uiconfig/ui/stylespreview.ui
+@@ -66,7 +66,7 @@
+           <object class="GtkBox" id="stylesbuttons">
+             <property name="can-focus">False</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">0</property>
++            <property name="spacing">4</property>
+             <property name="valign">center</property>
+             <property name="visible">True</property>
+             <child>
+--- a/svx/uiconfig/ui/tablestylesdlg.ui
++++ b/svx/uiconfig/ui/tablestylesdlg.ui
+@@ -127,7 +127,7 @@
+                         <property name="margin-start">12</property>
+                         <property name="margin-top">6</property>
+                         <property name="orientation">vertical</property>
+-                        <property name="spacing">3</property>
++                        <property name="spacing">6</property>
+                         <child>
+                           <object class="GtkBox" id="basicname">
+                             <property name="visible">True</property>
+--- a/sw/uiconfig/swriter/ui/fldrefpage.ui
++++ b/sw/uiconfig/swriter/ui/fldrefpage.ui
+@@ -200,6 +200,7 @@
+                 <property name="vexpand">False</property>
+                 <property name="orientation">vertical</property>
+                 <property name="baseline-position">top</property>
++                <property name="spacing">4</property>
+                 <child>
+                   <object class="GtkCheckButton" id="stylereffrombottomcheckbox">
+                     <property name="label" translatable="yes" context="fldrefpage|stylerefflags|label1">Search this page from bottom to top</property>
+--- a/sw/uiconfig/swriter/ui/footnotepage.ui
++++ b/sw/uiconfig/swriter/ui/footnotepage.ui
+@@ -33,7 +33,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">6</property>
+             <property name="column-spacing">6</property>
+             <child>
+               <object class="GtkLabel" id="label6">
+@@ -292,7 +292,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">6</property>
+             <property name="column-spacing">6</property>
+             <child>
+               <object class="GtkLabel" id="label4">
+@@ -384,7 +384,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">6</property>
+             <property name="column-spacing">6</property>
+             <child>
+               <object class="GtkLabel" id="label15">
+@@ -478,7 +478,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">6</property>
+             <property name="column-spacing">6</property>
+             <child>
+               <object class="GtkLabel" id="label17">
+--- a/sw/uiconfig/swriter/ui/frmaddpage.ui
++++ b/sw/uiconfig/swriter/ui/frmaddpage.ui
+@@ -294,7 +294,7 @@
+             <property name="margin-top">6</property>
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <property name="column-spacing">12</property>
+             <child>
+               <object class="GtkCheckButton" id="editinreadonly">
+--- a/sw/uiconfig/swriter/ui/insertdbcolumnsdialog.ui
++++ b/sw/uiconfig/swriter/ui/insertdbcolumnsdialog.ui
+@@ -393,6 +393,7 @@
+                         <property name="hexpand">True</property>
+                         <property name="vexpand">True</property>
+                         <property name="orientation">vertical</property>
++                        <property name="spacing">6</property>
+                         <child>
+                           <object class="GtkScrolledWindow">
+                             <property name="visible">True</property>
+@@ -478,6 +479,7 @@
+                         <property name="hexpand">True</property>
+                         <property name="vexpand">True</property>
+                         <property name="orientation">vertical</property>
++                        <property name="spacing">6</property>
+                         <child>
+                           <object class="GtkScrolledWindow">
+                             <property name="visible">True</property>
+--- a/sw/uiconfig/swriter/ui/mergetabledialog.ui
++++ b/sw/uiconfig/swriter/ui/mergetabledialog.ui
+@@ -87,6 +87,7 @@
+                 <property name="can_focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <object class="GtkRadioButton" id="prev">
+                     <property name="label" translatable="yes" context="mergetabledialog|prev">Join with _previous table</property>
+--- a/sw/uiconfig/swriter/ui/optcompatpage.ui
++++ b/sw/uiconfig/swriter/ui/optcompatpage.ui
+@@ -47,7 +47,7 @@
+             <property name="margin-top">6</property>
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+-            <property name="row-spacing">5</property>
++            <property name="row-spacing">6</property>
+             <child>
+               <object class="GtkScrolledWindow" id="optionsscroll">
+                 <property name="visible">True</property>
+--- a/sw/uiconfig/swriter/ui/optformataidspage.ui
++++ b/sw/uiconfig/swriter/ui/optformataidspage.ui
+@@ -994,7 +994,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="row-spacing">3</property>
++                <property name="row-spacing">4</property>
+                 <child>
+                   <object class="GtkCheckButton" id="cbTextBoundaries">
+                     <property name="label" translatable="yes" context="optformataidspage|cbTextBoundaries">Te_xt</property>
+--- a/sw/uiconfig/swriter/ui/picturepage.ui
++++ b/sw/uiconfig/swriter/ui/picturepage.ui
+@@ -114,7 +114,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="hexpand">True</property>
+-            <property name="row-spacing">3</property>
++            <property name="row-spacing">4</property>
+             <property name="column-spacing">12</property>
+             <child>
+               <object class="GtkCheckButton" id="vert">
+--- a/sw/uiconfig/swriter/ui/sectionpage.ui
++++ b/sw/uiconfig/swriter/ui/sectionpage.ui
+@@ -33,7 +33,7 @@
+             <property name="can_focus">False</property>
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+-            <property name="row_spacing">3</property>
++            <property name="row_spacing">6</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <child>
+--- a/vcl/uiconfig/ui/openlockedquerybox.ui
++++ b/vcl/uiconfig/ui/openlockedquerybox.ui
+@@ -138,7 +138,7 @@ receive a notification if ready.</property>
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="orientation">vertical</property>
+-                    <property name="spacing">3</property>
++                    <property name="spacing">4</property>
+                     <child>
+                       <object class="GtkButton" id="readonly">
+                         <property name="label" translatable="yes" context="openlockedquerybox|readonly">Open _R/O</property>
+--- a/vcl/uiconfig/ui/printdialog.ui
++++ b/vcl/uiconfig/ui/printdialog.ui
+@@ -522,7 +522,7 @@
+                                       <object class="GtkGrid" id="rangegrid">
+                                         <property name="visible">True</property>
+                                         <property name="can-focus">False</property>
+-                                        <property name="row-spacing">3</property>
++                                        <property name="row-spacing">6</property>
+                                         <property name="column-spacing">6</property>
+                                         <child>
+                                           <object class="GtkRadioButton" id="rbAllPages">
+@@ -693,7 +693,7 @@
+                                             <property name="visible">True</property>
+                                             <property name="can-focus">False</property>
+                                             <property name="margin-top">6</property>
+-                                            <property name="row-spacing">3</property>
++                                            <property name="row-spacing">6</property>
+                                             <property name="column-spacing">6</property>
+                                             <child>
+                                               <object class="GtkLabel" id="includeevenodd">
