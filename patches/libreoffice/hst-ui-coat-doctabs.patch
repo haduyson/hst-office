@@ -24,7 +24,7 @@ tree for the strip.
 
 --- /dev/null
 +++ b/framework/CppunitTest_framework_hst_documenttabcoat.mk
-@@ -0,0 +1,70 @@
+@@ -0,0 +1,63 @@
 +# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
 +#
 +# SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -36,10 +36,6 @@ tree for the strip.
 +
 +$(eval $(call gb_CppunitTest_add_exception_objects,framework_hst_documenttabcoat,\
 +    framework/qa/cppunit/hstdocumenttabcoat \
-+))
-+
-+$(eval $(call gb_CppunitTest_add_defs,framework_hst_documenttabcoat,\
-+    -DFWK_DLLIMPLEMENTATION \
 +))
 +
 +$(eval $(call gb_CppunitTest_set_include,framework_hst_documenttabcoat,\
@@ -57,15 +53,12 @@ tree for the strip.
 +    officecfg/registry \
 +))
 +
-+$(eval $(call gb_CppunitTest_use_library_objects,framework_hst_documenttabcoat,\
-+    fwk \
-+))
-+
 +$(eval $(call gb_CppunitTest_use_libraries,framework_hst_documenttabcoat,\
 +    basegfx \
 +    comphelper \
 +    cppu \
 +    cppuhelper \
++    fwk \
 +    $(call gb_Helper_optional,BREAKPAD,crashreport) \
 +    i18nlangtag \
 +    sal \
@@ -178,7 +171,7 @@ tree for the strip.
      sal_Int32 m_nHoverTab = -1;
 --- /dev/null
 +++ b/framework/inc/uielement/hstdocumenttabaccessible.hxx
-@@ -0,0 +1,113 @@
+@@ -0,0 +1,114 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -189,6 +182,7 @@ tree for the strip.
 +#pragma once
 +
 +#include <comphelper/OAccessible.hxx>
++#include <framework/fwkdllapi.h>
 +#include <rtl/ref.hxx>
 +#include <rtl/ustring.hxx>
 +#include <tools/gen.hxx>
@@ -208,7 +202,7 @@ tree for the strip.
 +{
 +class DocumentTabItemAccessible;
 +
-+class DocumentTabStripHost
++class FWK_DLLPUBLIC DocumentTabStripHost
 +{
 +public:
 +    struct Tab
@@ -229,7 +223,7 @@ tree for the strip.
 +    virtual void ShowStripNewMenu() = 0;
 +};
 +
-+class DocumentTabStripAccessible final : public comphelper::OAccessible
++class FWK_DLLPUBLIC DocumentTabStripAccessible final : public comphelper::OAccessible
 +{
 +public:
 +    explicit DocumentTabStripAccessible(DocumentTabStripHost& rHost);
@@ -294,7 +288,7 @@ tree for the strip.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/inc/uielement/hstdocumenttabcoat.hxx
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,74 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -304,6 +298,7 @@ tree for the strip.
 +
 +#pragma once
 +
++#include <framework/fwkdllapi.h>
 +#include <rtl/ustring.hxx>
 +#include <tools/color.hxx>
 +#include <tools/gen.hxx>
@@ -355,22 +350,22 @@ tree for the strip.
 +    Image aClose, aNew; ///< Empty images use the vector fallback.
 +};
 +
-+Color AppMarkColor(std::u16string_view aModuleIdentifier, bool bPdf,
++FWK_DLLPUBLIC Color AppMarkColor(std::u16string_view aModuleIdentifier, bool bPdf,
 +                   const ::hst::design::Palette& rPalette);
-+void ApplyCoatSettings(vcl::Window& rWindow);
-+bool CoatActive(const StyleSettings& rStyle);
-+void PaintStrip(vcl::RenderContext& rRenderContext, const CoatStrip& rStrip,
++FWK_DLLPUBLIC void ApplyCoatSettings(vcl::Window& rWindow);
++FWK_DLLPUBLIC bool CoatActive(const StyleSettings& rStyle);
++FWK_DLLPUBLIC void PaintStrip(vcl::RenderContext& rRenderContext, const CoatStrip& rStrip,
 +                const StyleSettings& rStyle, const CoatGlyphs& rGlyphs);
-+tools::Long CoatTabChromeWidth(double fScale);
-+tools::Rectangle CoatCloseRect(const tools::Rectangle& rTab, tools::Long nStripHeight,
++FWK_DLLPUBLIC tools::Long CoatTabChromeWidth(double fScale);
++FWK_DLLPUBLIC tools::Rectangle CoatCloseRect(const tools::Rectangle& rTab, tools::Long nStripHeight,
 +                               double fScale);
-+CoatGlyphs LoadGlyphs();
++FWK_DLLPUBLIC CoatGlyphs LoadGlyphs();
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/qa/cppunit/hstdocumenttabcoat.cxx
-@@ -0,0 +1,474 @@
+@@ -0,0 +1,461 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -378,9 +373,8 @@ tree for the strip.
 + * This file is part of HST Office.
 + */
 +
-+#include <classes/fwkresid.hxx>
 +#include <strings.hrc>
-+#include <uielement/documenttabbar.hxx>
++#include <unotools/resmgr.hxx>
 +#include <uielement/hstdocumenttabaccessible.hxx>
 +#include <uielement/hstdocumenttabcoat.hxx>
 +
@@ -403,6 +397,9 @@ tree for the strip.
 +
 +namespace
 +{
++/// The framework's UI string of aId (the library's own helper is not exported).
++OUString FwkResId(TranslateId aId) { return Translate::get(aId, Translate::Create("fwk")); }
++
 +namespace a11y = css::accessibility;
 +namespace design = hst::design;
 +namespace tabs = framework::hst::doctabs;
@@ -755,30 +752,15 @@ tree for the strip.
 +    }
 +}
 +
-+CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testStripHeightUnchanged)
++CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testCoatFontKeepsStripHeight)
 +{
-+    ScopedVclPtrInstance<WorkWindow> pParent(nullptr, WB_STDWORK);
-+    ScopedVclPtrInstance<framework::DocumentTabBar> pBar(
-+        pParent.get(), Reference<css::frame::XFrame>());
-+    pBar->GetOutDev()->SetDPIScalePercentage(100);
-+
-+    AllSettings aSettings = pBar->GetSettings();
-+    StyleSettings aStyle = aSettings.GetStyleSettings();
-+    vcl::Font aToolFont = aStyle.GetToolFont();
-+    aToolFont.SetFontHeight(9);
-+    aToolFont.SetWeight(WEIGHT_BOLD);
-+    aStyle.SetToolFont(aToolFont);
-+    vcl::Font aAppFont = aStyle.GetAppFont();
-+    aAppFont.SetFontHeight(9);
-+    aStyle.SetAppFont(aAppFont);
-+    aSettings.SetStyleSettings(aStyle);
-+    pBar->SetSettings(aSettings);
-+    pBar->SetPointFont(*pBar->GetOutDev(), aStyle.GetToolFont());
-+    CPPUNIT_ASSERT_EQUAL_MESSAGE("platform height", tools::Long(32), pBar->GetOptimalHeight());
-+
-+    tabs::ApplyCoatSettings(*pBar);
-+    CPPUNIT_ASSERT_EQUAL_MESSAGE("coat height", tools::Long(32), pBar->GetOptimalHeight());
-+    CPPUNIT_ASSERT_EQUAL(design::type::Body.eWeight, pBar->GetOutDev()->GetFont().GetWeight());
++    // DocumentTabBar::GetOptimalHeight (unchanged) is max(32 px, text height + 2 * 4 px + accent):
++    // the coat's body font must not make the text term exceed the 32 px strip (owner decision D8).
++    ScopedVclPtrInstance<WorkWindow> pWindow(nullptr, WB_STDWORK);
++    pWindow->GetOutDev()->SetDPIScalePercentage(100);
++    tabs::ApplyCoatSettings(*pWindow);
++    CPPUNIT_ASSERT_EQUAL(design::type::Body.eWeight, pWindow->GetOutDev()->GetFont().GetWeight());
++    CPPUNIT_ASSERT_LESSEQUAL(tools::Long(32), pWindow->GetTextHeight() + 2 * 4 + 2);
 +}
 +
 +CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testAccessibleTree)
