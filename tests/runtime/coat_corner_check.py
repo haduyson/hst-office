@@ -97,6 +97,10 @@ def measure(view, border, corner):
     fill = view(x0 + 3, ys + 2)  # inside the left edge
     if surface is None or fill is None:
         return None
+    if view(x0 - 2, y0) == border or view(x0, y0 - 2) == border:
+        return None  # an edge runs on past the corner: the gap between two controls, not a corner
+    if abs(luminance(fill) - luminance(surface)) > abs(luminance(surface) - luminance(border)) / 2:
+        return None  # the inside is not a plain fill (a selection, an image): no reference to measure against
     ref = (luminance(surface) + luminance(fill)) / 2
     span = ref - luminance(border)
     if abs(span) < 20:
