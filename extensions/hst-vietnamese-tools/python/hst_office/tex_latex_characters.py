@@ -69,7 +69,8 @@ def with_scripts(piece, sub, sup, display):
         return Piece(OP, piece.text + ("_{%s}" % sub if sub is not None else "") + (
             "^{%s}" % sup if sup is not None else ""))
     if piece.kind == OP:
-        text = piece.text + (" from{%s}" % sub if sub is not None else "") + (" to{%s}" % sup if sup is not None else "")
+        text = piece.text + (" from{%s}" % sub if sub is not None else "")
+        text += " to{%s}" % sup if sup is not None else ""
         return Piece(OP, text)
     if piece.kind == LIMFUNC:  # \max_{x}: the limit goes below, as in display
         base = "{%s}" % piece.text

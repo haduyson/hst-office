@@ -29,8 +29,8 @@ import zipfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import headless_office  # noqa: E402
-from tex_toggle_check_helpers import (CENTER, HIGHLIGHT, ROWS, body_text, build, corpus, dispatch, formulas,  # noqa: E402
-                                      on_main, png, quit_office, record, text_sizes)
+from tex_toggle_check_helpers import (  # noqa: E402
+    CENTER, HIGHLIGHT, ROWS, body_text, build, corpus, dispatch, formulas, on_main, png, quit_office, record, text_sizes)
 from hst_office import tex_to_starmath  # noqa: E402  (importable once the helpers set the path)
 
 
@@ -147,7 +147,7 @@ def main():
         on_main(office, lambda: dispatch(office, doc))
         on_main(office, lambda: png(office, doc, os.path.join(out, "after.png")))
         sizes_after = on_main(office, lambda: text_sizes(doc))
-        changed = {k: (sizes_before[k], sizes_after.get(k)) for k in sizes_before if sizes_after.get(k) != sizes_before[k]}
+        changed = {k: (v, sizes_after.get(k)) for k, v in sizes_before.items() if sizes_after.get(k) != v}
         record("text keeps its font size in every paragraph", len(sizes_before) >= 40 and not changed, changed)
         record("cell span converted", cell_span not in on_main(office, lambda: body_text(doc)))
         on_main(office, lambda: check_converted(doc, expected, failing))
