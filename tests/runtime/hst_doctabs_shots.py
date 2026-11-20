@@ -13,10 +13,12 @@ this script, --scale only names the files; the pointer is moved with SetCursorPo
 "before" runs with FrameCoat/DocumentTabs=false, "after" with it on; pass the build before the strip's coat as
 --instdir for "before" (its strip also keeps the old application colours, which the coat build changes in both
 looks). Each case writes <case>-window-<look>.png (the window) and
-<case>-doctabs-<look>.png (the strip, cut out where the accessibility tree places it). Cases or parts that could
+<case>-doctabs-<look>.png (the strip, cut out where the accessibility tree places it; its region is kept in
+<case>-doctabs-<look>.json, and "crop --out DIR" cuts the strips of shots taken without Pillow). Cases or parts that could
 not be shot are listed in failures.txt. Only the office started here is stopped.
 """
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -33,6 +35,7 @@ FACTORIES = {"writer": "swriter", "sheets": "scalc", "slides": "simpress"}
 # share the HST Office window, which takes every kind)
 CASES = {f"{app}-{count}": [app] * count for app in FACTORIES for count in (1, 3, 8)}
 CASES["mixed-3"] = ["writer", "sheets", "slides"]
+CASES["writer-14"] = ["writer"] * 14  # more tabs than fit: the strip keeps the active one in view
 LOOKS = [(coat, theme, scale) for coat in ("before", "after") for theme in ("light", "dark") for scale in ("100", "125")]
 STRIP_NAMES = ("thẻ tài liệu", "document tabs")
 STRIP_ROLES = ("PANEL", "PAGE_TAB_LIST")
@@ -168,6 +171,34 @@ def quit_office(office, frame):
     office.stop()
 
 
+def crop(path, region, target):
+    """Cut region [x, y, w, h] out of the window shot at path (where Pillow exists: not in the Windows image's
+    Python, whose shots are cut afterwards with the crop subcommand from the .json written beside them)."""
+    try:
+        from PIL import Image
+    except ImportError:
+        return False
+    x, y, w, h = region
+    with Image.open(path) as image:
+        box = (max(0, x), max(0, y), min(image.width, x + w), min(image.height, y + h))
+        image.crop(box).save(target)
+    return True
+
+
+def crop_all(out_dir):
+    """Cut every strip whose region .json lies beside its window shot; returns how many were written."""
+    written = 0
+    for name in sorted(os.listdir(out_dir)):
+        if not (name.endswith(".json") and "-doctabs-" in name):
+            continue
+        with open(os.path.join(out_dir, name), encoding="utf-8") as src:
+            region = json.load(src)
+        shot = os.path.join(out_dir, name.replace("-doctabs-", "-window-")[:-5] + ".png")
+        if os.path.exists(shot) and crop(shot, region, os.path.join(out_dir, name[:-5] + ".png")):
+            written += 1
+    return written
+
+
 def shoot_case(args, screen, look, case, failures):
     import uno_main_thread_load
     name = f"{case}-%s-{look_name(look)}"
@@ -201,12 +232,12 @@ def shoot_case(args, screen, look, case, failures):
             return
         print("shot", path, flush=True)
         if strip is not None:
-            from PIL import Image
             ox, oy = screen.origin(win)
             x, y, w, h = strip
-            with Image.open(path) as image:
-                box = (max(0, x - ox), max(0, y - oy), min(image.width, x - ox + w), min(image.height, y - oy + h))
-                image.crop(box).save(os.path.join(args.out, name % "doctabs" + ".png"))
+            region = [x - ox, y - oy, w, h]
+            with open(os.path.join(args.out, name % "doctabs" + ".json"), "w", encoding="utf-8") as out:
+                json.dump(region, out)
+            crop(path, region, os.path.join(args.out, name % "doctabs" + ".png"))
         screen.pointer(5, 5)
     except Exception as error:  # noqa: BLE001 - recorded, the next case gets a fresh office
         failures.append(f"{name % 'window'}: {error}")
@@ -257,7 +288,12 @@ def main():
     shot.add_argument("--scale", choices=["100", "125"], default="100", help="Windows: the display scaling now set")
     shot.add_argument("--look", action="append", default=[], help="only looks starting so, e.g. after-dark")
     shot.add_argument("cases", nargs="*", help=", ".join(CASES))
+    cut = sub.add_parser("crop", help="cut the strips out of window shots taken without Pillow")
+    cut.add_argument("--out", required=True)
     args = parser.parse_args()
+    if args.command == "crop":
+        print("cropped", crop_all(args.out))
+        return 0
     return shoot(args)
 
 
