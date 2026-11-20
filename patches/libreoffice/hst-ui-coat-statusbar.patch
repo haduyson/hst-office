@@ -8,18 +8,20 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
   item text in the text colour (the bar keeps its font, which sizes the bar and its items), a thin divider
   of the frame divider colour, inset at both ends, instead of the 3D separator, the frame divider along the
   top edge, and a rounded hover behind the items that open something on a single click (language,
-  selection mode, zoom percentage), repainted only when the item under the mouse changes.
+  selection mode, zoom percentage), repainted only when the item under the mouse changes and cleared when
+  the items move. A paint redraws only the items (and their dividers) in the invalidated area, so a word
+  count update repaints that item alone, not the zoom slider beside it.
 - The zoom slider (svx/source/stbctrls/zoomsliderctrl.cxx): a groove of the scroll-track colour outlined
   with the frame divider, short marks for the snapping points, a longer 100 % mark in the text colour and
-  an accent disc for the thumb, all vector shapes at the window's scale. The decrease and increase buttons
-  stay the icon theme's images, where the control takes their clicks; their HST glyphs come with the icon
+  a narrow upright accent pill for the thumb, all vector shapes at the window's scale. The decrease and
+  increase buttons stay the icon theme's images, where the control takes their clicks; their HST glyphs come with the icon
   set.
 - The drawing is in vcl/source/hst/coat/coat-statusbar.cxx behind <vcl/hst/statusbarcoat.hxx>: flat fills
   only, no gradient, no bitmap of its own.
 - CppunitTest_vcl_hst_statusbar_coat: the frame colours light and dark, the thin
   dividers, the hover on clickable items only, the unchanged height and item rectangles, the platform look
   in high contrast, for a dialog's bar and with the part switched off, the zoom slider's shapes and thumb
-  at 50/100/200 %, and the same number of item repaints with and without the coat over 1,000 text updates.
+  at 50/100/200 %, and no more item repaints with the coat than without over 1,000 text updates.
 
 --- /dev/null
 +++ b/include/vcl/hst/statusbarcoat.hxx
@@ -228,7 +230,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      CppunitTest_vcl_treeview \
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/statusbar-coat-test.cxx
-@@ -0,0 +1,368 @@
+@@ -0,0 +1,374 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -258,6 +260,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +
 +#include <cmath>
 +#include <cstdlib>
++#include <string>
 +#include <utility>
 +#include <vector>
 +
@@ -382,6 +385,8 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +        xBar->SetItemText(ITEM_PAGE, u"Trang 1 / 1"_ustr);
 +        xBar->SetItemText(ITEM_ZOOM, u"100%"_ustr);
 +        xBar->SetItemText(ITEM_LANGUAGE, u"Tiếng Việt"_ustr);
++        Scheduler::ProcessEventsToIdle();
++        shot(*xBar); // a first paint lays the items out (GetItemRect, GetItemId need it)
 +        return *xBar;
 +    }
 +
@@ -517,8 +522,8 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +
 +CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testZoomSliderFromTokens)
 +{
-+    // SvxZoomSliderControl's layout of a 130 px item (min 20 %, 100 % in the middle, max 600 %):
-+    // 50 % lies at 36 px, 100 % at 65 px, 200 % at 74 px
++    // SvxZoomSliderControl's layout of a 130 px item (min 20 %, 100 % in the middle, max 600 %;
++    // Zoom2Offset truncates): 50 % lies at 36 px, 100 % at 64 px, 200 % at 74 px
 +    StatusBar& rBar = makeBar();
 +    const design::Palette& rPalette = light();
 +    constexpr tools::Long WIDTH = 130, HEIGHT = 20, MID = HEIGHT / 2;
@@ -528,18 +533,18 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +    aSquare.Erase(MARKER);
 +    const Image aButton(aSquare);
 +
-+    for (auto [nThumb, bOnCentre] : { std::pair(36, false), std::pair(65, true), std::pair(74, false) })
++    for (auto [nThumb, bOnCentre] : { std::pair(36, false), std::pair(64, true), std::pair(74, false) })
 +    {
 +        ScopedVclPtrInstance<VirtualDevice> pDev;
 +        pDev->SetOutputSizePixel(Size(WIDTH, HEIGHT));
 +        pDev->SetBackground(Wallpaper(rPalette.aFrameSurface));
 +        pDev->Erase();
 +        hst::coat::ZoomSliderLayout aLayout{ tools::Rectangle(Point(), Size(WIDTH, HEIGHT)),
-+                                             WIDTH, HEIGHT, 20, nThumb, 65, { 36, 65, 100 } };
++                                             WIDTH, HEIGHT, 20, nThumb, 64, { 36, 64, 100 } };
 +        hst::coat::DrawZoomSlider(*pDev, rBar, aLayout, aButton, aButton);
 +        const VirtualDevice& aShot = *pDev;
 +
-+        // the thumb: an accent disc centred on the zoom
++        // the thumb: an accent pill centred on the zoom
 +        tools::Long nLeft = -1, nRight = -1;
 +        for (tools::Long nX = 0; nX < WIDTH; ++nX)
 +            if (pixel(aShot, nX, MID) == rPalette.aAccent)
@@ -550,7 +555,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +            }
 +        CPPUNIT_ASSERT_MESSAGE("no thumb", nLeft >= 0);
 +        CPPUNIT_ASSERT_LESSEQUAL(tools::Long(1), std::abs((nLeft + nRight + 1) / 2 - nThumb));
-+        CPPUNIT_ASSERT_GREATEREQUAL(tools::Long(8), nRight - nLeft + 1);
++        CPPUNIT_ASSERT_EQUAL(tools::Long(6), nRight - nLeft + 1);
 +
 +        // the track: the divider's outline around the scroll-track groove, away from the thumb
 +        const tools::Long nTrackX = nThumb < 90 ? 105 : 30;
@@ -559,7 +564,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +
 +        // the 100 % mark reaches further than a snapping point and is in the text colour
 +        if (!bOnCentre)
-+            CPPUNIT_ASSERT_EQUAL(rPalette.aText, pixel(aShot, 65, MID - 5));
++            CPPUNIT_ASSERT_EQUAL(rPalette.aText, pixel(aShot, 64, MID - 5));
 +        CPPUNIT_ASSERT_EQUAL(rPalette.aFrameDivider, pixel(aShot, 100, MID - 3));
 +        CPPUNIT_ASSERT_EQUAL(rPalette.aFrameSurface, pixel(aShot, 100, MID - 5));
 +
@@ -573,7 +578,8 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +
 +CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testTypingRepaintsNoMoreItems)
 +{
-+    // the word count changing on every key: the coat repaints exactly the items the platform look does
++    // the word count changing on every key: the coat repaints no more items than the platform look
++    // (only the invalidated ones: the changed item, not the zoom slider beside it)
 +    auto countUpdates = [this](bool bCoat) {
 +        if (!bCoat)
 +            setenv("HST_UI_COAT", "0", 1);
@@ -589,8 +595,10 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +    };
 +    const int nPlain = countUpdates(false);
 +    const int nCoat = countUpdates(true);
-+    CPPUNIT_ASSERT_GREATER(0, nPlain);
-+    CPPUNIT_ASSERT_EQUAL(nPlain, nCoat);
++    const std::string sCounts
++        = "plain " + std::to_string(nPlain) + ", coat " + std::to_string(nCoat) + " item paints";
++    CPPUNIT_ASSERT_MESSAGE(sCounts, nCoat > 0);
++    CPPUNIT_ASSERT_MESSAGE(sCounts, nCoat <= nPlain);
 +}
 +}
 +
@@ -599,7 +607,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-statusbar.cxx
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,163 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -738,13 +746,15 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +                              aTrack.Bottom() + nCentreReach),
 +             rPalette.aText);
 +
-+    // the thumb: an accent disc on the current zoom
-+    const tools::Long nThumb = px(12, fScale);
-+    const tools::Long nThumbLeft = rArea.Left() + rLayout.nThumb - nThumb / 2;
-+    const tools::Long nThumbTop = nMid - nThumb / 2;
-+    design::DrawRoundRect(rDev,
-+                          tools::Rectangle(Point(nThumbLeft, nThumbTop), Size(nThumb, nThumb)),
-+                          nThumb / 2.0, rPalette.aAccent, COL_TRANSPARENT, 0);
++    // the thumb: an upright accent pill on the current zoom, narrow so that at the ends of the track
++    // it stays clear of the buttons' click zones
++    const tools::Long nThumbWidth = px(6, fScale);
++    const tools::Long nThumbHeight = px(14, fScale);
++    const tools::Long nThumbLeft = rArea.Left() + rLayout.nThumb - nThumbWidth / 2;
++    const tools::Long nThumbTop = nMid - nThumbHeight / 2;
++    design::DrawRoundRect(
++        rDev, tools::Rectangle(Point(nThumbLeft, nThumbTop), Size(nThumbWidth, nThumbHeight)),
++        nThumbWidth / 2.0, rPalette.aAccent, COL_TRANSPARENT, 0);
 +
 +    // the decrease and increase buttons: the icon theme's images where the control has always drawn
 +    // them (and takes their clicks); an HST glyph for them comes with the icon set
@@ -797,7 +807,15 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      Color aColor;
      if (IsControlForeground())
          aColor = GetControlForeground();
-@@ -396,6 +409,9 @@ void StatusBar::ImplDrawItem(vcl::RenderContext& rRenderContext, bool bOffScreen
+@@ -325,6 +338,7 @@ void StatusBar::ImplFormat()
+     }
+ 
+     mbFormat = false;
++    mpImplData->mnHstHoverId = 0; // the items moved: the next mouse move finds the hovered one again
+ }
+ 
+ tools::Rectangle StatusBar::ImplGetItemRectPos( sal_uInt16 nPos ) const
+@@ -396,6 +410,9 @@ void StatusBar::ImplDrawItem(vcl::RenderContext& rRenderContext, bool bOffScreen
      if (bOffScreen)
      {
          mpImplData->mpVirDev->SetOutputSizePixel(aTextRectSize);
@@ -807,7 +825,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      }
      else
      {
-@@ -467,8 +483,10 @@ void StatusBar::ImplDrawItem(vcl::RenderContext& rRenderContext, bool bOffScreen
+@@ -467,8 +484,10 @@ void StatusBar::ImplDrawItem(vcl::RenderContext& rRenderContext, bool bOffScreen
          aTo.AdjustX( -4 );
          aTo.AdjustY( -1 );
  
@@ -820,7 +838,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      }
  
      if (!rRenderContext.ImplIsRecordLayout())
-@@ -708,6 +726,22 @@ void StatusBar::MouseButtonDown( const MouseEvent& rMEvt )
+@@ -708,6 +727,22 @@ void StatusBar::MouseButtonDown( const MouseEvent& rMEvt )
          Click();
  }
  
@@ -843,7 +861,19 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
  void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect)
  {
      if (mbFormat)
-@@ -748,6 +782,11 @@ void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle
+@@ -743,11 +778,22 @@ void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle
+             rRenderContext.Erase(rRect);
+ 
+         for (sal_uInt16 i = 0; i < nItemCount; i++)
+-            ImplDrawItem(rRenderContext, bOffscreen, i);
++        {
++            // the HST look repaints only the items (and their dividers) in the invalidated area
++            tools::Rectangle aItemArea = ImplGetItemRectPos(i);
++            aItemArea.AdjustLeft(-STATUSBAR_OFFSET_X);
++            if (!mpImplData->mbHstCoat || rRect.Overlaps(aItemArea))
++                ImplDrawItem(rRenderContext, bOffscreen, i);
++        }
+     }
  
      // draw line at the top of the status bar (to visually distinguish it from
      // shell / docking area)
