@@ -219,7 +219,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/qa/cppunit/hst/coat-test.cxx
 +++ b/vcl/qa/cppunit/hst/coat-test.cxx
-@@ -0,0 +1,441 @@
+@@ -0,0 +1,674 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -399,7 +399,8 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    {
 +        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(120, 26));
 +        CPPUNIT_ASSERT(draw(*pDev, eType, ControlPart::Entire, ENABLED));
-+        assertPixel("field corner", *pDev, 0, 0, MARKER);
++        // rounded, but within the border's pixel (see testFieldCornersKeepToTheBorderPixel)
++        CPPUNIT_ASSERT_MESSAGE("field corner blended", pDev->GetPixel(Point(0, 0)) != light().aFieldBorder);
 +        assertPixel("field border", *pDev, 0, 13, light().aFieldBorder);
 +        assertPixel("field fill is the theme's field colour", *pDev, 60, 13, COL_WHITE);
 +    }
@@ -420,6 +421,231 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    for (tools::Long y = 10; y < 16 && !bGlyph; ++y)
 +        bGlyph = pDev->GetPixel(Point(10, y)) != COL_WHITE;
 +    CPPUNIT_ASSERT_MESSAGE("chevron drawn", bGlyph);
++}
++
++/* Corner geometry. The coat's shapes lie on pixel edges: a part of height h has its outline on
++   [0, w] x [0, h], corners of radius r centred at (r, r) etc. */
++namespace
++{
++struct Corner
++{
++    const char* pWhat;
++    ControlType eType;
++    ControlState eState;
++    ButtonValue eValue; ///< check boxes; ButtonValue::DontKnow for the rest
++    Size aSize; ///< at scale 1
++    double fRadius; ///< at the given scale, in pixels
++    tools::Long nWidth; ///< border width in whole pixels
++    Color aBorder;
++    Color aFill;
++};
++
++/** How much of rBorder is in rPixel, over rUnder (0: none, 1: all), in the channel where the two
++    differ most. */
++double coverage(const Color& rPixel, const Color& rBorder, const Color& rUnder)
++{
++    int nBest = 0;
++    double fCover = 0;
++    const int aPixel[] = { rPixel.GetRed(), rPixel.GetGreen(), rPixel.GetBlue() };
++    const int aBorder[] = { rBorder.GetRed(), rBorder.GetGreen(), rBorder.GetBlue() };
++    const int aUnder[] = { rUnder.GetRed(), rUnder.GetGreen(), rUnder.GetBlue() };
++    for (int i = 0; i < 3; ++i)
++    {
++        const int nDiff = aBorder[i] - aUnder[i];
++        if (std::abs(nDiff) > nBest)
++        {
++            nBest = std::abs(nDiff);
++            fCover = double(aPixel[i] - aUnder[i]) / nDiff;
++        }
++    }
++    return fCover;
++}
++
++/** Whether (fX, fY) lies inside the rounded rectangle [fL, fR] x [fT, fB] of radius fRad. */
++bool insideRounded(double fX, double fY, double fL, double fT, double fR, double fB, double fRad)
++{
++    if (fX < fL || fX > fR || fY < fT || fY > fB)
++        return false;
++    fRad = std::min({ fRad, (fR - fL) / 2, (fB - fT) / 2 });
++    const double fCx = std::clamp(fX, fL + fRad, fR - fRad);
++    const double fCy = std::clamp(fY, fT + fRad, fB - fRad);
++    return std::hypot(fX - fCx, fY - fCy) <= fRad;
++}
++
++/** Whether the pixel (nX, nY) lies completely inside (bInside) or outside the rounded rectangle. */
++bool pixelIs(bool bInside, tools::Long nX, tools::Long nY, double fL, double fT, double fR,
++             double fB, double fRad)
++{
++    for (double fDx : { 0.0, 1.0 })
++        for (double fDy : { 0.0, 1.0 })
++            if (insideRounded(nX + fDx, nY + fDy, fL, fT, fR, fB, fRad) != bInside)
++                return false;
++    return true;
++}
++}
++
++/* Every rounded corner of the coat, at 100 % and 125 %, light and dark: straight edges of whole
++   pixels, an anti-aliased arc, a border of even strength along the arc (no pale seam or notch), and
++   nothing of the fill or the border outside the outline. */
++CPPUNIT_TEST_FIXTURE(CoatTest, testCornersAreSmoothAntialiasedArcs)
++{
++    namespace d = hst::design;
++    for (bool bDark : { false, true })
++        for (int nPercent : { 100, 125 })
++        {
++            const auto& p = d::GetPalette(bDark);
++            const double fScale = nPercent / 100.0;
++            const Color aField = bDark ? Color(0x2A, 0x2A, 0x2A) : COL_WHITE;
++            const tools::Long nThin = std::lround(d::stroke::Border * fScale);
++            const tools::Long nFocus = std::lround(d::FIELD_FOCUS_BORDER * fScale);
++            auto controlRadius = [&](tools::Long nHeight) {
++                return std::min(d::radius::Control * fScale, nHeight / 5.0);
++            };
++            const tools::Long nButtonH = std::lround(30 * fScale);
++            const tools::Long nFieldH = std::lround(26 * fScale);
++            const tools::Long nBox = std::lround(16 * fScale);
++            // fields keep to the border's pixel where the platform paints an opaque inner window
++            const double fFieldRadius = std::min(controlRadius(nFieldH), 2.0);
++            const Corner aCorners[] = {
++                { "button", ControlType::Pushbutton, ENABLED, ButtonValue::DontKnow,
++                  Size(std::lround(90 * fScale), nButtonH), controlRadius(nButtonH), nThin,
++                  p.aControlBorder, p.aControlFill },
++                { "focused button", ControlType::Pushbutton, ENABLED | ControlState::FOCUSED,
++                  ButtonValue::DontKnow, Size(std::lround(90 * fScale), nButtonH),
++                  controlRadius(nButtonH), nFocus, p.aAccent, p.aControlFill },
++                { "check box", ControlType::Checkbox, ENABLED, ButtonValue::Off,
++                  Size(nBox, nBox), d::radius::Check * fScale, nThin, p.aControlBorder, aField },
++                { "field", ControlType::Editbox, ENABLED, ButtonValue::DontKnow,
++                  Size(std::lround(120 * fScale), nFieldH), fFieldRadius, nThin, p.aFieldBorder,
++                  aField },
++                { "focused field", ControlType::Editbox, ENABLED | ControlState::FOCUSED,
++                  ButtonValue::DontKnow, Size(std::lround(120 * fScale), nFieldH), fFieldRadius,
++                  nFocus, p.aAccent, aField },
++            };
++            for (const Corner& rCase : aCorners)
++            {
++                const OString aWhat = OString::Concat(bDark ? "dark " : "light ") + rCase.pWhat
++                                      + " at " + OString::number(nPercent) + " %: ";
++                const tools::Long nW = rCase.aSize.Width(), nH = rCase.aSize.Height();
++                const double fRad = rCase.fRadius;
++                const tools::Long nRing = rCase.nWidth;
++                auto render = [&](const Color& rUnder) {
++                    ScopedVclPtr<VirtualDevice> pDev = makeDevice(rCase.aSize, bDark);
++                    pDev->SetDPIScalePercentage(nPercent);
++                    pDev->SetBackground(Wallpaper(rUnder));
++                    pDev->Erase();
++                    CPPUNIT_ASSERT(draw(*pDev, rCase.eType, ControlPart::Entire, rCase.eState,
++                                        ImplControlValue(rCase.eValue)));
++                    return pDev;
++                };
++                // drawn over its own fill colour, every pixel is a mix of border and fill
++                ScopedVclPtr<VirtualDevice> pOver = render(rCase.aFill);
++                // the pixel (nX, nY) of the top left corner, or mirrored: the bottom right one
++                auto cover = [&](bool bMirror, tools::Long nX, tools::Long nY) {
++                    const Point aPt = bMirror ? Point(nW - 1 - nX, nH - 1 - nY) : Point(nX, nY);
++                    return coverage(pOver->GetPixel(aPt), rCase.aBorder, rCase.aFill);
++                };
++                const tools::Long nCorner = static_cast<tools::Long>(std::ceil(fRad)) + 1;
++                for (bool bMirror : { false, true })
++                {
++                    const OString aSide = aWhat + (bMirror ? "bottom right: " : "top left: ");
++                    // straight edges: whole pixels of border, then fill
++                    for (tools::Long i = 0; i <= nRing; ++i)
++                    {
++                        const bool bBorder = i < nRing;
++                        const double fTop = cover(bMirror, nW / 2, i);
++                        const double fLeft = cover(bMirror, i, nH / 2);
++                        CPPUNIT_ASSERT_MESSAGE(
++                            OString(aSide + "crisp edge, pixel " + OString::number(i) + ": "
++                                    + OString::number(fTop) + " / " + OString::number(fLeft))
++                                .getStr(),
++                            bBorder ? fTop > 0.97 && fLeft > 0.97 : fTop < 0.03 && fLeft < 0.03);
++                    }
++                    // the outline of the ring, on pixel edges
++                    const double fL = 0, fT = 0, fR = nW, fB = nH;
++                    bool bBlend = false;
++                    double fCore = 0;
++                    for (tools::Long y = 0; y < std::min(nCorner, nH / 2); ++y)
++                        for (tools::Long x = 0; x < std::min(nCorner, nW / 2); ++x)
++                        {
++                            const double fC = cover(bMirror, x, y);
++                            bBlend |= fC > 0.1 && fC < 0.9;
++                            const bool bInRing
++                                = pixelIs(true, x, y, fL, fT, fR, fB, fRad)
++                                  && pixelIs(false, x, y, fL + nRing, fT + nRing, fR - nRing, fB - nRing,
++                                             std::max(0.0, fRad - nRing));
++                            // a pixel wholly inside the ring is wholly border: no pale seam
++                            if (bInRing)
++                                CPPUNIT_ASSERT_MESSAGE(
++                                    OString(aSide + "ring pixel " + OString::number(x) + ","
++                                            + OString::number(y) + " pale: " + OString::number(fC))
++                                        .getStr(),
++                                    fC > 0.95);
++                            // on the arc (30 to 60 degrees from the corner's centre)
++                            const double fDx = fRad - (x + 0.5), fDy = fRad - (y + 0.5);
++                            // tan 30 degrees = 1 / sqrt 3, tan 60 degrees = sqrt 3
++                            if (fDx > 0 && fDy > 0 && fDy * std::sqrt(3.0) >= fDx
++                                && fDy <= fDx * std::sqrt(3.0))
++                                fCore = std::max(fCore, fC);
++                        }
++                    if (fRad >= 1.5)
++                        CPPUNIT_ASSERT_MESSAGE(OString(aSide + "arc not anti-aliased").getStr(),
++                                               bBlend);
++                    // a border of two pixels or more is solid somewhere along its arc
++                    if (nRing >= 2 && fRad >= nRing + 1)
++                        CPPUNIT_ASSERT_MESSAGE(
++                            OString(aSide + "arc has no solid pixel: " + OString::number(fCore))
++                                .getStr(),
++                            fCore > 0.95);
++                }
++
++                // drawn over another colour: outside the outline nothing changes, inside the
++                // border is the fill
++                const Color aUnder = bDark ? Color(0x10, 0x30, 0x10) : Color(0xD0, 0xF0, 0xD0);
++                ScopedVclPtr<VirtualDevice> pOut = render(aUnder);
++                for (bool bMirror : { false, true })
++                    for (tools::Long y = 0; y < std::min(nCorner + nRing, nH / 2); ++y)
++                        for (tools::Long x = 0; x < std::min(nCorner + nRing, nW / 2); ++x)
++                        {
++                            const Point aPt = bMirror ? Point(nW - 1 - x, nH - 1 - y) : Point(x, y);
++                            if (pixelIs(false, x, y, 0, 0, nW, nH, fRad))
++                                assertPixel(OString(aWhat + "outside the outline").getStr(), *pOut,
++                                            aPt.X(), aPt.Y(), aUnder);
++                            else if (pixelIs(true, x, y, nRing, nRing, nW - nRing, nH - nRing,
++                                             std::max(0.0, fRad - nRing))
++                                     && x >= nRing + 1 && y >= nRing + 1)
++                                assertPixel(OString(aWhat + "inside the border").getStr(), *pOut,
++                                            aPt.X(), aPt.Y(), rCase.aFill);
++                        }
++            }
++        }
++}
++
++/* Where a field's inner window paints an opaque rectangle one pixel inside the border (the headless
++   backend, like Windows, has no ControlPart::HasBackgroundTexture), the corner stays in the border's
++   pixel: the pixels next to the corner pixel carry the border, so the inner window cannot cut a gap
++   into it. */
++CPPUNIT_TEST_FIXTURE(CoatTest, testFieldCornersKeepToTheBorderPixel)
++{
++    for (int nPercent : { 100, 125 })
++        for (ControlType eType : { ControlType::Editbox, ControlType::Combobox, ControlType::Listbox,
++                                   ControlType::Spinbox })
++        {
++            ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(160, 34));
++            pDev->SetDPIScalePercentage(nPercent);
++            CPPUNIT_ASSERT(draw(*pDev, eType, ControlPart::Entire, ENABLED));
++            for (const Point& rPt : { Point(1, 0), Point(0, 1), Point(158, 33), Point(159, 32) })
++            {
++                const double fC
++                    = coverage(pDev->GetPixel(rPt), light().aFieldBorder, MARKER);
++                CPPUNIT_ASSERT_MESSAGE(OString("field corner beside " + OString::number(rPt.X())
++                                               + "," + OString::number(rPt.Y()) + " at "
++                                               + OString::number(nPercent)
++                                               + " %: " + OString::number(fC))
++                                           .getStr(),
++                                       fC > 0.6);
++            }
++        }
 +}
 +
 +CPPUNIT_TEST_FIXTURE(CoatTest, testCheckBox)
@@ -655,6 +881,13 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    for (const char* pMetric : { "padding", "margin", "min-height", "min-width", "border-width",
 +                                 "font" })
 +        CPPUNIT_ASSERT_MESSAGE(pMetric, aLight.indexOf(pMetric) < 0);
++    // the members of a linked group (a combo box's entry and button) meet with square corners
++    CPPUNIT_ASSERT(aLight.indexOf(".linked:not(.vertical) > *:not(:first-child) { "
++                                  "border-top-left-radius: 0; border-bottom-left-radius: 0; }")
++                   >= 0);
++    CPPUNIT_ASSERT(aLight.indexOf(".linked:not(.vertical) > *:not(:last-child) { "
++                                  "border-top-right-radius: 0; border-bottom-right-radius: 0; }")
++                   >= 0);
 +}
 +}
 +
