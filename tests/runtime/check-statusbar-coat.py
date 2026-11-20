@@ -38,12 +38,16 @@ LOOKS = {
     "plain": {"HST_UI_COAT": "0", "GTK_THEME": "Adwaita"},
     "contrast": {"HST_UI_COAT": "1", "GTK_THEME": "HighContrast"},
 }
-# the hover sweep in the coat looks: per application its factory and the text that starts its page/sheet/slide
-# position item, which a click acts on (Go to Page, the Navigator)
+# the hover sweep in the coat looks: per application its factory and, in the order of its statusbar.xml, which
+# items show the hover on a new document (1: a single click acts on it). Writer: saved state, page, word count,
+# accessibility check, page style, language, insert mode, selection mode, signature | size, view layout, slider |
+# zoom. Sheets: saved state, sheet | selection count | page style, language | insert mode (off outside cell
+# editing) | selection mode | AutoCalculate | signature | sums, slider | zoom. Slides: saved state, slide |
+# context | layout | size | signature, language, fit slide | slider | zoom.
 SWEEP = {
-    "writer": ("swriter", ("Trang", "Page")),
-    "sheets": ("scalc", ("Trang tính", "Sheet")),
-    "slides": ("simpress", ("Trang chiếu", "Slide")),
+    "writer": ("swriter", [1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1]),
+    "sheets": ("scalc", [1, 1, 0, 1, 1, 0, 1, 0, 1, 0, 0, 1]),
+    "slides": ("simpress", [1, 1, 0, 1, 0, 1, 1, 1, 0, 1]),
 }
 NO_PROMPTS = [("/org.openoffice.Office.HSTUpdate", "AutoCheck", "false"),
               ("/org.hasontech.hstoffice.UpdateCheck", "AutoCheck", "false")]
@@ -181,9 +185,8 @@ class Look:
         return self.result
 
     def sweep(self, office, app, doc, screen, win):
-        """The pointer over each item of the bar in turn: which show the hover. The zoom percentage and the
-        position item must, the zoom slider must not. Writes statusbar-<look>-sweep-<app>.png (one row per
-        item, hovered)."""
+        """The pointer over each item of the bar in turn: exactly the items a click acts on show the hover
+        (SWEEP). Writes statusbar-<look>-sweep-<app>.png (one row per item, hovered)."""
         from PIL import Image
         display, theme = self.args.display, "dark" if self.name.endswith("dark") else "light"
         bar, items = bar_items(doc.getCurrentController().getFrame().getContainerWindow())
@@ -210,10 +213,9 @@ class Look:
         sheet.save(path)
         print(f"{self.name} {app}: " + "; ".join(f"{text or '(icon)'}: {'hover' if on else '-'}"
                                                 for text, on in rows), flush=True)
-        prefixes = SWEEP[app][1]
-        position = next((on for text, on in rows if text.startswith(prefixes)), None)
-        self.failures.check(rows[-1][1] and not rows[-2][1] and position,
-                            f"{self.name} {app}: hover on the zoom percentage and the position item, not on the slider")
+        seen = [int(on) for _, on in rows]
+        self.failures.check(seen == SWEEP[app][1],
+                            f"{self.name} {app}: the hover on exactly the items a click acts on: {seen}")
 
     def checks(self, office, doc, screen, win):
         from PIL import Image
