@@ -327,7 +327,7 @@ def main():
     parser.add_argument("--look", action="append", choices=list(LOOKS), default=[])
     args = parser.parse_args()
     if not telemetry_blocked():
-        sys.exit("check-statusbar-coat: run it through tests/runtime/no-hst-telemetry.sh (the stats server is reachable)")
+        sys.exit("check-statusbar-coat: the stats server is reachable; run it through tests/runtime/no-hst-telemetry.sh")
     import hst_gui
     os.environ["HST_VCLPLUGIN"] = "gtk3"
     hst_gui.setup_uno(args.instdir)
