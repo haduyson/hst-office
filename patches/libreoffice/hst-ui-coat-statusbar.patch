@@ -1,11 +1,11 @@
 HST Office: the status bar of a document window in the HST look (the frame coat's StatusBar part).
 
-- Only colours, fonts and shapes change: the bar's height, the items' widths and their click areas are
+- Only colours and shapes change: the bar's height, the items' widths and their click areas are
   exactly as without the coat (owner decision D9). The look applies to the bar of a document window (its
   parent is the frame's work window) while org.openoffice.Office.HSTAppearance/FrameCoat/StatusBar and the
   coat are on, and never in high contrast; the bars of dialogs keep the platform's look.
 - StatusBar (vcl/source/window/status.cxx, thin hooks): the frame surface instead of the native background,
-  item text in the text colour at the caption scale (the bar's own font still sizes the bar), a thin divider
+  item text in the text colour (the bar keeps its font, which sizes the bar and its items), a thin divider
   of the frame divider colour, inset at both ends, instead of the 3D separator, the frame divider along the
   top edge, and a rounded hover behind the items that open something on a single click (language,
   selection mode, zoom percentage), repainted only when the item under the mouse changes.
@@ -16,14 +16,14 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
   set.
 - The drawing is in vcl/source/hst/coat/coat-statusbar.cxx behind <vcl/hst/statusbarcoat.hxx>: flat fills
   only, no gradient, no bitmap of its own.
-- CppunitTest_vcl_hst_statusbar_coat: the frame colours light and dark, the caption font, the thin
+- CppunitTest_vcl_hst_statusbar_coat: the frame colours light and dark, the thin
   dividers, the hover on clickable items only, the unchanged height and item rectangles, the platform look
   in high contrast, for a dialog's bar and with the part switched off, the zoom slider's shapes and thumb
   at 50/100/200 %, and the same number of item repaints with and without the coat over 1,000 text updates.
 
 --- /dev/null
 +++ b/include/vcl/hst/statusbarcoat.hxx
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,84 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -45,15 +45,15 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +class OutputDevice;
 +namespace vcl
 +{
-+class Font;
 +class Window;
 +}
 +
 +/* The status bar of a document window in the HST look (the StatusBar frame part of
-+   <vcl/hst/framecoat.hxx>): the frame surface, text in the caption style, thin dividers instead of
++   <vcl/hst/framecoat.hxx>): the frame surface, text in the token colour, thin dividers instead of
 +   3D separators, a hover behind the items that open something when clicked, and a zoom slider drawn
-+   from the tokens. Only colours, fonts and shapes change: the bar's height, the items' widths and
-+   their click areas stay exactly as without the coat. */
++   from the tokens. Only colours and shapes change: the bar keeps its font (which sizes the bar and
++   its items), so its height, the items' widths and their click areas stay exactly as without the
++   coat. */
 +namespace hst::coat
 +{
 +/** Whether rBar (a StatusBar) is drawn in the HST look: the bar of a document window (its parent is
@@ -65,11 +65,9 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +    hover: the language, the selection mode and the zoom percentage. */
 +VCL_DLLPUBLIC bool IsStatusBarItemClickable(std::u16string_view aCommand);
 +
-+/** The background, text colour and text font of the bar in the HST look, for rBar's theme. The
-+    font is rBase (the bar's own font, which sizes the bar and its items) at the caption scale. */
++/** The background and text colour of the bar in the HST look, for rBar's theme. */
 +VCL_DLLPUBLIC Color StatusBarBackground(const vcl::Window& rBar);
 +VCL_DLLPUBLIC Color StatusBarTextColor(const vcl::Window& rBar);
-+VCL_DLLPUBLIC vcl::Font StatusBarFont(const vcl::Font& rBase);
 +
 +/* The shapes below are drawn on rDev (the bar itself, or the off-screen device its items are drawn
 +   on; pixel map mode) in the colours of rBar's theme and at rBar's DPI scale. */
@@ -230,7 +228,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      CppunitTest_vcl_treeview \
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/statusbar-coat-test.cxx
-@@ -0,0 +1,380 @@
+@@ -0,0 +1,368 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -433,18 +431,6 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +    }
 +}
 +
-+CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testItemsTextIsCaptionSized)
-+{
-+    StatusBar& rBar = makeBar();
-+    // the caption style for the text, the bar's own font (which sizes the bar) unchanged
-+    const vcl::Font aBase = rBar.GetFont();
-+    const vcl::Font aCaption = hst::coat::StatusBarFont(aBase);
-+    CPPUNIT_ASSERT_EQUAL(
-+        std::lround(aBase.GetFontSize().Height() * design::type::Caption.fScale),
-+        aCaption.GetFontSize().Height());
-+    CPPUNIT_ASSERT_EQUAL(design::type::Caption.eWeight, aCaption.GetWeight());
-+}
-+
 +CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testDividersAreThinLinesNot3D)
 +{
 +    StatusBar& rBar = makeBar();
@@ -613,7 +599,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-statusbar.cxx
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,161 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -631,7 +617,6 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +#include <vcl/hst/drawhelpers.hxx>
 +#include <vcl/hst/framecoat.hxx>
 +
-+#include <vcl/font.hxx>
 +#include <vcl/image.hxx>
 +#include <vcl/outdev.hxx>
 +#include <vcl/settings.hxx>
@@ -688,16 +673,6 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +Color StatusBarBackground(const vcl::Window& rBar) { return paletteOf(rBar).aFrameSurface; }
 +
 +Color StatusBarTextColor(const vcl::Window& rBar) { return paletteOf(rBar).aText; }
-+
-+vcl::Font StatusBarFont(const vcl::Font& rBase)
-+{
-+    vcl::Font aFont(rBase);
-+    const Size aSize = rBase.GetFontSize();
-+    aFont.SetFontSize(Size(std::lround(aSize.Width() * design::type::Caption.fScale),
-+                           std::lround(aSize.Height() * design::type::Caption.fScale)));
-+    aFont.SetWeight(design::type::Caption.eWeight);
-+    return aFont;
-+}
 +
 +void DrawStatusBarTopLine(OutputDevice& rDev, const vcl::Window& rBar, tools::Long nWidth)
 +{
@@ -822,17 +797,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      Color aColor;
      if (IsControlForeground())
          aColor = GetControlForeground();
-@@ -213,7 +226,8 @@ void StatusBar::ImplInitSettings()
- {
-     ApplySettings(*GetOutDev());
- 
--    mpImplData->mpVirDev->SetFont(GetFont());
-+    mpImplData->mpVirDev->SetFont(mpImplData->mbHstCoat ? hst::coat::StatusBarFont(GetFont())
-+                                                        : GetFont());
-     mpImplData->mpVirDev->SetTextColor(GetTextColor());
-     mpImplData->mpVirDev->SetTextAlign(GetTextAlign());
-     mpImplData->mpVirDev->SetTextFillColor();
-@@ -396,6 +410,9 @@ void StatusBar::ImplDrawItem(vcl::RenderContext& rRenderContext, bool bOffScreen
+@@ -396,6 +409,9 @@ void StatusBar::ImplDrawItem(vcl::RenderContext& rRenderContext, bool bOffScreen
      if (bOffScreen)
      {
          mpImplData->mpVirDev->SetOutputSizePixel(aTextRectSize);
@@ -842,7 +807,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      }
      else
      {
-@@ -467,8 +484,10 @@ void StatusBar::ImplDrawItem(vcl::RenderContext& rRenderContext, bool bOffScreen
+@@ -467,8 +483,10 @@ void StatusBar::ImplDrawItem(vcl::RenderContext& rRenderContext, bool bOffScreen
          aTo.AdjustX( -4 );
          aTo.AdjustY( -1 );
  
@@ -855,7 +820,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      }
  
      if (!rRenderContext.ImplIsRecordLayout())
-@@ -708,6 +727,22 @@ void StatusBar::MouseButtonDown( const MouseEvent& rMEvt )
+@@ -708,6 +726,22 @@ void StatusBar::MouseButtonDown( const MouseEvent& rMEvt )
          Click();
  }
  
@@ -878,7 +843,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
  void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect)
  {
      if (mbFormat)
-@@ -748,6 +783,11 @@ void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle
+@@ -748,6 +782,11 @@ void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle
  
      // draw line at the top of the status bar (to visually distinguish it from
      // shell / docking area)
