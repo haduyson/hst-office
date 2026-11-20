@@ -2192,3 +2192,67 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
      DecorationView aDecoView(&rRenderContext);
      const tools::Rectangle aContentRect = aDecoView.DrawFrame(aRect, m_eDrawFrameStyle, m_eDrawFrameFlags);
      const auto nBorderWidth = (aRect.GetWidth() - aContentRect.GetWidth()) / 2;
+--- a/vcl/unx/gtk3/gtkinst.cxx
++++ b/vcl/unx/gtk3/gtkinst.cxx
+@@ -23,6 +23,7 @@
+ #include <osl/process.h>
+ #include <osl/file.hxx>
+ #include <unx/gtk/gtkdata.hxx>
++#include "hst-coat-gtk.hxx"
+ #include <unx/gtk/gtkinst.hxx>
+ #include <unx/genprn.h>
+ #include <unx/salobj.h>
+@@ -3397,7 +3398,7 @@ private:
+         OString aResult = OUStringToOString(aBuffer, RTL_TEXTENCODING_UTF8);
+         css_provider_load_from_data(m_pBgCssProvider, aResult.getStr(), aResult.getLength());
+         gtk_style_context_add_provider(pWidgetContext, GTK_STYLE_PROVIDER(m_pBgCssProvider),
+-                                       GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
++                                       hst::coat::WIDGET_CONTENT_CSS_PRIORITY);
+     }
+ 
+     DECL_LINK(SettingsChangedHdl, VclWindowEvent&, void);
+@@ -9902,7 +9903,7 @@ public:
+         OString aResult = OUStringToOString(aBuffer, RTL_TEXTENCODING_UTF8);
+         css_provider_load_from_data(m_pCustomCssProvider, aResult.getStr(), aResult.getLength());
+         gtk_style_context_add_provider(pWidgetContext, GTK_STYLE_PROVIDER(m_pCustomCssProvider),
+-                                       GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
++                                       hst::coat::WIDGET_CONTENT_CSS_PRIORITY);
+     }
+ 
+ public:
+--- a/vcl/unx/gtk3/hst-coat-gtk.cxx
++++ b/vcl/unx/gtk3/hst-coat-gtk.cxx
+@@ -65,9 +65,8 @@ void ApplyGtkCoat(GdkScreen* pScreen, const StyleSettings& rStyle)
+         g_object_unref(pProvider);
+         return;
+     }
+-    // above the theme and LibreOffice's own CSS, below the user's gtk.css
+     gtk_style_context_add_provider_for_screen(pScreen, GTK_STYLE_PROVIDER(pProvider),
+-                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
++                                              COAT_CSS_PRIORITY);
+     g_pProvider = pProvider;
+     g_pScreen = pScreen;
+     g_eInstalled = eWanted;
+--- a/vcl/unx/gtk3/hst-coat-gtk.hxx
++++ b/vcl/unx/gtk3/hst-coat-gtk.hxx
+@@ -13,9 +13,20 @@ class StyleSettings;
+ 
+ namespace hst::coat
+ {
++/** Priority of the coat's screen-wide CSS: above the theme and LibreOffice's own CSS, below the user's gtk.css. */
++inline constexpr guint COAT_CSS_PRIORITY = GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1;
++
++/** Priority of the CSS a single widget is given as its own content (a custom-drawn button's image, an explicit
++    background colour). It outranks the coat's general look, whose "button { background-image: none }" would
++    otherwise erase a custom-drawn button (the File tab's navigation items on GTK). */
++inline constexpr guint WIDGET_CONTENT_CSS_PRIORITY = COAT_CSS_PRIORITY + 1;
++static_assert(WIDGET_CONTENT_CSS_PRIORITY < GTK_STYLE_PROVIDER_PRIORITY_USER);
++
++#if !GTK_CHECK_VERSION(4, 0, 0)
+ /** Install, replace or remove the coat's CSS for the GTK-drawn widgets of pScreen to match rStyle:
+     none in high-contrast mode or when the coat is switched off, else the light or dark coat. */
+ void ApplyGtkCoat(GdkScreen* pScreen, const StyleSettings& rStyle);
++#endif
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
