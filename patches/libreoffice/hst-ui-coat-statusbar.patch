@@ -9,16 +9,18 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
   thin divider of the frame divider colour, inset at both ends, instead of the 3D separator, the frame
   divider along the top edge, and a rounded hover behind every item that does something on a single click
   in Writer, Sheets and Slides (saved state, signature, language, zoom percentage; page number, word
-  count, accessibility check, page style, insert mode, selection mode; sheet position, page style,
-  AutoCalculate; slide number, slide layout, fit slide), not behind an item whose text is empty, repainted
-  only when the item under the mouse changes and cleared when the items move. A paint redraws only the
-  items (and their dividers) in the invalidated area, so a word count update repaints that item alone, not
-  the zoom slider beside it.
+  count, accessibility check, page style, insert mode, selection mode; sheet position, page style; slide
+  number, slide layout, fit slide), not behind an item whose text is empty, repainted only when the item
+  under the mouse changes and cleared when the items move. A paint redraws only the items (and their
+  dividers) in the invalidated area, so a word count update repaints that item alone, not the zoom slider
+  beside it.
 - The zoom slider (svx/source/stbctrls/zoomsliderctrl.cxx): a groove of the scroll-track colour outlined
   with the frame divider, short marks for the snapping points, a longer 100 % mark in the text colour and
   a narrow upright accent pill for the thumb, all vector shapes at the window's scale. The decrease and
   increase buttons stay the icon theme's images, where the control takes their clicks; their HST glyphs
   come with the icon set.
+- The signature item (svx/source/stbctrls/xmlsecctrl.cxx) no longer fills an unsigned document's item with
+  the background in the HST look, so its hover shows.
 - The drawing is in vcl/source/hst/coat/coat-statusbar.cxx behind <vcl/hst/statusbarcoat.hxx>: flat fills
   only, no gradient, no bitmap of its own.
 - CppunitTest_vcl_hst_statusbar_coat: the frame colours light and dark, the thin dividers, the hover on
@@ -125,6 +127,27 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      virtual void        Paint( vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect ) override;
      virtual void        Resize() override;
      virtual void        RequestHelp( const HelpEvent& rHEvt ) override;
+--- a/svx/source/stbctrls/xmlsecctrl.cxx
++++ b/svx/source/stbctrls/xmlsecctrl.cxx
+@@ -24,6 +24,7 @@
+ #include <vcl/image.hxx>
+ #include <vcl/event.hxx>
+ #include <vcl/status.hxx>
++#include <vcl/hst/statusbarcoat.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/weld/Builder.hxx>
+ #include <vcl/weld/Menu.hxx>
+@@ -154,8 +155,8 @@ void XmlSecStatusBarControl::Paint( const UserDrawEvent& rUsrEvt )
+         aRect.AdjustTop(yOffset );
+         pDev->DrawImage( aRect.TopLeft(), mpImpl->maImageNotValidated );
+     }
+-    else
+-        pDev->DrawRect( aRect );
++    else if (!hst::coat::StatusBarCoatActive(GetStatusBar()))
++        pDev->DrawRect( aRect ); // the HST look: the item is already its surface (and its hover)
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/svx/source/stbctrls/zoomsliderctrl.cxx
 +++ b/svx/source/stbctrls/zoomsliderctrl.cxx
 @@ -25,6 +25,7 @@
@@ -235,7 +258,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      CppunitTest_vcl_treeview \
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/statusbar-coat-test.cxx
-@@ -0,0 +1,398 @@
+@@ -0,0 +1,399 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -503,13 +526,14 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +         { u".uno:ModifiedStatus", u".uno:Signature", u".uno:LanguageStatus", u".uno:Zoom",
 +           u".uno:StatePageNumber", u".uno:StateWordCount", u".uno:StateAccessibilityCheck",
 +           u".uno:PageStyleName", u".uno:InsertMode", u".uno:SelectionMode", u".uno:StatusDocPos",
-+           u".uno:StatusPageStyle", u".uno:AutomaticCalculation", u".uno:StatusSelectionMode",
++           u".uno:StatusPageStyle", u".uno:StatusSelectionMode",
 +           u".uno:PageStatus", u".uno:LayoutStatus", u".uno:ZoomPage" })
 +        CPPUNIT_ASSERT_MESSAGE(OUString(aCommand).toUtf8().getStr(),
 +                               hst::coat::IsStatusBarItemClickable(aCommand));
 +    // a click does nothing (or only with a selection), or the item has buttons of its own
 +    for (std::u16string_view aCommand : { u".uno:Size", u".uno:RowColSelCount", u".uno:Context",
-+                                          u".uno:ViewLayout", u".uno:ZoomSlider", u"" })
++                                          u".uno:ViewLayout", u".uno:ZoomSlider",
++                                          u".uno:AutomaticCalculation", u"" })
 +        CPPUNIT_ASSERT_MESSAGE(OUString(aCommand).toUtf8().getStr(),
 +                               !hst::coat::IsStatusBarItemClickable(aCommand));
 +}
@@ -705,7 +729,8 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +{
 +    // What a single click does (the item's controller, then the view shell's Execute of its slot).
 +    // Not here: .uno:Size (acts only with an object, table or frame selected), .uno:RowColSelCount and
-+    // .uno:Context (no Execute), .uno:ViewLayout and .uno:ZoomSlider (buttons of their own inside).
++    // .uno:Context (no Execute), .uno:ViewLayout and .uno:ZoomSlider (buttons of their own inside),
++    // .uno:AutomaticCalculation (acts only while AutoCalculate is off, and its control erases its area).
 +    static constexpr std::u16string_view CLICKABLE[] = {
 +        // every application
 +        u".uno:ModifiedStatus", // saves a modified document
@@ -722,7 +747,6 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +        // Sheets
 +        u".uno:StatusDocPos", // the Navigator
 +        u".uno:StatusPageStyle", // the Page Style dialog
-+        u".uno:AutomaticCalculation", // AutoCalculate on / off
 +        u".uno:StatusSelectionMode", // the selection mode menu
 +        // Slides and Draw
 +        u".uno:PageStatus", // Go to Page
