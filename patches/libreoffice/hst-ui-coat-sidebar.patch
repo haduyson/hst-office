@@ -1,0 +1,362 @@
+HST Office: the sidebar's frame in the HST look (FrameCoat/Sidebar): tab bar, deck title, panel titles.
+
+- sfx2 sidebar Theme: while the coat and FrameCoat/Sidebar are on and not in high contrast, the tab bar,
+  the deck title and the panel titles take the frame surface of the design tokens (Theme::GetHstFrameColor);
+  the deck and panel contents and the highlight keep their colours.
+- gtk3: tabbar.ui, deck.ui and panel.ui give the frame boxes style classes (hst-sidebar-tabbar,
+  hst-sidebar-deck-title, hst-sidebar-panel-title) and vcl/source/hst/coat/css/sidebar.cxx styles them:
+  the tab bar's surface and divider towards the deck, its buttons flat until hovered, the open deck on an
+  aPill pill (radius::Control) with the accent bar (aSelectedIndicator) along its leading edge, the focus
+  mark kept, RTL mirrored; the divider under the deck title and above each panel title; the title bars'
+  small buttons flat until hovered. Colours, radii and inset shadows only: no widget changes size.
+- VCL backends (Windows, macOS): TabBar paints the surface, the divider and the open deck's accent bar in
+  the margin left of its button (Theme::DrawHstTabBarFrame); Deck gives each panel title a tiled
+  background of the frame surface with the divider along its top. The tab buttons keep VCL's own look
+  until the ribbon's button painter offers a paint-only look (the ribbon's owner-draw also changes the
+  button geometry, so it is not used here).
+- The deck's name is set in type::Title while the coat is on.
+- CppunitTest_sfx2_hst_sidebar_coat: frame keys and content keys, the switches and high contrast, the CSS
+  without sizes, the VCL tab bar frame and its indicator.
+
+diff --git a/include/sfx2/sidebar/Theme.hxx b/include/sfx2/sidebar/Theme.hxx
+index e59b2e8..8f75583 100644
+--- a/include/sfx2/sidebar/Theme.hxx
++++ b/include/sfx2/sidebar/Theme.hxx
+@@ -28,6 +28,11 @@
+ #include <unordered_map>
+ 
+ class Color;
++class OutputDevice;
++class Size;
++class StyleSettings;
++namespace tools { class Rectangle; }
++namespace vcl { typedef OutputDevice RenderContext; }
+ 
+ namespace sfx2::sidebar {
+ 
+@@ -83,6 +88,20 @@ public:
+ 
+     static bool IsHighContrastMode();
+ 
++    /** HST Office: the sidebar tab bar's frame in the sidebar's coat (FrameCoat/Sidebar) on the VCL backends,
++        drawn under its buttons: the frame surface, the divider along the edge towards the deck and,
++        in the margin left of the open deck's button rChecked (empty: none open), the accent bar over
++        the middle half of its height. Returns false and draws nothing when the coat is off or in high
++        contrast. On gtk3 the tab bar's CSS (vcl/source/hst/coat/css/sidebar.cxx) draws the frame. */
++    static bool DrawHstTabBarFrame(vcl::RenderContext& rDev, const Size& rSize,
++                                   const tools::Rectangle& rChecked);
++
++    /** HST Office: the colour of eItem in the HST look of the sidebar's frame
++        (org.openoffice.Office.HSTAppearance/FrameCoat/Sidebar): the tab bar, the deck title and
++        the panel titles lie on the frame surface of the design tokens. The deck and panel contents,
++        the highlight and every key while the frame coat is off or in high contrast keep rDefault. */
++    static Color GetHstFrameColor(ThemeItem eItem, const Color& rDefault, const StyleSettings& rStyle);
++
+     static void HandleDataChange();
+ 
+     void InitializeTheme();
+diff --git a/sfx2/CppunitTest_sfx2_hst_sidebar_coat.mk b/sfx2/CppunitTest_sfx2_hst_sidebar_coat.mk
+new file mode 100644
+index 0000000..42ddb97
+--- /dev/null
++++ b/sfx2/CppunitTest_sfx2_hst_sidebar_coat.mk
+@@ -0,0 +1,58 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++# HST Office: the sidebar's frame in the HST look (tab bar, deck title, panel titles).
++
++$(eval $(call gb_CppunitTest_CppunitTest,sfx2_hst_sidebar_coat))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sfx2_hst_sidebar_coat, \
++    sfx2/qa/cppunit/hstsidebarcoat \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sfx2_hst_sidebar_coat,\
++    -I$(SRCDIR)/sfx2/inc \
++    -I$(SRCDIR)/vcl/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,sfx2_hst_sidebar_coat,\
++    boost_headers \
++))
++
++$(eval $(call gb_CppunitTest_use_custom_headers,sfx2_hst_sidebar_coat,\
++    officecfg/registry \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sfx2_hst_sidebar_coat, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    sal \
++    sfx \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sfx2_hst_sidebar_coat))
++
++$(eval $(call gb_CppunitTest_use_ure,sfx2_hst_sidebar_coat))
++$(eval $(call gb_CppunitTest_use_vcl,sfx2_hst_sidebar_coat))
++
++$(eval $(call gb_CppunitTest_use_components,sfx2_hst_sidebar_coat,\
++    configmgr/source/configmgr \
++    i18npool/util/i18npool \
++    ucb/source/core/ucb1 \
++    unotools/util/utl \
++))
++
++$(eval $(call gb_CppunitTest_use_configuration,sfx2_hst_sidebar_coat))
++
++$(eval $(call gb_CppunitTest_use_uiconfigs,sfx2_hst_sidebar_coat, \
++    sfx \
++))
++
++# vim: set noet sw=4 ts=4:
+diff --git a/sfx2/Module_sfx2.mk b/sfx2/Module_sfx2.mk
+index bda8838..61016aa 100644
+--- a/sfx2/Module_sfx2.mk
++++ b/sfx2/Module_sfx2.mk
+@@ -40,6 +40,7 @@ $(eval $(call gb_Module_add_check_targets,sfx2,\
+     CppunitTest_sfx2_autoredaction \
+     CppunitTest_sfx2_hst_update_dot \
+     CppunitTest_sfx2_hst_startcenter \
++    CppunitTest_sfx2_hst_sidebar_coat \
+ ))
+ 
+ $(eval $(call gb_Module_add_subsequentcheck_targets,sfx2,\
+diff --git a/sfx2/qa/cppunit/hstsidebarcoat.cxx b/sfx2/qa/cppunit/hstsidebarcoat.cxx
+new file mode 100644
+index 0000000..e254509
+--- /dev/null
++++ b/sfx2/qa/cppunit/hstsidebarcoat.cxx
+@@ -0,0 +1,202 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++// HST Office: the sidebar's frame in the HST look (FrameCoat/Sidebar). The frame's colour keys of the
++// sidebar's theme take the design tokens while the coat is on, and keep their colours with the coat
++// off, the part switched off or in high contrast; the contents' keys never change. The GTK CSS of the
++// sidebar sets no size. On the VCL backends the tab bar draws its surface, the divider towards the
++// deck and the open deck's accent bar beside its button.
++
++#include <test/bootstrapfixture.hxx>
++
++#include <comphelper/configuration.hxx>
++#include <officecfg/Office/HSTAppearance.hxx>
++#include <sfx2/sidebar/Theme.hxx>
++#include <vcl/bitmap.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/framecoat.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/virdev.hxx>
++
++#include <hst/coat.hxx>
++
++#include <cstdlib>
++
++using sfx2::sidebar::Theme;
++
++namespace
++{
++constexpr Color DEFAULT(0x12, 0x34, 0x56);
++constexpr Color MARKER(0xFF, 0x00, 0xFF);
++
++class SidebarCoatTest : public test::BootstrapFixture
++{
++public:
++    SidebarCoatTest()
++        : test::BootstrapFixture(true, false)
++    {
++    }
++
++    void setUp() override
++    {
++        test::BootstrapFixture::setUp();
++        unsetenv("HST_UI_COAT");
++        setSwitches(true, true);
++    }
++
++    void tearDown() override
++    {
++        unsetenv("HST_UI_COAT"); // a test that set it may have stopped at a failed assertion
++        setSwitches(true, true);
++        test::BootstrapFixture::tearDown();
++    }
++
++protected:
++    static void setSwitches(bool bCoat, bool bSidebar)
++    {
++        auto xChanges = comphelper::ConfigurationChanges::create();
++        officecfg::Office::HSTAppearance::UiCoat::Enabled::set(bCoat, xChanges);
++        officecfg::Office::HSTAppearance::FrameCoat::Sidebar::set(bSidebar, xChanges);
++        xChanges->commit();
++        hst::coat::ResetSwitchForTesting();
++        hst::coat::ResetFrameCoatForTesting();
++    }
++
++    static StyleSettings style(bool bDark, bool bHighContrast = false)
++    {
++        StyleSettings aStyle = Application::GetSettings().GetStyleSettings();
++        aStyle.SetHighContrastMode(bHighContrast);
++        const Color aWindow = bDark ? Color(0x20, 0x20, 0x20) : Color(0xFF, 0xFF, 0xFF);
++        aStyle.SetWindowColor(aWindow);
++        aStyle.SetFieldColor(aWindow);
++        aStyle.SetDialogColor(bDark ? Color(0x28, 0x28, 0x28) : Color(0xF0, 0xF0, 0xF0));
++        return aStyle;
++    }
++
++    /** The CSS of the sidebar's fragment: from its comment to the next part's. */
++    static OString sidebarCss(bool bDark)
++    {
++        const OString aCss = hst::coat::CreateGtkCss(bDark);
++        const sal_Int32 nStart = aCss.indexOf("/* hst frame: sidebar */");
++        if (nStart < 0)
++            return OString();
++        const sal_Int32 nEnd = aCss.indexOf("/* hst frame:", nStart + 1);
++        return aCss.copy(nStart, (nEnd < 0 ? aCss.getLength() : nEnd) - nStart);
++    }
++
++    static OString hex(const Color& rColor)
++    {
++        return OString("#" + rColor.AsRGBHexString().toUtf8());
++    }
++};
++
++constexpr Theme::ThemeItem FRAME_KEYS[] = { Theme::Color_TabBarBackground,
++                                            Theme::Color_DeckTitleBarBackground,
++                                            Theme::Color_PanelTitleBarBackground };
++constexpr Theme::ThemeItem CONTENT_KEYS[]
++    = { Theme::Color_DeckBackground, Theme::Color_PanelBackground, Theme::Color_Highlight,
++        Theme::Color_HighlightText };
++
++/* The tab bar, the deck title and the panel titles lie on the frame surface, light and dark. */
++CPPUNIT_TEST_FIXTURE(SidebarCoatTest, testFrameKeysTakeTheFrameSurface)
++{
++    for (bool bDark : { false, true })
++    {
++        const Color aSurface = hst::design::GetPalette(bDark).aFrameSurface;
++        for (Theme::ThemeItem eItem : FRAME_KEYS)
++            CPPUNIT_ASSERT_EQUAL(aSurface, Theme::GetHstFrameColor(eItem, DEFAULT, style(bDark)));
++    }
++}
++
++/* Only the frame's keys change: the deck's and panels' contents and the highlight keep theirs. */
++CPPUNIT_TEST_FIXTURE(SidebarCoatTest, testContentKeysKeepTheirColours)
++{
++    for (bool bDark : { false, true })
++        for (Theme::ThemeItem eItem : CONTENT_KEYS)
++            CPPUNIT_ASSERT_EQUAL(DEFAULT, Theme::GetHstFrameColor(eItem, DEFAULT, style(bDark)));
++}
++
++/* High contrast, the part's switch, the coat's switch and HST_UI_COAT=0 each give the colours back. */
++CPPUNIT_TEST_FIXTURE(SidebarCoatTest, testCoatOffKeepsTheColours)
++{
++    for (Theme::ThemeItem eItem : FRAME_KEYS)
++        CPPUNIT_ASSERT_EQUAL(DEFAULT, Theme::GetHstFrameColor(eItem, DEFAULT, style(false, true)));
++    setSwitches(true, false);
++    for (Theme::ThemeItem eItem : FRAME_KEYS)
++        CPPUNIT_ASSERT_EQUAL(DEFAULT, Theme::GetHstFrameColor(eItem, DEFAULT, style(false)));
++    setSwitches(false, true);
++    for (Theme::ThemeItem eItem : FRAME_KEYS)
++        CPPUNIT_ASSERT_EQUAL(DEFAULT, Theme::GetHstFrameColor(eItem, DEFAULT, style(false)));
++    setSwitches(true, true);
++    setenv("HST_UI_COAT", "0", 1);
++    hst::coat::ResetSwitchForTesting();
++    for (Theme::ThemeItem eItem : FRAME_KEYS)
++        CPPUNIT_ASSERT_EQUAL(DEFAULT, Theme::GetHstFrameColor(eItem, DEFAULT, style(false)));
++}
++
++/* The GTK CSS: the open deck's pill and accent bar, the dividers, and no size of any kind. */
++CPPUNIT_TEST_FIXTURE(SidebarCoatTest, testGtkCssStylesTheFrameWithoutSizes)
++{
++    for (bool bDark : { false, true })
++    {
++        const auto& p = hst::design::GetPalette(bDark);
++        const OString aCss = sidebarCss(bDark);
++        CPPUNIT_ASSERT_MESSAGE(aCss.getStr(), aCss.indexOf(".hst-sidebar-tabbar") >= 0);
++        CPPUNIT_ASSERT(aCss.indexOf(".hst-sidebar-deck-title") >= 0);
++        CPPUNIT_ASSERT(aCss.indexOf(".hst-sidebar-panel-title") >= 0);
++        CPPUNIT_ASSERT(aCss.indexOf("button:checked") >= 0);
++        CPPUNIT_ASSERT(aCss.indexOf(hex(p.aPill)) >= 0);
++        CPPUNIT_ASSERT(aCss.indexOf(hex(p.aSelectedIndicator)) >= 0);
++        CPPUNIT_ASSERT(aCss.indexOf(hex(p.aFrameDivider)) >= 0);
++        CPPUNIT_ASSERT(aCss.indexOf(hex(p.aHover)) >= 0);
++        for (const char* pMetric : { "padding", "margin", "min-height", "min-width", "border-width",
++                                     "font", "-gtk-icon", "outline-width", "spacing" })
++            CPPUNIT_ASSERT_MESSAGE(pMetric, aCss.indexOf(pMetric) < 0);
++    }
++    setSwitches(true, false);
++    CPPUNIT_ASSERT(sidebarCss(false).isEmpty());
++}
++
++/* The tab bar's frame on the VCL backends: the surface, the divider along the edge towards the deck
++   and, left of the open deck's button, the accent bar over the middle of its height; nothing over the
++   buttons themselves. Without the coat nothing is drawn. */
++CPPUNIT_TEST_FIXTURE(SidebarCoatTest, testTabBarFrameDrawsTheSelectedIndicator)
++{
++    for (bool bDark : { false, true })
++    {
++        const auto& p = hst::design::GetPalette(bDark);
++        ScopedVclPtr<VirtualDevice> pDev = VclPtr<VirtualDevice>::Create();
++        AllSettings aSettings = pDev->GetSettings();
++        aSettings.SetStyleSettings(style(bDark));
++        pDev->SetSettings(aSettings);
++        pDev->SetOutputSizePixel(Size(40, 120));
++        pDev->SetBackground(Wallpaper(MARKER));
++        pDev->Erase();
++        // a tab button 4 px in from the left, 32 px wide and high
++        const tools::Rectangle aChecked(Point(4, 40), Size(32, 32));
++        CPPUNIT_ASSERT(Theme::DrawHstTabBarFrame(*pDev, Size(40, 120), aChecked));
++        CPPUNIT_ASSERT_EQUAL(p.aFrameDivider, pDev->GetPixel(Point(0, 5)));
++        CPPUNIT_ASSERT_EQUAL(p.aFrameSurface, pDev->GetPixel(Point(20, 5)));
++        CPPUNIT_ASSERT_EQUAL(p.aFrameSurface, pDev->GetPixel(Point(20, 56))); // under the button
++        CPPUNIT_ASSERT_EQUAL(p.aSelectedIndicator, pDev->GetPixel(Point(2, 56)));
++        CPPUNIT_ASSERT(p.aSelectedIndicator != pDev->GetPixel(Point(2, 41))); // only its middle
++        CPPUNIT_ASSERT(p.aSelectedIndicator != pDev->GetPixel(Point(2, 90)));
++
++        pDev->Erase();
++        AllSettings aContrast = pDev->GetSettings();
++        aContrast.SetStyleSettings(style(bDark, true));
++        pDev->SetSettings(aContrast);
++        CPPUNIT_ASSERT(!Theme::DrawHstTabBarFrame(*pDev, Size(40, 120), aChecked));
++        CPPUNIT_ASSERT_EQUAL(MARKER, pDev->GetPixel(Point(2, 56)));
++    }
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/sfx2/source/sidebar/Theme.cxx b/sfx2/source/sidebar/Theme.cxx
+index ad73aa6..81106be 100644
+--- a/sfx2/source/sidebar/Theme.cxx
++++ b/sfx2/source/sidebar/Theme.cxx
+@@ -68,6 +68,16 @@ sal_Int32 Theme::GetInteger (const ThemeItem eItem)
+     return rTheme.maIntegers[nIndex];
+ }
+ 
++Color Theme::GetHstFrameColor(const ThemeItem, const Color& rDefault, const StyleSettings&)
++{
++    return rDefault;
++}
++
++bool Theme::DrawHstTabBarFrame(vcl::RenderContext&, const Size&, const tools::Rectangle&)
++{
++    return false;
++}
++
+ bool Theme::IsHighContrastMode()
+ {
+     const Theme& rTheme (GetCurrentTheme());
