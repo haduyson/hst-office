@@ -1,0 +1,600 @@
+HST Office: the status bar of a document window in the HST look (tests first).
+
+Tests with the declarations and stubs they need (<vcl/hst/statusbarcoat.hxx>,
+vcl/source/hst/coat/coat-statusbar.cxx); they fail with assertions until the implementation follows.
+
+--- /dev/null
++++ b/include/vcl/hst/statusbarcoat.hxx
+@@ -0,0 +1,86 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <tools/color.hxx>
++#include <tools/gen.hxx>
++#include <tools/long.hxx>
++#include <vcl/dllapi.h>
++
++#include <string_view>
++#include <vector>
++
++class Image;
++class OutputDevice;
++namespace vcl
++{
++class Font;
++class Window;
++}
++
++/* The status bar of a document window in the HST look (the StatusBar frame part of
++   <vcl/hst/framecoat.hxx>): the frame surface, text in the caption style, thin dividers instead of
++   3D separators, a hover behind the items that open something when clicked, and a zoom slider drawn
++   from the tokens. Only colours, fonts and shapes change: the bar's height, the items' widths and
++   their click areas stay exactly as without the coat. */
++namespace hst::coat
++{
++/** Whether rBar (a StatusBar) is drawn in the HST look: the bar of a document window (its parent is
++    the frame's work window, so the bars of dialogs keep the platform's look), the StatusBar part
++    switched on and not in high contrast. */
++VCL_DLLPUBLIC bool StatusBarCoatActive(const vcl::Window& rBar);
++
++/** Whether a status bar item with this command opens something on a single click, so it shows a
++    hover: the language, the selection mode and the zoom percentage. */
++VCL_DLLPUBLIC bool IsStatusBarItemClickable(std::u16string_view aCommand);
++
++/** The background, text colour and text font of the bar in the HST look, for rBar's theme. The
++    font is rBase (the bar's own font, which sizes the bar and its items) at the caption scale. */
++VCL_DLLPUBLIC Color StatusBarBackground(const vcl::Window& rBar);
++VCL_DLLPUBLIC Color StatusBarTextColor(const vcl::Window& rBar);
++VCL_DLLPUBLIC vcl::Font StatusBarFont(const vcl::Font& rBase);
++
++/* The shapes below are drawn on rDev (the bar itself, or the off-screen device its items are drawn
++   on; pixel map mode) in the colours of rBar's theme and at rBar's DPI scale. */
++
++/** The line along the bar's top edge, nWidth pixels long, between the document and the bar. */
++VCL_DLLPUBLIC void DrawStatusBarTopLine(OutputDevice& rDev, const vcl::Window& rBar,
++                                        tools::Long nWidth);
++
++/** The divider between two items: a thin vertical line from rTop to rBottom (the 3D separator's
++    place), inset at both ends. */
++VCL_DLLPUBLIC void DrawStatusBarDivider(OutputDevice& rDev, const vcl::Window& rBar,
++                                        const Point& rTop, const Point& rBottom);
++
++/** The hover of a clickable item, a rounded row filling rRect. */
++VCL_DLLPUBLIC void DrawStatusBarHover(OutputDevice& rDev, const vcl::Window& rBar,
++                                      const tools::Rectangle& rRect);
++
++/** Where the parts of the zoom slider lie, as SvxZoomSliderControl lays them out: offsets are pixels
++    from aArea's left edge. */
++struct ZoomSliderLayout
++{
++    tools::Rectangle aArea; ///< the item's drawing area
++    tools::Long nWidth = 0; ///< the item's width, from which the offsets and the right button are laid out
++    tools::Long nHeight = 0; ///< the item's height, the parts are centred in it
++    tools::Long nEdge = 0; ///< the track starts and ends this far from the area's sides
++    tools::Long nThumb = 0; ///< the thumb's centre: the current zoom
++    tools::Long nCentre = 0; ///< the 100 % mark (the slider's centre zoom)
++    std::vector<tools::Long> aSnaps; ///< the snapping points
++};
++
++/** The zoom slider's track, its marks (the 100 % mark stronger than the snapping points) and its
++    thumb, as vector shapes from the tokens; then the decrease and increase buttons centred in the
++    track's end zones, where the control takes their clicks. The buttons are the icon theme's images
++    (their look follows the icon set). */
++VCL_DLLPUBLIC void DrawZoomSlider(OutputDevice& rDev, const vcl::Window& rBar,
++                                  const ZoomSliderLayout& rLayout, const Image& rDecrease,
++                                  const Image& rIncrease);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/CppunitTest_vcl_hst_statusbar_coat.mk
+@@ -0,0 +1,57 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++# This file is part of HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,vcl_hst_statusbar_coat))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,vcl_hst_statusbar_coat, \
++    vcl/qa/cppunit/hst/statusbar-coat-test \
++))
++
++$(eval $(call gb_CppunitTest_add_defs,vcl_hst_statusbar_coat,\
++    -DVCL_INTERNALS \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,vcl_hst_statusbar_coat,\
++    boost_headers \
++))
++
++$(eval $(call gb_CppunitTest_set_include,vcl_hst_statusbar_coat,\
++    $$(INCLUDE) \
++    -I$(SRCDIR)/vcl/inc \
++))
++
++$(eval $(call gb_CppunitTest_use_custom_headers,vcl_hst_statusbar_coat,\
++    officecfg/registry \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,vcl_hst_statusbar_coat, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    sal \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,vcl_hst_statusbar_coat))
++
++$(eval $(call gb_CppunitTest_use_ure,vcl_hst_statusbar_coat))
++$(eval $(call gb_CppunitTest_use_vcl,vcl_hst_statusbar_coat))
++
++$(eval $(call gb_CppunitTest_use_components,vcl_hst_statusbar_coat,\
++    configmgr/source/configmgr \
++    i18npool/util/i18npool \
++    ucb/source/core/ucb1 \
++    unotools/util/utl \
++))
++
++$(eval $(call gb_CppunitTest_use_configuration,vcl_hst_statusbar_coat))
++
++# vim: set noet sw=4 ts=4:
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -385,6 +385,7 @@ $(eval $(call gb_Library_add_exception_objects,vcl,\
+     vcl/source/hst/coat/coat-gtk-css \
+     vcl/source/hst/coat/coat-shapes \
+     vcl/source/hst/coat/coat-spacing \
++    vcl/source/hst/coat/coat-statusbar \
+     vcl/source/hst/coat/coat-tabs-scrollbars \
+     vcl/source/hst/coat/css/backstage \
+     vcl/source/hst/coat/css/doctabs \
+--- a/vcl/Module_vcl.mk
++++ b/vcl/Module_vcl.mk
+@@ -238,6 +238,7 @@ $(eval $(call gb_Module_add_check_targets,vcl,\
+     CppunitTest_vcl_fontmetric \
+     CppunitTest_vcl_fontvariation \
+     CppunitTest_vcl_hst_coat \
++    CppunitTest_vcl_hst_statusbar_coat \
+     CppunitTest_vcl_text \
+     CppunitTest_vcl_textlayout \
+     CppunitTest_vcl_treeview \
+--- /dev/null
++++ b/vcl/qa/cppunit/hst/statusbar-coat-test.cxx
+@@ -0,0 +1,380 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include <test/bootstrapfixture.hxx>
++
++#include <comphelper/configuration.hxx>
++#include <officecfg/Office/HSTAppearance.hxx>
++#include <tools/link.hxx>
++#include <vcl/bitmap.hxx>
++#include <vcl/event.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/statusbarcoat.hxx>
++#include <vcl/image.hxx>
++#include <vcl/scheduler.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/status.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/vclevent.hxx>
++#include <vcl/virdev.hxx>
++#include <vcl/wrkwin.hxx>
++
++#include <hst/coat.hxx>
++
++#include <cmath>
++#include <cstdlib>
++#include <utility>
++#include <vector>
++
++namespace
++{
++namespace design = hst::design;
++
++constexpr Color DARK_WINDOW(0x20, 0x20, 0x20);
++constexpr tools::Long BAR_WIDTH = 400;
++
++// the items of the test bar: a page count, the zoom percentage (clickable) and the language
++// (clickable); each STATUSBAR_OFFSET (5 px) apart, the first at x 5
++constexpr sal_uInt16 ITEM_PAGE = 1;
++constexpr sal_uInt16 ITEM_ZOOM = 2;
++constexpr sal_uInt16 ITEM_LANGUAGE = 3;
++
++/** Counts the items a status bar draws (VclEventId::StatusbarDrawItem): one per item repainted. */
++class DrawCounter
++{
++public:
++    explicit DrawCounter(vcl::Window& rBar)
++        : mrBar(rBar)
++    {
++        rBar.AddEventListener(LINK(this, DrawCounter, Listener));
++    }
++    ~DrawCounter() { mrBar.RemoveEventListener(LINK(this, DrawCounter, Listener)); }
++    int Count() const { return mnCount; }
++
++private:
++    DECL_LINK(Listener, VclWindowEvent&, void);
++    vcl::Window& mrBar;
++    int mnCount = 0;
++};
++
++IMPL_LINK(DrawCounter, Listener, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::StatusbarDrawItem)
++        ++mnCount;
++}
++
++/* The status bar of a document window (a StatusBar whose parent is a work window) in the HST look,
++   painted on the headless backend and probed pixel by pixel. */
++class StatusBarCoatTest : public test::BootstrapFixture
++{
++public:
++    StatusBarCoatTest()
++        : test::BootstrapFixture(true, false)
++    {
++    }
++
++    void setUp() override
++    {
++        test::BootstrapFixture::setUp();
++        unsetenv("HST_UI_COAT");
++        setSwitches(true, true);
++    }
++
++    void tearDown() override
++    {
++        for (auto& xDevice : maDevices)
++            xDevice.disposeAndClear();
++        maDevices.clear();
++        // children before their parents
++        for (auto it = maWindows.rbegin(); it != maWindows.rend(); ++it)
++            it->disposeAndClear();
++        maWindows.clear();
++        unsetenv("HST_UI_COAT"); // a test that set it may have stopped at a failed assertion
++        setSwitches(true, true);
++        test::BootstrapFixture::tearDown();
++    }
++
++protected:
++    static void setSwitches(bool bCoat, bool bStatusBar)
++    {
++        auto xChanges = comphelper::ConfigurationChanges::create();
++        officecfg::Office::HSTAppearance::UiCoat::Enabled::set(bCoat, xChanges);
++        officecfg::Office::HSTAppearance::FrameCoat::StatusBar::set(bStatusBar, xChanges);
++        xChanges->commit();
++        hst::coat::ResetSwitchForTesting();
++        hst::coat::ResetFrameCoatForTesting();
++    }
++
++    static void setTheme(vcl::Window& rWindow, bool bDark, bool bHighContrast)
++    {
++        AllSettings aSettings = rWindow.GetSettings();
++        StyleSettings aStyle = aSettings.GetStyleSettings();
++        if (bDark)
++            aStyle.SetWindowColor(DARK_WINDOW);
++        aStyle.SetHighContrastMode(bHighContrast);
++        aSettings.SetStyleSettings(aStyle);
++        rWindow.SetSettings(aSettings);
++    }
++
++    /** A shown status bar with three items, under a work window (a document window's frame) or, with
++        bDocument false, under a plain child window (a dialog's bar). */
++    StatusBar& makeBar(bool bDocument = true, bool bDark = false, bool bHighContrast = false)
++    {
++        VclPtr<WorkWindow> xFrame = VclPtr<WorkWindow>::Create(nullptr, WB_STDWORK);
++        xFrame->SetSizePixel(Size(BAR_WIDTH + 40, 200));
++        maWindows.emplace_back(xFrame.get());
++        vcl::Window* pParent = xFrame.get();
++        if (!bDocument)
++        {
++            VclPtr<vcl::Window> xChild = VclPtr<vcl::Window>::Create(xFrame.get());
++            xChild->SetPosSizePixel(Point(), Size(BAR_WIDTH + 20, 150));
++            xChild->Show();
++            maWindows.emplace_back(xChild.get());
++            pParent = xChild.get();
++        }
++        VclPtr<StatusBar> xBar = VclPtr<StatusBar>::Create(pParent, WB_LEFT | WB_3DLOOK);
++        maWindows.emplace_back(xBar.get());
++        setTheme(*xBar, bDark, bHighContrast);
++        xBar->InsertItem(ITEM_PAGE, 80, StatusBarItemBits::Left | StatusBarItemBits::In);
++        xBar->SetItemCommand(ITEM_PAGE, u".uno:StatePageNumber"_ustr);
++        xBar->InsertItem(ITEM_ZOOM, 60);
++        xBar->SetItemCommand(ITEM_ZOOM, u".uno:Zoom"_ustr);
++        xBar->InsertItem(ITEM_LANGUAGE, 80);
++        xBar->SetItemCommand(ITEM_LANGUAGE, u".uno:LanguageStatus"_ustr);
++        xBar->SetPosSizePixel(Point(), Size(BAR_WIDTH, xBar->CalcWindowSizePixel().Height()));
++        xFrame->Show();
++        xBar->Show();
++        xBar->SetItemText(ITEM_PAGE, u"Trang 1 / 1"_ustr);
++        xBar->SetItemText(ITEM_ZOOM, u"100%"_ustr);
++        xBar->SetItemText(ITEM_LANGUAGE, u"Tiếng Việt"_ustr);
++        return *xBar;
++    }
++
++    /** The bar painted on a device of its own size. */
++    const VirtualDevice& shot(StatusBar& rBar)
++    {
++        VclPtr<VirtualDevice> xDev = VclPtr<VirtualDevice>::Create();
++        xDev->SetOutputSizePixel(rBar.GetOutputSizePixel());
++        rBar.PaintToDevice(*xDev, Point());
++        maDevices.push_back(xDev);
++        return *xDev;
++    }
++
++    static Color pixel(const VirtualDevice& rShot, tools::Long nX, tools::Long nY)
++    {
++        return rShot.GetPixel(Point(nX, nY));
++    }
++
++    static void hover(StatusBar& rBar, const Point& rPos, bool bLeave = false)
++    {
++        rBar.MouseMove(
++            MouseEvent(rPos, 0, bLeave ? MouseEventModifiers::LEAVEWINDOW : MouseEventModifiers::NONE));
++    }
++
++    static const design::Palette& light() { return design::GetPalette(false); }
++
++    std::vector<VclPtr<vcl::Window>> maWindows;
++    std::vector<VclPtr<VirtualDevice>> maDevices;
++};
++
++CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testDocumentBarTakesTheFrameColours)
++{
++    for (bool bDark : { false, true })
++    {
++        StatusBar& rBar = makeBar(true, bDark);
++        const design::Palette& rPalette = design::GetPalette(bDark);
++        CPPUNIT_ASSERT(hst::coat::StatusBarCoatActive(rBar));
++        CPPUNIT_ASSERT_EQUAL(rPalette.aText, rBar.GetTextColor());
++
++        const VirtualDevice& aShot = shot(rBar);
++        const tools::Long nMid = rBar.GetOutputSizePixel().Height() / 2;
++        // the surface beside and inside the items, the divider along the top edge
++        CPPUNIT_ASSERT_EQUAL(rPalette.aFrameSurface, pixel(aShot, BAR_WIDTH - 20, nMid));
++        CPPUNIT_ASSERT_EQUAL(rPalette.aFrameSurface, pixel(aShot, 7, nMid));
++        CPPUNIT_ASSERT_EQUAL(rPalette.aFrameDivider, pixel(aShot, BAR_WIDTH - 20, 0));
++        CPPUNIT_ASSERT_EQUAL(rPalette.aFrameSurface, pixel(aShot, BAR_WIDTH - 20, 1));
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testItemsTextIsCaptionSized)
++{
++    StatusBar& rBar = makeBar();
++    // the caption style for the text, the bar's own font (which sizes the bar) unchanged
++    const vcl::Font aBase = rBar.GetFont();
++    const vcl::Font aCaption = hst::coat::StatusBarFont(aBase);
++    CPPUNIT_ASSERT_EQUAL(
++        std::lround(aBase.GetFontSize().Height() * design::type::Caption.fScale),
++        aCaption.GetFontSize().Height());
++    CPPUNIT_ASSERT_EQUAL(design::type::Caption.eWeight, aCaption.GetWeight());
++}
++
++CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testDividersAreThinLinesNot3D)
++{
++    StatusBar& rBar = makeBar();
++    const VirtualDevice& aShot = shot(rBar);
++    const tools::Long nMid = rBar.GetOutputSizePixel().Height() / 2;
++    // the divider before the zoom item: 4 px left of the item, one pixel wide, no light line beside
++    const tools::Long nX = rBar.GetItemRect(ITEM_ZOOM).Left() - 1 - 4;
++    CPPUNIT_ASSERT_EQUAL(light().aFrameDivider, pixel(aShot, nX, nMid));
++    CPPUNIT_ASSERT_EQUAL(light().aFrameSurface, pixel(aShot, nX - 1, nMid));
++    CPPUNIT_ASSERT_EQUAL(light().aFrameSurface, pixel(aShot, nX + 1, nMid));
++    // inset from the item's top
++    CPPUNIT_ASSERT_EQUAL(light().aFrameSurface, pixel(aShot, nX, 3));
++}
++
++CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testHoverOnClickableItemsOnly)
++{
++    StatusBar& rBar = makeBar();
++    const tools::Rectangle aZoom = rBar.GetItemRect(ITEM_ZOOM);
++    const tools::Rectangle aPage = rBar.GetItemRect(ITEM_PAGE);
++    const tools::Long nMid = rBar.GetOutputSizePixel().Height() / 2;
++    // left of the centred "100%" and of the left-aligned page text: no glyph there
++    const Point aInZoom(aZoom.Left() + 3, nMid);
++    const Point aInPage(aPage.Right() - 3, nMid);
++
++    hover(rBar, aZoom.Center());
++    const VirtualDevice* pShot = &shot(rBar);
++    CPPUNIT_ASSERT_EQUAL(light().aHover, pixel(*pShot, aInZoom.X(), aInZoom.Y()));
++    // rounded: the hover's corner pixel is not filled
++    CPPUNIT_ASSERT(light().aHover != pixel(*pShot, aZoom.Left() + 1, aZoom.Top() + 1));
++
++    // the page count does not open anything on a click: no hover, and the zoom item's is gone
++    hover(rBar, aPage.Center());
++    pShot = &shot(rBar);
++    CPPUNIT_ASSERT_EQUAL(light().aFrameSurface, pixel(*pShot, aInPage.X(), aInPage.Y()));
++    CPPUNIT_ASSERT_EQUAL(light().aFrameSurface, pixel(*pShot, aInZoom.X(), aInZoom.Y()));
++
++    hover(rBar, aZoom.Center());
++    hover(rBar, aZoom.Center(), true); // the mouse leaves the bar
++    pShot = &shot(rBar);
++    CPPUNIT_ASSERT_EQUAL(light().aFrameSurface, pixel(*pShot, aInZoom.X(), aInZoom.Y()));
++
++    CPPUNIT_ASSERT(hst::coat::IsStatusBarItemClickable(u".uno:LanguageStatus"));
++    CPPUNIT_ASSERT(hst::coat::IsStatusBarItemClickable(u".uno:SelectionMode"));
++    CPPUNIT_ASSERT(hst::coat::IsStatusBarItemClickable(u".uno:StatusSelectionMode"));
++    CPPUNIT_ASSERT(hst::coat::IsStatusBarItemClickable(u".uno:Zoom"));
++    CPPUNIT_ASSERT(!hst::coat::IsStatusBarItemClickable(u".uno:ZoomSlider"));
++    CPPUNIT_ASSERT(!hst::coat::IsStatusBarItemClickable(u".uno:StateWordCount"));
++}
++
++CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testHeightAndClickAreasUnchanged)
++{
++    StatusBar& rCoat = makeBar();
++    CPPUNIT_ASSERT(hst::coat::StatusBarCoatActive(rCoat));
++    setenv("HST_UI_COAT", "0", 1);
++    hst::coat::ResetSwitchForTesting();
++    StatusBar& rPlain = makeBar();
++    CPPUNIT_ASSERT(!hst::coat::StatusBarCoatActive(rPlain));
++
++    CPPUNIT_ASSERT_EQUAL(rPlain.CalcWindowSizePixel().Height(), rCoat.CalcWindowSizePixel().Height());
++    for (sal_uInt16 nId : { ITEM_PAGE, ITEM_ZOOM, ITEM_LANGUAGE })
++        CPPUNIT_ASSERT_EQUAL(rPlain.GetItemRect(nId), rCoat.GetItemRect(nId));
++}
++
++CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testPlatformLookWhereTheCoatIsOff)
++{
++    // high contrast
++    StatusBar& rContrast = makeBar(true, false, true);
++    CPPUNIT_ASSERT(!hst::coat::StatusBarCoatActive(rContrast));
++    CPPUNIT_ASSERT_EQUAL(rContrast.GetSettings().GetStyleSettings().GetFaceColor(),
++                         rContrast.GetBackground().GetColor());
++
++    // a bar that is not a document window's (a dialog's)
++    StatusBar& rDialogBar = makeBar(false);
++    CPPUNIT_ASSERT(!hst::coat::StatusBarCoatActive(rDialogBar));
++    const VirtualDevice& aShot = shot(rDialogBar);
++    CPPUNIT_ASSERT(light().aFrameDivider != pixel(aShot, BAR_WIDTH - 20, 0));
++
++    // the part's own switch
++    setSwitches(true, false);
++    StatusBar& rSwitchedOff = makeBar();
++    CPPUNIT_ASSERT(!hst::coat::StatusBarCoatActive(rSwitchedOff));
++    CPPUNIT_ASSERT(light().aFrameSurface != rSwitchedOff.GetBackground().GetColor());
++}
++
++CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testZoomSliderFromTokens)
++{
++    // SvxZoomSliderControl's layout of a 130 px item (min 20 %, 100 % in the middle, max 600 %):
++    // 50 % lies at 36 px, 100 % at 65 px, 200 % at 74 px
++    StatusBar& rBar = makeBar();
++    const design::Palette& rPalette = light();
++    constexpr tools::Long WIDTH = 130, HEIGHT = 20, MID = HEIGHT / 2;
++    // the buttons' images: 8 px squares of a marker colour
++    constexpr Color MARKER(0xFF, 0x00, 0xFF);
++    Bitmap aSquare(Size(8, 8), vcl::PixelFormat::N24_BPP);
++    aSquare.Erase(MARKER);
++    const Image aButton(aSquare);
++
++    for (auto [nThumb, bOnCentre] : { std::pair(36, false), std::pair(65, true), std::pair(74, false) })
++    {
++        ScopedVclPtrInstance<VirtualDevice> pDev;
++        pDev->SetOutputSizePixel(Size(WIDTH, HEIGHT));
++        pDev->SetBackground(Wallpaper(rPalette.aFrameSurface));
++        pDev->Erase();
++        hst::coat::ZoomSliderLayout aLayout{ tools::Rectangle(Point(), Size(WIDTH, HEIGHT)),
++                                             WIDTH, HEIGHT, 20, nThumb, 65, { 36, 65, 100 } };
++        hst::coat::DrawZoomSlider(*pDev, rBar, aLayout, aButton, aButton);
++        const VirtualDevice& aShot = *pDev;
++
++        // the thumb: an accent disc centred on the zoom
++        tools::Long nLeft = -1, nRight = -1;
++        for (tools::Long nX = 0; nX < WIDTH; ++nX)
++            if (pixel(aShot, nX, MID) == rPalette.aAccent)
++            {
++                if (nLeft < 0)
++                    nLeft = nX;
++                nRight = nX;
++            }
++        CPPUNIT_ASSERT_MESSAGE("no thumb", nLeft >= 0);
++        CPPUNIT_ASSERT_LESSEQUAL(tools::Long(1), std::abs((nLeft + nRight + 1) / 2 - nThumb));
++        CPPUNIT_ASSERT_GREATEREQUAL(tools::Long(8), nRight - nLeft + 1);
++
++        // the track: the divider's outline around the scroll-track groove, away from the thumb
++        const tools::Long nTrackX = nThumb < 90 ? 105 : 30;
++        CPPUNIT_ASSERT_EQUAL(rPalette.aFrameDivider, pixel(aShot, nTrackX, MID - 2));
++        CPPUNIT_ASSERT_EQUAL(rPalette.aScrollTrack, pixel(aShot, nTrackX, MID));
++
++        // the 100 % mark reaches further than a snapping point and is in the text colour
++        if (!bOnCentre)
++            CPPUNIT_ASSERT_EQUAL(rPalette.aText, pixel(aShot, 65, MID - 5));
++        CPPUNIT_ASSERT_EQUAL(rPalette.aFrameDivider, pixel(aShot, 100, MID - 3));
++        CPPUNIT_ASSERT_EQUAL(rPalette.aFrameSurface, pixel(aShot, 100, MID - 5));
++
++        // the buttons where the control takes their clicks: (20 - 8) / 2 = 6 px in from each side
++        CPPUNIT_ASSERT_EQUAL(MARKER, pixel(aShot, 6, 6));
++        CPPUNIT_ASSERT_EQUAL(MARKER, pixel(aShot, 13, 13));
++        CPPUNIT_ASSERT_EQUAL(MARKER, pixel(aShot, WIDTH - 14, 6));
++        CPPUNIT_ASSERT_EQUAL(rPalette.aFrameSurface, pixel(aShot, 5, 6));
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(StatusBarCoatTest, testTypingRepaintsNoMoreItems)
++{
++    // the word count changing on every key: the coat repaints exactly the items the platform look does
++    auto countUpdates = [this](bool bCoat) {
++        if (!bCoat)
++            setenv("HST_UI_COAT", "0", 1);
++        hst::coat::ResetSwitchForTesting();
++        StatusBar& rBar = makeBar();
++        CPPUNIT_ASSERT_EQUAL(bCoat, hst::coat::StatusBarCoatActive(rBar));
++        DrawCounter aCounter(rBar);
++        for (int i = 1; i <= 1000; ++i)
++            rBar.SetItemText(ITEM_PAGE, OUString::number(i) + u" từ");
++        Scheduler::ProcessEventsToIdle();
++        unsetenv("HST_UI_COAT");
++        return aCounter.Count();
++    };
++    const int nPlain = countUpdates(false);
++    const int nCoat = countUpdates(true);
++    CPPUNIT_ASSERT_GREATER(0, nPlain);
++    CPPUNIT_ASSERT_EQUAL(nPlain, nCoat);
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/hst/coat/coat-statusbar.cxx
+@@ -0,0 +1,40 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* The status bar of a document window in the HST look (<vcl/hst/statusbarcoat.hxx>): stubs until the
++   implementation follows. */
++
++#include <vcl/hst/statusbarcoat.hxx>
++
++#include <vcl/font.hxx>
++#include <vcl/window.hxx>
++
++namespace hst::coat
++{
++bool StatusBarCoatActive(const vcl::Window&) { return false; }
++
++bool IsStatusBarItemClickable(std::u16string_view) { return false; }
++
++Color StatusBarBackground(const vcl::Window&) { return COL_TRANSPARENT; }
++
++Color StatusBarTextColor(const vcl::Window&) { return COL_TRANSPARENT; }
++
++vcl::Font StatusBarFont(const vcl::Font& rBase) { return rBase; }
++
++void DrawStatusBarTopLine(OutputDevice&, const vcl::Window&, tools::Long) {}
++
++void DrawStatusBarDivider(OutputDevice&, const vcl::Window&, const Point&, const Point&) {}
++
++void DrawStatusBarHover(OutputDevice&, const vcl::Window&, const tools::Rectangle&) {}
++
++void DrawZoomSlider(OutputDevice&, const vcl::Window&, const ZoomSliderLayout&, const Image&,
++                    const Image&)
++{
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
