@@ -9,6 +9,7 @@ Trang tĩnh HTML/CSS/JS, không cần bước build. `index.html` là trang chí
 - Sửa đích chuyển hướng trong [.htaccess](.htaccess) (tệp trong `tai/<phiên bản>/`), giữ nguyên các URL `/tai/*`.
 - Cả bốn link `/tai/windows`, `/tai/macos-arm`, `/tai/macos-intel`, `/tai/linux` và `/tai/sha256` đang được bật, phục vụ từ `tai/<phiên bản>/` trên site.
 - Khi đổi trạng thái phát hành, cập nhật cả HTML dự phòng trong [index.html](index.html) để trang vẫn đúng khi tắt JavaScript.
+- Hero chỉ có **một** dòng điểm mới (`#hero-release-note`): `nhãn · phiên bản [Mới] điểm nổi bật — Xem điểm mới`, một liên kết duy nhất tới `/diem-moi/#v<phiên bản>`. Khi ra bản mới chỉ sửa `href`, phần điểm nổi bật (`.release-highlight`) và bản dự phòng `data-release-tag`; không thêm đoạn thông báo thứ hai.
 - `.htaccess` cần Apache/LiteSpeed hỗ trợ rewrite. Máy chủ tĩnh thông thường chỉ xem được giao diện, không xử lý các chuyển hướng này.
 
 ## Hướng dẫn cài đặt (/cai-dat/)
