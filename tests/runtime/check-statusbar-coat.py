@@ -16,10 +16,12 @@ HighContrast in the profile's GTK settings).
   characters (the word count repaints on each) takes no longer than --slack times as long.
 The pointer is moved and clicked with xdotool on the test display (real X events on this run's own Xvfb); keys are
 posted through the office's toolkit (XToolkitRobot). Shots of the bar go to --out. Only the office started here is
-stopped. Exit 0 when every check passes.
+stopped. Exit 0 when every check passes. Run it through tests/runtime/no-hst-telemetry.sh; it refuses to
+start the office when system.hasontech.vn is reachable.
 """
 import argparse
 import os
+import socket
 import subprocess
 import sys
 import time
@@ -303,6 +305,16 @@ class Look:
             print(f"{self.name}: {self.args.chars} characters typed in {self.result['typing']:.2f} s", flush=True)
 
 
+def telemetry_blocked():
+    """True when system.hasontech.vn resolves only to 0.0.0.0 / :: (run under tests/runtime/no-hst-telemetry.sh):
+    the unreleased office started here must not report banner impressions or statistics as a real user."""
+    try:
+        addresses = {info[4][0] for info in socket.getaddrinfo("system.hasontech.vn", 443)}
+    except socket.gaierror:
+        return True  # does not resolve at all: unreachable
+    return addresses <= {"0.0.0.0", "::"}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--instdir", required=True)
@@ -314,6 +326,8 @@ def main():
     parser.add_argument("--slack", type=float, default=1.10, help="allowed ratio of the typing times, coat / plain")
     parser.add_argument("--look", action="append", choices=list(LOOKS), default=[])
     args = parser.parse_args()
+    if not telemetry_blocked():
+        sys.exit("check-statusbar-coat: run it through tests/runtime/no-hst-telemetry.sh (the stats server is reachable)")
     import hst_gui
     os.environ["HST_VCLPLUGIN"] = "gtk3"
     hst_gui.setup_uno(args.instdir)
