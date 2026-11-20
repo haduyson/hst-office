@@ -1,7 +1,7 @@
 HST Office: in Writer, Backspace with a whole table selected (Ctrl+A twice in a cell, or a cell
 selection covering every cell) deletes the table, as in Word; before it only cleared the cells
 and deleting a table needed Table > Delete > Table. The table goes through the same core call as
-that command (one undo step, same change tracking, cursor after the table or else before it).
+that command (one undo step, same change tracking, the cursor in the paragraph after the table).
 Delete still clears the cells; partial selections, read-only or protected cells, DDE tables and
 tables already deleted in tracked changes keep the old Backspace. With nested tables the table
 the selected cells belong to is deleted. Logic in sw/source/uibase/hst/selectedtabledelete.cxx;
@@ -153,7 +153,7 @@ the hook is the .uno:SwBackspace slot in sw/source/uibase/shells/basesh.cxx.
 +</office:document>
 --- a/sw/qa/uibase/hst/selectedtabledelete.cxx
 +++ b/sw/qa/uibase/hst/selectedtabledelete.cxx
-@@ -0,0 +1,296 @@
+@@ -0,0 +1,299 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -396,9 +396,12 @@ the hook is the .uno:SwBackspace slot in sw/source/uibase/shells/basesh.cxx.
 +
 +    pressKey(KEY_BACKSPACE);
 +
-+    // No paragraph after the table: the cursor goes to the one before it.
++    // A Writer body never ends with a table: the document's last, empty paragraph follows it (as
++    // Word's final paragraph mark does). The cursor goes there; the text before stays.
 +    CPPUNIT_ASSERT_EQUAL(sal_Int32(0), tableCount());
-+    CPPUNIT_ASSERT_EQUAL(u"before"_ustr, cursorParagraphText());
++    CPPUNIT_ASSERT_EQUAL(OUString(), cursorParagraphText());
++    CPPUNIT_ASSERT_EQUAL(2, getParagraphs());
++    CPPUNIT_ASSERT_EQUAL(u"before"_ustr, getParagraph(1)->getString());
 +
 +    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
 +    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), tableCount());
