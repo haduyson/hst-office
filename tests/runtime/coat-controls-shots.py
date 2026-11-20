@@ -35,6 +35,7 @@ WINDOWS = hst_frame_shots.WINDOWS
 CASES = {
     "navigator": ("deck", ".uno:SidebarDeck.NavigatorDeck", "sidebar"),  # a long tree
     "styles": ("deck", ".uno:SidebarDeck.StyleListDeck", "sidebar"),  # a list
+    "styles-hover": ("deck-hover", ".uno:SidebarDeck.StyleListDeck", "sidebar"),  # a list row under the mouse
     "progress": ("progress", None, "statusbar"),  # the status bar's progress bar, as while saving a large file
     "tooltip": ("tooltip", None, None),  # a status bar item's tooltip
     "compress-image": ("dialog", ".uno:CompressGraphic", None),  # sliders and group frames
@@ -142,6 +143,19 @@ class Shots:
             office.dispatch(frame, command)
             time.sleep(3)
             self.shoot(win, name, look, part, office, doc)
+        elif kind == "deck-hover":
+            office.dispatch(frame, command)
+            time.sleep(3)
+            found = hst_frame_shots.find_parts(frame.getContainerWindow(), [part])
+            if part not in found:
+                self.note(f"{name} {'-'.join(look)}: no {part} to hover")
+                return
+            x, y, w, h = found[part]
+            self.move_mouse(x + w // 4, y + h // 2)  # over a row in the middle of the deck's list
+            time.sleep(1.5)
+            self.shoot(win, name, look, part, office, doc)
+            self.move_mouse(x + w // 4, y - 200)
+            time.sleep(1)
         elif kind == "progress":
             indicator = frame.createStatusIndicator()
             indicator.start("Đang lưu tệp lớn…", 100)
