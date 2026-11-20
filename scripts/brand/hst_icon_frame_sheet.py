@@ -94,13 +94,15 @@ def shipped(name, theme):
 
 def shipped_native(name, theme):
     """{variant: SVG text} of a native-size frame glyph (native/<name>[@150|@250].svg) in `theme`:
-    harmonised colours and the theme's ink, geometry as drawn (VCL draws these images at their own size).
-    Keys: "100", "150", "250"."""
+    harmonised colours and the theme's ink, geometry as drawn (VCL draws these images at their own size),
+    strokes painted as filled outlines like every shipped HST icon (VCL's renderer moves a stroke on a
+    half-pixel centre line by half a pixel, which would blur it). Keys: "100", "150", "250"."""
     dark, ink = THEMES[theme], modern.ink()["dark" if THEMES[theme] else "light"]
     files = {}
     for percent, suffix in (("100", ""), ("150", "@150"), ("250", "@250")):
         text = (STAGE / "native" / f"{name}{suffix}.svg").read_text(encoding="utf-8")
-        files[percent] = modern.harmonise(text, dark).replace("currentColor", ink)
+        files[percent] = snap_svg(modern.harmonise(text, dark), 0, native=True,
+                                  box=native_size(text)).replace("currentColor", ink)
     return files
 
 

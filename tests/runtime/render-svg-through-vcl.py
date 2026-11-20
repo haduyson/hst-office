@@ -55,9 +55,13 @@ def main():
         for key, job in sorted(jobs.items()):
             svg, pixels, tall = job["svg"].encode("utf-8"), job["pixels"], job.get("height", job["pixels"])
             width, height, rows = raster.rasterise(office.ctx, svg, pixels / natural_width(job["svg"]), key, argb=True)
-            if (width, height) != (pixels, tall):
+            if width != pixels or abs(height - tall) > 1:
                 errors.append(f"{key}: {width}x{height}, expected {pixels}x{tall}")
                 continue
+            # a non-square image scaled by its width may round its height one pixel the other way:
+            # crop the extra bottom row or pad a transparent one so every raster has the asked size
+            rows = [list(row) for row in rows[:tall]]
+            rows += [[(0.0, 0.0, 0.0, 0.0)] * width for _ in range(tall - len(rows))]
             result[key] = [[list(p) for p in row] for row in rows]
     finally:
         office.stop()
