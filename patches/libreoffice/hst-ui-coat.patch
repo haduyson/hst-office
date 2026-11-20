@@ -16,7 +16,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
   meets the straight edge), and every filled shape is moved back by the half pixel Skia and GDI+ add to
   polygons with curves. A field's corner keeps to its border pixel where the platform paints the field's inner
   window opaquely (no HasBackgroundTexture, as on Windows). GTK linked groups (a combo box's entry and button)
-  meet with square corners again.
+  meet with square corners again, and a tab page's background keeps inside its frame's rounded corners.
 - Off in high-contrast mode, and when org.openoffice.Office.HSTAppearance/UiCoat/Enabled is false or
   HST_UI_COAT=0 (read once at start-up).
 - CppunitTest_vcl_hst_coat probes the pixels of every covered control and state on a VirtualDevice, and checks
@@ -225,7 +225,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/qa/cppunit/hst/coat-test.cxx
 +++ b/vcl/qa/cppunit/hst/coat-test.cxx
-@@ -0,0 +1,674 @@
+@@ -0,0 +1,677 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -887,6 +887,9 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    for (const char* pMetric : { "padding", "margin", "min-height", "min-width", "border-width",
 +                                 "font" })
 +        CPPUNIT_ASSERT_MESSAGE(pMetric, aLight.indexOf(pMetric) < 0);
++    // a tab page's background keeps inside the frame's rounded corners
++    CPPUNIT_ASSERT(aLight.indexOf("notebook.frame > stack:not(:only-child) { border-radius: 7px; }")
++                   >= 0);
 +    // the members of a linked group (a combo box's entry and button) meet with square corners
 +    CPPUNIT_ASSERT(aLight.indexOf(".linked:not(.vertical) > *:not(:first-child) { "
 +                                  "border-top-left-radius: 0; border-bottom-left-radius: 0; }")
@@ -1176,7 +1179,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/source/hst/coat/coat-gtk-css.cxx
 +++ b/vcl/source/hst/coat/coat-gtk-css.cxx
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,140 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1278,6 +1281,11 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +                + u"; }\n"
 +                  u"notebook.frame { border-color: "
 +                + hex(p.aControlBorder) + u"; border-radius: " + px(d::radius::Control)
++                + u"; }\n"
++                  // the page's own background is clipped to the frame's inner corners, or its square
++                  // corners cover the frame's rounded ones
++                  u"notebook.frame > stack:not(:only-child) { border-radius: "
++                + px(d::radius::Control - d::stroke::Border)
 +                + u"; }\n"
 +                  u"notebook > header { background-color: transparent; border-color: "
 +                + hex(p.aControlBorder) + u"; }\n"
