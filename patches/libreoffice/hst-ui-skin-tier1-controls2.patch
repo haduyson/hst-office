@@ -23,7 +23,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
     field's soft corners, in VCL's border width;
   - DecorationView::DrawSeparator: a separator control (FixedLine: a group's heading line) draws one thin line
     instead of the two-colour 3D line.
-- GTK 3 (welded dialogs): the same tokens as CSS for tree views and lists, scales, progress bars, frames and
+- GTK 3 (welded dialogs): the same tokens as CSS for tree views and lists (hover tint, selection), scales, progress bars, frames and
   separators, menu items (highlight, marks, arrow, shortcut) and tooltips: colours and corner radii only.
 - The logic is in vcl/source/hst/coat/{coat-lists,coat-ranges,coat-menus,coat-groups-tooltips,
   coat-gtk-css-lists-menus}.cxx; shared shapes (check glyph, mark box, contrast ratio, selection colours) in
@@ -32,6 +32,9 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
   choice, the slider's groove, value and thumb states, the progress, the menu's surface, highlight, separator,
   marks and arrow, the tooltip, the claims (only while drawing), the scrolled window's border, the separator
   control only, everything off in high contrast and when switched off, and the GTK CSS.
+- GTK 3 buttons: a theme's primary action (suggested-action, e.g. the print panel's Print button) is the accent
+  button with its ink; the coat's light button fill had covered the theme's coloured fill and left its light text
+  unreadable.
 
 --- /dev/null
 +++ b/vcl/CppunitTest_vcl_hst_coat_controls2.mk
@@ -195,7 +198,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/coat-controls2-test.cxx
-@@ -0,0 +1,455 @@
+@@ -0,0 +1,463 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -632,7 +635,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +         { "treeview.view:selected", "treeview.view.expander", "scale trough", "scale highlight",
 +           "scale slider", "progressbar trough", "progressbar progress", "frame > border",
 +           ":not(paned) > separator", "menu menuitem:hover", "menu menuitem accelerator",
-+           "tooltip" })
++           "tooltip", "treeview.view:hover", "list row:hover" })
 +        CPPUNIT_ASSERT_MESSAGE(pSelector, aLight.indexOf(pSelector) >= 0);
 +    auto hex = [](const Color& rColor) { return OString("#" + rColor.AsRGBHexString().toUtf8()); };
 +    // the selected row: the accent and its ink in light, the selected-item tint and text in dark
@@ -643,6 +646,14 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +        >= 0);
 +    CPPUNIT_ASSERT(
 +        aDark.indexOf(OString(aRule + hex(dark().aPill) + "; color: " + hex(dark().aText))) >= 0);
++    // the hover comes before the selection, which outranks it
++    CPPUNIT_ASSERT(aLight.indexOf("treeview.view:hover") < aLight.indexOf("treeview.view:selected"));
++    // a theme's primary action keeps readable text: the accent fill with its ink
++    CPPUNIT_ASSERT(aLight.indexOf(OString("button.suggested-action { background-color: "
++                                          + hex(light().aAccent) + "; border-color: "
++                                          + hex(light().aAccent) + "; color: "
++                                          + hex(light().aOnAccent)))
++                   >= 0);
 +    // a shortcut reads in its own colour
 +    CPPUNIT_ASSERT(aLight.indexOf(hex(light().aMenuShortcut)) >= 0);
 +}
@@ -864,7 +875,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-gtk-css-lists-menus.cxx
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,122 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -899,7 +910,12 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +    namespace d = hst::design;
 +    const RowSelection aSelection = RowSelectionColours(p);
 +    OUStringBuffer aCss(2048);
-+    // lists and trees: the selected row in the HST selection colours, the expander muted
++    // lists and trees: a tint under the mouse (rounded where GTK can: list rows), the selected row
++    // in the HST selection colours (after the hover, which it outranks), the expander muted
++    aCss.append(u"treeview.view:hover { background-color: " + hex(p.aHover)
++                + u"; }\n"
++                  u"list row:hover { background-color: "
++                + hex(p.aHover) + u"; border-radius: " + px(d::radius::Row) + u"; }\n");
 +    aCss.append(u"treeview.view:selected, treeview.view:selected:focus, list row:selected { "
 +                u"background-color: "
 +                + hex(aSelection.aFill) + u"; color: " + hex(aSelection.aText)
@@ -992,7 +1008,37 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  #include <vcl/hst/framecoat.hxx>
  #include "css/css-fragments.hxx"
  
-@@ -154,6 +155,8 @@ OString CreateGtkCss(bool bDark)
+@@ -71,6 +72,29 @@ OString CreateGtkCss(bool bDark)
+                   u"button:focus { border-color: "
+                 + hex(p.aAccent) + u"; box-shadow: inset 0 0 0 " + aBorder + u" "
+                 + hex(p.aAccent) + u"; }\n");
++    // A theme's primary action (suggested-action) has light text on its own coloured fill: the coat's
++    // light fill above outranks that fill (higher provider priority), so the text would vanish. It is
++    // the accent button with its ink; a destructive action keeps the coat's fill with the text colour.
++    aCss.append(u"button.suggested-action { background-color: " + hex(p.aAccent)
++                + u"; border-color: " + hex(p.aAccent) + u"; color: " + hex(p.aOnAccent)
++                + u"; }\n"
++                  u"button.suggested-action:hover { background-color: "
++                + hex(p.aAccentHover) + u"; border-color: " + hex(p.aAccentHover)
++                + u"; }\n"
++                  u"button.suggested-action:active, button.suggested-action:checked { "
++                  u"background-color: "
++                + hex(p.aAccentPressed) + u"; border-color: " + hex(p.aAccentPressed)
++                + u"; }\n"
++                  u"button.suggested-action label, button.suggested-action image { color: "
++                + hex(p.aOnAccent)
++                + u"; }\n"
++                  u"button.suggested-action:disabled, button.suggested-action:disabled label { "
++                  u"background-color: "
++                + hex(p.aDisabledFill) + u"; border-color: " + hex(p.aDisabledBorder)
++                + u"; color: " + hex(p.aDisabledText)
++                + u"; }\n"
++                  u"button.destructive-action, button.destructive-action label { color: "
++                + hex(p.aText) + u"; }\n");
+     // flat buttons (toolbars, the buttons inside entries) keep no frame until hovered
+     aCss.append(u"button.flat { background-color: transparent; border-color: transparent; }\n"
+                 u"button.flat:hover { background-color: "
+@@ -154,6 +178,8 @@ OString CreateGtkCss(bool bDark)
                  + u"; }\n"
                    u"scrollbar slider:active { background-color: "
                  + hex(p.aScrollThumbPressed) + u"; }\n");
