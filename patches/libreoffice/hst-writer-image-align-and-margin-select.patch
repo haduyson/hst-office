@@ -1,0 +1,495 @@
+HST Office: Writer aligns a selected picture like a word processor, and the left page margin
+selects lines.
+
+- With a picture or embedded object selected, Left / Center / Right (Home tab, Ctrl+L/E/R,
+  sidebar, picture context menu, Picture tab) are enabled and show their state. An object
+  anchored as character aligns its paragraph; any other anchor centres or aligns the object
+  on the text area of its anchor. One undo step (sw/source/uibase/hst/imagealign.cxx).
+- In the left margin beside plain body text the pointer is a right-pointing arrow; a click
+  selects the line, a double click the paragraph, a drag whole lines. Tables, footnotes,
+  headers/footers, objects and the comment sidebar keep their own handling; the hit test is
+  a few rectangle checks on the visible pages (sw/source/uibase/hst/marginlineselect.cxx).
+
+--- a/sw/CppunitTest_sw_uibase_docvw.mk
++++ b/sw/CppunitTest_sw_uibase_docvw.mk
+@@ -16,6 +16,8 @@
+ $(eval $(call gb_CppunitTest_add_exception_objects,sw_uibase_docvw, \
+     sw/qa/uibase/docvw/docvw \
+     sw/qa/uibase/hst/largedocwarning \
++    sw/qa/uibase/hst/imagealign \
++    sw/qa/uibase/hst/marginlineselect \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,sw_uibase_docvw, \
+--- a/sw/qa/uibase/hst/imagealign.cxx
++++ b/sw/qa/uibase/hst/imagealign.cxx
+@@ -0,0 +1,232 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <com/sun/star/awt/Size.hpp>
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/graphic/XGraphic.hpp>
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/style/ParagraphAdjust.hpp>
++#include <com/sun/star/text/ControlCharacter.hpp>
++#include <com/sun/star/text/HoriOrientation.hpp>
++#include <com/sun/star/text/TextContentAnchorType.hpp>
++#include <com/sun/star/text/XText.hpp>
++#include <com/sun/star/text/XTextContent.hpp>
++#include <com/sun/star/text/XTextCursor.hpp>
++#include <com/sun/star/text/XTextDocument.hpp>
++
++#include <editeng/editids.hrc>
++#include <sfx2/dispatch.hxx>
++#include <sfx2/viewfrm.hxx>
++#include <svl/eitem.hxx>
++#include <svl/itemset.hxx>
++#include <svx/svxids.hrc>
++#include <vcl/bitmap.hxx>
++#include <vcl/graph.hxx>
++#include <vcl/scheduler.hxx>
++
++#include <IDocumentUndoRedo.hxx>
++#include <doc.hxx>
++#include <docsh.hxx>
++#include <flyfrm.hxx>
++#include <frameformats.hxx>
++#include <pagefrm.hxx>
++#include <rootfrm.hxx>
++#include <view.hxx>
++#include <wrtsh.hxx>
++
++namespace
++{
++/// Left / Center / Right on a selected picture: its paragraph when it is inline, its horizontal
++/// position when it floats.
++class HstImageAlignTest : public SwModelTestBase
++{
++public:
++    HstImageAlignTest()
++        : SwModelTestBase(u"/sw/qa/uibase/hst/"_ustr)
++    {
++    }
++
++protected:
++    /// Paragraphs "Before", the picture (2 cm square) and "After"; the picture anchored as given.
++    void createDocWithPicture(text::TextContentAnchorType eAnchor)
++    {
++        createSwDoc();
++        uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<text::XText> xText = xTextDocument->getText();
++        uno::Reference<text::XTextCursor> xCursor = xText->createTextCursor();
++        xCursor->gotoEnd(false);
++        xText->insertString(xCursor, u"Before"_ustr, false);
++        xText->insertControlCharacter(xCursor, text::ControlCharacter::PARAGRAPH_BREAK, false);
++
++        Bitmap aBitmap(Size(16, 16), vcl::PixelFormat::N24_BPP);
++        aBitmap.Erase(COL_LIGHTRED);
++        uno::Reference<beans::XPropertySet> xPicture(
++            xFactory->createInstance(u"com.sun.star.text.TextGraphicObject"_ustr),
++            uno::UNO_QUERY_THROW);
++        xPicture->setPropertyValue(u"Graphic"_ustr, uno::Any(Graphic(aBitmap).GetXGraphic()));
++        xPicture->setPropertyValue(u"AnchorType"_ustr, uno::Any(eAnchor));
++        xPicture->setPropertyValue(u"Size"_ustr, uno::Any(awt::Size(2000, 2000)));
++        uno::Reference<text::XTextContent> xContent(xPicture, uno::UNO_QUERY_THROW);
++        xText->insertTextContent(xCursor, xContent, false);
++
++        xText->insertControlCharacter(xCursor, text::ControlCharacter::PARAGRAPH_BREAK, false);
++        xText->insertString(xCursor, u"After"_ustr, false);
++    }
++
++    void selectFirstObject()
++    {
++        selectShape(1);
++        Scheduler::ProcessEventsToIdle(); // the frame shells come with the selection
++        CPPUNIT_ASSERT(getSwDocShell()->GetWrtShell()->IsFrameSelected());
++    }
++
++    /// The state of nSlot for the current selection; rChecked is its checkmark.
++    SfxItemState queryState(sal_uInt16 nSlot, bool& rChecked)
++    {
++        SfxPoolItemHolder aResult;
++        SfxDispatcher* pDispatcher = getSwDocShell()->GetView()->GetViewFrame().GetDispatcher();
++        const SfxItemState eState = pDispatcher->QueryState(nSlot, aResult);
++        const auto* pBool = dynamic_cast<const SfxBoolItem*>(aResult.getItem());
++        rChecked = pBool && pBool->GetValue();
++        return eState;
++    }
++
++    sal_Int16 paraAdjust(int nParagraph)
++    {
++        return getProperty<sal_Int16>(getParagraph(nParagraph), u"ParaAdjust"_ustr);
++    }
++
++    size_t undoCount() { return getSwDoc()->GetIDocumentUndoRedo().GetUndoActionCount(); }
++};
++
++constexpr sal_Int16 ADJUST_LEFT = sal_Int16(style::ParagraphAdjust_LEFT);
++constexpr sal_Int16 ADJUST_CENTER = sal_Int16(style::ParagraphAdjust_CENTER);
++constexpr sal_Int16 ADJUST_RIGHT = sal_Int16(style::ParagraphAdjust_RIGHT);
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageAlignTest, testInlinePictureCenterAlignsItsParagraph)
++{
++    createDocWithPicture(text::TextContentAnchorType_AS_CHARACTER);
++    selectFirstObject();
++
++    // Center is offered for the selected picture, not checked yet:
++    bool bChecked = true;
++    CPPUNIT_ASSERT(queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked) >= SfxItemState::DEFAULT);
++    CPPUNIT_ASSERT(!bChecked);
++
++    const size_t nUndo = undoCount();
++    dispatchCommand(mxComponent, u".uno:CenterPara"_ustr, {});
++
++    // The picture's paragraph is centred, the others are not, and the picture stays selected:
++    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(1));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_CENTER, paraAdjust(2));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(3));
++    CPPUNIT_ASSERT(getSwDocShell()->GetWrtShell()->IsFrameSelected());
++    queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked);
++    CPPUNIT_ASSERT(bChecked);
++
++    // One undo step brings it back:
++    CPPUNIT_ASSERT_EQUAL(nUndo + 1, undoCount());
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(2));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageAlignTest, testInlinePictureRightAndContextMenuCommands)
++{
++    createDocWithPicture(text::TextContentAnchorType_AS_CHARACTER);
++    selectFirstObject();
++
++    // Ctrl+R / Home tab:
++    dispatchCommand(mxComponent, u".uno:RightPara"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(ADJUST_RIGHT, paraAdjust(2));
++
++    // Picture context menu / Picture tab:
++    bool bChecked = false;
++    CPPUNIT_ASSERT(queryState(SID_OBJECT_ALIGN_CENTER, bChecked) >= SfxItemState::DEFAULT);
++    dispatchCommand(mxComponent, u".uno:AlignCenter"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(ADJUST_CENTER, paraAdjust(2));
++    dispatchCommand(mxComponent, u".uno:ObjectAlignLeft"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(2));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageAlignTest, testFloatingPictureCenterOnTextArea)
++{
++    createDocWithPicture(text::TextContentAnchorType_AT_PARAGRAPH);
++    selectFirstObject();
++
++    bool bChecked = true;
++    CPPUNIT_ASSERT(queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked) >= SfxItemState::DEFAULT);
++    CPPUNIT_ASSERT(!bChecked);
++
++    const size_t nUndo = undoCount();
++    dispatchCommand(mxComponent, u".uno:CenterPara"_ustr, {});
++
++    // The picture is centred on the text area; no paragraph changes:
++    uno::Reference<beans::XPropertySet> xPicture(getShape(1), uno::UNO_QUERY_THROW);
++    CPPUNIT_ASSERT_EQUAL(text::HoriOrientation::CENTER,
++                         getProperty<sal_Int16>(xPicture, u"HoriOrient"_ustr));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(2));
++    queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked);
++    CPPUNIT_ASSERT(bChecked);
++
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    const SwPageFrame* pPage = static_cast<const SwPageFrame*>(pWrtShell->GetLayout()->Lower());
++    const SwRect& rBody = pPage->FindBodyCont()->getFrameArea();
++    auto pFormat = dynamic_cast<SwFlyFrameFormat*>((*getSwDoc()->GetSpzFrameFormats())[0]);
++    CPPUNIT_ASSERT(pFormat);
++    const SwFlyFrame* pFly = pFormat->GetFrame();
++    CPPUNIT_ASSERT(pFly);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(double(rBody.Center().X()),
++                                 double(pFly->getFrameArea().Center().X()), 2.0);
++
++    // One undo step:
++    CPPUNIT_ASSERT_EQUAL(nUndo + 1, undoCount());
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT(text::HoriOrientation::CENTER
++                   != getProperty<sal_Int16>(xPicture, u"HoriOrient"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageAlignTest, testCentredInlinePictureSurvivesDocx)
++{
++    createDocWithPicture(text::TextContentAnchorType_AS_CHARACTER);
++    selectFirstObject();
++    dispatchCommand(mxComponent, u".uno:CenterPara"_ustr, {});
++    saveAndReload(TestFilter::DOCX);
++    CPPUNIT_ASSERT_EQUAL(ADJUST_CENTER, paraAdjust(2));
++    CPPUNIT_ASSERT_EQUAL(text::TextContentAnchorType_AS_CHARACTER,
++                         getProperty<text::TextContentAnchorType>(getShape(1), u"AnchorType"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageAlignTest, testCentredFloatingPictureSurvivesDocx)
++{
++    createDocWithPicture(text::TextContentAnchorType_AT_PARAGRAPH);
++    selectFirstObject();
++    dispatchCommand(mxComponent, u".uno:CenterPara"_ustr, {});
++    saveAndReload(TestFilter::DOCX);
++    CPPUNIT_ASSERT_EQUAL(text::HoriOrientation::CENTER,
++                         getProperty<sal_Int16>(getShape(1), u"HoriOrient"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageAlignTest, testTextFrameKeepsParagraphCommandsDisabled)
++{
++    createSwDoc();
++    uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XText> xText = xTextDocument->getText();
++    uno::Reference<text::XTextContent> xFrame(
++        xFactory->createInstance(u"com.sun.star.text.TextFrame"_ustr), uno::UNO_QUERY_THROW);
++    xText->insertTextContent(xText->getEnd(), xFrame, false);
++    selectFirstObject();
++
++    bool bChecked = false;
++    CPPUNIT_ASSERT(SfxItemState::DISABLED == queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked));
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/qa/uibase/hst/marginlineselect.cxx
++++ b/sw/qa/uibase/hst/marginlineselect.cxx
+@@ -0,0 +1,234 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <com/sun/star/awt/Size.hpp>
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/graphic/XGraphic.hpp>
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/style/ParagraphAdjust.hpp>
++#include <com/sun/star/text/TextContentAnchorType.hpp>
++#include <com/sun/star/text/XText.hpp>
++#include <com/sun/star/text/XTextContent.hpp>
++#include <com/sun/star/text/XTextDocument.hpp>
++
++#include <vcl/bitmap.hxx>
++#include <vcl/event.hxx>
++#include <vcl/graph.hxx>
++#include <vcl/ptrstyle.hxx>
++#include <vcl/scheduler.hxx>
++
++#include <docsh.hxx>
++#include <edtwin.hxx>
++#include <itabenum.hxx>
++#include <ndtxt.hxx>
++#include <pagefrm.hxx>
++#include <rootfrm.hxx>
++#include <view.hxx>
++#include <wrtsh.hxx>
++
++namespace
++{
++/// Clicking in the left page margin selects the line beside it, as in common word processors.
++class HstMarginLineSelectTest : public SwModelTestBase
++{
++public:
++    HstMarginLineSelectTest()
++        : SwModelTestBase(u"/sw/qa/uibase/hst/"_ustr)
++    {
++    }
++
++protected:
++    SwWrtShell& shell() { return *getSwDocShell()->GetWrtShell(); }
++    vcl::Window& editWin() { return getSwDocShell()->GetView()->GetEditWin(); }
++
++    /// "First", a paragraph long enough for several lines, "Last".
++    void createDocWithLongParagraph()
++    {
++        createSwDoc();
++        SwWrtShell& rSh = shell();
++        rSh.Insert(u"First"_ustr);
++        rSh.SplitNode();
++        OUStringBuffer aLong;
++        for (int i = 0; i < 40; ++i)
++            aLong.append("Lorem ipsum dolor sit amet. ");
++        rSh.Insert(aLong.makeStringAndClear());
++        rSh.SplitNode();
++        rSh.Insert(u"Last"_ustr);
++        calcLayout();
++    }
++
++    const SwRect& bodyArea()
++    {
++        const SwPageFrame* pPage = static_cast<const SwPageFrame*>(shell().GetLayout()->Lower());
++        return pPage->FindBodyCont()->getFrameArea();
++    }
++
++    /// Halfway between the page edge and the body text, at height nY.
++    Point marginPoint(tools::Long nY)
++    {
++        const SwPageFrame* pPage = static_cast<const SwPageFrame*>(shell().GetLayout()->Lower());
++        return Point((pPage->getFrameArea().Left() + bodyArea().Left()) / 2, nY);
++    }
++
++    /// The middle height of the line the cursor is on after going nDown lines down from the start.
++    tools::Long lineMiddle(sal_uInt16 nDown)
++    {
++        shell().SttEndDoc(/*bStt=*/true);
++        if (nDown)
++            shell().Down(/*bSelect=*/false, nDown);
++        return shell().GetCharRect().Center().Y();
++    }
++
++    MouseEvent mouseEvent(const Point& rDocPt, sal_uInt16 nClicks, sal_uInt16 nButtons)
++    {
++        return MouseEvent(editWin().LogicToPixel(rDocPt), nClicks,
++                          nClicks ? MouseEventModifiers::SIMPLECLICK
++                                  : MouseEventModifiers::SIMPLEMOVE,
++                          nButtons, 0);
++    }
++
++    void click(const Point& rDocPt, sal_uInt16 nClicks = 1)
++    {
++        editWin().MouseButtonDown(mouseEvent(rDocPt, nClicks, MOUSE_LEFT));
++        editWin().MouseButtonUp(mouseEvent(rDocPt, nClicks, MOUSE_LEFT));
++        Scheduler::ProcessEventsToIdle();
++    }
++
++    sal_Int32 startOffset() { return shell().GetCursor()->Start()->GetContentIndex(); }
++    sal_Int32 endOffset() { return shell().GetCursor()->End()->GetContentIndex(); }
++    SwNodeOffset startNode() { return shell().GetCursor()->Start()->GetNodeIndex(); }
++    SwNodeOffset endNode() { return shell().GetCursor()->End()->GetNodeIndex(); }
++};
++}
++
++CPPUNIT_TEST_FIXTURE(HstMarginLineSelectTest, testPointerIsArrowInLeftMargin)
++{
++    createDocWithLongParagraph();
++    const tools::Long nY = lineMiddle(0);
++
++    editWin().MouseMove(mouseEvent(marginPoint(nY), 0, 0));
++    CPPUNIT_ASSERT(editWin().GetPointer() == PointerStyle::TabSelectE);
++
++    // Over the text it is the text pointer again:
++    editWin().MouseMove(mouseEvent(Point(bodyArea().Left() + 100, nY), 0, 0));
++    CPPUNIT_ASSERT(editWin().GetPointer() != PointerStyle::TabSelectE);
++}
++
++CPPUNIT_TEST_FIXTURE(HstMarginLineSelectTest, testClickSelectsOneLine)
++{
++    createDocWithLongParagraph();
++    // The second line of the long paragraph, from the text itself:
++    const tools::Long nY = lineMiddle(2);
++    shell().SwCursorShell::SetCursor(Point(bodyArea().Left() + 1, nY));
++    const sal_Int32 nLineStart = shell().GetCursor()->GetPoint()->GetContentIndex();
++    shell().RightMargin(/*bSelect=*/false, /*bBasicCall=*/false);
++    const sal_Int32 nLineEnd = shell().GetCursor()->GetPoint()->GetContentIndex();
++    const SwNodeOffset nPara = shell().GetCursor()->GetPoint()->GetNodeIndex();
++    CPPUNIT_ASSERT(nLineStart > 0);
++    CPPUNIT_ASSERT(nLineEnd > nLineStart);
++
++    click(marginPoint(nY));
++
++    CPPUNIT_ASSERT(shell().HasSelection());
++    CPPUNIT_ASSERT_EQUAL(nPara, startNode());
++    CPPUNIT_ASSERT_EQUAL(nPara, endNode());
++    CPPUNIT_ASSERT_EQUAL(nLineStart, startOffset());
++    CPPUNIT_ASSERT_EQUAL(nLineEnd, endOffset());
++}
++
++CPPUNIT_TEST_FIXTURE(HstMarginLineSelectTest, testDoubleClickSelectsParagraph)
++{
++    createDocWithLongParagraph();
++    const tools::Long nY = lineMiddle(2);
++    const Point aPt = marginPoint(nY);
++
++    click(aPt, 1);
++    click(aPt, 2);
++
++    CPPUNIT_ASSERT(shell().HasSelection());
++    CPPUNIT_ASSERT_EQUAL(startNode(), endNode());
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(0), startOffset());
++    const SwTextNode* pNode = shell().GetCursor()->Start()->GetNode().GetTextNode();
++    CPPUNIT_ASSERT(pNode);
++    CPPUNIT_ASSERT_EQUAL(pNode->Len(), endOffset());
++}
++
++CPPUNIT_TEST_FIXTURE(HstMarginLineSelectTest, testDragSelectsWholeLines)
++{
++    createDocWithLongParagraph();
++    const tools::Long nFirst = lineMiddle(0);
++    shell().SttEndDoc(/*bStt=*/false);
++    const tools::Long nLast = shell().GetCharRect().Center().Y();
++    const SwNodeOffset nLastPara = shell().GetCursor()->GetPoint()->GetNodeIndex();
++
++    // Press beside the last line, drag up to the first one, release:
++    editWin().MouseButtonDown(mouseEvent(marginPoint(nLast), 1, MOUSE_LEFT));
++    editWin().MouseMove(mouseEvent(marginPoint(nFirst), 0, MOUSE_LEFT));
++    editWin().MouseButtonUp(mouseEvent(marginPoint(nFirst), 1, MOUSE_LEFT));
++    Scheduler::ProcessEventsToIdle();
++
++    // Everything from the start of the first line to the end of the last one:
++    CPPUNIT_ASSERT(shell().HasSelection());
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(0), startOffset());
++    CPPUNIT_ASSERT_EQUAL(nLastPara, endNode());
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(4), endOffset()); // "Last"
++    CPPUNIT_ASSERT(startNode() < endNode());
++}
++
++CPPUNIT_TEST_FIXTURE(HstMarginLineSelectTest, testMarginClickThenCenterCentresInlinePicture)
++{
++    // "Text", then a paragraph with only an inline picture:
++    createSwDoc();
++    shell().Insert(u"Text"_ustr);
++    shell().SplitNode();
++    uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XText> xText = xTextDocument->getText();
++    Bitmap aBitmap(Size(16, 16), vcl::PixelFormat::N24_BPP);
++    aBitmap.Erase(COL_LIGHTBLUE);
++    uno::Reference<beans::XPropertySet> xPicture(
++        xFactory->createInstance(u"com.sun.star.text.TextGraphicObject"_ustr),
++        uno::UNO_QUERY_THROW);
++    xPicture->setPropertyValue(u"Graphic"_ustr, uno::Any(Graphic(aBitmap).GetXGraphic()));
++    xPicture->setPropertyValue(u"AnchorType"_ustr,
++                               uno::Any(text::TextContentAnchorType_AS_CHARACTER));
++    xPicture->setPropertyValue(u"Size"_ustr, uno::Any(awt::Size(3000, 3000)));
++    uno::Reference<text::XTextContent> xContent(xPicture, uno::UNO_QUERY_THROW);
++    xText->insertTextContent(xText->getEnd(), xContent, false);
++    calcLayout();
++
++    // Click beside the picture's line, then Center:
++    click(marginPoint(lineMiddle(1)));
++    CPPUNIT_ASSERT(shell().HasSelection());
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(0), startOffset());
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), endOffset()); // the picture's anchor character
++    dispatchCommand(mxComponent, u".uno:CenterPara"_ustr, {});
++
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(style::ParagraphAdjust_CENTER),
++                         getProperty<sal_Int16>(getParagraph(2), u"ParaAdjust"_ustr));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(style::ParagraphAdjust_LEFT),
++                         getProperty<sal_Int16>(getParagraph(1), u"ParaAdjust"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstMarginLineSelectTest, testTableLinesKeepTheirOwnClick)
++{
++    // A table: its rows have their own selection at the table edge, the margin does nothing new.
++    createSwDoc();
++    SwInsertTableOptions aOptions(SwInsertTableFlags::DefaultBorder, 0);
++    shell().InsertTable(aOptions, /*nRows=*/2, /*nCols=*/2);
++    calcLayout();
++    const tools::Long nY = lineMiddle(0);
++
++    editWin().MouseMove(mouseEvent(marginPoint(nY), 0, 0));
++    CPPUNIT_ASSERT(editWin().GetPointer() != PointerStyle::TabSelectE);
++    click(marginPoint(nY));
++    CPPUNIT_ASSERT(!shell().HasSelection());
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
