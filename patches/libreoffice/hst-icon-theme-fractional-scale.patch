@@ -6,8 +6,15 @@ Reason: VCL rasterises an SVG icon at its icon scale, which CountDPIScaleFactor 
 blurred. The HST archives now ship every icon also snapped natively for those scales, as
 "<name>@150.svg" / "<name>@250.svg" drawn at the final pixel size
 (scripts/brand/hst_icon_glyph.py). ImplImageTree::findImage loads that variant at 1.0 when it
-exists for the current scale, else the 100 % file as before; themes without variants (Colibre and
-the other upstream sets) are unchanged. The disk and memory caches already key rasters by scale.
+exists for the current scale, else the 100 % file as before. The disk and memory caches already
+key rasters by scale.
+
+Colibre, the fallback of the HST themes, has no such variants, so at 150 % its 16 px command icons
+(menus, toolbars) were rasterised at 1.5x and blurred (median fringe share 0.271 through VCL against
+0.163 at 100 %, tests/runtime/measure-hst-menu-icon-sharpness.py). 16 px x 1.5 is the 24 px of the
+same command's large icon, which Colibre draws natively: at 150 % a small command icon without a
+variant is now loaded from "cmd/lc_<name>.svg" at 1.0 (median fringe 0.120 over the 767 menu
+commands that have one), so menus keep LibreOffice's own icons at their right size.
 
 Applies after hst-icon-theme-hidpi-and-cache.patch.
 Test: make CppunitTest_vcl_app_test (test_HstIconTheme).
@@ -15,7 +22,7 @@ License: upstream files remain MPL-2.0.
 ---
 --- a/vcl/inc/HstIconTheme.hxx
 +++ b/vcl/inc/HstIconTheme.hxx
-@@ -78,6 +78,18 @@
+@@ -78,6 +78,34 @@
      return OUString();
  }
  
@@ -29,6 +36,22 @@ License: upstream files remain MPL-2.0.
 +        return OUString();
 +    return OUString::Concat(rPath.substr(0, rPath.size() - 4)) + "@"
 +           + OUString::number(nScalePercentage) + ".svg";
++}
++
++/// Colibre, the fallback of the HST themes, has no pixel-snapped variants: at 150 % VCL would rasterise
++/// its 16 px command icon at 1.5x and blur every line. 16 px x 1.5 is exactly the 24 px of the same
++/// command's large icon, which Colibre draws natively, so at 150 % a small command icon without a
++/// variant is taken from "cmd/[<lang>/]lc_<name>.svg" at 1.0 instead (the menus' LibreOffice icons
++/// at their right size). Returns that path for rPath at nScalePercentage, or empty when none applies.
++inline OUString largeIconAtFractionalScale(std::u16string_view rPath, sal_Int32 nScalePercentage)
++{
++    if (nScalePercentage != 150 || !o3tl::starts_with(rPath, u"cmd/") || !o3tl::ends_with(rPath, u".svg"))
++        return OUString();
++    const size_t nSlash = rPath.rfind('/');
++    const std::u16string_view aFile = rPath.substr(nSlash + 1);
++    if (!o3tl::starts_with(aFile, u"sc_") || o3tl::ends_with(aFile, u"@150.svg"))
++        return OUString();
++    return OUString::Concat(rPath.substr(0, nSlash + 1)) + "lc_" + aFile.substr(3);
 +}
 +
  /// Name of the stamp file inside each "<UserInstallation>/cache/<theme>" directory.
@@ -51,7 +74,7 @@ License: upstream files remain MPL-2.0.
  
      if (rPath.endsWith(".png"))
      {
-@@ -600,6 +602,17 @@
+@@ -600,6 +602,28 @@
  
      for (OUString const & rPath : rPaths)
      {
@@ -66,26 +89,39 @@ License: upstream files remain MPL-2.0.
 +                return true;
 +            }
 +        }
++        // HST Office: a 16 px icon without a variant comes from the theme's native 24 px icon at 150 %
++        const OUString aLarge = vcl::hst::largeIconAtFractionalScale(rPath, rParameters.scalePercentage());
++        if (!aLarge.isEmpty() && rNameAccess->hasByName(aLarge))
++        {
++            uno::Reference<io::XInputStream> aStream;
++            if (rNameAccess->getByName(aLarge) >>= aStream)
++            {
++                loadImageFromStream(wrapStream(aStream), aLarge, rParameters, true);
++                return true;
++            }
++        }
          if (rNameAccess->hasByName(rPath))
          {
              uno::Reference<io::XInputStream> aStream;
 --- a/vcl/qa/cppunit/app/test_HstIconTheme.cxx
 +++ b/vcl/qa/cppunit/app/test_HstIconTheme.cxx
-@@ -67,11 +67,13 @@
+@@ -67,11 +67,15 @@
      void SvgOnlyThemesScaleAtTheSurface();
      void FallbacksStayOnSvgColibre();
      void CacheOfAnotherVersionIsPurged();
 +    void FractionalScalesUsePixelSnappedVariants();
++    void SmallIconsAtOneAndAHalfUseTheNativeLargeIcon();
  
      CPPUNIT_TEST_SUITE(HstIconThemeTest);
      CPPUNIT_TEST(SvgOnlyThemesScaleAtTheSurface);
      CPPUNIT_TEST(FallbacksStayOnSvgColibre);
      CPPUNIT_TEST(CacheOfAnotherVersionIsPurged);
 +    CPPUNIT_TEST(FractionalScalesUsePixelSnappedVariants);
++    CPPUNIT_TEST(SmallIconsAtOneAndAHalfUseTheNativeLargeIcon);
      CPPUNIT_TEST_SUITE_END();
  };
  
-@@ -157,6 +159,17 @@
+@@ -157,6 +161,32 @@
      CPPUNIT_ASSERT(!exists(aRoot));
  }
  
@@ -98,6 +134,21 @@ License: upstream files remain MPL-2.0.
 +    CPPUNIT_ASSERT(vcl::hst::scaledVariant(u"cmd/lc_bold.svg", 100).isEmpty());
 +    CPPUNIT_ASSERT(vcl::hst::scaledVariant(u"cmd/lc_bold.svg", 200).isEmpty());
 +    CPPUNIT_ASSERT(vcl::hst::scaledVariant(u"cmd/lc_bold.png", 150).isEmpty());
++}
++
++void HstIconThemeTest::SmallIconsAtOneAndAHalfUseTheNativeLargeIcon()
++{
++    // 16 px x 1.5 = the 24 px large icon, drawn natively by Colibre
++    CPPUNIT_ASSERT_EQUAL(u"cmd/lc_cut.svg"_ustr, vcl::hst::largeIconAtFractionalScale(u"cmd/sc_cut.svg", 150));
++    CPPUNIT_ASSERT_EQUAL(u"cmd/vi/lc_bold.svg"_ustr,
++                         vcl::hst::largeIconAtFractionalScale(u"cmd/vi/sc_bold.svg", 150));
++    // other scales, large icons, non-command images, PNG themes and variants are left alone
++    CPPUNIT_ASSERT(vcl::hst::largeIconAtFractionalScale(u"cmd/sc_cut.svg", 100).isEmpty());
++    CPPUNIT_ASSERT(vcl::hst::largeIconAtFractionalScale(u"cmd/sc_cut.svg", 250).isEmpty());
++    CPPUNIT_ASSERT(vcl::hst::largeIconAtFractionalScale(u"cmd/lc_cut.svg", 150).isEmpty());
++    CPPUNIT_ASSERT(vcl::hst::largeIconAtFractionalScale(u"svx/res/sc_x.svg", 150).isEmpty());
++    CPPUNIT_ASSERT(vcl::hst::largeIconAtFractionalScale(u"cmd/sc_cut.png", 150).isEmpty());
++    CPPUNIT_ASSERT(vcl::hst::largeIconAtFractionalScale(u"hst/cmd/sc_cut.svg", 150).isEmpty());
 +}
 +
  CPPUNIT_TEST_SUITE_REGISTRATION(HstIconThemeTest);
