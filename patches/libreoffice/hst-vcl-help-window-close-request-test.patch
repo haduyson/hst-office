@@ -24,7 +24,7 @@ Test: CppunitTest_vcl_lifecycle.
  	comphelper \
 --- /dev/null
 +++ b/vcl/qa/cppunit/HstHelpWindowClose.cxx
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,67 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; fill-column: 100 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -56,12 +56,13 @@ Test: CppunitTest_vcl_lifecycle.
 +    }
 +};
 +
-+VclPtr<vcl::Window> findQuickHelpWindow()
++// The tooltip's system frame belongs to its border window; the help text window is its client.
++VclPtr<vcl::Window> findQuickHelpFrame()
 +{
 +    for (vcl::Window* pWin = Application::GetFirstTopLevelWindow(); pWin;
 +         pWin = Application::GetNextTopLevelWindow(pWin))
 +    {
-+        if (pWin->GetType() == WindowType::HELPTEXTWINDOW)
++        if (!pWin->isDisposed() && pWin->ImplGetWindow()->GetType() == WindowType::HELPTEXTWINDOW)
 +            return pWin;
 +    }
 +    return nullptr;
@@ -77,7 +78,7 @@ Test: CppunitTest_vcl_lifecycle.
 +
 +    Help::ShowQuickHelp(xParent.get(), tools::Rectangle(Point(20, 20), Size(80, 20)),
 +                        u"Tooltip"_ustr, QuickHelpFlags::NoAutoPos);
-+    VclPtr<vcl::Window> xTip = findQuickHelpWindow();
++    VclPtr<vcl::Window> xTip = findQuickHelpFrame();
 +    CPPUNIT_ASSERT_MESSAGE("quick help window was not created", xTip);
 +    SalFrame* pFrame = xTip->ImplGetFrame();
 +    CPPUNIT_ASSERT(pFrame);
@@ -87,7 +88,7 @@ Test: CppunitTest_vcl_lifecycle.
 +
 +    CPPUNIT_ASSERT_MESSAGE("the tooltip is ended by the close request", xTip->isDisposed());
 +    CPPUNIT_ASSERT_MESSAGE("the window under the tooltip stays", !xParent->isDisposed());
-+    CPPUNIT_ASSERT(!findQuickHelpWindow());
++    CPPUNIT_ASSERT(!findQuickHelpFrame());
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab cinoptions=b1,g0,N-s cinkeys+=0=break: */
