@@ -107,7 +107,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
  $(eval $(call gb_Module_add_subsequentcheck_targets,sfx2,\
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hstbackstagecoat.cxx
-@@ -0,0 +1,255 @@
+@@ -0,0 +1,269 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of HST Office, based on LibreOffice.
@@ -136,6 +136,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
 +#include <vcl/virdev.hxx>
 +
 +#include <cmath>
++#include <cstdlib>
 +#include <regex>
 +#include <string>
 +#include <vector>
@@ -202,6 +203,18 @@ LicenseRef-HST-Proprietary like the coat's other files.
 +
 +class BackstageCoatTest : public test::BootstrapFixture
 +{
++public:
++    // no UCB: the sources are read through osl
++    BackstageCoatTest()
++        : test::BootstrapFixture(true, false)
++    {
++    }
++
++    void setUp() override
++    {
++        test::BootstrapFixture::setUp();
++        unsetenv("HST_UI_COAT"); // the coat's shipped default (on), whatever the environment says
++    }
 +};
 +
 +/* In the coat every colour of the panel is a token: the side panel, the pills, the text, the cards
@@ -296,7 +309,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
 +        const design::Palette& p = design::GetPalette(false);
 +        const tools::Long nWidth = px(220, fScale), nHeight = px(40, fScale);
 +        const tools::Rectangle aPill = CoatNavPill(Size(nWidth, nHeight), fScale);
-+        const Point aRing(aPill.Right(), nHeight / 2);
++        const Point aRing(aPill.Right() - 1, nHeight / 2); // inside the ring, 2 px wide or more
 +        NavItemState aState;
 +        aState.bSelected = true;
 +        aState.bFocus = true;
@@ -329,7 +342,8 @@ LicenseRef-HST-Proprietary like the coat's other files.
 +    const std::regex aLiteral(
 +        R"(0x[0-9a-fA-F]{2}\s*,\s*0x[0-9a-fA-F]{2}\s*,\s*0x[0-9a-fA-F]{2})"
 +        R"(|\bCOL_(?!TRANSPARENT\b|AUTO\b)[A-Z_]+)"
-+        R"(|\bColor\s*\(\s*(ColorTransparency|ColorAlpha|0x[0-9a-fA-F]{6}))");
++        R"(|\bColor\s*\(\s*(ColorTransparency|ColorAlpha|0x[0-9a-fA-F]{6}))"
++        R"(|\bColor\s*\{)");
 +    std::vector<OUString> aFiles = sourceFiles(m_directories.getURLFromSrc(u"/sfx2/source/backstage/"));
 +    const std::vector<OUString> aInc = sourceFiles(m_directories.getURLFromSrc(u"/sfx2/inc/backstage/"));
 +    aFiles.insert(aFiles.end(), aInc.begin(), aInc.end());

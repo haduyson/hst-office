@@ -1,0 +1,125 @@
+HST Office: a print job waiting on the File panel's Print page ends before its document closes.
+
+The Print page leaves the document usable while its job waits (the print dialog it replaces is modal), so the
+document can be closed under the job. Writer then ended its view with the job still open and the office aborted
+(Windows: 0xc0000409 / fail-fast): at the end of the Windows session with a changed document on the Print page
+(AutoRecovery closes the documents), and on XCloseable.close() from a macro or an extension. Sheets, the window's X
+and File > Thoát were not affected. A close guard on the frame and on the document of a job the page takes closes
+the panel, which cancels the job, when either is asked to close (queryClosing), before anything closes.
+
+- sfx2/source/backstage/hstbackstage.cxx (PrintPageCloseGuard, lcl_guardPrintPage, lcl_takePrintJob).
+
+License: these upstream-derived files remain under their original license (MPL-2.0).
+Test: tests/unit/test_backstage_print_job_ends_before_close.py; tests/runtime/check-backstage-print-close.py
+(Windows: session end, close(True) from a macro, Ctrl+W, the X, .uno:Quit and terminate with the Print page open).
+
+--- a/sfx2/source/backstage/hstbackstage.cxx
++++ b/sfx2/source/backstage/hstbackstage.cxx
+@@ -11,6 +11,7 @@
+ #include "hstbackstagewindow.hxx"
+ 
+ #include <sfx2/viewfrm.hxx>
++#include <sfx2/objsh.hxx>
+ #include <sfx2/viewsh.hxx>
+ 
+ #include <algorithm>
+@@ -20,9 +21,14 @@
+ #include <com/sun/star/frame/FeatureStateEvent.hpp>
+ #include <com/sun/star/frame/XStatusListener.hpp>
++#include <com/sun/star/frame/XModel3.hpp>
+ #include <com/sun/star/lang/XEventListener.hpp>
++#include <com/sun/star/util/XCloseBroadcaster.hpp>
++#include <com/sun/star/util/XCloseListener.hpp>
++#include <comphelper/diagnose_ex.hxx>
+ #include <comphelper/lok.hxx>
+ #include <cppuhelper/implbase.hxx>
+ #include <cppuhelper/weakref.hxx>
++#include <rtl/ref.hxx>
+ #include <sal/log.hxx>
+ #include <toolkit/helper/vclunohelper.hxx>
+ #include <vcl/event.hxx>
+@@ -215,6 +221,72 @@ BackstageWindow* lcl_ensureBackstage(const uno::Reference<frame::XFrame>& rxFram
+     return lcl_panels().back().get();
+ }
+ 
++/** Closes the File panel of a frame, which cancels a print job waiting on its Print page, when the frame or its
++    document is asked to close (queryClosing, before anything closes). Unlike the print dialog, the Print page leaves
++    the document usable while its job waits, so the document can be closed under the job: the session end
++    (AutoRecovery closing the documents), XCloseable.close() from a macro or an extension. Writer then ended its view
++    with the job still open and the office aborted. Never vetoes. */
++class PrintPageCloseGuard final : public cppu::WeakImplHelper<util::XCloseListener>
++{
++public:
++    explicit PrintPageCloseGuard(const uno::Reference<frame::XFrame>& rxFrame)
++        : m_xFrame(rxFrame)
++    {
++    }
++
++    void SAL_CALL queryClosing(const lang::EventObject&, sal_Bool) override
++    {
++        SolarMutexGuard aGuard;
++        if (uno::Reference<frame::XFrame> xFrame{ m_xFrame })
++            CloseBackstage(xFrame);
++    }
++
++    void SAL_CALL notifyClosing(const lang::EventObject& rEvent) override { queryClosing(rEvent, false); }
++
++    void SAL_CALL disposing(const lang::EventObject&) override {}
++
++    bool Guards(const uno::Reference<frame::XFrame>& rxFrame, const uno::Reference<uno::XInterface>& rxModel) const
++    {
++        return uno::Reference<frame::XFrame>(m_xFrame) == rxFrame
++               && uno::Reference<uno::XInterface>(m_xModel) == rxModel;
++    }
++
++    void SetModel(const uno::Reference<uno::XInterface>& rxModel) { m_xModel = rxModel; }
++
++    bool IsGone() const { return !uno::Reference<frame::XFrame>(m_xFrame).is(); }
++
++private:
++    uno::WeakReference<frame::XFrame> m_xFrame;
++    uno::WeakReference<uno::XInterface> m_xModel;
++};
++
++/// A close guard on the frame and on the document of a print job the Print page takes, one per frame and document.
++void lcl_guardPrintPage(const uno::Reference<frame::XFrame>& rxFrame, SfxObjectShell* pDocShell)
++{
++    static std::vector<rtl::Reference<PrintPageCloseGuard>> aGuards;
++    std::erase_if(aGuards, [](const rtl::Reference<PrintPageCloseGuard>& rGuard) { return rGuard->IsGone(); });
++    const uno::Reference<util::XCloseBroadcaster> xModel(pDocShell ? pDocShell->GetModel() : nullptr,
++                                                         uno::UNO_QUERY);
++    const uno::Reference<uno::XInterface> xModelId(xModel, uno::UNO_QUERY);
++    for (const rtl::Reference<PrintPageCloseGuard>& rGuard : aGuards)
++        if (rGuard->Guards(rxFrame, xModelId))
++            return;
++    rtl::Reference<PrintPageCloseGuard> xGuard(new PrintPageCloseGuard(rxFrame));
++    xGuard->SetModel(xModelId);
++    try
++    {
++        if (const uno::Reference<util::XCloseBroadcaster> xFrame{ rxFrame, uno::UNO_QUERY })
++            xFrame->addCloseListener(xGuard);
++        if (xModel.is())
++            xModel->addCloseListener(xGuard);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.backstage", "Print page: no close guard");
++    }
++    aGuards.push_back(xGuard);
++}
++
+ /* Print jobs with dialogs (File ▸ Print, Ctrl+P, the ribbon) of a document frame open the File
+    panel on its Print page instead of the print dialog (vcl::PrintJobPanel). Other jobs (no frame of
+    the four applications, LibreOfficeKit) keep the dialog. */
+@@ -235,7 +307,10 @@ bool lcl_takePrintJob(const std::shared_ptr<vcl::PrinterController>& rxControlle
+         if (!pContainer || pContainer->GetFrameWeld() != pDocumentWindow)
+             return false; // not shown in its own window (an embedded or hidden view)
+         BackstageWindow* pBackstage = lcl_ensureBackstage(xFrame);
+-        return pBackstage && pBackstage->ShowPrintJob(rxController);
++        if (!pBackstage || !pBackstage->ShowPrintJob(rxController))
++            return false;
++        lcl_guardPrintPage(xFrame, pFrame->GetObjectShell());
++        return true;
+     }
+     return false;
+ }
