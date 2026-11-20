@@ -13,7 +13,10 @@
   smaller, thinner, lighter, heavier or softer than its neighbours at any size and display scale
   (needs rsvg-convert and the pristine LibreOffice tree in HST_LO_TREE);
 * every glyph has a provenance record (meaning, method, masters) and the provenance names no other
-  product's icons.
+  product's icons;
+* the theme build ships every glyph at the image its frame element requests (with @150/@250) in the
+  HST and Hiện đại archives, and the Cổ điển overlay keeps LibreOffice's image wherever Colibre has one
+  (needs the pristine LibreOffice tree in HST_LO_TREE for the Cổ điển part).
 """
 import importlib.util
 import json
@@ -156,6 +159,55 @@ LO_TREE = Path(os.environ.get("HST_LO_TREE", "/data/hst-upstream/libreoffice-26.
 
 @unittest.skipUnless(masters() and shutil.which("rsvg-convert") and (LO_TREE / "icon-themes/colibre_svg").is_dir(),
                      "needs stage-frame glyphs, rsvg-convert and the pristine tree (HST_LO_TREE)")
+def load_theme_build():
+    spec = importlib.util.spec_from_file_location("build_hst_icon_theme", ROOT / "scripts/brand/build-hst-icon-theme.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+class IntegrationTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import hst_icon_frame_ship as ship
+        cls.ship = ship
+        cls.elements = json.loads(INVENTORY.read_text(encoding="utf-8"))["elements"]
+        cls.build = load_theme_build()
+        cls.modern = cls.build.resources("hst_modern")
+
+    def requested(self, needs):
+        return sorted({i["request"][:-4] for e in self.elements if e["needs"] in needs for i in e["images"]})
+
+    def test_every_requested_frame_image_ships_with_its_scale_variants(self):
+        for request in self.requested({"draw", "modern-only"}):
+            for suffix in ("", "@150", "@250"):
+                self.assertIn(f"{request}{suffix}.svg", self.modern, request)
+
+    def test_frame_elements_without_an_image_ship_under_hst_frame(self):
+        for name in ("home", "tabclose", "tabnew"):
+            for size in sizes_of(name):
+                for suffix in ("", "@150", "@250"):
+                    self.assertIn(f"{self.ship.FRAME_DIR}/{size}/{name}{suffix}.svg", self.modern)
+
+    def test_shipped_frame_images_are_the_glyphs(self):
+        files = self.ship.frame_files("hst_modern")
+        for name, data in files.items():
+            self.assertEqual(data, self.modern[name], name)
+        self.assertIn(b"HST viewlayout-book", self.modern["sw/res/doublepage.svg"])
+        self.assertIn(b"HST sidebar-elements", self.modern["sfx2/res/symphony/sidebar-elements-large.svg"])
+
+    @unittest.skipUnless(LO_TREE and (LO_TREE / "icon-themes").is_dir(), "set HST_LO_TREE to the pristine tree")
+    def test_classic_keeps_libreoffice_images_where_colibre_has_one(self):
+        import hst_classic_icons as classic
+        files = self.build.resources("hst_classic", LO_TREE / "icon-themes")
+        links = classic.parse_links(files["links.txt"].decode("utf-8"))
+        for request in self.requested({"modern-only"}):
+            self.assertNotIn(request + ".png", links, request)
+            self.assertNotIn(classic.PREFIX + request + ".svg", files, request)
+        for size in sizes_of("tabclose"):
+            self.assertIn(f"{self.ship.FRAME_DIR}/{size}/tabclose.svg", links)
+
+
 class CalibrationTest(unittest.TestCase):
     def test_glyphs_match_their_colibre_neighbours(self):
         import hst_icon_frame_compare as compare

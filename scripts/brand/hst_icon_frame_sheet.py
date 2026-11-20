@@ -38,12 +38,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import hst_modern_icons as modern  # noqa: E402
 from hst_icon_glyph import FACTORS, variant_key  # noqa: E402
-from hst_icon_snap import snap_svg  # noqa: E402
+from hst_icon_snap import snap_svg  # noqa: E402,F401
+from hst_icon_frame_ship import PREFIX, SIZES, native_size, shipped, shipped_native  # noqa: E402,F401
 
 STAGE = modern.MODERN / "glyphs/stage-frame"
 THEMES = {"hst": False, "hst_dark": True}
-SIZES = (16, 24, 32)
-PREFIX = {16: "cmd/sc_", 24: "cmd/lc_", 32: "cmd/32/"}
 BACKGROUND = {"hst": (247, 248, 250), "hst_dark": (31, 34, 40)}
 TEXT = {"hst": (40, 44, 52), "hst_dark": (220, 224, 230)}
 # Frame glyph -> its element in metadata/frame-inventory.json, whose Colibre icon the sheet shows beside it.
@@ -73,44 +72,6 @@ def load_weight_check():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
-
-
-def shipped(name, theme):
-    """{archive name: SVG text} of one frame glyph in `theme`, as hst_icon_glyph would ship it."""
-    dark, ink = THEMES[theme], modern.ink()["dark" if THEMES[theme] else "light"]
-    master = (STAGE / f"{name}.svg").read_text(encoding="utf-8")
-    tuned_path = STAGE / "16" / f"{name}.svg"
-    files = {}
-    for size in SIZES:
-        key = f"{PREFIX[size]}{name}.svg"
-        native = size == 16 and tuned_path.is_file()
-        text = modern.harmonise(tuned_path.read_text(encoding="utf-8") if native else master, dark)
-        files[key] = snap_svg(text, size, native=native).replace("currentColor", ink)
-        for percent, factor in FACTORS.items():
-            files[variant_key(key, percent)] = snap_svg(modern.harmonise(master, dark), size,
-                                                        factor=factor).replace("currentColor", ink)
-    return files
-
-
-def shipped_native(name, theme):
-    """{variant: SVG text} of a native-size frame glyph (native/<name>[@150|@250].svg) in `theme`:
-    harmonised colours and the theme's ink, geometry as drawn (VCL draws these images at their own size),
-    strokes painted as filled outlines like every shipped HST icon (VCL's renderer moves a stroke on a
-    half-pixel centre line by half a pixel, which would blur it). Keys: "100", "150", "250"."""
-    dark, ink = THEMES[theme], modern.ink()["dark" if THEMES[theme] else "light"]
-    files = {}
-    for percent, suffix in (("100", ""), ("150", "@150"), ("250", "@250")):
-        text = (STAGE / "native" / f"{name}{suffix}.svg").read_text(encoding="utf-8")
-        files[percent] = snap_svg(modern.harmonise(text, dark), 0, native=True,
-                                  box=native_size(text)).replace("currentColor", ink)
-    return files
-
-
-def native_size(text):
-    """(width, height) in px of a native master."""
-    import xml.etree.ElementTree as ET
-    root = ET.fromstring(text)
-    return int(root.get("width")), int(root.get("height"))
 
 
 def native_violations(name):
