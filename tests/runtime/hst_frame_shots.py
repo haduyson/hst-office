@@ -91,7 +91,8 @@ class WindowsScreen:
 
 
 def find_parts(container, parts):
-    """{part: (x, y, width, height) on the screen} of the showing frame parts under a frame's container window."""
+    """{part: (x, y, width, height) on the screen} of the showing frame parts under a frame's container window (the
+    largest showing match of each)."""
     import uno
     from windows_gui_a11y import showing, walk
     if not parts:
@@ -107,9 +108,11 @@ def find_parts(container, parts):
                 continue
             name = context.getAccessibleName()
             for part in parts:
-                if part not in found and matches(part, role, name):
+                if matches(part, role, name):
                     where, size = context.getLocationOnScreen(), context.getSize()
-                    if size.Width > 0 and size.Height > 0:
+                    area = size.Width * size.Height
+                    # the largest match: Sheets has a small split pane of its own beside the sidebar's
+                    if area > 0 and (part not in found or area > found[part][2] * found[part][3]):
                         found[part] = (where.X, where.Y, size.Width, size.Height)
         except Exception:  # noqa: BLE001 - a node disposed while we looked
             continue
