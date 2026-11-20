@@ -1196,7 +1196,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
          m_aTitles[i]->set_font(aFont);
      }
      for (TemplateTile& rTile : m_aTiles)
-@@ -708,7 +702,8 @@ void BackstageWindow::ApplyColors()
+@@ -708,8 +702,13 @@ void BackstageWindow::ApplyColors()
  void BackstageWindow::PaintTile(TemplateTile& rTile)
  {
      ScopedVclPtr<VirtualDevice> xDev = rTile.xButton->create_virtual_device();
@@ -1204,9 +1204,14 @@ LicenseRef-HST-Proprietary like the coat's other files.
 +    PaintTilePage(*xDev, m_aColors, Application::GetSettings().GetStyleSettings(), rTile.bNd30, rTile.bBlank,
 +                  Scaled(TILE_WIDTH), Scaled(TILE_HEIGHT), m_fScale);
      rTile.xButton->set_image(xDev.get());
++    // The .ui's width request of the tile's column (92 px, unscaled) is the column's whole width on VCL,
++    // narrower than the button around the page, which then cut off the page's right edge: the column
++    // takes the button's width (on GTK the request is only a minimum, and this one is the same or less)
++    rTile.xBox->set_size_request(rTile.xButton->get_preferred_size().Width(), -1);
  }
  
-@@ -944,15 +939,21 @@ public:
+ void BackstageWindow::InitHomePage()
+@@ -944,15 +943,21 @@ public:
          Invalidate();
      }
  
@@ -1232,7 +1237,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
          rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR | vcl::PushFlags::FONT
                    | vcl::PushFlags::TEXTCOLOR);
          rDev.SetLineColor();
-@@ -960,9 +961,16 @@ public:
+@@ -960,9 +965,16 @@ public:
          rDev.DrawRect(tools::Rectangle(Point(), aOut));
          // the back button: a ring with a left arrow, the accent ring while hovered
          const tools::Rectangle aButton = ButtonRect();
@@ -1252,7 +1257,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
          const Point aCenter = aButton.Center();
          const tools::Long nArm = std::lround(6 * fDpi), nHead = std::lround(4 * fDpi);
          const LineInfo aLine(LineStyle::Solid, std::max<tools::Long>(1, std::lround(1.5 * fDpi)));
-@@ -975,7 +983,12 @@ public:
+@@ -975,7 +987,12 @@ public:
          vcl::Font aTitleFont(rStyle.GetLabelFont());
          aTitleFont.SetFontHeight(aTitleFont.GetFontHeight() * 1.6);
          aTitleFont.SetWeight(WEIGHT_SEMIBOLD);
@@ -1266,7 +1271,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
          rDev.SetFont(aTitleFont);
          const tools::Long nTitle = rDev.GetTextHeight();
          rDev.SetFont(aSubFont);
-@@ -1036,6 +1049,7 @@ private:
+@@ -1036,6 +1053,7 @@ private:
      DECL_LINK(ParentEventHdl, VclWindowEvent&, void);
  
      std::function<void()> m_aBack;
@@ -1274,7 +1279,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      OUString m_aGreeting;
      OUString m_aSubtitle;
      bool m_bHover = false;
-@@ -1153,6 +1167,7 @@ void BackstageWindow::ShowTitleBand(bool bShow)
+@@ -1153,6 +1171,7 @@ void BackstageWindow::ShowTitleBand(bool bShow)
      }
      const OUString aSubtitle = aFile.isEmpty() || aTitle.isEmpty() ? OUString(aFile + aTitle)
                                                                      : OUString(aFile + u" · " + aTitle);
@@ -1282,7 +1287,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      m_xTitleBand->SetPosSizePixel(Point(0, nTop), Size(nRight, nBottom - nTop));
      m_xTitleBand->SetTexts(m_xGreeting->get_label(), aSubtitle);
      m_xTitleBand->SetZOrder(nullptr, ZOrderFlags::First); // above the tab page and the ribbon's other children
-@@ -1293,6 +1308,12 @@ bool BackstageWindow::Place()
+@@ -1293,6 +1312,12 @@ bool BackstageWindow::Place()
          return false;
      const Point aPos
          = pClient->AbsoluteScreenToOutputPixel(pOrigin->OutputToAbsoluteScreenPixel(aAnchor.TopLeft()));
@@ -1295,7 +1300,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      m_xPanel->set_size_request(aSize.Width(), aSize.Height());
      m_xHost->InvalidateChildSizeCache();
      const Size aWant = m_xHost->GetOptimalSize();
-@@ -1365,6 +1386,7 @@ void BackstageWindow::Close()
+@@ -1365,6 +1390,7 @@ void BackstageWindow::Close()
      if (!m_bOpen)
          return;
      m_bOpen = false;
