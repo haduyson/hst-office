@@ -9,13 +9,18 @@
 * every glyph ships at 16/24/32 px and as @150/@250 variants, in the light and dark theme, crisp
   (fringe), unclipped and as heavy as the pen of its scale (check-hst-icon-weight.measure);
 * no two glyphs ship the same 16 px raster;
+* beside the Colibre icons of the same surface (hst_icon_frame_compare.NEIGHBOURS) no glyph is
+  smaller, thinner, lighter, heavier or softer than its neighbours at any size and display scale
+  (needs rsvg-convert and the pristine LibreOffice tree in HST_LO_TREE);
 * every glyph has a provenance record (meaning, method, masters) and the provenance names no other
   product's icons.
 """
 import importlib.util
 import json
 from pathlib import Path
+import os
 import re
+import shutil
 import sys
 import unittest
 
@@ -136,6 +141,19 @@ class GlyphTest(unittest.TestCase):
                 self.assertTrue(record.get(field), (name, field))
             for master in record["masters"]:
                 self.assertTrue((modern.MODERN / "glyphs" / master).is_file(), (name, master))
+
+
+LO_TREE = Path(os.environ.get("HST_LO_TREE", "/data/hst-upstream/libreoffice-26.8.3.1-pristine"))
+
+
+@unittest.skipUnless(masters() and shutil.which("rsvg-convert") and (LO_TREE / "icon-themes/colibre_svg").is_dir(),
+                     "needs stage-frame glyphs, rsvg-convert and the pristine tree (HST_LO_TREE)")
+class CalibrationTest(unittest.TestCase):
+    def test_glyphs_match_their_colibre_neighbours(self):
+        import hst_icon_frame_compare as compare
+        self.assertEqual([], sorted(set(masters()) - set(compare.NEIGHBOURS)))
+        report = compare.compare(masters(), compare.Colibre(LO_TREE / "icon-themes"))
+        self.assertEqual({}, compare.outliers(report))
 
 
 if __name__ == "__main__":
