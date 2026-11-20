@@ -17,6 +17,8 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
   polygons with curves. A field's corner keeps to its border pixel where the platform paints the field's inner
   window opaquely (no HasBackgroundTexture, as on Windows). GTK linked groups (a combo box's entry and button)
   meet with square corners again, and a tab page's background keeps inside its frame's rounded corners.
+- Push buttons that a dialog places closer than 4 logical pixels apart draw their shape that much further in on
+  the facing sides (half each), so neighbours stay visibly apart; windows, sizes and click areas are unchanged.
 - Off in high-contrast mode, and when org.openoffice.Office.HSTAppearance/UiCoat/Enabled is false or
   HST_UI_COAT=0 (read once at start-up).
 - CppunitTest_vcl_hst_coat probes the pixels of every covered control and state on a VirtualDevice, and checks
@@ -76,7 +78,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
  	$(postprocess_XCS)/Office/HSTUpdate.xcs \
 --- a/vcl/CppunitTest_vcl_hst_coat.mk
 +++ b/vcl/CppunitTest_vcl_hst_coat.mk
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,57 @@
 +# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
 +#
 +# SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -88,6 +90,10 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +
 +$(eval $(call gb_CppunitTest_add_exception_objects,vcl_hst_coat, \
 +    vcl/qa/cppunit/hst/coat-test \
++))
++
++$(eval $(call gb_CppunitTest_add_defs,vcl_hst_coat,\
++    -DVCL_INTERNALS \
 +))
 +
 +$(eval $(call gb_CppunitTest_use_externals,vcl_hst_coat,\
@@ -132,7 +138,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +# vim: set noet sw=4 ts=4:
 --- a/vcl/Library_vcl.mk
 +++ b/vcl/Library_vcl.mk
-@@ -378,6 +378,12 @@
+@@ -378,6 +378,13 @@
      vcl/source/gdi/hstprinterstatusquery \
      vcl/source/hst/designtokens \
      vcl/source/hst/drawhelpers \
@@ -141,6 +147,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    vcl/source/hst/coat/coat-fields \
 +    vcl/source/hst/coat/coat-gtk-css \
 +    vcl/source/hst/coat/coat-shapes \
++    vcl/source/hst/coat/coat-spacing \
 +    vcl/source/hst/coat/coat-tabs-scrollbars \
      vcl/source/gdi/print \
      vcl/source/gdi/regband \
@@ -167,7 +174,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
      CppunitTest_vcl_treeview \
 --- a/vcl/inc/hst/coat.hxx
 +++ b/vcl/inc/hst/coat.hxx
-@@ -0,0 +1,55 @@
+@@ -0,0 +1,61 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -214,6 +221,12 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +    colours, corner radii and focus marks only, never borders' widths, paddings or sizes. */
 +VCL_PLUGIN_PUBLIC OString CreateGtkCss(bool bDark);
 +
++/** The shape of a push button drawn on rDev (rShape, in rDev's pixels), drawn in from the sides that
++    face a sibling push button closer than the coat's minimum gap (4 logical pixels at fScale 1), so
++    neighbouring buttons stay visibly apart. The button's window, size and click area do not change. */
++VCL_DLLPUBLIC tools::Rectangle SpacedButtonShape(const OutputDevice& rDev,
++                                                 const tools::Rectangle& rShape, double fScale);
++
 +/** Tests: draw every covered part even where the platform has no native look (the headless backend
 +    has none), so the coat's drawing can be checked on a VirtualDevice. */
 +VCL_DLLPUBLIC void ForceForTesting(bool bForce);
@@ -225,7 +238,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/qa/cppunit/hst/coat-test.cxx
 +++ b/vcl/qa/cppunit/hst/coat-test.cxx
-@@ -0,0 +1,677 @@
+@@ -0,0 +1,728 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -241,7 +254,9 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +#include <vcl/salnativewidgets.hxx>
 +#include <vcl/settings.hxx>
 +#include <vcl/svapp.hxx>
++#include <vcl/toolkit/button.hxx>
 +#include <vcl/virdev.hxx>
++#include <vcl/wrkwin.hxx>
 +
 +#include <hst/coat.hxx>
 +
@@ -652,6 +667,55 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +                                       fC > 0.6);
 +            }
 +        }
++}
++
++/* Push buttons placed (nearly) edge to edge get breathing room: each draws its shape in from the
++   side facing the other until the shapes are 4 logical pixels apart (5 at 125 %), half each. The
++   windows, and so sizes and click areas, are untouched; a button with no close neighbour, a field and
++   a device without a window keep their full shape. */
++CPPUNIT_TEST_FIXTURE(CoatTest, testNeighbouringButtonsKeepApart)
++{
++    ScopedVclPtrInstance<WorkWindow> pParent(nullptr, WB_STDWORK);
++    pParent->SetPosSizePixel(Point(0, 0), Size(600, 400));
++    ScopedVclPtrInstance<PushButton> pA(pParent.get(), 0);
++    ScopedVclPtrInstance<PushButton> pB(pParent.get(), 0);
++    ScopedVclPtrInstance<PushButton> pBelow(pParent.get(), 0);
++    ScopedVclPtrInstance<PushButton> pAlone(pParent.get(), 0);
++    ScopedVclPtrInstance<PushButton> pFar(pParent.get(), 0);
++    pA->SetPosSizePixel(Point(10, 10), Size(80, 30));
++    pB->SetPosSizePixel(Point(90, 10), Size(80, 30)); // touching pA on the right
++    pBelow->SetPosSizePixel(Point(10, 41), Size(80, 30)); // one pixel below pA
++    pAlone->SetPosSizePixel(Point(300, 200), Size(80, 30));
++    pFar->SetPosSizePixel(Point(176, 10), Size(80, 30)); // six pixels right of pB
++    for (auto* p : { pA.get(), pB.get(), pBelow.get(), pAlone.get(), pFar.get() })
++        p->Show();
++    const tools::Rectangle aFull(Point(), Size(80, 30));
++    auto shape = [&](PushButton& rButton, double fScale) {
++        return hst::coat::SpacedButtonShape(*rButton.GetOutDev(), aFull, fScale);
++    };
++
++    // touching side by side: 2 + 2 pixels; one pixel apart, stacked: 2 + 2 more on top of the 1
++    CPPUNIT_ASSERT_EQUAL(tools::Rectangle(Point(0, 0), Size(78, 28)), shape(*pA, 1.0));
++    CPPUNIT_ASSERT_EQUAL(tools::Rectangle(Point(2, 0), Size(78, 30)), shape(*pB, 1.0));
++    CPPUNIT_ASSERT_EQUAL(tools::Rectangle(Point(0, 2), Size(80, 28)), shape(*pBelow, 1.0));
++    const tools::Long nGapX = (pB->GetPosPixel().X() + shape(*pB, 1.0).Left())
++                              - (pA->GetPosPixel().X() + shape(*pA, 1.0).Right()) - 1;
++    const tools::Long nGapY = (pBelow->GetPosPixel().Y() + shape(*pBelow, 1.0).Top())
++                              - (pA->GetPosPixel().Y() + shape(*pA, 1.0).Bottom()) - 1;
++    CPPUNIT_ASSERT_EQUAL(tools::Long(4), nGapX);
++    CPPUNIT_ASSERT_EQUAL(tools::Long(5), nGapY);
++    // at 125 % the gap is 5 pixels: 3 each when touching
++    CPPUNIT_ASSERT_EQUAL(tools::Long(76), shape(*pA, 1.25).Right());
++    CPPUNIT_ASSERT_EQUAL(tools::Long(3), shape(*pB, 1.25).Left());
++    // no close neighbour: the full shape
++    CPPUNIT_ASSERT_EQUAL(aFull, shape(*pAlone, 1.0));
++    CPPUNIT_ASSERT_EQUAL(aFull, shape(*pFar, 1.0));
++    // the windows themselves are unchanged
++    CPPUNIT_ASSERT_EQUAL(Size(80, 30), pA->GetSizePixel());
++    CPPUNIT_ASSERT_EQUAL(Point(90, 10), pB->GetPosPixel());
++    // a device without a window
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30));
++    CPPUNIT_ASSERT_EQUAL(aFull, hst::coat::SpacedButtonShape(*pDev, aFull, 1.0));
 +}
 +
 +CPPUNIT_TEST_FIXTURE(CoatTest, testCheckBox)
@@ -1602,6 +1666,102 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/coat-spacing.cxx
++++ b/vcl/source/hst/coat/coat-spacing.cxx
+@@ -0,0 +1,93 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* Breathing room between push buttons that a dialog places (nearly) edge to edge. The buttons keep
++   their native windows, so sizes, layouts and click areas are unchanged; only the coat's shape is
++   drawn a little inside the window on the side facing the close neighbour, until the two shapes are
++   MIN_GAP logical pixels apart. Both buttons of a pair compute the same gap, so each gives up half.
++   Fields are left alone: on Windows their opaque inner window starts one pixel inside the frame and
++   would cover a frame drawn further in. */
++
++#include <hst/coat.hxx>
++
++#include <vcl/outdev.hxx>
++#include <vcl/window.hxx>
++
++#include <algorithm>
++#include <cmath>
++
++namespace hst::coat
++{
++namespace
++{
++/** The smallest visible gap between two neighbouring push buttons, in logical pixels. */
++constexpr double MIN_GAP = 4;
++
++bool isPushButton(const vcl::Window& rWindow)
++{
++    switch (rWindow.GetType())
++    {
++        case WindowType::PUSHBUTTON:
++        case WindowType::OKBUTTON:
++        case WindowType::CANCELBUTTON:
++        case WindowType::HELPBUTTON:
++            return true;
++        default:
++            return false;
++    }
++}
++
++/** How far to draw in from one side, for a native gap nGap where nMin is wanted: half of what is
++    missing, rounded up, as the neighbour gives the other half. */
++tools::Long shareOf(tools::Long nGap, tools::Long nMin)
++{
++    if (nGap < 0 || nGap >= nMin)
++        return 0;
++    return (nMin - nGap + 1) / 2;
++}
++}
++
++tools::Rectangle SpacedButtonShape(const OutputDevice& rDev, const tools::Rectangle& rShape,
++                                   double fScale)
++{
++    const vcl::Window* pWindow = rDev.GetOwnerWindow();
++    if (!pWindow || !isPushButton(*pWindow) || !pWindow->GetParent())
++        return rShape;
++    const tools::Long nMin = std::lround(MIN_GAP * fScale);
++    const tools::Rectangle aOwn(pWindow->GetPosPixel(), pWindow->GetSizePixel());
++    tools::Long nLeft = 0, nTop = 0, nRight = 0, nBottom = 0;
++    for (const vcl::Window* pSibling = pWindow->GetParent()->GetWindow(GetWindowType::FirstChild);
++         pSibling; pSibling = pSibling->GetWindow(GetWindowType::Next))
++    {
++        if (pSibling == pWindow || !pSibling->IsVisible() || !isPushButton(*pSibling))
++            continue;
++        const tools::Rectangle aOther(pSibling->GetPosPixel(), pSibling->GetSizePixel());
++        // side by side: their rows overlap
++        if (aOther.Top() <= aOwn.Bottom() && aOther.Bottom() >= aOwn.Top())
++        {
++            nRight = std::max(nRight, shareOf(aOther.Left() - aOwn.Right() - 1, nMin));
++            nLeft = std::max(nLeft, shareOf(aOwn.Left() - aOther.Right() - 1, nMin));
++        }
++        // stacked: their columns overlap
++        if (aOther.Left() <= aOwn.Right() && aOther.Right() >= aOwn.Left())
++        {
++            nBottom = std::max(nBottom, shareOf(aOther.Top() - aOwn.Bottom() - 1, nMin));
++            nTop = std::max(nTop, shareOf(aOwn.Top() - aOther.Bottom() - 1, nMin));
++        }
++    }
++    tools::Rectangle aShape(rShape);
++    // never more than a quarter of the shape, so a focus border and the label still fit
++    const tools::Long nMaxX = aShape.GetWidth() / 4, nMaxY = aShape.GetHeight() / 4;
++    aShape.AdjustLeft(std::min(nLeft, nMaxX));
++    aShape.AdjustRight(-std::min(nRight, nMaxX));
++    aShape.AdjustTop(std::min(nTop, nMaxY));
++    aShape.AdjustBottom(-std::min(nBottom, nMaxY));
++    return aShape;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/source/hst/coat/coat-tabs-scrollbars.cxx
 +++ b/vcl/source/hst/coat/coat-tabs-scrollbars.cxx
 @@ -0,0 +1,212 @@
@@ -1819,7 +1979,7 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/source/hst/coat/coat.cxx
 +++ b/vcl/source/hst/coat/coat.cxx
-@@ -0,0 +1,195 @@
+@@ -0,0 +1,197 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1988,6 +2148,8 @@ HST Office: the HST "coat", every dialog's controls drawn in the HST look from t
 +                       eState,
 +                       rBackground,
 +                       rDev.LogicToPixel(rRegion) };
++    if (eType == ControlType::Pushbutton)
++        aCtx.aRect = SpacedButtonShape(rDev, aCtx.aRect, aCtx.fScale);
 +    if (rValue.getType() == ControlType::SpinButtons || rValue.getType() == ControlType::Spinbox)
 +    {
 +        const auto& rSpin = static_cast<const SpinbuttonValue&>(rValue);
