@@ -1,0 +1,22 @@
+vcl: a close request on a tooltip no longer uses the disposed tooltip.
+
+ImplHandleClose first ends popups and help windows. When the close request was addressed to the
+quick-help tooltip itself, ImplDestroyHelpWindow disposes that window, and the following
+ImplGetWindow() dereferenced its cleared WindowImpl (SIGSEGV in vcl::Window::ImplGetWindow, seen
+with the Templates and Fontwork Gallery dialogs when a test harness closed every new top-level
+window, tooltips included). Stop when the addressed window is disposed.
+
+Test: CppunitTest_vcl_lifecycle (HstHelpWindowCloseTest).
+---
+--- a/vcl/source/window/winproc.cxx
++++ b/vcl/source/window/winproc.cxx
+@@ -2280,7 +2280,8 @@
+     if (pSVData->mpWinData->mpTrackWin)
+         pSVData->mpWinData->mpTrackWin->EndTracking( TrackingEventFlags::Cancel | TrackingEventFlags::Key );
+ 
+-    if (bWasPopup)
++    // HST Office: a close request sent to a tooltip has just disposed it with the help windows
++    if (bWasPopup || pWindow->isDisposed())
+         return;
+ 
+     vcl::Window *pWin = pWindow->ImplGetWindow();
