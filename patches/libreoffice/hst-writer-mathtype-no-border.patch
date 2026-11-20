@@ -894,7 +894,7 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 \ No newline at end of file
 --- /dev/null
 +++ b/sw/qa/core/hst/objectboundarypaint.cxx
-@@ -0,0 +1,310 @@
+@@ -0,0 +1,316 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -918,6 +918,7 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +#include <com/sun/star/text/XTextGraphicObjectsSupplier.hpp>
 +#include <com/sun/star/text/XTextRange.hpp>
 +
++#include <svtools/colorcfg.hxx>
 +#include <vcl/BitmapReadAccess.hxx>
 +#include <vcl/virdev.hxx>
 +
@@ -929,6 +930,7 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +#include <pagefrm.hxx>
 +#include <rootfrm.hxx>
 +#include <sortedobjs.hxx>
++#include <unotxdoc.hxx>
 +#include <viewopt.hxx>
 +#include <wrtsh.hxx>
 +
@@ -1017,7 +1019,7 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +}
 +
 +/// Paints every page as the edit window does (boundaries on) and measures each fly frame's outline.
-+std::vector<PaintedFly> paintFlys(SwDocShell& rDocShell)
++std::vector<PaintedFly> paintFlys(SwDocShell& rDocShell, SwXTextDocument& rTextDoc)
 +{
 +    SwWrtShell* pWrtShell = rDocShell.GetWrtShell();
 +    CPPUNIT_ASSERT(pWrtShell);
@@ -1028,7 +1030,11 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +    pWrtShell->ApplyViewOptions(aOptions);
 +    // The document frame of the test is hidden; the shell paints only for a shown edit window.
 +    pWrtShell->GetWin()->Show();
-+    const Color aBoundary(pWrtShell->GetViewOptions()->GetSectionBoundColor());
++    // The colour Writer paints section and fly boundaries with.
++    Color aBoundary(
++        svtools::ColorConfig().GetColorValue(svtools::WRITERSECTIONBOUNDARIES).nColor);
++    if (aBoundary == COL_AUTO)
++        aBoundary = COL_LIGHTGRAY;
 +
 +    std::vector<PaintedFly> aFlys;
 +    for (const SwFrame* pFrame = pWrtShell->GetLayout()->Lower(); pFrame; pFrame = pFrame->GetNext())
@@ -1043,8 +1049,8 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +        pDevice->SetBackground(Wallpaper(COL_WHITE));
 +        pDevice->SetOutputSizePixel(Size(nWidth, nHeight));
 +        pDevice->Erase();
-+        pWrtShell->PaintTile(*pDevice, nWidth, nHeight, aPage.Left(), aPage.Top(), aPage.Width(),
-+                             aPage.Height());
++        rTextDoc.paintTile(*pDevice, nWidth, nHeight, aPage.Left(), aPage.Top(), aPage.Width(),
++                           aPage.Height());
 +        pDevice->SetMapMode(MapMode(MapUnit::MapPixel));
 +        const Bitmap aBitmap(pDevice->GetBitmap(Point(), Size(nWidth, nHeight)));
 +        BitmapScopedReadAccess pAccess(aBitmap);
@@ -1138,8 +1144,8 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +
 +    uno::Reference<text::XTextEmbeddedObjectsSupplier> xObjectsSupplier(mxComponent,
 +                                                                       uno::UNO_QUERY_THROW);
-+    uno::Reference<container::XNameAccess> xObjects(xObjectsSupplier->getEmbeddedObjects(),
-+                                                    uno::UNO_QUERY_THROW);
++    uno::Reference<container::XNameAccess> xObjects = xObjectsSupplier->getEmbeddedObjects();
++    CPPUNIT_ASSERT(xObjects.is());
 +    OUString aAnchored;
 +    for (const OUString& rName : xObjects->getElementNames())
 +    {
@@ -1164,7 +1170,7 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +    CPPUNIT_ASSERT(!aAnchored.isEmpty());
 +    calcLayout();
 +
-+    const std::vector<PaintedFly> aFlys = paintFlys(*getSwDocShell());
++    const std::vector<PaintedFly> aFlys = paintFlys(*getSwDocShell(), *getSwTextDoc());
 +
 +    // Text frames keep their boundary: this also proves the boundaries were painted at all.
 +    int nTextFrames = 0;
@@ -1194,14 +1200,14 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +{
 +    // A MathType (Equation.DSMT4) object from DOCX.
 +    createSwDoc("../../data/ooxml/pass/fdo78906.docx");
-+    assertNoBoundaryOnObjects(paintFlys(*getSwDocShell()), 1);
++    assertNoBoundaryOnObjects(paintFlys(*getSwDocShell(), *getSwTextDoc()), 1);
 +}
 +
 +CPPUNIT_TEST_FIXTURE(HstObjectBoundaryPaintTest, testDocFormulaObjectsHaveNoBoundary)
 +{
 +    // Equation 3.0 objects from DOC.
 +    createSwDoc("../../../extras/ww8export/data/tdf79553_lineNumbers.doc");
-+    assertNoBoundaryOnObjects(paintFlys(*getSwDocShell()), 1);
++    assertNoBoundaryOnObjects(paintFlys(*getSwDocShell(), *getSwTextDoc()), 1);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
