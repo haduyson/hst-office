@@ -142,7 +142,7 @@ tree for the strip.
  
      tools::Long GetOptimalHeight() const;
  
-@@ -42,8 +46,17 @@ public:
+@@ -42,13 +46,23 @@ public:
      virtual void RequestHelp(const HelpEvent& rHEvt) override;
      virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
      virtual void Resize() override;
@@ -160,7 +160,13 @@ tree for the strip.
      struct TabLayout
      {
          DocumentTabInfo aInfo;
-@@ -59,6 +72,8 @@ private:
+         tools::Rectangle aRect;
+         tools::Rectangle aCloseRect;
++        bool bCompressed = false;
+     };
+ 
+     void ImplLayout();
+@@ -59,6 +73,8 @@ private:
      Point ImplDragPos(const Point& rEventPos);
  
      css::uno::WeakReference<css::frame::XFrame> m_xFrame;
@@ -288,7 +294,7 @@ tree for the strip.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/inc/uielement/hstdocumenttabcoat.hxx
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,77 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -334,6 +340,7 @@ tree for the strip.
 +    bool bModified = false;
 +    bool bHover = false;
 +    bool bHoverClose = false;
++    bool bCompressed = false;
 +};
 +
 +struct CoatStrip
@@ -358,6 +365,7 @@ tree for the strip.
 +                const StyleSettings& rStyle, const CoatGlyphs& rGlyphs);
 +FWK_DLLPUBLIC tools::Long CoatTabChromeWidth(double fScale);
 +FWK_DLLPUBLIC bool CoatHidesClose(const CoatTab& rTab, double fScale);
++FWK_DLLPUBLIC tools::Rectangle CoatTitleRect(const CoatTab& rTab, double fScale);
 +FWK_DLLPUBLIC tools::Rectangle CoatCloseRect(const tools::Rectangle& rTab, tools::Long nStripHeight,
 +                               double fScale);
 +FWK_DLLPUBLIC CoatGlyphs LoadGlyphs();
@@ -366,7 +374,7 @@ tree for the strip.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/qa/cppunit/hstdocumenttabcoat.cxx
-@@ -0,0 +1,492 @@
+@@ -0,0 +1,528 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -697,6 +705,42 @@ tree for the strip.
 +    }
 +}
 +
++CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testCompressedTitlesKeepRoom)
++{
++    const auto& rPalette = design::GetPalette(false);
++    for (double fScale : { 1.0, 1.25 })
++    {
++        const tools::Long nWidth = fScale == 1.0 ? 98 : 123;
++        const tools::Long nHeight = px(32, fScale);
++        tabs::CoatStrip aStrip;
++        aStrip.aSize = Size(2 * nWidth, nHeight);
++        aStrip.fScale = fScale;
++        for (bool bActive : { true, false })
++        {
++            auto& rTab = aStrip.aTabs.emplace_back();
++            rTab.aRect = tools::Rectangle(Point(bActive ? 0 : nWidth, 0), Size(nWidth, nHeight));
++            rTab.aCloseRect = tabs::CoatCloseRect(rTab.aRect, nHeight, fScale);
++            rTab.aTitle = u"Không tên 1"_ustr;
++            rTab.aMark = rPalette.aAppMark[0];
++            rTab.bActive = bActive;
++            rTab.bCompressed = true;
++        }
++
++        const tools::Long nPlatformRoom
++            = nWidth - px(10, fScale) - (px(5, fScale) + px(16, fScale) + 4);
++        for (const auto& rTab : aStrip.aTabs)
++            CPPUNIT_ASSERT_GREATEREQUAL(nPlatformRoom,
++                                        tabs::CoatTitleRect(rTab, fScale).GetWidth());
++
++        const auto& rActive = aStrip.aTabs[0];
++        const auto pDevice = renderStrip(aStrip, false);
++        const Point aDot(rActive.aRect.Left() + px(8, fScale) + px(6, fScale) / 2,
++                         rActive.aCloseRect.Center().Y());
++        CPPUNIT_ASSERT_MESSAGE("compressed active app dot",
++                               pDevice->GetPixel(aDot) != rActive.aMark);
++    }
++}
++
 +CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testCloseHover)
 +{
 +    for (bool bDark : { false, true })
@@ -981,7 +1025,7 @@ tree for the strip.
      vcl::Font aFont = rStyle.GetToolFont();
      SetPointFont(*GetOutDev(), aFont);
      SetBackground(rStyle.GetFaceColor());
-@@ -89,9 +112,12 @@ void DocumentTabBar::ImplLayout()
+@@ -89,12 +112,20 @@ void DocumentTabBar::ImplLayout()
      const tools::Long nClose = Px(*this, CLOSE_SIZE);
      const tools::Long nPad = Px(*this, TAB_PAD);
      const tools::Long nMin = Px(*this, TAB_MIN_WIDTH);
@@ -994,8 +1038,17 @@ tree for the strip.
 -    m_aTabs.clear();
  
      // Natural widths, then shrink evenly when they don't fit next to the "+" button.
-     std::vector<tools::Long> aWidths;
-@@ -103,8 +129,7 @@ void DocumentTabBar::ImplLayout()
+-    std::vector<tools::Long> aWidths;
++    struct TabWidth
++    {
++        tools::Long nWidth;
++        bool bCompressed = false;
++    };
++    std::vector<TabWidth> aWidths;
+     tools::Long nSum = 0;
+     // measure with the bold font of the active tab, so a tab doesn't change width on switch
+     GetOutDev()->Push(vcl::PushFlags::FONT);
+@@ -103,10 +134,9 @@ void DocumentTabBar::ImplLayout()
      GetOutDev()->SetFont(aBold);
      for (const DocumentTabInfo& rInfo : aInfos)
      {
@@ -1003,9 +1056,34 @@ tree for the strip.
 -                           + Px(*this, 12) + nPad / 2;
 +        tools::Long nTab = GetOutDev()->GetTextWidth(rInfo.aTitle) + nChromeWidth;
          nTab = std::clamp<tools::Long>(nTab, nMin, Px(*this, TAB_MAX_WIDTH));
-         aWidths.push_back(nTab);
+-        aWidths.push_back(nTab);
++        aWidths.push_back({ nTab });
          nSum += nTab;
-@@ -134,6 +159,9 @@ void DocumentTabBar::ImplLayout()
+     }
+     GetOutDev()->Pop();
+@@ -115,8 +145,11 @@ void DocumentTabBar::ImplLayout()
+     {
+         const tools::Long nEach
+             = std::max<tools::Long>(nAvail / static_cast<tools::Long>(aInfos.size()), nMin);
+-        for (tools::Long& rWidth : aWidths)
+-            rWidth = std::min(rWidth, nEach);
++        for (auto& rWidth : aWidths)
++        {
++            rWidth.bCompressed = nEach < rWidth.nWidth;
++            rWidth.nWidth = std::min(rWidth.nWidth, nEach);
++        }
+     }
+ 
+     // With many tabs keep the active one in view: skip tabs on the left.
+@@ -128,35 +161,92 @@ void DocumentTabBar::ImplLayout()
+                 nActive = i;
+         tools::Long nUsed = 0;
+         for (size_t i = 0; i <= nActive && i < aWidths.size(); ++i)
+-            nUsed += aWidths[i];
++            nUsed += aWidths[i].nWidth;
+         while (nUsed > nAvail && nFirst < nActive)
+-            nUsed -= aWidths[nFirst++];
++            nUsed -= aWidths[nFirst++].nWidth;
      }
  
      tools::Long nX = 0;
@@ -1014,15 +1092,20 @@ tree for the strip.
 +    bool bLayoutChanged = false;
      for (size_t i = nFirst; i < aInfos.size(); ++i)
      {
-         if (nX + aWidths[i] > nAvail && i > nFirst)
-@@ -141,22 +169,73 @@ void DocumentTabBar::ImplLayout()
+-        if (nX + aWidths[i] > nAvail && i > nFirst)
++        const auto& rWidth = aWidths[i];
++        if (nX + rWidth.nWidth > nAvail && i > nFirst)
+             break;
          TabLayout aTab;
          aTab.aInfo = aInfos[i];
-         aTab.aRect = tools::Rectangle(Point(nX, 0), Size(aWidths[i], nHeight));
+-        aTab.aRect = tools::Rectangle(Point(nX, 0), Size(aWidths[i], nHeight));
 -        const tools::Long nCloseX = aTab.aRect.Right() - nPad / 2 - nClose;
 -        aTab.aCloseRect = tools::Rectangle(Point(nCloseX, (nHeight + Px(*this, ACCENT) - nClose) / 2),
 -                                           Size(nClose, nClose));
 -        m_aTabs.push_back(aTab);
+-        nX += aWidths[i];
++        aTab.aRect = tools::Rectangle(Point(nX, 0), Size(rWidth.nWidth, nHeight));
++        aTab.bCompressed = rWidth.bCompressed;
 +        if (bCoat)
 +            aTab.aCloseRect = hst::doctabs::CoatCloseRect(aTab.aRect, nHeight, GetDPIScaleFactor());
 +        else
@@ -1051,7 +1134,7 @@ tree for the strip.
 +            rOld = std::move(aTab);
 +        }
 +        ++nLaidOut;
-         nX += aWidths[i];
++        nX += rWidth.nWidth;
      }
 +    bFramesChanged |= nLaidOut != m_aTabs.size();
 +    m_aTabs.resize(nLaidOut);
@@ -1087,7 +1170,8 @@ tree for the strip.
 +            const bool bHover = static_cast<sal_Int32>(i) == m_nHoverTab;
 +            aStrip.aTabs.push_back({ rTab.aRect, rTab.aCloseRect, rTab.aInfo.aTitle,
 +                                     rTab.aInfo.aModuleColor, rTab.aInfo.bActive,
-+                                     rTab.aInfo.bModified, bHover, bHover && m_bHoverClose });
++                                     rTab.aInfo.bModified, bHover, bHover && m_bHoverClose,
++                                     rTab.bCompressed });
 +        }
 +        hst::doctabs::PaintStrip(rRenderContext, aStrip, rStyle, m_aCoatGlyphs);
 +        return;
@@ -1095,7 +1179,7 @@ tree for the strip.
      const Color aFace = rStyle.GetFaceColor();
      const Color aActiveBg = rStyle.GetWindowColor();
      const Color aShadow = rStyle.GetShadowColor();
-@@ -528,6 +607,7 @@ void DocumentTabBar::DataChanged(const DataChangedEvent& rDCEvt)
+@@ -528,6 +618,7 @@ void DocumentTabBar::DataChanged(const DataChangedEvent& rDCEvt)
          && (rDCEvt.GetFlags() & AllSettingsFlags::STYLE))
      {
          ImplInitSettings();
@@ -1103,7 +1187,7 @@ tree for the strip.
          Invalidate();
      }
  }
-@@ -535,8 +615,63 @@ void DocumentTabBar::DataChanged(const DataChangedEvent& rDCEvt)
+@@ -535,8 +626,63 @@ void DocumentTabBar::DataChanged(const DataChangedEvent& rDCEvt)
  void DocumentTabBar::Resize()
  {
      vcl::Window::Resize();
@@ -1754,7 +1838,7 @@ tree for the strip.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/source/uielement/hstdocumenttabcoat.cxx
-@@ -0,0 +1,342 @@
+@@ -0,0 +1,376 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1784,10 +1868,29 @@ tree for the strip.
 +constexpr tools::Long DOT_SIZE = 6;
 +constexpr tools::Long DOT_TITLE_GAP = 5;
 +constexpr tools::Long TITLE_MARKER_GAP = 4;
++constexpr tools::Long COMPRESSED_ACTIVE_TITLE_GAP = 2; // Device pixels.
 +constexpr tools::Long MARKER_SIZE = 6;
 +constexpr tools::Long MARKER_CLOSE_GAP = 5;
 +constexpr tools::Long CLOSE_SIZE = 20;
 +constexpr tools::Long CLOSE_INSET = 4;
++
++bool ShowsAppDot(const CoatTab& rTab) { return !rTab.bActive || !rTab.bCompressed; }
++
++tools::Rectangle TabBody(const CoatTab& rTab, double fScale)
++{
++    auto aBody = rTab.aRect;
++    aBody.SetTop(Px(4, fScale));
++    return aBody;
++}
++
++tools::Long TitleRightLimit(const CoatTab& rTab, double fScale, bool bHideClose)
++{
++    auto nLimit = bHideClose ? rTab.aRect.Right() + 1 - Px(CLOSE_INSET, fScale)
++                             : rTab.aCloseRect.Left();
++    if (rTab.bModified)
++        nLimit -= Px(MARKER_SIZE, fScale) + (bHideClose ? 0 : Px(MARKER_CLOSE_GAP, fScale));
++    return nLimit;
++}
 +
 +void FillRect(vcl::RenderContext& rDev, const tools::Rectangle& rRect, Color aColor)
 +{
@@ -1924,31 +2027,27 @@ tree for the strip.
 +    rDev.DrawLine(Point(aCenter.X(), aCenter.Y() - nArm), Point(aCenter.X(), aCenter.Y() + nArm));
 +}
 +
-+void PaintTitle(vcl::RenderContext& rDev, const CoatTab& rTab, const tools::Rectangle& rBody,
-+                double fScale, Color aText, bool bHideClose)
++void PaintTitle(vcl::RenderContext& rDev, const CoatTab& rTab, double fScale, Color aText,
++                bool bHideClose)
 +{
 +    const auto nCenterY = rTab.aCloseRect.Center().Y();
-+    const auto nDotSize = Px(DOT_SIZE, fScale);
-+    const auto nDotLeft = rBody.Left() + Px(DOT_INSET, fScale);
-+    FillCircle(rDev, nDotLeft + nDotSize / 2.0, nCenterY + 0.5, nDotSize, rTab.aMark);
++    if (ShowsAppDot(rTab))
++    {
++        const auto nDotSize = Px(DOT_SIZE, fScale);
++        const auto nDotLeft = rTab.aRect.Left() + Px(DOT_INSET, fScale);
++        FillCircle(rDev, nDotLeft + nDotSize / 2.0, nCenterY + 0.5, nDotSize, rTab.aMark);
++    }
 +
-+    auto nTitleEnd = bHideClose ? rBody.Right() + 1 - Px(CLOSE_INSET, fScale)
-+                               : rTab.aCloseRect.Left();
 +    if (rTab.bModified)
 +    {
 +        const auto nMarkerSize = Px(MARKER_SIZE, fScale);
-+        const auto nCloseGap = bHideClose ? 0 : Px(MARKER_CLOSE_GAP, fScale);
-+        nTitleEnd -= nMarkerSize + nCloseGap;
-+        FillCircle(rDev, nTitleEnd + nMarkerSize / 2.0, nCenterY + 0.5, nMarkerSize, aText);
++        const auto nMarkerLeft = TitleRightLimit(rTab, fScale, bHideClose);
++        FillCircle(rDev, nMarkerLeft + nMarkerSize / 2.0, nCenterY + 0.5, nMarkerSize, aText);
 +    }
-+    if (!bHideClose || rTab.bModified)
-+        nTitleEnd -= Px(TITLE_MARKER_GAP, fScale);
 +
-+    const auto nTitleStart = nDotLeft + nDotSize + Px(DOT_TITLE_GAP, fScale);
-+    if (nTitleStart >= nTitleEnd)
++    const auto aTextRect = CoatTitleRect(rTab, fScale);
++    if (aTextRect.IsEmpty())
 +        return;
-+    const tools::Rectangle aTextRect(Point(nTitleStart, rBody.Top()),
-+                                     Size(nTitleEnd - nTitleStart, rBody.GetHeight()));
 +    auto aPop = rDev.ScopedPush(vcl::PushFlags::FONT | vcl::PushFlags::CLIPREGION);
 +    rDev.IntersectClipRegion(aTextRect);
 +    if (rTab.bActive)
@@ -1966,8 +2065,7 @@ tree for the strip.
 +              const ::hst::design::Palette& rPalette, const Image& rClose)
 +{
 +    const double fScale = rStrip.fScale;
-+    auto aBody = rTab.aRect;
-+    aBody.SetTop(Px(4, fScale));
++    const auto aBody = TabBody(rTab, fScale);
 +    if (aBody.IsEmpty() || aBody.Bottom() < aBody.Top())
 +        return;
 +    const auto nRadius = Px(::hst::design::radius::Control, fScale);
@@ -1983,7 +2081,7 @@ tree for the strip.
 +            ::hst::design::DrawRoundRect(rDev, aHover, nRadius, rPalette.aHover, COL_TRANSPARENT);
 +    }
 +    const bool bHideClose = CoatHidesClose(rTab, fScale);
-+    PaintTitle(rDev, rTab, aBody, fScale, rPalette.aText, bHideClose);
++    PaintTitle(rDev, rTab, fScale, rPalette.aText, bHideClose);
 +    if (!bHideClose)
 +        PaintClose(rDev, rTab, fScale, rPalette, rClose);
 +}
@@ -2077,7 +2175,27 @@ tree for the strip.
 +bool CoatHidesClose(const CoatTab& rTab, double fScale)
 +{
 +    return !rTab.bActive && !rTab.bHover
-+           && rTab.aRect.GetWidth() < CoatTabChromeWidth(fScale) + Px(48, fScale);
++           && (rTab.bCompressed
++               || rTab.aRect.GetWidth() < CoatTabChromeWidth(fScale) + Px(48, fScale));
++}
++
++tools::Rectangle CoatTitleRect(const CoatTab& rTab, double fScale)
++{
++    const auto aBody = TabBody(rTab, fScale);
++    const bool bHideClose = CoatHidesClose(rTab, fScale);
++    const bool bShowDot = ShowsAppDot(rTab);
++    auto nTitleEnd = TitleRightLimit(rTab, fScale, bHideClose);
++    // The larger coat close target needs a tighter gap to leave platform title room.
++    if (!bHideClose || rTab.bModified)
++        nTitleEnd -= bShowDot ? Px(TITLE_MARKER_GAP, fScale) : COMPRESSED_ACTIVE_TITLE_GAP;
++
++    auto nTitleStart = aBody.Left() + Px(DOT_INSET, fScale);
++    if (bShowDot)
++        nTitleStart += Px(DOT_SIZE, fScale) + Px(DOT_TITLE_GAP, fScale);
++    if (nTitleStart >= nTitleEnd || aBody.IsEmpty() || aBody.Bottom() < aBody.Top())
++        return {};
++    return tools::Rectangle(Point(nTitleStart, aBody.Top()),
++                            Size(nTitleEnd - nTitleStart, aBody.GetHeight()));
 +}
 +
 +tools::Rectangle CoatCloseRect(const tools::Rectangle& rTab, tools::Long nStripHeight, double fScale)
