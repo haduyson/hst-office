@@ -24,6 +24,7 @@ MIN_EDGE = 12  # straight edge pixels, so text and glyphs are not taken for cont
 MAX_RADIUS = 14  # corner box searched beyond the straight edge's end
 NOTCH = 0.80
 GAP = 0.45
+CROSS = 8  # outside a real corner the surface is plain this far, diagonally
 BLEED = -0.03  # coverage below the bare surface: something other than the border was painted there
 
 
@@ -112,6 +113,8 @@ def measure(view, border, corner):
 
     if cover(x0, y0) > 0.5 or cover(x0 - 2, y0) > 0.5 or cover(x0, y0 - 2) > 0.5:
         return None  # border at or beyond the corner pixel: the gap between two controls, not a rounded corner
+    if any(cover(x, y) > 0.5 for x in range(x0 - CROSS, x0) for y in range(y0 - CROSS, y0)):
+        return None  # another control just beyond the corner: the edges of a gap where controls meet
     defects = []
     for name, value in (("top", cover(xs - 1, y0)), ("left", cover(x0, ys - 1))):
         if value < NOTCH:
