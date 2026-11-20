@@ -21,7 +21,8 @@ REGIONS = {
     "ribbon": (("PAGE_TAB_LIST",), ()),  # the notebookbar's tabs and the selected tab's commands
     "sidebar": (("SPLIT_PANE",), ()),  # the deck and its tab bar, beside the document
     "statusbar": (("STATUS_BAR",), ()),
-    "doctabs": (("PANEL",), ("thẻ tài liệu", "document tabs")),
+    # the strip is a page tab list since it has an accessible tab per document (a panel before)
+    "doctabs": (("PAGE_TAB_LIST", "PANEL"), ("thẻ tài liệu", "document tabs")),
 }
 
 # The parts cropped from each state's window shot; "context-menu" is shot as the menu's own window.
