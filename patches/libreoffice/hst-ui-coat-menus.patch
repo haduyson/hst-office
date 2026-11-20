@@ -89,7 +89,7 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
      CppunitTest_vcl_treeview \
 --- /dev/null
 +++ b/vcl/inc/hst/coat-menus.hxx
-@@ -0,0 +1,43 @@
+@@ -0,0 +1,59 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -130,12 +130,28 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +    width VCL keeps, takes the menu's surface colour, so the menu's outline is the rounded one the
 +    coat draws at the edge of the content. A no-op where the menu is not coated. */
 +VCL_DLLPUBLIC void CoatMenuWindowFrame(vcl::Window& rMenuWindow);
++
++/** Asks the system to round the corners of a new popup menu's window (rMenuWindow is the client)
++    and to draw its outline in the menu border colour: Windows 11 does (DWM, radius 8 like
++    radius::Menu, antialiased, with its own shadow); elsewhere nothing happens. Once the system has
++    done it, the coat draws no outline of its own inside the content, so the corners never show two
++    arcs; where it cannot (Windows 10, other platforms) the coat's rounded outline stays. A no-op
++    where the menu is not coated. Called once, when the menu's window is created. */
++VCL_DLLPUBLIC void RoundMenuWindowCorners(vcl::Window& rMenuWindow);
++
++/** The platform's part of RoundMenuWindowCorners: whether the system now rounds rWindow's frame and
++    outlines it in rBorder (vcl/win/hst/coat-menu-corners.cxx on Windows; false elsewhere). */
++bool SystemRoundsWindowCorners(const vcl::Window& rWindow, const Color& rBorder);
++
++/** Tests: as if the system did (true) or did not (false) round menus' corners, or as at start-up
++    (nothing): not known until a menu asks. */
++VCL_DLLPUBLIC void SetSystemRoundsMenusForTesting(std::optional<bool> oRounds);
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/menu-coat-test.cxx
-@@ -0,0 +1,338 @@
+@@ -0,0 +1,370 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -194,6 +210,7 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +    void tearDown() override
 +    {
 +        hst::coat::ForceForTesting(false);
++        hst::coat::SetSystemRoundsMenusForTesting(std::nullopt);
 +        unsetenv("HST_UI_COAT"); // a test that set it may have stopped at a failed assertion
 +        setSwitch(true);
 +        setMenusSwitch(true);
@@ -324,6 +341,37 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +        assertPixel("outside the arc", *pDev, 1, 1, p.aMenuSurface);
 +        assertPixel("bottom right corner", *pDev, 199, 119, p.aMenuSurface);
 +    }
++}
++
++/* Where the system rounds and outlines the menu's window itself (Windows 11), the content draws no
++   outline of its own, so the corners never show two arcs; where it cannot, the outline stays. A
++   menu window on a platform that cannot round keeps the coat's outline. */
++CPPUNIT_TEST_FIXTURE(MenuCoatTest, testSystemRoundedCornersReplaceTheOutline)
++{
++    hst::coat::SetSystemRoundsMenusForTesting(true);
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 120));
++        CPPUNIT_ASSERT(drawSurface(*pDev));
++        assertPixel("no outline of its own", *pDev, 100, 0, light().aMenuSurface);
++        assertPixel("surface", *pDev, 100, 60, light().aMenuSurface);
++    }
++    hst::coat::SetSystemRoundsMenusForTesting(false);
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 120));
++        CPPUNIT_ASSERT(drawSurface(*pDev));
++        assertPixel("the coat's outline", *pDev, 100, 0, light().aMenuBorder);
++    }
++#ifndef _WIN32
++    // the headless backend's windows: the system does not round them, the outline stays
++    hst::coat::SetSystemRoundsMenusForTesting(std::nullopt);
++    ScopedVclPtr<WorkWindow> pParent(VclPtr<WorkWindow>::Create(nullptr, WB_STDWORK));
++    ScopedVclPtr<FloatingWindow> pMenu(
++        VclPtr<FloatingWindow>::Create(pParent.get(), WB_BORDER | WB_SYSTEMWINDOW));
++    hst::coat::RoundMenuWindowCorners(*pMenu);
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 120));
++    CPPUNIT_ASSERT(drawSurface(*pDev));
++    assertPixel("outline after a menu window", *pDev, 100, 0, light().aMenuBorder);
++#endif
 +}
 +
 +/* The frame part's switch off: the flat surface of the coat's menu items, no outline. High
@@ -484,7 +532,7 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
  
  #include <basegfx/point/b2dpoint.hxx>
  #include <basegfx/polygon/b2dpolygontools.hxx>
-@@ -146,6 +147,11 @@ bool PaintMenu(const PaintContext& rCtx, ControlPart ePart, const ImplControlVal
+@@ -146,6 +147,17 @@ bool PaintMenu(const PaintContext& rCtx, ControlPart ePart, const ImplControlVal
              return false;
      }
  }
@@ -493,6 +541,12 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +std::optional<Color> MenuShortcutColour(const OutputDevice&, bool, bool) { return std::nullopt; }
 +
 +void CoatMenuWindowFrame(vcl::Window&) {}
++
++void RoundMenuWindowCorners(vcl::Window&) {}
++
++bool SystemRoundsWindowCorners(const vcl::Window&, const Color&) { return false; }
++
++void SetSystemRoundsMenusForTesting(std::optional<bool>) {}
  }
  
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
