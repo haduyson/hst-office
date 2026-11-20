@@ -120,8 +120,14 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
      CppunitTest_vcl_treeview \
 --- a/vcl/inc/hst/coat.hxx
 +++ b/vcl/inc/hst/coat.hxx
-@@ -17,7 +17,8 @@ class OutputDevice;
+@@ -15,9 +15,14 @@
+ 
+ class OutputDevice;
  class StyleSettings;
++namespace vcl
++{
++class Window;
++}
  
  /* The HST "coat": the native controls of every dialog (buttons, fields, check and radio boxes, tabs,
 -   scroll bars...) drawn in the HST look from the design tokens of <vcl/hst/designtokens.hxx>.
@@ -130,7 +136,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  
     Only the drawing changes: a part is drawn by the coat only where the platform already draws it
     natively, and every size and content region still comes from the platform, so layouts are exactly
-@@ -34,6 +35,36 @@ bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
+@@ -34,6 +39,36 @@ bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
                         const tools::Rectangle& rRegion, ControlState eState,
                         const ImplControlValue& rValue, const Color& rBackground);
  
@@ -167,7 +173,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  /** Whether the coat is switched on (setting and environment), not looking at high contrast. */
  VCL_PLUGIN_PUBLIC bool IsSwitchedOn();
  
-@@ -56,6 +87,15 @@ VCL_DLLPUBLIC tools::Rectangle SpacedButtonShape(const OutputDevice& rDev,
+@@ -56,6 +91,19 @@ VCL_DLLPUBLIC tools::Rectangle SpacedButtonShape(const OutputDevice& rDev,
      has none), so the coat's drawing can be checked on a VirtualDevice. */
  VCL_DLLPUBLIC void ForceForTesting(bool bForce);
  
@@ -180,12 +186,16 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +VCL_DLLPUBLIC bool DrawMenuPartForTesting(OutputDevice& rDev, ControlPart ePart,
 +                                          ControlState eState, const tools::Rectangle& rItem);
 +
++/** Tests: DrawSeparatorLine on a separator control (a FixedLine, not exported from vcl) created as
++    a child of pParent, from (0, 4) to (99, 4), or (4, 0) to (4, 9) when bVertical. */
++VCL_DLLPUBLIC bool DrawSeparatorLineForTesting(vcl::Window* pParent, bool bVertical);
++
  /** Tests: read the switch (setting and environment) again on its next use. */
  VCL_DLLPUBLIC void ResetSwitchForTesting();
  
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/coat-controls2-test.cxx
-@@ -0,0 +1,461 @@
+@@ -0,0 +1,455 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -201,7 +211,6 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +#include <vcl/salnativewidgets.hxx>
 +#include <vcl/settings.hxx>
 +#include <vcl/svapp.hxx>
-+#include <vcl/toolkit/fixed.hxx>
 +#include <vcl/virdev.hxx>
 +#include <vcl/wrkwin.hxx>
 +
@@ -579,13 +588,8 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +
 +    ScopedVclPtrInstance<WorkWindow> pParent(nullptr, WB_STDWORK);
 +    pParent->SetPosSizePixel(Point(0, 0), Size(200, 100));
-+    ScopedVclPtrInstance<FixedLine> pLine(pParent.get(), WB_HORZ);
-+    pLine->SetPosSizePixel(Point(10, 10), Size(100, 10));
-+    pLine->Show();
-+    CPPUNIT_ASSERT(
-+        hst::coat::DrawSeparatorLine(*pLine->GetOutDev(), Point(0, 4), Point(99, 4), false));
-+    CPPUNIT_ASSERT(
-+        hst::coat::DrawSeparatorLine(*pLine->GetOutDev(), Point(4, 0), Point(4, 9), true));
++    CPPUNIT_ASSERT(hst::coat::DrawSeparatorLineForTesting(pParent.get(), false));
++    CPPUNIT_ASSERT(hst::coat::DrawSeparatorLineForTesting(pParent.get(), true));
 +}
 +
 +/* Switched off or in high contrast, VCL and the platform draw every one of these parts. */
@@ -763,7 +767,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-groups-tooltips.cxx
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,94 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -786,6 +790,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +#include <vcl/hst/drawhelpers.hxx>
 +#include <vcl/outdev.hxx>
 +#include <vcl/settings.hxx>
++#include <vcl/toolkit/fixed.hxx>
 +#include <vcl/window.hxx>
 +#include <vcl/wintypes.hxx>
 +
@@ -844,6 +849,15 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +    rDev.SetFillColor(p.aCardBorder);
 +    rDev.DrawRect(aLine);
 +    return true;
++}
++
++bool DrawSeparatorLineForTesting(vcl::Window* pParent, bool bVertical)
++{
++    ScopedVclPtrInstance<FixedLine> pLine(pParent, bVertical ? WB_VERT : WB_HORZ);
++    pLine->SetPosSizePixel(Point(10, 10), Size(100, 10));
++    pLine->Show();
++    return bVertical ? DrawSeparatorLine(*pLine->GetOutDev(), Point(4, 0), Point(4, 9), true)
++                     : DrawSeparatorLine(*pLine->GetOutDev(), Point(0, 4), Point(99, 4), false);
 +}
 +}
 +

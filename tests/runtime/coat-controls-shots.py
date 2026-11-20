@@ -12,11 +12,13 @@ this script, --scale only names the files):
 "before" runs with HST_UI_COAT=0, "after" with the coat on; light/dark and 125 % as in hst_frame_shots.py. Each look
 opens one Writer document with 80 headings (a long Navigator tree) and an image, then shoots every case:
 <case>-<coat>-<theme>-<scale>.png. Window cases also write the cropped part, <case>-part-<look>.png. Cases that
-could not be shot are listed in failures.txt. The mouse is only moved (for the tooltip), never clicked. Only the
+could not be shot are listed in failures.txt (the part's box is in <case>-part-<look>.json, so shots taken
+where Pillow is missing can be cropped later). The mouse is only moved (for the tooltip), never clicked. Only the
 office started here is stopped.
 """
 import argparse
 import glob
+import json
 import os
 import subprocess
 import sys
@@ -94,7 +96,12 @@ class Shots:
             self.note(f"{case} {'-'.join(look)}: no {part} found to crop")
             return
         x, y, w, h = hst_frame_shots.relative(found, self.screen.origin(win))[part]
-        from PIL import Image
+        with open(self.path(case, look, part=True)[:-4] + ".json", "w", encoding="utf-8") as out:
+            json.dump([x, y, w, h], out)
+        try:
+            from PIL import Image
+        except ImportError:  # the Windows image's python: crop later from the .json
+            return
         with Image.open(path) as image:
             box = (max(0, x), max(0, y), min(image.width, x + w), min(image.height, y + h))
             if box[2] > box[0] and box[3] > box[1]:
