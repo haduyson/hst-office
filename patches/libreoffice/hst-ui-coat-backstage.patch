@@ -1016,7 +1016,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      }
      return m_nNavWidth;
  }
-@@ -587,32 +513,75 @@ vcl::Font BackstageWindow::GetNavFont(const OutputDevice& rDevice) const
+@@ -587,32 +513,78 @@ vcl::Font BackstageWindow::GetNavFont(const OutputDevice& rDevice) const
      return aFont;
  }
  
@@ -1068,6 +1068,9 @@ LicenseRef-HST-Proprietary like the coat's other files.
 +        if (Application::GetToolkitName().startsWith("gtk"))
 +        {
 +            rItem.xButton->set_image(xDev.get());
++            // GTK 3 rebuilds the button's child from its label property, which still holds the .ui's
++            // label (the accessible name, set at start): its text is emptied again
++            rItem.xButton->set_label(OUString());
 +            m_nNavChrome = std::max<tools::Long>(0, rItem.xButton->get_preferred_size().Height() - nHeight);
 +        }
 +        else
@@ -1101,7 +1104,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      else if (!rItem.aIcon.GetSizePixel().IsEmpty())
      {
          const Size aIcon(rItem.aIcon.GetSizePixel());
-@@ -626,7 +595,6 @@ void BackstageWindow::PaintNavItem(size_t nIndex)
+@@ -626,7 +598,6 @@ void BackstageWindow::PaintNavItem(size_t nIndex)
      xDev->SetTextColor(aText);
      const tools::Long nTextY = (nHeight - xDev->GetTextHeight()) / 2;
      xDev->DrawText(Point(Scaled(NAV_TEXT_INDENT), nTextY), rItem.aText);
@@ -1109,7 +1112,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      rItem.xButton->set_custom_button(xDev.get());
  }
  
-@@ -640,6 +608,26 @@ IMPL_LINK(BackstageWindow::NavHover, MouseHdl, const MouseEvent&, rMEvt, bool)
+@@ -640,6 +611,26 @@ IMPL_LINK(BackstageWindow::NavHover, MouseHdl, const MouseEvent&, rMEvt, bool)
      return false;
  }
  
@@ -1136,7 +1139,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
  void BackstageWindow::SetNavHover(int nIndex)
  {
      if (nIndex == m_nHoverNav)
-@@ -666,22 +654,23 @@ void BackstageWindow::PaintNavItems()
+@@ -666,22 +657,23 @@ void BackstageWindow::PaintNavItems()
  
  void BackstageWindow::ApplyColors()
  {
@@ -1175,7 +1178,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      for (NavItem& rItem : m_aNav)
          if (rItem.aId != "navhome")
              rItem.aIcon = vcl::CommandInfoProvider::GetImageForCommand(lcl_navIconCommand(rItem.aId), m_xFrame);
-@@ -690,14 +679,19 @@ void BackstageWindow::ApplyColors()
+@@ -690,14 +682,19 @@ void BackstageWindow::ApplyColors()
      vcl::Font aTitle(rStyle.GetLabelFont());
      aTitle.SetFontHeight(aTitle.GetFontHeight() * 1.6);
      aTitle.SetWeight(WEIGHT_SEMIBOLD);
@@ -1196,7 +1199,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
          m_aTitles[i]->set_font(aFont);
      }
      for (TemplateTile& rTile : m_aTiles)
-@@ -708,8 +702,13 @@ void BackstageWindow::ApplyColors()
+@@ -708,8 +705,13 @@ void BackstageWindow::ApplyColors()
  void BackstageWindow::PaintTile(TemplateTile& rTile)
  {
      ScopedVclPtr<VirtualDevice> xDev = rTile.xButton->create_virtual_device();
@@ -1211,7 +1214,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
  }
  
  void BackstageWindow::InitHomePage()
-@@ -944,15 +943,21 @@ public:
+@@ -944,15 +946,21 @@ public:
          Invalidate();
      }
  
@@ -1237,7 +1240,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
          rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR | vcl::PushFlags::FONT
                    | vcl::PushFlags::TEXTCOLOR);
          rDev.SetLineColor();
-@@ -960,9 +965,16 @@ public:
+@@ -960,9 +968,16 @@ public:
          rDev.DrawRect(tools::Rectangle(Point(), aOut));
          // the back button: a ring with a left arrow, the accent ring while hovered
          const tools::Rectangle aButton = ButtonRect();
@@ -1257,7 +1260,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
          const Point aCenter = aButton.Center();
          const tools::Long nArm = std::lround(6 * fDpi), nHead = std::lround(4 * fDpi);
          const LineInfo aLine(LineStyle::Solid, std::max<tools::Long>(1, std::lround(1.5 * fDpi)));
-@@ -975,7 +987,12 @@ public:
+@@ -975,7 +990,12 @@ public:
          vcl::Font aTitleFont(rStyle.GetLabelFont());
          aTitleFont.SetFontHeight(aTitleFont.GetFontHeight() * 1.6);
          aTitleFont.SetWeight(WEIGHT_SEMIBOLD);
@@ -1271,7 +1274,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
          rDev.SetFont(aTitleFont);
          const tools::Long nTitle = rDev.GetTextHeight();
          rDev.SetFont(aSubFont);
-@@ -1036,6 +1053,7 @@ private:
+@@ -1036,6 +1056,7 @@ private:
      DECL_LINK(ParentEventHdl, VclWindowEvent&, void);
  
      std::function<void()> m_aBack;
@@ -1279,7 +1282,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      OUString m_aGreeting;
      OUString m_aSubtitle;
      bool m_bHover = false;
-@@ -1153,6 +1171,7 @@ void BackstageWindow::ShowTitleBand(bool bShow)
+@@ -1153,6 +1174,7 @@ void BackstageWindow::ShowTitleBand(bool bShow)
      }
      const OUString aSubtitle = aFile.isEmpty() || aTitle.isEmpty() ? OUString(aFile + aTitle)
                                                                      : OUString(aFile + u" · " + aTitle);
@@ -1287,7 +1290,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      m_xTitleBand->SetPosSizePixel(Point(0, nTop), Size(nRight, nBottom - nTop));
      m_xTitleBand->SetTexts(m_xGreeting->get_label(), aSubtitle);
      m_xTitleBand->SetZOrder(nullptr, ZOrderFlags::First); // above the tab page and the ribbon's other children
-@@ -1293,6 +1312,12 @@ bool BackstageWindow::Place()
+@@ -1293,6 +1315,12 @@ bool BackstageWindow::Place()
          return false;
      const Point aPos
          = pClient->AbsoluteScreenToOutputPixel(pOrigin->OutputToAbsoluteScreenPixel(aAnchor.TopLeft()));
@@ -1300,7 +1303,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      m_xPanel->set_size_request(aSize.Width(), aSize.Height());
      m_xHost->InvalidateChildSizeCache();
      const Size aWant = m_xHost->GetOptimalSize();
-@@ -1365,6 +1390,7 @@ void BackstageWindow::Close()
+@@ -1365,6 +1393,7 @@ void BackstageWindow::Close()
      if (!m_bOpen)
          return;
      m_bOpen = false;
