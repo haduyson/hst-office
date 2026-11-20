@@ -30,8 +30,8 @@ class Gtk3BoxesFitRowsTest(unittest.TestCase):
         selectors, _, body = css.partition("{")
         for selector in selectors.split(","):
             self.assertTrue(selector.strip().startswith(".hst-ribbon-row "), selector)
-        for widget in ("combobox *.combo", "box#combobox *.combo", "entry", "spinbutton", "spinbutton entry",
-                       "spinbutton button"):
+        for widget in ("combobox *.combo", "box#combobox *.combo", "button", "entry", "spinbutton",
+                       "spinbutton entry"):
             self.assertIn(f".hst-ribbon-row {widget}", selectors)
         self.assertIn("padding-top: 0; padding-bottom: 0; min-height: 0;", body)
         self.assertNotIn("border", body)  # the frames stay
