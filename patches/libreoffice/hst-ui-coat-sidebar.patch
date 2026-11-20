@@ -5,13 +5,14 @@ HST Office: the sidebar's frame in the HST look (FrameCoat/Sidebar): tab bar, de
   the deck and panel contents and the highlight keep their colours.
 - gtk3: tabbar.ui, deck.ui and panel.ui give the frame boxes style classes (hst-sidebar-tabbar,
   hst-sidebar-deck-title, hst-sidebar-panel-title) and vcl/source/hst/coat/css/sidebar.cxx styles them:
-  the tab bar's surface and divider towards the deck, its buttons flat until hovered, the open deck on an
+  the tab bar's surface and a divider along both edges (the deck lies on either side as the sidebar is docked
+  right or left), its buttons flat until hovered, the open deck on an
   aPill pill (radius::Control) with the accent bar (aSelectedIndicator) along its leading edge, the focus
   mark kept, RTL mirrored; the divider under the deck title and above each panel title; the title bars'
   small buttons flat until hovered. Colours, radii and inset shadows only: no widget changes size.
 - VCL backends (Windows, macOS): TabBar paints the surface, the divider and the open deck's accent bar in
-  the margin left of its button (Theme::DrawHstTabBarFrame); Deck gives each panel title a tiled
-  background of the frame surface with the divider along its top. The tab buttons keep VCL's own look
+  the margin left of its button (Theme::DrawHstTabBarFrame); Deck gives the deck title (bottom) and each
+  panel title (top) a background of the frame surface with the divider as a one-line bitmap. The tab buttons keep VCL's own look
   until the ribbon's button painter offers a paint-only look (the ribbon's owner-draw also changes the
   button geometry, so it is not used here).
 - The deck's name is set in type::Title while the coat is on.
@@ -19,14 +20,14 @@ HST Office: the sidebar's frame in the HST look (FrameCoat/Sidebar): tab bar, de
   without sizes, the VCL tab bar frame and its indicator.
 
 diff --git a/include/sfx2/sidebar/Deck.hxx b/include/sfx2/sidebar/Deck.hxx
-index 3798cf6..5ea41de 100644
+index 3798cf6..d77185d 100644
 --- a/include/sfx2/sidebar/Deck.hxx
 +++ b/include/sfx2/sidebar/Deck.hxx
 @@ -78,6 +78,8 @@ public:
  
  private:
      void RequestLayoutInternal();
-+    /// HST Office: the frame divider above each panel title on the VCL backends (FrameCoat/Sidebar)
++    /// HST Office: the frame dividers of the deck and panel titles on the VCL backends (FrameCoat/Sidebar)
 +    void ApplyHstFrame();
  
  private:
@@ -45,7 +46,7 @@ index 166478c..fbecf7e 100644
      css::uno::Reference<css::frame::XFrame> mxFrame;
  
 diff --git a/include/sfx2/sidebar/Theme.hxx b/include/sfx2/sidebar/Theme.hxx
-index e59b2e8..8f75583 100644
+index e59b2e8..c61c1a6 100644
 --- a/include/sfx2/sidebar/Theme.hxx
 +++ b/include/sfx2/sidebar/Theme.hxx
 @@ -28,6 +28,11 @@
@@ -60,12 +61,13 @@ index e59b2e8..8f75583 100644
  
  namespace sfx2::sidebar {
  
-@@ -83,6 +88,20 @@ public:
+@@ -83,6 +88,21 @@ public:
  
      static bool IsHighContrastMode();
  
 +    /** HST Office: the sidebar tab bar's frame in the sidebar's coat (FrameCoat/Sidebar) on the VCL backends,
-+        drawn under its buttons: the frame surface, the divider along the edge towards the deck and,
++        drawn under its buttons: the frame surface, a divider along both edges (the deck lies on
++        either side, as the sidebar is docked right or left) and,
 +        in the margin left of the open deck's button rChecked (empty: none open), the accent bar over
 +        the middle half of its height. Returns false and draws nothing when the coat is off or in high
 +        contrast. On gtk3 the tab bar's CSS (vcl/source/hst/coat/css/sidebar.cxx) draws the frame. */
@@ -180,10 +182,10 @@ index b29431c..422544c 100644
  } // end of namespace sfx2::sidebar
 diff --git a/sfx2/qa/cppunit/hstsidebarcoat.cxx b/sfx2/qa/cppunit/hstsidebarcoat.cxx
 new file mode 100644
-index 0000000..e254509
+index 0000000..e4b4f25
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hstsidebarcoat.cxx
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,209 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -211,7 +213,7 @@ index 0000000..e254509
 +
 +#include <hst/coat.hxx>
 +
-+#include <cstdlib>
++#include <osl/process.h>
 +
 +using sfx2::sidebar::Theme;
 +
@@ -231,13 +233,13 @@ index 0000000..e254509
 +    void setUp() override
 +    {
 +        test::BootstrapFixture::setUp();
-+        unsetenv("HST_UI_COAT");
++        osl_clearEnvironment(u"HST_UI_COAT"_ustr.pData);
 +        setSwitches(true, true);
 +    }
 +
 +    void tearDown() override
 +    {
-+        unsetenv("HST_UI_COAT"); // a test that set it may have stopped at a failed assertion
++        osl_clearEnvironment(u"HST_UI_COAT"_ustr.pData); // a test that set it may have stopped at a failed assertion
 +        setSwitches(true, true);
 +        test::BootstrapFixture::tearDown();
 +    }
@@ -319,12 +321,13 @@ index 0000000..e254509
 +    for (Theme::ThemeItem eItem : FRAME_KEYS)
 +        CPPUNIT_ASSERT_EQUAL(DEFAULT, Theme::GetHstFrameColor(eItem, DEFAULT, style(false)));
 +    setSwitches(true, true);
-+    setenv("HST_UI_COAT", "0", 1);
++    osl_setEnvironment(u"HST_UI_COAT"_ustr.pData, u"0"_ustr.pData);
 +    hst::coat::ResetSwitchForTesting();
 +    for (Theme::ThemeItem eItem : FRAME_KEYS)
 +        CPPUNIT_ASSERT_EQUAL(DEFAULT, Theme::GetHstFrameColor(eItem, DEFAULT, style(false)));
 +}
 +
++#if defined LINUX // CreateGtkCss is exported for the gtk plugins only
 +/* The GTK CSS: the open deck's pill and accent bar, the dividers, and no size of any kind. */
 +CPPUNIT_TEST_FIXTURE(SidebarCoatTest, testGtkCssStylesTheFrameWithoutSizes)
 +{
@@ -337,7 +340,11 @@ index 0000000..e254509
 +        CPPUNIT_ASSERT(aCss.indexOf(".hst-sidebar-panel-title") >= 0);
 +        CPPUNIT_ASSERT(aCss.indexOf("button:checked") >= 0);
 +        CPPUNIT_ASSERT(aCss.indexOf(hex(p.aPill)) >= 0);
-+        CPPUNIT_ASSERT(aCss.indexOf(hex(p.aSelectedIndicator)) >= 0);
++        // the accent bar on the open deck's pill
++        CPPUNIT_ASSERT(aCss.indexOf(OString("toolbar button:checked { background-color: " + hex(p.aPill)
++                                            + "; box-shadow: inset 2px 0 0 0 "
++                                            + hex(p.aSelectedIndicator)))
++                       >= 0);
 +        CPPUNIT_ASSERT(aCss.indexOf(hex(p.aFrameDivider)) >= 0);
 +        CPPUNIT_ASSERT(aCss.indexOf(hex(p.aHover)) >= 0);
 +        for (const char* pMetric : { "padding", "margin", "min-height", "min-width", "border-width",
@@ -347,6 +354,7 @@ index 0000000..e254509
 +    setSwitches(true, false);
 +    CPPUNIT_ASSERT(sidebarCss(false).isEmpty());
 +}
++#endif
 +
 +/* The tab bar's frame on the VCL backends: the surface, the divider along the edge towards the deck
 +   and, left of the open deck's button, the accent bar over the middle of its height; nothing over the
@@ -367,6 +375,7 @@ index 0000000..e254509
 +        const tools::Rectangle aChecked(Point(4, 40), Size(32, 32));
 +        CPPUNIT_ASSERT(Theme::DrawHstTabBarFrame(*pDev, Size(40, 120), aChecked));
 +        CPPUNIT_ASSERT_EQUAL(p.aFrameDivider, pDev->GetPixel(Point(0, 5)));
++        CPPUNIT_ASSERT_EQUAL(p.aFrameDivider, pDev->GetPixel(Point(39, 5)));
 +        CPPUNIT_ASSERT_EQUAL(p.aFrameSurface, pDev->GetPixel(Point(20, 5)));
 +        CPPUNIT_ASSERT_EQUAL(p.aFrameSurface, pDev->GetPixel(Point(20, 56))); // under the button
 +        CPPUNIT_ASSERT_EQUAL(p.aSelectedIndicator, pDev->GetPixel(Point(2, 56)));
@@ -387,7 +396,7 @@ index 0000000..e254509
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/sidebar/Deck.cxx b/sfx2/source/sidebar/Deck.cxx
-index 72fe04c..c0c3dd0 100644
+index 72fe04c..ba057ac 100644
 --- a/sfx2/source/sidebar/Deck.cxx
 +++ b/sfx2/source/sidebar/Deck.cxx
 @@ -18,6 +18,7 @@
@@ -410,26 +419,37 @@ index 72fe04c..c0c3dd0 100644
  #include <vcl/weld/ScrolledWindow.hxx>
  #include <comphelper/lok.hxx>
  #include <tools/json_writer.hxx>
-@@ -38,6 +44,48 @@ using namespace css;
+@@ -38,6 +44,55 @@ using namespace css;
  
  namespace sfx2::sidebar {
  
 +namespace
 +{
-+/** HST Office, VCL backends: the panel title bars (panel.ui's "titlebar" boxes) under this window get
-+    a background of the frame surface with the frame's divider along their top, as one tiled bitmap
-+    taller than any title bar, so the line takes no space. On gtk3 the native title bars are not VCL
-+    windows and their CSS draws the line (vcl/source/hst/coat/css/sidebar.cxx). */
-+void ApplyHstPanelTitleDividers(vcl::Window& rWindow, const Wallpaper& rWallpaper)
++/** HST Office, VCL backends: the title bars (deck.ui's and panel.ui's "titlebar" boxes) under rWindow
++    get a background of the frame surface with the frame's divider drawn as a wide one-line bitmap
++    along the deck title's bottom and each panel title's top, so the lines take no space. On gtk3 the
++    native title bars are not VCL windows and their CSS draws the lines
++    (vcl/source/hst/coat/css/sidebar.cxx). */
++void ApplyHstTitleDividers(vcl::Window& rWindow, const Wallpaper& rDeckTitle, const Wallpaper& rPanelTitle)
 +{
 +    for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
 +         pChild = pChild->GetWindow(GetWindowType::Next))
 +    {
 +        if (pChild->get_id() == "titlebar" && rWindow.get_id() == "Panel")
-+            pChild->SetBackground(rWallpaper);
++            pChild->SetBackground(rPanelTitle);
++        else if (pChild->get_id() == "titlebar" && rWindow.get_id() == "Deck")
++            pChild->SetBackground(rDeckTitle);
 +        else
-+            ApplyHstPanelTitleDividers(*pChild, rWallpaper);
++            ApplyHstTitleDividers(*pChild, rDeckTitle, rPanelTitle);
 +    }
++}
++
++Wallpaper HstTitleWallpaper(const Color& rSurface, const Bitmap& rLine, WallpaperStyle eSide)
++{
++    Wallpaper aWallpaper(rLine);
++    aWallpaper.SetColor(rSurface);
++    aWallpaper.SetStyle(eSide);
++    return aWallpaper;
 +}
 +}
 +
@@ -440,26 +460,22 @@ index 72fe04c..c0c3dd0 100644
 +        return; // the title bars keep the theme's colour, set by TitleBar
 +    const hst::design::Palette& rPalette = hst::design::GetPalette(rStyle);
 +    const double fScale = std::max(1.0, double(GetDPIScaleFactor()));
-+    const tools::Long nLine
-+        = std::max<tools::Long>(1, std::lround(hst::design::size::FrameDivider * fScale));
-+    const Size aTile(8, std::lround(256 * fScale));
-+    ScopedVclPtrInstance<VirtualDevice> pTile;
-+    pTile->SetOutputSizePixel(aTile);
-+    pTile->SetLineColor();
-+    pTile->SetFillColor(rPalette.aFrameSurface);
-+    pTile->DrawRect(tools::Rectangle(Point(0, 0), aTile));
-+    pTile->SetFillColor(rPalette.aFrameDivider);
-+    pTile->DrawRect(tools::Rectangle(Point(0, 0), Size(aTile.Width(), nLine)));
-+    Wallpaper aWallpaper(pTile->GetBitmap(Point(0, 0), aTile));
-+    aWallpaper.SetColor(rPalette.aFrameSurface);
-+    aWallpaper.SetStyle(WallpaperStyle::Tile);
-+    ApplyHstPanelTitleDividers(*this, aWallpaper);
++    // wider than any sidebar; centred by the wallpaper's Top/Bottom style
++    const Size aLine(8192, std::max<tools::Long>(
++                               1, std::lround(hst::design::size::FrameDivider * fScale)));
++    ScopedVclPtrInstance<VirtualDevice> pLine;
++    pLine->SetOutputSizePixel(aLine);
++    pLine->SetBackground(Wallpaper(rPalette.aFrameDivider));
++    pLine->Erase();
++    const Bitmap aBitmap(pLine->GetBitmap(Point(0, 0), aLine));
++    ApplyHstTitleDividers(*this, HstTitleWallpaper(rPalette.aFrameSurface, aBitmap, WallpaperStyle::Bottom),
++                          HstTitleWallpaper(rPalette.aFrameSurface, aBitmap, WallpaperStyle::Top));
 +}
 +
  Deck::Deck(const DeckDescriptor& rDeckDescriptor, SidebarDockingWindow* pParentWindow,
             const std::function<void()>& rCloserAction)
      : InterimItemWindow(pParentWindow, u"sfx/ui/deck.ui"_ustr, u"Deck"_ustr)
-@@ -120,6 +168,7 @@ void Deck::DataChanged(const DataChangedEvent&)
+@@ -120,6 +175,7 @@ void Deck::DataChanged(const DataChangedEvent&)
          rpPanel->DataChanged();
  
      RequestLayoutInternal();
@@ -467,7 +483,7 @@ index 72fe04c..c0c3dd0 100644
  }
  
  /**
-@@ -148,6 +197,7 @@ void Deck::ResetPanels(SharedPanelContainer&& rPanelContainer)
+@@ -148,6 +204,7 @@ void Deck::ResetPanels(SharedPanelContainer&& rPanelContainer)
      maPanels.insert(std::end(maPanels), std::begin(aHiddens), std::end(aHiddens));
  
      RequestLayoutInternal();
@@ -576,7 +592,7 @@ index f07ddfe..77ae1f9 100644
          rDeckDescriptor.msIconURL,
          rDeckDescriptor.msHighContrastIconURL,
 diff --git a/sfx2/source/sidebar/Theme.cxx b/sfx2/source/sidebar/Theme.cxx
-index ad73aa6..112ce43 100644
+index ad73aa6..95e4dd4 100644
 --- a/sfx2/source/sidebar/Theme.cxx
 +++ b/sfx2/source/sidebar/Theme.cxx
 @@ -22,9 +22,15 @@
@@ -595,7 +611,7 @@ index ad73aa6..112ce43 100644
  using namespace css;
  using namespace css::uno;
  
-@@ -68,6 +74,53 @@ sal_Int32 Theme::GetInteger (const ThemeItem eItem)
+@@ -68,6 +74,54 @@ sal_Int32 Theme::GetInteger (const ThemeItem eItem)
      return rTheme.maIntegers[nIndex];
  }
  
@@ -629,6 +645,7 @@ index ad73aa6..112ce43 100644
 +    const tools::Long nLine = std::max<tools::Long>(1, std::lround(d::size::FrameDivider * fScale));
 +    rDev.SetFillColor(rPalette.aFrameDivider);
 +    rDev.DrawRect(tools::Rectangle(Point(0, 0), Size(nLine, rSize.Height())));
++    rDev.DrawRect(tools::Rectangle(Point(rSize.Width() - nLine, 0), Size(nLine, rSize.Height())));
 +    if (!rChecked.IsEmpty())
 +    {
 +        // in the margin between the edge and the button, never over the button
@@ -649,7 +666,7 @@ index ad73aa6..112ce43 100644
  bool Theme::IsHighContrastMode()
  {
      const Theme& rTheme (GetCurrentTheme());
-@@ -111,9 +164,10 @@ void Theme::UpdateTheme()
+@@ -111,9 +165,10 @@ void Theme::UpdateTheme()
              maPropertyIdToNameMap[Color_DeckBackground],
              Any(sal_Int32(aBaseBackgroundColor.GetRGBColor())));
  
@@ -661,7 +678,7 @@ index ad73aa6..112ce43 100644
          setPropertyValue(
              maPropertyIdToNameMap[Int_DeckSeparatorHeight],
              Any(sal_Int32(1)));
-@@ -123,10 +177,10 @@ void Theme::UpdateTheme()
+@@ -123,10 +178,10 @@ void Theme::UpdateTheme()
  
          setPropertyValue(
              maPropertyIdToNameMap[Color_PanelTitleBarBackground],
@@ -716,10 +733,10 @@ index ffc5571..08e8aeb 100644
    </object>
  </interface>
 diff --git a/vcl/source/hst/coat/css/sidebar.cxx b/vcl/source/hst/coat/css/sidebar.cxx
-index cd69420..7fe4b51 100644
+index cd69420..03dad03 100644
 --- a/vcl/source/hst/coat/css/sidebar.cxx
 +++ b/vcl/source/hst/coat/css/sidebar.cxx
-@@ -5,17 +5,98 @@
+@@ -5,17 +5,101 @@
   * This file is part of HST Office.
   */
  
@@ -727,8 +744,8 @@ index cd69420..7fe4b51 100644
 +/* The GTK CSS of the sidebar's frame in the HST look (css-fragments.hxx): the tab bar, the deck's title
 +   and the panels' titles, found by the style classes their .ui files give them (sfx2/uiconfig/ui/
 +   tabbar.ui, deck.ui, panel.ui). Their backgrounds come from the sidebar's theme (sfx2 Theme: the frame
-+   surface while FrameCoat/Sidebar is on), set on each widget. Here: the tab bar's divider towards the
-+   deck, its buttons (hover, the open deck's pill and its accent bar, the keyboard focus), the title
++   surface while FrameCoat/Sidebar is on), set on each widget. Here: the tab bar's dividers along its
++   edges, its buttons (hover, the open deck's pill and its accent bar, the keyboard focus), the title
 +   bars' small buttons and the dividers under the deck title and above each panel title. Lines are
 +   inset shadows, so no widget changes size. The VCL backends draw the surfaces and dividers in
 +   sfx2/source/sidebar/{TabBar,Deck}.cxx; their tab buttons keep VCL's look (see TabBar::DrawHstFrame). */
@@ -761,10 +778,10 @@ index cd69420..7fe4b51 100644
 +
 +    OUStringBuffer aCss(2048);
 +    // the tab bar: the frame surface, a divider towards the deck; its tool bars show the bar's surface
++    // the tab bar: the frame surface and a divider along both edges, so the deck side has one whether
++    // the sidebar is docked right (deck left of the bar) or left (deck right of it)
 +    aCss.append(u".hst-sidebar-tabbar { background-color: " + hex(p.aFrameSurface)
-+                + u"; box-shadow: inset " + aLine + u" 0 " + hex(p.aFrameDivider)
-+                + u"; }\n"
-+                  u".hst-sidebar-tabbar:dir(rtl) { box-shadow: inset -"
++                + u"; box-shadow: inset " + aLine + u" 0 " + hex(p.aFrameDivider) + u", inset -"
 +                + aLine + u" 0 " + hex(p.aFrameDivider)
 +                + u"; }\n"
 +                  u".hst-sidebar-tabbar toolbar { background-color: transparent; "
@@ -786,6 +803,9 @@ index cd69420..7fe4b51 100644
 +                + u"; }\n"
 +                  u".hst-sidebar-tabbar toolbar button:checked { background-color: "
 +                + hex(p.aPill) + u"; box-shadow: inset " + aBar
++                + u"; }\n"
++                  u".hst-sidebar-tabbar toolbar button:checked:active { background-color: "
++                + hex(p.aPressed)
 +                + u"; }\n"
 +                  u".hst-sidebar-tabbar toolbar button:checked:dir(rtl) { box-shadow: inset -"
 +                + aBar
