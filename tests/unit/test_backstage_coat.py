@@ -36,15 +36,25 @@ class LeftColumn(unittest.TestCase):
         self.assertIn("NAV_ITEM_GAP = 4;", header)
 
     def test_ids_names_and_keys_unchanged(self):
-        ui_removed = removed(PATCH, UI)
-        self.assertNotIn('id="nav', ui_removed)
-        self.assertNotIn("translatable", ui_removed)
-        self.assertNotIn("can-focus", ui_removed)
+        # the Info buttons move into two rows (re-indented): every id, label and focus line stays, word for word
+        kept = [line.strip() for line in added(PATCH, UI).splitlines()]
+        for line in removed(PATCH, UI).splitlines():
+            if re.search(r'id="|translatable|can-focus|"label"', line):
+                with self.subTest(line=line.strip()):
+                    self.assertIn(line.strip(), kept)
         window_removed = removed(PATCH, WINDOW)
         for kept in ("set_accessible_name(aItem.aText)", "connect_clicked", "grab_focus", "KEY_UP", "KEY_DOWN",
                      "CloseAndDispatch(u\".uno:"):
             with self.subTest(kept=kept):
                 self.assertNotIn(kept, window_removed)
+
+    def test_info_buttons_wrap_onto_two_rows(self):
+        # one row cut "Tài liệu chưa lưu" and hid "Cập nhật HST Office" in a 1040 px window at 125 %
+        ui = added(PATCH, UI)
+        self.assertIn('<property name="orientation">vertical</property>', ui)
+        row1, row2 = ui.index('id="inforow1"'), ui.index('id="inforow2"')
+        self.assertTrue(row1 < ui.index('id="infoversions"') < row2 < ui.index('id="infounsaved"')
+                        < ui.index('id="infoupdate"') < ui.index('id="infoupdatenote"'))
 
     def test_pill_focus_ring_and_side_panel_from_the_helpers(self):
         coat = added(PATCH, COAT)
