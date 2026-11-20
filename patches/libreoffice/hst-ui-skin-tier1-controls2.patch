@@ -763,7 +763,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-groups-tooltips.cxx
-@@ -0,0 +1,84 @@
+@@ -0,0 +1,87 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -796,6 +796,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +{
 +bool PaintTooltip(const PaintContext& rCtx, ControlPart ePart)
 +{
++    return false; // red: the tests come first
 +    if (ePart != ControlPart::Entire)
 +        return false;
 +    FillAndStroke(rCtx, rCtx.aRect, 0, rCtx.rPalette.aMenuSurface, rCtx.rPalette.aMenuBorder,
@@ -806,6 +807,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +bool DrawScrolledWindowBorder(OutputDevice& rDev, const tools::Rectangle& rRect,
 +                              tools::Long nBorderWidth)
 +{
++    return false; // red: the tests come first
 +    // not while recording a metafile: its replay would map the device pixels again
 +    if (nBorderWidth <= 0 || rRect.IsEmpty() || rDev.GetConnectMetaFile() || !DrawsOn(rDev))
 +        return false;
@@ -823,6 +825,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +bool DrawSeparatorLine(OutputDevice& rDev, const Point& rStart, const Point& rStop,
 +                       bool bVertical)
 +{
++    return false; // red: the tests come first
 +    const vcl::Window* pWindow = rDev.GetOwnerWindow();
 +    if (!pWindow || pWindow->GetType() != WindowType::FIXEDLINE || rDev.GetConnectMetaFile()
 +        || !DrawsOn(rDev))
@@ -850,7 +853,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-gtk-css-lists-menus.cxx
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,118 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -882,6 +885,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +
 +OUString ListsRangesMenusCss(const hst::design::Palette& p)
 +{
++    return OUString(); // red: the tests come first
 +    namespace d = hst::design;
 +    const RowSelection aSelection = RowSelectionColours(p);
 +    OUStringBuffer aCss(2048);
@@ -989,7 +993,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
          if (FrameCoatEnabled(rFragment.eComponent))
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-lists.cxx
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,97 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1039,6 +1043,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +
 +bool PaintListNode(const PaintContext& rCtx, ControlPart ePart, ButtonValue eValue)
 +{
++    return false; // red: the tests come first
 +    if (ePart != ControlPart::Entire)
 +        return false;
 +    const auto& p = rCtx.rPalette;
@@ -1056,6 +1061,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +bool DrawListSelection(OutputDevice& rDev, const tools::Rectangle& rRect, const Color& rFill,
 +                       const Color& rText, bool bRoundStart, bool bRoundEnd)
 +{
++    return false; // red: the tests come first
 +    // not while recording a metafile: its replay would map the device pixels again
 +    if (rRect.IsEmpty() || rFill == COL_TRANSPARENT || rDev.GetConnectMetaFile() || !DrawsOn(rDev))
 +        return false;
@@ -1087,7 +1093,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-menus.cxx
-@@ -0,0 +1,151 @@
+@@ -0,0 +1,152 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1175,6 +1181,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +
 +bool PaintMenu(const PaintContext& rCtx, ControlPart ePart, const ImplControlValue& /*rValue*/)
 +{
++    return false; // red: the tests come first
 +    const auto& p = rCtx.rPalette;
 +    switch (ePart)
 +    {
@@ -1333,7 +1340,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-ranges.cxx
-@@ -0,0 +1,105 @@
+@@ -0,0 +1,107 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1360,6 +1367,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +{
 +bool PaintSlider(const PaintContext& rCtx, ControlPart ePart, const ImplControlValue& /*rValue*/)
 +{
++    return false; // red: the tests come first
 +    const bool bHorizontal = ePart == ControlPart::TrackHorzArea;
 +    if (!bHorizontal && ePart != ControlPart::TrackVertArea)
 +        return false;
@@ -1424,6 +1432,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +
 +bool PaintProgress(const PaintContext& rCtx, ControlPart ePart, const ImplControlValue& /*rValue*/)
 +{
++    return false; // red: the tests come first
 +    if (ePart != ControlPart::Entire)
 +        return false;
 +    const auto& p = rCtx.rPalette;
@@ -1552,7 +1561,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
          case ControlType::Scrollbar:
              switch (ePart)
              {
-@@ -120,10 +139,89 @@ bool paint(const PaintContext& rCtx, ControlType eType, ControlPart ePart,
+@@ -120,10 +139,90 @@ bool paint(const PaintContext& rCtx, ControlType eType, ControlPart ePart,
              return PaintTab(rCtx, eType, ePart, rValue);
          case ControlType::Scrollbar:
              return PaintScrollBar(rCtx, ePart);
@@ -1620,6 +1629,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +
 +bool ClaimsNativeControl(const OutputDevice& rDev, ControlType eType, ControlPart ePart)
 +{
++    return false; // red: the tests come first
 +    // Parts the platform may not draw although VCL would let it: the coat draws them in their place.
 +    // Claiming changes no size: VCL measures them itself when the platform gives no region.
 +    bool bClaimed = false;
@@ -1642,7 +1652,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  }
  
  bool IsSwitchedOn()
-@@ -146,6 +244,26 @@ void ForceForTesting(bool bForce) { g_bForced.store(bForce, std::memory_order_re
+@@ -146,6 +245,26 @@ void ForceForTesting(bool bForce) { g_bForced.store(bForce, std::memory_order_re
  
  void ResetSwitchForTesting() { g_nSwitch.store(0, std::memory_order_relaxed); }
  
@@ -1669,7 +1679,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
                         const tools::Rectangle& rRegion, ControlState eState,
                         const ImplControlValue& rValue, const Color& rBackground)
-@@ -160,7 +278,7 @@ bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
+@@ -160,7 +279,7 @@ bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
          return false;
  
      PaintContext aCtx{ rDev,
@@ -1678,7 +1688,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
                         rStyle,
                         std::max(1.0, double(rDev.GetDPIScaleFactor())),
                         eState,
-@@ -176,21 +294,27 @@ bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
+@@ -176,21 +295,27 @@ bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
          aCtx.eUpperState = rSpin.mnUpperState;
          aCtx.eLowerState = rSpin.mnLowerState;
      }
