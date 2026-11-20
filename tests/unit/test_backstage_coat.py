@@ -55,6 +55,16 @@ class LeftColumn(unittest.TestCase):
 
 
 class Colours(unittest.TestCase):
+    def test_home_and_extension_buttons_take_the_theme_images(self):
+        # phase 08 ships Home as hst-frame/16/home.svg and the four File-tab commands Colibre lacks as cmd/ icons
+        header, window = added(PATCH, COAT_HEADER), added(PATCH, WINDOW)
+        self.assertIn('u"hst-frame/16/home.svg"_ustr', header)
+        self.assertIn("Image(StockImage::Yes, NAV_HOME_GLYPH)", window)
+        self.assertIn('rItem.aId == "navhome" && rItem.aIcon.GetSizePixel().IsEmpty()', window)  # drawn house without it
+        for command in ("SetupUsbToken", "PreviousVersions", "UnsavedDocuments", "ToggleDuplex"):
+            self.assertIn(f'u"org.hst.office.vi:{command}"', window)
+        self.assertIn("set_from_icon_name(m_aColors.bCoat ? CoatCommandImageName(aCommand) : OUString())", window)
+
     def test_no_colour_literal_outside_the_earlier_look(self):
         for path in sections(PATCH):
             if path == LEGACY or not path.startswith(("sfx2/source/backstage/", "sfx2/inc/backstage/", CSS)):
