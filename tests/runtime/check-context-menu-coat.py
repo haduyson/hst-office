@@ -30,6 +30,7 @@ import os
 import statistics
 import subprocess
 import sys
+import threading
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -95,7 +96,10 @@ def toggle_ribbon_popup(doc, names):
                 continue
             actions = [context.getAccessibleActionDescription(i) for i in range(context.getAccessibleActionCount())]
             if "togglePopup" in actions:
-                return context.doAccessibleAction(actions.index("togglePopup"))
+                # the drop-down's menu runs its own modal loop: the call returns when the menu closes
+                index = actions.index("togglePopup")
+                threading.Thread(target=context.doAccessibleAction, args=(index,), daemon=True).start()
+                return True
         except Exception:  # noqa: BLE001 - a node disposed while we looked, or no actions
             continue
     return False
@@ -118,6 +122,11 @@ def prepare(office, case, doc, work):
     controller = doc.getCurrentController()
     if case.startswith("writer") or case == "ribbon-dropdown":
         doc.getText().setString(TEXT)
+    if case == "ribbon-dropdown":  # something on the clipboard, so the Paste drop-down lists its formats
+        frame = controller.getFrame()
+        office.dispatch(frame, ".uno:SelectAll")
+        office.dispatch(frame, ".uno:Copy")
+        office.dispatch(frame, ".uno:GoToEndOfDoc")
     if case == "writer-table":
         table = doc.createInstance("com.sun.star.text.TextTable")
         table.initialize(3, 3)
