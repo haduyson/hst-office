@@ -122,7 +122,7 @@ class Keys:
     def focus(self):
         title = self.frame.Title
         if WINDOWS:
-            hwnd = window_of(set(office_pids(self.office.profile)), title)
+            hwnd = window_of(set(office_pids(self.office.profile)), title.split(".")[0])
             return bool(hwnd) and activate(hwnd)
         env = dict(os.environ, DISPLAY=self.office.display)
         found = []
