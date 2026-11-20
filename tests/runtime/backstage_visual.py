@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Pixel checks of check-backstage-flows.py on screenshots of the File panel."""
 import os
+import re
 import subprocess
 import time
 
@@ -32,3 +33,38 @@ def check_hover(office, frame, out):
     time.sleep(0.6)
     hst_gui.screenshot(before, display)
     gui.record("the hover ends when the pointer leaves", pixel(before, point) == colours[0])
+
+
+# the left column in the HST frame coat (hst-ui-coat-backstage.patch): the design tokens' pill and side panel
+COAT_PILL = {False: (0xD5, 0xE5, 0xFA), True: (0x26, 0x3B, 0x5E)}
+COAT_SIDE = {False: (0xEA, 0xF2, 0xFD), True: (0x18, 0x21, 0x30)}
+
+
+def rgb(text):
+    values = re.findall(r"\d+(?:\.\d+)?", text)
+    return tuple(round(float(v)) for v in values[:3]) if len(values) >= 3 else None
+
+
+def near(colour, expected, tolerance=2):
+    return colour is not None and all(abs(a - b) <= tolerance for a, b in zip(colour, expected))
+
+
+def check_coat_pill(office, frame, out, dark):
+    """The selected item (Home, on opening) is a pill of the token colour, an item that is neither selected nor
+    hovered shows the side panel. Skipped with the coat off (HST_UI_COAT=0)."""
+    if os.environ.get("HST_UI_COAT") == "0":
+        gui.record("coat pill (coat off: skipped)", True)
+        return
+    display = office.display
+    gui.reopen(office, frame)
+    gui.xdo(display, "mousemove", "800", "600")
+    time.sleep(0.6)
+    shot = os.path.join(out, "nav-coat.png")
+    hst_gui.screenshot(shot, display)
+    items = gui.view_items()
+    # 14 px in from the item's right edge: inside the pill (inset 8 px, 10 px at 125 %) past its focus ring
+    for name, expected, label in (("Trang chủ", COAT_PILL[dark], "the selected item is the token pill"),
+                                  ("Mới", COAT_SIDE[dark], "an item not selected shows the side panel")):
+        box = items[name].queryComponent().getExtents(0)
+        colour = rgb(pixel(shot, (box.x + box.width - 14, box.y + box.height // 2)))
+        gui.record(label, near(colour, expected), (name, colour, expected))

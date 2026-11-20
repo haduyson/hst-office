@@ -69,8 +69,9 @@ class Colours(unittest.TestCase):
         self.assertIn("d::radius::Card", css)
         self.assertIn(".hst-backstage-nav button", css)
         self.assertIn(".hst-backstage-card", css)
-        # colours, corners and focus marks only: no width, padding or margin
-        self.assertIsNone(re.search(r"\b(padding|margin|min-width|min-height|border-width)\b", css))
+        # colours, corners and focus marks; the one size is the left column's buttons, which the panel draws whole
+        sizes = re.findall(r'"([^"]*\b(?:padding|margin|min-width|min-height|border-width)\b[^"]*)"', css)
+        self.assertEqual(sizes, [".hst-backstage-nav button { padding: 0; border-width: 0; }\\n"])
 
     def test_cards_are_the_three_blocks(self):
         ui = added(PATCH, UI)
