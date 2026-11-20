@@ -10,10 +10,10 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
   divider along the top edge, and a rounded hover behind every item that does something on a single click
   in Writer, Sheets and Slides (saved state, signature, language, zoom percentage; page number, word
   count, accessibility check, page style, insert mode, selection mode; sheet position, page style; slide
-  number, slide layout, fit slide), not behind an item whose text is empty, repainted only when the item
-  under the mouse changes and cleared when the items move. A paint redraws only the items (and their
-  dividers) in the invalidated area, so a word count update repaints that item alone, not the zoom slider
-  beside it.
+  number, slide layout, fit slide), not behind a blank text item without a tip (its slot is off),
+  repainted only when the item under the mouse changes and cleared when the items move. A paint redraws
+  only the items (and their dividers) in the invalidated area, so a word count update repaints that item
+  alone, not the zoom slider beside it.
 - The zoom slider (svx/source/stbctrls/zoomsliderctrl.cxx): a groove of the scroll-track colour outlined
   with the frame divider, short marks for the snapping points, a longer 100 % mark in the text colour and
   a narrow upright accent pill for the thumb, all vector shapes at the window's scale. The decrease and
@@ -21,17 +21,20 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
   come with the icon set.
 - The signature item (svx/source/stbctrls/xmlsecctrl.cxx) no longer fills an unsigned document's item with
   the background in the HST look, so its hover shows.
+- The insert mode item (svx/source/stbctrls/insctrl.cxx) also clears its tip when its slot is off (Sheets
+  outside cell editing), where a click does nothing: no stale "click to change" tip, and no hover.
+  Writer's blank insert mode keeps its tip and its hover.
 - The drawing is in vcl/source/hst/coat/coat-statusbar.cxx behind <vcl/hst/statusbarcoat.hxx>: flat fills
   only, no gradient, no bitmap of its own.
 - CppunitTest_vcl_hst_statusbar_coat: the frame colours light and dark, the thin dividers, the hover on
-  clickable items only and not on empty ones, the list of clickable commands, the unchanged height and
-  item rectangles, the platform look in high contrast, for a dialog's bar and with the part switched off,
-  the zoom slider's shapes and thumb at 50/100/200 %, and no more item repaints with the coat than without
-  over 1,000 text updates.
+  clickable items only, on a blank one with a tip and not on one without, the list of clickable commands,
+  the unchanged height and item rectangles, the platform look in high contrast, for a dialog's bar and
+  with the part switched off, the zoom slider's shapes and thumb at 50/100/200 %, and no more item
+  repaints with the coat than without over 1,000 text updates.
 
 --- /dev/null
 +++ b/include/vcl/hst/statusbarcoat.hxx
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,86 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -70,8 +73,9 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +VCL_DLLPUBLIC bool StatusBarCoatActive(const vcl::Window& rBar);
 +
 +/** Whether a status bar item with this command does something on a single click (opens a dialog, a
-+    menu or a deck, toggles a mode, saves), in Writer, Sheets or Slides, so it shows a hover. An item
-+    whose text is empty (and that draws nothing of its own) shows none: the bar checks that. */
++    menu or a deck, toggles a mode, saves), in Writer, Sheets or Slides, so it shows a hover. A text
++    item with neither text nor tip (its slot is off, e.g. Sheets' insert mode outside cell editing)
++    shows none: the bar checks that. Writer's insert mode is blank too, but keeps its tip and acts. */
 +VCL_DLLPUBLIC bool IsStatusBarItemClickable(std::u16string_view aCommand);
 +
 +/** The background and text colour of the bar in the HST look, for rBar's theme. */
@@ -127,6 +131,21 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      virtual void        Paint( vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect ) override;
      virtual void        Resize() override;
      virtual void        RequestHelp( const HelpEvent& rHEvt ) override;
+--- a/svx/source/stbctrls/insctrl.cxx
++++ b/svx/source/stbctrls/insctrl.cxx
+@@ -45,7 +45,12 @@ void SvxInsertStatusBarControl::StateChangedAtStatusBarControl( sal_uInt16 , Sfx
+                                               const SfxPoolItem* pState )
+ {
+     if ( SfxItemState::DEFAULT != eState )
++    {
++        // off (e.g. Sheets outside cell editing): a click does nothing, so no stale "click to change" tip,
++        // and the status bar coat gives the blank item no hover
+         GetStatusBar().SetItemText( GetId(), u""_ustr );
++        GetStatusBar().SetQuickHelpText( GetId(), OUString() );
++    }
+     else
+     {
+         DBG_ASSERT( dynamic_cast<const SfxBoolItem*>( pState) !=  nullptr, "invalid item type" );
 --- a/svx/source/stbctrls/xmlsecctrl.cxx
 +++ b/svx/source/stbctrls/xmlsecctrl.cxx
 @@ -24,6 +24,7 @@
@@ -258,7 +277,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      CppunitTest_vcl_treeview \
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/statusbar-coat-test.cxx
-@@ -0,0 +1,399 @@
+@@ -0,0 +1,402 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -508,12 +527,15 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +    pShot = &shot(rBar);
 +    CPPUNIT_ASSERT_EQUAL(light().aFrameSurface, pixel(*pShot, aInZoom.X(), aInZoom.Y()));
 +
-+    // a clickable item with an empty text (e.g. Sheets' insert mode outside cell editing) does nothing
++    // a blank clickable item that keeps its tip still acts (Writer's insert mode): the hover
++    rBar.SetItemText(ITEM_LANGUAGE, OUString());
++    rBar.SetQuickHelpText(ITEM_LANGUAGE, u"Chế độ chèn. Bấm để đổi sang chế độ ghi đè."_ustr);
 +    hover(rBar, aLanguage.Center());
 +    pShot = &shot(rBar);
 +    CPPUNIT_ASSERT_EQUAL(light().aHover, pixel(*pShot, aInLanguage.X(), aInLanguage.Y()));
 +    hover(rBar, aLanguage.Center(), true);
-+    rBar.SetItemText(ITEM_LANGUAGE, OUString());
++    // blank and no tip: its slot is off (Sheets' insert mode outside cell editing), a click does nothing
++    rBar.SetQuickHelpText(ITEM_LANGUAGE, OUString());
 +    hover(rBar, aLanguage.Center());
 +    pShot = &shot(rBar);
 +    CPPUNIT_ASSERT_EQUAL(light().aFrameSurface, pixel(*pShot, aInLanguage.X(), aInLanguage.Y()));
@@ -916,7 +938,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
      }
  
      if (!rRenderContext.ImplIsRecordLayout())
-@@ -708,6 +727,23 @@ void StatusBar::MouseButtonDown( const MouseEvent& rMEvt )
+@@ -708,6 +727,24 @@ void StatusBar::MouseButtonDown( const MouseEvent& rMEvt )
          Click();
  }
  
@@ -926,8 +948,9 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
 +    sal_uInt16 nId = mpImplData->mbHstCoat && !rMEvt.IsLeaveWindow() && !mbProgressMode
 +                         ? GetItemId(rMEvt.GetPosPixel()) : 0;
 +    if (nId && (!hst::coat::IsStatusBarItemClickable(GetItemCommand(nId))
-+                || (!(GetItemBits(nId) & StatusBarItemBits::UserDraw) && GetItemText(nId).isEmpty())))
-+        nId = 0; // not clickable, or an empty text item (it does nothing then)
++                || (!(GetItemBits(nId) & StatusBarItemBits::UserDraw) && GetItemText(nId).isEmpty()
++                    && GetQuickHelpText(nId).isEmpty())))
++        nId = 0; // not clickable, or a blank item with no tip: its slot is off (a click does nothing)
 +    if (nId != mpImplData->mnHstHoverId)
 +    {
 +        for (sal_uInt16 nChanged : { mpImplData->mnHstHoverId, nId })
@@ -940,7 +963,7 @@ HST Office: the status bar of a document window in the HST look (the frame coat'
  void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect)
  {
      if (mbFormat)
-@@ -743,11 +779,22 @@ void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle
+@@ -743,11 +780,22 @@ void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle
              rRenderContext.Erase(rRect);
  
          for (sal_uInt16 i = 0; i < nItemCount; i++)
