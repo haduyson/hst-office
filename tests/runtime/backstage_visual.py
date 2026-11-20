@@ -18,7 +18,9 @@ def check_hover(office, frame, out):
     display = office.display
     gui.reopen(office, frame)
     box = gui.view_items()["Mới"].queryComponent().getExtents(0)
-    point = (box.x + box.width - 12, box.y + box.height // 2)
+    # three quarters across: inside the coat's pill (inset in the item, and on GTK inside the theme's button
+    # padding) and past the label, as inside the earlier look's full-width tint
+    point = (box.x + box.width * 3 // 4, box.y + box.height // 2)
     before = os.path.join(out, "nav-thuong.png")
     hover = os.path.join(out, "nav-hover.png")
     gui.xdo(display, "mousemove", "800", "600")
@@ -62,9 +64,9 @@ def check_coat_pill(office, frame, out, dark):
     shot = os.path.join(out, "nav-coat.png")
     hst_gui.screenshot(shot, display)
     items = gui.view_items()
-    # 14 px in from the item's right edge: inside the pill (inset 8 px, 10 px at 125 %) past its focus ring
+    # three quarters across: inside the pill (inset 8 px, and on GTK the theme's button padding), past the label
     for name, expected, label in (("Trang chủ", COAT_PILL[dark], "the selected item is the token pill"),
                                   ("Mới", COAT_SIDE[dark], "an item not selected shows the side panel")):
         box = items[name].queryComponent().getExtents(0)
-        colour = rgb(pixel(shot, (box.x + box.width - 14, box.y + box.height // 2)))
+        colour = rgb(pixel(shot, (box.x + box.width * 3 // 4, box.y + box.height // 2)))
         gui.record(label, near(colour, expected), (name, colour, expected))
