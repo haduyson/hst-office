@@ -81,8 +81,9 @@ class FormulaOpenJob(unohelper.Base, XServiceInfo, XJob):
             environment = _argument(arguments, "Environment")
             model, event = _argument(environment, "Model"), _argument(environment, "EventName")
             if event == "OnViewCreated" and model is not None and hasattr(model, "getCurrentController"):
-                from . import formula_click
+                from . import formula_click, tex_toggle_key
                 formula_click.attach(self.ctx, model.getCurrentController())
+                tex_toggle_key.attach(self.ctx, model.getCurrentController())  # Alt+\ in HST Writer
             elif event == "OnLoad" and model is not None and enabled(self.ctx):
                 if hasattr(model, "getUndoManager") and not model.supportsService("com.sun.star.formula.FormulaProperties"):
                     convert_on_open(self.ctx, model)

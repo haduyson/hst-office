@@ -5,6 +5,7 @@ import unohelper
 from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30_duplex, nd30_insertion, nd30_layout,
                nd30_open, nd30_writer, blank_rows_calc, number_words_action, sheets, vba, vietnamese_calc)
 from . import chem_formula_action, citation_command_names, diag_log, formula_action, open_in_hst_pdf
+from . import tex_toggle_action
 from .dialogs import message_box
 from .wizard_convert import ConvertWizard
 from .wizard_csv import CsvWizard
@@ -194,5 +195,6 @@ COMMANDS = {
     "DeleteBlankRows": sheet_utility(blank_rows_calc.delete_blank_rows),
     "PreviousVersions": previous_versions, "ConvertFormulas": formula_action.convert_all,
     "AskConvertFormula": formula_action.ask_convert_selected, "FormulaTemplates": formula_action.insert_templates,
+    "TexToggle": tex_toggle_action.run,  # Chuyển TeX ⇄ công thức (HST Writer)
     **{name: citation_command(name) for name in citation_command_names.NAMES},
 }
