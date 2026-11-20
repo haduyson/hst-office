@@ -14,9 +14,10 @@ around it (0: none, 1: all). A smooth, solid corner has
 
     python3 coat_corner_check.py shot.png [shot2.png ...]      # prints each failing corner, exit 1 on any
 """
+import re
 import sys
 
-from PIL import Image
+from PIL import Image, ImageChops
 
 BORDERS = ((0x6E, 0x7A, 0x8B), (0x86, 0x91, 0xA5))
 MIN_EDGE = 12  # straight edge pixels, so text and glyphs are not taken for controls
@@ -32,36 +33,42 @@ def luminance(rgb):
 
 
 class View:
-    """The image seen with one corner as the top left one: (x, y) of the view -> pixel of the image."""
+    """The image turned so that one of its corners is the top left one: (x, y) of the view -> pixel colour."""
 
     def __init__(self, image, flip_x, flip_y):
+        self.flip_x, self.flip_y = flip_x, flip_y
+        if flip_x:
+            image = image.transpose(Image.Transpose.FLIP_LEFT_RIGHT)
+        if flip_y:
+            image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+        self.image = image
         self.px = image.load()
         self.w, self.h = image.size
-        self.flip_x, self.flip_y = flip_x, flip_y
 
     def __call__(self, x, y):
         if not (0 <= x < self.w and 0 <= y < self.h):
             return None
-        return self.px[self.w - 1 - x if self.flip_x else x, self.h - 1 - y if self.flip_y else y][:3]
+        return self.px[x, y][:3]
 
     def image_xy(self, x, y):
         return (self.w - 1 - x if self.flip_x else x, self.h - 1 - y if self.flip_y else y)
 
 
 def runs(view, border, horizontal):
-    """Maximal straight runs of the border colour: (fixed, start, end) with end exclusive."""
-    outer, inner = (view.h, view.w) if horizontal else (view.w, view.h)
+    """Maximal straight runs of exactly the border colour, at least MIN_EDGE long: (fixed, start, end), end
+    exclusive. A mask of the colour (0 where it matches) is searched row by row as bytes."""
+    diff = ImageChops.difference(view.image, Image.new("RGB", view.image.size, border))
+    r, g, b = diff.split()
+    mask = ImageChops.add(ImageChops.add(r, g), b)
+    if not horizontal:
+        mask = mask.transpose(Image.Transpose.TRANSPOSE)
+    width, height = mask.size
+    data = mask.tobytes()
+    pattern = re.compile(rb"\x00{%d,}" % MIN_EDGE)
     found = []
-    for a in range(outer):
-        start = None
-        for b in range(inner + 1):
-            hit = b < inner and view(*((b, a) if horizontal else (a, b))) == border
-            if hit and start is None:
-                start = b
-            elif not hit and start is not None:
-                if b - start >= MIN_EDGE:
-                    found.append((a, start, b))
-                start = None
+    for a in range(height):
+        for m in pattern.finditer(data, a * width, (a + 1) * width):
+            found.append((a, m.start() - a * width, m.end() - a * width))
     return found
 
 
@@ -83,21 +90,24 @@ def corners(view, border):
 
 
 def measure(view, border, corner):
-    """The defects of one corner: a list of strings, empty when the corner is smooth and solid."""
+    """The defects of one corner: a list of strings, empty when the corner is smooth and solid; None when this
+    is not a rounded corner that can be measured."""
     y0, x0, xs, ys = corner
     surface = view(x0 - 2, ys + 2)  # outside the left edge, below the corner
     fill = view(x0 + 3, ys + 2)  # inside the left edge
     if surface is None or fill is None:
-        return []
+        return None
     ref = (luminance(surface) + luminance(fill)) / 2
     span = ref - luminance(border)
     if abs(span) < 20:
-        return []
+        return None
 
     def cover(x, y):
         rgb = view(x, y)
         return (ref - luminance(rgb)) / span if rgb else 0.0
 
+    if cover(x0, y0) > 0.5:
+        return None  # the corner pixel itself is border: two controls' edges meeting, not a rounded corner
     defects = []
     for name, value in (("top", cover(xs - 1, y0)), ("left", cover(x0, ys - 1))):
         if value < NOTCH:
@@ -135,8 +145,10 @@ def check(path):
         view = View(image, flip_x, flip_y)
         for border in BORDERS:
             for corner in corners(view, border):
-                x, y = view.image_xy(corner[1], corner[0])
-                results.append((x, y, name, measure(view, border, corner)))
+                defects = measure(view, border, corner)
+                if defects is not None:
+                    x, y = view.image_xy(corner[1], corner[0])
+                    results.append((x, y, name, defects))
     return results
 
 
