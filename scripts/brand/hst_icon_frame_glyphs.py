@@ -93,9 +93,8 @@ NATIVE = {
 SIZES = {"recent-pin": (24,), "signature-broken": (16,), "signature-notvalidated": (16,),
          "doc-modified-no": (16,), "doc-modified-yes": (16,), "doc-modified-feedback": (16,),
          "a11y-check-ok": (16,), "a11y-check-issues": (16,), "about": (16,)}
-# Glyphs shown at 16 px whose 16 px file is snapped from the 24-unit master instead of a hand-tuned
-# one: the close mark's bold 45-degree pen is smooth at 200 %, where a pixel staircase doubles into steps.
-SNAPPED_AT_16 = {"tabclose"}
+# Glyphs shown at 16 px whose 16 px file is snapped from the 24-unit master instead of a hand-tuned one.
+SNAPPED_AT_16 = set()
 
 
 def sizes_of(name):

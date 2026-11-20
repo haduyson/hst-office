@@ -51,12 +51,11 @@ MARKS = {"tabclose", "tabnew"}
 # Measured, accepted exceptions: (glyph, display scale %) -> metrics not judged. At 250 % the 45-degree arms
 # of the tab-close mark snap to a 2 px pen, and any 2 px diagonal measures fringe 0.39 (pens 1.65-2.4 and
 # spans 8-10 units were swept on 20/11/2026); LibreOffice's own close mark is no sharper at 1x (0.44).
-EXCEPTIONS = {("tabclose", 250): {"fringe", "halfpx"}}
-# Named tolerances: near misses accepted by the owner's reviewer on 20/11/2026 after measuring through VCL
-# (rsvg passes them): cell -> {metric: extra allowance}. tabclose at 150 % is up to 0.014 softer than the
-# softest close mark; sidebar-property at 32 px carries 0.0005 more ink than the median band.
-NEAR_MISSES = {("tabclose", "16@150"): {"fringe": 0.015}, ("tabclose", "24@150"): {"fringe": 0.015},
-               ("tabclose", "32@150"): {"fringe": 0.015}, ("sidebar-property", "32@100"): {"ink": 0.001}}
+EXCEPTIONS = {}
+# Named tolerances: near misses the owner's reviewer accepted after measuring through VCL (rsvg passes
+# them): (glyph, cell) -> {metric: extra allowance}. sidebar-property at 32 px carries 0.0005 more ink
+# than the median band (20/11/2026).
+NEAR_MISSES = {("sidebar-property", "32@100"): {"ink": 0.001}}
 SCALES = (100, 150, 200, 250)
 METRICS = ("size", "stroke", "ink", "fringe", "halfpx")
 TOLERANCE = {"size": 0.10, "stroke": 0.15, "ink": 0.20, "fringe": 0.0, "halfpx": 0.10}
