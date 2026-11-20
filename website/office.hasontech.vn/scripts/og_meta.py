@@ -62,17 +62,10 @@ def og_block(entry, indent="  "):
     return "".join(f'{indent}<meta {attr} content="{value}">\n' for attr, value in tags)
 
 
-def keeps_image(entry):
-    """Mục có keep_existing_image: trang giữ nguyên thẻ ảnh đang có, không dựng ảnh og riêng."""
-    return bool(entry.get("keep_existing_image"))
-
-
 def apply_og(page, rel, pages=None):
     """Thay khối thẻ ảnh trong <head>; chèn ngay sau og:url (hoặc trước </head> nếu trang không có og:url)."""
     pages = pages if pages is not None else load_pages()
     entry = entry_for(rel, pages)
-    if keeps_image(entry):
-        return page
     head, sep, body = page.partition("</head>")
     if not sep:
         raise ValueError(f"{rel}: không có </head>")

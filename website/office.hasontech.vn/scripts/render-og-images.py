@@ -14,7 +14,7 @@ Trang mới: thêm mục vào pages.json rồi chạy lại script này; sync-he
 """
 import argparse, glob, io, os, re, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from og_meta import BASE, HEIGHT, IMG_DIR, SITE, WIDTH, apply_og, image_path, keeps_image, load_pages
+from og_meta import BASE, HEIGHT, IMG_DIR, SITE, WIDTH, apply_og, image_path, load_pages
 
 TEMPLATE = os.path.join(SITE, "scripts", "og", "template.html")
 MAX_BYTES = 300 * 1024
@@ -89,13 +89,6 @@ def verify(pages):
         img = meta(head, 'property="og:image"') or ""
         if rel not in pages:
             problems.append(f"{rel}: chưa có mục trong scripts/og/pages.json")
-        elif keeps_image(pages[rel]):
-            # Giữ ảnh đang có (trang chủ): chỉ cần có og:image và twitter:image trỏ tới tệp tồn tại.
-            for attr in ('property="og:image"', 'name="twitter:image"'):
-                src = meta(head, attr) or ""
-                if not src.startswith(BASE + "/") or not os.path.isfile(os.path.join(SITE, src[len(BASE) + 1:].split("?")[0])):
-                    problems.append(f"{rel}: {attr} không trỏ tới tệp có trong site: {src}")
-            continue
         if not img.startswith(BASE + "/assets/img/og/") or "?v=" not in img:
             problems.append(f"{rel}: og:image không trỏ tới assets/img/og/…?v=: {img}")
             continue
@@ -145,7 +138,7 @@ def main():
     ap.add_argument("--chromium", metavar="PATH", help="tệp chạy Chromium/headless shell (khi bản Playwright cài sẵn khác phiên bản)")
     a = ap.parse_args()
     pages = load_pages()
-    entries = [e for e in pages.values() if not keeps_image(e)]
+    entries = list(pages.values())
     if a.only:
         unknown = set(a.only) - {e["slug"] for e in entries}
         if unknown:

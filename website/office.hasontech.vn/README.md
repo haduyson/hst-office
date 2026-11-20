@@ -25,7 +25,7 @@ Trang tĩnh HTML/CSS/JS, không cần bước build. `index.html` là trang chí
 ## Tài sản giao diện
 
 - Nhãn “MIỄN PHÍ VĨNH VIỄN”: nền `#0E7A36`, chữ và ngôi sao trắng; tương phản đạt AA.
-- `assets/img/og-hst-office.jpg` (ảnh chia sẻ của trang chủ, chủ quyết giữ nguyên; `pages.json` đánh dấu `keep_existing_image` nên script không thay): 1200×628, dưới 200 KB, xuất từ banner mới `assets/marketing/hst-office-banner-quangba-1200x628.png` ở gốc dự án HST Office.
+- `assets/img/og-hst-office.jpg` (ảnh chia sẻ cũ, không trang nào dùng nữa; giữ lại cho các lượt chia sẻ cũ đã lưu đường dẫn): 1200×628, dưới 200 KB, xuất từ banner mới `assets/marketing/hst-office-banner-quangba-1200x628.png` ở gốc dự án HST Office.
 - Ảnh chia sẻ mạng xã hội riêng từng trang: `assets/img/og/<slug>.jpg` (1200×630, dưới 300 KB), dựng từ mẫu `scripts/og/template.html` và danh sách `scripts/og/pages.json` bằng `python3 scripts/render-og-images.py` (cần Playwright + Chromium; tuỳ chọn `--chromium <tệp chạy>`, `--sheet <jpg>` để ghép lưới duyệt, `--check` chỉ kiểm tra). Script gắn `og:image*`/`twitter:image*` kèm `?v=<sha256>` cho mọi trang; `sync-help.py` và `build-install-guide.py` gắn cùng thẻ qua `scripts/og_meta.py`. **Thêm trang mới**: thêm mục vào `pages.json` rồi chạy lại script (thiếu mục thì trang tạm dùng ảnh của mục cha và có cảnh báo).
 - Khi thay CSS, JS hoặc ảnh đã cache, tăng tham số `?v=` ở các URL tham chiếu tương ứng. Máy chủ đặt cache dài hạn cho tài sản tĩnh.
 
