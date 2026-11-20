@@ -143,7 +143,7 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
  constexpr double SHADOW_STEP = 1; ///< growth and drop per layer
 --- a/include/vcl/hst/drawhelpers.hxx
 +++ b/include/vcl/hst/drawhelpers.hxx
-@@ -11,17 +11,36 @@
+@@ -11,17 +11,39 @@
  #include <tools/gen.hxx>
  #include <vcl/dllapi.h>
  
@@ -167,18 +167,21 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
  
 -/** A rounded rectangle filled with rFill and outlined with rBorder (COL_TRANSPARENT: none). */
 +/** How far the render backend aBackend (SalGraphics::getRenderBackendName) moves a filled polygon
-+    right and down from the coordinates it is given, for a polygon with curves (bCurved) or of straight
-+    edges only: Skia 0.5 for curves, GDI+ 0.5, Cairo and Quartz 0. */
-+VCL_DLLPUBLIC double PixelOriginShift(std::u16string_view aBackend, bool bCurved);
++    right and down from the coordinates it is given, for a polygon of horizontal and vertical edges only
++    (bAxisParallel) or one with curves or slanted edges: Skia 0.5 unless axis-parallel, GDI+ 0.5,
++    Cairo and Quartz 0. */
++VCL_DLLPUBLIC double PixelOriginShift(std::u16string_view aBackend, bool bAxisParallel);
 +
 +/** rShape (device pixels, laid out on pixel edges) filled with rFill, anti-aliased, covering the same
-+    pixels on every backend. */
++    pixels on every backend. For a device in pixel map mode without RTL mirroring (the shift is taken
++    back in logical coordinates). */
 +VCL_DLLPUBLIC void FillPixelShape(OutputDevice& rDev, const basegfx::B2DPolyPolygon& rShape,
 +                                  const Color& rFill);
 +
 +/** A rounded rectangle filled with rFill and outlined with rBorder (COL_TRANSPARENT: none), all
-+    inside rRect. The border is fBorderWidth rounded to whole pixels (at least 1); the radius is at
-+    most half the shorter side. */
++    inside rRect. The border is fBorderWidth rounded to whole pixels (at least 1; 0: no border) and
++    must be opaque (the fill reaches under its inner half); the radius is at most half the shorter
++    side. */
  VCL_DLLPUBLIC void DrawRoundRect(OutputDevice& rDev, const tools::Rectangle& rRect, double fRadius,
                                   const Color& rFill, const Color& rBorder, double fBorderWidth = 1.0);
  
@@ -344,16 +347,17 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
  #include <vcl/salnativewidgets.hxx>
  #include <vcl/settings.hxx>
  #include <vcl/svapp.hxx>
-@@ -54,6 +57,8 @@ public:
+@@ -54,6 +57,9 @@ public:
      void tearDown() override
      {
          hst::coat::ForceForTesting(false);
 +        for (auto eComponent : ALL_PARTS)
 +            setFrameSwitch(eComponent, true);
++        unsetenv("HST_UI_COAT"); // a test that set it may have stopped at a failed assertion
          setSwitch(true);
          test::BootstrapFixture::tearDown();
      }
-@@ -67,6 +72,40 @@ protected:
+@@ -67,6 +73,40 @@ protected:
          hst::coat::ResetSwitchForTesting();
      }
  
@@ -394,7 +398,7 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
      static ScopedVclPtr<VirtualDevice> makeDevice(const Size& rSize, bool bDark = false,
                                                    bool bHighContrast = false)
      {
-@@ -721,6 +760,261 @@ CPPUNIT_TEST_FIXTURE(CoatTest, testGtkCss)
+@@ -721,6 +761,262 @@ CPPUNIT_TEST_FIXTURE(CoatTest, testGtkCss)
                                    "border-top-right-radius: 0; border-bottom-right-radius: 0; }")
                     >= 0);
  }
@@ -493,12 +497,13 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
 +CPPUNIT_TEST_FIXTURE(CoatTest, testDrawRoundRectIsCrispOnEveryBackend)
 +{
 +    namespace d = hst::design;
-+    CPPUNIT_ASSERT_EQUAL(0.5, d::PixelOriginShift(u"skia", true));
-+    CPPUNIT_ASSERT_EQUAL(0.0, d::PixelOriginShift(u"skia", false));
-+    CPPUNIT_ASSERT_EQUAL(0.5, d::PixelOriginShift(u"gdi", true));
++    // curves and slanted edges (bAxisParallel false) move on Skia, axis-parallel edges do not
++    CPPUNIT_ASSERT_EQUAL(0.5, d::PixelOriginShift(u"skia", false));
++    CPPUNIT_ASSERT_EQUAL(0.0, d::PixelOriginShift(u"skia", true));
 +    CPPUNIT_ASSERT_EQUAL(0.5, d::PixelOriginShift(u"gdi", false));
++    CPPUNIT_ASSERT_EQUAL(0.5, d::PixelOriginShift(u"gdi", true));
 +    for (std::u16string_view aCairo : { u"svp", u"gtk3svp", u"gen", u"qtsvp", u"aqua" })
-+        CPPUNIT_ASSERT_EQUAL(0.0, d::PixelOriginShift(aCairo, true));
++        CPPUNIT_ASSERT_EQUAL(0.0, d::PixelOriginShift(aCairo, false));
 +
 +    for (bool bDark : { false, true })
 +        for (int nPercent : { 100, 125 })
@@ -676,7 +681,7 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
  bool ownerDrawAllowed(const StyleSettings& rStyle) { return !rStyle.GetHighContrastMode(); }
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-frame.cxx
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,89 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -705,7 +710,9 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
 +// per part, 0: not read yet, 1: off, 2: on
 +std::array<std::atomic<int>, COMPONENTS> g_aSwitch{};
 +
-+bool readSwitch(FrameComponent eComponent)
++/** The part's switch: 2 on, 1 off, 0 not readable yet (no configuration very early in start-up:
++    the shipped default applies and the switch is read again next time). */
++int readSwitch(FrameComponent eComponent)
 +{
 +    using F = officecfg::Office::HSTAppearance::FrameCoat; // a group: a struct, not a namespace
 +    try
@@ -713,25 +720,25 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
 +        switch (eComponent)
 +        {
 +            case FrameComponent::Ribbon:
-+                return F::Ribbon::get();
++                return F::Ribbon::get() ? 2 : 1;
 +            case FrameComponent::Backstage:
-+                return F::Backstage::get();
++                return F::Backstage::get() ? 2 : 1;
 +            case FrameComponent::Sidebar:
-+                return F::Sidebar::get();
++                return F::Sidebar::get() ? 2 : 1;
 +            case FrameComponent::StatusBar:
-+                return F::StatusBar::get();
++                return F::StatusBar::get() ? 2 : 1;
 +            case FrameComponent::Menus:
-+                return F::Menus::get();
++                return F::Menus::get() ? 2 : 1;
 +            case FrameComponent::DocumentTabs:
-+                return F::DocumentTabs::get();
++                return F::DocumentTabs::get() ? 2 : 1;
 +        }
 +    }
 +    catch (const css::uno::Exception&)
 +    {
 +        // no configuration (e.g. very early in start-up): the shipped default
-+        SAL_WARN("vcl.hst", "coat: a FrameCoat setting could not be read, using on");
++        SAL_WARN("vcl.hst", "coat: a FrameCoat setting could not be read yet, using on");
 +    }
-+    return true;
++    return 0;
 +}
 +}
 +
@@ -743,7 +750,9 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
 +    int nSwitch = rSwitch.load(std::memory_order_relaxed);
 +    if (nSwitch == 0)
 +    {
-+        nSwitch = readSwitch(eComponent) ? 2 : 1;
++        nSwitch = readSwitch(eComponent);
++        if (nSwitch == 0)
++            return true; // the shipped default, not remembered
 +        rSwitch.store(nSwitch, std::memory_order_relaxed);
 +    }
 +    return nSwitch == 2;
@@ -1226,7 +1235,7 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
  
  namespace hst::design
  {
-@@ -45,13 +49,70 @@ private:
+@@ -45,13 +49,91 @@ private:
      AntialiasingFlags meOld;
  };
  
@@ -1253,6 +1262,26 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
 +    return roundedRect(aInner, std::max(0.0, fRadius - fBy));
 +}
 +
++/** Whether every edge of rShape is horizontal or vertical (Skia's own test for leaving a polygon on
++    pixel edges). */
++bool onlyAxisParallel(const basegfx::B2DPolyPolygon& rShape)
++{
++    if (rShape.areControlPointsUsed())
++        return false;
++    for (const basegfx::B2DPolygon& rPolygon : rShape)
++    {
++        const sal_uInt32 nCount = rPolygon.count();
++        for (sal_uInt32 i = 0; i < nCount; ++i)
++        {
++            const basegfx::B2DPoint aFrom = rPolygon.getB2DPoint(i);
++            const basegfx::B2DPoint aTo = rPolygon.getB2DPoint((i + 1) % nCount);
++            if (aFrom.getX() != aTo.getX() && aFrom.getY() != aTo.getY())
++                return false;
++        }
++    }
++    return true;
++}
++
 +/** rShape moved back by the pixel-origin shift of rDev's backend (see PixelOriginShift). */
 +basegfx::B2DPolyPolygon onPixelEdges(const OutputDevice& rDev, const basegfx::B2DPolyPolygon& rShape)
 +{
@@ -1260,7 +1289,7 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
 +    if (!pGraphics)
 +        return rShape;
 +    const double fShift
-+        = PixelOriginShift(pGraphics->getRenderBackendName(), rShape.areControlPointsUsed());
++        = PixelOriginShift(pGraphics->getRenderBackendName(), onlyAxisParallel(rShape));
 +    if (fShift == 0.0)
 +        return rShape;
 +    basegfx::B2DPolyPolygon aShape(rShape);
@@ -1277,13 +1306,14 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
 +}
 +}
 +
-+double PixelOriginShift(std::u16string_view aBackend, bool bCurved)
++double PixelOriginShift(std::u16string_view aBackend, bool bAxisParallel)
 +{
-+    // Skia takes the coordinates of a polygon with curves as pixel centres and moves it by half a
-+    // pixel (an anti-aliased polygon of straight edges only it leaves on the edges); GDI+ puts every
-+    // pixel centre on whole coordinates; Cairo (svp, gtk3, gen) and Quartz fill on pixel edges.
++    // Skia takes the coordinates of a polygon with curves or slanted edges as pixel centres and moves
++    // it by half a pixel (an anti-aliased polygon of horizontal and vertical edges only it leaves on
++    // the edges); GDI+ puts every pixel centre on whole coordinates; Cairo (svp, gtk3, gen) and
++    // Quartz fill on pixel edges.
 +    if (aBackend == u"skia")
-+        return bCurved ? 0.5 : 0.0;
++        return bAxisParallel ? 0.0 : 0.5;
 +    if (aBackend == u"gdi")
 +        return 0.5;
 +    return 0.0;
@@ -1299,7 +1329,7 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
  }
  
  void DrawRoundRect(OutputDevice& rDev, const tools::Rectangle& rRect, double fRadius, const Color& rFill,
-@@ -59,32 +120,40 @@ void DrawRoundRect(OutputDevice& rDev, const tools::Rectangle& rRect, double fRa
+@@ -59,32 +141,40 @@ void DrawRoundRect(OutputDevice& rDev, const tools::Rectangle& rRect, double fRa
  {
      if (rRect.IsEmpty())
          return;
@@ -1359,7 +1389,7 @@ drawing helpers, one GTK CSS file per frame part and a switch per part.
  }
  
  void DrawCardShadow(OutputDevice& rDev, const tools::Rectangle& rRect, double fRadius,
-@@ -104,9 +173,10 @@ void DrawCardShadow(OutputDevice& rDev, const tools::Rectangle& rRect, double fR
+@@ -104,9 +194,10 @@ void DrawCardShadow(OutputDevice& rDev, const tools::Rectangle& rRect, double fR
          const basegfx::B2DRange aRange(rRect.Left() - fGrow, rRect.Top(),
                                         rRect.Right() + 1 + fGrow, rRect.Bottom() + 1 + 2 * fGrow);
          const double fLayer = fOpacity * (SHADOW_LAYERS + 1 - i) / SHADOW_LAYERS;
