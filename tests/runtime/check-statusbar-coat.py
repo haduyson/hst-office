@@ -7,14 +7,16 @@ your own that this script never starts or stops:
 
 Looks: coat-light and coat-dark (the coat on), plain (HST_UI_COAT=0) and contrast (the coat on, GTK theme
 HighContrast in the profile's GTK settings).
-- coat on: the bar's surface and top line are the frame tokens; the zoom percentage shows the hover, the page count
-  does not; off and in high contrast the bar keeps the platform's look.
+- coat on: the bar's surface and top line are the frame tokens; the items a click acts on show the hover (a sweep
+  over every item in Writer, Sheets and Slides), the zoom slider does not; off and in high contrast the bar keeps the
+  platform's look.
 - every look: a click on the zoom percentage opens the Zoom dialog; a click on the slider's middle sets 100 % and a
   drag to the right zooms in, to the same values with and without the coat.
 - coat-light against plain: the bar's height and every item's place (the click areas) are equal, and typing --chars
   characters (the word count repaints on each) takes no longer than --slack times as long.
 The pointer is moved and clicked with xdotool on the test display (real X events on this run's own Xvfb); keys are
-posted through the office's toolkit (XToolkitRobot). Shots of the bar go to --out. Only the office started here is stopped. Exit 0 when every check passes.
+posted through the office's toolkit (XToolkitRobot). Shots of the bar go to --out. Only the office started here is
+stopped. Exit 0 when every check passes.
 """
 import argparse
 import os
@@ -35,6 +37,13 @@ LOOKS = {
     "coat-dark": {"HST_UI_COAT": "1", "GTK_THEME": "Adwaita:dark"},
     "plain": {"HST_UI_COAT": "0", "GTK_THEME": "Adwaita"},
     "contrast": {"HST_UI_COAT": "1", "GTK_THEME": "HighContrast"},
+}
+# the hover sweep in the coat looks: per application its factory and the text that starts its page/sheet/slide
+# position item, which a click acts on (Go to Page, the Navigator)
+SWEEP = {
+    "writer": ("swriter", ("Trang", "Page")),
+    "sheets": ("scalc", ("Trang tính", "Sheet")),
+    "slides": ("simpress", ("Trang chiếu", "Slide")),
 }
 NO_PROMPTS = [("/org.openoffice.Office.HSTUpdate", "AutoCheck", "false"),
               ("/org.hasontech.hstoffice.UpdateCheck", "AutoCheck", "false")]
@@ -152,11 +161,59 @@ class Look:
                 return self.result
             time.sleep(2)
             self.checks(office, doc, screen, win)
+            if self.name.startswith("coat"):
+                self.sweep(office, "writer", doc, screen, win)
             doc.setModified(False)
             doc.close(True)
+            if self.name.startswith("coat"):
+                for app in ("sheets", "slides"):
+                    before = screen.windows()
+                    doc = office.load(f"private:factory/{SWEEP[app][0]}")
+                    win = screen.frame_window(office, doc, before)
+                    self.failures.check(win is not None, f"{self.name}: a {app} window")
+                    if win is not None:
+                        time.sleep(2)
+                        self.sweep(office, app, doc, screen, win)
+                    doc.setModified(False)
+                    doc.close(True)
         finally:
             office.stop()
         return self.result
+
+    def sweep(self, office, app, doc, screen, win):
+        """The pointer over each item of the bar in turn: which show the hover. The zoom percentage and the
+        position item must, the zoom slider must not. Writes statusbar-<look>-sweep-<app>.png (one row per
+        item, hovered)."""
+        from PIL import Image
+        display, theme = self.args.display, "dark" if self.name.endswith("dark") else "light"
+        bar, items = bar_items(doc.getCurrentController().getFrame().getContainerWindow())
+        if bar is None or len(items) < 3:
+            self.failures.check(False, f"{self.name} {app}: the status bar and its items")
+            return
+        x0, y0 = screen.origin(win)
+        rows, crops = [], []
+        path = os.path.join(self.args.out, f"statusbar-{self.name}-sweep-{app}.png")
+        for item in items:
+            move(display, item[0] + item[2] // 2, item[1] + item[3] // 2)
+            time.sleep(0.6)
+            screen.capture(win, path)
+            with Image.open(path) as image:
+                crop = image.convert("RGB").crop((bar[0] - x0, bar[1] - y0, bar[0] - x0 + bar[2], bar[1] - y0 + bar[3]))
+            crops.append(crop)
+            # hovered: the hover colour shows somewhere along the item's middle row (beside its text or icon)
+            row = [crop.getpixel((x, bar[3] // 2)) for x in range(item[0] - bar[0], item[0] - bar[0] + item[2])]
+            rows.append((item[4], row.count(HOVER[theme]) >= 2))
+        move(display, bar[0] + bar[2] // 2, bar[1] - 200)  # back over the document
+        sheet = Image.new("RGB", (bar[2], (bar[3] + 2) * len(crops)), "white")
+        for index, crop in enumerate(crops):
+            sheet.paste(crop, (0, index * (bar[3] + 2)))
+        sheet.save(path)
+        print(f"{self.name} {app}: " + "; ".join(f"{text or '(icon)'}: {'hover' if on else '-'}"
+                                                for text, on in rows), flush=True)
+        prefixes = SWEEP[app][1]
+        position = next((on for text, on in rows if text.startswith(prefixes)), None)
+        self.failures.check(rows[-1][1] and not rows[-2][1] and position,
+                            f"{self.name} {app}: hover on the zoom percentage and the position item, not on the slider")
 
     def checks(self, office, doc, screen, win):
         from PIL import Image
@@ -167,7 +224,6 @@ class Look:
         if bar is None or len(items) < 4:
             return
         zoom, slider = items[-1], items[-2]
-        page = next((item for item in items if item[4].startswith(("Trang", "Page"))), items[1])
         self.result["geometry"] = (bar[3], [item[:4] for item in items])
         self.failures.check(zoom[4].endswith("%"), f"{self.name}: the last item is the zoom percentage ({zoom[4]!r})")
 
@@ -183,7 +239,7 @@ class Look:
             crop.save(path)
             return crop, (bar[0], bar[1])
 
-        # hover over the zoom percentage, then over the page count
+        # hover over the zoom percentage, then over the zoom slider (its own buttons: no hover)
         display = self.args.display
         mx, my = zoom[0] + zoom[2] // 2, zoom[1] + zoom[3] // 2
         move(display, mx, my)
@@ -202,13 +258,14 @@ class Look:
             self.failures.check(image.getpixel(surface_at) != SURFACE["light"]
                                 or image.getpixel((bar[2] // 2, 0)) != DIVIDER["light"],
                                 f"{self.name}: the bar keeps the platform's look")
-        move(display, page[0] + page[2] - 4, page[1] + page[3] // 2)
+        move(display, slider[0] + slider[2] // 2, slider[1] + 2)
         time.sleep(1)
-        image, _ = shot("hover-page")
-        in_page = (page[0] - bx + page[2] - 4, page[1] - by + page[3] // 2)
+        image, _ = shot("hover-slider")
+        in_slider = (slider[0] - bx + 2, slider[1] - by + slider[3] // 2)
         if coat:
-            self.failures.check(image.getpixel(in_page) == SURFACE[theme] and image.getpixel(in_zoom) == SURFACE[theme],
-                                f"{self.name}: no hover on the page count, none left on the zoom percentage")
+            self.failures.check(image.getpixel(in_slider) == SURFACE[theme]
+                                and image.getpixel(in_zoom) == SURFACE[theme],
+                                f"{self.name}: no hover on the zoom slider, none left on the zoom percentage")
 
         # the slider: a click in its middle sets 100 %, a drag to the right zooms in
         set_zoom(doc, 150)
@@ -269,7 +326,8 @@ def main():
         failures.check(coat["geometry"] == plain["geometry"],
                        f"the bar's height and the items' places are unchanged: {coat['geometry'] == plain['geometry']}")
     if "slider" in coat and "slider" in plain:
-        failures.check(coat["slider"] == plain["slider"], f"the slider zooms alike: {coat['slider']} / {plain['slider']}")
+        failures.check(coat["slider"] == plain["slider"],
+                       f"the slider zooms alike: {coat['slider']} / {plain['slider']}")
     if "typing" in coat and "typing" in plain:
         ratio = coat["typing"] / plain["typing"]
         failures.check(ratio <= args.slack, f"typing with the coat takes {ratio:.3f} times as long (<= {args.slack})")
