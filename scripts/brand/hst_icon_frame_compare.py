@@ -60,8 +60,9 @@ NEIGHBOURS = {
     "signature-status": ["svx/res/doc_modified_no", "svx/res/zoom_page_statusbar",
                          "svx/res/a11y_check_issues_not_found"],
 }
-# Small control marks drawn inside a button (the document tab's close and new), smaller and lighter than an
-# icon by owner decision of 20/11: judged on pen weight and sharpness, and never heavier than the icons.
+# Small control marks drawn inside a button (the document tab's close and new), the visual size of
+# LibreOffice's own close mark by owner decision of 20/11: judged on pen weight, sharpness and an ink
+# density no heavier than the heaviest close mark beside them.
 MARKS = {"tabclose", "tabnew"}
 # Measured, accepted exceptions: (glyph, display scale %) -> metrics not judged. At 250 % the 45-degree arms
 # of the tab-close mark snap to a 2 px pen, and any 2 px diagonal measures fringe 0.39 (pens 1.65-2.4 and
@@ -190,7 +191,10 @@ def compare(names, colibre):
                         flags.append(f"{metric} {hst[metric]} < Colibre {low}")
                 if neighbours:
                     middle = statistics.median(m["ink"] for m in neighbours.values())
-                    if (hst["ink"] > (1 + INK_MEDIAN) * middle if name in MARKS
+                    heaviest = max(m["ink"] for m in neighbours.values())
+                    # a mark matches LibreOffice's own close mark in size, so it may be as heavy as the
+                    # heaviest close mark beside it, never heavier
+                    if (hst["ink"] > (1 + INK_MEDIAN) * heaviest if name in MARKS
                             else abs(hst["ink"] - middle) > INK_MEDIAN * middle):
                         flags.append(f"ink {hst['ink']} not within 15 % of the Colibre median {round(middle, 4)}")
                 report[name][f"{size}@{scale}"] = {"hst": hst, "colibre": neighbours, "flags": flags}

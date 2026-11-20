@@ -35,6 +35,9 @@ PROVENANCE = modern.MODERN / "metadata/frame-provenance.json"
 STAGE = sheet.STAGE
 # Glyphs drawn for the 24 px sidebar tab bar only; every other frame glyph is shown at 16 px.
 SIDEBAR_ONLY = {"sidebar-property", "sidebar-style", "sidebar-navigator"}
+# Snapped from the 24-unit master at 16 px too: the close mark's bold 45-degree pen is smooth at 200 %,
+# where a hand-tuned pixel staircase would double into steps (owner review of 20/11/2026).
+SNAPPED_AT_16 = {"tabclose"}
 FOREIGN = re.compile(r"\b(microsoft|office ?365|fluent|material|google|apple|sf symbols|colibre|breeze|"
                      r"font ?awesome|icons8|feather|lucide|tabler)\b", re.I)
 
@@ -101,7 +104,7 @@ class GlyphTest(unittest.TestCase):
 
     def test_glyphs_shown_at_16_px_have_a_hand_tuned_master(self):
         for name in self.names:
-            if name not in SIDEBAR_ONLY:
+            if name not in SIDEBAR_ONLY | SNAPPED_AT_16:
                 self.assertTrue((STAGE / "16" / f"{name}.svg").is_file(), name)
         orphans = {p.stem for p in (STAGE / "16").glob("*.svg")} - set(self.names)
         self.assertEqual(set(), orphans)
