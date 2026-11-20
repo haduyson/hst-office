@@ -10,8 +10,8 @@ Compress Image, Customize, About, Macro Selector) follow the dialog layout ruleb
   above their fields.
 - Customize: the target list and its gear menu are 6 px apart; the keyboard page's lists ask for 8 and 7 rows
   instead of 10 and 9 so the dialog fits a 1366x768 screen (the keyboard page is its tallest).
-- Options: on small screens the page area is clamped to 70 % of the screen height (was 80 %), so the dialog with
-  its frame fits a 1366x768 work area; larger screens keep the 30-row page area.
+- Options: on small screens the page area also leaves 190 px for the button row, title bar and taskbar (besides
+  the 80 % clamp), so the dialog with its frame fits a 1366x768 work area; from 1080 px up nothing changes.
 - Templates: 12 px between the body and the button row; the two view toggles are 6 px apart.
 - Find and Replace: the search status line, which wraps, shows its whole text (no ellipsis).
 - Document Properties: the field labels of the General, Description, Statistics pages, PDF signing and Compress
@@ -914,15 +914,16 @@ Checked by tests/unit/test_ui_layout_rulebook.py and tests/runtime/hst_dialog_la
      // install handler functions
 --- a/cui/source/options/treeopt.cxx
 +++ b/cui/source/options/treeopt.cxx
-@@ -467,8 +467,9 @@
-     Size aSize(xTreeLB->get_approximate_digit_width() * 100, xTreeLB->get_height_rows(30));
+@@ -468,7 +468,11 @@
      AbsoluteScreenPixelRectangle aScreen
          = Application::GetScreenPosSizePixel(Application::GetDisplayBuiltInScreen());
--    // clamp height to max of 80% of screen height to make buttons accessible on smaller screens
+     // clamp height to max of 80% of screen height to make buttons accessible on smaller screens
 -    aSize.setHeight(std::min(static_cast<tools::Long>(aScreen.GetHeight() * 0.8), aSize.Height()));
-+    // clamp height to max of 70% of screen height to make buttons accessible on smaller screens
-+    // (HST: 80% left the GTK dialog with its frame taller than a 1366x768 work area)
-+    aSize.setHeight(std::min(static_cast<tools::Long>(aScreen.GetHeight() * 0.7), aSize.Height()));
++    // HST: and leave 190 px for the button row, the title bar and a taskbar, so that the dialog fits a
++    // 1366x768 work area with GTK's taller rows too (80% alone left it 29 px too tall there)
++    aSize.setHeight(std::min(
++        std::min(static_cast<tools::Long>(aScreen.GetHeight() * 0.8), aScreen.GetHeight() - 190),
++        aSize.Height()));
      xTabBox->set_size_request(aSize.Width(), aSize.Height());
      xTreeLB->set_size_request(xTreeLB->get_approximate_digit_width() * 35, aSize.Height());
  
