@@ -13,9 +13,10 @@ from _paths import ROOT
 from patch_sections import added, po_entries, sections
 
 PATCH = "hst-start-center-redesign.patch"
-UI = "sfx2/uiconfig/ui/hststartcenter.ui"
+UIS = ("sfx2/uiconfig/ui/hststartcentersearch.ui", "sfx2/uiconfig/ui/hststartcenterbanner.ui")
 WINDOW = "sfx2/source/startcenter/hststartcenterwindow.cxx"
 ICONS = "sfx2/source/startcenter/hststartcentericons.cxx"
+LOGOS = "sfx2/source/startcenter/hststartcenterlogos.cxx"
 HRC = "sfx2/inc/startcenter/hststartcenter.hrc"
 PO = "translations/source/vi/sfx2/messages.po"
 HOOK = "sfx2/source/dialog/backingcomp.cxx"
@@ -45,15 +46,26 @@ def decode(literal):
 class StartCenterRedesignTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.ui_text = added(PATCH, UI)
-        cls.ui = ET.fromstring(cls.ui_text.encode("utf-8"))
+        cls.ui_texts = [added(PATCH, path) for path in UIS]
+        cls.ui_text = "\n".join(cls.ui_texts)
+        cls.uis = [ET.fromstring(text.encode("utf-8")) for text in cls.ui_texts]
         cls.po = po_entries(added(PATCH, PO))
         cls.hrc = dict((name, (context, english)) for name, context, english in re.findall(
             r'#define (STR_HST_SC_\w+)\s+NC_\("([^"]+)", "([^"]*)"\)', added(PATCH, HRC)))
         cls.window = added(PATCH, WINDOW)
 
     def ids(self):
-        return [o.get("id") for o in self.ui.iter("object") if o.get("id")]
+        return [o.get("id") for ui in self.uis for o in ui.iter("object") if o.get("id")]
+
+    def test_one_toplevel_per_ui_file(self):
+        # VclBuilder (Windows, macOS) builds every toplevel of a .ui into the window that asks for one: the search
+        # entry and the banner each have their own file, and each host opens its own
+        for path, ui in zip(UIS, self.uis):
+            self.assertEqual(1, len(ui.findall("object")), path)
+        for path, toplevel in zip(UIS, ("SearchBox", "BannerBox")):
+            self.assertEqual(toplevel, self.uis[UIS.index(path)].find("object").get("id"))
+            self.assertIn('u"sfx/ui/%s"_ustr, u"%s"_ustr' % (os.path.basename(path), toplevel), self.window)
+        self.assertNotIn("hststartcenter.ui", self.window)
 
     def test_series_position(self):
         with open(SERIES, encoding="utf-8") as handle:
@@ -98,15 +110,16 @@ class StartCenterRedesignTest(unittest.TestCase):
     def test_solutions_mirror_data(self):
         with open(os.path.join(ROOT, "data", "hst", "solutions.json"), encoding="utf-8") as handle:
                 solutions = json.load(handle)["solutions"]
-        # name, full tagline (tooltip and accessible description), short tagline (on the card), page
-        expected = [(s["name"], s["tagline"], s.get("short", ""), s["url"]) for s in solutions]
-        rows = re.findall(r'^\s*\{ u"([^"]*)"_ustr,\n\s*u"([^"]*)"_ustr,\n\s*u"([^"]*)"_ustr,\n\s*u"([^"]*)"_ustr \},',
-                          self.window, re.M)
+        # name, full tagline (tooltip and accessible description), short taglines (on the card: Vietnamese, English), page
+        expected = [(s["name"], s["tagline"], s.get("short", ""), s.get("shortEn", ""), s["url"]) for s in solutions]
+        rows = re.findall(r'^\s*\{ u"([^"]*)"_ustr,\n\s*u"([^"]*)"_ustr,\n\s*u"([^"]*)"_ustr,\n\s*u"([^"]*)"_ustr,\n'
+                          r'\s*u"([^"]*)"_ustr \},', self.window, re.M)
         self.assertEqual(expected, [tuple(decode(part) for part in row) for row in rows])
         for solution in solutions:
             # short enough for two lines of a card in two columns
             self.assertLessEqual(len(solution.get("short", "")), 38, solution["id"])
             self.assertTrue(solution.get("shortEn"), solution["id"])
+            self.assertLessEqual(len(solution["shortEn"]), 38, solution["id"])
         self.assertIn("utm_source=hst-office&utm_medium=start-center&utm_campaign=hst-office-1-0", self.window)
         self.assertIn('MORE_SOLUTIONS_TEXT = u"Xem thêm các giải pháp khác →"_ustr', self.window)
 
@@ -122,7 +135,8 @@ class StartCenterRedesignTest(unittest.TestCase):
         self.assertEqual("Chào mừng bạn quay lại", self.po["hststartcenter|welcome"][1])
         self.assertEqual("Tìm kiếm tài liệu gần đây", self.po["hststartcenter|search"][1])
         self.assertEqual("Tạo nhanh tài liệu mới", self.po["hststartcenter|quicktitle"][1])
-        self.assertEqual("Các giải pháp chuyển đổi số của HASON TECH", self.po["hststartcenter|solutionstitle"][1])
+        self.assertEqual("HASON TECH - Giải pháp chuyển đổi số", self.po["hststartcenter|solutionstitle"][1])
+        self.assertEqual("HASON TECH - Digital solutions", self.po["hststartcenter|solutionstitle"][0])
         self.assertEqual(["Tên", "Đã mở", "Vị trí"],
                          [self.po["hststartcenter|recentcol%d" % i][1] for i in range(3)])
         self.assertEqual("Được ghim", self.po["hststartcenter|pinnedtitle"][1])
@@ -136,10 +150,56 @@ class StartCenterRedesignTest(unittest.TestCase):
             with open(os.path.join(ROOT, "assets", "brand", "icons", asset), encoding="utf-8") as handle:
                 self.assertEqual(handle.read(), embedded.group(1), asset)
 
+    def test_solution_logos_are_the_assets(self):
+        # each card shows its solution's logo: the 24 and 48 px PNGs of solutions.json's "icon", embedded byte
+        # for byte, in the order of the cards
+        with open(os.path.join(ROOT, "data", "hst", "solutions.json"), encoding="utf-8") as handle:
+            solutions = json.load(handle)["solutions"]
+        logos = added(PATCH, LOGOS)
+        arrays = dict((name, bytes(int(b, 16) for b in re.findall(r"0x([0-9a-f]{2})", body)))
+                      for name, body in re.findall(r"constexpr sal_uInt8 (PNG_\w+)\[\] = \{(.*?)\};", logos, re.S))
+        order = re.findall(r"\{ (PNG_\w+)_24, sizeof", logos)
+        self.assertEqual(["PNG_" + s["id"].upper().replace("-", "_") for s in solutions], order)
+        for solution in solutions:
+            icon = solution.get("icon")
+            self.assertEqual("assets/start-center/solutions/%s-24.png" % solution["id"], icon)
+            for size in (24, 48):
+                path = os.path.join(ROOT, icon.replace("-24.png", "-%d.png" % size))
+                with open(path, "rb") as handle:
+                    data = handle.read()
+                self.assertEqual(b"\x89PNG", data[:4], path)
+                self.assertEqual((size, size), (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")))
+                name = "PNG_%s_%d" % (solution["id"].upper().replace("-", "_"), size)
+                self.assertEqual(data, arrays.get(name), name)
+
+    def test_app_icon_rasters_are_the_brand_icons(self):
+        # the application icons come from the brand's own PNGs (no SVG rendered at start-up), byte for byte, each
+        # name with its sizes in ascending order (the lookup takes the first one large enough)
+        logos = added(PATCH, LOGOS)
+        arrays = dict((name, bytes(int(b, 16) for b in re.findall(r"0x([0-9a-f]{2})", body)))
+                      for name, body in re.findall(r"constexpr sal_uInt8 (PNG_\w+)\[\] = \{(.*?)\};", logos, re.S))
+        rows = re.findall(r'\{ "([a-z-]+)", (\d+), (PNG_\w+), sizeof\(\3\) \},', logos)
+        names = ["hst-writer", "hst-sheets", "hst-slides", "hst-draw", "hst-pdf"]
+        self.assertEqual(names, list(dict.fromkeys(name for name, _size, _array in rows)))
+        for name in names:
+            sizes = [int(size) for row, size, _array in rows if row == name]
+            self.assertEqual(sorted(sizes), sizes, name)
+            self.assertIn(24, sizes, name)
+        for name, size, array in rows:
+            path = os.path.join(ROOT, "assets", "brand", "icons", "%s-%s.png" % (name, size))
+            with open(path, "rb") as handle:
+                data = handle.read()
+            self.assertEqual((int(size), int(size)), (int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")))
+            self.assertEqual(data, arrays.get(array), array)
+        icons = added(PATCH, ICONS)
+        for name in names:
+            self.assertIn('return "%s";' % name, icons)
+        self.assertLess(icons.index("RenderAppIconRaster("), icons.index("ImportGraphic("))
+
     def test_visual_constants_are_design_tokens(self):
         # every colour lives in the shared HST tokens; the Start Center's sources hold none of their own
         for path in sections(PATCH):
-            if "/startcenter/" in path and path != ICONS:
+            if "/startcenter/" in path and path not in (ICONS, LOGOS):
                 self.assertNotRegex(added(PATCH, path), r"Color\(0x|\bCOL_(?!TRANSPARENT\b|WHITE\b|BLACK\b)[A-Z]", path)
         tokens = added(PATCH, TOKENS)
         for hex_colour in ("0xEC, 0xF3, 0xFC", "0xEA, 0xF2, 0xFD", "0x0A, 0x47, 0x96", "0x1A, 0x56, 0xC8"):
