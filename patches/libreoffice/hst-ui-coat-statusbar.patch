@@ -1,7 +1,25 @@
-HST Office: the status bar of a document window in the HST look (tests first).
+HST Office: the status bar of a document window in the HST look (the frame coat's StatusBar part).
 
-Tests with the declarations and stubs they need (<vcl/hst/statusbarcoat.hxx>,
-vcl/source/hst/coat/coat-statusbar.cxx); they fail with assertions until the implementation follows.
+- Only colours, fonts and shapes change: the bar's height, the items' widths and their click areas are
+  exactly as without the coat (owner decision D9). The look applies to the bar of a document window (its
+  parent is the frame's work window) while org.openoffice.Office.HSTAppearance/FrameCoat/StatusBar and the
+  coat are on, and never in high contrast; the bars of dialogs keep the platform's look.
+- StatusBar (vcl/source/window/status.cxx, thin hooks): the frame surface instead of the native background,
+  item text in the text colour at the caption scale (the bar's own font still sizes the bar), a thin divider
+  of the frame divider colour, inset at both ends, instead of the 3D separator, the frame divider along the
+  top edge, and a rounded hover behind the items that open something on a single click (language,
+  selection mode, zoom percentage), repainted only when the item under the mouse changes.
+- The zoom slider (svx/source/stbctrls/zoomsliderctrl.cxx): a groove of the scroll-track colour outlined
+  with the frame divider, short marks for the snapping points, a longer 100 % mark in the text colour and
+  an accent disc for the thumb, all vector shapes at the window's scale. The decrease and increase buttons
+  stay the icon theme's images, where the control takes their clicks; their HST glyphs come with the icon
+  set.
+- The drawing is in vcl/source/hst/coat/coat-statusbar.cxx behind <vcl/hst/statusbarcoat.hxx>: flat fills
+  only, no gradient, no bitmap of its own.
+- CppunitTest_vcl_hst_statusbar_coat: the frame colours light and dark, the caption font, the thin
+  dividers, the hover on clickable items only, the unchanged height and item rectangles, the platform look
+  in high contrast, for a dialog's bar and with the part switched off, the zoom slider's shapes and thumb
+  at 50/100/200 %, and the same number of item repaints with and without the coat over 1,000 text updates.
 
 --- /dev/null
 +++ b/include/vcl/hst/statusbarcoat.hxx
@@ -92,6 +110,44 @@ vcl/source/hst/coat/coat-statusbar.cxx); they fail with assertions until the imp
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/include/vcl/status.hxx
++++ b/include/vcl/status.hxx
+@@ -112,6 +112,7 @@ public:
+     void                AdjustItemWidthsForHiDPI();
+ 
+     virtual void        MouseButtonDown( const MouseEvent& rMEvt ) override;
++    virtual void        MouseMove( const MouseEvent& rMEvt ) override;
+     virtual void        Paint( vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect ) override;
+     virtual void        Resize() override;
+     virtual void        RequestHelp( const HelpEvent& rHEvt ) override;
+--- a/svx/source/stbctrls/zoomsliderctrl.cxx
++++ b/svx/source/stbctrls/zoomsliderctrl.cxx
+@@ -25,6 +25,7 @@
+ #include <vcl/svapp.hxx>
+ #include <vcl/settings.hxx>
+ #include <vcl/event.hxx>
++#include <vcl/hst/statusbarcoat.hxx>
+ #include <svx/zoomslideritem.hxx>
+ #include <svx/dialmgr.hxx>
+ #include <svx/strings.hrc>
+@@ -227,6 +228,17 @@ void SvxZoomSliderControl::Paint( const UserDrawEvent& rUsrEvt )
+     tools::Rectangle           aRect = rUsrEvt.GetRect();
+     tools::Rectangle           aSlider = aRect;
+ 
++    if (hst::coat::StatusBarCoatActive(GetStatusBar()))
++    {
++        // the HST look: the slider from the design tokens, the click areas unchanged
++        hst::coat::ZoomSliderLayout aLayout{ aRect, aControlRect.GetWidth(), aControlRect.GetHeight(),
++            nSliderXOffset, Zoom2Offset(mxImpl->mnCurrentZoom), Zoom2Offset(mxImpl->mnSliderCenter),
++            mxImpl->maSnappingPointOffsets };
++        hst::coat::DrawZoomSlider(*pDev, GetStatusBar(), aLayout, mxImpl->maDecreaseButton,
++                                  mxImpl->maIncreaseButton);
++        return;
++    }
++
+     tools::Long nSliderHeight  = 1 * pDev->GetDPIScaleFactor();
+     tools::Long nSnappingHeight = 2 * pDev->GetDPIScaleFactor();
+ 
 --- /dev/null
 +++ b/vcl/CppunitTest_vcl_hst_statusbar_coat.mk
 @@ -0,0 +1,57 @@
@@ -557,7 +613,7 @@ vcl/source/hst/coat/coat-statusbar.cxx); they fail with assertions until the imp
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-statusbar.cxx
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,172 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -565,36 +621,272 @@ vcl/source/hst/coat/coat-statusbar.cxx); they fail with assertions until the imp
 + * This file is part of HST Office.
 + */
 +
-+/* The status bar of a document window in the HST look (<vcl/hst/statusbarcoat.hxx>): stubs until the
-+   implementation follows. */
++/* The status bar of a document window in the HST look (<vcl/hst/statusbarcoat.hxx>). Everything here
++   is flat fills and filled shapes, no gradient and no bitmap of its own, so a repaint of an item (the
++   word count while typing) costs no more than the platform's look. */
 +
 +#include <vcl/hst/statusbarcoat.hxx>
 +
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/drawhelpers.hxx>
++#include <vcl/hst/framecoat.hxx>
++
 +#include <vcl/font.hxx>
++#include <vcl/image.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/settings.hxx>
 +#include <vcl/window.hxx>
++
++#include <algorithm>
++#include <cmath>
 +
 +namespace hst::coat
 +{
-+bool StatusBarCoatActive(const vcl::Window&) { return false; }
-+
-+bool IsStatusBarItemClickable(std::u16string_view) { return false; }
-+
-+Color StatusBarBackground(const vcl::Window&) { return COL_TRANSPARENT; }
-+
-+Color StatusBarTextColor(const vcl::Window&) { return COL_TRANSPARENT; }
-+
-+vcl::Font StatusBarFont(const vcl::Font& rBase) { return rBase; }
-+
-+void DrawStatusBarTopLine(OutputDevice&, const vcl::Window&, tools::Long) {}
-+
-+void DrawStatusBarDivider(OutputDevice&, const vcl::Window&, const Point&, const Point&) {}
-+
-+void DrawStatusBarHover(OutputDevice&, const vcl::Window&, const tools::Rectangle&) {}
-+
-+void DrawZoomSlider(OutputDevice&, const vcl::Window&, const ZoomSliderLayout&, const Image&,
-+                    const Image&)
++namespace
 +{
++namespace design = hst::design;
++
++const design::Palette& paletteOf(const vcl::Window& rBar)
++{
++    return design::GetPalette(rBar.GetSettings().GetStyleSettings());
++}
++
++double scaleOf(const vcl::Window& rBar) { return std::max(1.0, double(rBar.GetDPIScaleFactor())); }
++
++/** A token length in whole device pixels, at least one. */
++tools::Long px(double fLogical, double fScale)
++{
++    return std::max<tools::Long>(1, std::lround(fLogical * fScale));
++}
++
++/** A crisp axis-parallel rectangle of whole pixels. */
++void fillRect(OutputDevice& rDev, const tools::Rectangle& rRect, const Color& rColor)
++{
++    if (rRect.IsEmpty())
++        return;
++    auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    rDev.SetLineColor();
++    rDev.SetFillColor(rColor);
++    rDev.DrawRect(rRect);
++}
++}
++
++bool StatusBarCoatActive(const vcl::Window& rBar)
++{
++    const vcl::Window* pParent = rBar.GetParent();
++    return pParent && pParent->GetType() == WindowType::WORKWINDOW
++           && FrameCoatActive(FrameComponent::StatusBar, rBar.GetSettings().GetStyleSettings());
++}
++
++bool IsStatusBarItemClickable(std::u16string_view aCommand)
++{
++    // the language menu, the selection mode menu (Writer and Sheets name it apart) and the Zoom dialog
++    return aCommand == u".uno:LanguageStatus" || aCommand == u".uno:SelectionMode"
++           || aCommand == u".uno:StatusSelectionMode" || aCommand == u".uno:Zoom";
++}
++
++Color StatusBarBackground(const vcl::Window& rBar) { return paletteOf(rBar).aFrameSurface; }
++
++Color StatusBarTextColor(const vcl::Window& rBar) { return paletteOf(rBar).aText; }
++
++vcl::Font StatusBarFont(const vcl::Font& rBase)
++{
++    vcl::Font aFont(rBase);
++    const Size aSize = rBase.GetFontSize();
++    aFont.SetFontSize(Size(std::lround(aSize.Width() * design::type::Caption.fScale),
++                           std::lround(aSize.Height() * design::type::Caption.fScale)));
++    aFont.SetWeight(design::type::Caption.eWeight);
++    return aFont;
++}
++
++void DrawStatusBarTopLine(OutputDevice& rDev, const vcl::Window& rBar, tools::Long nWidth)
++{
++    const tools::Long nThick = px(design::size::FrameDivider, scaleOf(rBar));
++    fillRect(rDev, tools::Rectangle(Point(0, 0), Size(nWidth, nThick)), paletteOf(rBar).aFrameDivider);
++}
++
++void DrawStatusBarDivider(OutputDevice& rDev, const vcl::Window& rBar, const Point& rTop,
++                          const Point& rBottom)
++{
++    const double fScale = scaleOf(rBar);
++    const tools::Long nInset = px(design::space::XXS, fScale);
++    const tools::Long nTop = rTop.Y() + nInset;
++    const tools::Long nBottom = rBottom.Y() - nInset;
++    if (nBottom < nTop)
++        return;
++    const tools::Long nThick = px(design::size::FrameDivider, fScale);
++    fillRect(rDev, tools::Rectangle(rTop.X(), nTop, rTop.X() + nThick - 1, nBottom),
++             paletteOf(rBar).aFrameDivider);
++}
++
++void DrawStatusBarHover(OutputDevice& rDev, const vcl::Window& rBar, const tools::Rectangle& rRect)
++{
++    design::DrawRoundRect(rDev, rRect, design::radius::Row * scaleOf(rBar), paletteOf(rBar).aHover,
++                          COL_TRANSPARENT, 0);
++}
++
++void DrawZoomSlider(OutputDevice& rDev, const vcl::Window& rBar, const ZoomSliderLayout& rLayout,
++                    const Image& rDecrease, const Image& rIncrease)
++{
++    const design::Palette& rPalette = paletteOf(rBar);
++    const double fScale = scaleOf(rBar);
++    const tools::Rectangle& rArea = rLayout.aArea;
++    const tools::Long nMid = rArea.Top() + rLayout.nHeight / 2;
++
++    // the track: a groove of the scroll-track colour, outlined with the frame divider so it reads
++    // against the frame surface (the track colour alone is too close to it)
++    const tools::Long nTrackHeight = px(4, fScale);
++    const tools::Long nTrackTop = nMid - nTrackHeight / 2;
++    const tools::Rectangle aTrack(rArea.Left() + rLayout.nEdge, nTrackTop,
++                                  rArea.Right() - rLayout.nEdge, nTrackTop + nTrackHeight - 1);
++    design::DrawRoundRect(rDev, aTrack, nTrackHeight / 2.0, rPalette.aScrollTrack,
++                          rPalette.aFrameDivider, design::stroke::Border * fScale);
++
++    // the snapping points: short marks across the groove; the 100 % mark longer and in the text
++    // colour, so the default zoom is easy to find
++    const tools::Long nMark = px(design::size::FrameDivider, fScale);
++    const tools::Long nSnapReach = px(design::space::XXS, fScale);
++    for (tools::Long nSnap : rLayout.aSnaps)
++    {
++        if (nSnap == rLayout.nCentre)
++            continue;
++        const tools::Long nX = rArea.Left() + nSnap - nMark / 2;
++        fillRect(rDev,
++                 tools::Rectangle(nX, aTrack.Top() - nSnapReach, nX + nMark - 1,
++                                  aTrack.Bottom() + nSnapReach),
++                 rPalette.aFrameDivider);
++    }
++    const tools::Long nCentreReach = px(design::space::XS, fScale);
++    const tools::Long nCentreX = rArea.Left() + rLayout.nCentre - nMark / 2;
++    fillRect(rDev,
++             tools::Rectangle(nCentreX, aTrack.Top() - nCentreReach, nCentreX + nMark - 1,
++                              aTrack.Bottom() + nCentreReach),
++             rPalette.aText);
++
++    // the thumb: an accent disc on the current zoom
++    const tools::Long nThumb = px(12, fScale);
++    const tools::Long nThumbLeft = rArea.Left() + rLayout.nThumb - nThumb / 2;
++    const tools::Long nThumbTop = nMid - nThumb / 2;
++    design::DrawRoundRect(rDev,
++                          tools::Rectangle(Point(nThumbLeft, nThumbTop), Size(nThumb, nThumb)),
++                          nThumb / 2.0, rPalette.aAccent, COL_TRANSPARENT, 0);
++
++    // the decrease and increase buttons: the icon theme's images where the control has always drawn
++    // them (and takes their clicks); an HST glyph for them comes with the icon set
++    const Size aDecrease = rDecrease.GetSizePixel();
++    const tools::Long nButtonTop = rArea.Top() + (rLayout.nHeight - aDecrease.Height()) / 2;
++    rDev.DrawImage(Point(rArea.Left() + (rLayout.nEdge - aDecrease.Width()) / 2, nButtonTop),
++                   rDecrease);
++    const Size aIncrease = rIncrease.GetSizePixel();
++    rDev.DrawImage(Point(rArea.Left() + rLayout.nWidth - aIncrease.Width()
++                             - (rLayout.nEdge - aIncrease.Height()) / 2,
++                         nButtonTop),
++                   rIncrease);
 +}
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/window/status.cxx
++++ b/vcl/source/window/status.cxx
+@@ -23,6 +23,7 @@
+ #include <vcl/event.hxx>
+ #include <vcl/decoview.hxx>
+ #include <vcl/glyphitemcache.hxx>
++#include <vcl/hst/statusbarcoat.hxx>
+ #include <vcl/salnativewidgets.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/help.hxx>
+@@ -51,6 +52,8 @@ public:
+     ImplData();
+ 
+     VclPtr<VirtualDevice> mpVirDev;
++    bool mbHstCoat = false; // the HST look of a document window's bar (vcl/hst/statusbarcoat.hxx)
++    sal_uInt16 mnHstHoverId = 0; // the clickable item under the mouse, in the HST look
+ };
+ 
+ StatusBar::ImplData::ImplData()
+@@ -181,6 +184,16 @@ void StatusBar::ApplySettings(vcl::RenderContext& rRenderContext)
+     const StyleSettings& rStyleSettings = rRenderContext.GetSettings().GetStyleSettings();
+     ApplyControlFont(rRenderContext, rStyleSettings.GetToolFont());
+ 
++    mpImplData->mbHstCoat = hst::coat::StatusBarCoatActive(*this);
++    if (mpImplData->mbHstCoat)
++    {
++        rRenderContext.SetTextColor(hst::coat::StatusBarTextColor(*this));
++        rRenderContext.SetTextFillColor();
++        rRenderContext.SetBackground(hst::coat::StatusBarBackground(*this));
++        ImplGetWindowImpl()->mnNativeBackground = ControlPart::NONE;
++        return;
++    }
++
+     Color aColor;
+     if (IsControlForeground())
+         aColor = GetControlForeground();
+@@ -213,7 +226,8 @@ void StatusBar::ImplInitSettings()
+ {
+     ApplySettings(*GetOutDev());
+ 
+-    mpImplData->mpVirDev->SetFont(GetFont());
++    mpImplData->mpVirDev->SetFont(mpImplData->mbHstCoat ? hst::coat::StatusBarFont(GetFont())
++                                                        : GetFont());
+     mpImplData->mpVirDev->SetTextColor(GetTextColor());
+     mpImplData->mpVirDev->SetTextAlign(GetTextAlign());
+     mpImplData->mpVirDev->SetTextFillColor();
+@@ -396,6 +410,9 @@ void StatusBar::ImplDrawItem(vcl::RenderContext& rRenderContext, bool bOffScreen
+     if (bOffScreen)
+     {
+         mpImplData->mpVirDev->SetOutputSizePixel(aTextRectSize);
++        if (mpImplData->mbHstCoat && pItem->mnId == mpImplData->mnHstHoverId)
++            hst::coat::DrawStatusBarHover(*mpImplData->mpVirDev, *this,
++                                          tools::Rectangle(Point(), aTextRectSize));
+     }
+     else
+     {
+@@ -467,8 +484,10 @@ void StatusBar::ImplDrawItem(vcl::RenderContext& rRenderContext, bool bOffScreen
+         aTo.AdjustX( -4 );
+         aTo.AdjustY( -1 );
+ 
+-        DecorationView aDecoView(&rRenderContext);
+-        aDecoView.DrawSeparator(aFrom, aTo);
++        if (mpImplData->mbHstCoat)
++            hst::coat::DrawStatusBarDivider(rRenderContext, *this, aFrom, aTo);
++        else
++            DecorationView(&rRenderContext).DrawSeparator(aFrom, aTo);
+     }
+ 
+     if (!rRenderContext.ImplIsRecordLayout())
+@@ -708,6 +727,22 @@ void StatusBar::MouseButtonDown( const MouseEvent& rMEvt )
+         Click();
+ }
+ 
++void StatusBar::MouseMove(const MouseEvent& rMEvt)
++{
++    // the HST look: a hover behind the clickable item under the mouse
++    sal_uInt16 nId = mpImplData->mbHstCoat && !rMEvt.IsLeaveWindow() && !mbProgressMode
++                         ? GetItemId(rMEvt.GetPosPixel()) : 0;
++    if (nId && !hst::coat::IsStatusBarItemClickable(GetItemCommand(nId)))
++        nId = 0;
++    if (nId != mpImplData->mnHstHoverId)
++    {
++        for (sal_uInt16 nChanged : { mpImplData->mnHstHoverId, nId })
++            Invalidate(GetItemRect(nChanged)); // empty for 0
++        mpImplData->mnHstHoverId = nId;
++    }
++    Window::MouseMove(rMEvt);
++}
++
+ void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect)
+ {
+     if (mbFormat)
+@@ -748,6 +783,11 @@ void StatusBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle
+ 
+     // draw line at the top of the status bar (to visually distinguish it from
+     // shell / docking area)
++    if (mpImplData->mbHstCoat)
++    {
++        hst::coat::DrawStatusBarTopLine(rRenderContext, *this, mnDX);
++        return;
++    }
+     const StyleSettings& rStyleSettings = rRenderContext.GetSettings().GetStyleSettings();
+     rRenderContext.SetLineColor(rStyleSettings.GetShadowColor());
+     rRenderContext.DrawLine(Point(0, 0), Point(mnDX-1, 0));
