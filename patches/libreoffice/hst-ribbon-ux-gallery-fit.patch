@@ -120,7 +120,7 @@ Hiệu ứng keep the ribbon height of the other tabs.
  {
      // Override selection handler to apply theme on single click
      if (mxIconViewThemeColors)
-@@ -110,17 +115,63 @@
+@@ -110,17 +115,74 @@
              LINK(this, ThemeColorsPaneWrapper, SelectionChangedHdl));
  
      initColorSets();
@@ -154,11 +154,22 @@ Hiệu ứng keep the ribbon height of the other tabs.
 +
 +void ThemeColorsPaneWrapper::HstApplyColumns()
 +{
-+    if (!m_xHstScroll)
-+        return;
 +    const double fScale = GetDPIScaleFactor();
-+    m_xHstScroll->set_size_request(
-+        (HST_COLUMNS[m_nHstState] * HST_ITEM_WIDTH + HST_FRAME_WIDTH) * fScale, HST_HEIGHT * fScale);
++    const int nWidth = static_cast<int>((HST_COLUMNS[m_nHstState] * HST_ITEM_WIDTH + HST_FRAME_WIDTH) * fScale);
++    const int nHeight = static_cast<int>(HST_HEIGHT * fScale);
++    if (m_xHstScroll)
++    {
++        m_xHstScroll->set_size_request(nWidth, nHeight);
++        return;
++    }
++    // vcl's builder makes the icon view its own scrolled window ("hstthemescroll" does not exist there), so
++    // the view takes the size itself, with items of a fixed width so a row holds 6, 4 or 3 themes; it kept
++    // the .ui's 680 px at every state before
++    if (mxIconViewThemeColors)
++    {
++        mxIconViewThemeColors->set_size_request(nWidth, nHeight);
++        mxIconViewThemeColors->set_item_width(static_cast<int>(HST_ITEM_WIDTH * fScale));
++    }
 +}
 +
 +bool ThemeColorsPaneWrapper::set_property(const OUString& rKey, const OUString& rValue)

@@ -151,6 +151,12 @@ class ThemeGalleryWidthPerState(unittest.TestCase):
         self.assertIn("HstApplyColumns();\n    // the window's preferred size", code)
         self.assertIn("InvalidateChildSizeCache();\n    SetOptimalSize();\n    return true;", code)
 
+    def test_vcl_icon_view_takes_the_size(self):
+        # Windows: vcl's builder folds "hstthemescroll" into the icon view, which kept the .ui's 680 px
+        code = added("hst-ribbon-ux-gallery-fit.patch", "svx/source/tbxctrls/ThemeColorsToolBoxControl.cxx")
+        self.assertIn("mxIconViewThemeColors->set_size_request(nWidth, nHeight);", code)
+        self.assertIn("mxIconViewThemeColors->set_item_width(static_cast<int>(HST_ITEM_WIDTH * fScale));", code)
+
 
 class CalcCellStylesGallery(unittest.TestCase):
     def test_mockup_order(self):
