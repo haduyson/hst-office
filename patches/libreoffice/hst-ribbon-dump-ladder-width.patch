@@ -1,0 +1,43 @@
+HST Office: the ribbon's layout dump shows the width the ladder counted for each group.
+
+With HST_RIBBON_DUMP_LAYOUT a group's entry gets "ladder_w": the width Width() last gave the tab's ladder, next
+to the rect the group got. A group wider than the ladder counted pushes the tab past its track (Sheets › Chèn on
+Linux at 1920: 45 px past the banner's margin); the dump shows which.
+
+- vcl/source/control/HstRibbonV3Layout.cxx (Group::ladderWidth, Width(), Dump()).
+
+License: these upstream-derived files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-ribbon-v3-dumps.py reads it (information).
+
+--- a/vcl/source/control/HstRibbonV3Layout.cxx
++++ b/vcl/source/control/HstRibbonV3Layout.cxx
+@@ -53,6 +53,7 @@
+     std::map<const vcl::Window*, char> looks; // the look each command shows now
+     std::map<const vcl::Window*, bool> size32; // a toolbox authored with the 32 px images (Paste)
+     Plan plan; // of the last allocation, for the dump
++    tools::Long ladderWidth = 0; // the last width Width() gave the tab's ladder, for the dump
+     std::vector<const vcl::Window*> planChildren; // command child of each plan item index
+ };
+ 
+@@ -598,7 +599,8 @@
+         return 0;
+     const Parts aParts = partsOf(rGroup);
+     const Plan aPlan = planFor(*pData, aParts, rConfig, rGroup);
+-    return 2 * px(6, rGroup) + std::max<tools::Long>(aPlan.width, captionWidth(aParts));
++    pData->ladderWidth = 2 * px(6, rGroup) + std::max<tools::Long>(aPlan.width, captionWidth(aParts));
++    return pData->ladderWidth;
+ }
+ 
+ tools::Long LargeNatural(vcl::Window& rGroup, const Config& rConfig)
+@@ -708,7 +710,10 @@
+     appendRect(rOut, rectIn(rGroup, rOrigin));
+     rOut.append(",\"caption_rect\":");
+     appendRect(rOut, aParts.caption ? rectIn(*aParts.caption, rOrigin) : tools::Rectangle());
+-    rOut.append(",\"caption_needed\":" + OString::number(sal_Int64(captionWidth(aParts))) + ",\"blocks\":[");
++    rOut.append(",\"caption_needed\":" + OString::number(sal_Int64(captionWidth(aParts))));
++    if (pData) // the width the tab's ladder counted for the group, next to the rect it got
++        rOut.append(",\"ladder_w\":" + OString::number(sal_Int64(pData->ladderWidth)));
++    rOut.append(",\"blocks\":[");
+     if (pData)
+     {
+         static constexpr const char* aTypes[] = { "large", "gallery", "col", "rows" };
