@@ -325,6 +325,22 @@ class LabelAndWidening(unittest.TestCase):
         d["groups"][0]["blocks"][0]["items"][0]["rect"]["w"] = 96
         self.assertEqual(failed(d, "widening"), [])
 
+    def test_a_wide_tab_whose_widest_label_needs_more_than_96_widens_to_it(self):
+        d = baseline()
+        d["wide"] = True
+        d["large_natural"] = 97  # Writer's Help on Linux at 125 %: rounded up to 98
+        d["groups"][0]["blocks"][0]["items"][0]["rect"]["w"] = 98
+        self.assertEqual(failed(d, "widening"), [])
+        d["groups"][0]["blocks"][0]["items"][0]["rect"]["w"] = 96
+        self.assertTrue(failed(d, "widening"))
+
+    def test_a_narrow_natural_keeps_96(self):
+        d = baseline()
+        d["wide"] = True
+        d["large_natural"] = 60
+        d["groups"][0]["blocks"][0]["items"][0]["rect"]["w"] = 96
+        self.assertEqual(failed(d, "widening"), [])
+
     def test_a_dump_that_is_not_wide_is_not_checked(self):
         d = baseline()
         d["groups"][0]["blocks"][0]["items"][0]["rect"]["w"] = 90
