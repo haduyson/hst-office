@@ -70,16 +70,17 @@ their labels), where assistive technology and the checks reach them.
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sfx2/source/notebookbar/HstRibbonCompact.cxx
 +++ b/sfx2/source/notebookbar/HstRibbonCompact.cxx
-@@ -20,6 +20,8 @@
+@@ -20,6 +20,9 @@
  #include <sfx2/sfxresid.hxx>
  #include <sfx2/strings.hrc>
  #include <vcl/ctrl.hxx>
 +#include <vcl/image.hxx>
 +#include <vcl/svapp.hxx>
++#include <vcl/syswin.hxx>
  #include <vcl/tabpage.hxx>
  #include <vcl/toolbox.hxx>
  
-@@ -39,12 +41,21 @@
+@@ -39,12 +42,21 @@
                                               LINK(this, HstRibbonCompact, ChevronHdl));
      m_xExpand = CreateChevron(&m_rTabs, false, SfxResId(STR_HST_RIBBON_EXPAND),
                                             LINK(this, HstRibbonCompact, ChevronHdl));
@@ -101,7 +102,7 @@ their labels), where assistive technology and the checks reach them.
      m_xQuick.disposeAndClear();
      m_xCollapse.disposeAndClear();
      m_xExpand.disposeAndClear();
-@@ -52,6 +63,20 @@
+@@ -52,6 +64,20 @@
  
  IMPL_LINK_NOARG(HstRibbonCompact, ChevronHdl, LinkParamNone*, void) { m_aToggle.Call(nullptr); }
  
@@ -122,7 +123,7 @@ their labels), where assistive technology and the checks reach them.
  tools::Long HstRibbonCompact::BandHeight(double fDpi) { return px(80, fDpi); }
  
  tools::Long HstRibbonCompact::QuickHeight(tools::Long nHeaderHeight, double fDpi)
-@@ -115,6 +140,7 @@
+@@ -115,6 +141,7 @@
      {
          m_xQuick->Hide();
          m_xExpand->Hide();
@@ -130,7 +131,7 @@ their labels), where assistive technology and the checks reach them.
      }
      else
          m_xCollapse->Hide();
-@@ -129,6 +155,9 @@
+@@ -129,6 +156,9 @@
          return;
      m_aFilledBox = aBox;
      m_xQuick->Clear();
@@ -140,7 +141,7 @@ their labels), where assistive technology and the checks reach them.
      for (const hst::ribbon::quick::Row& rRow : hst::ribbon::quick::all)
      {
          if (rRow.app != m_aApp || rRow.box != aBox)
-@@ -138,12 +167,17 @@
+@@ -138,12 +168,17 @@
              const OUString aCommand(rRow.commands[i]);
              if (aCommand == "|")
              {
@@ -161,7 +162,7 @@ their labels), where assistive technology and the checks reach them.
          }
      }
  }
-@@ -155,21 +189,35 @@
+@@ -155,21 +190,41 @@
      const tools::Long nInset = px(4, fDpi);
      if (m_bCompact && !rQuick.IsEmpty())
      {
@@ -179,8 +180,14 @@ their labels), where assistive technology and the checks reach them.
 +                                   aChevron);
          m_xExpand->Show();
          m_xExpand->SetZOrder(nullptr, ZOrderFlags::First);
-+        // the buttons: the first one 6 px from the ribbon's left edge, centred in the row's height
-+        const tools::Long nLeft = std::min(rQuick.Left(), px(6, fDpi));
++        // the buttons: the first one 6 px from the window's left edge (the tab control may start a few px
++        // in), centred in the row's height
++        const vcl::Window* pSystem = m_rTabs.GetSystemWindow();
++        const tools::Long nOrigin = pSystem ? m_rTabs.OutputToScreenPixel(Point()).X()
++                                                  - pSystem->OutputToScreenPixel(Point()).X()
++                                            : 0;
++        const tools::Long nFirst = std::max<tools::Long>(0, px(6, fDpi) - nOrigin);
++        const tools::Long nLeft = std::min(rQuick.Left(), nFirst);
 +        const tools::Long nRoom = aEnd.X() - nLeft - aChevron.Width() - 2 * nInset;
 +        const Size aWant = m_xQuick->CalcWindowSizePixel();
 +        const Size aSize(std::max<tools::Long>(0, std::min(aWant.Width(), nRoom)),
@@ -189,7 +196,7 @@ their labels), where assistive technology and the checks reach them.
 +        if (m_xQuick->GetItemCount() > 0)
 +        {
 +            const tools::Rectangle aFirst = m_xQuick->GetItemPosRect(0);
-+            const Point aAt(px(6, fDpi) - aFirst.Left(),
++            const Point aAt(nFirst - aFirst.Left(),
 +                            rQuick.Top() + (rQuick.GetHeight() - aFirst.GetHeight()) / 2 - aFirst.Top());
 +            const tools::Long nFit = aEnd.X() - aChevron.Width() - 2 * nInset - aAt.X();
 +            m_xQuick->SetPosSizePixel(aAt, Size(std::max<tools::Long>(0, std::min(aWant.Width(), nFit)), aSize.Height()));
@@ -209,7 +216,14 @@ their labels), where assistive technology and the checks reach them.
      }
 --- a/sfx2/source/notebookbar/HstRibbonCompactWidgets.cxx
 +++ b/sfx2/source/notebookbar/HstRibbonCompactWidgets.cxx
-@@ -99,6 +99,25 @@
+@@ -95,10 +95,31 @@
+     {
+         mbUseDefaultButtonSize = false;
+         mbSideBar = false;
+-        SetToolboxButtonSize(ToolBoxButtonSize::Small);
++        // 16 px icons as with Small, but no fixed line height: a horizontal toolbox of a set button size makes
++        // every row as high as its default button, which drops the 30 px the quick row asks for its items
++        SetToolboxButtonSize(ToolBoxButtonSize::DontCare);
          SetButtonType(ButtonType::SYMBOLTEXT);
          hst::ribbon::SetOwnerDraw(*this, true);
      }

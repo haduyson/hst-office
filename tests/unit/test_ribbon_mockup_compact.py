@@ -24,10 +24,14 @@ class MockupGeometry(unittest.TestCase):
         widgets = added(MOCKUP_PATCH, "sfx2/source/notebookbar/HstRibbonCompactWidgets.cxx")
         self.assertIn("px(22, GetDPIScaleFactor()) / 2", widgets)
         self.assertIn("GetItemType(i) != ToolBoxItemType::SEPARATOR", widgets)
+        # a set button size would force the default row height (24 px) over the 30 px items
+        self.assertIn("SetToolboxButtonSize(ToolBoxButtonSize::DontCare);", widgets)
 
     def test_quick_row_starts_6_px_in_and_chevron_sits_4_px_from_the_corner(self):
         code = added(MOCKUP_PATCH, "sfx2/source/notebookbar/HstRibbonCompact.cxx")
-        self.assertIn("const Point aAt(px(6, fDpi) - aFirst.Left(),", code)
+        # 6 px from the window's left edge, whatever the tab control's own offset in the window
+        self.assertIn("const tools::Long nFirst = std::max<tools::Long>(0, px(6, fDpi) - nOrigin);", code)
+        self.assertIn("const Point aAt(nFirst - aFirst.Left(),", code)
         self.assertIn("Point(aEnd.X() - nInset - aChevron.Width(), aEnd.Y() - nInset - aChevron.Height())", code)
 
     def test_dropped_page_is_106_between_3_px_strips_with_the_pin(self):
