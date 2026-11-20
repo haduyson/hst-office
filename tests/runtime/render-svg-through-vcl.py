@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 """Rasterise a list of SVGs through VCL's own pipeline and write their ARGB pixels.
 
-Input (--jobs): {key: {"svg": text, "pixels": n}}, e.g. from scripts/brand/hst_icon_frame_compare.py
+Input (--jobs): {key: {"svg": text, "pixels": width, "height": height (default width)}}, e.g. from scripts/brand/hst_icon_frame_compare.py
 --emit-jobs. Each SVG is rendered at pixels / its own width (VCL's scale for an icon of that
 size), with hst_vcl_icon_raster (headless office of --instdir). Output (--out): {key: rows of
-(a, r, g, b) 0..1}. A raster whose size is not pixels x pixels is an error. Run with the instdir's
+(a, r, g, b) 0..1}. A raster whose size is not pixels x height is an error. Run with the instdir's
 Python as root with an X display, like check-hst-icon-sharpness.py.
 """
 import argparse
@@ -53,10 +53,10 @@ def main():
     try:
         office.start()
         for key, job in sorted(jobs.items()):
-            svg, pixels = job["svg"].encode("utf-8"), job["pixels"]
+            svg, pixels, tall = job["svg"].encode("utf-8"), job["pixels"], job.get("height", job["pixels"])
             width, height, rows = raster.rasterise(office.ctx, svg, pixels / natural_width(job["svg"]), key, argb=True)
-            if (width, height) != (pixels, pixels):
-                errors.append(f"{key}: {width}x{height}, expected {pixels}")
+            if (width, height) != (pixels, tall):
+                errors.append(f"{key}: {width}x{height}, expected {pixels}x{tall}")
                 continue
             result[key] = [[list(p) for p in row] for row in rows]
     finally:

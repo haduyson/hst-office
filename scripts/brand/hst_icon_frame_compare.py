@@ -42,24 +42,8 @@ import hst_classic_icons as classic  # noqa: E402
 import hst_icon_frame_sheet as sheet  # noqa: E402
 from hst_icon_glyph import variant_key  # noqa: E402
 
-# glyph -> Colibre requests (16 px names; the 24/32 px names are derived) that stand beside it
-NEIGHBOURS = {
-    "home": ["cmd/sc_adddirect", "cmd/sc_open", "cmd/sc_setdocumentproperties"],
-    "saveas": ["cmd/sc_save", "cmd/sc_print", "cmd/sc_open"],
-    "setupusbtoken": ["cmd/sc_signature", "cmd/sc_setdocumentproperties", "cmd/sc_versiondialog"],
-    "previousversions": ["cmd/sc_signature", "cmd/sc_setdocumentproperties", "cmd/sc_versiondialog"],
-    "unsaveddocuments": ["cmd/sc_signature", "cmd/sc_setdocumentproperties", "cmd/sc_versiondialog"],
-    "toggleduplex": ["cmd/sc_print", "cmd/sc_printpreview", "cmd/sc_exporttopdf"],
-    # the tab marks stand beside LibreOffice's own close-button marks (vcl/res/closedoc is the × of its
-    # close buttons), not beside document icons
-    "tabclose": ["vcl/res/closedoc", "cmd/sc_closewin", "cmd/sc_delete"],
-    "tabnew": ["vcl/res/closedoc", "cmd/sc_closewin", "cmd/sc_delete"],
-    "sidebar-property": ["cmd/sc_inspectordeck", "cmd/sc_basicshapes", "cmd/sc_showannotations"],
-    "sidebar-style": ["cmd/sc_inspectordeck", "cmd/sc_basicshapes", "cmd/sc_showannotations"],
-    "sidebar-navigator": ["cmd/sc_inspectordeck", "cmd/sc_basicshapes", "cmd/sc_showannotations"],
-    "signature-status": ["svx/res/doc_modified_no", "svx/res/zoom_page_statusbar",
-                         "svx/res/a11y_check_issues_not_found"],
-}
+from hst_icon_frame_glyphs import NATIVE, NEIGHBOURS, native_masters, sizes_of, square_masters  # noqa: E402
+
 # Small control marks drawn inside a button (the document tab's close and new), the visual size of
 # LibreOffice's own close mark by owner decision of 20/11: judged on pen weight, sharpness and an ink
 # density no heavier than the heaviest close mark beside them.
@@ -68,6 +52,11 @@ MARKS = {"tabclose", "tabnew"}
 # of the tab-close mark snap to a 2 px pen, and any 2 px diagonal measures fringe 0.39 (pens 1.65-2.4 and
 # spans 8-10 units were swept on 20/11/2026); LibreOffice's own close mark is no sharper at 1x (0.44).
 EXCEPTIONS = {("tabclose", 250): {"fringe", "halfpx"}}
+# Named tolerances: near misses accepted by the owner's reviewer on 20/11/2026 after measuring through VCL
+# (rsvg passes them): cell -> {metric: extra allowance}. tabclose at 150 % is up to 0.014 softer than the
+# softest close mark; sidebar-property at 32 px carries 0.0005 more ink than the median band.
+NEAR_MISSES = {("tabclose", "16@150"): {"fringe": 0.015}, ("tabclose", "24@150"): {"fringe": 0.015},
+               ("tabclose", "32@150"): {"fringe": 0.015}, ("sidebar-property", "32@100"): {"ink": 0.001}}
 SCALES = (100, 150, 200, 250)
 METRICS = ("size", "stroke", "ink", "fringe", "halfpx")
 TOLERANCE = {"size": 0.10, "stroke": 0.15, "ink": 0.20, "fringe": 0.0, "halfpx": 0.10}
@@ -84,15 +73,17 @@ class Rasteriser:
         self.vcl, self.jobs = vcl, {}
 
     @staticmethod
-    def key(svg, pixels):
+    def key(svg, pixels, height):
         import hashlib
-        return hashlib.sha1(svg.encode("utf-8")).hexdigest()[:16] + f"-{pixels}"
+        return hashlib.sha1(svg.encode("utf-8")).hexdigest()[:16] + f"-{pixels}" + (
+            "" if height == pixels else f"x{height}")
 
-    def __call__(self, svg, pixels):
-        key = self.key(svg, pixels)
-        self.jobs[key] = {"svg": svg, "pixels": pixels}
+    def __call__(self, svg, pixels, height=None):
+        height = pixels if height is None else height
+        key = self.key(svg, pixels, height)
+        self.jobs[key] = {"svg": svg, "pixels": pixels, "height": height}
         if self.vcl is None:
-            return sheet.rasterise(svg, pixels)
+            return sheet.rasterise(svg, pixels, height)
         if key not in self.vcl:
             raise ValueError(f"no VCL raster for {key}; rerun with --emit-jobs and the VCL renderer")
         rows = np.asarray(self.vcl[key], dtype=float)  # height x width x (a, r, g, b), 0..1
@@ -130,7 +121,7 @@ def measure(image):
     alpha = rgba[:, :, 3]
     luma = (0.299 * rgba[:, :, 0] + 0.587 * rgba[:, :, 1] + 0.114 * rgba[:, :, 2]) * 255
     ink = np.where(luma < INK_LUMA, alpha, 0.0)
-    side = alpha.shape[0]
+    side = max(alpha.shape)
     rows, cols = np.nonzero(alpha >= 0.25)
     size = (max(rows.max() - rows.min(), cols.max() - cols.min()) + 1) / side if rows.size else 0.0
     solid = np.pad(ink > 0.5, 1)
@@ -143,61 +134,97 @@ def measure(image):
             "halfpx": round(float(np.mean((painted > 0.3) & (painted < 0.7))), 3) if painted.size else 0.0}
 
 
-def hst_raster(files, name, size, scale):
-    key = f"{sheet.PREFIX[size]}{name}.svg"
-    pixels = round(size * scale / 100)
-    if scale in (150, 250):
-        return RASTER(files[variant_key(key, scale)], pixels)
-    return RASTER(files[key], pixels)
+def svg_size(text):
+    """(width, height) in px of an SVG with numeric width/height, else of its viewBox."""
+    import re
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(text)
+    number = re.compile(r"\s*(\d+(?:\.\d+)?)")
+    width, height = number.match(root.get("width") or ""), number.match(root.get("height") or "")
+    if width and height:
+        return float(width.group(1)), float(height.group(1))
+    box = (root.get("viewBox") or "0 0 16 16").split()
+    return float(box[2]), float(box[3])
 
 
-def colibre_raster(colibre, name, size, scale, dark=False):
-    svg = colibre.svg(colibre_request(name, size), dark)
-    if svg is None:
-        return None
-    return RASTER(svg, round(size * scale / 100))
+def cells(name, theme, colibre):
+    """[(label, scale, hst raster callable, [(request, raster callable)])] of one glyph."""
+    dark = theme.endswith("_dark")
+    result = []
+    if name in NATIVE:
+        files = sheet.shipped_native(name, theme)
+        width, height = sheet.native_size(files["100"])
+        for scale in SCALES:
+            w, h = round(width * scale / 100), round(height * scale / 100)
+            text = files[str(scale)] if scale in (150, 250) else files["100"]
+            hst = (lambda text=text, w=w, h=h: RASTER(text, w, h))
+            result.append((f"native@{scale}", scale, hst, neighbour_rasters(colibre, name, None, scale, dark)))
+        return result
+    files = sheet.shipped(name, theme)
+    for size in sizes_of(name):
+        for scale in SCALES:
+            key = f"{sheet.PREFIX[size]}{name}.svg"
+            key = variant_key(key, scale) if scale in (150, 250) else key
+            pixels = round(size * scale / 100)
+            hst = (lambda text=files[key], pixels=pixels: RASTER(text, pixels))
+            result.append((f"{size}@{scale}", scale, hst, neighbour_rasters(colibre, name, size, scale, dark)))
+    return result
 
 
-def sizes_of(name):
-    return (24, 32) if name.startswith("sidebar-") else (16, 24, 32)
+def neighbour_rasters(colibre, name, size, scale, dark):
+    """[(request, raster callable)] of a glyph's Colibre neighbours at a logical size (None: their native size)."""
+    found = []
+    for neighbour in NEIGHBOURS[name]:
+        request = colibre_request(neighbour, size) if size else neighbour
+        svg = colibre.svg(request, dark)
+        if svg is None:
+            continue
+        if size:
+            w = h = round(size * scale / 100)
+        else:
+            width, height = svg_size(svg)
+            w, h = round(width * scale / 100), round(height * scale / 100)
+        found.append((request, lambda svg=svg, w=w, h=h: RASTER(svg, w, h)))
+    return found
+
+
+def judge(name, label, scale, hst, neighbours):
+    flags = []
+    allowance = NEAR_MISSES.get((name, label), {})
+    for metric in METRICS:
+        if name in MARKS and metric in ("size", "ink") or metric in EXCEPTIONS.get((name, scale), ()):
+            continue
+        values = [m[metric] for m in neighbours.values()]
+        if not values:
+            continue
+        low, high = min(values), max(values)
+        span = TOLERANCE[metric] * max(high, 1e-6) + allowance.get(metric, 0.0)
+        if hst[metric] > high + span:
+            flags.append(f"{metric} {hst[metric]} > Colibre {high}")
+        elif metric not in ONE_SIDED and hst[metric] < low - span:
+            flags.append(f"{metric} {hst[metric]} < Colibre {low}")
+    if neighbours:
+        middle = statistics.median(m["ink"] for m in neighbours.values())
+        heaviest = max(m["ink"] for m in neighbours.values())
+        extra = allowance.get("ink", 0.0)
+        # a mark matches LibreOffice's own close mark in size, so it may be as heavy as the heaviest
+        # close mark beside it, never heavier
+        if (hst["ink"] > (1 + INK_MEDIAN) * heaviest + extra if name in MARKS
+                else abs(hst["ink"] - middle) > INK_MEDIAN * middle + extra):
+            flags.append(f"ink {hst['ink']} not within 15 % of the Colibre median {round(middle, 4)}")
+    return flags
 
 
 def compare(names, colibre):
-    """{glyph: {"size@scale": {"hst": metrics, "colibre": {neighbour: metrics}, "flags": [...]}}}."""
+    """{glyph: {label: {"hst": metrics, "colibre": {request: metrics}, "flags": [...]}}}."""
     report = {}
     for name in names:
-        files = sheet.shipped(name, "hst")
         report[name] = {}
-        for size in sizes_of(name):
-            for scale in SCALES:
-                hst = measure(hst_raster(files, name, size, scale))
-                neighbours = {}
-                for neighbour in NEIGHBOURS[name]:
-                    image = colibre_raster(colibre, neighbour, size, scale)
-                    if image is not None:
-                        neighbours[colibre_request(neighbour, size)] = measure(image)
-                flags = []
-                for metric in METRICS:
-                    if name in MARKS and metric in ("size", "ink") or metric in EXCEPTIONS.get((name, scale), ()):
-                        continue
-                    values = [m[metric] for m in neighbours.values()]
-                    if not values:
-                        continue
-                    low, high = min(values), max(values)
-                    span = TOLERANCE[metric] * max(high, 1e-6)
-                    if hst[metric] > high + span:
-                        flags.append(f"{metric} {hst[metric]} > Colibre {high}")
-                    elif metric not in ONE_SIDED and hst[metric] < low - span:
-                        flags.append(f"{metric} {hst[metric]} < Colibre {low}")
-                if neighbours:
-                    middle = statistics.median(m["ink"] for m in neighbours.values())
-                    heaviest = max(m["ink"] for m in neighbours.values())
-                    # a mark matches LibreOffice's own close mark in size, so it may be as heavy as the
-                    # heaviest close mark beside it, never heavier
-                    if (hst["ink"] > (1 + INK_MEDIAN) * heaviest if name in MARKS
-                            else abs(hst["ink"] - middle) > INK_MEDIAN * middle):
-                        flags.append(f"ink {hst['ink']} not within 15 % of the Colibre median {round(middle, 4)}")
-                report[name][f"{size}@{scale}"] = {"hst": hst, "colibre": neighbours, "flags": flags}
+        for label, scale, hst_raster, neighbours in cells(name, "hst", colibre):
+            hst = measure(hst_raster())
+            measured = {request: measure(raster()) for request, raster in neighbours}
+            report[name][label] = {"hst": hst, "colibre": measured,
+                                   "flags": judge(name, label, scale, hst, measured)}
     return report
 
 
@@ -207,45 +234,37 @@ def outliers(report):
 
 
 def draw_sheet(names, colibre, report, path):
+    """Light and dark panels: per glyph, every cell as a 2 x 2 block (HST top left, then its Colibre
+    neighbours) with the HST measurements below; a red label marks an outlier."""
     try:
         font = ImageFont.truetype("DejaVuSans.ttf", 11)
     except OSError:
         font = ImageFont.load_default()
-    columns = [(s, sc) for s in (16, 24, 32) for sc in SCALES]
-    cell_w = [max(2 * round(s * sc / 100) + 16, 96) for s, sc in columns]
-    row_h, label_w, header = 2 * 80 + 4 + 46, 140, 34  # a 2 x 2 block of the largest raster (32 px at 250 %) + labels
+    cell_w, row_h, label_w, header = 180, 2 * 80 + 4 + 52, 150, 24
+    columns = max(len(report[name]) for name in names)
     panels = []
     for dark in (False, True):
         theme = "hst_dark" if dark else "hst"
-        width = label_w + sum(cell_w)
-        image = Image.new("RGB", (width, header + row_h * len(names)), sheet.BACKGROUND[theme])
+        image = Image.new("RGB", (label_w + columns * cell_w, header + row_h * len(names)), sheet.BACKGROUND[theme])
         drawing = ImageDraw.Draw(image)
-        drawing.text((8, 8), ("Dark" if dark else "Light") + ": HST glyph (first) beside its Colibre neighbours; "
+        drawing.text((8, 6), ("Dark" if dark else "Light") + ": HST glyph (top left) beside its Colibre neighbours; "
                      "red label = outlier", fill=sheet.TEXT[theme], font=font)
-        x = label_w
-        for (s, sc), w in zip(columns, cell_w):
-            drawing.text((x + 4, 20), f"{s} px @{sc}%", fill=sheet.TEXT[theme], font=font)
-            x += w
         for row, name in enumerate(names):
             y = header + row * row_h
-            files = sheet.shipped(name, theme)
             drawing.text((8, y + 8), name, fill=sheet.TEXT[theme], font=font)
-            x = label_w
-            for (s, sc), w in zip(columns, cell_w):
-                if s in sizes_of(name):
-                    cell = report[name][f"{s}@{sc}"]
-                    icons = [hst_raster(files, name, s, sc)]
-                    icons += [i for i in (colibre_raster(colibre, n, s, sc, dark) for n in NEIGHBOURS[name]) if i]
-                    px = icons[0].width
-                    ix, iy = x + 4, y + 6
-                    for index, icon in enumerate(icons):  # a 2 x 2 block: HST top left
-                        image.paste(icon, (ix + (index % 2) * (px + 4), iy + (index // 2) * (px + 4)), icon)
-                    hst = cell["hst"]
-                    colour = (220, 40, 40) if cell["flags"] else sheet.TEXT[theme]
-                    drawing.text((x + 4, y + row_h - 40),
-                                 f"w {hst['stroke']:.2f} i {hst['ink']:.2f}\ns {hst['size']:.2f} f {hst['fringe']:.2f}",
-                                 fill=colour, font=font)
-                x += w
+            for column, (label, _, hst_raster, neighbours) in enumerate(cells(name, theme, colibre)):
+                x = label_w + column * cell_w
+                cell = report[name][label]
+                icons = [hst_raster()] + [raster() for _, raster in neighbours]
+                w, h = max(i.width for i in icons), max(i.height for i in icons)
+                for index, icon in enumerate(icons[:4]):
+                    image.paste(icon, (x + 4 + (index % 2) * (w + 4), y + 22 + (index // 2) * (h + 4)), icon)
+                hst = cell["hst"]
+                colour = (220, 40, 40) if cell["flags"] else sheet.TEXT[theme]
+                drawing.text((x + 4, y + 6), label, fill=sheet.TEXT[theme], font=font)
+                drawing.text((x + 4, y + row_h - 34),
+                             f"w {hst['stroke']:.2f} i {hst['ink']:.2f}\ns {hst['size']:.2f} f {hst['fringe']:.2f}",
+                             fill=colour, font=font)
         panels.append(image)
     result = Image.new("RGB", (panels[0].width, sum(p.height for p in panels)), (255, 255, 255))
     result.paste(panels[0], (0, 0))
@@ -261,11 +280,14 @@ def main():
     parser.add_argument("--json", type=Path)
     parser.add_argument("--emit-jobs", type=Path, help="write the SVGs to rasterise through VCL and stop")
     parser.add_argument("--vcl-rasters", type=Path, help="VCL rasters of those jobs (render-svg-through-vcl.py)")
+    parser.add_argument("--only", nargs="+", help="judge only these glyphs")
     args = parser.parse_args()
     global RASTER
     if args.vcl_rasters:
         RASTER = Rasteriser(json.loads(args.vcl_rasters.read_text(encoding="utf-8")))
-    names = sorted(p.stem for p in sheet.STAGE.glob("*.svg"))
+    names = square_masters(sheet.STAGE) + native_masters(sheet.STAGE)
+    if args.only:
+        names = [n for n in names if n in args.only]
     missing = sorted(set(names) - set(NEIGHBOURS))
     if missing:
         sys.exit(f"no Colibre neighbours listed for {missing}")
@@ -273,12 +295,10 @@ def main():
     report = compare(names, colibre)
     if args.emit_jobs:
         for name in names:  # the dark panel of the sheet needs the dark rasters too
-            files = sheet.shipped(name, "hst_dark")
-            for size in sizes_of(name):
-                for scale in SCALES:
-                    hst_raster(files, name, size, scale)
-                    for neighbour in NEIGHBOURS[name]:
-                        colibre_raster(colibre, neighbour, size, scale, True)
+            for _, _, hst_raster, neighbours in cells(name, "hst_dark", colibre):
+                hst_raster()
+                for _, raster in neighbours:
+                    raster()
         args.emit_jobs.write_text(json.dumps(RASTER.jobs) + "\n", encoding="utf-8")
         print(f"{len(RASTER.jobs)} rasters to render through VCL: {args.emit_jobs}")
         return 0

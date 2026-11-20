@@ -92,6 +92,54 @@ def shipped(name, theme):
     return files
 
 
+def shipped_native(name, theme):
+    """{variant: SVG text} of a native-size frame glyph (native/<name>[@150|@250].svg) in `theme`:
+    harmonised colours and the theme's ink, geometry as drawn (VCL draws these images at their own size).
+    Keys: "100", "150", "250"."""
+    dark, ink = THEMES[theme], modern.ink()["dark" if THEMES[theme] else "light"]
+    files = {}
+    for percent, suffix in (("100", ""), ("150", "@150"), ("250", "@250")):
+        text = (STAGE / "native" / f"{name}{suffix}.svg").read_text(encoding="utf-8")
+        files[percent] = modern.harmonise(text, dark).replace("currentColor", ink)
+    return files
+
+
+def native_size(text):
+    """(width, height) in px of a native master."""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(text)
+    return int(root.get("width")), int(root.get("height"))
+
+
+def native_violations(name):
+    """Spec breaches of a native glyph: the hst-modern rules (elements, attributes, colours, caps, header)
+    without the 24-unit snapping, whole-pixel pens, and variants exactly 1.5x / 2.5x the 1x size."""
+    import re
+    colours, problems = modern.palette(), {}
+    base = None
+    for suffix, factor in (("", 1.0), ("@150", 1.5), ("@250", 2.5)):
+        path = STAGE / "native" / f"{name}{suffix}.svg"
+        if not path.is_file():
+            problems[path.name] = ["missing"]
+            continue
+        text = path.read_text(encoding="utf-8")
+        width, height = native_size(text)
+        if base is None:
+            base = (width, height)
+        if (width, height) != (round(base[0] * factor + 0.001), round(base[1] * factor + 0.001)):
+            problems.setdefault(path.name, []).append(f"{width}x{height} is not {factor}x {base[0]}x{base[1]}")
+        square = re.sub(r'(<svg[^>]*?)width="\d+" height="\d+" viewBox="0 0 \d+ \d+"',
+                        r'\1width="24" height="24" viewBox="0 0 24 24"', text, count=1)
+        found = [v for v in modern.violations(square, colours, 24, tuned=True) if "snap" not in v]
+        if f'viewBox="0 0 {width} {height}"' not in text:
+            found.append("viewBox must be 0 0 <width> <height>")
+        pens = [float(v) for v in re.findall(r'stroke-width="([\d.]+)"', text)]
+        found += [f"stroke-width {pen} is not a whole pixel" for pen in pens if pen != int(pen)]
+        if found:
+            problems.setdefault(path.name, []).extend(found)
+    return problems
+
+
 def violations(name):
     colours = modern.palette()
     problems = {f"{name}.svg": modern.violations((STAGE / f"{name}.svg").read_text(encoding="utf-8"), colours)}
@@ -101,9 +149,10 @@ def violations(name):
     return {k: v for k, v in problems.items() if v}
 
 
-def rasterise(svg_text, pixels):
-    """RGBA image of an SVG at `pixels` x `pixels` via rsvg-convert."""
-    result = subprocess.run(["rsvg-convert", "-w", str(pixels), "-h", str(pixels), "-f", "png"],
+def rasterise(svg_text, pixels, height=None):
+    """RGBA image of an SVG at `pixels` x `height` (default square) via rsvg-convert."""
+    height = pixels if height is None else height
+    result = subprocess.run(["rsvg-convert", "-w", str(pixels), "-h", str(height), "-f", "png"],
                             input=svg_text.encode("utf-8"), capture_output=True, check=True)
     return Image.open(io.BytesIO(result.stdout)).convert("RGBA")
 
