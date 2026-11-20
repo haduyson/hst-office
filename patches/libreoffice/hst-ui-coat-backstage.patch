@@ -1,0 +1,529 @@
+HST Office: the File tab (backstage) in the HST frame coat — tests and interface only (red build).
+
+
+With the coat on (FrameCoat/Backstage under UiCoat/Enabled or HST_UI_COAT, never in high contrast) every colour
+of the File panel and its title band comes from the design tokens (<vcl/hst/designtokens.hxx>), and the left
+column is the Start Center's: the side panel colour, a token pill (DrawPill) for the selected and the hovered
+item, the keyboard focus ring (DrawFocusRing) on the focused item's pill, the navigation type (type::Nav,
+NavSelected) and 40 px items 4 px apart, lowered only when the panel is too short for them (down to 24 px or the
+text's height). Page titles and the greeting take type::Title, section headings type::Strong. The blocks of the
+pages (the Home tiles, the document's properties, the export choices) are cards: the card fill on the frame
+surface, 12 px inside; on GTK also the card's corners and border (vcl/source/hst/coat/css/backstage.cxx). The
+title band's back button is a round DrawRoundRect in the coat. Behaviour, commands, ids, accessible names and the
+keyboard order are unchanged.
+
+- sfx2/source/backstage/hstbackstagecoat.{hxx,cxx} (new): the panel's colours in each look (GetBackstageColors),
+  the coat's item painting and sizes, the tile page preview; hstbackstagelegacycolors.hxx (new) holds the earlier
+  look's colours, the only colour literals of the panel's code. FrameCoat/Backstage=false (or the coat off)
+  restores the earlier look exactly.
+- sfx2/uiconfig/ui/hstbackstage.ui: the left column's items are 4 px apart (spacing, no item touching another);
+  style classes hst-backstage-nav and hst-backstage-card for the GTK CSS; the three card blocks get 12 px inside.
+- The Print page fits the panel through the File panel's placement (hst-backstage-panel-beside-banner.patch);
+  a narrower panel shrinks the print preview first (the page's boxes give way), no scrolled container.
+- CppunitTest_sfx2_hst_backstagecoat: token colours light/dark, the earlier look's colours, the pill and the
+  focus ring at 100/125 %, the item height fitting the panel, no colour literal in the panel's code, no coat in
+  high contrast.
+
+License: these upstream-derived files remain under their original license (MPL-2.0); the CSS fragment is
+LicenseRef-HST-Proprietary like the coat's other files.
+
+--- /dev/null
++++ b/sfx2/CppunitTest_sfx2_hst_backstagecoat.mk
+@@ -0,0 +1,55 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# This file is part of HST Office, based on LibreOffice.
++#
++# This Source Code Form is subject to the terms of the Mozilla Public
++# License, v. 2.0. If a copy of the MPL was not distributed with this
++# file, You can obtain one at http://mozilla.org/MPL/2.0/.
++#
++# HST Office: the File panel (backstage) in the HST frame coat: token colours, the left column's pill,
++# focus ring and item height, the earlier look as the fallback, no colour literals in the panel's code.
++
++$(eval $(call gb_CppunitTest_CppunitTest,sfx2_hst_backstagecoat))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sfx2_hst_backstagecoat, \
++    sfx2/qa/cppunit/hstbackstagecoat \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sfx2_hst_backstagecoat,\
++    -I$(SRCDIR)/sfx2/inc \
++    -I$(SRCDIR)/sfx2/source/backstage \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,sfx2_hst_backstagecoat,\
++    boost_headers \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sfx2_hst_backstagecoat, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    sal \
++    sfx \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sfx2_hst_backstagecoat))
++
++$(eval $(call gb_CppunitTest_use_ure,sfx2_hst_backstagecoat))
++$(eval $(call gb_CppunitTest_use_vcl,sfx2_hst_backstagecoat))
++
++$(eval $(call gb_CppunitTest_use_components,sfx2_hst_backstagecoat,\
++    configmgr/source/configmgr \
++    i18npool/util/i18npool \
++    ucb/source/core/ucb1 \
++    unotools/util/utl \
++))
++
++$(eval $(call gb_CppunitTest_use_configuration,sfx2_hst_backstagecoat))
++
++# vim: set noet sw=4 ts=4:
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -103,6 +103,7 @@ $(eval $(call gb_Library_add_exception_objects,sfx,\
+     sfx2/source/startcenter/hststartcentersearch \
+     sfx2/source/startcenter/hststartcenterwindow \
+     sfx2/source/backstage/hstbackstage \
++    sfx2/source/backstage/hstbackstagecoat \
+     sfx2/source/backstage/hstbackstagedata \
+     sfx2/source/backstage/hstbackstageprint \
+     sfx2/source/backstage/hstbackstageprintcancel \
+--- a/sfx2/Module_sfx2.mk
++++ b/sfx2/Module_sfx2.mk
+@@ -40,6 +40,7 @@ $(eval $(call gb_Module_add_check_targets,sfx2,\
+     CppunitTest_sfx2_autoredaction \
+     CppunitTest_sfx2_hst_update_dot \
+     CppunitTest_sfx2_hst_startcenter \
++    CppunitTest_sfx2_hst_backstagecoat \
+ ))
+ 
+ $(eval $(call gb_Module_add_subsequentcheck_targets,sfx2,\
+--- /dev/null
++++ b/sfx2/qa/cppunit/hstbackstagecoat.cxx
+@@ -0,0 +1,255 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the File panel (backstage) in the HST frame coat. Its colours are the design tokens,
++// its left column is the Start Center's (a pill for the selected and the hovered item, the focus ring,
++// 40 px items fitted to the panel's height), the earlier look stays as the fallback, and no colour
++// is written into the panel's code outside the file of the earlier look.
++
++#include <test/bootstrapfixture.hxx>
++
++#include <hstbackstagecoat.hxx>
++
++#include <osl/file.hxx>
++#include <rtl/strbuf.hxx>
++#include <tools/color.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/image.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/virdev.hxx>
++
++#include <cmath>
++#include <regex>
++#include <string>
++#include <vector>
++
++using namespace sfx2::hst;
++namespace design = ::hst::design;
++
++namespace
++{
++StyleSettings makeStyle(bool bDark)
++{
++    StyleSettings aStyle(Application::GetSettings().GetStyleSettings());
++    aStyle.SetHighContrastMode(false);
++    aStyle.SetWindowColor(bDark ? Color(0x20, 0x20, 0x20) : COL_WHITE);
++    aStyle.SetWindowTextColor(bDark ? COL_WHITE : COL_BLACK);
++    return aStyle;
++}
++
++tools::Long px(double fLength, double fScale) { return std::lround(fLength * fScale); }
++
++/** An item of the left column painted into a device of nWidth x nHeight. */
++ScopedVclPtr<VirtualDevice> paintItem(const StyleSettings& rStyle, const NavItemState& rState,
++                                      tools::Long nWidth, tools::Long nHeight, double fScale)
++{
++    ScopedVclPtr<VirtualDevice> xDev(VclPtr<VirtualDevice>::Create(DeviceFormat::WITHOUT_ALPHA));
++    xDev->SetOutputSizePixel(Size(nWidth, nHeight));
++    PaintCoatNavItem(*xDev, rStyle, rState, u"Thông tin"_ustr, Image(), false, fScale);
++    return xDev;
++}
++
++std::string readFile(const OUString& rURL)
++{
++    osl::File aFile(rURL);
++    if (aFile.open(osl_File_OpenFlag_Read) != osl::FileBase::E_None)
++        return std::string();
++    OStringBuffer aBuf;
++    char aChunk[4096];
++    sal_uInt64 nRead = 0;
++    while (aFile.read(aChunk, sizeof(aChunk), nRead) == osl::FileBase::E_None && nRead > 0)
++        aBuf.append(aChunk, static_cast<sal_Int32>(nRead));
++    return std::string(aBuf.getStr(), aBuf.getLength());
++}
++
++/** The C++ files of a source directory (a URL ending in "/"). */
++std::vector<OUString> sourceFiles(const OUString& rDirURL)
++{
++    std::vector<OUString> aFiles;
++    osl::Directory aDir(rDirURL);
++    if (aDir.open() != osl::FileBase::E_None)
++        return aFiles;
++    osl::DirectoryItem aItem;
++    while (aDir.getNextItem(aItem) == osl::FileBase::E_None)
++    {
++        osl::FileStatus aStatus(osl_FileStatus_Mask_FileURL | osl_FileStatus_Mask_FileName);
++        if (aItem.getFileStatus(aStatus) != osl::FileBase::E_None)
++            continue;
++        const OUString aName = aStatus.getFileName();
++        if (aName.endsWith(".cxx") || aName.endsWith(".hxx") || aName.endsWith(".hrc"))
++            aFiles.push_back(aStatus.getFileURL());
++    }
++    return aFiles;
++}
++}
++
++class BackstageCoatTest : public test::BootstrapFixture
++{
++};
++
++/* In the coat every colour of the panel is a token: the side panel, the pills, the text, the cards
++   and the surfaces, light and dark. */
++CPPUNIT_TEST_FIXTURE(BackstageCoatTest, testCoatColoursComeFromTokens)
++{
++    for (bool bDark : { false, true })
++    {
++        const StyleSettings aStyle = makeStyle(bDark);
++        const design::Palette& p = design::GetPalette(bDark);
++        const BackstageColors c = GetBackstageColors(aStyle, BackstageApp::Writer, true);
++        CPPUNIT_ASSERT(c.bCoat);
++        CPPUNIT_ASSERT_EQUAL(p.aSide, c.aNavBack);
++        CPPUNIT_ASSERT_EQUAL(p.aPill, c.aNavSelected);
++        CPPUNIT_ASSERT_EQUAL(p.aHover, c.aNavHover);
++        CPPUNIT_ASSERT_EQUAL(p.aText, c.aNavText);
++        CPPUNIT_ASSERT_EQUAL(p.aAccent, c.aNavSelectedText);
++        CPPUNIT_ASSERT_EQUAL(p.aSelectedIndicator, c.aAccent);
++        CPPUNIT_ASSERT_EQUAL(p.aCardBorder, c.aNavSeparator);
++        CPPUNIT_ASSERT_EQUAL(p.aFrameSurface, c.aPanel);
++        CPPUNIT_ASSERT_EQUAL(p.aCard, c.aCard);
++        CPPUNIT_ASSERT_EQUAL(p.aFrameSurface, c.aBand);
++        CPPUNIT_ASSERT_EQUAL(p.aMuted, c.aBandMuted);
++        CPPUNIT_ASSERT_EQUAL(p.aCardBorder, c.aPaperBorder);
++        // the same for every application: the coat has one accent
++        const BackstageColors aCalc = GetBackstageColors(aStyle, BackstageApp::Calc, true);
++        CPPUNIT_ASSERT_EQUAL(c.aAccent, aCalc.aAccent);
++    }
++}
++
++/* Without the coat the panel keeps its earlier colours: the application colour darkened for white
++   text (Writer #177AC0, Sheets #2B8731) tints the left column. */
++CPPUNIT_TEST_FIXTURE(BackstageCoatTest, testEarlierLookKeepsItsColours)
++{
++    const StyleSettings aStyle = makeStyle(false);
++    const BackstageColors c = GetBackstageColors(aStyle, BackstageApp::Writer, false);
++    CPPUNIT_ASSERT(!c.bCoat);
++    CPPUNIT_ASSERT_EQUAL(Color(0x17, 0x7a, 0xc0), c.aAccent);
++    CPPUNIT_ASSERT_EQUAL(Color(0xf5, 0xf9, 0xfd), c.aNavBack);
++    CPPUNIT_ASSERT_EQUAL(Color(0xd6, 0xe8, 0xf5), c.aNavSelected);
++    CPPUNIT_ASSERT_EQUAL(Color(0xe6, 0xf1, 0xf9), c.aNavHover);
++    CPPUNIT_ASSERT_EQUAL(Color(0xce, 0xd2, 0xd5), c.aNavSeparator);
++    CPPUNIT_ASSERT_EQUAL(COL_WHITE, c.aPanel);
++    CPPUNIT_ASSERT_EQUAL(COL_WHITE, c.aPaperBlank);
++    CPPUNIT_ASSERT_EQUAL(Color(0x2b, 0x87, 0x31),
++                         GetBackstageColors(aStyle, BackstageApp::Calc, false).aAccent);
++}
++
++/* The selected item is a pill of the token colour inset in the side panel, with round corners; the
++   hovered one a lighter pill; the others only the side panel. At 100 % and 125 %, light and dark. */
++CPPUNIT_TEST_FIXTURE(BackstageCoatTest, testSelectedItemIsATokenPill)
++{
++    for (bool bDark : { false, true })
++        for (double fScale : { 1.0, 1.25 })
++        {
++            const StyleSettings aStyle = makeStyle(bDark);
++            const design::Palette& p = design::GetPalette(bDark);
++            const tools::Long nWidth = px(220, fScale), nHeight = px(40, fScale);
++            const tools::Rectangle aPill = CoatNavPill(Size(nWidth, nHeight), fScale);
++            CPPUNIT_ASSERT_EQUAL(px(design::space::S, fScale), aPill.Left());
++            CPPUNIT_ASSERT_EQUAL(nWidth - 1 - px(design::space::S, fScale), aPill.Right());
++            CPPUNIT_ASSERT_EQUAL(nHeight, aPill.GetHeight());
++            // right of the text, inside the pill
++            const Point aInside(aPill.Right() - px(5, fScale), nHeight / 2);
++            const Point aOutside(px(2, fScale), nHeight / 2);
++            const Point aCorner(aPill.Left(), 0);
++
++            NavItemState aState;
++            aState.bSelected = true;
++            ScopedVclPtr<VirtualDevice> xSelected = paintItem(aStyle, aState, nWidth, nHeight, fScale);
++            CPPUNIT_ASSERT_EQUAL(p.aPill, xSelected->GetPixel(aInside));
++            CPPUNIT_ASSERT_EQUAL(p.aSide, xSelected->GetPixel(aOutside));
++            CPPUNIT_ASSERT_EQUAL(p.aSide, xSelected->GetPixel(aCorner)); // a round corner
++
++            aState = NavItemState();
++            aState.bHover = true;
++            ScopedVclPtr<VirtualDevice> xHover = paintItem(aStyle, aState, nWidth, nHeight, fScale);
++            CPPUNIT_ASSERT_EQUAL(p.aHover, xHover->GetPixel(aInside));
++
++            ScopedVclPtr<VirtualDevice> xPlain
++                = paintItem(aStyle, NavItemState(), nWidth, nHeight, fScale);
++            CPPUNIT_ASSERT_EQUAL(p.aSide, xPlain->GetPixel(aInside));
++        }
++}
++
++/* The item with the keyboard focus shows the accent ring on its pill's edge; the others do not. */
++CPPUNIT_TEST_FIXTURE(BackstageCoatTest, testFocusedItemHasTheFocusRing)
++{
++    for (double fScale : { 1.0, 1.25 })
++    {
++        const StyleSettings aStyle = makeStyle(false);
++        const design::Palette& p = design::GetPalette(false);
++        const tools::Long nWidth = px(220, fScale), nHeight = px(40, fScale);
++        const tools::Rectangle aPill = CoatNavPill(Size(nWidth, nHeight), fScale);
++        const Point aRing(aPill.Right(), nHeight / 2);
++        NavItemState aState;
++        aState.bSelected = true;
++        aState.bFocus = true;
++        ScopedVclPtr<VirtualDevice> xFocused = paintItem(aStyle, aState, nWidth, nHeight, fScale);
++        CPPUNIT_ASSERT_EQUAL(p.aAccent, xFocused->GetPixel(aRing));
++        aState.bFocus = false;
++        ScopedVclPtr<VirtualDevice> xUnfocused = paintItem(aStyle, aState, nWidth, nHeight, fScale);
++        CPPUNIT_ASSERT(xUnfocused->GetPixel(aRing) != p.aAccent);
++    }
++}
++
++/* The items are 40 px high (scaled) while they fit; in a short panel they get lower, down to 24 px
++   or the text's height with 2 px above and below; the column is wide enough for the widest text. */
++CPPUNIT_TEST_FIXTURE(BackstageCoatTest, testItemsAre40pxAndFitThePanel)
++{
++    CPPUNIT_ASSERT_EQUAL(tools::Long(40), CoatNavItemHeight(2000, 100, 12, 17, 1.0));
++    CPPUNIT_ASSERT_EQUAL(tools::Long(50), CoatNavItemHeight(2000, 100, 12, 17, 1.25));
++    // 12 items in 100 + 12 * 30 pixels
++    CPPUNIT_ASSERT_EQUAL(tools::Long(30), CoatNavItemHeight(460, 100, 12, 17, 1.0));
++    CPPUNIT_ASSERT_EQUAL(tools::Long(24), CoatNavItemHeight(200, 100, 12, 17, 1.0));
++    CPPUNIT_ASSERT_EQUAL(tools::Long(26), CoatNavItemHeight(200, 100, 12, 22, 1.0));
++    CPPUNIT_ASSERT_EQUAL(tools::Long(200), CoatNavWidth(10, 1.0));
++    CPPUNIT_ASSERT_EQUAL(tools::Long(250), CoatNavWidth(10, 1.25));
++    CPPUNIT_ASSERT(CoatNavWidth(300, 1.0) > 300);
++}
++
++/* No colour is written into the panel's code: every literal is in the file of the earlier look. */
++CPPUNIT_TEST_FIXTURE(BackstageCoatTest, testNoColourLiteralsInThePanelCode)
++{
++    const std::regex aLiteral(
++        R"(0x[0-9a-fA-F]{2}\s*,\s*0x[0-9a-fA-F]{2}\s*,\s*0x[0-9a-fA-F]{2})"
++        R"(|\bCOL_(?!TRANSPARENT\b|AUTO\b)[A-Z_]+)"
++        R"(|\bColor\s*\(\s*(ColorTransparency|ColorAlpha|0x[0-9a-fA-F]{6}))");
++    std::vector<OUString> aFiles = sourceFiles(m_directories.getURLFromSrc(u"/sfx2/source/backstage/"));
++    const std::vector<OUString> aInc = sourceFiles(m_directories.getURLFromSrc(u"/sfx2/inc/backstage/"));
++    aFiles.insert(aFiles.end(), aInc.begin(), aInc.end());
++    aFiles.push_back(m_directories.getURLFromSrc(u"/vcl/source/hst/coat/css/backstage.cxx"));
++    CPPUNIT_ASSERT(aFiles.size() > 10);
++    int nChecked = 0;
++    for (const OUString& rURL : aFiles)
++    {
++        if (rURL.endsWith("/hstbackstagelegacycolors.hxx"))
++            continue;
++        const std::string aText = readFile(rURL);
++        CPPUNIT_ASSERT_MESSAGE(rURL.toUtf8().getStr(), !aText.empty());
++        std::smatch aMatch;
++        const bool bFound = std::regex_search(aText, aMatch, aLiteral);
++        CPPUNIT_ASSERT_MESSAGE(OString(rURL.toUtf8() + ": " + aMatch.str().c_str()).getStr(), !bFound);
++        ++nChecked;
++    }
++    CPPUNIT_ASSERT(nChecked > 10);
++}
++
++/* High contrast keeps the platform's look: the coat is off. */
++CPPUNIT_TEST_FIXTURE(BackstageCoatTest, testHighContrastHasNoCoat)
++{
++    StyleSettings aStyle = makeStyle(false);
++    aStyle.SetHighContrastMode(true);
++    CPPUNIT_ASSERT(!BackstageCoatActive(aStyle));
++    aStyle.SetHighContrastMode(false);
++    CPPUNIT_ASSERT(BackstageCoatActive(aStyle));
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/backstage/hstbackstagecoat.cxx
+@@ -0,0 +1,44 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// the interface of the File panel's coat before it is implemented: the tests build and fail
++
++#include "hstbackstagecoat.hxx"
++
++#include <vcl/image.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/virdev.hxx>
++
++namespace sfx2::hst
++{
++BackstageColors GetBackstageColors(const StyleSettings&, BackstageApp, bool) { return BackstageColors(); }
++
++bool BackstageCoatActive(const StyleSettings&) { return false; }
++
++tools::Long CoatNavItemHeight(tools::Long, tools::Long, int, tools::Long, double) { return 0; }
++
++tools::Rectangle CoatNavPill(const Size&, double) { return tools::Rectangle(); }
++
++tools::Long CoatNavWidth(tools::Long, double) { return 0; }
++
++void PaintCoatNavItem(OutputDevice&, const StyleSettings&, const NavItemState&, const OUString&, const Image&,
++                      bool, double)
++{
++}
++
++void PaintTilePage(VirtualDevice&, const BackstageColors&, const StyleSettings&, bool, bool, tools::Long,
++                   tools::Long, double)
++{
++}
++
++void DrawHouse(OutputDevice&, const Point&, tools::Long, const Color&) {}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/backstage/hstbackstagecoat.hxx
+@@ -0,0 +1,114 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This file is part of HST Office, based on LibreOffice.
++ *
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include "hstbackstagedata.hxx"
++
++#include <rtl/ustring.hxx>
++#include <sfx2/dllapi.h>
++#include <tools/color.hxx>
++#include <tools/gen.hxx>
++
++class Image;
++class OutputDevice;
++class StyleSettings;
++class VirtualDevice;
++
++/* HST Office: the look of the File panel. With the frame coat (FrameCoat/Backstage, under the coat's
++   own switch, never in high contrast) every colour comes from the HST design tokens and the left
++   column is drawn as the Start Center's: a side panel, a pill for the selected and the hovered item,
++   the keyboard focus ring, 40 px items. Without it the panel keeps its earlier colours
++   (hstbackstagelegacycolors.hxx), so switching the coat off restores the old look. */
++namespace sfx2::hst
++{
++/** Every colour the File panel and its title band use, in one look. */
++struct BackstageColors
++{
++    bool bCoat = false; ///< the HST frame coat (tokens) or the earlier look
++    Color aAccent; ///< the strip along the panel's top edge; the selected item's bar (earlier look)
++    Color aPanel; ///< behind the pages and the footer
++    Color aCard; ///< behind a block of a page (the tiles, the document's properties, the export choices)
++    Color aNavBack; ///< the left column
++    Color aNavSeparator;
++    Color aNavSelected; ///< the selected item's fill
++    Color aNavHover; ///< the fill of the item under the mouse
++    Color aNavText;
++    Color aNavSelectedText;
++    Color aNavGlyph; ///< the Home item's house
++    Color aNavSelectedGlyph;
++    Color aPaper; ///< a tile's page preview: a template ...
++    Color aPaperBlank; ///< ... and the blank document
++    Color aPaperBorder;
++    Color aPaperInk; ///< the administrative document's heading
++    Color aPaperLines; ///< its text lines
++    Color aBand; ///< the File title band over the ribbon's body
++    Color aBandText;
++    Color aBandMuted; ///< its subtitle
++    Color aBandButtonRing; ///< the back button's ring
++    Color aBandButtonHover; ///< the back button's fill under the mouse ...
++    Color aBandButtonHoverRing; ///< ... and its ring
++};
++
++/** The colours of the File panel of eApp for these style settings: the tokens when bCoat, else the
++    earlier look (the application colour, the window and text colours of rStyle). */
++SFX2_DLLPUBLIC BackstageColors GetBackstageColors(const StyleSettings& rStyle, BackstageApp eApp,
++                                                  bool bCoat);
++
++/** Whether the File panel is drawn with the HST frame coat for these style settings. */
++SFX2_DLLPUBLIC bool BackstageCoatActive(const StyleSettings& rStyle);
++
++/** The left column's items in the coat: 40 px high, a pill inset from the column's edges. */
++namespace coat
++{
++constexpr tools::Long NAV_ITEM_HEIGHT = 40; ///< as the Start Center's menu rows
++constexpr tools::Long NAV_ITEM_MIN_HEIGHT = 24;
++constexpr tools::Long NAV_ITEM_GAP = 4; ///< the spacing of the column (hstbackstage.ui "nav")
++}
++
++/** The height of a left-column item in the coat: NAV_ITEM_HEIGHT (scaled) while nItems of it fit in
++    nAvailable pixels (after nFixed pixels of margins, gaps and the separator), less when they do not,
++    never below NAV_ITEM_MIN_HEIGHT nor below the text (nTextHeight) with 2 px above and below. */
++SFX2_DLLPUBLIC tools::Long CoatNavItemHeight(tools::Long nAvailable, tools::Long nFixed, int nItems,
++                                             tools::Long nTextHeight, double fScale);
++
++/** The state of a left-column item. */
++struct NavItemState
++{
++    bool bSelected = false;
++    bool bHover = false;
++    bool bFocus = false; ///< it has the keyboard focus
++};
++
++/** The pill of a left-column item of rSize in the coat: the item inset by space::S on the left and the
++    right, its full height. */
++SFX2_DLLPUBLIC tools::Rectangle CoatNavPill(const Size& rSize, double fScale);
++
++/** The width of the left column in the coat for a widest item text of nTextWidth pixels. */
++SFX2_DLLPUBLIC tools::Long CoatNavWidth(tools::Long nTextWidth, double fScale);
++
++/** Paint a left-column item of the coat into rDev (pixel map mode, rDev's output size is the item's):
++    the side panel, the pill when selected or hovered, the focus ring, the glyph (rIcon, or the house
++    of Home when bHouse) and the text in the type of the navigation. */
++SFX2_DLLPUBLIC void PaintCoatNavItem(OutputDevice& rDev, const StyleSettings& rStyle,
++                                     const NavItemState& rState, const OUString& rText,
++                                     const Image& rIcon, bool bHouse, double fScale);
++
++/** Paint the page preview of a "create new" tile into rDev, nWidth x nHeight pixels, in the colours
++    of rColors: a page with a border; the administrative document (bNd30) also shows the national
++    motto heading. A generic page, never an image of the current document. */
++SFX2_DLLPUBLIC void PaintTilePage(VirtualDevice& rDev, const BackstageColors& rColors,
++                                  const StyleSettings& rStyle, bool bNd30, bool bBlank,
++                                  tools::Long nWidth, tools::Long nHeight, double fScale);
++
++/** A house outline in a square of nSize pixels, the glyph of the Home item. */
++void DrawHouse(OutputDevice& rDev, const Point& rTopLeft, tools::Long nSize, const Color& rColor);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
