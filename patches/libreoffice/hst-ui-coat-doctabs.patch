@@ -149,10 +149,11 @@ tree for the strip.
  
      tools::Long GetOptimalHeight() const;
  
-@@ -42,8 +46,16 @@ public:
+@@ -42,8 +46,17 @@ public:
      virtual void RequestHelp(const HelpEvent& rHEvt) override;
      virtual void DataChanged(const DataChangedEvent& rDCEvt) override;
      virtual void Resize() override;
++    virtual void StateChanged(StateChangedType eType) override;
 +    rtl::Reference<comphelper::OAccessible> CreateAccessible() override;
  
  private:
@@ -166,7 +167,7 @@ tree for the strip.
      struct TabLayout
      {
          DocumentTabInfo aInfo;
-@@ -59,6 +71,8 @@ private:
+@@ -59,6 +72,8 @@ private:
      Point ImplDragPos(const Point& rEventPos);
  
      css::uno::WeakReference<css::frame::XFrame> m_xFrame;
@@ -177,7 +178,7 @@ tree for the strip.
      sal_Int32 m_nHoverTab = -1;
 --- /dev/null
 +++ b/framework/inc/uielement/hstdocumenttabaccessible.hxx
-@@ -0,0 +1,104 @@
+@@ -0,0 +1,113 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -235,6 +236,8 @@ tree for the strip.
 +    ~DocumentTabStripAccessible() override;
 +
 +    void TabsChanged(bool bFramesChanged = false);
++    void BoundsChanged();
++    void StateChanged(sal_Int64 nState);
 +
 +    sal_Int64 SAL_CALL getAccessibleChildCount() override;
 +    css::uno::Reference<css::accessibility::XAccessible> SAL_CALL
@@ -268,23 +271,30 @@ tree for the strip.
 +    };
 +
 +    vcl::Window* GetWindow() const;
-+    void DisposeChildren();
++    void PostChanges();
++    DECL_LINK(NotifyChanges, void*, void);
 +    void CancelActions();
 +    bool PostAction(Part ePart, sal_Int32 nTab);
 +    DECL_LINK(RunAction, void*, void);
 +
 +    DocumentTabStripHost* m_pHost;
 +    std::vector<DocumentTabStripHost::Tab> m_aTabs;
++    tools::Rectangle m_aPlusRect;
 +    std::vector<rtl::Reference<comphelper::OAccessible>> m_aChildren;
++    std::vector<rtl::Reference<comphelper::OAccessible>> m_aRetiredChildren;
 +    std::list<Action> m_aActions;
 +    sal_uInt64 m_nRevision = 0;
++    ImplSVEvent* m_pPendingChanges = nullptr;
++    bool m_bChildrenChanged = false;
++    bool m_bBoundsChanged = false;
++    sal_Int64 m_nPendingStates = 0;
 +};
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/inc/uielement/hstdocumenttabcoat.hxx
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,73 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -351,6 +361,7 @@ tree for the strip.
 +bool CoatActive(const StyleSettings& rStyle);
 +void PaintStrip(vcl::RenderContext& rRenderContext, const CoatStrip& rStrip,
 +                const StyleSettings& rStyle, const CoatGlyphs& rGlyphs);
++tools::Long CoatTabChromeWidth(double fScale);
 +tools::Rectangle CoatCloseRect(const tools::Rectangle& rTab, tools::Long nStripHeight,
 +                               double fScale);
 +CoatGlyphs LoadGlyphs();
@@ -359,7 +370,7 @@ tree for the strip.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/qa/cppunit/hstdocumenttabcoat.cxx
-@@ -0,0 +1,411 @@
+@@ -0,0 +1,474 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -461,7 +472,7 @@ tree for the strip.
 +    return aStrip;
 +}
 +
-+ScopedVclPtr<VirtualDevice> renderStrip(const tabs::CoatStrip& rStrip, bool bDark)
++ScopedVclPtr<VirtualDevice> makeStripDevice(const tabs::CoatStrip& rStrip, bool bDark)
 +{
 +    ScopedVclPtr<VirtualDevice> pDevice = VclPtr<VirtualDevice>::Create();
 +    AllSettings aSettings = pDevice->GetSettings();
@@ -475,7 +486,13 @@ tree for the strip.
 +    CPPUNIT_ASSERT(pDevice->SetOutputSizePixel(rStrip.aSize));
 +    pDevice->SetBackground(Wallpaper(UNPAINTED));
 +    pDevice->Erase();
-+    tabs::PaintStrip(*pDevice, rStrip, aStyle, tabs::CoatGlyphs{});
++    return pDevice;
++}
++
++ScopedVclPtr<VirtualDevice> renderStrip(const tabs::CoatStrip& rStrip, bool bDark)
++{
++    auto pDevice = makeStripDevice(rStrip, bDark);
++    tabs::PaintStrip(*pDevice, rStrip, pDevice->GetSettings().GetStyleSettings(), tabs::CoatGlyphs{});
 +    return pDevice;
 +}
 +
@@ -604,7 +621,8 @@ tree for the strip.
 +            auto pDevice = renderStrip(aStrip, bDark);
 +            const tools::Long nBodyY = aStrip.aSize.Height() / 2;
 +            const tools::Long nBottom = aStrip.aSize.Height() - 1;
-+            const tools::Long nActiveX = aStrip.aTabs[0].aRect.Center().X();
++            const auto& rActive = aStrip.aTabs[0].aRect;
++            const tools::Long nActiveX = rActive.Center().X();
 +            const tools::Long nHoverX = aStrip.aTabs[1].aRect.Center().X();
 +            const tools::Long nPlainX = aStrip.aTabs[2].aRect.Center().X();
 +            CPPUNIT_ASSERT_EQUAL_MESSAGE("strip beyond the plus button", rPalette.aFrameSurface,
@@ -627,7 +645,62 @@ tree for the strip.
 +                                         pDevice->GetPixel(Point(nPlainX, nBottom)));
 +            CPPUNIT_ASSERT_EQUAL_MESSAGE("bottom edge under active tab", rPalette.aFrameSurfaceRaised,
 +                                         pDevice->GetPixel(Point(nActiveX, nBottom)));
++            CPPUNIT_ASSERT_EQUAL_MESSAGE("left bottom corner of active tab", rPalette.aFrameSurfaceRaised,
++                                         pDevice->GetPixel(Point(rActive.Left(), nBottom)));
++            CPPUNIT_ASSERT_EQUAL_MESSAGE("right bottom corner of active tab", rPalette.aFrameSurfaceRaised,
++                                         pDevice->GetPixel(Point(rActive.Right(), nBottom)));
 +        }
++}
++
++CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testChromeWidthMatchesPaint)
++{
++    const auto& rPalette = design::GetPalette(false);
++    for (double fScale : { 1.0, 1.25 })
++    {
++        const tools::Long nHeight = px(32, fScale);
++        tabs::CoatStrip aStrip;
++        aStrip.aSize = Size(600, nHeight);
++        aStrip.fScale = fScale;
++        auto& rTab = aStrip.aTabs.emplace_back();
++        rTab.aTitle = u"Báo cáo quý 3"_ustr;
++        rTab.aMark = rPalette.aAppMark[0];
++        rTab.bActive = true;
++        rTab.bModified = true;
++
++        auto pTight = makeStripDevice(aStrip, false);
++        auto pWide = makeStripDevice(aStrip, false);
++        const auto& rStyle = pTight->GetSettings().GetStyleSettings();
++        vcl::Font aFont = rStyle.GetAppFont();
++        aFont.SetFontHeight(px(14, fScale));
++        vcl::Font aBold(aFont);
++        aBold.SetWeight(WEIGHT_BOLD);
++        pTight->SetFont(aBold);
++        const tools::Long nTitleWidth = pTight->GetTextWidth(rTab.aTitle);
++        const tools::Long nTabWidth = nTitleWidth + tabs::CoatTabChromeWidth(fScale);
++        pTight->SetFont(aFont);
++        pWide->SetFont(aFont);
++
++        rTab.aRect = tools::Rectangle(Point(), Size(nTabWidth, nHeight));
++        rTab.aCloseRect = tabs::CoatCloseRect(rTab.aRect, nHeight, fScale);
++        tabs::PaintStrip(*pTight, aStrip, rStyle, tabs::CoatGlyphs{});
++        rTab.aRect = tools::Rectangle(Point(), Size(nTabWidth + 200, nHeight));
++        rTab.aCloseRect = tabs::CoatCloseRect(rTab.aRect, nHeight, fScale);
++        tabs::PaintStrip(*pWide, aStrip, rStyle, tabs::CoatGlyphs{});
++
++        const tools::Long nTitleLeft = px(10, fScale) + px(8, fScale) + px(6, fScale);
++        const tools::Long nFirstTextRow = px(4, fScale) + px(3, fScale);
++        bool bFoundText = false;
++        for (tools::Long y = nFirstTextRow; y < nHeight; ++y)
++            for (tools::Long x = nTitleLeft; x < nTitleLeft + nTitleWidth; ++x)
++            {
++                const Point aPoint(x, y);
++                const Color aWidePixel = pWide->GetPixel(aPoint);
++                CPPUNIT_ASSERT_EQUAL_MESSAGE("full title at natural width", aWidePixel,
++                                             pTight->GetPixel(aPoint));
++                bFoundText |= aWidePixel != rPalette.aFrameSurfaceRaised;
++            }
++        CPPUNIT_ASSERT(bFoundText);
++    }
 +}
 +
 +CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testCloseHover)
@@ -713,6 +786,7 @@ tree for the strip.
 +    ScopedVclPtrInstance<WorkWindow> pWindow(nullptr, WB_STDWORK);
 +    pWindow->SetOutputSizePixel(Size(600, 32));
 +    pWindow->Show();
++    CPPUNIT_ASSERT(pWindow->IsInputEnabled());
 +    TestStripHost aHost(*pWindow);
 +    rtl::Reference<tabs::DocumentTabStripAccessible> xStrip
 +        = new tabs::DocumentTabStripAccessible(aHost);
@@ -831,8 +905,12 @@ tree for the strip.
  OUString lcl_title(const uno::Reference<frame::XFrame>& xFrame)
 --- a/framework/source/uielement/documenttabbar.cxx
 +++ b/framework/source/uielement/documenttabbar.cxx
-@@ -16,11 +16,13 @@
+@@ -14,13 +14,17 @@
+ #include <classes/fwkresid.hxx>
+ #include <strings.hrc>
  
++#include <com/sun/star/accessibility/AccessibleStateType.hpp>
++
  #include <algorithm>
  #include <cstdlib>
 +#include <utility>
@@ -845,7 +923,7 @@ tree for the strip.
  #include <vcl/menu.hxx>
  #include <vcl/settings.hxx>
  #include <vcl/syswin.hxx>
-@@ -52,7 +54,7 @@ constexpr tools::Long DRAG_THRESHOLD = 6;
+@@ -52,7 +56,7 @@ constexpr tools::Long DRAG_THRESHOLD = 6;
  /// Scale a 100% pixel size by the window's DPI factor.
  tools::Long Px(const vcl::Window& rWindow, double fPixels)
  {
@@ -854,7 +932,7 @@ tree for the strip.
  }
  }
  
-@@ -60,15 +62,34 @@ DocumentTabBar::DocumentTabBar(vcl::Window* pParent,
+@@ -60,15 +64,34 @@ DocumentTabBar::DocumentTabBar(vcl::Window* pParent,
                                 const css::uno::Reference<css::frame::XFrame>& xFrame)
      : vcl::Window(pParent, WB_CLIPCHILDREN)
      , m_xFrame(xFrame)
@@ -889,18 +967,31 @@ tree for the strip.
      vcl::Font aFont = rStyle.GetToolFont();
      SetPointFont(*GetOutDev(), aFont);
      SetBackground(rStyle.GetFaceColor());
-@@ -89,9 +110,9 @@ void DocumentTabBar::ImplLayout()
+@@ -89,9 +112,12 @@ void DocumentTabBar::ImplLayout()
      const tools::Long nClose = Px(*this, CLOSE_SIZE);
      const tools::Long nPad = Px(*this, TAB_PAD);
      const tools::Long nMin = Px(*this, TAB_MIN_WIDTH);
 +    const bool bCoat = hst::doctabs::CoatActive(GetSettings().GetStyleSettings());
++    const tools::Long nChromeWidth = bCoat
++        ? hst::doctabs::CoatTabChromeWidth(GetDPIScaleFactor())
++        : nPad + nPad + nClose + Px(*this, 12) + nPad / 2;
  
      std::vector<DocumentTabInfo> aInfos = DocumentTabGroup::get().getTabs(m_xFrame);
 -    m_aTabs.clear();
  
      // Natural widths, then shrink evenly when they don't fit next to the "+" button.
      std::vector<tools::Long> aWidths;
-@@ -134,6 +155,9 @@ void DocumentTabBar::ImplLayout()
+@@ -103,8 +129,7 @@ void DocumentTabBar::ImplLayout()
+     GetOutDev()->SetFont(aBold);
+     for (const DocumentTabInfo& rInfo : aInfos)
+     {
+-        tools::Long nTab = nPad + GetOutDev()->GetTextWidth(rInfo.aTitle) + nPad + nClose
+-                           + Px(*this, 12) + nPad / 2;
++        tools::Long nTab = GetOutDev()->GetTextWidth(rInfo.aTitle) + nChromeWidth;
+         nTab = std::clamp<tools::Long>(nTab, nMin, Px(*this, TAB_MAX_WIDTH));
+         aWidths.push_back(nTab);
+         nSum += nTab;
+@@ -134,6 +159,9 @@ void DocumentTabBar::ImplLayout()
      }
  
      tools::Long nX = 0;
@@ -910,7 +1001,7 @@ tree for the strip.
      for (size_t i = nFirst; i < aInfos.size(); ++i)
      {
          if (nX + aWidths[i] > nAvail && i > nFirst)
-@@ -141,22 +165,74 @@ void DocumentTabBar::ImplLayout()
+@@ -141,22 +169,73 @@ void DocumentTabBar::ImplLayout()
          TabLayout aTab;
          aTab.aInfo = aInfos[i];
          aTab.aRect = tools::Rectangle(Point(nX, 0), Size(aWidths[i], nHeight));
@@ -951,13 +1042,14 @@ tree for the strip.
 +    bFramesChanged |= nLaidOut != m_aTabs.size();
 +    m_aTabs.resize(nLaidOut);
      const tools::Long nPlusHeight = std::min(nPlus - Px(*this, 6), nHeight - ACCENT - 2);
-     m_aPlusRect = tools::Rectangle(Point(nX + 2, ACCENT + (nHeight - ACCENT - nPlusHeight) / 2),
-                                    Size(nPlus - 4, nPlusHeight));
+-    m_aPlusRect = tools::Rectangle(Point(nX + 2, ACCENT + (nHeight - ACCENT - nPlusHeight) / 2),
+-                                   Size(nPlus - 4, nPlusHeight));
++    const tools::Rectangle aPlusRect(Point(nX + 2, ACCENT + (nHeight - ACCENT - nPlusHeight) / 2),
++                                    Size(nPlus - 4, nPlusHeight));
++    bLayoutChanged |= m_aPlusRect != aPlusRect;
++    m_aPlusRect = aPlusRect;
 +    if (m_xStripAccessible && (bFramesChanged || bLayoutChanged))
-+    {
-+        const auto xAccessible = m_xStripAccessible;
-+        xAccessible->TabsChanged(bFramesChanged);
-+    }
++        m_xStripAccessible->TabsChanged(bFramesChanged);
  }
  
  void DocumentTabBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle&)
@@ -989,7 +1081,7 @@ tree for the strip.
      const Color aFace = rStyle.GetFaceColor();
      const Color aActiveBg = rStyle.GetWindowColor();
      const Color aShadow = rStyle.GetShadowColor();
-@@ -528,6 +604,7 @@ void DocumentTabBar::DataChanged(const DataChangedEvent& rDCEvt)
+@@ -528,6 +607,7 @@ void DocumentTabBar::DataChanged(const DataChangedEvent& rDCEvt)
          && (rDCEvt.GetFlags() & AllSettingsFlags::STYLE))
      {
          ImplInitSettings();
@@ -997,10 +1089,26 @@ tree for the strip.
          Invalidate();
      }
  }
-@@ -537,6 +614,47 @@ void DocumentTabBar::Resize()
+@@ -535,8 +615,63 @@ void DocumentTabBar::DataChanged(const DataChangedEvent& rDCEvt)
+ void DocumentTabBar::Resize()
+ {
      vcl::Window::Resize();
++    if (m_xStripAccessible)
++        m_xStripAccessible->BoundsChanged();
      Invalidate();
  }
++
++void DocumentTabBar::StateChanged(StateChangedType eType)
++{
++    vcl::Window::StateChanged(eType);
++    if (m_xStripAccessible)
++    {
++        if (eType == StateChangedType::Visible)
++            m_xStripAccessible->StateChanged(css::accessibility::AccessibleStateType::SHOWING);
++        else if (eType == StateChangedType::Enable)
++            m_xStripAccessible->StateChanged(css::accessibility::AccessibleStateType::ENABLED);
++    }
++}
 +
 +rtl::Reference<comphelper::OAccessible> DocumentTabBar::CreateAccessible()
 +{
@@ -1047,7 +1155,7 @@ tree for the strip.
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/source/uielement/hstdocumenttabaccessible.cxx
-@@ -0,0 +1,513 @@
+@@ -0,0 +1,582 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1070,6 +1178,7 @@ tree for the strip.
 +#include <com/sun/star/awt/Point.hpp>
 +#include <com/sun/star/awt/Rectangle.hpp>
 +#include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
++#include <com/sun/star/uno/Any.hxx>
 +#include <cppuhelper/implbase.hxx>
 +#include <unotools/accessiblerelationsethelper.hxx>
 +#include <vcl/hst/designtokens.hxx>
@@ -1111,6 +1220,20 @@ tree for the strip.
 +    if (pWindow->IsReallyVisible())
 +        nStates |= AccessibleStateType::SHOWING;
 +    return nStates;
++}
++
++bool CanRunAction(const vcl::Window* pWindow)
++{
++    return pWindow && pWindow->IsReallyVisible() && pWindow->IsEnabled()
++           && pWindow->IsInputEnabled();
++}
++
++void DisposeChildren(std::vector<rtl::Reference<comphelper::OAccessible>>& rChildren)
++{
++    const auto aChildren = std::exchange(rChildren, {});
++    for (const auto& xChild : aChildren)
++        if (xChild)
++            xChild->dispose();
 +}
 +}
 +
@@ -1289,7 +1412,7 @@ tree for the strip.
 +        if (!pRoot)
 +            return {};
 +        if (m_ePart == Part::Plus)
-+            return RelativeBounds(pRoot->m_pHost->GetStripPlusRect(), Point());
++            return RelativeBounds(pRoot->m_aPlusRect, Point());
 +        const auto& rTab = pRoot->m_aTabs[m_nTab];
 +        if (m_ePart == Part::Tab)
 +            return RelativeBounds(rTab.aRect, Point());
@@ -1312,7 +1435,7 @@ tree for the strip.
 +private:
 +    DocumentTabStripAccessible* Root() const
 +    {
-+        // An AT listener may call an old child while its siblings are being disposed.
++        // Old children can still be queried before or during deferred disposal.
 +        if (!m_pRoot || !m_pRoot->isAlive() || m_pRoot->m_nRevision != m_nRevision)
 +            return nullptr;
 +        return m_pRoot;
@@ -1335,6 +1458,7 @@ tree for the strip.
 +DocumentTabStripAccessible::DocumentTabStripAccessible(DocumentTabStripHost& rHost)
 +    : m_pHost(&rHost)
 +    , m_aTabs(rHost.GetStripTabs())
++    , m_aPlusRect(rHost.GetStripPlusRect())
 +{
 +}
 +
@@ -1347,40 +1471,93 @@ tree for the strip.
 +        return;
 +
 +    auto aTabs = m_pHost->GetStripTabs();
++    const auto aPlusRect = m_pHost->GetStripPlusRect();
 +    const bool bIdentityChanged = bFramesChanged || m_aTabs.size() != aTabs.size();
 +    const bool bSameTabs = std::equal(m_aTabs.begin(), m_aTabs.end(), aTabs.begin(), aTabs.end(),
 +                                     [](const auto& rOld, const auto& rNew) {
 +                                         return rOld.aTitle == rNew.aTitle
 +                                                && rOld.bActive == rNew.bActive
-+                                                && rOld.bModified == rNew.bModified;
++                                                && rOld.bModified == rNew.bModified
++                                                && rOld.aRect == rNew.aRect
++                                                && rOld.aCloseRect == rNew.aCloseRect;
 +                                     });
-+    m_aTabs = std::move(aTabs);
-+    if (!bFramesChanged && bSameTabs)
++    if (!bFramesChanged && bSameTabs && m_aPlusRect == aPlusRect)
 +        return;
 +
-+    // Semantic changes retire old children; only identity changes invalidate queued indices.
++    m_aTabs = std::move(aTabs);
++    m_aPlusRect = aPlusRect;
 +    ++m_nRevision;
 +    if (bIdentityChanged)
 +        CancelActions();
-+    DisposeChildren();
-+    if (isAlive())
-+        NotifyAccessibleEvent(AccessibleEventId::INVALIDATE_ALL_CHILDREN, {}, {});
++    // Queries can build children for the new snapshot before the posted event runs.
++    for (auto& xChild : m_aChildren)
++        if (xChild)
++            m_aRetiredChildren.push_back(std::move(xChild));
++    m_aChildren.clear();
++    m_bChildrenChanged = true;
++    PostChanges();
 +}
 +
-+void DocumentTabStripAccessible::DisposeChildren()
++void DocumentTabStripAccessible::BoundsChanged()
 +{
-+    const auto aChildren = std::exchange(m_aChildren, {});
-+    for (const auto& xChild : aChildren)
-+        if (xChild)
-+            xChild->dispose();
++    SolarMutexGuard aGuard;
++    if (!isAlive())
++        return;
++    m_bBoundsChanged = true;
++    PostChanges();
++}
++
++void DocumentTabStripAccessible::StateChanged(sal_Int64 nState)
++{
++    SolarMutexGuard aGuard;
++    if (!isAlive())
++        return;
++    m_nPendingStates |= nState;
++    PostChanges();
++}
++
++void DocumentTabStripAccessible::PostChanges()
++{
++    if (!m_pPendingChanges)
++        m_pPendingChanges
++            = Application::PostUserEvent(LINK(this, DocumentTabStripAccessible, NotifyChanges));
++}
++
++IMPL_LINK_NOARG(DocumentTabStripAccessible, NotifyChanges, void*, void)
++{
++    SolarMutexGuard aGuard;
++    rtl::Reference<DocumentTabStripAccessible> xKeepAlive(this);
++    m_pPendingChanges = nullptr;
++    const bool bChildrenChanged = std::exchange(m_bChildrenChanged, false);
++    const bool bBoundsChanged = std::exchange(m_bBoundsChanged, false);
++    const sal_Int64 nPendingStates = std::exchange(m_nPendingStates, 0);
++
++    DisposeChildren(m_aRetiredChildren);
++    if (bChildrenChanged && isAlive())
++        NotifyAccessibleEvent(AccessibleEventId::INVALIDATE_ALL_CHILDREN, {}, {});
++    if (bBoundsChanged && isAlive())
++        NotifyAccessibleEvent(AccessibleEventId::BOUNDRECT_CHANGED, {}, {});
++    for (sal_Int64 nState : { AccessibleStateType::SHOWING, AccessibleStateType::ENABLED })
++        if ((nPendingStates & nState) && isAlive())
++        {
++            // VCL updates IsReallyVisible() after its visibility hook returns.
++            const uno::Any aState(nState);
++            if (WindowStates(GetWindow()) & nState)
++                NotifyAccessibleEvent(AccessibleEventId::STATE_CHANGED, {}, aState);
++            else
++                NotifyAccessibleEvent(AccessibleEventId::STATE_CHANGED, aState, {});
++        }
 +}
 +
 +void DocumentTabStripAccessible::disposing()
 +{
 +    SolarMutexGuard aGuard;
 +    m_pHost = nullptr;
++    if (m_pPendingChanges)
++        Application::RemoveUserEvent(std::exchange(m_pPendingChanges, nullptr));
 +    CancelActions();
-+    DisposeChildren();
++    DisposeChildren(m_aRetiredChildren);
++    DisposeChildren(m_aChildren);
 +    m_aTabs.clear();
 +    comphelper::OAccessible::disposing();
 +}
@@ -1393,7 +1570,7 @@ tree for the strip.
 +
 +bool DocumentTabStripAccessible::PostAction(Part ePart, sal_Int32 nTab)
 +{
-+    if (!GetWindow())
++    if (!CanRunAction(GetWindow()))
 +        return false;
 +    auto& rAction = m_aActions.emplace_back(Action{ ePart, nTab });
 +    rAction.pEvent = Application::PostUserEvent(LINK(this, DocumentTabStripAccessible, RunAction),
@@ -1423,7 +1600,7 @@ tree for the strip.
 +    m_aActions.erase(it);
 +    rtl::Reference<DocumentTabStripAccessible> xKeepAlive(this);
 +    VclPtr<vcl::Window> xWindow(GetWindow());
-+    if (!xWindow)
++    if (!CanRunAction(xWindow.get()))
 +        return;
 +    switch (aAction.ePart)
 +    {
@@ -1502,7 +1679,7 @@ tree for the strip.
 +    for (std::size_t i = 0; i < m_aTabs.size(); ++i)
 +        if (m_aTabs[i].aRect.Contains(aPoint))
 +            return getAccessibleChild(i);
-+    if (m_pHost->GetStripPlusRect().Contains(aPoint))
++    if (m_aPlusRect.Contains(aPoint))
 +        return getAccessibleChild(m_aTabs.size());
 +    return {};
 +}
@@ -1563,7 +1740,7 @@ tree for the strip.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/source/uielement/hstdocumenttabcoat.cxx
-@@ -0,0 +1,306 @@
+@@ -0,0 +1,329 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1589,6 +1766,15 @@ tree for the strip.
 +{
 +namespace
 +{
++constexpr tools::Long DOT_INSET = 10;
++constexpr tools::Long DOT_SIZE = 8;
++constexpr tools::Long DOT_TITLE_GAP = 6;
++constexpr tools::Long TITLE_MARKER_GAP = 4;
++constexpr tools::Long MARKER_SIZE = 6;
++constexpr tools::Long MARKER_CLOSE_GAP = 5;
++constexpr tools::Long CLOSE_SIZE = 20;
++constexpr tools::Long CLOSE_INSET = 5;
++
 +void FillRect(vcl::RenderContext& rDev, const tools::Rectangle& rRect, Color aColor)
 +{
 +    if (rRect.IsEmpty())
@@ -1640,15 +1826,26 @@ tree for the strip.
 +    const auto aOutline = RaisedOutline(rBody, nRadius);
 +    nMarkHeight = std::min(nMarkHeight, rBody.GetHeight());
 +    const tools::Long nFirstRaisedRow = rBody.Top() + nMarkHeight;
++    const tools::Long nFirstSquareRow
++        = rBody.Top() + std::min(std::max(nRadius, nMarkHeight), rBody.GetHeight());
 +    // Each row is painted once, including the antialiased pixels along the rounded sides.
 +    auto aRows = rBody;
-+    aRows.SetBottom(nFirstRaisedRow - 1);
-+    FillRows(rDev, aOutline, aRows, aMark);
-+    if (nFirstRaisedRow <= rBody.Bottom())
++    if (nMarkHeight > 0)
++    {
++        aRows.SetBottom(nFirstRaisedRow - 1);
++        FillRows(rDev, aOutline, aRows, aMark);
++    }
++    if (nFirstRaisedRow < nFirstSquareRow)
++    {
++        aRows.SetTop(nFirstRaisedRow);
++        aRows.SetBottom(nFirstSquareRow - 1);
++        FillRows(rDev, aOutline, aRows, aRaised);
++    }
++    if (nFirstSquareRow <= rBody.Bottom())
 +    {
 +        aRows = rBody;
-+        aRows.SetTop(nFirstRaisedRow);
-+        FillRows(rDev, aOutline, aRows, aRaised);
++        aRows.SetTop(nFirstSquareRow);
++        FillRect(rDev, aRows, aRaised);
 +    }
 +}
 +
@@ -1717,25 +1914,21 @@ tree for the strip.
 +                double fScale, Color aText)
 +{
 +    const auto nCenterY = rTab.aCloseRect.Center().Y();
-+    const auto nDotSize = Px(8, fScale);
-+    const auto nDotLeft = rBody.Left() + Px(10, fScale);
++    const auto nDotSize = Px(DOT_SIZE, fScale);
++    const auto nDotLeft = rBody.Left() + Px(DOT_INSET, fScale);
 +    FillCircle(rDev, nDotLeft + nDotSize / 2.0, nCenterY + 0.5, nDotSize, rTab.aMark);
 +
-+    auto nTitleEnd = rTab.aCloseRect.Left();
++    const auto nMarkerSize = Px(MARKER_SIZE, fScale);
++    const auto nMarkerLeft = rTab.aCloseRect.Left() - Px(MARKER_CLOSE_GAP, fScale) - nMarkerSize;
 +    if (rTab.bModified)
-+    {
-+        const auto nMarkerSize = Px(6, fScale);
-+        const auto nMarkerLeft = nTitleEnd - Px(5, fScale) - nMarkerSize;
 +        FillCircle(rDev, nMarkerLeft + nMarkerSize / 2.0, nCenterY + 0.5, nMarkerSize, aText);
-+        nTitleEnd = nMarkerLeft;
-+    }
 +
-+    const auto nTitleStart = nDotLeft + nDotSize + Px(6, fScale);
-+    const auto nTitleRight = nTitleEnd - Px(4, fScale);
-+    if (nTitleStart > nTitleRight)
++    const auto nTitleStart = nDotLeft + nDotSize + Px(DOT_TITLE_GAP, fScale);
++    const auto nTitleEnd = nMarkerLeft - Px(TITLE_MARKER_GAP, fScale);
++    if (nTitleStart >= nTitleEnd)
 +        return;
 +    const tools::Rectangle aTextRect(Point(nTitleStart, rBody.Top()),
-+                                    Point(nTitleRight, rBody.Bottom()));
++                                     Size(nTitleEnd - nTitleStart, rBody.GetHeight()));
 +    auto aPop = rDev.ScopedPush(vcl::PushFlags::FONT | vcl::PushFlags::CLIPREGION);
 +    rDev.IntersectClipRegion(aTextRect);
 +    if (rTab.bActive)
@@ -1853,10 +2046,17 @@ tree for the strip.
 +    rDev.SetAntialiasing(nAntialiasing);
 +}
 +
++tools::Long CoatTabChromeWidth(double fScale)
++{
++    return Px(DOT_INSET, fScale) + Px(DOT_SIZE, fScale) + Px(DOT_TITLE_GAP, fScale)
++           + Px(TITLE_MARKER_GAP, fScale) + Px(MARKER_SIZE, fScale) + Px(MARKER_CLOSE_GAP, fScale)
++           + Px(CLOSE_SIZE, fScale) + Px(CLOSE_INSET, fScale);
++}
++
 +tools::Rectangle CoatCloseRect(const tools::Rectangle& rTab, tools::Long nStripHeight, double fScale)
 +{
-+    const auto nSize = Px(20, fScale);
-+    const auto nRight = rTab.Right() - Px(5, fScale);
++    const auto nSize = Px(CLOSE_SIZE, fScale);
++    const auto nRight = rTab.Right() - Px(CLOSE_INSET, fScale);
 +    const auto nBodyTop = Px(4, fScale);
 +    return tools::Rectangle(Point(nRight - nSize + 1,
 +                                  nBodyTop + (nStripHeight - nBodyTop - nSize) / 2),
