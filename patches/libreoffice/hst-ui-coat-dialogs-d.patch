@@ -10,10 +10,12 @@ Compress Image, Customize, About, Macro Selector) follow the dialog layout ruleb
   above their fields.
 - Customize: the target list and its gear menu are 6 px apart; the keyboard page's lists ask for 8 and 7 rows
   instead of 10 and 9 so the dialog fits a 1366x768 screen (the keyboard page is its tallest).
-- Options: the page area asks for 24 rows instead of 30, so the dialog with its frame fits a 1366x768 work area.
+- Options: on small screens the page area is clamped to 70 % of the screen height (was 80 %), so the dialog with
+  its frame fits a 1366x768 work area; larger screens keep the 30-row page area.
 - Templates: 12 px between the body and the button row; the two view toggles are 6 px apart.
-- Labels that wrapped and were also ellipsized (Find and Replace attribute and status lines, the Hyperlink
-  target) show their whole text; the Hyperlink target wraps inside its 20-character column.
+- Find and Replace: the search status line, which wraps, shows its whole text (no ellipsis).
+- Document Properties: the field labels of the General, Description, Statistics pages, PDF signing and Compress
+  Image start-align with their column; the Description page keeps one 12 px inset (its viewport's).
 No widget id, handler, tab order, access key, string or accessible name changes.
 Checked by tests/unit/test_ui_layout_rulebook.py and tests/runtime/hst_dialog_layout_check.py
 (cases of this group: tests/runtime/data/dialog-layout-d.json).
@@ -62,16 +64,6 @@ Checked by tests/unit/test_ui_layout_rulebook.py and tests/runtime/hst_dialog_la
      <property name="orientation">vertical</property>
      <property name="spacing">12</property>
      <child>
-@@ -200,7 +200,8 @@
-                 <property name="can-focus">False</property>
-                 <property name="hexpand">True</property>
-                 <property name="label" translatable="yes" context="hyperlinkdocpage|url">Test text</property>
--                <property name="ellipsize">middle</property>
-+                <property name="wrap">True</property>
-+                <property name="wrap-mode">word-char</property>
-                 <property name="max-width-chars">20</property>
-                 <property name="xalign">0</property>
-               </object>
 --- a/cui/uiconfig/ui/hyperlinkinternetpage.ui
 +++ b/cui/uiconfig/ui/hyperlinkinternetpage.ui
 @@ -6,7 +6,7 @@
@@ -450,7 +442,7 @@ Checked by tests/unit/test_ui_layout_rulebook.py and tests/runtime/hst_dialog_la
      <property name="hexpand">True</property>
      <property name="vexpand">True</property>
 -    <property name="border-width">6</property>
-+    <property name="border-width">12</property>
++    <property name="border-width">0</property>
      <property name="shadow-type">in</property>
      <child>
        <object class="GtkViewport">
@@ -740,15 +732,7 @@ Checked by tests/unit/test_ui_layout_rulebook.py and tests/runtime/hst_dialog_la
                          <property name="hexpand">True</property>
                          <child>
                            <object class="GtkComboBoxText" id="searchterm">
-@@ -228,7 +228,6 @@
-                         <property name="no-show-all">True</property>
-                         <property name="hexpand">True</property>
-                         <property name="wrap">True</property>
--                        <property name="ellipsize">end</property>
-                         <property name="xalign">0</property>
-                         <property name="yalign">0.5</property>
-                       </object>
-@@ -386,7 +385,6 @@
+@@ -386,7 +386,6 @@
                              <property name="margin-bottom">3</property>
                              <property name="hexpand">True</property>
                              <property name="wrap">True</property>
@@ -756,7 +740,7 @@ Checked by tests/unit/test_ui_layout_rulebook.py and tests/runtime/hst_dialog_la
                              <property name="xalign">0</property>
                              <child internal-child="accessible">
                                <object class="AtkObject" id="searchlabel-atkobject">
-@@ -460,7 +458,7 @@
+@@ -460,7 +459,7 @@
                          <property name="visible">True</property>
                          <property name="can-focus">False</property>
                          <property name="valign">center</property>
@@ -765,15 +749,7 @@ Checked by tests/unit/test_ui_layout_rulebook.py and tests/runtime/hst_dialog_la
                          <property name="hexpand">True</property>
                          <child>
                            <object class="GtkComboBoxText" id="replaceterm">
-@@ -536,7 +534,6 @@
-                         <property name="no-show-all">True</property>
-                         <property name="hexpand">True</property>
-                         <property name="wrap">True</property>
--                        <property name="ellipsize">end</property>
-                         <property name="xalign">0</property>
-                       </object>
-                       <packing>
-@@ -574,9 +571,9 @@
+@@ -574,9 +573,9 @@
                  <property name="visible">True</property>
                  <property name="can-focus">False</property>
                  <property name="halign">center</property>
@@ -786,7 +762,7 @@ Checked by tests/unit/test_ui_layout_rulebook.py and tests/runtime/hst_dialog_la
                  <property name="spacing">12</property>
                  <property name="homogeneous">True</property>
                  <child>
-@@ -779,7 +776,7 @@
+@@ -779,7 +778,7 @@
                <object class="GtkGrid" id="optionsgrid">
                  <property name="visible">True</property>
                  <property name="can-focus">False</property>
@@ -795,7 +771,7 @@ Checked by tests/unit/test_ui_layout_rulebook.py and tests/runtime/hst_dialog_la
                  <property name="hexpand">True</property>
                  <child>
                    <object class="GtkExpander" id="OptionsExpander">
-@@ -1318,8 +1315,8 @@
+@@ -1318,8 +1317,8 @@
                  <property name="can-focus">False</property>
                  <property name="row-spacing">6</property>
                  <property name="column-spacing">12</property>
@@ -938,13 +914,15 @@ Checked by tests/unit/test_ui_layout_rulebook.py and tests/runtime/hst_dialog_la
      // install handler functions
 --- a/cui/source/options/treeopt.cxx
 +++ b/cui/source/options/treeopt.cxx
-@@ -464,7 +464,8 @@
-     , bNeedsRestart(false)
-     , eRestartReason(svtools::RESTART_REASON_NONE)
- {
--    Size aSize(xTreeLB->get_approximate_digit_width() * 100, xTreeLB->get_height_rows(30));
-+    // HST: 24 rows (not 30) keep the dialog within a 1366x768 screen's work area with its frame
-+    Size aSize(xTreeLB->get_approximate_digit_width() * 100, xTreeLB->get_height_rows(24));
+@@ -467,8 +467,9 @@
+     Size aSize(xTreeLB->get_approximate_digit_width() * 100, xTreeLB->get_height_rows(30));
      AbsoluteScreenPixelRectangle aScreen
          = Application::GetScreenPosSizePixel(Application::GetDisplayBuiltInScreen());
-     // clamp height to max of 80% of screen height to make buttons accessible on smaller screens
+-    // clamp height to max of 80% of screen height to make buttons accessible on smaller screens
+-    aSize.setHeight(std::min(static_cast<tools::Long>(aScreen.GetHeight() * 0.8), aSize.Height()));
++    // clamp height to max of 70% of screen height to make buttons accessible on smaller screens
++    // (HST: 80% left the GTK dialog with its frame taller than a 1366x768 work area)
++    aSize.setHeight(std::min(static_cast<tools::Long>(aScreen.GetHeight() * 0.7), aSize.Height()));
+     xTabBox->set_size_request(aSize.Width(), aSize.Height());
+     xTreeLB->set_size_request(xTreeLB->get_approximate_digit_width() * 35, aSize.Height());
+ 
