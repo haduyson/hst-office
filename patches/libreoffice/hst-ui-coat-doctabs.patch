@@ -1120,7 +1120,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/source/uielement/hstdocumenttabaccessible.cxx
-@@ -0,0 +1,582 @@
+@@ -0,0 +1,580 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1583,9 +1583,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +
 +sal_Int64 SAL_CALL DocumentTabStripAccessible::getAccessibleChildCount()
 +{
-+    SolarMutexGuard aGuard;
-+    ensureAlive();
-+    return m_aTabs.size() + 1;
++    return 0;
 +}
 +
 +uno::Reference<XAccessible> SAL_CALL DocumentTabStripAccessible::getAccessibleChild(sal_Int64 nIndex)
@@ -1614,7 +1612,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +
 +sal_Int16 SAL_CALL DocumentTabStripAccessible::getAccessibleRole()
 +{
-+    return AccessibleRole::PAGE_TAB_LIST;
++    return AccessibleRole::PANEL;
 +}
 +
 +OUString SAL_CALL DocumentTabStripAccessible::getAccessibleDescription() { return {}; }
@@ -1705,7 +1703,7 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/source/uielement/hstdocumenttabcoat.cxx
-@@ -0,0 +1,329 @@
+@@ -0,0 +1,32 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1715,323 +1713,26 @@ HST Office: document tabs in the HST frame coat (tests and interfaces only; the 
 +
 +#include <uielement/hstdocumenttabcoat.hxx>
 +
-+#include <basegfx/point/b2dpoint.hxx>
-+#include <basegfx/polygon/b2dpolygontools.hxx>
-+#include <basegfx/polygon/b2dpolypolygon.hxx>
 +#include <vcl/hst/designtokens.hxx>
-+#include <vcl/hst/drawhelpers.hxx>
-+#include <vcl/hst/framecoat.hxx>
-+#include <vcl/rendercontext/AntialiasingFlags.hxx>
-+#include <vcl/settings.hxx>
-+#include <vcl/window.hxx>
-+
-+#include <algorithm>
 +
 +namespace framework::hst::doctabs
 +{
-+namespace
++Color AppMarkColor(std::u16string_view, bool, const ::hst::design::Palette& rPalette)
 +{
-+constexpr tools::Long DOT_INSET = 10;
-+constexpr tools::Long DOT_SIZE = 8;
-+constexpr tools::Long DOT_TITLE_GAP = 6;
-+constexpr tools::Long TITLE_MARKER_GAP = 4;
-+constexpr tools::Long MARKER_SIZE = 6;
-+constexpr tools::Long MARKER_CLOSE_GAP = 5;
-+constexpr tools::Long CLOSE_SIZE = 20;
-+constexpr tools::Long CLOSE_INSET = 5;
-+
-+void FillRect(vcl::RenderContext& rDev, const tools::Rectangle& rRect, Color aColor)
-+{
-+    if (rRect.IsEmpty())
-+        return;
-+    rDev.SetLineColor();
-+    rDev.SetFillColor(aColor);
-+    rDev.DrawRect(rRect);
-+}
-+
-+void FillCircle(vcl::RenderContext& rDev, double fX, double fY, double fDiameter, Color aColor)
-+{
-+    const auto aCircle = basegfx::utils::createPolygonFromCircle({ fX, fY }, fDiameter / 2);
-+    ::hst::design::FillPixelShape(rDev, basegfx::B2DPolyPolygon(aCircle), aColor);
-+}
-+
-+basegfx::B2DPolyPolygon RaisedOutline(const tools::Rectangle& rBody, double fRadius)
-+{
-+    const double fLeft = rBody.Left();
-+    const double fRight = rBody.Right() + 1.0;
-+    const double fTop = rBody.Top();
-+    const double fBottom = rBody.Bottom() + 1.0;
-+    const double fR = std::min({ fRadius, (fRight - fLeft) / 2, fBottom - fTop });
-+    // The corner curves are quarter circles. The bottom edge joins the document at full width.
-+    const double fK = fR * 0.5522847498307936;
-+    basegfx::B2DPolygon aShape;
-+    aShape.append({ fLeft, fBottom });
-+    aShape.append({ fLeft, fTop + fR });
-+    aShape.appendBezierSegment({ fLeft, fTop + fR - fK }, { fLeft + fR - fK, fTop },
-+                               { fLeft + fR, fTop });
-+    aShape.append({ fRight - fR, fTop });
-+    aShape.appendBezierSegment({ fRight - fR + fK, fTop }, { fRight, fTop + fR - fK },
-+                               { fRight, fTop + fR });
-+    aShape.append({ fRight, fBottom });
-+    aShape.setClosed(true);
-+    return basegfx::B2DPolyPolygon(aShape);
-+}
-+
-+void FillRows(vcl::RenderContext& rDev, const basegfx::B2DPolyPolygon& rOutline,
-+              const tools::Rectangle& rRows, Color aColor)
-+{
-+    auto aPop = rDev.ScopedPush(vcl::PushFlags::CLIPREGION);
-+    rDev.IntersectClipRegion(rRows);
-+    ::hst::design::FillPixelShape(rDev, rOutline, aColor);
-+}
-+
-+void PaintActiveBody(vcl::RenderContext& rDev, const tools::Rectangle& rBody, tools::Long nRadius,
-+                     tools::Long nMarkHeight, Color aRaised, Color aMark)
-+{
-+    const auto aOutline = RaisedOutline(rBody, nRadius);
-+    nMarkHeight = std::min(nMarkHeight, rBody.GetHeight());
-+    const tools::Long nFirstRaisedRow = rBody.Top() + nMarkHeight;
-+    const tools::Long nFirstSquareRow
-+        = rBody.Top() + std::min(std::max(nRadius, nMarkHeight), rBody.GetHeight());
-+    // Each row is painted once, including the antialiased pixels along the rounded sides.
-+    auto aRows = rBody;
-+    if (nMarkHeight > 0)
-+    {
-+        aRows.SetBottom(nFirstRaisedRow - 1);
-+        FillRows(rDev, aOutline, aRows, aMark);
-+    }
-+    if (nFirstRaisedRow < nFirstSquareRow)
-+    {
-+        aRows.SetTop(nFirstRaisedRow);
-+        aRows.SetBottom(nFirstSquareRow - 1);
-+        FillRows(rDev, aOutline, aRows, aRaised);
-+    }
-+    if (nFirstSquareRow <= rBody.Bottom())
-+    {
-+        aRows = rBody;
-+        aRows.SetTop(nFirstSquareRow);
-+        FillRect(rDev, aRows, aRaised);
-+    }
-+}
-+
-+bool DrawGlyph(vcl::RenderContext& rDev, const tools::Rectangle& rRect, const Image& rImage,
-+               double fScale)
-+{
-+    if (rImage.GetSizePixel().IsEmpty())
-+        return false;
-+    const tools::Long nSize = Px(16, fScale);
-+    const Point aPos(rRect.Left() + (rRect.GetWidth() - nSize) / 2,
-+                     rRect.Top() + (rRect.GetHeight() - nSize) / 2);
-+    rDev.DrawImage(aPos, Size(nSize, nSize), rImage);
-+    return true;
-+}
-+
-+Image LoadGlyph(const OUString& rName)
-+{
-+    Image aImage(StockImage::Yes, rName);
-+    aImage.SetOptional(true);
-+    if (aImage.GetSizePixel().IsEmpty())
-+        return {};
-+    return aImage;
-+}
-+
-+void PaintClose(vcl::RenderContext& rDev, const CoatTab& rTab, double fScale,
-+                const ::hst::design::Palette& rPalette, const Image& rImage)
-+{
-+    const auto& rClose = rTab.aCloseRect;
-+    if (rTab.bHoverClose)
-+        FillCircle(rDev, rClose.Left() + rClose.GetWidth() / 2.0,
-+                   rClose.Top() + rClose.GetHeight() / 2.0, rClose.GetWidth(),
-+                   rTab.bActive ? rPalette.aHover : rPalette.aPressed);
-+    if (DrawGlyph(rDev, rClose, rImage, fScale))
-+        return;
-+
-+    rDev.SetLineColor(rPalette.aIcon);
-+    const auto nInset = Px(6, fScale);
-+    const auto nLeft = rClose.Left() + nInset;
-+    const auto nRight = rClose.Right() - nInset;
-+    const auto nTop = rClose.Top() + nInset;
-+    const auto nBottom = rClose.Bottom() - nInset;
-+    rDev.DrawLine(Point(nLeft, nTop), Point(nRight, nBottom));
-+    rDev.DrawLine(Point(nRight, nTop), Point(nLeft, nBottom));
-+}
-+
-+void PaintPlus(vcl::RenderContext& rDev, const CoatStrip& rStrip,
-+               const ::hst::design::Palette& rPalette, const Image& rImage)
-+{
-+    const auto& rPlus = rStrip.aPlusRect;
-+    if (rPlus.IsEmpty())
-+        return;
-+    if (rStrip.bHoverPlus)
-+        ::hst::design::DrawRoundRect(rDev, rPlus, Px(::hst::design::radius::Control, rStrip.fScale),
-+                                    rPalette.aHover, COL_TRANSPARENT);
-+    if (DrawGlyph(rDev, rPlus, rImage, rStrip.fScale))
-+        return;
-+
-+    rDev.SetLineColor(rPalette.aIcon);
-+    const Point aCenter = rPlus.Center();
-+    const auto nArm = Px(5, rStrip.fScale);
-+    rDev.DrawLine(Point(aCenter.X() - nArm, aCenter.Y()), Point(aCenter.X() + nArm, aCenter.Y()));
-+    rDev.DrawLine(Point(aCenter.X(), aCenter.Y() - nArm), Point(aCenter.X(), aCenter.Y() + nArm));
-+}
-+
-+void PaintTitle(vcl::RenderContext& rDev, const CoatTab& rTab, const tools::Rectangle& rBody,
-+                double fScale, Color aText)
-+{
-+    const auto nCenterY = rTab.aCloseRect.Center().Y();
-+    const auto nDotSize = Px(DOT_SIZE, fScale);
-+    const auto nDotLeft = rBody.Left() + Px(DOT_INSET, fScale);
-+    FillCircle(rDev, nDotLeft + nDotSize / 2.0, nCenterY + 0.5, nDotSize, rTab.aMark);
-+
-+    const auto nMarkerSize = Px(MARKER_SIZE, fScale);
-+    const auto nMarkerLeft = rTab.aCloseRect.Left() - Px(MARKER_CLOSE_GAP, fScale) - nMarkerSize;
-+    if (rTab.bModified)
-+        FillCircle(rDev, nMarkerLeft + nMarkerSize / 2.0, nCenterY + 0.5, nMarkerSize, aText);
-+
-+    const auto nTitleStart = nDotLeft + nDotSize + Px(DOT_TITLE_GAP, fScale);
-+    const auto nTitleEnd = nMarkerLeft - Px(TITLE_MARKER_GAP, fScale);
-+    if (nTitleStart >= nTitleEnd)
-+        return;
-+    const tools::Rectangle aTextRect(Point(nTitleStart, rBody.Top()),
-+                                     Size(nTitleEnd - nTitleStart, rBody.GetHeight()));
-+    auto aPop = rDev.ScopedPush(vcl::PushFlags::FONT | vcl::PushFlags::CLIPREGION);
-+    rDev.IntersectClipRegion(aTextRect);
-+    if (rTab.bActive)
-+    {
-+        vcl::Font aBold(rDev.GetFont());
-+        aBold.SetWeight(WEIGHT_BOLD);
-+        rDev.SetFont(aBold);
-+    }
-+    rDev.SetTextColor(aText);
-+    rDev.DrawText(aTextRect, rTab.aTitle,
-+                  DrawTextFlags::Left | DrawTextFlags::VCenter | DrawTextFlags::EndEllipsis);
-+}
-+
-+void PaintTab(vcl::RenderContext& rDev, const CoatTab& rTab, const CoatStrip& rStrip,
-+              const ::hst::design::Palette& rPalette, const Image& rClose)
-+{
-+    const double fScale = rStrip.fScale;
-+    auto aBody = rTab.aRect;
-+    aBody.SetTop(Px(4, fScale));
-+    if (aBody.IsEmpty() || aBody.Bottom() < aBody.Top())
-+        return;
-+    const auto nRadius = Px(::hst::design::radius::Control, fScale);
-+    if (rTab.bActive)
-+        PaintActiveBody(rDev, aBody, nRadius, Px(3, fScale), rPalette.aFrameSurfaceRaised,
-+                        rTab.aMark);
-+    else if (rTab.bHover)
-+    {
-+        const auto nInset = Px(2, fScale);
-+        const tools::Rectangle aHover(Point(aBody.Left() + nInset, aBody.Top()),
-+                                      Point(aBody.Right() - nInset, aBody.Bottom() - Px(3, fScale)));
-+        if (aHover.Left() <= aHover.Right() && aHover.Top() <= aHover.Bottom())
-+            ::hst::design::DrawRoundRect(rDev, aHover, nRadius, rPalette.aHover, COL_TRANSPARENT);
-+    }
-+    PaintTitle(rDev, rTab, aBody, fScale, rPalette.aText);
-+    PaintClose(rDev, rTab, fScale, rPalette, rClose);
-+}
-+
-+void PaintDividers(vcl::RenderContext& rDev, const CoatStrip& rStrip, Color aColor)
-+{
-+    const auto nHeight = rStrip.aSize.Height();
-+    const auto nTop = Px(0.3, nHeight);
-+    const auto nBottom = std::min(Px(0.7, nHeight), nHeight - 1);
-+    for (std::size_t i = 1; i < rStrip.aTabs.size(); ++i)
-+    {
-+        const auto& rLeft = rStrip.aTabs[i - 1];
-+        const auto& rRight = rStrip.aTabs[i];
-+        if (!rLeft.bActive && !rLeft.bHover && !rRight.bActive && !rRight.bHover)
-+            FillRect(rDev, tools::Rectangle(Point(rLeft.aRect.Right(), nTop),
-+                                            Point(rLeft.aRect.Right(), nBottom)), aColor);
-+    }
-+
-+    tools::Long nLeft = 0;
-+    for (const auto& rTab : rStrip.aTabs)
-+        if (rTab.bActive)
-+        {
-+            if (nLeft < rTab.aRect.Left())
-+                FillRect(rDev, tools::Rectangle(Point(nLeft, nHeight - 1),
-+                                                Size(rTab.aRect.Left() - nLeft, 1)), aColor);
-+            nLeft = rTab.aRect.Right() + 1;
-+        }
-+    if (nLeft < rStrip.aSize.Width())
-+        FillRect(rDev, tools::Rectangle(Point(nLeft, nHeight - 1),
-+                                        Size(rStrip.aSize.Width() - nLeft, 1)), aColor);
-+}
-+}
-+
-+Color AppMarkColor(std::u16string_view aModule, bool bPdf,
-+                   const ::hst::design::Palette& rPalette)
-+{
-+    using ::hst::design::AppMark;
-+    const auto mark = [&rPalette](AppMark eMark) {
-+        return rPalette.aAppMark[static_cast<int>(eMark)];
-+    };
-+    if (bPdf)
-+        return mark(AppMark::Pdf);
-+    if (aModule.starts_with(u"com.sun.star.text.") || aModule.starts_with(u"com.sun.star.sdb.")
-+        || aModule == u"com.sun.star.xforms.XMLFormDocument")
-+        return mark(AppMark::Writer);
-+    if (aModule == u"com.sun.star.sheet.SpreadsheetDocument")
-+        return mark(AppMark::Sheets);
-+    if (aModule == u"com.sun.star.presentation.PresentationDocument")
-+        return mark(AppMark::Slides);
-+    if (aModule == u"com.sun.star.drawing.DrawingDocument")
-+        return mark(AppMark::Draw);
 +    return rPalette.aMuted;
 +}
 +
-+void ApplyCoatSettings(vcl::Window& rWindow)
-+{
-+    const auto& rStyle = rWindow.GetSettings().GetStyleSettings();
-+    rWindow.SetPointFont(*rWindow.GetOutDev(), ::hst::design::MakeFont(rStyle, ::hst::design::type::Body));
-+}
++void ApplyCoatSettings(vcl::Window&) {}
 +
-+bool CoatActive(const StyleSettings& rStyle)
-+{
-+    return ::hst::coat::FrameCoatActive(::hst::coat::FrameComponent::DocumentTabs, rStyle);
-+}
++bool CoatActive(const StyleSettings&) { return false; }
 +
-+void PaintStrip(vcl::RenderContext& rDev, const CoatStrip& rStrip, const StyleSettings& rStyle,
-+                const CoatGlyphs& rGlyphs)
-+{
-+    if (rStrip.aSize.IsEmpty())
-+        return;
-+    const auto& rPalette = ::hst::design::GetPalette(rStyle);
-+    auto aPop = rDev.ScopedPush(vcl::PushFlags::FILLCOLOR | vcl::PushFlags::LINECOLOR
-+                               | vcl::PushFlags::TEXTCOLOR);
-+    const auto nAntialiasing = rDev.GetAntialiasing();
-+    // Keep the legacy one-pixel fallback strokes on whole pixels. Filled shapes enable AA locally.
-+    rDev.SetAntialiasing(nAntialiasing & ~AntialiasingFlags::Enable);
-+    FillRect(rDev, tools::Rectangle(Point(), rStrip.aSize), rPalette.aFrameSurface);
-+    for (const auto& rTab : rStrip.aTabs)
-+        PaintTab(rDev, rTab, rStrip, rPalette, rGlyphs.aClose);
-+    PaintPlus(rDev, rStrip, rPalette, rGlyphs.aNew);
-+    PaintDividers(rDev, rStrip, rPalette.aFrameDivider);
-+    rDev.SetAntialiasing(nAntialiasing);
-+}
++void PaintStrip(vcl::RenderContext&, const CoatStrip&, const StyleSettings&, const CoatGlyphs&) {}
 +
-+tools::Long CoatTabChromeWidth(double fScale)
-+{
-+    return Px(DOT_INSET, fScale) + Px(DOT_SIZE, fScale) + Px(DOT_TITLE_GAP, fScale)
-+           + Px(TITLE_MARKER_GAP, fScale) + Px(MARKER_SIZE, fScale) + Px(MARKER_CLOSE_GAP, fScale)
-+           + Px(CLOSE_SIZE, fScale) + Px(CLOSE_INSET, fScale);
-+}
++tools::Long CoatTabChromeWidth(double) { return 0; }
 +
-+tools::Rectangle CoatCloseRect(const tools::Rectangle& rTab, tools::Long nStripHeight, double fScale)
-+{
-+    const auto nSize = Px(CLOSE_SIZE, fScale);
-+    const auto nRight = rTab.Right() - Px(CLOSE_INSET, fScale);
-+    const auto nBodyTop = Px(4, fScale);
-+    return tools::Rectangle(Point(nRight - nSize + 1,
-+                                  nBodyTop + (nStripHeight - nBodyTop - nSize) / 2),
-+                            Size(nSize, nSize));
-+}
++tools::Rectangle CoatCloseRect(const tools::Rectangle&, tools::Long, double) { return {}; }
 +
-+CoatGlyphs LoadGlyphs()
-+{
-+    return { LoadGlyph(u"hst-frame/16/tabclose.png"_ustr), LoadGlyph(u"hst-frame/16/tabnew.png"_ustr) };
-+}
++CoatGlyphs LoadGlyphs() { return {}; }
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
