@@ -955,7 +955,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
  /// The icon of a left-column item: the icon of the command it runs (or of its page), from the
  /// icon theme of the frame (so the dark theme gets its own).
  OUString lcl_navIconCommand(std::u16string_view rId)
-@@ -374,13 +284,15 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+@@ -374,13 +284,16 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
      , m_pPendingPlace(nullptr)
      , m_nDismissedAt(0)
      , m_eApp(lcl_detectApp(m_xFrame))
@@ -969,10 +969,11 @@ LicenseRef-HST-Proprietary like the coat's other files.
      , m_nNavWidth(0)
 +    , m_nNavItemHeight(0)
 +    , m_nNavTextHeight(0)
++    , m_nNavChrome(0)
      , m_fScale(std::max(1.0f, pContainer->GetDPIScaleFactor()))
      , m_xPanel(m_xBuilder->weld_container(u"HstBackstage"_ustr))
      , m_xAccent(m_xBuilder->weld_container(u"accent"_ustr))
-@@ -442,6 +354,8 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
+@@ -442,6 +355,8 @@ BackstageWindow::BackstageWindow(vcl::Window* pContainer, uno::Reference<frame::
  {
      InitNavigation();
      InitHomePage();
@@ -981,7 +982,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
  
      // the page titles first (PAGE_TITLES), then the section headings
      for (const auto& rId : { u"newtitle"_ustr, u"opentitle"_ustr, u"infotitle"_ustr,
-@@ -551,6 +465,8 @@ void BackstageWindow::InitNavigation()
+@@ -551,6 +466,8 @@ void BackstageWindow::InitNavigation()
          aItem.xButton->connect_clicked(LINK(this, BackstageWindow, NavClickHdl));
          aItem.xHover.reset(new NavHover(*this, m_aNav.size()));
          aItem.xButton->connect_mouse_move(LINK(aItem.xHover.get(), NavHover, MouseHdl));
@@ -990,7 +991,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
          m_aNav.push_back(std::move(aItem));
      }
  }
-@@ -569,11 +485,20 @@ tools::Long BackstageWindow::GetNavWidth()
+@@ -569,11 +486,20 @@ tools::Long BackstageWindow::GetNavWidth()
      if (!m_aNav.empty())
      {
          ScopedVclPtr<VirtualDevice> xDev = m_aNav.front().xButton->create_virtual_device();
@@ -1015,7 +1016,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      }
      return m_nNavWidth;
  }
-@@ -587,32 +512,69 @@ vcl::Font BackstageWindow::GetNavFont(const OutputDevice& rDevice) const
+@@ -587,32 +513,75 @@ vcl::Font BackstageWindow::GetNavFont(const OutputDevice& rDevice) const
      return aFont;
  }
  
@@ -1032,8 +1033,10 @@ LicenseRef-HST-Proprietary like the coat's other files.
 +    }
 +    // what the column holds besides its items (hstbackstage.ui, in unscaled pixels): the accent strip
 +    // (3) above it, its margins (8 + 8), the separator (1 + 6 + 6) and the gaps between its 14 children
++    // (and on GTK each item's padding around its image)
 +    constexpr tools::Long NAV_FIXED = 3 + 16 + 13 + 13 * coat::NAV_ITEM_GAP;
-+    return CoatNavItemHeight(nPanelHeight, NAV_FIXED, static_cast<int>(m_aNav.size()), m_nNavTextHeight,
++    const int nItems = static_cast<int>(m_aNav.size());
++    return CoatNavItemHeight(nPanelHeight, NAV_FIXED + nItems * m_nNavChrome, nItems, m_nNavTextHeight,
 +                             m_fScale);
 +}
 +
@@ -1060,9 +1063,13 @@ LicenseRef-HST-Proprietary like the coat's other files.
 +                         rItem.aIcon, rItem.aId == "navhome", m_fScale);
 +        // GTK draws a custom button image as the button's CSS background, which the coat's CSS for every
 +        // button (background-image: none, above the widget's own) hides: there the item is the button's
-+        // image, and the coat's CSS for the column (css/backstage.cxx) takes the button's padding away
++        // image, inside the theme's padding (side panel colour, css/backstage.cxx), which the column's
++        // fitting counts
 +        if (Application::GetToolkitName().startsWith("gtk"))
++        {
 +            rItem.xButton->set_image(xDev.get());
++            m_nNavChrome = std::max<tools::Long>(0, rItem.xButton->get_preferred_size().Height() - nHeight);
++        }
 +        else
 +            rItem.xButton->set_custom_button(xDev.get());
 +        return;
@@ -1094,7 +1101,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      else if (!rItem.aIcon.GetSizePixel().IsEmpty())
      {
          const Size aIcon(rItem.aIcon.GetSizePixel());
-@@ -626,7 +588,6 @@ void BackstageWindow::PaintNavItem(size_t nIndex)
+@@ -626,7 +595,6 @@ void BackstageWindow::PaintNavItem(size_t nIndex)
      xDev->SetTextColor(aText);
      const tools::Long nTextY = (nHeight - xDev->GetTextHeight()) / 2;
      xDev->DrawText(Point(Scaled(NAV_TEXT_INDENT), nTextY), rItem.aText);
@@ -1102,7 +1109,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      rItem.xButton->set_custom_button(xDev.get());
  }
  
-@@ -640,6 +601,26 @@ IMPL_LINK(BackstageWindow::NavHover, MouseHdl, const MouseEvent&, rMEvt, bool)
+@@ -640,6 +608,26 @@ IMPL_LINK(BackstageWindow::NavHover, MouseHdl, const MouseEvent&, rMEvt, bool)
      return false;
  }
  
@@ -1129,7 +1136,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
  void BackstageWindow::SetNavHover(int nIndex)
  {
      if (nIndex == m_nHoverNav)
-@@ -666,22 +647,23 @@ void BackstageWindow::PaintNavItems()
+@@ -666,22 +654,23 @@ void BackstageWindow::PaintNavItems()
  
  void BackstageWindow::ApplyColors()
  {
@@ -1168,7 +1175,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      for (NavItem& rItem : m_aNav)
          if (rItem.aId != "navhome")
              rItem.aIcon = vcl::CommandInfoProvider::GetImageForCommand(lcl_navIconCommand(rItem.aId), m_xFrame);
-@@ -690,14 +672,19 @@ void BackstageWindow::ApplyColors()
+@@ -690,14 +679,19 @@ void BackstageWindow::ApplyColors()
      vcl::Font aTitle(rStyle.GetLabelFont());
      aTitle.SetFontHeight(aTitle.GetFontHeight() * 1.6);
      aTitle.SetWeight(WEIGHT_SEMIBOLD);
@@ -1189,7 +1196,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
          m_aTitles[i]->set_font(aFont);
      }
      for (TemplateTile& rTile : m_aTiles)
-@@ -708,7 +695,8 @@ void BackstageWindow::ApplyColors()
+@@ -708,7 +702,8 @@ void BackstageWindow::ApplyColors()
  void BackstageWindow::PaintTile(TemplateTile& rTile)
  {
      ScopedVclPtr<VirtualDevice> xDev = rTile.xButton->create_virtual_device();
@@ -1199,7 +1206,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      rTile.xButton->set_image(xDev.get());
  }
  
-@@ -944,15 +932,21 @@ public:
+@@ -944,15 +939,21 @@ public:
          Invalidate();
      }
  
@@ -1225,7 +1232,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
          rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR | vcl::PushFlags::FONT
                    | vcl::PushFlags::TEXTCOLOR);
          rDev.SetLineColor();
-@@ -960,9 +954,16 @@ public:
+@@ -960,9 +961,16 @@ public:
          rDev.DrawRect(tools::Rectangle(Point(), aOut));
          // the back button: a ring with a left arrow, the accent ring while hovered
          const tools::Rectangle aButton = ButtonRect();
@@ -1245,7 +1252,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
          const Point aCenter = aButton.Center();
          const tools::Long nArm = std::lround(6 * fDpi), nHead = std::lround(4 * fDpi);
          const LineInfo aLine(LineStyle::Solid, std::max<tools::Long>(1, std::lround(1.5 * fDpi)));
-@@ -975,7 +976,12 @@ public:
+@@ -975,7 +983,12 @@ public:
          vcl::Font aTitleFont(rStyle.GetLabelFont());
          aTitleFont.SetFontHeight(aTitleFont.GetFontHeight() * 1.6);
          aTitleFont.SetWeight(WEIGHT_SEMIBOLD);
@@ -1259,7 +1266,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
          rDev.SetFont(aTitleFont);
          const tools::Long nTitle = rDev.GetTextHeight();
          rDev.SetFont(aSubFont);
-@@ -1036,6 +1042,7 @@ private:
+@@ -1036,6 +1049,7 @@ private:
      DECL_LINK(ParentEventHdl, VclWindowEvent&, void);
  
      std::function<void()> m_aBack;
@@ -1267,7 +1274,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      OUString m_aGreeting;
      OUString m_aSubtitle;
      bool m_bHover = false;
-@@ -1153,6 +1160,7 @@ void BackstageWindow::ShowTitleBand(bool bShow)
+@@ -1153,6 +1167,7 @@ void BackstageWindow::ShowTitleBand(bool bShow)
      }
      const OUString aSubtitle = aFile.isEmpty() || aTitle.isEmpty() ? OUString(aFile + aTitle)
                                                                      : OUString(aFile + u" · " + aTitle);
@@ -1275,7 +1282,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      m_xTitleBand->SetPosSizePixel(Point(0, nTop), Size(nRight, nBottom - nTop));
      m_xTitleBand->SetTexts(m_xGreeting->get_label(), aSubtitle);
      m_xTitleBand->SetZOrder(nullptr, ZOrderFlags::First); // above the tab page and the ribbon's other children
-@@ -1293,6 +1301,12 @@ bool BackstageWindow::Place()
+@@ -1293,6 +1308,12 @@ bool BackstageWindow::Place()
          return false;
      const Point aPos
          = pClient->AbsoluteScreenToOutputPixel(pOrigin->OutputToAbsoluteScreenPixel(aAnchor.TopLeft()));
@@ -1288,7 +1295,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      m_xPanel->set_size_request(aSize.Width(), aSize.Height());
      m_xHost->InvalidateChildSizeCache();
      const Size aWant = m_xHost->GetOptimalSize();
-@@ -1365,6 +1379,7 @@ void BackstageWindow::Close()
+@@ -1365,6 +1386,7 @@ void BackstageWindow::Close()
      if (!m_bOpen)
          return;
      m_bOpen = false;
@@ -1338,7 +1345,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
      void ShowPage(Page ePage);
      void FillRecentLists();
      static void FillRecentList(weld::TreeView& rList, const std::vector<BackstageRecentFile>& rFiles,
-@@ -197,15 +203,17 @@ private:
+@@ -197,15 +203,18 @@ private:
      ImplSVEvent* m_pPendingPlace;
      sal_uInt64 m_nDismissedAt; // tools::Time::GetSystemTicks() of the last click outside
      BackstageApp m_eApp;
@@ -1356,10 +1363,11 @@ LicenseRef-HST-Proprietary like the coat's other files.
      tools::Long m_nNavWidth;
 +    tools::Long m_nNavItemHeight;
 +    tools::Long m_nNavTextHeight; ///< the coat's navigation text, measured once
++    tools::Long m_nNavChrome; ///< GTK: the height a left-column button adds around its image
      float m_fScale;
      std::unique_ptr<svt::AcceleratorExecute> m_xAccExec;
  
-@@ -215,6 +223,8 @@ private:
+@@ -215,6 +224,8 @@ private:
      std::unique_ptr<weld::Container> m_xNavBox;
      std::unique_ptr<weld::Container> m_xNavSeparator;
      std::unique_ptr<weld::Container> m_xContent;
@@ -1450,7 +1458,7 @@ LicenseRef-HST-Proprietary like the coat's other files.
                  <property name="expand">False</property>
 --- a/vcl/source/hst/coat/css/backstage.cxx
 +++ b/vcl/source/hst/coat/css/backstage.cxx
-@@ -5,17 +5,36 @@
+@@ -5,17 +5,34 @@
   * This file is part of HST Office.
   */
  
@@ -1459,9 +1467,8 @@ LicenseRef-HST-Proprietary like the coat's other files.
 +
 +   The left column's items (sfx2/uiconfig/ui/hstbackstage.ui, class hst-backstage-nav) are images the
 +   panel draws itself, side panel, pill and focus ring included (sfx2 hstbackstagecoat.cxx): the
-+   theme's button fill, frame and focus mark stay off them, and so do its padding and border, so a
-+   button is exactly its image, as on the other platforms. This is the one size this fragment sets:
-+   these buttons have no look of their own left to keep. The blocks of the pages (class
++   theme's button fill, frame and focus mark stay off them (its padding stays: the panel counts it
++   when it fits the column into its height). The blocks of the pages (class
 +   hst-backstage-card; the panel sets their fill) get the card's corners and its 1 px border, drawn
 +   as an inset shadow that takes no room. */
  
@@ -1484,7 +1491,6 @@ LicenseRef-HST-Proprietary like the coat's other files.
 +    return u".hst-backstage-nav button, .hst-backstage-nav button:hover, .hst-backstage-nav button:active,"
 +           u" .hst-backstage-nav button:focus { background-color: transparent; border-color: transparent;"
 +           u" box-shadow: none; outline-style: none; }\n"
-+           u".hst-backstage-nav button { padding: 0; border-width: 0; }\n"
 +           u".hst-backstage-card { border-radius: "
 +           + aCardRadius + u"; box-shadow: inset 0 0 0 " + aBorder + u" " + aCardBorder + u"; }\n";
  }

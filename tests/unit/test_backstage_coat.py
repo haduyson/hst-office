@@ -69,9 +69,10 @@ class Colours(unittest.TestCase):
         self.assertIn("d::radius::Card", css)
         self.assertIn(".hst-backstage-nav button", css)
         self.assertIn(".hst-backstage-card", css)
-        # colours, corners and focus marks; the one size is the left column's buttons, which the panel draws whole
-        sizes = re.findall(r'"([^"]*\b(?:padding|margin|min-width|min-height|border-width)\b[^"]*)"', css)
-        self.assertEqual(sizes, [".hst-backstage-nav button { padding: 0; border-width: 0; }\\n"])
+        # colours, corners and focus marks only, as CppunitTest_vcl_hst_coat requires of the whole CSS
+        strings = "".join(re.findall(r'u"([^"]*)"', css))
+        self.assertIn(".hst-backstage-card", strings)
+        self.assertIsNone(re.search(r"padding|margin|min-width|min-height|border-width|font", strings))
 
     def test_cards_are_the_three_blocks(self):
         ui = added(PATCH, UI)
