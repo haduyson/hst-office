@@ -9,6 +9,7 @@ Windows (the image's own python.exe in the console user's session; display scali
 script, --scale only names the files):
     python.exe check-sidebar-coat.py shoot --instdir <img> --work DIR --out DIR --scale 100
 Then, on any platform with Pillow:
+    check-sidebar-coat.py crop --out DIR                        Windows shots: cut the sidebar out of the window shots
     check-sidebar-coat.py compare --out DIR [--out DIR ...]     exit 1 when a fact differs
     check-sidebar-coat.py sheet --out DIR --png FILE            one before/after sheet of every shot
 
@@ -162,14 +163,13 @@ class Run(shots.Run):
                      "tabs": tab_buttons(frame.getContainerWindow().getProperty("XAccessible"), parts["sidebar"])}
             if not facts["tabs"] and WINDOWS:
                 self.note(f"{name}: no tab bar buttons found")
+            facts["rect"] = [x - origin[0], y - origin[1], w, h]  # the sidebar in the window shot
             path = os.path.join(self.args.out, name + "-window.png")
             if self.screen.capture(win, path):
-                from PIL import Image
-                with Image.open(path) as image:
-                    box = (x - origin[0], y - origin[1], x - origin[0] + w, y - origin[1] + h)
-                    image.crop(box).save(os.path.join(self.args.out, name + ".png"))
-                os.remove(path)
                 print("shot", name, flush=True)
+                if not WINDOWS:  # the Windows image's python has no Pillow: crop there later (crop)
+                    crop_sidebar(path, facts["rect"], os.path.join(self.args.out, name + ".png"))
+                    os.remove(path)
             else:
                 self.note(f"{name}: capture failed")
             if deck == "PropertyDeck" and WINDOWS:  # gtk3's sidebar is outside the office's accessibility tree
@@ -192,6 +192,27 @@ class Run(shots.Run):
             json.dump(known, out, indent=1, sort_keys=True, ensure_ascii=False)
         with open(os.path.join(self.args.out, "failures.txt"), "w", encoding="utf-8") as out:
             out.write("".join(line + "\n" for line in self.failures))
+
+
+def crop_sidebar(window_png, rect, out_png):
+    from PIL import Image
+    x, y, w, h = rect
+    with Image.open(window_png) as image:
+        image.crop((x, y, x + w, y + h)).save(out_png)
+
+
+def crop(out_dir):
+    """Crop the sidebar out of every <name>-window.png left by a Windows run; returns the number cropped."""
+    with open(os.path.join(out_dir, FACTS), encoding="utf-8") as src:
+        facts = json.load(src)
+    done = 0
+    for name, fact in facts.items():
+        window = os.path.join(out_dir, name + "-window.png")
+        if os.path.exists(window) and "rect" in fact:
+            crop_sidebar(window, fact["rect"], os.path.join(out_dir, name + ".png"))
+            os.remove(window)
+            done += 1
+    return done
 
 
 def office_for(args, look):
@@ -253,7 +274,7 @@ def has_indicator(image_path, tab, accent, tolerance=40):
     return False
 
 
-def has_pill(image_path, pill, column=48, tolerance=6, least=200):
+def has_pill(image_path, pill, column=34, tolerance=6, least=200):
     """Whether at least `least` pixels of the pill colour lie in the rightmost `column` pixels (the tab bar)."""
     from PIL import Image
     with Image.open(image_path) as image:
@@ -261,6 +282,31 @@ def has_pill(image_path, pill, column=48, tolerance=6, least=200):
         box = rgb.crop((max(0, rgb.width - column), 0, rgb.width, rgb.height))
         return sum(1 for pixel in box.getdata()
                    if all(abs(pixel[i] - pill[i]) <= tolerance for i in range(3))) >= least
+
+
+def has_bar(image_path, accent, column=40, tolerance=6):
+    """Whether one pixel column of the tab bar holds a vertical run of 8 to 40 accent pixels with no accent pixel
+    on either side of it two columns away (a thin bar, not an icon)."""
+    from PIL import Image
+    with Image.open(image_path) as image:
+        rgb = image.convert("RGB")
+        left = max(0, rgb.width - column)
+
+        def hit(x, y):
+            pixel = rgb.getpixel((x, y))
+            return all(abs(pixel[i] - accent[i]) <= tolerance for i in range(3))
+
+        for x in range(left, rgb.width):
+            run = 0
+            for y in range(rgb.height):
+                if hit(x, y):
+                    run += 1
+                    continue
+                if 8 <= run <= 40 and all(not hit(x + dx, y - run // 2) for dx in (-3, 3)
+                                          if 0 <= x + dx < rgb.width):
+                    return True
+                run = 0
+    return False
 
 
 def compare(out_dirs):
@@ -278,15 +324,17 @@ def compare(out_dirs):
             if before is None:
                 problems.append(f"{out}: {name}: no before")
                 continue
-            for key in ("sidebar", "tabs", "focus"):
+            for key in ("sidebar", "rect", "tabs", "focus"):
                 if before.get(key) != after.get(key):
                     problems.append(f"{out}: {name}: {key} differs: before {before.get(key)} after {after.get(key)}")
-            if not after.get("tabs") and not before.get("tabs"):
-                # gtk3: the sidebar is native GTK, outside the office's accessibility tree; the open deck's
-                # pill is looked for in the tab bar column instead
+            if not any(tab[2] for tab in after.get("tabs", [])):
+                # the deck tabs are not in the accessibility tree (gtk3: native GTK widgets; Windows: tool bar items
+                # without a showing state): the open deck's mark is looked for in the tab bar column instead, the
+                # pill (gtk3) or the accent bar beside the button (VCL)
                 for look_name, want in ((name, True), (before_name, False)):
                     path = os.path.join(out, look_name + ".png")
-                    if os.path.exists(path) and has_pill(path, PILL[theme]) != want:
+                    found = has_pill(path, PILL[theme]) or has_bar(path, ACCENT[theme]) if os.path.exists(path) else want
+                    if found != want:
                         problems.append(f"{out}: {look_name}: open-deck pill {'missing' if want else 'present'}")
                 continue
             checked = [tab for tab in after.get("tabs", []) if tab[2]]
@@ -346,6 +394,8 @@ def main():
     shot.add_argument("--look", action="append", default=[], help="only looks starting so, e.g. before-light")
     check = sub.add_parser("compare")
     check.add_argument("--out", action="append", required=True)
+    cut = sub.add_parser("crop")
+    cut.add_argument("--out", required=True)
     pairs = sub.add_parser("sheet")
     pairs.add_argument("--out", action="append", required=True)
     pairs.add_argument("--png", required=True)
@@ -356,6 +406,9 @@ def main():
             print("FAILED", problem)
         print("compare:", "ok" if not problems else f"{len(problems)} problem(s)")
         return 1 if problems else 0
+    if args.command == "crop":
+        print("cropped", crop(args.out))
+        return 0
     if args.command == "sheet":
         print("pairs", sheet(args.out, args.png))
         return 0
