@@ -48,6 +48,9 @@ CLIP_TOLERANCE = 1  # device px a glyph box may stick out (anti-aliasing, roundi
 TARGETS = {"1366x768@100": (100, 1366, 728, True), "1920x1080@125": (125, 1920, 1032, True),
            "1366x768@125": (125, 1366, 720, False)}
 FRAME = (16, 39)  # window frame around the client area at 100 % (Windows 11: 8 px borders, 31 px title bar)
+# plugins whose dialog box is already the outer window rect (frame included): win reads the top-level window's
+# bounding rect, which holds the title bar and borders (its shot shows them), so no frame is added there
+OUTER_RECT_PLUGINS = {"win"}
 BORDERED = {"push button", "toggle button", "text", "entry", "password text", "spin box", "spin button",
             "combo box", "list", "list box", "tree", "tree table", "table", "button menu", "button dropdown",
             "menu button", "push button menu", "date editor"}
@@ -133,8 +136,9 @@ def clip_finding(node):
             "role": node["role"], "box": [node["x"], node["y"], node["w"], node["h"]], "warning": not hard}
 
 
-def analyse(dialog, nodes, scale):
-    """Findings of one shown page: dialog = {w, h}; nodes = [{role, name, x, y, w, h, text, text_box}] relative to
+def analyse(dialog, nodes, scale, plugin=None):
+    """Findings of one shown page: dialog = {w, h} (the client area, or the outer window rect for the plugins in
+    OUTER_RECT_PLUGINS); nodes = [{role, name, x, y, w, h, text, text_box}] relative to
     the dialog's client area (text_box relative to the node)."""
     findings = []
     bars = [n for n in nodes if n["role"] == "tool bar"]
@@ -160,8 +164,9 @@ def analyse(dialog, nodes, scale):
     for name, (target_scale, width, height, is_hard) in TARGETS.items():
         if target_scale != scale:
             continue
-        outer_w = dialog["w"] + round(FRAME[0] * scale / 100)
-        outer_h = dialog["h"] + round(FRAME[1] * scale / 100)
+        frame = (0, 0) if plugin in OUTER_RECT_PLUGINS else FRAME
+        outer_w = dialog["w"] + round(frame[0] * scale / 100)
+        outer_h = dialog["h"] + round(frame[1] * scale / 100)
         if outer_w > width or outer_h > height:
             findings.append({"kind": "fit", "target": name, "size": [outer_w, outer_h], "warning": not is_hard})
     return findings
@@ -555,7 +560,7 @@ def measure(platform, key, case, out_dir, ident, scale):
 
     def record(name, label, dialog, nodes):
         pages.append({"tab": name, "index": label, "dialog": dialog, "nodes": nodes,
-                      "findings": analyse(dialog, nodes, scale), "unverified": unverified(nodes)})
+                      "findings": analyse(dialog, nodes, scale, platform.args.plugin), "unverified": unverified(nodes)})
         platform.shot(key, os.path.join(out_dir, ident + ("" if label is None else f"-{label}") + ".png"))
 
     dialog, nodes, levels = platform.read(key)
@@ -698,7 +703,7 @@ def reanalyse(directory, scale):
                 result["error"] = f"message box instead of the dialog: {result['title']}"
                 result["message"] = result.pop("pages")
             for page in result.get("pages", []):
-                page["findings"] = analyse(page["dialog"], page["nodes"], result.get("scale", scale))
+                page["findings"] = analyse(page["dialog"], page["nodes"], result.get("scale", scale), result.get("plugin"))
                 page["unverified"] = unverified(page["nodes"])
             with open(path, "w", encoding="utf-8") as handle:
                 json.dump(result, handle, ensure_ascii=False, indent=1)
@@ -747,6 +752,11 @@ def selftest_geometry():
     wide = analyse({"w": 1400, "h": 600}, [], 125)
     assert [(f["target"], f["warning"]) for f in wide] == [("1366x768@125", True)]
     assert failing(wide) == []
+    # Windows gives the outer window rect: Document Properties measured 857x709 with its title bar (HST5, 100 %,
+    # work area 1366x728 target) fits; the same box as a Linux client area gets the 16x39 frame and does not
+    assert [f for f in analyse({"w": 857, "h": 709}, [], 100, "win") if f["kind"] == "fit"] == []
+    assert [f["size"] for f in analyse({"w": 857, "h": 709}, [], 100, "gtk3") if f["kind"] == "fit"] == [[873, 748]]
+    assert [f["size"] for f in analyse({"w": 857, "h": 730}, [], 100, "win") if f["kind"] == "fit"] == [[857, 730]]
     print("geometry self-test: ok")
 
 
