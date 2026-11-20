@@ -2,16 +2,18 @@ HST Office: the new Start Center (the window shown when no document is open), dr
 
 - One VCL canvas draws the whole Start Center with anti-aliased vectors, alike on Windows, Linux and macOS:
   the light-blue background with its soft curve, the pale blue left panel, rounded pills, cards, tiles and
-  focus rings, in a light and a dark palette. Only the search entry and the HASON TECH banner are toolkit
-  widgets, placed into the canvas's slots (the banner's slot is width x HstBannerWidget::HeightForWidth).
+  focus rings, in a light and a dark palette. Only the search entry is a toolkit widget, placed into the
+  canvas's slot for it.
 - Left: the HST Office logo; Trang chủ, Tài liệu mới (menu: Văn bản, Bảng tính, Trình chiếu, Bản vẽ, Từ mẫu…),
   Mở tệp, Tài liệu chưa lưu (org.hst.office.vi:UnsavedDocuments), Gần đây, Đã ghim, Cập nhật HST Office
-  (org.hst.office.update:Check); below a separator the banner, the one-line heading "HASON TECH - Giải pháp
-  chuyển đổi số", six solution button cards in two columns (the solution's logo, shipped pre-scaled at 24 and
-  48 px, and an external-link mark; the name; the short tagline in at most two lines, the full one as tooltip
+  (org.hst.office.update:Check), with the mockup's spacing (a 40 px pill every 44 px); below a separator (no
+  banner: the owner took it out of the Start Center) the one-line heading "HASON TECH - Giải pháp
+  chuyển đổi số", six solution button cards in two columns (the solution's 20 px logo, from images shipped
+  at 24 and 48 px, and an external-link mark; the name; the short tagline in at most two lines, the full one as tooltip
   and description; hover, pressed and focus states) and the link to hasontech.vn. No shared files, no account.
-  The column fits the 741 px below the menu bar of a 1366 x 768 screen without scrolling; in the 674 px a
-  maximised Windows window keeps there, the menu rows tighten instead (never below 24 px or the text + 4).
+  The column fits the 741 px below the menu bar of a 1366 x 768 screen and the 674 px a maximised Windows
+  window keeps there without scrolling; in shorter windows the menu rows tighten first (never below 24 px
+  or the text + 4), then the column scrolls.
 - Centre: "Chào mừng bạn quay lại", a search field that filters the recent documents with or without Vietnamese
   accents, three tinted tiles with the HST application icons, and the "Gần đây" table (Tên, Đã mở, Vị trí,
   pin, "⋯" menu: Mở, Mở vị trí tệp, Ghim/Bỏ ghim, Xóa khỏi danh sách).
@@ -31,9 +33,8 @@ HST Office: the new Start Center (the window shown when no document is open), dr
 
 Hook: sfx2/source/dialog/backingcomp.cxx creates HstStartCenterWindow instead of BackingWindow (4 lines);
 makefile and translation entries. The logic is in new HST files (LicenseRef-HST-Proprietary):
-sfx2/source/startcenter/*, sfx2/inc/startcenter/*, sfx2/uiconfig/ui/hststartcentersearch.ui and
-hststartcenterbanner.ui (one toplevel each: VclBuilder builds every toplevel of a file into the asking window),
-include/vcl/hst/*, vcl/source/hst/*.
+sfx2/source/startcenter/*, sfx2/inc/startcenter/*, sfx2/uiconfig/ui/hststartcentersearch.ui (its only
+toplevel: VclBuilder builds every toplevel of a file into the asking window), include/vcl/hst/*, vcl/source/hst/*.
 Test: CppunitTest_sfx2_hst_startcenter.
 ---
 diff --git a/include/vcl/hst/designtokens.hxx b/include/vcl/hst/designtokens.hxx
@@ -340,14 +341,13 @@ index 7ab6a96..bda8838 100644
  
  $(eval $(call gb_Module_add_subsequentcheck_targets,sfx2,\
 diff --git a/sfx2/UIConfig_sfx.mk b/sfx2/UIConfig_sfx.mk
-index 92f4b4e..376db82 100644
+index 92f4b4e..1a58601 100644
 --- a/sfx2/UIConfig_sfx.mk
 +++ b/sfx2/UIConfig_sfx.mk
-@@ -44,6 +44,8 @@ $(eval $(call gb_UIConfig_add_uifiles,sfx,\
+@@ -44,6 +44,7 @@ $(eval $(call gb_UIConfig_add_uifiles,sfx,\
  	sfx2/uiconfig/ui/hstbackstage \
  	sfx2/uiconfig/ui/hstribboncustomizedialog \
  	sfx2/uiconfig/ui/hstdefaultscopedialog \
-+	sfx2/uiconfig/ui/hststartcenterbanner \
 +	sfx2/uiconfig/ui/hststartcentersearch \
  	sfx2/uiconfig/ui/infobar \
  	sfx2/uiconfig/ui/inputdialog \
@@ -539,10 +539,10 @@ index 0000000..3db49e3
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/inc/startcenter/hststartcenterwindow.hxx b/sfx2/inc/startcenter/hststartcenterwindow.hxx
 new file mode 100644
-index 0000000..cfabd6a
+index 0000000..518c121
 --- /dev/null
 +++ b/sfx2/inc/startcenter/hststartcenterwindow.hxx
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,122 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -564,7 +564,6 @@ index 0000000..cfabd6a
 +#include <memory>
 +#include <vector>
 +
-+class HstBannerWidget;
 +struct ImplSVEvent;
 +namespace svt
 +{
@@ -572,7 +571,6 @@ index 0000000..cfabd6a
 +}
 +namespace weld
 +{
-+class CustomWeld;
 +class Entry;
 +class Widget;
 +}
@@ -587,10 +585,10 @@ index 0000000..cfabd6a
 +/** HST Office: the Start Center, the window shown when no document is open. It is drawn by one
 +    canvas in the HST look (sfx2/source/startcenter/hststartcentercanvas.hxx), alike on every
 +    platform: at the left the HST Office logo, the menu (Home, New document, Open file, Unsaved
-+    documents, Recent, Pinned, Update HST Office) and the HASON TECH banner and solutions; in the
++    documents, Recent, Pinned, Update HST Office) and the HASON TECH solutions; in the
 +    centre the welcome, a search over the recent documents, three tiles that create a text document,
 +    a spreadsheet or a presentation, and the table of recent documents; at the right the pinned
-+    files. Only the search entry and the banner are toolkit widgets, placed into the canvas's slots.
++    files. Only the search entry is a toolkit widget, placed into the canvas's slot for it.
 +    The recent documents and their pinning are the profile's history. */
 +class HstStartCenterWindow final : public vcl::Window
 +{
@@ -614,9 +612,7 @@ index 0000000..cfabd6a
 +    void InitTexts();
 +    void InitLogo();
 +    void InitSearch();
-+    void InitBanner();
 +    void InitActionWindows();
-+    void UpdateBannerRatio();
 +    void PlaceChildren();
 +
 +    void ReloadFiles();
@@ -639,14 +635,11 @@ index 0000000..cfabd6a
 +                    const tools::Rectangle& rAt = tools::Rectangle());
 +    void FocusRegion(int nDelta);
 +    bool SearchHasFocus() const;
-+    bool BannerHasFocus() const;
 +    void FocusSearch();
-+    bool FocusBanner();
 +
 +    DECL_LINK(SearchChangedHdl, weld::Entry&, void);
 +    DECL_LINK(SearchActivateHdl, weld::Entry&, bool);
 +    DECL_LINK(SearchFocusHdl, weld::Widget&, void);
-+    DECL_LINK(BannerArtChangedHdl, HstBannerWidget&, void);
 +    DECL_LINK(PendingActionHdl, void*, void);
 +
 +    css::uno::Reference<css::frame::XDispatchProvider> mxDesktop;
@@ -659,9 +652,6 @@ index 0000000..cfabd6a
 +    VclPtr<sfx2::hst::startcenter::HstStartCenterCanvas> mxCanvas;
 +    VclPtr<sfx2::hst::startcenter::ChildHost> mxSearchHost;
 +    std::unique_ptr<weld::Entry> mxSearch;
-+    VclPtr<sfx2::hst::startcenter::ChildHost> mxBannerHost;
-+    std::unique_ptr<HstBannerWidget> mxBanner;
-+    std::unique_ptr<weld::CustomWeld> mxBannerWeld;
 +    /// hidden windows with the ids automation uses to create documents (writer_all, ...)
 +    std::vector<VclPtr<vcl::Window>> maActionWindows;
 +
@@ -677,7 +667,7 @@ index 0000000..cfabd6a
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/qa/cppunit/hststartcenter.cxx b/sfx2/qa/cppunit/hststartcenter.cxx
 new file mode 100644
-index 0000000..c9b73c9
+index 0000000..947f92c
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
 @@ -0,0 +1,786 @@
@@ -1169,7 +1159,7 @@ index 0000000..c9b73c9
 +            CPPUNIT_ASSERT(aInside.GetRed() > aInside.GetBlue() + 12);
 +    }
 +
-+    // the HASON TECH block: the banner above the six solution cards, each with its tagline
++    // the HASON TECH block: the heading above the six solution cards, each with its tagline
 +    uno::Reference<XAccessibleContext> xSolutions = region(u"HASON TECH - Digital solutions");
 +    CPPUNIT_ASSERT_EQUAL(sal_Int64(7), xSolutions->getAccessibleChildCount()); // and "Xem thêm"
 +    const tools::Rectangle aSolutionsArea = bounds(xSolutions);
@@ -1186,30 +1176,29 @@ index 0000000..c9b73c9
 +        const Color aCorner = xDev->GetPixel(aCard.TopLeft());
 +        CPPUNIT_ASSERT_MESSAGE("rounded card corner", aCorner != COL_WHITE && isBluish(aCorner)
 +                                                          && aCorner.GetRed() >= 0xE0);
-+        // the solution's logo in the top left corner (24 x 24 at 100 %)
++        // the solution's logo in the top left corner (20 x 20 at 100 %)
 +        int nLogoInk = 0;
-+        for (tools::Long y = aCard.Top() + 8; y < aCard.Top() + 32; ++y)
-+            for (tools::Long x = aCard.Left() + 9; x < aCard.Left() + 33; ++x)
++        for (tools::Long y = aCard.Top() + 6; y < aCard.Top() + 26; ++y)
++            for (tools::Long x = aCard.Left() + 9; x < aCard.Left() + 29; ++x)
 +                if (xDev->GetPixel(Point(x, y)) != COL_WHITE)
 +                    ++nLogoInk;
-+        CPPUNIT_ASSERT_MESSAGE("solution logo", nLogoInk > 60);
++        CPPUNIT_ASSERT_MESSAGE("solution logo", nLogoInk > 40);
 +    }
-+    // the banner: the toolkit child in the left column (the search field is in the centre)
-+    vcl::Window* pBanner = nullptr;
++    // no toolkit child in the left column (the search field, the only one, is in the centre): the
++    // Start Center shows no banner
 +    for (sal_uInt16 i = 0; i < pCanvas->GetChildCount(); ++i)
 +    {
 +        vcl::Window* pChild = pCanvas->GetChild(i);
-+        if (pChild->IsVisible() && pChild->GetPosPixel().X() < aSolutionsArea.Right())
-+            pBanner = pChild;
++        CPPUNIT_ASSERT(!pChild->IsVisible() || pChild->GetPosPixel().X() > aSolutionsArea.Right());
 +    }
-+    CPPUNIT_ASSERT_MESSAGE("banner shown", pBanner);
-+    const tools::Rectangle aBanner(pBanner->GetPosPixel(), pBanner->GetSizePixel());
++    const tools::Rectangle aMenuArea = bounds(region(u"Menu"));
 +    tools::Rectangle aFirstCard = bounds(context(xSolutions->getAccessibleChild(0)));
 +    aFirstCard.Move(aSolutionsArea.Left(), aSolutionsArea.Top());
-+    // above the heading and the cards, exactly as wide as the two columns of cards
-+    CPPUNIT_ASSERT(aBanner.Bottom() + 20 < aFirstCard.Top());
-+    CPPUNIT_ASSERT_EQUAL(aSolutionsArea.Left(), aBanner.Left());
-+    CPPUNIT_ASSERT_EQUAL(aSolutionsArea.GetWidth(), aBanner.GetWidth());
++    // the menu rows have the mockup's spacing: a 40 px pill every 44 px
++    uno::Reference<XAccessibleContext> xMenuList = region(u"Menu");
++    CPPUNIT_ASSERT_EQUAL(tools::Long(40), bounds(context(xMenuList->getAccessibleChild(0))).GetHeight());
++    CPPUNIT_ASSERT_EQUAL(tools::Long(44), bounds(context(xMenuList->getAccessibleChild(1))).Top()
++                                              - bounds(context(xMenuList->getAccessibleChild(0))).Top());
 +
 +    // the heading is one line in the column whenever its text fits the column, which the
 +    // Vietnamese "HASON TECH - Giải pháp chuyển đổi số" does (the column and the type grow together
@@ -1223,7 +1212,7 @@ index 0000000..c9b73c9
 +    const OUString aHeading = xSolutions->getAccessibleName();
 +    const int nLines = xMeasure->GetTextWidth(aHeading) <= nColumn ? 1 : 2;
 +    tools::Long nInkTop = -1, nInkBottom = -1;
-+    for (tools::Long y = aBanner.Bottom() + 1; y < aFirstCard.Top() - 1; ++y)
++    for (tools::Long y = aMenuArea.Bottom() + 1; y < aFirstCard.Top() - 1; ++y)
 +        for (tools::Long x = aSolutionsArea.Left(); x < aSolutionsArea.Right(); ++x)
 +            if (xDev->GetPixel(Point(x, y)).GetLuminance() < 0x80)
 +            {
@@ -1244,7 +1233,7 @@ index 0000000..c9b73c9
 +    const tools::Long nName = xMeasure->GetTextHeight();
 +    xMeasure->SetFont(::hst::design::MakePixelFont(pCanvas->GetSettings().GetStyleSettings(),
 +                                                      ::hst::design::type::Caption, pCanvas->GetOutDev()->GetDPIY()));
-+    const tools::Long nTwoLines = 8 + 24 + 4 + nName + 1 + 2 * xMeasure->GetTextHeight() + 8;
++    const tools::Long nTwoLines = 6 + 20 + 3 + nName + 1 + 2 * xMeasure->GetTextHeight() + 6;
 +    for (sal_Int64 i = 0; i < 6; ++i)
 +        CPPUNIT_ASSERT_LESSEQUAL(nTwoLines, bounds(context(xSolutions->getAccessibleChild(i))).GetHeight());
 +
@@ -1297,7 +1286,7 @@ index 0000000..c9b73c9
 +CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testFitsWindowsClientArea)
 +{
 +    // a maximised window of a 1366 x 768 Windows screen keeps 1366 x 674 below its title and menu
-+    // bars: the menu rows tighten so that the whole column still shows without scrolling
++    // bars: the whole column still shows without scrolling, its menu rows about the mockup's spacing
 +    openStartCenter(Size(1366, 674));
 +    const Size aSize = canvas()->GetOutputSizePixel();
 +    CPPUNIT_ASSERT_EQUAL(Size(1366, 674), aSize);
@@ -1307,11 +1296,11 @@ index 0000000..c9b73c9
 +    uno::Reference<XAccessibleContext> xMore = context(xSolutions->getAccessibleChild(6));
 +    CPPUNIT_ASSERT(xMore->getAccessibleStateSet() & AccessibleStateType::SHOWING);
 +    CPPUNIT_ASSERT(bounds(xSolutions).Bottom() < aSize.Height());
-+    // the menu rows still hold their text with room around it
++    // the menu rows keep (about) the mockup's 40 px pills
 +    uno::Reference<XAccessibleContext> xMenu = region(u"Menu");
 +    CPPUNIT_ASSERT_EQUAL(sal_Int64(7), xMenu->getAccessibleChildCount());
 +    for (sal_Int64 i = 0; i < xMenu->getAccessibleChildCount(); ++i)
-+        CPPUNIT_ASSERT_GREATEREQUAL(tools::Long(24), bounds(context(xMenu->getAccessibleChild(i))).GetHeight());
++        CPPUNIT_ASSERT_GREATEREQUAL(tools::Long(36), bounds(context(xMenu->getAccessibleChild(i))).GetHeight());
 +}
 +
 +CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testCrispBorders)
@@ -1457,9 +1446,10 @@ index 0000000..c9b73c9
 +    {
 +        tools::Rectangle aCard = bounds(context(xSolutions->getAccessibleChild(i)));
 +        aCard.Move(aArea.Left(), aArea.Top());
-+        // the card is dark; one pixel above the middle of the logo (8 px below the card's top) is the tile
++        // the card is dark; one pixel left of the logo's middle (the logo is 20 px from 9 px in and 6 px
++        // down; the tile reaches 2 px around it) is the tile
 +        CPPUNIT_ASSERT_EQUAL(rDark.aCard, xDev->GetPixel(Point(aCard.Left() + 3, aCard.Center().Y())));
-+        CPPUNIT_ASSERT_EQUAL(rDark.aLogoTile, xDev->GetPixel(Point(aCard.Left() + 9 + 12, aCard.Top() + 7)));
++        CPPUNIT_ASSERT_EQUAL(rDark.aLogoTile, xDev->GetPixel(Point(aCard.Left() + 8, aCard.Top() + 6 + 10)));
 +    }
 +}
 +}
@@ -1509,10 +1499,10 @@ index 7bddf0c..a122fb5 100644
  
 diff --git a/sfx2/source/startcenter/hststartcenteraccessible.cxx b/sfx2/source/startcenter/hststartcenteraccessible.cxx
 new file mode 100644
-index 0000000..ec09977
+index 0000000..a1045c3
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenteraccessible.cxx
-@@ -0,0 +1,609 @@
+@@ -0,0 +1,606 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1938,8 +1928,6 @@ index 0000000..ec09977
 +    {
 +        if (eRegion == Part::Tile)
 +            addWindow(mpCanvas->GetSearchWindow());
-+        if (eRegion == Part::Solution)
-+            addWindow(mpCanvas->GetBannerWindow());
 +        // a list is announced even when empty (it says so); the Pinned card only when it is shown
 +        if (eRegion == Part::Pinned && !mpCanvas->GetLayout().bShowRight)
 +            continue;
@@ -2081,10 +2069,9 @@ index 0000000..ec09977
 +    ensureAlive();
 +    BuildRegions();
 +    const Point aPos(rPoint.X, rPoint.Y);
-+    for (vcl::Window* pWindow : { mpCanvas->GetSearchWindow(), mpCanvas->GetBannerWindow() })
-+        if (pWindow && pWindow->IsVisible()
-+            && tools::Rectangle(pWindow->GetPosPixel(), pWindow->GetSizePixel()).Contains(aPos))
-+            return pWindow->GetAccessible();
++    if (vcl::Window* pWindow = mpCanvas->GetSearchWindow(); pWindow && pWindow->IsVisible()
++        && tools::Rectangle(pWindow->GetPosPixel(), pWindow->GetSizePixel()).Contains(aPos))
++        return pWindow->GetAccessible();
 +    for (const rtl::Reference<CanvasRegionAccessible>& rRegion : maRegions)
 +        if (rRegion->Area().Contains(aPos))
 +            return rRegion;
@@ -2124,7 +2111,7 @@ index 0000000..ec09977
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenteraccessible.hxx b/sfx2/source/startcenter/hststartcenteraccessible.hxx
 new file mode 100644
-index 0000000..78b06ed
+index 0000000..fc81584
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenteraccessible.hxx
 @@ -0,0 +1,82 @@
@@ -2203,7 +2190,7 @@ index 0000000..78b06ed
 +
 +    HstStartCenterCanvas* mpCanvas;
 +    std::vector<rtl::Reference<CanvasRegionAccessible>> maRegions;
-+    /// the children in visual order: the regions, and the search entry and banner windows
++    /// the children in visual order: the regions, and the search entry window
 +    std::vector<css::uno::Reference<css::accessibility::XAccessible>> maChildren;
 +    bool mbBuilt = false;
 +};
@@ -2212,10 +2199,10 @@ index 0000000..78b06ed
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenteractions.hxx b/sfx2/source/startcenter/hststartcenteractions.hxx
 new file mode 100644
-index 0000000..bf38440
+index 0000000..03e8aba
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenteractions.hxx
-@@ -0,0 +1,36 @@
+@@ -0,0 +1,35 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2243,7 +2230,6 @@ index 0000000..bf38440
 +    virtual void Activate(const Hit& rHit, bool bPin) override;
 +    virtual void ContextMenu(const Hit& rHit, const tools::Rectangle& rAt) override;
 +    virtual void FocusSearch() override;
-+    virtual bool FocusBanner() override;
 +    virtual void LayoutChanged() override;
 +
 +private:
@@ -2254,10 +2240,10 @@ index 0000000..bf38440
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcentercanvas.cxx b/sfx2/source/startcenter/hststartcentercanvas.cxx
 new file mode 100644
-index 0000000..64f936f
+index 0000000..47c8b11
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvas.cxx
-@@ -0,0 +1,803 @@
+@@ -0,0 +1,787 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2339,7 +2325,6 @@ index 0000000..64f936f
 +    }
 +    maIcons.clear();
 +    mxSearchWindow.reset();
-+    mxBannerWindow.reset();
 +    Control::dispose();
 +}
 +
@@ -2376,15 +2361,6 @@ index 0000000..64f936f
 +        }
 +    }
 +    return maLogo[i];
-+}
-+
-+void HstStartCenterCanvas::SetBannerRatio(const Size& rRatio)
-+{
-+    if (rRatio == maBannerRatio)
-+        return;
-+    maBannerRatio = rRatio;
-+    Relayout();
-+    Invalidate();
 +}
 +
 +void HstStartCenterCanvas::ModelChanged()
@@ -2485,7 +2461,6 @@ index 0000000..64f936f
 +                           DrawTextFlags::Left | DrawTextFlags::Top | DrawTextFlags::WordBreak
 +                               | DrawTextFlags::MultiLine)
 +              .GetHeight();
-+    aIn.aBannerRatio = maBannerRatio;
 +    aIn.nRecent = static_cast<int>(maModel.aRecent.size());
 +    aIn.nPinned = static_cast<int>(maModel.aPinned.size());
 +    aIn.nLeftScroll = mnLeftScroll;
@@ -2723,10 +2698,9 @@ index 0000000..64f936f
 +    return true;
 +}
 +
-+void HstStartCenterCanvas::SetChildWindows(vcl::Window* pSearch, vcl::Window* pBanner)
++void HstStartCenterCanvas::SetSearchWindow(vcl::Window* pSearch)
 +{
 +    mxSearchWindow = pSearch;
-+    mxBannerWindow = pBanner;
 +    if (mxAccessible.is())
 +        mxAccessible->ChildrenChanged();
 +}
@@ -2909,10 +2883,6 @@ index 0000000..64f936f
 +            const int nAt = it == aRegions.end() ? 0 : static_cast<int>(it - aRegions.begin());
 +            const int nCount = static_cast<int>(aRegions.size());
 +            const Part eNext = aRegions[(nAt + nDelta + nCount) % nCount];
-+            // the banner sits between the files and the solutions
-+            if (((nDelta > 0 && eNext == Part::Solution) || (nDelta < 0 && maFocus.ePart == Part::Solution))
-+                && mrListener.FocusBanner())
-+                return;
 +            FocusRegion(eNext);
 +            return;
 +        }
@@ -3063,10 +3033,10 @@ index 0000000..64f936f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcentercanvas.hxx b/sfx2/source/startcenter/hststartcentercanvas.hxx
 new file mode 100644
-index 0000000..60b700d
+index 0000000..b136a02
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvas.hxx
-@@ -0,0 +1,211 @@
+@@ -0,0 +1,204 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -3148,18 +3118,15 @@ index 0000000..60b700d
 +    virtual void ContextMenu(const Hit& rHit, const tools::Rectangle& rAt) = 0;
 +    /** Tab from the menu (forward) or from the tiles (backward): the search field takes the focus. */
 +    virtual void FocusSearch() = 0;
-+    /** Tab towards the HASON TECH solutions: the banner above them takes the focus first (false: no
-+        banner to focus). */
-+    virtual bool FocusBanner() = 0;
-+    /** The geometry changed: the child windows (search field, banner) move to their slots. */
++    /** The geometry changed: the search field moves to its slot. */
 +    virtual void LayoutChanged() = 0;
 +};
 +
 +/* The Start Center's drawn surface: the background, the left panel with its menu and the HASON TECH
 +   cards, the heading, the search field's frame, the tiles, the Recent table and the Pinned card.
 +   It does its own hit-testing, hover, press, focus and scrolling, and describes every item to
-+   assistive technology (hststartcenteraccessible.hxx). The search entry and the banner are real
-+   child windows of the Start Center window placed into the slots of the layout. */
++   assistive technology (hststartcenteraccessible.hxx). The search entry is a real child window of
++   the Start Center window placed into its slot of the layout. */
 +class HstStartCenterCanvas final : public Control
 +{
 +public:
@@ -3170,7 +3137,6 @@ index 0000000..60b700d
 +    void SetTexts(CanvasTexts aTexts);
 +    /** The logo's width in pixels; the artwork of the current theme is rendered when it is first painted. */
 +    void SetLogoWidth(int nWidth);
-+    void SetBannerRatio(const Size& rRatio);
 +    CanvasModel& GetModel() { return maModel; }
 +    const CanvasModel& GetModel() const { return maModel; }
 +    /** After the model changed: lays out, repaints and tells assistive technology. */
@@ -3193,9 +3159,8 @@ index 0000000..60b700d
 +    /** Shift+Tab out of a child window: focuses the region before eRegion in the Tab order. */
 +    void FocusRegionBefore(Part eRegion);
 +    /** The child windows in the canvas's slots, listed by its accessibility in visual order. */
-+    void SetChildWindows(vcl::Window* pSearch, vcl::Window* pBanner);
++    void SetSearchWindow(vcl::Window* pSearch);
 +    vcl::Window* GetSearchWindow() const { return mxSearchWindow.get(); }
-+    vcl::Window* GetBannerWindow() const { return mxBannerWindow.get(); }
 +    bool HasRows(Part eRegion) const;
 +    /** An action of an item (accessibility): 0 presses or opens it; for a file 1 pins or unpins it
 +        and 2 shows its menu. */
@@ -3256,7 +3221,6 @@ index 0000000..60b700d
 +    CanvasModel maModel;
 +    Layout maLayout;
 +    Palette maPalette;
-+    Size maBannerRatio{ 1200, 340 };
 +    Bitmap maLogo[2]; ///< light, dark
 +    bool mbLogoLoaded[2] = { false, false };
 +    int mnLogoWidth = 0;
@@ -3272,7 +3236,6 @@ index 0000000..60b700d
 +    int mnPinnedFirst = 0;
 +
 +    VclPtr<vcl::Window> mxSearchWindow;
-+    VclPtr<vcl::Window> mxBannerWindow;
 +    rtl::Reference<CanvasAccessible> mxAccessible;
 +};
 +}
@@ -3280,7 +3243,7 @@ index 0000000..60b700d
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcentercanvaspaint.cxx b/sfx2/source/startcenter/hststartcentercanvaspaint.cxx
 new file mode 100644
-index 0000000..e9cc5ba
+index 0000000..4c0345a
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvaspaint.cxx
 @@ -0,0 +1,421 @@
@@ -3402,7 +3365,7 @@ index 0000000..e9cc5ba
 +
 +    hLine(rDev, L.aSeparator.Left(), L.aSeparator.Right(), L.aSeparator.Top(), maPalette.aCardBorder);
 +
-+    // the HASON TECH block: the banner (a child window in L.aBanner), the heading, the cards, the link
++    // the HASON TECH block: the heading, the cards, the link
 +    UseFont(rDev, design::type::Strong);
 +    rDev.SetTextColor(maPalette.aText);
 +    rDev.DrawText(L.aSolutionsTitle, maTexts.aSolutionsTitle,
@@ -4200,10 +4163,10 @@ index 0000000..35f8221
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterlayout.cxx b/sfx2/source/startcenter/hststartcenterlayout.cxx
 new file mode 100644
-index 0000000..6fd5f11
+index 0000000..8e76b7f
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterlayout.cxx
-@@ -0,0 +1,363 @@
+@@ -0,0 +1,355 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -4223,9 +4186,11 @@ index 0000000..6fd5f11
 +// 1366 x 768 window at 100 %.
 +constexpr double LEFT_COMPACT_WIDTH = 64;
 +constexpr double LOGO_HEIGHT = 36;
-+constexpr double NAV_HEIGHT = 32;
-+constexpr double NAV_MIN_HEIGHT = 24; // the menu rows when the column would otherwise scroll
-+constexpr double NAV_GAP = 1;
++// the menu rows with the mockup's spacing (a 40 px pill every 44 px), tightened only when the
++// column would otherwise scroll
++constexpr double NAV_HEIGHT = 40;
++constexpr double NAV_MIN_HEIGHT = 24;
++constexpr double NAV_GAP = 4;
 +constexpr double CARD_GAP = 7; // between the solution cards
 +constexpr double RIGHT_WIDTH = 288;
 +constexpr double OUTER = 24; // window edge to the Pinned card, and below the cards
@@ -4305,14 +4270,6 @@ index 0000000..6fd5f11
 +            y += L.px(5);
 +            L.aSeparator = rect(nPad, y, nInner, 1);
 +            y += L.px(6);
-+            // the banner's slot has the banner's own aspect ratio at the column width: the image fills it
-+            if (rIn.aBannerRatio.Width() > 0 && rIn.aBannerRatio.Height() > 0)
-+            {
-+                const tools::Long nBannerH
-+                    = nInner * rIn.aBannerRatio.Height() / rIn.aBannerRatio.Width();
-+                L.aBanner = rect(nPad, y, nInner, nBannerH);
-+                y += nBannerH + L.px(8);
-+            }
 +            L.aSolutionsTitle = rect(nPad, y, nInner, rIn.nSolutionsTitle);
 +            y += rIn.nSolutionsTitle + L.px(4);
 +            // a card: its logo (with the external-link mark beside it), the name below, then the tagline
@@ -4337,8 +4294,8 @@ index 0000000..6fd5f11
 +    tools::Long y = layoutLeft(nNavH);
 +    if (y > H)
 +    {
-+        // tighter menu rows before the column has to scroll: on Windows a maximised window of a
-+        // 1366 x 768 screen keeps only 674 px below its title and menu bars
++        // tighter menu rows before the column has to scroll (a short window; the fonts of a
++        // platform or a DPI that run taller than the layout pixels)
 +        const tools::Long nTight = std::max(L.px(NAV_MIN_HEIGHT), rIn.nNav + L.px(4));
 +        const tools::Long nTighter = std::max(nTight, nNavH - (y - H + NAV_COUNT - 1) / NAV_COUNT);
 +        if (nTighter < nNavH)
@@ -4356,8 +4313,6 @@ index 0000000..6fd5f11
 +    if (!L.bCompact)
 +    {
 +        L.aSeparator = moved(L.aSeparator, nUp);
-+        if (!L.aBanner.IsEmpty())
-+            L.aBanner = moved(L.aBanner, nUp);
 +        L.aSolutionsTitle = moved(L.aSolutionsTitle, nUp);
 +        for (tools::Rectangle& rCard : L.aSolutions)
 +            rCard = moved(rCard, nUp);
@@ -4569,10 +4524,10 @@ index 0000000..6fd5f11
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterlayout.hxx b/sfx2/source/startcenter/hststartcenterlayout.hxx
 new file mode 100644
-index 0000000..3769756
+index 0000000..ed504d8
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterlayout.hxx
-@@ -0,0 +1,153 @@
+@@ -0,0 +1,150 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -4597,8 +4552,7 @@ index 0000000..3769756
 +constexpr int NAV_COUNT = 7;
 +constexpr int TILE_COUNT = 3;
 +constexpr int SOLUTION_COUNT = 6;
-+/** The left column's width and padding, in layout pixels: its inner width (260) is the banner's
-+    smallest legible width (HstBannerWidget::MinimumSize). */
++/** The left column's width and padding, in layout pixels (inner width 260: two solution cards). */
 +constexpr double LEFT_WIDTH = 292;
 +constexpr double LEFT_PAD = 16;
 +
@@ -4640,7 +4594,6 @@ index 0000000..3769756
 +    tools::Long nRow = 18; ///< the names, dates and folders of the file lists
 +    int nSolutionLines = 1; ///< lines of the longest solution tagline (they wrap, never cut)
 +    tools::Long nSolutionsTitle = 36; ///< the HASON TECH heading, wrapped to the column
-+    Size aBannerRatio = Size(1200, 340); ///< the banner's width : height
 +    int nRecent = 0; ///< rows of the Recent table
 +    int nPinned = 0; ///< items of the Pinned card
 +    tools::Long nLeftScroll = 0; ///< wanted scroll of the left column (clamped)
@@ -4661,7 +4614,6 @@ index 0000000..3769756
 +    tools::Rectangle aLogo;
 +    std::array<tools::Rectangle, NAV_COUNT> aNav;
 +    tools::Rectangle aSeparator;
-+    tools::Rectangle aBanner; ///< the slot of the banner, at its aspect ratio (empty: no banner)
 +    tools::Rectangle aSolutionsTitle;
 +    std::array<tools::Rectangle, SOLUTION_COUNT> aSolutions;
 +    tools::Rectangle aMore;
@@ -4719,10 +4671,10 @@ index 0000000..3769756
 +tools::Long SolutionTextWidth(double fScale);
 +/** Padding inside a solution card, in layout pixels: at the sides, and above and below. */
 +constexpr double SOLUTION_PAD = 9;
-+constexpr double SOLUTION_PAD_TOP = 8;
++constexpr double SOLUTION_PAD_TOP = 6;
 +/** The logo of a solution card, and the gap from it down to the name, in layout pixels. */
-+constexpr double SOLUTION_LOGO = 24;
-+constexpr double SOLUTION_NAME_GAP = 4;
++constexpr double SOLUTION_LOGO = 20;
++constexpr double SOLUTION_NAME_GAP = 3;
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
@@ -12204,10 +12156,10 @@ index 0000000..dcb957f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
 new file mode 100644
-index 0000000..74bf71b
+index 0000000..9eba384
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
-@@ -0,0 +1,803 @@
+@@ -0,0 +1,740 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -12215,7 +12167,7 @@ index 0000000..74bf71b
 + * This file is part of HST Office.
 + */
 +
-+// The Start Center window: the canvas and its two toolkit children (search entry, banner), the texts,
++// The Start Center window: the canvas and its toolkit child (the search entry), the texts,
 +// the menu's and the tiles' actions, the HASON TECH solutions, dispatching and the keyboard. The
 +// recent and pinned files are in hststartcenterfiles.cxx.
 +
@@ -12242,7 +12194,6 @@ index 0000000..74bf71b
 +#include <unotools/moduleoptions.hxx>
 +#include <vcl/dndlistenercontainer.hxx>
 +#include <vcl/event.hxx>
-+#include <vcl/HstBanner.hxx>
 +#include <vcl/InterimItemWindow.hxx>
 +#include <vcl/hst/designtokens.hxx>
 +#include <vcl/menu.hxx>
@@ -12253,7 +12204,6 @@ index 0000000..74bf71b
 +#include <vcl/weld/Builder.hxx>
 +#include <vcl/weld/Container.hxx>
 +#include <vcl/weld/Entry.hxx>
-+#include <vcl/weld/customweld.hxx>
 +
 +#include <algorithm>
 +#include <functional>
@@ -12419,7 +12369,7 @@ index 0000000..74bf71b
 +
 +namespace sfx2::hst::startcenter
 +{
-+/** A toolkit widget of the Start Center (the search entry, the banner) in its slot of the canvas. */
++/** The Start Center's toolkit widget (the search entry) in its slot of the canvas. */
 +class ChildHost final : public InterimItemWindow
 +{
 +public:
@@ -12467,7 +12417,6 @@ index 0000000..74bf71b
 +
 +void StartCenterActions::FocusSearch() { mrWindow.FocusSearch(); }
 +
-+bool StartCenterActions::FocusBanner() { return mrWindow.FocusBanner(); }
 +
 +void StartCenterActions::LayoutChanged() { mrWindow.PlaceChildren(); }
 +}
@@ -12496,9 +12445,8 @@ index 0000000..74bf71b
 +    InitTexts();
 +    InitLogo();
 +    InitSearch();
-+    InitBanner();
 +    InitActionWindows();
-+    mxCanvas->SetChildWindows(mxSearchHost.get(), mxBannerHost.get());
++    mxCanvas->SetSearchWindow(mxSearchHost.get());
 +    mxCanvas->Show();
 +    ReloadFiles();
 +    mxDropTarget = GetDropTarget();
@@ -12533,9 +12481,6 @@ index 0000000..74bf71b
 +    for (VclPtr<vcl::Window>& rWindow : maActionWindows)
 +        rWindow.disposeAndClear();
 +    maActionWindows.clear();
-+    mxBannerWeld.reset(); // before the drawing area goes with the builder
-+    mxBanner.reset();
-+    mxBannerHost.disposeAndClear();
 +    mxSearch.reset();
 +    mxSearchHost.disposeAndClear();
 +    mxCanvas.disposeAndClear();
@@ -12605,16 +12550,6 @@ index 0000000..74bf71b
 +    mxSearchHost->Show();
 +}
 +
-+void HstStartCenterWindow::InitBanner()
-+{
-+    // the rotating HASON TECH banner: signed feed, fetched and counted on worker threads
-+    mxBannerHost = VclPtr<ChildHost>::Create(mxCanvas.get(), u"sfx/ui/hststartcenterbanner.ui"_ustr, u"BannerBox"_ustr);
-+    mxBanner.reset(new HstBannerWidget(mxBannerHost.get()));
-+    mxBannerWeld.reset(new weld::CustomWeld(mxBannerHost->GetBuilder(), u"banner"_ustr, *mxBanner));
-+    mxBanner->SetArtChangedHdl(LINK(this, HstStartCenterWindow, BannerArtChangedHdl));
-+    UpdateBannerRatio();
-+}
-+
 +void HstStartCenterWindow::InitActionWindows()
 +{
 +    SvtModuleOptions aModules;
@@ -12634,18 +12569,6 @@ index 0000000..74bf71b
 +        VclPtr<ActionWindow>::Create(this, u"open_all"_ustr, [this] { RunNav(NAV_OPEN); }));
 +}
 +
-+void HstStartCenterWindow::UpdateBannerRatio()
-+{
-+    if (!mxBanner || !mxCanvas)
-+        return;
-+    // the slot is exactly as tall as the banner is at the column's inner width
-+    const tools::Long nWidth = static_cast<tools::Long>((LEFT_WIDTH - 2 * LEFT_PAD) * mfScale + 0.5);
-+    const tools::Long nHeight = mxBanner->HeightForWidth(nWidth);
-+    if (nWidth > 0 && nHeight > 0)
-+        mxCanvas->SetBannerRatio(Size(nWidth, nHeight));
-+}
-+
-+IMPL_LINK_NOARG(HstStartCenterWindow, BannerArtChangedHdl, HstBannerWidget&, void) { UpdateBannerRatio(); }
 +
 +void HstStartCenterWindow::Resize()
 +{
@@ -12656,20 +12579,10 @@ index 0000000..74bf71b
 +
 +void HstStartCenterWindow::PlaceChildren()
 +{
-+    if (!mxCanvas || !mxSearchHost || !mxBannerHost)
++    if (!mxCanvas || !mxSearchHost)
 +        return;
 +    const Layout& L = mxCanvas->GetLayout();
 +    mxSearchHost->SetPosSizePixel(L.aSearchText.TopLeft(), L.aSearchText.GetSize());
-+    // the banner: in its slot, hidden when the column is scrolled past it or folded
-+    const bool bBanner = !L.bCompact && !L.aBanner.IsEmpty() && L.aBanner.Top() >= L.aLeft.Top()
-+                         && L.aBanner.Bottom() <= L.aLeft.Bottom();
-+    if (bBanner)
-+        mxBannerHost->SetPosSizePixel(L.aBanner.TopLeft(), L.aBanner.GetSize());
-+    if (bBanner != mxBannerHost->IsVisible())
-+    {
-+        mxBannerHost->Show(bBanner);
-+        mxCanvas->SetChildWindows(mxSearchHost.get(), mxBannerHost.get());
-+    }
 +    // the pinned files have their own card again once the window is wide enough
 +    if (L.bShowRight && mxCanvas->GetModel().bPinnedOnly)
 +    {
@@ -12852,23 +12765,10 @@ index 0000000..74bf71b
 +
 +bool HstStartCenterWindow::SearchHasFocus() const { return mxSearch && mxSearch->has_focus(); }
 +
-+bool HstStartCenterWindow::BannerHasFocus() const
-+{
-+    return mxBannerHost && mxBannerHost->IsVisible() && mxBannerHost->HasChildPathFocus();
-+}
-+
 +void HstStartCenterWindow::FocusSearch()
 +{
 +    if (mxSearch)
 +        mxSearch->grab_focus();
-+}
-+
-+bool HstStartCenterWindow::FocusBanner()
-+{
-+    if (!mxBannerHost || !mxBannerHost->IsVisible())
-+        return false;
-+    mxBannerHost->GrabFocus();
-+    return true;
 +}
 +
 +IMPL_LINK(HstStartCenterWindow, SearchFocusHdl, weld::Widget&, rWidget, void)
@@ -12898,8 +12798,6 @@ index 0000000..74bf71b
 +    int nCurrent = -1;
 +    if (SearchHasFocus())
 +        nCurrent = SEARCH;
-+    else if (BannerHasFocus())
-+        nCurrent = SOLUTIONS;
 +    else if (mxCanvas->HasFocus())
 +    {
 +        switch (mxCanvas->GetFocusItem().ePart)
@@ -12938,8 +12836,7 @@ index 0000000..74bf71b
 +            mxCanvas->FocusRegion(Part::Pinned);
 +            break;
 +        case SOLUTIONS:
-+            if (!FocusBanner())
-+                mxCanvas->FocusRegion(Part::Solution);
++            mxCanvas->FocusRegion(Part::Solution);
 +            break;
 +    }
 +}
@@ -12954,7 +12851,7 @@ index 0000000..74bf71b
 +            FocusRegion(rKey.IsShift() ? -1 : 1);
 +            return true;
 +        }
-+        // Tab out of the search field and the banner into the canvas's regions
++        // Tab out of the search field into the canvas's regions
 +        if (rKey.GetCode() == KEY_TAB && !rKey.IsMod1() && !rKey.IsMod2())
 +        {
 +            if (SearchHasFocus())
@@ -12963,14 +12860,6 @@ index 0000000..74bf71b
 +                    mxCanvas->FocusRegionBefore(Part::Tile);
 +                else
 +                    mxCanvas->FocusRegion(Part::Tile);
-+                return true;
-+            }
-+            if (BannerHasFocus())
-+            {
-+                if (rKey.IsShift())
-+                    mxCanvas->FocusRegionBefore(Part::Solution);
-+                else
-+                    mxCanvas->FocusRegion(Part::Solution);
 +                return true;
 +            }
 +        }
@@ -13011,45 +12900,6 @@ index 0000000..74bf71b
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
-diff --git a/sfx2/uiconfig/ui/hststartcenterbanner.ui b/sfx2/uiconfig/ui/hststartcenterbanner.ui
-new file mode 100644
-index 0000000..fa808b2
---- /dev/null
-+++ b/sfx2/uiconfig/ui/hststartcenterbanner.ui
-@@ -0,0 +1,33 @@
-+<?xml version="1.0" encoding="UTF-8"?>
-+<!-- SPDX-License-Identifier: LicenseRef-HST-Proprietary
-+     HST Office: the drawing area of the Start Center's HASON TECH banner; the rest is
-+     drawn by sfx2/source/startcenter/hststartcentercanvas.cxx. One toplevel object per file:
-+     VclBuilder (every toolkit but GTK) builds all toplevels of a file into the window that asks for
-+     one of them. No property may be empty (a self-closing property element): VclBuilder then nests
-+     the following siblings into the object before them. -->
-+<interface domain="sfx">
-+  <requires lib="gtk+" version="3.24"/>
-+  <object class="GtkBox" id="BannerBox">
-+    <property name="visible">True</property>
-+    <property name="can-focus">False</property>
-+    <property name="orientation">vertical</property>
-+    <child>
-+      <object class="GtkDrawingArea" id="banner">
-+        <property name="visible">True</property>
-+        <property name="can-focus">True</property>
-+        <property name="hexpand">True</property>
-+        <property name="vexpand">True</property>
-+        <child internal-child="accessible">
-+          <object class="AtkObject" id="banner-atkobject">
-+            <property name="AtkObject::accessible-name">HASON TECH</property>
-+          </object>
-+        </child>
-+      </object>
-+      <packing>
-+        <property name="expand">True</property>
-+        <property name="fill">True</property>
-+        <property name="position">0</property>
-+      </packing>
-+    </child>
-+  </object>
-+</interface>
 diff --git a/sfx2/uiconfig/ui/hststartcentersearch.ui b/sfx2/uiconfig/ui/hststartcentersearch.ui
 new file mode 100644
 index 0000000..44326af
