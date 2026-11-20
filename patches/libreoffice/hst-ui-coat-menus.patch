@@ -135,7 +135,7 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/menu-coat-test.cxx
-@@ -0,0 +1,336 @@
+@@ -0,0 +1,338 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -394,7 +394,7 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +}
 +
 +/* The ring of a menu window's border (its width VCL's) takes the surface colour, in both of the
-+   rings VCL draws for a menu; the switch off leaves it alone. */
++   rings VCL draws for a menu (the inner one only without flat menus); the switch off leaves it alone. */
 +CPPUNIT_TEST_FIXTURE(MenuCoatTest, testMenuWindowRingTakesTheSurface)
 +{
 +    ScopedVclPtr<WorkWindow> pParent(VclPtr<WorkWindow>::Create(nullptr, WB_STDWORK));
@@ -420,7 +420,6 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +        CPPUNIT_ASSERT_EQUAL(aSurface, rRing.GetDarkShadowColor());
 +        CPPUNIT_ASSERT_EQUAL(aSurface, rRing.GetLightColor());
 +        CPPUNIT_ASSERT_EQUAL(aSurface, rRing.GetShadowColor());
-+        CPPUNIT_ASSERT(!rRing.GetUseFlatMenus());
 +        // the menu's own settings and every size stay
 +        CPPUNIT_ASSERT_EQUAL(bDark ? COL_WHITE : COL_BLACK,
 +                             pMenu->GetSettings().GetStyleSettings().GetMenuTextColor());
@@ -458,8 +457,11 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +                            + hex(p.aText) + "; }");
 +        CPPUNIT_ASSERT(aCss.indexOf(aItem) >= 0);
 +        CPPUNIT_ASSERT(aCss.indexOf(".csd.popup decoration { border-radius: 8px;") >= 0);
-+        const OString aRing("0 0 0 1px " + hex(p.aMenuBorder));
-+        CPPUNIT_ASSERT(aCss.indexOf(aRing) >= 0);
++        const OString aWindow("window.popup:not(.csd) { background-image: none; background-color: "
++                              + hex(p.aMenuSurface) + "; }");
++        CPPUNIT_ASSERT(aCss.indexOf(aWindow) >= 0);
++        // GTK sizes a decorated popup's shadow margin from the theme's shadow: left alone
++        CPPUNIT_ASSERT(aCss.indexOf("box-shadow") < 0);
 +        for (const char* pMetric : { "padding", "margin", "min-", "width", "height", "font",
 +                                     "border:", "border-style" })
 +            CPPUNIT_ASSERT_MESSAGE(pMetric, aCss.indexOf(pMetric) < 0);
@@ -506,7 +508,7 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
  
  #include <algorithm>
  #include <cmath>
-@@ -34,11 +41,26 @@ namespace hst::coat
+@@ -34,11 +41,27 @@ namespace hst::coat
  {
  namespace
  {
@@ -526,14 +528,15 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +        return;
 +    // the menu's outline: one thin ring rounded at the edge of the content; outside its corners
 +    // the surface stays (the window's corners are square)
++    // a thin line: one device pixel up to twice the size (floor, as the frame's dividers grow)
 +    const double fBorder
-+        = std::max<double>(1, std::lround(rCtx.Px(hst::design::size::FrameDivider)));
++        = std::max(1.0, std::floor(rCtx.Px(hst::design::size::FrameDivider)));
 +    FillAndStroke(rCtx, rCtx.aRect, rCtx.Px(hst::design::radius::Menu),
 +                  rCtx.rPalette.aMenuSurface, rCtx.rPalette.aMenuBorder, fBorder);
  }
  
  /** The highlight of an item in rItem (the item's row between the menu's side borders). */
-@@ -67,14 +89,14 @@ double highlightRadius(const PaintContext& rCtx, const tools::Rectangle& rRect)
+@@ -67,14 +90,14 @@ double highlightRadius(const PaintContext& rCtx, const tools::Rectangle& rRect)
  
  /** The highlight's fill: the menu hover, or where the theme's highlighted text would not read on it
      (4.5:1), the other palette's hover, the accent, or the theme's own highlight colour. */
@@ -553,7 +556,7 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
  }
  
  Color markColour(const PaintContext& rCtx)
-@@ -96,7 +118,7 @@ bool PaintMenu(const PaintContext& rCtx, ControlPart ePart, const ImplControlVal
+@@ -96,7 +119,7 @@ bool PaintMenu(const PaintContext& rCtx, ControlPart ePart, const ImplControlVal
              // the highlight of the item under the mouse or the keyboard; a disabled item shows it
              // too, so the keyboard's position stays visible
              const tools::Rectangle aRect = highlightRect(rCtx, rCtx.aRect);
@@ -562,7 +565,7 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
                            COL_TRANSPARENT, 0);
              return true;
          }
-@@ -146,6 +168,50 @@ bool PaintMenu(const PaintContext& rCtx, ControlPart ePart, const ImplControlVal
+@@ -146,6 +169,52 @@ bool PaintMenu(const PaintContext& rCtx, ControlPart ePart, const ImplControlVal
              return false;
      }
  }
@@ -600,22 +603,24 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +    if (aStyle.GetMenuBorderColor() == aSurface && aStyle.GetDarkShadowColor() == aSurface
 +        && aStyle.GetLightColor() == aSurface && aStyle.GetShadowColor() == aSurface
 +        && !aStyle.GetUseFlatMenus())
-+        return;
++        return; // nothing to change: no settings event
 +    aStyle.SetMenuBorderColor(aSurface);
 +    aStyle.SetDarkShadowColor(aSurface);
 +    aStyle.SetLightColor(aSurface);
 +    aStyle.SetShadowColor(aSurface);
 +    aStyle.SetUseFlatMenus(false);
 +    aSettings.SetStyleSettings(aStyle);
++    // No invalidation: this runs from the menu's ApplySettings, which VCL calls before every paint of
++    // the menu and which hands the theme's settings to the border window first; the border window
++    // paints with what is set here, and invalidating it would repaint the menu again and again.
 +    pBorder->SetSettings(aSettings);
-+    pBorder->Invalidate();
 +}
  }
  
  /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/vcl/source/hst/coat/css/menus.cxx
 +++ b/vcl/source/hst/coat/css/menus.cxx
-@@ -5,17 +5,53 @@
+@@ -5,17 +5,54 @@
   * This file is part of HST Office.
   */
  
@@ -624,13 +629,13 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +   its outline in the menu border colour, rounded with radius::Menu, and its item text. The items'
 +   highlight, marks, arrows and shortcut colour come before, with the dialogs' CSS
 +   (coat-gtk-css-lists-menus.cxx). Colours and corner radii only: the theme keeps every border
-+   width, padding and margin, so no menu changes its size. Without a compositor the menu's window
-+   is square: outside the rounded outline its corners show the window's background, the surface.
++   width, padding and margin, so no menu changes its size.
 +
-+   Where a compositor shows the menu's window with client-side decorations (GTK then draws no menu
-+   border), the decoration's corners follow the menu's and its one-pixel outline ring takes the menu
-+   border colour. That ring and the soft shadow keep Adwaita's geometry exactly (offset 1 px, blur
-+   2 px, spread 1 px), because GTK sizes the shadow margin of a decorated window from them. */
++   Without a compositor the menu's window is square: outside the rounded outline its corners show the
++   window's background, which takes the surface colour. Where a compositor shows the window with
++   client-side decorations (GTK then draws no menu border), only the decoration's corners follow the
++   menu's; its shadow and outline ring stay the theme's, because GTK sizes a decorated window's shadow
++   margin from them. A combo box's drop-down list is a GTK menu too and looks the same. */
  
  #include "css-fragments.hxx"
  
@@ -663,12 +668,13 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +           + hex(p.aMenuSurface) + u"; border-color: " + hex(p.aMenuBorder) + u"; color: "
 +           + hex(p.aText)
 +           + u"; }\n"
-+             u"window.popup { background-image: none; background-color: "
++             u"menu > arrow:disabled, .menu > arrow:disabled { background-color: transparent; "
++             u"border-color: transparent; color: transparent; }\n"
++             u"window.popup:not(.csd) { background-image: none; background-color: "
 +           + hex(p.aMenuSurface)
 +           + u"; }\n"
 +             u".csd.popup decoration { border-radius: "
-+           + aRadius + u"; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 0 0 1px "
-+           + hex(p.aMenuBorder) + u"; }\n";
++           + aRadius + u"; }\n";
  }
  }
  
