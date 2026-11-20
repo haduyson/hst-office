@@ -38,12 +38,13 @@ from hst_frame_shot_cases import NO_PROMPTS  # noqa: E402
 WINDOWS = sys.platform == "win32"
 FACTS = "facts.json"
 
-# (app, factory, case, tab name prefix in Vietnamese; None: the contextual tab that opens in a table)
+# (app, factory, case, tab name prefix in Vietnamese); "table" first puts the cursor in a new table, so that its
+# contextual Table Design tab shows
 CASES = [
     ("writer", "swriter", "home", "Trang đầu"),
     ("writer", "swriter", "insert", "Chèn"),
     ("writer", "swriter", "layout", "Bố cục"),
-    ("writer", "swriter", "table", None),
+    ("writer", "swriter", "table", "Thiết kế bảng"),
     ("sheets", "scalc", "home", "Trang đầu"),
     ("sheets", "scalc", "formulas", "Công thức"),
     ("slides", "simpress", "home", "Trang đầu"),
@@ -79,22 +80,37 @@ def ribbon_context(frame):
 
 
 def tab_names(context):
+    """The names of the showing tabs (a contextual tab is a child while hidden too)."""
+    from windows_gui_a11y import showing
     names = []
     for index in range(context.getAccessibleChildCount()):
         try:
-            names.append(context.getAccessibleChild(index).getAccessibleContext().getAccessibleName())
+            child = context.getAccessibleChild(index).getAccessibleContext()
+            if showing(child):
+                names.append(child.getAccessibleName())
         except Exception:  # noqa: BLE001
-            names.append(None)
+            continue
     return names
 
 
 def select_tab(context, prefix, known):
-    """Select the tab whose name starts with prefix (None: the first tab not in known, a contextual tab)."""
-    names = tab_names(context)
-    for index, name in enumerate(names):
-        if name and ((prefix is None and name not in known) or (prefix is not None and name.startswith(prefix))):
-            context.selectAccessibleChild(index)
-            return name
+    """Open the showing tab whose name starts with prefix (None: the first showing tab not in known, a contextual
+    tab) through its accessible action (a click), else through the tab list's selection."""
+    from windows_gui_a11y import showing
+    for index in range(context.getAccessibleChildCount()):
+        try:
+            child = context.getAccessibleChild(index).getAccessibleContext()
+            name = child.getAccessibleName()
+            if not showing(child) or not name:
+                continue
+            if (prefix is None and name not in known) or (prefix is not None and name.startswith(prefix)):
+                try:
+                    child.doAccessibleAction(0)
+                except Exception:  # noqa: BLE001 - no action: the selection
+                    context.selectAccessibleChild(index)
+                return name
+        except Exception:  # noqa: BLE001 - a node disposed while we looked
+            continue
     return None
 
 
@@ -138,13 +154,15 @@ class Run(shots.Run):
                 self.note(f"{name}: ribbon not found in the accessibility tree")
                 return
             known = tab_names(found[0])
-            if prefix is None:  # the cursor in a table opens the contextual Table tab
+            if case == "table":  # the cursor in a table opens the contextual Table tabs
                 text = doc.getText()
                 table = doc.createInstance("com.sun.star.text.TextTable")
                 table.initialize(3, 3)
                 text.insertTextContent(text.getEnd(), table, False)
-                doc.getCurrentController().select(table.getCellByName("A1"))
-                time.sleep(2)
+                # the view cursor into the first cell: the Table context opens its contextual tab
+                cursor = doc.getCurrentController().getViewCursor()
+                cursor.gotoRange(table.getCellByName("A1").getText().getStart(), False)
+                time.sleep(3)
                 found = ribbon_context(frame) or found
             tab = select_tab(found[0], prefix, known)
             if tab is None:
@@ -242,7 +260,12 @@ def shoot(args):
         office = office_for(args, look).start()
         try:
             for app, factory, case, prefix in CASES:
-                run.case(office, app, factory, case, prefix, look)
+                if args.case and case_name(app, case, ()).rstrip("-") not in args.case:
+                    continue
+                try:
+                    run.case(office, app, factory, case, prefix, look)
+                except Exception as error:  # noqa: BLE001 - the other cases still run
+                    run.note(f"{case_name(app, case, look)}: {error!r}")
         finally:
             office.stop()
             run.save()
@@ -273,6 +296,16 @@ def divider_rows(image_path, divider, tolerance=2, rows=3):
     return best
 
 
+def _steady(value):
+    """value with the banner's accessible name (its artwork rotates at every start: "<brand> — <tagline>") as one
+    placeholder, so that only what this coat could change is compared."""
+    def name(text):
+        return "<banner>" if isinstance(text, str) and " — " in text else text
+    if isinstance(value, list):
+        return [_steady(item) if isinstance(item, list) else name(item) for item in value]
+    return name(value)
+
+
 def compare(out_dirs):
     """Problems found in the facts and pixels of every before/after pair of the given output directories."""
     problems = []
@@ -289,7 +322,7 @@ def compare(out_dirs):
                 problems.append(f"{out}: {name}: no before")
                 continue
             for key in ("tab", "tabs", "ribbon", "rect", "elements"):
-                if before.get(key) != after.get(key):
+                if _steady(before.get(key)) != _steady(after.get(key)):
                     detail = "" if key == "elements" else f": before {before.get(key)} after {after.get(key)}"
                     if key == "elements":
                         changed = [pair for pair in zip(before[key], after[key]) if pair[0] != pair[1]]
@@ -352,6 +385,7 @@ def main():
     shot.add_argument("--port", type=int, default=2348 if WINDOWS else 0)
     shot.add_argument("--scale", choices=["100", "125"], default="100", help="Windows: the display scaling now set")
     shot.add_argument("--look", action="append", default=[], help="only looks starting so, e.g. before-light")
+    shot.add_argument("--case", action="append", default=[], help="only these cases, e.g. writer-table")
     check = sub.add_parser("compare")
     check.add_argument("--out", action="append", required=True)
     cut = sub.add_parser("crop")
