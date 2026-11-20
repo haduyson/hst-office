@@ -9,7 +9,7 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 
 --- a/sw/CppunitTest_sw_core_view.mk
 +++ b/sw/CppunitTest_sw_core_view.mk
-@@ -16,6 +16,7 @@
+@@ -16,10 +16,12 @@
  $(eval $(call gb_CppunitTest_add_exception_objects,sw_core_view, \
      sw/qa/core/view/view \
      sw/qa/core/hst/olepreviewpaint \
@@ -17,6 +17,11 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
  ))
  
  $(eval $(call gb_CppunitTest_use_libraries,sw_core_view, \
+     cppu \
++    comphelper \
+     cppuhelper \
+     sal \
+     subsequenttest \
 --- a/sw/Library_sw.mk
 +++ b/sw/Library_sw.mk
 @@ -249,6 +249,7 @@
@@ -894,7 +899,7 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 \ No newline at end of file
 --- /dev/null
 +++ b/sw/qa/core/hst/objectboundarypaint.cxx
-@@ -0,0 +1,316 @@
+@@ -0,0 +1,336 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -918,6 +923,7 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +#include <com/sun/star/text/XTextGraphicObjectsSupplier.hpp>
 +#include <com/sun/star/text/XTextRange.hpp>
 +
++#include <comphelper/lok.hxx>
 +#include <svtools/colorcfg.hxx>
 +#include <vcl/BitmapReadAccess.hxx>
 +#include <vcl/virdev.hxx>
@@ -1009,6 +1015,14 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +    return nSamples ? double(nHits) / nSamples : 0.0;
 +}
 +
++/// Paints into the given device only while the shell treats the output as a tile: otherwise the
++/// draw view redirects the paint into the (hidden) edit window's buffer.
++struct TilePaintScope
++{
++    TilePaintScope() { comphelper::LibreOfficeKit::setActive(true); }
++    ~TilePaintScope() { comphelper::LibreOfficeKit::setActive(false); }
++};
++
 +tools::Rectangle toPixels(const SwRect& rTwips, const SwRect& rPage)
 +{
 +    return tools::Rectangle(
@@ -1049,11 +1063,20 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +        pDevice->SetBackground(Wallpaper(COL_WHITE));
 +        pDevice->SetOutputSizePixel(Size(nWidth, nHeight));
 +        pDevice->Erase();
-+        rTextDoc.paintTile(*pDevice, nWidth, nHeight, aPage.Left(), aPage.Top(), aPage.Width(),
-+                           aPage.Height());
++        {
++            TilePaintScope aScope;
++            rTextDoc.paintTile(*pDevice, nWidth, nHeight, aPage.Left(), aPage.Top(), aPage.Width(),
++                               aPage.Height());
++        }
 +        pDevice->SetMapMode(MapMode(MapUnit::MapPixel));
 +        const Bitmap aBitmap(pDevice->GetBitmap(Point(), Size(nWidth, nHeight)));
 +        BitmapScopedReadAccess pAccess(aBitmap);
++        // The page was really painted: its text is there.
++        tools::Long nInk = 0;
++        for (tools::Long y = 0; y < pAccess->Height(); ++y)
++            for (tools::Long x = 0; x < pAccess->Width(); ++x)
++                nInk += isDark(pAccess->GetColor(y, x));
++        CPPUNIT_ASSERT_MESSAGE("page not painted", nInk > 100);
 +
 +        for (const SwAnchoredObject* pObject : *pPage->GetSortedObjs())
 +        {
@@ -1200,6 +1223,7 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +{
 +    // A MathType (Equation.DSMT4) object from DOCX.
 +    createSwDoc("../../data/ooxml/pass/fdo78906.docx");
++    calcLayout();
 +    assertNoBoundaryOnObjects(paintFlys(*getSwDocShell(), *getSwTextDoc()), 1);
 +}
 +
@@ -1207,6 +1231,7 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +{
 +    // Equation 3.0 objects from DOC.
 +    createSwDoc("../../../extras/ww8export/data/tdf79553_lineNumbers.doc");
++    calcLayout();
 +    assertNoBoundaryOnObjects(paintFlys(*getSwDocShell(), *getSwTextDoc()), 1);
 +}
 +
