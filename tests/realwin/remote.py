@@ -15,7 +15,7 @@ import subprocess
 import sys
 
 HERE = Path(__file__).resolve().parent
-HOSTS = {"hst4": "192.168.1.124", "hst5": "192.168.1.163"}
+HOSTS = {"hst4": "192.168.1.124", "hst5": "192.168.1.125", "hst3": "192.168.1.123", "hst1": "192.168.1.121"}
 KEY = os.environ.get("HST_WINTEST_KEY", "/root/.ssh/hst-wintest_ed25519")
 USER = "kiemtra"
 ROOTS = ("C:\\hst-test", "D:\\hst-test")
