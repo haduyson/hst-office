@@ -135,7 +135,7 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/menu-coat-test.cxx
-@@ -0,0 +1,337 @@
+@@ -0,0 +1,336 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -450,17 +450,16 @@ HST Office: popup and context menus get the frame's coat: a rounded outline, the
 +    {
 +        const hst::design::Palette& p = bDark ? dark() : light();
 +        const OString aCss = menusCss(bDark);
-+        CPPUNIT_ASSERT_MESSAGE(aCss.getStr(),
-+                               aCss.indexOf("menu, .menu, .context-menu { background-image: none; "
-+                                            "background-color: "
-+                                            + hex(p.aMenuSurface) + "; border-color: "
-+                                            + hex(p.aMenuBorder) + "; border-radius: 8px; }")
-+                                   >= 0);
-+        CPPUNIT_ASSERT(aCss.indexOf("menu menuitem, .menu menuitem, .context-menu menuitem { color: "
-+                                    + hex(p.aText) + "; }")
-+                       >= 0);
++        const OString aMenu("menu, .menu, .context-menu { background-image: none; background-color: "
++                            + hex(p.aMenuSurface) + "; border-color: " + hex(p.aMenuBorder)
++                            + "; border-radius: 8px; }");
++        CPPUNIT_ASSERT_MESSAGE(aCss.getStr(), aCss.indexOf(aMenu) >= 0);
++        const OString aItem("menu menuitem, .menu menuitem, .context-menu menuitem { color: "
++                            + hex(p.aText) + "; }");
++        CPPUNIT_ASSERT(aCss.indexOf(aItem) >= 0);
 +        CPPUNIT_ASSERT(aCss.indexOf(".csd.popup decoration { border-radius: 8px;") >= 0);
-+        CPPUNIT_ASSERT(aCss.indexOf("0 0 0 1px " + hex(p.aMenuBorder)) >= 0);
++        const OString aRing("0 0 0 1px " + hex(p.aMenuBorder));
++        CPPUNIT_ASSERT(aCss.indexOf(aRing) >= 0);
 +        for (const char* pMetric : { "padding", "margin", "min-", "width", "height", "font",
 +                                     "border:", "border-style" })
 +            CPPUNIT_ASSERT_MESSAGE(pMetric, aCss.indexOf(pMetric) < 0);
