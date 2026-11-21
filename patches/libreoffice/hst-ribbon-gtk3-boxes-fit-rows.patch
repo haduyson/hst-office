@@ -1,0 +1,116 @@
+HST Office: the native boxes of the ribbon fit its rows on gtk3.
+
+GTK draws a combo box, entry or spin button at its own height whatever height vcl gives it. Adwaita's boxes
+ask 31-34 px (the theme's vertical padding and min-height), the ribbon's rows are 24 px, so the toolbox clipped
+their bottom: the fill style and line width boxes of the picture and shape tabs at 100 %, Table Design's fill
+style at 125 % (GDK_DPI_SCALE 1.25), the frame's lower edge gone and the text cut. The gtk3 backend now gives the
+native widgets of an item window in the ribbon (vcl/HstRibbonRow.hxx: a NotebookBar above it) the style class
+"hst-ribbon-row", whose combo boxes, entries, spin buttons and buttons drop their vertical padding and minimum
+height: the box is its text line and its frame, which fits 24 px at 100 % and 125 % (a menu button beside a box,
+Table Design's colour, made the panel 31 px and cut the box with it). Rows keep their height; toolbars,
+the sidebar and dialogs keep the theme's boxes; Windows and macOS are unchanged.
+
+- include/vcl/HstRibbonRow.hxx, vcl/source/control/HstRibbonRow.cxx (new), vcl/Library_vcl.mk;
+  vcl/unx/gtk3/gtkinst.cxx (CreateInterimBuilder), vcl/unx/gtk3/gtkdata.cxx (the CSS).
+
+License: new HST files LicenseRef-HST-Proprietary; the hooks stay under the upstream files' license (MPL-2.0).
+Test: tests/unit/test_ribbon_gtk3_boxes_fit_rows.py; tests/runtime/collect-ribbon-v3-dumps.py with
+check-ribbon-v3-dumps.py on Linux gtk3 at 100 % and 125 % (box_clip and label_cut).
+
+--- /dev/null
++++ b/include/vcl/HstRibbonRow.hxx
+@@ -0,0 +1,26 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++#include <vcl/dllapi.h>
++
++namespace vcl
++{
++class Window;
++}
++
++namespace hst::ribbon
++{
++/** The style class the gtk3 backend gives the native widgets of a ribbon item (a box in a ribbon toolbox): its
++    combo boxes, entries and spin buttons drop their vertical padding and minimum height, so that they fit the
++    ribbon's 24 px rows (GTK draws a native box at its own height and the row clipped its bottom). */
++inline constexpr char RowStyleClass[] = "hst-ribbon-row";
++
++/** Whether pWindow is a part of the ribbon: it, or a window above it, is the frame's NotebookBar. */
++VCL_DLLPUBLIC bool IsInRibbon(const vcl::Window* pWindow);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/control/HstRibbonRow.cxx
+@@ -0,0 +1,21 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include <vcl/HstRibbonRow.hxx>
++#include <vcl/notebookbar/notebookbar.hxx>
++#include <vcl/window.hxx>
++
++namespace hst::ribbon
++{
++bool IsInRibbon(const vcl::Window* pWindow)
++{
++    for (; pWindow; pWindow = pWindow->GetParent())
++        if (dynamic_cast<const NotebookBar*>(pWindow))
++            return true;
++    return false;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -267,6 +267,7 @@
+     vcl/source/control/HstRibbonPaint \
+     vcl/source/control/HstRibbonMenuButtonMetrics \
+     vcl/source/control/HstRibbonUpdateDot \
++    vcl/source/control/HstRibbonRow \
+     vcl/source/control/HstRibbonV3Layout \
+     vcl/source/control/HstRibbonV3MergedBox \
+     vcl/source/control/NotebookbarPopup \
+--- a/vcl/unx/gtk3/gtkinst.cxx
++++ b/vcl/unx/gtk3/gtkinst.cxx
+@@ -144,6 +144,7 @@
+ #include <vcl/weld/IconView.hxx>
+ 
+ #include <vcl/wrkwin.hxx>
++#include <vcl/HstRibbonRow.hxx>
+ #include "customcellrenderer.hxx"
+ #include <strings.hrc>
+ #include <window.h>
+@@ -24383,6 +24384,9 @@
+     GtkWidget *pWindow = static_cast<GtkWidget*>(pEnvData->pWidget);
+ #if !GTK_CHECK_VERSION(4, 0, 0)
+     gtk_widget_show_all(pWindow);
++    // HST Office: the native boxes of a ribbon item fit the ribbon's rows (vcl/HstRibbonRow.hxx)
++    if (hst::ribbon::IsInRibbon(pParent))
++        gtk_style_context_add_class(gtk_widget_get_style_context(pWindow), hst::ribbon::RowStyleClass);
+ #else
+     gtk_widget_set_visible(pWindow, true);
+ #endif
+--- a/vcl/unx/gtk3/gtkdata.cxx
++++ b/vcl/unx/gtk3/gtkdata.cxx
+@@ -457,6 +457,11 @@
+       // tdf#161662 the bullet list is too tall with the Arabic text in it, remove its vert padding
+       "combobox.novertpad *.combo, box#combobox.novertpad *.combo { "
+       "padding-top: 0; padding-bottom: 0; }"
++      // HST Office: the boxes of a ribbon item (vcl/HstRibbonRow.hxx) fit the ribbon's 24 px rows, frames kept
++      // (a menu button beside a box, e.g. Table Design's colour, would make its row taller and cut the box too)
++      ".hst-ribbon-row combobox *.combo, .hst-ribbon-row box#combobox *.combo, .hst-ribbon-row button, "
++      ".hst-ribbon-row entry, .hst-ribbon-row spinbutton, .hst-ribbon-row spinbutton entry { "
++      "padding-top: 0; padding-bottom: 0; min-height: 0; }"
+ #if GTK_CHECK_VERSION(4, 0, 0)
+       // we basically assumed during dialog design that the frame's were invisible, because
+       // they used to be in the default theme during gtk3
