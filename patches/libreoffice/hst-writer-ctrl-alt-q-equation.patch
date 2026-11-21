@@ -1,0 +1,235 @@
+HST: Ctrl+Alt+Q starts a new equation, as MathType's key does in Word
+
+Users who come from Word with MathType start an inline equation with Ctrl+Alt+Q. The key was free
+in every application; it now runs the command of the Insert tab's equation button: Writer (text and
+master documents) and Sheets insert a new empty formula with .uno:InsertObjectStarMath, Slides and
+Draw with .uno:InsertMath. The formula opens in the HST Công thức editor (the Math editor with the
+template bar and the Elements panel). Menus and ribbon tooltips show the key from the accelerator
+configuration as usual.
+
+Test: CppunitTest_sw_hst_equation_shortcut.
+
+--- /dev/null
++++ b/sw/CppunitTest_sw_hst_equation_shortcut.mk
+@@ -0,0 +1,51 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (C) HASON TECH. HST Office.
++#
++# Ctrl+Alt+Q starts a new equation (HST Công thức) in Writer; the key is also bound in Sheets, Slides and Draw.
++
++$(eval $(call gb_CppunitTest_CppunitTest,sw_hst_equation_shortcut))
++
++$(eval $(call gb_CppunitTest_use_common_precompiled_header,sw_hst_equation_shortcut))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sw_hst_equation_shortcut, \
++    sw/qa/extras/hst/hstequationshortcut \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sw_hst_equation_shortcut, \
++    $(sw_ooxmlexport_libraries) \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,sw_hst_equation_shortcut,\
++    boost_headers \
++    libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sw_hst_equation_shortcut,\
++    -I$(SRCDIR)/sw/inc \
++    -I$(SRCDIR)/sw/source/core/inc \
++    -I$(SRCDIR)/sw/source/uibase/inc \
++    -I$(SRCDIR)/sw/qa/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_api,sw_hst_equation_shortcut,\
++    udkapi \
++    offapi \
++    oovbaapi \
++))
++
++$(eval $(call gb_CppunitTest_use_ure,sw_hst_equation_shortcut))
++$(eval $(call gb_CppunitTest_use_vcl,sw_hst_equation_shortcut))
++
++$(eval $(call gb_CppunitTest_use_rdb,sw_hst_equation_shortcut,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sw_hst_equation_shortcut))
++
++$(eval $(call gb_CppunitTest_use_uiconfigs,sw_hst_equation_shortcut,\
++    modules/swriter \
++    modules/smath \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/sw/Module_sw.mk
++++ b/sw/Module_sw.mk
+@@ -112,6 +112,7 @@
+     CppunitTest_sw_ooxmlfieldexport \
+     CppunitTest_sw_hst_mailmerge_word \
+     CppunitTest_sw_hst_merge_result_pages \
++    CppunitTest_sw_hst_equation_shortcut \
+     CppunitTest_sw_ooxmllinks \
+     CppunitTest_sw_ooxmlw14export \
+     CppunitTest_sw_ooxmlencryption \
+--- /dev/null
++++ b/sw/qa/extras/hst/hstequationshortcut.cxx
+@@ -0,0 +1,157 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <com/sun/star/awt/Key.hpp>
++#include <com/sun/star/awt/KeyEvent.hpp>
++#include <com/sun/star/awt/KeyModifier.hpp>
++#include <com/sun/star/frame/XDispatch.hpp>
++#include <com/sun/star/frame/XDispatchProviderInterception.hpp>
++#include <com/sun/star/frame/XDispatchProviderInterceptor.hpp>
++#include <com/sun/star/ui/XAcceleratorConfiguration.hpp>
++#include <com/sun/star/ui/XUIConfigurationManager.hpp>
++#include <com/sun/star/ui/theModuleUIConfigurationManagerSupplier.hpp>
++
++#include <LibreOfficeKit/LibreOfficeKitEnums.h>
++#include <comphelper/processfactory.hxx>
++#include <cppuhelper/implbase.hxx>
++#include <vcl/keycodes.hxx>
++#include <vcl/scheduler.hxx>
++
++#include <unotxdoc.hxx>
++
++#include <vector>
++
++namespace
++{
++/// Ctrl+Alt+Q starts a new equation, as MathType's key in Word: the command of the Insert tab's equation
++/// button in each application (Writer and Sheets: InsertObjectStarMath, Slides and Draw: InsertMath).
++class HstEquationShortcutTest : public SwModelTestBase
++{
++public:
++    HstEquationShortcutTest()
++        : SwModelTestBase(u"/sw/qa/extras/hst/data/"_ustr)
++    {
++    }
++
++protected:
++    static OUString commandOfCtrlAltQ(const OUString& rModule)
++    {
++        uno::Reference<ui::XModuleUIConfigurationManagerSupplier> xSupplier
++            = ui::theModuleUIConfigurationManagerSupplier::get(comphelper::getProcessComponentContext());
++        uno::Reference<ui::XAcceleratorConfiguration> xShortcuts
++            = xSupplier->getUIConfigurationManager(rModule)->getShortCutManager();
++        awt::KeyEvent aKey;
++        aKey.KeyCode = awt::Key::Q;
++        aKey.Modifiers = awt::KeyModifier::MOD1 | awt::KeyModifier::MOD2;
++        try
++        {
++            return xShortcuts->getCommandByKeyEvent(aKey);
++        }
++        catch (const container::NoSuchElementException&)
++        {
++            return OUString(); // the key is not bound in this module
++        }
++    }
++};
++
++/// Records the formula commands that reach the document's frame and keeps them from running, so the test sees
++/// what the key dispatches without starting the in-place editor in a headless office. Every other command
++/// goes on to the frame.
++class FormulaCommandRecorder : public cppu::WeakImplHelper<frame::XDispatchProviderInterceptor, frame::XDispatch>
++{
++public:
++    std::vector<OUString> m_aDispatched;
++
++    // XDispatchProvider
++    uno::Reference<frame::XDispatch> SAL_CALL queryDispatch(const util::URL& rURL, const OUString& rTarget,
++                                                            sal_Int32 nFlags) override
++    {
++        if (rURL.Complete == ".uno:InsertObjectStarMath" || rURL.Complete == ".uno:InsertMath")
++            return this;
++        return m_xSlave.is() ? m_xSlave->queryDispatch(rURL, rTarget, nFlags) : nullptr;
++    }
++    uno::Sequence<uno::Reference<frame::XDispatch>>
++        SAL_CALL queryDispatches(const uno::Sequence<frame::DispatchDescriptor>& rRequests) override
++    {
++        uno::Sequence<uno::Reference<frame::XDispatch>> aResult(rRequests.getLength());
++        auto pResult = aResult.getArray();
++        for (sal_Int32 i = 0; i < rRequests.getLength(); ++i)
++            pResult[i] = queryDispatch(rRequests[i].FeatureURL, rRequests[i].FrameName,
++                                       rRequests[i].SearchFlags);
++        return aResult;
++    }
++
++    // XDispatchProviderInterceptor
++    uno::Reference<frame::XDispatchProvider> SAL_CALL getSlaveDispatchProvider() override { return m_xSlave; }
++    void SAL_CALL setSlaveDispatchProvider(const uno::Reference<frame::XDispatchProvider>& xSlave) override
++    {
++        m_xSlave = xSlave;
++    }
++    uno::Reference<frame::XDispatchProvider> SAL_CALL getMasterDispatchProvider() override { return m_xMaster; }
++    void SAL_CALL setMasterDispatchProvider(const uno::Reference<frame::XDispatchProvider>& xMaster) override
++    {
++        m_xMaster = xMaster;
++    }
++
++    // XDispatch
++    void SAL_CALL dispatch(const util::URL& rURL, const uno::Sequence<beans::PropertyValue>&) override
++    {
++        m_aDispatched.push_back(rURL.Complete);
++    }
++    void SAL_CALL addStatusListener(const uno::Reference<frame::XStatusListener>&, const util::URL&) override {}
++    void SAL_CALL removeStatusListener(const uno::Reference<frame::XStatusListener>&, const util::URL&) override
++    {
++    }
++
++private:
++    uno::Reference<frame::XDispatchProvider> m_xSlave;
++    uno::Reference<frame::XDispatchProvider> m_xMaster;
++};
++
++CPPUNIT_TEST_FIXTURE(HstEquationShortcutTest, testCtrlAltQIsBoundInEveryApp)
++{
++    CPPUNIT_ASSERT_EQUAL(u".uno:InsertObjectStarMath"_ustr,
++                         commandOfCtrlAltQ(u"com.sun.star.text.TextDocument"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u".uno:InsertObjectStarMath"_ustr,
++                         commandOfCtrlAltQ(u"com.sun.star.text.GlobalDocument"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u".uno:InsertObjectStarMath"_ustr,
++                         commandOfCtrlAltQ(u"com.sun.star.sheet.SpreadsheetDocument"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u".uno:InsertMath"_ustr,
++                         commandOfCtrlAltQ(u"com.sun.star.presentation.PresentationDocument"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u".uno:InsertMath"_ustr,
++                         commandOfCtrlAltQ(u"com.sun.star.drawing.DrawingDocument"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstEquationShortcutTest, testCtrlAltQStartsNewEquation)
++{
++    createSwDoc();
++    emulateTyping(u"x = ");
++
++    uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<frame::XDispatchProviderInterception> xFrame(
++        xModel->getCurrentController()->getFrame(), uno::UNO_QUERY_THROW);
++    rtl::Reference<FormulaCommandRecorder> pRecorder(new FormulaCommandRecorder);
++    xFrame->registerDispatchProviderInterceptor(pRecorder);
++
++    // Ctrl+Alt+Q in the text, as GTK and macOS deliver it: the key code with both modifiers and the letter.
++    SwXTextDocument* pTextDoc = getSwTextDoc();
++    pTextDoc->postKeyEvent(LOK_KEYEVENT_KEYINPUT, 'q', KEY_Q | KEY_MOD1 | KEY_MOD2);
++    pTextDoc->postKeyEvent(LOK_KEYEVENT_KEYUP, 'q', KEY_Q | KEY_MOD1 | KEY_MOD2);
++    Scheduler::ProcessEventsToIdle();
++    xFrame->releaseDispatchProviderInterceptor(pRecorder);
++
++    // The key runs the equation button's command once (without the binding: nothing, and a "q" was typed).
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pRecorder->m_aDispatched.size());
++    CPPUNIT_ASSERT_EQUAL(u".uno:InsertObjectStarMath"_ustr, pRecorder->m_aDispatched[0]);
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(-1), getParagraph(1)->getString().indexOf('q'));
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
