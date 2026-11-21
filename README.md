@@ -6,7 +6,7 @@ Bộ ứng dụng văn phòng miễn phí, offline cho người Việt:
 **HST Slides** (trình chiếu); 
 Do Công ty TNHH Công nghệ Hà Sơn (**HASON TECH**) phát triển.
 
-> **Bản chính thức: HST Office 1.0.1** cho Windows 10/11 64-bit (`.msi`), macOS Apple Silicon và Intel (`.dmg`), Ubuntu/Debian/Linux Mint 64-bit (`.deb`). Tải về tại <https://office.hasontech.vn/#tai-ve>; điểm mới: <https://office.hasontech.vn/diem-moi/#v1.0.1> ([ghi chú phát hành](docs/releases/v1.0.1.md)).
+> **Bản chính thức: HST Office 1.0.3** cho Windows 10/11 64-bit (`.msi`), macOS Apple Silicon và Intel (`.dmg`), Ubuntu/Debian/Linux Mint 64-bit (`.deb`). Tải về tại <https://office.hasontech.vn/#tai-ve>; điểm mới: <https://office.hasontech.vn/diem-moi/#v1.0.3> ([ghi chú phát hành](docs/releases/v1.0.3.md)).
 
 ## Điểm khác so với LibreOffice gốc
 
