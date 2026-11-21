@@ -58,11 +58,15 @@ class Registration(unittest.TestCase):
         self.assertNotIn(".xcs", manifest)  # core schema (hst-extension-settings-core.patch)
         self.assertIn('full-path="RecoveryDefaults.xcu"', manifest)
 
-    def test_autorecovery_every_three_minutes_without_saving_the_users_file(self):
+    def test_autorecovery_every_three_minutes_and_autosave_on(self):
         root = ET.fromstring(self.read("RecoveryDefaults.xcu"))
         self.assertEqual((root.get(OOR + "name"), root.get(OOR + "package")), ("Recovery", "org.openoffice.Office"))
         props = {p.get(OOR + "name"): p.find("value").text for p in root.iter("prop")}
-        self.assertEqual(props, {"TimeIntervall": "3", "UserAutoSaveEnabled": "false"})
+        # "Tự động lưu" on by default (owner 21/11/2026): safe only with the per-document filter in the series
+        self.assertEqual(props, {"TimeIntervall": "3", "UserAutoSaveEnabled": "true"})
+        series = os.path.join(os.path.dirname(__file__), "..", "..", "patches", "libreoffice", "series")
+        with open(series, encoding="utf-8") as handle:
+            self.assertIn("hst-user-autosave-filter.patch", handle.read().split())
 
     def test_user_texts_are_vietnamese_and_name_no_other_product(self):
         texts = [v for k, v in vars(T).items() if k.isupper() and isinstance(v, str)] + list(T.ERRORS.values())
