@@ -69,7 +69,7 @@ class FormulaOleTest(unittest.TestCase):
 
     def test_commands_dispatched(self):
         python = os.path.join(_paths.ROOT, "extensions", "hst-vietnamese-tools", "python", "hst_office")
-        for name in ("dispatch.py", "actions.py"):
+        for name in ("action_names.py", "actions.py"):  # dispatch takes its command names from action_names
             text = open(os.path.join(python, name), encoding="utf-8").read()
             for command in ("ConvertFormulas", "AskConvertFormula", "FormulaTemplates"):
                 self.assertIn('"%s"' % command, text)

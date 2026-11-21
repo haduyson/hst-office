@@ -23,6 +23,11 @@ PREFIX = "hst/"
 # other in Writer's Editing group, and Colibre's pair differs in ink and weight (a thin blue magnifier beside a
 # dark one with letters). The HST 16 px pair is drawn with the same 1 px pen (owner decision of 15/11/2026).
 FORCED = frozenset({"cmd/sc_recsearch", "cmd/sc_searchdialog"})
+# Colibre icons the Cổ điển style redraws in place, with every Colibre link to them: Clear Direct Formatting
+# (ResetAttributes, SetDefault) keeps Colibre's letter but erases with a white eraser instead of a red one,
+# because white reads as "wiped clean" (owner decision of 21/11/2026; scripts/brand/draw-hst-classic-eraser.py).
+REDRAWN = Path(__file__).resolve().parents[2] / "icon-themes-src/hst-classic"
+REDRAWN_MODE = {"hst_classic": "light", "hst_classic_dark": "dark"}
 EXTRA = ("links.txt", "LICENSE-CC-BY-4.0.txt", "COPYING.txt")
 
 
@@ -81,8 +86,17 @@ class Coverage:
         return real + ".png" in self.files or real + ".svg" in self.files
 
 
-def overlay(files, coverage, notice):
-    """Overlay archive files of an HST theme's `files` for the requests `coverage` misses."""
+def redrawn(theme):
+    """{archive name: bytes} of the Colibre icons `theme` redraws (icon-themes-src/hst-classic/<mode>/)."""
+    root = REDRAWN / REDRAWN_MODE[theme]
+    return {p.relative_to(root).as_posix(): p.read_bytes() for p in sorted(root.rglob("*.svg"))}
+
+
+def overlay(files, coverage, notice, own=None):
+    """Overlay archive files of an HST theme's `files` for the requests `coverage` misses.
+
+    `own` ({name: bytes}, from redrawn()) replaces Colibre icons: each answers its own request and every
+    Colibre link that resolves to it (sc_setdefault -> sc_resetattributes)."""
     links = parse_links(files["links.txt"].decode("utf-8"))
     requests = {_stem(link) for link in links}
     requests |= {_stem(name) for name in files if name not in EXTRA and "@" not in name}
@@ -104,6 +118,13 @@ def overlay(files, coverage, notice):
             result[PREFIX + name] = files[name]
         for ext in (".png", ".svg"):
             aliases[request + ext] = PREFIX + target
+    for name, data in sorted((own or {}).items()):
+        stem = _stem(name)
+        result[PREFIX + name] = data
+        requests = {stem} | {_stem(link) for link, target in coverage.links.items() if _stem(target) == stem}
+        for request in requests:
+            for ext in (".png", ".svg"):
+                aliases[request + ext] = PREFIX + name
     result["links.txt"] = ("# HST Office Cổ điển: HST glyphs for requests Colibre does not resolve\n" + "".join(
         f"{key} {value}\n" for key, value in sorted(aliases.items()))).encode("utf-8")
     result["LICENSE-CC-BY-4.0.txt"] = files["LICENSE-CC-BY-4.0.txt"]
@@ -115,5 +136,6 @@ NOTICE = (
     "HST Office \"Cổ điển\" icon style: the LibreOffice Colibre icons (colibre_svg /\n"
     "colibre_dark_svg, installed alongside, CC0 1.0, see their COPYING-ICONS) with the HST glyphs\n"
     "below for the commands Colibre does not draw. This archive holds only those HST glyphs,\n"
-    "recoloured to Colibre's ink; everything else is loaded from Colibre.\n\n"
+    "recoloured to Colibre's ink, and Colibre's Clear Direct Formatting icon redrawn with a white\n"
+    "eraser (its letter and baseline stay Colibre's CC0 paths); everything else is loaded from Colibre.\n\n"
 )

@@ -236,12 +236,20 @@ def _label_cut(dump):
     return _verdict("label_cut", bad)
 
 
+def _wide_large_width(dump):
+    """The width of a wide tab's large buttons: 96, or the tab's widest large button rounded up to even when its
+    label needs more (the layout widens them rather than cut it: "large_natural", logical px, Linux's UI font at
+    125 % needs 98 in Writer's Help)."""
+    natural = dump.get("large_natural") or 0
+    return max(LARGE_W, (natural + 1) // 2 * 2)
+
+
 def _widening(dump):
     if not dump.get("wide"):
         return [("widening", None, "not wide")]
-    scale = dump["scale"]
-    return _verdict("widening", [f"{i['id']} width {_width(i, scale):.1f}, want {LARGE_W}"
-                                 for i in _large_items(dump) if not _near(_width(i, scale), LARGE_W)])
+    scale, want = dump["scale"], _wide_large_width(dump)
+    return _verdict("widening", [f"{i['id']} width {_width(i, scale):.1f}, want {want}"
+                                 for i in _large_items(dump) if not _near(_width(i, scale), want)])
 
 
 def _tab_orders(app):

@@ -53,7 +53,7 @@ def resources(theme, icon_themes=None):
         if icon_themes is None:
             raise ValueError(f"{theme} needs the LibreOffice tree (--tree or --lo-tree) for Colibre's coverage")
         coverage = classic.Coverage(icon_themes, classic.CLASSIC[theme][1])
-        return classic.overlay(_resources(theme), coverage, classic.NOTICE)
+        return classic.overlay(_resources(theme), coverage, classic.NOTICE, classic.redrawn(theme))
     return _resources(theme)
 
 

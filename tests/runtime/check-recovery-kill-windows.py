@@ -8,7 +8,8 @@ Every scenario uses its own profile under --work (never the user's %APPDATA% pro
   first    a new document killed 40 s after its first change: its first recovery copy (30 s) is offered, with the text;
   after    taskkill right after a later copy replaced the previous one (interval 1 minute): the configuration and the
            recovery index on disk name an existing copy, the recovery brings the latest text;
-  bigsave  taskkill in the middle of saving a ~20 MB .docx (lon.docx next to this script: text and a noise picture): the file is the old or the new version (valid zip), the next
+  bigsave  taskkill in the middle of saving a ~20 MB .docx (lon.docx next to this script, else one written by
+           make_large_docx_fixture.py: text, a table and a noise picture): the file is the old or the new version (valid zip), the next
            save in that folder removes the dead process's .~hst-save-*.tmp once it is 10 minutes old (checked by
            name pattern and owner pid);
   tabs     five documents (Writer, Sheets, Slides) in tabs, taskkill: all five are offered and recovered.
@@ -67,8 +68,13 @@ def bigsave(o):
     folder = os.path.join(o.work, "docs")
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, "lon.docx")
-    import shutil
-    shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), "lon.docx"), path)  # ~19 MB fixture
+    fixture = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lon.docx")
+    if os.path.exists(fixture):  # a local ~19 MB document, if one was put there
+        import shutil
+        shutil.copy(fixture, path)
+    else:  # otherwise the synthetic one: text, a table and a noise picture, ~19 MB
+        import make_large_docx_fixture
+        make_large_docx_fixture.write(path)
     doc = uno_main_thread_load.load(o.desktop(), uno.systemPathToFileUrl(path), "_default")
     append(doc, "LON-MOI")
     import threading

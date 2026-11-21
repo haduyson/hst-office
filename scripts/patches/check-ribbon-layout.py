@@ -28,9 +28,9 @@ BAND = (62, 146)  # rows of the ribbon's group area in a screenshot of the windo
 SEPARATOR_INSET = 6  # px between a separator and the top or bottom of the body (mockup geometry_px)
 
 
-# tabs, groups, commands of the v3 design: 1,604 of 1.0.2 and the owner's "Công thức hoá học" (18/11/2026) in the
-# Phông chữ group of Writer, Slides and Draw
-EXPECTED_TOTALS = [82, 334, 1633]
+# tabs, groups, commands of the v3 design: 1,604 of 1.0.2, the owner's "Công thức hoá học" (18/11/2026) in the
+# Phông chữ group of Writer, Slides and Draw, the formula buttons and Writer's TeX toggle
+EXPECTED_TOTALS = [82, 334, 1634]
 
 
 def check_tree(tree):

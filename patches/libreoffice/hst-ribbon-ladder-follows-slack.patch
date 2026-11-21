@@ -1,0 +1,68 @@
+HST Office: the ribbon's groups are fitted again when the banner's room changes and the box keeps its size.
+
+The tab's ladder fits its groups in Resize, at the box's width plus the room the banner may give back
+(SetPageSlack). When the banner took or gave back room and the box kept its size, no Resize followed and the groups
+stayed fitted at the old width: on Linux, Sheets › Chèn after the window grew from 1366 to 1920 px had every group
+large, 1560 px in a 1515 px track, its last group 23 px past the banner's margin. HstSetSlack now fits the groups
+again at once. The layout dump gives the box's "ladder_width" (the width of the last fit) and "large_natural" (the
+tab's widest large button at that fit, logical px: a label wider than 96 px widens the large buttons of a wide tab
+beyond 96 rather than being cut, Linux's UI font at 125 %).
+
+- vcl/source/control/HstRibbonV3MergedBox.cxx (HstSetSlack, HstApplyV3, HstDump), vcl/inc/PriorityMergedHBox.hxx.
+
+License: these upstream-derived files remain under their original license (MPL-2.0).
+Test: tests/unit/test_ribbon_ladder_follows_slack.py; tests/runtime/check-ribbon-v3-dumps.py on Linux gtk3 at 1366
+and 1920 (clip, widening).
+
+--- a/vcl/inc/PriorityMergedHBox.hxx
++++ b/vcl/inc/PriorityMergedHBox.hxx
+@@ -61,6 +61,8 @@
+     void HstApplyV3(tools::Long nWidth);
+     void HstNotifyUsedChanged();
+     tools::Long m_nHstSlack = 0;
++    tools::Long m_nHstLadderWidth = 0; // the width HstApplyV3 last fitted the groups at (the dump)
++    tools::Long m_nHstLargeNatural = 0; // the tab's widest large button at that fit, logical px (the dump)
+     tools::Long m_nHstUsed = -1; // the width the shown groups take after the last fit, -1 before
+     bool m_bHstWide = false;
+     OString m_aHstSparse;
+--- a/vcl/source/control/HstRibbonV3MergedBox.cxx
++++ b/vcl/source/control/HstRibbonV3MergedBox.cxx
+@@ -70,6 +70,7 @@
+     if (m_bHstLadder)
+         return;
+     m_bHstLadder = true;
++    m_nHstLadderWidth = nWidth;
+     namespace v3 = hst::ribbon::v3;
+     const std::vector<vcl::Window*> aWindows = HstGroups();
+     const size_t n = aWindows.size();
+@@ -95,6 +96,7 @@
+         // its text grows) widens the large buttons beyond it rather than being cut
+         const long nLogical = static_cast<long>(std::ceil(nLarge / fScale - 0.01));
+         const tools::Long nWanted = nLarge <= 0 ? 0 : px(std::max<long>(bWide ? 96 : 52, (nLogical + 1) / 2 * 2));
++        m_nHstLargeNatural = nLarge <= 0 ? 0 : nLogical;
+         for (size_t i = 0; i < n; ++i)
+         {
+             aConfigs[i].state = aStates[i] == 'C' ? 'L' : aStates[i];
+@@ -225,6 +227,11 @@
+         return;
+     m_nHstSlack = nSlack;
+     queue_resize();
++    // the box may keep its size (the banner took or gave back the room beside it), and then no Resize follows: the
++    // groups stayed fitted at the old width (Sheets › Chèn after the window grew from 1366 to 1920: every group
++    // large, 45 px past the banner's margin). Fit them again at the new width now.
++    if (GetSizePixel().Width() > 0)
++        Resize();
+ }
+ 
+ void PriorityMergedHBox::HstDump(const vcl::Window& rOrigin, OStringBuffer& rOut) const
+@@ -234,7 +241,9 @@
+     rOut.append(",\"wide\":");
+     rOut.append(m_bHstWide ? "true" : "false");
+     rOut.append(",\"sparse\":\"" + m_aHstSparse + "\",\"track_width\":"
+-                + OString::number(sal_Int64(GetSizePixel().Width() + m_nHstSlack)) + ",\"groups\":[");
++                + OString::number(sal_Int64(GetSizePixel().Width() + m_nHstSlack)) + ",\"ladder_width\":"
++                + OString::number(sal_Int64(m_nHstLadderWidth)) + ",\"large_natural\":"
++                + OString::number(sal_Int64(m_nHstLargeNatural)) + ",\"groups\":[");
+     bool bFirst = true;
+     for (vcl::Window* pGroup : HstGroups())
+     {
