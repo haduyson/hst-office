@@ -80,7 +80,7 @@ def prepare(args, workdir):
             doc = office.load(office.url(rtf))
             for extension, filter_name in FORMATS:
                 paths.append(os.path.join(workdir, "shown-%d.%s" % (percent, extension)))
-                doc.storeToURL(office.url(paths[-1]), headless_office.props(FilterName=filter_name))
+                office.store(doc, office.url(paths[-1]), FilterName=filter_name)
             doc.close(True)
             for path in paths:
                 doc = office.load(office.url(path))
@@ -147,7 +147,7 @@ def check_saved_doc(office, workdir):
     formula.ExtendedControlOverEmbeddedObject.changeState(1)
     formula.ExtendedControlOverEmbeddedObject.getComponent().Formula = "x = {-b +- sqrt{b^2 - 4ac}} over {2a}"
     path = os.path.join(workdir, "saved-by-hst.doc")
-    doc.storeToURL(office.url(path), headless_office.props(FilterName="MS Word 97"))
+    office.store(doc, office.url(path), FilterName="MS Word 97")
     doc.close(True)
     doc = office.load(office.url(path))
     found = objects(doc)
