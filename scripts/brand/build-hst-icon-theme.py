@@ -21,6 +21,7 @@ import hst_classic_icons as classic  # noqa: E402  (sibling modules, standard li
 import hst_modern_icons as modern  # noqa: E402
 from hst_icon_pack import COPYING, archive, sync  # noqa: E402,F401  (sync: also used by the tests)
 from hst_icon_glyph import MISSING_MODERN, SOURCE, glyph_files, glyph_svg  # noqa: E402,F401
+from hst_icon_frame_ship import frame_files  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 # Ink per theme: Colibre's, from hst-modern/metadata/ink.json, for every style. All themes draw the
@@ -108,6 +109,12 @@ def _resources(theme):
     for key, glyph in integration["fixed_glyphs"].items():
         files[key] = (SOURCE / "glyphs/integration" / (glyph + ".svg")).read_text(encoding="utf-8").replace(
             "currentColor", PALETTES[theme]).encode()
+    # Frame glyphs (File tab, sidebar, status bar, document tabs) at the images the frame requests;
+    # the Cổ điển overlay keeps only those Colibre does not draw.
+    for name, data in frame_files(theme).items():
+        if name in files or name in links:
+            raise ValueError(f"Frame glyph collides with a command glyph: {name}")
+        files[name] = data
     for size in (16, 24, 32, 48):
         files[f"res/mainapp_{size}.svg"] = (ROOT / f"branding/icon-themes/mainapp-{size}.svg").read_text(encoding="utf-8").encode()
     for alias, target in links.items():

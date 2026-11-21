@@ -58,17 +58,17 @@ Test: make CppunitTest_sfx2_hst_autosave.
 +# vim: set noet sw=4 ts=4:
 --- a/sfx2/Module_sfx2.mk
 +++ b/sfx2/Module_sfx2.mk
-@@ -40,6 +40,7 @@
-     CppunitTest_sfx2_autoredaction \
-     CppunitTest_sfx2_hst_update_dot \
+@@ -42,6 +42,7 @@
      CppunitTest_sfx2_hst_startcenter \
+     CppunitTest_sfx2_hst_backstagecoat \
+     CppunitTest_sfx2_hst_sidebar_coat \
 +    CppunitTest_sfx2_hst_autosave \
  ))
  
  $(eval $(call gb_Module_add_subsequentcheck_targets,sfx2,\
 --- /dev/null
 +++ b/sfx2/qa/cppunit/test_hstautosave.cxx
-@@ -0,0 +1,359 @@
+@@ -0,0 +1,363 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -100,6 +100,7 @@ Test: make CppunitTest_sfx2_hst_autosave.
 +#include <comphelper/propertyvalue.hxx>
 +#include <comphelper/sequenceashashmap.hxx>
 +#include <cppuhelper/implbase.hxx>
++#include <officecfg/Office/Common.hxx>
 +#include <officecfg/Office/Recovery.hxx>
 +#include <osl/file.hxx>
 +#include <unotools/tempfile.hxx>
@@ -177,6 +178,9 @@ Test: make CppunitTest_sfx2_hst_autosave.
 +        auto xChanges = comphelper::ConfigurationChanges::create();
 +        officecfg::Office::Recovery::AutoSave::Enabled::set(true, xChanges);
 +        officecfg::Office::Recovery::AutoSave::UserAutoSaveEnabled::set(true, xChanges);
++        // the office default (the test profile turns it off): the lock file, and with it the file date taken at
++        // loading, which the store compares to see a change by another program
++        officecfg::Office::Common::Misc::UseLocking::set(true, xChanges);
 +        xChanges->commit();
 +    }
 +
