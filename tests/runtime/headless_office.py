@@ -60,6 +60,11 @@ class Office:
     def load(self, url):
         return self.desktop.loadComponentFromURL(url, "_blank", 0, props(Hidden=True))
 
+    def store(self, doc, url, **values):
+        """doc.storeToURL(url, values) on the office's main thread (uno_main_thread_load.store explains why)."""
+        import uno_main_thread_load
+        uno_main_thread_load.store(self.ctx, doc, url, **values)
+
     def dispatch(self, doc, command):
         frame = doc.getCurrentController().getFrame()
         self.service("com.sun.star.frame.DispatchHelper").executeDispatch(frame, command, "", 0, ())

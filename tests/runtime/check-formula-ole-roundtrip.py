@@ -170,7 +170,7 @@ def main():
                        sizes and all(abs(size[2] + size[1] - 105) <= 2 for size in sizes), sizes)
             for extension, filter_name in FILTERS.items():
                 saved = os.path.join(workdir, os.path.basename(source) + ".saved" + extension)
-                doc.storeToURL(office.url(saved), headless_office.props(FilterName=filter_name))
+                office.store(doc, office.url(saved), FilterName=filter_name)
                 after = equations(saved)
                 lost = [e for e in mathtype if e not in after]
                 record("%s -> %s keeps MathType data" % (os.path.basename(source), extension),
