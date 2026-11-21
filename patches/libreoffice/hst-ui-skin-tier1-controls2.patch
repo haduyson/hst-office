@@ -41,8 +41,9 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
   Tracked only while the coat draws and not when the list selects by hovering. CppunitTest_vcl_hst_coat_controls2
   also covers the hover (following, leaving, hover selection, switched off, the painted tint, the invalidated row)
   and prints its repaint cost per mouse move and per one-row scroll, coat on/off.
-- The test also compares every pixel of a row's rounded selection with the whole rounded shape, for many row
-  sizes and ends, so a cheaper way of drawing it cannot change the look.
+- A row's rounded selection and hover fill only their rounded ends anti-aliased (the ends of the same shape cut off
+  on whole pixels, one fill for both); the rest is a plain rectangle. The test compares every pixel with the whole
+  rounded shape, for many row sizes and ends.
 
 --- a/include/vcl/toolkit/treelistbox.hxx
 +++ b/include/vcl/toolkit/treelistbox.hxx
@@ -1480,7 +1481,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-lists.cxx
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,137 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1500,7 +1501,14 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +#include <vcl/outdev.hxx>
 +#include <vcl/settings.hxx>
 +
++#include <basegfx/polygon/b2dpolygon.hxx>
++#include <basegfx/polygon/b2dpolygonclipper.hxx>
++#include <basegfx/polygon/b2dpolygontools.hxx>
++#include <basegfx/polygon/b2dpolypolygon.hxx>
++#include <basegfx/range/b2drange.hxx>
++
 +#include <algorithm>
++#include <cmath>
 +
 +namespace hst::coat
 +{
@@ -1556,11 +1564,46 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +    const tools::Rectangle aPixels = rDev.LogicToPixel(rRect);
 +
 +    PaintScope aScope(rDev);
-+    if (bRoundStart || bRoundEnd)
++    const double fRadius = std::min(hst::design::radius::Row * fScale, aPixels.GetHeight() / 4.0);
++    // the columns the rounded ends reach, and one more for the anti-aliasing
++    const tools::Long nEnd = tools::Long(std::ceil(fRadius)) + 1;
++    if ((bRoundStart || bRoundEnd) && aPixels.GetWidth() > 2 * nEnd)
 +    {
-+        const double fRadius = std::min(hst::design::radius::Row * fScale, aPixels.GetHeight() / 4.0);
-+        hst::design::DrawRoundRect(rDev, aPixels, fRadius, aFill, COL_TRANSPARENT, 0);
++        // The rounded shape covers exactly the row's pixels (DrawRoundRect), so between its rounded
++        // ends it is the plain fill of those pixels: only the ends are filled anti-aliased, as the
++        // parts of the same shape cut off on whole pixels (one fill for both), and the rest is one
++        // plain rectangle. Same pixels as the whole shape, at a fraction of its cost: it is drawn
++        // for the selected row and the row under the mouse on every repaint of a list.
++        const basegfx::B2DRange aOuter(aPixels.Left(), aPixels.Top(), aPixels.Right() + 1.0,
++                                       aPixels.Bottom() + 1.0);
++        const double fRad = std::clamp(fRadius, 0.0, std::min(aOuter.getWidth(), aOuter.getHeight()) / 2);
++        const basegfx::B2DPolygon aShape = basegfx::utils::createPolygonFromRect(
++            aOuter, std::min(1.0, fRad / (aOuter.getWidth() / 2)),
++            std::min(1.0, fRad / (aOuter.getHeight() / 2)));
++        basegfx::B2DPolyPolygon aEnds;
++        tools::Rectangle aMiddle(aPixels);
++        if (bRoundStart)
++        {
++            aEnds.append(basegfx::utils::clipPolygonOnRange(
++                aShape, basegfx::B2DRange(aOuter.getMinX(), aOuter.getMinY(), aOuter.getMinX() + nEnd,
++                                          aOuter.getMaxY()),
++                true, false));
++            aMiddle.SetLeft(aPixels.Left() + nEnd);
++        }
++        if (bRoundEnd)
++        {
++            aEnds.append(basegfx::utils::clipPolygonOnRange(
++                aShape, basegfx::B2DRange(aOuter.getMaxX() - nEnd, aOuter.getMinY(), aOuter.getMaxX(),
++                                          aOuter.getMaxY()),
++                true, false));
++            aMiddle.SetRight(aPixels.Right() - nEnd);
++        }
++        fillRect(rDev, aMiddle, aFill);
++        hst::design::FillPixelShape(rDev, aEnds, aFill);
++        return true;
 +    }
++    if (bRoundStart || bRoundEnd)
++        hst::design::DrawRoundRect(rDev, aPixels, fRadius, aFill, COL_TRANSPARENT, 0);
 +    if (!bRoundStart || !bRoundEnd)
 +    {
 +        // an end that continues in the next column is square: one shape across the columns
