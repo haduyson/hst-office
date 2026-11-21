@@ -1,0 +1,255 @@
+HST: Ctrl+Alt+letter stays a shortcut on Windows layouts whose AltGr level repeats the letter
+
+Ctrl+Alt is AltGr on Windows. The built-in Vietnamese keyboard layout gives a character on the AltGr
+level of every key, and for the letters, comma and period it is the key's own character again
+(Ctrl+Alt+Q gives "q"). vcl then dropped Ctrl and Alt and typed the letter, so every Ctrl+Alt+letter
+shortcut (Ctrl+Alt+Q new equation, Ctrl+Alt+M comment, Ctrl+Alt+V paste special, Ctrl+Alt+, and . for
+document tabs, ...) typed text for users of that layout.
+
+Before the AltGr character wins, the key's character in the active layout without Ctrl and Alt is
+looked up; when the key is a letter, comma or period and both characters are the same, the press
+stays Ctrl+Alt+key, as on a layout without AltGr. Nothing typeable is lost: the key alone gives that
+character. Digits keep their AltGr character (on that layout AltGr+digit is how digits are typed),
+and real AltGr characters ("@" on German, Polish letters, "€") are typed as before.
+
+The rule is in vcl/inc/hst/altgrsamechar.hxx, the layout lookup in vcl/win/hst/altgrsamechar.cxx
+(HST-owned); salframe.cxx calls it before UnsetAltIfAltGr.
+
+Test: CppunitTest_vcl_hst_altgr_same_char.
+
+--- /dev/null
++++ b/vcl/CppunitTest_vcl_hst_altgr_same_char.mk
+@@ -0,0 +1,23 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (C) HASON TECH. HST Office.
++#
++# Ctrl+Alt+letter stays a shortcut on Windows layouts whose AltGr level repeats the key's own character.
++
++$(eval $(call gb_CppunitTest_CppunitTest,vcl_hst_altgr_same_char))
++
++$(eval $(call gb_CppunitTest_set_include,vcl_hst_altgr_same_char,\
++	$$(INCLUDE) \
++	-I$(SRCDIR)/vcl/inc \
++))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,vcl_hst_altgr_same_char, \
++	vcl/qa/cppunit/hst/altgrsamechar \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,vcl_hst_altgr_same_char, \
++	sal \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/vcl/Library_vclplug_win.mk
++++ b/vcl/Library_vclplug_win.mk
+@@ -106,6 +106,7 @@
+     vcl/win/gdi/salprn \
+     vcl/win/gdi/salvd \
+     vcl/win/gdi/winlayout \
++    vcl/win/hst/altgrsamechar \
+     vcl/win/gdi/DWriteTextRenderer \
+     vcl/win/window/keynames \
+     vcl/win/window/salframe \
+--- a/vcl/Module_vcl.mk
++++ b/vcl/Module_vcl.mk
+@@ -241,6 +241,7 @@
+     CppunitTest_vcl_textlayout \
+     CppunitTest_vcl_treeview \
+     CppunitTest_vcl_hst_print_panel \
++    CppunitTest_vcl_hst_altgr_same_char \
+     CppunitTest_vcl_font_ttf_structure_test \
+     CppunitTest_vcl_filters_test \
+     CppunitTest_vcl_mnemonic \
+--- /dev/null
++++ b/vcl/inc/hst/altgrsamechar.hxx
+@@ -0,0 +1,42 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++#include <sal/types.h>
++
++// Ctrl+Alt is AltGr on Windows. Some layouts (the built-in Vietnamese one) give a character on the AltGr level
++// of every letter that is just the key's own character again, so Ctrl+Alt+letter typed that letter instead of
++// running the shortcut. When the AltGr character repeats the plain one, nothing can be typed with Ctrl+Alt that
++// the key alone does not give: the press stays Ctrl+Alt+key, as on a layout without AltGr. Digits are excluded
++// (there the AltGr level is how such a layout types digits), as are real AltGr characters such as "@".
++namespace vcl::hst
++{
++/// Windows virtual-key codes of the keys the rule covers: the letters, comma and period.
++constexpr sal_uInt32 VirtualKeyA = 0x41;
++constexpr sal_uInt32 VirtualKeyZ = 0x5A;
++constexpr sal_uInt32 VirtualKeyComma = 0xBC; // VK_OEM_COMMA
++constexpr sal_uInt32 VirtualKeyPeriod = 0xBE; // VK_OEM_PERIOD
++
++/// True if a Ctrl+Alt press of nVirtualKey stays a shortcut although the layout gives cWithCtrlAlt for it:
++/// the key is a letter, comma or period, and cWithCtrlAlt is the character cPlain the key gives in the same
++/// layout without Ctrl and Alt (same Shift and Caps Lock state).
++constexpr bool KeepsCtrlAltShortcut(sal_uInt32 nVirtualKey, sal_Unicode cWithCtrlAlt, sal_Unicode cPlain)
++{
++    const bool bCoveredKey = (nVirtualKey >= VirtualKeyA && nVirtualKey <= VirtualKeyZ)
++                             || nVirtualKey == VirtualKeyComma || nVirtualKey == VirtualKeyPeriod;
++    (void)bCoveredKey; (void)cWithCtrlAlt; (void)cPlain;
++    return false; // red: the AltGr character always wins, as before
++}
++
++#ifdef _WIN32
++/// For a key press with Ctrl and Alt down whose WM_CHAR gave cWithCtrlAlt: KeepsCtrlAltShortcut with the
++/// character the active keyboard layout gives for the same key without Ctrl and Alt (vcl/win/hst).
++bool WinKeepsCtrlAltShortcut(sal_uInt32 nVirtualKey, sal_Unicode cWithCtrlAlt);
++#endif
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/qa/cppunit/hst/altgrsamechar.cxx
+@@ -0,0 +1,79 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++
++#include <cppunit/TestAssert.h>
++#include <cppunit/TestFixture.h>
++#include <cppunit/extensions/HelperMacros.h>
++#include <cppunit/plugin/TestPlugIn.h>
++
++#include <hst/altgrsamechar.hxx>
++
++namespace
++{
++using vcl::hst::KeepsCtrlAltShortcut;
++
++/// Which Ctrl+Alt presses stay shortcuts on a Windows layout that gives a character on the AltGr level. The
++/// characters are the ones the Vietnamese (0000042A), German (00000407) and Polish layouts give.
++class HstAltGrSameCharTest : public CppUnit::TestFixture
++{
++public:
++    void testVietnameseLetterRepeatsPlainCharacter()
++    {
++        // Vietnamese: Ctrl+Alt+Q gives "q" like Q alone, Ctrl+Alt+Shift+Q gives "Q" like Shift+Q
++        CPPUNIT_ASSERT(KeepsCtrlAltShortcut(0x51, u'q', u'q'));
++        CPPUNIT_ASSERT(KeepsCtrlAltShortcut(0x51, u'Q', u'Q'));
++        CPPUNIT_ASSERT(KeepsCtrlAltShortcut(0x41, u'a', u'a'));
++        CPPUNIT_ASSERT(KeepsCtrlAltShortcut(0x5A, u'z', u'z'));
++    }
++
++    void testCommaAndPeriod()
++    {
++        // the document tab keys Ctrl+Alt+, and Ctrl+Alt+.
++        CPPUNIT_ASSERT(KeepsCtrlAltShortcut(0xBC, u',', u','));
++        CPPUNIT_ASSERT(KeepsCtrlAltShortcut(0xBE, u'.', u'.'));
++    }
++
++    void testDigitsKeepTheirAltGrCharacter()
++    {
++        // Vietnamese: 1 alone gives "ă", Ctrl+Alt+1 gives "1", the way that layout types digits
++        CPPUNIT_ASSERT(!KeepsCtrlAltShortcut(0x31, u'1', u'ă'));
++        // a digit is never covered, even if both characters were the same
++        CPPUNIT_ASSERT(!KeepsCtrlAltShortcut(0x31, u'1', u'1'));
++    }
++
++    void testRealAltGrCharacterStaysTyped()
++    {
++        // German: AltGr+Q gives "@", Q alone "q"; AltGr+E gives "€"
++        CPPUNIT_ASSERT(!KeepsCtrlAltShortcut(0x51, u'@', u'q'));
++        CPPUNIT_ASSERT(!KeepsCtrlAltShortcut(0x45, u'€', u'e'));
++        // Polish programmer's layout: AltGr+A gives "ą"
++        CPPUNIT_ASSERT(!KeepsCtrlAltShortcut(0x41, u'ą', u'a'));
++    }
++
++    void testOtherKeysAndNoCharacter()
++    {
++        // Vietnamese "=" key: the AltGr level gives "=" where the key alone gives "₫"; brackets are not covered
++        CPPUNIT_ASSERT(!KeepsCtrlAltShortcut(0xBB, u'=', u'₫'));
++        CPPUNIT_ASSERT(!KeepsCtrlAltShortcut(0xDB, u'[', u'['));
++        // no character at all (US layout): nothing to decide, the shortcut already arrives
++        CPPUNIT_ASSERT(!KeepsCtrlAltShortcut(0x51, 0, 0));
++    }
++
++    CPPUNIT_TEST_SUITE(HstAltGrSameCharTest);
++    CPPUNIT_TEST(testVietnameseLetterRepeatsPlainCharacter);
++    CPPUNIT_TEST(testCommaAndPeriod);
++    CPPUNIT_TEST(testDigitsKeepTheirAltGrCharacter);
++    CPPUNIT_TEST(testRealAltGrCharacterStaysTyped);
++    CPPUNIT_TEST(testOtherKeysAndNoCharacter);
++    CPPUNIT_TEST_SUITE_END();
++};
++
++CPPUNIT_TEST_SUITE_REGISTRATION(HstAltGrSameCharTest);
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/win/hst/altgrsamechar.cxx
+@@ -0,0 +1,39 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++
++#include <sal/config.h>
++
++#include <hst/altgrsamechar.hxx>
++
++#include <sal/macros.h>
++#include <win/svsys.h>
++
++namespace vcl::hst
++{
++bool WinKeepsCtrlAltShortcut(sal_uInt32 nVirtualKey, sal_Unicode cWithCtrlAlt)
++{
++    // cheap test first: a key the rule does not cover, or no character at all
++    if (!KeepsCtrlAltShortcut(nVirtualKey, cWithCtrlAlt, cWithCtrlAlt))
++        return false;
++
++    // the character of the same key in the active layout, with only Shift and Caps Lock as they are now
++    const HKL hLayout = GetKeyboardLayout(0);
++    BYTE aState[256] = {};
++    if (GetKeyState(VK_SHIFT) & 0x8000)
++        aState[VK_SHIFT] = 0x80;
++    if (GetKeyState(VK_CAPITAL) & 0x0001)
++        aState[VK_CAPITAL] = 0x01;
++    const UINT nScanCode = MapVirtualKeyExW(nVirtualKey, MAPVK_VK_TO_VSC, hLayout);
++    WCHAR aChars[4] = {};
++    // flag 0x4: leave the keyboard's dead-key state alone (Windows 10 1607 and later)
++    const int nChars
++        = ToUnicodeEx(nVirtualKey, nScanCode, aState, aChars, SAL_N_ELEMENTS(aChars), 0x4, hLayout);
++    return nChars == 1
++           && KeepsCtrlAltShortcut(nVirtualKey, cWithCtrlAlt, static_cast<sal_Unicode>(aChars[0]));
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/win/window/salframe.cxx
++++ b/vcl/win/window/salframe.cxx
+@@ -66,6 +66,7 @@
+ #include <win/salgdi.h>
+ #include <win/salsys.h>
+ #include <win/salframe.h>
++#include <hst/altgrsamechar.hxx>
+ #include <win/salvd.h>
+ #include <win/salmenu.h>
+ #include <win/salobj.h>
+@@ -3942,6 +3943,10 @@
+                 aKeyEvt.mnCode     |= nModCode;
+                 aKeyEvt.mnRepeat    = nRepeat;
+ 
++                // HST Office: an AltGr level that only repeats the key's own letter keeps Ctrl+Alt a shortcut
++                if ((nModCode & (KEY_MOD1 | KEY_MOD2)) == (KEY_MOD1 | KEY_MOD2) && aKeyEvt.mnCharCode
++                    && vcl::hst::WinKeepsCtrlAltShortcut(static_cast<sal_uInt32>(wParam), aKeyEvt.mnCharCode))
++                    aKeyEvt.mnCharCode = 0;
+                 UnsetAltIfAltGr(aKeyEvt, nModCode);
+                 FlushIMBeforeShortCut(pFrame, nEvent, nModCode);
+ 
