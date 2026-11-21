@@ -75,13 +75,19 @@ class ScrollBand:
         self.d._add("ScrollBar", BAR, bar_x, self.top, BAR_WIDTH, self.height, Orientation=1, ScrollValueMin=0,
                     ScrollValueMax=self.span, VisibleSize=self.height, LineIncrement=12, BlockIncrement=max(12, self.height - 24),
                     ScrollValue=0, HelpText="Cuộn", Tabstop=False)  # the mouse scrolls; the keyboard follows the focus
+        self.edges = (first_below, last)
+        self.hook()
+        self.place()
+
+    def hook(self):
+        """Listeners on the dialog's controls (again after the dialog moved onto another window: new controls)."""
+        first_below, last = self.edges
         control = self.d.dialog.getControl
         control(BAR).addAdjustmentListener(_Adjust(self))
         for name in self.names:
             control(name).addFocusListener(_Focus(self, name))
         control(first_below).addFocusListener(_Focus(self, first_below, "end"))
         control(last).addFocusListener(_Focus(self, last, "start"))
-        self.place()
 
     def place(self):
         model = self.d.model
