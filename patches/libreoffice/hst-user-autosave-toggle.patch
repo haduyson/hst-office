@@ -36,7 +36,7 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
          <desc>Apps (writer, calc, impress, draw) whose quick access toolbar stands on its own row below the
 --- a/sfx2/Library_sfx.mk
 +++ b/sfx2/Library_sfx.mk
-@@ -283,6 +283,7 @@
+@@ -284,6 +284,7 @@
      sfx2/source/notebookbar/SfxNotebookBar \
      sfx2/source/notebookbar/HstRibbonCompact \
      sfx2/source/notebookbar/HstRibbonCompactWidgets \
@@ -54,7 +54,7 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
  namespace hst::notebookbar { class UpdateDot; }
  class VclWindowEvent;
  struct ImplSVEvent;
-@@ -59,6 +60,8 @@
+@@ -65,6 +66,8 @@
      VclPtr<HstRibbonBanner> m_pHstBanner;
      // HST Office: feature search box in the tab row, after the last tab (placed by the vcl base)
      VclPtr<HstTabSearchBox> m_pHstSearch;
@@ -65,7 +65,7 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
      void HstSetCompact( bool bCompact );
 --- /dev/null
 +++ b/sfx2/source/notebookbar/HstAutoSaveToggle.cxx
-@@ -0,0 +1,451 @@
+@@ -0,0 +1,457 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -93,6 +93,7 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
 +#include <vcl/accessibility/vclxaccessiblecomponent.hxx>
 +#include <vcl/event.hxx>
 +#include <vcl/HstRibbonPaint.hxx>
++#include <vcl/hst/designtokens.hxx>
 +#include <vcl/settings.hxx>
 +#include <vcl/svapp.hxx>
 +
@@ -358,19 +359,24 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
 +    const bool bOn = IsChecked();
 +    const bool bPaused = m_eState == State::Paused || m_eState == State::PausedConflict;
 +    const bool bCompact = aOut.Width() < GetOptimalSize().Width();
++    // in the frame coat the row is the frame surface: text, accent and the dimmed colours follow its tokens
++    const bool bCoat = !bSystem && hst::ribbon::coatActive(rStyle);
++    const hst::design::Palette& rTokens = hst::design::GetPalette(rStyle);
++    const Color aSurface = bCoat ? rTokens.aFrameSurface : rStyle.GetDialogColor();
++    const Color aAccent = bCoat ? rTokens.aAccent : ACCENT;
 +
 +    rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR | vcl::PushFlags::FONT | vcl::PushFlags::TEXTCOLOR);
 +    vcl::Font aFont(rStyle.GetAppFont());
 +    rDev.SetFont(aFont);
 +
 +    // a dimmed toggle keeps about 40 % of its strength, as the mockup
-+    Color aText = bSystem ? rStyle.GetButtonTextColor() : rStyle.GetLabelTextColor();
++    Color aText = bSystem ? rStyle.GetButtonTextColor() : bCoat ? rTokens.aText : rStyle.GetLabelTextColor();
 +    if (!bEnabled)
 +    {
 +        if (bSystem)
 +            aText = rStyle.GetDisableColor();
 +        else
-+            aText.Merge(rStyle.GetDialogColor(), 102);
++            aText.Merge(aSurface, 102);
 +    }
 +
 +    const tools::Long nRadius = px(rDev, 4);
@@ -417,16 +423,16 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
 +    }
 +    else
 +    {
-+        const bool bDark = rStyle.GetDialogColor().IsDark();
-+        aBorder = bOn ? ACCENT : bPaused ? PAUSED : (bDark ? Color(0xB0, 0xB8, 0xC4) : Color(0x60, 0x6B, 0x78));
-+        aFill = bOn ? ACCENT : bPaused ? PAUSED : COL_TRANSPARENT;
++        const bool bDark = aSurface.IsDark();
++        aBorder = bOn ? aAccent : bPaused ? PAUSED : (bDark ? Color(0xB0, 0xB8, 0xC4) : Color(0x60, 0x6B, 0x78));
++        aFill = bOn ? aAccent : bPaused ? PAUSED : COL_TRANSPARENT;
 +        aKnob = bOn || bPaused ? COL_WHITE : aBorder;
 +        if (!bEnabled)
 +        {
-+            aBorder.Merge(rStyle.GetDialogColor(), 102);
-+            aKnob.Merge(rStyle.GetDialogColor(), 102);
++            aBorder.Merge(aSurface, 102);
++            aKnob.Merge(aSurface, 102);
 +            if (aFill != COL_TRANSPARENT)
-+                aFill.Merge(rStyle.GetDialogColor(), 102);
++                aFill.Merge(aSurface, 102);
 +        }
 +    }
 +    rDev.SetLineColor(aBorder);
@@ -450,7 +456,7 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
 +    if (HasFocus())
 +    {
 +        rDev.SetFillColor();
-+        rDev.SetLineColor(bSystem ? rStyle.GetHighlightColor() : aPalette.aTabAccent);
++        rDev.SetLineColor(bSystem ? rStyle.GetHighlightColor() : bCoat ? aAccent : aPalette.aTabAccent);
 +        rDev.DrawRect(tools::Rectangle(Point(1, 1), Size(aOut.Width() - 3, aOut.Height() - 3)), nRadius, nRadius);
 +    }
 +    rDev.Pop();
@@ -672,7 +678,7 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
  #include <ribbon-custom-hooks.hxx>
  #include <com/sun/star/accessibility/AccessibleRole.hpp>
  #include <com/sun/star/accessibility/XAccessibleAction.hpp>
-@@ -514,6 +515,7 @@
+@@ -519,6 +520,7 @@
          RemoveChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
          m_pHstBanner.disposeAndClear();
          m_pHstSearch.disposeAndClear();
@@ -680,7 +686,7 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
      }
      NotebookbarTabControlBase::dispose();
  }
-@@ -551,6 +553,7 @@
+@@ -556,6 +558,7 @@
                  return;
              m_pHstSearch = VclPtr<HstTabSearchBox>::Create(this);
              m_pHstSearch->Show();
@@ -688,7 +694,7 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
              m_pHstBanner = VclPtr<HstRibbonBanner>::Create(this);
              pBar->HstSetOwnBanner(true); // the window shows no second banner beside the bar
              hst::keytips::Attach(*this, *pBar, GetToolBox(), m_pHstBanner.get());
-@@ -1058,6 +1061,8 @@
+@@ -1087,6 +1090,8 @@
          FillShortcutsToolBox( xContext, m_xFrame, aModuleName, pToolBox );
          if (m_pHstQat)
              m_pHstQat->SetFrame(m_xFrame);
@@ -699,7 +705,7 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
                  [this](bool bShow) { hst::ribbon::SetUpdateDot(*this, bShow); });
 --- a/vcl/source/control/tabctrl.cxx
 +++ b/vcl/source/control/tabctrl.cxx
-@@ -2652,12 +2652,45 @@
+@@ -2659,12 +2659,45 @@
      // the rest of the row up to the menu button; when the row is short the box shrinks, then it
      // shows only its magnifier.
      vcl::Window* pHstSearch = nullptr;
@@ -745,7 +751,7 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
  
      // HST Office: the quick access toolbar (the shortcuts toolbox) at the start of the row never pushes the
      // tabs out of the row or shrinks the search box to its magnifier: it gets the room they leave, its other buttons go
-@@ -2665,15 +2698,7 @@
+@@ -2672,15 +2705,7 @@
      tools::Long nShortcutsWidth = 0;
      if (m_pShortcuts && m_nHstQatRow <= 0)
      {
@@ -762,7 +768,7 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
          // the search box keeps the width at which it shows its text (below that it is only a magnifier), with
          // its gaps before and after it; the row's start offset (2 px) and the toolbox's 1 px follow below.
          // The compact ribbon (its banner beside the row, m_nHstRowReserve) keeps the quick access buttons
-@@ -2689,9 +2714,9 @@
+@@ -2696,9 +2721,9 @@
              m_pShortcuts->SetSizePixel(Size(nQat, aWant.Height()));
          nShortcutsWidth = nQat + 1;
      }
@@ -775,7 +781,7 @@ Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dar
      // HST Office (1.0.2 ribbon mockup): the tab buttons fill the tab row from its top edge (they started 2 px
      // below it); the row ends where it did, at 35 logical px or lower, so the body still starts 3 px below it
      const tools::Long nOffsetY = 0;
-@@ -2775,13 +2800,13 @@
+@@ -2782,13 +2807,13 @@
      // we always have only one line of tabs
      // tdf#127610 subtract width of shortcuts from width available for tab items
      if (!pHstSearch) // with the search box the tabs stay left-aligned, the box fills the row

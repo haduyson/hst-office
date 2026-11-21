@@ -1,0 +1,1220 @@
+HST Office: the ribbon (Tabbed notebookbar) in the frame coat of the HST look, and a paint-only button look
+for other toolboxes (the sidebar's tab bar).
+
+- One switch: the ribbon takes the frame coat while HSTRibbon/OwnerDraw and HSTAppearance FrameCoat/Ribbon
+  are on (and the coat itself, UiCoat/Enabled or HST_UI_COAT) and high contrast is off
+  (hst::ribbon::coatActive). Otherwise it draws exactly as before.
+- Surface: the tab control of the notebookbar is one flat aFrameSurface (no gradient, D13) on every
+  platform, the native tab pane/header no longer drawn, with one whole-pixel aFrameDivider row along its
+  bottom edge, between the ribbon and the document.
+- Pages (hst::ribbon::CoatPages, from the notebookbar tab control at its first show, after its layout and
+  after a theme or high-contrast change): a page's background is aFrameSurface (its control background, so
+  its native/coat tab body and every transparent child show the surface); its groups' vertical separators
+  draw a plain line of one device pixel in aFrameDivider and its captions are in aMuted, or in the ribbon's
+  caption colour where aMuted does not reach 4.5:1 on the surface (light: 4.46:1). FixedLine and FixedText
+  ask hst::ribbon::CoatColor when they paint, so the colours follow the theme and high contrast at once; a
+  caption with a colour of its own keeps it. Caption font size unchanged (no layout change).
+- Buttons: hover aHover, pressed aPressed, checked aPill with a 1 px aSelectedIndicator border, radius
+  Control, through hst::design::DrawRoundRect (crisp on Skia/GDI/Cairo/Quartz); a large split button's two
+  parts divided by aFrameDivider. Their items' erase no longer fills a highlighted item with a theme
+  colour first (the rounded shape lies on the surface).
+- Tabs (D6): the selected tab's underline size::TabIndicator thick in aSelectedIndicator under its label, a
+  light aHover pill under the mouse; tab labels in aText; contextual tabs keep their accent band and colour,
+  the File button its brand colours.
+- hst::ribbon::SetButtonLook(ToolBox& or weld::Toolbar&, ButtonLook::SidebarTab): read only in ToolBox::ImplDrawButton, no
+  size change. While FrameCoat/Sidebar is active the open deck's tab is an aPill pill with a TabIndicator
+  wide aSelectedIndicator bar on its leading edge (as the gtk3 sidebar CSS), hover aHover, pressed aPressed.
+- The ribbon's GTK CSS fragment stays empty (the ribbon is VCL on gtk3 too).
+- No size, order, collapse ladder, keytip, tooltip, banner or accessible-name change.
+- CppunitTest_vcl_hst_ribbon_coat: button, tab, surface and divider pixels in the tokens, light and dark;
+  contrast of captions and dividers; a page's surface and captions and their rollback; the switches and
+  high contrast; the sidebar tab look and the toolbox size it keeps.
+
+--- a/include/vcl/HstRibbonPaint.hxx
++++ b/include/vcl/HstRibbonPaint.hxx
+@@ -15,6 +15,7 @@
+ // (org.openoffice.Office.HSTRibbon) turns it off without a new build.
+ 
+ #include <rtl/ustring.hxx>
++#include <optional>
+ #include <tools/color.hxx>
+ #include <tools/gen.hxx>
+ #include <vcl/dllapi.h>
+@@ -24,6 +25,14 @@
+ class Image;
+ class StyleSettings;
+ class ToolBox;
++namespace vcl
++{
++class Window;
++}
++namespace weld
++{
++class Toolbar;
++}
+ 
+ namespace hst::ribbon
+ {
+@@ -43,15 +52,66 @@ VCL_DLLPUBLIC bool ownerDrawEnabled();
+ /** Draw the item backgrounds of rToolBox with the ribbon palette (notebookbar toolboxes only). */
+ VCL_DLLPUBLIC void SetOwnerDraw(ToolBox& rToolBox, bool bOn);
+ 
++/** Whether the ribbon is drawn in the frame coat (<vcl/hst/framecoat.hxx>): the OwnerDraw switch, the
++    coat's FrameCoat/Ribbon switch, and not high contrast. Then the ribbon takes the frame colours of the
++    design tokens (surface, dividers, the selected item's pill and indicator); otherwise its own palette. */
++VCL_DLLPUBLIC bool coatActive(const StyleSettings& rStyle);
++
+ /** Background of one toolbar button: rounded hover, pressed and checked (with a 1 px border)
+-    states. nHighlight: 1 pressed, 2 hover. Returns false when the native theme must draw. */
+-SAL_DLLPRIVATE bool DrawToolButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect,
+-                                   sal_uInt16 nHighlight, bool bChecked, bool bEnabled);
++    states. nHighlight: 1 pressed, 2 hover. Returns false when the native theme must draw.
++    In the frame coat: hover aHover, pressed aPressed, checked aPill with a 1 px aSelectedIndicator
++    border, all with the Control radius, drawn by hst::design::DrawRoundRect (crisp on every backend). */
++VCL_DLLPUBLIC bool DrawToolButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect,
++                                  sal_uInt16 nHighlight, bool bChecked, bool bEnabled);
+ 
+ /** One notebookbar tab without a box: a light rounded fill on hover, and for the selected tab a
+-    short accent bar under its label (nLabelWidth pixels wide). */
+-SAL_DLLPRIVATE void DrawTabItem(vcl::RenderContext& rDev, const tools::Rectangle& rItem,
+-                                tools::Long nLabelWidth, bool bSelected, bool bHover);
++    short accent bar under its label (nLabelWidth pixels wide). In the frame coat: the hover fill is
++    aHover with the Control radius, the bar size::TabIndicator thick in aSelectedIndicator. */
++VCL_DLLPUBLIC void DrawTabItem(vcl::RenderContext& rDev, const tools::Rectangle& rItem,
++                               tools::Long nLabelWidth, bool bSelected, bool bHover);
++
++/** The ribbon's background in the frame coat: rArea (the tab control's output, tab row and pages)
++    filled with aFrameSurface, flat (no gradient), with a line of one device pixel of aFrameDivider along
++    its bottom edge, between the ribbon and the document. */
++VCL_DLLPUBLIC void DrawSurface(vcl::RenderContext& rDev, const tools::Rectangle& rArea);
++
++/** The colour of the groups' captions in the frame coat: aMuted where it reads at 4.5:1 on the frame
++    surface, else the ribbon's caption colour (which does). */
++VCL_DLLPUBLIC Color captionColor(const StyleSettings& rStyle);
++
++/** rPage, a ribbon page, in the frame coat: while the coat is active its background is aFrameSurface (its
++    control background), its groups' vertical separators (FixedLine) draw a 1 px aFrameDivider line and its
++    captions (FixedText without a colour of their own) are in captionColor; otherwise they draw as before.
++    The page and its parts are remembered on the first call, the colours chosen when they paint: later calls
++    only follow a theme or high-contrast change of the page's background. Paint only: no size changes. */
++VCL_DLLPUBLIC void CoatPages(vcl::Window& rPage);
++
++/** The colour rWindow, a divider or caption that CoatPages took in, paints in with these style settings;
++    none when it is not one or the coat is not active. */
++VCL_DLLPUBLIC std::optional<Color> CoatColor(const vcl::Window& rWindow, const StyleSettings& rStyle);
++
++/** A separator line of one whole device pixel in rColor across the middle of a window of rSize. */
++VCL_DLLPUBLIC void DrawDivider(vcl::RenderContext& rDev, const Size& rSize, bool bVertical, const Color& rColor);
++
++/** A paint-only look for the buttons of a toolbox that is not a ribbon toolbox. The item sizes stay
++    those of the toolbox; only the button backgrounds change. */
++enum class ButtonLook
++{
++    Native, ///< the platform's look (the default)
++    /** The sidebar's tab bar (FrameCoat/Sidebar): hover aHover, the open deck's tab on an aPill pill with
++        a TabIndicator wide aSelectedIndicator bar on its leading edge, as the gtk3 CSS of the sidebar. */
++    SidebarTab,
++};
++VCL_DLLPUBLIC void SetButtonLook(ToolBox& rToolBox, ButtonLook eLook);
++/** The same for a welded tool bar: its ToolBox on the VCL backends; nothing on gtk3, whose sidebar the CSS
++    of the coat draws (vcl/source/hst/coat/css/sidebar.cxx). */
++VCL_DLLPUBLIC void SetButtonLook(weld::Toolbar& rToolbar, ButtonLook eLook);
++VCL_DLLPUBLIC ButtonLook GetButtonLook(const ToolBox& rToolBox);
++
++/** The background of one button in eLook (nHighlight: 1 pressed, 2 hover). Returns false when the
++    toolbox's own drawing applies: ButtonLook::Native, the look's coat switched off, high contrast. */
++VCL_DLLPUBLIC bool DrawLookButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect, ButtonLook eLook,
++                                  sal_uInt16 nHighlight, bool bChecked, bool bEnabled);
+ 
+ /** A folded group's button (C: "Caption ▾"), at the approved mockup's geometry (vcl/inc/HstRibbonGeometry.hxx
+     foldedButton): FOLDED_HEIGHT (98) logical px high, at least FOLDED_MIN_WIDTH (48) wide; rImage (the group's
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -44,6 +44,8 @@ public:
+     virtual void dispose() override;
+     virtual void MouseButtonDown( const MouseEvent& rMEvt ) override;
+     virtual bool PreNotify( NotifyEvent& rNEvt ) override;
++    /// HST Office: the pages' frame coat follows a theme or high contrast change (after the pages' own update)
++    virtual void DataChanged( const DataChangedEvent& rDCEvt ) override;
+     /// HST Office: the ribbon's body continues behind the banner (see HstPaintBodyBesidePage)
+     virtual void Paint( vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect ) override;
+     /// HST Office (1.0.3 ribbon): the banner is placed again once the current layout pass is over
+@@ -54,6 +56,10 @@ private:
+     DECL_LINK(HstChildEventHdl, VclWindowEvent&, void);
+     DECL_LINK(HstDeferredLayoutHdl, void*, void);
+     ImplSVEvent* m_pHstLayoutEvent = nullptr;
++    // HST Office: the pages' frame coat (hst::ribbon::CoatPages), again after a theme change
++    void HstCoatPages();
++    DECL_LINK(HstCoatHdl, void*, void);
++    ImplSVEvent* m_pHstCoatEvent = nullptr;
+     VclPtr<HstRibbonBanner> m_pHstBanner;
+     // HST Office: feature search box in the tab row, after the last tab (placed by the vcl base)
+     VclPtr<HstTabSearchBox> m_pHstSearch;
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -494,6 +494,11 @@ void NotebookbarTabControl::dispose()
+         Application::RemoveUserEvent(m_pHstStateEvent);
+         m_pHstStateEvent = nullptr;
+     }
++    if (m_pHstCoatEvent)
++    {
++        Application::RemoveUserEvent(m_pHstCoatEvent);
++        m_pHstCoatEvent = nullptr;
++    }
+     if (m_pHstCompact)
+     {
+         Application::RemoveKeyListener(LINK(this, NotebookbarTabControl, HstKeyHdl));
+@@ -680,9 +685,33 @@ void NotebookbarTabControl::HstLayoutBanner()
+         pQat->SetPosSizePixel(Point(nInset, aOut.Height() - nRow + (nRow - aWant.Height()) / 2),
+                               Size(std::min<tools::Long>(aWant.Width(), aOut.Width() - 2 * nInset), aWant.Height()));
+     }
++    HstCoatPages();
+     m_bHstLayout = false;
+ }
+ 
++void NotebookbarTabControl::HstCoatPages()
++{
++    // the pages in the frame coat (HstRibbonPaint.hxx): cheap once a page is known
++    for (sal_uInt16 i = 0; i < GetPageCount(); ++i)
++        if (TabPage* pTab = GetTabPage(GetPageId(i)))
++            hst::ribbon::CoatPages(*pTab);
++}
++
++IMPL_LINK_NOARG(NotebookbarTabControl, HstCoatHdl, void*, void)
++{
++    m_pHstCoatEvent = nullptr;
++    HstCoatPages();
++}
++
++void NotebookbarTabControl::DataChanged( const DataChangedEvent& rDCEvt )
++{
++    NotebookbarTabControlBase::DataChanged(rDCEvt);
++    // the pages take the new settings only after this: coat them once that is over
++    if (rDCEvt.GetType() == DataChangedEventType::SETTINGS && (rDCEvt.GetFlags() & AllSettingsFlags::STYLE)
++        && !m_pHstCoatEvent && !isDisposed())
++        m_pHstCoatEvent = Application::PostUserEvent(LINK(this, NotebookbarTabControl, HstCoatHdl));
++}
++
+ IMPL_LINK(NotebookbarTabControl, HstChildEventHdl, VclWindowEvent&, rEvent, void)
+ {
+     // The tab control re-allocates the current page at full width on resizes and tab switches.
+@@ -1038,6 +1067,8 @@ void NotebookbarTabControl::StateChanged(StateChangedType nStateChange)
+         m_bInvalidate = false;
+     }
+     NotebookbarTabControlBase::StateChanged( nStateChange );
++    if (nStateChange == StateChangedType::InitShow)
++        HstCoatPages(); // also a ribbon without the banner's layout pass
+ }
+ 
+ void NotebookbarTabControl::FillShortcutsToolBox(Reference<XComponentContext> const & xContext,
+--- /dev/null
++++ b/vcl/CppunitTest_vcl_hst_ribbon_coat.mk
+@@ -0,0 +1,57 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++# This file is part of HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,vcl_hst_ribbon_coat))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,vcl_hst_ribbon_coat, \
++    vcl/qa/cppunit/hst/ribbon-coat-test \
++))
++
++$(eval $(call gb_CppunitTest_add_defs,vcl_hst_ribbon_coat,\
++    -DVCL_INTERNALS \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,vcl_hst_ribbon_coat,\
++    boost_headers \
++))
++
++$(eval $(call gb_CppunitTest_set_include,vcl_hst_ribbon_coat,\
++    $$(INCLUDE) \
++    -I$(SRCDIR)/vcl/inc \
++))
++
++$(eval $(call gb_CppunitTest_use_custom_headers,vcl_hst_ribbon_coat,\
++    officecfg/registry \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,vcl_hst_ribbon_coat, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    sal \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,vcl_hst_ribbon_coat))
++
++$(eval $(call gb_CppunitTest_use_ure,vcl_hst_ribbon_coat))
++$(eval $(call gb_CppunitTest_use_vcl,vcl_hst_ribbon_coat))
++
++$(eval $(call gb_CppunitTest_use_components,vcl_hst_ribbon_coat,\
++    configmgr/source/configmgr \
++    i18npool/util/i18npool \
++    ucb/source/core/ucb1 \
++    unotools/util/utl \
++))
++
++$(eval $(call gb_CppunitTest_use_configuration,vcl_hst_ribbon_coat))
++
++# vim: set noet sw=4 ts=4:
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -265,6 +265,7 @@ $(eval $(call gb_Library_add_exception_objects,vcl,\
+     vcl/source/control/HstRibbonDrop \
+     vcl/source/control/HstRibbonLadder \
+     vcl/source/control/HstRibbonPaint \
++    vcl/source/control/HstRibbonCoat \
+     vcl/source/control/HstRibbonMenuButtonMetrics \
+     vcl/source/control/HstRibbonUpdateDot \
+     vcl/source/control/HstRibbonRow \
+--- a/vcl/Module_vcl.mk
++++ b/vcl/Module_vcl.mk
+@@ -238,6 +238,7 @@ $(eval $(call gb_Module_add_check_targets,vcl,\
+     CppunitTest_vcl_fontvariation \
+     CppunitTest_vcl_hst_coat \
+     CppunitTest_vcl_hst_coat_controls2 \
++    CppunitTest_vcl_hst_ribbon_coat \
+     CppunitTest_vcl_text \
+     CppunitTest_vcl_textlayout \
+     CppunitTest_vcl_treeview \
+     CppunitTest_vcl_treeview \
+--- /dev/null
++++ b/vcl/inc/HstRibbonCoat.hxx
+@@ -0,0 +1,39 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++// HST Office: the ribbon in the frame coat (vcl/source/control/HstRibbonCoat.cxx). The public part is
++// <vcl/HstRibbonPaint.hxx>; these are the drawing steps HstRibbonPaint.cxx hands over while the coat is
++// active (hst::ribbon::coatActive).
++
++#include <sal/types.h>
++#include <tools/gen.hxx>
++#include <vcl/outdev.hxx>
++
++class StyleSettings;
++class ToolBox;
++
++namespace hst::ribbon
++{
++/// whether rToolBox draws rounded button shapes over its parent's surface now (ribbon or sidebar tab look in
++/// the frame coat): then its items' erase must not fill them with a theme colour first
++bool keepsSurface(const ToolBox& rToolBox, const StyleSettings& rStyle);
++}
++
++namespace hst::ribbon::coat
++{
++/// a ribbon button's background (DrawToolButton's contract)
++void DrawButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect, sal_uInt16 nHighlight, bool bChecked,
++                bool bEnabled);
++
++/// a ribbon tab's hover fill and selection indicator (DrawTabItem's contract)
++void DrawTab(vcl::RenderContext& rDev, const tools::Rectangle& rItem, tools::Long nLabelWidth, bool bSelected,
++             bool bHover);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/inc/toolbox.h
++++ b/vcl/inc/toolbox.h
+@@ -133,6 +133,8 @@ struct ImplToolBoxPrivateData
+ 
+     // HST Office: ribbon (notebookbar) toolbox drawn with the ribbon palette (vcl/HstRibbonPaint.hxx)
+     bool mbHstOwnerDraw = false;
++    // HST Office: a paint-only look of the buttons (hst::ribbon::ButtonLook, vcl/HstRibbonPaint.hxx)
++    int mnHstButtonLook = 0;
+ 
+     // HST Office: collapse ladder (HstRibbonLadder.hxx): the current text position (ToolBox keeps
+     // it private) and the authored style, remembered when a group first changes its size state
+--- /dev/null
++++ b/vcl/qa/cppunit/hst/ribbon-coat-test.cxx
+@@ -0,0 +1,377 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* The ribbon in the frame coat (vcl/HstRibbonPaint.hxx): its surface, dividers, captions, buttons and
++   tabs take the frame colours of the design tokens, the shapes are those of the shared helper, the
++   switches (FrameCoat/Ribbon, high contrast) give the ribbon its own look back, and the sidebar's tab
++   look draws the open deck's pill without changing a size. Drawn on VirtualDevices of the headless
++   backend and probed pixel by pixel. */
++
++#include <test/bootstrapfixture.hxx>
++
++#include <comphelper/configuration.hxx>
++#include <officecfg/Office/HSTAppearance.hxx>
++#include <vcl/HstRibbonPaint.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/toolbox.hxx>
++#include <vcl/toolkit/fixed.hxx>
++#include <vcl/virdev.hxx>
++#include <vcl/wrkwin.hxx>
++
++#include <hst/coat.hxx>
++
++#include <osl/process.h>
++#include <rtl/ustring.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <cstdlib>
++#include <optional>
++
++namespace
++{
++// a colour the ribbon never paints: what is left of it was not painted
++constexpr Color MARKER(0xFF, 0x00, 0xFF);
++
++double luminance(const Color& rColor)
++{
++    auto channel = [](sal_uInt8 n) {
++        const double f = n / 255.0;
++        return f <= 0.04045 ? f / 12.92 : std::pow((f + 0.055) / 1.055, 2.4);
++    };
++    return 0.2126 * channel(rColor.GetRed()) + 0.7152 * channel(rColor.GetGreen())
++           + 0.0722 * channel(rColor.GetBlue());
++}
++
++double contrast(const Color& rA, const Color& rB)
++{
++    const double fA = luminance(rA), fB = luminance(rB);
++    return (std::max(fA, fB) + 0.05) / (std::min(fA, fB) + 0.05);
++}
++
++class RibbonCoatTest : public test::BootstrapFixture
++{
++public:
++    RibbonCoatTest()
++        : test::BootstrapFixture(true, false)
++    {
++    }
++
++    void setUp() override
++    {
++        test::BootstrapFixture::setUp();
++        // the environment's coat switch would override the settings these tests set
++        OUString aName(u"HST_UI_COAT"_ustr);
++        osl_clearEnvironment(aName.pData);
++        setSwitches(true, true, true);
++    }
++
++    void tearDown() override
++    {
++        setSwitches(true, true, true); // a test that switched one off may have stopped at an assertion
++        test::BootstrapFixture::tearDown();
++    }
++
++protected:
++    static void setSwitches(bool bCoat, bool bRibbon, bool bSidebar)
++    {
++        auto xChanges = comphelper::ConfigurationChanges::create();
++        officecfg::Office::HSTAppearance::UiCoat::Enabled::set(bCoat, xChanges);
++        officecfg::Office::HSTAppearance::FrameCoat::Ribbon::set(bRibbon, xChanges);
++        officecfg::Office::HSTAppearance::FrameCoat::Sidebar::set(bSidebar, xChanges);
++        xChanges->commit();
++        hst::coat::ResetSwitchForTesting();
++        hst::coat::ResetFrameCoatForTesting();
++    }
++
++    static StyleSettings style(bool bDark, bool bHighContrast)
++    {
++        StyleSettings aStyle = Application::GetSettings().GetStyleSettings();
++        aStyle.SetHighContrastMode(bHighContrast);
++        aStyle.SetWindowColor(bDark ? Color(0x20, 0x20, 0x20) : COL_WHITE);
++        aStyle.SetFieldColor(bDark ? Color(0x2A, 0x2A, 0x2A) : COL_WHITE);
++        aStyle.SetDialogColor(bDark ? Color(0x28, 0x28, 0x28) : Color(0xF0, 0xF0, 0xF0));
++        return aStyle;
++    }
++
++    static ScopedVclPtr<VirtualDevice> makeDevice(const Size& rSize, bool bDark = false,
++                                                  bool bHighContrast = false)
++    {
++        ScopedVclPtr<VirtualDevice> pDev = VclPtr<VirtualDevice>::Create();
++        AllSettings aSettings = pDev->GetSettings();
++        aSettings.SetStyleSettings(style(bDark, bHighContrast));
++        pDev->SetSettings(aSettings);
++        pDev->SetOutputSizePixel(rSize);
++        pDev->SetBackground(Wallpaper(MARKER));
++        pDev->Erase();
++        return pDev;
++    }
++
++    static void applyStyle(vcl::Window& rWindow, bool bDark, bool bHighContrast)
++    {
++        AllSettings aSettings = rWindow.GetSettings();
++        aSettings.SetStyleSettings(style(bDark, bHighContrast));
++        rWindow.SetSettings(aSettings, true);
++    }
++
++    static const hst::design::Palette& palette(bool bDark) { return hst::design::GetPalette(bDark); }
++
++    /** rExpected at (nX, nY), give or take the rounding of the anti-aliasing backend. */
++    static void assertPixel(const char* pWhat, const VirtualDevice& rDev, tools::Long nX, tools::Long nY,
++                            const Color& rExpected, int nTolerance = 2)
++    {
++        const Color aActual = rDev.GetPixel(Point(nX, nY));
++        const bool bClose = std::abs(aActual.GetRed() - rExpected.GetRed()) <= nTolerance
++                            && std::abs(aActual.GetGreen() - rExpected.GetGreen()) <= nTolerance
++                            && std::abs(aActual.GetBlue() - rExpected.GetBlue()) <= nTolerance;
++        CPPUNIT_ASSERT_MESSAGE(OString(OString::Concat(pWhat) + ": expected "
++                                       + rExpected.AsRGBHexString().toUtf8() + " at " + OString::number(nX)
++                                       + "," + OString::number(nY) + ", got "
++                                       + aActual.AsRGBHexString().toUtf8())
++                                   .getStr(),
++                               bClose);
++    }
++};
++
++/* Buttons: hover, pressed and checked in the frame tokens, rounded (a corner pixel stays unpainted),
++   checked = the pill with a 1 px indicator border; light and dark. */
++CPPUNIT_TEST_FIXTURE(RibbonCoatTest, testButtonStatesUseFrameTokens)
++{
++    for (bool bDark : { false, true })
++    {
++        const auto& p = palette(bDark);
++        const tools::Rectangle aRect(Point(), Size(40, 24));
++        {
++            ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRect.GetSize(), bDark);
++            CPPUNIT_ASSERT(hst::ribbon::DrawToolButton(*pDev, aRect, 2, false, true));
++            assertPixel("hover", *pDev, 20, 12, p.aHover);
++            assertPixel("hover: rounded corner", *pDev, 0, 0, MARKER);
++        }
++        {
++            ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRect.GetSize(), bDark);
++            hst::ribbon::DrawToolButton(*pDev, aRect, 1, false, true);
++            assertPixel("pressed", *pDev, 20, 12, p.aPressed);
++        }
++        {
++            ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRect.GetSize(), bDark);
++            hst::ribbon::DrawToolButton(*pDev, aRect, 0, true, true);
++            assertPixel("checked: the pill", *pDev, 20, 12, p.aPill);
++            assertPixel("checked: its border", *pDev, 0, 12, p.aSelectedIndicator);
++            assertPixel("checked: one pixel of border", *pDev, 1, 12, p.aPill);
++            assertPixel("checked: rounded corner", *pDev, 0, 0, MARKER);
++        }
++        {
++            ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRect.GetSize(), bDark);
++            hst::ribbon::DrawToolButton(*pDev, aRect, 2, true, true);
++            assertPixel("checked and hovered", *pDev, 20, 12, p.aPressed);
++            assertPixel("checked and hovered: border", *pDev, 39, 12, p.aSelectedIndicator);
++        }
++        {
++            ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRect.GetSize(), bDark);
++            CPPUNIT_ASSERT(hst::ribbon::DrawToolButton(*pDev, aRect, 0, false, true));
++            assertPixel("at rest: nothing", *pDev, 20, 12, MARKER);
++        }
++    }
++}
++
++/* FrameCoat/Ribbon off (or the coat off): the ribbon's own palette, as before the frame coat. */
++CPPUNIT_TEST_FIXTURE(RibbonCoatTest, testSwitchedOffKeepsTheRibbonPalette)
++{
++    for (bool bCoat : { true, false })
++    {
++        setSwitches(bCoat, !bCoat, true);
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(40, 24));
++        CPPUNIT_ASSERT(!hst::ribbon::coatActive(pDev->GetSettings().GetStyleSettings()));
++        const hst::ribbon::Palette aRibbon = hst::ribbon::paletteFor(pDev->GetSettings().GetStyleSettings());
++        hst::ribbon::DrawToolButton(*pDev, tools::Rectangle(Point(), Size(40, 24)), 2, false, true);
++        assertPixel("hover, ribbon palette", *pDev, 20, 12, aRibbon.aHover);
++    }
++}
++
++/* High contrast: the native theme draws the buttons, and nothing of the coat is active. */
++CPPUNIT_TEST_FIXTURE(RibbonCoatTest, testHighContrastIsNative)
++{
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(40, 24), false, true);
++    CPPUNIT_ASSERT(!hst::ribbon::coatActive(pDev->GetSettings().GetStyleSettings()));
++    CPPUNIT_ASSERT(!hst::ribbon::DrawToolButton(*pDev, tools::Rectangle(Point(), Size(40, 24)), 2, false, true));
++    assertPixel("nothing painted", *pDev, 20, 12, MARKER);
++    CPPUNIT_ASSERT(!hst::ribbon::DrawLookButton(*pDev, tools::Rectangle(Point(), Size(40, 24)),
++                                                hst::ribbon::ButtonLook::SidebarTab, 0, true, true));
++}
++
++/* Tabs (D6): the selected tab has an underline of TabIndicator rows in the selected indicator colour
++   under its label and no box; a hovered tab a light rounded fill. */
++CPPUNIT_TEST_FIXTURE(RibbonCoatTest, testTabUnderlineAndHoverPill)
++{
++    for (bool bDark : { false, true })
++    {
++        const auto& p = palette(bDark);
++        const tools::Rectangle aItem(Point(), Size(100, 30));
++        {
++            ScopedVclPtr<VirtualDevice> pDev = makeDevice(aItem.GetSize(), bDark);
++            hst::ribbon::DrawTabItem(*pDev, aItem, 40, true, false);
++            // the bar ends one pixel over the item's bottom: rows 26 and 27
++            assertPixel("underline, upper row", *pDev, 50, 26, p.aSelectedIndicator);
++            assertPixel("underline, lower row", *pDev, 50, 27, p.aSelectedIndicator);
++            assertPixel("over the underline", *pDev, 50, 25, MARKER);
++            assertPixel("beside the label", *pDev, 20, 26, MARKER);
++            assertPixel("no box", *pDev, 50, 10, MARKER);
++        }
++        {
++            ScopedVclPtr<VirtualDevice> pDev = makeDevice(aItem.GetSize(), bDark);
++            hst::ribbon::DrawTabItem(*pDev, aItem, 40, false, true);
++            assertPixel("hover pill", *pDev, 50, 15, p.aHover);
++            assertPixel("hover pill: inset", *pDev, 1, 15, MARKER);
++            assertPixel("hover pill: rounded", *pDev, 2, 2, MARKER);
++        }
++    }
++}
++
++/* The surface: flat aFrameSurface (no gradient: the same colour at the top and the bottom), and one
++   row of aFrameDivider exactly (whole pixels, no anti-aliasing) at the bottom. */
++CPPUNIT_TEST_FIXTURE(RibbonCoatTest, testSurfaceIsFlatWithAWholePixelDivider)
++{
++    for (bool bDark : { false, true })
++    {
++        const auto& p = palette(bDark);
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 60), bDark);
++        hst::ribbon::DrawSurface(*pDev, tools::Rectangle(Point(), Size(200, 60)));
++        for (tools::Long x : { tools::Long(0), tools::Long(100), tools::Long(199) })
++        {
++            assertPixel("surface, top", *pDev, x, 0, p.aFrameSurface, 0);
++            assertPixel("surface, above the divider", *pDev, x, 58, p.aFrameSurface, 0);
++            assertPixel("divider", *pDev, x, 59, p.aFrameDivider, 0);
++        }
++    }
++}
++
++/* Captions read at 4.5:1 and dividers at 3:1 on the surface, light and dark. */
++CPPUNIT_TEST_FIXTURE(RibbonCoatTest, testCaptionAndDividerContrast)
++{
++    for (bool bDark : { false, true })
++    {
++        const auto& p = palette(bDark);
++        const Color aCaption = hst::ribbon::captionColor(style(bDark, false));
++        CPPUNIT_ASSERT_GREATEREQUAL(4.5, contrast(aCaption, p.aFrameSurface));
++        CPPUNIT_ASSERT_GREATEREQUAL(3.0, contrast(p.aFrameDivider, p.aFrameSurface));
++    }
++}
++
++/* A page in the coat: its background the frame surface, its captions in the caption colour when they paint,
++   its divider drawn as one whole device pixel; a caption with a colour of its own keeps it; with the coat not
++   active (high contrast) everything is as before. (FixedLine is not exported in merged builds: its line is
++   probed through DrawDivider, which FixedLine::ImplDraw calls.) */
++CPPUNIT_TEST_FIXTURE(RibbonCoatTest, testCoatPagesSurfaceCaptionsAndDivider)
++{
++    ScopedVclPtrInstance<WorkWindow> pPage(nullptr, WB_STDWORK);
++    applyStyle(*pPage, false, false);
++    VclPtr<FixedText> pCaption = VclPtr<FixedText>::Create(pPage.get());
++    VclPtr<FixedText> pOwn = VclPtr<FixedText>::Create(pPage.get());
++    pOwn->SetControlForeground(COL_LIGHTRED);
++
++    CPPUNIT_ASSERT(!hst::ribbon::CoatColor(*pCaption, style(false, false)));
++    hst::ribbon::CoatPages(*pPage);
++    const auto& p = palette(false);
++    CPPUNIT_ASSERT(pPage->IsControlBackground());
++    CPPUNIT_ASSERT_EQUAL(p.aFrameSurface, pPage->GetControlBackground());
++    std::optional<Color> oCaption = hst::ribbon::CoatColor(*pCaption, style(false, false));
++    CPPUNIT_ASSERT(oCaption);
++    CPPUNIT_ASSERT_EQUAL(hst::ribbon::captionColor(style(false, false)), *oCaption);
++    CPPUNIT_ASSERT(!hst::ribbon::CoatColor(*pOwn, style(false, false)));
++    CPPUNIT_ASSERT_EQUAL(COL_LIGHTRED, pOwn->GetControlForeground());
++    CPPUNIT_ASSERT(!hst::ribbon::CoatColor(*pPage, style(false, false))); // the page paints no text or line
++
++    // dark: the dark tokens, chosen when painting
++    applyStyle(*pPage, true, false);
++    hst::ribbon::CoatPages(*pPage);
++    CPPUNIT_ASSERT_EQUAL(palette(true).aFrameSurface, pPage->GetControlBackground());
++    CPPUNIT_ASSERT_EQUAL(hst::ribbon::captionColor(style(true, false)),
++                         *hst::ribbon::CoatColor(*pCaption, style(true, false)));
++
++    // high contrast: the page's own background, captions as before
++    applyStyle(*pPage, false, true);
++    hst::ribbon::CoatPages(*pPage);
++    CPPUNIT_ASSERT(!pPage->IsControlBackground());
++    CPPUNIT_ASSERT(!hst::ribbon::CoatColor(*pCaption, style(false, true)));
++    CPPUNIT_ASSERT_EQUAL(COL_LIGHTRED, pOwn->GetControlForeground());
++
++    pCaption.disposeAndClear();
++    pOwn.disposeAndClear();
++
++    for (bool bVertical : { true, false })
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(5, 40));
++        hst::ribbon::DrawDivider(*pDev, Size(5, 40), bVertical, p.aFrameDivider);
++        if (bVertical)
++        {
++            assertPixel("vertical divider", *pDev, 2, 20, p.aFrameDivider, 0);
++            assertPixel("one pixel wide", *pDev, 1, 20, MARKER, 0);
++            assertPixel("one pixel wide", *pDev, 3, 20, MARKER, 0);
++        }
++        else
++        {
++            assertPixel("horizontal divider", *pDev, 2, 19, p.aFrameDivider, 0);
++            assertPixel("one pixel high", *pDev, 2, 18, MARKER, 0);
++            assertPixel("one pixel high", *pDev, 2, 20, MARKER, 0);
++        }
++    }
++}
++
++/* The sidebar's tab look: the open deck's tab on the pill with the indicator bar, TabIndicator wide,
++   on its leading edge; hover and pressed; flat at rest; the toolbox's size does not change; the
++   sidebar's switch turns it off. */
++CPPUNIT_TEST_FIXTURE(RibbonCoatTest, testSidebarTabLook)
++{
++    using hst::ribbon::ButtonLook;
++    const auto& p = palette(false);
++    const tools::Rectangle aRect(Point(), Size(40, 32));
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRect.GetSize());
++        CPPUNIT_ASSERT(!hst::ribbon::DrawLookButton(*pDev, aRect, ButtonLook::Native, 0, true, true));
++        CPPUNIT_ASSERT(hst::ribbon::DrawLookButton(*pDev, aRect, ButtonLook::SidebarTab, 0, true, true));
++        assertPixel("the pill", *pDev, 20, 16, p.aPill);
++        assertPixel("the bar", *pDev, 0, 16, p.aSelectedIndicator);
++        assertPixel("the bar, second column", *pDev, 1, 16, p.aSelectedIndicator);
++        assertPixel("after the bar", *pDev, 2, 16, p.aPill);
++        assertPixel("the trailing edge has no bar", *pDev, 39, 16, p.aPill);
++        assertPixel("rounded corner", *pDev, 0, 0, MARKER);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRect.GetSize());
++        hst::ribbon::DrawLookButton(*pDev, aRect, ButtonLook::SidebarTab, 2, false, true);
++        assertPixel("hover", *pDev, 20, 16, p.aHover);
++        assertPixel("hover: no bar", *pDev, 0, 16, p.aHover);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRect.GetSize());
++        CPPUNIT_ASSERT(hst::ribbon::DrawLookButton(*pDev, aRect, ButtonLook::SidebarTab, 0, false, true));
++        assertPixel("at rest: flat", *pDev, 20, 16, MARKER);
++    }
++
++    ScopedVclPtrInstance<WorkWindow> pWin(nullptr, WB_STDWORK);
++    VclPtr<ToolBox> pBox = VclPtr<ToolBox>::Create(pWin.get(), WB_3DLOOK);
++    pBox->InsertItem(ToolBoxItemId(1), u"Properties"_ustr, u".uno:Properties"_ustr);
++    pBox->InsertItem(ToolBoxItemId(2), u"Styles"_ustr, u".uno:Styles"_ustr);
++    pBox->CheckItem(ToolBoxItemId(1));
++    const Size aBefore = pBox->CalcWindowSizePixel();
++    CPPUNIT_ASSERT(hst::ribbon::GetButtonLook(*pBox) == ButtonLook::Native);
++    hst::ribbon::SetButtonLook(*pBox, ButtonLook::SidebarTab);
++    CPPUNIT_ASSERT(hst::ribbon::GetButtonLook(*pBox) == ButtonLook::SidebarTab);
++    CPPUNIT_ASSERT_EQUAL(aBefore, pBox->CalcWindowSizePixel());
++    pBox.disposeAndClear();
++
++    setSwitches(true, true, false);
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRect.GetSize());
++    CPPUNIT_ASSERT(!hst::ribbon::DrawLookButton(*pDev, aRect, ButtonLook::SidebarTab, 0, true, true));
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/control/HstRibbonCoat.cxx
+@@ -0,0 +1,332 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* The ribbon (the Tabbed notebookbar) in the frame coat of the HST look: its surface, its group
++   dividers and captions, its buttons and tabs in the frame colours of the design tokens, and the
++   paint-only button looks other toolboxes may take (<vcl/HstRibbonPaint.hxx>). Flat: no gradient
++   anywhere in the ribbon. Nothing here changes a size. */
++
++#include <vcl/HstRibbonPaint.hxx>
++
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/drawhelpers.hxx>
++#include <vcl/hst/framecoat.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/toolbox.hxx>
++#include <vcl/toolkit/fixed.hxx>
++#include <vcl/vclevent.hxx>
++#include <vcl/weld/Toolbar.hxx>
++
++#include <HstRibbonCoat.hxx>
++#include <salvtables.hxx>
++#include <toolbox.h>
++
++#include <algorithm>
++#include <array>
++#include <cmath>
++#include <unordered_map>
++
++namespace hst::ribbon
++{
++namespace
++{
++namespace d = hst::design;
++
++/// a length of the tokens in device pixels, whole and at least one
++tools::Long px(const OutputDevice& rDev, double fLogical)
++{
++    return std::max<tools::Long>(1, std::lround(fLogical * rDev.GetDPIScaleFactor()));
++}
++
++/** A rounded shape with the shared helper, which lays it on pixel edges for every backend; a
++    mirrored (RTL) device takes the plain rounded rectangle, as the helper wants unmirrored pixels. */
++void roundRect(vcl::RenderContext& rDev, const tools::Rectangle& rRect, double fRadius, const Color& rFill,
++               const Color& rBorder)
++{
++    if (rDev.HasMirroredGraphics() && rDev.IsRTLEnabled())
++    {
++        auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++        rDev.SetFillColor(rFill);
++        if (rBorder == COL_TRANSPARENT)
++            rDev.SetLineColor();
++        else
++            rDev.SetLineColor(rBorder);
++        const tools::Long nRadius = std::lround(fRadius);
++        rDev.DrawRect(rRect, nRadius, nRadius);
++        return;
++    }
++    d::DrawRoundRect(rDev, rRect, fRadius, rFill, rBorder, d::stroke::Border);
++}
++
++/// the radius of a control, at most half the shorter side (DrawRoundRect clamps it the same way)
++double controlRadius(const OutputDevice& rDev) { return d::radius::Control * rDev.GetDPIScaleFactor(); }
++
++/// WCAG relative luminance
++double luminance(const Color& rColor)
++{
++    auto channel = [](sal_uInt8 n) {
++        const double f = n / 255.0;
++        return f <= 0.04045 ? f / 12.92 : std::pow((f + 0.055) / 1.055, 2.4);
++    };
++    return 0.2126 * channel(rColor.GetRed()) + 0.7152 * channel(rColor.GetGreen())
++           + 0.0722 * channel(rColor.GetBlue());
++}
++
++double contrast(const Color& rA, const Color& rB)
++{
++    const double fA = luminance(rA), fB = luminance(rB);
++    return (std::max(fA, fB) + 0.05) / (std::min(fA, fB) + 0.05);
++}
++
++Color captionColorOf(const d::Palette& rPalette)
++{
++    // once per palette: the palettes are constant
++    static const std::array<Color, 2> aCaption = [] {
++        std::array<Color, 2> a;
++        for (bool bDark : { false, true })
++        {
++            const d::Palette& r = d::GetPalette(bDark);
++            a[bDark] = contrast(r.aMuted, r.aFrameSurface) >= 4.5 ? r.aMuted : r.aRibbon.aCaption;
++        }
++        return a;
++    }();
++    return aCaption[rPalette.bDark];
++}
++
++/// the parts CoatPages took in; forgotten when their window dies
++enum class Part
++{
++    Page,
++    Divider,
++    Caption,
++};
++
++std::unordered_map<const vcl::Window*, Part>& parts()
++{
++    static std::unordered_map<const vcl::Window*, Part> aParts;
++    return aParts;
++}
++
++struct Forgetter
++{
++    DECL_STATIC_LINK(Forgetter, DyingHdl, VclWindowEvent&, void);
++};
++
++IMPL_STATIC_LINK(Forgetter, DyingHdl, VclWindowEvent&, rEvent, void)
++{
++    if (rEvent.GetId() == VclEventId::ObjectDying)
++        parts().erase(rEvent.GetWindow());
++}
++
++void remember(vcl::Window& rWindow, Part ePart)
++{
++    if (parts().emplace(&rWindow, ePart).second)
++        rWindow.AddEventListener(LINK(nullptr, Forgetter, DyingHdl));
++}
++
++/// the dividers and captions under rWindow (a caption with a colour of its own keeps it)
++void takeIn(vcl::Window& rWindow)
++{
++    for (vcl::Window* pChild = rWindow.GetWindow(GetWindowType::FirstChild); pChild;
++         pChild = pChild->GetWindow(GetWindowType::Next))
++    {
++        if (FixedLine* pLine = dynamic_cast<FixedLine*>(pChild))
++        {
++            if ((pLine->GetStyle() & WB_VERT) && pLine->GetText().isEmpty())
++                remember(*pLine, Part::Divider);
++        }
++        else if (FixedText* pText = dynamic_cast<FixedText*>(pChild))
++        {
++            if (!pText->IsControlForeground())
++                remember(*pText, Part::Caption);
++        }
++        takeIn(*pChild);
++    }
++}
++}
++
++bool coatActive(const StyleSettings& rStyle)
++{
++    return ownerDrawEnabled() && hst::coat::FrameCoatActive(hst::coat::FrameComponent::Ribbon, rStyle);
++}
++
++Color captionColor(const StyleSettings& rStyle) { return captionColorOf(d::GetPalette(rStyle)); }
++
++void DrawSurface(vcl::RenderContext& rDev, const tools::Rectangle& rArea)
++{
++    if (rArea.IsEmpty())
++        return;
++    const d::Palette& rPalette = d::GetPalette(rDev.GetSettings().GetStyleSettings());
++    auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    rDev.SetLineColor();
++    rDev.SetFillColor(rPalette.aFrameSurface);
++    rDev.DrawRect(rArea);
++    // the divider between the ribbon and the document: whole pixel rows, axis-parallel, so crisp
++    // (one device pixel at every scale, as the groups' dividers)
++    rDev.SetFillColor(rPalette.aFrameDivider);
++    rDev.DrawRect(tools::Rectangle(Point(rArea.Left(), rArea.Bottom()), Size(rArea.GetWidth(), 1)));
++}
++
++void CoatPages(vcl::Window& rPage)
++{
++    auto it = parts().find(&rPage);
++    if (it == parts().end())
++    {
++        if (rPage.IsControlBackground())
++            return; // a page with a background of its own keeps its look
++        remember(rPage, Part::Page);
++        takeIn(rPage);
++    }
++    else if (it->second != Part::Page)
++        return;
++    const StyleSettings& rStyle = rPage.GetSettings().GetStyleSettings();
++    if (coatActive(rStyle))
++    {
++        const Color aSurface = d::GetPalette(rStyle).aFrameSurface;
++        if (!rPage.IsControlBackground() || rPage.GetControlBackground() != aSurface)
++            rPage.SetControlBackground(aSurface);
++    }
++    else if (rPage.IsControlBackground())
++        rPage.SetControlBackground();
++}
++
++std::optional<Color> CoatColor(const vcl::Window& rWindow, const StyleSettings& rStyle)
++{
++    if (parts().empty())
++        return {};
++    const auto it = parts().find(&rWindow);
++    if (it == parts().end() || it->second == Part::Page || !coatActive(rStyle))
++        return {};
++    const d::Palette& rPalette = d::GetPalette(rStyle);
++    return it->second == Part::Divider ? rPalette.aFrameDivider : captionColorOf(rPalette);
++}
++
++void DrawDivider(vcl::RenderContext& rDev, const Size& rSize, bool bVertical, const Color& rColor)
++{
++    auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    rDev.SetLineColor();
++    rDev.SetFillColor(rColor);
++    if (bVertical)
++        rDev.DrawRect(tools::Rectangle(Point((rSize.Width() - 1) / 2, 0), Size(1, rSize.Height())));
++    else
++        rDev.DrawRect(tools::Rectangle(Point(0, (rSize.Height() - 1) / 2), Size(rSize.Width(), 1)));
++}
++
++void SetButtonLook(ToolBox& rToolBox, ButtonLook eLook)
++{
++    int& rLook = rToolBox.ImplGetToolBoxPrivateData()->mnHstButtonLook;
++    if (rLook == int(eLook))
++        return;
++    rLook = int(eLook);
++    rToolBox.Invalidate();
++}
++
++void SetButtonLook(weld::Toolbar& rToolbar, ButtonLook eLook)
++{
++    if (SalInstanceWidget* pWidget = dynamic_cast<SalInstanceWidget*>(&rToolbar))
++        if (ToolBox* pToolBox = dynamic_cast<ToolBox*>(pWidget->getWidget()))
++            SetButtonLook(*pToolBox, eLook);
++}
++
++bool keepsSurface(const ToolBox& rToolBox, const StyleSettings& rStyle)
++{
++    const ImplToolBoxPrivateData& rData = *rToolBox.ImplGetToolBoxPrivateData();
++    return (rData.mbHstOwnerDraw && coatActive(rStyle))
++           || (ButtonLook(rData.mnHstButtonLook) == ButtonLook::SidebarTab
++               && hst::coat::FrameCoatActive(hst::coat::FrameComponent::Sidebar, rStyle));
++}
++
++ButtonLook GetButtonLook(const ToolBox& rToolBox)
++{
++    return ButtonLook(rToolBox.ImplGetToolBoxPrivateData()->mnHstButtonLook);
++}
++
++bool DrawLookButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect, ButtonLook eLook,
++                    sal_uInt16 nHighlight, bool bChecked, bool bEnabled)
++{
++    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++    if (eLook != ButtonLook::SidebarTab
++        || !hst::coat::FrameCoatActive(hst::coat::FrameComponent::Sidebar, rStyle) || rRect.IsEmpty())
++        return false;
++    const d::Palette& rPalette = d::GetPalette(rStyle);
++    const bool bPressed = bEnabled && nHighlight == 1;
++    const bool bHover = bEnabled && nHighlight == 2;
++    if (!bPressed && !bHover && !bChecked)
++        return true; // flat: the tab bar's surface shows through
++    const double fRadius = controlRadius(rDev);
++    roundRect(rDev, rRect,
++              fRadius, bPressed ? rPalette.aPressed : bChecked ? rPalette.aPill : rPalette.aHover,
++              COL_TRANSPARENT);
++    if (bChecked)
++    {
++        // the accent bar on the pill's leading edge (a mirrored device puts it on the right), over the
++        // straight part of that edge
++        const tools::Long nBar = px(rDev, d::size::TabIndicator);
++        const tools::Long nInset
++            = std::min<tools::Long>(std::lround(std::min(fRadius, rRect.GetHeight() / 2.0)), rRect.GetHeight() / 4);
++        auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++        rDev.SetLineColor();
++        rDev.SetFillColor(rPalette.aSelectedIndicator);
++        rDev.DrawRect(tools::Rectangle(Point(rRect.Left(), rRect.Top() + nInset),
++                                       Size(nBar, std::max<tools::Long>(1, rRect.GetHeight() - 2 * nInset))));
++    }
++    return true;
++}
++
++namespace coat
++{
++void DrawButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect, sal_uInt16 nHighlight, bool bChecked,
++                bool bEnabled)
++{
++    const d::Palette& rPalette = d::GetPalette(rDev.GetSettings().GetStyleSettings());
++    // pressed is stronger than checked; checked keeps its border while hovered or pressed
++    const bool bPressed = bEnabled && nHighlight == 1;
++    const bool bHover = bEnabled && nHighlight == 2;
++    if (!bPressed && !bHover && !bChecked)
++        return; // the ribbon's surface shows through
++    const Color aFill = bPressed || (bChecked && bHover) ? rPalette.aPressed
++                        : bChecked                        ? rPalette.aPill
++                                                          : rPalette.aHover;
++    roundRect(rDev, rRect, controlRadius(rDev), aFill,
++              bChecked ? rPalette.aSelectedIndicator : COL_TRANSPARENT);
++}
++
++void DrawTab(vcl::RenderContext& rDev, const tools::Rectangle& rItem, tools::Long nLabelWidth, bool bSelected,
++             bool bHover)
++{
++    const d::Palette& rPalette = d::GetPalette(rDev.GetSettings().GetStyleSettings());
++    if (bHover && !bSelected)
++    {
++        // the light hover pill, inside the tab (D6: the selected tab has its underline only)
++        tools::Rectangle aFill(rItem);
++        const tools::Long nInset = px(rDev, d::space::XXS);
++        aFill.AdjustLeft(nInset);
++        aFill.AdjustTop(nInset);
++        aFill.AdjustRight(-nInset);
++        aFill.AdjustBottom(-nInset);
++        roundRect(rDev, aFill, controlRadius(rDev), rPalette.aHover, COL_TRANSPARENT);
++    }
++    if (bSelected)
++    {
++        // the underline under the label: TabIndicator thick, as wide as the label (at least 16 px)
++        const tools::Long nBar = px(rDev, d::size::TabIndicator);
++        const tools::Long nPad = px(rDev, 6);
++        const tools::Long nMax = std::max<tools::Long>(1, rItem.GetWidth() - 2 * nPad);
++        const tools::Long nWidth = std::clamp<tools::Long>(nLabelWidth, std::min(px(rDev, 16), nMax), nMax);
++        const tools::Long nX = rItem.Left() + (rItem.GetWidth() - nWidth) / 2;
++        const tools::Long nY = rItem.Bottom() - nBar - px(rDev, 1);
++        // a plain rectangle of whole pixels: crisp, and the same on a mirrored device
++        auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++        rDev.SetLineColor();
++        rDev.SetFillColor(rPalette.aSelectedIndicator);
++        rDev.DrawRect(tools::Rectangle(Point(nX, nY), Size(nWidth, nBar)));
++    }
++}
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/control/HstRibbonPaint.cxx
++++ b/vcl/source/control/HstRibbonPaint.cxx
+@@ -16,6 +16,7 @@
+ #include <tools/poly.hxx>
+ #include <vcl/toolbox.hxx>
+ 
++#include <HstRibbonCoat.hxx>
+ #include <HstRibbonGeometry.hxx>
+ #include <toolbox.h>
+ 
+@@ -70,6 +71,11 @@ bool DrawToolButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect, sal
+     const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
+     if (!ownerDrawAllowed(rStyle))
+         return false;
++    if (coatActive(rStyle))
++    {
++        coat::DrawButton(rDev, rRect, nHighlight, bChecked, bEnabled);
++        return true;
++    }
+     const Palette aPalette = paletteFor(rStyle);
+     // pressed is stronger than checked; checked keeps its border while hovered
+     const bool bPressed = bEnabled && nHighlight == 1;
+@@ -96,6 +102,11 @@ bool DrawToolButton(vcl::RenderContext& rDev, const tools::Rectangle& rRect, sal
+ void DrawTabItem(vcl::RenderContext& rDev, const tools::Rectangle& rItem, tools::Long nLabelWidth,
+                  bool bSelected, bool bHover)
+ {
++    if (coatActive(rDev.GetSettings().GetStyleSettings()))
++    {
++        coat::DrawTab(rDev, rItem, nLabelWidth, bSelected, bHover);
++        return;
++    }
+     const Palette aPalette = paletteFor(rDev.GetSettings().GetStyleSettings());
+     rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
+     rDev.SetLineColor();
+--- a/vcl/source/control/fixed.cxx
++++ b/vcl/source/control/fixed.cxx
+@@ -19,6 +19,7 @@
+ 
+ #include <accessibility/vclxaccessiblefixedtext.hxx>
+ 
++#include <vcl/HstRibbonPaint.hxx>
+ #include <vcl/cvtgrf.hxx>
+ #include <vcl/decoview.hxx>
+ #include <vcl/event.hxx>
+@@ -198,6 +199,9 @@ void FixedText::ApplySettings(vcl::RenderContext& rRenderContext)
+         SetPaintTransparent(true);
+         rRenderContext.SetBackground();
+     }
++    // HST Office: a ribbon group's caption in the frame coat (HstRibbonPaint.hxx CoatPages)
++    if (const std::optional<Color> oHst = hst::ribbon::CoatColor(*this, rRenderContext.GetSettings().GetStyleSettings()))
++        rRenderContext.SetTextColor(*oHst);
+ }
+ 
+ void FixedText::Paint( vcl::RenderContext& rRenderContext, const tools::Rectangle& )
+@@ -521,7 +525,13 @@ void FixedLine::ImplDraw(vcl::RenderContext& rRenderContext)
+     WinBits nWinStyle = GetStyle();
+ 
+     DecorationView aDecoView(&rRenderContext);
+-    if (aText.isEmpty())
++    // HST Office: a ribbon group's divider in the frame coat (HstRibbonPaint.hxx CoatPages)
++    const std::optional<Color> oHst
++        = aText.isEmpty() ? hst::ribbon::CoatColor(*this, rRenderContext.GetSettings().GetStyleSettings())
++                          : std::optional<Color>();
++    if (oHst)
++        hst::ribbon::DrawDivider(rRenderContext, aOutSize, bool(nWinStyle & WB_VERT), *oHst);
++    else if (aText.isEmpty())
+     {
+         if (nWinStyle & WB_VERT)
+         {
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -1031,6 +1031,8 @@ void TabControl::ImplDrawItem(vcl::RenderContext& rRenderContext, ImplTabItem co
+             aColor = aHstFileText;
+         else if (bHstContextual)
+             aColor = hst::ribbon::paletteFor(rStyleSettings).aTabAccent;
++        else if (bHstOwnerDraw && hst::ribbon::coatActive(rStyleSettings))
++            aColor = hst::design::GetPalette(rStyleSettings).aText; // on the frame surface (HST look)
+ 
+         Color aOldColor(rRenderContext.GetTextColor());
+         rRenderContext.SetTextColor(aColor);
+@@ -1200,7 +1202,12 @@ void TabControl::Paint( vcl::RenderContext& rRenderContext, const tools::Rectang
+         aRect.AdjustRight(10 );
+     }
+ 
+-    if (rRenderContext.IsNativeControlSupported(ControlType::TabPane, ControlPart::Entire))
++    // HST Office: the ribbon in the frame coat is one flat surface on every platform (HstRibbonPaint.hxx)
++    const bool bHstCoat = dynamic_cast<NotebookbarTabControlBase*>(this)
++                          && hst::ribbon::coatActive(rStyleSettings);
++    if (bHstCoat)
++        hst::ribbon::DrawSurface(rRenderContext, tools::Rectangle(Point(), GetOutputSizePixel()));
++    else if (rRenderContext.IsNativeControlSupported(ControlType::TabPane, ControlPart::Entire))
+     {
+         const bool bPaneWithHeader = mbShowTabs && rRenderContext.IsNativeControlSupported(ControlType::TabPane, ControlPart::TabPaneWithHeader);
+         tools::Rectangle aHeaderRect(aRect.Left(), 0, aRect.Right(), aRect.Top());
+@@ -1295,7 +1302,7 @@ void TabControl::Paint( vcl::RenderContext& rRenderContext, const tools::Rectang
+         }
+     }
+ 
+-    if (dynamic_cast<NotebookbarTabControlBase*>(this) && lcl_ribbonNeedsOwnPanel())
++    if (!bHstCoat && dynamic_cast<NotebookbarTabControlBase*>(this) && lcl_ribbonNeedsOwnPanel())
+     {
+         // tab strip in the dialog colour, panel area (with the groups) in the window colour; the module
+         // tint of NotebookBar::UpdateBackground() stays visible only around the tab control
+--- a/vcl/source/hst/coat/css/ribbon.cxx
++++ b/vcl/source/hst/coat/css/ribbon.cxx
+@@ -5,7 +5,10 @@
+  * This file is part of HST Office.
+  */
+ 
+-/* The GTK CSS of the ribbon (the Tabbed notebookbar) in the HST look (css-fragments.hxx). */
++/* The GTK CSS of the ribbon (the Tabbed notebookbar) in the HST look (css-fragments.hxx). The ribbon
++   is a VCL widget tree on gtk3 too (the interim builder), so its frame coat is drawn by VCL on every
++   platform (vcl/source/control/HstRibbonCoat.cxx), and its native fields and boxes take the dialogs'
++   CSS of the coat. Nothing of its own here: CSS must not reach the GTK widgets of other windows. */
+ 
+ #include "css-fragments.hxx"
+ 
+--- a/vcl/source/window/toolbox.cxx
++++ b/vcl/source/window/toolbox.cxx
+@@ -48,6 +48,7 @@
+ #include <HstRibbonGeometry.hxx>
+ #include <HstRibbonGrid.hxx>
+ #include <vcl/HstRibbonPaint.hxx>
++#include <HstRibbonCoat.hxx>
+ #include <spin.hxx>
+ #if defined(_WIN32)
+ #include <win/svsys.h>
+@@ -679,8 +680,10 @@ void ToolBox::ImplErase(vcl::RenderContext& rRenderContext, const tools::Rectang
+     // the background of non NWF buttons is painted in a constant color
+     // to have the same highlight color (transparency in DrawSelectionBackground())
+     // items with open popups will also painted using a constant color
++    // HST Office: rounded buttons of the frame coat lie on the parent's surface (HstRibbonCoat.hxx)
+     if (!mpData->mbNativeButtons &&
+-        (bHighlight || !(GetStyle() & WB_3DLOOK)))
++        (bHighlight || !(GetStyle() & WB_3DLOOK))
++        && !hst::ribbon::keepsSurface(*this, rRenderContext.GetSettings().GetStyleSettings()))
+     {
+         if (GetStyle() & WB_3DLOOK)
+         {
+@@ -2874,6 +2877,11 @@ void ToolBox::ImplDrawButton(vcl::RenderContext& rRenderContext, const tools::Re
+     if (mpData->mbHstOwnerDraw && !bIsWindow
+         && hst::ribbon::DrawToolButton(rRenderContext, rRect, highlight, bChecked, bEnabled))
+         return;
++    // HST Office: a toolbox with a paint-only button look (the sidebar's tab bar); sizes stay
++    if (mpData->mnHstButtonLook && !bIsWindow
++        && hst::ribbon::DrawLookButton(rRenderContext, rRect, hst::ribbon::ButtonLook(mpData->mnHstButtonLook),
++                                       highlight, bChecked, bEnabled))
++        return;
+ 
+     bool bNativeOk = false;
+     if( !bIsWindow && rRenderContext.IsNativeControlSupported( ControlType::Toolbar, ControlPart::Button ) )
+@@ -3023,7 +3031,9 @@ void ToolBox::ImplDrawItem(vcl::RenderContext& rRenderContext, ImplToolItems::si
+         {
+             // HST Office: the two parts of a split large button
+             auto popLine = rRenderContext.ScopedPush(vcl::PushFlags::LINECOLOR);
+-            rRenderContext.SetLineColor(rStyleSettings.GetSeparatorColor());
++            rRenderContext.SetLineColor(mpData->mbHstOwnerDraw && hst::ribbon::coatActive(rStyleSettings)
++                                            ? hst::design::GetPalette(rStyleSettings).aFrameDivider
++                                            : rStyleSettings.GetSeparatorColor());
+             const tools::Long nY = pItem->maRect.Top() + pItem->mnHstSplitTop;
+             rRenderContext.DrawLine(Point(pItem->maRect.Left() + 2, nY), Point(pItem->maRect.Right() - 2, nY));
+         }

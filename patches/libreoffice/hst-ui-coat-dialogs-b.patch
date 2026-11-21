@@ -1,0 +1,1206 @@
+HST Office: Sheets and chart dialogs follow the dialog layout rulebook (labels, margins, group gaps, fit).
+
+Layout properties only in the .ui files of Format Cells (Sheets frame, Numbers, Alignment, Protection), Sort,
+Standard/Advanced Filter, Insert/Delete Cells, Manage/Define Name, Data Validation, Conditional Formatting and its
+manager, Sheets Page Style (Sheet and Scale pages), Headers/Footers, Row Height/Column Width, Text Import, Goal
+Seek, Solver, Subtotals, Consolidate, Pivot Table, Paste Special, Protect Sheet, Duplicate Records, Sparkline,
+Define Database/Table Range, Show Sheet, the Function Wizard, the chart dialogs and wizard pages, and the Statistics
+and CMIS pages of Document Properties (so its tabs keep one margin); no widget, id,
+label, string, order, handler or accessibility change. Values from hst::design::layout:
+- a label in front of its control starts at the start of its column (xalign 0) instead of being centred or
+  right-aligned;
+- the inner margin is DialogMargin 12 once: tab pages and wizard step pages get 12, a dialog without tabs gets 12,
+  a tabbed dialog keeps 6 around its tabs; groups stacked in one box are GroupGap 12 apart, group content is
+  indented 12;
+- no ellipsized label in these dialogs (Vietnamese text shows in full);
+- radio buttons side by side in Handle Duplicate Records keep 12 px; the conditional-format rule summary wraps
+  (at most 60 characters wide) instead of being cut.
+Two size hooks in code: the Function Wizard's function list is 13 rows high instead of 15 so the wizard fits a
+1366x768 screen with GTK's taller rows, and the VCL wizard places Back and Next 6 px apart (was 3) like every
+other button pair. Checked by tests/unit/test_ui_layout_rulebook.py (static) and
+tests/runtime/hst_dialog_layout_check.py with tests/runtime/data/dialog-layout-b.json (on screen).
+
+--- a/chart2/uiconfig/ui/tp_AxisPositions.ui
++++ b/chart2/uiconfig/ui/tp_AxisPositions.ui
+@@ -15,9 +15,9 @@
+   <object class="GtkBox" id="tp_AxisPositions">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+-    <property name="spacing">6</property>
++    <property name="spacing">12</property>
+     <child>
+       <object class="GtkFrame" id="FL_AXIS_LINE">
+         <property name="visible">True</property>
+--- a/chart2/uiconfig/ui/tp_ChartType.ui
++++ b/chart2/uiconfig/ui/tp_ChartType.ui
+@@ -39,7 +39,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="spacing">12</property>
+     <child>
+       <object class="GtkBox" id="box1">
+@@ -418,7 +418,6 @@
+                             <property name="label" translatable="yes" context="tp_ChartType|nolinesft">_Number of lines</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">nolines</property>
+-                            <property name="ellipsize">end</property>
+                             <property name="xalign">0</property>
+                           </object>
+                           <packing>
+@@ -463,7 +462,6 @@
+                             <property name="label" translatable="yes" context="tp_ChartType|compositesizeft">_Size of composite wedge</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">compositesize</property>
+-                            <property name="ellipsize">end</property>
+                             <property name="xalign">0</property>
+                           </object>
+                           <packing>
+--- a/chart2/uiconfig/ui/tp_DataLabel.ui
++++ b/chart2/uiconfig/ui/tp_DataLabel.ui
+@@ -10,7 +10,7 @@
+   <object class="GtkBox" id="tp_DataLabel">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="spacing">12</property>
+     <child>
+       <object class="GtkBox">
+@@ -18,6 +18,7 @@
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="orientation">vertical</property>
++        <property name="spacing">12</property>
+         <child>
+           <object class="GtkFrame" id="frame1">
+             <property name="visible">True</property>
+@@ -361,6 +362,7 @@
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="orientation">vertical</property>
++        <property name="spacing">12</property>
+         <child>
+           <object class="GtkFrame" id="frame2">
+             <property name="visible">True</property>
+@@ -450,6 +452,7 @@
+                         <property name="label" translatable="yes" context="tp_DataLabel|FT_LABEL_TEXTDIR">Te_xt direction</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">LB_LABEL_TEXTDIR</property>
++                        <property name="xalign">0</property>
+                       </object>
+                       <packing>
+                         <property name="expand">False</property>
+--- a/chart2/uiconfig/ui/tp_DataPointOption.ui
++++ b/chart2/uiconfig/ui/tp_DataPointOption.ui
+@@ -16,7 +16,7 @@
+   <object class="GtkBox" id="tp_DataPointOption">
+     <property name="visible">True</property>
+     <property name="can_focus">False</property>
+-    <property name="border_width">6</property>
++    <property name="border_width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">6</property>
+     <child>
+--- a/chart2/uiconfig/ui/tp_DataSource.ui
++++ b/chart2/uiconfig/ui/tp_DataSource.ui
+@@ -48,7 +48,7 @@
+     <property name="can_focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border_width">6</property>
++    <property name="border_width">12</property>
+     <property name="column_spacing">6</property>
+     <child>
+       <!-- n-columns=1 n-rows=1 -->
+--- a/chart2/uiconfig/ui/tp_ErrorBars.ui
++++ b/chart2/uiconfig/ui/tp_ErrorBars.ui
+@@ -25,9 +25,9 @@
+   <object class="GtkBox" id="tp_ErrorBars">
+     <property name="visible">True</property>
+     <property name="can_focus">False</property>
+-    <property name="border_width">6</property>
++    <property name="border_width">12</property>
+     <property name="orientation">vertical</property>
+-    <property name="spacing">6</property>
++    <property name="spacing">12</property>
+     <child>
+       <object class="GtkBox" id="box2">
+         <property name="visible">True</property>
+@@ -383,6 +383,7 @@
+                     <property name="label" translatable="yes" context="tp_ErrorBars|FT_POSITIVE">P_ositive (+)</property>
+                     <property name="use_underline">True</property>
+                     <property name="mnemonic_widget">MF_POSITIVE</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -467,6 +468,7 @@
+                     <property name="label" translatable="yes" context="tp_ErrorBars|FT_NEGATIVE">_Negative (-)</property>
+                     <property name="use_underline">True</property>
+                     <property name="mnemonic_widget">MF_NEGATIVE</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+--- a/chart2/uiconfig/ui/tp_LegendPosition.ui
++++ b/chart2/uiconfig/ui/tp_LegendPosition.ui
+@@ -5,7 +5,7 @@
+   <object class="GtkBox" id="tp_LegendPosition">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">12</property>
+     <child>
+--- a/chart2/uiconfig/ui/tp_PolarOptions.ui
++++ b/chart2/uiconfig/ui/tp_PolarOptions.ui
+@@ -10,9 +10,9 @@
+   <object class="GtkBox" id="tp_PolarOptions">
+     <property name="visible">True</property>
+     <property name="can_focus">False</property>
+-    <property name="border_width">6</property>
++    <property name="border_width">12</property>
+     <property name="orientation">vertical</property>
+-    <property name="spacing">6</property>
++    <property name="spacing">12</property>
+     <child>
+       <object class="GtkFrame" id="frame1">
+         <property name="visible">True</property>
+--- a/chart2/uiconfig/ui/tp_RangeChooser.ui
++++ b/chart2/uiconfig/ui/tp_RangeChooser.ui
+@@ -13,7 +13,7 @@
+     <property name="visible">True</property>
+     <property name="can_focus">False</property>
+     <property name="hexpand">True</property>
+-    <property name="border_width">6</property>
++    <property name="border_width">12</property>
+     <child>
+       <!-- n-columns=1 n-rows=1 -->
+       <object class="GtkGrid" id="box1">
+@@ -244,6 +244,7 @@
+                 <property name="label" translatable="yes" context="tp_RangeChooser|label1">Start Table Index</property>
+                 <property name="use_underline">True</property>
+                 <property name="mnemonic_widget">ED_TIME_BASED_START</property>
++                <property name="xalign">0</property>
+               </object>
+               <packing>
+                 <property name="left_attach">0</property>
+@@ -257,6 +258,7 @@
+                 <property name="label" translatable="yes" context="tp_RangeChooser|label2">End Table Index</property>
+                 <property name="use_underline">True</property>
+                 <property name="mnemonic_widget">ED_TIME_BASED_END</property>
++                <property name="xalign">0</property>
+               </object>
+               <packing>
+                 <property name="left_attach">2</property>
+--- a/chart2/uiconfig/ui/tp_SeriesToAxis.ui
++++ b/chart2/uiconfig/ui/tp_SeriesToAxis.ui
+@@ -16,9 +16,9 @@
+   <object class="GtkBox" id="TP_OPTIONS">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+-    <property name="spacing">6</property>
++    <property name="spacing">12</property>
+     <child>
+       <object class="GtkFrame" id="frameGrpAxis">
+         <property name="visible">True</property>
+@@ -123,6 +123,7 @@
+                     <property name="label" translatable="yes" context="tp_SeriesToAxis|FT_GAP">_Spacing</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">MT_GAP</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -136,6 +137,7 @@
+                     <property name="label" translatable="yes" context="tp_SeriesToAxis|FT_OVERLAP">_Overlap</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">MT_OVERLAP</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+--- a/chart2/uiconfig/ui/tp_Trendline.ui
++++ b/chart2/uiconfig/ui/tp_Trendline.ui
+@@ -32,7 +32,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="spacing">12</property>
+     <child>
+       <object class="GtkFrame" id="frame1">
+@@ -213,6 +213,7 @@
+                 <property name="label" translatable="yes" context="tp_Trendline|label3">Degree</property>
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">degree</property>
++                <property name="xalign">0</property>
+                 <child internal-child="accessible">
+                   <object class="AtkObject" id="label3-atkobject">
+                     <property name="AtkObject::accessible-description" translatable="yes" context="tp_Trendline|extended_tip|label3">Degree of polynomial trend line.</property>
+@@ -280,6 +281,7 @@
+                 <property name="label" translatable="yes" context="tp_Trendline|label4">Period</property>
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">period</property>
++                <property name="xalign">0</property>
+                 <child internal-child="accessible">
+                   <object class="AtkObject" id="label4-atkobject">
+                     <property name="AtkObject::accessible-description" translatable="yes" context="tp_Trendline|extended_tip|label4">Number of points to calculate average of moving average trend line.</property>
+@@ -317,6 +319,7 @@
+                 <property name="label" translatable="yes" context="tp_Trendline|label10">_Type</property>
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">combo_moving_type</property>
++                <property name="xalign">0</property>
+                 <child internal-child="accessible">
+                   <object class="AtkObject" id="label10-atkobject">
+                     <property name="AtkObject::accessible-description" translatable="yes" context="tp_Trendline|extended_tip|label10">How the trend line is calculated.</property>
+--- a/chart2/uiconfig/ui/tp_axisLabel.ui
++++ b/chart2/uiconfig/ui/tp_axisLabel.ui
+@@ -11,7 +11,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">12</property>
+     <child>
+@@ -367,6 +367,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="label" translatable="yes" context="tp_axisLabel|textdirL">Te_xt direction:</property>
+                 <property name="use-underline">True</property>
++                <property name="xalign">0</property>
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+--- a/chart2/uiconfig/ui/wizelementspage.ui
++++ b/chart2/uiconfig/ui/wizelementspage.ui
+@@ -6,7 +6,7 @@
+     <property name="visible">True</property>
+     <property name="can_focus">False</property>
+     <property name="hexpand">True</property>
+-    <property name="border_width">6</property>
++    <property name="border_width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">12</property>
+     <child>
+--- a/cui/uiconfig/ui/cellalignment.ui
++++ b/cui/uiconfig/ui/cellalignment.ui
+@@ -15,7 +15,7 @@
+   <object class="GtkGrid" id="CellAlignPage">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="row-spacing">12</property>
+     <property name="column-spacing">6</property>
+     <child>
+--- a/cui/uiconfig/ui/numberingformatpage.ui
++++ b/cui/uiconfig/ui/numberingformatpage.ui
+@@ -56,7 +56,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="row-spacing">6</property>
+     <property name="column-spacing">12</property>
+     <child>
+@@ -435,7 +435,7 @@
+                     <property name="label" translatable="yes" context="numberingformatpage|decimalsft">_Decimal places:</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">decimalsed</property>
+-                    <property name="xalign">1</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -449,7 +449,7 @@
+                     <property name="label" translatable="yes" context="numberingformatpage|denominatorft">Den_ominator places:</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">denominatored</property>
+-                    <property name="xalign">1</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -470,7 +470,7 @@
+                 <property name="label" translatable="yes" context="numberingformatpage|leadzerosft">Leading _zeroes:</property>
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">leadzerosed</property>
+-                <property name="xalign">1</property>
++                <property name="xalign">0</property>
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+--- a/formula/uiconfig/ui/formuladialog.ui
++++ b/formula/uiconfig/ui/formuladialog.ui
+@@ -208,6 +208,7 @@
+                             <property name="label" translatable="yes" context="formuladialog|label2">Function result:</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">result</property>
++                            <property name="xalign">0</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">2</property>
+@@ -403,6 +404,7 @@
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">ed_formula</property>
+                             <property name="yalign">1</property>
++                            <property name="xalign">0</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+@@ -417,6 +419,7 @@
+                             <property name="label" translatable="yes" context="formuladialog|label1">Result:</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">formula_result</property>
++                            <property name="xalign">0</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+--- a/formula/uiconfig/ui/functionpage.ui
++++ b/formula/uiconfig/ui/functionpage.ui
+@@ -15,7 +15,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">6</property>
+     <child>
+@@ -26,6 +26,7 @@
+         <property name="label" translatable="yes" context="functionpage|label_search">_Search:</property>
+         <property name="use-underline">True</property>
+         <property name="mnemonic-widget">search</property>
++        <property name="xalign">0</property>
+       </object>
+       <packing>
+         <property name="expand">False</property>
+@@ -80,6 +81,7 @@
+         <property name="label" translatable="yes" context="functionpage|label1">_Category:</property>
+         <property name="use-underline">True</property>
+         <property name="mnemonic-widget">category</property>
++        <property name="xalign">0</property>
+       </object>
+       <packing>
+         <property name="expand">False</property>
+@@ -116,6 +118,7 @@
+         <property name="label" translatable="yes" context="functionpage|label2">_Function:</property>
+         <property name="use-underline">True</property>
+         <property name="mnemonic-widget">function</property>
++        <property name="xalign">0</property>
+       </object>
+       <packing>
+         <property name="expand">False</property>
+--- a/formula/uiconfig/ui/parameter.ui
++++ b/formula/uiconfig/ui/parameter.ui
+@@ -129,11 +129,11 @@
+                           <object class="GtkLabel" id="FT_ARG1">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+-                            <property name="halign">end</property>
++                            <property name="halign">start</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">ED_ARG1</property>
+                             <property name="single-line-mode">True</property>
+-                            <property name="xalign">1</property>
++                            <property name="xalign">0</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+@@ -144,11 +144,11 @@
+                           <object class="GtkLabel" id="FT_ARG2">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+-                            <property name="halign">end</property>
++                            <property name="halign">start</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">ED_ARG2</property>
+                             <property name="single-line-mode">True</property>
+-                            <property name="xalign">1</property>
++                            <property name="xalign">0</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+@@ -159,11 +159,11 @@
+                           <object class="GtkLabel" id="FT_ARG3">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+-                            <property name="halign">end</property>
++                            <property name="halign">start</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">ED_ARG3</property>
+                             <property name="single-line-mode">True</property>
+-                            <property name="xalign">1</property>
++                            <property name="xalign">0</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+@@ -174,11 +174,11 @@
+                           <object class="GtkLabel" id="FT_ARG4">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+-                            <property name="halign">end</property>
++                            <property name="halign">start</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">ED_ARG4</property>
+                             <property name="single-line-mode">True</property>
+-                            <property name="xalign">1</property>
++                            <property name="xalign">0</property>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+--- a/formula/uiconfig/ui/structpage.ui
++++ b/formula/uiconfig/ui/structpage.ui
+@@ -17,7 +17,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">6</property>
+     <child>
+@@ -28,6 +28,7 @@
+         <property name="label" translatable="yes" context="structpage|label1">Content:</property>
+         <property name="use-underline">True</property>
+         <property name="mnemonic-widget">struct</property>
++        <property name="xalign">0</property>
+       </object>
+       <packing>
+         <property name="expand">False</property>
+--- a/sc/uiconfig/scalc/ui/advancedfilterdialog.ui
++++ b/sc/uiconfig/scalc/ui/advancedfilterdialog.ui
+@@ -4,7 +4,7 @@
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkDialog" id="AdvancedFilterDialog">
+     <property name="can_focus">False</property>
+-    <property name="border_width">6</property>
++    <property name="border_width">12</property>
+     <property name="title" translatable="yes" context="advancedfilterdialog|AdvancedFilterDialog">Advanced Filter</property>
+     <property name="resizable">False</property>
+     <property name="default_width">0</property>
+--- a/sc/uiconfig/scalc/ui/cellprotectionpage.ui
++++ b/sc/uiconfig/scalc/ui/cellprotectionpage.ui
+@@ -6,7 +6,7 @@
+   <object class="GtkGrid" id="CellProtectionPage">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="row-spacing">12</property>
+     <property name="column-spacing">6</property>
+     <child>
+--- a/sc/uiconfig/scalc/ui/colwidthdialog.ui
++++ b/sc/uiconfig/scalc/ui/colwidthdialog.ui
+@@ -4,7 +4,7 @@
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkDialog" id="ColWidthDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="colwidthdialog|ColWidthDialog">Column Width</property>
+     <property name="resizable">False</property>
+     <property name="modal">True</property>
+--- a/sc/uiconfig/scalc/ui/condformatmanager.ui
++++ b/sc/uiconfig/scalc/ui/condformatmanager.ui
+@@ -14,7 +14,7 @@
+   </object>
+   <object class="GtkDialog" id="CondFormatManager">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="condformatmanager|CondFormatManager">Manage Conditional Formatting</property>
+     <property name="resizable">False</property>
+     <property name="modal">True</property>
+--- a/sc/uiconfig/scalc/ui/conditionalentry.ui
++++ b/sc/uiconfig/scalc/ui/conditionalentry.ui
+@@ -46,7 +46,8 @@
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="hexpand">True</property>
+-                    <property name="ellipsize">end</property>
++                    <property name="wrap">True</property>
++                    <property name="max-width-chars">60</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+@@ -483,6 +484,7 @@
+                     <property name="no-show-all">True</property>
+                     <property name="label" translatable="yes" context="conditionalentry|Label_minimum">Minimum</property>
+                     <property name="mnemonic-widget">colscalemin</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -494,6 +496,7 @@
+                     <property name="can-focus">False</property>
+                     <property name="label" translatable="yes" context="conditionalentry|Label_maximum">Maximum</property>
+                     <property name="mnemonic-widget">colscalemax</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">2</property>
+--- a/sc/uiconfig/scalc/ui/conditionalformatdialog.ui
++++ b/sc/uiconfig/scalc/ui/conditionalformatdialog.ui
+@@ -4,7 +4,7 @@
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkDialog" id="ConditionalFormatDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="conditionalformatdialog|ConditionalFormatDialog">Conditional Formatting for</property>
+     <property name="default-width">0</property>
+     <property name="default-height">0</property>
+@@ -274,6 +274,7 @@
+                     <property name="label" translatable="yes" context="conditionalformatdialog|ftassign">Range:</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">edassign</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+--- a/sc/uiconfig/scalc/ui/consolidatedialog.ui
++++ b/sc/uiconfig/scalc/ui/consolidatedialog.ui
+@@ -12,7 +12,7 @@
+   </object>
+   <object class="GtkDialog" id="ConsolidateDialog">
+     <property name="can_focus">False</property>
+-    <property name="border_width">6</property>
++    <property name="border_width">12</property>
+     <property name="title" translatable="yes" context="consolidatedialog|ConsolidateDialog">Consolidate</property>
+     <property name="resizable">False</property>
+     <property name="default_width">0</property>
+--- a/sc/uiconfig/scalc/ui/datafielddialog.ui
++++ b/sc/uiconfig/scalc/ui/datafielddialog.ui
+@@ -12,7 +12,7 @@
+   </object>
+   <object class="GtkDialog" id="DataFieldDialog">
+     <property name="can_focus">False</property>
+-    <property name="border_width">6</property>
++    <property name="border_width">12</property>
+     <property name="title" translatable="yes" context="datafielddialog|DataFieldDialog">Data Field</property>
+     <property name="resizable">False</property>
+     <property name="type_hint">dialog</property>
+@@ -247,7 +247,6 @@
+                         <property name="label" translatable="yes" context="datafielddialog|label4">_Type:</property>
+                         <property name="use_underline">True</property>
+                         <property name="mnemonic_widget">type</property>
+-                        <property name="ellipsize">end</property>
+                         <property name="xalign">0</property>
+                       </object>
+                       <packing>
+@@ -262,7 +261,6 @@
+                         <property name="label" translatable="yes" context="datafielddialog|basefieldft">_Base field:</property>
+                         <property name="use_underline">True</property>
+                         <property name="mnemonic_widget">basefield</property>
+-                        <property name="ellipsize">end</property>
+                         <property name="xalign">0</property>
+                       </object>
+                       <packing>
+@@ -277,7 +275,6 @@
+                         <property name="label" translatable="yes" context="datafielddialog|baseitemft">Ba_se item:</property>
+                         <property name="use_underline">True</property>
+                         <property name="mnemonic_widget">baseitem</property>
+-                        <property name="ellipsize">end</property>
+                         <property name="xalign">0</property>
+                       </object>
+                       <packing>
+--- a/sc/uiconfig/scalc/ui/definedatabaserangedialog.ui
++++ b/sc/uiconfig/scalc/ui/definedatabaserangedialog.ui
+@@ -14,7 +14,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="definedatabaserangedialog|DefineDatabaseRangeDialog">Define Database Range</property>
+     <property name="default-width">0</property>
+     <property name="default-height">0</property>
+--- a/sc/uiconfig/scalc/ui/definename.ui
++++ b/sc/uiconfig/scalc/ui/definename.ui
+@@ -4,7 +4,7 @@
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkDialog" id="DefineNameDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="definename|DefineNameDialog">Define Name</property>
+     <property name="resizable">False</property>
+     <property name="default-width">0</property>
+--- a/sc/uiconfig/scalc/ui/definetablerangedialog.ui
++++ b/sc/uiconfig/scalc/ui/definetablerangedialog.ui
+@@ -6,7 +6,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="definetablerangedialog|DefineTableRangeDialog">Create Table</property>
+     <property name="default-width">0</property>
+     <property name="default-height">0</property>
+--- a/sc/uiconfig/scalc/ui/deletecells.ui
++++ b/sc/uiconfig/scalc/ui/deletecells.ui
+@@ -4,7 +4,7 @@
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkDialog" id="DeleteCellsDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="deletecells|DeleteCellsDialog">Delete Cells</property>
+     <property name="resizable">False</property>
+     <property name="modal">True</property>
+--- a/sc/uiconfig/scalc/ui/duplicaterecordsdlg.ui
++++ b/sc/uiconfig/scalc/ui/duplicaterecordsdlg.ui
+@@ -18,7 +18,7 @@
+   </object>
+   <object class="GtkDialog" id="DuplicateRecordsDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="duplicaterecordsdialog|duplicaterecordsdialog">Handle Duplicate Records</property>
+     <property name="resizable">False</property>
+     <property name="type-hint">dialog</property>
+@@ -97,6 +97,7 @@
+                 <property name="valign">start</property>
+                 <property name="label" translatable="yes" context="duplicaterecordsdialog|compare">Compare:</property>
+                 <property name="mnemonic-widget">row</property>
++                <property name="xalign">0</property>
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+@@ -112,6 +113,7 @@
+                 <property name="label" translatable="yes" context="duplicaterecordsdialog|header">Hea_der:</property>
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">includesheaders</property>
++                <property name="xalign">0</property>
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+@@ -126,6 +128,7 @@
+                 <property name="valign">start</property>
+                 <property name="label" translatable="yes" context="duplicaterecordsdialog|action">Action:</property>
+                 <property name="mnemonic-widget">select</property>
++                <property name="xalign">0</property>
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+@@ -195,6 +198,7 @@
+               <object class="GtkBox" id="box1">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="spacing">12</property>
+                 <child>
+                   <object class="GtkRadioButton" id="row">
+                     <property name="label" translatable="yes" context="duplicaterecordsdialog|row">_Rows</property>
+@@ -239,6 +243,7 @@
+               <object class="GtkBox" id="box2">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="spacing">12</property>
+                 <child>
+                   <object class="GtkRadioButton" id="select">
+                     <property name="label" translatable="yes" context="duplicaterecordsdialog|select">_Select</property>
+@@ -302,6 +307,7 @@
+                 <property name="valign">start</property>
+                 <property name="label" translatable="yes" context="duplicaterecordsdialog|compareby">Compare by:</property>
+                 <property name="mnemonic-widget">allcheckbtn</property>
++                <property name="xalign">0</property>
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+--- a/sc/uiconfig/scalc/ui/erroralerttabpage.ui
++++ b/sc/uiconfig/scalc/ui/erroralerttabpage.ui
+@@ -7,7 +7,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">12</property>
+     <child>
+--- a/sc/uiconfig/scalc/ui/goalseekdlg.ui
++++ b/sc/uiconfig/scalc/ui/goalseekdlg.ui
+@@ -4,7 +4,7 @@
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkDialog" id="GoalSeekDialog">
+     <property name="can_focus">False</property>
+-    <property name="border_width">6</property>
++    <property name="border_width">12</property>
+     <property name="title" translatable="yes" context="goalseekdlg|GoalSeekDialog">Goal Seek</property>
+     <property name="default_width">-1</property>
+     <property name="default_height">-1</property>
+@@ -105,6 +105,7 @@
+                     <property name="label" translatable="yes" context="goalseekdlg|formulatext">_Formula cell:</property>
+                     <property name="use_underline">True</property>
+                     <property name="mnemonic_widget">formulaedit</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="left_attach">0</property>
+@@ -118,6 +119,7 @@
+                     <property name="label" translatable="yes" context="goalseekdlg|label3">Target _value:</property>
+                     <property name="use_underline">True</property>
+                     <property name="mnemonic_widget">target</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="left_attach">0</property>
+@@ -131,6 +133,7 @@
+                     <property name="label" translatable="yes" context="goalseekdlg|vartext">Variable _cell:</property>
+                     <property name="use_underline">True</property>
+                     <property name="mnemonic_widget">varedit</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="left_attach">0</property>
+--- a/sc/uiconfig/scalc/ui/headerfootercontent.ui
++++ b/sc/uiconfig/scalc/ui/headerfootercontent.ui
+@@ -83,7 +83,7 @@
+   <object class="GtkBox" id="HeaderFooterContent">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">6</property>
+     <child>
+--- a/sc/uiconfig/scalc/ui/insertcells.ui
++++ b/sc/uiconfig/scalc/ui/insertcells.ui
+@@ -17,7 +17,7 @@
+   </object>
+   <object class="GtkDialog" id="InsertCellsDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="insertcells|InsertCellsDialog">Insert Cells</property>
+     <property name="resizable">False</property>
+     <property name="modal">True</property>
+--- a/sc/uiconfig/scalc/ui/managenamesdialog.ui
++++ b/sc/uiconfig/scalc/ui/managenamesdialog.ui
+@@ -18,7 +18,7 @@
+   </object>
+   <object class="GtkDialog" id="ManageNamesDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="managenamesdialog|ManageNamesDialog">Manage Names</property>
+     <property name="default-width">0</property>
+     <property name="default-height">0</property>
+--- a/sc/uiconfig/scalc/ui/optimalcolwidthdialog.ui
++++ b/sc/uiconfig/scalc/ui/optimalcolwidthdialog.ui
+@@ -4,7 +4,7 @@
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkDialog" id="OptimalColWidthDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="optimalcolwidthdialog|OptimalColWidthDialog">Optimal Column Width</property>
+     <property name="resizable">False</property>
+     <property name="modal">True</property>
+--- a/sc/uiconfig/scalc/ui/optimalrowheightdialog.ui
++++ b/sc/uiconfig/scalc/ui/optimalrowheightdialog.ui
+@@ -4,7 +4,7 @@
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkDialog" id="OptimalRowHeightDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="optimalrowheightdialog|OptimalRowHeightDialog">Optimal Row Height</property>
+     <property name="resizable">False</property>
+     <property name="modal">True</property>
+--- a/sc/uiconfig/scalc/ui/pagescalepage.ui
++++ b/sc/uiconfig/scalc/ui/pagescalepage.ui
+@@ -33,6 +33,7 @@
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+     <property name="orientation">vertical</property>
++    <property name="border-width">6</property>
+     <child>
+       <object class="GtkFrame" id="frame3">
+         <property name="visible">True</property>
+--- a/sc/uiconfig/scalc/ui/pastespecial.ui
++++ b/sc/uiconfig/scalc/ui/pastespecial.ui
+@@ -28,7 +28,7 @@
+   </object>
+   <object class="GtkDialog" id="PasteSpecial">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="pastespecial|PasteSpecial">Paste Special</property>
+     <property name="resizable">False</property>
+     <property name="type-hint">dialog</property>
+@@ -269,6 +269,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="valign">start</property>
+                 <property name="orientation">vertical</property>
++                <property name="spacing">12</property>
+                 <child>
+                   <object class="GtkFrame" id="frmPaste">
+                     <property name="visible">True</property>
+@@ -568,6 +569,7 @@
+                 <property name="valign">start</property>
+                 <property name="orientation">vertical</property>
+                 <property name="baseline-position">top</property>
++                <property name="spacing">12</property>
+                 <child>
+                   <object class="GtkFrame" id="frmOptions">
+                     <property name="visible">True</property>
+--- a/sc/uiconfig/scalc/ui/pivottablelayoutdialog.ui
++++ b/sc/uiconfig/scalc/ui/pivottablelayoutdialog.ui
+@@ -44,7 +44,7 @@
+   </object>
+   <object class="GtkDialog" id="PivotTableLayout">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="pivottablelayoutdialog|PivotTableLayout">Pivot Table Layout</property>
+     <property name="default-width">0</property>
+     <property name="default-height">0</property>
+--- a/sc/uiconfig/scalc/ui/protectsheetdlg.ui
++++ b/sc/uiconfig/scalc/ui/protectsheetdlg.ui
+@@ -18,7 +18,7 @@
+   </object>
+   <object class="GtkDialog" id="ProtectSheetDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="protectsheetdlg|ProtectSheetDialog">Protect Sheet</property>
+     <property name="modal">True</property>
+     <property name="default-width">0</property>
+@@ -128,11 +128,11 @@
+                       <object class="GtkLabel" id="label1">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+-                        <property name="halign">end</property>
++                        <property name="halign">start</property>
+                         <property name="label" translatable="yes" context="protectsheetdlg|label1">_Password:</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">password1</property>
+-                        <property name="xalign">1</property>
++                        <property name="xalign">0</property>
+                       </object>
+                       <packing>
+                         <property name="left-attach">0</property>
+@@ -143,11 +143,11 @@
+                       <object class="GtkLabel" id="label2">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+-                        <property name="halign">end</property>
++                        <property name="halign">start</property>
+                         <property name="label" translatable="yes" context="protectsheetdlg|label2">_Confirm:</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">password2</property>
+-                        <property name="xalign">1</property>
++                        <property name="xalign">0</property>
+                       </object>
+                       <packing>
+                         <property name="left-attach">0</property>
+--- a/sc/uiconfig/scalc/ui/rowheightdialog.ui
++++ b/sc/uiconfig/scalc/ui/rowheightdialog.ui
+@@ -4,7 +4,7 @@
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkDialog" id="RowHeightDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="rowheightdialog|RowHeightDialog">Row Height</property>
+     <property name="resizable">False</property>
+     <property name="modal">True</property>
+--- a/sc/uiconfig/scalc/ui/selectsource.ui
++++ b/sc/uiconfig/scalc/ui/selectsource.ui
+@@ -4,7 +4,7 @@
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkDialog" id="SelectSourceDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="selectsource|SelectSourceDialog">Select Source</property>
+     <property name="resizable">False</property>
+     <property name="modal">True</property>
+--- a/sc/uiconfig/scalc/ui/sheetprintpage.ui
++++ b/sc/uiconfig/scalc/ui/sheetprintpage.ui
+@@ -13,7 +13,7 @@
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="row-spacing">12</property>
+     <property name="row-homogeneous">True</property>
+     <property name="column-homogeneous">True</property>
+--- a/sc/uiconfig/scalc/ui/showsheetdialog.ui
++++ b/sc/uiconfig/scalc/ui/showsheetdialog.ui
+@@ -12,7 +12,7 @@
+   </object>
+   <object class="GtkDialog" id="ShowSheetDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="showsheetdialog|ShowSheetDialog">Show Sheet</property>
+     <property name="resizable">False</property>
+     <property name="modal">True</property>
+--- a/sc/uiconfig/scalc/ui/solverdlg.ui
++++ b/sc/uiconfig/scalc/ui/solverdlg.ui
+@@ -4,7 +4,7 @@
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkDialog" id="SolverDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="solverdlg|SolverDialog">Solver</property>
+     <property name="resizable">False</property>
+     <property name="default-width">0</property>
+--- a/sc/uiconfig/scalc/ui/sortcriteriapage.ui
++++ b/sc/uiconfig/scalc/ui/sortcriteriapage.ui
+@@ -8,6 +8,7 @@
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+     <property name="orientation">vertical</property>
++    <property name="border-width">6</property>
+     <child>
+       <object class="GtkScrolledWindow" id="SortCriteriaPage">
+         <property name="visible">True</property>
+@@ -70,7 +71,7 @@
+           <object class="GtkGrid">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+-            <property name="margin-start">6</property>
++            <property name="margin-start">12</property>
+             <property name="margin-top">3</property>
+             <property name="row-spacing">4</property>
+             <property name="column-spacing">3</property>
+@@ -111,7 +112,7 @@
+                 <property name="label" translatable="yes" context="sortcriteriapage|lbDirection">Direction:</property>
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">rbTopDown</property>
+-                <property name="xalign">1</property>
++                <property name="xalign">0</property>
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+@@ -139,7 +140,7 @@
+                 <property name="label" translatable="yes" context="sortcriteriapage|lbHeader">Headers:</property>
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">cbHeader</property>
+-                <property name="xalign">1</property>
++                <property name="xalign">0</property>
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+--- a/sc/uiconfig/scalc/ui/sortkey.ui
++++ b/sc/uiconfig/scalc/ui/sortkey.ui
+@@ -82,7 +82,7 @@
+             <property name="label">Column/Row:</property>
+             <property name="use-underline">True</property>
+             <property name="mnemonic-widget">sortlb</property>
+-            <property name="xalign">1</property>
++            <property name="xalign">0</property>
+           </object>
+           <packing>
+             <property name="left-attach">0</property>
+--- a/sc/uiconfig/scalc/ui/sortoptionspage.ui
++++ b/sc/uiconfig/scalc/ui/sortoptionspage.ui
+@@ -5,7 +5,7 @@
+   <object class="GtkBox" id="SortOptionsPage">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">12</property>
+     <child>
+@@ -301,6 +301,7 @@
+                     <property name="label" translatable="yes" context="sortoptionspage|label6">Locale</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">language</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -315,6 +316,7 @@
+                     <property name="label" translatable="yes" context="sortoptionspage|algorithmft">Options</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">algorithmlb</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">1</property>
+--- a/sc/uiconfig/scalc/ui/sparklinedialog.ui
++++ b/sc/uiconfig/scalc/ui/sparklinedialog.ui
+@@ -20,7 +20,7 @@
+   </object>
+   <object class="GtkDialog" id="SparklineDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="SparklineDialog">Sparkline Properties</property>
+     <property name="type-hint">dialog</property>
+     <child internal-child="vbox">
+--- a/sc/uiconfig/scalc/ui/standardfilterdialog.ui
++++ b/sc/uiconfig/scalc/ui/standardfilterdialog.ui
+@@ -72,7 +72,7 @@
+   </object>
+   <object class="GtkDialog" id="StandardFilterDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="standardfilterdialog|StandardFilterDialog">Standard Filter</property>
+     <property name="resizable">False</property>
+     <property name="default-width">0</property>
+--- a/sc/uiconfig/scalc/ui/statisticsinfopage.ui
++++ b/sc/uiconfig/scalc/ui/statisticsinfopage.ui
+@@ -5,7 +5,7 @@
+   <object class="GtkFrame" id="StatisticsInfoPage">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="label-xalign">0</property>
+     <property name="shadow-type">none</property>
+     <child>
+--- a/sc/uiconfig/scalc/ui/subtotalgrppage.ui
++++ b/sc/uiconfig/scalc/ui/subtotalgrppage.ui
+@@ -29,7 +29,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">12</property>
+     <child>
+@@ -45,6 +45,7 @@
+             <property name="label" translatable="yes" context="subtotalgrppage|label1">Group by:</property>
+             <property name="use-underline">True</property>
+             <property name="mnemonic-widget">group_by</property>
++            <property name="xalign">0</property>
+           </object>
+           <packing>
+             <property name="expand">False</property>
+@@ -106,6 +107,7 @@
+             <property name="label" translatable="yes" context="subtotalgrppage|label2">Calculate subtotals for:</property>
+             <property name="use-underline">True</property>
+             <property name="mnemonic-widget">columns</property>
++            <property name="xalign">0</property>
+           </object>
+           <packing>
+             <property name="left-attach">0</property>
+@@ -120,6 +122,7 @@
+             <property name="label" translatable="yes" context="subtotalgrppage|label3">Use function:</property>
+             <property name="use-underline">True</property>
+             <property name="mnemonic-widget">functions</property>
++            <property name="xalign">0</property>
+           </object>
+           <packing>
+             <property name="left-attach">1</property>
+--- a/sc/uiconfig/scalc/ui/subtotaloptionspage.ui
++++ b/sc/uiconfig/scalc/ui/subtotaloptionspage.ui
+@@ -5,7 +5,7 @@
+   <object class="GtkBox" id="SubTotalOptionsPage">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">12</property>
+     <child>
+--- a/sc/uiconfig/scalc/ui/textimportcsv.ui
++++ b/sc/uiconfig/scalc/ui/textimportcsv.ui
+@@ -21,7 +21,7 @@
+   </object>
+   <object class="GtkDialog" id="TextImportCsvDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="textimportcsv|TextImportCsvDialog">Text Import</property>
+     <property name="modal">True</property>
+     <property name="default-width">0</property>
+@@ -770,6 +770,7 @@
+                             <property name="label" translatable="yes" context="textimportcsv|textcolumntype">Column t_ype:</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">columntype</property>
++                            <property name="xalign">0</property>
+                           </object>
+                           <packing>
+                             <property name="expand">False</property>
+--- a/sc/uiconfig/scalc/ui/validationcriteriapage.ui
++++ b/sc/uiconfig/scalc/ui/validationcriteriapage.ui
+@@ -8,7 +8,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="row-spacing">6</property>
+     <property name="column-spacing">12</property>
+     <child>
+--- a/sc/uiconfig/scalc/ui/validationhelptabpage.ui
++++ b/sc/uiconfig/scalc/ui/validationhelptabpage.ui
+@@ -7,7 +7,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">12</property>
+     <child>
+--- a/sfx2/uiconfig/ui/cmisinfopage.ui
++++ b/sfx2/uiconfig/ui/cmisinfopage.ui
+@@ -8,7 +8,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="row-spacing">6</property>
+     <child>
+       <object class="GtkScrolledWindow" id="CmisScroll">
+--- a/formula/source/ui/dlg/funcpage.cxx
++++ b/formula/source/ui/dlg/funcpage.cxx
+@@ -71,9 +71,9 @@ FuncPage::FuncPage(weld::Container* pParent, const IFunctionManager* _pFunctionM
+     m_xLbCategory->set_active(m_nRememberedFunctionCategory);
+     OUString searchStr = m_xLbFunctionSearchString->get_text();
+     UpdateFunctionList(searchStr);
+-    // lock to its initial size
++    // lock to its initial size; 13 rows keep the whole wizard inside a 1366x768 screen with GTK's taller rows
+     m_xLbFunction->set_size_request(m_xLbFunction->get_preferred_size().Width(),
+-                                    m_xLbFunction->get_height_rows(15));
++                                    m_xLbFunction->get_height_rows(13));
+     m_xLbCategory->connect_changed(LINK(this, FuncPage, SelComboBoxHdl));
+     m_xLbFunction->connect_selection_changed(LINK(this, FuncPage, SelTreeViewHdl));
+     m_xLbFunction->connect_item_activated(LINK(this, FuncPage, DblClkHdl));
+--- a/vcl/source/control/roadmapwizard.cxx
++++ b/vcl/source/control/roadmapwizard.cxx
+@@ -36,7 +36,6 @@
+ #define WIZARDDIALOG_BUTTON_OFFSET_Y        6
+ #define WIZARDDIALOG_BUTTON_DLGOFFSET_X     6
+ #define WIZARDDIALOG_BUTTON_STDOFFSET_X     6
+-#define WIZARDDIALOG_BUTTON_SMALLSTDOFFSET_X 3
+ #define WIZARDDIALOG_VIEW_DLGOFFSET_X       6
+ #define WIZARDDIALOG_VIEW_DLGOFFSET_Y       6
+ 
+@@ -428,7 +427,7 @@ namespace vcl
+         m_pPrevPage->SetText(VclResId(STR_WIZDLG_PREVIOUS));
+         m_pPrevPage->Show();
+         m_pPrevPage->set_id(u"previous"_ustr);
+-        AddButton( m_pPrevPage, ( WIZARDDIALOG_BUTTON_SMALLSTDOFFSET_X) );      // half x-offset to the next button
++        AddButton( m_pPrevPage, WIZARDDIALOG_BUTTON_STDOFFSET_X );
+         mpPrevBtn = m_pPrevPage;
+         m_pPrevPage->SetClickHdl( LINK( this, RoadmapWizard, OnPrevPage ) );
+ 
