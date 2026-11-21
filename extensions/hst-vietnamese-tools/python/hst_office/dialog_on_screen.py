@@ -13,12 +13,18 @@ while the tab group was still switching tabs). Here:
   shortly after it opened, after the tab group has finished its own window work, and again whenever its parent
   window is hidden while it runs (macOS orders a child window out with its parent: a tab parked behind a new tab
   took its running dialog off screen, probe run 44842914015).
+- watch_new_documents(): macOS only. A document opened while the dialog runs over a parent window in native full screen
+  (the "+" menu, File > New, Finder, a launcher) shows in a full screen Space of its own; the parent and its child
+  dialog stay in the Space the user left, where no toFront reaches them (probe run 44924218348). The dialog is moved
+  onto the new document's window (dialogs.Dialog.execute runs it again there, its model keeps what was entered).
 - log_open(): one local diagnostics line per modal dialog (title, command that opened it, parent kind).
 """
+import sys
 import threading
 
 import unohelper
 from com.sun.star.awt import XCallback, XWindowListener
+from com.sun.star.document import XDocumentEventListener
 
 from . import diag_log
 
@@ -156,6 +162,84 @@ def watch_parent(ctx, parent_window, dialog, is_open, timer=None):
         try:
             parent_window.removeWindowListener(listener)
         except Exception:  # noqa: BLE001 - parent already disposed
+            pass
+    return stop
+
+
+NEW_DOCUMENT_EVENTS = ("OnNew", "OnLoad", "OnViewCreated")
+MOVE_DELAY = 1.0  # seconds after a new document's event: its window is shown and in its own Space by then
+
+
+def covers_display(ctx, window):
+    """The window is as large as the whole display (vcl's work area is the display): native full screen on macOS."""
+    try:
+        screen = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx).getWorkArea()
+        size = window.getPosSize()
+        return size.Width >= screen.Width and size.Height >= screen.Height
+    except Exception:  # noqa: BLE001 - unknown geometry: treat as a plain window
+        return False
+
+
+class _Move(unohelper.Base, XCallback):
+    """Main thread: move the running dialog onto `window` if it still runs and the window is shown."""
+
+    def __init__(self, window, is_open, move):
+        self.window, self.is_open, self.move = window, is_open, move
+
+    def notify(self, data):
+        try:
+            if self.is_open() and _shown(self.window):
+                self.move(self.window)
+        except Exception:  # noqa: BLE001 - the dialog or the document ended meanwhile
+            pass
+
+
+class _NewDocument(unohelper.Base, XDocumentEventListener):
+    """A document opened or got a view while a dialog runs."""
+
+    def __init__(self, on_new):
+        self.on_new = on_new
+
+    def documentEventOccured(self, event):  # noqa: N802 - UNO method name (sic)
+        if getattr(event, "EventName", "") in NEW_DOCUMENT_EVENTS:
+            self.on_new(event)
+
+    def disposing(self, event):
+        pass
+
+
+def _document_window(event):
+    try:
+        return event.Source.getCurrentController().getFrame().getContainerWindow()
+    except Exception:  # noqa: BLE001 - no view yet (OnNew/OnLoad before OnViewCreated) or closed
+        return None
+
+
+def watch_new_documents(ctx, parent_window, is_open, move, timer=None, platform=None):
+    """macOS only (elsewhere a no-op): while the dialog runs over a parent window in native full screen, a document
+    opened meanwhile gets the dialog: move(window) is called on the main thread with that document's window. Returns
+    the function that stops watching."""
+    if (platform or sys.platform) != "darwin" or parent_window is None:
+        return lambda: None
+    start = timer or _daemon_timer
+
+    def on_new(event):
+        window = _document_window(event)
+        if window is None or window == parent_window or not covers_display(ctx, parent_window):
+            return
+        start(MOVE_DELAY, lambda: _post(ctx, _Move(window, is_open, move)))
+
+    listener = _NewDocument(on_new)
+    try:
+        broadcaster = ctx.getValueByName("/singletons/com.sun.star.frame.theGlobalEventBroadcaster")
+        broadcaster.addDocumentEventListener(listener)
+    except Exception:  # noqa: BLE001 - no broadcaster: nothing to watch
+        return lambda: None
+
+    def stop():
+        try:
+            broadcaster.removeDocumentEventListener(listener)
+        except Exception:  # noqa: BLE001 - office shutting down
             pass
     return stop
 

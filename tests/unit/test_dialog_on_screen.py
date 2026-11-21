@@ -8,7 +8,10 @@ Covered here without an office (UNO modules stubbed, windows and frames are fake
 - the dialog gets a shown parent (a hidden requested parent falls back to the shown current frame / active window),
   is centred over it, logged, and brought to the front shortly after it opened and whenever its parent is hidden;
 - never in front of a dialog it opened itself (only the innermost HST dialog, never over another active dialog);
-- dispatch runs a command that first had to open a new document only once that document's tab is shown and loaded.
+- dispatch runs a command that first had to open a new document only once that document's tab is shown and loaded;
+- macOS only: a document opened while the dialog runs over a parent in native full screen shows in a Space of its
+  own, so the dialog moves onto that document's window (probe run 44924218348); a plain window keeps the dialog
+  where it is, and on Windows and Linux nothing is watched.
 """
 import importlib.abc
 import importlib.machinery
@@ -243,6 +246,91 @@ class FrontTests(unittest.TestCase):
         self.assertTrue(dialog_on_screen.is_front_candidate(office, inner))
 
 
+class Broadcaster:
+    def __init__(self):
+        self.listeners = []
+
+    def addDocumentEventListener(self, listener):  # noqa: N802
+        self.listeners.append(listener)
+
+    def removeDocumentEventListener(self, listener):  # noqa: N802
+        self.listeners.remove(listener)
+
+    def fire(self, name, window):
+        frame = Frame(window)
+        controller = type("Controller", (), {"getFrame": lambda _self: frame})()
+        source = type("Model", (), {"getCurrentController": lambda _self: controller})()
+        event = type("Event", (), {"EventName": name, "Source": source})()
+        for listener in list(self.listeners):
+            listener.documentEventOccured(event)
+
+
+class DisplayOffice(Office):
+    """Office with a 1024x768 display (Toolkit.getWorkArea) and a global event broadcaster."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.broadcaster = Broadcaster()
+
+    def createInstanceWithContext(self, name, ctx):  # noqa: N802
+        service = super().createInstanceWithContext(name, ctx)
+        service.getWorkArea = lambda: Rect(0, 0, 1024, 768)
+        return service
+
+    def getValueByName(self, name):  # noqa: N802
+        assert name == "/singletons/com.sun.star.frame.theGlobalEventBroadcaster"
+        return self.broadcaster
+
+
+FULL_SCREEN, PLAIN = (0, 0, 1024, 768), (130, 121, 1024, 656)
+
+
+class NewDocumentWhileOpenTests(unittest.TestCase):
+    def watch(self, parent_rect, platform="darwin", is_open=lambda: True):
+        self.office, self.timers, self.moved = DisplayOffice(), Timers(), []
+        self.parent, self.document = Window(True, parent_rect), Window(True, (0, 28, 1024, 740))
+        return dialog_on_screen.watch_new_documents(self.office, self.parent, is_open, self.moved.append,
+                                                    timer=self.timers, platform=platform)
+
+    def run_pending(self):
+        self.timers.fire()
+        self.office.pump()
+
+    def test_mac_full_screen_parent_moves_the_dialog_onto_the_new_document(self):
+        stop = self.watch(FULL_SCREEN)
+        self.office.broadcaster.fire("OnTitleChanged", self.document)  # not an opened document
+        self.assertEqual(self.timers.pending, [])
+        self.office.broadcaster.fire("OnNew", self.document)
+        self.assertEqual([d for d, _ in self.timers.pending], [dialog_on_screen.MOVE_DELAY])
+        self.run_pending()
+        self.assertEqual(self.moved, [self.document])
+        stop()
+        self.assertEqual(self.office.broadcaster.listeners, [])
+
+    def test_mac_plain_window_parent_keeps_the_dialog(self):
+        self.watch(PLAIN)
+        self.office.broadcaster.fire("OnNew", self.document)
+        self.run_pending()
+        self.assertEqual(self.moved, [])
+
+    def test_mac_not_when_the_dialog_ended_the_document_is_hidden_or_is_the_parent(self):
+        self.watch(FULL_SCREEN, is_open=lambda: False)
+        self.office.broadcaster.fire("OnViewCreated", self.document)
+        self.run_pending()
+        self.watch(FULL_SCREEN)
+        self.document.visible = False
+        self.office.broadcaster.fire("OnLoad", self.document)
+        self.office.broadcaster.fire("OnViewCreated", self.parent)
+        self.run_pending()
+        self.assertEqual(self.moved, [])
+
+    def test_windows_and_linux_watch_nothing(self):
+        for platform in ("win32", "linux"):
+            stop = self.watch(FULL_SCREEN, platform=platform)
+            self.assertEqual(self.office.broadcaster.listeners, [])
+            stop()
+
+
 class DialogExecuteTests(unittest.TestCase):
     """dialogs.Dialog.execute with a parked (hidden) parent: shown parent, centred, logged, watched while it runs."""
 
@@ -275,6 +363,61 @@ class DialogExecuteTests(unittest.TestCase):
         info.assert_called_once_with("dialog", "modal 'Văn bản hành chính' from Nd30Wizard, parent current-frame")
         self.assertEqual(seen["listeners_while_open"], 1)
         self.assertEqual(shown.listeners, [])
+
+    def test_moved_dialog_runs_again_on_the_new_parent_with_the_same_model(self):
+        """macOS full screen: a document opened while the dialog runs; the dialog ends its modal loop there and runs
+        again as a new control on the document's window, with the same model, and is disposed once at the end."""
+        parent, document = Window(True, FULL_SCREEN), Window(True)
+        office, timers, runs, closed = DisplayOffice(current=Frame(parent)), Timers(), [], []
+        model = type("Model", (), {"Title": "Văn bản hành chính"})()
+
+        def uno_dialog():
+            d = UnoDialog()
+            d.createPeer = lambda toolkit, p: setattr(d, "parent_used", p)
+            d.setVisible = d.endExecute = lambda *args: None
+            d.disposed = 0
+            d.dispose = lambda: setattr(d, "disposed", d.disposed + 1)
+            d.setModel = lambda m: setattr(d, "model", m)
+            d.execute = lambda: run(d)
+            return d
+
+        def run(d):
+            runs.append(d)
+            if len(runs) == 1:
+                office.broadcaster.fire("OnNew", document)
+                timers.fire()
+                office.pump()  # main thread: the move ends this modal loop
+            elif len(runs) == 2:
+                office.broadcaster.fire("OnViewCreated", document)  # the same document again: no second move
+                timers.fire()
+                office.pump()
+            return 1
+        create = office.createInstanceWithContext
+        office.createInstanceWithContext = lambda name, ctx: (
+            uno_dialog() if name == "com.sun.star.awt.UnoControlDialog" else create(name, ctx))
+        dialog = dialogs.Dialog.__new__(dialogs.Dialog)
+        dialog.ctx = dialog.smgr = office
+        dialog.dialog, dialog.model = uno_dialog(), model
+        dialog._listeners, dialog._watchers, dialog.result = [], [], 1
+        dialog.on_oversize = dialog.on_ready = None
+        dialog.on_closed = lambda: closed.append(True)
+        first = dialog.dialog
+        real_watch = dialog_on_screen.watch_new_documents
+        with mock.patch.object(dialogs.dialog_edit_heights, "fit_edits"), \
+                mock.patch.object(dialog_on_screen, "_daemon_timer"), \
+                mock.patch.object(dialog_on_screen, "watch_new_documents",
+                                  lambda ctx, p, is_open, move: real_watch(ctx, p, is_open, move, timer=timers,
+                                                                           platform="darwin")), \
+                mock.patch.object(dialog_on_screen.diag_log, "info") as info:
+            self.assertEqual(dialog.execute(parent), 1)
+        second = dialog.dialog
+        self.assertEqual(runs, [first, second])
+        self.assertEqual((first.parent_used, first.disposed), (parent, 1))
+        self.assertEqual((second.parent_used, second.model, second.disposed), (document, model, 1))
+        self.assertEqual(closed, [True])
+        self.assertEqual(office.broadcaster.listeners, [])
+        self.assertEqual(info.call_args_list[-1],
+                         mock.call("dialog", "modal 'Văn bản hành chính' from -, parent moved-to-new-document"))
 
 
 class DispatchAfterNewDocumentTests(unittest.TestCase):
