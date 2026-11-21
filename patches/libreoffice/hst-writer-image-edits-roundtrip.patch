@@ -72,7 +72,7 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +# vim: set noet sw=4 ts=4:
 --- /dev/null
 +++ b/sw/qa/extras/hst/hstimageeditsroundtrip.cxx
-@@ -0,0 +1,603 @@
+@@ -0,0 +1,629 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -90,7 +90,9 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +#include <com/sun/star/table/ShadowFormat.hpp>
 +#include <com/sun/star/table/ShadowLocation.hpp>
 +#include <com/sun/star/text/GraphicCrop.hpp>
++#include <com/sun/star/text/HoriOrientation.hpp>
 +#include <com/sun/star/text/TextContentAnchorType.hpp>
++#include <com/sun/star/text/VertOrientation.hpp>
 +#include <com/sun/star/text/XText.hpp>
 +#include <com/sun/star/text/XTextContent.hpp>
 +#include <com/sun/star/text/XTextDocument.hpp>
@@ -259,6 +261,26 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +        // not 8000 x 6000 (the size of the rotated rectangle around the unrotated picture)
 +        CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSize.Width), 30.0);
 +        CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSize.Height), 30.0);
++    }
++
++    /// A turned picture placed by hand keeps its place: Writer positions it by its bounding box, Word by the
++    /// unrotated picture (it moved by half the difference of width and height).
++    void checkRotatedPosition(TestFilter eFilter)
++    {
++        uno::Reference<beans::XPropertySet> xPicture = insertPicture();
++        xPicture->setPropertyValue(u"HoriOrient"_ustr, uno::Any(text::HoriOrientation::NONE));
++        xPicture->setPropertyValue(u"HoriOrientPosition"_ustr, uno::Any(sal_Int32(3000)));
++        xPicture->setPropertyValue(u"VertOrient"_ustr, uno::Any(text::VertOrientation::NONE));
++        xPicture->setPropertyValue(u"VertOrientPosition"_ustr, uno::Any(sal_Int32(1000)));
++        xPicture->setPropertyValue(u"GraphicRotation"_ustr, uno::Any(sal_Int16(900)));
++        saveAndReload(eFilter);
++        uno::Reference<beans::XPropertySet> xProps = writerPicture();
++        if (!xProps.is()) // DOCX: a rotated picture comes back as a picture shape
++            xProps.set(getShape(1), uno::UNO_QUERY_THROW);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(3000.0, double(xProps->getPropertyValue(u"HoriOrientPosition"_ustr).get<sal_Int32>()),
++                                     30.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(1000.0, double(xProps->getPropertyValue(u"VertOrientPosition"_ustr).get<sal_Int32>()),
++                                     30.0);
 +    }
 +
 +    /// Upstream's document with a picture linked to linked_graphic.jpg, and that picture.
@@ -546,6 +568,10 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +{
 +    checkRotation(TestFilter::DOC, text::TextContentAnchorType_AT_CHARACTER, 2700, u"HoriMirroredOnOddPages"_ustr);
 +}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxRotatedPicturePosition) { checkRotatedPosition(TestFilter::DOCX); }
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocRotatedPicturePosition) { checkRotatedPosition(TestFilter::DOC); }
 +
 +// DOCX: a picture with a shadow (as the HST picture styles give) became smaller by the shadow on the first save: Word's
 +// extent leaves the shadow out, a Writer picture's size includes it.
