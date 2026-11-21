@@ -1,0 +1,1600 @@
+HST Office: picture edits survive saving as .docx and .doc (brightness, contrast, transparency, gamma, colours, flip, rotation).
+
+A picture edited on the Picture tab or in the Image dialog came back as it was inserted after saving as .docx or .doc
+and reopening. The Word exports wrote only the draw mode, the horizontal flip, the rotation (DOCX) and the crop:
+
+- DOCX lost brightness, contrast, transparency, gamma, the red/green/blue channels and the vertical flip, and an
+  as-character picture turned by 90 degrees came back 4/3 larger (3 times when also resized out of proportion): its
+  layout size is no bounding box, but the export scaled it as one.
+- DOC lost the rotation, transparency, gamma and the colour channels; brightness together with contrast, or a
+  washout or grey/black-and-white picture with them, came back changed (the reader converts such pictures with Word's
+  formula).
+
+Now every setting Word can store is written as a Word property and read back: DOCX a:lum (brightness or contrast),
+a:alphaModFix (transparency, also read into the Writer picture now), a:xfrm flipV (read as a vertically flipped
+Writer picture, no longer a shape turned by a half turn); DOC escher gamma and rotation (with Word's flip and anchor
+rules; the reader gives the picture its rotation and unrotated frame). A rotated picture keeps its size when its frame is laid out unrotated (as character, or not laid out again).
+What a format cannot store is applied to the written picture the way HST Office draws it, so the picture looks the
+same reopened in HST Office and in Word, with those settings back at their defaults:
+- DOCX: gamma, colour channels, invert, brightness together with contrast, a washout with brightness or contrast;
+- DOC: transparency, colour channels, invert, brightness together with contrast, a washout with either.
+An as-character picture with a border (an HST picture style) no longer becomes smaller on every .doc save: the
+reader now adds the room of its borders and shadow, which the export takes off, to the frame size.
+A linked picture stays linked and nothing is applied to it, as in Word: what Word keeps for a link is written as
+its properties (DOCX a:lum also with both brightness and contrast, a:alphaModFix, the draw mode, flips, rotation;
+DOC escher brightness, contrast, gamma, draw mode, flips, rotation; a watermark with brightness or contrast as the
+brightness and contrast HST Office shows it with), gamma (DOCX), colour channels, invert and transparency (DOC) are
+left out. The readers keep them as properties of the link: the DOCX reader no longer converts a linked picture with
+both brightness and contrast (oox), and the escher reader now reads the picture settings of a linked picture it
+does not load (msfilter), without converting it.
+
+The logic is in new HST files (sw/source/filter/ww8/hst/hstpictureadjust.*, sw/source/writerfilter/hst/
+hstpictureimport.*); the LibreOffice files only call them (oox and msfilter: one condition each).
+
+Test: CppunitTest_sw_hst_image_edits_roundtrip (DOCX and DOC round trip per setting: kept properties, written XML,
+applied pixels compared with HST Office's drawing, rotation and size of floating, inline and flipped pictures, size of a bordered inline picture over two saves, linked pictures in DOCX and DOC stay linked with their settings).
+---
+--- a/filter/source/msfilter/msdffimp.cxx
++++ b/filter/source/msfilter/msdffimp.cxx
+@@ -3902,7 +3902,10 @@
+                     aGraf = aBitmap;
+                 }
+             }
+-
++        }
++        // HST: a linked picture (not read here) keeps its picture settings as properties too
++        if ( bGrfRead || bLinkGrf )
++        {
+             sal_Int32 nContrast = GetPropertyValue( DFF_Prop_pictureContrast, 0x10000 );
+             /*
+             0x10000 is msoffice 50%
+@@ -3967,7 +3970,9 @@
+                 // while MSO apparently applies half of brightness before contrast and half after. So if only
+                 // contrast or brightness need to be altered, the result is the same, but if both are involved,
+                 // there's no way to map that, so just force a conversion of the image.
+-                bool needsConversion = nContrast != 0 && nBrightness != 0;
++                // HST: a linked file that was not read cannot be converted; its settings stay properties, as Word
++                // keeps them
++                bool needsConversion = nContrast != 0 && nBrightness != 0 && bGrfRead;
+                 if ( !bool(rObjData.nSpFlags & ShapeFlag::OLEShape) && !needsConversion )
+                 {
+                     if ( nBrightness )
+--- a/oox/source/drawingml/fillproperties.cxx
++++ b/oox/source/drawingml/fillproperties.cxx
+@@ -830,7 +830,8 @@
+             nBrightness = 0;
+             nContrast = 0;
+         }
+-        else if( nBrightness != 0 && nContrast != 0 )
++        // HST: not for a linked picture (a:blip r:link), which keeps both as properties, as Word does
++        else if (nBrightness != 0 && nContrast != 0 && Graphic(xGraphic).getOriginURL().isEmpty())
+         {
+             // MSO uses a different algorithm for contrast+brightness, LO applies contrast before brightness,
+             // while MSO apparently applies half of brightness before contrast and half after. So if only
+--- a/sw/Library_msword.mk
++++ b/sw/Library_msword.mk
+@@ -87,6 +87,7 @@
+     sw/source/filter/ww8/docxattributeoutput \
+     sw/source/filter/ww8/docxexport \
+     sw/source/filter/ww8/docxexportfilter \
++    sw/source/filter/ww8/hst/hstpictureadjust \
+     sw/source/filter/ww8/hst/hstwordmergeexport \
+     sw/source/filter/ww8/docxsdrexport \
+     sw/source/filter/ww8/docxtableexport \
+--- a/sw/Library_sw_writerfilter.mk
++++ b/sw/Library_sw_writerfilter.mk
+@@ -89,6 +89,7 @@
+     sw/source/writerfilter/dmapper/DomainMapperTableHandler \
+     sw/source/writerfilter/dmapper/DomainMapperTableManager \
+     sw/source/writerfilter/dmapper/DomainMapper_Impl \
++    sw/source/writerfilter/hst/hstpictureimport \
+     sw/source/writerfilter/hst/hstwordmergeimport \
+ 	sw/source/writerfilter/dmapper/domainmapperfactory \
+     sw/source/writerfilter/dmapper/FFDataHandler \
+--- a/sw/Module_sw.mk
++++ b/sw/Module_sw.mk
+@@ -110,6 +110,7 @@
+     CppunitTest_sw_ooxmlexport_de_locale \
+     CppunitTest_sw_ooxmlexport_template \
+     CppunitTest_sw_ooxmlfieldexport \
++    CppunitTest_sw_hst_image_edits_roundtrip \
+     CppunitTest_sw_hst_mailmerge_word \
+     CppunitTest_sw_hst_merge_result_pages \
+     CppunitTest_sw_ooxmllinks \
+--- a/sw/source/filter/ww8/docxattributeoutput.cxx
++++ b/sw/source/filter/ww8/docxattributeoutput.cxx
+@@ -19,6 +19,7 @@
+ 
+ #include <memory>
+ #include "docxattributeoutput.hxx"
++#include "hst/hstpictureadjust.hxx"
+ #include "hst/hstwordmergeexport.hxx"
+ #include <hstpageart.hxx>
+ #include "docxhelper.hxx"
+@@ -5637,8 +5638,8 @@
+     {
+         // inline, we also have to write the image itself
+         Graphic aGraphic;
+-        if (pGrfNode)
+-            aGraphic = pGrfNode->GetGrf();
++        if (pGrfNode) // HST: with the picture settings DOCX cannot store applied
++            aGraphic = sw::hst::GetWordPictureGraphic(*pGrfNode, sw::hst::WordPictureFormat::Docx);
+         else if (const Graphic* pGraphic = pOLENode->GetGraphic())
+             aGraphic = *pGraphic;
+ 
+@@ -5670,6 +5671,8 @@
+         if (eMirror == MirrorGraph::Vertical || eMirror == MirrorGraph::Both)
+             // Mirror on the vertical axis is a horizontal flip.
+             xFrameAttributes->add(XML_flipH, "1");
++        if (eMirror == MirrorGraph::Horizontal || eMirror == MirrorGraph::Both)
++            xFrameAttributes->add(XML_flipV, "1"); // HST: and on the horizontal axis a vertical one
+         // RES_GRFATR_ROTATION is sal_uInt16; use sal_uInt32 for multiplication later
+         if (Degree10 nRot = rSet.Get(RES_GRFATR_ROTATION).GetValue())
+         {
+@@ -5707,7 +5710,11 @@
+             const double fAngle = toRadians(nShapeRotation);
+             // Bounding box width of the unstretched rotated rectangle
+             const double fUnscaledBBoxW = nW0 * abs(cos(fAngle)) + nH0 * abs(sin(fAngle));
+-            if (fUnscaledBBoxW > 0 && rSize.Width() > 0)
++            // HST: unless rSize is the unrotated size: an as-character frame is laid out unrotated, and a frame
++            // not laid out since its rotation has its unrotated size too
++            const bool bHstUnrotatedLayout
++                = std::abs(rSize.Width() - nW0) <= 2 && std::abs(rSize.Height() - nH0) <= 2;
++            if (fUnscaledBBoxW > 0 && rSize.Width() > 0 && !bHstUnrotatedLayout)
+             {
+                 double fScale = rSize.Width() / fUnscaledBBoxW;
+                 nW0 *= fScale;
+@@ -5797,17 +5804,9 @@
+     else
+         m_pSerializer->startElementNS(XML_a, XML_blip, FSNS(XML_r, nImageType), aRelId);
+ 
+-    const SwDrawModeGrf* pGrafModeItem = nullptr;
+-    if ( pGrfNode && (pGrafModeItem = pGrfNode->GetSwAttrSet().GetItemIfSet(RES_GRFATR_DRAWMODE)))
+-    {
+-        GraphicDrawMode nMode = pGrafModeItem->GetValue();
+-        if (nMode == GraphicDrawMode::Greys)
+-            m_pSerializer->singleElementNS (XML_a, XML_grayscl);
+-        else if (nMode == GraphicDrawMode::Mono) //black/white has a 0,5 threshold in LibreOffice
+-            m_pSerializer->singleElementNS (XML_a, XML_biLevel, XML_thresh, OString::number(50000));
+-        else if (nMode == GraphicDrawMode::Watermark) //watermark has a brightness/luminance of 0,5 and contrast of -0.7 in LibreOffice
+-            m_pSerializer->singleElementNS( XML_a, XML_lum, XML_bright, OString::number(70000), XML_contrast, OString::number(-70000) );
+-    }
++    // HST: draw mode, brightness, contrast and transparency
++    if (pGrfNode)
++        sw::hst::WriteDocxPictureEffects(m_pSerializer, *pGrfNode);
+ 
+     if (!sSvgRelId.isEmpty())
+     {
+--- a/sw/source/filter/ww8/wrtw8esh.cxx
++++ b/sw/source/filter/ww8/wrtw8esh.cxx
+@@ -77,6 +77,7 @@
+ #include "writerwordglue.hxx"
+ #include "wrtww8.hxx"
+ #include "escher.hxx"
++#include "hst/hstpictureadjust.hxx"
+ #include <ndtxt.hxx>
+ #include "WW8FFData.hxx"
+ #include <com/sun/star/beans/XPropertySet.hpp>
+@@ -745,10 +746,17 @@
+         //Nasty swap for bidi if necessary
+         rWrt.MiserableRTLFrameFormatHack(nLeft, nRight, rFrameFormat);
+ 
++        // HST: a rotated picture is anchored by its unrotated rectangle (Word's rule for the swap included)
++        const bool bHstRotatedPicture = sw::hst::SetEscherAnchorOfRotatedPicture(
++            rFormat, rFrameFormat.IsInline(),
++            !bPosConverted && rHOr.GetHoriOrient() == text::HoriOrientation::NONE,
++            !bPosConverted && rVOr.GetVertOrient() == text::VertOrientation::NONE, nThick, nLeft, nTop, nRight,
++            nBottom);
++
+         // tdf#70838. Word relates the position to the unrotated rectangle,
+         // Writer to the rotated one. Because the rotation is around center,
+         // the difference counts half.
+-        if(pObj && pObj->GetRotateAngle())
++        if(pObj && pObj->GetRotateAngle() && !bHstRotatedPicture)
+         {
+             SwTwips nXOff;
+             SwTwips nYOff;
+@@ -1637,7 +1645,8 @@
+     }
+     else
+     {
+-        const Graphic&  aGraphic(pGrfNd->GetGrf());
++        // HST: with the picture settings DOC cannot store applied
++        const Graphic aGraphic(sw::hst::GetWordPictureGraphic(*pGrfNd, sw::hst::WordPictureFormat::Doc));
+         GraphicObject   aGraphicObject( aGraphic );
+         OString aUniqueId = aGraphicObject.GetUniqueID();
+ 
+@@ -1665,23 +1674,15 @@
+ void SwBasicEscherEx::WriteGrfAttr(const SwNoTextNode& rNd, const SwFrameFormat& rFormat,
+     EscherPropertyContainer& rPropOpt)
+ {
+-    GraphicDrawMode nMode = GraphicDrawMode::Standard;
+-    sal_Int32 nContrast = 0;
+-    sal_Int16 nBrightness = 0;
+-
+-    if (const SfxInt16Item* pItem = rNd.GetSwAttrSet().GetItemIfSet(RES_GRFATR_CONTRAST))
+-    {
+-        nContrast = pItem->GetValue();
+-    }
+-
+-    if (const SfxInt16Item* pItem = rNd.GetSwAttrSet().GetItemIfSet(RES_GRFATR_LUMINANCE))
+-    {
+-        nBrightness = pItem->GetValue();
+-    }
++    // HST: the settings Word can store; GetWordPictureGraphic applied the others to the written picture
++    const SwGrfNode* pHstGrfNd = rNd.GetGrfNode();
++    const sw::hst::WordPictureSettings aHstSettings(sw::hst::GetWordPictureSettings(
++        rNd.GetSwAttrSet(), sw::hst::WordPictureFormat::Doc, pHstGrfNd && !pHstGrfNd->IsLinkedFile()));
++    GraphicDrawMode nMode = aHstSettings.eDrawMode;
++    sal_Int32 nContrast = aHstSettings.nContrast;
++    sal_Int16 nBrightness = aHstSettings.nLuminance;
+ 
+-    if (const SwDrawModeGrf* pItem = rNd.GetSwAttrSet().GetItemIfSet(RES_GRFATR_DRAWMODE))
+     {
+-        nMode = pItem->GetValue();
+         if (nMode == GraphicDrawMode::Watermark)
+         {
+             /*
+@@ -1729,6 +1730,7 @@
+ 
+     if (nBrightness != 0)
+         rPropOpt.AddOpt( ESCHER_Prop_pictureBrightness, nBrightness * 327 );
++    sw::hst::AddEscherPictureRotationAndGamma(rNd, aHstSettings, rPropOpt); // HST
+ 
+     sal_Int32 nCropL = 0;
+     sal_Int32 nCropR = 0;
+--- a/sw/source/filter/ww8/ww8graf.cxx
++++ b/sw/source/filter/ww8/ww8graf.cxx
+@@ -87,6 +87,7 @@
+ #include "ww8par.hxx"
+ #include "ww8par2.hxx"
+ #include "ww8graf.hxx"
++#include "hst/hstpictureadjust.hxx"
+ #include <fmtinfmt.hxx>
+ #include <editeng/eeitem.hxx>
+ #include <editeng/flditem.hxx>
+@@ -2240,6 +2241,8 @@
+     if (!rRecord.pObj)
+         return;
+ 
++    sw::hst::SetImportedPictureRotation(*pGrfNd, *rRecord.pObj, bFlipV); // HST
++
+     const SfxItemSet& rOldSet = rRecord.pObj->GetMergedItemSet();
+     // contrast
+     if (WW8ITEMVALUE(rOldSet, SDRATTR_GRAFCONTRAST,
+@@ -2670,7 +2673,8 @@
+     // Writer uses the rotated one.
+     if (pObject->GetRotateAngle())
+     {
+-        tools::Rectangle aObjSnapRect(pObject->GetSnapRect()); // recalculates the SnapRect
++        // HST: a picture keeps its rotation (SetAttributesAtGrfNode), its frame is the unrotated picture
++        tools::Rectangle aObjSnapRect(sw::hst::GetImportedPictureFrameRect(*pObject)); // recalculates the SnapRect
+         aFSFA.nXaLeft = aObjSnapRect.Left();
+         aFSFA.nYaTop = aObjSnapRect.Top();
+         aFSFA.nXaRight = aObjSnapRect.Right();
+--- a/sw/source/filter/ww8/ww8graf2.cxx
++++ b/sw/source/filter/ww8/ww8graf2.cxx
+@@ -39,6 +39,7 @@
+ #include "ww8par.hxx"
+ #include "ww8par2.hxx"
+ #include "ww8graf.hxx"
++#include "hst/hstpictureadjust.hxx"
+ #include <vcl/gdimtf.hxx>
+ #include <vcl/graphicfilter.hxx>
+ #include <vcl/wmf.hxx>
+@@ -616,9 +617,11 @@
+                         pRecord->eShapeType, aInnerDist );
+ 
+                     // Set the size from the WinWord PIC-structure as graphic
+-                    // size
+-                    aAttrSet.Put( SwFormatFrameSize( SwFrameSize::Fixed, aPD.nWidth,
+-                        aPD.nHeight ) );
++                    // size (HST: and the room of its borders and shadow)
++                    const Size aHstFrameSize(sw::hst::GetInlinePictureFrameSize(
++                        aAttrSet, Size(aPD.nWidth, aPD.nHeight)));
++                    aAttrSet.Put( SwFormatFrameSize( SwFrameSize::Fixed, aHstFrameSize.Width(),
++                        aHstFrameSize.Height() ) );
+                 }
+ 
+                 // for the graphic
+--- a/sw/source/writerfilter/dmapper/GraphicImport.cxx
++++ b/sw/source/writerfilter/dmapper/GraphicImport.cxx
+@@ -81,6 +81,7 @@
+ #include <utility>
+ #include <unoframe.hxx>
+ #include <unotxdoc.hxx>
++#include <hst/hstpictureimport.hxx>
+ 
+ using namespace css;
+ 
+@@ -819,7 +820,8 @@
+                         // if the shape contains effects in the grab bag, we should not transform it
+                         // in a XTextContent so those effects can be preserved
+                         bool bContainsEffects = std::any_of(std::cbegin(aGrabBag), std::cend(aGrabBag), [](const auto& rProp) {
+-                            return rProp.Name == "EffectProperties"
++                            return (rProp.Name == "EffectProperties"
++                                    && !::hst::pictureimport::IsPictureShadowOnly(rProp.Value)) // HST
+                                 || rProp.Name == "3DEffectProperties"
+                                 || rProp.Name == "ArtisticEffectProperties";
+                         });
+@@ -838,7 +840,9 @@
+                         xShapeProps->getPropertyValue(u"AdjustContrast"_ustr) >>= m_nContrast;
+ 
+                         // fdo#70457: transform XShape into a SwXTextGraphicObject only if there's no rotation
+-                        if ( nRotation == 0 && !bContainsEffects )
++                        // HST: a vertical flip reads as a half turn of the mirrored shape, still a picture
++                        if ((nRotation == 0 || ::hst::pictureimport::IsVerticallyFlipped(xShapeProps))
++                            && !bContainsEffects)
+                             m_xGraphicObject = createGraphicObject( xGraphic, xShapeProps );
+ 
+                         bUseShape = !m_xGraphicObject.is( );
+@@ -1998,6 +2002,8 @@
+                 xGraphicObject->setPropertyValue(u"HoriMirroredOnOddPages"_ustr,
+                                                            uno::Any(true));
+             }
++            // HST: transparency (a:alphaModFix) and a vertical flip
++            ::hst::pictureimport::ApplyShapeSettings(xShapeProps, xGraphicObject);
+         }
+     }
+     catch( const uno::Exception& )
+--- a/sw/qa/extras/ooxmlexport/ooxmlexport2.cxx
++++ b/sw/qa/extras/ooxmlexport/ooxmlexport2.cxx
+@@ -1166,10 +1166,11 @@
+ 
+ DECLARE_OOXMLEXPORT_TEST(testTransparentShadow, "transparent-shadow.docx")
+ {
++    // HST: a picture with a plain shadow stays a Writer picture, its shadow a Writer shadow
+     uno::Reference<drawing::XShape> xPicture = getShape(1);
+-    sal_Int16 nShadowTransparence = getProperty<sal_Int16>(xPicture, u"ShadowTransparence"_ustr);
+-    CPPUNIT_ASSERT_EQUAL(COL_GRAY, getProperty<Color>(xPicture, u"ShadowColor"_ustr));
+-    CPPUNIT_ASSERT_EQUAL(sal_Int16(50), nShadowTransparence);
++    table::ShadowFormat aShadow = getProperty<table::ShadowFormat>(xPicture, u"ShadowFormat"_ustr);
++    CPPUNIT_ASSERT_EQUAL(COL_GRAY, Color(ColorTransparency, aShadow.Color).GetRGBColor());
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(127.0, double(Color(ColorTransparency, aShadow.Color).GetAlpha() ^ 0xFF), 2.0);
+ }
+ 
+ CPPUNIT_TEST_FIXTURE(Test, NoFillAttrInImagedata)
+--- a/sw/qa/extras/ooxmlexport/ooxmlexport8.cxx
++++ b/sw/qa/extras/ooxmlexport/ooxmlexport8.cxx
+@@ -561,13 +561,12 @@
+      * The problem was that drop shadows on inline images were not being
+      * imported and applied.
+      */
++    // HST: a picture with a plain shadow stays a Writer picture, its shadow a Writer shadow
+     uno::Reference<beans::XPropertySet> xPropertySet(getShape(2), uno::UNO_QUERY);
+ 
+-    bool bShadow = getProperty<bool>(xPropertySet, u"Shadow"_ustr);
+-    CPPUNIT_ASSERT(bShadow);
+-
+-    sal_Int32 nShadowXDistance = getProperty<sal_Int32>(xPropertySet, u"ShadowXDistance"_ustr);
+-    CPPUNIT_ASSERT(nShadowXDistance != 0);
++    table::ShadowFormat aShadow = getProperty<table::ShadowFormat>(xPropertySet, u"ShadowFormat"_ustr);
++    CPPUNIT_ASSERT(aShadow.Location != table::ShadowLocation_NONE);
++    CPPUNIT_ASSERT(aShadow.ShadowWidth != 0);
+ }
+ 
+ DECLARE_OOXMLEXPORT_TEST(testN782345, "n782345.docx")
+--- /dev/null
++++ b/sw/CppunitTest_sw_hst_image_edits_roundtrip.mk
+@@ -0,0 +1,55 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (C) HASON TECH. HST Office.
++#
++# Picture settings (brightness, contrast, transparency, gamma, colour channels, draw mode, flips, rotation) survive
++# saving as .docx and .doc and reopening.
++
++$(eval $(call gb_CppunitTest_CppunitTest,sw_hst_image_edits_roundtrip))
++
++$(eval $(call gb_CppunitTest_use_common_precompiled_header,sw_hst_image_edits_roundtrip))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sw_hst_image_edits_roundtrip, \
++    sw/qa/extras/hst/hstimageeditsroundtrip \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sw_hst_image_edits_roundtrip, \
++    $(sw_ooxmlexport_libraries) \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,sw_hst_image_edits_roundtrip,\
++    boost_headers \
++    libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sw_hst_image_edits_roundtrip,\
++    -I$(SRCDIR)/sw/inc \
++    -I$(SRCDIR)/sw/source/core/inc \
++    -I$(SRCDIR)/sw/source/uibase/inc \
++    -I$(SRCDIR)/sw/qa/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_api,sw_hst_image_edits_roundtrip,\
++    udkapi \
++    offapi \
++    oovbaapi \
++))
++
++$(eval $(call gb_CppunitTest_use_ure,sw_hst_image_edits_roundtrip))
++$(eval $(call gb_CppunitTest_use_vcl,sw_hst_image_edits_roundtrip))
++
++$(eval $(call gb_CppunitTest_use_rdb,sw_hst_image_edits_roundtrip,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sw_hst_image_edits_roundtrip))
++
++$(eval $(call gb_CppunitTest_use_uiconfigs,sw_hst_image_edits_roundtrip,\
++    modules/swriter \
++))
++
++$(eval $(call gb_CppunitTest_use_packages,sw_hst_image_edits_roundtrip,\
++    oox_generated \
++))
++
++# vim: set noet sw=4 ts=4:
+--- /dev/null
++++ b/sw/qa/extras/hst/hstimageeditsroundtrip.cxx
+@@ -0,0 +1,644 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. HST Office.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <com/sun/star/awt/Size.hpp>
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/drawing/ColorMode.hpp>
++#include <com/sun/star/graphic/XGraphic.hpp>
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/table/BorderLine2.hpp>
++#include <com/sun/star/table/ShadowFormat.hpp>
++#include <com/sun/star/table/ShadowLocation.hpp>
++#include <com/sun/star/text/GraphicCrop.hpp>
++#include <com/sun/star/text/HoriOrientation.hpp>
++#include <com/sun/star/text/TextContentAnchorType.hpp>
++#include <com/sun/star/text/VertOrientation.hpp>
++#include <com/sun/star/text/XText.hpp>
++#include <com/sun/star/text/XTextContent.hpp>
++#include <com/sun/star/text/XTextDocument.hpp>
++#include <com/sun/star/text/XTextGraphicObjectsSupplier.hpp>
++
++#include <comphelper/embeddedobjectcontainer.hxx>
++#include <sfx2/linkmgr.hxx>
++#include <vcl/BitmapReadAccess.hxx>
++#include <vcl/BitmapWriteAccess.hxx>
++#include <vcl/GraphicAttributes.hxx>
++#include <vcl/GraphicObject.hxx>
++#include <vcl/bitmap.hxx>
++#include <vcl/graph.hxx>
++#include <vcl/mapmod.hxx>
++
++#include <IDocumentLinksAdministration.hxx>
++#include <doc.hxx>
++#include <docsh.hxx>
++
++#include <cstdlib>
++#include <functional>
++
++namespace
++{
++/** Picture settings of the Picture tab and the Image dialog survive saving as .docx and .doc and reopening: as Word
++    properties where the format has them, applied to the written picture where it has none. */
++class HstImageEditsRoundtripTest : public SwModelTestBase
++{
++public:
++    HstImageEditsRoundtripTest()
++        : SwModelTestBase(u"/sw/qa/extras/hst/data/"_ustr)
++    {
++    }
++
++    /// A new document with one 6 x 4.5 cm picture of a colour gradient (64 x 48 pixels).
++    uno::Reference<beans::XPropertySet>
++    insertPicture(text::TextContentAnchorType eAnchor = text::TextContentAnchorType_AT_CHARACTER)
++    {
++        createSwDoc();
++        Bitmap aBitmap(Size(64, 48), vcl::PixelFormat::N24_BPP);
++        {
++            BitmapScopedWriteAccess pWrite(aBitmap);
++            for (tools::Long nY = 0; nY < 48; ++nY)
++                for (tools::Long nX = 0; nX < 64; ++nX)
++                    pWrite->SetPixel(nY, nX,
++                                     BitmapColor(sal_uInt8(40 + nX * 3), sal_uInt8(30 + nY * 4),
++                                                 sal_uInt8(200 - nX - nY)));
++        }
++        maOriginal = Graphic(aBitmap);
++
++        uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<beans::XPropertySet> xPicture(
++            xFactory->createInstance(u"com.sun.star.text.TextGraphicObject"_ustr), uno::UNO_QUERY_THROW);
++        xPicture->setPropertyValue(u"Graphic"_ustr, uno::Any(maOriginal.GetXGraphic()));
++        xPicture->setPropertyValue(u"AnchorType"_ustr, uno::Any(eAnchor));
++        xPicture->setPropertyValue(u"Size"_ustr, uno::Any(awt::Size(6000, 4500)));
++        uno::Reference<text::XTextDocument> xDocument(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<text::XText> xText = xDocument->getText();
++        xText->insertTextContent(xText->getEnd(),
++                                 uno::Reference<text::XTextContent>(xPicture, uno::UNO_QUERY_THROW), false);
++        return xPicture;
++    }
++
++    /// The reopened document's Writer picture (empty when it came back as a drawing shape).
++    uno::Reference<beans::XPropertySet> writerPicture()
++    {
++        uno::Reference<text::XTextGraphicObjectsSupplier> xSupplier(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<container::XIndexAccess> xObjects(xSupplier->getGraphicObjects(), uno::UNO_QUERY_THROW);
++        if (!xObjects->getCount())
++            return {};
++        return uno::Reference<beans::XPropertySet>(xObjects->getByIndex(0), uno::UNO_QUERY_THROW);
++    }
++
++    /// The picture as HST Office draws it with rAttr's colour settings.
++    Bitmap rendered(const GraphicAttr& rAttr) const
++    {
++        return GraphicObject(maOriginal).GetTransformedGraphic(&rAttr).GetBitmap();
++    }
++
++    /// The picture data of xPicture.
++    static Bitmap pictureData(const uno::Reference<beans::XPropertySet>& xPicture)
++    {
++        uno::Reference<graphic::XGraphic> xGraphic;
++        xPicture->getPropertyValue(u"Graphic"_ustr) >>= xGraphic;
++        CPPUNIT_ASSERT(xGraphic.is());
++        return Graphic(xGraphic).GetBitmap();
++    }
++
++    /// Every pixel within 2 of the expected colour (and alpha).
++    static void assertSamePixels(const Bitmap& rExpected, const Bitmap& rActual)
++    {
++        CPPUNIT_ASSERT_EQUAL(rExpected.GetSizePixel().Width(), rActual.GetSizePixel().Width());
++        CPPUNIT_ASSERT_EQUAL(rExpected.GetSizePixel().Height(), rActual.GetSizePixel().Height());
++        int nDifferent = 0;
++        for (sal_Int32 nY = 0; nY < rExpected.GetSizePixel().Height(); ++nY)
++            for (sal_Int32 nX = 0; nX < rExpected.GetSizePixel().Width(); ++nX)
++            {
++                const Color aWant = rExpected.GetPixelColor(nX, nY);
++                const Color aGot = rActual.GetPixelColor(nX, nY);
++                if (std::abs(aWant.GetRed() - aGot.GetRed()) > 2
++                    || std::abs(aWant.GetGreen() - aGot.GetGreen()) > 2
++                    || std::abs(aWant.GetBlue() - aGot.GetBlue()) > 2
++                    || std::abs(aWant.GetAlpha() - aGot.GetAlpha()) > 2)
++                    ++nDifferent;
++            }
++        CPPUNIT_ASSERT_EQUAL(0, nDifferent);
++    }
++
++    /// The picture's colour setting rName set to aValue survives the round trip as a picture property.
++    void checkKeptProperty(TestFilter eFilter, const OUString& rName, const uno::Any& aValue)
++    {
++        uno::Reference<beans::XPropertySet> xPicture = insertPicture();
++        xPicture->setPropertyValue(rName, aValue);
++        saveAndReload(eFilter);
++        xPicture = writerPicture();
++        CPPUNIT_ASSERT(xPicture.is());
++        CPPUNIT_ASSERT_MESSAGE(rName.toUtf8().getStr(), aValue == xPicture->getPropertyValue(rName));
++    }
++
++    /// Settings the format cannot store come back applied to the picture, as HST Office showed it.
++    void checkApplied(TestFilter eFilter, const std::function<void(const uno::Reference<beans::XPropertySet>&)>& rSet,
++                      const GraphicAttr& rShown)
++    {
++        uno::Reference<beans::XPropertySet> xPicture = insertPicture();
++        rSet(xPicture);
++        saveAndReload(eFilter);
++        xPicture = writerPicture();
++        CPPUNIT_ASSERT(xPicture.is());
++        assertSamePixels(rendered(rShown), pictureData(xPicture));
++        // ... and the settings are not applied a second time
++        CPPUNIT_ASSERT_EQUAL(sal_Int16(0), xPicture->getPropertyValue(u"AdjustLuminance"_ustr).get<sal_Int16>());
++        CPPUNIT_ASSERT_EQUAL(sal_Int16(0), xPicture->getPropertyValue(u"AdjustContrast"_ustr).get<sal_Int16>());
++        CPPUNIT_ASSERT_EQUAL(sal_Int16(0), xPicture->getPropertyValue(u"AdjustRed"_ustr).get<sal_Int16>());
++        CPPUNIT_ASSERT_EQUAL(1.0, xPicture->getPropertyValue(u"Gamma"_ustr).get<double>());
++        CPPUNIT_ASSERT_EQUAL(drawing::ColorMode_STANDARD,
++                             xPicture->getPropertyValue(u"GraphicColorMode"_ustr).get<drawing::ColorMode>());
++    }
++
++    /// A picture rotated by nRotation (tenths of a degree, with rMirror set) keeps its rotation and size.
++    void checkRotation(TestFilter eFilter, text::TextContentAnchorType eAnchor, sal_Int16 nRotation,
++                       const OUString& rMirror)
++    {
++        uno::Reference<beans::XPropertySet> xPicture = insertPicture(eAnchor);
++        xPicture->setPropertyValue(u"GraphicRotation"_ustr, uno::Any(nRotation));
++        if (!rMirror.isEmpty())
++            xPicture->setPropertyValue(rMirror, uno::Any(true));
++        saveAndReload(eFilter);
++        xPicture = writerPicture();
++        sal_Int32 nRotation100 = 0;
++        awt::Size aSize;
++        if (xPicture.is())
++        {
++            nRotation100 = xPicture->getPropertyValue(u"GraphicRotation"_ustr).get<sal_Int16>() * 10;
++            xPicture->getPropertyValue(u"Size"_ustr) >>= aSize;
++            if (!rMirror.isEmpty())
++                CPPUNIT_ASSERT(xPicture->getPropertyValue(rMirror).get<bool>());
++        }
++        else // DOCX: a rotated picture comes back as a picture shape
++        {
++            uno::Reference<drawing::XShape> xShape = getShape(1);
++            uno::Reference<beans::XPropertySet> xShapeProps(xShape, uno::UNO_QUERY_THROW);
++            xShapeProps->getPropertyValue(u"RotateAngle"_ustr) >>= nRotation100;
++            aSize = xShape->getSize();
++        }
++        CPPUNIT_ASSERT_EQUAL(sal_Int32(nRotation) * 10, nRotation100);
++        // not 8000 x 6000 (the size of the rotated rectangle around the unrotated picture)
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSize.Width), 30.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSize.Height), 30.0);
++    }
++
++    /// A turned picture placed by hand keeps its place: Writer and Word both position it by the unrotated picture
++    /// (the .doc export took the turned picture's box around another centre, so it moved by half of width - height).
++    void checkRotatedPosition(TestFilter eFilter)
++    {
++        uno::Reference<beans::XPropertySet> xPicture = insertPicture();
++        xPicture->setPropertyValue(u"HoriOrient"_ustr, uno::Any(text::HoriOrientation::NONE));
++        xPicture->setPropertyValue(u"HoriOrientPosition"_ustr, uno::Any(sal_Int32(3000)));
++        xPicture->setPropertyValue(u"VertOrient"_ustr, uno::Any(text::VertOrientation::NONE));
++        xPicture->setPropertyValue(u"VertOrientPosition"_ustr, uno::Any(sal_Int32(1000)));
++        xPicture->setPropertyValue(u"GraphicRotation"_ustr, uno::Any(sal_Int16(900)));
++        saveAndReload(eFilter);
++        uno::Reference<beans::XPropertySet> xProps = writerPicture();
++        double fLeft = 3000, fTop = 1000;
++        if (!xProps.is())
++        {
++            // DOCX: a rotated picture comes back as a picture shape, which is placed by its bounding box (here
++            // 4500 x 6000 around the same centre)
++            xProps.set(getShape(1), uno::UNO_QUERY_THROW);
++            fLeft += (6000 - 4500) / 2.0;
++            fTop -= (6000 - 4500) / 2.0;
++        }
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(fLeft, double(xProps->getPropertyValue(u"HoriOrientPosition"_ustr).get<sal_Int32>()),
++                                     30.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(fTop, double(xProps->getPropertyValue(u"VertOrientPosition"_ustr).get<sal_Int32>()),
++                                     30.0);
++    }
++
++    /// DOCX: a picture with a plain shadow stays a picture with its shadow and its size, over two saves.
++    void checkShadowedPictureStaysPicture(text::TextContentAnchorType eAnchor)
++    {
++        uno::Reference<beans::XPropertySet> xPicture = insertPicture(eAnchor);
++        table::ShadowFormat aShadow;
++        aShadow.Location = table::ShadowLocation_BOTTOM_RIGHT;
++        aShadow.ShadowWidth = 106;
++        aShadow.Color = 0x000000;
++        xPicture->setPropertyValue(u"ShadowFormat"_ustr, uno::Any(aShadow));
++
++        for (int nSave = 0; nSave < 2; ++nSave)
++        {
++            saveAndReload(TestFilter::DOCX);
++            xPicture = writerPicture();
++            CPPUNIT_ASSERT(xPicture.is());
++            const table::ShadowFormat aGot = xPicture->getPropertyValue(u"ShadowFormat"_ustr).get<table::ShadowFormat>();
++            CPPUNIT_ASSERT_EQUAL(table::ShadowLocation_BOTTOM_RIGHT, aGot.Location);
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(106.0, double(aGot.ShadowWidth), 5.0);
++            awt::Size aSize;
++            xPicture->getPropertyValue(u"Size"_ustr) >>= aSize;
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSize.Width), 20.0);
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSize.Height), 20.0);
++        }
++    }
++
++    /// Upstream's document with a picture linked to linked_graphic.jpg, and that picture.
++    uno::Reference<beans::XPropertySet> loadLinkedPicture()
++    {
++        loadFromURL(
++            m_directories.getURLFromSrc(u"/sw/qa/extras/globalfilter/data/document_with_linked_graphic.odt"));
++        getSwDocShell()->getEmbeddedObjectContainer().setUserAllowsLinkUpdate(true);
++        uno::Reference<beans::XPropertySet> xPicture = writerPicture();
++        CPPUNIT_ASSERT(xPicture.is());
++        return xPicture;
++    }
++
++    /// Saves and reopens; the picture must still be linked (never embedded), and is returned.
++    uno::Reference<beans::XPropertySet> reloadLinked(TestFilter eFilter)
++    {
++        saveAndReload(eFilter);
++        getSwDocShell()->getEmbeddedObjectContainer().setUserAllowsLinkUpdate(true);
++        sfx2::LinkManager& rLinks = getSwDoc()->getIDocumentLinksAdministration().GetLinkManager();
++        CPPUNIT_ASSERT_EQUAL(size_t(1), rLinks.GetLinks().size());
++        CPPUNIT_ASSERT(rLinks.GetLinks()[0]->GetLinkSourceName().indexOf("linked_graphic.jpg") >= 0);
++        uno::Reference<beans::XPropertySet> xPicture = writerPicture();
++        CPPUNIT_ASSERT(xPicture.is());
++        return xPicture;
++    }
++
++    /// Every setting of the Picture tab on a linked picture; Word keeps some of them as properties of the link.
++    static void setAllSettings(const uno::Reference<beans::XPropertySet>& xPicture)
++    {
++        xPicture->setPropertyValue(u"AdjustLuminance"_ustr, uno::Any(sal_Int16(20)));
++        xPicture->setPropertyValue(u"AdjustContrast"_ustr, uno::Any(sal_Int16(-30)));
++        xPicture->setPropertyValue(u"Transparency"_ustr, uno::Any(sal_Int16(40)));
++        xPicture->setPropertyValue(u"GraphicColorMode"_ustr, uno::Any(drawing::ColorMode_GREYS));
++        xPicture->setPropertyValue(u"VertMirrored"_ustr, uno::Any(true));
++        xPicture->setPropertyValue(u"Gamma"_ustr, uno::Any(1.5));
++        xPicture->setPropertyValue(u"AdjustRed"_ustr, uno::Any(sal_Int16(30)));
++    }
++
++    template <typename T> static T get(const uno::Reference<beans::XPropertySet>& xPicture, const OUString& rName)
++    {
++        return xPicture->getPropertyValue(rName).get<T>();
++    }
++
++    /// A cropped picture whose settings are applied to the written picture keeps its crop (the copy kept the size
++    /// of the original's pixels at another resolution, so the crop came back 4/3 larger).
++    void checkAppliedSettingsKeepCrop(TestFilter eFilter)
++    {
++        uno::Reference<beans::XPropertySet> xPicture = insertPicture();
++        // a picture with its own resolution (150 dpi), as photos have
++        Graphic aPhoto(maOriginal);
++        aPhoto.SetPrefMapMode(MapMode(MapUnit::Map100thMM));
++        aPhoto.SetPrefSize(Size(64 * 2540 / 150, 48 * 2540 / 150));
++        xPicture->setPropertyValue(u"Graphic"_ustr, uno::Any(aPhoto.GetXGraphic()));
++        text::GraphicCrop aCrop(200, 100, 150, 100); // top, bottom, left, right
++        xPicture->setPropertyValue(u"GraphicCrop"_ustr, uno::Any(aCrop));
++        xPicture->setPropertyValue(u"AdjustLuminance"_ustr, uno::Any(sal_Int16(20)));
++        xPicture->setPropertyValue(u"AdjustContrast"_ustr, uno::Any(sal_Int16(-30)));
++        saveAndReload(eFilter);
++        xPicture = writerPicture();
++        CPPUNIT_ASSERT(xPicture.is());
++        text::GraphicCrop aGot;
++        xPicture->getPropertyValue(u"GraphicCrop"_ustr) >>= aGot;
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(200.0, double(aGot.Top), 10.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(100.0, double(aGot.Bottom), 10.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(150.0, double(aGot.Left), 10.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(100.0, double(aGot.Right), 10.0);
++    }
++
++private:
++    Graphic maOriginal;
++};
++}
++
++// DOCX: brightness and contrast alone are a:lum, transparency is a:alphaModFix; they were not written at all.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxBrightnessKept)
++{
++    checkKeptProperty(TestFilter::DOCX, u"AdjustLuminance"_ustr, uno::Any(sal_Int16(20)));
++    xmlDocUniquePtr pXml = parseExport(u"word/document.xml"_ustr);
++    assertXPath(pXml, "//pic:blipFill/a:blip/a:lum", "bright", u"20000");
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxContrastKept)
++{
++    checkKeptProperty(TestFilter::DOCX, u"AdjustContrast"_ustr, uno::Any(sal_Int16(-30)));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxTransparencyKept)
++{
++    checkKeptProperty(TestFilter::DOCX, u"Transparency"_ustr, uno::Any(sal_Int16(40)));
++    xmlDocUniquePtr pXml = parseExport(u"word/document.xml"_ustr);
++    assertXPath(pXml, "//pic:blipFill/a:blip/a:alphaModFix", "amt", u"60000");
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxGreysWithBrightnessKept)
++{
++    uno::Reference<beans::XPropertySet> xPicture = insertPicture();
++    xPicture->setPropertyValue(u"GraphicColorMode"_ustr, uno::Any(drawing::ColorMode_GREYS));
++    xPicture->setPropertyValue(u"AdjustLuminance"_ustr, uno::Any(sal_Int16(25)));
++    saveAndReload(TestFilter::DOCX);
++    xPicture = writerPicture();
++    CPPUNIT_ASSERT(xPicture.is());
++    CPPUNIT_ASSERT_EQUAL(drawing::ColorMode_GREYS,
++                         xPicture->getPropertyValue(u"GraphicColorMode"_ustr).get<drawing::ColorMode>());
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(25), xPicture->getPropertyValue(u"AdjustLuminance"_ustr).get<sal_Int16>());
++}
++
++// DOCX: a vertical flip is a:xfrm flipV, and the picture stays a Writer picture flipped vertically.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxVerticalFlipKept)
++{
++    uno::Reference<beans::XPropertySet> xPicture = insertPicture();
++    xPicture->setPropertyValue(u"VertMirrored"_ustr, uno::Any(true));
++    saveAndReload(TestFilter::DOCX);
++    xmlDocUniquePtr pXml = parseExport(u"word/document.xml"_ustr);
++    assertXPath(pXml, "//pic:spPr/a:xfrm", "flipV", u"1");
++    xPicture = writerPicture();
++    CPPUNIT_ASSERT(xPicture.is());
++    CPPUNIT_ASSERT(xPicture->getPropertyValue(u"VertMirrored"_ustr).get<bool>());
++    CPPUNIT_ASSERT(!xPicture->getPropertyValue(u"HoriMirroredOnOddPages"_ustr).get<bool>());
++}
++
++// DOCX has no gamma, colour channels or invert, and Word mixes brightness with contrast in its own way.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxGammaApplied)
++{
++    GraphicAttr aShown;
++    aShown.SetGamma(1.5);
++    checkApplied(
++        TestFilter::DOCX,
++        [](const uno::Reference<beans::XPropertySet>& xPicture) {
++            xPicture->setPropertyValue(u"Gamma"_ustr, uno::Any(1.5));
++        },
++        aShown);
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxChannelsApplied)
++{
++    GraphicAttr aShown;
++    aShown.SetChannelR(30);
++    aShown.SetChannelB(-20);
++    checkApplied(
++        TestFilter::DOCX,
++        [](const uno::Reference<beans::XPropertySet>& xPicture) {
++            xPicture->setPropertyValue(u"AdjustRed"_ustr, uno::Any(sal_Int16(30)));
++            xPicture->setPropertyValue(u"AdjustBlue"_ustr, uno::Any(sal_Int16(-20)));
++        },
++        aShown);
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxBrightnessContrastApplied)
++{
++    GraphicAttr aShown;
++    aShown.SetLuminance(20);
++    aShown.SetContrast(-30);
++    checkApplied(
++        TestFilter::DOCX,
++        [](const uno::Reference<beans::XPropertySet>& xPicture) {
++            xPicture->setPropertyValue(u"AdjustLuminance"_ustr, uno::Any(sal_Int16(20)));
++            xPicture->setPropertyValue(u"AdjustContrast"_ustr, uno::Any(sal_Int16(-30)));
++        },
++        aShown);
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxWatermarkWithBrightnessApplied)
++{
++    GraphicAttr aShown;
++    aShown.SetDrawMode(GraphicDrawMode::Watermark);
++    aShown.SetLuminance(10);
++    checkApplied(
++        TestFilter::DOCX,
++        [](const uno::Reference<beans::XPropertySet>& xPicture) {
++            xPicture->setPropertyValue(u"GraphicColorMode"_ustr, uno::Any(drawing::ColorMode_WATERMARK));
++            xPicture->setPropertyValue(u"AdjustLuminance"_ustr, uno::Any(sal_Int16(10)));
++        },
++        aShown);
++}
++
++// DOCX: an as-character picture turned by 90 degrees came back 4/3 larger.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxRotatedInlinePictureSize)
++{
++    checkRotation(TestFilter::DOCX, text::TextContentAnchorType_AS_CHARACTER, 900, OUString());
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxRotatedAnchoredPictureSize)
++{
++    checkRotation(TestFilter::DOCX, text::TextContentAnchorType_AT_CHARACTER, 900, OUString());
++}
++
++// DOC: gamma and rotation are escher properties; transparency, colour channels and brightness with contrast are
++// applied to the written picture.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocBrightnessKept)
++{
++    checkKeptProperty(TestFilter::DOC, u"AdjustLuminance"_ustr, uno::Any(sal_Int16(20)));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocGammaKept)
++{
++    checkKeptProperty(TestFilter::DOC, u"Gamma"_ustr, uno::Any(1.5));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocTransparencyApplied)
++{
++    uno::Reference<beans::XPropertySet> xPicture = insertPicture();
++    xPicture->setPropertyValue(u"Transparency"_ustr, uno::Any(sal_Int16(40)));
++    saveAndReload(TestFilter::DOC);
++    xPicture = writerPicture();
++    CPPUNIT_ASSERT(xPicture.is());
++    GraphicAttr aShown;
++    aShown.SetAlpha(255 - 102); // 40 %
++    assertSamePixels(rendered(aShown), pictureData(xPicture));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocChannelsApplied)
++{
++    GraphicAttr aShown;
++    aShown.SetChannelR(30);
++    checkApplied(
++        TestFilter::DOC,
++        [](const uno::Reference<beans::XPropertySet>& xPicture) {
++            xPicture->setPropertyValue(u"AdjustRed"_ustr, uno::Any(sal_Int16(30)));
++        },
++        aShown);
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocBrightnessContrastApplied)
++{
++    GraphicAttr aShown;
++    aShown.SetLuminance(20);
++    aShown.SetContrast(-30);
++    checkApplied(
++        TestFilter::DOC,
++        [](const uno::Reference<beans::XPropertySet>& xPicture) {
++            xPicture->setPropertyValue(u"AdjustLuminance"_ustr, uno::Any(sal_Int16(20)));
++            xPicture->setPropertyValue(u"AdjustContrast"_ustr, uno::Any(sal_Int16(-30)));
++        },
++        aShown);
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocGreysWithBrightnessContrastApplied)
++{
++    GraphicAttr aShown;
++    aShown.SetDrawMode(GraphicDrawMode::Greys);
++    aShown.SetLuminance(20);
++    aShown.SetContrast(-30);
++    checkApplied(
++        TestFilter::DOC,
++        [](const uno::Reference<beans::XPropertySet>& xPicture) {
++            xPicture->setPropertyValue(u"GraphicColorMode"_ustr, uno::Any(drawing::ColorMode_GREYS));
++            xPicture->setPropertyValue(u"AdjustLuminance"_ustr, uno::Any(sal_Int16(20)));
++            xPicture->setPropertyValue(u"AdjustContrast"_ustr, uno::Any(sal_Int16(-30)));
++        },
++        aShown);
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocWatermarkWithBrightnessApplied)
++{
++    GraphicAttr aShown;
++    aShown.SetDrawMode(GraphicDrawMode::Watermark);
++    aShown.SetLuminance(10);
++    checkApplied(
++        TestFilter::DOC,
++        [](const uno::Reference<beans::XPropertySet>& xPicture) {
++            xPicture->setPropertyValue(u"GraphicColorMode"_ustr, uno::Any(drawing::ColorMode_WATERMARK));
++            xPicture->setPropertyValue(u"AdjustLuminance"_ustr, uno::Any(sal_Int16(10)));
++        },
++        aShown);
++}
++
++// DOC: the rotation was not written; floating and inline, also with a flip (Word turns a flipped shape the other
++// way).
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocRotationFloating)
++{
++    checkRotation(TestFilter::DOC, text::TextContentAnchorType_AT_CHARACTER, 900, OUString());
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocRotationInline)
++{
++    checkRotation(TestFilter::DOC, text::TextContentAnchorType_AS_CHARACTER, 900, OUString());
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocRotationWithFlip)
++{
++    checkRotation(TestFilter::DOC, text::TextContentAnchorType_AT_CHARACTER, 300, u"VertMirrored"_ustr);
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocRotationWithHorizontalFlip)
++{
++    checkRotation(TestFilter::DOC, text::TextContentAnchorType_AT_CHARACTER, 2700, u"HoriMirroredOnOddPages"_ustr);
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxRotatedPicturePosition) { checkRotatedPosition(TestFilter::DOCX); }
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocRotatedPicturePosition) { checkRotatedPosition(TestFilter::DOC); }
++
++// DOCX: a picture with a shadow (as the HST picture styles give) came back as a picture shape (no Picture tab), smaller
++// by the shadow. A plain shadow is a picture's shadow in Word: it stays a picture with its shadow and its size.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedInlinePictureStaysPicture)
++{
++    checkShadowedPictureStaysPicture(text::TextContentAnchorType_AS_CHARACTER);
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedAnchoredPictureStaysPicture)
++{
++    checkShadowedPictureStaysPicture(text::TextContentAnchorType_AT_CHARACTER);
++}
++
++// DOC: an as-character picture with a border (and a shadow, as the HST picture styles give) became smaller on every
++// save: the reader took the picture's size without the room of its borders as the frame size.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocBorderedInlinePictureKeepsSize)
++{
++    uno::Reference<beans::XPropertySet> xPicture = insertPicture(text::TextContentAnchorType_AS_CHARACTER);
++    table::BorderLine2 aLine;
++    aLine.Color = 0x0072BB;
++    aLine.LineWidth = 53;
++    aLine.OuterLineWidth = 53;
++    for (const OUString& rSide : { u"TopBorder"_ustr, u"BottomBorder"_ustr, u"LeftBorder"_ustr, u"RightBorder"_ustr })
++        xPicture->setPropertyValue(rSide, uno::Any(aLine));
++    table::ShadowFormat aShadow;
++    aShadow.Location = table::ShadowLocation_BOTTOM_RIGHT;
++    aShadow.ShadowWidth = 106;
++    aShadow.Color = 0x000000;
++    xPicture->setPropertyValue(u"ShadowFormat"_ustr, uno::Any(aShadow));
++
++    awt::Size aSaved[2];
++    for (awt::Size& rSize : aSaved)
++    {
++        saveAndReload(TestFilter::DOC);
++        xPicture = writerPicture();
++        CPPUNIT_ASSERT(xPicture.is());
++        xPicture->getPropertyValue(u"Size"_ustr) >>= rSize;
++    }
++    // the same after the second save, and (up to Word's border units) the size it had
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(double(aSaved[0].Width), double(aSaved[1].Width), 5.0);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(double(aSaved[0].Height), double(aSaved[1].Height), 5.0);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSaved[1].Width), 60.0);
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSaved[1].Height), 60.0);
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxAppliedSettingsKeepCrop)
++{
++    checkAppliedSettingsKeepCrop(TestFilter::DOCX);
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocAppliedSettingsKeepCrop)
++{
++    checkAppliedSettingsKeepCrop(TestFilter::DOC);
++}
++
++// Linked pictures stay linked, as in Word: the settings Word keeps (brightness and contrast, also together, the draw
++// mode, flips, rotation, and in DOCX transparency, in DOC gamma) are properties of the link; the others are left out.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxLinkedPictureKeepsWordSettings)
++{
++    setAllSettings(loadLinkedPicture());
++    uno::Reference<beans::XPropertySet> xPicture = reloadLinked(TestFilter::DOCX);
++    xmlDocUniquePtr pXml = parseExport(u"word/document.xml"_ustr);
++    assertXPath(pXml, "//pic:blipFill/a:blip[@r:link]", 1);
++    assertXPath(pXml, "//pic:blipFill/a:blip/a:lum", "bright", u"20000");
++    assertXPath(pXml, "//pic:blipFill/a:blip/a:lum", "contrast", u"-30000");
++    assertXPath(pXml, "//pic:blipFill/a:blip/a:alphaModFix", "amt", u"60000");
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(20), get<sal_Int16>(xPicture, u"AdjustLuminance"_ustr));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(-30), get<sal_Int16>(xPicture, u"AdjustContrast"_ustr));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(40), get<sal_Int16>(xPicture, u"Transparency"_ustr));
++    CPPUNIT_ASSERT_EQUAL(drawing::ColorMode_GREYS, get<drawing::ColorMode>(xPicture, u"GraphicColorMode"_ustr));
++    CPPUNIT_ASSERT(get<bool>(xPicture, u"VertMirrored"_ustr));
++    // DOCX has no gamma or colour channels for a link
++    CPPUNIT_ASSERT_EQUAL(1.0, get<double>(xPicture, u"Gamma"_ustr));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(0), get<sal_Int16>(xPicture, u"AdjustRed"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxLinkedWatermarkWithBrightness)
++{
++    uno::Reference<beans::XPropertySet> xPicture = loadLinkedPicture();
++    xPicture->setPropertyValue(u"GraphicColorMode"_ustr, uno::Any(drawing::ColorMode_WATERMARK));
++    xPicture->setPropertyValue(u"AdjustLuminance"_ustr, uno::Any(sal_Int16(10)));
++    xPicture = reloadLinked(TestFilter::DOCX);
++    // the brightness and contrast HST Office draws the watermark with
++    CPPUNIT_ASSERT_EQUAL(drawing::ColorMode_STANDARD, get<drawing::ColorMode>(xPicture, u"GraphicColorMode"_ustr));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(60), get<sal_Int16>(xPicture, u"AdjustLuminance"_ustr));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(-70), get<sal_Int16>(xPicture, u"AdjustContrast"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocLinkedPictureKeepsWordSettings)
++{
++    setAllSettings(loadLinkedPicture());
++    uno::Reference<beans::XPropertySet> xPicture = reloadLinked(TestFilter::DOC);
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(20), get<sal_Int16>(xPicture, u"AdjustLuminance"_ustr));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(-30), get<sal_Int16>(xPicture, u"AdjustContrast"_ustr));
++    CPPUNIT_ASSERT_EQUAL(1.5, get<double>(xPicture, u"Gamma"_ustr));
++    CPPUNIT_ASSERT_EQUAL(drawing::ColorMode_GREYS, get<drawing::ColorMode>(xPicture, u"GraphicColorMode"_ustr));
++    CPPUNIT_ASSERT(get<bool>(xPicture, u"VertMirrored"_ustr));
++    // DOC has no transparency or colour channels for a link
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(0), get<sal_Int16>(xPicture, u"Transparency"_ustr));
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(0), get<sal_Int16>(xPicture, u"AdjustRed"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocLinkedPictureRotation)
++{
++    uno::Reference<beans::XPropertySet> xPicture = loadLinkedPicture();
++    xPicture->setPropertyValue(u"GraphicRotation"_ustr, uno::Any(sal_Int16(900)));
++    xPicture = reloadLinked(TestFilter::DOC);
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(900), get<sal_Int16>(xPicture, u"GraphicRotation"_ustr));
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/filter/ww8/hst/hstpictureadjust.cxx
+@@ -0,0 +1,294 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "hstpictureadjust.hxx"
++
++#include "../wrtww8.hxx"
++#include "../ww8struc.hxx"
++
++#include <basegfx/numeric/ftools.hxx>
++#include <editeng/boxitem.hxx>
++#include <editeng/shaditem.hxx>
++#include <filter/msfilter/escherex.hxx>
++#include <oox/token/namespaces.hxx>
++#include <oox/token/tokens.hxx>
++#include <rtl/math.hxx>
++#include <svx/msdffdef.hxx>
++#include <svx/svdobj.hxx>
++#include <svx/svdtrans.hxx>
++#include <vcl/GraphicObject.hxx>
++
++#include <fmtcntnt.hxx>
++#include <frmfmt.hxx>
++#include <fmtfsize.hxx>
++#include <grfatr.hxx>
++#include <hintids.hxx>
++#include <ndgrf.hxx>
++#include <ndarr.hxx>
++#include <ndindex.hxx>
++#include <ndnotxt.hxx>
++#include <node.hxx>
++#include <swatrset.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <memory>
++
++using namespace oox;
++
++namespace sw::hst
++{
++namespace
++{
++/// Word reads a picture turned between 45 and 135 or between 225 and 315 degrees with its anchor's width and height
++/// swapped.
++bool IsAnchorSwapped(sal_Int32 nDeg10)
++{
++    const sal_Int32 n = ((nDeg10 % 3600) + 3600) % 3600;
++    return (n > 450 && n <= 1350) || (n > 2250 && n <= 3150);
++}
++
++/// The picture node shown in rFormat, if rFormat is a frame holding one.
++const SwGrfNode* GetPictureNode(const SwFrameFormat& rFormat)
++{
++    if (rFormat.Which() != RES_FLYFRMFMT)
++        return nullptr;
++    const SwNodeIndex* pIdx = rFormat.GetContent().GetContentIdx();
++    if (!pIdx)
++        return nullptr;
++    return pIdx->GetNodes()[pIdx->GetIndex() + 1]->GetGrfNode();
++}
++}
++
++WordPictureSettings GetWordPictureSettings(const SwAttrSet& rSet, WordPictureFormat eFormat, bool bCanApply)
++{
++    WordPictureSettings aSettings;
++    const GraphicDrawMode eMode = rSet.GetDrawModeGrf().GetValue();
++    const sal_Int16 nLuminance = rSet.GetLuminanceGrf().GetValue();
++    const sal_Int16 nContrast = rSet.GetContrastGrf().GetValue();
++    const double fGamma = rSet.GetGammaGrf().GetValue();
++    const bool bGamma = !rtl::math::approxEqual(fGamma, 1.0);
++    const sal_Int16 nTransparency = rSet.GetTransparencyGrf().GetValue();
++
++    // Word applies brightness and contrast in another order than HST Office (its reader turns a picture with both into
++    // pixels too), a washout is Word's brightness 70 % with contrast -70 %, and Word has no colour channels or invert.
++    const bool bNotStorable
++        = rSet.GetChannelRGrf().GetValue() || rSet.GetChannelGGrf().GetValue() || rSet.GetChannelBGrf().GetValue()
++          || rSet.GetInvertGrf().GetValue() || (nLuminance && nContrast)
++          || (eMode == GraphicDrawMode::Watermark && (nLuminance || nContrast))
++          || (eFormat == WordPictureFormat::Docx && bGamma);
++
++    if (bCanApply && bNotStorable)
++        aSettings.bApplyColours = true;
++    else if (eMode == GraphicDrawMode::Watermark && (nLuminance || nContrast))
++    {
++        // A linked picture: as Word, only properties. HST Office draws a watermark as brightness +50 % and contrast
++        // -70 %; added to the picture's own, they show the same picture again (Word's washout is 70/-70 alone).
++        aSettings.nLuminance = static_cast<sal_Int16>(std::clamp(nLuminance + 50, -100, 100));
++        aSettings.nContrast = static_cast<sal_Int16>(std::clamp(nContrast - 70, -100, 100));
++        if (eFormat == WordPictureFormat::Doc)
++            aSettings.fGamma = fGamma;
++    }
++    else
++    {
++        aSettings.eDrawMode = eMode;
++        aSettings.nLuminance = nLuminance;
++        aSettings.nContrast = nContrast;
++        if (eFormat == WordPictureFormat::Doc)
++            aSettings.fGamma = fGamma;
++    }
++
++    if (eFormat == WordPictureFormat::Docx)
++        aSettings.nTransparency = nTransparency;
++    else
++        aSettings.bApplyTransparency = bCanApply && nTransparency > 0;
++    return aSettings;
++}
++
++Graphic GetWordPictureGraphic(const SwGrfNode& rNode, WordPictureFormat eFormat)
++{
++    const SwAttrSet& rSet = rNode.GetSwAttrSet();
++    const WordPictureSettings aSettings = GetWordPictureSettings(rSet, eFormat, !rNode.IsLinkedFile());
++    if (!aSettings.bApplyColours && !aSettings.bApplyTransparency)
++        return rNode.GetGrf();
++
++    // Only these settings: the crop, the flips and the rotation stay properties of the written picture.
++    GraphicAttr aAttr;
++    if (aSettings.bApplyColours)
++    {
++        aAttr.SetDrawMode(rSet.GetDrawModeGrf().GetValue());
++        aAttr.SetLuminance(rSet.GetLuminanceGrf().GetValue());
++        aAttr.SetContrast(rSet.GetContrastGrf().GetValue());
++        aAttr.SetChannelR(rSet.GetChannelRGrf().GetValue());
++        aAttr.SetChannelG(rSet.GetChannelGGrf().GetValue());
++        aAttr.SetChannelB(rSet.GetChannelBGrf().GetValue());
++        aAttr.SetGamma(rSet.GetGammaGrf().GetValue());
++        aAttr.SetInvert(rSet.GetInvertGrf().GetValue());
++    }
++    if (aSettings.bApplyTransparency)
++        aAttr.SetAlpha(255 - basegfx::fround<sal_uInt8>(rSet.GetTransparencyGrf().GetValue() * 2.55));
++
++    const Graphic& rOriginal = rNode.GetGrf();
++    Graphic aApplied(GraphicObject(rOriginal).GetTransformedGraphic(&aAttr));
++    // The crop is kept in the units of the picture's own size: the copy keeps that size (its resolution).
++    aApplied.SetPrefMapMode(rOriginal.GetPrefMapMode());
++    aApplied.SetPrefSize(rOriginal.GetPrefSize());
++    return aApplied;
++}
++
++void WriteDocxPictureEffects(const sax_fastparser::FSHelperPtr& pSerializer, const SwGrfNode& rNode)
++{
++    const WordPictureSettings aSettings
++        = GetWordPictureSettings(rNode.GetSwAttrSet(), WordPictureFormat::Docx, !rNode.IsLinkedFile());
++
++    switch (aSettings.eDrawMode)
++    {
++        case GraphicDrawMode::Greys:
++            pSerializer->singleElementNS(XML_a, XML_grayscl);
++            break;
++        case GraphicDrawMode::Mono: // black and white, at HST Office's threshold of 50 %
++            pSerializer->singleElementNS(XML_a, XML_biLevel, XML_thresh, OString::number(50000));
++            break;
++        case GraphicDrawMode::Watermark: // Word's washout, which the reader takes as a watermark again
++            pSerializer->singleElementNS(XML_a, XML_lum, XML_bright, OString::number(70000), XML_contrast,
++                                         OString::number(-70000));
++            break;
++        default:
++            break;
++    }
++
++    if (aSettings.eDrawMode != GraphicDrawMode::Watermark && (aSettings.nLuminance || aSettings.nContrast))
++    {
++        // a:lum in thousandths of a percent, as the reader takes it back
++        pSerializer->singleElementNS(
++            XML_a, XML_lum, XML_bright,
++            sax_fastparser::UseIf(OString::number(sal_Int32(aSettings.nLuminance) * 1000), aSettings.nLuminance != 0),
++            XML_contrast,
++            sax_fastparser::UseIf(OString::number(sal_Int32(aSettings.nContrast) * 1000), aSettings.nContrast != 0));
++    }
++
++    if (aSettings.nTransparency > 0)
++        pSerializer->singleElementNS(XML_a, XML_alphaModFix, XML_amt,
++                                     OString::number((100 - sal_Int32(aSettings.nTransparency)) * 1000));
++}
++
++void AddEscherPictureRotationAndGamma(const SwNoTextNode& rNode, const WordPictureSettings& rSettings,
++                                      EscherPropertyContainer& rPropOpt)
++{
++    if (!rtl::math::approxEqual(rSettings.fGamma, 1.0) && rSettings.fGamma > 0)
++        rPropOpt.AddOpt(DFF_Prop_pictureGamma,
++                        static_cast<sal_uInt32>(basegfx::fround<sal_Int64>(rSettings.fGamma * 0x10000)));
++
++    if (!rNode.GetGrfNode())
++        return;
++    const SwAttrSet& rSet = rNode.GetSwAttrSet();
++    const sal_Int32 nRotation = rSet.GetRotationGrf().GetValue().get() % 3600;
++    if (!nRotation)
++        return;
++    // HST Office turns counter-clockwise, Word stores clockwise degrees; with one flip Word turns the other way.
++    const MirrorGraph eMirror = rSet.GetMirrorGrf().GetValue();
++    const bool bOneFlip = eMirror == MirrorGraph::Vertical || eMirror == MirrorGraph::Horizontal;
++    const sal_Int32 nClockwise = bOneFlip ? nRotation : (3600 - nRotation) % 3600;
++    rPropOpt.AddOpt(ESCHER_Prop_Rotation, static_cast<sal_uInt32>((sal_Int64(nClockwise) << 16) / 10));
++}
++
++bool SetEscherAnchorOfRotatedPicture(const SwFrameFormat& rFormat, bool bInline, bool bLeftIsFrame, bool bTopIsFrame,
++                                     SwTwips nThick, SwTwips& rLeft, SwTwips& rTop, SwTwips& rRight, SwTwips& rBottom)
++{
++    if (bInline)
++        return false;
++    const SwGrfNode* pNode = GetPictureNode(rFormat);
++    if (!pNode)
++        return false;
++    const sal_Int32 nRotation = pNode->GetSwAttrSet().GetRotationGrf().GetValue().get() % 3600;
++    if (!nRotation)
++        return false;
++
++    // The frame's size is the unrotated picture, turned around its centre; rLeft..rBottom is its layout rectangle
++    // (bounding the turned picture), except that a position set by hand is the unrotated frame's corner.
++    const Size aFrame(rFormat.GetFrameSize().GetSize());
++    Size aSize(aFrame);
++    if (IsAnchorSwapped(nRotation))
++        aSize = Size(aSize.Height(), aSize.Width());
++    const SwTwips nWidth = std::max<SwTwips>(aSize.Width() - 2 * nThick, 0);
++    const SwTwips nHeight = std::max<SwTwips>(aSize.Height() - 2 * nThick, 0);
++    const SwTwips nCentreX = bLeftIsFrame ? rLeft - nThick + aFrame.Width() / 2 : (rLeft + rRight) / 2;
++    const SwTwips nCentreY = bTopIsFrame ? rTop - nThick + aFrame.Height() / 2 : (rTop + rBottom) / 2;
++    rLeft = nCentreX - nWidth / 2;
++    rRight = rLeft + nWidth;
++    rTop = nCentreY - nHeight / 2;
++    rBottom = rTop + nHeight;
++    return true;
++}
++
++tools::Rectangle GetImportedPictureFrameRect(const SdrObject& rObject)
++{
++    const tools::Rectangle aBound(rObject.GetSnapRect());
++    if (rObject.GetObjIdentifier() != SdrObjKind::Graphic || !rObject.GetRotateAngle())
++        return aBound;
++    const tools::Rectangle& rLogic = rObject.GetLogicRect();
++    const tools::Long nWidth = rLogic.getOpenWidth();
++    const tools::Long nHeight = rLogic.getOpenHeight();
++    const Point aCentre(aBound.Center());
++    const tools::Long nLeft = aCentre.X() - nWidth / 2;
++    const tools::Long nTop = aCentre.Y() - nHeight / 2;
++    return tools::Rectangle(nLeft, nTop, nLeft + nWidth, nTop + nHeight);
++}
++
++void SetImportedPictureRotation(SwGrfNode& rNode, const SdrObject& rObject, bool bFlipV)
++{
++    if (rObject.GetObjIdentifier() != SdrObjKind::Graphic)
++        return;
++    // The import shows a vertical flip as a half turn of the horizontally mirrored picture; the node keeps the flip.
++    sal_Int32 nAngle = NormAngle36000(rObject.GetRotateAngle()).get();
++    if (bFlipV)
++        nAngle = (nAngle + 18000) % 36000;
++    const sal_Int32 nRotation = ((nAngle + 5) / 10) % 3600;
++    if (!nRotation)
++        return;
++    // A copy of the node's item (the item's own functions are not exported to the filters), turned.
++    const SfxPoolItem& rItem = rNode.GetSwAttrSet().GetRotationGrf();
++    std::unique_ptr<SfxPoolItem> pRotation(rItem.Clone());
++    static_cast<SwRotationGrf&>(*pRotation).SetValue(Degree10(nRotation));
++    rNode.SetAttr(*pRotation);
++}
++
++Size GetInlinePictureFrameSize(const SfxItemSet& rFrameSet, const Size& rPicture)
++{
++    const SvxBoxItem* pBox = rFrameSet.GetItemIfSet(RES_BOX, false);
++    if (!pBox)
++        return rPicture;
++    bool bShadow = false;
++    if (const SvxShadowItem* pShadow = rFrameSet.GetItem<SvxShadowItem>(RES_SHADOW))
++        bShadow = pShadow->GetLocation() != SvxShadowLocation::NONE && pShadow->GetWidth() != 0;
++
++    tools::Long nWidth = rPicture.Width();
++    tools::Long nHeight = rPicture.Height();
++    for (SvxBoxItemLine eLine : { SvxBoxItemLine::TOP, SvxBoxItemLine::LEFT, SvxBoxItemLine::BOTTOM,
++                                  SvxBoxItemLine::RIGHT })
++    {
++        // the border as the export writes it into the picture header, and its room as Word takes it
++        WW8_BRC aBorder;
++        if (const editeng::SvxBorderLine* pLine = pBox->GetLine(eLine))
++        {
++            const WW8_BRCVer9 aBorder9 = WW8Export::TranslateBorderLine(*pLine, pBox->GetDistance(eLine), bShadow);
++            aBorder = WW8_BRC(aBorder9.dptLineWidth(), aBorder9.brcType(), 0, aBorder9.dptSpace(),
++                              aBorder9.fShadow(), aBorder9.fFrame());
++        }
++        short nSpacing = 0;
++        const short nThick = aBorder.DetermineBorderProperties(&nSpacing);
++        const tools::Long nRoom = (bShadow ? 2 * nThick : nThick) + nSpacing;
++        if (eLine == SvxBoxItemLine::TOP || eLine == SvxBoxItemLine::BOTTOM)
++            nHeight += nRoom;
++        else
++            nWidth += nRoom;
++    }
++    return Size(nWidth, nHeight);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/filter/ww8/hst/hstpictureadjust.hxx
+@@ -0,0 +1,88 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <sax/fshelper.hxx>
++#include <swtypes.hxx>
++#include <tools/gen.hxx>
++#include <vcl/GraphicAttributes.hxx>
++#include <vcl/graph.hxx>
++
++class EscherPropertyContainer;
++class SfxItemSet;
++class SdrObject;
++class SwAttrSet;
++class SwFrameFormat;
++class SwGrfNode;
++class SwNoTextNode;
++
++/** How the picture settings of Writer (Picture tab, Image dialog) are kept in Word files.
++
++    Word files store a draw mode (grey, black and white, washout), brightness or contrast alone, transparency (DOCX)
++    and gamma (DOC). What a format cannot store, or cannot store so that HST Office and Word show the same picture
++    (brightness together with contrast, a washout together with either, the red/green/blue channels, inverting, gamma
++    in DOCX, transparency in DOC), is applied to a copy of the picture that is written instead, the same way HST
++    Office draws it. Reopened, the picture looks as it did, with those settings at their defaults. A linked picture stays
++    linked and nothing is applied to it (see GetWordPictureSettings). */
++namespace sw::hst
++{
++enum class WordPictureFormat
++{
++    Docx,
++    Doc
++};
++
++/// The settings written as Word properties, and whether the rest is applied to the written picture.
++struct WordPictureSettings
++{
++    GraphicDrawMode eDrawMode = GraphicDrawMode::Standard;
++    sal_Int16 nLuminance = 0; ///< percent, -100 .. 100
++    sal_Int16 nContrast = 0; ///< percent, -100 .. 100
++    double fGamma = 1.0; ///< DOC only
++    sal_Int16 nTransparency = 0; ///< percent, DOCX only
++    bool bApplyColours = false; ///< draw mode and every colour setting are applied to the written picture
++    bool bApplyTransparency = false; ///< the transparency is applied to the written picture
++};
++
++/// What is written for a picture with the graphic attributes rSet. Without bCanApply (a linked picture, an OLE
++/// object's preview) nothing is applied, as in Word: the settings Word stores are written as properties of the link
++/// (brightness and contrast together too, a watermark with either as the brightness and contrast it shows), the
++/// others (gamma in DOCX, colour channels, invert, transparency in DOC) are left out.
++WordPictureSettings GetWordPictureSettings(const SwAttrSet& rSet, WordPictureFormat eFormat, bool bCanApply);
++
++/// The picture data to write for rNode: its graphic, or a copy with the settings the format cannot store applied.
++Graphic GetWordPictureGraphic(const SwGrfNode& rNode, WordPictureFormat eFormat);
++
++/// DOCX: the effects inside a:blip for rNode (a:grayscl, a:biLevel, a:lum, a:alphaModFix).
++void WriteDocxPictureEffects(const sax_fastparser::FSHelperPtr& pSerializer, const SwGrfNode& rNode);
++
++/// DOC: the escher rotation (16.16 degrees, clockwise, combined with the shape's flips as Word reads it) and gamma.
++void AddEscherPictureRotationAndGamma(const SwNoTextNode& rNode, const WordPictureSettings& rSettings,
++                                      EscherPropertyContainer& rPropOpt);
++
++/// DOC: Word anchors a rotated picture by its unrotated rectangle around the same centre, with width and height
++/// swapped for 45..135 and 225..315 degrees. Moves rLeft..rBottom (the rotated frame's rectangle, nThick inside its
++/// border) to it; bLeftIsFrame / bTopIsFrame: rLeft / rTop is a position set by hand, which is the corner of the
++/// unrotated frame, not of the turned one. False and nothing changed when rFormat is not a rotated floating picture.
++bool SetEscherAnchorOfRotatedPicture(const SwFrameFormat& rFormat, bool bInline, bool bLeftIsFrame, bool bTopIsFrame,
++                                     SwTwips nThick, SwTwips& rLeft, SwTwips& rTop, SwTwips& rRight, SwTwips& rBottom);
++
++/// DOC import: the frame rectangle of a picture read as the rotated escher object rObject: its unrotated size around
++/// the centre of its bounds. Other objects keep their bounds.
++tools::Rectangle GetImportedPictureFrameRect(const SdrObject& rObject);
++
++/// DOC import: gives rNode the rotation of rObject without the half turn the import adds for a vertical flip.
++void SetImportedPictureRotation(SwGrfNode& rNode, const SdrObject& rObject, bool bFlipV);
++
++/// DOC import: the frame size of an as-character picture of rPicture (Word's size, without its borders) with the
++/// borders and shadow of rFrameSet around it, exactly what the export takes off again. Without it a bordered
++/// picture became smaller on every save.
++Size GetInlinePictureFrameSize(const SfxItemSet& rFrameSet, const Size& rPicture);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/writerfilter/hst/hstpictureimport.cxx
+@@ -0,0 +1,97 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "hstpictureimport.hxx"
++
++#include <com/sun/star/awt/Size.hpp>
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <com/sun/star/beans/XPropertySetInfo.hpp>
++#include <com/sun/star/table/ShadowFormat.hpp>
++
++using namespace css;
++
++namespace hst::pictureimport
++{
++namespace
++{
++template <typename T> T GetProperty(const uno::Reference<beans::XPropertySet>& xProps, const OUString& rName, T aDefault)
++{
++    if (!xProps.is() || !xProps->getPropertySetInfo()->hasPropertyByName(rName))
++        return aDefault;
++    T aValue = aDefault;
++    xProps->getPropertyValue(rName) >>= aValue;
++    return aValue;
++}
++}
++
++bool IsVerticallyFlipped(const uno::Reference<beans::XPropertySet>& xShapeProps)
++{
++    return GetProperty<sal_Int32>(xShapeProps, u"RotateAngle"_ustr, 0) == 18000
++           && GetProperty<bool>(xShapeProps, u"IsMirrored"_ustr, false);
++}
++
++bool IsPictureShadowOnly(const uno::Any& rEffects)
++{
++    uno::Sequence<beans::PropertyValue> aEffects;
++    if (!(rEffects >>= aEffects) || aEffects.getLength() != 1 || aEffects[0].Name != "outerShdw")
++        return false;
++    uno::Sequence<beans::PropertyValue> aShadow;
++    aEffects[0].Value >>= aShadow;
++    for (const beans::PropertyValue& rProp : aShadow)
++    {
++        if (rProp.Name != "Attribs")
++            continue;
++        uno::Sequence<beans::PropertyValue> aAttribs;
++        rProp.Value >>= aAttribs;
++        for (const beans::PropertyValue& rAttrib : aAttribs)
++        {
++            sal_Int32 nValue = 0;
++            rAttrib.Value >>= nValue;
++            if ((rAttrib.Name == "blurRad" || rAttrib.Name == "kx" || rAttrib.Name == "ky") && nValue != 0)
++                return false;
++            if ((rAttrib.Name == "sx" || rAttrib.Name == "sy") && nValue != 100000)
++                return false;
++        }
++    }
++    return true;
++}
++
++void ApplyShapeSettings(const uno::Reference<beans::XPropertySet>& xShapeProps,
++                        const uno::Reference<beans::XPropertySet>& xGraphicObject)
++{
++    if (!xShapeProps.is() || !xGraphicObject.is())
++        return;
++
++    const sal_Int16 nTransparency = GetProperty<sal_Int16>(xShapeProps, u"Transparency"_ustr, 0);
++    if (nTransparency > 0 && nTransparency <= 100)
++        xGraphicObject->setPropertyValue(u"Transparency"_ustr, uno::Any(nTransparency));
++
++    // A Writer picture's size includes its shadow, Word's extent does not (the export takes it off again).
++    const table::ShadowFormat aShadow
++        = GetProperty<table::ShadowFormat>(xGraphicObject, u"ShadowFormat"_ustr, table::ShadowFormat());
++    if (aShadow.Location != table::ShadowLocation_NONE && aShadow.ShadowWidth > 0)
++    {
++        awt::Size aSize = GetProperty<awt::Size>(xGraphicObject, u"Size"_ustr, awt::Size());
++        if (aSize.Width > 0 && aSize.Height > 0)
++        {
++            aSize.Width += aShadow.ShadowWidth;
++            aSize.Height += aShadow.ShadowWidth;
++            xGraphicObject->setPropertyValue(u"Size"_ustr, uno::Any(aSize));
++        }
++    }
++
++    if (IsVerticallyFlipped(xShapeProps))
++    {
++        // Not mirrored horizontally (the shape's mirror only completes the half turn), mirrored vertically.
++        xGraphicObject->setPropertyValue(u"HoriMirroredOnEvenPages"_ustr, uno::Any(false));
++        xGraphicObject->setPropertyValue(u"HoriMirroredOnOddPages"_ustr, uno::Any(false));
++        xGraphicObject->setPropertyValue(u"VertMirrored"_ustr, uno::Any(true));
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/writerfilter/hst/hstpictureimport.hxx
+@@ -0,0 +1,28 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++#pragma once
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++
++/** DOCX pictures: what the drawing import reads into its picture shape and the Writer picture must keep. */
++namespace hst::pictureimport
++{
++/// The drawing import shows a vertical flip (a:xfrm flipV) as a half turn of the horizontally mirrored picture.
++/// Such a shape is no rotated picture: it can become a Writer picture, flipped vertically.
++bool IsVerticallyFlipped(const css::uno::Reference<css::beans::XPropertySet>& xShapeProps);
++
++/// The shape's effects (its "EffectProperties" grab bag) are only a plain outer shadow (a:outerShdw without blur,
++/// scaling or skew): a shadow a Writer picture has too, so the shape can still become a picture, as in Word.
++bool IsPictureShadowOnly(const css::uno::Any& rEffects);
++
++/// Gives the Writer picture the shape's transparency (a:alphaModFix) and its vertical flip, and adds its shadow to
++/// its size (Word's extent leaves the shadow out).
++void ApplyShapeSettings(const css::uno::Reference<css::beans::XPropertySet>& xShapeProps,
++                        const css::uno::Reference<css::beans::XPropertySet>& xGraphicObject);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
