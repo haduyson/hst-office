@@ -55,6 +55,8 @@ def main():
     for row in rows:
         if row["folded"] or row["more"]:
             print(f"  {row['app']} @{row['width']}: folded {row['folded']}; overflow {row['more']}")
+        if row["native_cut"]:
+            print(f"  {row['app']} @{row['width']}: native frame shorter than asked (information): {row['native_cut']}")
     print(f"skipped {len(skipped)} JSON file(s) that are not layout dumps")
     print(f"{len(dumps)} dumps, {total} violations")
     if args.json:
