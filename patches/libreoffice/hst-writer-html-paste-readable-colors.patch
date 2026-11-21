@@ -1,0 +1,883 @@
+HST: HTML pasted from a web page reads as normal text on the Writer page
+
+Browsers put the computed colours of the page on the clipboard. Copied from a page in dark mode
+(Facebook, but any site), the text came with rgb(226, 229, 233) on dark bands of rgb(37, 39, 40),
+and "background-color: transparent" on links, names and time stamps removed the band below them:
+near-white text on the white page. When HTML is pasted or inserted into an existing document
+(not when an HTML file is opened), dark neutral bands (luminance at most 0.1, channels at most 64
+apart) are dropped, in paragraphs, characters, sections and table cells, and a text colour (CSS
+color, <font color>, <body text/link/vlink>) is dropped when its WCAG contrast against the
+background the text gets in Writer (own background, open character background ignoring
+transparent, paragraph background, page) is below 1.6:1, or below 3:1 for text whose dark band
+was dropped. Readable colours, bold, italic and links stay; a light-mode copy is unchanged.
+Logic in sw/source/filter/html/hsthtmlpaste.cxx; hooks in InsertAttrs/InsertAttr (htmlctxt.cxx),
+NewDivision (htmlsect.cxx), CreateBrushItem (htmltab.cxx) and the body options (htmlgrin.cxx).
+
+Test: CppunitTest_sw_hst_html_paste.
+
+--- /dev/null
++++ b/sw/CppunitTest_sw_hst_html_paste.mk
+@@ -0,0 +1,67 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (C) HASON TECH. HST Office.
++#
++# HTML pasted from web pages (dark mode, light mode, positioned posts) reads as normal text in Writer.
++
++$(eval $(call gb_CppunitTest_CppunitTest,sw_hst_html_paste))
++
++$(eval $(call gb_CppunitTest_use_common_precompiled_header,sw_hst_html_paste))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sw_hst_html_paste, \
++    sw/qa/extras/hst/hsthtmlpaste \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sw_hst_html_paste, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    editeng \
++    sal \
++    sfx \
++    sot \
++    subsequenttest \
++    svl \
++    svt \
++    svxcore \
++    sw \
++    swqahelper \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,sw_hst_html_paste,\
++    boost_headers \
++    libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sw_hst_html_paste,\
++    -I$(SRCDIR)/sw/inc \
++    -I$(SRCDIR)/sw/source/core/inc \
++    -I$(SRCDIR)/sw/source/uibase/inc \
++    -I$(SRCDIR)/sw/qa/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_api,sw_hst_html_paste,\
++    udkapi \
++    offapi \
++    oovbaapi \
++))
++
++$(eval $(call gb_CppunitTest_use_ure,sw_hst_html_paste))
++$(eval $(call gb_CppunitTest_use_vcl,sw_hst_html_paste))
++
++$(eval $(call gb_CppunitTest_use_rdb,sw_hst_html_paste,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sw_hst_html_paste))
++
++$(eval $(call gb_CppunitTest_use_uiconfigs,sw_hst_html_paste,\
++    modules/swriter \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -561,6 +561,7 @@
+     sw/source/filter/basflt/shellio \
+     sw/source/filter/html/SwAppletImpl \
+     sw/source/filter/html/css1atr \
++    sw/source/filter/html/hsthtmlpaste \
+     sw/source/filter/html/htmlatr \
+     sw/source/filter/html/htmlbas \
+     sw/source/filter/html/htmlcss1 \
+--- a/sw/Module_sw.mk
++++ b/sw/Module_sw.mk
+@@ -113,6 +113,7 @@
+     CppunitTest_sw_hst_mailmerge_word \
+     CppunitTest_sw_hst_merge_result_pages \
+     CppunitTest_sw_hst_equation_shortcut \
++    CppunitTest_sw_hst_html_paste \
+     CppunitTest_sw_ooxmllinks \
+     CppunitTest_sw_ooxmlw14export \
+     CppunitTest_sw_ooxmlencryption \
+--- /dev/null
++++ b/sw/qa/extras/hst/data/hst-web-paste-colors-on-white.html
+@@ -0,0 +1,5 @@
++<html>
++<body>
++<!--StartFragment--><p style="color: rgb(0, 0, 0); background-color: rgb(255, 255, 255);">Chữ <b>đậm</b>, <i>nghiêng</i>, <span style="color: rgb(255, 0, 0);">màu đỏ</span>, <font color="#0000ff">màu lam</font>, <span style="color: rgb(0, 128, 0);">màu lục</span>, <span style="color: rgb(204, 204, 204);">xám nhạt</span> và <a href="https://example.com/lien-ket">liên kết</a>.</p><p>Chữ <font color="#e2e5e9">gần trắng</font> và <font color="#ffff00" style="font-weight: bold">vàng</font>.</p><!--EndFragment-->
++</body>
++</html>
+--- /dev/null
++++ b/sw/qa/extras/hst/data/hst-web-paste-dark-comment.html
+@@ -0,0 +1,5 @@
++<html>
++<body>
++<!--StartFragment--><div style="color: rgb(28, 30, 33); font-family: &quot;Segoe UI Historic&quot;, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 400; background-color: rgb(37, 39, 40);"><div role="article" style="position: relative; display: flex;"><div><div style="display: inline-block;"><div style="position: relative; display: inline-block; color: rgb(226, 229, 233); background-color: rgb(51, 51, 52);"><div style="display: block;"><span dir="auto" lang="vi-VN" style="display: block; font-weight: 400; color: rgb(226, 229, 233);"><div><div dir="auto">Sáng nay, hội nghị đã thông qua kế hoạch năm 2027 với đa số phiếu tán thành.</div></div><div><div dir="auto">Kế hoạch gồm 5 chương, 40 điều, áp dụng từ ngày 1/7/2027.</div></div></span></div></div></div><div style="display: inline-flex;"><ul style="display: flex;"><li style="display: inline-block;"><a href="https://example.com/bai-viet/1" role="link" style="color: rgb(176, 179, 184); font-weight: 600; background-color: transparent; display: inline;">9 phút</a></li></ul></div></div></div></div><div style="color: rgb(28, 30, 33); font-family: &quot;Segoe UI Historic&quot;, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 400; background-color: rgb(37, 39, 40);"><div role="article" style="position: relative; display: flex;"><div><div style="display: inline-block;"><div style="position: relative; display: inline-block; color: rgb(226, 229, 233); background-color: rgb(51, 51, 52);"><div role="button" style="color: inherit; font-weight: 600; background-color: transparent; display: inline;"><span style="font-weight: 600; color: rgb(176, 179, 184);">Tác giả</span></div><a href="https://example.com/trang-tin-mau" role="link" style="color: inherit; font-weight: 600; background-color: transparent; display: inline;"><span dir="auto" style="display: block; font-weight: 600; color: rgb(226, 229, 233);">Trang tin mẫu</span></a><div style="display: block;"><span dir="auto" lang="vi-VN" style="display: block; font-weight: 400; color: rgb(226, 229, 233);"><div><div dir="auto">Trước khi biểu quyết, các đại biểu đã thảo luận</div></div></span></div></div></div></div></div></div><!--EndFragment-->
++</body>
++</html>
+--- /dev/null
++++ b/sw/qa/extras/hst/data/hst-web-paste-dark-generic.html
+@@ -0,0 +1,5 @@
++<html>
++<body>
++<!--StartFragment--><div style="color: rgb(230, 237, 243); background-color: rgb(13, 17, 23); font-family: sans-serif; font-size: 14px;"><p style="color: rgb(230, 237, 243);">Hướng dẫn cài đặt <a href="https://example.com/huong-dan" style="color: rgb(88, 166, 255); background-color: transparent;">xem tại đây</a>, <span style="color: rgb(139, 148, 158);">cập nhật hôm qua</span>.</p><table style="border-collapse: collapse;"><tbody><tr><td style="color: rgb(230, 237, 243); background-color: rgb(22, 27, 34); padding: 6px;">Bước một</td><td bgcolor="#161b22">Bước hai</td></tr></tbody></table><p style="color: rgb(240, 40, 73);">Lưu ý quan trọng</p></div><!--EndFragment-->
++</body>
++</html>
+--- /dev/null
++++ b/sw/qa/extras/hst/data/hst-web-paste-dark-partial.html
+@@ -0,0 +1,5 @@
++<html>
++<body>
++<!--StartFragment--><span style="color: rgb(226, 229, 233); font-family: &quot;Segoe UI Historic&quot;, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif; font-size: 15px; font-style: normal; font-weight: 400; white-space: pre-wrap; background-color: rgb(37, 39, 40); display: inline !important; float: none;"> 9h, các đại biểu vào hội trường và</span><!--EndFragment-->
++</body>
++</html>
+--- /dev/null
++++ b/sw/qa/extras/hst/data/hst-web-paste-dark-post.html
+@@ -0,0 +1,5 @@
++<html>
++<body>
++<!--StartFragment--><div style="color: rgb(226, 229, 233); font-family: &quot;Segoe UI Historic&quot;, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 400; background-color: rgb(37, 39, 40);"><div dir="auto"> LỄ KHAI MẠC HỘI NGHỊ TỔNG KẾT NĂM</div></div><div style="color: rgb(226, 229, 233); font-family: &quot;Segoe UI Historic&quot;, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 400; background-color: rgb(37, 39, 40);"><div dir="auto">Đúng 9h, các đại biểu vào hội trường. <a href="https://example.com/hashtag/hoinghi" role="link" style="color: rgb(226, 229, 233); font-weight: 600; background-color: transparent; display: inline;">#hoinghi</a></div></div><div style="color: rgb(226, 229, 233); font-family: &quot;Segoe UI Historic&quot;, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 400; background-color: rgb(37, 39, 40);"><div dir="auto">Ban tổ chức chào đón các đoàn đại biểu từ khắp các tỉnh, thành phố.</div></div><!--EndFragment-->
++</body>
++</html>
+--- /dev/null
++++ b/sw/qa/extras/hst/data/hst-web-paste-light-comment.html
+@@ -0,0 +1,5 @@
++<html>
++<body>
++<!--StartFragment--><div style="color: rgb(28, 30, 33); font-family: &quot;Segoe UI Historic&quot;, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 400; background-color: rgb(255, 255, 255);"><div role="article" style="position: relative; display: flex;"><div><div style="display: inline-block;"><div style="position: relative; display: inline-block; color: rgb(8, 8, 9); background-color: rgb(240, 242, 245);"><div style="display: block;"><span dir="auto" lang="vi-VN" style="display: block; font-weight: 400; color: rgb(8, 8, 9);"><div><div dir="auto">Sáng nay, hội nghị đã thông qua kế hoạch năm 2027 với đa số phiếu tán thành.</div></div><div><div dir="auto">Kế hoạch gồm 5 chương, 40 điều, áp dụng từ ngày 1/7/2027.</div></div></span></div></div></div><div style="display: inline-flex;"><ul style="display: flex;"><li style="display: inline-block;"><a href="https://example.com/bai-viet/1" role="link" style="color: rgb(101, 104, 108); font-weight: 600; background-color: transparent; display: inline;">9 phút</a></li></ul></div></div></div></div><div style="color: rgb(28, 30, 33); font-family: &quot;Segoe UI Historic&quot;, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif; font-size: 15px; font-weight: 400; background-color: rgb(255, 255, 255);"><div role="article" style="position: relative; display: flex;"><div><div style="display: inline-block;"><div style="position: relative; display: inline-block; color: rgb(8, 8, 9); background-color: rgb(240, 242, 245);"><div role="button" style="color: inherit; font-weight: 600; background-color: transparent; display: inline;"><span style="font-weight: 600; color: rgb(101, 104, 108);">Tác giả</span></div><a href="https://example.com/trang-tin-mau" role="link" style="color: inherit; font-weight: 600; background-color: transparent; display: inline;"><span dir="auto" style="display: block; font-weight: 600; color: rgb(8, 8, 9);">Trang tin mẫu</span></a><div style="display: block;"><span dir="auto" lang="vi-VN" style="display: block; font-weight: 400; color: rgb(8, 8, 9);"><div><div dir="auto">Trước khi biểu quyết, các đại biểu đã thảo luận</div></div></span></div></div></div></div></div></div><!--EndFragment-->
++</body>
++</html>
+--- /dev/null
++++ b/sw/qa/extras/hst/hsthtmlpaste.cxx
+@@ -0,0 +1,354 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <vector>
++
++#include <com/sun/star/awt/FontSlant.hpp>
++#include <com/sun/star/awt/FontWeight.hpp>
++#include <com/sun/star/container/XEnumerationAccess.hpp>
++#include <com/sun/star/lang/XServiceInfo.hpp>
++#include <com/sun/star/text/XTextTable.hpp>
++#include <com/sun/star/text/XTextTablesSupplier.hpp>
++
++#include <rtl/strbuf.hxx>
++#include <sot/formats.hxx>
++#include <tools/color.hxx>
++#include <tools/stream.hxx>
++#include <vcl/transfer.hxx>
++
++#include <docsh.hxx>
++#include <swdtflvr.hxx>
++#include <wrtsh.hxx>
++
++namespace
++{
++/// HTML pasted from a web page reads as normal text on Writer's white page: a page in dark mode
++/// loses its dark bands and its light text colours, readable colours stay, light-mode content is
++/// unchanged, and opening the same HTML as a document is unchanged. The fixtures are trimmed copies
++/// of what Chromium puts on the clipboard (Facebook in dark and light mode), with neutral text.
++class HstHtmlPasteTest : public SwModelTestBase
++{
++public:
++    HstHtmlPasteTest()
++        : SwModelTestBase(u"/sw/qa/extras/hst/data/"_ustr)
++    {
++    }
++
++protected:
++    struct Run
++    {
++        OUString aText;
++        Color aColor;
++        Color aBack;
++        Color aParaBack;
++        float fWeight;
++        awt::FontSlant eSlant;
++        OUString aURL;
++    };
++
++    /// Pastes a fixture into a new text document as Ctrl+V does with that clipboard format.
++    /// HTML_SIMPLE is "HTML Format" of the Windows clipboard (with its offset header), HTML is
++    /// text/html of the Linux clipboard.
++    void pasteFixture(std::u16string_view aName, SotClipboardFormatId eFormat)
++    {
++        createSwDoc();
++        OString aHtml = readFixture(aName);
++        if (eFormat == SotClipboardFormatId::HTML_SIMPLE)
++            aHtml = withWindowsHeader(aHtml);
++        rtl::Reference<TransferDataContainer> xTransferable(new TransferDataContainer);
++        xTransferable->CopyByteString(eFormat, aHtml);
++        TransferableDataHelper aHelper(xTransferable);
++        SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++        CPPUNIT_ASSERT(SwTransferable::PasteFormat(*pWrtShell, aHelper, eFormat));
++    }
++
++    void openFixture(const char* pName)
++    {
++        if (mxComponent.is())
++            dispose();
++        setImportFilterName(TestFilter::HTML_WRITER);
++        createSwDoc(pName);
++    }
++
++    /// Every text run of the body text and of its tables, in document order.
++    std::vector<Run> bodyRuns()
++    {
++        std::vector<Run> aRuns;
++        collectRuns(getBodyText(), aRuns);
++        return aRuns;
++    }
++
++    std::vector<Color> cellBackgrounds()
++    {
++        std::vector<Color> aColors;
++        uno::Reference<text::XTextTablesSupplier> xSupplier(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<container::XIndexAccess> xTables(xSupplier->getTextTables(),
++                                                        uno::UNO_QUERY_THROW);
++        for (sal_Int32 i = 0; i < xTables->getCount(); ++i)
++        {
++            uno::Reference<text::XTextTable> xTable(xTables->getByIndex(i), uno::UNO_QUERY_THROW);
++            for (const OUString& rName : xTable->getCellNames())
++                aColors.push_back(getProperty<Color>(xTable->getCellByName(rName), u"BackColor"_ustr));
++        }
++        return aColors;
++    }
++
++    Run runWith(std::u16string_view aText)
++    {
++        for (const Run& rRun : bodyRuns())
++            if (rRun.aText.indexOf(aText) >= 0)
++                return rRun;
++        CPPUNIT_FAIL(OUString(OUString::Concat(u"no text run in the body with: ") + aText).toUtf8().getStr());
++        return Run();
++    }
++
++    static double luminance(const Color& rColor)
++    {
++        auto lin = [](sal_uInt8 n) {
++            const double f = n / 255.0;
++            return f <= 0.04045 ? f / 12.92 : std::pow((f + 0.055) / 1.055, 2.4);
++        };
++        return 0.2126 * lin(rColor.GetRed()) + 0.7152 * lin(rColor.GetGreen())
++               + 0.0722 * lin(rColor.GetBlue());
++    }
++
++    /// A dark band: a visible background that light text was put on.
++    static bool isDark(const Color& rBack)
++    {
++        return !rBack.IsFullyTransparent() && luminance(rBack) <= 0.1;
++    }
++
++    /// Automatic colour, or a colour with at least this contrast on the white page.
++    static bool readsOnWhite(const Color& rText, double fMinContrast)
++    {
++        return rText == COL_AUTO || 1.05 / (luminance(rText) + 0.05) >= fMinContrast;
++    }
++
++    /// No text run sits on a dark band and every text colour reads on the white page.
++    void assertReadableOnWhite(double fMinContrast)
++    {
++        const std::vector<Run> aRuns = bodyRuns();
++        CPPUNIT_ASSERT(!aRuns.empty());
++        for (const Run& rRun : aRuns)
++        {
++            if (rRun.aText.trim().isEmpty())
++                continue;
++            const OString aWhat = rRun.aText.toUtf8();
++            CPPUNIT_ASSERT_MESSAGE(aWhat.getStr(), !isDark(rRun.aBack));
++            CPPUNIT_ASSERT_MESSAGE(aWhat.getStr(), !isDark(rRun.aParaBack));
++            CPPUNIT_ASSERT_MESSAGE(aWhat.getStr(), readsOnWhite(rRun.aColor, fMinContrast));
++        }
++    }
++
++private:
++    OString readFixture(std::u16string_view aName)
++    {
++        SvFileStream aStream(createFileURL(aName), StreamMode::READ);
++        CPPUNIT_ASSERT_EQUAL(ERRCODE_NONE, aStream.GetError());
++        const sal_uInt64 nSize = aStream.remainingSize();
++        std::vector<char> aBytes(nSize);
++        CPPUNIT_ASSERT_EQUAL(std::size_t(nSize), aStream.ReadBytes(aBytes.data(), nSize));
++        return OString(aBytes.data(), nSize);
++    }
++
++    /// The CF_HTML header Chromium writes on Windows: byte offsets of the HTML and the fragment.
++    static OString withWindowsHeader(const OString& rHtml)
++    {
++        auto header = [](sal_Int32 nStartHtml, sal_Int32 nEndHtml, sal_Int32 nStartFragment,
++                         sal_Int32 nEndFragment) -> OString {
++            auto pad = [](sal_Int32 n) -> OString {
++                OString aNumber = OString::number(n);
++                OStringBuffer aBuf;
++                for (sal_Int32 i = aNumber.getLength(); i < 10; ++i)
++                    aBuf.append('0');
++                return aBuf.append(aNumber).makeStringAndClear();
++            };
++            return "Version:0.9\r\nStartHTML:" + pad(nStartHtml) + "\r\nEndHTML:" + pad(nEndHtml)
++                   + "\r\nStartFragment:" + pad(nStartFragment) + "\r\nEndFragment:"
++                   + pad(nEndFragment) + "\r\nSourceURL:https://example.com/trang-tin-mau\r\n";
++        };
++        const sal_Int32 nHeader = header(0, 0, 0, 0).getLength();
++        const sal_Int32 nStartFragment
++            = rHtml.indexOf("<!--StartFragment-->") + RTL_CONSTASCII_LENGTH("<!--StartFragment-->");
++        const sal_Int32 nEndFragment = rHtml.indexOf("<!--EndFragment-->");
++        CPPUNIT_ASSERT(nStartFragment > 0);
++        CPPUNIT_ASSERT(nEndFragment > nStartFragment);
++        return header(nHeader, nHeader + rHtml.getLength(), nHeader + nStartFragment,
++                      nHeader + nEndFragment)
++               + rHtml;
++    }
++
++    void collectRuns(const uno::Reference<text::XText>& xText, std::vector<Run>& rRuns)
++    {
++        uno::Reference<container::XEnumerationAccess> xParas(xText, uno::UNO_QUERY_THROW);
++        uno::Reference<container::XEnumeration> xParaEnum = xParas->createEnumeration();
++        while (xParaEnum->hasMoreElements())
++        {
++            uno::Reference<lang::XServiceInfo> xInfo(xParaEnum->nextElement(), uno::UNO_QUERY_THROW);
++            if (xInfo->supportsService(u"com.sun.star.text.TextTable"_ustr))
++            {
++                uno::Reference<text::XTextTable> xTable(xInfo, uno::UNO_QUERY_THROW);
++                for (const OUString& rName : xTable->getCellNames())
++                    collectRuns(uno::Reference<text::XText>(xTable->getCellByName(rName),
++                                                            uno::UNO_QUERY_THROW),
++                                rRuns);
++                continue;
++            }
++            const Color aParaBack = getProperty<Color>(xInfo, u"ParaBackColor"_ustr);
++            uno::Reference<container::XEnumerationAccess> xPortions(xInfo, uno::UNO_QUERY_THROW);
++            uno::Reference<container::XEnumeration> xPortionEnum = xPortions->createEnumeration();
++            while (xPortionEnum->hasMoreElements())
++            {
++                uno::Reference<text::XTextRange> xRun(xPortionEnum->nextElement(),
++                                                      uno::UNO_QUERY_THROW);
++                if (getProperty<OUString>(xRun, u"TextPortionType"_ustr) != "Text")
++                    continue;
++                rRuns.push_back({ xRun->getString(), getProperty<Color>(xRun, u"CharColor"_ustr),
++                                  getProperty<Color>(xRun, u"CharBackColor"_ustr), aParaBack,
++                                  getProperty<float>(xRun, u"CharWeight"_ustr),
++                                  getProperty<awt::FontSlant>(xRun, u"CharPosture"_ustr),
++                                  getProperty<OUString>(xRun, u"HyperLinkURL"_ustr) });
++            }
++        }
++    }
++};
++
++CPPUNIT_TEST_FIXTURE(HstHtmlPasteTest, testDarkCommentReadsAsNormalText)
++{
++    // Given a comment copied from a page in dark mode (Windows clipboard), when pasting it:
++    pasteFixture(u"hst-web-paste-dark-comment.html", SotClipboardFormatId::HTML_SIMPLE);
++
++    // Then no text sits on a dark band and every colour is dark enough for body text. Before, the
++    // text kept rgb(226, 229, 233) on bands of rgb(51, 51, 52), and the name, "Tác giả" and the
++    // time stamp lost their band to "background-color: transparent": light grey on white.
++    assertReadableOnWhite(4.5);
++    CPPUNIT_ASSERT(runWith(u"Sáng nay, hội nghị").aColor != Color(0xE2E5E9));
++    const Run aTime = runWith(u"9 phút");
++    CPPUNIT_ASSERT_EQUAL(u"https://example.com/bai-viet/1"_ustr, aTime.aURL);
++    CPPUNIT_ASSERT_GREATER(float(awt::FontWeight::NORMAL), aTime.fWeight);
++    CPPUNIT_ASSERT_EQUAL(u"https://example.com/trang-tin-mau"_ustr, runWith(u"Trang tin mẫu").aURL);
++    runWith(u"Tác giả");
++    runWith(u"Trước khi biểu quyết");
++}
++
++CPPUNIT_TEST_FIXTURE(HstHtmlPasteTest, testDarkPostWithTransparentLink)
++{
++    // Given a post in dark mode with a hashtag link on "background-color: transparent" (Linux
++    // clipboard), when pasting it:
++    pasteFixture(u"hst-web-paste-dark-post.html", SotClipboardFormatId::HTML);
++
++    // Then it reads as dark text on white, and the link stays a bold link.
++    assertReadableOnWhite(4.5);
++    runWith(u"LỄ KHAI MẠC HỘI NGHỊ");
++    const Run aLink = runWith(u"#hoinghi");
++    CPPUNIT_ASSERT_EQUAL(u"https://example.com/hashtag/hoinghi"_ustr, aLink.aURL);
++    CPPUNIT_ASSERT_GREATER(float(awt::FontWeight::NORMAL), aLink.fWeight);
++}
++
++CPPUNIT_TEST_FIXTURE(HstHtmlPasteTest, testDarkPartialSelection)
++{
++    // Given part of a sentence in dark mode: one span with both the light colour and the band.
++    pasteFixture(u"hst-web-paste-dark-partial.html", SotClipboardFormatId::HTML_SIMPLE);
++
++    // Then both are gone: before, a band of rgb(37, 39, 40) with near-white text.
++    assertReadableOnWhite(4.5);
++    CPPUNIT_ASSERT_EQUAL(COL_AUTO, runWith(u"các đại biểu vào hội trường").aColor);
++}
++
++CPPUNIT_TEST_FIXTURE(HstHtmlPasteTest, testDarkGenericPage)
++{
++    // Given a page of another site in dark mode, with a link, secondary grey, a red note and a
++    // table whose cells have dark backgrounds (CSS and bgcolor):
++    pasteFixture(u"hst-web-paste-dark-generic.html", SotClipboardFormatId::HTML);
++
++    // Then the bands and the cell backgrounds are gone and the text reads on white (at least 3:1
++    // for colours that were made for the dark page)...
++    assertReadableOnWhite(3.0);
++    for (const Color& rBack : cellBackgrounds())
++        CPPUNIT_ASSERT(!isDark(rBack));
++    CPPUNIT_ASSERT_EQUAL(u"https://example.com/huong-dan"_ustr, runWith(u"xem tại đây").aURL);
++    runWith(u"Bước một");
++    runWith(u"Bước hai");
++    // ...while the colours that already read on white stay.
++    CPPUNIT_ASSERT_EQUAL(Color(0x8B949E), runWith(u"cập nhật hôm qua").aColor);
++    CPPUNIT_ASSERT_EQUAL(Color(0xF02849), runWith(u"Lưu ý quan trọng").aColor);
++}
++
++CPPUNIT_TEST_FIXTURE(HstHtmlPasteTest, testLightModeUnchanged)
++{
++    // Given the same comment copied in light mode, when pasting it:
++    pasteFixture(u"hst-web-paste-light-comment.html", SotClipboardFormatId::HTML_SIMPLE);
++
++    // Then the colours are exactly the ones of the web page...
++    CPPUNIT_ASSERT_EQUAL(Color(0x080809), runWith(u"Sáng nay, hội nghị").aColor);
++    CPPUNIT_ASSERT_EQUAL(Color(0xF0F2F5), runWith(u"Sáng nay, hội nghị").aBack);
++    CPPUNIT_ASSERT_EQUAL(Color(0x65686C), runWith(u"9 phút").aColor);
++    CPPUNIT_ASSERT_EQUAL(Color(0x65686C), runWith(u"Tác giả").aColor);
++    CPPUNIT_ASSERT_EQUAL(Color(0x080809), runWith(u"Trang tin mẫu").aColor);
++    CPPUNIT_ASSERT_EQUAL(Color(0xF0F2F5), runWith(u"Trước khi biểu quyết").aBack);
++
++    // ...and the same as opening that HTML as a document, run by run.
++    std::vector<Run> aPasted = bodyRuns();
++    openFixture("hst-web-paste-light-comment.html");
++    std::vector<Run> aOpened = bodyRuns();
++    auto blank = [](const Run& rRun) { return rRun.aText.trim().isEmpty(); };
++    aPasted.erase(std::remove_if(aPasted.begin(), aPasted.end(), blank), aPasted.end());
++    aOpened.erase(std::remove_if(aOpened.begin(), aOpened.end(), blank), aOpened.end());
++    CPPUNIT_ASSERT_EQUAL(aOpened.size(), aPasted.size());
++    for (std::size_t i = 0; i < aPasted.size(); ++i)
++    {
++        CPPUNIT_ASSERT_EQUAL(aOpened[i].aText, aPasted[i].aText);
++        CPPUNIT_ASSERT_EQUAL(aOpened[i].aColor, aPasted[i].aColor);
++        CPPUNIT_ASSERT_EQUAL(aOpened[i].aBack, aPasted[i].aBack);
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(HstHtmlPasteTest, testReadableColorsKept)
++{
++    // Given bold, italic, a link and red, blue (<font color>), green and light grey words on white:
++    pasteFixture(u"hst-web-paste-colors-on-white.html", SotClipboardFormatId::HTML);
++
++    // Then all of them are kept.
++    CPPUNIT_ASSERT_EQUAL(float(awt::FontWeight::BOLD), runWith(u"đậm").fWeight);
++    CPPUNIT_ASSERT_EQUAL(awt::FontSlant_ITALIC, runWith(u"nghiêng").eSlant);
++    CPPUNIT_ASSERT_EQUAL(Color(0xFF0000), runWith(u"màu đỏ").aColor);
++    CPPUNIT_ASSERT_EQUAL(Color(0x0000FF), runWith(u"màu lam").aColor);
++    CPPUNIT_ASSERT_EQUAL(Color(0x008000), runWith(u"màu lục").aColor);
++    CPPUNIT_ASSERT_EQUAL(Color(0xCCCCCC), runWith(u"xám nhạt").aColor);
++    CPPUNIT_ASSERT_EQUAL(u"https://example.com/lien-ket"_ustr, runWith(u"liên kết").aURL);
++}
++
++CPPUNIT_TEST_FIXTURE(HstHtmlPasteTest, testUnreadableFontColorDropped)
++{
++    // Given <font color> near white, alone and with a style, on white:
++    pasteFixture(u"hst-web-paste-colors-on-white.html", SotClipboardFormatId::HTML);
++
++    // Then the text has the automatic colour, and keeps its bold.
++    CPPUNIT_ASSERT_EQUAL(COL_AUTO, runWith(u"gần trắng").aColor);
++    CPPUNIT_ASSERT_EQUAL(COL_AUTO, runWith(u"vàng").aColor);
++    CPPUNIT_ASSERT_EQUAL(float(awt::FontWeight::BOLD), runWith(u"vàng").fWeight);
++}
++
++CPPUNIT_TEST_FIXTURE(HstHtmlPasteTest, testOpenAsDocumentUnchanged)
++{
++    // Opening the HTML as a document keeps the colours of the page, as before.
++    openFixture("hst-web-paste-dark-comment.html");
++    CPPUNIT_ASSERT_EQUAL(Color(0xE2E5E9), runWith(u"Sáng nay, hội nghị").aColor);
++    CPPUNIT_ASSERT_EQUAL(Color(0x333334), runWith(u"Sáng nay, hội nghị").aBack);
++
++    openFixture("hst-web-paste-colors-on-white.html");
++    CPPUNIT_ASSERT_EQUAL(Color(0xE2E5E9), runWith(u"gần trắng").aColor);
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/filter/html/hsthtmlpaste.cxx
+@@ -0,0 +1,146 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "hsthtmlpaste.hxx"
++
++#include <algorithm>
++#include <cmath>
++
++#include <editeng/brushitem.hxx>
++#include <editeng/colritem.hxx>
++#include <svl/itemset.hxx>
++
++#include <doc.hxx>
++#include <frmfmt.hxx>
++#include <hintids.hxx>
++#include <node.hxx>
++#include <pagedesc.hxx>
++#include <pam.hxx>
++
++#include "swhtml.hxx"
++
++namespace hst::htmlpaste
++{
++namespace
++{
++double linearChannel(sal_uInt8 nChannel)
++{
++    const double f = nChannel / 255.0;
++    return f <= 0.04045 ? f / 12.92 : std::pow((f + 0.055) / 1.055, 2.4);
++}
++}
++
++double relativeLuminance(const Color& rColor)
++{
++    return 0.2126 * linearChannel(rColor.GetRed()) + 0.7152 * linearChannel(rColor.GetGreen())
++           + 0.0722 * linearChannel(rColor.GetBlue());
++}
++
++double contrastRatio(const Color& rFirst, const Color& rSecond)
++{
++    const double fFirst = relativeLuminance(rFirst);
++    const double fSecond = relativeLuminance(rSecond);
++    return (std::max(fFirst, fSecond) + 0.05) / (std::min(fFirst, fSecond) + 0.05);
++}
++
++bool hasVisibleSolidColor(const SvxBrushItem& rBrush)
++{
++    return rBrush.GetGraphicPos() == GPOS_NONE && !rBrush.GetColor().IsFullyTransparent();
++}
++
++bool isDarkBand(const SvxBrushItem& rBrush)
++{
++    if (!hasVisibleSolidColor(rBrush))
++        return false;
++    const Color& rColor = rBrush.GetColor();
++    const int nMax = std::max({ rColor.GetRed(), rColor.GetGreen(), rColor.GetBlue() });
++    const int nMin = std::min({ rColor.GetRed(), rColor.GetGreen(), rColor.GetBlue() });
++    return relativeLuminance(rColor) <= MAX_DARK_BAND_LUMINANCE
++           && nMax - nMin <= MAX_DARK_BAND_CHROMA;
++}
++
++bool isReadableTextColor(const Color& rText, const Color& rBackground, bool bFromDarkBand)
++{
++    // COL_AUTO is fully transparent: automatic colour follows the background by itself.
++    if (rText.IsFullyTransparent())
++        return true;
++    return contrastRatio(rText, rBackground)
++           >= (bFromDarkBand ? MIN_TEXT_CONTRAST_FROM_DARK_BAND : MIN_TEXT_CONTRAST);
++}
++}
++
++using namespace hst::htmlpaste;
++
++Color SwHTMLParser::HstPastedTextBackground(const SvxBrushItem* pOwnBrush)
++{
++    // What the text will be painted on in Writer, innermost first: the element's own background,
++    // the open character background (the innermost one is the one that is set; a transparent one
++    // shows the paragraph), the open paragraph background, then the page.
++    if (pOwnBrush && hasVisibleSolidColor(*pOwnBrush))
++        return pOwnBrush->GetColor();
++    for (HTMLAttr* pAttr : { m_xAttrTab->pCharBrush, m_xAttrTab->pBrush })
++    {
++        if (!pAttr)
++            continue;
++        const auto& rBrush = static_cast<const SvxBrushItem&>(pAttr->GetItem());
++        if (hasVisibleSolidColor(rBrush))
++            return rBrush.GetColor();
++    }
++
++    if (!m_oHstPageColor)
++    {
++        m_oHstPageColor = COL_WHITE;
++        const SwPageDesc* pPageDesc = m_pPam->GetPointNode().FindPageDesc();
++        if (!pPageDesc && m_xDoc->GetPageDescCnt())
++            pPageDesc = &m_xDoc->GetPageDesc(0);
++        if (pPageDesc)
++        {
++            std::unique_ptr<SvxBrushItem> pPageBrush = pPageDesc->GetMaster().makeBackgroundBrushItem();
++            if (pPageBrush && hasVisibleSolidColor(*pPageBrush))
++                m_oHstPageColor = pPageBrush->GetColor();
++        }
++    }
++    return *m_oHstPageColor;
++}
++
++bool SwHTMLParser::HstIsInDroppedDarkBand(const HTMLAttrContext* pContext) const
++{
++    if (pContext && pContext->IsHstDarkBandDropped())
++        return true;
++    return std::any_of(m_aContexts.begin(), m_aContexts.end(),
++                       [](const std::unique_ptr<HTMLAttrContext>& rContext)
++                       { return rContext->IsHstDarkBandDropped(); });
++}
++
++bool SwHTMLParser::HstIsPastedColorReadable(const Color& rColor, const HTMLAttrContext* pContext)
++{
++    return isReadableTextColor(rColor, HstPastedTextBackground(nullptr),
++                               HstIsInDroppedDarkBand(pContext));
++}
++
++void SwHTMLParser::HstFilterPastedColors(SfxItemSet& rItemSet, HTMLAttrContext* pContext)
++{
++    bool bDroppedHere = false;
++    if (const SvxBrushItem* pBrush = rItemSet.GetItemIfSet(RES_BACKGROUND, false);
++        pBrush && isDarkBand(*pBrush))
++    {
++        rItemSet.ClearItem(RES_BACKGROUND);
++        bDroppedHere = true;
++        if (pContext)
++            pContext->SetHstDarkBandDropped();
++    }
++
++    const SvxColorItem* pColor = rItemSet.GetItemIfSet(RES_CHRATR_COLOR, false);
++    if (!pColor)
++        return;
++    const Color aBackground = HstPastedTextBackground(rItemSet.GetItemIfSet(RES_BACKGROUND, false));
++    if (!isReadableTextColor(pColor->GetValue(), aBackground,
++                             bDroppedHere || HstIsInDroppedDarkBand(pContext)))
++        rItemSet.ClearItem(RES_CHRATR_COLOR);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/filter/html/hsthtmlpaste.hxx
+@@ -0,0 +1,60 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <tools/color.hxx>
++
++class SvxBrushItem;
++
++/// Rules for HTML that is pasted or inserted into an existing Writer document. Opening an HTML file
++/// as a document does not use them.
++///
++/// Browsers put the computed colours of the page into the clipboard. A page in dark mode gives light
++/// text (Chromium: rgb(226, 229, 233)) on dark bands (rgb(37, 39, 40)), and the bands are often
++/// wiped by "background-color: transparent" on links and names, so the text lands on Writer's white
++/// page and cannot be read. Pasted content must read as normal text on the page: dark bands are
++/// dropped, and a text colour that is too close to the background it gets in Writer is dropped
++/// (automatic colour instead). Readable colours (red, blue, green on white) stay as they are.
++namespace hst::htmlpaste
++{
++/// Lowest WCAG contrast ratio a pasted text colour needs against its background in Writer. The peach
++/// text of a "text on coloured background" post, rgb(255, 200, 145), is 1.51:1 on white and must go;
++/// light grey rgb(204, 204, 204), 1.61:1, is still read as grey text and stays.
++constexpr double MIN_TEXT_CONTRAST = 1.6;
++
++/// The same, for text whose own dark band was dropped: its colour was chosen for a dark page, so it
++/// has to be properly readable on the light one (WCAG 3:1 for large text). Chromium's secondary
++/// dark-mode grey rgb(176, 179, 184), 2.10:1 on white, goes; a dark-mode red rgb(240, 40, 73),
++/// 4.1:1, stays.
++constexpr double MIN_TEXT_CONTRAST_FROM_DARK_BAND = 3.0;
++
++/// A background is a dark band (and is dropped) when it is at most this luminance, which white text
++/// reads on at 7:1 or more...
++constexpr double MAX_DARK_BAND_LUMINANCE = 0.1;
++/// ...and it is a neutral surface: the channels differ by at most this much. Dark-mode surfaces are
++/// grey or slightly tinted (Solarized base03 rgb(0, 43, 54) is 54 apart), a dark design colour of a
++/// light page (navy, dark red) is not, and stays.
++constexpr int MAX_DARK_BAND_CHROMA = 64;
++
++/// WCAG 2 relative luminance of the colour's RGB, 0 (black) to 1 (white).
++double relativeLuminance(const Color& rColor);
++
++/// WCAG 2 contrast ratio of two colours, 1 to 21.
++double contrastRatio(const Color& rFirst, const Color& rSecond);
++
++/// The brush paints a solid colour that can be seen: not transparent, no image.
++bool hasVisibleSolidColor(const SvxBrushItem& rBrush);
++
++/// The brush is a dark band of a dark-mode page (see the constants above).
++bool isDarkBand(const SvxBrushItem& rBrush);
++
++/// A pasted text colour may stay on the given background. Automatic colour always may.
++bool isReadableTextColor(const Color& rText, const Color& rBackground, bool bFromDarkBand);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/filter/html/htmlctxt.cxx
++++ b/sw/source/filter/html/htmlctxt.cxx
+@@ -25,6 +25,7 @@
+ #include <editeng/lrspitem.hxx>
+ #include <editeng/ulspitem.hxx>
+ #include <editeng/brushitem.hxx>
++#include <editeng/colritem.hxx>
+ #include <editeng/fhgtitem.hxx>
+ #include <svtools/htmltokn.h>
+ #include <editeng/boxitem.hxx>
+@@ -552,6 +553,10 @@
+                                 HTMLAttrContext *pContext,
+                                 bool bCharLvl )
+ {
++    // HST: pasted or inserted HTML drops dark-mode bands and unreadable text colours
++    if( !IsNewDoc() )
++        HstFilterPastedColors( rItemSet, pContext );
++
+     // Put together a DropCap attribute, if a "float:left" is before the first character
+     if( bCharLvl && !m_pPam->GetPoint()->GetContentIndex() &&
+         SvxAdjust::Left == rPropInfo.m_eFloat )
+@@ -801,6 +806,11 @@
+             return;
+     }
+ 
++    // HST: <font color> in pasted or inserted HTML, same rule as the CSS colour
++    if( !IsNewDoc() && RES_CHRATR_COLOR == rItem.Which() &&
++        !HstIsPastedColorReadable( rItem.StaticWhichCast(RES_CHRATR_COLOR).GetValue(), pCntxt ) )
++        return;
++
+     // Set the attribute
+     if (!NewAttr(m_xAttrTab, ppAttr, rItem))
+         return;
+--- a/sw/source/filter/html/htmlgrin.cxx
++++ b/sw/source/filter/html/htmlgrin.cxx
+@@ -1016,6 +1016,9 @@
+         }
+     }
+ 
++    // HST: pasted or inserted HTML keeps the body text colour only when it can be read
++    if( bTextColor && !IsNewDoc() && !HstIsPastedColorReadable( aTextColor, nullptr ) )
++        bTextColor = false;
+     if( bTextColor && !m_pCSS1Parser->IsBodyTextSet() )
+     {
+         // The font colour is set in the default style
+@@ -1063,6 +1066,8 @@
+         SvxCSS1PropertyInfo aPropInfo;
+         OUString aDummy;
+         (void)ParseStyleOptions( aStyle, aDummy, aDummy, aItemSet, aPropInfo, nullptr, &aDir );
++        if( !IsNewDoc() )
++            HstFilterPastedColors( aItemSet, nullptr );
+ 
+         // Some attributes have to set on the page style, in fact the ones
+         // which aren't inherited
+@@ -1093,6 +1098,10 @@
+         m_pCSS1Parser->SetPageDescAttrs( aBrushItem.get() );
+     }
+ 
++    if( bLinkColor && !IsNewDoc() && !HstIsPastedColorReadable( aLinkColor, nullptr ) )
++        bLinkColor = false;
++    if( bVLinkColor && !IsNewDoc() && !HstIsPastedColorReadable( aVLinkColor, nullptr ) )
++        bVLinkColor = false;
+     if( bLinkColor && !m_pCSS1Parser->IsBodyLinkSet() )
+     {
+         SwCharFormat *pCharFormat =
+--- a/sw/source/filter/html/htmlsect.cxx
++++ b/sw/source/filter/html/htmlsect.cxx
+@@ -121,6 +121,10 @@
+                                           aItemSet, aPropInfo, &aLang, &aDir );
+         if( bStyleParsed )
+         {
++            // HST: before a frame or a section takes the background of the division
++            if( !IsNewDoc() )
++                HstFilterPastedColors( aItemSet, xCntxt.get() );
++
+             if ( aPropInfo.m_nColumnCount >= 2 )
+             {
+                 xCntxt.reset();
+--- a/sw/source/filter/html/htmltab.cxx
++++ b/sw/source/filter/html/htmltab.cxx
+@@ -64,6 +64,7 @@
+ #include <swtblfmt.hxx>
+ #include "htmlnum.hxx"
+ #include "swhtml.hxx"
++#include "hsthtmlpaste.hxx"
+ #include "swcss1.hxx"
+ #include <txtftn.hxx>
+ #include <itabenum.hxx>
+@@ -2767,6 +2768,13 @@
+         }
+     }
+ 
++    // HST: no dark-mode bands in pasted or inserted tables either (hsthtmlpaste.cxx)
++    if( pBrushItem && !IsNewDoc() && hst::htmlpaste::isDarkBand( *pBrushItem ) )
++    {
++        delete pBrushItem;
++        pBrushItem = nullptr;
++    }
++
+     return pBrushItem;
+ }
+ 
+--- a/sw/source/filter/html/swhtml.hxx
++++ b/sw/source/filter/html/swhtml.hxx
+@@ -29,6 +29,7 @@
+ #include <editeng/svxenum.hxx>
+ #include <rtl/ref.hxx>
+ #include <rtl/ustrbuf.hxx>
++#include <tools/color.hxx>
+ #include <deletelistener.hxx>
+ #include <fmtftn.hxx>
+ #include <fltshell.hxx>
+@@ -39,6 +40,7 @@
+ #include <com/sun/star/beans/XPropertySet.hpp>
+ 
+ #include <memory>
++#include <optional>
+ #include <utility>
+ #include <vector>
+ #include <deque>
+@@ -250,6 +252,7 @@
+     bool    m_bHeaderOrFooter : 1;
+ 
+     bool m_bVisible = true;
++    bool m_bHstDarkBandDropped = false; // pasted HTML: the dark background of this context was dropped
+ 
+ public:
+     void ClearSaveDocContext();
+@@ -313,6 +316,9 @@
+     void SetVisible(bool bVisible) { m_bVisible = bVisible; }
+     bool IsVisible() const { return m_bVisible; }
+ 
++    void SetHstDarkBandDropped() { m_bHstDarkBandDropped = true; }
++    bool IsHstDarkBandDropped() const { return m_bHstDarkBandDropped; }
++
+     void SetSavedNumRule(SwNumRule* pRule) { m_pSavedNumRule = pRule; }
+     SwNumRule* GetSavedNumRule() const { return m_pSavedNumRule; }
+ };
+@@ -492,6 +498,7 @@
+ 
+     int m_nTableDepth;
+     int m_nFloatingFrames;
++    std::optional<Color> m_oHstPageColor; // pasted HTML: background of the page pasted into
+     int m_nListItems;
+ 
+     /// the names corresponding to the DOCINFO field subtypes INFO[1-4]
+@@ -566,6 +573,12 @@
+ 
+     void InsertAttrs( SfxItemSet &rItemSet, SvxCSS1PropertyInfo const &rPropInfo,
+                       HTMLAttrContext *pContext, bool bCharLvl=false );
++
++    // HST: pasted or inserted HTML reads as normal text on the page (hsthtmlpaste.cxx)
++    void HstFilterPastedColors( SfxItemSet &rItemSet, HTMLAttrContext *pContext );
++    bool HstIsPastedColorReadable( const Color& rColor, const HTMLAttrContext *pContext );
++    Color HstPastedTextBackground( const SvxBrushItem *pOwnBrush );
++    bool HstIsInDroppedDarkBand( const HTMLAttrContext *pContext ) const;
+     void InsertAttr( HTMLAttr **ppAttr, const SfxPoolItem & rItem,
+                      HTMLAttrContext *pCntxt );
+     void SplitPREListingXMP( HTMLAttrContext *pCntxt );
