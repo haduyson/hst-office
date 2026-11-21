@@ -13,7 +13,7 @@ and reopening. The Word exports wrote only the draw mode, the horizontal flip, t
 Now every setting Word can store is written as a Word property and read back: DOCX a:lum (brightness or contrast),
 a:alphaModFix (transparency, also read into the Writer picture now), a:xfrm flipV (read as a vertically flipped
 Writer picture, no longer a shape turned by a half turn); DOC escher gamma and rotation (with Word's flip and anchor
-rules; the reader gives the picture its rotation and unrotated frame). An as-character picture keeps its size.
+rules; the reader gives the picture its rotation and unrotated frame). A rotated picture keeps its size when its frame is laid out unrotated (as character, or not laid out again).
 What a format cannot store is applied to the written picture the way HST Office draws it, so the picture looks the
 same reopened in HST Office and in Word, with those settings back at their defaults:
 - DOCX: gamma, colour channels, invert, brightness together with contrast, a washout with brightness or contrast;
@@ -131,17 +131,20 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
          // RES_GRFATR_ROTATION is sal_uInt16; use sal_uInt32 for multiplication later
          if (Degree10 nRot = rSet.Get(RES_GRFATR_ROTATION).GetValue())
          {
-@@ -5698,7 +5701,8 @@
-     auto nShapeRotation = xShapePropSet && pGrfNode
-                               ? pGrfNode->GetSwAttrSet().Get(RES_GRFATR_ROTATION).GetValue()
-                               : 0_deg10;
--    if (nShapeRotation)
-+    // HST: an as-character frame is laid out unrotated (rSize is no bounding box): its size is the picture's
-+    if (nShapeRotation && pFrameFormat->GetAnchor().GetAnchorId() != RndStdIds::FLY_AS_CHAR)
-     {
-         if (css::awt::Size aObjSize; xShapePropSet->getPropertyValue(u"Size"_ustr) >>= aObjSize)
-         {
-@@ -5797,17 +5801,9 @@
+@@ -5707,7 +5710,11 @@
+             const double fAngle = toRadians(nShapeRotation);
+             // Bounding box width of the unstretched rotated rectangle
+             const double fUnscaledBBoxW = nW0 * abs(cos(fAngle)) + nH0 * abs(sin(fAngle));
+-            if (fUnscaledBBoxW > 0 && rSize.Width() > 0)
++            // HST: unless rSize is the unrotated size: an as-character frame is laid out unrotated, and a frame
++            // not laid out since its rotation has its unrotated size too
++            const bool bHstUnrotatedLayout
++                = std::abs(rSize.Width() - nW0) <= 2 && std::abs(rSize.Height() - nH0) <= 2;
++            if (fUnscaledBBoxW > 0 && rSize.Width() > 0 && !bHstUnrotatedLayout)
+             {
+                 double fScale = rSize.Width() / fUnscaledBBoxW;
+                 nW0 *= fScale;
+@@ -5797,17 +5804,9 @@
      else
          m_pSerializer->startElementNS(XML_a, XML_blip, FSNS(XML_r, nImageType), aRelId);
  
