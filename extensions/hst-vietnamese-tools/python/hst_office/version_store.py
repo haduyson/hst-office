@@ -54,6 +54,15 @@ class VersionStore:
         with self._lock():
             return [Version(folder, e) for e in self._prune_folder_locked(folder, self.clock(), path)]
 
+    def newest_captured(self, path):
+        """Capture time of the newest stored copy of `path`, or None when it has none (read under the lock)."""
+        folder = self.folder(path)
+        if not os.path.isdir(folder):
+            return None
+        with self._lock():
+            versions = read_index(folder, path)["versions"]
+        return float(versions[0]["captured"]) if versions else None
+
     def usage(self):
         """(number of documents, number of copies, bytes) of the whole store."""
         documents = copies = total = 0
