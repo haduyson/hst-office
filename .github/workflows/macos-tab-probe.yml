@@ -21,7 +21,7 @@ concurrency:
 jobs:
   probe:
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 90
     permissions:
       contents: read
       actions: read
@@ -45,12 +45,12 @@ jobs:
             gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'HSTOffice_*_macOS_arm64.dmg' --dir "$RUNNER_TEMP/dmg"
           fi
           find "$RUNNER_TEMP/dmg" -name '*.dmg'
-      - name: Probe the tab actions
+      - name: Shoot the coat (throwaway build branch)
         shell: bash
         run: |
           set -eu
           dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)
-          bash scripts/macos/tab-probe.sh "$dmg" "$RUNNER_TEMP/tabprobe"
+          bash scripts/macos/coat-shots-probe.sh "$dmg" "$RUNNER_TEMP/tabprobe"
       - name: Summarize
         if: ${{ always() }}
         shell: bash
