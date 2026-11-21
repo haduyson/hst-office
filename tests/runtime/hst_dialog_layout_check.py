@@ -25,7 +25,8 @@ apart and two 6 px apart, which must come out red and green).
 
 Output: <out>/<id>.json (per tab: controls, findings), <out>/<id>-<tab>.png, <out>/summary.json. Exit 1 when a
 listed dialog has a gap, clipped text or a hard fit failure (--strict: also a row-gap warning), 2 on a setup error.
-Default dialogs: the ranked list (hst_dialog_layout_cases.listed()); --all: every candidate.
+Default dialogs: the ranked list (hst_dialog_layout_cases.listed()); --all: every candidate and every case a batch
+adds in tests/runtime/data/dialog-layout-<batch>.json.
 """
 import argparse
 import json
@@ -377,8 +378,10 @@ def uno_url(path):
     return "file:///" + path.replace("\\", "/").lstrip("/")
 
 
-def setup_document(office, instdir, factory, recipe):
-    """A new document of `factory` prepared so that the dialog's command is enabled."""
+def setup_document(office, ui, instdir, factory, recipe):
+    """A new document of `factory` prepared so that the dialog's command is enabled. Its commands (Copy, Insert
+    Table, Insert Image) go through UITest on the office's main thread, to this document's frame: a dispatch
+    from the bridge's thread can hang the office (Slides' Insert Table on Windows)."""
     from com.sun.star.beans import PropertyValue
 
     def props(**values):
@@ -393,6 +396,11 @@ def setup_document(office, instdir, factory, recipe):
                                                 props(Hidden=False, OnMainThread=True))
     time.sleep(2)
     frame = doc.getCurrentController().getFrame()
+
+    def dispatch(command, args=()):
+        activate(office, frame)
+        ui.executeCommandWithParameters(command, tuple(args))
+
     if recipe in ("writer-word", "writer-saved"):
         doc.getText().setString("house of words")
         if recipe == "writer-word":  # HST ships an English thesaurus only (dict-en); Vietnamese has none
@@ -413,13 +421,13 @@ def setup_document(office, instdir, factory, recipe):
         cursor.gotoStart(False)
         cursor.gotoEnd(True)
         if recipe == "writer-copy":
-            office.dispatch(frame, ".uno:Copy")
+            dispatch(".uno:Copy")
             cursor.gotoEnd(False)
     elif recipe == "writer-table":
-        office.dispatch(frame, ".uno:InsertTable", props(Columns=3, Rows=3))
+        dispatch(".uno:InsertTable", props(Columns=3, Rows=3))
     elif recipe == "writer-image":
         image = os.path.join(os.path.abspath(instdir), "program", "intro.png")
-        office.dispatch(frame, ".uno:InsertGraphic", props(FileName=uno_url(image)))
+        dispatch(".uno:InsertGraphic", props(FileName=uno_url(image)))
     elif recipe == "calc-hidden-sheet":
         doc.getSheets().insertNewByName("Ẩn", 1)
         doc.getSheets().getByName("Ẩn").IsVisible = False
@@ -435,7 +443,7 @@ def setup_document(office, instdir, factory, recipe):
         width = len(rows[0]) - 1
         doc.getCurrentController().select(sheet.getCellRangeByPosition(0, 0, width, len(rows) - 1))
         if recipe == "calc-copy":
-            office.dispatch(frame, ".uno:Copy")
+            dispatch(".uno:Copy")
             doc.getCurrentController().select(sheet.getCellByPosition(5, 0))
     elif recipe in ("shape", "slides-table"):
         page = doc.getDrawPages().getByIndex(0)
@@ -448,9 +456,53 @@ def setup_document(office, instdir, factory, recipe):
             shape.setString("Ẩn Ỗ Ữ Ặ ậ ỷ")
             doc.getCurrentController().select(shape)
         else:
-            office.dispatch(frame, ".uno:InsertTable", props(Columns=3, Rows=3))
+            dispatch(".uno:InsertTable", props(Columns=3, Rows=3))
     time.sleep(1.5)
     return doc
+
+
+def activate(office, frame):
+    """Make `frame` the desktop's current frame: comphelper::dispatchCommand (UITest) dispatches there."""
+    frame.activate()
+    office.desktop().setActiveFrame(frame)
+    frame.getContainerWindow().setFocus()
+
+
+def office_alive(office):
+    """Whether the office still answers over the bridge (a checker error is not an ended office)."""
+    try:
+        office.desktop().getFrames().getCount()
+        return True
+    except Exception:  # noqa: BLE001 - a dead bridge raises DisposedException or a RuntimeException
+        return False
+
+
+def park_pointer(args):
+    """X11: the pointer to the screen's corner, so no tooltip appears where the dialog opens."""
+    if args.plugin != "win":
+        subprocess.run(["xdotool", "mousemove", "0", "0"], env=dict(os.environ, DISPLAY=args.display),
+                       check=False, capture_output=True, timeout=10)
+
+
+def end_execute(window):
+    """endExecute only on a dialog (XDialog); False for any other window."""
+    import uno
+    try:
+        dialog = window.queryInterface(uno.getTypeByName("com.sun.star.awt.XDialog"))
+    except Exception:  # noqa: BLE001 - disposed meanwhile
+        return False
+    if not dialog:
+        return False
+    try:
+        dialog.endExecute()
+        return True
+    except Exception:  # noqa: BLE001 - disposed meanwhile
+        return False
+
+
+X11_NOT_DIALOG_TYPES = ("_NET_WM_WINDOW_TYPE_TOOLTIP", "_NET_WM_WINDOW_TYPE_POPUP_MENU",
+                        "_NET_WM_WINDOW_TYPE_DROPDOWN_MENU", "_NET_WM_WINDOW_TYPE_COMBO",
+                        "_NET_WM_WINDOW_TYPE_NOTIFICATION", "_NET_WM_WINDOW_TYPE_SPLASH")
 
 
 class Platform:
@@ -459,6 +511,7 @@ class Platform:
     def __init__(self, args, office):
         self.args, self.office = args, office
         self.roles = role_names() if args.plugin != "gtk3" else None
+        self._kinds = {}
 
     def top_windows(self):
         """{key: window} of the office's shown top-level windows that are not document frames. VCL (gen, win): the
@@ -489,14 +542,42 @@ class Platform:
                 continue
         return found
 
+    def is_dialog(self, key, window):
+        """Whether the top window is a dialog or alert, and not a tooltip, a menu or a splash. A tooltip under the
+        pointer must never get a close request: VCL's close handling of a help window crashes the office."""
+        if key in self._kinds:
+            return self._kinds[key]
+        if self.args.plugin == "gtk3":
+            out = subprocess.run(["xprop", "-display", self.args.display, "-id", key, "_NET_WM_WINDOW_TYPE"],
+                                 capture_output=True, text=True, check=False).stdout
+            if "not found" in out or "BadWindow" in out or "=" not in out:
+                return False  # gone, or not typed yet: decided on the next look
+            kind = not any(t in out for t in X11_NOT_DIALOG_TYPES)
+        else:
+            try:
+                role = window.getProperty("XAccessible").getAccessibleContext().getAccessibleRole()
+            except Exception:  # noqa: BLE001 - disposed while asked
+                return False
+            import uno
+            kind = role in {uno.getConstantByName("com.sun.star.accessibility.AccessibleRole." + name)
+                            for name in ("DIALOG", "ALERT", "FILE_CHOOSER")}
+        self._kinds[key] = kind
+        return kind
+
+    def new_dialogs(self, before):
+        """{key: window} of the dialogs shown now that were not in `before`."""
+        return {key: w for key, w in self.top_windows().items() if key not in before and self.is_dialog(key, w)}
+
     def wait_new(self, before, timeout=30):
+        """The new dialogs' keys, looked up again after their first paint: a window that went in the meantime (the
+        templates' first-use progress dialog) or a tooltip is not taken."""
         deadline = time.time() + timeout
         while time.time() < deadline:
-            now = self.top_windows()
-            new = [key for key in now if key not in before]
-            if new:
+            if self.new_dialogs(before):
                 time.sleep(2)  # first paint, pages built
-                return new
+                new = list(self.new_dialogs(before))
+                if new:
+                    return new
             time.sleep(0.5)
         return []
 
@@ -537,15 +618,16 @@ class Platform:
             print("shot timed out:", path, flush=True)
 
     def close(self, keys, before):
+        """Close the measured dialogs and any other new dialog or alert (a Save Changes? prompt); never a tooltip
+        or a menu, which go with their dialog."""
         for _ in range(5):
-            now = self.top_windows()
-            open_keys = [k for k in now if k not in before]
-            if not open_keys:
+            now = self.new_dialogs(before)
+            if not now:
                 return True
-            for key in open_keys:
+            for key in sorted(now, key=lambda k: k not in keys):
                 if self.args.plugin == "win":
                     import windows_gui_dialogs
-                    windows_gui_dialogs.close_hwnd(int(key, 16)) or now[key].endExecute()
+                    windows_gui_dialogs.close_hwnd(int(key, 16)) or end_execute(now[key])
                 else:
                     import hst_gui
                     hst_gui.send_close_request(key, self.args.display)
@@ -582,16 +664,15 @@ def measure(platform, key, case, out_dir, ident, scale):
 
 def run_case(platform, ui, ident, case, args):
     before = platform.top_windows()
-    doc = setup_document(platform.office, args.instdir, case.factory, case.setup)
+    doc = setup_document(platform.office, ui, args.instdir, case.factory, case.setup)
     framed = platform.top_windows()
     if case.setup == "writer-modified":
         doc.getText().getEnd().setString(" (sửa)")
     frame = doc.getCurrentController().getFrame()
     for _attempt in range(2):
         # comphelper::dispatchCommand goes to the desktop's current frame: make it this document's
-        frame.activate()
-        platform.office.desktop().setActiveFrame(frame)
-        frame.getContainerWindow().setFocus()
+        activate(platform.office, frame)
+        park_pointer(args)
         ui.executeDialog(case.command)
         new = platform.wait_new(framed, timeout=20)
         if new:
@@ -624,12 +705,13 @@ def run_case(platform, ui, ident, case, args):
 
 def run(args):
     import hst_gui
-    selected = cases.CANDIDATES if args.all else cases.listed()
+    everything = {**cases.CANDIDATES, **cases.load_extra()}
+    selected = everything if args.all else cases.listed()
     if args.ids:
-        unknown = [i for i in args.ids if i not in cases.CANDIDATES and i not in selected]
+        unknown = [i for i in args.ids if i not in everything]
         if unknown:
             raise SystemExit("unknown dialog: " + ", ".join(unknown))
-        selected = {i: (selected.get(i) or cases.CANDIDATES[i]) for i in args.ids}
+        selected = {i: everything[i] for i in args.ids}
     runnable = {k: v for k, v in selected.items() if v.command}
     env = {"HST_UI_COAT": "1"}
     if args.plugin == "gtk3" and args.scale == 125:
@@ -655,12 +737,14 @@ def run(args):
             print("dialog", ident, flush=True)
             try:
                 result = run_case(platform, ui, ident, case, args)
-            except Exception as error:  # noqa: BLE001 - the office ended under this dialog: note it, start again
+            except Exception as error:  # noqa: BLE001 - note it; start again only when the office really ended
+                alive = office_alive(office)
                 result = {"id": ident, "batch": case.batch, "en": case.en, "command": case.command,
-                          "error": f"office ended: {error!r}"[:300]}
-                office.stop()
-                office.start()
-                platform, ui = Platform(args, office), office.service("com.sun.star.ui.test.UITest")
+                          "error": (f"checker error: {error!r}" if alive else f"office ended: {error!r}")[:300]}
+                if not alive:
+                    office.stop()
+                    office.start()
+                    platform, ui = Platform(args, office), office.service("com.sun.star.ui.test.UITest")
             with open(os.path.join(args.out, ident + ".json"), "w", encoding="utf-8") as handle:
                 json.dump(result, handle, ensure_ascii=False, indent=1)
             results.append(result)
@@ -814,7 +898,7 @@ def main():
     parser.add_argument("--plugin", choices=("gen", "gtk3", "win"), default="win" if os.name == "nt" else "gen")
     parser.add_argument("--lang", default="vi_VN.UTF-8")
     parser.add_argument("--scale", type=int, choices=(100, 125), default=100)
-    parser.add_argument("--all", action="store_true", help="every candidate, not only the ranked list")
+    parser.add_argument("--all", action="store_true", help="every candidate and the batches' own cases, not only the ranked list")
     parser.add_argument("--strict", action="store_true", help="row-gap and tight-line warnings fail too")
     parser.add_argument("--work-area", help="WxH: the measured work area of this machine for the hard target of "
                         "--scale (default: 1366x728 at 100 %%, 1920x1032 at 125 %%)")
