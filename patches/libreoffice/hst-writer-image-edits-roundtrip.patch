@@ -72,7 +72,7 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +# vim: set noet sw=4 ts=4:
 --- /dev/null
 +++ b/sw/qa/extras/hst/hstimageeditsroundtrip.cxx
-@@ -0,0 +1,568 @@
+@@ -0,0 +1,603 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -104,6 +104,7 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +#include <vcl/GraphicObject.hxx>
 +#include <vcl/bitmap.hxx>
 +#include <vcl/graph.hxx>
++#include <vcl/mapmod.hxx>
 +
 +#include <IDocumentLinksAdministration.hxx>
 +#include <doc.hxx>
@@ -306,7 +307,12 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +    void checkAppliedSettingsKeepCrop(TestFilter eFilter)
 +    {
 +        uno::Reference<beans::XPropertySet> xPicture = insertPicture();
-+        text::GraphicCrop aCrop(500, 300, 400, 200); // top, bottom, left, right
++        // a picture with its own resolution (150 dpi), as photos have
++        Graphic aPhoto(maOriginal);
++        aPhoto.SetPrefMapMode(MapMode(MapUnit::Map100thMM));
++        aPhoto.SetPrefSize(Size(64 * 2540 / 150, 48 * 2540 / 150));
++        xPicture->setPropertyValue(u"Graphic"_ustr, uno::Any(aPhoto.GetXGraphic()));
++        text::GraphicCrop aCrop(200, 100, 150, 100); // top, bottom, left, right
 +        xPicture->setPropertyValue(u"GraphicCrop"_ustr, uno::Any(aCrop));
 +        xPicture->setPropertyValue(u"AdjustLuminance"_ustr, uno::Any(sal_Int16(20)));
 +        xPicture->setPropertyValue(u"AdjustContrast"_ustr, uno::Any(sal_Int16(-30)));
@@ -315,10 +321,10 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +        CPPUNIT_ASSERT(xPicture.is());
 +        text::GraphicCrop aGot;
 +        xPicture->getPropertyValue(u"GraphicCrop"_ustr) >>= aGot;
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(500.0, double(aGot.Top), 20.0);
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(300.0, double(aGot.Bottom), 20.0);
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(400.0, double(aGot.Left), 20.0);
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(200.0, double(aGot.Right), 20.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(200.0, double(aGot.Top), 10.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(100.0, double(aGot.Bottom), 10.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(150.0, double(aGot.Left), 10.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(100.0, double(aGot.Right), 10.0);
 +    }
 +
 +private:
@@ -539,6 +545,35 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocRotationWithHorizontalFlip)
 +{
 +    checkRotation(TestFilter::DOC, text::TextContentAnchorType_AT_CHARACTER, 2700, u"HoriMirroredOnOddPages"_ustr);
++}
++
++// DOCX: a picture with a shadow (as the HST picture styles give) became smaller by the shadow on the first save: Word's
++// extent leaves the shadow out, a Writer picture's size includes it.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedPictureKeepsSize)
++{
++    for (text::TextContentAnchorType eAnchor :
++         { text::TextContentAnchorType_AS_CHARACTER, text::TextContentAnchorType_AT_CHARACTER })
++    {
++        uno::Reference<beans::XPropertySet> xPicture = insertPicture(eAnchor);
++        table::ShadowFormat aShadow;
++        aShadow.Location = table::ShadowLocation_BOTTOM_RIGHT;
++        aShadow.ShadowWidth = 106;
++        aShadow.Color = 0x000000;
++        xPicture->setPropertyValue(u"ShadowFormat"_ustr, uno::Any(aShadow));
++
++        awt::Size aSaved[2];
++        for (awt::Size& rSize : aSaved)
++        {
++            saveAndReload(TestFilter::DOCX);
++            xPicture = writerPicture();
++            CPPUNIT_ASSERT(xPicture.is());
++            xPicture->getPropertyValue(u"Size"_ustr) >>= rSize;
++        }
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSaved[0].Width), 20.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSaved[0].Height), 20.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSaved[1].Width), 20.0);
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSaved[1].Height), 20.0);
++    }
 +}
 +
 +// DOC: an as-character picture with a border (and a shadow, as the HST picture styles give) became smaller on every
