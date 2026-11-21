@@ -899,7 +899,7 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 \ No newline at end of file
 --- /dev/null
 +++ b/sw/qa/core/hst/objectboundarypaint.cxx
-@@ -0,0 +1,336 @@
+@@ -0,0 +1,368 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -940,6 +940,7 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +#include <viewopt.hxx>
 +#include <wrtsh.hxx>
 +
++#include <algorithm>
 +#include <vector>
 +
 +using namespace css;
@@ -1023,6 +1024,35 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +    ~TilePaintScope() { comphelper::LibreOfficeKit::setActive(false); }
 +};
 +
++/// Every fly frame on the page: those the page holds (anchored to page or paragraph) and those
++/// anchored in frames below it, such as formulas sitting in a line of text (as-character) and
++/// pictures inside text frames.
++void collectFlys(const SwSortedObjs* pObjs, std::vector<const SwFlyFrame*>& rFlys);
++
++void collectFlysBelow(const SwFrame* pFrame, std::vector<const SwFlyFrame*>& rFlys)
++{
++    for (; pFrame; pFrame = pFrame->GetNext())
++    {
++        collectFlys(pFrame->GetDrawObjs(), rFlys);
++        if (pFrame->IsLayoutFrame())
++            collectFlysBelow(static_cast<const SwLayoutFrame*>(pFrame)->Lower(), rFlys);
++    }
++}
++
++void collectFlys(const SwSortedObjs* pObjs, std::vector<const SwFlyFrame*>& rFlys)
++{
++    if (!pObjs)
++        return;
++    for (const SwAnchoredObject* pObject : *pObjs)
++    {
++        const SwFlyFrame* pFly = pObject->DynCastFlyFrame();
++        if (!pFly || std::find(rFlys.begin(), rFlys.end(), pFly) != rFlys.end())
++            continue;
++        rFlys.push_back(pFly);
++        collectFlysBelow(pFly->Lower(), rFlys);
++    }
++}
++
 +tools::Rectangle toPixels(const SwRect& rTwips, const SwRect& rPage)
 +{
 +    return tools::Rectangle(
@@ -1054,7 +1084,10 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +    for (const SwFrame* pFrame = pWrtShell->GetLayout()->Lower(); pFrame; pFrame = pFrame->GetNext())
 +    {
 +        const auto* pPage = static_cast<const SwPageFrame*>(pFrame);
-+        if (!pPage->GetSortedObjs())
++        std::vector<const SwFlyFrame*> aPageFlys;
++        collectFlys(pPage->GetSortedObjs(), aPageFlys);
++        collectFlysBelow(pPage->Lower(), aPageFlys);
++        if (aPageFlys.empty())
 +            continue;
 +        const SwRect aPage(pPage->getFrameArea());
 +        const int nWidth = int(aPage.Width() / TWIPS_PER_PIXEL);
@@ -1078,10 +1111,9 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +                nInk += isDark(pAccess->GetColor(y, x));
 +        CPPUNIT_ASSERT_MESSAGE("page not painted", nInk > 100);
 +
-+        for (const SwAnchoredObject* pObject : *pPage->GetSortedObjs())
++        for (const SwFlyFrame* pFly : aPageFlys)
 +        {
-+            const SwFlyFrame* pFly = pObject->DynCastFlyFrame();
-+            if (!pFly || !pFly->Lower())
++            if (!pFly->Lower())
 +                continue;
 +            FlyKind eKind = FlyKind::Text;
 +            if (pFly->Lower()->IsNoTextFrame())
