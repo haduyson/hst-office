@@ -40,8 +40,9 @@ def panel_of(node):
 
 
 def guardrails(label):
-    """While the panel is open: the ribbon and the document show, and the panel is a part of the document's window
-    below the ribbon (it covers no part of the ribbon and not all of the document). Returns the panel's box."""
+    """While the panel is open: the ribbon shows, and the panel is a part of the document's window below the ribbon.
+    Below the document tab strip the panel takes the window's width (hst-backstage-panel-beside-banner.patch); without
+    the strip it stops at the banner and the document shows beside it. Returns the panel's box."""
     found = showing(walk(nd30.office_app(), []))
     items = {name: node for role, name, node in found if role == "push button" and name in ALL_ITEMS}
     if "Thông tin" not in items:
@@ -76,6 +77,11 @@ def guardrails(label):
         strip = extents(strips[0])
         record(label + ": the document tab strip stays visible above the panel", strip[1] + strip[3] <= box[1] + 1,
                "strip %s, panel top %d" % (strip, box[1]))
+    if strips:
+        window = extents(frame)
+        record(label + ": below the document tab strip the panel takes the window's width",
+               box[0] + box[2] >= window[0] + window[2] - 24, "window %s, panel %s" % (window, box))
+        return box
     documents = [node for role, name, node in in_frame if role in DOCUMENT_ROLES]
     if documents:
         doc = extents(documents[0])
@@ -84,6 +90,17 @@ def guardrails(label):
     else:
         record(label + ": the document stays visible beside the panel", False, "no document node showing")
     return box
+
+
+def outside_point(box):
+    """A point of the document's window outside the open panel `box` that a click may land on without side effects:
+    the empty right end of the document tab strip above the panel, or (no strip) the document right of the panel."""
+    found = showing(walk(nd30.office_app(), []))
+    strips = [node for role, name, node in found if role == "panel" and name == "Thẻ tài liệu"]
+    if strips:
+        strip = extents(strips[0])
+        return strip[0] + strip[2] - 60, strip[1] + strip[3] // 2
+    return box[0] + box[2] + 120, box[1] + box[3] // 2
 
 
 def panel_box():

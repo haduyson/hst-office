@@ -29,7 +29,7 @@ import hst_gui  # noqa: E402
 from backstage_gui import (ALL_ITEMS, COMMAND, ROWS, close_document, dark_shot, expect_call, focused_name,  # noqa: E402
                            is_open, make_interceptor, nd30, open_ms, press, record, reopen, seed_recent, showing,
                            view_items, wait_state, walk, xdo)
-from backstage_guardrails import click_file_tab, extents, follows_window_move, guardrails  # noqa: E402
+from backstage_guardrails import click_file_tab, extents, follows_window_move, guardrails, outside_point  # noqa: E402
 
 OUT_DEFAULT = os.path.join(os.path.dirname(HERE), "output", "backstage")
 TARGET_MS = 150
@@ -96,10 +96,13 @@ def check_app(office, args, factory, label, recent_name, shots):
         if wait_state(True):
             record(label + ": the File tab closes the open panel", click_file_tab(display) and wait_state(False))
 
-        # a click outside the panel (on the document, right of it) closes it
+        # a click outside the panel (on the document tab strip above it, or on the document beside it) closes it;
+        # right of a full-width panel the click fell outside the window and left the panel open, so that Alt+F below
+        # started from the wrong state
         office.dispatch(frame, COMMAND)
         if wait_state(True) and box:
-            xdo(display, "mousemove", str(box[0] + box[2] + 120), str(box[1] + box[3] // 2), "click", "1")
+            x, y = outside_point(box)
+            xdo(display, "mousemove", str(x), str(y), "click", "1")
             record(label + ": a click outside closes the panel", wait_state(False))
 
         # Alt+F, arrows, Enter
