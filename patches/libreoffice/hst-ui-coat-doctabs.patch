@@ -6,7 +6,7 @@ tree for the strip.
   joining the document below; the other tabs flat, a rounded hover behind the one under the mouse; short
   frame dividers between flat tabs; the frame divider along the bottom, open under the selected tab; titles
   in the strip's own font (the body weight; the font size keeps the strip height) and the text colour, cut with an ellipsis only when they do not fit (the tooltip keeps
-  the full name); the modified marker a small dot in the text colour. When the strip has to shrink the tabs,
+  the full name); the modified marker a small dot in the text colour, its room added to the tab. When the strip has to shrink the tabs,
   tabs not selected and not under the mouse give the close button's room to their title and the selected tab
   drops its dot (its cap marks it), so titles keep at least the room of the platform look; hovering a tab shows
   its close button. The close button and "+" draw the icon
@@ -297,7 +297,7 @@ tree for the strip.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/inc/uielement/hstdocumenttabcoat.hxx
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,78 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -366,7 +366,8 @@ tree for the strip.
 +FWK_DLLPUBLIC bool CoatActive(const StyleSettings& rStyle);
 +FWK_DLLPUBLIC void PaintStrip(vcl::RenderContext& rRenderContext, const CoatStrip& rStrip,
 +                const StyleSettings& rStyle, const CoatGlyphs& rGlyphs);
-+FWK_DLLPUBLIC tools::Long CoatTabChromeWidth(double fScale);
++/// Everything of a tab but its title: app dot, gaps, close target and, for a modified document, its marker.
++FWK_DLLPUBLIC tools::Long CoatTabChromeWidth(double fScale, bool bModified = false);
 +FWK_DLLPUBLIC bool CoatHidesClose(const CoatTab& rTab, double fScale);
 +FWK_DLLPUBLIC tools::Rectangle CoatTitleRect(const CoatTab& rTab, double fScale);
 +FWK_DLLPUBLIC tools::Rectangle CoatCloseRect(const tools::Rectangle& rTab, tools::Long nStripHeight,
@@ -377,7 +378,7 @@ tree for the strip.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/qa/cppunit/hstdocumenttabcoat.cxx
-@@ -0,0 +1,538 @@
+@@ -0,0 +1,542 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -658,6 +659,8 @@ tree for the strip.
 +CPPUNIT_TEST_FIXTURE(DocumentTabCoatTest, testChromeWidthMatchesPaint)
 +{
 +    const auto& rPalette = design::GetPalette(false);
++    // a modified document's marker must not cost its title any room
++    for (bool bModified : { false, true })
 +    for (double fScale : { 1.0, 1.25 })
 +    {
 +        const tools::Long nHeight = px(32, fScale);
@@ -668,6 +671,7 @@ tree for the strip.
 +        rTab.aTitle = u"Báo cáo quý 3"_ustr;
 +        rTab.aMark = rPalette.aAppMark[0];
 +        rTab.bActive = true;
++        rTab.bModified = bModified;
 +
 +        auto pTight = makeStripDevice(aStrip, false);
 +        auto pWide = makeStripDevice(aStrip, false);
@@ -679,8 +683,9 @@ tree for the strip.
 +        pTight->SetFont(aBold);
 +        const tools::Long nTitleWidth = pTight->GetTextWidth(rTab.aTitle);
 +        const tools::Long nTitleLeft = px(8, fScale) + px(6, fScale) + px(5, fScale);
-+        const tools::Long nChromeWidth = tabs::CoatTabChromeWidth(fScale);
-+        CPPUNIT_ASSERT_EQUAL(nTitleLeft + px(4, fScale) + px(20, fScale) + px(4, fScale),
++        const tools::Long nChromeWidth = tabs::CoatTabChromeWidth(fScale, bModified);
++        CPPUNIT_ASSERT_EQUAL(nTitleLeft + px(4, fScale) + px(20, fScale) + px(4, fScale)
++                                 + (bModified ? px(6, fScale) + px(5, fScale) : 0),
 +                             nChromeWidth);
 +        const tools::Long nTabWidth = nTitleWidth + nChromeWidth;
 +        pTight->SetFont(aFont);
@@ -994,7 +999,7 @@ tree for the strip.
  #include <vcl/menu.hxx>
  #include <vcl/settings.hxx>
  #include <vcl/syswin.hxx>
-@@ -52,7 +56,7 @@ constexpr tools::Long DRAG_THRESHOLD = 6;
+@@ -52,7 +56,7 @@
  /// Scale a 100% pixel size by the window's DPI factor.
  tools::Long Px(const vcl::Window& rWindow, double fPixels)
  {
@@ -1003,7 +1008,7 @@ tree for the strip.
  }
  }
  
-@@ -60,15 +64,34 @@ DocumentTabBar::DocumentTabBar(vcl::Window* pParent,
+@@ -60,15 +64,34 @@
                                 const css::uno::Reference<css::frame::XFrame>& xFrame)
      : vcl::Window(pParent, WB_CLIPCHILDREN)
      , m_xFrame(xFrame)
@@ -1038,14 +1043,12 @@ tree for the strip.
      vcl::Font aFont = rStyle.GetToolFont();
      SetPointFont(*GetOutDev(), aFont);
      SetBackground(rStyle.GetFaceColor());
-@@ -89,12 +112,20 @@ void DocumentTabBar::ImplLayout()
+@@ -89,12 +112,18 @@
      const tools::Long nClose = Px(*this, CLOSE_SIZE);
      const tools::Long nPad = Px(*this, TAB_PAD);
      const tools::Long nMin = Px(*this, TAB_MIN_WIDTH);
 +    const bool bCoat = hst::doctabs::CoatActive(GetSettings().GetStyleSettings());
-+    const tools::Long nChromeWidth = bCoat
-+        ? hst::doctabs::CoatTabChromeWidth(GetDPIScaleFactor())
-+        : nPad + nPad + nClose + Px(*this, 12) + nPad / 2;
++    const tools::Long nChromeWidth = nPad + nPad + nClose + Px(*this, 12) + nPad / 2;
  
      std::vector<DocumentTabInfo> aInfos = DocumentTabGroup::get().getTabs(m_xFrame);
 -    m_aTabs.clear();
@@ -1061,20 +1064,22 @@ tree for the strip.
      tools::Long nSum = 0;
      // measure with the bold font of the active tab, so a tab doesn't change width on switch
      GetOutDev()->Push(vcl::PushFlags::FONT);
-@@ -103,10 +134,9 @@ void DocumentTabBar::ImplLayout()
+@@ -103,10 +132,11 @@
      GetOutDev()->SetFont(aBold);
      for (const DocumentTabInfo& rInfo : aInfos)
      {
 -        tools::Long nTab = nPad + GetOutDev()->GetTextWidth(rInfo.aTitle) + nPad + nClose
 -                           + Px(*this, 12) + nPad / 2;
-+        tools::Long nTab = GetOutDev()->GetTextWidth(rInfo.aTitle) + nChromeWidth;
++        tools::Long nTab = GetOutDev()->GetTextWidth(rInfo.aTitle)
++                           + (bCoat ? hst::doctabs::CoatTabChromeWidth(GetDPIScaleFactor(), rInfo.bModified)
++                                    : nChromeWidth);
          nTab = std::clamp<tools::Long>(nTab, nMin, Px(*this, TAB_MAX_WIDTH));
 -        aWidths.push_back(nTab);
 +        aWidths.push_back({ nTab });
          nSum += nTab;
      }
      GetOutDev()->Pop();
-@@ -115,8 +145,11 @@ void DocumentTabBar::ImplLayout()
+@@ -115,8 +145,11 @@
      {
          const tools::Long nEach
              = std::max<tools::Long>(nAvail / static_cast<tools::Long>(aInfos.size()), nMin);
@@ -1088,7 +1093,7 @@ tree for the strip.
      }
  
      // With many tabs keep the active one in view: skip tabs on the left.
-@@ -128,35 +161,92 @@ void DocumentTabBar::ImplLayout()
+@@ -128,35 +161,92 @@
                  nActive = i;
          tools::Long nUsed = 0;
          for (size_t i = 0; i <= nActive && i < aWidths.size(); ++i)
@@ -1117,6 +1122,7 @@ tree for the strip.
 -                                           Size(nClose, nClose));
 -        m_aTabs.push_back(aTab);
 -        nX += aWidths[i];
+-    }
 +        aTab.aRect = tools::Rectangle(Point(nX, 0), Size(rWidth.nWidth, nHeight));
 +        aTab.bCompressed = rWidth.bCompressed;
 +        if (bCoat)
@@ -1148,7 +1154,7 @@ tree for the strip.
 +        }
 +        ++nLaidOut;
 +        nX += rWidth.nWidth;
-     }
++    }
 +    bFramesChanged |= nLaidOut != m_aTabs.size();
 +    m_aTabs.resize(nLaidOut);
      const tools::Long nPlusHeight = std::min(nPlus - Px(*this, 6), nHeight - ACCENT - 2);
@@ -1192,7 +1198,7 @@ tree for the strip.
      const Color aFace = rStyle.GetFaceColor();
      const Color aActiveBg = rStyle.GetWindowColor();
      const Color aShadow = rStyle.GetShadowColor();
-@@ -528,6 +618,7 @@ void DocumentTabBar::DataChanged(const DataChangedEvent& rDCEvt)
+@@ -528,6 +618,7 @@
          && (rDCEvt.GetFlags() & AllSettingsFlags::STYLE))
      {
          ImplInitSettings();
@@ -1200,7 +1206,7 @@ tree for the strip.
          Invalidate();
      }
  }
-@@ -535,8 +626,63 @@ void DocumentTabBar::DataChanged(const DataChangedEvent& rDCEvt)
+@@ -535,8 +626,63 @@
  void DocumentTabBar::Resize()
  {
      vcl::Window::Resize();
@@ -1851,7 +1857,7 @@ tree for the strip.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/framework/source/uielement/hstdocumenttabcoat.cxx
-@@ -0,0 +1,379 @@
+@@ -0,0 +1,381 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2182,10 +2188,12 @@ tree for the strip.
 +    rDev.SetAntialiasing(nAntialiasing);
 +}
 +
-+tools::Long CoatTabChromeWidth(double fScale)
++tools::Long CoatTabChromeWidth(double fScale, bool bModified)
 +{
++    // the modified marker takes its room from the title (TitleRightLimit), so the tab grows by it
 +    return Px(DOT_INSET, fScale) + Px(DOT_SIZE, fScale) + Px(DOT_TITLE_GAP, fScale)
-+           + Px(TITLE_MARKER_GAP, fScale) + Px(CLOSE_SIZE, fScale) + Px(CLOSE_INSET, fScale);
++           + Px(TITLE_MARKER_GAP, fScale) + Px(CLOSE_SIZE, fScale) + Px(CLOSE_INSET, fScale)
++           + (bModified ? Px(MARKER_SIZE, fScale) + Px(MARKER_CLOSE_GAP, fScale) : 0);
 +}
 +
 +bool CoatHidesClose(const CoatTab& rTab, double fScale)
