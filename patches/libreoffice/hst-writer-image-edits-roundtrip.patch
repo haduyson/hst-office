@@ -165,24 +165,6 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
  
      if (!sSvgRelId.isEmpty())
      {
---- a/sw/source/filter/ww8/docxsdrexport.cxx
-+++ b/sw/source/filter/ww8/docxsdrexport.cxx
-@@ -8,6 +8,7 @@
-  */
- 
- #include "docxsdrexport.hxx"
-+#include "hst/hstpictureadjust.hxx"
- #include <com/sun/star/beans/XPropertySet.hpp>
- #include <com/sun/star/drawing/PointSequenceSequence.hpp>
- #include <editeng/lrspitem.hxx>
-@@ -905,6 +906,7 @@
- 
-         aPos.X += nPosXDiff; // Make the postponed position move of frames.
-         aPos.Y += nPosYDiff;
-+        sw::hst::AddDocxRotatedPicturePositionOffset(*pFrameFormat, aPos.X, aPos.Y); // HST
-         if (pObj && lcl_IsRotateAngleValid(*pObj)
-             && pObj->GetObjIdentifier() != SdrObjKind::SwFlyDrawObjIdentifier)
-             lclMovePositionWithRotation(aPos, rSize, pObj->GetRotateAngle());
 --- a/sw/source/filter/ww8/wrtw8esh.cxx
 +++ b/sw/source/filter/ww8/wrtw8esh.cxx
 @@ -77,6 +77,7 @@
@@ -193,13 +175,16 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
  #include <ndtxt.hxx>
  #include "WW8FFData.hxx"
  #include <com/sun/star/beans/XPropertySet.hpp>
-@@ -745,10 +746,14 @@
+@@ -745,10 +746,17 @@
          //Nasty swap for bidi if necessary
          rWrt.MiserableRTLFrameFormatHack(nLeft, nRight, rFrameFormat);
  
 +        // HST: a rotated picture is anchored by its unrotated rectangle (Word's rule for the swap included)
 +        const bool bHstRotatedPicture = sw::hst::SetEscherAnchorOfRotatedPicture(
-+            rFormat, rFrameFormat.IsInline(), nThick, nLeft, nTop, nRight, nBottom);
++            rFormat, rFrameFormat.IsInline(),
++            !bPosConverted && rHOr.GetHoriOrient() == text::HoriOrientation::NONE,
++            !bPosConverted && rVOr.GetVertOrient() == text::VertOrientation::NONE, nThick, nLeft, nTop, nRight,
++            nBottom);
 +
          // tdf#70838. Word relates the position to the unrotated rectangle,
          // Writer to the rotated one. Because the rotation is around center,
@@ -209,7 +194,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
          {
              SwTwips nXOff;
              SwTwips nYOff;
-@@ -1637,7 +1642,8 @@
+@@ -1637,7 +1645,8 @@
      }
      else
      {
@@ -219,7 +204,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
          GraphicObject   aGraphicObject( aGraphic );
          OString aUniqueId = aGraphicObject.GetUniqueID();
  
-@@ -1665,23 +1671,15 @@
+@@ -1665,23 +1674,15 @@
  void SwBasicEscherEx::WriteGrfAttr(const SwNoTextNode& rNd, const SwFrameFormat& rFormat,
      EscherPropertyContainer& rPropOpt)
  {
@@ -250,7 +235,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
          if (nMode == GraphicDrawMode::Watermark)
          {
              /*
-@@ -1729,6 +1727,7 @@
+@@ -1729,6 +1730,7 @@
  
      if (nBrightness != 0)
          rPropOpt.AddOpt( ESCHER_Prop_pictureBrightness, nBrightness * 327 );
@@ -449,7 +434,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +# vim: set noet sw=4 ts=4:
 --- /dev/null
 +++ b/sw/qa/extras/hst/hstimageeditsroundtrip.cxx
-@@ -0,0 +1,630 @@
+@@ -0,0 +1,644 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -640,8 +625,8 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +        CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSize.Height), 30.0);
 +    }
 +
-+    /// A turned picture placed by hand keeps its place: Writer positions it by its bounding box, Word by the
-+    /// unrotated picture (it moved by half the difference of width and height).
++    /// A turned picture placed by hand keeps its place: Writer and Word both position it by the unrotated picture
++    /// (the .doc export took the turned picture's box around another centre, so it moved by half of width - height).
 +    void checkRotatedPosition(TestFilter eFilter)
 +    {
 +        uno::Reference<beans::XPropertySet> xPicture = insertPicture();
@@ -652,12 +637,44 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +        xPicture->setPropertyValue(u"GraphicRotation"_ustr, uno::Any(sal_Int16(900)));
 +        saveAndReload(eFilter);
 +        uno::Reference<beans::XPropertySet> xProps = writerPicture();
-+        if (!xProps.is()) // DOCX: a rotated picture comes back as a picture shape
++        double fLeft = 3000, fTop = 1000;
++        if (!xProps.is())
++        {
++            // DOCX: a rotated picture comes back as a picture shape, which is placed by its bounding box (here
++            // 4500 x 6000 around the same centre)
 +            xProps.set(getShape(1), uno::UNO_QUERY_THROW);
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(3000.0, double(xProps->getPropertyValue(u"HoriOrientPosition"_ustr).get<sal_Int32>()),
++            fLeft += (6000 - 4500) / 2.0;
++            fTop -= (6000 - 4500) / 2.0;
++        }
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(fLeft, double(xProps->getPropertyValue(u"HoriOrientPosition"_ustr).get<sal_Int32>()),
 +                                     30.0);
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(1000.0, double(xProps->getPropertyValue(u"VertOrientPosition"_ustr).get<sal_Int32>()),
++        CPPUNIT_ASSERT_DOUBLES_EQUAL(fTop, double(xProps->getPropertyValue(u"VertOrientPosition"_ustr).get<sal_Int32>()),
 +                                     30.0);
++    }
++
++    /// DOCX: a picture with a plain shadow stays a picture with its shadow and its size, over two saves.
++    void checkShadowedPictureStaysPicture(text::TextContentAnchorType eAnchor)
++    {
++        uno::Reference<beans::XPropertySet> xPicture = insertPicture(eAnchor);
++        table::ShadowFormat aShadow;
++        aShadow.Location = table::ShadowLocation_BOTTOM_RIGHT;
++        aShadow.ShadowWidth = 106;
++        aShadow.Color = 0x000000;
++        xPicture->setPropertyValue(u"ShadowFormat"_ustr, uno::Any(aShadow));
++
++        for (int nSave = 0; nSave < 2; ++nSave)
++        {
++            saveAndReload(TestFilter::DOCX);
++            xPicture = writerPicture();
++            CPPUNIT_ASSERT(xPicture.is());
++            const table::ShadowFormat aGot = xPicture->getPropertyValue(u"ShadowFormat"_ustr).get<table::ShadowFormat>();
++            CPPUNIT_ASSERT_EQUAL(table::ShadowLocation_BOTTOM_RIGHT, aGot.Location);
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(106.0, double(aGot.ShadowWidth), 5.0);
++            awt::Size aSize;
++            xPicture->getPropertyValue(u"Size"_ustr) >>= aSize;
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSize.Width), 20.0);
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSize.Height), 20.0);
++        }
 +    }
 +
 +    /// Upstream's document with a picture linked to linked_graphic.jpg, and that picture.
@@ -952,32 +969,14 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +
 +// DOCX: a picture with a shadow (as the HST picture styles give) came back as a picture shape (no Picture tab), smaller
 +// by the shadow. A plain shadow is a picture's shadow in Word: it stays a picture with its shadow and its size.
-+CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedPictureStaysPicture)
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedInlinePictureStaysPicture)
 +{
-+    for (text::TextContentAnchorType eAnchor :
-+         { text::TextContentAnchorType_AS_CHARACTER, text::TextContentAnchorType_AT_CHARACTER })
-+    {
-+        uno::Reference<beans::XPropertySet> xPicture = insertPicture(eAnchor);
-+        table::ShadowFormat aShadow;
-+        aShadow.Location = table::ShadowLocation_BOTTOM_RIGHT;
-+        aShadow.ShadowWidth = 106;
-+        aShadow.Color = 0x000000;
-+        xPicture->setPropertyValue(u"ShadowFormat"_ustr, uno::Any(aShadow));
++    checkShadowedPictureStaysPicture(text::TextContentAnchorType_AS_CHARACTER);
++}
 +
-+        for (int nSave = 0; nSave < 2; ++nSave)
-+        {
-+            saveAndReload(TestFilter::DOCX);
-+            xPicture = writerPicture();
-+            CPPUNIT_ASSERT(xPicture.is());
-+            const table::ShadowFormat aGot = xPicture->getPropertyValue(u"ShadowFormat"_ustr).get<table::ShadowFormat>();
-+            CPPUNIT_ASSERT_EQUAL(table::ShadowLocation_BOTTOM_RIGHT, aGot.Location);
-+            CPPUNIT_ASSERT_DOUBLES_EQUAL(106.0, double(aGot.ShadowWidth), 5.0);
-+            awt::Size aSize;
-+            xPicture->getPropertyValue(u"Size"_ustr) >>= aSize;
-+            CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSize.Width), 20.0);
-+            CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSize.Height), 20.0);
-+        }
-+    }
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedAnchoredPictureStaysPicture)
++{
++    checkShadowedPictureStaysPicture(text::TextContentAnchorType_AT_CHARACTER);
 +}
 +
 +// DOC: an as-character picture with a border (and a shadow, as the HST picture styles give) became smaller on every
@@ -1082,7 +1081,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sw/source/filter/ww8/hst/hstpictureadjust.cxx
-@@ -0,0 +1,310 @@
+@@ -0,0 +1,294 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1281,8 +1280,8 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +    rPropOpt.AddOpt(ESCHER_Prop_Rotation, static_cast<sal_uInt32>((sal_Int64(nClockwise) << 16) / 10));
 +}
 +
-+bool SetEscherAnchorOfRotatedPicture(const SwFrameFormat& rFormat, bool bInline, SwTwips nThick, SwTwips& rLeft,
-+                                     SwTwips& rTop, SwTwips& rRight, SwTwips& rBottom)
++bool SetEscherAnchorOfRotatedPicture(const SwFrameFormat& rFormat, bool bInline, bool bLeftIsFrame, bool bTopIsFrame,
++                                     SwTwips nThick, SwTwips& rLeft, SwTwips& rTop, SwTwips& rRight, SwTwips& rBottom)
 +{
 +    if (bInline)
 +        return false;
@@ -1293,15 +1292,16 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +    if (!nRotation)
 +        return false;
 +
-+    // The frame's size is the unrotated picture; its layout rectangle (rLeft..rBottom) bounds the turned picture
-+    // around the same centre.
-+    Size aSize(rFormat.GetFrameSize().GetSize());
++    // The frame's size is the unrotated picture, turned around its centre; rLeft..rBottom is its layout rectangle
++    // (bounding the turned picture), except that a position set by hand is the unrotated frame's corner.
++    const Size aFrame(rFormat.GetFrameSize().GetSize());
++    Size aSize(aFrame);
 +    if (IsAnchorSwapped(nRotation))
 +        aSize = Size(aSize.Height(), aSize.Width());
 +    const SwTwips nWidth = std::max<SwTwips>(aSize.Width() - 2 * nThick, 0);
 +    const SwTwips nHeight = std::max<SwTwips>(aSize.Height() - 2 * nThick, 0);
-+    const SwTwips nCentreX = (rLeft + rRight) / 2;
-+    const SwTwips nCentreY = (rTop + rBottom) / 2;
++    const SwTwips nCentreX = bLeftIsFrame ? rLeft - nThick + aFrame.Width() / 2 : (rLeft + rRight) / 2;
++    const SwTwips nCentreY = bTopIsFrame ? rTop - nThick + aFrame.Height() / 2 : (rTop + rBottom) / 2;
 +    rLeft = nCentreX - nWidth / 2;
 +    rRight = rLeft + nWidth;
 +    rTop = nCentreY - nHeight / 2;
@@ -1309,35 +1309,18 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +    return true;
 +}
 +
-+void AddDocxRotatedPicturePositionOffset(const SwFrameFormat& rFormat, sal_Int32& rX, sal_Int32& rY)
-+{
-+    const SwGrfNode* pNode = GetPictureNode(rFormat);
-+    if (!pNode)
-+        return;
-+    const sal_Int32 nRotation = pNode->GetSwAttrSet().GetRotationGrf().GetValue().get() % 3600;
-+    if (!nRotation)
-+        return;
-+    // Writer's position is the corner of the turned picture's bounding box, Word's that of the unrotated picture
-+    // around the same centre.
-+    const Size aSize(rFormat.GetFrameSize().GetSize());
-+    const double fAngle = basegfx::deg2rad(nRotation / 10.0);
-+    const double fCos = std::abs(std::cos(fAngle));
-+    const double fSin = std::abs(std::sin(fAngle));
-+    const double fBoundWidth = aSize.Width() * fCos + aSize.Height() * fSin;
-+    const double fBoundHeight = aSize.Width() * fSin + aSize.Height() * fCos;
-+    rX += basegfx::fround((fBoundWidth - aSize.Width()) / 2);
-+    rY += basegfx::fround((fBoundHeight - aSize.Height()) / 2);
-+}
-+
 +tools::Rectangle GetImportedPictureFrameRect(const SdrObject& rObject)
 +{
 +    const tools::Rectangle aBound(rObject.GetSnapRect());
 +    if (rObject.GetObjIdentifier() != SdrObjKind::Graphic || !rObject.GetRotateAngle())
 +        return aBound;
-+    // Writer places a turned picture by its bounding box and sizes it unrotated: the box's corner, the logic size.
 +    const tools::Rectangle& rLogic = rObject.GetLogicRect();
-+    const Point aCorner(aBound.TopLeft());
-+    return tools::Rectangle(aCorner, Size(rLogic.getOpenWidth(), rLogic.getOpenHeight()));
++    const tools::Long nWidth = rLogic.getOpenWidth();
++    const tools::Long nHeight = rLogic.getOpenHeight();
++    const Point aCentre(aBound.Center());
++    const tools::Long nLeft = aCentre.X() - nWidth / 2;
++    const tools::Long nTop = aCentre.Y() - nHeight / 2;
++    return tools::Rectangle(nLeft, nTop, nLeft + nWidth, nTop + nHeight);
 +}
 +
 +void SetImportedPictureRotation(SwGrfNode& rNode, const SdrObject& rObject, bool bFlipV)
@@ -1395,7 +1378,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sw/source/filter/ww8/hst/hstpictureadjust.hxx
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,88 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1465,16 +1448,13 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +
 +/// DOC: Word anchors a rotated picture by its unrotated rectangle around the same centre, with width and height
 +/// swapped for 45..135 and 225..315 degrees. Moves rLeft..rBottom (the rotated frame's rectangle, nThick inside its
-+/// border) to it; false and nothing changed when rFormat is not a rotated floating picture.
-+bool SetEscherAnchorOfRotatedPicture(const SwFrameFormat& rFormat, bool bInline, SwTwips nThick, SwTwips& rLeft,
-+                                     SwTwips& rTop, SwTwips& rRight, SwTwips& rBottom);
++/// border) to it; bLeftIsFrame / bTopIsFrame: rLeft / rTop is a position set by hand, which is the corner of the
++/// unrotated frame, not of the turned one. False and nothing changed when rFormat is not a rotated floating picture.
++bool SetEscherAnchorOfRotatedPicture(const SwFrameFormat& rFormat, bool bInline, bool bLeftIsFrame, bool bTopIsFrame,
++                                     SwTwips nThick, SwTwips& rLeft, SwTwips& rTop, SwTwips& rRight, SwTwips& rBottom);
 +
-+/// DOCX export: moves the position (rX, rY) of a turned picture from Writer's bounding-box corner to the corner of the
-+/// unrotated picture, which Word positions.
-+void AddDocxRotatedPicturePositionOffset(const SwFrameFormat& rFormat, sal_Int32& rX, sal_Int32& rY);
-+
-+/// DOC import: the frame rectangle of a picture read as the rotated escher object rObject: its unrotated size at the
-+/// corner of its bounds (Writer positions a turned picture by its bounding box). Other objects keep their bounds.
++/// DOC import: the frame rectangle of a picture read as the rotated escher object rObject: its unrotated size around
++/// the centre of its bounds. Other objects keep their bounds.
 +tools::Rectangle GetImportedPictureFrameRect(const SdrObject& rObject);
 +
 +/// DOC import: gives rNode the rotation of rObject without the half turn the import adds for a vertical flip.
