@@ -11,6 +11,9 @@ handler, mnemonic or accessibility change. Values from hst::design::layout:
   list boxes get a 160 px minimum width (VCL list boxes take no width-chars);
 - Position and Size, Line, Shadow, Duplicate, Insert Table, Bullets and Numbering, Interaction and Fontwork pages:
   the same columns and gaps on every tab, so switching tabs does not move the controls.
+- Accessibility: Slide Show Settings' "Buttons size" label names its list box (label-for / labelled-by), and
+  the Numbering page's "Start with" spin box takes the keyboard focus and is named by its check box, so its
+  no-labelled-by suppression in sdraw.suppr goes.
 Checked by tests/unit/test_ui_layout_rulebook.py (static) and tests/runtime/hst_dialog_layout_check.py (on screen,
 cases of this group in tests/runtime/data/dialog-layout-c.json).
 
@@ -1641,15 +1644,22 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
              <property name="receives-default">False</property>
              <property name="use-underline">True</property>
              <property name="inconsistent">True</property>
-@@ -43,6 +44,7 @@
+@@ -42,9 +43,13 @@
+           <object class="GtkSpinButton" id="spinbuttonNF_NEW_START">
              <property name="visible">True</property>
              <property name="sensitive">False</property>
-             <property name="can-focus">False</property>
+-            <property name="can-focus">False</property>
++            <property name="can-focus">True</property>
 +            <property name="width-chars">10</property>
              <property name="truncate-multiline">True</property>
              <property name="adjustment">adjustment1</property>
++            <accessibility>
++              <relation type="labelled-by" target="checkbuttonCB_NUMBER_NEW_START"/>
++            </accessibility>
            </object>
-@@ -59,6 +61,7 @@
+           <packing>
+             <property name="left-attach">1</property>
+@@ -59,10 +64,14 @@
              <property name="can-focus">True</property>
              <property name="receives-default">False</property>
              <property name="halign">start</property>
@@ -1657,6 +1667,13 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
              <property name="margin-start">12</property>
              <property name="use-underline">True</property>
              <property name="inconsistent">True</property>
+             <property name="draw-indicator">True</property>
++            <accessibility>
++              <relation type="label-for" target="spinbuttonNF_NEW_START"/>
++            </accessibility>
+           </object>
+           <packing>
+             <property name="left-attach">0</property>
 --- a/sd/uiconfig/simpress/ui/interactiondialog.ui
 +++ b/sd/uiconfig/simpress/ui/interactiondialog.ui
 @@ -4,7 +4,7 @@
@@ -1933,7 +1950,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                              <property name="label" translatable="yes" context="presentationdialog|console_label">Presenter console:</property>
                              <property name="use-underline">True</property>
                              <property name="mnemonic-widget">console_cb</property>
-@@ -682,8 +694,10 @@
+@@ -682,8 +694,13 @@
                              <property name="visible">True</property>
                              <property name="can-focus">False</property>
                              <property name="halign">start</property>
@@ -1941,10 +1958,23 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                              <property name="margin-start">24</property>
                              <property name="label" translatable="yes" context="presentationdialog|navbar_btn_size_label">Buttons size:</property>
 +                            <property name="xalign">0</property>
++                            <accessibility>
++                              <relation type="label-for" target="navigation_buttons_size_cb"/>
++                            </accessibility>
                            </object>
                            <packing>
                              <property name="left-attach">0</property>
-@@ -784,6 +798,7 @@
+@@ -701,6 +718,9 @@
+                               <item translatable="yes" context="presentationdialog|navigation_buttons_size_cb">Large</item>
+                               <item translatable="yes" context="presentationdialog|navigation_buttons_size_cb">Extra Large</item>
+                             </items>
++                            <accessibility>
++                              <relation type="labelled-by" target="navbar_btn_size_label"/>
++                            </accessibility>
+                             <child internal-child="accessible">
+                               <object class="AtkObject" id="navigation_buttons_size_cb-atkobject">
+                                 <property name="AtkObject::accessible-description" translatable="yes" context="extended_tip | iconsize">Specifies the display size of navigation bar icons.</property>
+@@ -784,6 +804,7 @@
                <packing>
                  <property name="left-attach">0</property>
                  <property name="top-attach">2</property>
@@ -1952,7 +1982,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                </packing>
              </child>
              <child>
-@@ -791,7 +806,7 @@
+@@ -791,7 +812,7 @@
                  <property name="visible">True</property>
                  <property name="can-focus">False</property>
                  <property name="hexpand">True</property>
@@ -1961,7 +1991,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                  <property name="label-xalign">0</property>
                  <property name="shadow-type">none</property>
                  <child>
-@@ -804,6 +819,7 @@
+@@ -804,6 +825,7 @@
                      <property name="hexpand">True</property>
                      <property name="vexpand">True</property>
                      <property name="row-spacing">4</property>
@@ -1969,7 +1999,7 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
                      <child>
                        <object class="GtkCheckButton" id="enableremote">
                          <property name="label" translatable="yes" context="presentationdialog|enableremote">Enable remote control</property>
-@@ -869,6 +885,7 @@
+@@ -869,6 +891,7 @@
                <packing>
                  <property name="left-attach">0</property>
                  <property name="top-attach">3</property>
@@ -1988,3 +2018,13 @@ cases of this group in tests/runtime/data/dialog-layout-c.json).
      <property name="title" translatable="yes" context="fontworkgallerydialog|FontworkGalleryDialog">Fontwork Gallery</property>
      <property name="resizable">False</property>
      <property name="modal">True</property>
+--- a/solenv/sanitizers/ui/modules/sdraw.suppr
++++ b/solenv/sanitizers/ui/modules/sdraw.suppr
+@@ -5,7 +5,6 @@
+ sd/uiconfig/sdraw/ui/breakdialog.ui://GtkLabel[@id='metaobjects'] orphan-label
+ sd/uiconfig/sdraw/ui/breakdialog.ui://GtkLabel[@id='drawingobjects'] orphan-label
+ sd/uiconfig/sdraw/ui/namedesign.ui://GtkEntry[@id='entry'] no-labelled-by
+-sd/uiconfig/sdraw/ui/paranumberingtab.ui://GtkSpinButton[@id='spinbuttonNF_NEW_START'] no-labelled-by
+ sd/uiconfig/sdraw/ui/notebookbar.ui://GtkMenuItem[@id='Menu-Extension-PackageManagerDialog'] button-no-label
+ sd/uiconfig/sdraw/ui/notebookbar.ui://GtkMenuItem[@id='MenuTools-MacroRecorder'] button-no-label
+ sd/uiconfig/sdraw/ui/notebookbar.ui://GtkMenuItem[@id='MenuTools-RunMacro'] button-no-label
