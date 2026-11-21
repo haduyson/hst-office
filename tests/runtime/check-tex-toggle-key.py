@@ -9,8 +9,9 @@ check-backstage-print-close.py does, and the keys are Alt + the US-layout backsl
     <image>\\program\\python.exe tests\\runtime\\check-tex-toggle-key.py --soffice <image>\\program\\soffice.exe
 
 A new Writer document holds "Thử $x^2+1$ và $\\frac{1}{2}$ nhé". Alt+\\ is typed into its window: both spans become
-formulas, no backslash is typed, and the end-of-run message is closed with Enter. The office quits on its main thread.
-Exit 1 when a check fails.
+formulas and no backslash is typed. The end-of-run message is a status-bar line, not a dialog: Ctrl+Z is pressed
+right after, with no Enter, and gives the text back. On X11 the window is saved as toggled.png in --out while the
+line is up. The office quits on its main thread. Exit 1 when a check fails.
 """
 import argparse
 import os
@@ -56,7 +57,7 @@ def xdotool(*args):
 
 
 class Keyboard:
-    """Find the Writer window, bring it forward, type Alt+\\ and Enter: xdotool on X11, keybd_event on Windows."""
+    """Find the Writer window, bring it forward, type Alt+\\ and Ctrl+Z: xdotool on X11, keybd_event on Windows."""
 
     def window(self):
         if sys.platform != "win32":
@@ -102,7 +103,7 @@ class Keyboard:
             xdotool("key", "--clearmodifiers", combo)
             return
         import ctypes
-        codes = {"alt+backslash": (0x12, 0xDC), "Return": (0x0D,), "shift": (0x10,)}[combo]  # VK_MENU, VK_OEM_5…
+        codes = {"alt+backslash": (0x12, 0xDC), "ctrl+z": (0x11, 0x5A), "shift": (0x10,)}[combo]  # VK_MENU, VK_OEM_5…
         for code in codes:
             ctypes.windll.user32.keybd_event(code, 0, 0, 0)
         for code in reversed(codes):
@@ -110,7 +111,7 @@ class Keyboard:
 
 
 def objects(doc, timeout=20):
-    """Number of embedded objects, read off the main thread (the end-of-run message may be up); None on timeout."""
+    """Number of embedded objects, read off the main thread (the toggle may still be running); None on timeout."""
     box = {}
     thread = threading.Thread(target=lambda: box.update(n=len(doc.getEmbeddedObjects().getElementNames())),
                               daemon=True)
@@ -142,15 +143,22 @@ def main():
         base.record("Writer window found and in front", window is not None and keyboard.activate(window), window)
         time.sleep(1)
         keyboard.press("alt+backslash")
-        time.sleep(4)
-        count = objects(doc)
-        keyboard.press("Return")  # the end-of-run message
-        time.sleep(1)
-        if count is None:
-            count = objects(doc)
+        count = None
+        for _ in range(40):
+            time.sleep(0.25)
+            count = objects(doc, timeout=2)
+            if count == 2:
+                break
         base.record("Alt+\\ turned both spans into formulas", count == 2, count)
         text = base.on_main(office, lambda: doc.getText().getString())
         base.record("no backslash typed", "\\" not in text and "$" not in text, repr(text))
+        if sys.platform != "win32":  # the status-bar line, before Ctrl+Z clears it
+            subprocess.run(["import", "-window", window, os.path.join(out, "toggled.png")], check=False, timeout=60)
+        keyboard.press("ctrl+z")  # no Enter first: no dialog holds the keyboard
+        time.sleep(2)
+        restored = objects(doc)
+        text = base.on_main(office, lambda: doc.getText().getString())
+        base.record("Ctrl+Z right after gives the text back", text == TEXT and restored == 0, (repr(text), restored))
         base.on_main(office, lambda: doc.setModified(False))
     finally:
         base.quit_office(office)
