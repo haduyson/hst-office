@@ -11,8 +11,9 @@
 #   scripts/release/**                   release tooling (runs after the builds)
 #   docs/**, plans/**, tests/**          documentation, plans, reports, tests
 #   website/**                           product website (not built into any installer)
+#   assets/marketing/**                  promotional images (not built into any installer)
 set -euo pipefail
-allowed='^(scripts/macos/|scripts/release/|\.github/workflows/|docs/|plans/|tests/|website/|scripts/check-workflows\.py$|scripts/workflow_build_rules\.py$)'
+allowed='^(scripts/macos/|scripts/release/|\.github/workflows/|docs/|plans/|tests/|website/|assets/marketing/|scripts/check-workflows\.py$|scripts/workflow_build_rules\.py$)'
 bad="$(grep -vE "$allowed")" || [ $? -eq 1 ]  # grep exits 1 when every path is allowed
 if [ -n "$bad" ]; then
   printf 'changes outside macOS packaging, CI and docs:\n%s\n' "$bad" >&2

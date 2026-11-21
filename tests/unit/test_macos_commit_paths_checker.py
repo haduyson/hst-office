@@ -23,6 +23,12 @@ class CheckerPathTests(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertFalse(allowed(["docs/CI.md", path]))
 
+    def test_only_marketing_assets_are_admitted(self):
+        self.assertTrue(allowed(["assets/marketing/x.png"]))
+        for path in ("assets/other/x.png", "assets/brand/icons/hst-office-512.png", "assets/marketing.png"):
+            with self.subTest(path=path):
+                self.assertFalse(allowed(["assets/marketing/x.png", path]))
+
 
 if __name__ == "__main__":
     unittest.main()
