@@ -25,6 +25,7 @@ if hasattr(sys.stdout, "reconfigure"):
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import png_luma  # noqa: E402
+import uno_main_thread_load  # noqa: E402
 import windows_gui as wg  # noqa: E402
 
 ORANGE, BLUE = (230, 120, 0), (0, 90, 220)
@@ -100,9 +101,7 @@ class Run:
         self.office.start(fresh=True)
         self.ui = self.office.service("com.sun.star.ui.test.UITest")
         wg.dismiss_startup(self.office, os.path.join(self.out, "startup-dialog.png"))
-        arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
-        arg.Name, arg.Value = "OnMainThread", True
-        self.doc = self.office.desktop.loadComponentFromURL(uno.systemPathToFileUrl(docx), "_default", 0, (arg,))
+        self.doc = uno_main_thread_load.load(self.office.desktop, uno.systemPathToFileUrl(docx), "_default")
         # The HST welcome opens over the first document window, after the load: close it too.
         wg.dismiss_startup(self.office, os.path.join(self.out, "welcome-dialog.png"), timeout=12, settle=3)
         window = wg.find_window(lambda title: "cau-hoi-anh" in title, timeout=30)
