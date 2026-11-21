@@ -76,6 +76,9 @@ class Dialog:
         self.result = 0
         self.on_oversize = None  # called with no arguments when the peer is larger than the screen work area
         self.on_ready, self.on_closed = None, None  # called right after the peer exists / after the dialog has ended
+        # called after the dialog moved onto another window (macOS full screen, dialog_on_screen.watch_new_documents):
+        # the controls are new, so what on_ready hooked on them must be hooked again; None runs on_ready again
+        self.on_moved = None
 
     def _add(self, kind, name, x, y, w, h, **props):
         model = self.model.createInstance("com.sun.star.awt.UnoControl%sModel" % kind)
@@ -208,6 +211,9 @@ class Dialog:
         self.dialog.setVisible(False)
         self.dialog.createPeer(toolkit, parent)
         self._attach(parent)
+        hook = getattr(self, "on_moved", None) or self.on_ready
+        if hook:
+            hook()
         dialog_on_screen.log_open(self.model.Title, "moved-to-new-document")
 
 

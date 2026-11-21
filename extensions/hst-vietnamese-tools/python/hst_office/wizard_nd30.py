@@ -91,6 +91,15 @@ class Nd30Wizard:
         d.on_change(nd30.FIELD_KEYS + RULE_NAMES, self.refresh)
         d.on_oversize = self._compact
         d.on_ready, d.on_closed = self.picker.attach, self.picker.detach
+        d.on_moved = self._moved
+
+    def _moved(self):
+        """The wizard runs again on another window (macOS full screen): hook the type picker and the scroll band on
+        the new controls."""
+        self.picker.detach()
+        self.picker.attach()
+        if self.band:
+            self.band.hook()
 
     def _compact(self):
         """Screen too small for the side-by-side layout (about 1200 px wide at 100% on Windows): drop the preview column.

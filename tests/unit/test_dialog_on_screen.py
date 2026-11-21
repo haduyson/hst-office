@@ -54,6 +54,7 @@ for _name, _module in list(sys.modules.items()):
         _module.__path__ = []
 from hst_office import dialog_on_screen, dialog_registry, dialogs, dispatch  # noqa: E402
 from hst_office import actions  # noqa: E402,F401 - dispatch imports it on first use; it needs the stubs too
+from hst_office import wizard_nd30  # noqa: E402
 
 sys.meta_path.remove(_FINDER)
 
@@ -399,7 +400,9 @@ class DialogExecuteTests(unittest.TestCase):
         dialog.ctx = dialog.smgr = office
         dialog.dialog, dialog.model = uno_dialog(), model
         dialog._listeners, dialog._watchers, dialog.result = [], [], 1
-        dialog.on_oversize = dialog.on_ready = None
+        readied = []
+        dialog.on_oversize, dialog.on_moved = None, None
+        dialog.on_ready = lambda: readied.append(dialog.dialog)  # hooks on the controls: again on the new ones
         dialog.on_closed = lambda: closed.append(True)
         first = dialog.dialog
         real_watch = dialog_on_screen.watch_new_documents
@@ -415,9 +418,20 @@ class DialogExecuteTests(unittest.TestCase):
         self.assertEqual((first.parent_used, first.disposed), (parent, 1))
         self.assertEqual((second.parent_used, second.model, second.disposed), (document, model, 1))
         self.assertEqual(closed, [True])
+        self.assertEqual(readied, [first, second])
         self.assertEqual(office.broadcaster.listeners, [])
         self.assertEqual(info.call_args_list[-1],
                          mock.call("dialog", "modal 'Văn bản hành chính' from -, parent moved-to-new-document"))
+
+    def test_nd30_wizard_hooks_its_type_picker_and_scroll_band_again_after_a_move(self):
+        wizard = wizard_nd30.Nd30Wizard.__new__(wizard_nd30.Nd30Wizard)
+        calls = mock.Mock()
+        wizard.picker, wizard.band = calls.picker, calls.band
+        wizard._moved()
+        self.assertEqual(calls.mock_calls, [mock.call.picker.detach(), mock.call.picker.attach(),
+                                            mock.call.band.hook()])
+        wizard.band = None
+        wizard._moved()  # no scroll band (the dialog fits the screen)
 
 
 class DispatchAfterNewDocumentTests(unittest.TestCase):
