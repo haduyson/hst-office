@@ -7,7 +7,7 @@ import unohelper
 from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
-from . import action_names, diag_log, help_pages, ui_language
+from . import action_names, diag_log, dialog_on_screen, help_pages, ui_language
 from .data_files import load_locale
 
 IMPLEMENTATION_NAME = "org.hst.office.vi.DispatchProvider"
@@ -100,20 +100,37 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
             return self._run_safely(url.Path)
         frame = self.frame
         try:
+            frame, opened = self._frame_for(url.Path)
+            if opened:
+                # The new document's tab is still being shown (the tab group parks the previous tab from its idle
+                # handler): a modal dialog opened inside this command could lose its window on macOS, and the whole
+                # office then waits for a dialog nobody can see. Run the command once the new tab is up.
+                return dialog_on_screen.run_when_settled(self.ctx, frame, lambda: self._run_command(url.Path, frame))
+            self._run_command(url.Path, frame)
+        except Exception:  # noqa: BLE001 - never fail silently inside the office UI thread
+            self._report_failure(url.Path, frame)
+
+    def _run_command(self, command, frame):
+        dialog_on_screen.set_origin(command)  # the local log names the command of every modal dialog it opens
+        try:
             commands, host = _actions()
-            frame = self._frame_for(url.Path)
-            raise_for_test(url.Path)
+            raise_for_test(command)
             if not has_document(frame):  # the HST menu is in the Start Center too: say what is missing
                 return self._say(frame, load_locale("vi")["common"]["noDocument"])
-            commands[url.Path](host(self.ctx, frame, load_locale("vi")))
-            if url.Path == DUPLEX:
+            commands[command](host(self.ctx, frame, load_locale("vi")))
+            if command == DUPLEX:
                 self._send_duplex_state()
         except Exception:  # noqa: BLE001 - never fail silently inside the office UI thread
-            log_error(url.Path)  # the traceback goes to the local log; the user gets words, not an exception name
-            try:
-                _actions()[1](self.ctx, frame, load_locale("vi")).say(load_locale("vi")["common"]["unexpected"], error=True)
-            except Exception:  # noqa: BLE001
-                pass
+            self._report_failure(command, frame)
+        finally:
+            dialog_on_screen.set_origin(None)
+
+    def _report_failure(self, command, frame):
+        log_error(command)  # the traceback goes to the local log; the user gets words, not an exception name
+        try:
+            _actions()[1](self.ctx, frame, load_locale("vi")).say(load_locale("vi")["common"]["unexpected"], error=True)
+        except Exception:  # noqa: BLE001
+            pass
 
     def _run_safely(self, command):
         """A command that needs no document (its code is imported on use); a failure goes to the local log."""
@@ -136,15 +153,16 @@ class Handler(unohelper.Base, XServiceInfo, XInitialization, XDispatchProvider, 
         message_box(self.ctx, frame.getContainerWindow() if frame else None, load_locale("vi")["common"]["error"], text)
 
     def _frame_for(self, command):
-        """Frame of a document of the kind the command works on; opens a blank one from the Start Center or another module."""
+        """(frame, opened): the frame of a document of the kind the command works on; opened=True when a blank one
+        had to be opened (from the Start Center or another module)."""
         kind = NEW_DOCUMENT.get(command)
         controller = self.frame.getController() if self.frame else None
         model = controller.getModel() if controller else None
         if kind is None or (model is not None and model.supportsService(kind[0])):
-            return self.frame
+            return self.frame, False
         desktop = self.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", self.ctx)
         document = desktop.loadComponentFromURL(kind[1], "_blank", 0, ())
-        return document.getCurrentController().getFrame()
+        return document.getCurrentController().getFrame(), True
 
     def _show_solutions(self):
         try:
