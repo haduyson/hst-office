@@ -43,7 +43,7 @@ selects lines.
      sw/source/uibase/shells/langhelper \
 --- a/sw/qa/uibase/hst/imagealign.cxx
 +++ b/sw/qa/uibase/hst/imagealign.cxx
-@@ -0,0 +1,357 @@
+@@ -0,0 +1,360 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -66,6 +66,7 @@ selects lines.
 +#include <com/sun/star/text/ControlCharacter.hpp>
 +#include <com/sun/star/text/HoriOrientation.hpp>
 +#include <com/sun/star/text/TextContentAnchorType.hpp>
++#include <com/sun/star/text/XParagraphCursor.hpp>
 +#include <com/sun/star/text/XText.hpp>
 +#include <com/sun/star/text/XTextContent.hpp>
 +#include <com/sun/star/text/XTextCursor.hpp>
@@ -150,7 +151,9 @@ selects lines.
 +        xText->insertControlCharacter(xCursor, text::ControlCharacter::PARAGRAPH_BREAK, false);
 +        xText->insertString(xCursor, u"After"_ustr, false);
 +        xCursor->gotoStart(false);
-+        xCursor->gotoNextParagraph(false); // the empty second paragraph holds the shape
++        // the empty second paragraph holds the shape
++        uno::Reference<text::XParagraphCursor> xParaCursor(xCursor, uno::UNO_QUERY_THROW);
++        xParaCursor->gotoNextParagraph(false);
 +
 +        uno::Reference<drawing::XShapes> xGroup
 +            = drawing::ShapeCollection::create(comphelper::getProcessComponentContext());
