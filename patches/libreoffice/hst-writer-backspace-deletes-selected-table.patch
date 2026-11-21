@@ -1,0 +1,620 @@
+HST Office: in Writer, Backspace with a whole table selected (Ctrl+A twice in a cell, or a cell
+selection covering every cell) deletes the table, as in Word; before it only cleared the cells
+and deleting a table needed Table > Delete > Table. The table goes through the same core call as
+that command (one undo step, same change tracking, the cursor in the paragraph after the table).
+Delete still clears the cells; partial selections, read-only or protected cells, DDE tables and
+tables already deleted in tracked changes keep the old Backspace. With nested tables the table
+the selected cells belong to is deleted. Logic in sw/source/uibase/hst/selectedtabledelete.cxx;
+the hook is the .uno:SwBackspace slot in sw/source/uibase/shells/basesh.cxx.
+
+--- a/sw/CppunitTest_sw_uibase_wrtsh.mk
++++ b/sw/CppunitTest_sw_uibase_wrtsh.mk
+@@ -15,6 +15,7 @@ $(eval $(call gb_CppunitTest_use_common_precompiled_header,sw_uibase_wrtsh))
+ 
+ $(eval $(call gb_CppunitTest_add_exception_objects,sw_uibase_wrtsh, \
+     sw/qa/uibase/wrtsh/wrtsh \
++    sw/qa/uibase/hst/selectedtabledelete \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,sw_uibase_wrtsh, \
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -795,6 +795,7 @@ $(eval $(call gb_Library_add_exception_objects,sw,\
+     sw/source/uibase/uiview/viewstat \
+     sw/source/uibase/uiview/viewtab \
+     sw/source/uibase/hst/largedocwarning \
++    sw/source/uibase/hst/selectedtabledelete \
+     sw/source/uibase/uno/SwXDocumentSettings \
+     sw/source/uibase/uno/SwXFilterOptions \
+     sw/source/uibase/uno/dlelstnr \
+--- a/sw/qa/uibase/hst/data/hst-nested-tables.fodt
++++ b/sw/qa/uibase/hst/data/hst-nested-tables.fodt
+@@ -0,0 +1,33 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.text">
++ <office:body>
++  <office:text>
++   <text:p>before</text:p>
++   <table:table table:name="Outer">
++    <table:table-column table:number-columns-repeated="2"/>
++    <table:table-row>
++     <table:table-cell office:value-type="string">
++      <table:table table:name="Inner">
++       <table:table-column table:number-columns-repeated="2"/>
++       <table:table-row>
++        <table:table-cell office:value-type="string"><text:p>iA1</text:p></table:table-cell>
++        <table:table-cell office:value-type="string"><text:p>iB1</text:p></table:table-cell>
++       </table:table-row>
++       <table:table-row>
++        <table:table-cell office:value-type="string"><text:p>iA2</text:p></table:table-cell>
++        <table:table-cell office:value-type="string"><text:p>iB2</text:p></table:table-cell>
++       </table:table-row>
++      </table:table>
++      <text:p>A1</text:p>
++     </table:table-cell>
++     <table:table-cell office:value-type="string"><text:p>B1</text:p></table:table-cell>
++    </table:table-row>
++    <table:table-row>
++     <table:table-cell office:value-type="string"><text:p>A2</text:p></table:table-cell>
++     <table:table-cell office:value-type="string"><text:p>B2</text:p></table:table-cell>
++    </table:table-row>
++   </table:table>
++   <text:p>after</text:p>
++  </office:text>
++ </office:body>
++</office:document>
+--- a/sw/qa/uibase/hst/data/hst-table-at-end.fodt
++++ b/sw/qa/uibase/hst/data/hst-table-at-end.fodt
+@@ -0,0 +1,19 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.text">
++ <office:body>
++  <office:text>
++   <text:p>before</text:p>
++   <table:table table:name="Table1">
++    <table:table-column table:number-columns-repeated="2"/>
++    <table:table-row>
++     <table:table-cell office:value-type="string"><text:p>A1</text:p></table:table-cell>
++     <table:table-cell office:value-type="string"><text:p>B1</text:p></table:table-cell>
++    </table:table-row>
++    <table:table-row>
++     <table:table-cell office:value-type="string"><text:p>A2</text:p></table:table-cell>
++     <table:table-cell office:value-type="string"><text:p>B2</text:p></table:table-cell>
++    </table:table-row>
++   </table:table>
++  </office:text>
++ </office:body>
++</office:document>
+--- a/sw/qa/uibase/hst/data/hst-table-at-start.fodt
++++ b/sw/qa/uibase/hst/data/hst-table-at-start.fodt
+@@ -0,0 +1,19 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.text">
++ <office:body>
++  <office:text>
++   <table:table table:name="Table1">
++    <table:table-column table:number-columns-repeated="2"/>
++    <table:table-row>
++     <table:table-cell office:value-type="string"><text:p>A1</text:p></table:table-cell>
++     <table:table-cell office:value-type="string"><text:p>B1</text:p></table:table-cell>
++    </table:table-row>
++    <table:table-row>
++     <table:table-cell office:value-type="string"><text:p>A2</text:p></table:table-cell>
++     <table:table-cell office:value-type="string"><text:p>B2</text:p></table:table-cell>
++    </table:table-row>
++   </table:table>
++   <text:p>after</text:p>
++  </office:text>
++ </office:body>
++</office:document>
+--- a/sw/qa/uibase/hst/data/hst-table-between-paragraphs.fodt
++++ b/sw/qa/uibase/hst/data/hst-table-between-paragraphs.fodt
+@@ -0,0 +1,20 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.text">
++ <office:body>
++  <office:text>
++   <text:p>before</text:p>
++   <table:table table:name="Table1">
++    <table:table-column table:number-columns-repeated="2"/>
++    <table:table-row>
++     <table:table-cell office:value-type="string"><text:p>A1</text:p></table:table-cell>
++     <table:table-cell office:value-type="string"><text:p>B1</text:p></table:table-cell>
++    </table:table-row>
++    <table:table-row>
++     <table:table-cell office:value-type="string"><text:p>A2</text:p></table:table-cell>
++     <table:table-cell office:value-type="string"><text:p>B2</text:p></table:table-cell>
++    </table:table-row>
++   </table:table>
++   <text:p>after</text:p>
++  </office:text>
++ </office:body>
++</office:document>
+--- a/sw/qa/uibase/hst/data/hst-table-only.fodt
++++ b/sw/qa/uibase/hst/data/hst-table-only.fodt
+@@ -0,0 +1,18 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" office:version="1.3" office:mimetype="application/vnd.oasis.opendocument.text">
++ <office:body>
++  <office:text>
++   <table:table table:name="Table1">
++    <table:table-column table:number-columns-repeated="2"/>
++    <table:table-row>
++     <table:table-cell office:value-type="string"><text:p>A1</text:p></table:table-cell>
++     <table:table-cell office:value-type="string"><text:p>B1</text:p></table:table-cell>
++    </table:table-row>
++    <table:table-row>
++     <table:table-cell office:value-type="string"><text:p>A2</text:p></table:table-cell>
++     <table:table-cell office:value-type="string"><text:p>B2</text:p></table:table-cell>
++    </table:table-row>
++   </table:table>
++  </office:text>
++ </office:body>
++</office:document>
+--- a/sw/qa/uibase/hst/selectedtabledelete.cxx
++++ b/sw/qa/uibase/hst/selectedtabledelete.cxx
+@@ -0,0 +1,299 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <swmodeltestbase.hxx>
++
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/container/XIndexAccess.hpp>
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/table/XCell.hpp>
++#include <com/sun/star/text/XText.hpp>
++#include <com/sun/star/text/XTextTable.hpp>
++#include <com/sun/star/text/XTextTablesSupplier.hpp>
++#include <com/sun/star/text/XTextViewCursorSupplier.hpp>
++
++#include <LibreOfficeKit/LibreOfficeKitEnums.h>
++#include <vcl/keycodes.hxx>
++#include <vcl/scheduler.hxx>
++
++#include <IDocumentRedlineAccess.hxx>
++#include <UndoManager.hxx>
++#include <doc.hxx>
++#include <docsh.hxx>
++#include <ndtxt.hxx>
++#include <redline.hxx>
++#include <unotxdoc.hxx>
++#include <wrtsh.hxx>
++
++namespace
++{
++/// Backspace on a whole selected table deletes the table (as Word does); Delete only clears the
++/// cells, and any other selection keeps the usual Backspace behaviour.
++class HstSelectedTableDeleteTest : public SwModelTestBase
++{
++public:
++    HstSelectedTableDeleteTest()
++        : SwModelTestBase(u"/sw/qa/uibase/hst/data/"_ustr)
++    {
++    }
++
++protected:
++    sal_Int32 tableCount()
++    {
++        uno::Reference<text::XTextTablesSupplier> xSupplier(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<container::XIndexAccess> xTables(xSupplier->getTextTables(),
++                                                        uno::UNO_QUERY_THROW);
++        return xTables->getCount();
++    }
++
++    uno::Reference<text::XTextTable> table(const OUString& rName)
++    {
++        uno::Reference<text::XTextTablesSupplier> xSupplier(mxComponent, uno::UNO_QUERY_THROW);
++        return uno::Reference<text::XTextTable>(xSupplier->getTextTables()->getByName(rName),
++                                                uno::UNO_QUERY_THROW);
++    }
++
++    uno::Reference<text::XText> cell(const OUString& rTable, const OUString& rCell)
++    {
++        return uno::Reference<text::XText>(table(rTable)->getCellByName(rCell),
++                                           uno::UNO_QUERY_THROW);
++    }
++
++    OUString cellText(const OUString& rTable, const OUString& rCell)
++    {
++        return cell(rTable, rCell)->getString();
++    }
++
++    /// Puts the view cursor at the start of a cell.
++    void gotoCell(const OUString& rTable, const OUString& rCell)
++    {
++        uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<text::XTextViewCursorSupplier> xSupplier(xModel->getCurrentController(),
++                                                                uno::UNO_QUERY_THROW);
++        uno::Reference<text::XText> xCell = cell(rTable, rCell);
++        xSupplier->getViewCursor()->gotoRange(xCell->getStart(), false);
++        Scheduler::ProcessEventsToIdle();
++    }
++
++    /// Ctrl+A twice in a cell: the first selects the cell text, the second the whole table.
++    void selectWholeTableFrom(const OUString& rTable, const OUString& rCell)
++    {
++        gotoCell(rTable, rCell);
++        dispatchCommand(mxComponent, u".uno:SelectAll"_ustr, {});
++        dispatchCommand(mxComponent, u".uno:SelectAll"_ustr, {});
++        CPPUNIT_ASSERT(getSwDocShell()->GetWrtShell()->IsTableMode());
++    }
++
++    void pressKey(sal_uInt16 nKey)
++    {
++        SwXTextDocument* pTextDoc = getSwTextDoc();
++        pTextDoc->postKeyEvent(LOK_KEYEVENT_KEYINPUT, 0, nKey);
++        pTextDoc->postKeyEvent(LOK_KEYEVENT_KEYUP, 0, nKey);
++        Scheduler::ProcessEventsToIdle();
++    }
++
++    OUString cursorParagraphText()
++    {
++        SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++        const SwTextNode* pNode = pWrtShell->GetCursor()->GetPointNode().GetTextNode();
++        CPPUNIT_ASSERT(pNode);
++        CPPUNIT_ASSERT(!pNode->FindTableNode());
++        return pNode->GetText();
++    }
++
++    size_t undoCount() { return getSwDoc()->GetUndoManager().GetUndoActionCount(); }
++
++    void assertTableIntact(const OUString& rTable)
++    {
++        CPPUNIT_ASSERT_EQUAL(u"A1"_ustr, cellText(rTable, u"A1"_ustr));
++        CPPUNIT_ASSERT_EQUAL(u"B1"_ustr, cellText(rTable, u"B1"_ustr));
++        CPPUNIT_ASSERT_EQUAL(u"A2"_ustr, cellText(rTable, u"A2"_ustr));
++        CPPUNIT_ASSERT_EQUAL(u"B2"_ustr, cellText(rTable, u"B2"_ustr));
++    }
++};
++
++CPPUNIT_TEST_FIXTURE(HstSelectedTableDeleteTest, testBackspaceDeletesWholeTable)
++{
++    createSwDoc("hst-table-between-paragraphs.fodt");
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), tableCount());
++    selectWholeTableFrom(u"Table1"_ustr, u"B2"_ustr);
++    const size_t nUndo = undoCount();
++
++    pressKey(KEY_BACKSPACE);
++
++    // The table is gone (before: only the cell texts were cleared) and the cursor is in the
++    // paragraph that followed it.
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(0), tableCount());
++    CPPUNIT_ASSERT_EQUAL(u"after"_ustr, cursorParagraphText());
++    CPPUNIT_ASSERT_EQUAL(nUndo + 1, undoCount());
++
++    // One undo step brings the whole table back with its content.
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), tableCount());
++    assertTableIntact(u"Table1"_ustr);
++    CPPUNIT_ASSERT_EQUAL(nUndo, undoCount());
++}
++
++CPPUNIT_TEST_FIXTURE(HstSelectedTableDeleteTest, testDeleteKeyOnlyClearsWholeTable)
++{
++    createSwDoc("hst-table-between-paragraphs.fodt");
++    selectWholeTableFrom(u"Table1"_ustr, u"A1"_ustr);
++
++    pressKey(KEY_DELETE);
++
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), tableCount());
++    CPPUNIT_ASSERT_EQUAL(OUString(), cellText(u"Table1"_ustr, u"A1"_ustr));
++    CPPUNIT_ASSERT_EQUAL(OUString(), cellText(u"Table1"_ustr, u"B1"_ustr));
++    CPPUNIT_ASSERT_EQUAL(OUString(), cellText(u"Table1"_ustr, u"A2"_ustr));
++    CPPUNIT_ASSERT_EQUAL(OUString(), cellText(u"Table1"_ustr, u"B2"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstSelectedTableDeleteTest, testBackspaceOnSomeCellsKeepsTable)
++{
++    createSwDoc("hst-table-between-paragraphs.fodt");
++    // Shift+Right from the start of A1 into B1: a cell selection of the first row only.
++    gotoCell(u"Table1"_ustr, u"A1"_ustr);
++    for (int i = 0; i < 3; ++i)
++        pressKey(KEY_SHIFT | KEY_RIGHT);
++    CPPUNIT_ASSERT(getSwDocShell()->GetWrtShell()->IsTableMode());
++
++    pressKey(KEY_BACKSPACE);
++
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), tableCount());
++    CPPUNIT_ASSERT_EQUAL(OUString(), cellText(u"Table1"_ustr, u"A1"_ustr));
++    CPPUNIT_ASSERT_EQUAL(OUString(), cellText(u"Table1"_ustr, u"B1"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"A2"_ustr, cellText(u"Table1"_ustr, u"A2"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"B2"_ustr, cellText(u"Table1"_ustr, u"B2"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstSelectedTableDeleteTest, testBackspaceOnCellTextKeepsTable)
++{
++    createSwDoc("hst-table-between-paragraphs.fodt");
++    // Select all the text of one cell (the first Ctrl+A).
++    gotoCell(u"Table1"_ustr, u"B2"_ustr);
++    dispatchCommand(mxComponent, u".uno:SelectAll"_ustr, {});
++
++    pressKey(KEY_BACKSPACE);
++
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), tableCount());
++    CPPUNIT_ASSERT_EQUAL(OUString(), cellText(u"Table1"_ustr, u"B2"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"A2"_ustr, cellText(u"Table1"_ustr, u"A2"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstSelectedTableDeleteTest, testBackspaceDeletesInnerNestedTable)
++{
++    createSwDoc("hst-nested-tables.fodt");
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(2), tableCount());
++    selectWholeTableFrom(u"Inner"_ustr, u"B2"_ustr);
++
++    pressKey(KEY_BACKSPACE);
++
++    // Only the inner table goes; the outer table and its own text stay.
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), tableCount());
++    CPPUNIT_ASSERT_EQUAL(u"A1"_ustr, cellText(u"Outer"_ustr, u"A1"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"B2"_ustr, cellText(u"Outer"_ustr, u"B2"_ustr));
++
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(2), tableCount());
++    CPPUNIT_ASSERT_EQUAL(u"iB2"_ustr, cellText(u"Inner"_ustr, u"B2"_ustr));
++}
++
++CPPUNIT_TEST_FIXTURE(HstSelectedTableDeleteTest, testBackspaceDeletesOuterTableWithNestedTable)
++{
++    createSwDoc("hst-nested-tables.fodt");
++    // The outer table's first cell starts with the inner table, so the table cursor of the
++    // whole outer table starts inside the inner table.
++    selectWholeTableFrom(u"Outer"_ustr, u"B2"_ustr);
++
++    pressKey(KEY_BACKSPACE);
++
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(0), tableCount());
++    CPPUNIT_ASSERT_EQUAL(u"after"_ustr, cursorParagraphText());
++
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(2), tableCount());
++}
++
++CPPUNIT_TEST_FIXTURE(HstSelectedTableDeleteTest, testBackspaceDeletesTableAtDocumentStart)
++{
++    createSwDoc("hst-table-at-start.fodt");
++    selectWholeTableFrom(u"Table1"_ustr, u"A1"_ustr);
++
++    pressKey(KEY_BACKSPACE);
++
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(0), tableCount());
++    CPPUNIT_ASSERT_EQUAL(u"after"_ustr, cursorParagraphText());
++
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), tableCount());
++    assertTableIntact(u"Table1"_ustr);
++}
++
++CPPUNIT_TEST_FIXTURE(HstSelectedTableDeleteTest, testBackspaceDeletesTableAtDocumentEnd)
++{
++    createSwDoc("hst-table-at-end.fodt");
++    selectWholeTableFrom(u"Table1"_ustr, u"A1"_ustr);
++
++    pressKey(KEY_BACKSPACE);
++
++    // A Writer body never ends with a table: the document's last, empty paragraph follows it (as
++    // Word's final paragraph mark does). The cursor goes there; the text before stays.
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(0), tableCount());
++    CPPUNIT_ASSERT_EQUAL(OUString(), cursorParagraphText());
++    CPPUNIT_ASSERT_EQUAL(2, getParagraphs());
++    CPPUNIT_ASSERT_EQUAL(u"before"_ustr, getParagraph(1)->getString());
++
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), tableCount());
++    assertTableIntact(u"Table1"_ustr);
++}
++
++CPPUNIT_TEST_FIXTURE(HstSelectedTableDeleteTest, testBackspaceDeletesOnlyTableInDocument)
++{
++    createSwDoc("hst-table-only.fodt");
++    selectWholeTableFrom(u"Table1"_ustr, u"A1"_ustr);
++
++    pressKey(KEY_BACKSPACE);
++
++    // The document keeps one empty paragraph for the cursor.
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(0), tableCount());
++    CPPUNIT_ASSERT_EQUAL(OUString(), cursorParagraphText());
++
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), tableCount());
++    assertTableIntact(u"Table1"_ustr);
++}
++
++CPPUNIT_TEST_FIXTURE(HstSelectedTableDeleteTest, testBackspaceDeletesTableWithTrackChanges)
++{
++    createSwDoc("hst-table-between-paragraphs.fodt");
++    dispatchCommand(mxComponent, u".uno:TrackChanges"_ustr, {});
++    selectWholeTableFrom(u"Table1"_ustr, u"A1"_ustr);
++
++    pressKey(KEY_BACKSPACE);
++
++    // As with Table > Delete > Table under change tracking (Show Changes on): the table stays
++    // visible, every row is recorded as a tracked row deletion. Clearing the cells (the old
++    // Backspace) would only track text deletions and keep HasTextChangesOnly = true.
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), tableCount());
++    uno::Reference<container::XIndexAccess> xRows(table(u"Table1"_ustr)->getRows(),
++                                                  uno::UNO_QUERY_THROW);
++    for (sal_Int32 nRow = 0; nRow < xRows->getCount(); ++nRow)
++    {
++        uno::Reference<beans::XPropertySet> xRow(xRows->getByIndex(nRow), uno::UNO_QUERY_THROW);
++        CPPUNIT_ASSERT(!getProperty<bool>(xRow, u"HasTextChangesOnly"_ustr));
++    }
++    CPPUNIT_ASSERT(!getSwDoc()->getIDocumentRedlineAccess().GetRedlineTable().empty());
++
++    // Rejecting all changes brings the table back unchanged.
++    dispatchCommand(mxComponent, u".uno:RejectAllTrackedChanges"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1), tableCount());
++    assertTableIntact(u"Table1"_ustr);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/hst/selectedtabledelete.cxx
++++ b/sw/source/uibase/hst/selectedtabledelete.cxx
+@@ -0,0 +1,116 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include <hstselectedtabledelete.hxx>
++
++#include <cshtyp.hxx>
++#include <node.hxx>
++#include <pam.hxx>
++#include <rootfrm.hxx>
++#include <swddetbl.hxx>
++#include <swtable.hxx>
++#include <swundo.hxx>
++#include <tblsel.hxx>
++#include <wrtsh.hxx>
++
++namespace
++{
++/// The table whose cells are all in the current table selection, or nullptr. With nested
++/// tables this is the table the selected cells belong to, i.e. the innermost fully selected one.
++const SwTableNode* FullySelectedTable(const SwWrtShell& rShell)
++{
++    if (!rShell.IsTableMode())
++        return nullptr;
++
++    SwSelBoxes aBoxes;
++    ::GetTableSelCrs(rShell, aBoxes);
++    if (aBoxes.empty() || ::HasProtectedCells(aBoxes))
++        return nullptr;
++
++    const SwStartNode* pFirstBox = aBoxes[0]->GetSttNd();
++    const SwTableNode* pTableNode = pFirstBox ? pFirstBox->FindTableNode() : nullptr;
++    if (!pTableNode)
++        return nullptr;
++
++    const SwTable& rTable = pTableNode->GetTable();
++    if (aBoxes.size() != rTable.GetTabSortBoxes().size())
++        return nullptr;
++    for (const SwTableBox* pBox : aBoxes)
++    {
++        const SwStartNode* pStart = pBox->GetSttNd();
++        if (!pStart || pStart->FindTableNode() != pTableNode)
++            return nullptr;
++    }
++    return pTableNode;
++}
++
++/// First visible paragraph that belongs directly to rTable (not to a table nested in it).
++SwContentNode* FirstOwnContent(const SwWrtShell& rShell, const SwTableNode& rTable)
++{
++    const SwNodes& rNodes = rTable.GetNodes();
++    const SwNodeOffset nEnd = rTable.EndOfSectionIndex();
++    for (SwNodeOffset n = rTable.GetIndex() + 1; n < nEnd; ++n)
++    {
++        SwNode* pNode = rNodes[n];
++        if (pNode->IsTableNode())
++        {
++            n = pNode->EndOfSectionIndex(); // skip the nested table
++            continue;
++        }
++        SwContentNode* pContent = pNode->GetContentNode();
++        if (pContent && pContent->getLayoutFrame(rShell.GetLayout()))
++            return pContent;
++    }
++    return nullptr;
++}
++}
++
++namespace hst
++{
++bool DeleteWholeSelectedTable(SwWrtShell& rShell)
++{
++    if (rShell.HasReadonlySel())
++        return false;
++
++    const SwTableNode* pTableNode = FullySelectedTable(rShell);
++    if (!pTableNode)
++        return false;
++
++    const SwTable& rTable = pTableNode->GetTable();
++    if (dynamic_cast<const SwDDETable*>(&rTable))
++        return false; // the core refuses with a message box; keep the old Backspace instead
++    // A table already deleted in tracked changes, seen in Show Changes mode, cannot be deleted
++    // again (the Delete Table command is disabled there as well).
++    if (rTable.IsDeleted() && !rShell.GetLayout()->IsHideRedlines())
++        return false;
++
++    SwContentNode* pAnchor = FirstOwnContent(rShell, *pTableNode);
++    if (!pAnchor)
++        return false;
++
++    rShell.StartAction();
++    rShell.StartUndo(SwUndoId::UI_TABLE_DELETE);
++
++    // Put the cursor inside the selected table itself (with nested tables the table cursor may
++    // sit in an inner table), select that table and delete it as the Delete Table command does.
++    rShell.EnterStdMode();
++    SwPaM* pCursor = rShell.GetCursor();
++    pCursor->DeleteMark();
++    pCursor->GetPoint()->Assign(*pAnchor, 0);
++    rShell.MoveTable(GotoCurrTable, fnTableStart);
++    rShell.SttSelect();
++    rShell.MoveTable(GotoCurrTable, fnTableEnd);
++    rShell.EndSelect();
++    rShell.DeleteTable();
++
++    rShell.EndUndo(SwUndoId::UI_TABLE_DELETE);
++    rShell.EndAction();
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/inc/hstselectedtabledelete.hxx
++++ b/sw/source/uibase/inc/hstselectedtabledelete.hxx
+@@ -0,0 +1,24 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++class SwWrtShell;
++
++namespace hst
++{
++/// Backspace on a selection that covers every cell of one table removes the whole table, the
++/// way Word does. The table goes in one undo step through the same core call as
++/// Table > Delete > Table, so change tracking behaves as it does for that command.
++///
++/// Returns false and changes nothing when the selection is not a whole table (a text selection,
++/// some of the cells, a table already deleted in tracked changes, a DDE table, read-only or
++/// protected cells): the caller then keeps its usual Backspace behaviour.
++bool DeleteWholeSelectedTable(SwWrtShell& rShell);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/shells/basesh.cxx
++++ b/sw/source/uibase/shells/basesh.cxx
+@@ -68,6 +68,7 @@
+ #include <uitool.hxx>
+ #include <wview.hxx>
+ #include <basesh.hxx>
++#include <hstselectedtabledelete.hxx>
+ #include <viewopt.hxx>
+ #include <fontcfg.hxx>
+ #include <fmtsrnd.hxx>
+@@ -265,6 +266,8 @@ void SwBaseShell::ExecDelete(SfxRequest &rReq)
+             break;
+ 
+         case FN_BACKSPACE:
++            if (hst::DeleteWholeSelectedTable(rSh))
++                break;
+             if (rSh.GetViewOptions()->IsShowOutlineContentVisibilityButton())
+             {
+                 // Disallow if the cursor is at the start of a paragraph and the document model
