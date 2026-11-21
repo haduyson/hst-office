@@ -1,0 +1,117 @@
+HST: HTML pasted from a web page does not become absolutely positioned frames
+
+A block with "position: absolute" (Facebook's "text on coloured background" post, overlays,
+badges) became a page-anchored frame when pasted: it covered other text and lost the background
+image its light text was made for. When HTML is pasted or inserted into an existing document,
+"position: absolute" is read as static, so the content flows in the text with the colour rules of
+hst-writer-html-paste-readable-colors.patch. Opening an HTML file is unchanged; floats and
+multi-column blocks are not affected. Hook in ParseStyleOptions (htmlcss1.cxx), logic in
+sw/source/filter/html/hsthtmlpaste.cxx.
+
+Test: CppunitTest_sw_hst_html_paste (testAbsolutePost*).
+
+--- /dev/null
++++ b/sw/qa/extras/hst/data/hst-web-paste-absolute-post.html
+@@ -0,0 +1,5 @@
++<html>
++<body>
++<!--StartFragment--><div style="position: absolute; align-items: center; display: flex; flex-direction: column; justify-content: center; height: 347.219px; width: 500px; inset-inline-start: 0px; left: 0px; top: 0px; font-family: &quot;Segoe UI Historic&quot;, &quot;Segoe UI&quot;, Helvetica, Arial, sans-serif; font-size: 15px; color: rgb(28, 30, 33); font-size: 12px; font-style: normal; font-weight: 400; white-space: normal;"><div style="max-width: calc(100% - 60px); padding-inline: 30px; padding-top: 50px; padding-bottom: 50px; font-family: inherit; color: rgb(255, 200, 145); font-size: 30px; font-style: normal; font-weight: bold; text-align: center;"><div style="overflow-wrap: break-word; margin-inline: 0px; margin-bottom: 0px; margin-top: 0px; font-family: inherit;"><br class="Apple-interchange-newline">Từ 1/7/2027, nhà ở xã hội được bán lại theo giá thị trường sau 5 năm</div></div></div><br class="Apple-interchange-newline"><!--EndFragment-->
++</body>
++</html>
+--- a/sw/qa/extras/hst/hsthtmlpaste.cxx
++++ b/sw/qa/extras/hst/hsthtmlpaste.cxx
+@@ -351,6 +351,27 @@
+     openFixture("hst-web-paste-colors-on-white.html");
+     CPPUNIT_ASSERT_EQUAL(Color(0xE2E5E9), runWith(u"gần trắng").aColor);
+ }
++
++CPPUNIT_TEST_FIXTURE(HstHtmlPasteTest, testAbsolutePostFlowsInline)
++{
++    // Given a "text on coloured background" post: a block with "position: absolute" and peach
++    // text that was painted on a background image, when pasting it:
++    pasteFixture(u"hst-web-paste-absolute-post.html", SotClipboardFormatId::HTML_SIMPLE);
++
++    // Then there is no frame: the text is in the body text, still bold, and its colour reads on
++    // white. Before, a page-anchored frame held the text in rgb(255, 200, 145) without its image.
++    CPPUNIT_ASSERT_EQUAL(0, getShapes());
++    const Run aText = runWith(u"nhà ở xã hội được bán lại");
++    CPPUNIT_ASSERT_EQUAL(float(awt::FontWeight::BOLD), aText.fWeight);
++    CPPUNIT_ASSERT(readsOnWhite(aText.aColor, 4.5));
++}
++
++CPPUNIT_TEST_FIXTURE(HstHtmlPasteTest, testAbsolutePostOpenAsDocumentUnchanged)
++{
++    // Opening the same HTML as a document still positions the block in a frame.
++    openFixture("hst-web-paste-absolute-post.html");
++    CPPUNIT_ASSERT_EQUAL(1, getShapes());
++}
+ }
+ 
+ CPPUNIT_PLUGIN_IMPLEMENT();
+--- a/sw/source/filter/html/hsthtmlpaste.cxx
++++ b/sw/source/filter/html/hsthtmlpaste.cxx
+@@ -21,6 +21,7 @@
+ #include <pagedesc.hxx>
+ #include <pam.hxx>
+ 
++#include "svxcss1.hxx"
+ #include "swhtml.hxx"
+ 
+ namespace hst::htmlpaste
+@@ -71,6 +72,12 @@
+     return contrastRatio(rText, rBackground)
+            >= (bFromDarkBand ? MIN_TEXT_CONTRAST_FROM_DARK_BAND : MIN_TEXT_CONTRAST);
+ }
++
++void flowAbsolutePosition(SvxCSS1PropertyInfo& rPropInfo)
++{
++    if (rPropInfo.m_ePosition == SVX_CSS1_POS_ABSOLUTE)
++        rPropInfo.m_ePosition = SVX_CSS1_POS_STATIC;
++}
+ }
+ 
+ using namespace hst::htmlpaste;
+--- a/sw/source/filter/html/hsthtmlpaste.hxx
++++ b/sw/source/filter/html/hsthtmlpaste.hxx
+@@ -10,6 +10,7 @@
+ #include <tools/color.hxx>
+ 
+ class SvxBrushItem;
++class SvxCSS1PropertyInfo;
+ 
+ /// Rules for HTML that is pasted or inserted into an existing Writer document. Opening an HTML file
+ /// as a document does not use them.
+@@ -55,6 +56,12 @@
+ 
+ /// A pasted text colour may stay on the given background. Automatic colour always may.
+ bool isReadableTextColor(const Color& rText, const Color& rBackground, bool bFromDarkBand);
++
++/// Pasted content flows in the text: "position: absolute" is read as static, so the block is not
++/// turned into a page-anchored frame (a web page lays out its "text on coloured background" posts,
++/// overlays and badges that way; on the Writer page they cover other text and lose their
++/// background). Floats and multi-column blocks are not affected.
++void flowAbsolutePosition(SvxCSS1PropertyInfo& rPropInfo);
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/filter/html/htmlcss1.cxx
++++ b/sw/source/filter/html/htmlcss1.cxx
+@@ -59,6 +59,7 @@
+ #include "swcss1.hxx"
+ #include "htmlnum.hxx"
+ #include "swhtml.hxx"
++#include "hsthtmlpaste.hxx"
+ #include <numrule.hxx>
+ #include "css1atr.hxx"
+ 
+@@ -1901,6 +1902,10 @@
+     if( bRet )
+         rPropInfo.SetBoxItem( rItemSet, MIN_BORDER_DIST );
+ 
++    // HST: pasted or inserted HTML flows in the text, no absolutely positioned frames
++    if( !IsNewDoc() )
++        hst::htmlpaste::flowAbsolutePosition( rPropInfo );
++
+     if( pLang && !pLang->isEmpty() )
+     {
+         LanguageType eLang = LanguageTag::convertToLanguageTypeWithFallback( *pLang );
