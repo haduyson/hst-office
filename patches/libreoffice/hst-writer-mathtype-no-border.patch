@@ -899,7 +899,7 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 \ No newline at end of file
 --- /dev/null
 +++ b/sw/qa/core/hst/objectboundarypaint.cxx
-@@ -0,0 +1,368 @@
+@@ -0,0 +1,371 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -986,14 +986,15 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +
 +bool isDark(const Color& rPixel) { return rPixel.GetLuminance() < 100; }
 +
-+/// Share of the sample points along the outline of rRect (pixels) where a pixel within 1 pixel
++/// Share of the sample points along the outline of rRect (pixels) where a pixel within nBand pixels
 +/// across the outline satisfies rMatch.
 +template <typename Match>
-+double outlineShare(BitmapScopedReadAccess& rAccess, const tools::Rectangle& rRect, Match rMatch)
++double outlineShare(BitmapScopedReadAccess& rAccess, const tools::Rectangle& rRect, tools::Long nBand,
++                    Match rMatch)
 +{
 +    const tools::Long nW = rAccess->Width(), nH = rAccess->Height();
 +    auto hit = [&](tools::Long x, tools::Long y, bool bHorizontalEdge) {
-+        for (tools::Long d = -1; d <= 1; ++d)
++        for (tools::Long d = -nBand; d <= nBand; ++d)
 +        {
 +            const tools::Long px = bHorizontalEdge ? x : x + d;
 +            const tools::Long py = bHorizontalEdge ? y + d : y;
@@ -1126,9 +1127,11 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +            aPrintArea.Pos(aPrintArea.Pos() + pFly->getFrameArea().Pos());
 +            aFlys.push_back(
 +                { eKind, pFly->GetFormat()->GetName().toString(),
-+                  outlineShare(pAccess, toPixels(aPrintArea, aPage),
++                  // The boundary is a pixel-aligned 1-pixel line on the print area outline.
++                  outlineShare(pAccess, toPixels(aPrintArea, aPage), 1,
 +                               [&](const Color& c) { return isBoundaryColour(c, aBoundary); }),
-+                  outlineShare(pAccess, toPixels(pFly->getFrameArea(), aPage), isDark) });
++                  // A 1 pt border lies inside the frame area, antialiased over 2 pixels.
++                  outlineShare(pAccess, toPixels(pFly->getFrameArea(), aPage), 3, isDark) });
 +        }
 +    }
 +    return aFlys;
