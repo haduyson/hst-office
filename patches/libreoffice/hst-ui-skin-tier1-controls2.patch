@@ -1,0 +1,2258 @@
+HST Office: the coat draws tree and list views, sliders, progress bars, group frames, popup menus' items and tooltips in the HST look.
+
+- Only the drawing changes. Every size, item height, indent, border width and content region stays the
+  platform's and VCL's, so no dialog's layout changes. The coat's switch (org.openoffice.Office.HSTAppearance/
+  UiCoat/Enabled, HST_UI_COAT=0/1) turns it off, and high contrast always keeps the platform's look.
+- Through OutputDevice::DrawNativeControl (where the platform draws these natively):
+  - a tree node's expander: a chevron in the muted text colour (the selected text's on a selected row);
+  - a slider: a thin groove, the accent up to the thumb, a round thumb (a ring around an accent dot) in the
+    thumb rectangle VCL computed, accent when hovered, two pixels when focused;
+  - a progress bar (dialogs and the status bar): a rounded track, the accent up to the value;
+  - a popup menu drawn by VCL (Windows): a flat menu surface, the highlighted item inset and rounded, a thin
+    separator, vector check and radio marks for checked items, a chevron for a submenu. The menus' outline,
+    rounded edge and shadow are left to the frame's menus part (coat-menus.cxx documents where).
+- OutputDevice::IsNativeControlSupported (thin hook, hst::coat::ClaimsNativeControl): while the coat draws, it
+  claims a tooltip's background and a submenu arrow beside natively drawn menu items, so VCL asks it for them;
+  VCL measures both itself when the platform gives no region, so no size changes.
+- Thin hooks where VCL draws without asking the platform:
+  - SvTreeListBox::PaintEntry1 and ImplListBoxWindow::ImplPaint: a selected row is a rounded shape (a row
+    across columns rounded at its ends only). The theme's highlight colour gives way to the HST selection
+    colour (light: the accent; dark: the selected-item tint) while the selected text stays readable (4.5:1);
+    an unfocused list's colour is kept;
+  - VclScrolledWindow::Paint: the frame around a list, a tree or a preview is one control-border line with a
+    field's soft corners, in VCL's border width;
+  - DecorationView::DrawSeparator: a separator control (FixedLine: a group's heading line) draws one thin line
+    instead of the two-colour 3D line.
+- GTK 3 (welded dialogs): the same tokens as CSS for tree views and lists (hover tint, selection), scales, progress bars, frames and
+  separators, menu items (highlight, marks, arrow, shortcut) and tooltips: colours and corner radii only.
+- The logic is in vcl/source/hst/coat/{coat-lists,coat-ranges,coat-menus,coat-groups-tooltips,
+  coat-gtk-css-lists-menus}.cxx; shared shapes (check glyph, mark box, contrast ratio, selection colours) in
+  coat-shapes.cxx.
+- CppunitTest_vcl_hst_coat_controls2: the expander's direction and colour, the selection's shape and colour
+  choice, the slider's groove, value and thumb states, the progress, the menu's surface, highlight, separator,
+  marks and arrow, the tooltip, the claims (only while drawing), the scrolled window's border, the separator
+  control only, everything off in high contrast and when switched off, and the GTK CSS.
+- GTK 3 buttons: a theme's primary action (suggested-action, e.g. the print panel's Print button) is the accent
+  button with its ink; the coat's light button fill had covered the theme's coloured fill and left its light text
+  unreadable.
+- VCL tree and list views (SvTreeListBox: Navigator, Styles, Options tree, the File tab's lists on Windows): the row
+  under the mouse gets a pale rounded tint. The row is looked up on each mouse move; only when it changes are the
+  row it left and the row it entered invalidated. Tracked only while the coat draws and not when the list selects
+  by hovering. CppunitTest_vcl_hst_coat_controls2 also covers the hover (following, leaving, hover selection,
+  switched off, the painted tint) and prints its repaint cost per mouse move and per one-row scroll, coat on/off.
+
+--- a/include/vcl/toolkit/treelistbox.hxx
++++ b/include/vcl/toolkit/treelistbox.hxx
+@@ -241,6 +241,10 @@ class UNLESS_MERGELIBS_MORE(VCL_DLLPUBLIC) SvTreeListBox : public Control,
+     bool mbCustomEntryRenderer; // Used to define if the list entries are updated on demand
+     bool mbHoverSelection; // Make mouse over a row "select" a row like a single-click normally does
+     bool mbSelectingByHover; // true during "Select" if it was due to hover
++    // HST coat: the row under the mouse (compared, never dereferenced: it may be gone) and its rectangle
++    // in output pixels, for a pale hover; only while the coat draws and hover selection is off
++    const SvTreeListEntry* m_pCoatHoverEntry = nullptr;
++    tools::Rectangle m_aCoatHoverRow;
+     bool mbIsTextColumEnabled; // true if the property name text-column is enabled
+     sal_Int8        mnClicksToToggle; // 0 == Click on a row not toggle its checkbox.
+                                       // 1 == Every click on row toggle its checkbox.
+@@ -705,6 +709,17 @@ public:
+ 
+     SvTreeListEntry*    GetEntry( const Point& rPos, bool bHit = false ) const;
+ 
++    /** HST coat: follow the row under the mouse, invalidating only the rows it leaves and enters. */
++    SAL_DLLPRIVATE void CoatTrackHover(const MouseEvent& rMEvt);
++    /** HST coat: the background of one column of a row (rRect, filled with rBackground by VCL): the
++        rounded selection of a highlighted row, or the pale hover of the row under the mouse. False:
++        VCL fills rRect as usual. */
++    SAL_DLLPRIVATE bool CoatPaintRowBackground(vcl::RenderContext& rRenderContext,
++                                               const tools::Rectangle& rRect, const Color& rBackground,
++                                               const SvTreeListEntry& rEntry, bool bHighlighted,
++                                               bool bRoundStart, bool bRoundEnd);
++    const SvTreeListEntry* GetCoatHoverEntry() const { return m_pCoatHoverEntry; }
++
+     virtual tools::Rectangle GetFocusRect(const SvTreeListEntry*, tools::Long nLine );
+     // Respects indentation
+     tools::Long     GetTabPos(const SvTreeListEntry*, const SvLBoxTab*) const;
+--- /dev/null
++++ b/vcl/CppunitTest_vcl_hst_coat_controls2.mk
+@@ -0,0 +1,57 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++# This file is part of HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,vcl_hst_coat_controls2))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,vcl_hst_coat_controls2, \
++    vcl/qa/cppunit/hst/coat-controls2-test \
++))
++
++$(eval $(call gb_CppunitTest_add_defs,vcl_hst_coat_controls2,\
++    -DVCL_INTERNALS \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,vcl_hst_coat_controls2,\
++    boost_headers \
++))
++
++$(eval $(call gb_CppunitTest_set_include,vcl_hst_coat_controls2,\
++    $$(INCLUDE) \
++    -I$(SRCDIR)/vcl/inc \
++))
++
++$(eval $(call gb_CppunitTest_use_custom_headers,vcl_hst_coat_controls2,\
++    officecfg/registry \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,vcl_hst_coat_controls2, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    sal \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,vcl_hst_coat_controls2))
++
++$(eval $(call gb_CppunitTest_use_ure,vcl_hst_coat_controls2))
++$(eval $(call gb_CppunitTest_use_vcl,vcl_hst_coat_controls2))
++
++$(eval $(call gb_CppunitTest_use_components,vcl_hst_coat_controls2,\
++    configmgr/source/configmgr \
++    i18npool/util/i18npool \
++    ucb/source/core/ucb1 \
++    unotools/util/utl \
++))
++
++$(eval $(call gb_CppunitTest_use_configuration,vcl_hst_coat_controls2))
++
++# vim: set noet sw=4 ts=4:
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -382,7 +382,13 @@ $(eval $(call gb_Library_add_exception_objects,vcl,\
+     vcl/source/hst/coat/coat-buttons \
+     vcl/source/hst/coat/coat-fields \
+     vcl/source/hst/coat/coat-frame \
++    vcl/source/hst/coat/coat-groups-tooltips \
+     vcl/source/hst/coat/coat-gtk-css \
++    vcl/source/hst/coat/coat-gtk-css-lists-menus \
++    vcl/source/hst/coat/coat-list-hover \
++    vcl/source/hst/coat/coat-lists \
++    vcl/source/hst/coat/coat-menus \
++    vcl/source/hst/coat/coat-ranges \
+     vcl/source/hst/coat/coat-shapes \
+     vcl/source/hst/coat/coat-spacing \
+     vcl/source/hst/coat/coat-tabs-scrollbars \
+--- a/vcl/Module_vcl.mk
++++ b/vcl/Module_vcl.mk
+@@ -238,6 +238,7 @@ $(eval $(call gb_Module_add_check_targets,vcl,\
+     CppunitTest_vcl_fontmetric \
+     CppunitTest_vcl_fontvariation \
+     CppunitTest_vcl_hst_coat \
++    CppunitTest_vcl_hst_coat_controls2 \
+     CppunitTest_vcl_text \
+     CppunitTest_vcl_textlayout \
+     CppunitTest_vcl_treeview \
+--- a/vcl/inc/hst/coat.hxx
++++ b/vcl/inc/hst/coat.hxx
+@@ -13,11 +13,19 @@
+ #include <vcl/dllapi.h>
+ #include <vcl/salnativewidgets.hxx>
+ 
++#include <utility>
++#include <vector>
++
+ class OutputDevice;
+ class StyleSettings;
++namespace vcl
++{
++class Window;
++}
+ 
+ /* The HST "coat": the native controls of every dialog (buttons, fields, check and radio boxes, tabs,
+-   scroll bars...) drawn in the HST look from the design tokens of <vcl/hst/designtokens.hxx>.
++   scroll bars, tree expanders, sliders, progress bars, popup menus' items, tooltips...) drawn in
++   the HST look from the design tokens of <vcl/hst/designtokens.hxx>.
+ 
+    Only the drawing changes: a part is drawn by the coat only where the platform already draws it
+    natively, and every size and content region still comes from the platform, so layouts are exactly
+@@ -34,6 +42,36 @@ bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
+                        const tools::Rectangle& rRegion, ControlState eState,
+                        const ImplControlValue& rValue, const Color& rBackground);
+ 
++/** Whether the coat draws eType/ePart although the platform has no native look for it: a tooltip's
++    background and border, and a menu's submenu arrow beside items the platform draws natively. VCL
++    then asks DrawNativeControl for them, and measures them itself as the platform gives no region,
++    so no size changes. Called by OutputDevice::IsNativeControlSupported. */
++bool ClaimsNativeControl(const OutputDevice& rDev, ControlType eType, ControlPart ePart);
++
++/** The background of a selected row (or one column's part of it) of a list or a tree, rRect in
++    rDev's logical coordinates: a rounded shape instead of VCL's rectangle. rFill is the colour VCL
++    would fill; when it is the theme's highlight colour the HST selection colour replaces it as long
++    as rText (the selected text's colour, which VCL keeps) stays readable on it (4.5:1). The ends of
++    the shape are rounded where bRoundStart/bRoundEnd: a row drawn in several columns is one shape.
++    Returns false when the coat does not draw: the caller fills rRect as usual. */
++VCL_DLLPUBLIC bool DrawListSelection(OutputDevice& rDev, const tools::Rectangle& rRect,
++                                     const Color& rFill, const Color& rText, bool bRoundStart,
++                                     bool bRoundEnd);
++
++/** The border of a scrolled window (the frame around a list, a tree, a text view or a preview),
++    nBorderWidth pixels wide inside rRect (rDev's logical coordinates): one control-border line with
++    softly rounded corners instead of VCL's 3D frame. The border width, and so the layout, stays
++    VCL's. Returns false when the coat does not draw. */
++VCL_DLLPUBLIC bool DrawScrolledWindowBorder(OutputDevice& rDev, const tools::Rectangle& rRect,
++                                            tools::Long nBorderWidth);
++
++/** A separator line between rStart and rStop (rDev's logical coordinates) of a separator control
++    (FixedLine: a group's heading line, a dialog's separator): one thin line of the separator colour
++    instead of VCL's two-colour 3D line. Returns false when the coat does not draw, or when rDev is
++    not a separator control's window. */
++VCL_DLLPUBLIC bool DrawSeparatorLine(OutputDevice& rDev, const Point& rStart, const Point& rStop,
++                                     bool bVertical);
++
+ /** Whether the coat is switched on (setting and environment), not looking at high contrast. */
+ VCL_PLUGIN_PUBLIC bool IsSwitchedOn();
+ 
+@@ -56,6 +94,34 @@ VCL_DLLPUBLIC tools::Rectangle SpacedButtonShape(const OutputDevice& rDev,
+     has none), so the coat's drawing can be checked on a VirtualDevice. */
+ VCL_DLLPUBLIC void ForceForTesting(bool bForce);
+ 
++/** Tests: rDev.DrawNativeControl of a slider filling rDev, with the thumb in rThumb (the value
++    classes' members are not exported from vcl). */
++VCL_DLLPUBLIC bool DrawSliderForTesting(OutputDevice& rDev, ControlPart ePart, ControlState eState,
++                                        const tools::Rectangle& rThumb, ControlState eThumbState);
++
++/** Tests: rDev.DrawNativeControl of a popup menu's part filling rDev, for the item in rItem. */
++VCL_DLLPUBLIC bool DrawMenuPartForTesting(OutputDevice& rDev, ControlPart ePart,
++                                          ControlState eState, const tools::Rectangle& rItem);
++
++/** Tests: DrawSeparatorLine on a separator control (a FixedLine, not exported from vcl) created as
++    a child of pParent, from (0, 4) to (99, 4), or (4, 0) to (4, 9) when bVertical. */
++VCL_DLLPUBLIC bool DrawSeparatorLineForTesting(vcl::Window* pParent, bool bVertical);
++
++/** Tests: a tree list of 20 rows (300 x 200 pixels) in pParent, selecting by hovering when
++    bHoverSelection; the mouse moves to each of rMoves in turn (the last of several leaves the window).
++    Returns the row the coat shows as hovered after each move (-1: none). */
++VCL_DLLPUBLIC std::vector<int> ListHoverForTesting(vcl::Window* pParent, bool bHoverSelection,
++                                                   const std::vector<Point>& rMoves);
++
++/** Tests: with the mouse over a tree list's second row, the background of that row (bHoveredRow) or
++    of the first row painted across rDev. Returns whether the coat painted it. */
++VCL_DLLPUBLIC bool ListHoverPaintForTesting(vcl::Window* pParent, OutputDevice& rDev, bool bHoveredRow);
++
++/** Tests: microseconds per mouse move and per one-row scroll of a tree list of nRows rows in pParent,
++    each with its repaint. */
++VCL_DLLPUBLIC std::pair<double, double> ListRepaintTimingForTesting(vcl::Window* pParent, int nRows,
++                                                                    int nMoves, int nScrolls);
++
+ /** Tests: read the switch (setting and environment) again on its next use. */
+ VCL_DLLPUBLIC void ResetSwitchForTesting();
+ 
+--- /dev/null
++++ b/vcl/qa/cppunit/hst/coat-controls2-test.cxx
+@@ -0,0 +1,545 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include <test/bootstrapfixture.hxx>
++
++#include <comphelper/configuration.hxx>
++#include <officecfg/Office/HSTAppearance.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/salnativewidgets.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/virdev.hxx>
++#include <vcl/wrkwin.hxx>
++
++#include <hst/coat.hxx>
++
++#include <algorithm>
++#include <cstdio>
++#include <cstdlib>
++#include <utility>
++#include <vector>
++
++namespace
++{
++// a colour the coat never paints: what is left of it was not painted
++constexpr Color MARKER(0xFF, 0x00, 0xFF);
++constexpr ControlState ENABLED = ControlState::ENABLED;
++
++/* The coat's tree expanders, list selections, sliders, progress bars, menu items, tooltips, group
++   frames and separators, drawn on a VirtualDevice of the headless backend (ForceForTesting stands in
++   for a platform with a native look) and probed pixel by pixel. */
++class CoatControlsTest : public test::BootstrapFixture
++{
++public:
++    CoatControlsTest()
++        : test::BootstrapFixture(true, false)
++    {
++    }
++
++    void setUp() override
++    {
++        test::BootstrapFixture::setUp();
++        unsetenv("HST_UI_COAT");
++        setSwitch(true);
++        hst::coat::ForceForTesting(true);
++    }
++
++    void tearDown() override
++    {
++        hst::coat::ForceForTesting(false);
++        setSwitch(true);
++        test::BootstrapFixture::tearDown();
++    }
++
++protected:
++    static void setSwitch(bool bOn)
++    {
++        auto xChanges = comphelper::ConfigurationChanges::create();
++        officecfg::Office::HSTAppearance::UiCoat::Enabled::set(bOn, xChanges);
++        xChanges->commit();
++        hst::coat::ResetSwitchForTesting();
++    }
++
++    static ScopedVclPtr<VirtualDevice> makeDevice(const Size& rSize, bool bDark = false,
++                                                  bool bHighContrast = false)
++    {
++        ScopedVclPtr<VirtualDevice> pDev = VclPtr<VirtualDevice>::Create();
++        AllSettings aSettings = pDev->GetSettings();
++        StyleSettings aStyle = aSettings.GetStyleSettings();
++        aStyle.SetHighContrastMode(bHighContrast);
++        const Color aText = bDark ? COL_WHITE : COL_BLACK;
++        aStyle.SetWindowColor(bDark ? Color(0x20, 0x20, 0x20) : COL_WHITE);
++        aStyle.SetFieldColor(bDark ? Color(0x2A, 0x2A, 0x2A) : COL_WHITE);
++        aStyle.SetDialogColor(bDark ? Color(0x28, 0x28, 0x28) : Color(0xF0, 0xF0, 0xF0));
++        aStyle.SetMenuTextColor(aText);
++        aStyle.SetMenuHighlightTextColor(aText);
++        aStyle.SetHelpTextColor(aText);
++        aStyle.SetHighlightColor(Color(0x33, 0x99, 0xFF));
++        aStyle.SetHighlightTextColor(COL_WHITE);
++        aSettings.SetStyleSettings(aStyle);
++        pDev->SetSettings(aSettings);
++        pDev->SetOutputSizePixel(rSize);
++        pDev->SetBackground(Wallpaper(MARKER));
++        pDev->Erase();
++        return pDev;
++    }
++
++    static const hst::design::Palette& light() { return hst::design::GetPalette(false); }
++    static const hst::design::Palette& dark() { return hst::design::GetPalette(true); }
++
++    static bool draw(VirtualDevice& rDev, ControlType eType, ControlPart ePart,
++                     ControlState eState, const ImplControlValue& rValue = ImplControlValue())
++    {
++        return rDev.DrawNativeControl(eType, ePart,
++                                      tools::Rectangle(Point(), rDev.GetOutputSizePixel()),
++                                      eState, rValue, OUString());
++    }
++
++    static bool isNear(const Color& rA, const Color& rB, int nTolerance = 2)
++    {
++        return std::abs(rA.GetRed() - rB.GetRed()) <= nTolerance
++               && std::abs(rA.GetGreen() - rB.GetGreen()) <= nTolerance
++               && std::abs(rA.GetBlue() - rB.GetBlue()) <= nTolerance;
++    }
++
++    /** rExpected at (nX, nY), give or take the rounding of the anti-aliasing backend. */
++    static void assertPixel(const char* pWhat, const VirtualDevice& rDev, tools::Long nX,
++                            tools::Long nY, const Color& rExpected)
++    {
++        const Color aActual = rDev.GetPixel(Point(nX, nY));
++        CPPUNIT_ASSERT_MESSAGE(OString(OString::Concat(pWhat) + ": expected "
++                                       + rExpected.AsRGBHexString().toUtf8() + " at "
++                                       + OString::number(nX) + "," + OString::number(nY)
++                                       + ", got " + aActual.AsRGBHexString().toUtf8())
++                                   .getStr(),
++                               isNear(aActual, rExpected));
++    }
++
++    /** The bounds of the pixels painted in (nearly) rInk: a glyph's extent. */
++    static tools::Rectangle inkBounds(const VirtualDevice& rDev, const Color& rInk)
++    {
++        tools::Rectangle aBounds;
++        const Size aSize = rDev.GetOutputSizePixel();
++        for (tools::Long nY = 0; nY < aSize.Height(); ++nY)
++            for (tools::Long nX = 0; nX < aSize.Width(); ++nX)
++                if (isNear(rDev.GetPixel(Point(nX, nY)), rInk, 48))
++                    aBounds.Union(tools::Rectangle(Point(nX, nY), Size(1, 1)));
++        return aBounds;
++    }
++};
++
++/* A tree node's expander is a chevron in the muted text colour: pointing right (taller than wide)
++   while collapsed, down (wider than tall) once expanded; on a selected row in the selected text's
++   colour. Nothing else of the region is painted: the row's background stays. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testTreeExpanderIsAChevron)
++{
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(16, 16));
++        CPPUNIT_ASSERT(draw(*pDev, ControlType::ListNode, ControlPart::Entire, ENABLED,
++                            ImplControlValue(ButtonValue::Off)));
++        const tools::Rectangle aInk = inkBounds(*pDev, light().aMuted);
++        CPPUNIT_ASSERT(!aInk.IsEmpty());
++        CPPUNIT_ASSERT_GREATER(aInk.GetWidth(), aInk.GetHeight());
++        assertPixel("row background kept", *pDev, 0, 0, MARKER);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(16, 16));
++        CPPUNIT_ASSERT(draw(*pDev, ControlType::ListNode, ControlPart::Entire, ENABLED,
++                            ImplControlValue(ButtonValue::On)));
++        const tools::Rectangle aInk = inkBounds(*pDev, light().aMuted);
++        CPPUNIT_ASSERT(!aInk.IsEmpty());
++        CPPUNIT_ASSERT_GREATER(aInk.GetHeight(), aInk.GetWidth());
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(16, 16));
++        draw(*pDev, ControlType::ListNode, ControlPart::Entire, ENABLED | ControlState::SELECTED,
++             ImplControlValue(ButtonValue::Off));
++        CPPUNIT_ASSERT(!inkBounds(*pDev, COL_WHITE).IsEmpty());
++        CPPUNIT_ASSERT(inkBounds(*pDev, light().aMuted).IsEmpty());
++    }
++}
++
++/* A selected row is a rounded shape. The theme's highlight colour gives way to the HST selection
++   colour where the selected text stays readable on it: the accent under white text in the light
++   palette, the selected-item tint under white text in the dark one, the light tint under black
++   text. Any other colour (an unfocused list's) is kept. A row across columns rounds its ends only. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testListSelectionIsARoundedHstShape)
++{
++    const tools::Rectangle aRow(Point(), Size(100, 20));
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRow.GetSize());
++        CPPUNIT_ASSERT(hst::coat::DrawListSelection(*pDev, aRow, Color(0x33, 0x99, 0xFF),
++                                                    COL_WHITE, true, true));
++        assertPixel("accent fill", *pDev, 50, 10, light().aAccent);
++        assertPixel("rounded corner", *pDev, 0, 0, MARKER);
++        assertPixel("rounded corner, end", *pDev, 99, 19, MARKER);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRow.GetSize());
++        hst::coat::DrawListSelection(*pDev, aRow, Color(0x33, 0x99, 0xFF), COL_WHITE, false, true);
++        assertPixel("square start of a row that continues", *pDev, 0, 0, light().aAccent);
++        assertPixel("rounded end", *pDev, 99, 19, MARKER);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRow.GetSize(), true);
++        hst::coat::DrawListSelection(*pDev, aRow, Color(0x33, 0x99, 0xFF), COL_WHITE, true, true);
++        assertPixel("dark: the selected-item tint", *pDev, 50, 10, dark().aPill);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRow.GetSize());
++        hst::coat::DrawListSelection(*pDev, aRow, Color(0x33, 0x99, 0xFF), COL_BLACK, true, true);
++        assertPixel("black text: the light tint", *pDev, 50, 10, light().aPill);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRow.GetSize());
++        hst::coat::DrawListSelection(*pDev, aRow, Color(0xC0, 0xC0, 0xC0), COL_BLACK, true, true);
++        assertPixel("an unfocused selection keeps its colour", *pDev, 50, 10,
++                    Color(0xC0, 0xC0, 0xC0));
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRow.GetSize(), false, true);
++        CPPUNIT_ASSERT(!hst::coat::DrawListSelection(*pDev, aRow, Color(0x33, 0x99, 0xFF),
++                                                     COL_WHITE, true, true));
++        assertPixel("high contrast: VCL's own rectangle", *pDev, 50, 10, MARKER);
++    }
++}
++
++/* A slider: a groove of the control border ending half a thumb in from the ends, the accent up to
++   the thumb's centre, a round thumb (a ring around an accent dot) inside the thumb rectangle VCL
++   gave, the ring in the accent when hovered, two pixels when focused. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testSliderGrooveValueAndThumb)
++{
++    const tools::Rectangle aThumb(Point(90, 5), Size(21, 21));
++    auto slider = [&](VirtualDevice& rDev, ControlState eState,
++                      ControlState eThumb = ControlState::NONE) {
++        return hst::coat::DrawSliderForTesting(rDev, ControlPart::TrackHorzArea, eState, aThumb,
++                                               eThumb);
++    };
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 30));
++        CPPUNIT_ASSERT(slider(*pDev, ENABLED));
++        assertPixel("groove up to the thumb", *pDev, 50, 14, light().aAccent);
++        assertPixel("groove after the thumb", *pDev, 150, 14, light().aControlBorder);
++        assertPixel("beside the groove", *pDev, 150, 8, MARKER);
++        assertPixel("before the groove's end", *pDev, 4, 14, MARKER);
++        assertPixel("thumb ring", *pDev, 100, 5, light().aControlBorder);
++        assertPixel("thumb fill", *pDev, 100, 9, light().aCard);
++        assertPixel("thumb dot", *pDev, 100, 15, light().aAccent);
++        assertPixel("outside the thumb", *pDev, 100, 2, MARKER);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 30));
++        slider(*pDev, ENABLED, ControlState::ROLLOVER);
++        assertPixel("hovered ring", *pDev, 100, 5, light().aAccent);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 30));
++        slider(*pDev, ENABLED | ControlState::FOCUSED);
++        assertPixel("focus ring, inner pixel", *pDev, 100, 6, light().aAccent);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 30));
++        slider(*pDev, ControlState::NONE);
++        assertPixel("disabled value", *pDev, 50, 14, light().aDisabledText);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(30, 200));
++        CPPUNIT_ASSERT(hst::coat::DrawSliderForTesting(
++            *pDev, ControlPart::TrackVertArea, ENABLED,
++            tools::Rectangle(Point(5, 90), Size(21, 21)), ControlState::NONE));
++        assertPixel("vertical: up to the thumb", *pDev, 14, 50, light().aAccent);
++        assertPixel("vertical: after the thumb", *pDev, 14, 150, light().aControlBorder);
++    }
++}
++
++/* A progress bar: a rounded track outlined in the control border, the accent up to the value. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testProgressFillsUpToTheValue)
++{
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 16));
++        CPPUNIT_ASSERT(draw(*pDev, ControlType::Progress, ControlPart::Entire, ENABLED,
++                            ImplControlValue(tools::Long(100))));
++        assertPixel("done", *pDev, 50, 8, light().aAccent);
++        assertPixel("to do", *pDev, 150, 8, light().aScrollTrack);
++        assertPixel("track border", *pDev, 150, 0, light().aControlBorder);
++        assertPixel("track end", *pDev, 199, 8, light().aControlBorder);
++        assertPixel("rounded corner", *pDev, 0, 0, MARKER);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 16));
++        draw(*pDev, ControlType::Progress, ControlPart::Entire, ENABLED,
++             ImplControlValue(tools::Long(0)));
++        assertPixel("nothing done", *pDev, 50, 8, light().aScrollTrack);
++    }
++}
++
++/* A popup menu drawn by VCL: the menu surface, the highlighted item inset and rounded, a thin
++   separator, vector check and radio marks for checked items only, a chevron for a submenu; the
++   palette is the one of the menu's text. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testMenuItemsInTheHstLook)
++{
++    const tools::Rectangle aItem(Point(), Size(200, 24));
++    auto menu = [&](VirtualDevice& rDev, ControlPart ePart, ControlState eState) {
++        return hst::coat::DrawMenuPartForTesting(rDev, ePart, eState, aItem);
++    };
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 24));
++        CPPUNIT_ASSERT(draw(*pDev, ControlType::MenuPopup, ControlPart::Entire, ENABLED));
++        assertPixel("menu surface", *pDev, 100, 12, light().aMenuSurface);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 24), true);
++        draw(*pDev, ControlType::MenuPopup, ControlPart::Entire, ENABLED);
++        assertPixel("dark menu surface", *pDev, 100, 12, dark().aMenuSurface);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 24));
++        CPPUNIT_ASSERT(menu(*pDev, ControlPart::MenuItem, ENABLED | ControlState::SELECTED));
++        assertPixel("highlight", *pDev, 100, 12, light().aMenuHover);
++        assertPixel("highlight's top row", *pDev, 100, 1, light().aMenuHover);
++        assertPixel("inset from the side", *pDev, 1, 12, MARKER);
++        assertPixel("a pixel of surface above", *pDev, 100, 0, MARKER);
++    }
++    {
++        // a theme whose highlighted menu text is white on a light menu: the highlight darkens so that
++        // text stays readable
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 24));
++        AllSettings aSettings = pDev->GetSettings();
++        StyleSettings aStyle = aSettings.GetStyleSettings();
++        aStyle.SetMenuHighlightTextColor(COL_WHITE);
++        aSettings.SetStyleSettings(aStyle);
++        pDev->SetSettings(aSettings);
++        menu(*pDev, ControlPart::MenuItem, ENABLED | ControlState::SELECTED);
++        assertPixel("readable highlight", *pDev, 100, 12, dark().aMenuHover);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(200, 9));
++        CPPUNIT_ASSERT(menu(*pDev, ControlPart::Separator, ENABLED));
++        assertPixel("separator", *pDev, 100, 4, light().aCardBorder);
++        assertPixel("one pixel thin", *pDev, 100, 3, MARKER);
++        assertPixel("inset from the side", *pDev, 4, 4, MARKER);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(16, 16));
++        CPPUNIT_ASSERT(
++            menu(*pDev, ControlPart::MenuItemCheckMark, ENABLED));
++        CPPUNIT_ASSERT(inkBounds(*pDev, light().aText).IsEmpty());
++        menu(*pDev, ControlPart::MenuItemCheckMark, ENABLED | ControlState::PRESSED);
++        CPPUNIT_ASSERT(!inkBounds(*pDev, light().aText).IsEmpty());
++        assertPixel("no box around the mark", *pDev, 0, 0, MARKER);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(16, 16));
++        menu(*pDev, ControlPart::MenuItemRadioMark, ENABLED | ControlState::PRESSED);
++        assertPixel("radio dot", *pDev, 8, 8, light().aText);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(16, 16));
++        CPPUNIT_ASSERT(
++            menu(*pDev, ControlPart::SubmenuArrow, ENABLED));
++        const tools::Rectangle aInk = inkBounds(*pDev, light().aText);
++        CPPUNIT_ASSERT(!aInk.IsEmpty());
++        CPPUNIT_ASSERT_GREATER(aInk.GetWidth(), aInk.GetHeight());
++    }
++}
++
++/* A tooltip: the menu surface outlined by the menu border, square, in the palette of its text. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testTooltip)
++{
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(100, 30));
++    CPPUNIT_ASSERT(draw(*pDev, ControlType::Tooltip, ControlPart::Entire, ControlState::NONE));
++    assertPixel("surface", *pDev, 50, 15, light().aMenuSurface);
++    assertPixel("border", *pDev, 0, 15, light().aMenuBorder);
++    assertPixel("square corner", *pDev, 0, 0, light().aMenuBorder);
++}
++
++/* The coat claims the parts the platform may not draw (a tooltip, a submenu arrow) so VCL asks it
++   for them, only while it draws: not in high contrast, not switched off, not where the platform
++   has no native look at all. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testClaimsOnlyWhileDrawing)
++{
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(10, 10));
++    CPPUNIT_ASSERT(pDev->IsNativeControlSupported(ControlType::Tooltip, ControlPart::Entire));
++    CPPUNIT_ASSERT(
++        pDev->IsNativeControlSupported(ControlType::MenuPopup, ControlPart::SubmenuArrow));
++    CPPUNIT_ASSERT(!pDev->IsNativeControlSupported(ControlType::Tooltip, ControlPart::Focus));
++
++    ScopedVclPtr<VirtualDevice> pContrast = makeDevice(Size(10, 10), false, true);
++    CPPUNIT_ASSERT(!pContrast->IsNativeControlSupported(ControlType::Tooltip, ControlPart::Entire));
++
++    setSwitch(false);
++    CPPUNIT_ASSERT(!pDev->IsNativeControlSupported(ControlType::Tooltip, ControlPart::Entire));
++    setSwitch(true);
++
++    hst::coat::ForceForTesting(false);
++    CPPUNIT_ASSERT(!pDev->IsNativeControlSupported(ControlType::Tooltip, ControlPart::Entire));
++    CPPUNIT_ASSERT(
++        !pDev->IsNativeControlSupported(ControlType::MenuPopup, ControlPart::SubmenuArrow));
++}
++
++/* The border of a scrolled window (a list's or a tree's frame): one control-border line in VCL's
++   border width with a field's soft corners; the content inside is not touched. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testScrolledWindowBorder)
++{
++    const tools::Rectangle aFrame(Point(), Size(100, 60));
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(aFrame.GetSize());
++    CPPUNIT_ASSERT(hst::coat::DrawScrolledWindowBorder(*pDev, aFrame, 1));
++    assertPixel("top", *pDev, 50, 0, light().aControlBorder);
++    assertPixel("left", *pDev, 0, 30, light().aControlBorder);
++    assertPixel("bottom", *pDev, 50, 59, light().aControlBorder);
++    assertPixel("inside untouched", *pDev, 50, 30, MARKER);
++    assertPixel("inside the border pixel", *pDev, 1, 30, MARKER);
++    CPPUNIT_ASSERT(!isNear(pDev->GetPixel(Point(0, 0)), light().aControlBorder));
++    CPPUNIT_ASSERT(!hst::coat::DrawScrolledWindowBorder(*pDev, aFrame, 0));
++}
++
++/* A separator control draws one thin line; any other device keeps VCL's two-colour line. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testSeparatorLineOnlyForSeparatorControls)
++{
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(100, 10));
++    CPPUNIT_ASSERT(!hst::coat::DrawSeparatorLine(*pDev, Point(0, 4), Point(99, 4), false));
++
++    ScopedVclPtrInstance<WorkWindow> pParent(nullptr, WB_STDWORK);
++    pParent->SetPosSizePixel(Point(0, 0), Size(200, 100));
++    CPPUNIT_ASSERT(hst::coat::DrawSeparatorLineForTesting(pParent.get(), false));
++    CPPUNIT_ASSERT(hst::coat::DrawSeparatorLineForTesting(pParent.get(), true));
++}
++
++/* A tree list's row under the mouse is followed while the coat draws: not when the list selects by
++   hovering, not once the mouse leaves, not with the coat switched off. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testTreeRowHoverFollowsTheMouse)
++{
++    ScopedVclPtrInstance<WorkWindow> pParent(nullptr, WB_STDWORK);
++    pParent->SetPosSizePixel(Point(0, 0), Size(400, 300));
++    const std::vector<Point> aMoves{ Point(20, 2), Point(20, 3), Point(20, 150), Point(20, 150) };
++    const std::vector<int> aRows = hst::coat::ListHoverForTesting(pParent.get(), false, aMoves);
++    CPPUNIT_ASSERT_EQUAL(size_t(4), aRows.size());
++    CPPUNIT_ASSERT_EQUAL(0, aRows[0]);
++    CPPUNIT_ASSERT_EQUAL(0, aRows[1]);
++    CPPUNIT_ASSERT_GREATER(0, aRows[2]);
++    CPPUNIT_ASSERT_EQUAL(-1, aRows[3]); // left the window
++
++    for (int nRow : hst::coat::ListHoverForTesting(pParent.get(), true, aMoves))
++        CPPUNIT_ASSERT_EQUAL(-1, nRow); // hover selection: the hovered row is the selected one
++    setSwitch(false);
++    for (int nRow : hst::coat::ListHoverForTesting(pParent.get(), false, aMoves))
++        CPPUNIT_ASSERT_EQUAL(-1, nRow);
++}
++
++/* The hovered row's background is a pale rounded tint over the row's own background; other rows are
++   left to VCL. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testTreeRowHoverPaintsAPaleRoundedTint)
++{
++    ScopedVclPtrInstance<WorkWindow> pParent(nullptr, WB_STDWORK);
++    pParent->SetPosSizePixel(Point(0, 0), Size(400, 300));
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(100, 20));
++        CPPUNIT_ASSERT(hst::coat::ListHoverPaintForTesting(pParent.get(), *pDev, true));
++        assertPixel("hover tint", *pDev, 50, 10, light().aHover);
++        assertPixel("the row's background at the rounded corner", *pDev, 0, 0, COL_WHITE);
++    }
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(100, 20));
++        CPPUNIT_ASSERT(!hst::coat::ListHoverPaintForTesting(pParent.get(), *pDev, false));
++        assertPixel("another row: VCL's own", *pDev, 50, 10, MARKER);
++    }
++}
++
++/* The cost of the hover: per mouse move and per one-row scroll of a 500-row list, each with its
++   repaint, with the coat and without (printed for the report; a gross regression fails). */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testTreeRowHoverRepaintCost)
++{
++    ScopedVclPtrInstance<WorkWindow> pParent(nullptr, WB_STDWORK);
++    pParent->SetPosSizePixel(Point(0, 0), Size(400, 300));
++    pParent->Show();
++    // warm up (fonts, glyph caches), then measure each way twice and keep the faster
++    hst::coat::ListRepaintTimingForTesting(pParent.get(), 500, 200, 100);
++    auto measure = [&] {
++        auto a = hst::coat::ListRepaintTimingForTesting(pParent.get(), 500, 2000, 400);
++        auto b = hst::coat::ListRepaintTimingForTesting(pParent.get(), 500, 2000, 400);
++        return std::make_pair(std::min(a.first, b.first), std::min(a.second, b.second));
++    };
++    const auto aOn = measure();
++    setSwitch(false);
++    const auto aOff = measure();
++    setSwitch(true);
++    std::fprintf(stderr,
++                 "coat list repaint cost: mouse move %.1f us (coat off %.1f us), one-row scroll "
++                 "%.1f us (coat off %.1f us, %+.1f %%)\n",
++                 aOn.first, aOff.first, aOn.second, aOff.second,
++                 aOff.second > 0 ? (aOn.second / aOff.second - 1) * 100 : 0.0);
++    CPPUNIT_ASSERT_LESS(aOff.second * 2 + 50, aOn.second);
++}
++
++/* Switched off or in high contrast, VCL and the platform draw every one of these parts. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testOffAndHighContrastLeaveThePartsToVcl)
++{
++    struct Part
++    {
++        ControlType eType;
++        ControlPart ePart;
++    };
++    const Part aParts[]
++        = { { ControlType::ListNode, ControlPart::Entire },
++            { ControlType::Slider, ControlPart::TrackHorzArea },
++            { ControlType::Progress, ControlPart::Entire },
++            { ControlType::MenuPopup, ControlPart::Entire },
++            { ControlType::MenuPopup, ControlPart::MenuItem },
++            { ControlType::MenuPopup, ControlPart::Separator },
++            { ControlType::MenuPopup, ControlPart::SubmenuArrow },
++            { ControlType::Tooltip, ControlPart::Entire } };
++    for (const Part& rPart : aParts)
++    {
++        ScopedVclPtr<VirtualDevice> pContrast = makeDevice(Size(40, 20), false, true);
++        CPPUNIT_ASSERT(!draw(*pContrast, rPart.eType, rPart.ePart, ENABLED));
++    }
++    setSwitch(false);
++    for (const Part& rPart : aParts)
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(40, 20));
++        CPPUNIT_ASSERT(!draw(*pDev, rPart.eType, rPart.ePart, ENABLED));
++        assertPixel("nothing painted", *pDev, 20, 10, MARKER);
++    }
++}
++
++/* GTK-drawn lists, sliders, progress bars, frames, menu items and tooltips get the same tokens. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testGtkCssCoversTheControls)
++{
++    const OString aLight = hst::coat::CreateGtkCss(false);
++    const OString aDark = hst::coat::CreateGtkCss(true);
++    for (const char* pSelector :
++         { "treeview.view:selected", "treeview.view.expander", "scale trough", "scale highlight",
++           "scale slider", "progressbar trough", "progressbar progress", "frame > border",
++           ":not(paned) > separator", "menu menuitem:hover", "menu menuitem accelerator",
++           "tooltip", "treeview.view:hover", "list row:hover" })
++        CPPUNIT_ASSERT_MESSAGE(pSelector, aLight.indexOf(pSelector) >= 0);
++    auto hex = [](const Color& rColor) { return OString("#" + rColor.AsRGBHexString().toUtf8()); };
++    // the selected row: the accent and its ink in light, the selected-item tint and text in dark
++    const OString aRule("treeview.view:selected, treeview.view:selected:focus, list row:selected { "
++                        "background-color: ");
++    CPPUNIT_ASSERT(
++        aLight.indexOf(OString(aRule + hex(light().aAccent) + "; color: " + hex(light().aOnAccent)))
++        >= 0);
++    CPPUNIT_ASSERT(
++        aDark.indexOf(OString(aRule + hex(dark().aPill) + "; color: " + hex(dark().aText))) >= 0);
++    // the hover comes before the selection, which outranks it
++    CPPUNIT_ASSERT(aLight.indexOf("treeview.view:hover") < aLight.indexOf("treeview.view:selected"));
++    // a theme's primary action keeps readable text: the accent fill with its ink
++    CPPUNIT_ASSERT(aLight.indexOf(OString("button.suggested-action { background-color: "
++                                          + hex(light().aAccent) + "; border-color: "
++                                          + hex(light().aAccent) + "; color: "
++                                          + hex(light().aOnAccent)))
++                   >= 0);
++    // a shortcut reads in its own colour
++    CPPUNIT_ASSERT(aLight.indexOf(hex(light().aMenuShortcut)) >= 0);
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/qa/cppunit/hst/coat-test.cxx
++++ b/vcl/qa/cppunit/hst/coat-test.cxx
+@@ -684,7 +684,7 @@ CPPUNIT_TEST_FIXTURE(CoatTest, testUncoveredPartsAreLeftToThePlatform)
+ {
+     ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(80, 30));
+     CPPUNIT_ASSERT(!draw(*pDev, ControlType::Pushbutton, ControlPart::Focus, ENABLED));
+-    CPPUNIT_ASSERT(!draw(*pDev, ControlType::Progress, ControlPart::Entire, ENABLED));
++    CPPUNIT_ASSERT(!draw(*pDev, ControlType::Toolbar, ControlPart::Entire, ENABLED));
+     assertPixel("nothing painted", *pDev, 40, 15, MARKER);
+ }
+ 
+--- a/vcl/source/control/imp_listbox.cxx
++++ b/vcl/source/control/imp_listbox.cxx
+@@ -20,6 +20,7 @@
+ #include <memory>
+ 
+ #include <vcl/salnativewidgets.hxx>
++#include <hst/coat.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/settings.hxx>
+ #include <vcl/event.hxx>
+@@ -1632,7 +1633,9 @@ void ImplListBoxWindow::ImplPaint(vcl::RenderContext& rRenderContext, sal_Int32
+         rRenderContext.SetTextColor(!IsEnabled() ? rStyleSettings.GetDisableColor() : rStyleSettings.GetListBoxWindowHighlightTextColor());
+         rRenderContext.SetFillColor(rStyleSettings.GetListBoxWindowHighlightColor());
+         rRenderContext.SetLineColor();
+-        rRenderContext.DrawRect(aRect);
++        if (!hst::coat::DrawListSelection(rRenderContext, aRect, rRenderContext.GetFillColor(),
++                                          rRenderContext.GetTextColor(), true, true))
++            rRenderContext.DrawRect(aRect);
+     }
+     else
+     {
+--- a/vcl/source/hst/coat/coat-buttons.cxx
++++ b/vcl/source/hst/coat/coat-buttons.cxx
+@@ -22,15 +22,6 @@ namespace hst::coat
+ {
+ namespace
+ {
+-/** The square box of a check or radio mark, centred in the part's region. */
+-tools::Rectangle markBox(const tools::Rectangle& rRegion)
+-{
+-    const tools::Long nSide = std::min(rRegion.GetWidth(), rRegion.GetHeight());
+-    const Point aTopLeft(rRegion.Left() + (rRegion.GetWidth() - nSide) / 2,
+-                         rRegion.Top() + (rRegion.GetHeight() - nSide) / 2);
+-    return tools::Rectangle(aTopLeft, Size(nSide, nSide));
+-}
+-
+ /** Fill and border of a check box or a radio button. */
+ void markColours(const PaintContext& rCtx, bool bOn, Color& rFill, Color& rBorder)
+ {
+@@ -89,7 +80,7 @@ bool PaintCheckBox(const PaintContext& rCtx, ControlPart ePart, ButtonValue eVal
+ {
+     if (ePart != ControlPart::Entire)
+         return false;
+-    const tools::Rectangle aBox = markBox(rCtx.aRect);
++    const tools::Rectangle aBox = MarkBox(rCtx.aRect);
+     const bool bOn = eValue == ButtonValue::On || eValue == ButtonValue::Mixed;
+     Color aFill, aBorder;
+     markColours(rCtx, bOn, aFill, aBorder);
+@@ -99,22 +90,7 @@ bool PaintCheckBox(const PaintContext& rCtx, ControlPart ePart, ButtonValue eVal
+         return true;
+ 
+     const Color aMark = rCtx.IsEnabled() ? rCtx.rPalette.aOnAccent : rCtx.rPalette.aDisabledText;
+-    const double fSide = aBox.GetWidth();
+-    const double fX = aBox.Left();
+-    const double fY = aBox.Top();
+-    basegfx::B2DPolygon aLine;
+-    if (eValue == ButtonValue::Mixed)
+-    {
+-        aLine.append({ fX + fSide * 0.28, fY + fSide * 0.5 });
+-        aLine.append({ fX + fSide * 0.72, fY + fSide * 0.5 });
+-    }
+-    else
+-    {
+-        aLine.append({ fX + fSide * 0.26, fY + fSide * 0.52 });
+-        aLine.append({ fX + fSide * 0.43, fY + fSide * 0.69 });
+-        aLine.append({ fX + fSide * 0.75, fY + fSide * 0.34 });
+-    }
+-    StrokePolyLine(rCtx, aLine, aMark, rCtx.Px(hst::design::stroke::CheckMark));
++    DrawCheckGlyph(rCtx, aBox, aMark, eValue == ButtonValue::Mixed);
+     return true;
+ }
+ 
+@@ -122,7 +98,7 @@ bool PaintRadioButton(const PaintContext& rCtx, ControlPart ePart, ButtonValue e
+ {
+     if (ePart != ControlPart::Entire)
+         return false;
+-    const tools::Rectangle aBox = markBox(rCtx.aRect);
++    const tools::Rectangle aBox = MarkBox(rCtx.aRect);
+     const bool bOn = eValue == ButtonValue::On;
+     Color aFill, aBorder;
+     markColours(rCtx, bOn, aFill, aBorder);
+--- a/vcl/source/hst/coat/coat-fields.cxx
++++ b/vcl/source/hst/coat/coat-fields.cxx
+@@ -60,9 +60,8 @@ namespace
+     that window show the field's own drawing through (no ControlPart::HasBackgroundTexture, as on
+     Windows), it paints an opaque rectangle there, over every part of a corner arc that reaches past
+     the border's pixel: a large radius then shows as a gap at each corner. There the corner keeps to
+-    the border's pixel, a softly rounded corner of FIELD_INNER_RADIUS pixels. A list window holds
++    the border's pixel, a softly rounded corner of INNER_WINDOW_RADIUS pixels. A list window holds
+     rows up to its border: a small radius keeps the rows' corners inside. */
+-constexpr double FIELD_INNER_RADIUS = 2.0;
+ 
+ double fieldRadius(const PaintContext& rCtx, ControlType eType, ControlPart ePart)
+ {
+@@ -71,7 +70,7 @@ double fieldRadius(const PaintContext& rCtx, ControlType eType, ControlPart ePar
+                                : ControlRadius(rCtx, rCtx.aRect.GetHeight());
+     if (rCtx.rDev.IsNativeControlSupported(eType, ControlPart::HasBackgroundTexture))
+         return fRadius;
+-    return std::min(fRadius, FIELD_INNER_RADIUS);
++    return std::min(fRadius, INNER_WINDOW_RADIUS);
+ }
+ }
+ 
+--- /dev/null
++++ b/vcl/source/hst/coat/coat-groups-tooltips.cxx
+@@ -0,0 +1,94 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* Grouping and tooltips.
++   - The border of a scrolled window (the frame around a list, a tree or a preview): one line of the
++     control border with softly rounded corners, instead of VCL's 3D frame, in VCL's border width.
++   - A separator control (a group's heading line, a dialog's separator): one thin line instead of
++     VCL's two-colour 3D line.
++   - A tooltip: the menu surface, outlined by the menu border, with square corners (a tooltip is a
++     window of its own: corners outside a rounded outline would show whatever was there). */
++
++#include <hst/coat.hxx>
++#include "coat-paint.hxx"
++
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/drawhelpers.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/toolkit/fixed.hxx>
++#include <vcl/window.hxx>
++#include <vcl/wintypes.hxx>
++
++#include <algorithm>
++#include <cmath>
++
++namespace hst::coat
++{
++bool PaintTooltip(const PaintContext& rCtx, ControlPart ePart)
++{
++    if (ePart != ControlPart::Entire)
++        return false;
++    FillAndStroke(rCtx, rCtx.aRect, 0, rCtx.rPalette.aMenuSurface, rCtx.rPalette.aMenuBorder,
++                  rCtx.Px(hst::design::stroke::Border));
++    return true;
++}
++
++bool DrawScrolledWindowBorder(OutputDevice& rDev, const tools::Rectangle& rRect,
++                              tools::Long nBorderWidth)
++{
++    // not while recording a metafile: its replay would map the device pixels again
++    if (nBorderWidth <= 0 || rRect.IsEmpty() || rDev.GetConnectMetaFile() || !DrawsOn(rDev))
++        return false;
++    const hst::design::Palette& p = hst::design::GetPalette(rDev.GetSettings().GetStyleSettings());
++    const tools::Rectangle aPixels = rDev.LogicToPixel(rRect);
++    // One line, whatever VCL's width: a wider border keeps the window's background between the
++    // line and the content. The content is an opaque window right inside the border, so the
++    // corners round no more than a field's.
++    PaintScope aScope(rDev);
++    hst::design::DrawRoundRect(rDev, aPixels, INNER_WINDOW_RADIUS, COL_TRANSPARENT,
++                               p.aControlBorder, hst::design::stroke::Border);
++    return true;
++}
++
++bool DrawSeparatorLine(OutputDevice& rDev, const Point& rStart, const Point& rStop,
++                       bool bVertical)
++{
++    const vcl::Window* pWindow = rDev.GetOwnerWindow();
++    if (!pWindow || pWindow->GetType() != WindowType::FIXEDLINE || rDev.GetConnectMetaFile()
++        || !DrawsOn(rDev))
++        return false;
++    const hst::design::Palette& p = hst::design::GetPalette(rDev.GetSettings().GetStyleSettings());
++    const double fScale = std::max(1.0, double(rDev.GetDPIScaleFactor()));
++    const tools::Long nThick
++        = std::max<tools::Long>(1, std::lround(hst::design::size::FrameDivider * fScale));
++    const Point aStart = rDev.LogicToPixel(rStart);
++    const Point aStop = rDev.LogicToPixel(rStop);
++    // on the first of VCL's two lines (its shadow line), towards the second
++    const tools::Rectangle aLine
++        = bVertical ? tools::Rectangle(aStart.X(), std::min(aStart.Y(), aStop.Y()),
++                                       aStart.X() + nThick - 1, std::max(aStart.Y(), aStop.Y()))
++                    : tools::Rectangle(std::min(aStart.X(), aStop.X()), aStart.Y(),
++                                       std::max(aStart.X(), aStop.X()), aStart.Y() + nThick - 1);
++    PaintScope aScope(rDev);
++    rDev.SetLineColor();
++    rDev.SetFillColor(p.aCardBorder);
++    rDev.DrawRect(aLine);
++    return true;
++}
++
++bool DrawSeparatorLineForTesting(vcl::Window* pParent, bool bVertical)
++{
++    ScopedVclPtrInstance<FixedLine> pLine(pParent, bVertical ? WB_VERT : WB_HORZ);
++    pLine->SetPosSizePixel(Point(10, 10), Size(100, 10));
++    pLine->Show();
++    return bVertical ? DrawSeparatorLine(*pLine->GetOutDev(), Point(4, 0), Point(4, 9), true)
++                     : DrawSeparatorLine(*pLine->GetOutDev(), Point(0, 4), Point(99, 4), false);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/hst/coat/coat-gtk-css-lists-menus.cxx
+@@ -0,0 +1,122 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* The GTK 3 CSS of the coat for lists and trees, sliders, progress bars, group frames and
++   separators, the items of popup menus and tooltips: the same tokens as the VCL painters. Like the
++   rest of the dialogs' CSS it sets colours, corner radii and focus marks only, never widths,
++   paddings, margins, minimum sizes or fonts. A menu's own surface and outline belong to the frame's
++   menus fragment (css/menus.cxx), which follows and may override these. */
++
++#include "coat-paint.hxx"
++
++#include <rtl/ustrbuf.hxx>
++#include <vcl/hst/designtokens.hxx>
++
++#include <cmath>
++
++namespace hst::coat
++{
++namespace
++{
++OUString hex(const Color& rColor) { return u"#" + rColor.AsRGBHexString(); }
++
++OUString px(double fLength) { return OUString::number(std::lround(fLength)) + u"px"; }
++}
++
++OUString ListsRangesMenusCss(const hst::design::Palette& p)
++{
++    namespace d = hst::design;
++    const RowSelection aSelection = RowSelectionColours(p);
++    OUStringBuffer aCss(2048);
++    // lists and trees: a tint under the mouse (rounded where GTK can: list rows), the selected row
++    // in the HST selection colours (after the hover, which it outranks), the expander muted
++    aCss.append(u"treeview.view:hover { background-color: " + hex(p.aHover)
++                + u"; }\n"
++                  u"list row:hover { background-color: "
++                + hex(p.aHover) + u"; border-radius: " + px(d::radius::Row) + u"; }\n");
++    aCss.append(u"treeview.view:selected, treeview.view:selected:focus, list row:selected { "
++                u"background-color: "
++                + hex(aSelection.aFill) + u"; color: " + hex(aSelection.aText)
++                + u"; }\n"
++                  u"treeview.view.expander { color: "
++                + hex(p.aMuted) + u"; }\n"
++                  u"treeview.view.expander:hover { color: "
++                + hex(p.aText) + u"; }\n"
++                  u"treeview.view.expander:selected { color: "
++                + hex(aSelection.aText) + u"; }\n");
++    // sliders: the groove in the control border, the accent up to the thumb, a round thumb
++    aCss.append(u"scale trough { background-image: none; background-color: " + hex(p.aControlBorder)
++                + u"; border-color: " + hex(p.aControlBorder)
++                + u"; border-radius: 999px; box-shadow: none; }\n"
++                  u"scale highlight { background-image: none; background-color: "
++                + hex(p.aAccent) + u"; border-color: " + hex(p.aAccent)
++                + u"; border-radius: 999px; }\n"
++                  u"scale slider { background-image: none; background-color: "
++                + hex(p.aCard) + u"; border-color: " + hex(p.aControlBorder)
++                + u"; border-radius: 999px; box-shadow: none; }\n"
++                  u"scale slider:hover, scale:focus slider { border-color: "
++                + hex(p.aAccent) + u"; }\n"
++                  u"scale:disabled trough { background-color: "
++                + hex(p.aDisabledBorder) + u"; border-color: " + hex(p.aDisabledBorder)
++                + u"; }\n"
++                  u"scale:disabled highlight { background-color: "
++                + hex(p.aDisabledText) + u"; border-color: " + hex(p.aDisabledText)
++                + u"; }\n"
++                  u"scale:disabled slider { border-color: "
++                + hex(p.aDisabledBorder) + u"; }\n");
++    // progress bars: a rounded track in the control border, the accent up to the value
++    const OUString aBarRadius = px(d::radius::MenuItem);
++    aCss.append(u"progressbar trough { background-image: none; background-color: "
++                + hex(p.aScrollTrack) + u"; border-color: " + hex(p.aControlBorder)
++                + u"; border-radius: " + aBarRadius
++                + u"; box-shadow: none; }\n"
++                  u"progressbar progress { background-image: none; background-color: "
++                + hex(p.aAccent) + u"; border-color: " + hex(p.aAccent)
++                + u"; border-radius: " + aBarRadius + u"; box-shadow: none; }\n");
++    // group frames and the frames of scrolled lists: one control-border line, a field's corners;
++    // separators: one thin line of the card border (not a paned window's handle)
++    aCss.append(u"frame > border, scrolledwindow.frame { border-color: " + hex(p.aControlBorder)
++                + u"; border-radius: " + px(INNER_WINDOW_RADIUS)
++                + u"; }\n"
++                  u":not(paned) > separator { background-color: "
++                + hex(p.aCardBorder) + u"; }\n");
++    // popup menus' items: the highlight, the marks, the submenu arrow and the shortcut
++    aCss.append(u"menu menuitem:hover, .menu menuitem:hover { background-color: "
++                + hex(p.aMenuHover) + u"; color: " + hex(p.aText)
++                + u"; border-radius: " + px(d::radius::MenuItem)
++                + u"; }\n"
++                  u"menu menuitem check, menu menuitem radio, .menu menuitem check, "
++                  u".menu menuitem radio { background-image: none; background-color: transparent; "
++                  u"border-color: transparent; box-shadow: none; color: "
++                + hex(p.aText)
++                + u"; }\n"
++                  u"menu menuitem arrow, .menu menuitem arrow { color: "
++                + hex(p.aText)
++                + u"; }\n"
++                  u"menu menuitem accelerator, .menu menuitem accelerator { color: "
++                + hex(p.aMenuShortcut)
++                + u"; }\n"
++                  u"menu menuitem:disabled, menu menuitem:disabled check, menu menuitem:disabled "
++                  u"radio, menu menuitem:disabled arrow, menu menuitem:disabled accelerator, "
++                  u".menu menuitem:disabled, .menu menuitem:disabled check, .menu menuitem:disabled "
++                  u"radio, .menu menuitem:disabled arrow, .menu menuitem:disabled accelerator { color: "
++                + hex(p.aDisabledText)
++                + u"; }\n"
++                  u"menu separator, .menu separator { background-color: "
++                + hex(p.aCardBorder) + u"; }\n");
++    // tooltips: the menu surface and outline, the text colour
++    aCss.append(u"tooltip, tooltip.background { background-image: none; background-color: "
++                + hex(p.aMenuSurface) + u"; border-color: " + hex(p.aMenuBorder)
++                + u"; border-radius: " + px(d::radius::MenuItem)
++                + u"; box-shadow: none; }\n"
++                  u"tooltip label, tooltip * { color: "
++                + hex(p.aText) + u"; text-shadow: none; }\n");
++    return aCss.makeStringAndClear();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/coat-gtk-css.cxx
++++ b/vcl/source/hst/coat/coat-gtk-css.cxx
+@@ -12,6 +12,7 @@
+    bar, menus, document tabs) follow, each from its own file under css/. */
+ 
+ #include <hst/coat.hxx>
++#include "coat-paint.hxx"
+ #include <vcl/hst/framecoat.hxx>
+ #include "css/css-fragments.hxx"
+ 
+@@ -71,6 +72,29 @@ OString CreateGtkCss(bool bDark)
+                   u"button:focus { border-color: "
+                 + hex(p.aAccent) + u"; box-shadow: inset 0 0 0 " + aBorder + u" "
+                 + hex(p.aAccent) + u"; }\n");
++    // A theme's primary action (suggested-action) has light text on its own coloured fill: the coat's
++    // light fill above outranks that fill (higher provider priority), so the text would vanish. It is
++    // the accent button with its ink; a destructive action keeps the coat's fill with the text colour.
++    aCss.append(u"button.suggested-action { background-color: " + hex(p.aAccent)
++                + u"; border-color: " + hex(p.aAccent) + u"; color: " + hex(p.aOnAccent)
++                + u"; }\n"
++                  u"button.suggested-action:hover { background-color: "
++                + hex(p.aAccentHover) + u"; border-color: " + hex(p.aAccentHover)
++                + u"; }\n"
++                  u"button.suggested-action:active, button.suggested-action:checked { "
++                  u"background-color: "
++                + hex(p.aAccentPressed) + u"; border-color: " + hex(p.aAccentPressed)
++                + u"; }\n"
++                  u"button.suggested-action label, button.suggested-action image { color: "
++                + hex(p.aOnAccent)
++                + u"; }\n"
++                  u"button.suggested-action:disabled, button.suggested-action:disabled label { "
++                  u"background-color: "
++                + hex(p.aDisabledFill) + u"; border-color: " + hex(p.aDisabledBorder)
++                + u"; color: " + hex(p.aDisabledText)
++                + u"; }\n"
++                  u"button.destructive-action, button.destructive-action label { color: "
++                + hex(p.aText) + u"; }\n");
+     // flat buttons (toolbars, the buttons inside entries) keep no frame until hovered
+     aCss.append(u"button.flat { background-color: transparent; border-color: transparent; }\n"
+                 u"button.flat:hover { background-color: "
+@@ -154,6 +178,8 @@ OString CreateGtkCss(bool bDark)
+                 + u"; }\n"
+                   u"scrollbar slider:active { background-color: "
+                 + hex(p.aScrollThumbPressed) + u"; }\n");
++    // lists and trees, sliders, progress bars, group frames, menu items, tooltips
++    aCss.append(ListsRangesMenusCss(p));
+     // the frame's parts that are switched on
+     for (const Fragment& rFragment : FRAGMENTS)
+         if (FrameCoatEnabled(rFragment.eComponent))
+--- /dev/null
++++ b/vcl/source/hst/coat/coat-list-hover.cxx
+@@ -0,0 +1,172 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* The rows of VCL's tree and list views (SvTreeListBox: the Navigator, the Styles list, the Options
++   tree, the File tab's recent files on Windows) in the HST look: the selected row is a rounded shape
++   in the HST selection colour, and the row under the mouse gets a pale rounded tint. The hover is
++   cheap: the row under the mouse is looked up on each mouse move, and only when it changes are the
++   row it left and the row it entered invalidated. It is tracked only while the coat draws, and not
++   when the list selects by hovering (the hovered row is then the selected one). */
++
++#include <hst/coat.hxx>
++#include "coat-paint.hxx"
++
++#include <vcl/event.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/toolkit/treelistbox.hxx>
++#include <vcl/toolkit/treelistentry.hxx>
++#include <vcl/wrkwin.hxx>
++
++#include <algorithm>
++#include <chrono>
++#include <utility>
++#include <vector>
++
++void SvTreeListBox::CoatTrackHover(const MouseEvent& rMEvt)
++{
++    const SvTreeListEntry* pEntry = nullptr;
++    tools::Rectangle aRow;
++    if (!mbHoverSelection && !rMEvt.IsLeaveWindow() && GetEntryHeight() > 0
++        && hst::coat::DrawsOn(*GetOutDev()))
++    {
++        const Point aPos = rMEvt.GetPosPixel();
++        pEntry = GetEntry(aPos);
++        if (pEntry)
++        {
++            const tools::Long nHeight = GetEntryHeight();
++            aRow = tools::Rectangle(Point(0, aPos.Y() / nHeight * nHeight),
++                                    Size(GetOutputSizePixel().Width(), nHeight));
++        }
++    }
++    if (pEntry == m_pCoatHoverEntry)
++        return;
++    if (!m_aCoatHoverRow.IsEmpty())
++        Invalidate(PixelToLogic(m_aCoatHoverRow));
++    m_pCoatHoverEntry = pEntry;
++    m_aCoatHoverRow = aRow;
++    if (!aRow.IsEmpty())
++        Invalidate(PixelToLogic(aRow));
++}
++
++bool SvTreeListBox::CoatPaintRowBackground(vcl::RenderContext& rRenderContext,
++                                           const tools::Rectangle& rRect, const Color& rBackground,
++                                           const SvTreeListEntry& rEntry, bool bHighlighted,
++                                           bool bRoundStart, bool bRoundEnd)
++{
++    if (bHighlighted)
++        return hst::coat::DrawListSelection(rRenderContext, rRect, rBackground,
++                                            rRenderContext.GetTextColor(), bRoundStart, bRoundEnd);
++    if (&rEntry != m_pCoatHoverEntry || mbHoverSelection || !hst::coat::DrawsOn(rRenderContext))
++        return false;
++    // the row's own background (VCL set its fill colour) under the hover's rounded ends
++    rRenderContext.DrawRect(rRect);
++    const Color aHover
++        = hst::design::GetPalette(rRenderContext.GetSettings().GetStyleSettings()).aHover;
++    hst::coat::DrawListSelection(rRenderContext, rRect, aHover, rRenderContext.GetTextColor(),
++                                 bRoundStart, bRoundEnd);
++    return true;
++}
++
++namespace hst::coat
++{
++namespace
++{
++/** A tree list of nRows rows, 300 x 200 pixels, in pParent. */
++VclPtr<SvTreeListBox> makeList(vcl::Window* pParent, int nRows, bool bHoverSelection)
++{
++    VclPtr<SvTreeListBox> pList = VclPtr<SvTreeListBox>::Create(pParent, WB_BORDER);
++    pList->SetPosSizePixel(Point(0, 0), Size(300, 200));
++    for (int i = 0; i < nRows; ++i)
++        pList->InsertEntry(OUString(u"Mục " + OUString::number(i)));
++    pList->SetHoverSelection(bHoverSelection);
++    pList->Show();
++    return pList;
++}
++
++int rowOf(const SvTreeListBox& rList, const SvTreeListEntry* pEntry)
++{
++    if (!pEntry)
++        return -1;
++    return int(rList.GetModel()->GetAbsPos(pEntry));
++}
++}
++
++std::vector<int> ListHoverForTesting(vcl::Window* pParent, bool bHoverSelection,
++                                     const std::vector<Point>& rMoves)
++{
++    VclPtr<SvTreeListBox> pList = makeList(pParent, 20, bHoverSelection);
++    std::vector<int> aRows;
++    for (std::size_t i = 0; i < rMoves.size(); ++i)
++    {
++        // the last move leaves the window
++        const MouseEventModifiers eModifiers = i + 1 == rMoves.size() && rMoves.size() > 1
++                                                   ? MouseEventModifiers::LEAVEWINDOW
++                                                   : MouseEventModifiers::NONE;
++        pList->MouseMove(MouseEvent(rMoves[i], 0, eModifiers));
++        aRows.push_back(rowOf(*pList, pList->GetCoatHoverEntry()));
++    }
++    pList.disposeAndClear();
++    return aRows;
++}
++
++bool ListHoverPaintForTesting(vcl::Window* pParent, OutputDevice& rDev, bool bHoveredRow)
++{
++    VclPtr<SvTreeListBox> pList = makeList(pParent, 20, false);
++    const tools::Long nHeight = pList->GetEntryHeight();
++    // the mouse over the second row
++    pList->MouseMove(MouseEvent(Point(20, nHeight + nHeight / 2)));
++    const SvTreeListEntry* pEntry = pList->GetEntry(Point(20, (bHoveredRow ? 1 : 0) * nHeight + 1));
++    bool bDrawn = false;
++    if (pEntry)
++    {
++        rDev.SetLineColor();
++        rDev.SetFillColor(rDev.GetSettings().GetStyleSettings().GetFieldColor());
++        bDrawn = pList->CoatPaintRowBackground(rDev, tools::Rectangle(Point(), rDev.GetOutputSizePixel()),
++                                               rDev.GetFillColor(), *pEntry, false, true, true);
++    }
++    pList.disposeAndClear();
++    return bDrawn;
++}
++
++std::pair<double, double> ListRepaintTimingForTesting(vcl::Window* pParent, int nRows, int nMoves,
++                                                      int nScrolls)
++{
++    using Clock = std::chrono::steady_clock;
++    VclPtr<SvTreeListBox> pList = makeList(pParent, nRows, false);
++    pList->PaintImmediately();
++    const tools::Long nHeight = std::max<tools::Long>(1, pList->GetEntryHeight());
++    const tools::Long nVisible = std::max<tools::Long>(1, 200 / nHeight);
++    // the mouse sweeps down and up the visible rows, a few moves per row, each followed by its repaint
++    auto aStart = Clock::now();
++    for (int i = 0; i < nMoves; ++i)
++    {
++        const tools::Long nStep = i % (2 * nVisible * 4);
++        const tools::Long nY = (nStep < nVisible * 4 ? nStep : 2 * nVisible * 4 - nStep) * nHeight / 4;
++        pList->MouseMove(MouseEvent(Point(40, std::min<tools::Long>(nY, 199))));
++        pList->PaintImmediately();
++    }
++    const double fMoves
++        = std::chrono::duration<double, std::micro>(Clock::now() - aStart).count() / std::max(1, nMoves);
++    // scrolling a row at a time from the middle of the list, down then up, each followed by its repaint
++    if (SvTreeListEntry* pMiddle = pList->GetEntry(sal_uInt32(nRows / 2)))
++        pList->MakeVisible(pMiddle, true);
++    pList->PaintImmediately();
++    aStart = Clock::now();
++    for (int i = 0; i < nScrolls; ++i)
++    {
++        pList->ScrollOutputArea(i % 40 < 20 ? -1 : 1);
++        pList->PaintImmediately();
++    }
++    const double fScrolls = std::chrono::duration<double, std::micro>(Clock::now() - aStart).count()
++                            / std::max(1, nScrolls);
++    pList.disposeAndClear();
++    return { fMoves, fScrolls };
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/hst/coat/coat-lists.cxx
+@@ -0,0 +1,95 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* Lists and trees: the expander of a tree node is a chevron (pointing at the children once they
++   show), and a selected row is a rounded shape in the HST selection colour. Rows, their heights,
++   indents, images and text stay VCL's. */
++
++#include <hst/coat.hxx>
++#include "coat-paint.hxx"
++
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/drawhelpers.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/settings.hxx>
++
++#include <algorithm>
++
++namespace hst::coat
++{
++namespace
++{
++/** The fill of a selected row: the HST selection colour (or, failing the contrast, the other HST
++    candidates) in place of the theme's highlight colour, as long as the text VCL draws on it in
++    rText stays readable; any other colour (an unfocused list's selection) is kept. */
++Color selectionFill(const StyleSettings& rStyle, const Color& rFill, const Color& rText)
++{
++    if (rFill != rStyle.GetHighlightColor() && rFill != rStyle.GetListBoxWindowHighlightColor())
++        return rFill;
++    const hst::design::Palette& p = hst::design::GetPalette(rStyle);
++    for (const Color& rCandidate : { RowSelectionColours(p).aFill, p.aAccent, p.aPill })
++        if (ContrastRatio(rCandidate, rText) >= 4.5)
++            return rCandidate;
++    return rFill;
++}
++
++void fillRect(OutputDevice& rDev, const tools::Rectangle& rRect, const Color& rColor)
++{
++    rDev.SetLineColor();
++    rDev.SetFillColor(rColor);
++    rDev.DrawRect(rRect);
++}
++}
++
++bool PaintListNode(const PaintContext& rCtx, ControlPart ePart, ButtonValue eValue)
++{
++    if (ePart != ControlPart::Entire)
++        return false;
++    const auto& p = rCtx.rPalette;
++    // on a selected row (SELECTED) the glyph takes the selected text's colour
++    const Color aGlyph = !rCtx.IsEnabled() ? p.aDisabledText
++                         : (rCtx.eState & ControlState::SELECTED)
++                             ? rCtx.rStyle.GetHighlightTextColor()
++                         : rCtx.IsHover() ? p.aText
++                                          : p.aMuted;
++    DrawChevron(rCtx, rCtx.aRect, eValue == ButtonValue::On ? Chevron::Down : Chevron::Right,
++                aGlyph);
++    return true;
++}
++
++bool DrawListSelection(OutputDevice& rDev, const tools::Rectangle& rRect, const Color& rFill,
++                       const Color& rText, bool bRoundStart, bool bRoundEnd)
++{
++    // not while recording a metafile: its replay would map the device pixels again
++    if (rRect.IsEmpty() || rFill == COL_TRANSPARENT || rDev.GetConnectMetaFile() || !DrawsOn(rDev))
++        return false;
++    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++    const Color aFill = selectionFill(rStyle, rFill, rText);
++    const double fScale = std::max(1.0, double(rDev.GetDPIScaleFactor()));
++    const tools::Rectangle aPixels = rDev.LogicToPixel(rRect);
++
++    PaintScope aScope(rDev);
++    if (bRoundStart || bRoundEnd)
++    {
++        const double fRadius = std::min(hst::design::radius::Row * fScale, aPixels.GetHeight() / 4.0);
++        hst::design::DrawRoundRect(rDev, aPixels, fRadius, aFill, COL_TRANSPARENT, 0);
++    }
++    if (!bRoundStart || !bRoundEnd)
++    {
++        // an end that continues in the next column is square: one shape across the columns
++        tools::Rectangle aSquare(aPixels);
++        if (bRoundStart)
++            aSquare.SetLeft(aPixels.Center().X());
++        if (bRoundEnd)
++            aSquare.SetRight(aPixels.Center().X());
++        fillRect(rDev, aSquare, aFill);
++    }
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/hst/coat/coat-menus.cxx
+@@ -0,0 +1,151 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* Popup and context menus that VCL draws through the platform's native menu parts (Windows, and
++   any platform whose popup menus are VCL windows): the menu's surface, the highlighted item, the
++   separators, the check and radio marks and the submenu arrow. The palette is the one the menu's
++   text (drawn by VCL in the theme's menu text colours) reads on. Item heights, the check column,
++   the text and shortcut positions and the menu's size stay VCL's and the platform's: they are laid
++   out before any of this is drawn.
++
++   Where the menu's frame builds on this:
++   - paintSurface draws the whole menu (ControlPart::Entire; also behind the highlighted item, clipped
++     to its row) as one flat surface with square corners. The menu's outline, a rounded content
++     edge (radius::Menu) and a shadow belong there, under the frame's switch (FrameCoat/Menus).
++   - highlightRect is the shape of the highlighted item: inset from the menu's sides and rounded
++     with radius::MenuItem, so it stays clear of a rounded outline. */
++
++#include "coat-paint.hxx"
++
++#include <basegfx/point/b2dpoint.hxx>
++#include <basegfx/polygon/b2dpolygontools.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/outdev.hxx>
++#include <vcl/settings.hxx>
++
++#include <algorithm>
++#include <cmath>
++
++namespace hst::coat
++{
++namespace
++{
++void paintSurface(const PaintContext& rCtx)
++{
++    rCtx.rDev.SetLineColor();
++    rCtx.rDev.SetFillColor(rCtx.rPalette.aMenuSurface);
++    rCtx.rDev.DrawRect(rCtx.aRect);
++}
++
++/** The highlight of an item in rItem (the item's row between the menu's side borders). */
++tools::Rectangle highlightRect(const PaintContext& rCtx, const tools::Rectangle& rItem)
++{
++    tools::Rectangle aRect(rItem);
++    const tools::Long nInsetX = std::lround(rCtx.Px(hst::design::space::XXS));
++    if (aRect.GetWidth() > 4 * nInsetX)
++    {
++        aRect.AdjustLeft(nInsetX);
++        aRect.AdjustRight(-nInsetX);
++    }
++    // a pixel of the surface above and below, so neighbouring rows never merge
++    if (aRect.GetHeight() >= std::lround(rCtx.Px(16)))
++    {
++        aRect.AdjustTop(1);
++        aRect.AdjustBottom(-1);
++    }
++    return aRect;
++}
++
++double highlightRadius(const PaintContext& rCtx, const tools::Rectangle& rRect)
++{
++    return std::min(rCtx.Px(hst::design::radius::MenuItem), rRect.GetHeight() / 4.0);
++}
++
++/** The highlight's fill: the menu hover, or where the theme's highlighted text would not read on it
++    (4.5:1), the other palette's hover, the accent, or the theme's own highlight colour. */
++Color highlightFill(const PaintContext& rCtx)
++{
++    const Color aText = rCtx.rStyle.GetMenuHighlightTextColor();
++    const hst::design::Palette& rOther = hst::design::GetPalette(!rCtx.rPalette.bDark);
++    for (const Color& rCandidate : { rCtx.rPalette.aMenuHover, rOther.aMenuHover, rCtx.rPalette.aAccent })
++        if (ContrastRatio(rCandidate, aText) >= 4.5)
++            return rCandidate;
++    return rCtx.rStyle.GetMenuHighlightColor();
++}
++
++Color markColour(const PaintContext& rCtx)
++{
++    return rCtx.IsEnabled() ? rCtx.rPalette.aText : rCtx.rPalette.aDisabledText;
++}
++}
++
++bool PaintMenu(const PaintContext& rCtx, ControlPart ePart, const ImplControlValue& /*rValue*/)
++{
++    const auto& p = rCtx.rPalette;
++    switch (ePart)
++    {
++        case ControlPart::Entire:
++            paintSurface(rCtx);
++            return true;
++        case ControlPart::MenuItem:
++        {
++            // the highlight of the item under the mouse or the keyboard; a disabled item shows it
++            // too, so the keyboard's position stays visible
++            const tools::Rectangle aRect = highlightRect(rCtx, rCtx.aRect);
++            FillAndStroke(rCtx, aRect, highlightRadius(rCtx, aRect), highlightFill(rCtx),
++                          COL_TRANSPARENT, 0);
++            return true;
++        }
++        case ControlPart::Separator:
++        {
++            // a thin line across the menu, inset from its sides, centred in the separator's row
++            const tools::Long nThick
++                = std::max<tools::Long>(1, std::lround(rCtx.Px(hst::design::size::FrameDivider)));
++            const tools::Long nInset = std::lround(rCtx.Px(hst::design::space::S));
++            const tools::Rectangle& rRow = rCtx.aRect;
++            const tools::Long nTop = rRow.Top() + (rRow.GetHeight() - nThick) / 2;
++            const tools::Rectangle aLine(rRow.Left() + nInset, nTop, rRow.Right() - nInset,
++                                         nTop + nThick - 1);
++            if (!aLine.IsEmpty())
++            {
++                rCtx.rDev.SetLineColor();
++                rCtx.rDev.SetFillColor(p.aCardBorder);
++                rCtx.rDev.DrawRect(aLine);
++            }
++            return true;
++        }
++        case ControlPart::MenuItemCheckMark:
++        case ControlPart::MenuItemRadioMark:
++        {
++            // VCL passes a checked item as PRESSED; an unchecked one shows no mark
++            if (!rCtx.IsPressed())
++                return true;
++            const tools::Rectangle aBox = MarkBox(rCtx.aRect);
++            if (ePart == ControlPart::MenuItemCheckMark)
++                DrawCheckGlyph(rCtx, aBox, markColour(rCtx), false);
++            else
++            {
++                const double fSide = aBox.GetWidth();
++                const basegfx::B2DPoint aCentre(aBox.Left() + fSide / 2, aBox.Top() + fSide / 2);
++                FillShape(rCtx,
++                          basegfx::B2DPolyPolygon(
++                              basegfx::utils::createPolygonFromCircle(aCentre, fSide * 0.18)),
++                          markColour(rCtx));
++            }
++            return true;
++        }
++        case ControlPart::SubmenuArrow:
++            // right-mirrored with the menu in a right-to-left layout, like all of its drawing
++            DrawChevron(rCtx, rCtx.aRect, Chevron::Right, markColour(rCtx));
++            return true;
++        default:
++            return false;
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/coat-paint.hxx
++++ b/vcl/source/hst/coat/coat-paint.hxx
+@@ -9,10 +9,13 @@
+ 
+ #include <basegfx/polygon/b2dpolygon.hxx>
+ #include <basegfx/polygon/b2dpolypolygon.hxx>
++#include <rtl/ustring.hxx>
+ #include <tools/color.hxx>
+ #include <tools/gen.hxx>
++#include <vcl/rendercontext/AntialiasingFlags.hxx>
+ #include <vcl/salnativewidgets.hxx>
+ 
++class GDIMetaFile;
+ class OutputDevice;
+ class StyleSettings;
+ 
+@@ -52,6 +55,45 @@ struct PaintContext
+     Color FieldFill() const;
+ };
+ 
++/** The device state of a coat paint for the scope's lifetime: the map mode off (the painters work in
++    device pixels), anti-aliasing on, the line and fill colours saved, and no metafile recording
++    (like the platform's native controls; a metafile's replay would map the device pixels again). */
++class PaintScope
++{
++public:
++    explicit PaintScope(OutputDevice& rDev);
++    ~PaintScope();
++    PaintScope(const PaintScope&) = delete;
++    PaintScope& operator=(const PaintScope&) = delete;
++
++private:
++    OutputDevice& m_rDev;
++    GDIMetaFile* m_pMetaFile;
++    AntialiasingFlags m_eAntialiasing;
++};
++
++/** Whether the coat draws on rDev at all: switched on, not in high contrast, and a platform with a
++    native look (or the test override). For the parts VCL draws without asking the platform (list
++    selections, scrolled windows' borders, separators). */
++bool DrawsOn(const OutputDevice& rDev);
++
++/** The WCAG 2.x contrast ratio of two opaque colours (1 to 21). */
++double ContrastRatio(const Color& rA, const Color& rB);
++
++/** The largest corner radius (pixels) of a frame drawn around an opaque inner window that starts
++    right inside the frame's border (a field's edit, a list inside a scrolled window): a larger arc
++    would leave a gap at each corner, between the border and the inner window. */
++constexpr double INNER_WINDOW_RADIUS = 2.0;
++
++/** The colours of a selected row of a list or a tree: the accent and its ink in the light palette;
++    the selected-item tint and the text colour in the dark one, whose accent is light. */
++struct RowSelection
++{
++    Color aFill;
++    Color aText;
++};
++RowSelection RowSelectionColours(const hst::design::Palette& rPalette);
++
+ /** Directions of a chevron glyph. */
+ enum class Chevron
+ {
+@@ -78,6 +120,13 @@ void FillAndStroke(const PaintContext& rCtx, const tools::Rectangle& rRect, doub
+ void DrawChevron(const PaintContext& rCtx, const tools::Rectangle& rBox, Chevron eDirection,
+                  const Color& rColor);
+ 
++/** The check mark (or the dash of a mixed state) of a check box or a menu item, in rBox. */
++void DrawCheckGlyph(const PaintContext& rCtx, const tools::Rectangle& rBox, const Color& rColor,
++                    bool bMixed);
++
++/** The square of side min(width, height) centred in rRegion: the box of a check or radio mark. */
++tools::Rectangle MarkBox(const tools::Rectangle& rRegion);
++
+ /** An open polyline with round joins and caps, fWidth pixels wide. */
+ void StrokePolyLine(const PaintContext& rCtx, const basegfx::B2DPolygon& rLine, const Color& rColor,
+                     double fWidth);
+@@ -90,6 +139,15 @@ bool PaintSpinButtons(const PaintContext& rCtx, ControlPart ePart);
+ bool PaintTab(const PaintContext& rCtx, ControlType eType, ControlPart ePart,
+               const ImplControlValue& rValue);
+ bool PaintScrollBar(const PaintContext& rCtx, ControlPart ePart);
++bool PaintListNode(const PaintContext& rCtx, ControlPart ePart, ButtonValue eValue);
++bool PaintSlider(const PaintContext& rCtx, ControlPart ePart, const ImplControlValue& rValue);
++bool PaintProgress(const PaintContext& rCtx, ControlPart ePart, const ImplControlValue& rValue);
++bool PaintMenu(const PaintContext& rCtx, ControlPart ePart, const ImplControlValue& rValue);
++bool PaintTooltip(const PaintContext& rCtx, ControlPart ePart);
++
++/** The GTK CSS of lists and trees, sliders, progress bars, group frames and separators, menu items
++    and tooltips (coat-gtk-css-lists-menus.cxx), part of the dialogs' CSS of CreateGtkCss. */
++OUString ListsRangesMenusCss(const hst::design::Palette& rPalette);
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/hst/coat/coat-ranges.cxx
+@@ -0,0 +1,105 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* Sliders and progress bars.
++   Slider: a thin groove along the control, accent up to the thumb, and a round thumb (a ring around
++   an accent dot) at the centre of the thumb rectangle VCL computed from the platform's thumb size,
++   so dragging and clicking hit exactly where they did.
++   Progress bar: a rounded track in the control border, filled with the accent up to the value. */
++
++#include "coat-paint.hxx"
++
++#include <basegfx/point/b2dpoint.hxx>
++#include <basegfx/polygon/b2dpolygontools.hxx>
++#include <vcl/hst/designtokens.hxx>
++
++#include <algorithm>
++#include <cmath>
++
++namespace hst::coat
++{
++bool PaintSlider(const PaintContext& rCtx, ControlPart ePart, const ImplControlValue& /*rValue*/)
++{
++    const bool bHorizontal = ePart == ControlPart::TrackHorzArea;
++    if (!bHorizontal && ePart != ControlPart::TrackVertArea)
++        return false;
++    const auto& p = rCtx.rPalette;
++    const tools::Rectangle& rArea = rCtx.aRect;
++    const tools::Rectangle& rThumb = rCtx.aUpper;
++    const bool bEnabled = rCtx.IsEnabled();
++
++    // The groove ends half a thumb in from the control's ends, where the thumb's centre stops.
++    const tools::Long nGroove = std::max<tools::Long>(2, std::lround(rCtx.Px(4)));
++    const tools::Long nHalfThumb
++        = rThumb.IsEmpty() ? 0 : (bHorizontal ? rThumb.GetWidth() : rThumb.GetHeight()) / 2;
++    tools::Rectangle aGroove(rArea);
++    if (bHorizontal)
++    {
++        const tools::Long nTop = rArea.Top() + (rArea.GetHeight() - nGroove) / 2;
++        aGroove = tools::Rectangle(rArea.Left() + nHalfThumb, nTop, rArea.Right() - nHalfThumb,
++                                   nTop + nGroove - 1);
++    }
++    else
++    {
++        const tools::Long nLeft = rArea.Left() + (rArea.GetWidth() - nGroove) / 2;
++        aGroove = tools::Rectangle(nLeft, rArea.Top() + nHalfThumb, nLeft + nGroove - 1,
++                                   rArea.Bottom() - nHalfThumb);
++    }
++    if (aGroove.IsEmpty())
++        return false;
++    const double fGrooveRadius = nGroove / 2.0;
++    FillAndStroke(rCtx, aGroove, fGrooveRadius, bEnabled ? p.aControlBorder : p.aDisabledBorder,
++                  COL_TRANSPARENT, 0);
++    if (rThumb.IsEmpty())
++        return true;
++
++    // the groove up to the thumb's centre in the accent: the value at a glance
++    const Point aCentre = rThumb.Center();
++    tools::Rectangle aFilled(aGroove);
++    if (bHorizontal)
++        aFilled.SetRight(std::clamp(aCentre.X(), aGroove.Left(), aGroove.Right()));
++    else
++        aFilled.SetBottom(std::clamp(aCentre.Y(), aGroove.Top(), aGroove.Bottom()));
++    if (!aFilled.IsEmpty())
++        FillAndStroke(rCtx, aFilled, fGrooveRadius, bEnabled ? p.aAccent : p.aDisabledText,
++                      COL_TRANSPARENT, 0);
++
++    // the thumb: a ring of the control border (accent when hovered or focused) around an accent dot
++    const tools::Rectangle aBox = MarkBox(rThumb);
++    const bool bHover = bool(rCtx.eUpperState & ControlState::ROLLOVER);
++    const Color aRing = !bEnabled                         ? p.aDisabledBorder
++                        : (bHover || rCtx.IsFocused()) ? p.aAccent
++                                                          : p.aControlBorder;
++    const double fRing = rCtx.IsFocused() ? rCtx.Px(hst::design::FIELD_FOCUS_BORDER)
++                                          : rCtx.Px(hst::design::stroke::Border);
++    FillAndStroke(rCtx, aBox, aBox.GetWidth() / 2.0, p.aCard, aRing, fRing);
++    const double fSide = aBox.GetWidth();
++    const basegfx::B2DPoint aDotCentre(aBox.Left() + fSide / 2, aBox.Top() + fSide / 2);
++    FillShape(rCtx,
++              basegfx::B2DPolyPolygon(basegfx::utils::createPolygonFromCircle(
++                  aDotCentre, fSide * (bHover ? 0.3 : 0.25))),
++              bEnabled ? p.aAccent : p.aDisabledText);
++    return true;
++}
++
++bool PaintProgress(const PaintContext& rCtx, ControlPart ePart, const ImplControlValue& /*rValue*/)
++{
++    if (ePart != ControlPart::Entire)
++        return false;
++    const auto& p = rCtx.rPalette;
++    const double fRadius = std::min(rCtx.Px(hst::design::radius::MenuItem),
++                                    std::min(rCtx.aRect.GetWidth(), rCtx.aRect.GetHeight()) / 2.0);
++    FillAndStroke(rCtx, rCtx.aRect, fRadius, p.aScrollTrack, p.aControlBorder,
++                  rCtx.Px(hst::design::stroke::Border));
++    // the done part (aUpper: from the start to the value) covers the track's border too
++    if (!rCtx.aUpper.IsEmpty())
++        FillAndStroke(rCtx, rCtx.aUpper, fRadius, p.aAccent, COL_TRANSPARENT, 0);
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/coat-shapes.cxx
++++ b/vcl/source/hst/coat/coat-shapes.cxx
+@@ -15,6 +15,7 @@
+ #include <vcl/settings.hxx>
+ 
+ #include <algorithm>
++#include <cmath>
+ 
+ namespace hst::coat
+ {
+@@ -23,6 +24,28 @@ Color PaintContext::FieldFill() const
+     return aBackground == COL_AUTO ? rStyle.GetFieldColor() : aBackground;
+ }
+ 
++double ContrastRatio(const Color& rA, const Color& rB)
++{
++    auto luminance = [](const Color& rColor) {
++        auto channel = [](sal_uInt8 n) {
++            const double f = n / 255.0;
++            return f <= 0.04045 ? f / 12.92 : std::pow((f + 0.055) / 1.055, 2.4);
++        };
++        return 0.2126 * channel(rColor.GetRed()) + 0.7152 * channel(rColor.GetGreen())
++               + 0.0722 * channel(rColor.GetBlue());
++    };
++    const double fA = luminance(rA);
++    const double fB = luminance(rB);
++    return (std::max(fA, fB) + 0.05) / (std::min(fA, fB) + 0.05);
++}
++
++RowSelection RowSelectionColours(const hst::design::Palette& rPalette)
++{
++    if (rPalette.bDark)
++        return { rPalette.aPill, rPalette.aText };
++    return { rPalette.aAccent, rPalette.aOnAccent };
++}
++
+ double ControlRadius(const PaintContext& rCtx, tools::Long nHeight)
+ {
+     return std::min(rCtx.Px(hst::design::radius::Control), nHeight / 5.0);
+@@ -50,6 +73,37 @@ void StrokePolyLine(const PaintContext& rCtx, const basegfx::B2DPolygon& rLine,
+                            css::drawing::LineCap_ROUND);
+ }
+ 
++tools::Rectangle MarkBox(const tools::Rectangle& rRegion)
++{
++    const tools::Long nSide = std::min(rRegion.GetWidth(), rRegion.GetHeight());
++    const Point aTopLeft(rRegion.Left() + (rRegion.GetWidth() - nSide) / 2,
++                         rRegion.Top() + (rRegion.GetHeight() - nSide) / 2);
++    return tools::Rectangle(aTopLeft, Size(nSide, nSide));
++}
++
++void DrawCheckGlyph(const PaintContext& rCtx, const tools::Rectangle& rBox, const Color& rColor,
++                    bool bMixed)
++{
++    if (rBox.IsEmpty())
++        return;
++    const double fSide = rBox.GetWidth();
++    const double fX = rBox.Left();
++    const double fY = rBox.Top();
++    basegfx::B2DPolygon aLine;
++    if (bMixed)
++    {
++        aLine.append({ fX + fSide * 0.28, fY + fSide * 0.5 });
++        aLine.append({ fX + fSide * 0.72, fY + fSide * 0.5 });
++    }
++    else
++    {
++        aLine.append({ fX + fSide * 0.26, fY + fSide * 0.52 });
++        aLine.append({ fX + fSide * 0.43, fY + fSide * 0.69 });
++        aLine.append({ fX + fSide * 0.75, fY + fSide * 0.34 });
++    }
++    StrokePolyLine(rCtx, aLine, rColor, rCtx.Px(hst::design::stroke::CheckMark));
++}
++
+ void DrawChevron(const PaintContext& rCtx, const tools::Rectangle& rBox, Chevron eDirection,
+                  const Color& rColor)
+ {
+--- a/vcl/source/hst/coat/coat.cxx
++++ b/vcl/source/hst/coat/coat.cxx
+@@ -15,6 +15,7 @@
+ #include <vcl/rendercontext/AntialiasingFlags.hxx>
+ #include <vcl/settings.hxx>
+ 
++#include <algorithm>
+ #include <atomic>
+ #include <cstdlib>
+ #include <string_view>
+@@ -67,7 +68,25 @@ bool isCovered(ControlType eType, ControlPart ePart)
+         case ControlType::TabPane:
+         case ControlType::TabHeader:
+         case ControlType::TabBody:
++        case ControlType::ListNode:
++        case ControlType::Progress:
++        case ControlType::Tooltip:
+             return ePart == ControlPart::Entire;
++        case ControlType::Slider:
++            return ePart == ControlPart::TrackHorzArea || ePart == ControlPart::TrackVertArea;
++        case ControlType::MenuPopup:
++            switch (ePart)
++            {
++                case ControlPart::Entire:
++                case ControlPart::MenuItem:
++                case ControlPart::MenuItemCheckMark:
++                case ControlPart::MenuItemRadioMark:
++                case ControlPart::Separator:
++                case ControlPart::SubmenuArrow:
++                    return true;
++                default:
++                    return false;
++            }
+         case ControlType::Scrollbar:
+             switch (ePart)
+             {
+@@ -120,10 +139,89 @@ bool paint(const PaintContext& rCtx, ControlType eType, ControlPart ePart,
+             return PaintTab(rCtx, eType, ePart, rValue);
+         case ControlType::Scrollbar:
+             return PaintScrollBar(rCtx, ePart);
++        case ControlType::ListNode:
++            return PaintListNode(rCtx, ePart, rValue.getTristateVal());
++        case ControlType::Slider:
++            return PaintSlider(rCtx, ePart, rValue);
++        case ControlType::Progress:
++            return PaintProgress(rCtx, ePart, rValue);
++        case ControlType::MenuPopup:
++            return PaintMenu(rCtx, ePart, rValue);
++        case ControlType::Tooltip:
++            return PaintTooltip(rCtx, ePart);
+         default:
+             return false;
+     }
+ }
++
++/** The palette of a part. A menu's and a tooltip's text is drawn by VCL in the theme's menu or help
++    text colour, so their surfaces take the palette that text reads on (dark text: the light
++    palette), whatever the dialog colour is. */
++const hst::design::Palette& paletteFor(ControlType eType, const StyleSettings& rStyle)
++{
++    switch (eType)
++    {
++        case ControlType::MenuPopup:
++            return hst::design::GetPalette(!rStyle.GetMenuTextColor().IsDark());
++        case ControlType::Tooltip:
++            return hst::design::GetPalette(!rStyle.GetHelpTextColor().IsDark());
++        default:
++            return hst::design::GetPalette(rStyle);
++    }
++}
++
++/** Whether the platform has a native look (the coat replaces native drawing only). */
++bool platformIsNative(const OutputDevice& rDev)
++{
++    return g_bForced.load(std::memory_order_relaxed)
++           || rDev.IsNativeControlSupported(ControlType::Pushbutton, ControlPart::Entire);
++}
++}
++
++PaintScope::PaintScope(OutputDevice& rDev)
++    : m_rDev(rDev)
++    , m_pMetaFile(rDev.GetConnectMetaFile())
++    , m_eAntialiasing(rDev.GetAntialiasing())
++{
++    m_rDev.SetConnectMetaFile(nullptr);
++    m_rDev.Push(vcl::PushFlags::MAPMODE | vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    m_rDev.EnableMapMode(false);
++    m_rDev.SetAntialiasing(m_eAntialiasing | AntialiasingFlags::Enable);
++}
++
++PaintScope::~PaintScope()
++{
++    m_rDev.Pop();
++    m_rDev.SetAntialiasing(m_eAntialiasing);
++    m_rDev.SetConnectMetaFile(m_pMetaFile);
++}
++
++bool DrawsOn(const OutputDevice& rDev)
++{
++    return IsActive(rDev.GetSettings().GetStyleSettings()) && platformIsNative(rDev);
++}
++
++bool ClaimsNativeControl(const OutputDevice& rDev, ControlType eType, ControlPart ePart)
++{
++    // Parts the platform may not draw although VCL would let it: the coat draws them in their place.
++    // Claiming changes no size: VCL measures them itself when the platform gives no region.
++    bool bClaimed = false;
++    switch (eType)
++    {
++        case ControlType::Tooltip:
++            bClaimed = ePart == ControlPart::Entire;
++            break;
++        case ControlType::MenuPopup:
++            bClaimed = ePart == ControlPart::SubmenuArrow;
++            break;
++        default:
++            break;
++    }
++    if (!bClaimed || !DrawsOn(rDev))
++        return false;
++    // the arrow only beside items the coat draws: where the platform draws the menu natively
++    return eType != ControlType::MenuPopup || g_bForced.load(std::memory_order_relaxed)
++           || rDev.IsNativeControlSupported(ControlType::MenuPopup, ControlPart::Entire);
+ }
+ 
+ bool IsSwitchedOn()
+@@ -146,6 +244,26 @@ void ForceForTesting(bool bForce) { g_bForced.store(bForce, std::memory_order_re
+ 
+ void ResetSwitchForTesting() { g_nSwitch.store(0, std::memory_order_relaxed); }
+ 
++bool DrawSliderForTesting(OutputDevice& rDev, ControlPart ePart, ControlState eState,
++                          const tools::Rectangle& rThumb, ControlState eThumbState)
++{
++    SliderValue aValue;
++    aValue.maThumbRect = rThumb;
++    aValue.mnThumbState = eThumbState;
++    return rDev.DrawNativeControl(ControlType::Slider, ePart,
++                                  tools::Rectangle(Point(), rDev.GetOutputSizePixel()), eState,
++                                  aValue, OUString());
++}
++
++bool DrawMenuPartForTesting(OutputDevice& rDev, ControlPart ePart, ControlState eState,
++                            const tools::Rectangle& rItem)
++{
++    const MenupopupValue aValue(20, rItem);
++    return rDev.DrawNativeControl(ControlType::MenuPopup, ePart,
++                                  tools::Rectangle(Point(), rDev.GetOutputSizePixel()), eState,
++                                  aValue, OUString());
++}
++
+ bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
+                        const tools::Rectangle& rRegion, ControlState eState,
+                        const ImplControlValue& rValue, const Color& rBackground)
+@@ -160,7 +278,7 @@ bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
+         return false;
+ 
+     PaintContext aCtx{ rDev,
+-                       hst::design::GetPalette(rStyle),
++                       paletteFor(eType, rStyle),
+                        rStyle,
+                        std::max(1.0, double(rDev.GetDPIScaleFactor())),
+                        eState,
+@@ -176,21 +294,27 @@ bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
+         aCtx.eUpperState = rSpin.mnUpperState;
+         aCtx.eLowerState = rSpin.mnLowerState;
+     }
++    else if (rValue.getType() == ControlType::Slider)
++    {
++        const auto& rSlider = static_cast<const SliderValue&>(rValue);
++        aCtx.aUpper = rDev.LogicToPixel(rSlider.maThumbRect); // the thumb
++        aCtx.eUpperState = rSlider.mnThumbState;
++    }
++    else if (rValue.getType() == ControlType::MenuPopup)
++        aCtx.aLower = rDev.LogicToPixel(static_cast<const MenupopupValue&>(rValue).maItemRect);
++    else if (eType == ControlType::Progress)
++    {
++        // the value is the filled length from the region's start, in logical units
++        const tools::Long nFilled
++            = rDev.LogicToPixel(Size(std::max<tools::Long>(0, rValue.getNumericVal()), 0)).Width();
++        aCtx.aUpper = tools::Rectangle(aCtx.aRect.TopLeft(),
++                                       Size(std::min(nFilled, aCtx.aRect.GetWidth()),
++                                            aCtx.aRect.GetHeight()));
++    }
+ 
+     // Native controls are not recorded in metafiles; neither are the coat's shapes.
+-    GDIMetaFile* pMetaFile = rDev.GetConnectMetaFile();
+-    rDev.SetConnectMetaFile(nullptr);
+-    const AntialiasingFlags eAntialiasing = rDev.GetAntialiasing();
+-    rDev.Push(vcl::PushFlags::MAPMODE | vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
+-    rDev.EnableMapMode(false);
+-    rDev.SetAntialiasing(eAntialiasing | AntialiasingFlags::Enable);
+-
+-    const bool bDrawn = paint(aCtx, eType, ePart, rValue);
+-
+-    rDev.Pop();
+-    rDev.SetAntialiasing(eAntialiasing);
+-    rDev.SetConnectMetaFile(pMetaFile);
+-    return bDrawn;
++    PaintScope aScope(rDev);
++    return paint(aCtx, eType, ePart, rValue);
+ }
+ }
+ 
+--- a/vcl/source/outdev/nativecontrols.cxx
++++ b/vcl/source/outdev/nativecontrols.cxx
+@@ -138,6 +138,9 @@ bool OutputDevice::IsNativeControlSupported( ControlType nType, ControlPart nPar
+     if( !CanEnableNativeWidget() )
+         return false;
+ 
++    if (hst::coat::ClaimsNativeControl(*this, nType, nPart))
++        return true;
++
+     if ( !mpGraphics && !AcquireGraphics() )
+         return false;
+     assert(mpGraphics);
+--- a/vcl/source/treelist/treelistbox.cxx
++++ b/vcl/source/treelist/treelistbox.cxx
+@@ -48,6 +48,7 @@
+ #include <SvLBoxButton.hxx>
+ #include <accel.hxx>
+ #include <svimpbox.hxx>
++#include <hst/coat.hxx>
+ #include <window.h>
+ 
+ #include <set>
+@@ -2600,6 +2601,7 @@ void SvTreeListBox::MouseButtonUp( const MouseEvent& rMEvt )
+ void SvTreeListBox::MouseMove( const MouseEvent& rMEvt )
+ {
+     m_pImpl->MouseMove(rMEvt);
++    CoatTrackHover(rMEvt);
+ }
+ 
+ void SvTreeListBox::SetUpdateMode( bool bUpdate )
+@@ -3080,7 +3082,20 @@ void SvTreeListBox::PaintEntry1(SvTreeListEntry& rEntry, tools::Long nLine, vcl:
+                 // this case may occur for smaller horizontal resizes
+                 if (aRect.Left() < aRect.Right())
+                 {
+-                    rRenderContext.DrawRect(aRect);
++                    // a selected or hovered row across columns (USESEL) is one shape, rounded
++                    // where the neighbouring column draws no selection
++                    const bool bAcross = bool(m_nTreeFlags & SvTreeFlags::USESEL);
++                    auto showsSelection = [&](size_t i) {
++                        return i < nTabCount && i < nItemCount && !m_aTabs[i]->IsHidden()
++                               && (m_aTabs[i]->nFlags & SvLBoxTabFlags::SHOW_SELECTION)
++                               && !(i == 0 && m_nFirstSelTab);
++                    };
++                    if (!(bSelTab
++                          && CoatPaintRowBackground(
++                              rRenderContext, aRect, aBackgroundColor, rEntry, bEntryHighlighted,
++                              !bAcross || nCurIndex == 0 || !showsSelection(nCurIndex - 1),
++                              !bAcross || !showsSelection(nCurIndex + 1))))
++                        rRenderContext.DrawRect(aRect);
+                     if (!bImageHighlighted && bNeedsImage && bDefaultImage && bEntryHighlighted)
+                     {
+                         if (!aRect.GetIntersection({ aImagePos, aImageSize }).IsEmpty())
+@@ -3154,6 +3169,8 @@ void SvTreeListBox::PaintEntry1(SvTreeListEntry& rEntry, tools::Long nLine, vcl:
+ 
+             if (IsEnabled())
+                 nState |= ControlState::ENABLED;
++            if (bImageHighlighted && hst::coat::IsActive(rSettings)) // on a selected row
++                nState |= ControlState::SELECTED;
+ 
+             if (bExpanded)
+                 aControlValue.setTristateVal(ButtonValue::On); //expanded node
+--- a/vcl/source/window/decoview.cxx
++++ b/vcl/source/window/decoview.cxx
+@@ -23,6 +23,7 @@
+ #include <vcl/decoview.hxx>
+ #include <vcl/window.hxx>
+ #include <vcl/ctrl.hxx>
++#include <hst/coat.hxx>
+ 
+ namespace {
+ 
+@@ -951,6 +952,8 @@ void DecorationView::DrawSeparator( const Point& rStart, const Point& rStop, boo
+         if(nativeSupported && pWin->GetOutDev()->DrawNativeControl(ControlType::Fixedline,nPart,aRect,ControlState::NONE,aValue,OUString()))
+             return;
+     }
++    if (hst::coat::DrawSeparatorLine(*mpOutDev, rStart, rStop, bVertical))
++        return;
+ 
+     auto popIt = mpOutDev->ScopedPush(vcl::PushFlags::LINECOLOR);
+     if ( rStyleSettings.GetOptions() & StyleSettingsOptions::Mono )
+--- a/vcl/source/window/layout.cxx
++++ b/vcl/source/window/layout.cxx
+@@ -57,6 +57,7 @@
+ #include <svdata.hxx>
+ #include <window.h>
+ #include <HstRibbonV3Layout.hxx>
++#include <hst/coat.hxx>
+ #include <boost/multi_array.hpp>
+ #include <vcl/DesktopType.hxx>
+ #include <vcl/toolkit/vclmedit.hxx>
+@@ -2242,6 +2243,8 @@ void VclScrolledWindow::Paint(vcl::RenderContext& rRenderContext, const tools::R
+     if (m_eDrawFrameStyle == DrawFrameStyle::NONE)
+         return;
+     const tools::Rectangle aRect(tools::Rectangle(Point(0,0), GetSizePixel()));
++    if (hst::coat::DrawScrolledWindowBorder(rRenderContext, aRect, m_nBorderWidth))
++        return;
+     DecorationView aDecoView(&rRenderContext);
+     const tools::Rectangle aContentRect = aDecoView.DrawFrame(aRect, m_eDrawFrameStyle, m_eDrawFrameFlags);
+     const auto nBorderWidth = (aRect.GetWidth() - aContentRect.GetWidth()) / 2;
+--- a/vcl/unx/gtk3/gtkinst.cxx
++++ b/vcl/unx/gtk3/gtkinst.cxx
+@@ -23,6 +23,7 @@
+ #include <osl/process.h>
+ #include <osl/file.hxx>
+ #include <unx/gtk/gtkdata.hxx>
++#include "hst-coat-gtk.hxx"
+ #include <unx/gtk/gtkinst.hxx>
+ #include <unx/genprn.h>
+ #include <unx/salobj.h>
+@@ -3397,7 +3398,7 @@ private:
+         OString aResult = OUStringToOString(aBuffer, RTL_TEXTENCODING_UTF8);
+         css_provider_load_from_data(m_pBgCssProvider, aResult.getStr(), aResult.getLength());
+         gtk_style_context_add_provider(pWidgetContext, GTK_STYLE_PROVIDER(m_pBgCssProvider),
+-                                       GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
++                                       hst::coat::WIDGET_CONTENT_CSS_PRIORITY);
+     }
+ 
+     DECL_LINK(SettingsChangedHdl, VclWindowEvent&, void);
+@@ -9902,7 +9903,7 @@ public:
+         OString aResult = OUStringToOString(aBuffer, RTL_TEXTENCODING_UTF8);
+         css_provider_load_from_data(m_pCustomCssProvider, aResult.getStr(), aResult.getLength());
+         gtk_style_context_add_provider(pWidgetContext, GTK_STYLE_PROVIDER(m_pCustomCssProvider),
+-                                       GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
++                                       hst::coat::WIDGET_CONTENT_CSS_PRIORITY);
+     }
+ 
+ public:
+--- a/vcl/unx/gtk3/hst-coat-gtk.cxx
++++ b/vcl/unx/gtk3/hst-coat-gtk.cxx
+@@ -65,9 +65,8 @@ void ApplyGtkCoat(GdkScreen* pScreen, const StyleSettings& rStyle)
+         g_object_unref(pProvider);
+         return;
+     }
+-    // above the theme and LibreOffice's own CSS, below the user's gtk.css
+     gtk_style_context_add_provider_for_screen(pScreen, GTK_STYLE_PROVIDER(pProvider),
+-                                              GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1);
++                                              COAT_CSS_PRIORITY);
+     g_pProvider = pProvider;
+     g_pScreen = pScreen;
+     g_eInstalled = eWanted;
+--- a/vcl/unx/gtk3/hst-coat-gtk.hxx
++++ b/vcl/unx/gtk3/hst-coat-gtk.hxx
+@@ -13,9 +13,20 @@ class StyleSettings;
+ 
+ namespace hst::coat
+ {
++/** Priority of the coat's screen-wide CSS: above the theme and LibreOffice's own CSS, below the user's gtk.css. */
++inline constexpr guint COAT_CSS_PRIORITY = GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 1;
++
++/** Priority of the CSS a single widget is given as its own content (a custom-drawn button's image, an explicit
++    background colour). It outranks the coat's general look, whose "button { background-image: none }" would
++    otherwise erase a custom-drawn button (the File tab's navigation items on GTK). */
++inline constexpr guint WIDGET_CONTENT_CSS_PRIORITY = COAT_CSS_PRIORITY + 1;
++static_assert(WIDGET_CONTENT_CSS_PRIORITY < GTK_STYLE_PROVIDER_PRIORITY_USER);
++
++#if !GTK_CHECK_VERSION(4, 0, 0)
+ /** Install, replace or remove the coat's CSS for the GTK-drawn widgets of pScreen to match rStyle:
+     none in high-contrast mode or when the coat is switched off, else the light or dark coat. */
+ void ApplyGtkCoat(GdkScreen* pScreen, const StyleSettings& rStyle);
++#endif
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */

@@ -1,0 +1,1405 @@
+HST Office: the frame coat's shared base: frame and dialog-layout tokens, crisp corners in the shared
+drawing helpers, one GTK CSS file per frame part and a switch per part.
+
+- Design tokens (<vcl/hst/designtokens.hxx>; no existing value changes): the frame's surfaces, divider,
+  menu surface/border/hover/shortcut and the selected-item indicator (= accent), light and dark, every divider
+  and border at 3:1 or more against its surfaces (WCAG 1.4.11) and the shortcut text at 4.5:1; sizes
+  FrameDivider 1, MenuItemHeight 28, StatusBarHeight 24, DocTabHeight 30; radii Menu 8, MenuItem 4; the
+  dialogs' layout (layout::RowGap 6, MinGap 4, GroupGap 12, DialogMargin 12, LabelGap 6, IndentGroup 12,
+  ButtonGap 4).
+- The ribbon reads its colours from the tokens (Palette::aRibbon; hst::ribbon::Palette is that struct and
+  paletteFor keeps its signature, its dark test and the HSTRibbon/OwnerDraw switch). The colours are the ones
+  it had: nothing on screen changes.
+- hst::design::DrawRoundRect (and so DrawCard, DrawPill, DrawFocusRing: the Start Center and the File tab)
+  draws its border as one filled ring of whole pixels between two concentric outlines, the fill ending
+  mid-ring, and moves every filled shape (the card shadow too) back by the half pixel Skia (curves) and GDI+
+  add: no pale hairline arc or notch and no fill past the border on Windows. PixelOriginShift and
+  FillPixelShape are shared; the coat's FillShape/FillAndStroke now call them instead of its own copy.
+- The coat's push-button gap reads layout::ButtonGap (4 logical px, unchanged).
+- GTK CSS: CreateGtkCss appends one fragment per frame part after the dialogs' CSS, each from its own file
+  (vcl/source/hst/coat/css/{ribbon,backstage,sidebar,statusbar,menus,doctabs}.cxx, empty for now) and
+  after a comment naming the part, so each part is styled independently.
+- org.openoffice.Office.HSTAppearance/FrameCoat/{Ribbon,Backstage,Sidebar,StatusBar,Menus,DocumentTabs}
+  (default true) and hst::coat::FrameCoatEnabled/FrameCoatActive (<vcl/hst/framecoat.hxx>): a part is on
+  only with the coat itself on (UiCoat/Enabled, HST_UI_COAT) and never in high contrast.
+- CppunitTest_vcl_hst_coat: the frame tokens' contrast and values, the ribbon palette from the tokens,
+  the helper's corners at 100/125 %, light and dark, and its backend shifts, the CSS fragment order, the
+  frame switches.
+
+--- a/include/vcl/HstRibbonPaint.hxx
++++ b/include/vcl/HstRibbonPaint.hxx
+@@ -18,6 +18,7 @@
+ #include <tools/color.hxx>
+ #include <tools/gen.hxx>
+ #include <vcl/dllapi.h>
++#include <vcl/hst/designtokens.hxx>
+ #include <vcl/outdev.hxx>
+ 
+ class Image;
+@@ -26,18 +27,9 @@ class ToolBox;
+ 
+ namespace hst::ribbon
+ {
+-/** Colour tokens of the ribbon look (docs/design/ribbon-look/PROPOSAL.md), light or dark. */
+-struct Palette
+-{
+-    Color aHover;
+-    Color aPressed;
+-    Color aChecked;
+-    Color aCheckedBorder;
+-    Color aSeparator;
+-    Color aCaption;
+-    Color aTabAccent;
+-    Color aTabHover;
+-};
++/** Colour tokens of the ribbon look (docs/design/ribbon-look/PROPOSAL.md), light or dark: the
++    ribbon colours of the HST design tokens (hst::design::Palette::aRibbon). */
++using Palette = hst::design::RibbonColors;
+ 
+ /** The palette for the theme of rStyle: dark when the dialog colour is dark. */
+ VCL_DLLPUBLIC Palette paletteFor(const StyleSettings& rStyle);
+--- a/include/vcl/hst/designtokens.hxx
++++ b/include/vcl/hst/designtokens.hxx
+@@ -21,6 +21,21 @@ class StyleSettings;
+    <vcl/hst/drawhelpers.hxx>, so the surfaces stay alike and the look changes in one place. */
+ namespace hst::design
+ {
++/** The colours of the ribbon (the Tabbed notebookbar's buttons and tabs). They are the ribbon's own
++    values, kept here so the ribbon reads them from the tokens like every other HST surface;
++    hst::ribbon::Palette is this struct. */
++struct RibbonColors
++{
++    Color aHover; ///< a button under the mouse
++    Color aPressed; ///< a button being pressed (or checked and hovered)
++    Color aChecked; ///< a checked button ...
++    Color aCheckedBorder; ///< ... and its 1 px border
++    Color aSeparator;
++    Color aCaption; ///< group captions
++    Color aTabAccent; ///< the bar under the selected tab's label
++    Color aTabHover; ///< a tab under the mouse
++};
++
+ /** The colour roles of the HST look. */
+ struct Palette
+ {
+@@ -64,6 +79,17 @@ struct Palette
+     Color aScrollThumbHover;
+     Color aScrollThumbPressed;
+     Color aTabIndicator; ///< the underline of the selected tab
++    // the frame of a document window: ribbon, sidebar, status bar, document tabs, menus. Every
++    // divider and border reaches 3:1 against the surfaces it separates (WCAG 1.4.11).
++    Color aFrameSurface; ///< the background of the ribbon, sidebar, status bar and document tab row
++    Color aFrameSurfaceRaised; ///< a part raised from it: the selected document tab, a sidebar deck
++    Color aFrameDivider; ///< lines between frame parts (FrameDivider wide)
++    Color aMenuSurface; ///< a popup or context menu
++    Color aMenuBorder; ///< its outline
++    Color aMenuHover; ///< the highlighted menu item
++    Color aMenuShortcut; ///< a menu item's shortcut text, readable (4.5:1) on aMenuSurface and aMenuHover
++    Color aSelectedIndicator; ///< the bar or pill marking the selected item of a frame part (aAccent)
++    RibbonColors aRibbon;
+ };
+ 
+ /** The tints, in the order of the tiles: documents, spreadsheets, presentations. */
+@@ -115,6 +141,8 @@ constexpr double Control = 8; ///< input fields, navigation pills, small cards
+ constexpr double Card = 10; ///< cards and tiles
+ constexpr double Row = 6; ///< the hover of a row inside a card
+ constexpr double Check = 3; ///< check boxes
++constexpr double Menu = 8; ///< a popup menu's outline
++constexpr double MenuItem = 4; ///< the highlight of a menu item
+ }
+ 
+ /** Line widths. */
+@@ -128,6 +156,10 @@ constexpr double CheckMark = 1.75;
+ namespace size
+ {
+ constexpr double TabIndicator = 2; ///< thickness of the selected tab's underline
++constexpr double FrameDivider = 1; ///< thickness of a line between frame parts
++constexpr double MenuItemHeight = 28; ///< a menu item's row
++constexpr double StatusBarHeight = 24;
++constexpr double DocTabHeight = 30; ///< the document tab row
+ }
+ 
+ /** The spacing scale. */
+@@ -141,6 +173,20 @@ constexpr double L = 16;
+ constexpr double XL = 24;
+ }
+ 
++/** The layout of dialogs: the gaps between and around controls. */
++namespace layout
++{
++constexpr double RowGap = 6; ///< between the rows of a group
++constexpr double MinGap = 4; ///< the least gap between any two controls of a layout
++constexpr double GroupGap = 12; ///< between groups (frames, sections)
++constexpr double DialogMargin = 12; ///< around a dialog's content
++constexpr double LabelGap = 6; ///< between a label and its control
++constexpr double IndentGroup = 12; ///< the indent of a group's content under its heading
++/** The least visible gap between the shapes of two neighbouring push buttons: the coat draws a
++    button's shape in from a side closer than this to a sibling button (sizes and click areas stay). */
++constexpr double ButtonGap = 4;
++}
++
+ /** The card shadow: layers of growing size and falling opacity below a card. */
+ constexpr int SHADOW_LAYERS = 3;
+ constexpr double SHADOW_STEP = 1; ///< growth and drop per layer
+--- a/include/vcl/hst/drawhelpers.hxx
++++ b/include/vcl/hst/drawhelpers.hxx
+@@ -11,17 +11,39 @@
+ #include <tools/gen.hxx>
+ #include <vcl/dllapi.h>
+ 
++#include <string_view>
++
+ class Bitmap;
+ class OutputDevice;
++namespace basegfx
++{
++class B2DPolyPolygon;
++}
+ 
+ /* The shapes of the HST look, drawn with anti-aliased vectors so they are alike on every platform
+    and at every scale. fScale is the window's DPI scale; the colours and measures come from
+-   <vcl/hst/designtokens.hxx>. */
++   <vcl/hst/designtokens.hxx>. Shapes are laid out on pixel edges and cover the same pixels on every
++   render backend (Cairo, Skia, GDI+, Quartz); borders are filled rings of whole pixels. */
+ namespace hst::design
+ {
+ struct Palette;
+ 
+-/** A rounded rectangle filled with rFill and outlined with rBorder (COL_TRANSPARENT: none). */
++/** How far the render backend aBackend (SalGraphics::getRenderBackendName) moves a filled polygon
++    right and down from the coordinates it is given, for a polygon of horizontal and vertical edges only
++    (bAxisParallel) or one with curves or slanted edges: Skia 0.5 unless axis-parallel, GDI+ 0.5,
++    Cairo and Quartz 0. */
++VCL_DLLPUBLIC double PixelOriginShift(std::u16string_view aBackend, bool bAxisParallel);
++
++/** rShape (device pixels, laid out on pixel edges) filled with rFill, anti-aliased, covering the same
++    pixels on every backend. For a device in pixel map mode without RTL mirroring (the shift is taken
++    back in logical coordinates). */
++VCL_DLLPUBLIC void FillPixelShape(OutputDevice& rDev, const basegfx::B2DPolyPolygon& rShape,
++                                  const Color& rFill);
++
++/** A rounded rectangle filled with rFill and outlined with rBorder (COL_TRANSPARENT: none), all
++    inside rRect. The border is fBorderWidth rounded to whole pixels (at least 1; 0: no border) and
++    must be opaque (the fill reaches under its inner half); the radius is at most half the shorter
++    side. */
+ VCL_DLLPUBLIC void DrawRoundRect(OutputDevice& rDev, const tools::Rectangle& rRect, double fRadius,
+                                  const Color& rFill, const Color& rBorder, double fBorderWidth = 1.0);
+ 
+--- /dev/null
++++ b/include/vcl/hst/framecoat.hxx
+@@ -0,0 +1,41 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <vcl/dllapi.h>
++
++class StyleSettings;
++
++/* The coat of a document window's frame: the ribbon, the File tab (backstage), the sidebar, the status
++   bar, the menus and the document tabs drawn in the HST look. Each part has its own switch,
++   org.openoffice.Office.HSTAppearance/FrameCoat/<Part> (default on), under the coat's own switch
++   (UiCoat/Enabled, or HST_UI_COAT=0/1): turning the coat off turns every part off. High contrast
++   always uses the platform's look. */
++namespace hst::coat
++{
++/** The parts of the frame, in the order their GTK CSS follows the dialogs' CSS. */
++enum class FrameComponent
++{
++    Ribbon,
++    Backstage,
++    Sidebar,
++    StatusBar,
++    Menus,
++    DocumentTabs,
++};
++
++/** Whether the coat of eComponent is switched on: the coat's switch and the part's own. Both are
++    read once per process. */
++VCL_DLLPUBLIC bool FrameCoatEnabled(FrameComponent eComponent);
++
++/** Whether eComponent is drawn in the HST look with these style settings: switched on and not in
++    high-contrast mode. */
++VCL_DLLPUBLIC bool FrameCoatActive(FrameComponent eComponent, const StyleSettings& rStyle);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/officecfg/registry/schema/org/openoffice/Office/HSTAppearance.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/HSTAppearance.xcs
+@@ -25,5 +25,54 @@
+         <value>true</value>
+       </prop>
+     </group>
++    <group oor:name="FrameCoat">
++      <info>
++        <desc>The HST coat of a document window's frame, one switch per part. A part is drawn in the
++          HST style only while UiCoat/Enabled is on too, and never in high-contrast mode. Read at
++          start-up.</desc>
++      </info>
++      <prop oor:name="Ribbon" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>Draw the ribbon (the Tabbed notebookbar's tabs and buttons) in the HST style. False: the look without the frame coat.</desc>
++          <label>HST style for the ribbon</label>
++        </info>
++        <value>true</value>
++      </prop>
++      <prop oor:name="Backstage" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>Draw the File tab (backstage) in the HST style. False: the look without the frame coat.</desc>
++          <label>HST style for the File tab</label>
++        </info>
++        <value>true</value>
++      </prop>
++      <prop oor:name="Sidebar" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>Draw the sidebar's frame: its tab bar, decks and title bars in the HST style. False: the look without the frame coat.</desc>
++          <label>HST style for the sidebar</label>
++        </info>
++        <value>true</value>
++      </prop>
++      <prop oor:name="StatusBar" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>Draw the status bar in the HST style. False: the look without the frame coat.</desc>
++          <label>HST style for the status bar</label>
++        </info>
++        <value>true</value>
++      </prop>
++      <prop oor:name="Menus" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>Draw popup and context menus in the HST style. False: the look without the frame coat.</desc>
++          <label>HST style for menus</label>
++        </info>
++        <value>true</value>
++      </prop>
++      <prop oor:name="DocumentTabs" oor:type="xs:boolean" oor:nillable="false">
++        <info>
++          <desc>Draw the document tab row in the HST style. False: the look without the frame coat.</desc>
++          <label>HST style for document tabs</label>
++        </info>
++        <value>true</value>
++      </prop>
++    </group>
+   </component>
+ </oor:component-schema>
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -381,10 +381,17 @@ $(eval $(call gb_Library_add_exception_objects,vcl,\
+     vcl/source/hst/coat/coat \
+     vcl/source/hst/coat/coat-buttons \
+     vcl/source/hst/coat/coat-fields \
++    vcl/source/hst/coat/coat-frame \
+     vcl/source/hst/coat/coat-gtk-css \
+     vcl/source/hst/coat/coat-shapes \
+     vcl/source/hst/coat/coat-spacing \
+     vcl/source/hst/coat/coat-tabs-scrollbars \
++    vcl/source/hst/coat/css/backstage \
++    vcl/source/hst/coat/css/doctabs \
++    vcl/source/hst/coat/css/menus \
++    vcl/source/hst/coat/css/ribbon \
++    vcl/source/hst/coat/css/sidebar \
++    vcl/source/hst/coat/css/statusbar \
+     vcl/source/gdi/print \
+     vcl/source/gdi/regband \
+     vcl/source/gdi/region \
+--- a/vcl/inc/hst/coat.hxx
++++ b/vcl/inc/hst/coat.hxx
+@@ -41,11 +41,13 @@ VCL_PLUGIN_PUBLIC bool IsSwitchedOn();
+ VCL_PLUGIN_PUBLIC bool IsActive(const StyleSettings& rStyle);
+ 
+ /** The GTK CSS of the coat for the welded (GTK-drawn) widgets, from the same tokens. It changes
+-    colours, corner radii and focus marks only, never borders' widths, paddings or sizes. */
++    colours, corner radii and focus marks only, never borders' widths, paddings or sizes. The dialogs'
++    CSS comes first, then one fragment per frame part that is switched on (FrameCoatEnabled), in the
++    order of hst::coat::FrameComponent, each after a comment naming its part. */
+ VCL_PLUGIN_PUBLIC OString CreateGtkCss(bool bDark);
+ 
+ /** The shape of a push button drawn on rDev (rShape, in rDev's pixels), drawn in from the sides that
+-    face a sibling push button closer than the coat's minimum gap (4 logical pixels at fScale 1), so
++    face a sibling push button closer than hst::design::layout::ButtonGap logical pixels, so
+     neighbouring buttons stay visibly apart. The button's window, size and click area do not change. */
+ VCL_DLLPUBLIC tools::Rectangle SpacedButtonShape(const OutputDevice& rDev,
+                                                  const tools::Rectangle& rShape, double fScale);
+@@ -56,6 +58,9 @@ VCL_DLLPUBLIC void ForceForTesting(bool bForce);
+ 
+ /** Tests: read the switch (setting and environment) again on its next use. */
+ VCL_DLLPUBLIC void ResetSwitchForTesting();
++
++/** Tests: read the frame parts' switches (FrameCoat/<Part>) again on their next use. */
++VCL_DLLPUBLIC void ResetFrameCoatForTesting();
+ }
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/qa/cppunit/hst/coat-test.cxx
++++ b/vcl/qa/cppunit/hst/coat-test.cxx
+@@ -9,7 +9,10 @@
+ 
+ #include <comphelper/configuration.hxx>
+ #include <officecfg/Office/HSTAppearance.hxx>
++#include <vcl/HstRibbonPaint.hxx>
+ #include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/drawhelpers.hxx>
++#include <vcl/hst/framecoat.hxx>
+ #include <vcl/salnativewidgets.hxx>
+ #include <vcl/settings.hxx>
+ #include <vcl/svapp.hxx>
+@@ -54,6 +57,9 @@ public:
+     void tearDown() override
+     {
+         hst::coat::ForceForTesting(false);
++        for (auto eComponent : ALL_PARTS)
++            setFrameSwitch(eComponent, true);
++        unsetenv("HST_UI_COAT"); // a test that set it may have stopped at a failed assertion
+         setSwitch(true);
+         test::BootstrapFixture::tearDown();
+     }
+@@ -67,6 +73,40 @@ protected:
+         hst::coat::ResetSwitchForTesting();
+     }
+ 
++    static constexpr hst::coat::FrameComponent ALL_PARTS[]
++        = { hst::coat::FrameComponent::Ribbon,    hst::coat::FrameComponent::Backstage,
++            hst::coat::FrameComponent::Sidebar,   hst::coat::FrameComponent::StatusBar,
++            hst::coat::FrameComponent::Menus,     hst::coat::FrameComponent::DocumentTabs };
++
++    static void setFrameSwitch(hst::coat::FrameComponent eComponent, bool bOn)
++    {
++        using F = officecfg::Office::HSTAppearance::FrameCoat;
++        auto xChanges = comphelper::ConfigurationChanges::create();
++        switch (eComponent)
++        {
++            case hst::coat::FrameComponent::Ribbon:
++                F::Ribbon::set(bOn, xChanges);
++                break;
++            case hst::coat::FrameComponent::Backstage:
++                F::Backstage::set(bOn, xChanges);
++                break;
++            case hst::coat::FrameComponent::Sidebar:
++                F::Sidebar::set(bOn, xChanges);
++                break;
++            case hst::coat::FrameComponent::StatusBar:
++                F::StatusBar::set(bOn, xChanges);
++                break;
++            case hst::coat::FrameComponent::Menus:
++                F::Menus::set(bOn, xChanges);
++                break;
++            case hst::coat::FrameComponent::DocumentTabs:
++                F::DocumentTabs::set(bOn, xChanges);
++                break;
++        }
++        xChanges->commit();
++        hst::coat::ResetFrameCoatForTesting();
++    }
++
+     static ScopedVclPtr<VirtualDevice> makeDevice(const Size& rSize, bool bDark = false,
+                                                   bool bHighContrast = false)
+     {
+@@ -721,6 +761,262 @@ CPPUNIT_TEST_FIXTURE(CoatTest, testGtkCss)
+                                   "border-top-right-radius: 0; border-bottom-right-radius: 0; }")
+                    >= 0);
+ }
++
++/* The frame's tokens: every divider, border and selection mark reaches 3:1 against each surface it
++   sits on (WCAG 1.4.11), a menu's shortcut text 4.5:1, light and dark. */
++CPPUNIT_TEST_FIXTURE(CoatTest, testFramePaletteContrast)
++{
++    for (bool bDark : { false, true })
++    {
++        const auto& p = hst::design::GetPalette(bDark);
++        const OString aTheme(bDark ? "dark " : "light ");
++        auto require = [&](const char* pWhat, const Color& rFore, const Color& rBack, double fMin) {
++            const double fRatio = contrast(rFore, rBack);
++            CPPUNIT_ASSERT_MESSAGE(OString(aTheme + pWhat + " " + rFore.AsRGBHexString().toUtf8()
++                                           + " on " + rBack.AsRGBHexString().toUtf8() + ": "
++                                           + OString::number(fRatio))
++                                       .getStr(),
++                                   fRatio >= fMin);
++        };
++        for (const Color& rSurface : { p.aFrameSurface, p.aFrameSurfaceRaised })
++        {
++            require("frame divider", p.aFrameDivider, rSurface, 3.0);
++            require("selected indicator", p.aSelectedIndicator, rSurface, 3.0);
++            require("text", p.aText, rSurface, 4.5);
++        }
++        // a menu over the frame or over a document page
++        for (const Color& rUnder : { p.aMenuSurface, p.aFrameSurface })
++            require("menu border", p.aMenuBorder, rUnder, 3.0);
++        for (const Color& rItem : { p.aMenuSurface, p.aMenuHover })
++        {
++            require("menu shortcut", p.aMenuShortcut, rItem, 4.5);
++            require("menu text", p.aText, rItem, 4.5);
++            require("selected indicator", p.aSelectedIndicator, rItem, 3.0);
++        }
++        CPPUNIT_ASSERT_EQUAL(p.aAccent, p.aSelectedIndicator);
++        // the raised part and the hover stand apart from what they sit on
++        CPPUNIT_ASSERT(p.aFrameSurfaceRaised != p.aFrameSurface);
++        CPPUNIT_ASSERT(p.aMenuHover != p.aMenuSurface);
++    }
++    namespace d = hst::design;
++    CPPUNIT_ASSERT_EQUAL(1.0, d::size::FrameDivider);
++    CPPUNIT_ASSERT_EQUAL(28.0, d::size::MenuItemHeight);
++    CPPUNIT_ASSERT_EQUAL(24.0, d::size::StatusBarHeight);
++    CPPUNIT_ASSERT_EQUAL(30.0, d::size::DocTabHeight);
++    CPPUNIT_ASSERT_EQUAL(8.0, d::radius::Menu);
++    CPPUNIT_ASSERT_EQUAL(4.0, d::radius::MenuItem);
++    // the dialogs' layout (owner decision: 6 px between rows, never less than 4 px)
++    CPPUNIT_ASSERT_EQUAL(6.0, d::layout::RowGap);
++    CPPUNIT_ASSERT_EQUAL(4.0, d::layout::MinGap);
++    CPPUNIT_ASSERT_EQUAL(4.0, d::layout::ButtonGap);
++    CPPUNIT_ASSERT(d::layout::MinGap <= d::layout::RowGap && d::layout::RowGap <= d::layout::GroupGap);
++}
++
++/* The ribbon takes its colours from the design tokens (one source), still the colours it had:
++   the look changes only when the ribbon itself is redesigned. */
++CPPUNIT_TEST_FIXTURE(CoatTest, testRibbonPaletteComesFromDesignTokens)
++{
++    for (bool bDark : { false, true })
++    {
++        ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(4, 4), bDark);
++        const hst::ribbon::Palette aRibbon
++            = hst::ribbon::paletteFor(pDev->GetSettings().GetStyleSettings());
++        const hst::design::RibbonColors& rTokens = hst::design::GetPalette(bDark).aRibbon;
++        const std::pair<Color, Color> aPairs[] = {
++            { aRibbon.aHover, rTokens.aHover },
++            { aRibbon.aPressed, rTokens.aPressed },
++            { aRibbon.aChecked, rTokens.aChecked },
++            { aRibbon.aCheckedBorder, rTokens.aCheckedBorder },
++            { aRibbon.aSeparator, rTokens.aSeparator },
++            { aRibbon.aCaption, rTokens.aCaption },
++            { aRibbon.aTabAccent, rTokens.aTabAccent },
++            { aRibbon.aTabHover, rTokens.aTabHover },
++        };
++        for (const auto& [rRibbon, rToken] : aPairs)
++            CPPUNIT_ASSERT_EQUAL(rToken, rRibbon);
++        // the colours the ribbon shipped with
++        CPPUNIT_ASSERT_EQUAL(bDark ? Color(0x26, 0x3B, 0x50) : Color(0xE8, 0xF1, 0xFA), aRibbon.aHover);
++        CPPUNIT_ASSERT_EQUAL(bDark ? Color(0x2D, 0x58, 0x78) : Color(0xC7, 0xE0, 0xF4), aRibbon.aPressed);
++        CPPUNIT_ASSERT_EQUAL(bDark ? Color(0x23, 0x47, 0x62) : Color(0xE5, 0xF2, 0xFB), aRibbon.aChecked);
++        CPPUNIT_ASSERT_EQUAL(bDark ? Color(0x78, 0xC5, 0xF4) : Color(0x00, 0x72, 0xBB),
++                             aRibbon.aCheckedBorder);
++        CPPUNIT_ASSERT_EQUAL(bDark ? Color(0x35, 0x48, 0x5C) : Color(0xDC, 0xE6, 0xF0),
++                             aRibbon.aSeparator);
++        CPPUNIT_ASSERT_EQUAL(bDark ? Color(0xAF, 0xBD, 0xCE) : Color(0x53, 0x63, 0x79), aRibbon.aCaption);
++        CPPUNIT_ASSERT_EQUAL(bDark ? Color(0x78, 0xC5, 0xF4) : Color(0x00, 0x72, 0xBB),
++                             aRibbon.aTabAccent);
++        CPPUNIT_ASSERT_EQUAL(bDark ? Color(0x26, 0x3B, 0x50) : Color(0xE8, 0xF1, 0xFA), aRibbon.aTabHover);
++    }
++}
++
++/* The shared helper (Start Center, File tab, every frame part) draws the coat's corners: on every
++   backend the shape covers the same pixels (Skia and GDI+ move a filled polygon by half a pixel, which
++   the helper takes back), and the border is a ring of whole pixels: crisp straight edges, an
++   anti-aliased arc of even strength, nothing outside the outline, the fill inside. */
++CPPUNIT_TEST_FIXTURE(CoatTest, testDrawRoundRectIsCrispOnEveryBackend)
++{
++    namespace d = hst::design;
++    // curves and slanted edges (bAxisParallel false) move on Skia, axis-parallel edges do not
++    CPPUNIT_ASSERT_EQUAL(0.5, d::PixelOriginShift(u"skia", false));
++    CPPUNIT_ASSERT_EQUAL(0.0, d::PixelOriginShift(u"skia", true));
++    CPPUNIT_ASSERT_EQUAL(0.5, d::PixelOriginShift(u"gdi", false));
++    CPPUNIT_ASSERT_EQUAL(0.5, d::PixelOriginShift(u"gdi", true));
++    for (std::u16string_view aCairo : { u"svp", u"gtk3svp", u"gen", u"qtsvp", u"aqua" })
++        CPPUNIT_ASSERT_EQUAL(0.0, d::PixelOriginShift(aCairo, false));
++
++    for (bool bDark : { false, true })
++        for (int nPercent : { 100, 125 })
++        {
++            const auto& p = d::GetPalette(bDark);
++            const double fScale = nPercent / 100.0;
++            const Color aUnder = bDark ? Color(0x10, 0x30, 0x10) : Color(0xD0, 0xF0, 0xD0);
++            struct Case
++            {
++                const char* pWhat;
++                Size aSize;
++                double fRadius;
++                double fWidth; ///< as given to the helper
++                Color aFill, aBorder;
++            };
++            const Case aCases[] = {
++                { "card", Size(std::lround(120 * fScale), std::lround(60 * fScale)),
++                  d::radius::Card * fScale, d::stroke::Border, p.aCard, p.aCardBorder },
++                { "search field", Size(std::lround(160 * fScale), std::lround(32 * fScale)),
++                  d::radius::Control * fScale, d::stroke::Border, p.aCard, p.aFieldBorder },
++                { "focus ring", Size(std::lround(90 * fScale), std::lround(40 * fScale)),
++                  d::radius::Control * fScale, d::FOCUS_RING_WIDTH * fScale, COL_TRANSPARENT, p.aAccent },
++            };
++            for (const Case& rCase : aCases)
++            {
++                const OString aWhat = OString::Concat(bDark ? "dark " : "light ") + rCase.pWhat + " at "
++                                      + OString::number(nPercent) + " %: ";
++                const tools::Long nW = rCase.aSize.Width(), nH = rCase.aSize.Height();
++                const double fRad = rCase.fRadius;
++                const tools::Long nRing = std::max<tools::Long>(1, std::lround(rCase.fWidth));
++                const Color aInside = rCase.aFill == COL_TRANSPARENT ? aUnder : rCase.aFill;
++                auto render = [&](const Color& rBack) {
++                    ScopedVclPtr<VirtualDevice> pDev = makeDevice(rCase.aSize, bDark);
++                    pDev->SetBackground(Wallpaper(rBack));
++                    pDev->Erase();
++                    d::DrawRoundRect(*pDev, tools::Rectangle(Point(), rCase.aSize), fRad, rCase.aFill,
++                                     rCase.aBorder, rCase.fWidth);
++                    return pDev;
++                };
++                ScopedVclPtr<VirtualDevice> pOver = render(aInside);
++                auto cover = [&](bool bMirror, tools::Long nX, tools::Long nY) {
++                    const Point aPt = bMirror ? Point(nW - 1 - nX, nH - 1 - nY) : Point(nX, nY);
++                    return coverage(pOver->GetPixel(aPt), rCase.aBorder, aInside);
++                };
++                const tools::Long nCorner = static_cast<tools::Long>(std::ceil(fRad)) + 1;
++                for (bool bMirror : { false, true })
++                {
++                    const OString aSide = aWhat + (bMirror ? "bottom right: " : "top left: ");
++                    for (tools::Long i = 0; i <= nRing; ++i)
++                    {
++                        const bool bBorder = i < nRing;
++                        const double fTop = cover(bMirror, nW / 2, i);
++                        const double fLeft = cover(bMirror, i, nH / 2);
++                        CPPUNIT_ASSERT_MESSAGE(
++                            OString(aSide + "crisp edge, pixel " + OString::number(i) + ": "
++                                    + OString::number(fTop) + " / " + OString::number(fLeft))
++                                .getStr(),
++                            bBorder ? fTop > 0.97 && fLeft > 0.97 : fTop < 0.03 && fLeft < 0.03);
++                    }
++                    bool bBlend = false;
++                    for (tools::Long y = 0; y < std::min(nCorner, nH / 2); ++y)
++                        for (tools::Long x = 0; x < std::min(nCorner, nW / 2); ++x)
++                        {
++                            const double fC = cover(bMirror, x, y);
++                            bBlend |= fC > 0.1 && fC < 0.9;
++                            if (pixelIs(true, x, y, 0, 0, nW, nH, fRad)
++                                && pixelIs(false, x, y, nRing, nRing, nW - nRing, nH - nRing,
++                                           std::max(0.0, fRad - nRing)))
++                                CPPUNIT_ASSERT_MESSAGE(
++                                    OString(aSide + "ring pixel " + OString::number(x) + ","
++                                            + OString::number(y) + " pale: " + OString::number(fC))
++                                        .getStr(),
++                                    fC > 0.95);
++                        }
++                    CPPUNIT_ASSERT_MESSAGE(OString(aSide + "arc not anti-aliased").getStr(), bBlend);
++                }
++                // over another colour: nothing outside the outline, the fill inside the border
++                const Color aBack = bDark ? Color(0x40, 0x10, 0x40) : Color(0xF0, 0xD0, 0xF0);
++                ScopedVclPtr<VirtualDevice> pOut = render(aBack);
++                for (bool bMirror : { false, true })
++                    for (tools::Long y = 0; y < std::min(nCorner + nRing, nH / 2); ++y)
++                        for (tools::Long x = 0; x < std::min(nCorner + nRing, nW / 2); ++x)
++                        {
++                            const Point aPt = bMirror ? Point(nW - 1 - x, nH - 1 - y) : Point(x, y);
++                            if (pixelIs(false, x, y, 0, 0, nW, nH, fRad))
++                                assertPixel(OString(aWhat + "outside the outline").getStr(), *pOut,
++                                            aPt.X(), aPt.Y(), aBack);
++                            else if (rCase.aFill != COL_TRANSPARENT
++                                     && pixelIs(true, x, y, nRing, nRing, nW - nRing, nH - nRing,
++                                                std::max(0.0, fRad - nRing))
++                                     && x >= nRing + 1 && y >= nRing + 1)
++                                assertPixel(OString(aWhat + "inside the border").getStr(), *pOut,
++                                            aPt.X(), aPt.Y(), rCase.aFill);
++                        }
++            }
++        }
++}
++
++/* The dialogs' CSS comes first, then each frame part's fragment in a fixed order, each named by a
++   comment; a part switched off leaves its fragment out. */
++CPPUNIT_TEST_FIXTURE(CoatTest, testCssFragmentsAreConcatenatedInOrder)
++{
++    const char* const aNames[] = { "ribbon", "backstage", "sidebar", "statusbar", "menus", "doctabs" };
++    auto marker = [](const char* pName) { return OString(OString::Concat("/* hst frame: ") + pName + " */\n"); };
++    const OString aCss = hst::coat::CreateGtkCss(false);
++    sal_Int32 nLast = aCss.indexOf("scrollbar slider:active");
++    CPPUNIT_ASSERT(nLast >= 0);
++    for (const char* pName : aNames)
++    {
++        const sal_Int32 nAt = aCss.indexOf(marker(pName));
++        CPPUNIT_ASSERT_MESSAGE(pName, nAt > nLast);
++        nLast = nAt;
++    }
++    setFrameSwitch(hst::coat::FrameComponent::Sidebar, false);
++    const OString aWithout = hst::coat::CreateGtkCss(false);
++    CPPUNIT_ASSERT(aWithout.indexOf(marker("sidebar")) < 0);
++    for (const char* pName : { "ribbon", "backstage", "statusbar", "menus", "doctabs" })
++        CPPUNIT_ASSERT_MESSAGE(pName, aWithout.indexOf(marker(pName)) >= 0);
++}
++
++/* Each frame part has its own switch under the coat's: off alone, off with the coat, off in high
++   contrast. */
++CPPUNIT_TEST_FIXTURE(CoatTest, testFrameCoatSwitches)
++{
++    using hst::coat::FrameCoatActive;
++    using hst::coat::FrameCoatEnabled;
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(Size(4, 4));
++    ScopedVclPtr<VirtualDevice> pHighContrast = makeDevice(Size(4, 4), false, true);
++    for (auto eComponent : ALL_PARTS)
++    {
++        CPPUNIT_ASSERT(FrameCoatEnabled(eComponent));
++        CPPUNIT_ASSERT(FrameCoatActive(eComponent, pDev->GetSettings().GetStyleSettings()));
++        CPPUNIT_ASSERT(!FrameCoatActive(eComponent, pHighContrast->GetSettings().GetStyleSettings()));
++    }
++    for (auto eOff : ALL_PARTS)
++    {
++        setFrameSwitch(eOff, false);
++        for (auto eComponent : ALL_PARTS)
++            CPPUNIT_ASSERT_EQUAL(eComponent != eOff, FrameCoatEnabled(eComponent));
++        setFrameSwitch(eOff, true);
++    }
++    // the coat's own switch turns every part off
++    setSwitch(false);
++    for (auto eComponent : ALL_PARTS)
++        CPPUNIT_ASSERT(!FrameCoatEnabled(eComponent));
++    setSwitch(true);
++    setenv("HST_UI_COAT", "0", 1);
++    hst::coat::ResetSwitchForTesting();
++    for (auto eComponent : ALL_PARTS)
++        CPPUNIT_ASSERT(!FrameCoatEnabled(eComponent));
++    unsetenv("HST_UI_COAT");
++    hst::coat::ResetSwitchForTesting();
++    CPPUNIT_ASSERT(FrameCoatEnabled(hst::coat::FrameComponent::Ribbon));
++}
+ }
+ 
+ CPPUNIT_PLUGIN_IMPLEMENT();
+--- a/vcl/source/control/HstRibbonPaint.cxx
++++ b/vcl/source/control/HstRibbonPaint.cxx
+@@ -35,13 +35,8 @@ tools::Long scaled(const OutputDevice& rDev, double fLogical)
+ 
+ Palette paletteFor(const StyleSettings& rStyle)
+ {
+-    if (rStyle.GetDialogColor().IsDark())
+-        return Palette{ Color(0x26, 0x3B, 0x50), Color(0x2D, 0x58, 0x78), Color(0x23, 0x47, 0x62),
+-                        Color(0x78, 0xC5, 0xF4), Color(0x35, 0x48, 0x5C), Color(0xAF, 0xBD, 0xCE),
+-                        Color(0x78, 0xC5, 0xF4), Color(0x26, 0x3B, 0x50) };
+-    return Palette{ Color(0xE8, 0xF1, 0xFA), Color(0xC7, 0xE0, 0xF4), Color(0xE5, 0xF2, 0xFB),
+-                    Color(0x00, 0x72, 0xBB), Color(0xDC, 0xE6, 0xF0), Color(0x53, 0x63, 0x79),
+-                    Color(0x00, 0x72, 0xBB), Color(0xE8, 0xF1, 0xFA) };
++    // the ribbon decides dark by the dialog colour (its background), not the window colour
++    return hst::design::GetPalette(rStyle.GetDialogColor().IsDark()).aRibbon;
+ }
+ 
+ bool ownerDrawAllowed(const StyleSettings& rStyle) { return !rStyle.GetHighContrastMode(); }
+--- /dev/null
++++ b/vcl/source/hst/coat/coat-frame.cxx
+@@ -0,0 +1,89 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* The switches of the frame's coat (<vcl/hst/framecoat.hxx>). */
++
++#include <vcl/hst/framecoat.hxx>
++#include <hst/coat.hxx>
++
++#include <officecfg/Office/HSTAppearance.hxx>
++#include <sal/log.hxx>
++#include <vcl/settings.hxx>
++
++#include <array>
++#include <atomic>
++
++namespace hst::coat
++{
++namespace
++{
++constexpr std::size_t COMPONENTS = std::size_t(FrameComponent::DocumentTabs) + 1;
++
++// per part, 0: not read yet, 1: off, 2: on
++std::array<std::atomic<int>, COMPONENTS> g_aSwitch{};
++
++/** The part's switch: 2 on, 1 off, 0 not readable yet (no configuration very early in start-up:
++    the shipped default applies and the switch is read again next time). */
++int readSwitch(FrameComponent eComponent)
++{
++    using F = officecfg::Office::HSTAppearance::FrameCoat; // a group: a struct, not a namespace
++    try
++    {
++        switch (eComponent)
++        {
++            case FrameComponent::Ribbon:
++                return F::Ribbon::get() ? 2 : 1;
++            case FrameComponent::Backstage:
++                return F::Backstage::get() ? 2 : 1;
++            case FrameComponent::Sidebar:
++                return F::Sidebar::get() ? 2 : 1;
++            case FrameComponent::StatusBar:
++                return F::StatusBar::get() ? 2 : 1;
++            case FrameComponent::Menus:
++                return F::Menus::get() ? 2 : 1;
++            case FrameComponent::DocumentTabs:
++                return F::DocumentTabs::get() ? 2 : 1;
++        }
++    }
++    catch (const css::uno::Exception&)
++    {
++        // no configuration (e.g. very early in start-up): the shipped default
++        SAL_WARN("vcl.hst", "coat: a FrameCoat setting could not be read yet, using on");
++    }
++    return 0;
++}
++}
++
++bool FrameCoatEnabled(FrameComponent eComponent)
++{
++    if (!IsSwitchedOn())
++        return false;
++    std::atomic<int>& rSwitch = g_aSwitch[std::size_t(eComponent)];
++    int nSwitch = rSwitch.load(std::memory_order_relaxed);
++    if (nSwitch == 0)
++    {
++        nSwitch = readSwitch(eComponent);
++        if (nSwitch == 0)
++            return true; // the shipped default, not remembered
++        rSwitch.store(nSwitch, std::memory_order_relaxed);
++    }
++    return nSwitch == 2;
++}
++
++bool FrameCoatActive(FrameComponent eComponent, const StyleSettings& rStyle)
++{
++    return !rStyle.GetHighContrastMode() && FrameCoatEnabled(eComponent);
++}
++
++void ResetFrameCoatForTesting()
++{
++    for (std::atomic<int>& rSwitch : g_aSwitch)
++        rSwitch.store(0, std::memory_order_relaxed);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/coat/coat-gtk-css.cxx
++++ b/vcl/source/hst/coat/coat-gtk-css.cxx
+@@ -8,9 +8,12 @@
+ /* The coat for GTK-drawn dialogs: the same tokens as the VCL painters, written as GTK 3 CSS.
+    Only colours, corner radii and focus marks are set. Border widths, paddings, margins and minimum
+    sizes stay the theme's, so no widget changes size. A focused field gets its second border pixel
+-   from an inset shadow, which takes no space. */
++   from an inset shadow, which takes no space. The frame's parts (ribbon, backstage, sidebar, status
++   bar, menus, document tabs) follow, each from its own file under css/. */
+ 
+ #include <hst/coat.hxx>
++#include <vcl/hst/framecoat.hxx>
++#include "css/css-fragments.hxx"
+ 
+ #include <rtl/ustrbuf.hxx>
+ #include <vcl/hst/designtokens.hxx>
+@@ -24,6 +27,24 @@ namespace
+ OUString hex(const Color& rColor) { return u"#" + rColor.AsRGBHexString(); }
+ 
+ OUString px(double fLength) { return OUString::number(std::lround(fLength)) + u"px"; }
++
++/** A frame part's CSS fragment and the name in the comment before it. */
++struct Fragment
++{
++    FrameComponent eComponent;
++    std::u16string_view aName;
++    OUString (*pCss)(const hst::design::Palette&);
++};
++
++// in the order of FrameComponent
++constexpr Fragment FRAGMENTS[] = {
++    { FrameComponent::Ribbon, u"ribbon", gtkcss::RibbonCss },
++    { FrameComponent::Backstage, u"backstage", gtkcss::BackstageCss },
++    { FrameComponent::Sidebar, u"sidebar", gtkcss::SidebarCss },
++    { FrameComponent::StatusBar, u"statusbar", gtkcss::StatusBarCss },
++    { FrameComponent::Menus, u"menus", gtkcss::MenusCss },
++    { FrameComponent::DocumentTabs, u"doctabs", gtkcss::DocumentTabsCss },
++};
+ }
+ 
+ OString CreateGtkCss(bool bDark)
+@@ -133,6 +154,11 @@ OString CreateGtkCss(bool bDark)
+                 + u"; }\n"
+                   u"scrollbar slider:active { background-color: "
+                 + hex(p.aScrollThumbPressed) + u"; }\n");
++    // the frame's parts that are switched on
++    for (const Fragment& rFragment : FRAGMENTS)
++        if (FrameCoatEnabled(rFragment.eComponent))
++            aCss.append(OUString::Concat(u"/* hst frame: ") + rFragment.aName + u" */\n"
++                        + rFragment.pCss(p));
+     return OUStringToOString(aCss, RTL_TEXTENCODING_UTF8);
+ }
+ }
+--- a/vcl/source/hst/coat/coat-shapes.cxx
++++ b/vcl/source/hst/coat/coat-shapes.cxx
+@@ -7,19 +7,14 @@
+ 
+ #include "coat-paint.hxx"
+ 
+-#include <basegfx/matrix/b2dhommatrixtools.hxx>
+ #include <basegfx/point/b2dpoint.hxx>
+-#include <basegfx/polygon/b2dpolygontools.hxx>
+-#include <basegfx/range/b2drange.hxx>
+ #include <com/sun/star/drawing/LineCap.hpp>
+ #include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/drawhelpers.hxx>
+ #include <vcl/outdev.hxx>
+ #include <vcl/settings.hxx>
+ 
+-#include <salgdi.hxx>
+-
+ #include <algorithm>
+-#include <cmath>
+ 
+ namespace hst::coat
+ {
+@@ -33,102 +28,17 @@ double ControlRadius(const PaintContext& rCtx, tools::Long nHeight)
+     return std::min(rCtx.Px(hst::design::radius::Control), nHeight / 5.0);
+ }
+ 
+-namespace
+-{
+-/** How far the backend moves a filled polygon right and down from the coordinates it is given.
+-    The coat lays its shapes out on pixel edges, as Cairo (svp, gtk3, gen) and Quartz fill them.
+-    Skia takes the coordinates of a polygon with curves as pixel centres and moves it by half a
+-    pixel (a polygon of axis-parallel edges only it leaves on the edges when anti-aliased); GDI+ puts
+-    every pixel centre on whole coordinates. Without taking that back, a rounded shape lies half a
+-    pixel lower and further right on Windows than on Linux: its straight edges blur over two pixel
+-    rows and a fill reaches past the border at the bottom right corner. */
+-double fillShift(OutputDevice& rDev, bool bCurved)
+-{
+-    const SalGraphics* pGraphics = rDev.GetGraphics();
+-    if (!pGraphics)
+-        return 0.0;
+-    const OUString aBackend = pGraphics->getRenderBackendName();
+-    if (aBackend == "skia")
+-        return bCurved ? 0.5 : 0.0;
+-    if (aBackend == "gdi")
+-        return 0.5;
+-    return 0.0;
+-}
+-
+-/** rRange with corners of radius fRadius (in pixels; at most half the shorter side). */
+-basegfx::B2DPolygon roundedRect(const basegfx::B2DRange& rRange, double fRadius)
+-{
+-    const double fHalfW = rRange.getWidth() / 2;
+-    const double fHalfH = rRange.getHeight() / 2;
+-    if (fRadius <= 0 || fHalfW <= 0 || fHalfH <= 0)
+-        return basegfx::utils::createPolygonFromRect(rRange);
+-    return basegfx::utils::createPolygonFromRect(rRange, std::min(1.0, fRadius / fHalfW),
+-                                                 std::min(1.0, fRadius / fHalfH));
+-}
+-
+-/** rOuter shrunk by fBy on every side, its corners concentric with rOuter's (radius fRadius). */
+-basegfx::B2DPolygon insetRect(const basegfx::B2DRange& rOuter, double fRadius, double fBy)
+-{
+-    const basegfx::B2DRange aInner(rOuter.getMinX() + fBy, rOuter.getMinY() + fBy,
+-                                   rOuter.getMaxX() - fBy, rOuter.getMaxY() - fBy);
+-    if (aInner.getWidth() <= 0 || aInner.getHeight() <= 0)
+-        return {};
+-    return roundedRect(aInner, std::max(0.0, fRadius - fBy));
+-}
+-}
+-
+ void FillShape(const PaintContext& rCtx, const basegfx::B2DPolyPolygon& rShape, const Color& rColor)
+ {
+-    if (rColor == COL_TRANSPARENT || !rShape.count())
+-        return;
+-    basegfx::B2DPolyPolygon aShape(rShape);
+-    const double fShift = fillShift(rCtx.rDev, aShape.areControlPointsUsed());
+-    if (fShift != 0.0)
+-        aShape.transform(basegfx::utils::createTranslateB2DHomMatrix(-fShift, -fShift));
+-    rCtx.rDev.SetLineColor();
+-    rCtx.rDev.SetFillColor(rColor);
+-    rCtx.rDev.DrawPolyPolygon(aShape);
++    hst::design::FillPixelShape(rCtx.rDev, rShape, rColor);
+ }
+ 
+ void FillAndStroke(const PaintContext& rCtx, const tools::Rectangle& rRect, double fRadius,
+                    const Color& rFill, const Color& rBorder, double fBorder)
+ {
+-    if (rRect.IsEmpty())
+-        return;
+-    // the pixels of rRect, edge to edge
+-    const basegfx::B2DRange aOuter(rRect.Left(), rRect.Top(), rRect.Right() + 1.0,
+-                                   rRect.Bottom() + 1.0);
+-    const double fHalfSide = std::min(aOuter.getWidth(), aOuter.getHeight()) / 2;
+-    const double fRad = std::clamp(fRadius, 0.0, fHalfSide);
+-    const bool bBorder = rBorder != COL_TRANSPARENT && fBorder > 0;
+-    // whole pixels, so the straight edges of the border are crisp pixel rows and columns
+-    const double fWidth
+-        = bBorder ? std::min(double(std::max<tools::Long>(1, std::lround(fBorder))), fHalfSide)
+-                  : 0.0;
+-
+-    // Under a border the fill ends in the middle of it: the border covers the fill's anti-aliased
+-    // edge, and no fill reaches beyond the border's outer edge.
+-    if (rFill != COL_TRANSPARENT)
+-    {
+-        const basegfx::B2DPolygon aFill
+-            = bBorder ? insetRect(aOuter, fRad, fWidth / 2) : roundedRect(aOuter, fRad);
+-        if (aFill.count())
+-            FillShape(rCtx, basegfx::B2DPolyPolygon(aFill), rFill);
+-    }
+-    if (!bBorder)
+-        return;
+-    // The border is one filled ring between two concentric outlines, never a stroke: a stroke one
+-    // pixel wide is drawn by Skia as a hairline, a pixel per step along the curve, which leaves the
+-    // arc paler than the straight edges and a light notch where they meet; several one-pixel
+-    // strokes side by side leave pale seams between them on the arc.
+-    basegfx::B2DPolyPolygon aRing(roundedRect(aOuter, fRad));
+-    basegfx::B2DPolygon aHole = insetRect(aOuter, fRad, fWidth);
+-    if (aHole.count())
+-    {
+-        aHole.flip(); // a hole under the even-odd and the non-zero rule alike
+-        aRing.append(aHole);
+-    }
+-    FillShape(rCtx, aRing, rBorder);
++    // the shared helper: a filled ring of whole pixels, the fill ending mid-ring, on pixel edges on
++    // every backend
++    hst::design::DrawRoundRect(rCtx.rDev, rRect, fRadius, rFill, rBorder, fBorder);
+ }
+ 
+ void StrokePolyLine(const PaintContext& rCtx, const basegfx::B2DPolygon& rLine, const Color& rColor,
+--- a/vcl/source/hst/coat/coat-spacing.cxx
++++ b/vcl/source/hst/coat/coat-spacing.cxx
+@@ -8,12 +8,14 @@
+ /* Breathing room between push buttons that a dialog places (nearly) edge to edge. The buttons keep
+    their native windows, so sizes, layouts and click areas are unchanged; only the coat's shape is
+    drawn a little inside the window on the side facing the close neighbour, until the two shapes are
+-   MIN_GAP logical pixels apart. Both buttons of a pair compute the same gap, so each gives up half.
++   hst::design::layout::ButtonGap logical pixels apart (raise that token to widen every such gap).
++   Both buttons of a pair compute the same gap, so each gives up half.
+    Fields are left alone: on Windows their opaque inner window starts one pixel inside the frame and
+    would cover a frame drawn further in. */
+ 
+ #include <hst/coat.hxx>
+ 
++#include <vcl/hst/designtokens.hxx>
+ #include <vcl/outdev.hxx>
+ #include <vcl/window.hxx>
+ 
+@@ -24,9 +26,6 @@ namespace hst::coat
+ {
+ namespace
+ {
+-/** The smallest visible gap between two neighbouring push buttons, in logical pixels. */
+-constexpr double MIN_GAP = 4;
+-
+ bool isPushButton(const vcl::Window& rWindow)
+ {
+     switch (rWindow.GetType())
+@@ -57,7 +56,7 @@ tools::Rectangle SpacedButtonShape(const OutputDevice& rDev, const tools::Rectan
+     const vcl::Window* pWindow = rDev.GetOwnerWindow();
+     if (!pWindow || !isPushButton(*pWindow) || !pWindow->GetParent())
+         return rShape;
+-    const tools::Long nMin = std::lround(MIN_GAP * fScale);
++    const tools::Long nMin = std::lround(hst::design::layout::ButtonGap * fScale);
+     const tools::Rectangle aOwn(pWindow->GetPosPixel(), pWindow->GetSizePixel());
+     tools::Long nLeft = 0, nTop = 0, nRight = 0, nBottom = 0;
+     for (const vcl::Window* pSibling = pWindow->GetParent()->GetWindow(GetWindowType::FirstChild);
+--- /dev/null
++++ b/vcl/source/hst/coat/css/backstage.cxx
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* The GTK CSS of the File tab (backstage) in the HST look (css-fragments.hxx). */
++
++#include "css-fragments.hxx"
++
++#include <vcl/hst/designtokens.hxx>
++
++namespace hst::coat::gtkcss
++{
++OUString BackstageCss(const hst::design::Palette& /*rPalette*/)
++{
++    return OUString();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/hst/coat/css/css-fragments.hxx
+@@ -0,0 +1,31 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++
++namespace hst::design
++{
++struct Palette;
++}
++
++/* The GTK 3 CSS of each part of the frame's coat, one file per part, so the parts are styled
++   independently. CreateGtkCss (coat-gtk-css.cxx) appends a part's fragment after the dialogs' CSS
++   while that part is switched on (FrameCoat/<Part>). Like the dialogs' CSS, a fragment sets colours,
++   corner radii and focus marks from the tokens of rPalette, never widths, paddings or sizes. */
++namespace hst::coat::gtkcss
++{
++OUString RibbonCss(const hst::design::Palette& rPalette);
++OUString BackstageCss(const hst::design::Palette& rPalette);
++OUString SidebarCss(const hst::design::Palette& rPalette);
++OUString StatusBarCss(const hst::design::Palette& rPalette);
++OUString MenusCss(const hst::design::Palette& rPalette);
++OUString DocumentTabsCss(const hst::design::Palette& rPalette);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/hst/coat/css/doctabs.cxx
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* The GTK CSS of the document tab row in the HST look (css-fragments.hxx). */
++
++#include "css-fragments.hxx"
++
++#include <vcl/hst/designtokens.hxx>
++
++namespace hst::coat::gtkcss
++{
++OUString DocumentTabsCss(const hst::design::Palette& /*rPalette*/)
++{
++    return OUString();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/hst/coat/css/menus.cxx
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* The GTK CSS of popup and context menus in the HST look (css-fragments.hxx). */
++
++#include "css-fragments.hxx"
++
++#include <vcl/hst/designtokens.hxx>
++
++namespace hst::coat::gtkcss
++{
++OUString MenusCss(const hst::design::Palette& /*rPalette*/)
++{
++    return OUString();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/hst/coat/css/ribbon.cxx
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* The GTK CSS of the ribbon (the Tabbed notebookbar) in the HST look (css-fragments.hxx). */
++
++#include "css-fragments.hxx"
++
++#include <vcl/hst/designtokens.hxx>
++
++namespace hst::coat::gtkcss
++{
++OUString RibbonCss(const hst::design::Palette& /*rPalette*/)
++{
++    return OUString();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/hst/coat/css/sidebar.cxx
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* The GTK CSS of the sidebar's frame in the HST look (css-fragments.hxx). */
++
++#include "css-fragments.hxx"
++
++#include <vcl/hst/designtokens.hxx>
++
++namespace hst::coat::gtkcss
++{
++OUString SidebarCss(const hst::design::Palette& /*rPalette*/)
++{
++    return OUString();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/hst/coat/css/statusbar.cxx
+@@ -0,0 +1,22 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++/* The GTK CSS of the status bar in the HST look (css-fragments.hxx). */
++
++#include "css-fragments.hxx"
++
++#include <vcl/hst/designtokens.hxx>
++
++namespace hst::coat::gtkcss
++{
++OUString StatusBarCss(const hst::design::Palette& /*rPalette*/)
++{
++    return OUString();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/hst/designtokens.cxx
++++ b/vcl/source/hst/designtokens.cxx
+@@ -53,6 +53,18 @@ Palette makeLight()
+     p.aScrollThumbHover = Color(0x6E, 0x7A, 0x8B);
+     p.aScrollThumbPressed = Color(0x5F, 0x6B, 0x7C);
+     p.aTabIndicator = p.aAccent;
++    p.aFrameSurface = Color(0xF3, 0xF6, 0xFA);
++    p.aFrameSurfaceRaised = Color(0xFF, 0xFF, 0xFF);
++    p.aFrameDivider = Color(0x81, 0x8B, 0x9A);
++    p.aMenuSurface = Color(0xFF, 0xFF, 0xFF);
++    p.aMenuBorder = p.aFrameDivider;
++    p.aMenuHover = p.aHover;
++    p.aMenuShortcut = Color(0x5B, 0x64, 0x72);
++    p.aSelectedIndicator = p.aAccent;
++    // the ribbon's own colours (docs/design/ribbon-look/PROPOSAL.md), unchanged
++    p.aRibbon = { Color(0xE8, 0xF1, 0xFA), Color(0xC7, 0xE0, 0xF4), Color(0xE5, 0xF2, 0xFB),
++                  Color(0x00, 0x72, 0xBB), Color(0xDC, 0xE6, 0xF0), Color(0x53, 0x63, 0x79),
++                  Color(0x00, 0x72, 0xBB), Color(0xE8, 0xF1, 0xFA) };
+     const Color aFill[3] = { Color(0xEB, 0xF3, 0xFE), Color(0xE9, 0xF7, 0xEE), Color(0xFE, 0xF2, 0xE7) };
+     const Color aBorder[3] = { Color(0xCF, 0xE0, 0xFA), Color(0xC9, 0xEA, 0xD4), Color(0xF9, 0xDC, 0xC3) };
+     const Color aHover[3] = { Color(0xDE, 0xEB, 0xFD), Color(0xDB, 0xF1, 0xE3), Color(0xFC, 0xE7, 0xD4) };
+@@ -103,6 +115,17 @@ Palette makeDark()
+     p.aScrollThumbHover = Color(0x93, 0x9E, 0xB0);
+     p.aScrollThumbPressed = Color(0xA7, 0xB1, 0xC1);
+     p.aTabIndicator = p.aAccent;
++    p.aFrameSurface = Color(0x1A, 0x22, 0x30);
++    p.aFrameSurfaceRaised = p.aCard;
++    p.aFrameDivider = Color(0x6B, 0x76, 0x89);
++    p.aMenuSurface = p.aCard;
++    p.aMenuBorder = p.aFrameDivider;
++    p.aMenuHover = p.aHover;
++    p.aMenuShortcut = Color(0xA7, 0xAE, 0xBA);
++    p.aSelectedIndicator = p.aAccent;
++    p.aRibbon = { Color(0x26, 0x3B, 0x50), Color(0x2D, 0x58, 0x78), Color(0x23, 0x47, 0x62),
++                  Color(0x78, 0xC5, 0xF4), Color(0x35, 0x48, 0x5C), Color(0xAF, 0xBD, 0xCE),
++                  Color(0x78, 0xC5, 0xF4), Color(0x26, 0x3B, 0x50) };
+     const Color aFill[3] = { Color(0x1E, 0x2D, 0x4A), Color(0x1B, 0x33, 0x2A), Color(0x3A, 0x2A, 0x1F) };
+     const Color aBorder[3] = { Color(0x2F, 0x4A, 0x7A), Color(0x2B, 0x5A, 0x42), Color(0x6A, 0x46, 0x2A) };
+     const Color aHover[3] = { Color(0x25, 0x38, 0x5C), Color(0x21, 0x40, 0x34), Color(0x47, 0x33, 0x25) };
+--- a/vcl/source/hst/drawhelpers.cxx
++++ b/vcl/source/hst/drawhelpers.cxx
+@@ -9,6 +9,7 @@
+ #include <vcl/hst/designtokens.hxx>
+ 
+ #include <basegfx/matrix/b2dhommatrix.hxx>
++#include <basegfx/matrix/b2dhommatrixtools.hxx>
+ #include <basegfx/point/b2dpoint.hxx>
+ #include <basegfx/polygon/b2dpolygon.hxx>
+ #include <basegfx/polygon/b2dpolygontools.hxx>
+@@ -21,7 +22,10 @@
+ #include <vcl/outdev.hxx>
+ #include <vcl/rendercontext/AntialiasingFlags.hxx>
+ 
++#include <salgdi.hxx>
++
+ #include <algorithm>
++#include <cmath>
+ 
+ namespace hst::design
+ {
+@@ -45,13 +49,91 @@ private:
+     AntialiasingFlags meOld;
+ };
+ 
++/** rRange with corners of radius fRadius (in pixels; at most half the shorter side). */
+ basegfx::B2DPolygon roundedRect(const basegfx::B2DRange& rRange, double fRadius)
+ {
+-    const double fHalfW = std::max(1.0, rRange.getWidth() / 2);
+-    const double fHalfH = std::max(1.0, rRange.getHeight() / 2);
++    const double fHalfW = rRange.getWidth() / 2;
++    const double fHalfH = rRange.getHeight() / 2;
++    if (fRadius <= 0 || fHalfW <= 0 || fHalfH <= 0)
++        return basegfx::utils::createPolygonFromRect(rRange);
+     return basegfx::utils::createPolygonFromRect(rRange, std::min(1.0, fRadius / fHalfW),
+                                                  std::min(1.0, fRadius / fHalfH));
+ }
++
++/** rOuter shrunk by fBy on every side, its corners concentric with rOuter's (radius fRadius). */
++basegfx::B2DPolygon insetRect(const basegfx::B2DRange& rOuter, double fRadius, double fBy)
++{
++    const basegfx::B2DRange aInner(rOuter.getMinX() + fBy, rOuter.getMinY() + fBy,
++                                   rOuter.getMaxX() - fBy, rOuter.getMaxY() - fBy);
++    if (aInner.getWidth() <= 0 || aInner.getHeight() <= 0)
++        return {};
++    return roundedRect(aInner, std::max(0.0, fRadius - fBy));
++}
++
++/** Whether every edge of rShape is horizontal or vertical (Skia's own test for leaving a polygon on
++    pixel edges). */
++bool onlyAxisParallel(const basegfx::B2DPolyPolygon& rShape)
++{
++    if (rShape.areControlPointsUsed())
++        return false;
++    for (const basegfx::B2DPolygon& rPolygon : rShape)
++    {
++        const sal_uInt32 nCount = rPolygon.count();
++        for (sal_uInt32 i = 0; i < nCount; ++i)
++        {
++            const basegfx::B2DPoint aFrom = rPolygon.getB2DPoint(i);
++            const basegfx::B2DPoint aTo = rPolygon.getB2DPoint((i + 1) % nCount);
++            if (aFrom.getX() != aTo.getX() && aFrom.getY() != aTo.getY())
++                return false;
++        }
++    }
++    return true;
++}
++
++/** rShape moved back by the pixel-origin shift of rDev's backend (see PixelOriginShift). */
++basegfx::B2DPolyPolygon onPixelEdges(const OutputDevice& rDev, const basegfx::B2DPolyPolygon& rShape)
++{
++    const SalGraphics* pGraphics = rDev.GetGraphics();
++    if (!pGraphics)
++        return rShape;
++    const double fShift
++        = PixelOriginShift(pGraphics->getRenderBackendName(), onlyAxisParallel(rShape));
++    if (fShift == 0.0)
++        return rShape;
++    basegfx::B2DPolyPolygon aShape(rShape);
++    aShape.transform(basegfx::utils::createTranslateB2DHomMatrix(-fShift, -fShift));
++    return aShape;
++}
++
++/** FillPixelShape without saving the device's colours and anti-aliasing (the caller has). */
++void fillOnPixelEdges(OutputDevice& rDev, const basegfx::B2DPolyPolygon& rShape, const Color& rFill)
++{
++    rDev.SetLineColor();
++    rDev.SetFillColor(rFill);
++    rDev.DrawPolyPolygon(onPixelEdges(rDev, rShape));
++}
++}
++
++double PixelOriginShift(std::u16string_view aBackend, bool bAxisParallel)
++{
++    // Skia takes the coordinates of a polygon with curves or slanted edges as pixel centres and moves
++    // it by half a pixel (an anti-aliased polygon of horizontal and vertical edges only it leaves on
++    // the edges); GDI+ puts every pixel centre on whole coordinates; Cairo (svp, gtk3, gen) and
++    // Quartz fill on pixel edges.
++    if (aBackend == u"skia")
++        return bAxisParallel ? 0.0 : 0.5;
++    if (aBackend == u"gdi")
++        return 0.5;
++    return 0.0;
++}
++
++void FillPixelShape(OutputDevice& rDev, const basegfx::B2DPolyPolygon& rShape, const Color& rFill)
++{
++    if (rFill == COL_TRANSPARENT || !rShape.count())
++        return;
++    auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    ScopedAntialiasing aAntialiasing(rDev);
++    fillOnPixelEdges(rDev, rShape, rFill);
+ }
+ 
+ void DrawRoundRect(OutputDevice& rDev, const tools::Rectangle& rRect, double fRadius, const Color& rFill,
+@@ -59,32 +141,40 @@ void DrawRoundRect(OutputDevice& rDev, const tools::Rectangle& rRect, double fRa
+ {
+     if (rRect.IsEmpty())
+         return;
+-    // Cairo fills polygons on pixel edges and strokes lines half a pixel further (it adds that offset
+-    // itself; Skia adds it to lines and to rounded fills alike). So the fill covers the rectangle's
+-    // pixels, and an outline of width w lies w/2 - 0.5 inside the edge: its outer edge is the edge
+-    // pixel, crisp at any w. Under an outline the fill stops half a pixel inside, where the outline
+-    // paints over it on both backends, so no fill bleeds beside the border.
+-    const bool bBorder = rBorder != COL_TRANSPARENT;
+-    const double fFillIn = bBorder ? 0.5 : 0.0;
+-    const basegfx::B2DRange aFillRange(rRect.Left() + fFillIn, rRect.Top() + fFillIn,
+-                                       rRect.Right() + 1.0 - fFillIn, rRect.Bottom() + 1.0 - fFillIn);
+-    const double fInset = std::max(0.0, fBorderWidth / 2 - 0.5);
+-    const basegfx::B2DRange aLineRange(rRect.Left() + fInset, rRect.Top() + fInset, rRect.Right() - fInset,
+-                                       rRect.Bottom() - fInset);
++    // the pixels of rRect, edge to edge
++    const basegfx::B2DRange aOuter(rRect.Left(), rRect.Top(), rRect.Right() + 1.0, rRect.Bottom() + 1.0);
++    const double fHalfSide = std::min(aOuter.getWidth(), aOuter.getHeight()) / 2;
++    const double fRad = std::clamp(fRadius, 0.0, fHalfSide);
++    const bool bBorder = rBorder != COL_TRANSPARENT && fBorderWidth > 0;
++    // whole pixels, so the straight edges of the border are crisp pixel rows and columns
++    const double fWidth
++        = bBorder ? std::min(double(std::max<tools::Long>(1, std::lround(fBorderWidth))), fHalfSide)
++                  : 0.0;
+     auto aPop = rDev.ScopedPush(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
+     ScopedAntialiasing aAntialiasing(rDev);
++    // Under a border the fill ends in the middle of it: the border covers the fill's anti-aliased
++    // edge, and no fill reaches beyond the border's outer edge.
+     if (rFill != COL_TRANSPARENT)
+     {
+-        rDev.SetLineColor();
+-        rDev.SetFillColor(rFill);
+-        rDev.DrawPolygon(roundedRect(aFillRange, fRadius));
++        const basegfx::B2DPolygon aFill
++            = bBorder ? insetRect(aOuter, fRad, fWidth / 2) : roundedRect(aOuter, fRad);
++        if (aFill.count())
++            fillOnPixelEdges(rDev, basegfx::B2DPolyPolygon(aFill), rFill);
+     }
+-    if (bBorder)
++    if (!bBorder)
++        return;
++    // The border is one filled ring between two concentric outlines, never a stroke: Skia draws a
++    // stroke one pixel wide as a hairline, a pixel per step along the curve, which leaves the arc
++    // paler than the straight edges and a light notch where they meet; and a stroke of a fractional
++    // width blurs the straight edges over two pixel rows.
++    basegfx::B2DPolyPolygon aRing(roundedRect(aOuter, fRad));
++    basegfx::B2DPolygon aHole = insetRect(aOuter, fRad, fWidth);
++    if (aHole.count())
+     {
+-        rDev.SetFillColor();
+-        rDev.SetLineColor(rBorder);
+-        rDev.DrawPolyLine(roundedRect(aLineRange, std::max(0.0, fRadius - fInset)), fBorderWidth);
++        aHole.flip(); // a hole under the even-odd and the non-zero rule alike
++        aRing.append(aHole);
+     }
++    fillOnPixelEdges(rDev, aRing, rBorder);
+ }
+ 
+ void DrawCardShadow(OutputDevice& rDev, const tools::Rectangle& rRect, double fRadius,
+@@ -104,9 +194,10 @@ void DrawCardShadow(OutputDevice& rDev, const tools::Rectangle& rRect, double fR
+         const basegfx::B2DRange aRange(rRect.Left() - fGrow, rRect.Top(),
+                                        rRect.Right() + 1 + fGrow, rRect.Bottom() + 1 + 2 * fGrow);
+         const double fLayer = fOpacity * (SHADOW_LAYERS + 1 - i) / SHADOW_LAYERS;
+-        rDev.DrawTransparent(basegfx::B2DHomMatrix(),
+-                             basegfx::B2DPolyPolygon(roundedRect(aRange, fRadius + fGrow)),
+-                             1.0 - fLayer);
++        rDev.DrawTransparent(
++            basegfx::B2DHomMatrix(),
++            onPixelEdges(rDev, basegfx::B2DPolyPolygon(roundedRect(aRange, fRadius + fGrow))),
++            1.0 - fLayer);
+     }
+ }
+ 
