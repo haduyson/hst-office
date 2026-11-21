@@ -703,15 +703,22 @@ def run_case(platform, ui, ident, case, args):
     return result
 
 
-def run(args):
-    import hst_gui
+def select_cases(every=False, ids=()):
+    """{id: Case} to run: the ranked list with the batches' own cases, or with `every` every candidate and every
+    batch case; `ids` picks some of all of them."""
     everything = {**cases.CANDIDATES, **cases.load_extra()}
-    selected = everything if args.all else cases.listed()
-    if args.ids:
-        unknown = [i for i in args.ids if i not in everything]
+    selected = everything if every else cases.listed()
+    if ids:
+        unknown = [i for i in ids if i not in everything]
         if unknown:
             raise SystemExit("unknown dialog: " + ", ".join(unknown))
-        selected = {i: everything[i] for i in args.ids}
+        selected = {i: everything[i] for i in ids}
+    return selected
+
+
+def run(args):
+    import hst_gui
+    selected = select_cases(args.all, args.ids)
     runnable = {k: v for k, v in selected.items() if v.command}
     env = {"HST_UI_COAT": "1"}
     if args.plugin == "gtk3" and args.scale == 125:
