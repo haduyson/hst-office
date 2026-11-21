@@ -13,11 +13,10 @@ while the tab group was still switching tabs). Here:
   shortly after it opened, after the tab group has finished its own window work, and again whenever its parent
   window is hidden while it runs (macOS orders a child window out with its parent: a tab parked behind a new tab
   took its running dialog off screen, probe run 44842914015).
-- watch_new_documents(): macOS only. A document opened while the dialog runs (the "+" menu, File > New, Finder, a
-  launcher) gets a window of its own; when the parent is in native full screen, that window joins the parent's native
-  tab group and is selected, which hides the parent window and its dialog, unknown to vcl (no windowHidden; probe run
-  44922182163). The parent window is brought to the front again (selects its tab), then the dialog; once the dialog
-  has ended, the newest such document comes to the front.
+- watch_new_documents(): macOS only. A document opened while the dialog runs over a parent window in native full screen
+  (the "+" menu, File > New, Finder, a launcher) shows in a full screen Space of its own; the parent and its child
+  dialog stay in the Space the user left, where no toFront reaches them (probe run 44924218348). The dialog is moved
+  onto the new document's window (dialogs.Dialog.execute runs it again there, its model keeps what was entered).
 - log_open(): one local diagnostics line per modal dialog (title, command that opened it, parent kind).
 """
 import sys
@@ -168,34 +167,30 @@ def watch_parent(ctx, parent_window, dialog, is_open, timer=None):
 
 
 NEW_DOCUMENT_EVENTS = ("OnNew", "OnLoad", "OnViewCreated")
+MOVE_DELAY = 1.0  # seconds after a new document's event: its window is shown and in its own Space by then
 
 
-class _ParentAndDialogToFront(unohelper.Base, XCallback):
-    """Main thread: the parent window to the front (macOS: selects it again in its native tab group), then the dialog."""
-
-    def __init__(self, parent_window, dialog, is_open):
-        self.parent_window, self.dialog, self.is_open = parent_window, dialog, is_open
-
-    def notify(self, data):
-        try:
-            if self.is_open():
-                self.parent_window.toFront()
-                self.dialog.toFront()
-        except Exception:  # noqa: BLE001 - the dialog or its parent ended meanwhile
-            pass
+def covers_display(ctx, window):
+    """The window is as large as the whole display (vcl's work area is the display): native full screen on macOS."""
+    try:
+        screen = ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.Toolkit", ctx).getWorkArea()
+        size = window.getPosSize()
+        return size.Width >= screen.Width and size.Height >= screen.Height
+    except Exception:  # noqa: BLE001 - unknown geometry: treat as a plain window
+        return False
 
 
-class _DocumentToFront(unohelper.Base, XCallback):
-    """Main thread, after the dialog has ended: the window of a document opened meanwhile to the front, focused."""
+class _Move(unohelper.Base, XCallback):
+    """Main thread: move the running dialog onto `window` if it still runs and the window is shown."""
 
-    def __init__(self, window):
-        self.window = window
+    def __init__(self, window, is_open, move):
+        self.window, self.is_open, self.move = window, is_open, move
 
     def notify(self, data):
         try:
-            self.window.toFront()
-            self.window.setFocus()
-        except Exception:  # noqa: BLE001 - the document was closed meanwhile
+            if self.is_open() and _shown(self.window):
+                self.move(self.window)
+        except Exception:  # noqa: BLE001 - the dialog or the document ended meanwhile
             pass
 
 
@@ -220,23 +215,19 @@ def _document_window(event):
         return None
 
 
-def watch_new_documents(ctx, parent_window, dialog, is_open, timer=None, platform=None):
-    """macOS only (elsewhere a no-op): while the dialog runs, a document opened meanwhile brings the parent window and
-    the dialog back to the front; the returned stop function ends watching and, if such a document opened, brings
-    its window to the front after the dialog has closed."""
+def watch_new_documents(ctx, parent_window, is_open, move, timer=None, platform=None):
+    """macOS only (elsewhere a no-op): while the dialog runs over a parent window in native full screen, a document
+    opened meanwhile gets the dialog: move(window) is called on the main thread with that document's window. Returns
+    the function that stops watching."""
     if (platform or sys.platform) != "darwin" or parent_window is None:
         return lambda: None
     start = timer or _daemon_timer
-    opened = []
 
     def on_new(event):
         window = _document_window(event)
-        if window is not None and window != parent_window:
-            if window in opened:
-                opened.remove(window)
-            opened.append(window)
-        for delay in FRONT_DELAYS:
-            start(delay, lambda: _post(ctx, _ParentAndDialogToFront(parent_window, dialog, is_open)))
+        if window is None or window == parent_window or not covers_display(ctx, parent_window):
+            return
+        start(MOVE_DELAY, lambda: _post(ctx, _Move(window, is_open, move)))
 
     listener = _NewDocument(on_new)
     try:
@@ -250,9 +241,6 @@ def watch_new_documents(ctx, parent_window, dialog, is_open, timer=None, platfor
             broadcaster.removeDocumentEventListener(listener)
         except Exception:  # noqa: BLE001 - office shutting down
             pass
-        if opened:
-            latest = opened[-1]
-            start(FRONT_DELAYS[0], lambda: _post(ctx, _DocumentToFront(latest)))
     return stop
 
 

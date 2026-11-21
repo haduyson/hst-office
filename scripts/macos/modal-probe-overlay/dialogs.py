@@ -157,6 +157,38 @@ class Dialog:
         dialog_edit_heights.fit_edits(self)
         if self.on_oversize and self._exceeds_screen(toolkit):
             self.on_oversize()
+        self._attach(parent)
+        if self.on_ready:
+            self.on_ready()
+        dialog_on_screen.log_open(self.model.Title, parent_kind)
+        moves = []  # macOS full screen: the window of a document opened meanwhile, the dialog runs again there
+
+        def move(window):
+            if not moves:
+                moves.append(window)
+                self.dialog.endExecute()
+        try:
+            while True:
+                in_front = lambda: dialog_on_screen.is_front_candidate(self.ctx, self.dialog)  # noqa: E731
+                dialog_on_screen.keep_in_front(self.ctx, self.dialog, in_front)
+                stop_watching = dialog_on_screen.watch_parent(self.ctx, parent, self.dialog, in_front)
+                stop_new_documents = dialog_on_screen.watch_new_documents(self.ctx, parent, in_front, move)
+                try:
+                    dialog_registry.execute(self.dialog)  # registered: a modal dialog keeps the office from quitting
+                finally:
+                    stop_watching()
+                    stop_new_documents()
+                if not moves:
+                    return self.result
+                parent = moves.pop()
+                self._move_to(toolkit, parent)
+        finally:
+            if self.on_closed:
+                self.on_closed()
+            self.dialog.dispose()
+
+    def _attach(self, parent):
+        """After the peer exists: centred over its parent, listeners on its controls."""
         dialog_on_screen.centre(self.dialog, parent)  # after the layout: its final size
         for name, listener in self._listeners:
             self.dialog.getControl(name).addActionListener(listener)
@@ -167,22 +199,16 @@ class Dialog:
                 control.addItemListener(listener)
             else:
                 control.addTextListener(listener)
-        if self.on_ready:
-            self.on_ready()
-        dialog_on_screen.log_open(self.model.Title, parent_kind)
-        in_front = lambda: dialog_on_screen.is_front_candidate(self.ctx, self.dialog)  # noqa: E731
-        dialog_on_screen.keep_in_front(self.ctx, self.dialog, in_front)
-        stop_watching = dialog_on_screen.watch_parent(self.ctx, parent, self.dialog, in_front)
-        stop_new_documents = dialog_on_screen.watch_new_documents(self.ctx, parent, self.dialog, in_front)
-        try:
-            dialog_registry.execute(self.dialog)  # registered: a modal dialog keeps the office from quitting
-            return self.result
-        finally:
-            stop_watching()
-            stop_new_documents()
-            if self.on_closed:
-                self.on_closed()
-            self.dialog.dispose()
+
+    def _move_to(self, toolkit, parent):
+        """The same dialog (its model keeps what was entered) on another parent window: a new control and peer."""
+        self.dialog.dispose()  # releases the model, does not dispose it
+        self.dialog = self.smgr.createInstanceWithContext("com.sun.star.awt.UnoControlDialog", self.ctx)
+        self.dialog.setModel(self.model)
+        self.dialog.setVisible(False)
+        self.dialog.createPeer(toolkit, parent)
+        self._attach(parent)
+        dialog_on_screen.log_open(self.model.Title, "moved-to-new-document")
 
 
 def message_box(ctx, parent_peer, title, text, error=False, ask=False, buttons=None):
