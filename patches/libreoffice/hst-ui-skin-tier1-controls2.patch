@@ -165,12 +165,14 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
      CppunitTest_vcl_treeview \
 --- a/vcl/inc/hst/coat.hxx
 +++ b/vcl/inc/hst/coat.hxx
-@@ -13,11 +13,19 @@
+@@ -13,11 +13,21 @@
  #include <vcl/dllapi.h>
  #include <vcl/salnativewidgets.hxx>
  
 +#include <utility>
 +#include <vector>
++#include <functional>
++#include <string>
 +
  class OutputDevice;
  class StyleSettings;
@@ -186,7 +188,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  
     Only the drawing changes: a part is drawn by the coat only where the platform already draws it
     natively, and every size and content region still comes from the platform, so layouts are exactly
-@@ -34,6 +42,36 @@ bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
+@@ -34,6 +44,36 @@ bool DrawNativeControl(OutputDevice& rDev, ControlType eType, ControlPart ePart,
                         const tools::Rectangle& rRegion, ControlState eState,
                         const ImplControlValue& rValue, const Color& rBackground);
  
@@ -223,7 +225,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  /** Whether the coat is switched on (setting and environment), not looking at high contrast. */
  VCL_PLUGIN_PUBLIC bool IsSwitchedOn();
  
-@@ -56,6 +94,39 @@ VCL_DLLPUBLIC tools::Rectangle SpacedButtonShape(const OutputDevice& rDev,
+@@ -56,6 +96,43 @@ VCL_DLLPUBLIC tools::Rectangle SpacedButtonShape(const OutputDevice& rDev,
      has none), so the coat's drawing can be checked on a VirtualDevice. */
  VCL_DLLPUBLIC void ForceForTesting(bool bForce);
  
@@ -260,12 +262,16 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +VCL_DLLPUBLIC std::pair<double, double> ListRepaintTimingForTesting(vcl::Window* pParent, int nRows,
 +                                                                    int nMoves, int nScrolls);
 +
++/** DIAG ONLY */
++VCL_DLLPUBLIC std::string ListHoverCostDiagForTesting(vcl::Window* pParent,
++                                                      const std::function<void(bool)>& rSetSwitch);
++
  /** Tests: read the switch (setting and environment) again on its next use. */
  VCL_DLLPUBLIC void ResetSwitchForTesting();
  
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/coat-controls2-test.cxx
-@@ -0,0 +1,628 @@
+@@ -0,0 +1,640 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -292,6 +298,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +#include <algorithm>
 +#include <cstdio>
 +#include <cstdlib>
++#include <string>
 +#include <utility>
 +#include <vector>
 +
@@ -827,6 +834,17 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +    CPPUNIT_ASSERT_LESS(aOff.second * 2 + 50, aOn.second);
 +}
 +
++/* DIAG ONLY: fails on purpose so the build log shows the numbers. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testZzDiagHoverCost)
++{
++    ScopedVclPtrInstance<WorkWindow> pParent(nullptr, WB_STDWORK);
++    pParent->SetPosSizePixel(Point(0, 0), Size(400, 300));
++    pParent->Show();
++    const std::string aOut = hst::coat::ListHoverCostDiagForTesting(pParent.get(), [](bool b) { setSwitch(b); });
++    std::fprintf(stderr, "%s", aOut.c_str());
++    CPPUNIT_FAIL("DIAG: numbers above");
++}
++
 +/* Switched off or in high contrast, VCL and the platform draw every one of these parts. */
 +CPPUNIT_TEST_FIXTURE(CoatControlsTest, testOffAndHighContrastLeaveThePartsToVcl)
 +{
@@ -1281,7 +1299,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
          if (FrameCoatEnabled(rFragment.eComponent))
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-list-hover.cxx
-@@ -0,0 +1,197 @@
+@@ -0,0 +1,376 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1311,8 +1329,21 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +
 +#include <algorithm>
 +#include <chrono>
++#include <functional>
 +#include <utility>
++#include <basegfx/polygon/b2dpolygon.hxx>
++#include <basegfx/polygon/b2dpolygontools.hxx>
++#include <basegfx/range/b2drange.hxx>
++#include <vcl/virdev.hxx>
++#include <cstdio>
++#include <string>
 +#include <vector>
++
++namespace hst::coat
++{
++bool g_bDiagFullWidth = false; // DIAG ONLY
++extern bool g_bDiagOldShape;
++}
 +
 +void SvTreeListBox::CoatTrackHover(const MouseEvent& rMEvt)
 +{
@@ -1332,6 +1363,9 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +            const Size& rRows = m_pImpl->GetOutputSize();
 +            aRow = tools::Rectangle(Point(0, aPos.Y() / nHeight * nHeight), Size(rRows.Width(), nHeight))
 +                       .GetIntersection(tools::Rectangle(Point(), rRows));
++            if (hst::coat::g_bDiagFullWidth)
++                aRow = tools::Rectangle(Point(0, aPos.Y() / nHeight * nHeight),
++                                        Size(GetOutputSizePixel().Width(), nHeight));
 +        }
 +    }
 +    if (pEntry == m_pCoatHoverEntry)
@@ -1476,12 +1510,175 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +    pList.disposeAndClear();
 +    return { fMoves, fScrolls };
 +}
++
++/* DIAG ONLY: where the cost of the hover goes. */
++std::string ListHoverCostDiagForTesting(vcl::Window* pParent, const std::function<void(bool)>& rSetSwitch)
++{
++    using Clock = std::chrono::steady_clock;
++    std::string aOut;
++    char aBuf[512];
++    auto line = [&](const char* pFormat, auto... aArgs) {
++        std::snprintf(aBuf, sizeof aBuf, pFormat, aArgs...);
++        aOut += aBuf;
++        aOut += "\n";
++    };
++    auto us = [](Clock::time_point a, int n) {
++        return std::chrono::duration<double, std::micro>(Clock::now() - a).count() / std::max(1, n);
++    };
++    auto modeName = [](int m) { return m == 0 ? "off" : m == 1 ? "on-old" : "on-new"; };
++    auto setMode = [&](int m) {
++        rSetSwitch(m != 0);
++        g_bDiagOldShape = m == 1;
++        g_bDiagFullWidth = m == 1;
++    };
++
++    // M1: repaint with no mouse move at all (does each PaintImmediately repaint the whole list?)
++    for (int m : { 0, 2, 0, 2 })
++    {
++        setMode(m);
++        VclPtr<SvTreeListBox> pList = makeList(pParent, 500, false);
++        pList->PaintImmediately();
++        auto t = Clock::now();
++        for (int i = 0; i < 2000; ++i)
++            pList->PaintImmediately();
++        line("M1 PaintImmediately only, no move, %s: %.1f us", modeName(m), us(t, 2000));
++        pList.disposeAndClear();
++    }
++    // M2: mouse moves only, no repaint (the tracking itself)
++    for (int m : { 0, 1, 2, 0, 1, 2 })
++    {
++        setMode(m);
++        VclPtr<SvTreeListBox> pList = makeList(pParent, 500, false);
++        pList->PaintImmediately();
++        const tools::Long nHeight = std::max<tools::Long>(1, pList->GetEntryHeight());
++        const tools::Long nVisible = std::max<tools::Long>(1, 200 / nHeight);
++        auto t = Clock::now();
++        for (int i = 0; i < 2000; ++i)
++        {
++            const tools::Long nStep = i % (2 * nVisible * 4);
++            const tools::Long nY = (nStep < nVisible * 4 ? nStep : 2 * nVisible * 4 - nStep) * nHeight / 4;
++            pList->MouseMove(MouseEvent(Point(40, std::min<tools::Long>(nY, 199))));
++        }
++        line("M2 MouseMove only, no repaint, %s: %.2f us", modeName(m), us(t, 2000));
++        pList.disposeAndClear();
++    }
++    // M3: one row's background on a 300 x 20 device, 5000 times each
++    {
++        setMode(2);
++        ScopedVclPtr<VirtualDevice> pDev = VclPtr<VirtualDevice>::Create();
++        pDev->SetOutputSizePixel(Size(300, 20));
++        const tools::Rectangle aRow(Point(0, 0), Size(280, 18));
++        const Color aHover(0xE1, 0xEC, 0xFB);
++        const int N = 5000;
++        for (int nRound = 0; nRound < 2; ++nRound)
++        {
++            pDev->SetLineColor();
++            pDev->SetFillColor(COL_WHITE);
++            auto t = Clock::now();
++            for (int i = 0; i < N; ++i)
++                pDev->DrawRect(aRow);
++            line("M3 plain DrawRect 280x18: %.2f us", us(t, N));
++            for (int nOld : { 1, 0 })
++            {
++                g_bDiagOldShape = nOld == 1;
++                t = Clock::now();
++                for (int i = 0; i < N; ++i)
++                    DrawListSelection(*pDev, aRow, aHover, COL_BLACK, true, true);
++                line("M3 DrawListSelection 280x18 both ends rounded, %s: %.2f us",
++                     nOld ? "old whole shape" : "new ends only", us(t, N));
++                t = Clock::now();
++                for (int i = 0; i < N; ++i)
++                    DrawListSelection(*pDev, aRow, aHover, COL_BLACK, true, false);
++                line("M3 DrawListSelection 280x18 start rounded, %s: %.2f us",
++                     nOld ? "old whole shape" : "new ends only", us(t, N));
++            }
++            g_bDiagOldShape = false;
++            const basegfx::B2DRange aRange(0, 0, 280, 18);
++            t = Clock::now();
++            basegfx::B2DPolygon aPoly;
++            for (int i = 0; i < N; ++i)
++                aPoly = basegfx::utils::createPolygonFromRect(aRange, 4.5 / 140, 4.5 / 9);
++            line("M3 rounded polygon construction only: %.2f us", us(t, N));
++            pDev->SetAntialiasing(AntialiasingFlags::Enable);
++            pDev->SetFillColor(aHover);
++            t = Clock::now();
++            for (int i = 0; i < N; ++i)
++                pDev->DrawPolygon(aPoly);
++            line("M3 AA fill of a prebuilt rounded polygon 280x18: %.2f us", us(t, N));
++            pDev->SetAntialiasing(AntialiasingFlags::NONE);
++            t = Clock::now();
++            for (int i = 0; i < N; ++i)
++            {
++                pDev->Push(vcl::PushFlags::MAPMODE | vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++                pDev->EnableMapMode(false);
++                pDev->SetAntialiasing(AntialiasingFlags::Enable);
++                pDev->Pop();
++                pDev->SetAntialiasing(AntialiasingFlags::NONE);
++            }
++            line("M3 PaintScope-like push/pop + AA toggle: %.2f us", us(t, N));
++        }
++    }
++    // M4: the report's benchmark (500 rows, 2000 moves, 400 scrolls), the three modes interleaved, 5 rounds
++    {
++        std::vector<double> aMove[3], aScroll[3];
++        setMode(2);
++        ListRepaintTimingForTesting(pParent, 500, 200, 100);
++        for (int nRound = 0; nRound < 5; ++nRound)
++            for (int m : { 0, 1, 2 })
++            {
++                setMode(m);
++                auto a = ListRepaintTimingForTesting(pParent, 500, 2000, 400);
++                aMove[m].push_back(a.first);
++                aScroll[m].push_back(a.second);
++                line("M4 round %d %s: move %.1f us, scroll %.1f us", nRound, modeName(m), a.first, a.second);
++            }
++        for (int m : { 0, 1, 2 })
++        {
++            std::sort(aMove[m].begin(), aMove[m].end());
++            std::sort(aScroll[m].begin(), aScroll[m].end());
++            line("M4 %s: move min %.1f median %.1f us; scroll min %.1f median %.1f us", modeName(m),
++                 aMove[m][0], aMove[m][2], aScroll[m][0], aScroll[m][2]);
++        }
++        line("M4 ratio on/off move: old min %.4f median %.4f; new min %.4f median %.4f",
++             aMove[1][0] / aMove[0][0], aMove[1][2] / aMove[0][2], aMove[2][0] / aMove[0][0],
++             aMove[2][2] / aMove[0][2]);
++    }
++    // M5: as in the application: the frame painted once, then each move repaints only what it invalidated
++    {
++        pParent->PaintImmediately();
++        for (int nRound = 0; nRound < 3; ++nRound)
++            for (int m : { 0, 1, 2 })
++            {
++                setMode(m);
++                VclPtr<SvTreeListBox> pList = makeList(pParent, 500, false);
++                pParent->PaintImmediately();
++                pList->PaintImmediately();
++                const tools::Long nHeight = std::max<tools::Long>(1, pList->GetEntryHeight());
++                const tools::Long nVisible = std::max<tools::Long>(1, 200 / nHeight);
++                auto t = Clock::now();
++                for (int i = 0; i < 2000; ++i)
++                {
++                    const tools::Long nStep = i % (2 * nVisible * 4);
++                    const tools::Long nY
++                        = (nStep < nVisible * 4 ? nStep : 2 * nVisible * 4 - nStep) * nHeight / 4;
++                    pList->MouseMove(MouseEvent(Point(40, std::min<tools::Long>(nY, 199))));
++                    pList->PaintImmediately();
++                }
++                line("M5 round %d frame painted, moves with partial repaint, %s: %.2f us", nRound,
++                     modeName(m), us(t, 2000));
++                pList.disposeAndClear();
++            }
++    }
++    setMode(2);
++    return aOut;
++}
++
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-lists.cxx
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,138 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1512,6 +1709,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +
 +namespace hst::coat
 +{
++bool g_bDiagOldShape = false; // DIAG ONLY
 +namespace
 +{
 +/** The fill of a selected row: the HST selection colour (or, failing the contrast, the other HST
@@ -1567,7 +1765,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +    const double fRadius = std::min(hst::design::radius::Row * fScale, aPixels.GetHeight() / 4.0);
 +    // the columns the rounded ends reach, and one more for the anti-aliasing
 +    const tools::Long nEnd = tools::Long(std::ceil(fRadius)) + 1;
-+    if ((bRoundStart || bRoundEnd) && aPixels.GetWidth() > 2 * nEnd)
++    if (!g_bDiagOldShape && (bRoundStart || bRoundEnd) && aPixels.GetWidth() > 2 * nEnd)
 +    {
 +        // The rounded shape covers exactly the row's pixels (DrawRoundRect), so between its rounded
 +        // ends it is the plain fill of those pixels: only the ends are filled anti-aliased, as the
