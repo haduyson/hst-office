@@ -130,11 +130,11 @@ def send_close_request(wid, display=":97"):
     xlib.XCloseDisplay(dpy)
 
 
-def ribbon_accent(display, wid, shot_path, first=33, last=130):
+def ribbon_accent(display, wid, shot_path, first=33, last=130, right=1.0):
     """(y offset from the window top, colour name) of the active-tab accent line of the light Tabbed
     ribbon, or (None, None). The accent is a saturated horizontal run (module colour: Writer blue,
     Calc green, Impress orange) under the active ribbon tab. `shot_path` is a screenshot of the
-    display taken while the window was on top."""
+    display taken while the window was on top. Only the left `right` share of the window is searched."""
     from PIL import Image
     info = subprocess.run(["xwininfo", "-display", display, "-id", wid], capture_output=True, text=True).stdout
     left = max(int(re.search(r"Absolute upper-left X:\s+(-?\d+)", info).group(1)), 0)
@@ -143,7 +143,7 @@ def ribbon_accent(display, wid, shot_path, first=33, last=130):
     image = Image.open(shot_path).convert("RGB")
     for dy in range(first, last):
         run, best = 0, None
-        for dx in range(0, min(width, image.width - left), 2):
+        for dx in range(0, min(int(width * right), image.width - left), 2):
             red, green, blue = image.getpixel((left + dx, top + dy))
             if max(red, green, blue) - min(red, green, blue) > 70:
                 run += 1
@@ -159,8 +159,9 @@ def ribbon_accent(display, wid, shot_path, first=33, last=130):
 
 def tab_accent_colour(display, wid, shot_path):
     """Module colour (blue Writer, green Calc, orange Impress) of the accent line on top of the
-    active document tab, below the ribbon; None when it is not found."""
-    return ribbon_accent(display, wid, shot_path, first=120, last=260)[1]
+    active document tab, below the ribbon; None when it is not found. The left half only: the tabs start
+    at the left edge, and the rotating banner at the ribbon's right end has saturated colours too."""
+    return ribbon_accent(display, wid, shot_path, first=120, last=260, right=0.5)[1]
 
 
 def classic_menubar_visible(display, wid, shot_path):
