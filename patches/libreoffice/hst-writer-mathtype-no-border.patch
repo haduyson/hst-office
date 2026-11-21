@@ -979,21 +979,21 @@ The decision lives in HST's sw/source/core/hst/objectboundary.cxx.
 +
 +bool isBoundaryColour(const Color& rPixel, const Color& rBoundary)
 +{
-+    return std::abs(rPixel.GetRed() - rBoundary.GetRed()) <= 12
-+           && std::abs(rPixel.GetGreen() - rBoundary.GetGreen()) <= 12
-+           && std::abs(rPixel.GetBlue() - rBoundary.GetBlue()) <= 12;
++    return std::abs(rPixel.GetRed() - rBoundary.GetRed()) <= 6
++           && std::abs(rPixel.GetGreen() - rBoundary.GetGreen()) <= 6
++           && std::abs(rPixel.GetBlue() - rBoundary.GetBlue()) <= 6;
 +}
 +
 +bool isDark(const Color& rPixel) { return rPixel.GetLuminance() < 100; }
 +
-+/// Share of the sample points along the outline of rRect (pixels) where a pixel within 2 pixels
++/// Share of the sample points along the outline of rRect (pixels) where a pixel within 1 pixel
 +/// across the outline satisfies rMatch.
 +template <typename Match>
 +double outlineShare(BitmapScopedReadAccess& rAccess, const tools::Rectangle& rRect, Match rMatch)
 +{
 +    const tools::Long nW = rAccess->Width(), nH = rAccess->Height();
 +    auto hit = [&](tools::Long x, tools::Long y, bool bHorizontalEdge) {
-+        for (tools::Long d = -2; d <= 2; ++d)
++        for (tools::Long d = -1; d <= 1; ++d)
 +        {
 +            const tools::Long px = bHorizontalEdge ? x : x + d;
 +            const tools::Long py = bHorizontalEdge ? y + d : y;
