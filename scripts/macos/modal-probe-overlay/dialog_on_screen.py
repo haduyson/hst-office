@@ -13,12 +13,19 @@ while the tab group was still switching tabs). Here:
   shortly after it opened, after the tab group has finished its own window work, and again whenever its parent
   window is hidden while it runs (macOS orders a child window out with its parent: a tab parked behind a new tab
   took its running dialog off screen, probe run 44842914015).
+- watch_new_documents(): macOS only. A document opened while the dialog runs (the "+" menu, File > New, Finder, a
+  launcher) gets a window of its own; when the parent is in native full screen, that window joins the parent's native
+  tab group and is selected, which hides the parent window and its dialog, unknown to vcl (no windowHidden; probe run
+  44922182163). The parent window is brought to the front again (selects its tab), then the dialog; once the dialog
+  has ended, the newest such document comes to the front.
 - log_open(): one local diagnostics line per modal dialog (title, command that opened it, parent kind).
 """
+import sys
 import threading
 
 import unohelper
 from com.sun.star.awt import XCallback, XWindowListener
+from com.sun.star.document import XDocumentEventListener
 
 from . import diag_log
 
@@ -157,6 +164,95 @@ def watch_parent(ctx, parent_window, dialog, is_open, timer=None):
             parent_window.removeWindowListener(listener)
         except Exception:  # noqa: BLE001 - parent already disposed
             pass
+    return stop
+
+
+NEW_DOCUMENT_EVENTS = ("OnNew", "OnLoad", "OnViewCreated")
+
+
+class _ParentAndDialogToFront(unohelper.Base, XCallback):
+    """Main thread: the parent window to the front (macOS: selects it again in its native tab group), then the dialog."""
+
+    def __init__(self, parent_window, dialog, is_open):
+        self.parent_window, self.dialog, self.is_open = parent_window, dialog, is_open
+
+    def notify(self, data):
+        try:
+            if self.is_open():
+                self.parent_window.toFront()
+                self.dialog.toFront()
+        except Exception:  # noqa: BLE001 - the dialog or its parent ended meanwhile
+            pass
+
+
+class _DocumentToFront(unohelper.Base, XCallback):
+    """Main thread, after the dialog has ended: the window of a document opened meanwhile to the front, focused."""
+
+    def __init__(self, window):
+        self.window = window
+
+    def notify(self, data):
+        try:
+            self.window.toFront()
+            self.window.setFocus()
+        except Exception:  # noqa: BLE001 - the document was closed meanwhile
+            pass
+
+
+class _NewDocument(unohelper.Base, XDocumentEventListener):
+    """A document opened or got a view while a dialog runs."""
+
+    def __init__(self, on_new):
+        self.on_new = on_new
+
+    def documentEventOccured(self, event):  # noqa: N802 - UNO method name (sic)
+        if getattr(event, "EventName", "") in NEW_DOCUMENT_EVENTS:
+            self.on_new(event)
+
+    def disposing(self, event):
+        pass
+
+
+def _document_window(event):
+    try:
+        return event.Source.getCurrentController().getFrame().getContainerWindow()
+    except Exception:  # noqa: BLE001 - no view yet (OnNew/OnLoad before OnViewCreated) or closed
+        return None
+
+
+def watch_new_documents(ctx, parent_window, dialog, is_open, timer=None, platform=None):
+    """macOS only (elsewhere a no-op): while the dialog runs, a document opened meanwhile brings the parent window and
+    the dialog back to the front; the returned stop function ends watching and, if such a document opened, brings
+    its window to the front after the dialog has closed."""
+    if (platform or sys.platform) != "darwin" or parent_window is None:
+        return lambda: None
+    start = timer or _daemon_timer
+    opened = []
+
+    def on_new(event):
+        window = _document_window(event)
+        if window is not None and window != parent_window:
+            if window in opened:
+                opened.remove(window)
+            opened.append(window)
+        for delay in FRONT_DELAYS:
+            start(delay, lambda: _post(ctx, _ParentAndDialogToFront(parent_window, dialog, is_open)))
+
+    listener = _NewDocument(on_new)
+    try:
+        broadcaster = ctx.getValueByName("/singletons/com.sun.star.frame.theGlobalEventBroadcaster")
+        broadcaster.addDocumentEventListener(listener)
+    except Exception:  # noqa: BLE001 - no broadcaster: nothing to watch
+        return lambda: None
+
+    def stop():
+        try:
+            broadcaster.removeDocumentEventListener(listener)
+        except Exception:  # noqa: BLE001 - office shutting down
+            pass
+        if opened:
+            latest = opened[-1]
+            start(FRONT_DELAYS[0], lambda: _post(ctx, _DocumentToFront(latest)))
     return stop
 
 

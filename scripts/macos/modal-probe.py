@@ -140,6 +140,42 @@ class Probe:
                   'end tell' % (self.pid, WIZARD))
         return osa(script, 20)
 
+    def nswindows(self, label):
+        """NSWindows of the office as AppKit sees them (in-process script, main thread): native tab groups, Space."""
+        d = os.path.join(self.profile, "user", "Scripts", "python")
+        os.makedirs(d, exist_ok=True)
+        here = os.path.dirname(os.path.abspath(__file__))
+        with open(os.path.join(here, "modal-probe-nswindows.py"), encoding="utf-8") as src, \
+                open(os.path.join(d, "hstnswindows.py"), "w", encoding="utf-8") as dst:
+            dst.write(src.read())
+        path = os.path.join(self.out, "nswindows-%s-%s.json" % (self.mode, label))
+        try:
+            factory = self.ctx.getValueByName(
+                "/singletons/com.sun.star.script.provider.theMasterScriptProviderFactory")
+            script = factory.createScriptProvider("").getScript(
+                "vnd.sun.star.script:hstnswindows.py$nswindows?language=Python&location=user")
+            script.invoke((path,), (), ())
+        except Exception as error:  # noqa: BLE001
+            self.mark("nswindows-failed:" + label, error=repr(error))
+            return None
+        for _ in range(20):
+            time.sleep(0.25)
+            if os.path.exists(path):
+                time.sleep(0.25)
+                with open(path, encoding="utf-8") as f:
+                    data = json.load(f)
+                self.mark("nswindows:" + label, **data)
+                return data
+        self.mark("nswindows-timeout:" + label)
+        return None
+
+    def frame_by_title(self, title):
+        a = self.desktop.getFrames()
+        for i in range(a.getCount()):
+            if a.getByIndex(i).getTitle() == title:
+                return a.getByIndex(i)
+        return None
+
     def trigger_in_process(self):
         """Fallback: the same dispatch from a main-thread user event (AsyncCallback) inside the office."""
         d = os.path.join(self.profile, "user", "Scripts", "python")
@@ -196,6 +232,10 @@ def main():
         p.trigger_in_process()
         time.sleep(10)
     p.snapshot("wizard-opened")
+    p.nswindows("wizard-opened")
+    before = [f["title"] for f in p.frames()]
+    owner = next((f["title"] for f in p.frames() if f["active"]), None)
+    p.mark("wizard-owner", title=owner)
     # Another tab of the same window while the wizard runs (what "+", File > New, Finder or a launcher do):
     # the tab group parks the Writer tab that owns the modal wizard.
     p.mark("new-tab:start")
@@ -207,6 +247,9 @@ def main():
     time.sleep(5)
     wizard = p.snapshot("after-new-tab")
     p.mark("wizard-on-screen-after-new-tab", value=any(w["onscreen"] for w in wizard), count=len(wizard))
+    p.nswindows("after-new-tab")
+    new_titles = [f["title"] for f in p.frames() if f["title"] not in before]
+    p.mark("new-document", titles=new_titles)
     subprocess.run(["sample", str(pid), "3", "-file", f"{out}/sample-{mode}.txt"], check=False, capture_output=True)
     # Rescue test: bring the VCL dialog to the front over UNO (XTopWindow.toFront = ToTop(RestoreWhenMin)).
     w = p.wizard_top_window()
@@ -219,6 +262,17 @@ def main():
         time.sleep(3)
         wizard = p.snapshot("after-toFront")
         p.mark("wizard-on-screen-after-toFront", value=any(x["onscreen"] for x in wizard))
+        if not any(x["onscreen"] for x in wizard) and owner:
+            # Rescue test 2: the wizard's parent document window to the front (orderFront of its NSWindow).
+            try:
+                p.frame_by_title(owner).getContainerWindow().toFront()
+                p.mark("parent-toFront-called", title=owner)
+            except Exception as error:  # noqa: BLE001
+                p.mark("parent-toFront-failed", error=repr(error))
+            time.sleep(3)
+            wizard = p.snapshot("after-parent-toFront")
+            p.mark("wizard-on-screen-after-parent-toFront", value=any(x["onscreen"] for x in wizard))
+            p.nswindows("after-parent-toFront")
         try:
             w.endExecute()  # XDialog: end the modal loop so the office can quit
             p.mark("endExecute-called")
@@ -228,6 +282,27 @@ def main():
         p.mark("no-wizard-top-window")
     time.sleep(3)
     p.snapshot("end")
+    p.nswindows("end")
+    # After the dialog: is the new document on screen, and does typed input reach a document?
+    rows = subprocess.run([p.lister, str(pid)], capture_output=True, text=True, check=False).stdout
+    cg = [json.loads(r) for r in rows.splitlines() if r.strip()]
+    p.mark("new-document-on-screen-after-close",
+           value=any(w["name"] in new_titles and w["onscreen"] for w in cg), titles=new_titles)
+    rc, msg = osa('tell application "System Events" to tell (first process whose unix id is %d)\n'
+                  'set frontmost to true\ndelay 0.5\nkeystroke "hstok"\nend tell' % pid)
+    time.sleep(2)
+    typed = {}
+    try:
+        a = p.desktop.getFrames()
+        for i in range(a.getCount()):
+            f = a.getByIndex(i)
+            model = f.getController().getModel() if f.getController() else None
+            if model is not None and hasattr(model, "getText"):
+                typed[f.getTitle()] = model.getText().getString()[:40]
+    except Exception as error:  # noqa: BLE001
+        typed["error"] = repr(error)
+    p.mark("typed-after-close", rc=rc, msg=msg, texts=typed,
+           value=any("hstok" in t for t in typed.values()))
     try:
         p.mark("diag-tail", lines=open(p.diag_path(), encoding="utf-8").read().splitlines()[-15:])
     except Exception as error:  # noqa: BLE001

@@ -47,7 +47,7 @@ XCU
   pkill -9 -x soffice 2>/dev/null || true; sleep 2
   {
     echo "### $mode"
-    grep -E '"event": "(menu-click|wizard-on-screen|wizard-on-screen-after-toFront|no-wizard-top-window|menu-click-did-nothing|new-tab)' "$out/driver-$mode.log" || true
+    grep -E '"event": "(menu-click|wizard-on-screen|wizard-on-screen-after-toFront|no-wizard-top-window|menu-click-did-nothing|new-tab|wizard-on-screen-after-parent-toFront|new-document|typed-after-close|wizard-owner)' "$out/driver-$mode.log" || true
   } >>"$out/summary.md"
 done
 cat "$out/summary.md"

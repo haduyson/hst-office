@@ -173,11 +173,13 @@ class Dialog:
         in_front = lambda: dialog_on_screen.is_front_candidate(self.ctx, self.dialog)  # noqa: E731
         dialog_on_screen.keep_in_front(self.ctx, self.dialog, in_front)
         stop_watching = dialog_on_screen.watch_parent(self.ctx, parent, self.dialog, in_front)
+        stop_new_documents = dialog_on_screen.watch_new_documents(self.ctx, parent, self.dialog, in_front)
         try:
             dialog_registry.execute(self.dialog)  # registered: a modal dialog keeps the office from quitting
             return self.result
         finally:
             stop_watching()
+            stop_new_documents()
             if self.on_closed:
                 self.on_closed()
             self.dialog.dispose()
