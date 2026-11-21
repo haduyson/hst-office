@@ -26,12 +26,14 @@ PATCH = os.path.join(HERE, "..", "..", "patches", "libreoffice", "hst-ribbon-v3-
 # the owner's additions: the chemical formula button (Home > Font) and the formula buttons beside the insert-formula
 # button (Insert > Symbols), all commands of the HST extension
 FORMULAS = {"org.hst.office.vi:ConvertFormulas": 1, "org.hst.office.vi:FormulaTemplates": 1}
+# Writer only: the TeX toggle beside the formula buttons (Insert > Symbols), a command of the HST extension
+WRITER_TEX = {"org.hst.office.vi:TexToggle": 1}
 # the 1.0.3 features attached to the ribbon: the "Trợ lý AI" group of Phần mở rộng (Sheets adds the formula pair), and
 # Sheets' Flash Fill (Dữ liệu > Công cụ dữ liệu) and table options (contextual Thiết kế bảng)
 AI = {"org.hst.office.ai:Writing": 1, "org.hst.office.ai:Help": 1, "org.hst.office.ai:Options": 1}
 SHEETS_FEATURES = {"org.hst.office.ai:FormulaWrite": 1, "org.hst.office.ai:FormulaExplain": 1, ".uno:FlashFill": 1,
                    ".uno:HstTableAutoExpand": 1, ".uno:HstTableCalculatedColumns": 1, ".uno:HstTableUndoAutoExpand": 1}
-ADDED = {"writer": {"org.hst.office.vi:ChemFormula": 1, **FORMULAS, **AI},
+ADDED = {"writer": {"org.hst.office.vi:ChemFormula": 1, **FORMULAS, **AI, **WRITER_TEX},
          "sheets": {**FORMULAS, **AI, **SHEETS_FEATURES},
          "slides": {"org.hst.office.vi:ChemFormula": 1, **FORMULAS, **AI},
          "draw": {"org.hst.office.vi:ChemFormula": 1, **FORMULAS, **AI}}
