@@ -10,14 +10,14 @@ HST Office: the sidebar's frame in the HST look (FrameCoat/Sidebar): tab bar, de
   aPill pill (radius::Control) with the accent bar (aSelectedIndicator) along its leading edge, the focus
   mark kept, RTL mirrored; the divider under the deck title and above each panel title; the title bars'
   small buttons flat until hovered. Colours, radii and inset shadows only: no widget changes size.
-- VCL backends (Windows, macOS): TabBar paints the surface, the divider and the open deck's accent bar in
-  the margin left of its button (Theme::DrawHstTabBarFrame); Deck gives the deck title (bottom) and each
-  panel title (top) a background of the frame surface with the divider as a one-line bitmap. The tab buttons keep VCL's own look
-  until the ribbon's button painter offers a paint-only look (the ribbon's owner-draw also changes the
-  button geometry, so it is not used here).
+- VCL backends (Windows, macOS): TabBar paints the surface and the divider (Theme::DrawHstTabBarFrame);
+  its tab buttons take the ribbon painter's paint-only look hst::ribbon::ButtonLook::SidebarTab (flat,
+  aHover, the open deck on an aPill pill with the accent bar on its leading edge; sizes unchanged); Deck
+  gives the deck title (bottom) and each panel title (top) a background of the frame surface with the
+  divider as a one-line bitmap.
 - The deck's name is set in type::Title while the coat is on.
 - CppunitTest_sfx2_hst_sidebar_coat: frame keys and content keys, the switches and high contrast, the CSS
-  without sizes, the VCL tab bar frame and its indicator.
+  without sizes, the VCL tab bar frame (no second indicator beside the button).
 
 diff --git a/include/sfx2/sidebar/Deck.hxx b/include/sfx2/sidebar/Deck.hxx
 index 3798cf6..d77185d 100644
@@ -46,7 +46,6 @@ index 166478c..fbecf7e 100644
      css::uno::Reference<css::frame::XFrame> mxFrame;
  
 diff --git a/include/sfx2/sidebar/Theme.hxx b/include/sfx2/sidebar/Theme.hxx
-index e59b2e8..c61c1a6 100644
 --- a/include/sfx2/sidebar/Theme.hxx
 +++ b/include/sfx2/sidebar/Theme.hxx
 @@ -28,6 +28,11 @@
@@ -61,18 +60,17 @@ index e59b2e8..c61c1a6 100644
  
  namespace sfx2::sidebar {
  
-@@ -83,6 +88,21 @@ public:
+@@ -83,6 +88,20 @@
  
      static bool IsHighContrastMode();
  
 +    /** HST Office: the sidebar tab bar's frame in the sidebar's coat (FrameCoat/Sidebar) on the VCL backends,
-+        drawn under its buttons: the frame surface, a divider along both edges (the deck lies on
-+        either side, as the sidebar is docked right or left) and,
-+        in the margin left of the open deck's button rChecked (empty: none open), the accent bar over
-+        the middle half of its height. Returns false and draws nothing when the coat is off or in high
-+        contrast. On gtk3 the tab bar's CSS (vcl/source/hst/coat/css/sidebar.cxx) draws the frame. */
-+    static bool DrawHstTabBarFrame(vcl::RenderContext& rDev, const Size& rSize,
-+                                   const tools::Rectangle& rChecked);
++        drawn under its buttons: the frame surface and a divider along both edges (the deck lies on
++        either side, as the sidebar is docked right or left). The open deck's pill and accent bar are
++        the buttons' own look (hst::ribbon::ButtonLook::SidebarTab). Returns false and draws nothing
++        when the coat is off or in high contrast. On gtk3 the tab bar's CSS
++        (vcl/source/hst/coat/css/sidebar.cxx) draws the frame. */
++    static bool DrawHstTabBarFrame(vcl::RenderContext& rDev, const Size& rSize);
 +
 +    /** HST Office: the colour of eItem in the HST look of the sidebar's frame
 +        (org.openoffice.Office.HSTAppearance/FrameCoat/Sidebar): the tab bar, the deck title and
@@ -182,10 +180,9 @@ index b29431c..422544c 100644
  } // end of namespace sfx2::sidebar
 diff --git a/sfx2/qa/cppunit/hstsidebarcoat.cxx b/sfx2/qa/cppunit/hstsidebarcoat.cxx
 new file mode 100644
-index 0000000..e4b4f25
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hstsidebarcoat.cxx
-@@ -0,0 +1,209 @@
+@@ -0,0 +1,206 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -356,10 +353,10 @@ index 0000000..e4b4f25
 +}
 +#endif
 +
-+/* The tab bar's frame on the VCL backends: the surface, the divider along the edge towards the deck
-+   and, left of the open deck's button, the accent bar over the middle of its height; nothing over the
-+   buttons themselves. Without the coat nothing is drawn. */
-+CPPUNIT_TEST_FIXTURE(SidebarCoatTest, testTabBarFrameDrawsTheSelectedIndicator)
++/* The tab bar's frame on the VCL backends: the surface and the divider along both edges. The accent bar
++   of the open deck is the button's own look (one bar, on the pill's edge), so the frame draws none
++   beside it. Without the coat nothing is drawn. */
++CPPUNIT_TEST_FIXTURE(SidebarCoatTest, testTabBarFrameLeavesTheIndicatorToTheButton)
 +{
 +    for (bool bDark : { false, true })
 +    {
@@ -371,22 +368,19 @@ index 0000000..e4b4f25
 +        pDev->SetOutputSizePixel(Size(40, 120));
 +        pDev->SetBackground(Wallpaper(MARKER));
 +        pDev->Erase();
-+        // a tab button 4 px in from the left, 32 px wide and high
-+        const tools::Rectangle aChecked(Point(4, 40), Size(32, 32));
-+        CPPUNIT_ASSERT(Theme::DrawHstTabBarFrame(*pDev, Size(40, 120), aChecked));
++        CPPUNIT_ASSERT(Theme::DrawHstTabBarFrame(*pDev, Size(40, 120)));
 +        CPPUNIT_ASSERT_EQUAL(p.aFrameDivider, pDev->GetPixel(Point(0, 5)));
 +        CPPUNIT_ASSERT_EQUAL(p.aFrameDivider, pDev->GetPixel(Point(39, 5)));
 +        CPPUNIT_ASSERT_EQUAL(p.aFrameSurface, pDev->GetPixel(Point(20, 5)));
-+        CPPUNIT_ASSERT_EQUAL(p.aFrameSurface, pDev->GetPixel(Point(20, 56))); // under the button
-+        CPPUNIT_ASSERT_EQUAL(p.aSelectedIndicator, pDev->GetPixel(Point(2, 56)));
-+        CPPUNIT_ASSERT(p.aSelectedIndicator != pDev->GetPixel(Point(2, 41))); // only its middle
-+        CPPUNIT_ASSERT(p.aSelectedIndicator != pDev->GetPixel(Point(2, 90)));
++        CPPUNIT_ASSERT_EQUAL(p.aFrameSurface, pDev->GetPixel(Point(20, 56)));
++        // where the old side bar stood, left of a button 4 px in from the edge: only the surface
++        CPPUNIT_ASSERT_EQUAL(p.aFrameSurface, pDev->GetPixel(Point(2, 56)));
 +
 +        pDev->Erase();
 +        AllSettings aContrast = pDev->GetSettings();
 +        aContrast.SetStyleSettings(style(bDark, true));
 +        pDev->SetSettings(aContrast);
-+        CPPUNIT_ASSERT(!Theme::DrawHstTabBarFrame(*pDev, Size(40, 120), aChecked));
++        CPPUNIT_ASSERT(!Theme::DrawHstTabBarFrame(*pDev, Size(40, 120)));
 +        CPPUNIT_ASSERT_EQUAL(MARKER, pDev->GetPixel(Point(2, 56)));
 +    }
 +}
@@ -543,45 +537,33 @@ index 3e0efe9..870a5ac 100644
  }
  
 diff --git a/sfx2/source/sidebar/TabBar.cxx b/sfx2/source/sidebar/TabBar.cxx
-index f07ddfe..77ae1f9 100644
 --- a/sfx2/source/sidebar/TabBar.cxx
 +++ b/sfx2/source/sidebar/TabBar.cxx
-@@ -169,6 +169,7 @@ void TabBar::HighlightDeck(std::u16string_view rsDeckId)
-     for (auto const& item : maItems)
-         item->mxButton->set_item_active(u"toggle"_ustr, item->msDeckId == rsDeckId);
-     UpdateMenus();
-+    Invalidate(); // HST Office: the accent bar beside the open deck's button (Paint)
- }
- 
- void TabBar::RemoveDeckHighlight()
-@@ -176,6 +177,26 @@ void TabBar::RemoveDeckHighlight()
+@@ -30,6 +30,7 @@
+ #include <utility>
+ #include <vcl/commandevent.hxx>
+ #include <vcl/commandinfoprovider.hxx>
++#include <vcl/HstRibbonPaint.hxx>
+ #include <vcl/event.hxx>
+ #include <vcl/svapp.hxx>
+ #include <vcl/weld/Box.hxx>
+@@ -176,6 +177,15 @@
      for (auto const& item : maItems)
          item->mxButton->set_item_active(u"toggle"_ustr, false);
      UpdateMenus();
-+    Invalidate();
 +}
 +
 +void TabBar::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect)
 +{
 +    // HST Office: the frame under the buttons (VCL backends; on gtk3 the native widgets cover this
-+    // window and the CSS draws the frame)
-+    tools::Rectangle aChecked;
-+    for (auto const& item : maItems)
-+    {
-+        int x, y, width, height;
-+        if (item->mxButton->get_item_active(u"toggle"_ustr) && item->mxButton->get_visible()
-+            && item->mxButton->get_extents_relative_to(*m_xContainer, x, y, width, height))
-+        {
-+            aChecked = tools::Rectangle(Point(x, y), Size(width, height));
-+            break;
-+        }
-+    }
-+    if (!Theme::DrawHstTabBarFrame(rRenderContext, GetOutputSizePixel(), aChecked))
++    // window and the CSS draws the frame). The open deck's pill and accent bar are the buttons' own
++    // look (hst::ribbon::ButtonLook::SidebarTab, set in Item::Item).
++    if (!Theme::DrawHstTabBarFrame(rRenderContext, GetOutputSizePixel()))
 +        InterimItemWindow::Paint(rRenderContext, rRect);
  }
  
  void TabBar::DataChanged(const DataChangedEvent& rDataChangedEvent)
-@@ -244,6 +265,9 @@ void TabBar::CreateTabItem(weld::Toolbar& rItem, const DeckDescriptor& rDeckDesc
+@@ -244,6 +254,9 @@
  
  css::uno::Reference<css::graphic::XGraphic> TabBar::GetItemImage(const DeckDescriptor& rDeckDescriptor) const
  {
@@ -591,11 +573,20 @@ index f07ddfe..77ae1f9 100644
      return Tools::GetImage(
          rDeckDescriptor.msIconURL,
          rDeckDescriptor.msHighContrastIconURL,
+@@ -256,6 +269,9 @@
+     , mxButton(mxBuilder->weld_toolbar(u"button"_ustr))
+     , mbIsHidden(false)
+ {
++    // HST Office: in the sidebar's frame coat the tab is flat, hovered on aHover, the open deck on a
++    // pill with the accent bar on its leading edge (VCL backends; gtk3 has the CSS)
++    hst::ribbon::SetButtonLook(*mxButton, hst::ribbon::ButtonLook::SidebarTab);
+ }
+ 
+ TabBar::Item::~Item()
 diff --git a/sfx2/source/sidebar/Theme.cxx b/sfx2/source/sidebar/Theme.cxx
-index ad73aa6..95e4dd4 100644
 --- a/sfx2/source/sidebar/Theme.cxx
 +++ b/sfx2/source/sidebar/Theme.cxx
-@@ -22,9 +22,15 @@
+@@ -22,8 +22,14 @@
  #include <tools/color.hxx>
  
  #include <vcl/svapp.hxx>
@@ -604,14 +595,13 @@ index ad73aa6..95e4dd4 100644
 +#include <vcl/hst/designtokens.hxx>
 +#include <vcl/hst/framecoat.hxx>
  #include <comphelper/diagnose_ex.hxx>
- 
++
 +#include <algorithm>
 +#include <cmath>
-+
+ 
  using namespace css;
  using namespace css::uno;
- 
-@@ -68,6 +74,54 @@ sal_Int32 Theme::GetInteger (const ThemeItem eItem)
+@@ -68,6 +74,40 @@
      return rTheme.maIntegers[nIndex];
  }
  
@@ -630,7 +620,7 @@ index ad73aa6..95e4dd4 100644
 +    }
 +}
 +
-+bool Theme::DrawHstTabBarFrame(vcl::RenderContext& rDev, const Size& rSize, const tools::Rectangle& rChecked)
++bool Theme::DrawHstTabBarFrame(vcl::RenderContext& rDev, const Size& rSize)
 +{
 +    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
 +    if (!hst::coat::FrameCoatActive(hst::coat::FrameComponent::Sidebar, rStyle))
@@ -646,27 +636,13 @@ index ad73aa6..95e4dd4 100644
 +    rDev.SetFillColor(rPalette.aFrameDivider);
 +    rDev.DrawRect(tools::Rectangle(Point(0, 0), Size(nLine, rSize.Height())));
 +    rDev.DrawRect(tools::Rectangle(Point(rSize.Width() - nLine, 0), Size(nLine, rSize.Height())));
-+    if (!rChecked.IsEmpty())
-+    {
-+        // in the margin between the edge and the button, never over the button
-+        const tools::Long nBar = std::min<tools::Long>(
-+            std::lround(d::size::TabIndicator * fScale), std::max<tools::Long>(0, rChecked.Left()));
-+        const tools::Long nHeight = rChecked.GetHeight() / 2;
-+        if (nBar > 0 && nHeight > 0)
-+        {
-+            rDev.SetFillColor(rPalette.aSelectedIndicator);
-+            rDev.DrawRect(tools::Rectangle(
-+                Point(rChecked.Left() - nBar, rChecked.Top() + (rChecked.GetHeight() - nHeight) / 2),
-+                Size(nBar, nHeight)));
-+        }
-+    }
 +    return true;
 +}
 +
  bool Theme::IsHighContrastMode()
  {
      const Theme& rTheme (GetCurrentTheme());
-@@ -111,9 +165,10 @@ void Theme::UpdateTheme()
+@@ -111,9 +151,10 @@
              maPropertyIdToNameMap[Color_DeckBackground],
              Any(sal_Int32(aBaseBackgroundColor.GetRGBColor())));
  
@@ -678,7 +654,7 @@ index ad73aa6..95e4dd4 100644
          setPropertyValue(
              maPropertyIdToNameMap[Int_DeckSeparatorHeight],
              Any(sal_Int32(1)));
-@@ -123,10 +178,10 @@ void Theme::UpdateTheme()
+@@ -123,10 +164,10 @@
  
          setPropertyValue(
              maPropertyIdToNameMap[Color_PanelTitleBarBackground],
