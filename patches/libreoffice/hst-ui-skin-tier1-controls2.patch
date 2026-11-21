@@ -37,9 +37,13 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
   unreadable.
 - VCL tree and list views (SvTreeListBox: Navigator, Styles, Options tree, the File tab's lists on Windows): the row
   under the mouse gets a pale rounded tint. The row is looked up on each mouse move; only when it changes are the
-  row it left and the row it entered invalidated. Tracked only while the coat draws and not when the list selects
-  by hovering. CppunitTest_vcl_hst_coat_controls2 also covers the hover (following, leaving, hover selection,
-  switched off, the painted tint) and prints its repaint cost per mouse move and per one-row scroll, coat on/off.
+  row it left and the row it entered invalidated, inside the rows' area (the scroll bars do not repaint with them).
+  Tracked only while the coat draws and not when the list selects by hovering. CppunitTest_vcl_hst_coat_controls2
+  also covers the hover (following, leaving, hover selection, switched off, the painted tint, the invalidated row)
+  and prints its repaint cost per mouse move and per one-row scroll, coat on/off.
+- The rounded selection and hover of a row are anti-aliased only in the columns their rounded ends reach; the
+  straight middle is a plain rectangle. The pixels are those of the whole rounded shape (the test compares every
+  pixel for many row sizes and ends), at a fraction of the cost, which keeps the hover within the repaint budget.
 
 --- a/include/vcl/toolkit/treelistbox.hxx
 +++ b/include/vcl/toolkit/treelistbox.hxx
@@ -54,7 +58,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
      bool mbIsTextColumEnabled; // true if the property name text-column is enabled
      sal_Int8        mnClicksToToggle; // 0 == Click on a row not toggle its checkbox.
                                        // 1 == Every click on row toggle its checkbox.
-@@ -705,6 +709,17 @@ public:
+@@ -705,6 +709,18 @@ public:
  
      SvTreeListEntry*    GetEntry( const Point& rPos, bool bHit = false ) const;
  
@@ -68,6 +72,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +                                               const SvTreeListEntry& rEntry, bool bHighlighted,
 +                                               bool bRoundStart, bool bRoundEnd);
 +    const SvTreeListEntry* GetCoatHoverEntry() const { return m_pCoatHoverEntry; }
++    const tools::Rectangle& GetCoatHoverRow() const { return m_aCoatHoverRow; }
 +
      virtual tools::Rectangle GetFocusRect(const SvTreeListEntry*, tools::Long nLine );
      // Respects indentation
@@ -218,7 +223,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  /** Whether the coat is switched on (setting and environment), not looking at high contrast. */
  VCL_PLUGIN_PUBLIC bool IsSwitchedOn();
  
-@@ -56,6 +94,34 @@ VCL_DLLPUBLIC tools::Rectangle SpacedButtonShape(const OutputDevice& rDev,
+@@ -56,6 +94,39 @@ VCL_DLLPUBLIC tools::Rectangle SpacedButtonShape(const OutputDevice& rDev,
      has none), so the coat's drawing can be checked on a VirtualDevice. */
  VCL_DLLPUBLIC void ForceForTesting(bool bForce);
  
@@ -241,6 +246,11 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +VCL_DLLPUBLIC std::vector<int> ListHoverForTesting(vcl::Window* pParent, bool bHoverSelection,
 +                                                   const std::vector<Point>& rMoves);
 +
++/** Tests: with the mouse over the second row of a tree list of 20 rows in pParent (more than it shows,
++    so it has a vertical scroll bar), the pixels the coat invalidates for that row and the scroll
++    bar's. */
++VCL_DLLPUBLIC std::pair<tools::Rectangle, tools::Rectangle> ListHoverRowForTesting(vcl::Window* pParent);
++
 +/** Tests: with the mouse over a tree list's second row, the background of that row (bHoveredRow) or
 +    of the first row painted across rDev. Returns whether the coat painted it. */
 +VCL_DLLPUBLIC bool ListHoverPaintForTesting(vcl::Window* pParent, OutputDevice& rDev, bool bHoveredRow);
@@ -255,7 +265,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
  
 --- /dev/null
 +++ b/vcl/qa/cppunit/hst/coat-controls2-test.cxx
-@@ -0,0 +1,545 @@
+@@ -0,0 +1,627 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -268,6 +278,8 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +#include <comphelper/configuration.hxx>
 +#include <officecfg/Office/HSTAppearance.hxx>
 +#include <vcl/hst/designtokens.hxx>
++#include <vcl/hst/drawhelpers.hxx>
++#include <vcl/region.hxx>
 +#include <vcl/salnativewidgets.hxx>
 +#include <vcl/settings.hxx>
 +#include <vcl/svapp.hxx>
@@ -465,6 +477,72 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +                                                     COL_WHITE, true, true));
 +        assertPixel("high contrast: VCL's own rectangle", *pDev, 50, 10, MARKER);
 +    }
++}
++
++/* The selection (and the hover) is anti-aliased only at its rounded ends, the straight middle filled
++   as a plain rectangle: pixel for pixel the whole rounded shape drawn by the shared helper, with any
++   square end filled over its half, for every height (radius), width (down to rows too narrow for a
++   middle) and pair of ends. Inside a clip only the clipped part is painted, and the clip stays. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testListSelectionPixelsMatchTheWholeRoundedShape)
++{
++    // not a highlight colour: drawn as given, so the reference uses the same colour
++    const Color aFill(0xC0, 0xD8, 0xF0);
++    for (tools::Long nHeight : { 8, 16, 18, 20, 23, 24, 40 })
++        for (tools::Long nWidth : { 9, 12, 13, 14, 15, 16, 17, 31, 120 })
++            for (int nEnds = 0; nEnds < 4; ++nEnds)
++            {
++                const bool bStart = (nEnds & 1) != 0, bEnd = (nEnds & 2) != 0;
++                const Size aSize(nWidth + 6, nHeight + 4);
++                const tools::Rectangle aRow(Point(3, 2), Size(nWidth, nHeight));
++                ScopedVclPtr<VirtualDevice> pDev = makeDevice(aSize);
++                CPPUNIT_ASSERT(hst::coat::DrawListSelection(*pDev, aRow, aFill, COL_BLACK, bStart, bEnd));
++
++                ScopedVclPtr<VirtualDevice> pRef = makeDevice(aSize);
++                pRef->SetAntialiasing(AntialiasingFlags::Enable);
++                if (bStart || bEnd)
++                    hst::design::DrawRoundRect(
++                        *pRef, aRow, std::min(hst::design::radius::Row, nHeight / 4.0), aFill,
++                        COL_TRANSPARENT, 0);
++                if (!bStart || !bEnd)
++                {
++                    tools::Rectangle aSquare(aRow);
++                    if (bStart)
++                        aSquare.SetLeft(aRow.Center().X());
++                    if (bEnd)
++                        aSquare.SetRight(aRow.Center().X());
++                    pRef->SetLineColor();
++                    pRef->SetFillColor(aFill);
++                    pRef->DrawRect(aSquare);
++                }
++                for (tools::Long nY = 0; nY < aSize.Height(); ++nY)
++                    for (tools::Long nX = 0; nX < aSize.Width(); ++nX)
++                    {
++                        const Color aGot = pDev->GetPixel(Point(nX, nY));
++                        const Color aWant = pRef->GetPixel(Point(nX, nY));
++                        if (aGot != aWant)
++                            CPPUNIT_FAIL(OString("row " + OString::number(nWidth) + "x"
++                                                 + OString::number(nHeight) + " ends "
++                                                 + OString::number(nEnds) + " at "
++                                                 + OString::number(nX) + "," + OString::number(nY)
++                                                 + ": " + aGot.AsRGBHexString().toUtf8() + " instead of "
++                                                 + aWant.AsRGBHexString().toUtf8())
++                                             .getStr());
++                    }
++            }
++
++    // a clip already on the device (a repaint of part of the row): nothing outside it, and kept
++    const tools::Rectangle aRow(Point(), Size(100, 20));
++    ScopedVclPtr<VirtualDevice> pDev = makeDevice(aRow.GetSize());
++    const vcl::Region aClip(tools::Rectangle(Point(), Size(50, 20)));
++    pDev->SetClipRegion(aClip);
++    CPPUNIT_ASSERT(hst::coat::DrawListSelection(*pDev, aRow, aFill, COL_BLACK, true, true));
++    CPPUNIT_ASSERT(pDev->IsClipRegion());
++    CPPUNIT_ASSERT(bool(aClip == pDev->GetClipRegion()));
++    pDev->SetClipRegion();
++    assertPixel("inside the clip", *pDev, 30, 10, aFill);
++    assertPixel("left of the clip's edge", *pDev, 49, 10, aFill);
++    assertPixel("outside the clip", *pDev, 50, 10, MARKER);
++    assertPixel("the clipped-off rounded end", *pDev, 98, 10, MARKER);
 +}
 +
 +/* A slider: a groove of the control border ending half a thumb in from the ends, the accent up to
@@ -687,6 +765,20 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +    setSwitch(false);
 +    for (int nRow : hst::coat::ListHoverForTesting(pParent.get(), false, aMoves))
 +        CPPUNIT_ASSERT_EQUAL(-1, nRow);
++}
++
++/* The row under the mouse is invalidated inside the rows' area: the full width of the rows, not the
++   vertical scroll bar over the list's right edge, which has nothing to repaint. */
++CPPUNIT_TEST_FIXTURE(CoatControlsTest, testTreeRowHoverInvalidatesOnlyTheRow)
++{
++    ScopedVclPtrInstance<WorkWindow> pParent(nullptr, WB_STDWORK);
++    pParent->SetPosSizePixel(Point(0, 0), Size(400, 300));
++    const auto [aRow, aScrollBar] = hst::coat::ListHoverRowForTesting(pParent.get());
++    CPPUNIT_ASSERT(!aRow.IsEmpty());
++    CPPUNIT_ASSERT(!aScrollBar.IsEmpty());
++    CPPUNIT_ASSERT_EQUAL(tools::Long(0), aRow.Left());
++    CPPUNIT_ASSERT_EQUAL(aScrollBar.Left() - 1, aRow.Right());
++    CPPUNIT_ASSERT(!aRow.Overlaps(aScrollBar));
 +}
 +
 +/* The hovered row's background is a pale rounded tint over the row's own background; other rows are
@@ -1188,7 +1280,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
          if (FrameCoatEnabled(rFragment.eComponent))
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-list-hover.cxx
-@@ -0,0 +1,172 @@
+@@ -0,0 +1,198 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1200,8 +1292,10 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +   tree, the File tab's recent files on Windows) in the HST look: the selected row is a rounded shape
 +   in the HST selection colour, and the row under the mouse gets a pale rounded tint. The hover is
 +   cheap: the row under the mouse is looked up on each mouse move, and only when it changes are the
-+   row it left and the row it entered invalidated. It is tracked only while the coat draws, and not
-+   when the list selects by hovering (the hovered row is then the selected one). */
++   row it left and the row it entered invalidated, inside the rows' area so the scroll bars do not
++   repaint with them; the rounded shapes are anti-aliased only at their ends (DrawListSelection). It
++   is tracked only while the coat draws, and not when the list selects by hovering (the hovered row
++   is then the selected one). */
 +
 +#include <hst/coat.hxx>
 +#include "coat-paint.hxx"
@@ -1212,6 +1306,8 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +#include <vcl/toolkit/treelistbox.hxx>
 +#include <vcl/toolkit/treelistentry.hxx>
 +#include <vcl/wrkwin.hxx>
++
++#include <svimpbox.hxx>
 +
 +#include <algorithm>
 +#include <chrono>
@@ -1229,9 +1325,13 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +        pEntry = GetEntry(aPos);
 +        if (pEntry)
 +        {
++            // the row inside the rows' area (SvImpLBox's output size): its scroll bars are child
++            // windows over the list's right and bottom edges, which a wider rectangle would make
++            // repaint with the row although nothing of theirs changes
 +            const tools::Long nHeight = GetEntryHeight();
-+            aRow = tools::Rectangle(Point(0, aPos.Y() / nHeight * nHeight),
-+                                    Size(GetOutputSizePixel().Width(), nHeight));
++            const Size& rRows = m_pImpl->GetOutputSize();
++            aRow = tools::Rectangle(Point(0, aPos.Y() / nHeight * nHeight), Size(rRows.Width(), nHeight))
++                       .GetIntersection(tools::Rectangle(Point(), rRows));
 +        }
 +    }
 +    if (pEntry == m_pCoatHoverEntry)
@@ -1305,6 +1405,24 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +    return aRows;
 +}
 +
++std::pair<tools::Rectangle, tools::Rectangle> ListHoverRowForTesting(vcl::Window* pParent)
++{
++    VclPtr<SvTreeListBox> pList = makeList(pParent, 20, false);
++    const tools::Long nHeight = pList->GetEntryHeight();
++    pList->MouseMove(MouseEvent(Point(20, nHeight + nHeight / 2)));
++    const tools::Rectangle aRow = pList->GetCoatHoverRow();
++    tools::Rectangle aScrollBar;
++    for (sal_uInt16 i = 0; i < pList->GetChildCount(); ++i)
++    {
++        const vcl::Window* pChild = pList->GetChild(i);
++        if (pChild->GetType() == WindowType::SCROLLBAR && pChild->IsVisible()
++            && (pChild->GetStyle() & WB_VSCROLL))
++            aScrollBar = tools::Rectangle(pChild->GetPosPixel(), pChild->GetSizePixel());
++    }
++    pList.disposeAndClear();
++    return { aRow, aScrollBar };
++}
++
 +bool ListHoverPaintForTesting(vcl::Window* pParent, OutputDevice& rDev, bool bHoveredRow)
 +{
 +    VclPtr<SvTreeListBox> pList = makeList(pParent, 20, false);
@@ -1363,7 +1481,7 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/vcl/source/hst/coat/coat-lists.cxx
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,126 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1381,9 +1499,11 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +#include <vcl/hst/designtokens.hxx>
 +#include <vcl/hst/drawhelpers.hxx>
 +#include <vcl/outdev.hxx>
++#include <vcl/region.hxx>
 +#include <vcl/settings.hxx>
 +
 +#include <algorithm>
++#include <cmath>
 +
 +namespace hst::coat
 +{
@@ -1439,21 +1559,50 @@ HST Office: the coat draws tree and list views, sliders, progress bars, group fr
 +    const tools::Rectangle aPixels = rDev.LogicToPixel(rRect);
 +
 +    PaintScope aScope(rDev);
-+    if (bRoundStart || bRoundEnd)
++    if (!bRoundStart && !bRoundEnd)
 +    {
-+        const double fRadius = std::min(hst::design::radius::Row * fScale, aPixels.GetHeight() / 4.0);
++        // a row that continues in the columns on both sides: square at both ends
++        fillRect(rDev, aPixels, aFill);
++        return true;
++    }
++    const double fRadius = std::min(hst::design::radius::Row * fScale, aPixels.GetHeight() / 4.0);
++    // The rounded shape covers exactly the row's pixels (DrawRoundRect), so away from its rounded
++    // ends it is the plain fill of those pixels. Only the columns its arcs reach (and one more for
++    // the anti-aliasing) take the anti-aliased shape, clipped to them on whole pixels; the straight
++    // middle, and an end that continues in the next column, is one plain rectangle. The pixels are
++    // those of the whole shape, at a fraction of the cost: this is drawn for the row under the mouse
++    // and the selected row on every repaint of a list.
++    const tools::Long nEnd = tools::Long(std::ceil(fRadius)) + 1;
++    if (aPixels.GetWidth() <= 2 * nEnd)
++    {
++        // too narrow for a straight middle: the whole shape, then any square end over its half
 +        hst::design::DrawRoundRect(rDev, aPixels, fRadius, aFill, COL_TRANSPARENT, 0);
++        if (bRoundStart != bRoundEnd)
++        {
++            tools::Rectangle aSquare(aPixels);
++            if (bRoundStart)
++                aSquare.SetLeft(aPixels.Center().X());
++            else
++                aSquare.SetRight(aPixels.Center().X());
++            fillRect(rDev, aSquare, aFill);
++        }
++        return true;
 +    }
-+    if (!bRoundStart || !bRoundEnd)
-+    {
-+        // an end that continues in the next column is square: one shape across the columns
-+        tools::Rectangle aSquare(aPixels);
-+        if (bRoundStart)
-+            aSquare.SetLeft(aPixels.Center().X());
-+        if (bRoundEnd)
-+            aSquare.SetRight(aPixels.Center().X());
-+        fillRect(rDev, aSquare, aFill);
-+    }
++    tools::Rectangle aMiddle(aPixels);
++    if (bRoundStart)
++        aMiddle.SetLeft(aPixels.Left() + nEnd);
++    if (bRoundEnd)
++        aMiddle.SetRight(aPixels.Right() - nEnd);
++    fillRect(rDev, aMiddle, aFill);
++    vcl::Region aEnds;
++    if (bRoundStart)
++        aEnds.Union(tools::Rectangle(aPixels.TopLeft(), Point(aMiddle.Left() - 1, aPixels.Bottom())));
++    if (bRoundEnd)
++        aEnds.Union(tools::Rectangle(Point(aMiddle.Right() + 1, aPixels.Top()), aPixels.BottomRight()));
++    rDev.Push(vcl::PushFlags::CLIPREGION);
++    rDev.IntersectClipRegion(aEnds);
++    hst::design::DrawRoundRect(rDev, aPixels, fRadius, aFill, COL_TRANSPARENT, 0);
++    rDev.Pop();
 +    return true;
 +}
 +}
