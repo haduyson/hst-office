@@ -402,7 +402,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +# vim: set noet sw=4 ts=4:
 --- /dev/null
 +++ b/sw/qa/extras/hst/hstimageeditsroundtrip.cxx
-@@ -0,0 +1,629 @@
+@@ -0,0 +1,638 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -903,9 +903,10 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +
 +CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocRotatedPicturePosition) { checkRotatedPosition(TestFilter::DOC); }
 +
-+// DOCX: a picture with a shadow (as the HST picture styles give) became smaller by the shadow on the first save: Word's
-+// extent leaves the shadow out, a Writer picture's size includes it.
-+CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedPictureKeepsSize)
++// DOCX: a picture with a shadow (as the HST picture styles give) comes back as a picture shape, which keeps Word's
++// shadow effect. Its size is the picture without the shadow (a Writer picture's size includes it): the picture itself
++// keeps its size, over every save.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedPictureKeepsShownSize)
 +{
 +    for (text::TextContentAnchorType eAnchor :
 +         { text::TextContentAnchorType_AS_CHARACTER, text::TextContentAnchorType_AT_CHARACTER })
@@ -917,18 +918,26 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +        aShadow.Color = 0x000000;
 +        xPicture->setPropertyValue(u"ShadowFormat"_ustr, uno::Any(aShadow));
 +
-+        awt::Size aSaved[2];
-+        for (awt::Size& rSize : aSaved)
++        awt::Size aShown[2];
++        for (awt::Size& rSize : aShown)
 +        {
 +            saveAndReload(TestFilter::DOCX);
-+            xPicture = writerPicture();
-+            CPPUNIT_ASSERT(xPicture.is());
-+            xPicture->getPropertyValue(u"Size"_ustr) >>= rSize;
++            uno::Reference<beans::XPropertySet> xReloaded = writerPicture();
++            if (xReloaded.is())
++            {
++                xReloaded->getPropertyValue(u"Size"_ustr) >>= rSize;
++                const table::ShadowFormat aGot = xReloaded->getPropertyValue(u"ShadowFormat"_ustr).get<table::ShadowFormat>();
++                rSize.Width -= aGot.ShadowWidth;
++                rSize.Height -= aGot.ShadowWidth;
++            }
++            else
++                rSize = getShape(1)->getSize();
 +        }
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSaved[0].Width), 20.0);
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSaved[0].Height), 20.0);
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSaved[1].Width), 20.0);
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSaved[1].Height), 20.0);
++        for (const awt::Size& rSize : aShown)
++        {
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0 - 106, double(rSize.Width), 20.0);
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0 - 106, double(rSize.Height), 20.0);
++        }
 +    }
 +}
 +
@@ -1441,7 +1450,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sw/source/writerfilter/hst/hstpictureimport.cxx
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,54 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1451,9 +1460,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +
 +#include "hstpictureimport.hxx"
 +
-+#include <com/sun/star/awt/Size.hpp>
 +#include <com/sun/star/beans/XPropertySetInfo.hpp>
-+#include <com/sun/star/table/ShadowFormat.hpp>
 +
 +using namespace css;
 +
@@ -1487,21 +1494,6 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +    if (nTransparency > 0 && nTransparency <= 100)
 +        xGraphicObject->setPropertyValue(u"Transparency"_ustr, uno::Any(nTransparency));
 +
-+    // Word's extent is the picture without its shadow, a Writer picture's size includes the shadow (the export takes
-+    // it off): without it the picture would shrink by the shadow on every save.
-+    const table::ShadowFormat aShadow
-+        = GetProperty<table::ShadowFormat>(xGraphicObject, u"ShadowFormat"_ustr, table::ShadowFormat());
-+    if (aShadow.Location != table::ShadowLocation_NONE && aShadow.ShadowWidth > 0)
-+    {
-+        awt::Size aSize = GetProperty<awt::Size>(xGraphicObject, u"Size"_ustr, awt::Size());
-+        if (aSize.Width > 0 && aSize.Height > 0)
-+        {
-+            aSize.Width += aShadow.ShadowWidth;
-+            aSize.Height += aShadow.ShadowWidth;
-+            xGraphicObject->setPropertyValue(u"Size"_ustr, uno::Any(aSize));
-+        }
-+    }
-+
 +    if (IsVerticallyFlipped(xShapeProps))
 +    {
 +        // Not mirrored horizontally (the shape's mirror only completes the half turn), mirrored vertically.
@@ -1515,7 +1507,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sw/source/writerfilter/hst/hstpictureimport.hxx
-@@ -0,0 +1,24 @@
+@@ -0,0 +1,23 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1533,8 +1525,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +/// Such a shape is no rotated picture: it can become a Writer picture, flipped vertically.
 +bool IsVerticallyFlipped(const css::uno::Reference<css::beans::XPropertySet>& xShapeProps);
 +
-+/// Gives the Writer picture the shape's transparency (a:alphaModFix) and its vertical flip, and adds its shadow
-+/// to its size.
++/// Gives the Writer picture the shape's transparency (a:alphaModFix) and its vertical flip.
 +void ApplyShapeSettings(const css::uno::Reference<css::beans::XPropertySet>& xShapeProps,
 +                        const css::uno::Reference<css::beans::XPropertySet>& xGraphicObject);
 +}
