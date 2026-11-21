@@ -6,6 +6,7 @@ from . import (convert_calc_action, csv_calc, encoding_writer, fonts, nd30, nd30
                nd30_open, nd30_writer, blank_rows_calc, number_words_action, sheets, vba, vietnamese_calc)
 from . import chem_formula_action, citation_command_names, diag_log, formula_action, open_in_hst_pdf
 from . import tex_toggle_action
+from .action_wrappers import citation_command, previous_versions
 from .dialogs import message_box
 from .wizard_convert import ConvertWizard
 from .wizard_csv import CsvWizard
@@ -158,20 +159,6 @@ def sheet_utility(command):
     def run(host):
         if host.is_calc():
             command(host, _cell_selection(host))
-    return run
-
-
-def previous_versions(host):
-    """Tệp tin ▸ Phiên bản trước: the versions a save overwrote (version_dialog, imported on use)."""
-    from .version_dialog import run
-    run(host.ctx, host.frame)
-
-
-def citation_command(name):
-    """Trích dẫn commands: the citation code is imported only when one of them runs."""
-    def run(host):
-        from . import citation_actions
-        return citation_actions.COMMANDS[name](host)
     return run
 
 
