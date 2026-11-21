@@ -50,7 +50,7 @@ class AutoSaveCoalescing(unittest.TestCase):
         self.writes = 0
         self._write()
         self.model = _Model()
-        for cleanup in (vc._PENDING.clear, vc._WRITTEN.clear, vc._AUTOSAVED.clear):
+        for cleanup in (vc._PENDING.clear, vc._WRITTEN.clear, vc._AUTOSAVED.clear, self._join_background):
             self.addCleanup(cleanup)
         for target, value in (("hst_office.version_config.store", lambda ctx: self.store),
                               ("hst_office.version_config.document_path", lambda model: self.path),
@@ -59,6 +59,15 @@ class AutoSaveCoalescing(unittest.TestCase):
             patcher = mock.patch(target, value)
             patcher.start()
             self.addCleanup(patcher.stop)
+
+    @staticmethod
+    def _join_background():
+        """Background copies and prunes end before the temporary store is removed."""
+        for pending in list(vc._PENDING.values()):
+            pending.thread.join(10)
+        prune = vc._PRUNING.get("thread")
+        if prune is not None:
+            prune.join(10)
 
     def _write(self):
         self.writes += 1

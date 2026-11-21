@@ -268,7 +268,7 @@ Test: make CppunitTest_sfx2_hst_autosave (hst-user-autosave-test.patch); tests/u
  
 +// HST Office: AutoSave into the document's own file, per document and session (hstuserautosave.hxx)
 +SfxBoolItem HstAutoSave SID_HST_AUTOSAVE
-+(SfxBoolItem HstAutoSave SID_HST_AUTOSAVE)
++(SfxBoolItem Enable FN_PARAM_1)
 +[
 +    AutoUpdate = TRUE,
 +    FastCall = FALSE,
@@ -314,7 +314,7 @@ Test: make CppunitTest_sfx2_hst_autosave (hst-user-autosave-test.patch); tests/u
      SfxStoringHelper* m_pOwner;
 --- /dev/null
 +++ b/sfx2/source/doc/hstuserautosave.cxx
-@@ -0,0 +1,323 @@
+@@ -0,0 +1,324 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -324,6 +324,7 @@ Test: make CppunitTest_sfx2_hst_autosave (hst-user-autosave-test.patch); tests/u
 +#include <objshimp.hxx>
 +
 +#include <com/sun/star/document/ChangedByOthersRequest.hpp>
++#include <com/sun/star/frame/XModel3.hpp>
 +#include <com/sun/star/task/ErrorCodeRequest.hpp>
 +#include <com/sun/star/task/XInteractionAbort.hpp>
 +#include <com/sun/star/task/XInteractionApprove.hpp>
@@ -536,7 +537,7 @@ Test: make CppunitTest_sfx2_hst_autosave (hst-user-autosave-test.patch); tests/u
 +    if (!isSwitchable(eState))
 +        return;
 +    DocState& rState = docState(rShell);
-+    const SfxBoolItem* pValue = rReq.GetArg<SfxBoolItem>(SID_HST_AUTOSAVE);
++    const SfxBoolItem* pValue = rReq.GetArg<SfxBoolItem>(FN_PARAM_1); // "Enable": an explicit value
 +    if (eState == State::Paused || eState == State::PausedConflict)
 +    {
 +        // a click on a paused toggle tries again at the next AutoSave; an explicit false turns it off instead
