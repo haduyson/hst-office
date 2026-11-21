@@ -1,0 +1,157 @@
+Regression test: a status indicator without a range shows only its text, no empty progress bar.
+
+A Writer frame's status indicator is started with no range (XStatusIndicator::start(text, 0)); the
+status bar in progress mode is painted to a virtual device and must show no pixel besides its
+background below the top separator line. An indicator with a range must still draw its bar.
+
+License: the new test file is HST-owned (LicenseRef-HST-Proprietary); the makefile keeps MPL-2.0.
+Test: CppunitTest_framework_dispatch (HstStatusBarTextOnlyTest).
+---
+--- a/framework/CppunitTest_framework_dispatch.mk
++++ b/framework/CppunitTest_framework_dispatch.mk
+@@ -11,6 +11,7 @@
+ 
+ $(eval $(call gb_CppunitTest_add_exception_objects,framework_dispatch, \
+     framework/qa/cppunit/dispatchtest \
++    framework/qa/cppunit/HstStatusBarTextOnly \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_sdk_api,framework_dispatch))
+@@ -22,10 +23,12 @@
+ 	fwk \
+ 	sal \
+ 	subsequenttest \
++	tk \
+ 	utl \
+ 	tl \
+ 	test \
+ 	unotest \
++	vcl \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_externals,framework_dispatch, \
+--- /dev/null
++++ b/framework/qa/cppunit/HstStatusBarTextOnly.cxx
+@@ -0,0 +1,122 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; fill-column: 100 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. All rights reserved.
++ */
++
++// A frame's status indicator started with no range (XStatusIndicator::start(text, 0)) is a plain
++// status line: the document window's status bar shows the text on the left and draws no progress
++// frame or trough beside it. An indicator with a range keeps its progress bar.
++
++#include <test/unoapi_test.hxx>
++
++#include <com/sun/star/frame/XController.hpp>
++#include <com/sun/star/frame/XFrame.hpp>
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/task/XStatusIndicator.hpp>
++#include <com/sun/star/task/XStatusIndicatorFactory.hpp>
++
++#include <toolkit/helper/vclunohelper.hxx>
++#include <vcl/status.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/virdev.hxx>
++#include <vcl/window.hxx>
++
++using namespace css;
++
++namespace
++{
++class HstStatusBarTextOnlyTest : public UnoApiTest
++{
++public:
++    HstStatusBarTextOnlyTest()
++        : UnoApiTest(u"/framework/qa/cppunit/data/"_ustr)
++    {
++    }
++
++    // Opens a Writer document and starts its frame's status indicator with no text.
++    uno::Reference<task::XStatusIndicator> startIndicator(sal_Int32 nRange);
++    // The document window's status bar that is in progress mode, painted at a fixed size.
++    ScopedVclPtr<VirtualDevice> paintProgressStatusBar();
++    // Pixels below the status bar's top line that differ from the background left of the text.
++    int countNonBackgroundPixels(VirtualDevice& rDevice);
++
++private:
++    uno::Reference<frame::XFrame> mxFrame;
++};
++
++StatusBar* findProgressStatusBar(vcl::Window* pWindow)
++{
++    if (!pWindow)
++        return nullptr;
++    if (pWindow->GetType() == WindowType::STATUSBAR
++        && static_cast<StatusBar*>(pWindow)->IsProgressMode())
++        return static_cast<StatusBar*>(pWindow);
++    for (sal_uInt16 i = 0; i < pWindow->GetChildCount(); ++i)
++        if (StatusBar* pFound = findProgressStatusBar(pWindow->GetChild(i)))
++            return pFound;
++    return nullptr;
++}
++
++uno::Reference<task::XStatusIndicator> HstStatusBarTextOnlyTest::startIndicator(sal_Int32 nRange)
++{
++    loadFromURL(u"private:factory/swriter"_ustr);
++    uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
++    mxFrame = xModel->getCurrentController()->getFrame();
++    uno::Reference<task::XStatusIndicatorFactory> xFactory(mxFrame, uno::UNO_QUERY_THROW);
++    uno::Reference<task::XStatusIndicator> xIndicator = xFactory->createStatusIndicator();
++    CPPUNIT_ASSERT(xIndicator.is());
++    xIndicator->start(OUString(), nRange);
++    return xIndicator;
++}
++
++ScopedVclPtr<VirtualDevice> HstStatusBarTextOnlyTest::paintProgressStatusBar()
++{
++    SolarMutexGuard aGuard;
++    StatusBar* pStatusBar
++        = findProgressStatusBar(VCLUnoHelper::GetWindow(mxFrame->getContainerWindow()));
++    CPPUNIT_ASSERT_MESSAGE("no status bar in progress mode", pStatusBar);
++    const Size aSize(400, 24);
++    pStatusBar->SetOutputSizePixel(aSize);
++    ScopedVclPtr<VirtualDevice> pDevice
++        = VclPtr<VirtualDevice>::Create(DeviceFormat::WITHOUT_ALPHA);
++    pDevice->SetOutputSizePixel(aSize);
++    pStatusBar->PaintToDevice(*pDevice, Point());
++    return pDevice;
++}
++
++int HstStatusBarTextOnlyTest::countNonBackgroundPixels(VirtualDevice& rDevice)
++{
++    SolarMutexGuard aGuard;
++    const Size aSize = rDevice.GetOutputSizePixel();
++    // Left of the (empty) text there is only the status bar's background.
++    const Color aBackground = rDevice.GetPixel(Point(0, aSize.Height() / 2));
++    int nCount = 0;
++    // Row 0 is the status bar's separator line; the progress frame starts below it.
++    for (tools::Long y = 2; y < aSize.Height() - 1; ++y)
++        for (tools::Long x = 0; x < aSize.Width(); ++x)
++            if (rDevice.GetPixel(Point(x, y)) != aBackground)
++                ++nCount;
++    return nCount;
++}
++
++CPPUNIT_TEST_FIXTURE(HstStatusBarTextOnlyTest, testNoRangeDrawsNoProgressBar)
++{
++    uno::Reference<task::XStatusIndicator> xIndicator = startIndicator(0);
++    ScopedVclPtr<VirtualDevice> pDevice = paintProgressStatusBar();
++    // Without the text-only mode the empty progress frame was drawn right of the text.
++    CPPUNIT_ASSERT_EQUAL(0, countNonBackgroundPixels(*pDevice));
++    xIndicator->end();
++}
++
++CPPUNIT_TEST_FIXTURE(HstStatusBarTextOnlyTest, testRangeKeepsProgressBar)
++{
++    uno::Reference<task::XStatusIndicator> xIndicator = startIndicator(100);
++    xIndicator->setValue(50);
++    ScopedVclPtr<VirtualDevice> pDevice = paintProgressStatusBar();
++    CPPUNIT_ASSERT_GREATER(0, countNonBackgroundPixels(*pDevice));
++    xIndicator->end();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab cinoptions=b1,g0,N-s cinkeys+=0=break: */
