@@ -13,6 +13,10 @@ on:
         description: 'Desktop macOS run id whose dmg artifact is probed (overrides tag)'
         type: string
         default: ''
+      overlay:
+        description: 'Also run with the checkout hst_office Python modules overlaid (candidate fix)'
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -45,12 +49,20 @@ jobs:
             gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'HSTOffice_*_macOS_arm64.dmg' --dir "$RUNNER_TEMP/dmg"
           fi
           find "$RUNNER_TEMP/dmg" -name '*.dmg'
-      - name: Probe the tab actions
+      - name: Probe the modal wizard from a Sheets tab
         shell: bash
+        env:
+          OVERLAY: ${{ inputs.overlay }}
         run: |
           set -eu
           dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)
-          bash scripts/macos/tab-probe.sh "$dmg" "$RUNNER_TEMP/tabprobe"
+          bash scripts/macos/modal-probe.sh "$dmg" "$RUNNER_TEMP/tabprobe/stock" || true
+          if [ "$OVERLAY" = "true" ]; then
+            bash scripts/macos/modal-probe.sh "$dmg" "$RUNNER_TEMP/tabprobe/overlay" \
+              "$GITHUB_WORKSPACE/extensions/hst-vietnamese-tools/python/hst_office" || true
+          fi
+          cat "$RUNNER_TEMP"/tabprobe/*/summary.md > "$RUNNER_TEMP/tabprobe/summary.md" || true
+          touch "$RUNNER_TEMP/tabprobe/none.mov"
       - name: Summarize
         if: ${{ always() }}
         shell: bash
