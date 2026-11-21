@@ -14,7 +14,7 @@ tree for the strip.
   The strip keeps its height (owner decision D8); the platform look, high contrast and
   org.openoffice.Office.HSTAppearance/FrameCoat/DocumentTabs=false keep today's drawing and layout.
 - Application identity (D8): the selected tab's top 3 px and a dot before every title in the application's
-  mark colour, the new tokens hst::design::AppMark / Palette::aAppMark (Writer, Sheets, Slides, Draw, PDF;
+  mark colour, the shared tokens hst::design::AppMark / Palette::aAppMark (Writer, Sheets, Slides, Draw, PDF;
   from the application icons, Draw's amber darkened to 3:1), which replace the colours written in
   documenttabgroup.cxx. Unknown modules take the muted colour.
 - Accessibility (both looks; framework/source/uielement/hstdocumenttabaccessible.cxx): the strip is a page
@@ -2231,58 +2231,3 @@ tree for the strip.
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
---- a/include/vcl/hst/designtokens.hxx
-+++ b/include/vcl/hst/designtokens.hxx
-@@ -89,6 +89,7 @@ struct Palette
-     Color aMenuHover; ///< the highlighted menu item
-     Color aMenuShortcut; ///< a menu item's shortcut text, readable (4.5:1) on aMenuSurface and aMenuHover
-     Color aSelectedIndicator; ///< the bar or pill marking the selected item of a frame part (aAccent)
-+    Color aAppMark[5]; ///< per AppMark; 3:1 on aFrameSurface and aFrameSurfaceRaised
-     RibbonColors aRibbon;
- };
- 
-@@ -100,6 +101,10 @@ enum class Tint
-     Orange,
- };
- 
-+/** The applications, in the order of Palette::aAppMark: the colour that marks a document of each one
-+    (the document tab's identity bar and dot). */
-+enum class AppMark { Writer, Sheets, Slides, Draw, Pdf };
-+
- /** Whether the theme of rStyle is dark (its window colour is). */
- VCL_DLLPUBLIC bool IsDark(const StyleSettings& rStyle);
- VCL_DLLPUBLIC const Palette& GetPalette(bool bDark);
---- a/vcl/source/hst/designtokens.cxx
-+++ b/vcl/source/hst/designtokens.cxx
-@@ -13,6 +13,15 @@ namespace hst::design
- {
- namespace
- {
-+void setAppMarks(Palette& rPalette)
-+{
-+    rPalette.aAppMark[static_cast<int>(AppMark::Writer)] = Color(0x46, 0x6F, 0xE3);
-+    rPalette.aAppMark[static_cast<int>(AppMark::Sheets)] = Color(0x1E, 0x8E, 0x3E);
-+    rPalette.aAppMark[static_cast<int>(AppMark::Slides)] = Color(0xE8, 0x59, 0x0C);
-+    rPalette.aAppMark[static_cast<int>(AppMark::Draw)] = Color(0xA8, 0x6A, 0x00);
-+    rPalette.aAppMark[static_cast<int>(AppMark::Pdf)] = Color(0xE5, 0x48, 0x3F);
-+}
-+
- // The light look: a pale blue side panel, a blue-to-white background with a soft curve, white
- // cards with light borders and tinted tiles. The dark look keeps the same structure and hues on a
- // dark navy base, so the two never mix flat grey with colour.
-@@ -61,6 +70,7 @@ Palette makeLight()
-     p.aMenuHover = p.aHover;
-     p.aMenuShortcut = Color(0x5B, 0x64, 0x72);
-     p.aSelectedIndicator = p.aAccent;
-+    setAppMarks(p);
-     // the ribbon's own colours (docs/design/ribbon-look/PROPOSAL.md), unchanged
-     p.aRibbon = { Color(0xE8, 0xF1, 0xFA), Color(0xC7, 0xE0, 0xF4), Color(0xE5, 0xF2, 0xFB),
-                   Color(0x00, 0x72, 0xBB), Color(0xDC, 0xE6, 0xF0), Color(0x53, 0x63, 0x79),
-@@ -123,6 +133,7 @@ Palette makeDark()
-     p.aMenuHover = p.aHover;
-     p.aMenuShortcut = Color(0xA7, 0xAE, 0xBA);
-     p.aSelectedIndicator = p.aAccent;
-+    setAppMarks(p);
-     p.aRibbon = { Color(0x26, 0x3B, 0x50), Color(0x2D, 0x58, 0x78), Color(0x23, 0x47, 0x62),
-                   Color(0x78, 0xC5, 0xF4), Color(0x35, 0x48, 0x5C), Color(0xAF, 0xBD, 0xCE),
-                   Color(0x78, 0xC5, 0xF4), Color(0x26, 0x3B, 0x50) };
