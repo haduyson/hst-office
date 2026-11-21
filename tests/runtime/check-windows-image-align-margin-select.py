@@ -103,7 +103,8 @@ class Run:
         arg = uno.createUnoStruct("com.sun.star.beans.PropertyValue")
         arg.Name, arg.Value = "OnMainThread", True
         self.doc = self.office.desktop.loadComponentFromURL(uno.systemPathToFileUrl(docx), "_default", 0, (arg,))
-        time.sleep(6)
+        # The HST welcome opens over the first document window, after the load: close it too.
+        wg.dismiss_startup(self.office, os.path.join(self.out, "welcome-dialog.png"), timeout=12, settle=3)
         window = wg.find_window(lambda title: "cau-hoi-anh" in title, timeout=30)
         self.hwnd = window[0]
         wg.user32.ShowWindow(self.hwnd, 3)  # maximised, as a user works
