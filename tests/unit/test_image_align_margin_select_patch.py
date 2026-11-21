@@ -65,6 +65,17 @@ class ImageAlignMarginSelectPatch(unittest.TestCase):
         self.assertIn("hst::imagealign::Execute(rSh, rReq)", shell)
         self.assertIn("hst::imagealign::GetState(rSh, nWhich, rSet)", shell)
 
+    def test_drawing_shell_offers_paragraph_alignment(self):
+        sdi = self.added("sw/sdi/drwbassh.sdi")
+        for slot in ("LEFT", "CENTER", "RIGHT", "START", "END"):
+            self.assertIn("SID_ATTR_PARA_ADJUST_" + slot, sdi)
+        shell = self.added("sw/source/uibase/shells/drwbassh.cxx")
+        self.assertIn("hst::imagealign::Execute(*pSh, rReq)", shell)
+        self.assertIn("hst::imagealign::GetState(rSh, nWhich, rSet)", shell)
+        code = self.added("sw/source/uibase/hst/imagealign.cxx")
+        self.assertIn("RES_DRAWFRMFMT", code)  # shapes and groups, by their drawing format
+        self.assertIn("IsGroupEntered", code)  # not a member of an entered group
+
     def test_inline_aligns_paragraph_floating_aligns_position(self):
         code = self.added("sw/source/uibase/hst/imagealign.cxx")
         self.assertIn("RndStdIds::FLY_AS_CHAR", code)
@@ -75,8 +86,10 @@ class ImageAlignMarginSelectPatch(unittest.TestCase):
         win = self.added("sw/source/uibase/docvw/edtwin.cxx")
         for hook in ("hst::marginselect::IsOverMargin", "hst::marginselect::ButtonDown",
                      "hst::marginselect::Drag", "hst::marginselect::ButtonUp",
-                     "PointerStyle::TabSelectE"):
+                     "PointerStyle::TabSelectE", "aMEvt.GetModifier()"):
             self.assertIn(hook, win)
+        # triple click or Ctrl+click in the margin: the whole document
+        self.assertIn("rSh.SelAll()", self.added("sw/source/uibase/hst/marginlineselect.cxx"))
 
     def test_margin_hit_test_visits_only_visible_pages(self):
         code = self.added("sw/source/uibase/hst/marginlineselect.cxx")

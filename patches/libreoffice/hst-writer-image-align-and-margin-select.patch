@@ -1,14 +1,16 @@
 HST Office: Writer aligns a selected picture like a word processor, and the left page margin
 selects lines.
 
-- With a picture or embedded object selected, Left / Center / Right (Home tab, Ctrl+L/E/R,
-  sidebar, picture context menu, Picture tab) are enabled and show their state. An object
-  anchored as character aligns its paragraph; any other anchor centres or aligns the object
-  on the text area of its anchor. One undo step (sw/source/uibase/hst/imagealign.cxx).
+- With a picture, embedded object or drawing shape (also a group) selected, Left / Center /
+  Right (Home tab, Ctrl+L/E/R, sidebar, context menu, Picture / Shape tab) are enabled and
+  show their state. An object anchored as character aligns its paragraph; any other anchor
+  centres or aligns the object on the text area of its anchor. One undo step
+  (sw/source/uibase/hst/imagealign.cxx).
 - In the left margin beside plain body text the pointer is a right-pointing arrow; a click
-  selects the line, a double click the paragraph, a drag whole lines. Tables, footnotes,
-  headers/footers, objects and the comment sidebar keep their own handling; the hit test is
-  a few rectangle checks on the visible pages (sw/source/uibase/hst/marginlineselect.cxx).
+  selects the line, a double click the paragraph, a drag whole lines, a triple click or
+  Ctrl+click the whole document. Tables, footnotes, headers/footers, objects and the comment
+  sidebar keep their own handling; the hit test is a few rectangle checks on the visible
+  pages (sw/source/uibase/hst/marginlineselect.cxx).
 
 --- a/sw/CppunitTest_sw_uibase_docvw.mk
 +++ b/sw/CppunitTest_sw_uibase_docvw.mk
@@ -41,7 +43,7 @@ selects lines.
      sw/source/uibase/shells/langhelper \
 --- a/sw/qa/uibase/hst/imagealign.cxx
 +++ b/sw/qa/uibase/hst/imagealign.cxx
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,357 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -51,8 +53,13 @@ selects lines.
 +
 +#include <swmodeltestbase.hxx>
 +
++#include <com/sun/star/awt/Point.hpp>
 +#include <com/sun/star/awt/Size.hpp>
 +#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/drawing/ShapeCollection.hpp>
++#include <com/sun/star/drawing/XDrawPageSupplier.hpp>
++#include <com/sun/star/drawing/XShapeGrouper.hpp>
++#include <com/sun/star/drawing/XShapes.hpp>
 +#include <com/sun/star/graphic/XGraphic.hpp>
 +#include <com/sun/star/lang/XMultiServiceFactory.hpp>
 +#include <com/sun/star/style/ParagraphAdjust.hpp>
@@ -64,19 +71,23 @@ selects lines.
 +#include <com/sun/star/text/XTextCursor.hpp>
 +#include <com/sun/star/text/XTextDocument.hpp>
 +
++#include <comphelper/processfactory.hxx>
 +#include <editeng/editids.hrc>
 +#include <sfx2/dispatch.hxx>
 +#include <sfx2/viewfrm.hxx>
 +#include <svl/eitem.hxx>
 +#include <svl/itemset.hxx>
++#include <svx/svdpage.hxx>
 +#include <svx/svxids.hrc>
 +#include <vcl/bitmap.hxx>
 +#include <vcl/graph.hxx>
 +#include <vcl/scheduler.hxx>
 +
++#include <IDocumentDrawModelAccess.hxx>
 +#include <IDocumentUndoRedo.hxx>
 +#include <doc.hxx>
 +#include <docsh.hxx>
++#include <drawdoc.hxx>
 +#include <flyfrm.hxx>
 +#include <frameformats.hxx>
 +#include <pagefrm.hxx>
@@ -124,11 +135,69 @@ selects lines.
 +        xText->insertString(xCursor, u"After"_ustr, false);
 +    }
 +
++    /// Paragraphs "Before", a drawing shape (a group of two rectangles when bGroup) and "After";
++    /// the shape anchored as given.
++    void createDocWithShape(text::TextContentAnchorType eAnchor, bool bGroup)
++    {
++        createSwDoc();
++        uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<text::XText> xText = xTextDocument->getText();
++        uno::Reference<text::XTextCursor> xCursor = xText->createTextCursor();
++        xCursor->gotoEnd(false);
++        xText->insertString(xCursor, u"Before"_ustr, false);
++        xText->insertControlCharacter(xCursor, text::ControlCharacter::PARAGRAPH_BREAK, false);
++        xText->insertControlCharacter(xCursor, text::ControlCharacter::PARAGRAPH_BREAK, false);
++        xText->insertString(xCursor, u"After"_ustr, false);
++        xCursor->gotoStart(false);
++        xCursor->gotoNextParagraph(false); // the empty second paragraph holds the shape
++
++        uno::Reference<drawing::XShapes> xGroup
++            = drawing::ShapeCollection::create(comphelper::getProcessComponentContext());
++        for (int i = 0; i < (bGroup ? 2 : 1); ++i)
++        {
++            uno::Reference<drawing::XShape> xShape(
++                xFactory->createInstance(u"com.sun.star.drawing.RectangleShape"_ustr),
++                uno::UNO_QUERY_THROW);
++            xShape->setSize(awt::Size(1500, 1000));
++            uno::Reference<beans::XPropertySet>(xShape, uno::UNO_QUERY_THROW)
++                ->setPropertyValue(u"AnchorType"_ustr,
++                                   uno::Any(bGroup ? text::TextContentAnchorType_AT_PARAGRAPH
++                                                   : eAnchor));
++            xText->insertTextContent(
++                xCursor, uno::Reference<text::XTextContent>(xShape, uno::UNO_QUERY_THROW), false);
++            xShape->setPosition(awt::Point(i * 2000, 0));
++            xGroup->add(xShape);
++        }
++        if (bGroup)
++        {
++            uno::Reference<drawing::XDrawPageSupplier> xSupplier(mxComponent, uno::UNO_QUERY_THROW);
++            uno::Reference<drawing::XShapeGrouper> xGrouper(xSupplier->getDrawPage(),
++                                                            uno::UNO_QUERY_THROW);
++            uno::Reference<beans::XPropertySet> xGroupShape(xGrouper->group(xGroup),
++                                                            uno::UNO_QUERY_THROW);
++            xGroupShape->setPropertyValue(u"AnchorType"_ustr, uno::Any(eAnchor));
++        }
++        calcLayout();
++    }
++
 +    void selectFirstObject()
 +    {
 +        selectShape(1);
-+        Scheduler::ProcessEventsToIdle(); // the frame shells come with the selection
-+        CPPUNIT_ASSERT(getSwDocShell()->GetWrtShell()->IsFrameSelected());
++        Scheduler::ProcessEventsToIdle(); // the frame or drawing shells come with the selection
++        SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++        CPPUNIT_ASSERT(pWrtShell->IsFrameSelected() || pWrtShell->GetSelectedObjCount() == 1);
++    }
++
++    /// Horizontal centre of the body text area and of the first drawing object, in twips.
++    std::pair<tools::Long, tools::Long> bodyAndShapeCentres()
++    {
++        SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++        const SwPageFrame* pPage = static_cast<const SwPageFrame*>(pWrtShell->GetLayout()->Lower());
++        SdrPage* pDrawPage
++            = getSwDoc()->getIDocumentDrawModelAccess().GetDrawModel()->GetPage(0);
++        return { pPage->FindBodyCont()->getFrameArea().Center().X(),
++                 pDrawPage->GetObj(0)->GetSnapRect().Center().X() };
 +    }
 +
 +    /// The state of nSlot for the current selection; rChecked is its checkmark.
@@ -273,10 +342,68 @@ selects lines.
 +    CPPUNIT_ASSERT(SfxItemState::DISABLED == queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked));
 +}
 +
++CPPUNIT_TEST_FIXTURE(HstImageAlignTest, testInlineShapeCenterAlignsItsParagraph)
++{
++    // A Word drawing shape on its own line, selected, then Ctrl+E:
++    createDocWithShape(text::TextContentAnchorType_AS_CHARACTER, /*bGroup=*/false);
++    selectFirstObject();
++    bool bChecked = true;
++    CPPUNIT_ASSERT(queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked) >= SfxItemState::DEFAULT);
++    CPPUNIT_ASSERT(!bChecked);
++
++    const size_t nUndo = undoCount();
++    dispatchCommand(mxComponent, u".uno:CenterPara"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(1));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_CENTER, paraAdjust(2));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(3));
++    queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked);
++    CPPUNIT_ASSERT(bChecked);
++
++    CPPUNIT_ASSERT_EQUAL(nUndo + 1, undoCount());
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(2));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageAlignTest, testInlineGroupRightAlignsItsParagraph)
++{
++    // A grouped figure (two shapes) anchored as character, selected, then Ctrl+R:
++    createDocWithShape(text::TextContentAnchorType_AS_CHARACTER, /*bGroup=*/true);
++    selectFirstObject();
++    dispatchCommand(mxComponent, u".uno:RightPara"_ustr, {});
++    CPPUNIT_ASSERT_EQUAL(ADJUST_RIGHT, paraAdjust(2));
++}
++
++CPPUNIT_TEST_FIXTURE(HstImageAlignTest, testFloatingGroupCenterOnTextArea)
++{
++    // A floating grouped figure anchored to a paragraph, selected, then Ctrl+E:
++    createDocWithShape(text::TextContentAnchorType_AT_PARAGRAPH, /*bGroup=*/true);
++    selectFirstObject();
++    bool bChecked = true;
++    CPPUNIT_ASSERT(queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked) >= SfxItemState::DEFAULT);
++    CPPUNIT_ASSERT(!bChecked);
++
++    const size_t nUndo = undoCount();
++    dispatchCommand(mxComponent, u".uno:CenterPara"_ustr, {});
++    calcLayout();
++
++    CPPUNIT_ASSERT_EQUAL(text::HoriOrientation::CENTER,
++                         getProperty<sal_Int16>(getShape(1), u"HoriOrient"_ustr));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(2));
++    queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked);
++    CPPUNIT_ASSERT(bChecked);
++    const auto [nBody, nShape] = bodyAndShapeCentres();
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(double(nBody), double(nShape), 20.0);
++
++    CPPUNIT_ASSERT_EQUAL(nUndo + 1, undoCount());
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    CPPUNIT_ASSERT(text::HoriOrientation::CENTER
++                   != getProperty<sal_Int16>(getShape(1), u"HoriOrient"_ustr));
++}
++
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sw/qa/uibase/hst/marginlineselect.cxx
 +++ b/sw/qa/uibase/hst/marginlineselect.cxx
-@@ -0,0 +1,234 @@
+@@ -0,0 +1,264 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -364,19 +491,32 @@ selects lines.
 +        return shell().GetCharRect().Center().Y();
 +    }
 +
-+    MouseEvent mouseEvent(const Point& rDocPt, sal_uInt16 nClicks, sal_uInt16 nButtons)
++    MouseEvent mouseEvent(const Point& rDocPt, sal_uInt16 nClicks, sal_uInt16 nButtons,
++                          sal_uInt16 nModifier = 0)
 +    {
 +        return MouseEvent(editWin().LogicToPixel(rDocPt), nClicks,
 +                          nClicks ? MouseEventModifiers::SIMPLECLICK
 +                                  : MouseEventModifiers::SIMPLEMOVE,
-+                          nButtons, 0);
++                          nButtons, nModifier);
 +    }
 +
-+    void click(const Point& rDocPt, sal_uInt16 nClicks = 1)
++    void click(const Point& rDocPt, sal_uInt16 nClicks = 1, sal_uInt16 nModifier = 0)
 +    {
-+        editWin().MouseButtonDown(mouseEvent(rDocPt, nClicks, MOUSE_LEFT));
-+        editWin().MouseButtonUp(mouseEvent(rDocPt, nClicks, MOUSE_LEFT));
++        editWin().MouseButtonDown(mouseEvent(rDocPt, nClicks, MOUSE_LEFT, nModifier));
++        editWin().MouseButtonUp(mouseEvent(rDocPt, nClicks, MOUSE_LEFT, nModifier));
 +        Scheduler::ProcessEventsToIdle();
++    }
++
++    /// The selection runs from the start of "First" to the end of "Last": the whole document.
++    void assertWholeDocumentSelected()
++    {
++        CPPUNIT_ASSERT(shell().HasSelection());
++        CPPUNIT_ASSERT_EQUAL(sal_Int32(0), startOffset());
++        CPPUNIT_ASSERT_EQUAL(u"First"_ustr,
++                             shell().GetCursor()->Start()->GetNode().GetTextNode()->GetText());
++        CPPUNIT_ASSERT_EQUAL(u"Last"_ustr,
++                             shell().GetCursor()->End()->GetNode().GetTextNode()->GetText());
++        CPPUNIT_ASSERT_EQUAL(sal_Int32(4), endOffset());
 +    }
 +
 +    sal_Int32 startOffset() { return shell().GetCursor()->Start()->GetContentIndex(); }
@@ -510,6 +650,23 @@ selects lines.
 +    CPPUNIT_ASSERT(!shell().HasSelection());
 +}
 +
++CPPUNIT_TEST_FIXTURE(HstMarginLineSelectTest, testTripleClickSelectsWholeDocument)
++{
++    createDocWithLongParagraph();
++    const Point aPt = marginPoint(lineMiddle(2));
++    click(aPt, 1);
++    click(aPt, 2);
++    click(aPt, 3);
++    assertWholeDocumentSelected();
++}
++
++CPPUNIT_TEST_FIXTURE(HstMarginLineSelectTest, testCtrlClickSelectsWholeDocument)
++{
++    createDocWithLongParagraph();
++    click(marginPoint(lineMiddle(2)), 1, KEY_MOD1);
++    assertWholeDocumentSelected();
++}
++
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sw/sdi/_frmsh.sdi
 +++ b/sw/sdi/_frmsh.sdi
@@ -555,6 +712,45 @@ selects lines.
      SID_OBJECT_ALIGN_UP // status(play|final)
      [
          ExecMethod = Execute ;
+--- a/sw/sdi/drwbassh.sdi
++++ b/sw/sdi/drwbassh.sdi
+@@ -37,6 +37,36 @@
+         StateMethod = GetState;
+         DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
+     ]
++    SID_ATTR_PARA_ADJUST_LEFT // HST: align a selected shape
++    [
++        ExecMethod = Execute;
++        StateMethod = GetState;
++        DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
++    ]
++    SID_ATTR_PARA_ADJUST_CENTER // HST: align a selected shape
++    [
++        ExecMethod = Execute;
++        StateMethod = GetState;
++        DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
++    ]
++    SID_ATTR_PARA_ADJUST_RIGHT // HST: align a selected shape
++    [
++        ExecMethod = Execute;
++        StateMethod = GetState;
++        DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
++    ]
++    SID_ATTR_PARA_ADJUST_START // HST: align a selected shape
++    [
++        ExecMethod = Execute;
++        StateMethod = GetState;
++        DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
++    ]
++    SID_ATTR_PARA_ADJUST_END // HST: align a selected shape
++    [
++        ExecMethod = Execute;
++        StateMethod = GetState;
++        DisableFlags="SfxDisableFlags::SwOnProtectedCursor";
++    ]
+     SID_OBJECT_ALIGN_CENTER
+     [
+         ExecMethod = Execute;
 --- a/sw/source/uibase/docvw/edtwin.cxx
 +++ b/sw/source/uibase/docvw/edtwin.cxx
 @@ -160,6 +160,7 @@
@@ -569,9 +765,9 @@ selects lines.
      if ( rSh.IsInSelect() )
          rSh.EndSelect();
  
-+    if (MOUSE_LEFT == aMEvt.GetButtons() && !aMEvt.GetModifier() && !bIsViewReadOnly
++    if (MOUSE_LEFT == aMEvt.GetButtons() && !bIsViewReadOnly
 +        && !m_pApplyTempl && !m_rView.GetDrawFuncPtr() && !rSh.IsDrawCreate()
-+        && hst::marginselect::ButtonDown(*this, rSh, aDocPos, aMEvt.GetClicks()))
++        && hst::marginselect::ButtonDown(*this, rSh, aDocPos, aMEvt.GetClicks(), aMEvt.GetModifier()))
 +    {
 +        m_bMBPressed = true;
 +        CaptureMouse();
@@ -620,7 +816,7 @@ selects lines.
  
 --- a/sw/source/uibase/hst/imagealign.cxx
 +++ b/sw/source/uibase/hst/imagealign.cxx
-@@ -0,0 +1,191 @@
+@@ -0,0 +1,218 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -642,7 +838,12 @@ selects lines.
 +#include <svl/eitem.hxx>
 +#include <svx/svxids.hrc>
 +
++#include <svx/svdmark.hxx>
++#include <svx/svdobj.hxx>
++#include <svx/svdview.hxx>
++
 +#include <IDocumentContentOperations.hxx>
++#include <dcontact.hxx>
 +#include <doc.hxx>
 +#include <fesh.hxx>
 +#include <flyfrm.hxx>
@@ -701,13 +902,28 @@ selects lines.
 +           && nSlot != SID_OBJECT_ALIGN_RIGHT;
 +}
 +
-+/// The format of the selected frame when it shows a picture or an embedded object (not text).
++/// The format of the selected object: a frame showing a picture or an embedded object (not text),
++/// or one drawing shape (a group counts as one; not a form control, not a shape inside an entered
++/// group, which has no anchor of its own).
 +SwFrameFormat* SelectedObjectFormat(const SwWrtShell& rSh)
 +{
-+    SwFlyFrame* pFly = rSh.GetSelectedFlyFrame();
-+    if (!pFly || !pFly->Lower() || !pFly->Lower()->IsNoTextFrame())
++    if (SwFlyFrame* pFly = rSh.GetSelectedFlyFrame())
++    {
++        if (!pFly->Lower() || !pFly->Lower()->IsNoTextFrame())
++            return nullptr;
++        return pFly->GetFormat();
++    }
++    const SdrView* pSdrView = rSh.GetDrawView();
++    if (!pSdrView || pSdrView->IsGroupEntered())
 +        return nullptr;
-+    return pFly->GetFormat();
++    const SdrMarkList& rMarks = pSdrView->GetMarkedObjectList();
++    if (rMarks.GetMarkCount() != 1)
++        return nullptr;
++    SdrObject* pObj = rMarks.GetMark(0)->GetMarkedSdrObj();
++    if (!pObj || pObj->GetObjInventor() == SdrInventor::FmForm)
++        return nullptr;
++    SwFrameFormat* pFormat = ::FindFrameFormat(pObj);
++    return pFormat && pFormat->Which() == RES_DRAWFRMFMT ? pFormat : nullptr;
 +}
 +
 +/// The paragraph holding rFormat when it is anchored as character, else nullptr.
@@ -770,7 +986,14 @@ selects lines.
 +        aSet.Put(SwFormatHoriOrient(0, oAlignment->nHoriOrient,
 +                                    css::text::RelOrientation::PRINT_AREA));
 +        // A single frame attribute change: one undo step.
-+        rSh.SetFlyFrameAttr(aSet);
++        if (pFormat->Which() == RES_DRAWFRMFMT)
++        {
++            rSh.StartAllAction();
++            rSh.GetDoc()->SetFlyFrameAttr(*pFormat, aSet);
++            rSh.EndAllAction();
++        }
++        else
++            rSh.SetFlyFrameAttr(aSet);
 +    }
 +    InvalidateAlignmentState(rSh);
 +    rReq.Done();
@@ -814,7 +1037,7 @@ selects lines.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sw/source/uibase/hst/marginlineselect.cxx
 +++ b/sw/source/uibase/hst/marginlineselect.cxx
-@@ -0,0 +1,175 @@
+@@ -0,0 +1,180 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -826,6 +1049,7 @@ selects lines.
 +
 +#include <comphelper/lok.hxx>
 +#include <tools/gen.hxx>
++#include <vcl/keycodes.hxx>
 +#include <vcl/window.hxx>
 +
 +#include <cntfrm.hxx>
@@ -950,15 +1174,19 @@ selects lines.
 +    return MarginLineFrame(rSh, rDocPt) != nullptr;
 +}
 +
-+bool ButtonDown(const vcl::Window& rWin, SwWrtShell& rSh, const Point& rDocPt, sal_uInt16 nClicks)
++bool ButtonDown(const vcl::Window& rWin, SwWrtShell& rSh, const Point& rDocPt, sal_uInt16 nClicks,
++                sal_uInt16 nModifier)
 +{
 +    g_aPress = MarginPress();
-+    if (!MarginLineFrame(rSh, rDocPt))
++    if ((nModifier != 0 && nModifier != KEY_MOD1) || !MarginLineFrame(rSh, rDocPt))
 +        return false;
 +
 +    // Leave a selected object, table selection or extended selection mode first.
 +    rSh.EnterStdMode();
-+    if (nClicks <= 1)
++    const bool bLines = nClicks <= 1 && nModifier == 0;
++    if (nModifier == KEY_MOD1 || nClicks >= 3)
++        rSh.SelAll();
++    else if (bLines)
 +        SelectLines(rSh, rDocPt, rDocPt);
 +    else
 +    {
@@ -967,7 +1195,7 @@ selects lines.
 +    }
 +    g_aPress.pWindow = &rWin;
 +    g_aPress.aAnchor = rDocPt;
-+    g_aPress.bLines = nClicks <= 1;
++    g_aPress.bLines = bLines;
 +    return true;
 +}
 +
@@ -1008,8 +1236,8 @@ selects lines.
 +class SfxRequest;
 +class SwWrtShell;
 +
-+/// Left / Center / Right for a selected picture or embedded object, as a user expects from a
-+/// word processor: the paragraph alignment commands (Home tab, Ctrl+L/E/R, sidebar) and the
++/// Left / Center / Right for a selected picture, embedded object or drawing shape (also a group),
++/// as a user expects from a word processor: the paragraph alignment commands (Home tab, Ctrl+L/E/R, sidebar) and the
 +/// object alignment commands (picture context menu, Picture tab) both apply.
 +/// - Object anchored as character: the alignment of the paragraph that holds it.
 +/// - Any other anchor: the horizontal position, relative to the text area of the anchor.
@@ -1029,7 +1257,7 @@ selects lines.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sw/source/uibase/inc/hstmarginlineselect.hxx
 +++ b/sw/source/uibase/inc/hstmarginlineselect.hxx
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,47 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1049,7 +1277,8 @@ selects lines.
 +}
 +
 +/// The selection margin left of the body text: the pointer turns into a right-pointing arrow,
-+/// a click selects the line beside it, a double click its paragraph, and a drag whole lines.
++/// a click selects the line beside it, a double click its paragraph, a drag whole lines, and a
++/// triple click or Ctrl+click the whole document.
 +/// Only plain body text of a left-to-right horizontal page takes part: tables, footnotes,
 +/// headers / footers, objects and the comment sidebar keep their own mouse handling.
 +/// All points are document coordinates (twips).
@@ -1059,10 +1288,12 @@ selects lines.
 +/// in a left page margin: a few rectangle tests on the visible pages.
 +bool IsOverMargin(SwWrtShell& rSh, const Point& rDocPt);
 +
-+/// A left button press without modifiers at rDocPt: selects the line (one click) or the
-+/// paragraph (more clicks) when rDocPt is in the selection margin. Returns whether it did;
-+/// the caller then captures the mouse and skips its own handling.
-+bool ButtonDown(const vcl::Window& rWin, SwWrtShell& rSh, const Point& rDocPt, sal_uInt16 nClicks);
++/// A left button press at rDocPt in the selection margin selects the line (one click), the
++/// paragraph (double click) or the whole document (triple click, or Ctrl+click: nModifier
++/// KEY_MOD1). Other modifiers are not handled. Returns whether it selected; the caller then
++/// captures the mouse and skips its own handling.
++bool ButtonDown(const vcl::Window& rWin, SwWrtShell& rSh, const Point& rDocPt, sal_uInt16 nClicks,
++                sal_uInt16 nModifier);
 +
 +/// Mouse move while a margin press of rWin is active: extends the selection over whole lines
 +/// up to the line at rDocPt (only after a single click, and only inside the visible area).
@@ -1074,6 +1305,37 @@ selects lines.
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/shells/drwbassh.cxx
++++ b/sw/source/uibase/shells/drwbassh.cxx
+@@ -43,6 +43,7 @@
+ #include <frmfmt.hxx>
+ #include <drawbase.hxx>
+ #include <drwbassh.hxx>
++#include <hstimagealign.hxx>
+ #include <swdtflvr.hxx>
+ #include <svx/svditer.hxx>
+ #define ShellClass_SwDrawBaseShell
+@@ -100,6 +101,8 @@
+ void SwDrawBaseShell::Execute(SfxRequest& rReq)
+ {
+     SwWrtShell *pSh = &GetShell();
++    if (hst::imagealign::Execute(*pSh, rReq))
++        return;
+     SdrView*    pSdrView = pSh->GetDrawView();
+     const SfxItemSet *pArgs = rReq.GetArgs();
+     sal_uInt16      nSlotId = rReq.GetSlot();
+@@ -804,6 +807,11 @@
+ 
+     while( nWhich )
+     {
++        if (hst::imagealign::GetState(rSh, nWhich, rSet))
++        {
++            nWhich = aIter.NextWhich();
++            continue;
++        }
+         switch( nWhich )
+         {
+             case FN_DRAW_WRAP_DLG:
 --- a/sw/source/uibase/shells/frmsh.cxx
 +++ b/sw/source/uibase/shells/frmsh.cxx
 @@ -75,6 +75,7 @@
