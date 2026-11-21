@@ -1,0 +1,131 @@
+editeng: AutoCorrect accepts plain language codes without loading liblangtag at start.
+
+The first Writer document of a session creates the AutoCorrect configuration (SwDLL, InitCore). Its
+constructor lists the acor_*.dat files and checks each language-only tag with LanguageTag::isValidBcp47,
+which initializes liblangtag and loads its language subtag registry: about 40 MB in 255,000 allocations,
+held for the whole session, before any document is open (heaptrack of an empty Writer: 39.9 MB of
+63 MB). With the shipped files exactly one tag takes that path, a plain language code.
+
+HstIsPlainLanguageCode (new hstlanguagecode.cxx) answers for two or three lowercase letters outside
+the private-use range qaa-qtz, which are valid BCP 47 tags without private use; only other tags still
+go to liblangtag. The list of AutoCorrect languages is unchanged.
+
+Hook: editeng/source/misc/acorrcfg.cxx (1 condition), editeng/Library_editeng.mk; logic in
+editeng/inc/hstlanguagecode.hxx, editeng/source/misc/hstlanguagecode.cxx.
+Test: CppunitTest_editeng_core HstLanguageCodeTest (same answer as isValidBcp47 for the shipped codes).
+---
+--- a/editeng/Library_editeng.mk
++++ b/editeng/Library_editeng.mk
+@@ -96,6 +96,7 @@
+     editeng/source/items/writingmodeitem \
+     editeng/source/items/xmlcnitm \
+     editeng/source/misc/acorrcfg \
++    editeng/source/misc/hstlanguagecode \
+     editeng/source/misc/edtdlg \
+     editeng/source/misc/forbiddencharacterstable \
+     editeng/source/misc/hangulhanja \
+--- a/editeng/source/misc/acorrcfg.cxx
++++ b/editeng/source/misc/acorrcfg.cxx
+@@ -27,6 +27,7 @@
+ #include <unotools/pathoptions.hxx>
+ #include <unotools/ucbhelper.hxx>
+ #include <svtools/langtab.hxx>
++#include <hstlanguagecode.hxx>
+ #include <com/sun/star/sdbc/XResultSet.hpp>
+ #include <com/sun/star/sdbc/XRow.hpp>
+ 
+@@ -82,8 +83,9 @@
+                         // other private-use tag (which should not fallback,
+                         // but avoid).
+                         if (aLanguageTag.getCountry().isEmpty()
+-                                && LanguageTag::isValidBcp47( aLanguageTag.getBcp47(), nullptr,
+-                                    LanguageTag::PrivateUse::DISALLOW))
++                                && (HstIsPlainLanguageCode(aLanguageTag.getBcp47()) // HST: no liblangtag at start
++                                    || LanguageTag::isValidBcp47( aLanguageTag.getBcp47(), nullptr,
++                                    LanguageTag::PrivateUse::DISALLOW)))
+                         {
+                             LanguageTag aFallback( aLanguageTag);
+                             aFallback.makeFallback();
+--- a/editeng/qa/unit/core-test.cxx
++++ b/editeng/qa/unit/core-test.cxx
+@@ -14,6 +14,8 @@
+ #include <cppunit/extensions/HelperMacros.h>
+ 
+ #include <editdoc.hxx>
++#include <hstlanguagecode.hxx>
++#include <i18nlangtag/languagetag.hxx>
+ #include <EditSelection.hxx>
+ #include <ParagraphPortionList.hxx>
+ 
+@@ -2584,6 +2586,32 @@
+ }
+ 
+ CPPUNIT_TEST_SUITE_REGISTRATION(Test);
++
++/// The AutoCorrect configuration accepts plain language codes without liblangtag, with the same
++/// answer as LanguageTag::isValidBcp47 without private use.
++class HstLanguageCodeTest : public CppUnit::TestFixture
++{
++public:
++    void testHstPlainLanguageCode()
++    {
++        for (const char* pTag : { "de", "es", "fr", "it", "dsb", "hsb", "vi" })
++        {
++            const OUString aTag = OUString::createFromAscii(pTag);
++            CPPUNIT_ASSERT_MESSAGE(pTag, HstIsPlainLanguageCode(aTag));
++            CPPUNIT_ASSERT_MESSAGE(pTag, LanguageTag::isValidBcp47(aTag, nullptr,
++                                                                  LanguageTag::PrivateUse::DISALLOW));
++        }
++        for (const char* pTag : { "", "x", "qaa", "qtz", "DE", "abcd", "de-DE", "sr-Latn", "x-hst" })
++            CPPUNIT_ASSERT_MESSAGE(pTag, !HstIsPlainLanguageCode(OUString::createFromAscii(pTag)));
++        CPPUNIT_ASSERT(HstIsPlainLanguageCode(u"qua")); // just past the private-use range
++    }
++
++    CPPUNIT_TEST_SUITE(HstLanguageCodeTest);
++    CPPUNIT_TEST(testHstPlainLanguageCode);
++    CPPUNIT_TEST_SUITE_END();
++};
++
++CPPUNIT_TEST_SUITE_REGISTRATION(HstLanguageCodeTest);
+ }
+ 
+ CPPUNIT_PLUGIN_IMPLEMENT();
+--- /dev/null
++++ b/editeng/inc/hstlanguagecode.hxx
+@@ -0,0 +1,15 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++
++#pragma once
++
++#include <editeng/editengdllapi.h>
++
++#include <string_view>
++
++/// Whether rTag is a plain ISO 639 language code: two or three lowercase ASCII letters outside the
++/// private-use range qaa-qtz. Such a tag is a valid BCP 47 tag without private use, which can be
++/// answered without liblangtag, whose language subtag registry takes about 40 MB once loaded.
++EDITENG_DLLPUBLIC bool HstIsPlainLanguageCode(std::u16string_view rTag);
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/editeng/source/misc/hstlanguagecode.cxx
+@@ -0,0 +1,18 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++
++#include <hstlanguagecode.hxx>
++
++#include <algorithm>
++
++bool HstIsPlainLanguageCode(std::u16string_view rTag)
++{
++    if (rTag.size() < 2 || rTag.size() > 3)
++        return false;
++    if (!std::all_of(rTag.begin(), rTag.end(), [](char16_t c) { return c >= 'a' && c <= 'z'; }))
++        return false;
++    // qaa-qtz is reserved for private use
++    return !(rTag.size() == 3 && rTag[0] == 'q' && rTag[1] <= 't');
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

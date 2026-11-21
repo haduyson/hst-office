@@ -1,4 +1,4 @@
-# Phiên bản trước và tự lưu khôi phục (từ 1.0.2)
+# Phiên bản trước, tự lưu khôi phục (từ 1.0.2) và Tự động lưu (từ 1.0.3)
 
 Hai cơ chế giúp người dùng lấy lại công việc. Hướng dẫn cho người dùng:
 [help/khoi-phuc-tai-lieu.html](../extensions/hst-vietnamese-tools/help/khoi-phuc-tai-lieu.html).
@@ -6,9 +6,9 @@ Hai cơ chế giúp người dùng lấy lại công việc. Hướng dẫn cho 
 ## Tự lưu thông tin khôi phục: 3 phút
 
 [`RecoveryDefaults.xcu`](../extensions/hst-vietnamese-tools/RecoveryDefaults.xcu) của extension đi kèm đặt
-`/org.openoffice.Office.Recovery/AutoSave/TimeIntervall` = `3` (mặc định gốc 10) và giữ `UserAutoSaveEnabled` =
-`false`: chỉ bản khôi phục trong thư mục backup của hồ sơ được ghi 3 phút một lần, tệp của người dùng không bao giờ bị
-tự lưu đè. Giá trị người dùng (Công cụ ▸ Tùy chọn ▸ Tải/Lưu ▸ Chung) hoặc quản trị viên đặt vẫn thắng giá trị mặc định này.
+`/org.openoffice.Office.Recovery/AutoSave/TimeIntervall` = `3` (mặc định gốc 10): bản khôi phục trong thư mục backup
+của hồ sơ được ghi 3 phút một lần. Từ 1.0.3 file này cũng đặt `UserAutoSaveEnabled` = `true` (Tự động lưu, mục dưới).
+Giá trị người dùng (Công cụ ▸ Tùy chọn ▸ Tải/Lưu ▸ Chung) hoặc quản trị viên đặt vẫn thắng giá trị mặc định này.
 
 Tài liệu lớn được lưu thưa hơn để không làm gián đoạn người dùng
 ([`hst-adaptive-autorecovery.patch`](../patches/libreoffice/hst-adaptive-autorecovery.patch)): mỗi tài liệu đến hạn
@@ -18,10 +18,43 @@ max(`TimeIntervall`, `AutoSave/HstLargeDocumentTimeIntervall`) (phút, mặc đ�
 coi là nhỏ cho đến khi có bản khôi phục đầu tiên. Lưu khi sập hoặc khi tắt phiên vẫn lưu mọi tài liệu ngay, kể cả tài
 liệu lớn. Ô thời gian trong Tùy chọn có chú thích (tooltip) về quy tắc này.
 
+## Tự động lưu vào tệp gốc (từ 1.0.3)
+
+Chủ dự án quyết định ngày 21/11/2026. Phương án:
+`plans/261117-2258-hst-office-1-0-3/reports/autosave-toggle-proposal.md` (kho kế hoạch).
+
+- Có nút gạt "Tự động lưu" ở đầu hàng thẻ ribbon, trước thanh truy cập nhanh, trong Writer, Sheets, Slides và Draw
+  ([`hst-user-autosave-toggle.patch`](../patches/libreoffice/hst-user-autosave-toggle.patch)). Nút áp dụng cho
+  từng tài liệu và chỉ trong phiên đang mở, nên không lưu lại lựa chọn: mở lại tệp thì nút lại theo
+  `UserAutoSaveEnabled`, mặc định là Bật. Ô "Tự động lưu tài liệu vào tệp gốc" trong Tùy chọn ▸ Tải/Lưu ▸ Chung
+  là giá trị mặc định cho các tài liệu mở sau. Bỏ chọn "Hiện Tự động lưu" trong menu ▾ của thanh truy cập nhanh
+  (`HSTRibbon/ShowAutoSaveToggle`) thì nút ẩn, nhưng tự lưu vẫn chạy.
+- Tần suất theo bộ hẹn giờ khôi phục ở trên. Lần đầu khoảng 30 giây sau lần sửa đầu tiên, sau đó 3 phút một lần,
+  tài liệu trên 5 MB thì 10 phút. Việc lưu chỉ bắt đầu khi người dùng đã ngừng thao tác 10 giây. Lần nào trong Sheets
+  đang có ô được sửa, hoặc đang mở một hộp thoại, thì bỏ qua lần đó. Tự lưu xong thì không ghi bản khôi phục, và
+  vẫn hoàn tác (Undo) được.
+- Chỉ tự lưu khi tệp nằm trên ổ máy, ổ mạng hoặc USB (URL `file:`) và ở định dạng ODF hoặc `.docx/.xlsx/.pptx`
+  (bộ lọc MS 2007 XML). Các trường hợp sau làm nút mờ, kèm chú thích nêu lý do: tài liệu chưa lưu lần nào; định dạng
+  có thể mất dữ liệu (`.doc/.xls/.ppt/.rtf/.txt/.csv/.html`…); tệp chỉ đọc; tài liệu có chữ ký số; tài liệu có
+  macro mà định dạng không giữ được (cùng phép kiểm của `hst-macro-save-guard.patch`); quản trị viên đã khóa
+  `UserAutoSaveEnabled` hoặc `AutoSave/Enabled` (khi đó nút hiện đúng giá trị đã đặt); đã tắt lưu thông tin khôi phục.
+  Logic nằm trong `sfx2/source/doc/hstuserautosave.cxx`
+  ([`hst-user-autosave-filter.patch`](../patches/libreoffice/hst-user-autosave-filter.patch)).
+- Tự lưu không bao giờ bật hộp thoại, vì dùng bộ xử lý tương tác im lặng. Không hỏi "Giữ định dạng", không cảnh báo
+  macro, không hỏi "tệp đã bị thay đổi". Nếu không ghi được tệp (rút USB, mất mạng, tệp bị khóa) hoặc tệp đã bị
+  chương trình khác sửa, tệp không bị ghi đè: nút chuyển sang "Tạm dừng" và thay đổi vẫn nằm trong bản khôi phục. Bấm
+  nút, hoặc tự lưu bằng tay thành công, thì tự lưu chạy lại.
+- Lõi gọi `getArgs2({"HstUserAutoSave"})` để hỏi tài liệu, rồi gọi `storeSelf({HstUserAutoSave=true})`. Khi lưu phiên
+  (khởi động lại hay đăng xuất), HST không ghi vào tệp gốc.
+
 ## Phiên bản trước
 
 Mỗi lần lưu đè một tệp đã có trên đĩa (mọi định dạng), bản trên đĩa ngay trước khi ghi đè được cất vào
-`<hồ sơ người dùng>/user/hst-versions/`. Lệnh `org.hst.office.vi:PreviousVersions` mở hộp thoại "Phiên bản trước"
+`<hồ sơ người dùng>/user/hst-versions/`. Riêng Tự động lưu thì gộp bản: mỗi lần mở tài liệu, lần tự lưu đầu tiên luôn
+cất bản trên đĩa (trạng thái trước phiên), các lần tự lưu sau chỉ cất khi bản mới nhất của tệp đã cũ hơn 30 phút
+(`version_capture.autosave_keeps`, `AUTOSAVE_SPACING_SECONDS`). Khi chắc chắn không cất, `OnModifyChanged` cũng không
+chép tệp. Lưu bằng tay vẫn cất như cũ. Job nhận ra lần tự lưu qua `getArgs2({"HstUserAutoSaving"})`. Kiểm thử:
+`tests/unit/test_version_autosave.py`. Lệnh `org.hst.office.vi:PreviousVersions` mở hộp thoại "Phiên bản trước"
 (Mở xem: bản sao chỉ đọc; Khôi phục: cất bản hiện tại trước, đóng tài liệu, thay tệp, mở lại).
 
 | Thành phần | Tệp |
@@ -29,7 +62,7 @@ Mỗi lần lưu đè một tệp đã có trên đĩa (mọi định dạng), b
 | Kho (chép, trùng, giới hạn, dọn, khóa, chỉ mục hỏng) | `python/hst_office/version_store.py`, `version_files.py` |
 | Thời điểm chép | `version_capture.py`, job `version_job.py` (`Jobs.xcu`: `OnModifyChanged`, `OnSave`, `OnSaveDone`, `OnSaveAsDone`, `OnUnload`) |
 | Hộp thoại, khôi phục | `version_dialog.py`, `version_restore.py`, chuỗi `version_texts.py` |
-| Cài đặt, khóa quản trị | `version_config.py`, schema `previousversions.xcs`, trang `dialogs/PreviousVersions.xdl` + `version_options.py` |
+| Cài đặt, khóa quản trị | `version_config.py`, schema lõi `org/hasontech/hstoffice/PreviousVersions.xcs` (`hst-extension-settings-core.patch`), trang `dialogs/PreviousVersions.xdl` + `version_options.py` |
 | Menu | `Addons.xcu` (`OfficeMenuBarMerging`: Tệp tin ▸ Phiên bản trước, sau "Phiên bản"), `FeatureSearch.xcu` |
 | Bảng Tệp tin của giao diện theo thẻ | nút "Phiên bản trước" ở trang Thông tin: bản vá lõi `hst-backstage-previous-versions.patch` (chưa vào series lúc viết) |
 

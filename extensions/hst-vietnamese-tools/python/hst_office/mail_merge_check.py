@@ -12,6 +12,7 @@ Problems (code, position from 1 or 0 for the whole document, column, value):
 import re
 
 from . import mail_merge_format as fmt
+from .mail_merge_word_parse import is_word_code, names_text
 
 MAIL = re.compile(r"[^@\s,;<>]+@[^@\s,;<>]+\.[^@\s,;<>.]{2,}")
 LIMIT = 500  # problems listed at most (the dialog says how many more)
@@ -56,7 +57,8 @@ def lines(found, texts, name_of=None):
         if position and name_of:
             label = name_of(position)
             who += " (%s)" % label if label else ""
-        result.append("%s: %s" % (who, texts["chk." + code] % {"column": column, "value": value}))
+        shown = names_text(column).strip("<>") if is_word_code(column) else column  # a Word field: its condition
+        result.append("%s: %s" % (who, texts["chk." + code] % {"column": shown, "value": value}))
     if len(found) > LIMIT:
         result.append(texts["chk.more"] % (len(found) - LIMIT))
     return result

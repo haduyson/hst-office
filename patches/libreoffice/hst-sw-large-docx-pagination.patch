@@ -1,0 +1,599 @@
+Writer: a large DOCX made of paragraphs and simple tables is laid out page by page, as large plain texts are.
+
+DOCX has no layout cache, so every paragraph and table of a newly opened document is created on the first
+page. Each page break then moves the whole rest of the document to the next page (SwFlowFrame::MoveFwd:
+GetNextLeaf walks the following frames, PasteTree reparents them), O(paragraphs x pages). A 5 MB DOCX of
+paragraphs and small tables (9857 pages) spent 686 s of CPU in its full layout, half of it in MoveFwd, against
+118 s for 2 MB (3938 pages); 50 MB never finished. Saving as DOCX runs the full layout first, so the same
+time was spent again on every save.
+
+hst-sw-large-text-pagination.patch already inserts pages while the frames are created for plain texts,
+from a generous height estimate per paragraph, and lets the layout pull the following frames back, so
+the final pagination is that of the start-to-end layout. It now also runs for a DOCX document of at least
+3000 nodes without header, footer, columns, footnotes, frames, images or drawing objects
+(HstLargeDocxPaginationAllowed). For such a document, tables are estimated as well: each row is as tall as its
+tallest cell, estimated paragraph by paragraph on the cell's share of the body width, plus the cell
+borders and spacing, and at least the row's own height (HstEstimateTableHeight). Paragraph text in a larger
+font set on the characters (DOCX run properties) is estimated in that font (HstMaxCharHeight). The estimate
+stops, and the layout continues on its own as before, at a table it does not cover (nested tables, split
+cells, repeated headings), a section, or a change of page format.
+
+Appending the estimated pages was itself O(pages) per page: SwPageFrame::Paste walked all pages to
+find the end (SwFrame::InsertBefore without sibling), and PreparePage formatted the new page, whose
+PrepareMake walks all pages before it. A 50 MB DOCX (about 100,000 pages) spent most of its open time
+there. While the estimate inserts a page (SwRootFrame::IsHstEstimatedPageInsert), the page is appended
+behind the root's last page, and is formatted by the layout like its frames instead of right away.
+Formatting a page (SwFrame::PrepareMake) walked all pages before it to format the unformatted ones,
+O(pages) for every page of the layout. For such documents it starts after the last formatted page before
+it (HstFirstSiblingToFormat); the unformatted pages before that are formatted by the layout in page order.
+These two also apply to the large plain texts of hst-sw-large-text-pagination.patch.
+
+Hook: sw/source/core/layout/laycache.cxx (filter check, paragraph estimate split from the frame
+dispatch, page insert flag), sw/source/core/layout/layhelp.hxx, sw/source/core/inc/rootfrm.hxx,
+sw/source/core/layout/pagechg.cxx (Paste, PreparePage), sw/source/core/layout/calcmove.cxx (PrepareMake),
+sw/Library_sw.mk; logic in
+sw/source/core/inc/hstlargedocxpagination.hxx, sw/source/core/layout/hstlargedocxpagination.cxx.
+Test: CppunitTest_sw_core_layout testLargeDocxPaginationUnchanged (every page start equal to the
+start-to-end layout, and no page left holding the rest of the document after loading),
+testOtherFormatsNotPaginated (DOCX now paginated, ODT not).
+---
+--- a/sw/Library_sw.mk
++++ b/sw/Library_sw.mk
+@@ -355,6 +355,7 @@
+     sw/source/core/layout/ftnfrm \
+     sw/source/core/hst/formulashownsize \
+     sw/source/core/hst/mathtypeoledata \
++    sw/source/core/layout/hstlargedocxpagination \
+     sw/source/core/layout/hstpageart \
+     sw/source/core/layout/hstpageartsets \
+     sw/source/core/layout/hffrm \
+--- a/sw/source/core/inc/rootfrm.hxx
++++ b/sw/source/core/inc/rootfrm.hxx
+@@ -106,6 +106,9 @@
+     bool    mbLargeTextPagination = false;
+     sal_uInt16 mnViewLayoutLock = 0; // >0: CheckViewLayout(nullptr, nullptr) only marks mbViewLayoutDirty
+     bool    mbViewLayoutDirty = false;
++    /// A page is being inserted for the page estimate while the frames are created (laycache.cxx):
++    /// it is appended behind the last page and formatted by the layout later, not right away.
++    bool    mbHstEstimatedPageInsert = false;
+ 
+     bool    mbNeedGrammarCheck;     // true when sth needs to be checked (not necessarily started yet!)
+ 
+@@ -428,6 +431,8 @@
+     const SwRect& GetPagesArea() const { return maPagesArea; }
+     void SetSidebarChanged() { mbSidebarChanged = true; }
+     bool IsLargeTextPagination() const { return mbLargeTextPagination; }
++    bool IsHstEstimatedPageInsert() const { return mbHstEstimatedPageInsert; }
++    void SetHstEstimatedPageInsert(bool bSet) { mbHstEstimatedPageInsert = bSet; }
+     void SetLargeTextPagination() { mbLargeTextPagination = true; }
+     void LockViewLayout() { ++mnViewLayoutLock; }
+     void UnlockViewLayout()
+--- a/sw/source/core/layout/calcmove.cxx
++++ b/sw/source/core/layout/calcmove.cxx
+@@ -47,6 +47,7 @@
+ 
+ #include <DocumentSettingManager.hxx>
+ #include <IDocumentLayoutAccess.hxx>
++#include <hstlargedocxpagination.hxx>
+ 
+ // Move methods
+ 
+@@ -318,7 +319,7 @@
+         }
+         if ( bFormatPrev )
+         {
+-            SwFrame *pFrame = GetUpper()->Lower();
++            SwFrame *pFrame = HstFirstSiblingToFormat(*this); // HST: not every page of a large document
+             while ( pFrame != this )
+             {
+                 OSL_ENSURE( pFrame, ":-( Layout unstable (this not found)." );
+--- a/sw/source/core/layout/laycache.cxx
++++ b/sw/source/core/layout/laycache.cxx
+@@ -71,6 +71,8 @@
+ #include <vcl/outdev.hxx>
+ #include <vcl/metric.hxx>
+ #include <rtl/character.hxx>
++#include <hstlargedocxpagination.hxx>
++#include <tabfrm.hxx>
+ 
+ #include <limits>
+ 
+@@ -628,7 +630,7 @@
+     if (nNodeIndex != rNodes.GetEndOfContent().StartOfSectionNode()->GetIndex() + 1
+         || rNodes.GetEndOfContent().GetIndex() - nNodeIndex < TEXT_PAGINATION_MIN_NODES
+         || !mrpPage || !mrpLay || !mrpLay->IsPageBodyFrame() || mrpActualSection
+-        || !IsPlainTextImport(mrDoc))
++        || !(IsPlainTextImport(mrDoc) || (mbTextDocx = HstLargeDocxPaginationAllowed(mrDoc))))
+         return;
+     const SwViewShell* pSh = mrpPage->getRootFrame()->GetCurrShell();
+     if (pSh && pSh->GetViewOptions()->getBrowseMode())
+@@ -646,6 +648,7 @@
+         return;
+     mnTextBodyWidth = nWidth;
+     mnTextPageBudget = nHeight;
++    mpTextPageDesc = mrpPage->GetPageDesc();
+     // Every inserted page would compute the positions of all pages: do it once at the end.
+     mpTextRoot = mrpPage->getRootFrame();
+     mpTextRoot->SetLargeTextPagination();
+@@ -660,14 +663,40 @@
+  */
+ tools::Long SwLayHelper::EstimateTextHeight()
+ {
++    tools::Long nEstimate = 0;
++    if (mrpActualSection || !mrpLay->IsPageBodyFrame()
++        || (mbTextDocx && mrpPage->GetPageDesc() != mpTextPageDesc))
++        ; // not a plain flow on one page format: leave the layout to itself
++    else if (mrpFrame->IsTextFrame())
++    {
++        const SwTextFrame& rFrame = *static_cast<SwTextFrame*>(mrpFrame);
++        nEstimate = EstimateParagraphHeight(*rFrame.GetTextNodeForParaProps(), rFrame.GetText(),
++                                            mnTextBodyWidth);
++    }
++    else if (mbTextDocx && mrpFrame->IsTabFrame())
++        nEstimate = HstEstimateTableHeight(
++            *static_cast<SwTabFrame*>(mrpFrame)->GetTable(), mnTextBodyWidth,
++            [this](const SwTextNode& rNode, tools::Long nWidth)
++            { return EstimateParagraphHeight(rNode, rNode.GetText(), nWidth); });
++    if (!nEstimate || !mnTextPageBudget)
++    {
++        mnTextPageBudget = 0;
++        return 0;
++    }
++    return nEstimate;
++}
++
++/// Height estimate of a paragraph with the text rText on a width of nBodyWidth (0: estimate off).
++tools::Long SwLayHelper::EstimateParagraphHeight(const SwTextNode& rNode, const OUString& rText,
++                                                 tools::Long nBodyWidth)
++{
+     OutputDevice* pOut = mrDoc.getIDocumentDeviceAccess().getReferenceDevice(true);
+-    if (!pOut || !mrpFrame->IsTextFrame() || mrpActualSection || !mrpLay->IsPageBodyFrame())
++    if (!pOut)
+     {
+-        mnTextPageBudget = 0; // not a plain paragraph sequence: leave the layout to itself
++        mnTextPageBudget = 0;
+         return 0;
+     }
+-    const SwTextFrame& rFrame = *static_cast<SwTextFrame*>(mrpFrame);
+-    const SwAttrSet& rSet = rFrame.GetTextNodeForParaProps()->GetSwAttrSet();
++    const SwAttrSet& rSet = rNode.GetSwAttrSet();
+     if (!mpTextMetrics)
+         mpTextMetrics.reset(new SwTextPaginationMetrics);
+     SwTextPaginationMetrics& rM = *mpTextMetrics;
+@@ -706,7 +735,6 @@
+         mnTextPageBudget = 0;
+         return 0;
+     }
+-    const OUString& rText = rFrame.GetText();
+     tools::Long nWidth = 0;
+     bool bPushed = false;
+     for (sal_Int32 i = 0; i < rText.getLength(); ++i)
+@@ -732,10 +760,16 @@
+     if (bPushed)
+         pOut->Pop();
+     // A line breaks at a word, so it is shorter than the body width: count lines of 90 %.
+-    const tools::Long nLineWidth = std::max<tools::Long>(1, mnTextBodyWidth * 9 / 10);
++    // HST: text set in a larger font than the paragraph's is estimated as all in the larger font
++    const tools::Long nCharHeight
++        = mbTextDocx && nHeight > 0 ? HstMaxCharHeight(rNode, nHeight) : nHeight;
++    if (nCharHeight > nHeight)
++        nWidth = nWidth * nCharHeight / nHeight;
++    const tools::Long nLineWidth = std::max<tools::Long>(1, nBodyWidth * 9 / 10);
+     const sal_Int64 nLines = std::max<sal_Int64>(1, (sal_Int64(nWidth) + nLineWidth - 1) / nLineWidth);
+     const SvxLineSpacingItem& rSpacing = rSet.GetLineSpacing();
+-    tools::Long nLine = std::max<tools::Long>(rM.mnLine, nHeight);
++    tools::Long nLine = std::max<tools::Long>(
++        nCharHeight > nHeight ? rM.mnLine * nCharHeight / nHeight : rM.mnLine, nCharHeight);
+     if (rSpacing.GetInterLineSpaceRule() == SvxInterLineSpaceRule::Prop)
+         nLine = nLine * std::max<tools::Long>(100, rSpacing.GetPropLineSpace()) / 100;
+     else if (rSpacing.GetInterLineSpaceRule() == SvxInterLineSpaceRule::Fix)
+@@ -1019,7 +1053,12 @@
+             const tools::Long nTextHeight = mnTextPageBudget ? EstimateTextHeight() : 0;
+             if (nTextHeight && mnTextPageUsed > 0 && mnTextPageUsed + nTextHeight > mnTextPageBudget)
+                 mbBreakAfter = true;
++            SwRootFrame* pHstRoot = nTextHeight ? mrpPage->getRootFrame() : nullptr;
++            if (pHstRoot)
++                pHstRoot->SetHstEstimatedPageInsert(true);
+             const bool bNewPage = CheckInsertPage(mrpPage, mrpLay, mrpFrame, mbBreakAfter);
++            if (pHstRoot)
++                pHstRoot->SetHstEstimatedPageInsert(false);
+             mnTextPageUsed = (bNewPage ? 0 : mnTextPageUsed) + nTextHeight;
+             if (bNewPage)
+             {
+--- a/sw/source/core/layout/layhelp.hxx
++++ b/sw/source/core/layout/layhelp.hxx
+@@ -32,9 +32,11 @@
+ class SwDoc;
+ class SwFrame;
+ class SwLayoutFrame;
++class SwPageDesc;
+ class SwPageFrame;
+ class SwSectionFrame;
+ class SwSectionNode;
++class SwTextNode;
+ class SvStream;
+ 
+ /*
+@@ -126,10 +128,14 @@
+     tools::Long mnTextBodyWidth;
+     SwRootFrame* mpTextRoot; ///< the root whose page positions are deferred while frames are created
+     std::unique_ptr<SwTextPaginationMetrics> mpTextMetrics; ///< font metrics of the estimate
++    const SwPageDesc* mpTextPageDesc = nullptr; ///< the page format the estimate was made for
++    bool mbTextDocx = false; ///< a large DOCX flow (hstlargedocxpagination.hxx), not a plain text
+     bool mbFirst : 1;
+     void CheckFlyCache_( SwPageFrame* pPage );
+     void InitTextPagination( SwNodeOffset nNodeIndex );
+     tools::Long EstimateTextHeight();
++    tools::Long EstimateParagraphHeight(const SwTextNode& rNode, const OUString& rText,
++                                        tools::Long nBodyWidth);
+ public:
+     SwLayHelper( SwDoc& rDoc, SwFrame* &rpF, SwFrame* &rpP, SwPageFrame* &rpPg,
+             SwLayoutFrame* &rpL, std::unique_ptr<SwActualSection> &rpA,
+--- a/sw/source/core/layout/pagechg.cxx
++++ b/sw/source/core/layout/pagechg.cxx
+@@ -519,7 +519,9 @@
+     // Thus, first calling <::RegistFlys(..)>, then call <::lcl_FormatLay(..)>
+     ::RegistFlys( this, this );
+ 
+-    if ( Lower() )
++    // HST: a page inserted by the page estimate is formatted by the layout, as all its frames are;
++    // formatting it here walks all pages before it (PrepareMake), O(pages) for every new page
++    if ( Lower() && !getRootFrame()->IsHstEstimatedPageInsert() )
+     {
+                 ::lcl_FormatLay( this );
+     }
+@@ -1006,7 +1008,14 @@
+             "I am still registered somewhere." );
+ 
+     // insert into tree structure
+-    InsertBefore( static_cast<SwLayoutFrame*>(pParent), pSibling );
++    // HST: a page appended by the page estimate goes behind the known last page instead of
++    // walking all pages to find the end
++    SwPageFrame* pHstLast = !pSibling && static_cast<SwRootFrame*>(pParent)->IsHstEstimatedPageInsert()
++                                ? static_cast<SwRootFrame*>(pParent)->GetLastPage() : nullptr;
++    if (pHstLast && pHstLast->GetUpper() == pParent && !pHstLast->GetNext())
++        InsertBehind( static_cast<SwLayoutFrame*>(pParent), pHstLast );
++    else
++        InsertBefore( static_cast<SwLayoutFrame*>(pParent), pSibling );
+ 
+     // increase the root's page number
+     static_cast<SwRootFrame*>(GetUpper())->IncrPhyPageNums();
+--- a/sw/qa/core/layout/laycache.cxx
++++ b/sw/qa/core/layout/laycache.cxx
+@@ -9,11 +9,19 @@
+ 
+ #include <swmodeltestbase.hxx>
+ 
++#include <algorithm>
+ #include <chrono>
+ #include <iostream>
+ #include <vector>
+ 
++#include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/text/XParagraphCursor.hpp>
++#include <com/sun/star/text/XTextDocument.hpp>
++#include <com/sun/star/text/XTextTable.hpp>
++
+ #include <comphelper/propertyvalue.hxx>
++#include <osl/file.hxx>
+ #include <osl/process.h>
+ #include <rtl/ustrbuf.hxx>
+ #include <tools/stream.hxx>
+@@ -25,6 +33,8 @@
+ #include <rootfrm.hxx>
+ #include <txtfrm.hxx>
+ 
++using namespace css;
++
+ namespace
+ {
+ /// Covers sw/source/core/layout/laycache.cxx: pagination of a large plain text without layout cache.
+@@ -65,14 +75,40 @@
+     std::vector<std::pair<sal_Int32, sal_Int32>> layoutText(const OUString& rURL, bool bPaginate,
+                                                             size_t& rLoadPages, sal_Int64& rMs)
+     {
++        return layoutFile(rURL, true, bPaginate, rLoadPages, rMs);
++    }
++
++    /// Opens rURL (as UTF-8 text when bText, else with the detected filter) and lays it out
++    /// completely, as layoutText.
++    /// pLoadMaxFrames: the most body frames on one page right after loading (all frames that
++    /// the estimate did not put on a page are on one page).
++    std::vector<std::pair<sal_Int32, sal_Int32>> layoutFile(const OUString& rURL, bool bText,
++                                                            bool bPaginate, size_t& rLoadPages,
++                                                            sal_Int64& rMs,
++                                                            size_t* pLoadMaxFrames = nullptr)
++    {
+         osl_setEnvironment(u"HST_SW_TEXT_PAGINATION"_ustr.pData,
+                            (bPaginate ? u"1"_ustr : u"0"_ustr).pData);
+         if (mxComponent.is())
+             dispose();
+         const auto aStart = std::chrono::steady_clock::now();
+-        loadFromURL(rURL, { comphelper::makePropertyValue(u"FilterName"_ustr, u"Text (encoded)"_ustr),
+-                        comphelper::makePropertyValue(u"FilterOptions"_ustr, u"UTF8"_ustr) });
+-        rLoadPages = getSwDoc()->getIDocumentLayoutAccess().GetCurrentLayout()->GetPageNum();
++        if (bText)
++            loadFromURL(rURL,
++                        { comphelper::makePropertyValue(u"FilterName"_ustr, u"Text (encoded)"_ustr),
++                          comphelper::makePropertyValue(u"FilterOptions"_ustr, u"UTF8"_ustr) });
++        else
++            loadFromURL(rURL);
++        const SwRootFrame* pLoaded = getSwDoc()->getIDocumentLayoutAccess().GetCurrentLayout();
++        rLoadPages = pLoaded->GetPageNum();
++        for (const SwFrame* pPage = pLoaded->Lower(); pLoadMaxFrames && pPage; pPage = pPage->GetNext())
++        {
++            size_t nFrames = 0;
++            const SwLayoutFrame* pBody = static_cast<const SwPageFrame*>(pPage)->FindBodyCont();
++            for (const SwFrame* pFrame = pBody ? pBody->Lower() : nullptr; pFrame;
++                 pFrame = pFrame->GetNext())
++                ++nFrames;
++            *pLoadMaxFrames = std::max(*pLoadMaxFrames, nFrames);
++        }
+         calcLayout();
+         rMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - aStart)
+@@ -145,8 +181,8 @@
+ 
+ CPPUNIT_TEST_FIXTURE(Test, testOtherFormatsNotPaginated)
+ {
+-    // The same large content saved as .odt and .docx loads through the old path: the estimate and the
+-    // deferred page positions stay off for every format but plain text.
++    // The same large content saved as .odt loads through the old path: the estimate and the deferred
++    // page positions stay off for every format but plain text and DOCX.
+     utl::TempFileNamed aFile(u"large-text", true, u".txt");
+     const OUString aURL = createText(aFile, 8000);
+     size_t nLoadPages = 0;
+@@ -158,11 +194,87 @@
+         saveAndReload(eFilter);
+         calcLayout();
+         const SwRootFrame* pLayout = getSwDoc()->getIDocumentLayoutAccess().GetCurrentLayout();
+-        CPPUNIT_ASSERT(!pLayout->IsLargeTextPagination());
++        CPPUNIT_ASSERT_EQUAL(eFilter == TestFilter::DOCX, pLayout->IsLargeTextPagination());
+         CPPUNIT_ASSERT_GREATER(sal_uInt16(100), pLayout->GetPageNum());
+     }
+ }
+ 
++CPPUNIT_TEST_FIXTURE(Test, testLargeDocxPaginationUnchanged)
++{
++    // A large DOCX flow of paragraphs and tables, some text in a larger font than its paragraph:
++    // the estimate covers it to the end, and the final pagination is the one of the start-to-end
++    // layout.
++    utl::TempFileNamed aText(u"large-text", true, u".txt");
++    const OUString aTextURL = createText(aText, 6000);
++    size_t nLoadPages = 0;
++    sal_Int64 nMs = 0;
++    layoutText(aTextURL, false, nLoadPages, nMs);
++    uno::Reference<text::XTextDocument> xDoc(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XText> xText = xDoc->getText();
++    uno::Reference<text::XParagraphCursor> xCursor(xText->createTextCursor(), uno::UNO_QUERY_THROW);
++    xCursor->gotoStart(false);
++    sal_uInt32 nSeed = 4711;
++    auto next = [&nSeed](sal_uInt32 n) {
++        nSeed = nSeed * 1103515245 + 12345;
++        return (nSeed >> 16) % n;
++    };
++    for (int nTable = 0; nTable < 80; ++nTable)
++    {
++        for (int i = 0; i < 70; ++i)
++            xCursor->gotoNextParagraph(false);
++        // Character size set on the text after its first character: a hint, not a paragraph attribute
++        if (xCursor->goRight(1, false))
++        {
++            xCursor->gotoEndOfParagraph(true);
++            uno::Reference<beans::XPropertySet>(xCursor, uno::UNO_QUERY_THROW)
++                ->setPropertyValue(u"CharHeight"_ustr, uno::Any(float(18)));
++            xCursor->gotoStartOfParagraph(false);
++        }
++        uno::Reference<text::XTextTable> xTable(
++            xFactory->createInstance(u"com.sun.star.text.TextTable"_ustr), uno::UNO_QUERY_THROW);
++        xTable->initialize(3 + next(10), 2 + next(4));
++        uno::Reference<beans::XPropertySet>(xTable, uno::UNO_QUERY_THROW)
++            ->setPropertyValue(u"RepeatHeadline"_ustr, uno::Any(false));
++        xText->insertTextContent(xCursor, xTable, false);
++        for (const OUString& rName : xTable->getCellNames())
++        {
++            OUStringBuffer aCell;
++            for (sal_uInt32 j = 0, n = next(10) < 8 ? 1 + next(4) : 20 + next(40); j < n; ++j)
++                aCell.append(u"Báo cáo thanh toán "_ustr);
++            uno::Reference<text::XText>(xTable->getCellByName(rName), uno::UNO_QUERY_THROW)
++                ->setString(aCell.makeStringAndClear());
++        }
++    }
++    save(TestFilter::DOCX);
++    utl::TempFileNamed aDocx(u"large-docx", true, u".docx");
++    aDocx.EnableKillingFile();
++    CPPUNIT_ASSERT_EQUAL(osl::FileBase::E_None, osl::File::copy(maTempFile.GetURL(), aDocx.GetURL()));
++
++    size_t nOffPages = 0, nOnPages = 0, nOffMax = 0, nOnMax = 0;
++    sal_Int64 nOffMs = 0, nOnMs = 0;
++    const auto aOff = layoutFile(aDocx.GetURL(), false, false, nOffPages, nOffMs, &nOffMax);
++    const auto aOn = layoutFile(aDocx.GetURL(), false, true, nOnPages, nOnMs, &nOnMax);
++    CPPUNIT_ASSERT(getSwDoc()->getIDocumentLayoutAccess().GetCurrentLayout()->IsLargeTextPagination());
++    std::cerr << "large docx: " << aOff.size() << " pages; start-to-end " << nOffMs
++              << " ms, paginated " << nOnMs << " ms; pages after load " << nOffPages << " / "
++              << nOnPages << "; most frames on a page after load " << nOffMax << " / " << nOnMax
++              << "\n";
++    CPPUNIT_ASSERT_GREATER(size_t(100), aOff.size());
++    // Without the estimate the rest of the document waits on one page; with it, tables included,
++    // every page got about a page of frames (a table or paragraph longer than a page counts as one
++    // frame, so the page count after loading is no measure here).
++    CPPUNIT_ASSERT_GREATER(size_t(1000), nOffMax);
++    CPPUNIT_ASSERT_LESS(size_t(300), nOnMax);
++    CPPUNIT_ASSERT_EQUAL(aOff.size(), aOn.size());
++    for (size_t i = 0; i < aOff.size(); ++i)
++    {
++        const OString aPage("page " + OString::number(i + 1));
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aPage.getStr(), aOff[i].first, aOn[i].first);
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aPage.getStr(), aOff[i].second, aOn[i].second);
++    }
++}
++
+ CPPUNIT_TEST_FIXTURE(Test, testSmallTextNotPaginated)
+ {
+     // Below the size threshold the frames all start on the first page, as before.
+--- /dev/null
++++ b/sw/source/core/inc/hstlargedocxpagination.hxx
+@@ -0,0 +1,36 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++
++#pragma once
++
++#include <tools/long.hxx>
++
++#include <functional>
++
++class SwDoc;
++class SwFrame;
++class SwTable;
++class SwTextNode;
++
++/// The page estimate of large plain texts (laycache.cxx) also runs for a large DOCX document that is a
++/// plain flow of paragraphs and simple tables: no footnotes or endnotes, no frames, images or drawings.
++bool HstLargeDocxPaginationAllowed(const SwDoc& rDoc);
++
++/// Height of the largest character of the paragraph: its own font height or a larger one set in a
++/// character attribute (DOCX often sets the font size on the text, not on the paragraph).
++tools::Long HstMaxCharHeight(const SwTextNode& rNode, tools::Long nParaHeight);
++
++/// Height estimate of a table on a body nWidth wide: each row is as tall as its tallest cell, estimated
++/// with rEstimatePara(paragraph, cell text width), plus the cell borders and spacing; at least the row's
++/// own height. Returns 0 for a table the estimate does not cover (nested tables, split cells, repeated
++/// headings).
++tools::Long
++HstEstimateTableHeight(const SwTable& rTable, tools::Long nWidth,
++                       const std::function<tools::Long(const SwTextNode&, tools::Long)>& rEstimatePara);
++
++/// First sibling that SwFrame::PrepareMake formats before rFrame: the first one of its upper, but for a
++/// page of a large text or DOCX (SwRootFrame::IsLargeTextPagination) the page after the last page before
++/// it that is already formatted. Walking all pages before every page made its layout O(pages^2).
++SwFrame* HstFirstSiblingToFormat(SwFrame& rFrame);
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sw/source/core/layout/hstlargedocxpagination.cxx
+@@ -0,0 +1,122 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/* SPDX-License-Identifier: LicenseRef-HST-Proprietary */
++
++#include <hstlargedocxpagination.hxx>
++
++#include <charfmt.hxx>
++#include <doc.hxx>
++#include <docsh.hxx>
++#include <fmtautofmt.hxx>
++#include <fmtfsize.hxx>
++#include <frmatr.hxx>
++#include <frameformats.hxx>
++#include <ftnidx.hxx>
++#include <hintids.hxx>
++#include <iodetect.hxx>
++#include <ndarr.hxx>
++#include <ndtxt.hxx>
++#include <node.hxx>
++#include <pagefrm.hxx>
++#include <rootfrm.hxx>
++#include <swtable.hxx>
++#include <txatbase.hxx>
++#include <ndhints.hxx>
++
++#include <editeng/boxitem.hxx>
++#include <editeng/fhgtitem.hxx>
++#include <sfx2/docfile.hxx>
++#include <sfx2/docfilt.hxx>
++
++#include <algorithm>
++
++bool HstLargeDocxPaginationAllowed(const SwDoc& rDoc)
++{
++    const SwDocShell* pShell = rDoc.GetDocShell();
++    const SfxMedium* pMedium = pShell ? pShell->GetMedium() : nullptr;
++    const std::shared_ptr<const SfxFilter>& pFilter = pMedium ? pMedium->GetFilter() : nullptr;
++    if (!pFilter || pFilter->GetUserData() != FILTER_DOCX)
++        return false;
++    // Footnotes take body height and anchored objects push text aside: the estimate knows neither.
++    return rDoc.GetFootnoteIdxs().empty() && rDoc.GetSpzFrameFormats()->empty();
++}
++
++tools::Long HstMaxCharHeight(const SwTextNode& rNode, tools::Long nParaHeight)
++{
++    tools::Long nMax = nParaHeight;
++    const SwpHints* pHints = rNode.GetpSwpHints();
++    for (size_t i = 0; pHints && i < pHints->Count(); ++i)
++    {
++        const SwTextAttr* pHint = pHints->Get(i);
++        if (pHint->Which() != RES_TXTATR_AUTOFMT && pHint->Which() != RES_TXTATR_CHARFMT)
++            continue;
++        if (const SvxFontHeightItem* pSize = CharFormat::GetItem(*pHint, RES_CHRATR_FONTSIZE))
++            nMax = std::max<tools::Long>(nMax, pSize->GetHeight());
++    }
++    return nMax;
++}
++
++tools::Long
++HstEstimateTableHeight(const SwTable& rTable, tools::Long nWidth,
++                       const std::function<tools::Long(const SwTextNode&, tools::Long)>& rEstimatePara)
++{
++    if (rTable.GetRowsToRepeat() > 0 || nWidth <= 0)
++        return 0;
++    const SwNodes& rNodes = rTable.GetTableNode()->GetNodes();
++    tools::Long nTable = 0;
++    for (const SwTableLine* pLine : rTable.GetTabLines())
++    {
++        const SwTableBoxes& rBoxes = pLine->GetTabBoxes();
++        tools::Long nLineWidth = 0;
++        for (const SwTableBox* pBox : rBoxes)
++            nLineWidth += std::max<tools::Long>(0, pBox->GetFrameFormat()->GetFrameSize().GetWidth());
++        tools::Long nRow = 0;
++        for (const SwTableBox* pBox : rBoxes)
++        {
++            const SwStartNode* pStart = pBox->GetSttNd();
++            if (!pStart || !pBox->GetTabLines().empty())
++                return 0; // split cell
++            if (pBox->getRowSpan() < 1)
++                continue; // covered by a cell above, which counts the text
++            const SvxBoxItem& rBorder = pBox->GetFrameFormat()->GetBox();
++            const tools::Long nBoxWidth
++                = nLineWidth > 0
++                      ? nWidth * std::max<tools::Long>(0, pBox->GetFrameFormat()->GetFrameSize().GetWidth())
++                            / nLineWidth
++                      : nWidth / tools::Long(rBoxes.size());
++            const tools::Long nTextWidth
++                = std::max<tools::Long>(1, nBoxWidth - rBorder.CalcLineSpace(SvxBoxItemLine::LEFT, true)
++                                               - rBorder.CalcLineSpace(SvxBoxItemLine::RIGHT, true));
++            tools::Long nCell = rBorder.CalcLineSpace(SvxBoxItemLine::TOP, true)
++                                + rBorder.CalcLineSpace(SvxBoxItemLine::BOTTOM, true);
++            for (SwNodeOffset n = pStart->GetIndex() + 1; n < pStart->EndOfSectionIndex(); ++n)
++            {
++                const SwNode& rNode = *rNodes[n];
++                if (rNode.IsTableNode() || rNode.IsSectionNode())
++                    return 0; // nested table or section
++                if (const SwTextNode* pText = rNode.GetTextNode())
++                    nCell += rEstimatePara(*pText, nTextWidth);
++            }
++            nRow = std::max(nRow, nCell);
++        }
++        const SwFormatFrameSize& rRowSize = pLine->GetFrameFormat()->GetFrameSize();
++        if (rRowSize.GetHeightSizeType() != SwFrameSize::Variable)
++            nRow = std::max<tools::Long>(nRow, rRowSize.GetHeight());
++        nTable += nRow;
++    }
++    return nTable;
++}
++
++SwFrame* HstFirstSiblingToFormat(SwFrame& rFrame)
++{
++    SwFrame* pFirst = rFrame.GetUpper()->Lower();
++    if (!rFrame.IsPageFrame() || !rFrame.getRootFrame()->IsLargeTextPagination())
++        return pFirst;
++    // Formatted pages before the last formatted one need no formatting; unformatted ones before it
++    // are formatted by the layout in page order, as all pages are.
++    SwFrame* pStart = rFrame.GetPrev();
++    while (pStart && !pStart->isFrameAreaDefinitionValid())
++        pStart = pStart->GetPrev();
++    return pStart ? pStart->GetNext() : pFirst;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

@@ -99,7 +99,15 @@ Test: tests/runtime/check-vba-form-events.py.
              if (xImportInfo.is())
 --- a/sc/source/filter/xml/xmlwrap.cxx
 +++ b/sc/source/filter/xml/xmlwrap.cxx
-@@ -305,6 +305,7 @@
+@@ -51,6 +51,7 @@
+ #include <com/sun/star/packages/zip/ZipIOException.hpp>
+ #include <com/sun/star/embed/ElementModes.hpp>
+ #include <com/sun/star/beans/XPropertySet.hpp>
++#include <com/sun/star/script/vba/XVBACompatibility.hpp>
+ #include <com/sun/star/rdf/XDocumentMetadataAccess.hpp>
+ #include <com/sun/star/ucb/InteractiveAugmentedIOException.hpp>
+ #include <com/sun/star/task/XStatusIndicator.hpp>
+@@ -305,6 +306,7 @@
          { u"StreamName"_ustr, 0, ::cppu::UnoType<OUString>::get(), css::beans::PropertyAttribute::MAYBEVOID, 0 },
          { u"BuildId"_ustr, 0, ::cppu::UnoType<OUString>::get(), css::beans::PropertyAttribute::MAYBEVOID, 0 },
          { u"VBACompatibilityMode"_ustr, 0, cppu::UnoType<bool>::get(), css::beans::PropertyAttribute::MAYBEVOID, 0 },
@@ -107,19 +115,49 @@ Test: tests/runtime/check-vba-form-events.py.
          { u"ScriptConfiguration"_ustr, 0, cppu::UnoType<container::XNameAccess>::get(), css::beans::PropertyAttribute::MAYBEVOID, 0},
          { u"OrganizerMode"_ustr, 0, cppu::UnoType<bool>::get(), css::beans::PropertyAttribute::MAYBEVOID, 0 },
          { u"SourceStorage"_ustr, 0, cppu::UnoType<embed::XStorage>::get(), css::beans::PropertyAttribute::MAYBEVOID, 0 },
-@@ -567,6 +568,15 @@
+@@ -565,6 +567,17 @@
              {
-                 uno::Reference< script::vba::XVBACompatibility > xVBACompat( xModelSet->getPropertyValue(
+                 uno::Reference< beans::XPropertySet > xLibraries( xModelSet->getPropertyValue(
                      u"BasicLibraries"_ustr ), uno::UNO_QUERY_THROW );
-+                // HST: before the mode, which enables the library named like the project. Files
-+                // saved before this setting existed: Excel's and HST's default project name.
++                // HST: keep the project name without loading Basic before macro security is checked.
 +                OUString aProjectName;
 +                xInfoSet->getPropertyValue(u"VBAProjectName"_ustr) >>= aProjectName;
-+                uno::Reference< container::XNameAccess > xLibraries( xVBACompat, uno::UNO_QUERY );
-+                if ( aProjectName.isEmpty() && xLibraries.is() && xLibraries->hasByName(u"VBAProject"_ustr) )
++                uno::Reference< container::XNameAccess > xLibraryNames( xLibraries, uno::UNO_QUERY );
++                if ( aProjectName.isEmpty() && xLibraryNames.is() && xLibraryNames->hasByName(u"VBAProject"_ustr) )
 +                    aProjectName = u"VBAProject"_ustr;
-+                if ( !aProjectName.isEmpty() && xLibraries.is() && xLibraries->hasByName(aProjectName) )
++                if ( !aProjectName.isEmpty() && xLibraryNames.is() && xLibraryNames->hasByName(aProjectName) )
++                {
++                    uno::Reference< script::vba::XVBACompatibility > xVBACompat( xLibraries, uno::UNO_QUERY_THROW );
 +                    xVBACompat->setProjectName( aProjectName );
-                 xVBACompat->setVBACompatibilityMode( true );
++                }
+                 xLibraries->setPropertyValue( u"DeferredVBACompatibilityMode"_ustr, uno::Any( true ) );
              }
              catch( const uno::Exception& )
+--- a/basic/source/uno/namecont.cxx
++++ b/basic/source/uno/namecont.cxx
+@@ -393,6 +393,9 @@
+         if ( xDocument.is() )
+         {
+             mpBasMgr = BasicManagerRepository::getDocumentBasicManager( xDocument );
++            // HST: import can record the project name before macro security permits Basic loading.
++            if (mpBasMgr && !msProjectName.isEmpty())
++                mpBasMgr->SetName(msProjectName);
+         }
+     }
+     catch (const css::ucb::ContentCreationException&)
+@@ -2820,7 +2823,14 @@
+ void SAL_CALL SfxLibraryContainer::setProjectName( const OUString& _projectname )
+ {
+     msProjectName = _projectname;
+-    BasicManager* pBasMgr = getBasicManager();
++    // HST: setting import metadata must not create a Basic manager before the security check.
++    BasicManager* pBasMgr = mpBasMgr;
++    if (!pBasMgr)
++    {
++        Reference<XModel> xDocument(mxOwnerDocument.get(), UNO_QUERY);
++        if (xDocument.is())
++            pBasMgr = BasicManagerRepository::getExistingDocumentBasicManager(xDocument);
++    }
+     // Temporary HACK
+     // Some parts of the VBA handling ( e.g. in core basic )
+     // code expect the name of the VBA project to be set as the name of

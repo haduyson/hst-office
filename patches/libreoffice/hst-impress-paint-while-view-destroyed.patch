@@ -1,0 +1,38 @@
+HST Office: closing a Slides document with media from another thread no longer crashes (Windows).
+
+DrawViewShell's destructor resets mpDrawView (null while the DrawView is destroyed) and then destroys the
+windows. Destroying the media objects' system child windows from a thread other than the main one goes through
+WinSalInstance::SendComWndMessage, which releases the SolarMutex while the main thread handles the message; the
+main thread's idle then painted the shell's window and DrawViewShell::PrePaint called the null view: access
+violation in SdrPaintView::PrePaint from vcl::Window::ImplCallPaint. Seen on Windows with 1.0.2 when a document with
+linked video and audio, played for about 100 seconds, is closed through UNO (XCloseable::close from a script or
+add-in), 3 times out of 3; closing it with the window's close button (main thread) did not crash. Paint and PrePaint
+of a shell without its view now do nothing.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-impress-media-close-other-thread.py (Windows).
+---
+--- a/sd/source/ui/view/drviews5.cxx
++++ b/sd/source/ui/view/drviews5.cxx
+@@ -401,7 +401,11 @@
+ 
+ void DrawViewShell::PrePaint()
+ {
+-    mpDrawView->PrePaint();
++    // The view is gone while this shell is destroyed, and a paint can still come in then: when the
++    // document is closed from another thread, destroying a media object's system window hands the
++    // SolarMutex to the main thread, whose idle paints the windows of this shell.
++    if (mpDrawView)
++        mpDrawView->PrePaint();
+ }
+ 
+ /**
+@@ -412,6 +416,8 @@
+  */
+ void DrawViewShell::Paint(const ::tools::Rectangle& rRect, ::sd::Window* pWin)
+ {
++    if (!mpDrawView) // being destroyed, see PrePaint
++        return;
+     /* This is done before each text edit, so why not do it before every paint.
+                 The default language is only used if the outliner only contains one
+                 character in a symbol font */

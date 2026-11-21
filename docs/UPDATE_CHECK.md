@@ -20,7 +20,7 @@ HST Office tự biết khi có bản mới và báo cho người dùng kèm liê
   - Dấu vân tay: `sha256:2c4e3541c65e6990fd8d59dd54c89d8ded7752740c4b4eddbd833f647519fc36`
 - **Phiên bản đang cài:** [data/hst/release.json](../data/hst/release.json) (`release`, ví dụ `1.0.0-beta.2`) là nguồn
   duy nhất của mã bản phát hành; phần `MAJOR.MINOR.MICRO` phải trùng `/VERSION` (build và unit test kiểm tra).
-  `/VERSION` và `scripts/write-hst-version.py` giữ nguyên ý nghĩa (phiên bản sản phẩm, engine vẫn 26.8.1.1).
+  `/VERSION` và `scripts/write-hst-version.py` giữ nguyên ý nghĩa (phiên bản sản phẩm, engine vẫn 26.8.3.1).
   `scripts/build-extensions.py` đóng tệp này vào extension thành `data/release.json`; mọi bản build (Linux, Windows,
   macOS) dựng extension qua quy tắc make gọi script đó, và tệp nằm trong `data/hst/` nên thay đổi kéo theo build lại `.oxt`.
 - **Kênh:** bản có hậu tố pre-release (`-beta.N`) theo kênh beta: được báo bản beta **hoặc** stable mới hơn.

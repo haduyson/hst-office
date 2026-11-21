@@ -1,0 +1,30 @@
+HST Office: the first recovery copy of a document that was already changed when AutoRecovery registered it comes
+30 s later too, not after the whole AutoSave interval.
+
+The first copy 30 s after the first change (hst-recovery-durability.patch) is scheduled by the first modify
+notification. A document changed before the office announced it (a macro or an extension filling it while it
+loads, or an edit right after a new document opened) is registered as modified and sends no first notification
+any more, so its first copy waited for the whole interval (3 minutes by default, longer when configured): about
+3 of 4 runs of tests/runtime/check-unsaved-documents.py, in 1.0.2 as in 1.0.3. Registering such a document now
+updates the timer, which then counts it as just changed.
+
+- framework/source/services/autorecovery.cxx: implts_registerDocument.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/runtime/check-recovery-first-copy.py; tests/unit/test_recovery_first_copy_patch.py.
+---
+--- a/framework/source/services/autorecovery.cxx
++++ b/framework/source/services/autorecovery.cxx
+@@ -2683,6 +2683,12 @@ void AutoRecovery::implts_registerDocument(const css::uno::Reference< css::frame
+     implts_startModifyListeningOnDoc(aInfo);
+ 
+     aCacheLock.unlock();
++
++    // HST Office: a document that is already modified when it is registered (changed before the office announced
++    // it: by a macro or an extension while loading, or by an edit right after a new document opened) sends no first
++    // modify notification any more, so its first copy would wait for the whole interval: it is due 30 s from now
++    if ((aInfo.DocumentState & DocState::Modified) == DocState::Modified)
++        implts_updateTimer();
+ }
+ 
+ void AutoRecovery::implts_deregisterDocument(const css::uno::Reference< css::frame::XModel >& xDocument     ,

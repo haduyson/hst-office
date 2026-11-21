@@ -1,0 +1,2159 @@
+HST Office: HST Sheets counts dates like the leading spreadsheet application's 1900 date system (owner 18/11:
+full fix in 1.0.3). In .xlsx/.xls files and new documents with its formula syntax (the HST Sheets default),
+serial 1 is 01/01/1900, 59 is 28/02/1900, 60 is 29/02/1900 (the day it keeps for compatibility) and 61 is
+01/03/1900; from 61 on nothing changes. Before, serial 1 was 31/12/1899 and DATE(1900,1,1) was 2 (1 in that
+application). .ods files, the 1904 system, any other null date, and Writer/Impress fields are unchanged.
+
+- svl: a switch on the document's own number formatter (SvNFLanguageData, default off, active only with the
+  null date 30/12/1899): date output (cell display, TEXT) shows the 1900-system day, with the weekday of the
+  serial (serial 1 is a Sunday) and 29/02/1900 for 60; input ("29/02/1900", "1/1/1900", ISO, DATEVALUE) reads
+  1900-system serials. Logic in svl/source/numbers/hstexcel1900.cxx (include/svl/hstexcel1900.hxx); hooks in
+  zformat.cxx (output), zforfind.cxx (input), zforlist.cxx and nfengine.hxx/numformat.hxx (the switch).
+- sc: the switch follows sc::hst::Excel1900Dates (new document, after loading, during .xlsx/.xls import before
+  formulas calculate); DATE/YEAR/MONTH/DAY use the 1900-system day (DATE(1900,2,29)=60, DAY(60)=29), WEEKDAY
+  already matched; ISO date text in arithmetic. An .ods saved from such a document stores the days it shows
+  (serial 1 is office:date-value 1900-01-01; 60 is written as 1900-02-28). Serials 0 and below keep the
+  one-day shift (0 is 31/12/1899), so every typed date before 01/03/1900 reads back unchanged. Logic in
+  sc/source/core/hst/hstexcel1900dates.cxx; hooks in interpr2.cxx, docsh.cxx, docsh2.cxx, xmlexprt.cxx,
+  global2.cxx and the .xlsx/.xls import.
+- Known limits (dates before 01/03/1900 only): DAYS360, WEEKNUM, ISOWEEKNUM, NETWORKDAYS, WORKDAY, DATEDIF,
+  EDATE/EOMONTH, autofilter/pivot date grouping and non-Gregorian calendars use LibreOffice's count there.
+
+Test: CppunitTest_svl_hst_excel1900 (day rules, output and input in en-US/vi-VN/en-GB, default off, 1904
+unaffected), CppunitTest_sc_hst_excel1900_dates (display, TEXT, DATE/YEAR/MONTH/DAY/WEEKDAY/DATEVALUE, typed
+dates, .xlsx round trip, an older .ods unchanged, .ods export of such a document).
+---
+--- /dev/null
++++ b/include/svl/hstexcel1900.hxx
+@@ -0,0 +1,51 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++#include <sal/types.h>
++#include <svl/svldllapi.h>
++
++/* The 1900 date system of the leading spreadsheet application.
++
++   Its serial 1 is 01/01/1900 and it counts a 29/02/1900 (serial 60) that never existed, kept
++   for compatibility with Lotus 1-2-3. From serial 61 (01/03/1900) on it counts like the day
++   count from the null date 30/12/1899. Before that, a serial shows the date one day later than
++   the day count from 30/12/1899 does:
++
++       serial   1900 date system   day count from 30/12/1899
++            0   (00/01/1900)       30/12/1899
++            1   01/01/1900         31/12/1899
++           59   28/02/1900         27/02/1900
++           60   29/02/1900         28/02/1900
++           61   01/03/1900         01/03/1900
++
++   HST Sheets shows the serials below 60 as the 1900 date system does, and extends that rule to
++   0 and the negative serials the 1900 date system does not show (it shows 0 as the day
++   "00/01/1900" and negative serials as an error): 0 is 31/12/1899, -1 is 30/12/1899 and so on,
++   so that every date typed before 01/03/1900 reads back as the same date.
++
++   A number formatter counts days this way when its document sets it (see
++   SvNumberFormatter::SetHstExcel1900Dates) and its null date is 30/12/1899. */
++
++namespace svl::hst
++{
++/// The serial of the day that does not exist, 29/02/1900.
++constexpr sal_Int32 nExcel1900LeapDaySerial = 60;
++
++/** The day count from 30/12/1899 of the date a serial of the 1900 date system shows, with the
++    same time of day. Serial 60, 29/02/1900, gives 28/02/1900, the day it follows. */
++SVL_DLLPUBLIC double Excel1900SerialToNullDateDays(double fSerial);
++
++/** The serial of the 1900 date system for a date given as its day count from 30/12/1899, with
++    the same time of day. */
++SVL_DLLPUBLIC double NullDateDaysToExcel1900Serial(double fDays);
++
++/// Whether a serial of the 1900 date system falls on 29/02/1900.
++SVL_DLLPUBLIC bool IsExcel1900LeapDay(double fSerial);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/include/svl/nfengine.hxx
++++ b/include/svl/nfengine.hxx
+@@ -145,6 +145,9 @@
+ 
+     sal_uInt16 ExpandTwoDigitYear(sal_uInt16 nYear) const;
+ 
++    /// HST: whether the 1900 date system was asked for, see <svl/hstexcel1900.hxx>
++    bool IsHstExcel1900Dates() const { return mbHstExcel1900Dates; }
++
+ private:
+     friend class SvNFEngine;
+     friend class SvNFFormatData;
+@@ -169,6 +172,7 @@
+     OUString aDateSep;
+ 
+     NfEvalDateFormat eEvalDateFormat; // DateFormat evaluation
++    bool mbHstExcel1900Dates = false; // HST: SvNumberFormatter::SetHstExcel1900Dates
+ };
+ 
+ class SVL_DLLPUBLIC SvNFFormatData
+--- a/include/svl/numformat.hxx
++++ b/include/svl/numformat.hxx
+@@ -63,6 +63,10 @@
+     void ChangeIntl(LanguageType eLnge);
+     /// Change the reference null date
+     void ChangeNullDate(sal_uInt16 nDay, sal_uInt16 nMonth, sal_Int16 nYear);
++    /// HST: count days like the 1900 date system while the null date is 30/12/1899 (default off),
++    /// see <svl/hstexcel1900.hxx>
++    void SetHstExcel1900Dates(bool bSet);
++    bool IsHstExcel1900Dates() const;
+     /// Change standard precision
+     void ChangeStandardPrec(short nPrec);
+     /// Set zero value suppression
+--- /dev/null
++++ b/sc/CppunitTest_sc_hst_excel1900_dates.mk
+@@ -0,0 +1,61 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (c) HASON TECH. HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,sc_hst_excel1900_dates))
++
++$(eval $(call gb_CppunitTest_use_externals,sc_hst_excel1900_dates, \
++	boost_headers \
++	mdds_headers \
++	libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sc_hst_excel1900_dates, \
++    sc/qa/unit/uicalc/hstexcel1900dates \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sc_hst_excel1900_dates, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    editeng \
++    i18nlangtag \
++    sal \
++    sc \
++    scqahelper \
++    sfx \
++    sot \
++    subsequenttest \
++    svl \
++    svx \
++    svxcore \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++    $(if $(filter -fsanitize=vptr,$(gb_CXX)),salhelper) \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sc_hst_excel1900_dates,\
++    -I$(SRCDIR)/sc/source/ui/inc \
++    -I$(SRCDIR)/sc/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sc_hst_excel1900_dates))
++
++$(eval $(call gb_CppunitTest_use_ure,sc_hst_excel1900_dates))
++$(eval $(call gb_CppunitTest_use_vcl,sc_hst_excel1900_dates))
++
++$(eval $(call gb_CppunitTest_use_rdb,sc_hst_excel1900_dates,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sc_hst_excel1900_dates))
++
++$(eval $(call gb_CppunitTest_add_arguments,sc_hst_excel1900_dates, \
++    -env:arg-env=$(gb_Helper_LIBRARY_PATH_VAR)"$$$${$(gb_Helper_LIBRARY_PATH_VAR)+=$$$$$(gb_Helper_LIBRARY_PATH_VAR)}" \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/sc/Library_sc.mk
++++ b/sc/Library_sc.mk
+@@ -110,6 +110,8 @@
+     sc/source/core/hst/hstspillbarrier \
+     sc/source/core/hst/hstlogicaltext \
+     sc/source/core/hst/hstexcelfunctions \
++    sc/source/core/hst/hstexcel1900dates \
++    sc/source/core/hst/hstexcel1900functions \
+     sc/source/filter/xml/hstodsextension \
+     sc/source/ui/hst/hstflashfillcommand \
+ ))
+--- a/sc/Module_sc.mk
++++ b/sc/Module_sc.mk
+@@ -115,6 +115,7 @@
+ 	CppunitTest_sc_hst_table_input \
+ 	CppunitTest_sc_hst_excel_parity \
+ 	CppunitTest_sc_hst_bond_functions \
++	CppunitTest_sc_hst_excel1900_dates \
+ 	CppunitTest_sc_vba_macro_test \
+ 	CppunitTest_sc_a11y \
+ 	CppunitTest_sc_filter_html \
+--- /dev/null
++++ b/sc/inc/hstexcel1900dates.hxx
+@@ -0,0 +1,88 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++// The 1900 date system of the leading spreadsheet application in documents of its convention
++// (sc::hst::Excel1900Dates): serial 1 is 01/01/1900 and serial 60 is 29/02/1900. The day rules
++// are in <svl/hstexcel1900.hxx>; the document's number formatter carries the switch, so cell
++// display, typed dates, TEXT, DATEVALUE and the date functions all count alike.
++
++#include <sal/types.h>
++#include <tools/date.hxx>
++#include "scdllapi.h"
++
++#include <string_view>
++
++class ScDocument;
++class SvNumberFormatter;
++struct ScInterpreterContext;
++
++namespace sc::hst
++{
++/** Switches the document's number formatter to the 1900 date system when the document is of
++    the leading application's convention, and back when not. Called once the convention is
++    known: for a new document and when a load or import ends. Later changes of the formula
++    syntax do not change the date system of a document. */
++SC_DLLPUBLIC void SyncExcel1900Dates(ScDocument& rDoc);
++
++/** The day count from the null date of the date YEAR and MONTH see in a serial: one day later
++    before serial 60 in the 1900 date system; 28/02/1900 for serial 60. Unchanged otherwise. */
++sal_Int32 Excel1900NullDateDays(const ScInterpreterContext& rContext, sal_Int32 nSerial);
++
++/// Whether DAY of the serial is 29 of the 1900 date system's 29/02/1900.
++bool IsExcel1900LeapDay(const ScInterpreterContext& rContext, sal_Int32 nSerial);
++
++/** DATE: the serial of the day fDays (counted from the null date) that DATE reached from the
++    first day of nYear/nMonth. The 1900 date system gives February 1900 29 days, so the days
++    are counted from that first day's serial. */
++double Excel1900DateSerial(const ScInterpreterContext& rContext, sal_Int16 nYear,
++                           sal_Int16 nMonth, double fDays);
++
++/** WEEKNUM, ISOWEEKNUM and WEEKNUM_OOO of nSerial in the 1900 date system, which counts
++    01/01/1900 (serial 1) as a Sunday and gives February 1900 a 29th day: returns true with
++    rnWeek set for the serials up to the first days of 1901, whose weeks depend on it; false
++    otherwise, and for documents not in the 1900 date system. nFirstDayOfWeek is a DayOfWeek
++    (MONDAY is 0); weeks with fewer than nMinimumDays days of the year count to the year
++    before (4 for ISO 8601 weeks, 1 for the week holding 01/01 as week 1). */
++bool Excel1900WeekOfYear(const ScInterpreterContext& rContext, sal_Int32 nSerial,
++                         sal_Int16 nFirstDayOfWeek, sal_Int16 nMinimumDays, sal_Int32& rnWeek);
++
++/** DAYS360 of two serials when one of them falls before 01/03/1900 in the 1900 date system;
++    returns false otherwise. */
++bool Excel1900Days360(const ScInterpreterContext& rContext, sal_Int32 nStart, sal_Int32 nEnd,
++                      bool bEuropean, double& rfResult);
++
++/** DATEDIF of two serials (nStart <= nEnd) in units "m", "y", "md", "ym" or "yd" when one of
++    them falls before 01/03/1900 in the 1900 date system; returns false otherwise, and for
++    other units. */
++bool Excel1900DateDif(const ScInterpreterContext& rContext, sal_Int32 nStart, sal_Int32 nEnd,
++                      std::u16string_view aUnit, double& rfResult);
++
++/** The date a serial shows (its year, month and day); 29/02/1900 in the 1900 date system
++    holds day 29 of month 2 of 1900 unnormalized, for the date grouping of the autofilter and
++    the pivot table. */
++SC_DLLPUBLIC Date Excel1900ShownDate(const SvNumberFormatter& rFormatter, double fSerial);
++
++/// The same, with the formatter's IsHstExcel1900Dates() and null date given.
++SC_DLLPUBLIC Date Excel1900ShownDate(bool bExcel1900, const Date& rNullDate, double fSerial);
++
++/** A day count from the null date turned into the serial that shows that day. */
++SC_DLLPUBLIC double Excel1900SerialOfDays(const SvNumberFormatter& rFormatter, double fDays);
++
++/** The value of a pivot table date group part (YEARS, QUARTERS, MONTHS or DAYS, the day of a
++    leap year) of a serial before 01/03/1900 in the 1900 date system; false otherwise. */
++SC_DLLPUBLIC bool Excel1900DatePart(const SvNumberFormatter& rFormatter, double fSerial, sal_Int32 nDatePart,
++                       sal_Int32& rnResult);
++
++/** The value the OpenDocument export writes for a cell value in format nFormat. A date of the
++    1900 date system is written as the day it shows (serial 1 as 1900-01-01), since an .ods
++    file reopens with the count from 30/12/1899; serial 60, which has no ISO date, is written
++    as 1900-02-28, the day it follows. Other values are unchanged. */
++double OdsExportValue(const ScDocument& rDoc, sal_uInt32 nFormat, double fValue);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/qa/unit/uicalc/hstexcel1900dates.cxx
+@@ -0,0 +1,400 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// HST Office: the 1900 date system of the leading spreadsheet application in documents of its
++// convention, checked against its documented behaviour: serial 1 is 01/01/1900, serial 60 is
++// 29/02/1900 (a day that does not exist, kept for Lotus 1-2-3 compatibility), from serial 61
++// (01/03/1900) on the count is the usual one, and WEEKDAY(1) is 1 (Sunday). .ods files keep
++// the count from 30/12/1899 (serial 1 is 31/12/1899).
++
++#include "../helper/qahelper.hxx"
++
++#include <comphelper/propertyvalue.hxx>
++#include <i18nlangtag/lang.h>
++#include <svl/numformat.hxx>
++#include <tools/stream.hxx>
++#include <vcl/scheduler.hxx>
++#include <docsh.hxx>
++#include <dputil.hxx>
++#include <hstexcel1900dates.hxx>
++#include <com/sun/star/sheet/DataPilotFieldGroupBy.hpp>
++#include <document.hxx>
++#include <hstlogicaltext.hxx>
++
++namespace
++{
++class ScHstExcel1900DatesTest : public ScModelTestBase
++{
++public:
++    ScHstExcel1900DatesTest()
++        : ScModelTestBase(u"sc/qa/unit/data"_ustr)
++    {
++    }
++
++protected:
++    ScAddress pos(const char* pCell)
++    {
++        ScAddress aPos;
++        aPos.Parse(OUString::createFromAscii(pCell), *getScDoc());
++        return aPos;
++    }
++    OUString str(const char* pCell) { return getScDoc()->GetString(pos(pCell)); }
++    double val(const char* pCell) { return getScDoc()->GetValue(pos(pCell)); }
++    void recalc()
++    {
++        getScDoc()->CalcAll();
++        Scheduler::ProcessEventsToIdle();
++    }
++    bool excel1900() { return getScDoc()->GetFormatTable()->IsHstExcel1900Dates(); }
++
++    sal_uInt32 dateFormat(const OUString& rCode)
++    {
++        OUString aCode = rCode;
++        sal_Int32 nCheckPos = 0;
++        SvNumFormatType nType = SvNumFormatType::DEFINED;
++        sal_uInt32 nFormat = 0;
++        getScDoc()->GetFormatTable()->PutEntry(aCode, nCheckPos, nType, nFormat,
++                                               LANGUAGE_ENGLISH_US);
++        CPPUNIT_ASSERT_EQUAL(sal_Int32(0), nCheckPos);
++        return nFormat;
++    }
++    /// A1:A6 hold the serials 0, 1, 59, 60, 61 and 100 shown as DD/MM/YYYY.
++    void putSerials()
++    {
++        const sal_uInt32 nFormat = dateFormat(u"DD/MM/YYYY"_ustr);
++        const double aSerials[] = { 0, 1, 59, 60, 61, 100 };
++        for (SCROW nRow = 0; nRow < SCROW(std::size(aSerials)); ++nRow)
++        {
++            getScDoc()->SetValue(ScAddress(0, nRow, 0), aSerials[nRow]);
++            getScDoc()->SetNumberFormat(ScAddress(0, nRow, 0), nFormat);
++        }
++    }
++    void checkSerials()
++    {
++        CPPUNIT_ASSERT_EQUAL(1.0, val("A2"));
++        CPPUNIT_ASSERT_EQUAL(60.0, val("A4"));
++        CPPUNIT_ASSERT_EQUAL(u"31/12/1899"_ustr, str("A1"));
++        CPPUNIT_ASSERT_EQUAL(u"01/01/1900"_ustr, str("A2"));
++        CPPUNIT_ASSERT_EQUAL(u"28/02/1900"_ustr, str("A3"));
++        CPPUNIT_ASSERT_EQUAL(u"29/02/1900"_ustr, str("A4"));
++        CPPUNIT_ASSERT_EQUAL(u"01/03/1900"_ustr, str("A5"));
++        CPPUNIT_ASSERT_EQUAL(u"09/04/1900"_ustr, str("A6"));
++    }
++
++    /// Writes a flat .ods (LibreOffice, no HST mark) with the date 1900-01-01 in A1 and
++    /// =DATE(1900;1;1) in B1.
++    void writeFlatOds()
++    {
++        const OString aXml
++            = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
++              "<office:document xmlns:office=\"urn:oasis:names:tc:opendocument:xmlns:office:1.0\""
++              " xmlns:table=\"urn:oasis:names:tc:opendocument:xmlns:table:1.0\""
++              " xmlns:text=\"urn:oasis:names:tc:opendocument:xmlns:text:1.0\""
++              " xmlns:of=\"urn:oasis:names:tc:opendocument:xmlns:of:1.2\""
++              " office:version=\"1.3\" office:mimetype=\"application/vnd.oasis.opendocument.spreadsheet\">"
++              "<office:body><office:spreadsheet><table:table table:name=\"Sheet1\"><table:table-row>"
++              "<table:table-cell office:value-type=\"date\" office:date-value=\"1900-01-01\">"
++              "<text:p>01/01/1900</text:p></table:table-cell>"
++              "<table:table-cell table:formula=\"of:=DATE(1900;1;1)\" office:value-type=\"date\""
++              " office:date-value=\"1900-01-01\"><text:p>01/01/1900</text:p></table:table-cell>"
++              "</table:table-row></table:table></office:spreadsheet></office:body>"
++              "</office:document>";
++        SvFileStream aStream(maTempFile.GetURL(), StreamMode::WRITE | StreamMode::TRUNC);
++        aStream.WriteBytes(aXml.getStr(), aXml.getLength());
++        aStream.Close();
++        CPPUNIT_ASSERT_EQUAL(ERRCODE_NONE, aStream.GetError());
++    }
++};
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcel1900DatesTest, testCellDisplay)
++{
++    // A new document uses the leading application's formula syntax: the 1900 date system.
++    createScDoc();
++    CPPUNIT_ASSERT(excel1900());
++    putSerials();
++    checkSerials();
++
++    const sal_uInt32 nUs = dateFormat(u"M/D/YYYY"_ustr);
++    getScDoc()->SetNumberFormat(pos("A2"), nUs);
++    getScDoc()->SetNumberFormat(pos("A4"), nUs);
++    getScDoc()->SetNumberFormat(pos("A5"), nUs);
++    CPPUNIT_ASSERT_EQUAL(u"1/1/1900"_ustr, str("A2"));
++    CPPUNIT_ASSERT_EQUAL(u"2/29/1900"_ustr, str("A4"));
++    CPPUNIT_ASSERT_EQUAL(u"3/1/1900"_ustr, str("A5"));
++
++    // Date and time, and a weekday that follows the serials: serial 1 is a Sunday.
++    getScDoc()->SetValue(pos("B1"), 60.5);
++    getScDoc()->SetNumberFormat(pos("B1"), dateFormat(u"DD/MM/YYYY HH:MM"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"29/02/1900 12:00"_ustr, str("B1"));
++    getScDoc()->SetValue(pos("B2"), 1);
++    getScDoc()->SetNumberFormat(pos("B2"), dateFormat(u"DDDD, MMMM D, YYYY"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"Sunday, January 1, 1900"_ustr, str("B2"));
++    getScDoc()->SetValue(pos("B3"), 60);
++    getScDoc()->SetNumberFormat(pos("B3"), dateFormat(u"DDDD, MMMM D, YYYY"_ustr));
++    CPPUNIT_ASSERT_EQUAL(u"Wednesday, February 29, 1900"_ustr, str("B3"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcel1900DatesTest, testText)
++{
++    createScDoc();
++    insertStringToCell(u"A1"_ustr, u"=TEXT(1,\"dd/mm/yyyy\")");
++    insertStringToCell(u"A2"_ustr, u"=TEXT(59,\"dd/mm/yyyy\")");
++    insertStringToCell(u"A3"_ustr, u"=TEXT(60,\"dd/mm/yyyy\")");
++    insertStringToCell(u"A4"_ustr, u"=TEXT(61,\"dd/mm/yyyy\")");
++    insertStringToCell(u"A5"_ustr, u"=TEXT(100,\"dd/mm/yyyy\")");
++    insertStringToCell(u"A6"_ustr, u"=TEXT(60,\"m/d/yyyy\")");
++    insertStringToCell(u"A7"_ustr, u"=TEXT(1,\"dddd\")");
++    insertStringToCell(u"A8"_ustr, u"=TEXT(45292,\"dd/mm/yyyy\")");
++    CPPUNIT_ASSERT_EQUAL(u"01/01/1900"_ustr, str("A1"));
++    CPPUNIT_ASSERT_EQUAL(u"28/02/1900"_ustr, str("A2"));
++    CPPUNIT_ASSERT_EQUAL(u"29/02/1900"_ustr, str("A3"));
++    CPPUNIT_ASSERT_EQUAL(u"01/03/1900"_ustr, str("A4"));
++    CPPUNIT_ASSERT_EQUAL(u"09/04/1900"_ustr, str("A5"));
++    CPPUNIT_ASSERT_EQUAL(u"2/29/1900"_ustr, str("A6"));
++    CPPUNIT_ASSERT_EQUAL(u"Sunday"_ustr, str("A7"));
++    CPPUNIT_ASSERT_EQUAL(u"01/01/2024"_ustr, str("A8"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcel1900DatesTest, testDateFunctions)
++{
++    createScDoc();
++    // DATE counts February 1900 with 29 days.
++    insertStringToCell(u"A1"_ustr, u"=DATE(1900,1,1)");
++    insertStringToCell(u"A2"_ustr, u"=DATE(1900,2,28)");
++    insertStringToCell(u"A3"_ustr, u"=DATE(1900,2,29)");
++    insertStringToCell(u"A4"_ustr, u"=DATE(1900,3,1)");
++    insertStringToCell(u"A5"_ustr, u"=DATE(1900,3,0)");
++    insertStringToCell(u"A6"_ustr, u"=DATE(1900,2,30)");
++    insertStringToCell(u"A7"_ustr, u"=DATE(2024,1,1)");
++    insertStringToCell(u"A8"_ustr, u"=DATE(1900,1,0)");
++    CPPUNIT_ASSERT_EQUAL(1.0, val("A1"));
++    CPPUNIT_ASSERT_EQUAL(59.0, val("A2"));
++    CPPUNIT_ASSERT_EQUAL(60.0, val("A3"));
++    CPPUNIT_ASSERT_EQUAL(61.0, val("A4"));
++    CPPUNIT_ASSERT_EQUAL(60.0, val("A5"));
++    CPPUNIT_ASSERT_EQUAL(61.0, val("A6"));
++    CPPUNIT_ASSERT_EQUAL(45292.0, val("A7"));
++    CPPUNIT_ASSERT_EQUAL(0.0, val("A8"));
++
++    insertStringToCell(u"B1"_ustr, u"=YEAR(60)");
++    insertStringToCell(u"B2"_ustr, u"=MONTH(60)");
++    insertStringToCell(u"B3"_ustr, u"=DAY(60)");
++    insertStringToCell(u"B4"_ustr, u"=DAY(1)");
++    insertStringToCell(u"B5"_ustr, u"=MONTH(1)");
++    insertStringToCell(u"B6"_ustr, u"=YEAR(1)");
++    insertStringToCell(u"B7"_ustr, u"=DAY(59)");
++    insertStringToCell(u"B8"_ustr, u"=DAY(61)");
++    insertStringToCell(u"B9"_ustr, u"=MONTH(61)");
++    insertStringToCell(u"B10"_ustr, u"=DAY(45292)");
++    CPPUNIT_ASSERT_EQUAL(1900.0, val("B1"));
++    CPPUNIT_ASSERT_EQUAL(2.0, val("B2"));
++    CPPUNIT_ASSERT_EQUAL(29.0, val("B3"));
++    CPPUNIT_ASSERT_EQUAL(1.0, val("B4"));
++    CPPUNIT_ASSERT_EQUAL(1.0, val("B5"));
++    CPPUNIT_ASSERT_EQUAL(1900.0, val("B6"));
++    CPPUNIT_ASSERT_EQUAL(28.0, val("B7"));
++    CPPUNIT_ASSERT_EQUAL(1.0, val("B8"));
++    CPPUNIT_ASSERT_EQUAL(3.0, val("B9"));
++    CPPUNIT_ASSERT_EQUAL(1.0, val("B10"));
++
++    // WEEKDAY follows the serials: serial 1 is a Sunday, 60 a Wednesday, 61 a Thursday.
++    insertStringToCell(u"C1"_ustr, u"=WEEKDAY(1)");
++    insertStringToCell(u"C2"_ustr, u"=WEEKDAY(60)");
++    insertStringToCell(u"C3"_ustr, u"=WEEKDAY(61)");
++    insertStringToCell(u"C4"_ustr, u"=WEEKDAY(1,2)");
++    CPPUNIT_ASSERT_EQUAL(1.0, val("C1"));
++    CPPUNIT_ASSERT_EQUAL(4.0, val("C2"));
++    CPPUNIT_ASSERT_EQUAL(5.0, val("C3"));
++    CPPUNIT_ASSERT_EQUAL(7.0, val("C4"));
++
++    insertStringToCell(u"D1"_ustr, u"=DATEVALUE(\"1900-03-01\")");
++    insertStringToCell(u"D2"_ustr, u"=DATEVALUE(\"1900-01-01\")");
++    insertStringToCell(u"D3"_ustr, u"=DATEVALUE(\"1900-02-29\")");
++    insertStringToCell(u"D4"_ustr, u"=DATEVALUE(\"2/29/1900\")");
++    insertStringToCell(u"D5"_ustr, u"=DATEVALUE(\"2024-01-01\")");
++    CPPUNIT_ASSERT_EQUAL(61.0, val("D1"));
++    CPPUNIT_ASSERT_EQUAL(1.0, val("D2"));
++    CPPUNIT_ASSERT_EQUAL(60.0, val("D3"));
++    CPPUNIT_ASSERT_EQUAL(60.0, val("D4"));
++    CPPUNIT_ASSERT_EQUAL(45292.0, val("D5"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcel1900DatesTest, testDayCountFunctions)
++{
++    // Results of Excel 2021 (16.0.15601, CalculateFull) for the same formulas. Over January and
++    // February 1900 serial 1 is a Sunday and DATE, DAYS360 and DATEDIF give February 29 days, EDATE
++    // and EOMONTH 28; later dates count as before.
++    createScDoc();
++    CPPUNIT_ASSERT(excel1900());
++    ScDocument* pDoc = getScDoc();
++    const std::pair<const char*, double> aCases[] = {
++        { "=WEEKNUM(1)", 1 },          { "=WEEKNUM(8)", 2 },
++        { "=WEEKNUM(60)", 9 },         { "=WEEKNUM(60,2)", 10 },
++        { "=WEEKNUM(366)", 53 },       { "=WEEKNUM(45292)", 1 },
++        { "=ISOWEEKNUM(1)", 52 },      { "=ISOWEEKNUM(2)", 1 },
++        { "=ISOWEEKNUM(60)", 9 },      { "=ISOWEEKNUM(366)", 1 },
++        { "=ISOWEEKNUM(45292)", 1 },   { "=WEEKNUM(60,21)", 9 },
++        { "=DAYS360(1,61)", 60 },      { "=DAYS360(59,61)", 3 },
++        { "=DAYS360(60,61)", 1 },      { "=DAYS360(1,31)", 30 },
++        { "=DAYS360(60,91,TRUE)", 31 }, { "=DAYS360(45292,45351)", 58 },
++        { "=DAYS360(59,91)", 33 },     { "=DAYS360(31,60)", 29 },
++        { "=WEEKNUM(366,2)", 54 },     { "=WEEKNUM(100,21)", 15 },
++        { "=DATEDIF(31,61,\"md\")", -1 }, { "=DATEDIF(60,425,\"ym\")", 11 },
++        { "=DATEDIF(60,426,\"yd\")", 0 },  { "=NETWORKDAYS(1,100)", 71 },
++        { "=WORKDAY(55,5)", 62 },
++        { "=DATEDIF(1,61,\"m\")", 2 },  { "=DATEDIF(31,60,\"md\")", 29 },
++        { "=DATEDIF(1,60,\"yd\")", 59 }, { "=DATEDIF(1,367,\"y\")", 1 },
++        { "=DATEDIF(1,60,\"d\")", 59 },  { "=DATEDIF(45292,45351,\"md\")", 28 },
++        { "=EDATE(31,1)", 59 },        { "=EDATE(91,-1)", 59 },        { "=EDATE(60,12)", 425 },
++        { "=EDATE(61,-1)", 32 },       { "=EDATE(45292,1)", 45323 },
++        { "=EOMONTH(1,1)", 59 },       { "=EOMONTH(1,0)", 31 },
++        { "=EOMONTH(61,-1)", 59 },     { "=EOMONTH(45292,1)", 45351 },
++        // Weekdays follow the serials alone.
++        { "=NETWORKDAYS(1,60)", 43 },  { "=WORKDAY(1,1)", 2 },
++    };
++    for (size_t i = 0; i < std::size(aCases); ++i)
++    {
++        const ScAddress aPos(0, SCROW(i), 0);
++        pDoc->SetString(aPos, OUString::createFromAscii(aCases[i].first));
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCases[i].first, aCases[i].second, pDoc->GetValue(aPos));
++    }
++    pDoc->SetString(ScAddress(1, 0, 0), u"=EDATE(1,-1)"_ustr);
++    CPPUNIT_ASSERT_EQUAL(u"#NUM!"_ustr, pDoc->GetString(ScAddress(1, 0, 0)));
++
++    // The date grouping of the autofilter and the pivot table.
++    SvNumberFormatter& rFormatter = *pDoc->GetFormatTable();
++    const Date aLeapDay = sc::hst::Excel1900ShownDate(rFormatter, 60.0);
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(29), aLeapDay.GetDay());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(2), aLeapDay.GetMonth());
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(1900), aLeapDay.GetYear());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(1), sc::hst::Excel1900ShownDate(rFormatter, 1.0).GetDay());
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(3), sc::hst::Excel1900ShownDate(rFormatter, 61.0).GetMonth());
++    sal_Int32 nPart = 0;
++    CPPUNIT_ASSERT(sc::hst::Excel1900DatePart(rFormatter, 60.0,
++                                              css::sheet::DataPilotFieldGroupBy::DAYS, nPart));
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(60), nPart);
++    CPPUNIT_ASSERT(sc::hst::Excel1900DatePart(rFormatter, 59.0,
++                                              css::sheet::DataPilotFieldGroupBy::MONTHS, nPart));
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(2), nPart);
++    CPPUNIT_ASSERT(sc::hst::Excel1900DatePart(rFormatter, 1.0,
++                                              css::sheet::DataPilotFieldGroupBy::YEARS, nPart));
++    CPPUNIT_ASSERT_EQUAL(sal_Int32(1900), nPart);
++    CPPUNIT_ASSERT(!sc::hst::Excel1900DatePart(rFormatter, 61.0,
++                                               css::sheet::DataPilotFieldGroupBy::DAYS, nPart));
++    // Day group names of the pivot table (counted in a leap year long ago) read as without
++    // the 1900 date system.
++    const OUString aDayName = ScDPUtil::getDateGroupName(
++        css::sheet::DataPilotFieldGroupBy::DAYS, 1, &rFormatter, 0.0, 0.0);
++    rFormatter.SetHstExcel1900Dates(false);
++    CPPUNIT_ASSERT_EQUAL(ScDPUtil::getDateGroupName(css::sheet::DataPilotFieldGroupBy::DAYS, 1,
++                                                    &rFormatter, 0.0, 0.0),
++                         aDayName);
++    rFormatter.SetHstExcel1900Dates(true);
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcel1900DatesTest, testSerialZero)
++{
++    // A deliberate difference: serial 0 is 31/12/1899, the day before serial 1, so that a date
++    // typed before 1900 keeps its day. The leading spreadsheet application shows serial 0 as the
++    // day "00/01/1900" (DAY 0, MONTH 1, YEAR 1900, WEEKNUM 0) and has no earlier dates.
++    createScDoc();
++    CPPUNIT_ASSERT(excel1900());
++    ScDocument* pDoc = getScDoc();
++    const std::pair<const char*, const char*> aCases[] = {
++        { "=TEXT(0,\"yyyy-mm-dd\")", "1899-12-31" },
++        { "=DAY(0)", "31" },
++        { "=MONTH(0)", "12" },
++        { "=YEAR(0)", "1899" },
++        { "=WEEKDAY(0)", "7" },
++        { "=WEEKNUM(0)", "53" },
++        { "=WEEKNUM(0,2)", "53" },
++    };
++    for (size_t i = 0; i < std::size(aCases); ++i)
++    {
++        const ScAddress aPos(0, SCROW(i), 0);
++        pDoc->SetString(aPos, OUString::createFromAscii(aCases[i].first));
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aCases[i].first, OUString::createFromAscii(aCases[i].second),
++                                     pDoc->GetString(aPos));
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcel1900DatesTest, testTypedDates)
++{
++    createScDoc();
++    insertStringToCell(u"A1"_ustr, u"2/29/1900");
++    insertStringToCell(u"A2"_ustr, u"1/1/1900");
++    insertStringToCell(u"A3"_ustr, u"1900-02-29");
++    insertStringToCell(u"A4"_ustr, u"1900-03-01");
++    insertStringToCell(u"A5"_ustr, u"2/30/1900");
++    CPPUNIT_ASSERT_EQUAL(60.0, val("A1"));
++    CPPUNIT_ASSERT_EQUAL(1.0, val("A2"));
++    CPPUNIT_ASSERT_EQUAL(60.0, val("A3"));
++    CPPUNIT_ASSERT_EQUAL(61.0, val("A4"));
++    // Only the 29th exists in the 1900 date system's February 1900.
++    CPPUNIT_ASSERT_EQUAL(u"2/30/1900"_ustr, str("A5"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcel1900DatesTest, testXlsxRoundTrip)
++{
++    createScDoc();
++    putSerials();
++    insertStringToCell(u"B1"_ustr, u"=DATE(1900,2,29)");
++    saveAndReload(TestFilter::XLSX);
++    CPPUNIT_ASSERT(getScDoc()->GetHstLogicalTextMode() == sc::hst::LogicalTextMode::ExcelFile);
++    CPPUNIT_ASSERT(excel1900());
++    checkSerials();
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(60.0, val("B1"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcel1900DatesTest, testOdsKeepsItsCount)
++{
++    // An .ods counts from 30/12/1899: its 1900-01-01 is serial 2, also when recalculated and
++    // when a date is typed.
++    writeFlatOds();
++    loadFromURL(maTempFile.GetURL(), { comphelper::makePropertyValue(
++                                           u"FilterName"_ustr,
++                                           u"OpenDocument Spreadsheet Flat XML"_ustr) });
++    CPPUNIT_ASSERT(!excel1900());
++    CPPUNIT_ASSERT_EQUAL(2.0, val("A1"));
++    recalc();
++    CPPUNIT_ASSERT_EQUAL(2.0, val("B1"));
++    insertStringToCell(u"C1"_ustr, u"1900-01-01");
++    CPPUNIT_ASSERT_EQUAL(2.0, val("C1"));
++    insertStringToCell(u"C2"_ustr, u"=DAY(2)");
++    CPPUNIT_ASSERT_EQUAL(1.0, val("C2"));
++}
++
++CPPUNIT_TEST_FIXTURE(ScHstExcel1900DatesTest, testSaveAsOds)
++{
++    // The .ods gets the days the dates show; 29/02/1900 has no ISO date and is written as
++    // 1900-02-28, the day it follows.
++    createScDoc();
++    putSerials();
++    saveAndReload(TestFilter::ODS);
++    xmlDocUniquePtr pContent = parseExport(u"content.xml"_ustr);
++    CPPUNIT_ASSERT(pContent);
++    const OString aCell = "/office:document-content/office:body/office:spreadsheet/table:table/"
++                          "table:table-row[$1]/table:table-cell[1]"_ostr;
++    const auto cell = [&aCell](int nRow) { return aCell.replaceAll("$1"_ostr, OString::number(nRow)); };
++    assertXPath(pContent, cell(1), "date-value", u"1899-12-31");
++    assertXPath(pContent, cell(2), "date-value", u"1900-01-01");
++    assertXPath(pContent, cell(3), "date-value", u"1900-02-28");
++    assertXPath(pContent, cell(4), "date-value", u"1900-02-28");
++    assertXPath(pContent, cell(5), "date-value", u"1900-03-01");
++    assertXPath(pContent, cell(6), "date-value", u"1900-04-09");
++
++    // Reopened, the .ods counts from 30/12/1899 and shows the same dates.
++    CPPUNIT_ASSERT(!excel1900());
++    CPPUNIT_ASSERT_EQUAL(2.0, val("A2"));
++    CPPUNIT_ASSERT_EQUAL(u"01/01/1900"_ustr, str("A2"));
++    CPPUNIT_ASSERT_EQUAL(u"01/03/1900"_ustr, str("A5"));
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/core/data/dpgroup.cxx
++++ b/sc/source/core/data/dpgroup.cxx
+@@ -23,6 +23,7 @@
+ #include <document.hxx>
+ #include <dpfilteredcache.hxx>
+ #include <dputil.hxx>
++#include <hstexcel1900dates.hxx>
+ #include <tokenarray.hxx>
+ 
+ #include <osl/diagnose.h>
+@@ -109,7 +110,8 @@
+ {
+ public:
+     ScDPGroupDateFilter(
+-        std::vector<ScDPItemData>&& rValues, const Date& rNullDate, const ScDPNumGroupInfo& rNumInfo);
++        std::vector<ScDPItemData>&& rValues, const Date& rNullDate, const ScDPNumGroupInfo& rNumInfo,
++        bool bHstExcel1900 = false);
+ 
+     virtual bool match(const ScDPItemData & rCellData) const override;
+     virtual std::vector<ScDPItemData> getMatchValues() const override;
+@@ -118,15 +120,18 @@
+     std::vector<ScDPItemData> maValues;
+     Date             maNullDate;
+     ScDPNumGroupInfo maNumInfo;
++    bool             mbHstExcel1900; // HST: the document's 1900 date system
+ };
+ 
+ }
+ 
+ ScDPGroupDateFilter::ScDPGroupDateFilter(
+-    std::vector<ScDPItemData>&& rValues, const Date& rNullDate, const ScDPNumGroupInfo& rNumInfo) :
++    std::vector<ScDPItemData>&& rValues, const Date& rNullDate, const ScDPNumGroupInfo& rNumInfo,
++    bool bHstExcel1900) :
+     maValues(std::move(rValues)),
+     maNullDate(rNullDate),
+-    maNumInfo(rNumInfo)
++    maNumInfo(rNumInfo),
++    mbHstExcel1900(bHstExcel1900)
+ {
+ }
+ 
+@@ -201,7 +206,7 @@
+             continue;
+         }
+ 
+-        Date date = maNullDate + static_cast<sal_Int32>(approxFloor(rCellData.GetValue()));
++        Date date = sc::hst::Excel1900ShownDate(mbHstExcel1900, maNullDate, rCellData.GetValue()); // HST
+         switch (nGroupType)
+         {
+             case DataPilotFieldGroupBy::YEARS:
+@@ -746,7 +751,8 @@
+                     // grouped by dates.
+                     aCri.mpFilter =
+                         std::make_shared<ScDPGroupDateFilter>(
+-                            std::move(aMatchValues), pDoc->GetFormatTable()->GetNullDate(), *pNumInfo);
++                            std::move(aMatchValues), pDoc->GetFormatTable()->GetNullDate(), *pNumInfo,
++                            pDoc->GetFormatTable()->IsHstExcel1900Dates()); // HST
+                 }
+                 else
+                 {
+@@ -779,7 +785,8 @@
+                 aCri.mnFieldIndex = nSrcDim;  // use the source dimension, not the group dimension.
+                 aCri.mpFilter =
+                     std::make_shared<ScDPGroupDateFilter>(
+-                        std::move(aMatchValues), pDoc->GetFormatTable()->GetNullDate(), *pNumInfo);
++                        std::move(aMatchValues), pDoc->GetFormatTable()->GetNullDate(), *pNumInfo,
++                            pDoc->GetFormatTable()->IsHstExcel1900Dates()); // HST
+ 
+                 aNewCriteria.push_back(std::move(aCri));
+             }
+--- a/sc/source/core/data/dputil.cxx
++++ b/sc/source/core/data/dputil.cxx
+@@ -13,6 +13,7 @@
+ #include <globstr.hrc>
+ #include <scresid.hxx>
+ #include <generalfunction.hxx>
++#include <hstexcel1900dates.hxx>
+ 
+ #include <comphelper/string.hxx>
+ #include <unotools/localedatawrapper.hxx>
+@@ -122,6 +123,7 @@
+             Date aDate(1, 1, SC_DP_LEAPYEAR);
+             aDate.AddDays(nValue - 1);            // nValue is 1-based
+             tools::Long nDays = aDate - pFormatter->GetNullDate();
++            nDays = static_cast<tools::Long>(sc::hst::Excel1900SerialOfDays(*pFormatter, nDays)); // HST: 1900 date system
+ 
+             const sal_uInt32 nFormat = pFormatter->GetFormatIndex(NF_DATE_SYS_DDMMM, ScGlobal::eLnge);
+             const Color* pColor;
+@@ -321,7 +323,7 @@
+                 break;
+         }
+     }
+-    else
++    else if (!sc::hst::Excel1900DatePart(*pFormatter, fValue, nDatePart, nResult)) // HST: 1900 date system
+     {
+         Date aDate = pFormatter->GetNullDate();
+         aDate.AddDays(::rtl::math::approxFloor(fValue));
+--- a/sc/source/core/data/global2.cxx
++++ b/sc/source/core/data/global2.cxx
+@@ -31,6 +31,7 @@
+ #include <o3tl/string_view.hxx>
+ 
+ #include <global.hxx>
++#include <svl/hstexcel1900.hxx>
+ #include <rangeutl.hxx>
+ #include <compiler.hxx>
+ #include <paramisc.hxx>
+@@ -567,6 +568,8 @@
+                                 else
+                                 {
+                                     fValue = aDate - rContext.NFGetNullDate();
++                                    if (rContext.GetFormatTable()->IsHstExcel1900Dates()) // HST
++                                        fValue = svl::hst::NullDateDaysToExcel1900Serial(fValue);
+                                 }
+                             }
+                             fValue += ((nUnit[hour] * 3600) + (nUnit[minute] * 60) + nUnit[second] + fFraction) / 86400.0;
+--- /dev/null
++++ b/sc/source/core/hst/hstexcel1900dates.cxx
+@@ -0,0 +1,79 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// Dates of the 1900 date system in documents of the leading spreadsheet application's
++// convention.
++
++#include <hstexcel1900dates.hxx>
++
++#include <document.hxx>
++#include <hstlogicaltext.hxx>
++#include <interpretercontext.hxx>
++
++#include <svl/hstexcel1900.hxx>
++#include <svl/nfengine.hxx>
++#include <svl/numformat.hxx>
++#include <tools/date.hxx>
++
++namespace sc::hst
++{
++namespace
++{
++bool usesExcel1900(const ScInterpreterContext& rContext)
++{
++    const SvNumberFormatter* pFormatter = rContext.GetFormatTable();
++    return pFormatter && pFormatter->IsHstExcel1900Dates();
++}
++}
++
++void SyncExcel1900Dates(ScDocument& rDoc)
++{
++    SvNumberFormatter* pFormatter = rDoc.GetFormatTable();
++    if (!pFormatter)
++        return;
++    const bool bExcel1900 = Excel1900Dates(rDoc);
++    if (pFormatter->GetROLanguageData().IsHstExcel1900Dates() == bExcel1900)
++        return;
++    pFormatter->SetHstExcel1900Dates(bExcel1900);
++    // Interpreter contexts of threaded calculation keep a copy of the formatter's settings.
++    rDoc.ClearLookupCaches();
++}
++
++sal_Int32 Excel1900NullDateDays(const ScInterpreterContext& rContext, sal_Int32 nSerial)
++{
++    if (!usesExcel1900(rContext))
++        return nSerial;
++    return static_cast<sal_Int32>(svl::hst::Excel1900SerialToNullDateDays(nSerial));
++}
++
++bool IsExcel1900LeapDay(const ScInterpreterContext& rContext, sal_Int32 nSerial)
++{
++    return usesExcel1900(rContext) && svl::hst::IsExcel1900LeapDay(nSerial);
++}
++
++double Excel1900DateSerial(const ScInterpreterContext& rContext, sal_Int16 nYear,
++                           sal_Int16 nMonth, double fDays)
++{
++    if (!usesExcel1900(rContext))
++        return fDays;
++    // The first day of a month is a real date, its serial follows from its day count; the
++    // days DATE added after it are days of the 1900 date system.
++    const Date aFirstDay(1, nMonth, nYear);
++    const double fFirstDay = aFirstDay - rContext.NFGetNullDate();
++    return svl::hst::NullDateDaysToExcel1900Serial(fFirstDay) + (fDays - fFirstDay);
++}
++
++double OdsExportValue(const ScDocument& rDoc, sal_uInt32 nFormat, double fValue)
++{
++    const SvNumberFormatter* pFormatter = rDoc.GetFormatTable();
++    if (!pFormatter || !pFormatter->IsHstExcel1900Dates()
++        || !(pFormatter->GetType(nFormat) & SvNumFormatType::DATE))
++        return fValue;
++    return svl::hst::Excel1900SerialToNullDateDays(fValue);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/core/hst/hstexcel1900functions.cxx
+@@ -0,0 +1,386 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// The date functions that work on year, month and day (WEEKNUM, ISOWEEKNUM, DAYS360, DATEDIF,
++// EDATE, EOMONTH) and the date grouping of the autofilter and the pivot table, in the 1900 date
++// system of the leading spreadsheet application: serial 1 is 01/01/1900, a Sunday, and serial
++// 60 is 29/02/1900, a day February 1900 has there. From serial 61 (01/03/1900) on its dates
++// are the dates of the day count from 30/12/1899, so only computations that touch January or
++// February 1900 (or the weeks of 1900) are made here; the others stay with the usual code.
++//
++// NETWORKDAYS, WORKDAY and WEEKDAY need nothing: a weekday follows from the serial alone and
++// the 1900 date system's weekdays (serial 1 a Sunday) are those of the day count (day 1,
++// 31/12/1899, a Sunday).
++
++#include <hstexcel1900dates.hxx>
++
++#include <interpre.hxx>
++#include <interpretercontext.hxx>
++
++#include <com/sun/star/sheet/DataPilotFieldGroupBy.hpp>
++#include <rtl/math.hxx>
++#include <svl/hstexcel1900.hxx>
++#include <svl/numformat.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <cstdlib>
++
++namespace sc::hst
++{
++namespace
++{
++/// The first serial whose date is the same in both day counts, 01/03/1900.
++constexpr sal_Int32 nFirstCommonSerial = 61;
++/// The last serial whose ISO 8601 week can depend on the weeks of 1900, 03/01/1901 + 7.
++constexpr sal_Int32 nLastWeekSerial = 372;
++
++struct ShownDay
++{
++    sal_Int32 nYear;
++    sal_Int32 nMonth;
++    sal_Int32 nDay;
++};
++
++bool usesExcel1900(const ScInterpreterContext& rContext)
++{
++    const SvNumberFormatter* pFormatter = rContext.GetFormatTable();
++    return pFormatter && pFormatter->IsHstExcel1900Dates();
++}
++
++/// The 1900 date system needs the null date 30/12/1899 (the formatter checks it).
++const Date& nullDate()
++{
++    static const Date aNullDate(30, 12, 1899);
++    return aNullDate;
++}
++
++/// Year, month and day a serial shows.
++ShownDay shownDay(sal_Int32 nSerial)
++{
++    if (nSerial == svl::hst::nExcel1900LeapDaySerial)
++        return { 1900, 2, 29 };
++    Date aDate(nullDate());
++    aDate.AddDays(static_cast<sal_Int32>(svl::hst::Excel1900SerialToNullDateDays(nSerial)));
++    return { aDate.GetYear(), aDate.GetMonth(), aDate.GetDay() };
++}
++
++/// Days of a month, 29 for February 1900.
++sal_Int32 daysInMonth(sal_Int32 nYear, sal_Int32 nMonth)
++{
++    if (nYear == 1900 && nMonth == 2)
++        return 29;
++    return Date::GetDaysInMonth(static_cast<sal_uInt16>(nMonth), static_cast<sal_Int16>(nYear));
++}
++
++/// Serial of the first day of a month; the month may lie outside 1..12.
++sal_Int32 firstOfMonthSerial(sal_Int32 nYear, sal_Int32 nMonth)
++{
++    const sal_Int32 nMonths = nYear * 12 + nMonth - 1;
++    nYear = nMonths >= 0 ? nMonths / 12 : -((-nMonths + 11) / 12);
++    nMonth = nMonths - nYear * 12 + 1;
++    if (nYear == 1900 && nMonth <= 2)
++        return nMonth == 1 ? 1 : 32;
++    const double fDays = Date(1, static_cast<sal_uInt16>(nMonth), static_cast<sal_Int16>(nYear))
++                         - nullDate();
++    return static_cast<sal_Int32>(svl::hst::NullDateDaysToExcel1900Serial(fDays));
++}
++
++/// Serial of a day of a month; days past the end of the month run on into the next one.
++sal_Int32 daySerial(sal_Int32 nYear, sal_Int32 nMonth, sal_Int32 nDay)
++{
++    return firstOfMonthSerial(nYear, nMonth) + nDay - 1;
++}
++
++/// Weekday of a serial, Monday 0 to Sunday 6; serial 1 is a Sunday.
++sal_Int32 weekday(sal_Int32 nSerial) { return ((nSerial + 5) % 7 + 7) % 7; }
++
++/// Serial of the first day of week 1 of a year.
++sal_Int32 firstWeekStart(sal_Int32 nYear, sal_Int32 nFirstDayOfWeek, sal_Int32 nMinimumDays)
++{
++    const sal_Int32 nJan1 = firstOfMonthSerial(nYear, 1);
++    const sal_Int32 nDaysBefore = (weekday(nJan1) - nFirstDayOfWeek + 7) % 7;
++    const sal_Int32 nStart = nJan1 - nDaysBefore;
++    return 7 - nDaysBefore >= nMinimumDays ? nStart : nStart + 7;
++}
++
++/** Serial some months later, with the day kept or cut to the end of the month. EDATE and
++    EOMONTH of the 1900 date system give February 1900 28 days (EDATE(31,1) and EOMONTH(1,1)
++    are 59, 28/02/1900), unlike DATE and DAYS360. */
++sal_Int32 monthsLater(sal_Int32 nSerial, sal_Int32 nMonths, bool bEndOfMonth)
++{
++    const ShownDay aDay = shownDay(nSerial);
++    const sal_Int32 nTotal = aDay.nYear * 12 + aDay.nMonth - 1 + nMonths;
++    const sal_Int32 nYear = nTotal >= 0 ? nTotal / 12 : -((-nTotal + 11) / 12);
++    const sal_Int32 nMonth = nTotal - nYear * 12 + 1;
++    const sal_Int32 nLast
++        = Date::GetDaysInMonth(static_cast<sal_uInt16>(nMonth), static_cast<sal_Int16>(nYear));
++    return daySerial(nYear, nMonth, bEndOfMonth ? nLast : std::min(aDay.nDay, nLast));
++}
++
++bool isAddIn(std::u16string_view aFuncName, std::u16string_view aMethod)
++{
++    constexpr std::u16string_view aPrefix = u"COM.SUN.STAR.SHEET.ADDIN.ANALYSIS.";
++    return aFuncName.size() == aPrefix.size() + aMethod.size()
++           && aFuncName.substr(0, aPrefix.size()) == aPrefix
++           && aFuncName.substr(aPrefix.size()) == aMethod;
++}
++
++/// Week start and minimum days of a WEEKNUM return type; false for an unknown type.
++bool weekType(sal_Int32 nType, sal_Int16& rnFirstDayOfWeek, sal_Int16& rnMinimumDays)
++{
++    rnMinimumDays = 1;
++    if (nType == 1)
++        rnFirstDayOfWeek = 6; // Sunday
++    else if (nType == 2)
++        rnFirstDayOfWeek = 0; // Monday
++    else if (nType >= 11 && nType <= 17)
++        rnFirstDayOfWeek = static_cast<sal_Int16>(nType - 11);
++    else if (nType == 21)
++    {
++        rnFirstDayOfWeek = 0;
++        rnMinimumDays = 4;
++    }
++    else
++        return false;
++    return true;
++}
++
++sal_Int32 weekOfYear(sal_Int32 nSerial, sal_Int16 nFirstDayOfWeek, sal_Int16 nMinimumDays)
++{
++    sal_Int32 nYear = shownDay(nSerial).nYear;
++    sal_Int32 nStart = firstWeekStart(nYear, nFirstDayOfWeek, nMinimumDays);
++    if (nSerial < nStart)
++    {
++        // Only with nMinimumDays > 1: a day of the last week of the year before.
++        --nYear;
++        nStart = firstWeekStart(nYear, nFirstDayOfWeek, nMinimumDays);
++    }
++    else if (nMinimumDays > 1 && nSerial >= firstWeekStart(nYear + 1, nFirstDayOfWeek, nMinimumDays))
++        return 1;
++    return (nSerial - nStart) / 7 + 1;
++}
++}
++
++bool Excel1900WeekOfYear(const ScInterpreterContext& rContext, sal_Int32 nSerial,
++                         sal_Int16 nFirstDayOfWeek, sal_Int16 nMinimumDays, sal_Int32& rnWeek)
++{
++    if (nSerial > nLastWeekSerial || !usesExcel1900(rContext))
++        return false;
++    rnWeek = weekOfYear(nSerial, nFirstDayOfWeek, nMinimumDays);
++    return true;
++}
++
++bool Excel1900Days360(const ScInterpreterContext& rContext, sal_Int32 nStart, sal_Int32 nEnd,
++                      bool bEuropean, double& rfResult)
++{
++    if ((nStart >= nFirstCommonSerial && nEnd >= nFirstCommonSerial) || !usesExcel1900(rContext))
++        return false;
++    const ShownDay aStart = shownDay(nStart);
++    const ShownDay aEnd = shownDay(nEnd);
++    sal_Int32 nStartDay = aStart.nDay;
++    sal_Int32 nEndDay = aEnd.nDay;
++    if (bEuropean)
++    {
++        // Day 31 of either date counts as day 30.
++        nStartDay = std::min<sal_Int32>(nStartDay, 30);
++        nEndDay = std::min<sal_Int32>(nEndDay, 30);
++    }
++    else
++    {
++        // US (NASD): a start on the last day of its month counts as day 30; an end on day 31
++        // counts as day 30 when the start does.
++        if (nStartDay == daysInMonth(aStart.nYear, aStart.nMonth))
++            nStartDay = 30;
++        nStartDay = std::min<sal_Int32>(nStartDay, 30);
++        if (nEndDay == 31 && nStartDay == 30)
++            nEndDay = 30;
++    }
++    rfResult = static_cast<double>((aEnd.nYear - aStart.nYear) * 360
++                                   + (aEnd.nMonth - aStart.nMonth) * 30 + nEndDay - nStartDay);
++    return true;
++}
++
++bool Excel1900DateDif(const ScInterpreterContext& rContext, sal_Int32 nStart, sal_Int32 nEnd,
++                      std::u16string_view aUnit, double& rfResult)
++{
++    if ((nStart >= nFirstCommonSerial && nEnd >= nFirstCommonSerial) || !usesExcel1900(rContext))
++        return false;
++    const ShownDay aStart = shownDay(nStart);
++    const ShownDay aEnd = shownDay(nEnd);
++    // Whole months from the start to the end: the end's day of month reached the start's.
++    sal_Int32 nMonths = (aEnd.nYear - aStart.nYear) * 12 + aEnd.nMonth - aStart.nMonth;
++    if (aEnd.nDay < aStart.nDay)
++        --nMonths;
++    const bool bAnniversaryReached
++        = aEnd.nMonth > aStart.nMonth || (aEnd.nMonth == aStart.nMonth && aEnd.nDay >= aStart.nDay);
++
++    auto equals = [&aUnit](std::u16string_view aName) {
++        if (aUnit.size() != aName.size())
++            return false;
++        for (size_t i = 0; i < aName.size(); ++i)
++            if (rtl::toAsciiUpperCase(aUnit[i]) != aName[i])
++                return false;
++        return true;
++    };
++
++    if (equals(u"M"))
++        rfResult = nMonths;
++    else if (equals(u"Y"))
++        rfResult = nMonths / 12;
++    else if (equals(u"YM"))
++        rfResult = nMonths % 12;
++    else if (equals(u"MD"))
++    {
++        // Days after the start's day of month in the month before the end's; a day the month
++        // does not have runs on into the end's month.
++        rfResult = aEnd.nDay >= aStart.nDay
++                       ? aEnd.nDay - aStart.nDay
++                       : nEnd - daySerial(aEnd.nYear, aEnd.nMonth - 1, aStart.nDay);
++    }
++    else if (equals(u"YD"))
++    {
++        // Days since the last anniversary of the start.
++        const sal_Int32 nYear = bAnniversaryReached ? aEnd.nYear : aEnd.nYear - 1;
++        rfResult = nEnd - daySerial(nYear, aStart.nMonth, aStart.nDay);
++    }
++    else
++        return false;
++    return true;
++}
++
++Date Excel1900ShownDate(const SvNumberFormatter& rFormatter, double fSerial)
++{
++    return Excel1900ShownDate(rFormatter.IsHstExcel1900Dates(), rFormatter.GetNullDate(), fSerial);
++}
++
++Date Excel1900ShownDate(bool bExcel1900, const Date& rNullDate, double fSerial)
++{
++    const double fDay = rtl::math::approxFloor(fSerial);
++    if (!bExcel1900 || fDay >= nFirstCommonSerial)
++    {
++        Date aDate(rNullDate);
++        aDate.AddDays(static_cast<sal_Int32>(fDay));
++        return aDate;
++    }
++    const ShownDay aDay = shownDay(static_cast<sal_Int32>(fDay));
++    // Not normalized: 29/02/1900 keeps day 29 of February.
++    return Date(static_cast<sal_uInt16>(aDay.nDay), static_cast<sal_uInt16>(aDay.nMonth),
++                static_cast<sal_Int16>(aDay.nYear));
++}
++
++double Excel1900SerialOfDays(const SvNumberFormatter& rFormatter, double fDays)
++{
++    return rFormatter.IsHstExcel1900Dates() ? svl::hst::NullDateDaysToExcel1900Serial(fDays)
++                                            : fDays;
++}
++
++bool Excel1900DatePart(const SvNumberFormatter& rFormatter, double fSerial, sal_Int32 nDatePart,
++                       sal_Int32& rnResult)
++{
++    const double fDay = rtl::math::approxFloor(fSerial);
++    if (fDay >= nFirstCommonSerial || !rFormatter.IsHstExcel1900Dates())
++        return false;
++    const ShownDay aDay = shownDay(static_cast<sal_Int32>(fDay));
++    switch (nDatePart)
++    {
++        case css::sheet::DataPilotFieldGroupBy::YEARS:
++            rnResult = aDay.nYear;
++            return true;
++        case css::sheet::DataPilotFieldGroupBy::QUARTERS:
++            rnResult = 1 + (aDay.nMonth - 1) / 3;
++            return true;
++        case css::sheet::DataPilotFieldGroupBy::MONTHS:
++            rnResult = aDay.nMonth;
++            return true;
++        case css::sheet::DataPilotFieldGroupBy::DAYS:
++        {
++            // Day of a leap year, as the groups count days: 29/02 is day 60.
++            const sal_Int32 nBefore[] = { 0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335 };
++            rnResult = nBefore[aDay.nMonth - 1] + aDay.nDay;
++            return true;
++        }
++        default:
++            return false;
++    }
++}
++}
++
++bool ScInterpreter::HstExcel1900AddIn(std::u16string_view aFuncName, sal_uInt8 nParamCount)
++{
++    const bool bEdate = sc::hst::isAddIn(aFuncName, u"GETEDATE");
++    const bool bEomonth = !bEdate && sc::hst::isAddIn(aFuncName, u"GETEOMONTH");
++    const bool bWeeknum = !bEdate && !bEomonth && sc::hst::isAddIn(aFuncName, u"GETWEEKNUM");
++    if (!(bEdate || bEomonth || bWeeknum) || !sc::hst::usesExcel1900(mrContext))
++        return false;
++    if (nParamCount < (bWeeknum ? 1 : 2) || nParamCount > 2 || sp < nParamCount)
++        return false;
++    // Ranges and arrays stay with the add-in call, which iterates them.
++    for (sal_uInt8 i = 1; i <= nParamCount; ++i)
++    {
++        switch (GetStackType(i))
++        {
++            case formula::svDouble:
++            case formula::svSingleRef:
++            case formula::svString:
++            case formula::svEmptyCell:
++            case formula::svMissing:
++                break;
++            default:
++                return false;
++        }
++    }
++
++    // Parameters as the add-in receives them: whole numbers.
++    double fSecond = 1.0;
++    if (nParamCount == 2)
++        fSecond = rtl::math::approxFloor(GetDouble());
++    const double fFirst = rtl::math::approxFloor(GetDouble());
++    if (nGlobalError != FormulaError::NONE)
++    {
++        PushError(nGlobalError);
++        return true;
++    }
++    const auto putBack = [&]() {
++        // Not a 1900 matter: the add-in computes it as usual.
++        PushDouble(fFirst);
++        if (nParamCount == 2)
++            PushDouble(fSecond);
++        return false;
++    };
++    if (fFirst < 1.0 || std::abs(fSecond) > 120000.0 || fFirst > 2958465.0)
++        return putBack();
++    const sal_Int32 nSerial = static_cast<sal_Int32>(fFirst);
++
++    if (bWeeknum)
++    {
++        sal_Int16 nFirstDayOfWeek;
++        sal_Int16 nMinimumDays;
++        sal_Int32 nWeek;
++        if (!sc::hst::weekType(static_cast<sal_Int32>(fSecond), nFirstDayOfWeek, nMinimumDays)
++            || !sc::hst::Excel1900WeekOfYear(mrContext, nSerial, nFirstDayOfWeek, nMinimumDays,
++                                             nWeek))
++            return putBack();
++        PushInt(nWeek);
++        return true;
++    }
++
++    // EDATE and EOMONTH: months are whole months, cut toward zero.
++    const sal_Int32 nMonths = static_cast<sal_Int32>(fSecond);
++    const sal_Int32 nResult = sc::hst::monthsLater(nSerial, nMonths, bEomonth);
++    if (nSerial >= sc::hst::nFirstCommonSerial && nResult >= sc::hst::nFirstCommonSerial)
++        return putBack();
++    if (nResult < 1)
++    {
++        // Before 01/01/1900.
++        PushNumError();
++        return true;
++    }
++    PushInt(nResult);
++    return true;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/core/inc/interpre.hxx
++++ b/sc/source/core/inc/interpre.hxx
+@@ -637,6 +637,8 @@
+     /// HST: a number typed as text as an argument of SUM, AVERAGE, PRODUCT, SUMSQ counts: replaces
+     /// it on the stack by its value (hstexcelfunctions.cxx).
+     void HstDirectTextNumber(ScIterFunc eFunc);
++    /// HST: EDATE, EOMONTH, WEEKNUM add-in calls in the 1900 date system (hstexcel1900functions.cxx).
++    bool HstExcel1900AddIn(std::u16string_view aFuncName, sal_uInt8 nParamCount);
+     void ScPercentSign();
+     void ScIntersect();
+     void ScRangeFunc();
+--- a/sc/source/core/tool/interpr2.cxx
++++ b/sc/source/core/tool/interpr2.cxx
+@@ -47,6 +47,7 @@
+ #include <stlpool.hxx>
+ #include <stlsheet.hxx>
+ #include <dpcache.hxx>
++#include <hstexcel1900dates.hxx>
+ 
+ #include <com/sun/star/sheet/DataPilotFieldFilter.hpp>
+ 
+@@ -91,7 +92,8 @@
+     if (!bStrict)
+         aDate.AddDays( nDay - 1 );
+     if (aDate.IsValidAndGregorian())
+-        return static_cast<double>(aDate - mrContext.NFGetNullDate());
++        return sc::hst::Excel1900DateSerial(mrContext, nY, nM, // HST: 1900 date system
++                                            static_cast<double>(aDate - mrContext.NFGetNullDate()));
+     else
+     {
+         SetError(FormulaError::NoValue);
+@@ -122,21 +124,24 @@
+ void ScInterpreter::ScGetYear()
+ {
+     Date aDate = mrContext.NFGetNullDate();
+-    aDate.AddDays( GetFloor32());
++    aDate.AddDays( sc::hst::Excel1900NullDateDays(mrContext, GetFloor32())); // HST
+     PushDouble( static_cast<double>(aDate.GetYear()) );
+ }
+ 
+ void ScInterpreter::ScGetMonth()
+ {
+     Date aDate = mrContext.NFGetNullDate();
+-    aDate.AddDays( GetFloor32());
++    aDate.AddDays( sc::hst::Excel1900NullDateDays(mrContext, GetFloor32())); // HST
+     PushDouble( static_cast<double>(aDate.GetMonth()) );
+ }
+ 
+ void ScInterpreter::ScGetDay()
+ {
+     Date aDate = mrContext.NFGetNullDate();
+-    if (aDate.CheckedAddDays(GetFloor32()))
++    const sal_Int32 nSerial = GetFloor32();
++    if (sc::hst::IsExcel1900LeapDay(mrContext, nSerial)) // HST: 29/02/1900
++        PushDouble(29);
++    else if (aDate.CheckedAddDays(sc::hst::Excel1900NullDateDays(mrContext, nSerial))) // HST
+         PushDouble(static_cast<double>(aDate.GetDay()));
+     else
+     {
+@@ -246,7 +251,10 @@
+         sal_Int16 nFlag = GetInt16();
+ 
+         Date aDate = mrContext.NFGetNullDate();
+-        aDate.AddDays( GetFloor32());
++        const sal_Int32 nSerial = GetFloor32();
++        aDate.AddDays( nSerial);
++        if (sal_Int32 nWeek; sc::hst::Excel1900WeekOfYear(mrContext, nSerial, nFlag == 1 ? SUNDAY : MONDAY, 4, nWeek)) // HST
++            return PushInt(nWeek);
+         PushInt( static_cast<int>(aDate.GetWeekOfYear( nFlag == 1 ? SUNDAY : MONDAY )));
+     }
+ }
+@@ -260,7 +268,8 @@
+     sal_Int16 nFlag = (nParamCount == 1) ? 1 : GetInt16WithDefault(1);
+ 
+     Date aDate = mrContext.NFGetNullDate();
+-    aDate.AddDays( GetFloor32());
++    const sal_Int32 nSerial = GetFloor32(); // HST
++    aDate.AddDays( nSerial);
+ 
+     sal_Int32 nMinimumNumberOfDaysInWeek;
+     DayOfWeek eFirstDayOfWeek;
+@@ -294,6 +303,8 @@
+             PushNumError();
+             return;
+     }
++    if (sal_Int32 nWeek; sc::hst::Excel1900WeekOfYear(mrContext, nSerial, eFirstDayOfWeek, nMinimumNumberOfDaysInWeek, nWeek)) // HST
++        return PushInt(nWeek);
+     PushInt( static_cast<int>(aDate.GetWeekOfYear( eFirstDayOfWeek, nMinimumNumberOfDaysInWeek )) );
+ }
+ 
+@@ -302,7 +313,10 @@
+     if ( MustHaveParamCount( GetByte(), 1 ) )
+     {
+         Date aDate = mrContext.NFGetNullDate();
+-        aDate.AddDays( GetFloor32());
++        const sal_Int32 nSerial = GetFloor32(); // HST
++        aDate.AddDays( nSerial);
++        if (sal_Int32 nWeek; sc::hst::Excel1900WeekOfYear(mrContext, nSerial, MONDAY, 4, nWeek)) // HST
++            return PushInt(nWeek);
+         PushInt( static_cast<int>(aDate.GetWeekOfYear()) );
+     }
+ }
+@@ -714,6 +728,8 @@
+     sal_Int32 nDate1 = GetFloor32();
+     if (nGlobalError != FormulaError::NONE)
+         PushError( nGlobalError);
++    else if (double fDays; sc::hst::Excel1900Days360(mrContext, nDate1, nDate2, bFlag, fDays)) // HST
++        PushDouble(fDays);
+     else
+     {
+         sal_Int32 nSign;
+@@ -799,6 +815,9 @@
+         return;
+     }
+ 
++    if (double fDif; sc::hst::Excel1900DateDif(mrContext, nDate1, nDate2, aInterval, fDif)) // HST
++        return PushDouble(fDif);
++
+     // split dates in day, month, year for use with formats other than "d"
+     sal_uInt16 d1, m1, d2, m2;
+     sal_Int16 y1, y2;
+--- a/sc/source/core/tool/interpr4.cxx
++++ b/sc/source/core/tool/interpr4.cxx
+@@ -2763,6 +2763,8 @@
+     sal_uInt8 nParamCount = GetByte();
+     OUString aUnoName;
+     OUString aFuncName( static_cast<const FormulaExternalToken*>(pCur)->GetExternal().toAsciiUpperCase());    // programmatic name
++    if (HstExcel1900AddIn(aFuncName, nParamCount)) // HST: EDATE, EOMONTH, WEEKNUM in the 1900 date system
++        return;
+     LegacyFuncData* pLegacyFuncData = ScGlobal::GetLegacyFuncCollection()->findByName(aFuncName);
+     if (pLegacyFuncData)
+     {
+--- a/sc/source/filter/excel/impop.cxx
++++ b/sc/source/filter/excel/impop.cxx
+@@ -38,6 +38,7 @@
+ 
+ #include <formulacell.hxx>
+ #include <document.hxx>
++#include <hstexcel1900dates.hxx>
+ #include <globstr.hrc>
+ #include <scresid.hxx>
+ #include <global.hxx>
+@@ -122,6 +123,7 @@
+     aOpt.SetDate( 30, 12, 1899 );
+     rD.SetDocOptions( aOpt );
+     rD.SetHstLogicalTextMode(sc::hst::LogicalTextMode::ExcelFile); // HST: "a"&TRUE is "aTRUE"
++    sc::hst::SyncExcel1900Dates(rD); // HST: the 1900 date system before formulas calculate
+     rD.GetFormatTable()->ChangeNullDate( 30, 12, 1899 );
+ 
+     ScDocOptions aDocOpt( rD.GetDocOptions() );
+--- a/sc/source/filter/oox/workbookhelper.cxx
++++ b/sc/source/filter/oox/workbookhelper.cxx
+@@ -61,6 +61,7 @@
+ #include <worksheetbuffer.hxx>
+ #include <docsh.hxx>
+ #include <document.hxx>
++#include <hstexcel1900dates.hxx>
+ #include <docuno.hxx>
+ #include <dbdocfun.hxx>
+ #include <rangenam.hxx>
+@@ -559,6 +560,7 @@
+     if (!mpDoc)
+         throw RuntimeException(u"Workbookhelper::getScDocument(): Failed to access ScDocument from model"_ustr);
+     mpDoc->SetHstLogicalTextMode(sc::hst::LogicalTextMode::ExcelFile); // HST: "a"&TRUE is "aTRUE"
++    sc::hst::SyncExcel1900Dates(*mpDoc); // HST: the 1900 date system before formulas calculate
+ 
+     Reference< XDocumentProperties > xDocProps = mxDoc->getDocumentProperties();
+     const OUString aGenerator( xDocProps->getGenerator());
+--- a/sc/source/filter/xml/xmlexprt.cxx
++++ b/sc/source/filter/xml/xmlexprt.cxx
+@@ -22,6 +22,7 @@
+ 
+ #include "xmlexprt.hxx"
+ #include "hstodsextension.hxx"
++#include <hstexcel1900dates.hxx>
+ #include "XMLConverter.hxx"
+ #include "xmlstyle.hxx"
+ #include <unonames.hxx>
+@@ -3210,11 +3211,13 @@
+             break;
+         case table::CellContentType_VALUE :
+             {
++                // HST: dates of the 1900 date system as the days they show
++                const double fValue = sc::hst::OdsExportValue(rDoc, aCell.nNumberFormat, aCell.maBaseCell.getDouble());
+                 GetNumberFormatAttributesExportHelper()->SetNumberFormatAttributes(
+-                    aCell.nNumberFormat, aCell.maBaseCell.getDouble());
++                    aCell.nNumberFormat, fValue);
+                 if (getSaneDefaultVersion() & SvtSaveOptions::ODFSVER_EXTENDED)
+                     GetNumberFormatAttributesExportHelper()->SetNumberFormatAttributes(
+-                            aCell.nNumberFormat, aCell.maBaseCell.getDouble(), false, XML_NAMESPACE_CALC_EXT, false);
++                            aCell.nNumberFormat, fValue, false, XML_NAMESPACE_CALC_EXT, false);
+             }
+             break;
+         case table::CellContentType_TEXT :
+@@ -3271,12 +3274,14 @@
+                         bool bIsStandard;
+                         OUString sCurrency;
+                         GetNumberFormatAttributesExportHelper()->GetCellType(aCell.nNumberFormat, sCurrency, bIsStandard);
++                        // HST: dates of the 1900 date system as the days they show
++                        const double fValue = sc::hst::OdsExportValue(rDoc, aCell.nNumberFormat, rDoc.GetValue(aCell.maCellAddress));
+                         GetNumberFormatAttributesExportHelper()->SetNumberFormatAttributes(
+-                                aCell.nNumberFormat, rDoc.GetValue(aCell.maCellAddress));
++                                aCell.nNumberFormat, fValue);
+                         if (getSaneDefaultVersion() & SvtSaveOptions::ODFSVER_EXTENDED)
+                         {
+                             GetNumberFormatAttributesExportHelper()->SetNumberFormatAttributes(
+-                                    aCell.nNumberFormat, rDoc.GetValue(aCell.maCellAddress), false, XML_NAMESPACE_CALC_EXT, false );
++                                    aCell.nNumberFormat, fValue, false, XML_NAMESPACE_CALC_EXT, false );
+                         }
+                     }
+                     else
+--- a/sc/source/ui/cctrl/checklistmenu.cxx
++++ b/sc/source/ui/cctrl/checklistmenu.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include <checklistmenu.hxx>
++#include <hstexcel1900dates.hxx>
+ #include <o3tl/safeint.hxx>
+ #include <o3tl/string_view.hxx>
+ #include <globstr.hrc>
+@@ -1246,8 +1247,7 @@
+     SvNumberFormatter* pFormatter = mrViewData.GetDocument().GetFormatTable();
+ 
+     // Convert the numeric date value to a date object.
+-    Date aDate = pFormatter->GetNullDate();
+-    aDate.AddDays(rtl::math::approxFloor(nVal));
++    Date aDate = sc::hst::Excel1900ShownDate(*pFormatter, nVal); // HST: 1900 date system
+ 
+     sal_Int16 nYear = aDate.GetYear();
+     sal_uInt16 nMonth = aDate.GetMonth();
+--- a/sc/source/ui/docshell/docsh.cxx
++++ b/sc/source/ui/docshell/docsh.cxx
+@@ -154,6 +154,7 @@
+ #include <comphelper/lok.hxx>
+ #include <svtools/sfxecode.hxx>
+ #include <unotools/pathoptions.hxx>
++#include <hstexcel1900dates.hxx>
+ 
+ #include <vcl/tabs.hrc>
+ 
+@@ -290,6 +291,7 @@
+ 
+ void ScDocShell::AfterXMLLoading(bool bRet)
+ {
++    sc::hst::SyncExcel1900Dates(*m_pDocument); // HST: before an .ods recalculates
+     if (GetCreateMode() != SfxObjectCreateMode::ORGANIZER)
+     {
+         UpdateLinks();
+@@ -409,6 +411,7 @@
+     ~LoadMediumGuard()
+     {
+         mpDoc->SetLoadingMedium(false);
++        sc::hst::SyncExcel1900Dates(*mpDoc); // HST: the document's convention is known now
+     }
+ private:
+     ScDocument* mpDoc;
+--- a/sc/source/ui/docshell/docsh2.cxx
++++ b/sc/source/ui/docshell/docsh2.cxx
+@@ -37,6 +37,7 @@
+ #include <stlpool.hxx>
+ #include <docsh.hxx>
+ #include <docfunc.hxx>
++#include <hstexcel1900dates.hxx>
+ #include <svx/svxids.hrc>
+ #include <filter.hxx>
+ #include <functional>
+@@ -62,6 +63,7 @@
+ 
+     // InitOptions sets the document languages, must be called before CreateStandardStyles
+     InitOptions(false);
++    sc::hst::SyncExcel1900Dates(*m_pDocument); // HST: dates of the 1900 date system
+ 
+     // HST Office: not the clipboard document that a copy of a chart or other OLE object wraps in a shell
+     // (ScTransferObj::SetDrawClipDoc): it has no sheet whose rows could be sized.
+--- /dev/null
++++ b/svl/CppunitTest_svl_hst_excel1900.mk
+@@ -0,0 +1,50 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (c) HASON TECH. HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,svl_hst_excel1900))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,svl_hst_excel1900))
++
++$(eval $(call gb_CppunitTest_use_externals,svl_hst_excel1900, \
++	boost_headers \
++	icui18n \
++	icuuc \
++	icu_headers \
++))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,svl_hst_excel1900, \
++	svl/qa/unit/hstexcel1900 \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,svl_hst_excel1900, \
++	comphelper \
++	cppu \
++	cppuhelper \
++	i18nlangtag \
++	sal \
++	sot \
++	svl \
++	tl \
++	unoidl \
++	unotest \
++	utl \
++))
++
++$(eval $(call gb_CppunitTest_set_include,svl_hst_excel1900,\
++	$$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_components,svl_hst_excel1900,\
++	i18npool/util/i18npool \
++	configmgr/source/configmgr \
++	framework/util/fwk \
++	lingucomponent/source/numbertext/numbertext \
++))
++
++$(eval $(call gb_CppunitTest_use_ure,svl_hst_excel1900))
++$(eval $(call gb_CppunitTest_use_configuration,svl_hst_excel1900))
++
++# vim: set noet sw=4:
+--- a/svl/Library_svl.mk
++++ b/svl/Library_svl.mk
+@@ -168,6 +168,7 @@
+     svl/source/notify/listener \
+     svl/source/notify/lstner \
+     svl/source/numbers/currencytable \
++    svl/source/numbers/hstexcel1900 \
+     svl/source/numbers/numfmuno \
+     svl/source/numbers/numuno \
+     svl/source/numbers/supservs \
+--- a/svl/Module_svl.mk
++++ b/svl/Module_svl.mk
+@@ -31,6 +31,7 @@
+ 
+ $(eval $(call gb_Module_add_check_targets,svl,\
+ 	CppunitTest_svl_adrparse \
++	CppunitTest_svl_hst_excel1900 \
+ 	CppunitTest_svl_inetcontenttype \
+ 	CppunitTest_svl_items \
+ 	CppunitTest_svl_lngmisc \
+--- /dev/null
++++ b/svl/qa/unit/hstexcel1900.cxx
+@@ -0,0 +1,220 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// HST Office: the number formatter's 1900 date system, checked against the leading spreadsheet
++// application's documented behaviour (serial 1 is 01/01/1900, serial 60 is 29/02/1900, from
++// serial 61 on the usual count, serial 1 is a Sunday), and its default: off.
++
++#include <cppunit/TestAssert.h>
++#include <cppunit/TestFixture.h>
++#include <cppunit/extensions/HelperMacros.h>
++#include <cppunit/plugin/TestPlugIn.h>
++
++#include <comphelper/processfactory.hxx>
++#include <cppuhelper/bootstrap.hxx>
++#include <com/sun/star/lang/XComponent.hpp>
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/uno/XComponentContext.hpp>
++#include <i18nlangtag/lang.h>
++#include <svl/hstexcel1900.hxx>
++#include <svl/nfengine.hxx>
++#include <svl/numformat.hxx>
++#include <svl/zforlist.hxx>
++
++using namespace css;
++
++namespace
++{
++class HstExcel1900Test : public CppUnit::TestFixture
++{
++public:
++    HstExcel1900Test()
++        : m_xContext(cppu::defaultBootstrap_InitialComponentContext())
++    {
++        uno::Reference<lang::XMultiServiceFactory> xSM(m_xContext->getServiceManager(),
++                                                       uno::UNO_QUERY_THROW);
++        comphelper::setProcessServiceFactory(xSM);
++    }
++    ~HstExcel1900Test() override
++    {
++        uno::Reference<lang::XComponent>(m_xContext, uno::UNO_QUERY_THROW)->dispose();
++    }
++
++    void testDayRules();
++    void testDefaultOff();
++    void testOutput();
++    void testInput();
++    void testOtherNullDate();
++
++    CPPUNIT_TEST_SUITE(HstExcel1900Test);
++    CPPUNIT_TEST(testDayRules);
++    CPPUNIT_TEST(testDefaultOff);
++    CPPUNIT_TEST(testOutput);
++    CPPUNIT_TEST(testInput);
++    CPPUNIT_TEST(testOtherNullDate);
++    CPPUNIT_TEST_SUITE_END();
++
++private:
++    static OUString output(SvNumberFormatter& rFormatter, const OUString& rCode, double fValue,
++                           LanguageType eLang = LANGUAGE_ENGLISH_US)
++    {
++        OUString aCode = rCode;
++        sal_Int32 nCheckPos = 0;
++        SvNumFormatType nType = SvNumFormatType::DEFINED;
++        sal_uInt32 nKey = 0;
++        rFormatter.PutEntry(aCode, nCheckPos, nType, nKey, eLang);
++        CPPUNIT_ASSERT_EQUAL(sal_Int32(0), nCheckPos);
++        OUString aOut;
++        const Color* pColor = nullptr;
++        rFormatter.GetOutputString(fValue, nKey, aOut, &pColor);
++        return aOut;
++    }
++    /// The serial of a typed date, or -1000 when the input is not a date.
++    static double input(SvNumberFormatter& rFormatter, const OUString& rInput,
++                        LanguageType eLang = LANGUAGE_ENGLISH_US)
++    {
++        sal_uInt32 nIndex = rFormatter.GetStandardIndex(eLang);
++        double fValue = 0.0;
++        if (!rFormatter.IsNumberFormat(rInput, nIndex, fValue))
++            return -1000.0;
++        if (!(rFormatter.GetType(nIndex) & SvNumFormatType::DATE))
++            return -1000.0;
++        return fValue;
++    }
++
++    uno::Reference<uno::XComponentContext> m_xContext;
++};
++
++void HstExcel1900Test::testDayRules()
++{
++    using namespace svl::hst;
++    CPPUNIT_ASSERT_EQUAL(1.0, Excel1900SerialToNullDateDays(0));
++    CPPUNIT_ASSERT_EQUAL(2.0, Excel1900SerialToNullDateDays(1));
++    CPPUNIT_ASSERT_EQUAL(2.5, Excel1900SerialToNullDateDays(1.5));
++    CPPUNIT_ASSERT_EQUAL(60.0, Excel1900SerialToNullDateDays(59));
++    CPPUNIT_ASSERT_EQUAL(60.0, Excel1900SerialToNullDateDays(60));
++    CPPUNIT_ASSERT_EQUAL(61.0, Excel1900SerialToNullDateDays(61));
++    CPPUNIT_ASSERT_EQUAL(0.0, Excel1900SerialToNullDateDays(-1));
++
++    CPPUNIT_ASSERT_EQUAL(0.0, NullDateDaysToExcel1900Serial(1));
++    CPPUNIT_ASSERT_EQUAL(1.0, NullDateDaysToExcel1900Serial(2));
++    CPPUNIT_ASSERT_EQUAL(59.0, NullDateDaysToExcel1900Serial(60));
++    CPPUNIT_ASSERT_EQUAL(61.0, NullDateDaysToExcel1900Serial(61));
++    CPPUNIT_ASSERT_EQUAL(45292.0, NullDateDaysToExcel1900Serial(45292));
++
++    CPPUNIT_ASSERT(IsExcel1900LeapDay(60));
++    CPPUNIT_ASSERT(IsExcel1900LeapDay(60.75));
++    CPPUNIT_ASSERT(!IsExcel1900LeapDay(59.75));
++    CPPUNIT_ASSERT(!IsExcel1900LeapDay(61));
++}
++
++void HstExcel1900Test::testDefaultOff()
++{
++    // Without the switch the count from 30/12/1899 stays: serial 1 is 31/12/1899.
++    SvNumberFormatter aFormatter(m_xContext, LANGUAGE_ENGLISH_US);
++    CPPUNIT_ASSERT(!aFormatter.IsHstExcel1900Dates());
++    CPPUNIT_ASSERT_EQUAL(u"31/12/1899"_ustr, output(aFormatter, u"DD/MM/YYYY"_ustr, 1));
++    CPPUNIT_ASSERT_EQUAL(u"28/02/1900"_ustr, output(aFormatter, u"DD/MM/YYYY"_ustr, 60));
++    CPPUNIT_ASSERT_EQUAL(u"01/03/1900"_ustr, output(aFormatter, u"DD/MM/YYYY"_ustr, 61));
++    CPPUNIT_ASSERT_EQUAL(u"Sunday"_ustr, output(aFormatter, u"DDDD"_ustr, 1));
++    CPPUNIT_ASSERT_EQUAL(2.0, input(aFormatter, u"1900-01-01"_ustr));
++    CPPUNIT_ASSERT_EQUAL(-1000.0, input(aFormatter, u"2/29/1900"_ustr));
++}
++
++void HstExcel1900Test::testOutput()
++{
++    SvNumberFormatter aFormatter(m_xContext, LANGUAGE_ENGLISH_US);
++    aFormatter.SetHstExcel1900Dates(true);
++    CPPUNIT_ASSERT(aFormatter.IsHstExcel1900Dates());
++
++    const OUString aDmy(u"DD/MM/YYYY"_ustr);
++    CPPUNIT_ASSERT_EQUAL(u"31/12/1899"_ustr, output(aFormatter, aDmy, 0));
++    CPPUNIT_ASSERT_EQUAL(u"01/01/1900"_ustr, output(aFormatter, aDmy, 1));
++    CPPUNIT_ASSERT_EQUAL(u"28/02/1900"_ustr, output(aFormatter, aDmy, 59));
++    CPPUNIT_ASSERT_EQUAL(u"29/02/1900"_ustr, output(aFormatter, aDmy, 60));
++    CPPUNIT_ASSERT_EQUAL(u"01/03/1900"_ustr, output(aFormatter, aDmy, 61));
++    CPPUNIT_ASSERT_EQUAL(u"09/04/1900"_ustr, output(aFormatter, aDmy, 100));
++    CPPUNIT_ASSERT_EQUAL(u"01/01/2024"_ustr, output(aFormatter, aDmy, 45292));
++
++    const OUString aMdy(u"M/D/YYYY"_ustr);
++    CPPUNIT_ASSERT_EQUAL(u"1/1/1900"_ustr, output(aFormatter, aMdy, 1));
++    CPPUNIT_ASSERT_EQUAL(u"2/29/1900"_ustr, output(aFormatter, aMdy, 60));
++    CPPUNIT_ASSERT_EQUAL(u"3/1/1900"_ustr, output(aFormatter, aMdy, 61));
++
++    // Weekdays follow the serials: 1 is a Sunday, 59 a Tuesday, 60 a Wednesday, 61 a Thursday.
++    const OUString aLong(u"DDDD, MMMM D, YYYY"_ustr);
++    CPPUNIT_ASSERT_EQUAL(u"Sunday, January 1, 1900"_ustr, output(aFormatter, aLong, 1));
++    CPPUNIT_ASSERT_EQUAL(u"Tuesday, February 28, 1900"_ustr, output(aFormatter, aLong, 59));
++    CPPUNIT_ASSERT_EQUAL(u"Wednesday, February 29, 1900"_ustr, output(aFormatter, aLong, 60));
++    CPPUNIT_ASSERT_EQUAL(u"Thursday, March 1, 1900"_ustr, output(aFormatter, aLong, 61));
++    CPPUNIT_ASSERT_EQUAL(u"Sun"_ustr, output(aFormatter, u"DDD"_ustr, 1));
++    CPPUNIT_ASSERT_EQUAL(u"Wed"_ustr, output(aFormatter, u"NN"_ustr, 60));
++
++    // Date and time.
++    const OUString aDateTime(u"DD/MM/YYYY HH:MM"_ustr);
++    CPPUNIT_ASSERT_EQUAL(u"01/01/1900 06:00"_ustr, output(aFormatter, aDateTime, 1.25));
++    CPPUNIT_ASSERT_EQUAL(u"29/02/1900 12:00"_ustr, output(aFormatter, aDateTime, 60.5));
++    CPPUNIT_ASSERT_EQUAL(u"01/03/1900 18:00"_ustr, output(aFormatter, aDateTime, 61.75));
++
++    // The Vietnamese default date order.
++    CPPUNIT_ASSERT_EQUAL(u"29/02/1900"_ustr,
++                         output(aFormatter, u"DD/MM/YYYY"_ustr, 60, LANGUAGE_VIETNAMESE));
++
++    // The language data a calculation thread copies keeps the switch.
++    const SvNFLanguageData aCopy(aFormatter.GetROLanguageData());
++    CPPUNIT_ASSERT(aCopy.IsHstExcel1900Dates());
++
++    aFormatter.SetHstExcel1900Dates(false);
++    CPPUNIT_ASSERT_EQUAL(u"31/12/1899"_ustr, output(aFormatter, aDmy, 1));
++}
++
++void HstExcel1900Test::testInput()
++{
++    SvNumberFormatter aUs(m_xContext, LANGUAGE_ENGLISH_US);
++    aUs.SetHstExcel1900Dates(true);
++    CPPUNIT_ASSERT_EQUAL(1.0, input(aUs, u"1/1/1900"_ustr));
++    CPPUNIT_ASSERT_EQUAL(59.0, input(aUs, u"2/28/1900"_ustr));
++    CPPUNIT_ASSERT_EQUAL(60.0, input(aUs, u"2/29/1900"_ustr));
++    CPPUNIT_ASSERT_EQUAL(61.0, input(aUs, u"3/1/1900"_ustr));
++    CPPUNIT_ASSERT_EQUAL(100.0, input(aUs, u"4/9/1900"_ustr));
++    CPPUNIT_ASSERT_EQUAL(1.0, input(aUs, u"1900-01-01"_ustr));
++    CPPUNIT_ASSERT_EQUAL(60.0, input(aUs, u"1900-02-29"_ustr));
++    CPPUNIT_ASSERT_EQUAL(61.0, input(aUs, u"1900-03-01"_ustr));
++    CPPUNIT_ASSERT_EQUAL(0.0, input(aUs, u"12/31/1899"_ustr));
++    CPPUNIT_ASSERT_EQUAL(45292.0, input(aUs, u"1/1/2024"_ustr));
++    // Other days that do not exist stay text.
++    CPPUNIT_ASSERT_EQUAL(-1000.0, input(aUs, u"2/30/1900"_ustr));
++    CPPUNIT_ASSERT_EQUAL(-1000.0, input(aUs, u"2/29/1901"_ustr));
++
++    // Day first, as in Vietnamese and British English.
++    SvNumberFormatter aVi(m_xContext, LANGUAGE_VIETNAMESE);
++    aVi.SetHstExcel1900Dates(true);
++    CPPUNIT_ASSERT_EQUAL(60.0, input(aVi, u"29/02/1900"_ustr, LANGUAGE_VIETNAMESE));
++    CPPUNIT_ASSERT_EQUAL(1.0, input(aVi, u"01/01/1900"_ustr, LANGUAGE_VIETNAMESE));
++    SvNumberFormatter aGb(m_xContext, LANGUAGE_ENGLISH_UK);
++    aGb.SetHstExcel1900Dates(true);
++    CPPUNIT_ASSERT_EQUAL(60.0, input(aGb, u"29/02/1900"_ustr, LANGUAGE_ENGLISH_UK));
++    CPPUNIT_ASSERT_EQUAL(1.0, input(aGb, u"01/01/1900"_ustr, LANGUAGE_ENGLISH_UK));
++    CPPUNIT_ASSERT_EQUAL(61.0, input(aGb, u"01/03/1900"_ustr, LANGUAGE_ENGLISH_UK));
++}
++
++void HstExcel1900Test::testOtherNullDate()
++{
++    // The 1904 date system and other null dates are never changed.
++    SvNumberFormatter aFormatter(m_xContext, LANGUAGE_ENGLISH_US);
++    aFormatter.SetHstExcel1900Dates(true);
++    aFormatter.ChangeNullDate(1, 1, 1904);
++    CPPUNIT_ASSERT(!aFormatter.IsHstExcel1900Dates());
++    CPPUNIT_ASSERT_EQUAL(u"02/01/1904"_ustr, output(aFormatter, u"DD/MM/YYYY"_ustr, 1));
++    CPPUNIT_ASSERT_EQUAL(1.0, input(aFormatter, u"1904-01-02"_ustr));
++}
++}
++
++CPPUNIT_TEST_SUITE_REGISTRATION(HstExcel1900Test);
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svl/source/numbers/hstexcel1900.cxx
+@@ -0,0 +1,159 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// The 1900 date system of the leading spreadsheet application in the number formatter: which
++// day a serial shows in date formats, and which serial a typed date gets.
++
++#include "hstexcel1900.hxx"
++
++#include <svl/hstexcel1900.hxx>
++#include <svl/nfengine.hxx>
++#include <svl/nfkeytab.hxx>
++#include <svl/numformat.hxx>
++
++#include <com/sun/star/i18n/CalendarFieldIndex.hpp>
++#include <tools/date.hxx>
++#include <tools/datetime.hxx>
++#include <unotools/calendarwrapper.hxx>
++
++#include <cmath>
++
++namespace svl::hst
++{
++namespace
++{
++/// The first serial on which the 1900 date system and the count from 30/12/1899 agree.
++constexpr double fFirstCommonDay = 61.0;
++
++bool isGregorian(const CalendarWrapper& rCal) { return rCal.getUniqueID() == u"gregorian"; }
++
++bool isWeekdayKeyword(short nKeyword)
++{
++    switch (nKeyword)
++    {
++        case NF_KEY_DDD:
++        case NF_KEY_DDDD:
++        case NF_KEY_NN:
++        case NF_KEY_NNN:
++        case NF_KEY_NNNN:
++        case NF_KEY_AAA:
++        case NF_KEY_AAAA:
++            return true;
++        default:
++            return false;
++    }
++}
++
++bool isDayOfMonthKeyword(short nKeyword) { return nKeyword == NF_KEY_D || nKeyword == NF_KEY_DD; }
++}
++
++double Excel1900SerialToNullDateDays(double fSerial)
++{
++    return std::floor(fSerial) < nExcel1900LeapDaySerial ? fSerial + 1.0 : fSerial;
++}
++
++double NullDateDaysToExcel1900Serial(double fDays)
++{
++    return std::floor(fDays) < fFirstCommonDay ? fDays - 1.0 : fDays;
++}
++
++bool IsExcel1900LeapDay(double fSerial) { return std::floor(fSerial) == nExcel1900LeapDaySerial; }
++
++bool Excel1900Dates(const SvNFLanguageData& rLanguage, const Date& rNullDate)
++{
++    return rLanguage.IsHstExcel1900Dates() && rNullDate == Date(30, 12, 1899);
++}
++
++Excel1900DateOutput::Excel1900DateOutput(const SvNFLanguageData& rLanguage,
++                                         const CalendarWrapper& rCal, double& rfCalendarValue)
++{
++    const Date& rNullDate = rLanguage.GetNullDate();
++    if (!Excel1900Dates(rLanguage, rNullDate))
++        return;
++    // The serial is the calendar value counted from the null date instead of the epoch.
++    const double fSerial
++        = rfCalendarValue - DateTime::Sub(DateTime(rNullDate), rCal.getEpochStart());
++    if (!std::isfinite(fSerial))
++        return;
++    mbLeapDay = IsExcel1900LeapDay(fSerial);
++    if (std::floor(fSerial) < nExcel1900LeapDaySerial)
++    {
++        mnShownDayOffset = 1;
++        rfCalendarValue += mnShownDayOffset;
++    }
++}
++
++sal_Int32 Excel1900DateOutput::KeywordDays(short nKeyword) const
++{
++    // The weekdays of the 1900 date system follow its serials: serial 1 is a Sunday, the
++    // weekday of the serial's own day in the count from 30/12/1899 (31/12/1899).
++    if (isWeekdayKeyword(nKeyword))
++        return -mnShownDayOffset;
++    // 29/02/1900 is shown on 28/02/1900 with the day number of any 29th: 29/01/1900. Month
++    // and year keywords keep 28/02/1900.
++    if (mbLeapDay && isDayOfMonthKeyword(nKeyword))
++        return -30;
++    return 0;
++}
++
++Excel1900DateOutput::KeywordScope::KeywordScope(const Excel1900DateOutput& rOutput,
++                                                CalendarWrapper& rCal, short nKeyword)
++{
++    const sal_Int32 nDays = rOutput.KeywordDays(nKeyword);
++    // Other calendars than the Gregorian one show the dates of the count from 30/12/1899 and
++    // their own weekdays; the 1900 date system only knows Gregorian dates.
++    if (nDays == 0 || !isGregorian(rCal))
++        return;
++    mpCal = &rCal;
++    mfSavedValue = rCal.getLocalDateTime();
++    rCal.setLocalDateTime(mfSavedValue + nDays);
++}
++
++Excel1900DateOutput::KeywordScope::~KeywordScope()
++{
++    if (mpCal)
++        mpCal->setLocalDateTime(mfSavedValue);
++}
++
++void Excel1900InputDate(const SvNFLanguageData& rLanguage, const Date& rNullDate, double& rfDays)
++{
++    if (Excel1900Dates(rLanguage, rNullDate))
++        rfDays = NullDateDaysToExcel1900Serial(rfDays);
++}
++
++bool Excel1900InputLeapDay(const SvNFLanguageData& rLanguage, const Date& rNullDate,
++                           const CalendarWrapper& rCal, double& rfDays)
++{
++    if (!Excel1900Dates(rLanguage, rNullDate) || !isGregorian(rCal))
++        return false;
++    // The calendar rejected the date and moved the overflowing day into the next month.
++    // 29/02/1900 becomes 01/03/1900, which no other rejected input becomes: the scanner sets a
++    // day of 1-31 (0 for larger numbers) and a month of 1-12 (13 for larger numbers).
++    using namespace css::i18n;
++    if (rCal.getValue(CalendarFieldIndex::DAY_OF_MONTH) != 1
++        || rCal.getValue(CalendarFieldIndex::MONTH) != 2 // March, zero based
++        || rCal.getValue(CalendarFieldIndex::YEAR) != 1900
++        || rCal.getValue(CalendarFieldIndex::ERA) != 1) // CE
++        return false;
++    rfDays = nExcel1900LeapDaySerial;
++    return true;
++}
++}
++
++void SvNumberFormatter::SetHstExcel1900Dates(bool bSet)
++{
++    ::osl::MutexGuard aGuard(GetInstanceMutex());
++    m_aCurrentLanguage.mbHstExcel1900Dates = bSet;
++}
++
++bool SvNumberFormatter::IsHstExcel1900Dates() const
++{
++    // Read without the instance mutex like the read-only formatter data threads use; the flag
++    // is set while the document loads, before any calculation reads it.
++    return svl::hst::Excel1900Dates(m_aCurrentLanguage, m_aCurrentLanguage.GetNullDate());
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svl/source/numbers/hstexcel1900.hxx
+@@ -0,0 +1,69 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++// The 1900 date system in the number formatter's date output and date input; the rules are in
++// <svl/hstexcel1900.hxx>.
++
++#include <sal/types.h>
++
++class CalendarWrapper;
++class Date;
++class SvNFLanguageData;
++
++namespace svl::hst
++{
++/// Whether a formatter with this language data and null date counts days like the 1900 date
++/// system.
++bool Excel1900Dates(const SvNFLanguageData& rLanguage, const Date& rNullDate);
++
++/** The output of one date or date+time value through a format. */
++class Excel1900DateOutput
++{
++public:
++    /** rfCalendarValue is the value the output is about to give the calendar with
++        CalendarWrapper::setLocalDateTime (days since the calendar's epoch); it is moved to the
++        day the serial shows in the 1900 date system. */
++    Excel1900DateOutput(const SvNFLanguageData& rLanguage, const CalendarWrapper& rCal,
++                        double& rfCalendarValue);
++
++    /** While one keyword of the format is output, points a Gregorian calendar at a day whose
++        field that keyword shows: the weekday of the serial itself (serial 1 is a Sunday, as in
++        the 1900 date system), and day number 29 for 29/02/1900. */
++    class KeywordScope
++    {
++    public:
++        KeywordScope(const Excel1900DateOutput& rOutput, CalendarWrapper& rCal, short nKeyword);
++        ~KeywordScope();
++        KeywordScope(const KeywordScope&) = delete;
++        KeywordScope& operator=(const KeywordScope&) = delete;
++
++    private:
++        CalendarWrapper* mpCal = nullptr;
++        double mfSavedValue = 0.0;
++    };
++
++private:
++    /// Days to move the calendar for one keyword, from the day the output set it to.
++    sal_Int32 KeywordDays(short nKeyword) const;
++
++    /// Days the shown date lies after the serial's day in the count from 30/12/1899.
++    sal_Int32 mnShownDayOffset = 0;
++    bool mbLeapDay = false;
++};
++
++/** rfDays is the day count from rNullDate of a valid date the input scanner read; it becomes
++    the serial of the 1900 date system. */
++void Excel1900InputDate(const SvNFLanguageData& rLanguage, const Date& rNullDate, double& rfDays);
++
++/** The input scanner rejected the date set in rCal: returns true, with rfDays the serial 60,
++    when it was 29/02/1900 of the Gregorian calendar. */
++bool Excel1900InputLeapDay(const SvNFLanguageData& rLanguage, const Date& rNullDate,
++                           const CalendarWrapper& rCal, double& rfDays);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/svl/source/numbers/zforfind.cxx
++++ b/svl/source/numbers/zforfind.cxx
+@@ -41,6 +41,7 @@
+ #include <memory>
+ 
+ #include "zforfind.hxx"
++#include "hstexcel1900.hxx"
+ 
+ #ifndef DBG_UTIL
+ #define NF_TEST_CALENDAR 0
+@@ -2257,8 +2258,13 @@
+             double fDiff = DateTime::Sub( DateTime(maNullDate), pCal->getEpochStart());
+             fDays = ::rtl::math::approxFloor( pCal->getLocalDateTime() );
+             fDays -= fDiff;
++            svl::hst::Excel1900InputDate(mrCurrentLanguageData, maNullDate, fDays); // HST
+             nTryOrder = nFormatOrder; // break for
+         }
++        else if (res && svl::hst::Excel1900InputLeapDay(mrCurrentLanguageData, maNullDate, *pCal, fDays)) // HST
++        {
++            nTryOrder = nFormatOrder; // HST: 29/02/1900 of the 1900 date system
++        }
+         else
+         {
+             res = false;
+--- a/svl/source/numbers/zforlist.cxx
++++ b/svl/source/numbers/zforlist.cxx
+@@ -318,6 +318,7 @@
+     , aThousandSep(rOther.aThousandSep)
+     , aDateSep(rOther.aDateSep)
+     , eEvalDateFormat(rOther.eEvalDateFormat)
++    , mbHstExcel1900Dates(rOther.mbHstExcel1900Dates) // HST
+ {
+     xCharClass.changeLocale(xContext, aLanguageTag);
+     xLocaleData.init(aLanguageTag);
+--- a/svl/source/numbers/zformat.cxx
++++ b/svl/source/numbers/zformat.cxx
+@@ -44,6 +44,7 @@
+ #include "zforscan.hxx"
+ 
+ #include "zforfind.hxx"
++#include "hstexcel1900.hxx"
+ #include <svl/zforlist.hxx>
+ #include <unotools/digitgroupingiterator.hxx>
+ #include <svl/nfsymbol.hxx>
+@@ -3772,6 +3773,7 @@
+         sBuff = ImpSvNumberformatScan::sErrStr;
+         return false;
+     }
++    const svl::hst::Excel1900DateOutput aHst1900(rCurrentLang, rCal, fNumber); // HST
+     rCal.setLocalDateTime( fNumber );
+     int nUseMonthCase = 0; // Not decided yet
+     OUString aOrgCalendar; // empty => not changed yet
+@@ -3811,6 +3813,7 @@
+ 
+     for (sal_uInt16 i = 0; i < nCnt; i++)
+     {
++        const svl::hst::Excel1900DateOutput::KeywordScope aHst1900Keyword(aHst1900, rCal, rInfo.nTypeArray[i]); // HST
+         switch (rInfo.nTypeArray[i])
+         {
+         case NF_SYMBOLTYPE_CALENDAR :
+@@ -4070,6 +4073,7 @@
+         fTime -= 86400.0;
+         fNumber = floor( fNumber + 0.5) + fTime;
+     }
++    const svl::hst::Excel1900DateOutput aHst1900(rCurrentLang, rCal, fNumber); // HST
+     rCal.setLocalDateTime( fNumber );
+ 
+     int nUseMonthCase = 0; // Not decided yet
+@@ -4158,6 +4162,7 @@
+     OUString aYear;
+     for (sal_uInt16 i = 0; i < nCnt; i++)
+     {
++        const svl::hst::Excel1900DateOutput::KeywordScope aHst1900Keyword(aHst1900, rCal, rInfo.nTypeArray[i]); // HST
+         switch (rInfo.nTypeArray[i])
+         {
+         case NF_SYMBOLTYPE_CALENDAR :

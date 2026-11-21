@@ -1,0 +1,131 @@
+Calc: an .xlsx import or export gives the memory it freed back to the system (glibc malloc_trim).
+
+Importing a workbook allocates and frees many short-lived objects between the long-lived cells of the document,
+and glibc keeps that free space resident. After opening a 50 MB workbook of formulas about 250 MB of the process
+was such free space (anonymous memory 1.70 GB after the open, 1.45 GB after malloc_trim(0)); a 200 MB workbook
+of formulas held 6.6 GB after the open, which left too little of 8 GB for saving it. malloc_trim(0) after the
+import and after the export returns the free pages; nothing moves and the allocator stays the same.
+Only with glibc (nothing elsewhere). The environment variable HST_SC_XLSX_TRIM_OFF disables it.
+New logic in sc/source/filter/inc/hstreleasefreedmemory.hxx; hooks: 2 calls in ExcelFilter::filter.
+
+License: modified upstream files keep their license (MPL-2.0); the new file is LicenseRef-HST-Proprietary.
+Test: CppunitTest_sc_subsequent_export_test6 testXlsxImportAndExportReleaseFreedMemory (the switch, and an .xlsx
+round trip of formulas through both hooks).
+---
+--- a/sc/qa/unit/subsequent_export_test6.cxx
++++ b/sc/qa/unit/subsequent_export_test6.cxx
+@@ -21,6 +21,7 @@
+ #include <docsh.hxx>
+ #include <formulacell.hxx>
+ #include <markdata.hxx>
++#include "../../source/filter/inc/hstreleasefreedmemory.hxx"
+ #include <tablestyle.hxx>
+ 
+ #include <svtools/sfxecode.hxx>
+@@ -416,6 +417,32 @@ CPPUNIT_TEST_FIXTURE(ScExportTest6, testXlsxPackedFormulaCellsWriteTheSameSheet)
+     assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[3]/x:c[@r='F3']", "t", u"e");
+ }
+ 
++CPPUNIT_TEST_FIXTURE(ScExportTest6, testXlsxImportAndExportReleaseFreedMemory)
++{
++    // After an .xlsx import or export the freed temporaries are given back to the system (glibc only); the
++    // environment variable switches it off. The documents are the same either way.
++    osl_setEnvironment(u"HST_SC_XLSX_TRIM_OFF"_ustr.pData, u"1"_ustr.pData);
++    CPPUNIT_ASSERT(!HstReleaseFreedMemory());
++    osl_clearEnvironment(u"HST_SC_XLSX_TRIM_OFF"_ustr.pData);
++#if defined(__GLIBC__)
++    CPPUNIT_ASSERT(HstReleaseFreedMemory());
++#else
++    CPPUNIT_ASSERT(!HstReleaseFreedMemory());
++#endif
++
++    createScDoc();
++    ScDocument* pDoc = getScDoc();
++    for (SCROW nRow = 0; nRow < 200; ++nRow)
++    {
++        pDoc->SetValue(ScAddress(0, nRow, 0), nRow);
++        pDoc->SetString(ScAddress(1, nRow, 0), u"=A"_ustr + OUString::number(nRow + 1) + u"*2"_ustr);
++    }
++    saveAndReload(TestFilter::XLSX);
++    pDoc = getScDoc();
++    CPPUNIT_ASSERT_EQUAL(398.0, pDoc->GetValue(ScAddress(1, 199, 0)));
++    CPPUNIT_ASSERT_EQUAL(u"=A200*2"_ustr, pDoc->GetFormula(1, 199, 0));
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/filter/inc/hstreleasefreedmemory.hxx
+@@ -0,0 +1,39 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HST Office.
++ */
++
++#pragma once
++
++#include <cstdlib>
++
++#if defined(__GLIBC__)
++#include <malloc.h>
++#endif
++
++/** Gives the memory that an .xlsx import or export freed back to the system (glibc only).
++
++    Importing a workbook allocates and frees many short-lived objects (parsed cell values, shared strings, formula
++    texts and token arrays, styles) between the long-lived cells of the document. glibc keeps the freed space in its
++    heaps for later allocations instead of returning it: after opening a 50 MB workbook of formulas about 250 MB of
++    the process's resident memory was such free space (1.70 GB anonymous memory after the open, 1.45 GB after
++    malloc_trim), and for a 200 MB workbook about four times that, which left too little of 8 GB to save it.
++    malloc_trim(0) returns free pages at the top of the heaps and inside them (madvise), without moving anything.
++    The allocator stays the same; only how much of its free space stays resident changes.
++
++    Not available on other C libraries (Windows returns free pages of its heaps by itself), where this does nothing.
++    The environment variable HST_SC_XLSX_TRIM_OFF disables it. Returns true when the memory was trimmed. */
++inline bool HstReleaseFreedMemory()
++{
++#if defined(__GLIBC__)
++    if (std::getenv("HST_SC_XLSX_TRIM_OFF"))
++        return false;
++    malloc_trim(0);
++    return true;
++#else
++    return false;
++#endif
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/filter/oox/excelfilter.cxx
++++ b/sc/source/filter/oox/excelfilter.cxx
+@@ -24,6 +24,7 @@
+ #include <sal/log.hxx>
+ 
+ #include <excelvbaproject.hxx>
++#include <hstreleasefreedmemory.hxx>
+ #include <stylesbuffer.hxx>
+ #include <themebuffer.hxx>
+ #include <workbookfragment.hxx>
+@@ -182,7 +183,10 @@ GraphicHelper* ExcelFilter::implCreateGraphicHelper() const
+ sal_Bool SAL_CALL ExcelFilter::filter( const css::uno::Sequence< css::beans::PropertyValue >& rDescriptor )
+ {
+     if ( XmlFilterBase::filter( rDescriptor ) )
++    {
++        HstReleaseFreedMemory(); // HST Office: the import's freed temporaries, see hstreleasefreedmemory.hxx
+         return true;
++    }
+ 
+     if ( isExportFilter() )
+     {
+@@ -197,7 +201,10 @@ sal_Bool SAL_CALL ExcelFilter::filter( const css::uno::Sequence< css::beans::Pro
+         {
+             xExporter->setSourceDocument( xDocument );
+             if ( xFilter->filter( rDescriptor ) )
++            {
++                HstReleaseFreedMemory(); // HST Office: the export's freed records
+                 return true;
++            }
+         }
+     }
+ 

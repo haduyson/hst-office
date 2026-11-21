@@ -30,6 +30,7 @@ for _name in ("uno", "unohelper", "com", "com.sun", "com.sun.star", "com.sun.sta
 
 from hst_office import update_job as job  # noqa: E402
 from hst_office import update_logic as logic  # noqa: E402
+from hst_office import update_popup  # noqa: E402
 from hst_office.update_fetch import UpdateError  # noqa: E402
 
 NOW = 2_000_000_000
@@ -54,7 +55,7 @@ class StartupJob(unittest.TestCase):
             mock.patch.object(job, "RETRY_DELAYS", (0, 0)),
             mock.patch.object(job.update_install_id, "for_check", lambda ctx: None),  # tested in test_update_install_id
             mock.patch.object(job.ui, "on_main_thread", lambda ctx, fn: fn()),
-            mock.patch.object(job.ui, "notify", lambda ctx, rel, installed: self.notified.append(rel["version"])),
+            mock.patch.object(update_popup, "notify", lambda ctx, rel, installed: self.notified.append(rel["version"])),
             mock.patch.object(job.ui, "release_info_for",
                               lambda ctx: dict(INFO, channel=logic.effective_channel(INFO["channel"], self.prefs["Channel"]))),
         ]

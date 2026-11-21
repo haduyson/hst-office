@@ -1,0 +1,594 @@
+HST Office: HST Sheets dynamic arrays like the leading spreadsheet application, the hooks in LibreOffice
+files (owner 18/11: mandatory in 1.0.3). The behaviour lives in HST-owned files of
+hst-sheets-dynamic-array-engine.patch, written from a behaviour spec; this patch only adds the calls.
+
+- Any formula whose result is an array of more than one cell spills when typed (not only an outermost
+  array function), as a dynamic array that follows its result's size; a range selection keeps
+  Ctrl+Shift+Enter's legacy array. The spill range is not left selected; the input line shows the
+  formula without braces; an array formula in the way gives #SPILL! instead of an error dialog
+  (viewfunc.cxx, viewfunc.hxx, tabvwsha.cxx call sc::hst helpers).
+- A1#, the spill range operator: new opcode ocAnchorArray (ANCHORARRAY, .xlsx _xlfn.ANCHORARRAY, ODF
+  COM.MICROSOFT.ANCHORARRAY), parsed by ScCompiler members, evaluated by ScInterpreter::ScAnchorArray,
+  shown as A1# by formula::HstFormulaStringWriter (friend of FormulaCompiler). Parameter class
+  Reference; it disables threaded group calculation.
+- @: implicit intersection with a range (ScInterpreter::ScHstSingleValue, parameter class Reference);
+  .xlsx writes it as _xlfn.SINGLE(...) and reads both forms.
+- .xlsx: an array formula with cm (dynamic array metadata) is imported as a dynamic array; every
+  dynamic array is exported with cm and xl/metadata.xml, not only those calling UNIQUE/SORT/FILTER.
+
+Interface headers: formula/inc/hstformulastrings.hxx, sc/source/ui/inc/hstdynamicarrayinput.hxx
+(SPDX LicenseRef-HST-Proprietary). Spec: /data/hst-agents/sheets-103/cleanroom/spec-dynamic-arrays.md.
+Test: CppunitTest_sc_hst_dynamic_arrays (with the engine patch).
+---
+--- a/formula/inc/core_resource.hrc
++++ b/formula/inc/core_resource.hrc
+@@ -309,6 +309,7 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_ODFF[] =
+     { "COM.MICROSOFT.TRIMRANGE" , ocTrimRange },
+     { "COM.MICROSOFT.GROUPBY" , ocGroupBy },
+     { "COM.MICROSOFT.PIVOTBY" , ocPivotBy },
++    { "COM.MICROSOFT.ANCHORARRAY" , ocAnchorArray },
+     { "COM.MICROSOFT.LAMBDA" , ocLambda },
+     { "COM.MICROSOFT.ISOMITTED" , ocIsOmitted },
+     { "COM.MICROSOFT.BYCOL" , ocByCol },
+@@ -561,6 +562,8 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_OOXML[] =
+     { "NOT" , ocNot },
+     { "NEG" , ocNeg },
+     { "-" , ocNegSub },
++    // Files write the @ operator as _xlfn.SINGLE(...), "@" stays an input alias.
++    { "_xlfn.SINGLE" , ocSingleValue },
+     { "@" , ocSingleValue },
+     { "PI" , ocPi },
+     { "RAND" , ocRandom },
+@@ -802,6 +805,7 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_OOXML[] =
+     { "_xlfn.TRIMRANGE" , ocTrimRange },
+     { "_xlfn.GROUPBY" , ocGroupBy },
+     { "_xlfn.PIVOTBY" , ocPivotBy },
++    { "_xlfn.ANCHORARRAY" , ocAnchorArray },
+     { "_xlfn.LAMBDA" , ocLambda },
+     { "_xlfn.ISOMITTED" , ocIsOmitted },
+     { "_xlfn.BYCOL" , ocByCol },
+@@ -1300,6 +1304,7 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_PODF[] =
+     { "TRIMRANGE" , ocTrimRange },
+     { "GROUPBY" , ocGroupBy },
+     { "PIVOTBY" , ocPivotBy },
++    { "ANCHORARRAY" , ocAnchorArray },
+     { "LAMBDA" , ocLambda },
+     { "ISOMITTED" , ocIsOmitted },
+     { "BYCOL" , ocByCol },
+@@ -1795,6 +1800,7 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH_API[] =
+     { "TRIMRANGE" , ocTrimRange },
+     { "GROUPBY" , ocGroupBy },
+     { "PIVOTBY" , ocPivotBy },
++    { "ANCHORARRAY" , ocAnchorArray },
+     { "LAMBDA" , ocLambda },
+     { "ISOMITTED" , ocIsOmitted },
+     { "BYCOL" , ocByCol },
+@@ -2288,6 +2294,7 @@ const std::pair<const char *, int> RID_STRLIST_FUNCTION_NAMES_ENGLISH[] =
+     { "TRIMRANGE" , ocTrimRange },
+     { "GROUPBY" , ocGroupBy },
+     { "PIVOTBY" , ocPivotBy },
++    { "ANCHORARRAY" , ocAnchorArray },
+     { "LAMBDA" , ocLambda },
+     { "ISOMITTED" , ocIsOmitted },
+     { "BYCOL" , ocByCol },
+@@ -2761,6 +2768,7 @@ const std::pair<TranslateId, int> RID_STRLIST_FUNCTION_NAMES[] =
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "TRIMRANGE") , ocTrimRange },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "GROUPBY") , ocGroupBy },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "PIVOTBY") , ocPivotBy },
++    { NC_("RID_STRLIST_FUNCTION_NAMES", "ANCHORARRAY") , ocAnchorArray },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "LAMBDA") , ocLambda },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "ISOMITTED") , ocIsOmitted },
+     { NC_("RID_STRLIST_FUNCTION_NAMES", "BYCOL") , ocByCol },
+--- /dev/null
++++ b/formula/inc/hstformulastrings.hxx
+@@ -0,0 +1,47 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++#include <formula/FormulaCompiler.hxx>
++#include <rtl/ustrbuf.hxx>
++
++#include <vector>
++
++namespace formula
++{
++class FormulaToken;
++
++/** Formula text of the dynamic array operators in HST Sheets.
++
++    The UI grammars show ANCHORARRAY(A1) as A1#, the spill range operator as typed, and
++    @(A1:A9) read from a file as @A1:A9. OOXML has no @ operator: the operand is written as
++    the argument of _xlfn.SINGLE(). Used by FormulaCompiler::CreateStringFromTokenArray().
++ */
++class HstFormulaStringWriter
++{
++public:
++    explicit HstFormulaStringWriter(FormulaCompiler& rCompiler);
++
++    /// Appends the closing parentheses of _xlfn.SINGLE( that end before t.
++    void CloseBefore(OUStringBuffer& rBuffer, const FormulaToken* t);
++    /// Writes t and the tokens it takes along; true when it did, t is then the next token.
++    bool Write(OUStringBuffer& rBuffer, const FormulaToken*& t);
++    /// Appends the parentheses still open at the formula end (t is nullptr there).
++    void Finish(OUStringBuffer& rBuffer, const FormulaToken* t);
++
++private:
++    bool WriteSpillRange(OUStringBuffer& rBuffer, const FormulaToken*& t);
++    bool WriteSingleValue(OUStringBuffer& rBuffer, const FormulaToken*& t);
++    bool IsUiLanguage() const;
++
++    FormulaCompiler& mrCompiler;
++    /// Tokens before which a _xlfn.SINGLE( closes, innermost last; nullptr is the formula end.
++    std::vector<const FormulaToken*> maSingleValueEnds;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/formula/source/core/api/FormulaCompiler.cxx
++++ b/formula/source/core/api/FormulaCompiler.cxx
+@@ -27,6 +27,7 @@
+ #include <o3tl/string_view.hxx>
+ #include <core_resource.hxx>
+ #include <core_resource.hrc>
++#include <hstformulastrings.hxx>
+ 
+ #include <svl/zforlist.hxx>
+ #include <unotools/charclass.hxx>
+@@ -683,6 +684,7 @@ void FormulaCompiler::OpCodeMap::putOpCode( const OUString & rStr, const OpCode
+                 // parameter name. Keep the first spelling for output and
+                 // register the rest as recognized aliases for input.
+                 case ocStringName:
++                case ocSingleValue: // HST: OOXML _xlfn.SINGLE, "@" read too
+                 break;
+                 // These OpCodes are meant to overwrite and also remove an
+                 // existing mapping.
+@@ -2830,9 +2832,11 @@ void FormulaCompiler::CreateStringFromTokenArray( OUStringBuffer& rBuffer )
+ 
+     if ( mpArr->IsRecalcModeForced() )
+         rBuffer.append( '=');
++    HstFormulaStringWriter aHstWriter(*this);
+     const FormulaToken* t = maArrIterator.First();
+     while( t )
+     {
++        aHstWriter.CloseBefore(rBuffer, t);
+         // Discard writing unknown functions without a name in OOXML ex: #NAME!()
+         if (FormulaGrammar::isOOXML(meGrammar) && t->GetOpCode() == ocNoName
+             && t->GetType() == svByte)
+@@ -2904,8 +2908,11 @@ void FormulaCompiler::CreateStringFromTokenArray( OUStringBuffer& rBuffer )
+             }
+         }
+ 
++        if (aHstWriter.Write(rBuffer, t))
++            continue;
+         t = CreateStringFromToken(rBuffer, t, true);
+     }
++    aHstWriter.Finish(rBuffer, t);
+ 
+     if (pSaveArr != mpArr)
+     {
+--- a/include/formula/FormulaCompiler.hxx
++++ b/include/formula/FormulaCompiler.hxx
+@@ -70,8 +70,11 @@ struct FormulaArrayStack
+ typedef std::unordered_map< OUString, OpCode > OpCodeHashMap;
+ typedef std::unordered_map< OUString, OUString > ExternalHashMap;
+ 
++class HstFormulaStringWriter;
++
+ class FORMULA_DLLPUBLIC FormulaCompiler
+ {
++    friend class HstFormulaStringWriter; // HST: dynamic array operator text
+ private:
+     FormulaCompiler(const FormulaCompiler&) = delete;
+     FormulaCompiler& operator=(const FormulaCompiler&) = delete;
+--- a/include/formula/opcode.hxx
++++ b/include/formula/opcode.hxx
+@@ -576,7 +576,9 @@ enum OpCode : sal_uInt16
+         ocTrimRange         = 535,
+         ocGroupBy           = 536,
+         ocPivotBy           = 537,
+-        ocStopTwoParameters = 538, /* last function with two or more parameters' OpCode + 1 */
++        // The spill range of a dynamic array, typed A1# in the UI (ANCHORARRAY in files).
++        ocAnchorArray       = 538,
++        ocStopTwoParameters = 539, /* last function with two or more parameters' OpCode + 1 */
+ 
+         ocStopFunction      = ocStopTwoParameters,  /* last function's OpCode + 1 */
+         ocLastOpcodeId      = ocStopFunction - 1, /* last OpCode */
+@@ -1096,6 +1098,7 @@ inline std::string OpCodeEnumToString(OpCode eCode)
+     case ocTrimRange: return "TrimRange";
+     case ocGroupBy: return "GroupBy";
+     case ocPivotBy: return "PivotBy";
++    case ocAnchorArray: return "AnchorArray";
+     case ocLambda: return "Lambda";
+     case ocIsOmitted: return "IsOmitted";
+     case ocByCol: return "ByCol";
+--- a/sc/inc/compiler.hxx
++++ b/sc/inc/compiler.hxx
+@@ -290,6 +290,10 @@ private:
+     ScRawToken maRawToken;
+ 
+     std::queue<OpCode> maPendingOpCodes; // additional opcodes generated from a single symbol
++    // HST: A1# (the spill range operator) is compiled to ANCHORARRAY(A1): the reference and the
++    // step (1 parenthesis, 2 reference, 3 closing parenthesis) of the tokens still to deliver.
++    ScSingleRefData maPendingSpillRef{};
++    sal_uInt8 mnPendingSpillRefStep = 0;
+ 
+     const CharClass* pCharClass; // which character classification is used for parseAnyToken and upper/lower
+     bool        mbCharClassesDiffer;    // whether pCharClass and current system locale's CharClass differ
+@@ -354,6 +358,11 @@ private:
+     std::vector<Whitespace> NextSymbol(bool bInArray);
+ 
+     bool ParseValue( const OUString& );
++    // HST: the spill range operator A1#, sc/source/core/hst/hstspillrange.cxx
++    bool ParseSpillRangeOperator();
++    bool ParseSpillRangeSymbol( const OUString& rSymbol );
++    void StartSpillRange();
++    bool NextSpillRangeToken();
+     bool ParseOpCode( const OUString&, bool bInArray );
+     bool ParseOpCode2( std::u16string_view );
+     bool ParseLiteralString();
+--- a/sc/inc/documentimport.hxx
++++ b/sc/inc/documentimport.hxx
+@@ -116,7 +116,7 @@ public:
+     /// bCheckForSpill=true.
+     void setMatrixCells(
+         const ScRange& rRange, const ScTokenArray& rArray, formula::FormulaGrammar::Grammar eGrammar,
+-        bool bCheckForSpill = false);
++        bool bCheckForSpill = false, bool bDynamicArrayMaster = false);
+ 
+     void setTableOpCells(const ScRange& rRange, const ScTabOpParam& rParam);
+ 
+--- a/sc/source/core/data/documentimport.cxx
++++ b/sc/source/core/data/documentimport.cxx
+@@ -413,7 +413,7 @@ void ScDocumentImport::setFormulaCell(const ScAddress& rPos, ScFormulaCell* pCel
+ 
+ void ScDocumentImport::setMatrixCells(
+     const ScRange& rRange, const ScTokenArray& rArray, formula::FormulaGrammar::Grammar eGram,
+-    bool bCheckForSpill)
++    bool bCheckForSpill, bool bDynamicArrayMaster)
+ {
+     const ScAddress& rBasePos = rRange.aStart;
+ 
+@@ -433,6 +433,7 @@ void ScDocumentImport::setMatrixCells(
+ 
+     // Set the master cell.
+     ScFormulaCell* pCell = new ScFormulaCell(mpImpl->mrDoc, rBasePos, rArray, eGram, ScMatrixMode::Formula);
++    pCell->SetDynamicArrayMaster(bDynamicArrayMaster); // HST
+ 
+     mpImpl->mrDoc.CheckLinkFormulaNeedingCheck( *pCell->GetCode());
+ 
+--- a/sc/source/core/inc/interpre.hxx
++++ b/sc/source/core/inc/interpre.hxx
+@@ -623,6 +623,9 @@ private:
+     void ScNot();
+     void ScNeg();
+     void ScSingleValue();
++    // HST: @ with implicit intersection and the spill range A1#, sc/source/core/hst
++    void ScHstSingleValue();
++    void ScAnchorArray();
+     void ScPercentSign();
+     void ScIntersect();
+     void ScRangeFunc();
+--- a/sc/source/core/tool/compiler.cxx
++++ b/sc/source/core/tool/compiler.cxx
+@@ -4793,6 +4793,9 @@ bool ScCompiler::NextNewToken( bool bInArray )
+         return true;
+     }
+ 
++    if (mnPendingSpillRefStep) // HST: the rest of ANCHORARRAY(A1) for A1#
++        return NextSpillRangeToken();
++
+     const std::vector<Whitespace> vSpaces = NextSymbol(bInArray);
+ 
+     if (!cSymbol[0])
+@@ -5053,9 +5056,13 @@ Label_Rewind:
+                     aUpper = aOrg;          // ensure for ocBad
+                     break;                  // do; create ocBad token or set error.
+                 }
++                ParseSpillRangeOperator();  // HST: A1#
+                 return true;
+             }
+ 
++            if (ParseSpillRangeSymbol( aOrg ))  // HST: 'Sheet 1'!A1#
++                return true;
++
+             if (ParseValue( aUpper ))
+                 return true;
+ 
+@@ -5233,6 +5240,7 @@ std::unique_ptr<ScTokenArray> ScCompiler::CompileString( const OUString& rFormul
+     aFormula = comphelper::string::strip(rFormula, ' ');
+ 
+     nSrcPos = 0;
++    mnPendingSpillRefStep = 0;
+     mbCorrected = false;
+     if ( mbAutoCorrect )
+     {
+--- a/sc/source/core/tool/interpr4.cxx
++++ b/sc/source/core/tool/interpr4.cxx
+@@ -3748,7 +3748,7 @@ void ScInterpreter::DispatchOpCode( OpCode eOp )
+         case ocNot              : ScNot();                      break;
+         case ocNegSub           :
+         case ocNeg              : ScNeg();                      break;
+-        case ocSingleValue      : ScSingleValue();              break;
++        case ocSingleValue      : ScHstSingleValue();           break; // HST
+         case ocPercentSign      : ScPercentSign();              break;
+         case ocPi               : ScPi();                       break;
+         case ocRandom           : ScRandom();                   break;
+@@ -3783,6 +3783,7 @@ void ScInterpreter::DispatchOpCode( OpCode eOp )
+         case ocTrimRange        : ScTrimRange();              break;
+         case ocGroupBy          : ScGroupBy();                break;
+         case ocPivotBy          : ScPivotBy();                break;
++        case ocAnchorArray      : ScAnchorArray();            break; // HST
+         case ocLambda           : ScLambda();                   break;
+         case ocIsOmitted        : ScIsOmitted();                break;
+         case ocTrue             : ScTrue();                     break;
+--- a/sc/source/core/tool/parclass.cxx
++++ b/sc/source/core/tool/parclass.cxx
+@@ -304,6 +304,8 @@ const ScParameterClassification::RawData ScParameterClassification::pRawData[] =
+     { ocTrimRange,       {{ ReferenceOrRefArray, Value, Value                    }, 0, Reference }},
+     { ocGroupBy,         {{ ForceArray, ForceArray, Value, Value, Value, ForceArray, ForceArray, Value }, 0, ForceArrayReturn }},
+     { ocPivotBy,         {{ ForceArray, ForceArray, ForceArray, Value, Value, Value, ForceArray, Value, ForceArray, ForceArray, Value }, 0, ForceArrayReturn }},
++    { ocAnchorArray,     {{ Reference                                            }, 0, Reference }}, // HST
++    { ocSingleValue,     {{ Reference                                            }, 0, Value }}, // HST
+     { ocXLookup,         {{ Value, ReferenceOrForceArray, ReferenceOrForceArray, Value, Value, Value }, 0, Reference }},
+     { ocXMatch,          {{ Value, ReferenceOrForceArray, Value, Value           }, 0, Value }},
+     { ocXor,             {{ Reference                                            }, 1, Value }},
+--- a/sc/source/core/tool/token.cxx
++++ b/sc/source/core/tool/token.cxx
+@@ -1204,6 +1204,7 @@ void ScTokenArray::CheckForThreading( const FormulaToken& r )
+     constinit
+ #endif
+     static const o3tl::sorted_vector<OpCode> aThreadedCalcDenyList({
++        ocAnchorArray, // HST: reads the size of another formula's result
+         ocCall,
+         ocIndirect,
+         ocMacro,
+--- a/sc/source/filter/excel/xetable.cxx
++++ b/sc/source/filter/excel/xetable.cxx
+@@ -955,7 +955,9 @@ void XclExpFormulaCell::SaveXml( XclExpXmlStream& rStrm )
+     // xl/metadata.xml.
+     const bool bDynamicArrayMaster
+         = mrScFmlaCell.GetMatrixFlag() == ScMatrixMode::Formula
+-          && mrScFmlaCell.GetCode() && mrScFmlaCell.GetCode()->HasDynamicArrayFunction();
++          && mrScFmlaCell.GetCode()
++          && (mrScFmlaCell.GetCode()->HasDynamicArrayFunction()
++              || mrScFmlaCell.IsDynamicArrayMaster()); // HST
+     if (bDynamicArrayMaster)
+         rStrm.NoteDynamicArrayFormula();
+ 
+--- a/sc/source/filter/inc/formulabuffer.hxx
++++ b/sc/source/filter/inc/formulabuffer.hxx
+@@ -64,12 +64,15 @@ public:
+         /// blocker preservation so reference cells aren't materialised over
+         /// real user data sitting in the matrix range.
+         bool mbCachedSpill;
++        /// HST: the master carries cm (dynamic array metadata): it follows its result's size.
++        bool mbDynamic = false;
+ 
+         TokenRangeAddressItem(TokenAddressItem aTokenAndAddress, const ScRange& rRange,
+-                              bool bCachedSpill = false)
++                              bool bCachedSpill = false, bool bDynamic = false)
+             : maTokenAndAddress(std::move(aTokenAndAddress))
+             , maRange(rRange)
+             , mbCachedSpill(bCachedSpill) 
++            , mbDynamic(bDynamic)
+         {}
+     };
+ 
+@@ -120,7 +123,7 @@ public:
+     void setCellArrayFormula(const ScRange& rRangeAddress,
+                              const ScAddress& rTokenAddress,
+                              const OUString&,
+-                             bool bCachedSpill = false);
++                             bool bCachedSpill = false, bool bDynamic = false);
+ 
+     void                createSharedFormulaMapEntry( const ScAddress& rAddress,
+                                                      sal_Int32 nSharedId, const OUString& rTokens );
+--- a/sc/source/filter/inc/worksheethelper.hxx
++++ b/sc/source/filter/inc/worksheethelper.hxx
+@@ -290,7 +290,7 @@ public:
+         const ScAddress& rAddr, sal_Int32 nSharedId,
+         const OUString& rCellValue, sal_Int32 nValueType );
+ 
+-    void setCellArrayFormula(const ScRange& rRangeAddress, const ScAddress& rTokenAddress, const OUString& rTokenStr, bool bCachedSpill = false);
++    void setCellArrayFormula(const ScRange& rRangeAddress, const ScAddress& rTokenAddress, const OUString& rTokenStr, bool bCachedSpill = false, bool bDynamic = false);
+ 
+     void createSharedFormulaMapEntry(
+         const ScAddress& rAddress,
+--- a/sc/source/filter/oox/formulabuffer.cxx
++++ b/sc/source/filter/oox/formulabuffer.cxx
+@@ -310,7 +310,7 @@ void applyArrayFormulas(
+         {
+             rDoc.setMatrixCells(rAddressItem.maRange, *pArray,
+                                 formula::FormulaGrammar::GRAM_OOXML,
+-                                rAddressItem.mbCachedSpill);
++                                rAddressItem.mbCachedSpill, rAddressItem.mbDynamic);
+         }
+     }
+ }
+@@ -531,12 +531,12 @@ void FormulaBuffer::setCellFormula(
+     maSharedFormulaIds[rAddress.Tab()].emplace_back(rAddress, nSharedId, rCellValue, nValueType);
+ }
+ 
+-void FormulaBuffer::setCellArrayFormula( const ScRange& rRangeAddress, const ScAddress& rTokenAddress, const OUString& rTokenStr, bool bCachedSpill)
++void FormulaBuffer::setCellArrayFormula( const ScRange& rRangeAddress, const ScAddress& rTokenAddress, const OUString& rTokenStr, bool bCachedSpill, bool bDynamic)
+ {
+ 
+     TokenAddressItem tokenPair( rTokenStr, rTokenAddress );
+     assert( rRangeAddress.aStart.Tab() >= 0 && o3tl::make_unsigned(rRangeAddress.aStart.Tab()) < maCellArrayFormulas.size() );
+-    maCellArrayFormulas[rRangeAddress.aStart.Tab()].emplace_back(tokenPair, rRangeAddress, bCachedSpill);
++    maCellArrayFormulas[rRangeAddress.aStart.Tab()].emplace_back(tokenPair, rRangeAddress, bCachedSpill, bDynamic);
+ }
+ 
+ void FormulaBuffer::setCellFormulaValue(
+--- a/sc/source/filter/oox/sheetdatacontext.cxx
++++ b/sc/source/filter/oox/sheetdatacontext.cxx
+@@ -181,7 +181,9 @@ void SheetDataContext::onEndElement()
+                     = maCellData.mnCellType == XML_e
+                       && mbCellMetadata
+                       && maCellValue == u"#VALUE!";
+-                setCellArrayFormula(maFmlaData.maFormulaRef, maCellData.maCellAddr, maFormulaStr, bCachedSpill);
++                // HST: cm marks a dynamic array, a legacy array formula has none.
++                setCellArrayFormula(maFmlaData.maFormulaRef, maCellData.maCellAddr, maFormulaStr, bCachedSpill,
++                                    mbCellMetadata);
+             }
+             // set cell formatting, but do not set result as cell value
+             mrSheetData.setBlankCell( maCellData );
+--- a/sc/source/filter/oox/worksheethelper.cxx
++++ b/sc/source/filter/oox/worksheethelper.cxx
+@@ -1656,9 +1656,9 @@ void WorksheetHelper::setCellFormula(
+     getFormulaBuffer().setCellFormula(rAddr, nSharedId, rCellValue, nValueType);
+ }
+ 
+-void WorksheetHelper::setCellArrayFormula(const ScRange& rRangeAddress, const ScAddress& rTokenAddress, const OUString& rTokenStr, bool bCachedSpill)
++void WorksheetHelper::setCellArrayFormula(const ScRange& rRangeAddress, const ScAddress& rTokenAddress, const OUString& rTokenStr, bool bCachedSpill, bool bDynamic)
+ {
+-    getFormulaBuffer().setCellArrayFormula(rRangeAddress,  rTokenAddress, rTokenStr, bCachedSpill);
++    getFormulaBuffer().setCellArrayFormula(rRangeAddress,  rTokenAddress, rTokenStr, bCachedSpill, bDynamic);
+ }
+ 
+ void WorksheetHelper::createSharedFormulaMapEntry(
+--- /dev/null
++++ b/sc/source/ui/inc/hstdynamicarrayinput.hxx
+@@ -0,0 +1,40 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#pragma once
++
++#include <address.hxx>
++#include <formula/grammar.hxx>
++#include <rtl/ustring.hxx>
++
++class ScDocument;
++class ScFormulaCell;
++class ScMarkData;
++class ScTokenArray;
++
++/** Dynamic arrays when typing in HST Sheets (sc/source/ui/hst/hstdynamicarrayinput.cxx). */
++namespace sc::hst
++{
++/** Whether a formula typed into the cursor cell spills like in the leading spreadsheet
++    application: its result is an array of more than one cell. Formulas that can only give a
++    single value are not calculated a second time to find out, nor are formulas calling macros
++    or add-ins. Not when a range is selected: Ctrl+Shift+Enter keeps filling a selection. */
++bool FormulaSpills(ScDocument& rDoc, const ScAddress& rPos, const ScMarkData& rMark,
++                   const ScTokenArray& rCode, const OUString& rFormula,
++                   formula::FormulaGrammar::Grammar eGrammar);
++
++/** The range a spilling formula is entered into: the result range, or only the formula cell
++    when another array formula is in the way, so the formula shows #SPILL! like in the leading
++    spreadsheet application instead of refusing the input. */
++ScRange SpillEntryRange(const ScDocument& rDoc, const ScMarkData& rMark, const ScRange& rResult,
++                        const ScAddress& rCursor);
++
++/** The input line text of a dynamic array (its formula cell or a cell of its spill range):
++    the formula as typed, without the braces of a legacy array formula. */
++void StripDynamicArrayBraces(const ScDocument& rDoc, const ScFormulaCell& rCell, OUString& rText);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/ui/inc/viewfunc.hxx
++++ b/sc/source/ui/inc/viewfunc.hxx
+@@ -101,7 +101,8 @@ public:
+                                const EditTextObject& rData, bool bTestSimple = false );
+     void            EnterValue( SCCOL nCol, SCROW nRow, SCTAB nTab, const double& rValue );
+ 
+-    void            EnterMatrix( const OUString& rString, ::formula::FormulaGrammar::Grammar eGram );
++    void            EnterMatrix( const OUString& rString, ::formula::FormulaGrammar::Grammar eGram,
++                                 bool bDynamicArray = false ); // HST: bDynamicArray
+ 
+     /**
+      * @param pData The caller must manage the life cycle of the object this
+--- a/sc/source/ui/view/tabvwsha.cxx
++++ b/sc/source/ui/view/tabvwsha.cxx
+@@ -75,6 +75,7 @@
+ #include <scresid.hxx>
+ #include <stlpool.hxx>
+ #include <tabvwsh.hxx>
++#include <hstdynamicarrayinput.hxx>
+ #include <tokenarray.hxx>
+ #include <viewdata.hxx>
+ #include <printfun.hxx>
+@@ -819,7 +820,10 @@ void ScTabViewShell::UpdateInputHandler( bool bForce /* = sal_False */, bool bSt
+             if (rCell.getType() == CELLTYPE_FORMULA)
+             {
+                 if (!bHideFormula)
++                {
+                     aString = rCell.getFormula()->GetFormula();
++                    sc::hst::StripDynamicArrayBraces(rDoc, *rCell.getFormula(), aString); // HST
++                }
+             }
+             else if (rCell.getType() == CELLTYPE_EDIT)
+             {
+--- a/sc/source/ui/view/viewfunc.cxx
++++ b/sc/source/ui/view/viewfunc.cxx
+@@ -69,6 +69,7 @@
+ #include <appoptio.hxx>
+ #include <sizedev.hxx>
+ #include <editable.hxx>
++#include <hstdynamicarrayinput.hxx>
+ #include <scui_def.hxx>
+ #include <funcdesc.hxx>
+ #include <docuno.hxx>
+@@ -538,8 +539,11 @@ void finalizeFormulaProcessing(const std::shared_ptr<FormulaProcessingContext>&
+             // mark. If the user wanted less or a single cell then should
+             // mark such prior to entering the formula.
+             const formula::FormulaToken* pToken = context->pArr->LastRPNToken();
+-            if (pToken && (formula::FormulaCompiler::IsMatrixFunction( pToken->GetOpCode())
++            if ((pToken && (formula::FormulaCompiler::IsMatrixFunction( pToken->GetOpCode())
+                         || pToken->IsInForceArray()))
++                || sc::hst::FormulaSpills(context->GetDoc(), *context->aPos, context->aMark,
++                                          *context->pArr, context->aFormula,
++                                          context->GetDoc().GetGrammar())) // HST: any array result spills
+             {
+                 // Discard this (still empty here) Undo action,
+                 // EnterMatrix() will create its own.
+@@ -547,7 +551,8 @@ void finalizeFormulaProcessing(const std::shared_ptr<FormulaProcessingContext>&
+                     context->GetDocFunc().EndListAction();
+ 
+                 // Use corrected formula string.
+-                context->rViewFunc.EnterMatrix( context->aFormula, context->GetDoc().GetGrammar());
++                context->rViewFunc.EnterMatrix( context->aFormula, context->GetDoc().GetGrammar(),
++                                                true /*HST: dynamic array*/);
+ 
+                 return;
+             }
+@@ -1029,7 +1034,8 @@ void ScViewFunc::EnterDataAtCursor( const OUString& rString )
+     GetViewData().GetViewShell()->UpdateInputHandler();
+ }
+ 
+-void ScViewFunc::EnterMatrix( const OUString& rString, ::formula::FormulaGrammar::Grammar eGram )
++void ScViewFunc::EnterMatrix( const OUString& rString, ::formula::FormulaGrammar::Grammar eGram,
++                              bool bDynamicArray )
+ {
+     ScViewData& rData = GetViewData();
+     const SCCOL nCol = rData.GetCurX();
+@@ -1063,12 +1069,19 @@ void ScViewFunc::EnterMatrix( const OUString& rString, ::formula::FormulaGrammar
+     if (rData.GetSimpleArea(aRange) == SC_MARK_SIMPLE)
+     {
+         ScDocShell* pDocSh = rData.GetDocShell();
++        // HST: a dynamic array blocked by another array formula shows #SPILL!.
++        if (bAutoExpand && bDynamicArray)
++            aRange = sc::hst::SpillEntryRange(rData.GetDocument(), rMark, aRange,
++                                              ScAddress(nCol, nRow, rData.CurrentTabForData()));
+         // Auto expanded formulas (no explicit range selection) use spill checking
+         // to avoid overwriting non-empty cells.
+         bool bSuccess = pDocSh->GetDocFunc().EnterMatrix(
+-            aRange, &rMark, nullptr, rString, false, false, OUString(), eGram, bAutoExpand);
++            aRange, &rMark, nullptr, rString, false, false, OUString(), eGram, bAutoExpand,
++            bDynamicArray);
+         if (bSuccess)
+             pDocSh->UpdateOle(GetViewData());
++        if (bSuccess && bAutoExpand && bDynamicArray)
++            Unmark(); // HST: Enter moves on from the formula cell, not within its result
+         else
+             PaintArea(nCol, nRow, nCol, nRow);        // possibly the edit-engine is still painted there
+     }

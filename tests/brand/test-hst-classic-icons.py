@@ -77,6 +77,23 @@ class OverlayTest(unittest.TestCase):
             self.assertIn(links[request], files)  # forced, though Colibre draws them
         self.assertNotIn("cmd/lc_recsearch.png", links)  # only the 16 px pair is forced
 
+    def test_clear_formatting_erases_with_a_white_eraser(self):
+        for theme in classic.CLASSIC:
+            with tempfile.TemporaryDirectory() as tmp:
+                names = ["cmd/sc_resetattributes.svg", "cmd/lc_resetattributes.svg", "cmd/32/resetattributes.svg"]
+                tree = colibre_tree(Path(tmp), names, {"cmd/sc_setdefault.png": "cmd/sc_resetattributes.png",
+                                                       "cmd/lc_setdefault.png": "cmd/lc_resetattributes.png"},
+                                    classic.CLASSIC[theme][1], classic.CLASSIC[theme][1].replace("_svg", ""))
+                files = builder.resources(theme, tree)
+            links = dict(line.split() for line in files["links.txt"].decode().splitlines() if not line.startswith("#"))
+            for size in ("sc_", "lc_", "32/"):
+                glyph = links[f"cmd/{size}resetattributes.png"]
+                self.assertEqual(glyph, links[f"cmd/{size}setdefault.png"])  # Colibre's link is followed
+                self.assertEqual(glyph, links[f"cmd/{size}resetattributes.svg"])
+                svg = files[glyph].decode()
+                self.assertNotRegex(svg.lower(), "#(?:ed3d3b|d42314|ff9198)")  # no red eraser left
+                self.assertIn("#fafafa" if theme.endswith("_dark") else "#ffffff", svg)  # a white one
+
     def test_hst_glyphs_take_colibre_ink(self):
         for theme, (_, _, ink) in classic.CLASSIC.items():
             files = self.overlay(theme)

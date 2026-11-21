@@ -730,19 +730,27 @@ Test: tests/runtime/check-vba.py, tests/runtime/check-vba-editor.py.
          { u"DoNotMirrorRtlDrawObjs"_ustr, HANDLE_DO_NOT_MIRROR_RTL_DRAW_OBJS, cppu::UnoType<bool>::get(), 0 },
          { u"PaintHellOverHeaderFooter"_ustr, HANDLE_PAINT_HELL_OVER_HEADER_FOOTER, cppu::UnoType<bool>::get(), 0 },
          { u"MinRowHeightInclBorder"_ustr, HANDLE_MIN_ROW_HEIGHT_INCL_BORDER, cppu::UnoType<bool>::get(), 0 },
-@@ -1138,6 +1146,29 @@
+@@ -1138,6 +1146,37 @@
              }
          }
          break;
 +        case HANDLE_VBA_COMPATIBILITY_MODE:
 +        {
-+            // Only switch on: documents without Word macros never create their Basic here.
++            // Record the mode; upstream enables VBA only after macro security permits it.
 +            bool bTmp = false;
 +            if ((rValue >>= bTmp) && bTmp)
 +            {
-+                uno::Reference<script::vba::XVBACompatibility> xVBA(mpDocSh->GetBasicContainer(), uno::UNO_QUERY);
-+                if (xVBA.is() && !xVBA->getVBACompatibilityMode())
-+                    xVBA->setVBACompatibilityMode(true);
++                if (mpDocSh->IsLoading())
++                {
++                    uno::Reference<beans::XPropertySet> xLibraries(mpDocSh->GetBasicContainer(), uno::UNO_QUERY_THROW);
++                    xLibraries->setPropertyValue(u"DeferredVBACompatibilityMode"_ustr, uno::Any(true));
++                }
++                else
++                {
++                    uno::Reference<script::vba::XVBACompatibility> xVBA(mpDocSh->GetBasicContainer(), uno::UNO_QUERY);
++                    if (xVBA.is() && !xVBA->getVBACompatibilityMode())
++                        xVBA->setVBACompatibilityMode(true);
++                }
 +            }
 +        }
 +        break;
@@ -760,17 +768,15 @@ Test: tests/runtime/check-vba.py, tests/runtime/check-vba-editor.py.
          case HANDLE_DO_NOT_MIRROR_RTL_DRAW_OBJS:
          {
              bool bTmp;
-@@ -1821,6 +1852,19 @@
+@@ -1821,6 +1852,17 @@
                  DocumentSettingId::HIDDEN_PARAGRAPH_MARK_PER_LINE_PROPERTIES);
          }
          break;
 +        case HANDLE_VBA_COMPATIBILITY_MODE:
 +        case HANDLE_VBA_PROJECT_NAME:
 +        {
-+            // Without a Basic manager the document has no macros: do not create one for this.
-+            uno::Reference<script::vba::XVBACompatibility> xVBA;
-+            if (mpDocSh->HasBasic())
-+                xVBA.set(mpDocSh->GetBasicContainer(), uno::UNO_QUERY);
++            // Preserve deferred metadata even when macros were denied and Basic was never loaded.
++            uno::Reference<script::vba::XVBACompatibility> xVBA(mpDocSh->GetBasicContainer(), uno::UNO_QUERY);
 +            if (rInfo.mnHandle == HANDLE_VBA_COMPATIBILITY_MODE)
 +                rValue <<= xVBA.is() && xVBA->getVBACompatibilityMode();
 +            else

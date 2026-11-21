@@ -1,0 +1,1559 @@
+HST Office: HST Sheets dynamic arrays like the leading spreadsheet application, the engine (owner 18/11:
+mandatory in 1.0.3). HST-owned code, written clean-room from a behaviour spec, public file-format
+specifications and the interface headers of hst-sheets-dynamic-array-hooks.patch, which calls it.
+
+- formula/source/core/hst/hstformulastrings.cxx: formula text. UI grammars (Calc A1, Excel A1) show
+  ANCHORARRAY(A1) as A1# and a parenthesised single operand of @ read from a file as @A1:A9; OOXML writes
+  @X as _xlfn.SINGLE(X), the operand ending before a separator, an enclosing closing parenthesis, % or a
+  binary operator other than the reference operators.
+- sc/source/core/hst/hstspillrange.cxx: parsing A1# after a single cell reference ('#' not followed by a
+  letter, digit, '#' or non-ASCII character, so #REF!, #N/A stay error constants), also when the '#'
+  was scanned inside the symbol (quoted or non-ASCII sheet names); the autocorrected formula keeps A1#.
+- sc/source/core/hst/hstdynamicarrayinterpreter.cxx: @ intersects a range with the formula cell's row
+  and/or column (#VALUE! when none), takes the upper-left element of an array and leaves single
+  values; A1# is the current result size of a dynamic array's anchor as a reference, also one
+  cell; #REF! for an empty cell, a constant, an ordinary formula, a legacy array formula, an error
+  result or #SPILL!.
+- sc/source/ui/hst/hstdynamicarrayinput.cxx: whether a typed formula spills (a formula whose
+  outermost function is an array function is a dynamic array whatever its result size; others are
+  compiled afresh from the text and calculated once as a Ctrl+Shift+Enter array formula would be,
+  unless they can only give one value or call macros, add-ins, DDE or web services);
+  the cursor cell alone as entry range when another array is in the way (#SPILL!); the input line
+  of a dynamic array without braces.
+
+License: LicenseRef-HST-Proprietary (new files only; the makefile lines are hooks).
+Test: CppunitTest_sc_hst_dynamic_arrays (spill, single result, resize, #SPILL! and recovery, blocked by
+an array, A1#, A1# of a one-cell result, @, xlsx export/import of Excel's form with cm and round trip,
+Spill.xlsx, error constants, text forms in Calc A1 / Excel A1 / OOXML / ODFF).
+---
+--- a/formula/Library_for.mk
++++ b/formula/Library_for.mk
+@@ -44,6 +44,7 @@ $(eval $(call gb_Library_add_exception_objects,for,\
+     formula/source/core/api/grammar \
+     formula/source/core/api/token \
+     formula/source/core/api/vectortoken \
++    formula/source/core/hst/hstformulastrings \
+     formula/source/core/resource/core_resource \
+ ))
+ 
+--- /dev/null
++++ b/formula/source/core/hst/hstformulastrings.cxx
+@@ -0,0 +1,264 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#include <hstformulastrings.hxx>
++
++#include <com/sun/star/sheet/FormulaLanguage.hpp>
++#include <formula/grammar.hxx>
++#include <formula/token.hxx>
++#include <formula/tokenarray.hxx>
++
++namespace formula
++{
++namespace
++{
++bool IsSpace(const FormulaToken* p)
++{
++    const OpCode e = p->GetOpCode();
++    return e == ocSpaces || e == ocWhitespace;
++}
++
++/// Operators that combine references into a larger reference; they bind the @ operand.
++bool IsReferenceOperator(OpCode e) { return e == ocRange || e == ocIntersect || e == ocUnion; }
++
++/// Prefix operators that may stand in front of an operand.
++bool IsPrefixOperator(OpCode e)
++{
++    return e == ocAdd || e == ocSub || e == ocNegSub || e == ocSingleValue;
++}
++
++/// Tokens that open or close a nested level whose content belongs to the current operand.
++int NestingStep(OpCode e)
++{
++    switch (e)
++    {
++        case ocOpen:
++        case ocArrayOpen:
++        case ocTableRefOpen:
++            return 1;
++        case ocClose:
++        case ocArrayClose:
++        case ocTableRefClose:
++            return -1;
++        default:
++            return 0;
++    }
++}
++
++/// A token that is a complete operand on its own (reference, constant, name).
++bool IsPlainOperand(const FormulaToken* p)
++{
++    switch (p->GetType())
++    {
++        case svSingleRef:
++        case svDoubleRef:
++        case svExternalSingleRef:
++        case svExternalDoubleRef:
++        case svExternalName:
++        case svDouble:
++        case svString:
++        case svIndex:
++        case svError:
++            return true;
++        default:
++            return false;
++    }
++}
++}
++
++HstFormulaStringWriter::HstFormulaStringWriter(FormulaCompiler& rCompiler)
++    : mrCompiler(rCompiler)
++{
++}
++
++bool HstFormulaStringWriter::IsUiLanguage() const
++{
++    if (!mrCompiler.mxSymbols)
++        return false;
++    // Files written in the Excel A1 notation of OOXML never get the UI forms.
++    if (FormulaGrammar::extractRefConvention(mrCompiler.meGrammar) == FormulaGrammar::CONV_XL_OOX)
++        return false;
++    switch (FormulaGrammar::extractFormulaLanguage(mrCompiler.mxSymbols->getGrammar()))
++    {
++        case css::sheet::FormulaLanguage::NATIVE:
++        case css::sheet::FormulaLanguage::ENGLISH:
++        case css::sheet::FormulaLanguage::XL_ENGLISH:
++            return true;
++        default:
++            return false;
++    }
++}
++
++void HstFormulaStringWriter::CloseBefore(OUStringBuffer& rBuffer, const FormulaToken* t)
++{
++    while (!maSingleValueEnds.empty() && t && maSingleValueEnds.back() == t)
++    {
++        rBuffer.append(')');
++        maSingleValueEnds.pop_back();
++    }
++}
++
++bool HstFormulaStringWriter::Write(OUStringBuffer& rBuffer, const FormulaToken*& t)
++{
++    if (!t || !mrCompiler.mpArr || !mrCompiler.mxSymbols)
++        return false;
++
++    // Work on the code array positions: t must be the token just delivered by the iterator.
++    const sal_uInt16 nNext = mrCompiler.maArrIterator.GetIndex();
++    if (nNext == 0 || nNext > mrCompiler.mpArr->GetLen()
++        || mrCompiler.mpArr->GetArray()[nNext - 1] != t)
++        return false;
++
++    switch (t->GetOpCode())
++    {
++        case ocAnchorArray:
++            return WriteSpillRange(rBuffer, t);
++        case ocSingleValue:
++            return WriteSingleValue(rBuffer, t);
++        default:
++            return false;
++    }
++}
++
++void HstFormulaStringWriter::Finish(OUStringBuffer& rBuffer, const FormulaToken* t)
++{
++    if (t)
++        return; // Writing stopped early, the text is incomplete anyway.
++    for (size_t n = maSingleValueEnds.size(); n > 0; --n)
++        rBuffer.append(')');
++    maSingleValueEnds.clear();
++}
++
++bool HstFormulaStringWriter::WriteSpillRange(OUStringBuffer& rBuffer, const FormulaToken*& t)
++{
++    if (!IsUiLanguage())
++        return false;
++
++    // Exactly ANCHORARRAY ( single-cell reference ), without spaces: written as A1#.
++    FormulaToken* const* pCode = mrCompiler.mpArr->GetArray();
++    const sal_uInt16 nLen = mrCompiler.mpArr->GetLen();
++    const sal_uInt16 nOpen = mrCompiler.maArrIterator.GetIndex();
++    if (nOpen + 2 >= nLen)
++        return false;
++    if (pCode[nOpen]->GetOpCode() != ocOpen || pCode[nOpen + 1]->GetType() != svSingleRef
++        || pCode[nOpen + 2]->GetOpCode() != ocClose)
++        return false;
++
++    mrCompiler.CreateStringFromToken(rBuffer, pCode[nOpen + 1], false);
++    rBuffer.append('#');
++
++    mrCompiler.maArrIterator.Jump(nOpen + 3);
++    t = mrCompiler.maArrIterator.Next();
++    return true;
++}
++
++bool HstFormulaStringWriter::WriteSingleValue(OUStringBuffer& rBuffer, const FormulaToken*& t)
++{
++    FormulaToken* const* pCode = mrCompiler.mpArr->GetArray();
++    const sal_uInt16 nLen = mrCompiler.mpArr->GetLen();
++    const sal_uInt16 nFirst = mrCompiler.maArrIterator.GetIndex(); // the token after @
++
++    sal_uInt16 nOperand = nFirst; // first non-space token after @
++    while (nOperand < nLen && IsSpace(pCode[nOperand]))
++        ++nOperand;
++    const bool bParenthesised = nOperand < nLen && pCode[nOperand]->GetOpCode() == ocOpen;
++
++    const OUString& rSymbol = mrCompiler.mxSymbols->getSymbol(ocSingleValue);
++    const bool bOperatorForm = rSymbol == "@";
++
++    if (bOperatorForm)
++    {
++        // UI: @(A1:A9) as read from a file shows as @A1:A9 when the parentheses hold one
++        // operand that can stand without them (references joined by the range operator).
++        if (!IsUiLanguage() || !bParenthesised || nOperand != nFirst)
++            return false;
++        sal_uInt16 nClose = nOperand + 1;
++        bool bExpectOperand = true;
++        while (nClose < nLen)
++        {
++            const FormulaToken* p = pCode[nClose];
++            if (bExpectOperand && IsPlainOperand(p))
++                bExpectOperand = false;
++            else if (!bExpectOperand && p->GetOpCode() == ocRange)
++                bExpectOperand = true;
++            else
++                break;
++            ++nClose;
++        }
++        if (nClose >= nLen || bExpectOperand || pCode[nClose]->GetOpCode() != ocClose)
++            return false;
++
++        rBuffer.append(rSymbol);
++        for (sal_uInt16 n = nOperand + 1; n < nClose; ++n)
++            mrCompiler.CreateStringFromToken(rBuffer, pCode[n], false);
++        mrCompiler.maArrIterator.Jump(nClose + 1);
++        t = mrCompiler.maArrIterator.Next();
++        return true;
++    }
++
++    // Function form (OOXML _xlfn.SINGLE): the operand must be in parentheses.
++    if (bParenthesised)
++        return false; // written as is: _xlfn.SINGLE(...)
++
++    // Find the token the operand ends before; nullptr is the formula end.
++    const FormulaToken* pEnd = nullptr;
++    sal_uInt16 nSpaceRun = 0; // start of the spaces just before the current position, 0 if none
++    int nDepth = 0;
++    bool bExpectOperand = true;
++    for (sal_uInt16 n = nFirst; n < nLen; ++n)
++    {
++        const FormulaToken* p = pCode[n];
++        const OpCode e = p->GetOpCode();
++        if (IsSpace(p))
++        {
++            if (nDepth == 0 && !bExpectOperand && nSpaceRun == 0)
++                nSpaceRun = n;
++            continue;
++        }
++        const int nStep = NestingStep(e);
++        if (nDepth > 0)
++        {
++            nDepth += nStep;
++            if (nDepth == 0)
++                bExpectOperand = false;
++            continue;
++        }
++        if (nStep > 0)
++        {
++            // A parenthesised operand, a function's argument list or an inline array.
++            nDepth = 1;
++            nSpaceRun = 0;
++            continue;
++        }
++        if (bExpectOperand)
++        {
++            if (!IsPrefixOperator(e))
++                bExpectOperand = false; // the operand itself, or a function name before '('
++            nSpaceRun = 0;
++            continue;
++        }
++        // A reference operator, or an operand right after spaces (the space intersection).
++        if (IsReferenceOperator(e) || (nSpaceRun && IsPlainOperand(p)))
++        {
++            bExpectOperand = IsReferenceOperator(e);
++            nSpaceRun = 0;
++            continue;
++        }
++        // A separator, a closing parenthesis of an enclosing level, the percent sign or a
++        // binary operator ends the operand.
++        pEnd = pCode[nSpaceRun ? nSpaceRun : n];
++        break;
++    }
++
++    rBuffer.append(rSymbol);
++    rBuffer.append('(');
++    maSingleValueEnds.push_back(pEnd);
++    t = mrCompiler.maArrIterator.Next();
++    return true;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/CppunitTest_sc_hst_dynamic_arrays.mk
+@@ -0,0 +1,63 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (c) HASON TECH. HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,sc_hst_dynamic_arrays))
++
++$(eval $(call gb_CppunitTest_use_externals,sc_hst_dynamic_arrays, \
++	boost_headers \
++	mdds_headers \
++	libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sc_hst_dynamic_arrays, \
++    sc/qa/unit/uicalc/hstdynamicarrays \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sc_hst_dynamic_arrays, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    editeng \
++    for \
++    i18nlangtag \
++    sal \
++    sc \
++    scqahelper \
++    sfx \
++    sot \
++    subsequenttest \
++    svl \
++    svl \
++    svx \
++    svxcore \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++    $(if $(filter -fsanitize=vptr,$(gb_CXX)),salhelper) \
++))
++
++$(eval $(call gb_CppunitTest_set_include,sc_hst_dynamic_arrays,\
++    -I$(SRCDIR)/sc/source/ui/inc \
++    -I$(SRCDIR)/sc/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sc_hst_dynamic_arrays))
++
++$(eval $(call gb_CppunitTest_use_ure,sc_hst_dynamic_arrays))
++$(eval $(call gb_CppunitTest_use_vcl,sc_hst_dynamic_arrays))
++
++$(eval $(call gb_CppunitTest_use_rdb,sc_hst_dynamic_arrays,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,sc_hst_dynamic_arrays))
++
++$(eval $(call gb_CppunitTest_add_arguments,sc_hst_dynamic_arrays, \
++    -env:arg-env=$(gb_Helper_LIBRARY_PATH_VAR)"$$$${$(gb_Helper_LIBRARY_PATH_VAR)+=$$$$$(gb_Helper_LIBRARY_PATH_VAR)}" \
++))
++
++# vim: set noet sw=4 ts=4:
+--- a/sc/Library_sc.mk
++++ b/sc/Library_sc.mk
+@@ -833,4 +833,11 @@ $(eval $(call gb_SdiTarget_set_include,sc/sdi/scslots,\
+     $$(INCLUDE) \
+ ))
+ 
++# HST Office: dynamic arrays (sc/source/core/hst, sc/source/ui/hst)
++$(eval $(call gb_Library_add_exception_objects,sc,\
++    sc/source/core/hst/hstdynamicarrayinterpreter \
++    sc/source/core/hst/hstspillrange \
++    sc/source/ui/hst/hstdynamicarrayinput \
++))
++
+ # vim: set noet sw=4 ts=4:
+--- a/sc/Module_sc.mk
++++ b/sc/Module_sc.mk
+@@ -109,6 +109,7 @@ $(eval $(call gb_Module_add_slowcheck_targets,sc, \
+ 	CppunitTest_sc_subsequent_export_test6 \
+ 	CppunitTest_sc_uicalc \
+ 	CppunitTest_sc_uicalc2 \
++	CppunitTest_sc_hst_dynamic_arrays \
+ 	CppunitTest_sc_hst_set_as_default \
+ 	CppunitTest_sc_hst_table_input \
+ 	CppunitTest_sc_vba_macro_test \
+--- /dev/null
++++ b/sc/qa/unit/uicalc/hstdynamicarrays.cxx
+@@ -0,0 +1,605 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// HST Sheets dynamic arrays: spill of any array result, #SPILL!, the spill range operator A1#,
++// the implicit intersection operator @ and their xlsx form (sc/source/core/hst,
++// sc/source/ui/hst, formula/source/core/hst).
++
++#include "../helper/qahelper.hxx"
++
++#include <osl/file.hxx>
++#include <rtl/crc.h>
++#include <rtl/ustrbuf.hxx>
++#include <unotools/tempfile.hxx>
++#include <vcl/scheduler.hxx>
++
++#include <compiler.hxx>
++#include <docsh.hxx>
++#include <document.hxx>
++#include <formulacell.hxx>
++#include <markdata.hxx>
++#include <tabvwsh.hxx>
++#include <tokenarray.hxx>
++#include <viewdata.hxx>
++
++#include <string>
++#include <utility>
++#include <vector>
++
++namespace
++{
++class ScHstDynamicArraysTest : public ScModelTestBase
++{
++public:
++    ScHstDynamicArraysTest()
++        : ScModelTestBase(u"sc/qa/unit/data"_ustr)
++    {
++    }
++
++protected:
++    ScDocument& doc() { return *getScDoc(); }
++
++    double value(const char* pCell)
++    {
++        return doc().GetValue(address(pCell));
++    }
++
++    OUString text(const char* pCell) { return doc().GetString(address(pCell)); }
++
++    OUString formula(const char* pCell)
++    {
++        const ScAddress aPos = address(pCell);
++        return doc().GetFormula(aPos.Col(), aPos.Row(), aPos.Tab());
++    }
++
++    bool isEmpty(const char* pCell) { return doc().GetCellType(address(pCell)) == CELLTYPE_NONE; }
++
++    ScFormulaCell* formulaCell(const char* pCell) { return doc().GetFormulaCell(address(pCell)); }
++
++    void type(const char* pCell, std::u16string_view aText)
++    {
++        insertStringToCell(OUString::createFromAscii(pCell), aText);
++    }
++
++    ScAddress address(const char* pCell)
++    {
++        ScAddress aPos;
++        aPos.Parse(OUString::createFromAscii(pCell), doc(),
++                   ScAddress::Details(formula::FormulaGrammar::CONV_OOO, 0, 0));
++        return aPos;
++    }
++
++    /// Text of a formula compiled with one grammar and written with another.
++    OUString convert(const OUString& rFormula, formula::FormulaGrammar::Grammar eRead,
++                     formula::FormulaGrammar::Grammar eWrite)
++    {
++        const ScAddress aPos(0, 19, 0);
++        ScCompiler aReader(doc(), aPos, eRead);
++        std::unique_ptr<ScTokenArray> pCode = aReader.CompileString(rFormula);
++        CPPUNIT_ASSERT(pCode);
++        ScCompiler aWriter(doc(), aPos, *pCode, eWrite);
++        OUStringBuffer aBuf;
++        aWriter.CreateStringFromTokenArray(aBuf);
++        return aBuf.makeStringAndClear();
++    }
++
++    /// Loads an xlsx package built from its parts, stored without compression.
++    void loadParts(const std::vector<std::pair<OString, OString>>& rParts);
++};
++
++void appendLE(std::string& rOut, sal_uInt32 nValue, int nBytes)
++{
++    for (int i = 0; i < nBytes; ++i)
++        rOut.push_back(static_cast<char>((nValue >> (8 * i)) & 0xff));
++}
++
++void ScHstDynamicArraysTest::loadParts(const std::vector<std::pair<OString, OString>>& rParts)
++{
++    std::string aZip, aDirectory;
++    for (const auto& [rName, rData] : rParts)
++    {
++        const sal_uInt32 nCrc = rtl_crc32(0, rData.getStr(), rData.getLength());
++        const sal_uInt32 nOffset = aZip.size();
++        appendLE(aZip, 0x04034b50, 4);
++        appendLE(aZip, 20, 2); // version needed
++        appendLE(aZip, 0, 2); // flags
++        appendLE(aZip, 0, 2); // stored
++        appendLE(aZip, 0, 2); // time
++        appendLE(aZip, 0x21, 2); // date 1980-01-01
++        appendLE(aZip, nCrc, 4);
++        appendLE(aZip, rData.getLength(), 4);
++        appendLE(aZip, rData.getLength(), 4);
++        appendLE(aZip, rName.getLength(), 2);
++        appendLE(aZip, 0, 2);
++        aZip.append(rName.getStr(), rName.getLength());
++        aZip.append(rData.getStr(), rData.getLength());
++
++        appendLE(aDirectory, 0x02014b50, 4);
++        appendLE(aDirectory, 20, 2); // version made by
++        appendLE(aDirectory, 20, 2); // version needed
++        appendLE(aDirectory, 0, 2);
++        appendLE(aDirectory, 0, 2);
++        appendLE(aDirectory, 0, 2);
++        appendLE(aDirectory, 0x21, 2);
++        appendLE(aDirectory, nCrc, 4);
++        appendLE(aDirectory, rData.getLength(), 4);
++        appendLE(aDirectory, rData.getLength(), 4);
++        appendLE(aDirectory, rName.getLength(), 2);
++        appendLE(aDirectory, 0, 2); // extra
++        appendLE(aDirectory, 0, 2); // comment
++        appendLE(aDirectory, 0, 2); // disk
++        appendLE(aDirectory, 0, 2); // internal attributes
++        appendLE(aDirectory, 0, 4); // external attributes
++        appendLE(aDirectory, nOffset, 4);
++        aDirectory.append(rName.getStr(), rName.getLength());
++    }
++    const sal_uInt32 nDirectoryOffset = aZip.size();
++    aZip += aDirectory;
++    appendLE(aZip, 0x06054b50, 4);
++    appendLE(aZip, 0, 2);
++    appendLE(aZip, 0, 2);
++    appendLE(aZip, rParts.size(), 2);
++    appendLE(aZip, rParts.size(), 2);
++    appendLE(aZip, aDirectory.size(), 4);
++    appendLE(aZip, nDirectoryOffset, 4);
++    appendLE(aZip, 0, 2);
++
++    utl::TempFileNamed aFile(u"hstdynamicarrays", true, u".xlsx");
++    aFile.EnableKillingFile(false);
++    osl::File aOut(aFile.GetURL());
++    CPPUNIT_ASSERT_EQUAL(osl::FileBase::E_None, aOut.open(osl_File_OpenFlag_Write));
++    sal_uInt64 nWritten = 0;
++    CPPUNIT_ASSERT_EQUAL(osl::FileBase::E_None, aOut.write(aZip.data(), aZip.size(), nWritten));
++    CPPUNIT_ASSERT_EQUAL(sal_uInt64(aZip.size()), nWritten);
++    aOut.close();
++    loadFromURL(aFile.GetURL());
++    osl::File::remove(aFile.GetURL());
++}
++
++constexpr OString aMainNs = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"_ostr;
++
++std::vector<std::pair<OString, OString>> ExcelParts(const OString& rSheetData)
++{
++    return {
++        { "[Content_Types].xml"_ostr,
++          "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
++          "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
++          "<Default Extension=\"rels\" "
++          "ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
++          "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
++          "<Override PartName=\"/xl/workbook.xml\" ContentType=\"application/"
++          "vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml\"/>"
++          "<Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\"application/"
++          "vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml\"/>"
++          "<Override PartName=\"/xl/metadata.xml\" ContentType=\"application/"
++          "vnd.openxmlformats-officedocument.spreadsheetml.sheetMetadata+xml\"/>"
++          "</Types>"_ostr },
++        { "_rels/.rels"_ostr,
++          "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
++          "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
++          "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/"
++          "2006/relationships/officeDocument\" Target=\"xl/workbook.xml\"/>"
++          "</Relationships>"_ostr },
++        { "xl/workbook.xml"_ostr,
++          "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><workbook xmlns=\""
++              + aMainNs
++              + "\" xmlns:r=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships\">"
++                "<sheets><sheet name=\"Sheet1\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>" },
++        { "xl/_rels/workbook.xml.rels"_ostr,
++          "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>"
++          "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
++          "<Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/"
++          "2006/relationships/worksheet\" Target=\"worksheets/sheet1.xml\"/>"
++          "<Relationship Id=\"rId2\" Type=\"http://schemas.openxmlformats.org/officeDocument/"
++          "2006/relationships/sheetMetadata\" Target=\"metadata.xml\"/>"
++          "</Relationships>"_ostr },
++        { "xl/metadata.xml"_ostr,
++          "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><metadata xmlns=\""
++              + aMainNs
++              + "\" xmlns:xda=\"http://schemas.microsoft.com/office/spreadsheetml/2017/"
++                "dynamicarray\"><metadataTypes count=\"1\"><metadataType name=\"XLDAPR\" "
++                "minSupportedVersion=\"120000\" copy=\"1\" pasteAll=\"1\" pasteValues=\"1\" "
++                "merge=\"1\" splitFirst=\"1\" rowColShift=\"1\" clearFormats=\"1\" "
++                "clearComments=\"1\" assign=\"1\" coerce=\"1\" cellMeta=\"1\"/></metadataTypes>"
++                "<futureMetadata name=\"XLDAPR\" count=\"1\"><bk><extLst><ext "
++                "uri=\"{bdbb8cdc-fa1e-496e-a857-3c3f30c029c3}\"><xda:dynamicArrayProperties "
++                "fDynamic=\"1\" fCollapsed=\"0\"/></ext></extLst></bk></futureMetadata>"
++                "<cellMetadata count=\"1\"><bk><rc t=\"1\" v=\"0\"/></bk></cellMetadata>"
++                "</metadata>" },
++        { "xl/worksheets/sheet1.xml"_ostr,
++          "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?><worksheet xmlns=\""
++              + aMainNs + "\"><sheetData>" + rSheetData + "</sheetData></worksheet>" },
++    };
++}
++
++constexpr const char* aSheetCell = "/x:worksheet/x:sheetData/x:row/x:c[@r='";
++OString cellPath(const char* pCell) { return OString::Concat(aSheetCell) + pCell + "']"; }
++}
++
++// Any array result spills; Enter moves on below the anchor; undo removes the whole spill range.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testGenericSpill)
++{
++    createScDoc();
++    type("B1", u"10");
++    type("B2", u"20");
++    type("B3", u"30");
++    type("B4", u"40");
++    type("D1", u"=B1:B4*2");
++
++    CPPUNIT_ASSERT_EQUAL(20.0, value("D1"));
++    CPPUNIT_ASSERT_EQUAL(40.0, value("D2"));
++    CPPUNIT_ASSERT_EQUAL(60.0, value("D3"));
++    CPPUNIT_ASSERT_EQUAL(80.0, value("D4"));
++    CPPUNIT_ASSERT(isEmpty("D5"));
++    CPPUNIT_ASSERT(formulaCell("D1")->IsDynamicArrayMaster());
++    CPPUNIT_ASSERT(ScMatrixMode::Reference == formulaCell("D2")->GetMatrixFlag());
++
++    // The cursor moved on from the anchor and the spill range is not selected.
++    ScViewData& rView = getViewShell()->GetViewData();
++    CPPUNIT_ASSERT_EQUAL(SCCOL(3), rView.GetCurX());
++    CPPUNIT_ASSERT_EQUAL(SCROW(1), rView.GetCurY());
++    CPPUNIT_ASSERT(!rView.GetMarkData().IsMarked());
++
++    // A dynamic anchor (its input line text has no braces; checked by hand, no test accessor).
++    ScAddress aOrigin;
++    CPPUNIT_ASSERT(formulaCell("D3")->GetMatrixOrigin(doc(), aOrigin));
++    CPPUNIT_ASSERT_EQUAL(address("D1"), aOrigin);
++
++    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
++    for (const char* pCell : { "D1", "D2", "D3", "D4" })
++        CPPUNIT_ASSERT_MESSAGE(pCell, isEmpty(pCell));
++
++    // Other array results spill too.
++    type("F1", u"=IF(B1:B3>15,\"y\",\"n\")");
++    CPPUNIT_ASSERT_EQUAL(u"n"_ustr, text("F1"));
++    CPPUNIT_ASSERT_EQUAL(u"y"_ustr, text("F3"));
++    type("G1", u"=OFFSET(B1,0,0,3)");
++    CPPUNIT_ASSERT_EQUAL(30.0, value("G3"));
++}
++
++// A single result stays an ordinary formula; a legacy Ctrl+Shift+Enter array is not dynamic.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testSingleResultDoesNotSpill)
++{
++    createScDoc();
++    type("B1", u"10");
++    type("B2", u"20");
++    type("B3", u"30");
++    type("B4", u"40");
++    type("D1", u"=SUM(B1:B4)");
++    CPPUNIT_ASSERT_EQUAL(100.0, value("D1"));
++    CPPUNIT_ASSERT(isEmpty("D2"));
++    CPPUNIT_ASSERT(ScMatrixMode::NONE == formulaCell("D1")->GetMatrixFlag());
++
++    type("E1", u"=B1+1");
++    CPPUNIT_ASSERT(ScMatrixMode::NONE == formulaCell("E1")->GetMatrixFlag());
++
++    insertArrayToCell(u"F1"_ustr, u"=B1:B2");
++    ScFormulaCell* pLegacy = formulaCell("F1");
++    CPPUNIT_ASSERT(pLegacy);
++    CPPUNIT_ASSERT(!pLegacy->IsDynamicArrayMaster());
++    CPPUNIT_ASSERT(ScMatrixMode::Formula == pLegacy->GetMatrixFlag());
++    CPPUNIT_ASSERT(formula("F1").startsWith("{"));
++}
++
++// The spill range follows the result size.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testDynamicResize)
++{
++    createScDoc();
++    type("A1", u"a");
++    type("A2", u"b");
++    type("A3", u"a");
++    type("C1", u"=UNIQUE(A1:A3)");
++    CPPUNIT_ASSERT_EQUAL(u"a"_ustr, text("C1"));
++    CPPUNIT_ASSERT_EQUAL(u"b"_ustr, text("C2"));
++    CPPUNIT_ASSERT(isEmpty("C3"));
++
++    type("A3", u"c");
++    CPPUNIT_ASSERT_EQUAL(u"a"_ustr, text("C1"));
++    CPPUNIT_ASSERT_EQUAL(u"b"_ustr, text("C2"));
++    CPPUNIT_ASSERT_EQUAL(u"c"_ustr, text("C3"));
++
++    type("A2", u"a");
++    type("A3", u"a");
++    CPPUNIT_ASSERT_EQUAL(u"a"_ustr, text("C1"));
++    CPPUNIT_ASSERT(isEmpty("C2"));
++    CPPUNIT_ASSERT(isEmpty("C3"));
++}
++
++// A non-empty cell blocks the spill; clearing it lets the array spill.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testSpillBlockedAndRecovered)
++{
++    createScDoc();
++    type("B1", u"10");
++    type("B2", u"20");
++    type("B3", u"30");
++    type("B4", u"40");
++    type("D3", u"x");
++    type("D1", u"=B1:B4*2");
++    CPPUNIT_ASSERT_EQUAL(u"#SPILL!"_ustr, text("D1"));
++    CPPUNIT_ASSERT_EQUAL(u"x"_ustr, text("D3"));
++    CPPUNIT_ASSERT(isEmpty("D2"));
++
++    clearCell(u"D3"_ustr);
++    Scheduler::ProcessEventsToIdle();
++    CPPUNIT_ASSERT_EQUAL(20.0, value("D1"));
++    CPPUNIT_ASSERT_EQUAL(40.0, value("D2"));
++    CPPUNIT_ASSERT_EQUAL(60.0, value("D3"));
++    CPPUNIT_ASSERT_EQUAL(80.0, value("D4"));
++
++    // Typing into the spill range makes a blocker.
++    type("D2", u"y");
++    CPPUNIT_ASSERT_EQUAL(u"#SPILL!"_ustr, text("D1"));
++    CPPUNIT_ASSERT_EQUAL(u"y"_ustr, text("D2"));
++}
++
++// Another array in the way: #SPILL! instead of an error message.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testSpillBlockedByArray)
++{
++    createScDoc();
++    type("F2", u"=SEQUENCE(3)");
++    CPPUNIT_ASSERT_EQUAL(3.0, value("F4"));
++    type("F1", u"=SEQUENCE(3)");
++    CPPUNIT_ASSERT_EQUAL(u"#SPILL!"_ustr, text("F1"));
++    CPPUNIT_ASSERT_EQUAL(1.0, value("F2"));
++    CPPUNIT_ASSERT_EQUAL(2.0, value("F3"));
++    CPPUNIT_ASSERT_EQUAL(3.0, value("F4"));
++    CPPUNIT_ASSERT(formulaCell("F2")->GetMatrixFlag() == ScMatrixMode::Formula);
++}
++
++// The spill range operator A1#.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testSpillRangeOperator)
++{
++    createScDoc();
++    type("A1", u"=SEQUENCE(4)");
++    type("C1", u"=SUM(A1#)");
++    CPPUNIT_ASSERT_EQUAL(10.0, value("C1"));
++    type("D1", u"=A1#*10");
++    CPPUNIT_ASSERT_EQUAL(10.0, value("D1"));
++    CPPUNIT_ASSERT_EQUAL(40.0, value("D4"));
++    CPPUNIT_ASSERT(isEmpty("D5"));
++
++    type("A1", u"=SEQUENCE(5)");
++    CPPUNIT_ASSERT_EQUAL(15.0, value("C1"));
++    CPPUNIT_ASSERT_EQUAL(50.0, value("D5"));
++
++    type("G1", u"=SUM(E1#)");
++    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, text("G1"));
++    type("G2", u"=ROWS(A1#)");
++    CPPUNIT_ASSERT_EQUAL(5.0, value("G2"));
++    type("G3", u"=INDEX(A1#,2)");
++    CPPUNIT_ASSERT_EQUAL(2.0, value("G3"));
++    type("G4", u"=COUNTA(Sheet1!$A$1#)");
++    CPPUNIT_ASSERT_EQUAL(5.0, value("G4"));
++
++    CPPUNIT_ASSERT_EQUAL(u"=SUM(A1#)"_ustr, formula("C1"));
++
++    // Excel A1 syntax with a quoted sheet name.
++    const formula::FormulaGrammar::Grammar eOld = doc().GetGrammar();
++    doc().SetGrammar(formula::FormulaGrammar::GRAM_NATIVE_XL_A1);
++    type("G5", u"=COUNTA('Sheet1'!A1#)");
++    doc().SetGrammar(eOld);
++    CPPUNIT_ASSERT_EQUAL(5.0, value("G5"));
++
++    // A single value or a blocked anchor has no spill range.
++    type("H1", u"=5");
++    type("H2", u"=SUM(H1#)");
++    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, text("H2"));
++    type("J3", u"x");
++    type("J1", u"=SEQUENCE(4)");
++    CPPUNIT_ASSERT_EQUAL(u"#SPILL!"_ustr, text("J1"));
++    type("K1", u"=SUM(J1#)");
++    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, text("K1"));
++}
++
++// A1# of a dynamic array whose result is one cell; an outermost array function stays dynamic.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testSpillRangeOfOneCellResult)
++{
++    createScDoc();
++    type("A1", u"a");
++    type("A2", u"a");
++    type("A3", u"a");
++    type("C1", u"=UNIQUE(A1:A3)");
++    CPPUNIT_ASSERT_EQUAL(u"a"_ustr, text("C1"));
++    CPPUNIT_ASSERT(formulaCell("C1")->IsDynamicArrayMaster());
++    type("D1", u"=COUNTA(C1#)");
++    CPPUNIT_ASSERT_EQUAL(1.0, value("D1"));
++    type("A2", u"b");
++    CPPUNIT_ASSERT_EQUAL(u"b"_ustr, text("C2"));
++    CPPUNIT_ASSERT_EQUAL(2.0, value("D1"));
++
++    const OUString aSep = ScCompiler::GetNativeSymbol(ocSep);
++    type("E1", u"1");
++    type("E2", u"2");
++    type("E3", u"3");
++    type("G1", OUString("=FILTER(E1:E3" + aSep + "E1:E3>2)"));
++    CPPUNIT_ASSERT_EQUAL(3.0, value("G1"));
++    CPPUNIT_ASSERT(formulaCell("G1")->IsDynamicArrayMaster());
++    type("H1", u"=ROWS(G1#)");
++    CPPUNIT_ASSERT_EQUAL(1.0, value("H1"));
++    type("I1", u"=G1#*10");
++    CPPUNIT_ASSERT_EQUAL(30.0, value("I1"));
++    type("E2", u"5");
++    CPPUNIT_ASSERT_EQUAL(5.0, value("G1"));
++    CPPUNIT_ASSERT_EQUAL(3.0, value("G2"));
++    CPPUNIT_ASSERT_EQUAL(2.0, value("H1"));
++
++    // No spill range: a constant, an ordinary formula, a legacy array formula.
++    type("A6", u"5");
++    type("B6", u"=SUM(A6#)");
++    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, text("B6"));
++    type("A7", u"=SUM(E1:E3)");
++    CPPUNIT_ASSERT(ScMatrixMode::NONE == formulaCell("A7")->GetMatrixFlag());
++    type("B7", u"=SUM(A7#)");
++    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, text("B7"));
++    insertArrayToCell(u"A8"_ustr, u"=E1:E2");
++    type("B8", u"=SUM(A8#)");
++    CPPUNIT_ASSERT_EQUAL(u"#REF!"_ustr, text("B8"));
++}
++
++// The implicit intersection operator @.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testImplicitIntersection)
++{
++    createScDoc();
++    for (int i = 1; i <= 5; ++i)
++        type(OString("A" + OString::number(i)).getStr(), OUString::number(i));
++    type("C3", u"=@A1:A5");
++    CPPUNIT_ASSERT_EQUAL(3.0, value("C3"));
++    CPPUNIT_ASSERT(isEmpty("C4"));
++    CPPUNIT_ASSERT(ScMatrixMode::NONE == formulaCell("C3")->GetMatrixFlag());
++    type("D1", u"=@SEQUENCE(4)");
++    CPPUNIT_ASSERT_EQUAL(1.0, value("D1"));
++    CPPUNIT_ASSERT(isEmpty("D2"));
++    type("C7", u"=@A1:A5");
++    CPPUNIT_ASSERT_EQUAL(u"#VALUE!"_ustr, text("C7"));
++    type("E2", u"=@A1:A5*10");
++    CPPUNIT_ASSERT_EQUAL(20.0, value("E2"));
++    CPPUNIT_ASSERT(isEmpty("E3"));
++    CPPUNIT_ASSERT_EQUAL(u"=@A1:A5"_ustr, formula("C3"));
++}
++
++// xlsx export: cm on every dynamic anchor, ANCHORARRAY and SINGLE in formulas.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testXlsxExport)
++{
++    createScDoc();
++    type("A1", u"=SEQUENCE(5)");
++    type("C1", u"=SUM(A1#)");
++    type("D1", u"=A1#*10");
++    for (int i = 1; i <= 5; ++i)
++        type(OString("H" + OString::number(i)).getStr(), OUString::number(i));
++    type("J3", u"=@H1:H5");
++    type("J4", u"=@H1:H5+1");
++    insertArrayToCell(u"L1"_ustr, u"=H1:H2");
++
++    save(TestFilter::XLSX);
++    xmlDocUniquePtr pSheet = parseExport(u"xl/worksheets/sheet1.xml"_ustr);
++    CPPUNIT_ASSERT(pSheet);
++    assertXPath(pSheet, cellPath("D1"), "cm", u"1");
++    assertXPath(pSheet, cellPath("D1") + "/x:f", "t", u"array");
++    assertXPath(pSheet, cellPath("D1") + "/x:f", "ref", u"D1:D5");
++    assertXPath(pSheet, cellPath("A1"), "cm", u"1");
++    assertXPathContent(pSheet, cellPath("C1") + "/x:f", u"SUM(_xlfn.ANCHORARRAY(A1))");
++    assertXPathContent(pSheet, cellPath("J3") + "/x:f", u"_xlfn.SINGLE(H1:H5)");
++    assertXPathContent(pSheet, cellPath("J4") + "/x:f", u"_xlfn.SINGLE(H1:H5)+1");
++    assertXPathNoAttribute(pSheet, cellPath("L1"), "cm");
++
++    xmlDocUniquePtr pMeta = parseExport(u"xl/metadata.xml"_ustr);
++    CPPUNIT_ASSERT(pMeta);
++    assertXPath(pMeta, "/x:metadata/x:metadataTypes/x:metadataType", "name", u"XLDAPR");
++}
++
++// xlsx import of Excel's form, and its round trip.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testXlsxImport)
++{
++    loadParts(ExcelParts(
++        "<row r=\"1\"><c r=\"A1\"><v>1</v></c>"
++        "<c r=\"C1\" cm=\"1\"><f t=\"array\" ref=\"C1:C3\">A1:A3*2</f><v>2</v></c>"
++        "<c r=\"E1\"><f>SUM(_xlfn.ANCHORARRAY(C1))</f><v>12</v></c>"
++        "<c r=\"F1\"><f>_xlfn.SINGLE(A1:A3)</f><v>1</v></c>"
++        "<c r=\"G1\"><f t=\"array\" ref=\"G1:G3\">A1:A3</f><v>1</v></c></row>"
++        "<row r=\"2\"><c r=\"A2\"><v>2</v></c><c r=\"C2\"><v>4</v></c><c r=\"G2\"><v>2</v></c></row>"
++        "<row r=\"3\"><c r=\"A3\"><v>3</v></c><c r=\"C3\"><v>6</v></c><c r=\"G3\"><v>3</v></c></row>"_ostr));
++
++    CPPUNIT_ASSERT_EQUAL(2.0, value("C1"));
++    CPPUNIT_ASSERT_EQUAL(4.0, value("C2"));
++    CPPUNIT_ASSERT_EQUAL(6.0, value("C3"));
++    CPPUNIT_ASSERT(formulaCell("C1")->IsDynamicArrayMaster());
++    CPPUNIT_ASSERT(!formulaCell("G1")->IsDynamicArrayMaster());
++    CPPUNIT_ASSERT_EQUAL(12.0, value("E1"));
++    CPPUNIT_ASSERT_EQUAL(u"=SUM(C1#)"_ustr, formula("E1"));
++    CPPUNIT_ASSERT_EQUAL(1.0, value("F1"));
++    CPPUNIT_ASSERT_EQUAL(u"=@A1:A3"_ustr, formula("F1"));
++
++    type("A4", u"4");
++    CPPUNIT_ASSERT(isEmpty("C4"));
++    type("A3", u"30");
++    CPPUNIT_ASSERT_EQUAL(60.0, value("C3"));
++    CPPUNIT_ASSERT_EQUAL(66.0, value("E1"));
++
++    saveAndReload(TestFilter::XLSX);
++    CPPUNIT_ASSERT(formulaCell("C1")->IsDynamicArrayMaster());
++    CPPUNIT_ASSERT(!formulaCell("G1")->IsDynamicArrayMaster());
++    CPPUNIT_ASSERT_EQUAL(u"=SUM(C1#)"_ustr, formula("E1"));
++    CPPUNIT_ASSERT_EQUAL(u"=@A1:A3"_ustr, formula("F1"));
++    CPPUNIT_ASSERT_EQUAL(66.0, value("E1"));
++
++    xmlDocUniquePtr pSheet = parseExport(u"xl/worksheets/sheet1.xml"_ustr);
++    CPPUNIT_ASSERT(pSheet);
++    assertXPath(pSheet, cellPath("C1"), "cm", u"1");
++    assertXPathNoAttribute(pSheet, cellPath("G1"), "cm");
++    assertXPathContent(pSheet, cellPath("E1") + "/x:f", u"SUM(_xlfn.ANCHORARRAY(C1))");
++    assertXPathContent(pSheet, cellPath("F1") + "/x:f", u"_xlfn.SINGLE(A1:A3)");
++}
++
++// The Excel Online fixture: its UNIQUE anchor resizes.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testSpillFixtureResizes)
++{
++    createScDoc("xlsx/Spill.xlsx");
++    CPPUNIT_ASSERT(formulaCell("C2")->IsDynamicArrayMaster());
++    type("A3", u"10");
++    CPPUNIT_ASSERT_EQUAL(10.0, value("C2"));
++    CPPUNIT_ASSERT_EQUAL(30.0, value("C3"));
++    CPPUNIT_ASSERT_EQUAL(40.0, value("C4"));
++    CPPUNIT_ASSERT(isEmpty("C5"));
++}
++
++// Error constants keep their meaning next to the # operator.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testErrorConstants)
++{
++    createScDoc();
++    const OUString aSep = ScCompiler::GetNativeSymbol(ocSep);
++    const OUString aIf = "=IF(A1=1" + aSep + "#N/A" + aSep + "2)";
++    type("C1", aIf);
++    CPPUNIT_ASSERT_EQUAL(aIf, formula("C1"));
++    type("C2", u"=ISERROR(#REF!)");
++    CPPUNIT_ASSERT_EQUAL(u"=ISERROR(#REF!)"_ustr, formula("C2"));
++    CPPUNIT_ASSERT_EQUAL(1.0, value("C2"));
++    type("C3", u"=#DIV/0!");
++    CPPUNIT_ASSERT_EQUAL(u"#DIV/0!"_ustr, text("C3"));
++}
++
++// Text forms in the Calc A1 and Excel A1 syntax, and in files.
++CPPUNIT_TEST_FIXTURE(ScHstDynamicArraysTest, testTextForms)
++{
++    createScDoc();
++    doc().InsertTab(1, u"Sheet2"_ustr);
++    doc().InsertTab(2, u"My Sheet"_ustr);
++    using G = formula::FormulaGrammar;
++
++    for (const OUString& rText :
++         { u"SUM(A1#)"_ustr, u"SUM($A$1#)"_ustr, u"SUM($Sheet2.B2#)"_ustr, u"@A1:A10"_ustr,
++           u"@A1:A10+1"_ustr, u"SUM(A1#)*@B1:B9"_ustr })
++        CPPUNIT_ASSERT_EQUAL(rText, convert(rText, G::GRAM_NATIVE, G::GRAM_NATIVE));
++
++    for (const OUString& rText : { u"SUM(A1#)"_ustr, u"SUM($A$1#)"_ustr,
++                                   u"SUM(Sheet2!B2#)"_ustr, u"SUM('My Sheet'!A1#)"_ustr })
++        CPPUNIT_ASSERT_EQUAL(rText, convert(rText, G::GRAM_NATIVE_XL_A1, G::GRAM_NATIVE_XL_A1));
++
++    // Files: ANCHORARRAY and SINGLE with parentheses around the operand.
++    CPPUNIT_ASSERT_EQUAL(u"SUM(_xlfn.ANCHORARRAY(A1))"_ustr,
++                         convert(u"SUM(A1#)"_ustr, G::GRAM_NATIVE, G::GRAM_OOXML));
++    CPPUNIT_ASSERT_EQUAL(u"_xlfn.SINGLE(A1:A10)"_ustr,
++                         convert(u"@A1:A10"_ustr, G::GRAM_NATIVE, G::GRAM_OOXML));
++    CPPUNIT_ASSERT_EQUAL(u"_xlfn.SINGLE(A1:A10)+1"_ustr,
++                         convert(u"@A1:A10+1"_ustr, G::GRAM_NATIVE, G::GRAM_OOXML));
++    CPPUNIT_ASSERT_EQUAL(u"_xlfn.SINGLE(-A1)"_ustr,
++                         convert(u"@-A1"_ustr, G::GRAM_NATIVE, G::GRAM_OOXML));
++    CPPUNIT_ASSERT_EQUAL(u"_xlfn.SINGLE(SUM(A1:A2))*2"_ustr,
++                         convert(u"@SUM(A1:A2)*2"_ustr, G::GRAM_NATIVE, G::GRAM_OOXML));
++    CPPUNIT_ASSERT_EQUAL(u"_xlfn.SINGLE(A1)%"_ustr,
++                         convert(u"@A1%"_ustr, G::GRAM_NATIVE, G::GRAM_OOXML));
++    CPPUNIT_ASSERT_EQUAL(u"_xlfn.SINGLE(A1:A10)"_ustr,
++                         convert(u"_xlfn.SINGLE(A1:A10)"_ustr, G::GRAM_OOXML, G::GRAM_OOXML));
++    CPPUNIT_ASSERT_EQUAL(u"@A1:A10"_ustr,
++                         convert(u"_xlfn.SINGLE(A1:A10)"_ustr, G::GRAM_OOXML, G::GRAM_NATIVE));
++    CPPUNIT_ASSERT_EQUAL(u"A1#"_ustr,
++                         convert(u"_xlfn.ANCHORARRAY(A1)"_ustr, G::GRAM_OOXML, G::GRAM_NATIVE));
++    CPPUNIT_ASSERT_EQUAL(u"COM.MICROSOFT.ANCHORARRAY([.A1])"_ustr,
++                         convert(u"A1#"_ustr, G::GRAM_NATIVE, G::GRAM_ODFF));
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/core/hst/hstdynamicarrayinterpreter.cxx
+@@ -0,0 +1,212 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// Dynamic array operators of the interpreter: @ (implicit intersection) and A1# (spill range).
++
++#include <interpre.hxx>
++
++#include <document.hxx>
++#include <formulacell.hxx>
++#include <scmatrix.hxx>
++
++#include <algorithm>
++
++namespace
++{
++/** The single cell of rRange that lies in the row and/or column of rPos: a column range gives
++    the cell in rPos' row, a row range the cell in rPos' column, a block the cell in both.
++    False when there is no such cell or the range spans several sheets. */
++bool IntersectWithPosition(const ScRange& rRange, const ScAddress& rPos, ScAddress& rCell)
++{
++    if (rRange.aStart.Tab() != rRange.aEnd.Tab())
++        return false;
++
++    SCCOL nCol = rRange.aStart.Col();
++    if (rRange.aStart.Col() != rRange.aEnd.Col())
++    {
++        if (rPos.Col() < rRange.aStart.Col() || rPos.Col() > rRange.aEnd.Col())
++            return false;
++        nCol = rPos.Col();
++    }
++    SCROW nRow = rRange.aStart.Row();
++    if (rRange.aStart.Row() != rRange.aEnd.Row())
++    {
++        if (rPos.Row() < rRange.aStart.Row() || rPos.Row() > rRange.aEnd.Row())
++            return false;
++        nRow = rPos.Row();
++    }
++    rCell = ScAddress(nCol, nRow, rRange.aStart.Tab());
++    return true;
++}
++}
++
++void ScInterpreter::ScHstSingleValue()
++{
++    switch (GetStackType())
++    {
++        case formula::svDoubleRef:
++        {
++            ScRange aRange;
++            PopDoubleRef(aRange);
++            if (nGlobalError != FormulaError::NONE)
++            {
++                PushError(nGlobalError);
++                return;
++            }
++            ScAddress aCell;
++            if (!IntersectWithPosition(aRange, aPos, aCell))
++            {
++                PushNoValue();
++                return;
++            }
++            PushSingleRef(aCell.Col(), aCell.Row(), aCell.Tab());
++            return;
++        }
++        case formula::svExternalDoubleRef:
++        {
++            sal_uInt16 nFileId = 0;
++            OUString aTabName;
++            ScComplexRefData aRef;
++            PopExternalDoubleRef(nFileId, aTabName, aRef);
++            if (nGlobalError != FormulaError::NONE)
++            {
++                PushError(nGlobalError);
++                return;
++            }
++            const ScRange aRange = aRef.toAbs(mrDoc, aPos);
++            ScAddress aCell;
++            if (!IntersectWithPosition(aRange, aPos, aCell))
++            {
++                PushNoValue();
++                return;
++            }
++            PushExternalSingleRef(nFileId, aTabName, aCell.Col(), aCell.Row(), aCell.Tab());
++            return;
++        }
++        case formula::svRefList:
++            // A union of ranges has no single cell to take.
++            Pop();
++            PushNoValue();
++            return;
++        case formula::svMatrix:
++        {
++            // An array: its upper-left element.
++            ScMatrixRef pMat = PopMatrix();
++            if (!pMat)
++            {
++                PushNoValue();
++                return;
++            }
++            SCSIZE nCols = 0, nRows = 0;
++            pMat->GetDimensions(nCols, nRows);
++            if (nCols == 0 || nRows == 0)
++            {
++                PushNoValue();
++                return;
++            }
++            if (pMat->IsValue(0, 0))
++            {
++                const FormulaError nErr = pMat->GetError(0, 0);
++                if (nErr != FormulaError::NONE)
++                {
++                    PushError(nErr);
++                    return;
++                }
++                if (pMat->IsBoolean(0, 0))
++                    nFuncFmtType = SvNumFormatType::LOGICAL;
++                PushDouble(pMat->GetDouble(0, 0));
++            }
++            else if (pMat->IsEmpty(0, 0) || pMat->IsEmptyPath(0, 0))
++                PushDouble(0.0);
++            else
++                PushString(pMat->GetString(0, 0));
++            return;
++        }
++        default:
++            // A single value or single cell stays as it is.
++            PushTokenRef(PopToken());
++            return;
++    }
++}
++
++void ScInterpreter::ScAnchorArray()
++{
++    ScAddress aAnchor;
++    switch (GetStackType())
++    {
++        case formula::svSingleRef:
++            PopSingleRef(aAnchor);
++            break;
++        case formula::svDoubleRef:
++        {
++            ScRange aRange;
++            PopDoubleRef(aRange);
++            if (aRange.aStart != aRange.aEnd)
++            {
++                PushError(FormulaError::NoRef);
++                return;
++            }
++            aAnchor = aRange.aStart;
++            break;
++        }
++        default:
++            Pop();
++            PushError(FormulaError::NoRef);
++            return;
++    }
++    if (nGlobalError != FormulaError::NONE)
++    {
++        PushError(FormulaError::NoRef);
++        return;
++    }
++
++    // Only a dynamic array's anchor has a spill range; a legacy array formula has none.
++    ScFormulaCell* pAnchor = mrDoc.GetFormulaCell(aAnchor);
++    if (!pAnchor || pAnchor->GetMatrixFlag() != ScMatrixMode::Formula
++        || !pAnchor->IsDynamicArrayMaster())
++    {
++        PushError(FormulaError::NoRef);
++        return;
++    }
++    if (pAnchor == pMyFormulaCell)
++    {
++        PushError(FormulaError::CircularReference);
++        return;
++    }
++
++    // The anchor's latest result decides the size, also while its cell range still waits to
++    // follow a new result size.
++    pAnchor->MaybeInterpret();
++    if (pAnchor->GetRawError() == FormulaError::Spill)
++    {
++        PushError(FormulaError::NoRef);
++        return;
++    }
++    SCSIZE nCols = 1, nRows = 1; // a one-cell result: the spill range is the anchor alone
++    if (const ScMatrix* pMat = pAnchor->GetMatrix())
++    {
++        pMat->GetDimensions(nCols, nRows);
++        const bool bErrorCell = nCols == 1 && nRows == 1 && pMat->IsValue(0, 0)
++                                && pMat->GetError(0, 0) != FormulaError::NONE;
++        if (nCols == 0 || nRows == 0 || bErrorCell)
++        {
++            PushError(FormulaError::NoRef);
++            return;
++        }
++    }
++    else if (pAnchor->GetRawError() != FormulaError::NONE)
++    {
++        PushError(FormulaError::NoRef); // an anchor whose result is an error has no spill range
++        return;
++    }
++    const SCCOL nEndCol = static_cast<SCCOL>(
++        std::min<SCSIZE>(aAnchor.Col() + nCols - 1, static_cast<SCSIZE>(mrDoc.MaxCol())));
++    const SCROW nEndRow = static_cast<SCROW>(
++        std::min<SCSIZE>(aAnchor.Row() + nRows - 1, static_cast<SCSIZE>(mrDoc.MaxRow())));
++    PushDoubleRef(aAnchor.Col(), aAnchor.Row(), aAnchor.Tab(), nEndCol, nEndRow, aAnchor.Tab());
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/core/hst/hstspillrange.cxx
+@@ -0,0 +1,91 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// The spill range operator of dynamic arrays: A1# is compiled to ANCHORARRAY(A1).
++
++#include <compiler.hxx>
++
++#include <rtl/character.hxx>
++
++namespace
++{
++/** Whether a '#' followed by c is the spill range operator. An error constant (#REF!, #N/A)
++    continues with a letter; '#', digits and non-ASCII characters are not the operator either. */
++bool IsSpillOperatorFollower(sal_Unicode c)
++{
++    return !(rtl::isAsciiAlphanumeric(c) || c == '#' || c >= 0x80);
++}
++}
++
++bool ScCompiler::ParseSpillRangeOperator()
++{
++    if (maRawToken.GetType() != formula::svSingleRef || maRawToken.GetOpCode() == ocColRowName)
++        return false;
++    const sal_Int32 nLen = aFormula.getLength();
++    if (nSrcPos >= nLen || aFormula[nSrcPos] != '#')
++        return false;
++    if (nSrcPos + 1 < nLen && !IsSpillOperatorFollower(aFormula[nSrcPos + 1]))
++        return false;
++
++    ++nSrcPos; // consume the operator
++    if (mbAutoCorrect)
++        maCorrectedSymbol += "#";
++    StartSpillRange();
++    return true;
++}
++
++bool ScCompiler::ParseSpillRangeSymbol(const OUString& rSymbol)
++{
++    // 'My Sheet'!A1# : the '#' was scanned as part of the symbol.
++    const sal_Int32 nLen = rSymbol.getLength();
++    if (nLen < 3 || rSymbol[nLen - 1] != '#')
++        return false;
++    // A single cell reference ends with its row number (A1, R1C1) or a bracket (R[1]C[1], [.A1]).
++    const sal_Unicode cLast = rSymbol[nLen - 2];
++    if (!rtl::isAsciiDigit(cLast) && cLast != ']')
++        return false;
++
++    if (!ParseSingleReference(rSymbol.copy(0, nLen - 1)))
++        return false;
++    if (maRawToken.GetType() != formula::svSingleRef)
++        return false;
++    StartSpillRange();
++    return true;
++}
++
++void ScCompiler::StartSpillRange()
++{
++    // A single reference is stored as both ends of the raw token's complex reference.
++    maPendingSpillRef = maRawToken.aRef.Ref1;
++    maRawToken.SetOpCode(ocAnchorArray);
++    mnPendingSpillRefStep = 1;
++}
++
++bool ScCompiler::NextSpillRangeToken()
++{
++    // The source text was already taken by the A1# token; these tokens add nothing to it.
++    if (mbAutoCorrect)
++        maCorrectedSymbol.clear();
++
++    switch (mnPendingSpillRefStep)
++    {
++        case 1:
++            maRawToken.SetOpCode(ocOpen);
++            mnPendingSpillRefStep = 2;
++            break;
++        case 2:
++            maRawToken.SetSingleReference(maPendingSpillRef);
++            mnPendingSpillRefStep = 3;
++            break;
++        default:
++            maRawToken.SetOpCode(ocClose);
++            mnPendingSpillRefStep = 0;
++            break;
++    }
++    return true;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/source/ui/hst/hstdynamicarrayinput.cxx
+@@ -0,0 +1,244 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++#include <hstdynamicarrayinput.hxx>
++
++#include <compiler.hxx>
++#include <document.hxx>
++#include <editable.hxx>
++#include <formulacell.hxx>
++#include <markdata.hxx>
++#include <scmatrix.hxx>
++#include <tokenarray.hxx>
++
++#include <formula/FormulaCompiler.hxx>
++#include <formula/tokenarray.hxx>
++
++namespace sc::hst
++{
++namespace
++{
++/// Whether the selection is more than the cursor cell.
++bool HasRangeSelection(const ScMarkData& rMark)
++{
++    if (rMark.IsMultiMarked())
++        return true;
++    if (!rMark.IsMarked())
++        return false;
++    const ScRange& rArea = rMark.GetMarkArea();
++    return rArea.aStart.Col() != rArea.aEnd.Col() || rArea.aStart.Row() != rArea.aEnd.Row();
++}
++
++/// Calls code outside the document (macros, add-ins, links): never calculated twice.
++bool IsExternalCall(OpCode eOp)
++{
++    switch (eOp)
++    {
++        case ocMacro:
++        case ocExternal:
++        case ocCall:
++        case ocDde:
++        case ocWebservice:
++        case ocTableOp:
++            return true;
++        default:
++            return false;
++    }
++}
++
++/// Functions that can give an array from single values.
++bool MakesArrayFromValues(OpCode eOp)
++{
++    switch (eOp)
++    {
++        case ocAnchorArray:
++        case ocOffset:
++        case ocIndirect:
++        case ocMatSequence:
++        case ocRandArray:
++        case ocMakeArray:
++        case ocMatrixUnit:
++        case ocExpand:
++        case ocHStack:
++        case ocVStack:
++        case ocTextSplit:
++        case ocRegexExtract:
++        case ocLet:
++        case ocLambda:
++            return true;
++        default:
++            return formula::FormulaCompiler::IsMatrixFunction(eOp);
++    }
++}
++
++/** Array functions: a formula whose outermost function is one of them is a dynamic array even
++    when its result is one cell, so that it spills when the result grows. */
++bool IsArrayFunction(OpCode eOp)
++{
++    switch (eOp)
++    {
++        case ocMatSequence:
++        case ocRandArray:
++        case ocFilter:
++        case ocUnique:
++        case ocSort:
++        case ocSortBy:
++        case ocMatTrans:
++        case ocMakeArray:
++        case ocMap:
++        case ocScan:
++        case ocByRow:
++        case ocByCol:
++        case ocHStack:
++        case ocVStack:
++        case ocToCol:
++        case ocToRow:
++        case ocWrapRows:
++        case ocWrapCols:
++        case ocTake:
++        case ocDrop:
++        case ocChooseRows:
++        case ocChooseCols:
++        case ocExpand:
++        case ocMatrixUnit:
++        case ocGroupBy:
++        case ocPivotBy:
++            return true;
++        default:
++            return false;
++    }
++}
++
++/// Whether a token may bring an array into the formula.
++bool MayGiveArray(const formula::FormulaToken& rToken)
++{
++    switch (rToken.GetType())
++    {
++        case formula::svDoubleRef:
++        case formula::svExternalDoubleRef:
++        case formula::svExternalName:
++        case formula::svRefList:
++        case formula::svMatrix:
++        case formula::svIndex: // names, database ranges, table references
++            return true;
++        default:
++            break;
++    }
++    switch (rToken.GetOpCode())
++    {
++        case ocName:
++        case ocDBArea:
++        case ocTableRef:
++        case ocColRowName:
++        case ocArrayOpen:
++            return true;
++        default:
++            return MakesArrayFromValues(rToken.GetOpCode());
++    }
++}
++}
++
++bool FormulaSpills(ScDocument& rDoc, const ScAddress& rPos, const ScMarkData& rMark,
++                   const ScTokenArray& rCode, const OUString& rFormula,
++                   formula::FormulaGrammar::Grammar eGrammar)
++{
++    if (HasRangeSelection(rMark) || rFormula.isEmpty())
++        return false;
++    if (rCode.GetCodeError() != FormulaError::NONE || rCode.GetLen() == 0)
++        return false;
++
++    // The outermost function is an array function: a dynamic array whatever its result size.
++    const formula::FormulaToken* pLast = rCode.LastRPNToken();
++    if (pLast && IsArrayFunction(pLast->GetOpCode()))
++        return true;
++
++    bool bMayGiveArray = false;
++    formula::FormulaTokenArrayPlainIterator aIter(rCode);
++    for (const formula::FormulaToken* p = aIter.First(); p; p = aIter.Next())
++    {
++        if (IsExternalCall(p->GetOpCode()))
++            return false;
++        if (MayGiveArray(*p))
++            bMayGiveArray = true;
++    }
++    // A formula starting with @ never spills.
++    if (!bMayGiveArray || (pLast && pLast->GetOpCode() == ocSingleValue))
++        return false;
++
++    // Calculate once exactly as a Ctrl+Shift+Enter array formula at the cursor cell would be,
++    // outside the sheet. The code is compiled afresh from the text in array mode: the code typed
++    // for a single cell has its range operands already reduced to the formula's row or column.
++    std::u16string_view aText(rFormula);
++    if (aText.starts_with(u'='))
++        aText.remove_prefix(1);
++    ScCompiler aCompiler(rDoc, rPos, eGrammar, /*bComputeII*/ false, /*bMatrixFlag*/ true);
++    std::unique_ptr<ScTokenArray> pArrayCode = aCompiler.CompileString(OUString(aText));
++    if (!pArrayCode || pArrayCode->GetCodeError() != FormulaError::NONE)
++        return false;
++    {
++        ScCompiler aRpnCompiler(rDoc, rPos, *pArrayCode, eGrammar, /*bComputeII*/ false,
++                                /*bMatrixFlag*/ true);
++        aRpnCompiler.CompileTokenArray();
++    }
++    if (pArrayCode->GetCodeError() != FormulaError::NONE || pArrayCode->GetCodeLen() == 0)
++        return false;
++    ScFormulaCell aProbe(rDoc, rPos, std::move(pArrayCode), eGrammar, ScMatrixMode::Formula);
++    aProbe.SetFreeFlying(true);
++    aProbe.Interpret();
++    const ScMatrix* pMat = aProbe.GetMatrix();
++    if (!pMat)
++        return false;
++    SCSIZE nCols = 0, nRows = 0;
++    pMat->GetDimensions(nCols, nRows);
++    return nCols > 0 && nRows > 0 && (nCols > 1 || nRows > 1);
++}
++
++ScRange SpillEntryRange(const ScDocument& rDoc, const ScMarkData& rMark, const ScRange& rResult,
++                        const ScAddress& rCursor)
++{
++    const ScEditableTester aResultTest = ScEditableTester::CreateAndTestSelectedBlock(
++        rDoc, rResult.aStart.Col(), rResult.aStart.Row(), rResult.aEnd.Col(), rResult.aEnd.Row(),
++        rMark);
++    if (aResultTest.IsEditable())
++        return rResult;
++
++    const ScEditableTester aCursorTest = ScEditableTester::CreateAndTestSelectedBlock(
++        rDoc, rCursor.Col(), rCursor.Row(), rCursor.Col(), rCursor.Row(), rMark);
++    if (aCursorTest.IsEditable())
++        return ScRange(rCursor);
++
++    return rResult; // the normal error path reports why the input is refused
++}
++
++void StripDynamicArrayBraces(const ScDocument& rDoc, const ScFormulaCell& rCell, OUString& rText)
++{
++    const ScFormulaCell* pMaster = nullptr;
++    switch (rCell.GetMatrixFlag())
++    {
++        case ScMatrixMode::Formula:
++            pMaster = &rCell;
++            break;
++        case ScMatrixMode::Reference:
++        {
++            ScAddress aOrigin;
++            if (rCell.GetMatrixOrigin(rDoc, aOrigin))
++                pMaster = rDoc.GetFormulaCell(aOrigin);
++            break;
++        }
++        default:
++            break;
++    }
++    if (!pMaster || pMaster->GetMatrixFlag() != ScMatrixMode::Formula
++        || !pMaster->IsDynamicArrayMaster())
++        return;
++
++    const sal_Int32 nLen = rText.getLength();
++    if (nLen >= 2 && rText[0] == '{' && rText[nLen - 1] == '}')
++        rText = rText.copy(1, nLen - 2);
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

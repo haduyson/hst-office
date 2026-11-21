@@ -1,0 +1,230 @@
+HST Office: in the C locale the gtk3 dialogs and panels show their .ui texts in the UI language, not English (vcl).
+
+GtkBuilder translates the .ui texts through gettext. glibc's gettext ignores LANGUAGE (which the office sets to its
+UI language) when the LC_MESSAGES locale is C or POSIX, C.UTF-8 included. An office started in such a locale with
+the Vietnamese UI (gtk3) showed the strings from the code in Vietnamese and every .ui text in English: the File
+panel's items, the Print page's labels (Printer, Range and Copies, Page Setup, More Options, Whole Page), dialogs.
+gen and Windows (VclBuilder) translate with LibreOffice's own catalogs and were not affected. In that case
+load_ui_file now gives GtkBuilder the file with its translatable texts translated by those catalogs for the UI
+language (vcl::hst::TranslateUiFileForGtkBuilder: the interface's domain, each text's context, as VclBuilder) and
+the translatable flags removed. Other locales, and an English UI, load the file as before.
+
+Test: tests/runtime/check-backstage-print-repeat.py under LANG=C.UTF-8 with the Vietnamese UI (each opening: the
+panel is in Vietnamese).
+--- a/vcl/Library_vclplug_gtk3.mk
++++ b/vcl/Library_vclplug_gtk3.mk
+@@ -103,6 +103,7 @@
+     vcl/unx/gtk3/customcellrenderer \
+     vcl/unx/gtk3/gtkdata \
+     vcl/unx/gtk3/gtkinst \
++    vcl/unx/gtk3/hstuitranslate \
+     vcl/unx/gtk3/gtksys \
+     vcl/unx/gtk3/gtkcairo \
+     vcl/unx/gtk3/custom-theme \
+--- a/vcl/unx/gtk3/gtkinst.cxx
++++ b/vcl/unx/gtk3/gtkinst.cxx
+@@ -16,6 +16,7 @@
+ #include <string_view>
+ 
+ #include <ClipboardBase.hxx>
++#include "hstuitranslate.hxx"
+ #include <dndhelper.hxx>
+ #include <tools/date.hxx>
+ #include <o3tl/test_info.hxx>
+@@ -23260,7 +23261,11 @@
+     OUString aPath;
+     osl::FileBase::getSystemPathFromFileURL(rUri, aPath);
+     GError *err = nullptr;
+-    auto rc = gtk_builder_add_from_file(pBuilder, OUStringToOString(aPath, RTL_TEXTENCODING_UTF8).getStr(), &err);
++    // in the C locale gettext ignores the UI language: GtkBuilder gets the texts translated already
++    const OString aTranslated = vcl::hst::TranslateUiFileForGtkBuilder(aPath);
++    auto rc = aTranslated.isEmpty()
++        ? gtk_builder_add_from_file(pBuilder, OUStringToOString(aPath, RTL_TEXTENCODING_UTF8).getStr(), &err)
++        : gtk_builder_add_from_string(pBuilder, aTranslated.getStr(), aTranslated.getLength(), &err);
+ 
+     if (nLogHandlerId)
+     {
+--- /dev/null
++++ b/vcl/unx/gtk3/hstuitranslate.hxx
+@@ -0,0 +1,31 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <rtl/string.hxx>
++#include <rtl/ustring.hxx>
++
++#include <string_view>
++
++namespace vcl::hst
++{
++/** Whether GtkBuilder can translate .ui texts in this process.
++
++    GtkBuilder translates through gettext, which uses LANGUAGE (set to the office's UI language) only when the
++    LC_MESSAGES locale is not C: glibc ignores LANGUAGE in the C/POSIX locales, C.UTF-8 included. An office
++    started in such a locale with a Vietnamese UI showed the code's strings in Vietnamese but every .ui text in
++    English. */
++bool GettextIgnoresUILanguage(std::string_view aMessagesLocale);
++
++/** The .ui file's translatable texts (translatable="yes", with their context) translated with LibreOffice's own
++    catalogs for the UI language, as VclBuilder does, and their translatable flags removed, so GtkBuilder takes them
++    as they are. The interface's domain names the catalog. Empty when no translation is needed (gettext works, or
++    the UI is English) or the file cannot be read. */
++OString TranslateUiFileForGtkBuilder(const OUString& rSystemPath);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/unx/gtk3/hstuitranslate.cxx
+@@ -0,0 +1,147 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#include "hstuitranslate.hxx"
++
++#include <i18nlangtag/languagetag.hxx>
++#include <rtl/strbuf.hxx>
++#include <sal/log.hxx>
++#include <unotools/resmgr.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++
++#include <clocale>
++#include <fstream>
++#include <sstream>
++#include <string>
++
++namespace vcl::hst
++{
++namespace
++{
++constexpr std::string_view FLAG = " translatable=\"yes\"";
++
++/// The value of the attribute aName="..." in the tag, empty when it has none.
++std::string_view attribute(std::string_view aTag, std::string_view aName)
++{
++    const std::string aKey = " " + std::string(aName) + "=\"";
++    const size_t nStart = aTag.find(aKey);
++    if (nStart == std::string_view::npos)
++        return {};
++    const size_t nValue = nStart + aKey.size();
++    const size_t nEnd = aTag.find('"', nValue);
++    return nEnd == std::string_view::npos ? std::string_view() : aTag.substr(nValue, nEnd - nValue);
++}
++
++/// XML character data as text: the predefined entities and character references.
++OString unescape(std::string_view aText)
++{
++    OStringBuffer aOut(static_cast<sal_Int32>(aText.size()));
++    for (size_t i = 0; i < aText.size(); ++i)
++    {
++        const size_t nEnd = aText[i] == '&' ? aText.find(';', i) : std::string_view::npos;
++        if (nEnd == std::string_view::npos)
++        {
++            aOut.append(aText[i]);
++            continue;
++        }
++        const std::string_view aEntity = aText.substr(i + 1, nEnd - i - 1);
++        if (aEntity == "amp")
++            aOut.append('&');
++        else if (aEntity == "lt")
++            aOut.append('<');
++        else if (aEntity == "gt")
++            aOut.append('>');
++        else if (aEntity == "quot")
++            aOut.append('"');
++        else if (aEntity == "apos")
++            aOut.append('\'');
++        else if (aEntity.size() > 1 && aEntity[0] == '#')
++        {
++            const bool bHex = aEntity[1] == 'x' || aEntity[1] == 'X';
++            const OString aNumber(aEntity.substr(bHex ? 2 : 1));
++            const sal_uInt32 nChar = static_cast<sal_uInt32>(
++                bHex ? aNumber.toUInt64(16) : aNumber.toUInt64(10));
++            aOut.append(OUStringToOString(OUString(&nChar, 1), RTL_TEXTENCODING_UTF8));
++        }
++        else
++        {
++            aOut.append(aText.substr(i, nEnd - i + 1)); // not ours: as it is
++        }
++        i = nEnd;
++    }
++    return aOut.makeStringAndClear();
++}
++
++OString escape(const OString& rText)
++{
++    return rText.replaceAll("&"_ostr, "&amp;"_ostr)
++        .replaceAll("<"_ostr, "&lt;"_ostr)
++        .replaceAll(">"_ostr, "&gt;"_ostr);
++}
++}
++
++bool GettextIgnoresUILanguage(std::string_view aMessagesLocale)
++{
++    return aMessagesLocale == "C" || aMessagesLocale == "POSIX" || aMessagesLocale.starts_with("C.");
++}
++
++OString TranslateUiFileForGtkBuilder(const OUString& rSystemPath)
++{
++    const char* pMessagesLocale = std::setlocale(LC_MESSAGES, nullptr);
++    if (!pMessagesLocale || !GettextIgnoresUILanguage(pMessagesLocale))
++        return {};
++    const LanguageTag& rUILanguage = Application::GetSettings().GetUILanguageTag();
++    if (rUILanguage.getLanguage() == "en")
++        return {}; // the .ui texts are English already
++    std::ifstream aFile(OUStringToOString(rSystemPath, osl_getThreadTextEncoding()).getStr(),
++                        std::ios::binary);
++    if (!aFile)
++        return {};
++    std::stringstream aRead;
++    aRead << aFile.rdbuf();
++    const std::string aUi = aRead.str();
++    const size_t nInterface = aUi.find("<interface");
++    const size_t nInterfaceEnd = aUi.find('>', nInterface);
++    if (nInterface == std::string::npos || nInterfaceEnd == std::string::npos)
++        return {};
++    const std::string_view aDomain
++        = attribute(std::string_view(aUi).substr(nInterface, nInterfaceEnd - nInterface), "domain");
++    if (aDomain.empty())
++        return {};
++    const std::locale aCatalog = Translate::Create(aDomain, rUILanguage);
++
++    OStringBuffer aOut(static_cast<sal_Int32>(aUi.size()));
++    const std::string_view aView(aUi);
++    size_t nPos = 0;
++    for (size_t nFlag = aView.find(FLAG); nFlag != std::string_view::npos; nFlag = aView.find(FLAG, nPos))
++    {
++        const size_t nTagStart = aView.rfind('<', nFlag);
++        const size_t nTagEnd = aView.find('>', nFlag);
++        if (nTagStart == std::string_view::npos || nTagStart < nPos || nTagEnd == std::string_view::npos)
++            break;
++        aOut.append(aView.substr(nPos, nFlag - nPos)); // up to the flag, which is left out
++        const std::string_view aTagRest = aView.substr(nFlag + FLAG.size(), nTagEnd + 1 - nFlag - FLAG.size());
++        aOut.append(aTagRest);
++        nPos = nTagEnd + 1;
++        if (aView[nTagEnd - 1] == '/')
++            continue; // an empty element: nothing to translate
++        const size_t nClose = aView.find("</", nPos);
++        if (nClose == std::string_view::npos)
++            break;
++        const OString aContext(attribute(aView.substr(nTagStart, nTagEnd - nTagStart), "context"));
++        const OString aText = unescape(aView.substr(nPos, nClose - nPos));
++        const OUString aTranslated = Translate::get(TranslateId(aContext.getStr(), aText.getStr()), aCatalog);
++        aOut.append(escape(OUStringToOString(aTranslated, RTL_TEXTENCODING_UTF8)));
++        nPos = nClose;
++    }
++    aOut.append(aView.substr(nPos));
++    SAL_INFO("vcl.gtk", "HST: .ui texts translated without gettext (C locale): " << rSystemPath);
++    return aOut.makeStringAndClear();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

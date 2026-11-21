@@ -1,0 +1,2030 @@
+HST Office: Slides/Draw and shape dialogs laid out by the dialog layout rulebook.
+
+Layout only (margins, spacing, alignment, column placement, character widths); no widget, id, label, string,
+handler, mnemonic or accessibility change. Values from hst::design::layout:
+- tab pages get a 12 px outer margin (the tabbed dialog shells keep 6), dialogs without tabs a 12 px border;
+- groups 12 apart, two group columns 24 apart, rows of bordered controls 6 apart;
+- labels of a block share one start-aligned column and are centred on their control's row;
+- spin buttons of one column share one width (width-chars) instead of stretching over the dialog;
+- Slide Show Settings puts Range under Mode next to Options, then the display group and Remote control across the
+  dialog, so it fits a 1366x768 screen (it was 691 px tall on gtk3) with an unchanged focus order; the two Range
+  list boxes get a 160 px minimum width (VCL list boxes take no width-chars);
+- Position and Size, Line, Shadow, Duplicate, Insert Table, Bullets and Numbering, Interaction and Fontwork pages:
+  the same columns and gaps on every tab, so switching tabs does not move the controls.
+- Accessibility: Slide Show Settings' "Buttons size" label names its list box (label-for / labelled-by), and
+  the Numbering page's "Start with" spin box takes the keyboard focus and is named by its check box, so its
+  no-labelled-by suppression in sdraw.suppr goes.
+Checked by tests/unit/test_ui_layout_rulebook.py (static) and tests/runtime/hst_dialog_layout_check.py (on screen,
+cases of this group in tests/runtime/data/dialog-layout-c.json).
+
+--- a/cui/uiconfig/ui/bulletandposition.ui
++++ b/cui/uiconfig/ui/bulletandposition.ui
+@@ -85,7 +85,7 @@
+   </object>
+   <object class="GtkDialog" id="BulletAndPosition">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="bulletandposition|DrawPRTLDialog">Bullets and Numbering</property>
+     <property name="modal">True</property>
+     <property name="default-width">0</property>
+@@ -171,7 +171,7 @@
+           <object class="GtkBox" id="NumberingOptionsPage">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+-            <property name="spacing">12</property>
++            <property name="spacing">24</property>
+             <child>
+               <object class="GtkFrame" id="frame1">
+                 <property name="visible">True</property>
+@@ -182,6 +182,7 @@
+                   <object class="GtkScrolledWindow">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
++                    <property name="margin-start">12</property>
+                     <property name="margin-top">6</property>
+                     <property name="hscrollbar-policy">never</property>
+                     <property name="vscrollbar-policy">never</property>
+@@ -233,9 +234,8 @@
+               <object class="GtkBox" id="box1">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+-                <property name="hexpand">True</property>
+                 <property name="orientation">vertical</property>
+-                <property name="spacing">6</property>
++                <property name="spacing">12</property>
+                 <child>
+                   <object class="GtkFrame" id="properties">
+                     <property name="visible">True</property>
+@@ -260,6 +260,7 @@
+                               <object class="GtkLabel" id="label4">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
++                                <property name="valign">center</property>
+                                 <property name="label" translatable="yes" context="bulletandposition|label4">Type:</property>
+                                 <property name="use-underline">True</property>
+                                 <property name="mnemonic-widget">numfmtlb</property>
+@@ -289,6 +290,7 @@
+                               <object class="GtkLabel" id="startatft">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
++                                <property name="valign">center</property>
+                                 <property name="label" translatable="yes" context="bulletandposition|startatft">Start at:</property>
+                                 <property name="use-underline">True</property>
+                                 <property name="mnemonic-widget">startat</property>
+@@ -306,6 +308,7 @@
+                                 <property name="halign">start</property>
+                                 <property name="activates-default">True</property>
+                                 <property name="text" translatable="yes" context="bulletandposition|startat">1</property>
++                                <property name="width-chars">12</property>
+                                 <property name="truncate-multiline">True</property>
+                                 <property name="adjustment">adjustment2</property>
+                                 <property name="value">1</property>
+@@ -324,6 +327,7 @@
+                               <object class="GtkLabel" id="bulletft">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
++                                <property name="valign">center</property>
+                                 <property name="label" translatable="yes" context="bulletandposition|bulletft">Character:</property>
+                                 <property name="use-underline">True</property>
+                                 <property name="mnemonic-widget">bullet</property>
+@@ -378,6 +382,7 @@
+                               <object class="GtkLabel" id="colorft">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
++                                <property name="valign">center</property>
+                                 <property name="label" translatable="yes" context="bulletandposition|colorft">Color:</property>
+                                 <property name="use-underline">True</property>
+                                 <property name="mnemonic-widget">color</property>
+@@ -458,6 +463,7 @@
+                           <object class="GtkLabel" id="prefixft">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
++                            <property name="valign">center</property>
+                             <property name="label" translatable="yes" context="bulletandposition|prefixft">Before:</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">prefix</property>
+@@ -472,6 +478,7 @@
+                           <object class="GtkLabel" id="suffixft">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
++                            <property name="valign">center</property>
+                             <property name="label" translatable="yes" context="bulletandposition|suffixft">After:</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">suffix</property>
+@@ -486,7 +493,9 @@
+                           <object class="GtkEntry" id="suffix">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
++                            <property name="halign">start</property>
+                             <property name="activates-default">True</property>
++                            <property name="width-chars">12</property>
+                             <property name="truncate-multiline">True</property>
+                             <child internal-child="accessible">
+                               <object class="AtkObject" id="suffix-atkobject">
+@@ -503,7 +512,9 @@
+                           <object class="GtkEntry" id="prefix">
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
++                            <property name="halign">start</property>
+                             <property name="activates-default">True</property>
++                            <property name="width-chars">12</property>
+                             <property name="truncate-multiline">True</property>
+                             <child internal-child="accessible">
+                               <object class="AtkObject" id="prefix-atkobject">
+@@ -566,6 +577,7 @@
+                                   <object class="GtkLabel" id="widthft">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
++                                    <property name="valign">center</property>
+                                     <property name="label" translatable="yes" context="bulletandposition|widthft">Width:</property>
+                                     <property name="use-underline">True</property>
+                                     <property name="mnemonic-widget">widthmf</property>
+@@ -580,6 +592,7 @@
+                                   <object class="GtkLabel" id="heightft">
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">False</property>
++                                    <property name="valign">center</property>
+                                     <property name="label" translatable="yes" context="bulletandposition|heightft">Height:</property>
+                                     <property name="use-underline">True</property>
+                                     <property name="mnemonic-widget">heightmf</property>
+@@ -595,6 +608,7 @@
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">True</property>
+                                     <property name="activates-default">True</property>
++                                    <property name="width-chars">12</property>
+                                     <property name="truncate-multiline">True</property>
+                                     <property name="adjustment">adjustment1</property>
+                                     <property name="digits">2</property>
+@@ -614,6 +628,7 @@
+                                     <property name="visible">True</property>
+                                     <property name="can-focus">True</property>
+                                     <property name="activates-default">True</property>
++                                    <property name="width-chars">12</property>
+                                     <property name="truncate-multiline">True</property>
+                                     <property name="adjustment">adjustment5</property>
+                                     <property name="digits">2</property>
+@@ -654,6 +669,7 @@
+                                 <property name="can-focus">True</property>
+                                 <property name="activates-default">True</property>
+                                 <property name="text" translatable="yes" context="bulletandposition|relsize">100</property>
++                                <property name="width-chars">12</property>
+                                 <property name="truncate-multiline">True</property>
+                                 <property name="adjustment">adjustment4</property>
+                                 <property name="value">100</property>
+@@ -672,6 +688,7 @@
+                               <object class="GtkLabel" id="relsizeft">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
++                                <property name="valign">center</property>
+                                 <property name="label" translatable="yes" context="bulletandposition|relsizeft">_Rel. size:</property>
+                                 <property name="use-underline">True</property>
+                                 <property name="mnemonic-widget">relsize</property>
+@@ -695,7 +712,7 @@
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="valign">center</property>
+-                            <property name="column-spacing">3</property>
++                            <property name="column-spacing">6</property>
+                             <child>
+                               <object class="GtkCheckButton" id="keepratio">
+                                 <property name="visible">True</property>
+@@ -805,6 +822,7 @@
+                           <object class="GtkLabel" id="indent">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
++                            <property name="valign">center</property>
+                             <property name="label" translatable="yes" context="bulletandposition|indent">Indent:</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">indentmf</property>
+@@ -819,6 +837,7 @@
+                           <object class="GtkLabel" id="numberingwidth">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
++                            <property name="valign">center</property>
+                             <property name="label" translatable="yes" context="bulletandposition|numberingwidth">Width:</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">numberingwidthmf</property>
+@@ -835,6 +854,7 @@
+                             <property name="can-focus">True</property>
+                             <property name="activates-default">True</property>
+                             <property name="text" translatable="yes" context="bulletandposition|indentmf">0.00</property>
++                            <property name="width-chars">12</property>
+                             <property name="truncate-multiline">True</property>
+                             <property name="adjustment">adjustment6</property>
+                             <property name="digits">2</property>
+@@ -855,6 +875,7 @@
+                             <property name="can-focus">True</property>
+                             <property name="activates-default">True</property>
+                             <property name="text" translatable="yes" context="bulletandposition|numberingwidthmf">0.00</property>
++                            <property name="width-chars">12</property>
+                             <property name="truncate-multiline">True</property>
+                             <property name="adjustment">adjustment7</property>
+                             <property name="digits">2</property>
+@@ -893,6 +914,7 @@
+                           <object class="GtkGrid" id="alignmentgr">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
++                            <property name="halign">start</property>
+                             <property name="column-spacing">6</property>
+                             <child>
+                               <object class="GtkToggleButton" id="center">
+@@ -958,6 +980,7 @@
+                           <object class="GtkLabel" id="ALlabel">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
++                            <property name="valign">center</property>
+                             <property name="label" translatable="yes" context="bulletandposition|ALlabel">Alignment:</property>
+                             <property name="mnemonic-widget">left</property>
+                             <property name="xalign">0</property>
+@@ -1097,6 +1120,8 @@
+                   <object class="GtkBox">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
++                    <property name="margin-start">12</property>
++                    <property name="margin-top">6</property>
+                     <child>
+                       <object class="GtkScrolledWindow">
+                         <property name="visible">True</property>
+--- a/cui/uiconfig/ui/lineendstabpage.ui
++++ b/cui/uiconfig/ui/lineendstabpage.ui
+@@ -29,7 +29,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="label-xalign">0</property>
+     <property name="shadow-type">none</property>
+     <child>
+@@ -42,19 +42,20 @@
+         <property name="hexpand">True</property>
+         <property name="vexpand">True</property>
+         <property name="orientation">vertical</property>
+-        <property name="spacing">6</property>
++        <property name="spacing">12</property>
+         <child>
+           <object class="GtkBox" id="box2">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+-            <property name="spacing">12</property>
++            <property name="spacing">24</property>
+             <child>
+-              <!-- n-columns=2 n-rows=3 -->
++              <!-- n-columns=2 n-rows=2 -->
+               <object class="GtkGrid" id="grid1">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="valign">start</property>
+                 <property name="hexpand">True</property>
+                 <property name="vexpand">True</property>
+                 <property name="row-spacing">6</property>
+@@ -63,6 +64,8 @@
+                   <object class="GtkLabel" id="FT_LINE_END_STYLE">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
++                    <property name="halign">start</property>
++                    <property name="valign">center</property>
+                     <property name="label" translatable="yes" context="lineendstabpage|FT_LINE_END_STYLE">Arrow _style:</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">LB_LINEENDS</property>
+@@ -77,6 +80,8 @@
+                   <object class="GtkLabel" id="FT_TITLE">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
++                    <property name="halign">start</property>
++                    <property name="valign">center</property>
+                     <property name="label" translatable="yes" context="lineendstabpage|FT_TITLE">Style _name:</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">EDT_NAME</property>
+@@ -127,7 +132,7 @@
+                 </child>
+               </object>
+               <packing>
+-                <property name="expand">False</property>
++                <property name="expand">True</property>
+                 <property name="fill">True</property>
+                 <property name="position">0</property>
+               </packing>
+@@ -136,6 +141,7 @@
+               <object class="GtkButtonBox" id="buttonbox1">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="halign">end</property>
+                 <property name="vexpand">True</property>
+                 <property name="orientation">vertical</property>
+                 <property name="spacing">6</property>
+--- a/cui/uiconfig/ui/linestyletabpage.ui
++++ b/cui/uiconfig/ui/linestyletabpage.ui
+@@ -54,7 +54,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="label-xalign">0</property>
+     <property name="shadow-type">none</property>
+     <child>
+@@ -67,14 +67,14 @@
+         <property name="hexpand">True</property>
+         <property name="vexpand">True</property>
+         <property name="orientation">vertical</property>
+-        <property name="spacing">6</property>
++        <property name="spacing">12</property>
+         <child>
+           <object class="GtkBox" id="box3">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+-            <property name="spacing">12</property>
++            <property name="spacing">24</property>
+             <child>
+               <object class="GtkBox" id="box4">
+                 <property name="visible">True</property>
+@@ -88,6 +88,7 @@
+                   <object class="GtkGrid" id="grid1">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
++                    <property name="valign">start</property>
+                     <property name="hexpand">True</property>
+                     <property name="vexpand">True</property>
+                     <property name="row-spacing">6</property>
+@@ -96,6 +97,8 @@
+                       <object class="GtkLabel" id="FT_TYPE">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="halign">start</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="linestyletabpage|FT_TYPE">_Type:</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">LB_TYPE_1</property>
+@@ -110,6 +113,8 @@
+                       <object class="GtkLabel" id="FT_NUMBER">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="halign">start</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="linestyletabpage|FT_NUMBER">_Number:</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">NUM_FLD_1</property>
+@@ -124,6 +129,8 @@
+                       <object class="GtkLabel" id="FT_LENGTH">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="halign">start</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="linestyletabpage|FT_LENGTH">_Length:</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">MTR_FLD_LENGTH_1</property>
+@@ -138,6 +145,8 @@
+                       <object class="GtkLabel" id="FT_DISTANCE">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="halign">start</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="linestyletabpage|FT_DISTANCE">_Spacing:</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">MTR_FLD_DISTANCE</property>
+@@ -183,6 +192,7 @@
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
+                         <property name="activates-default">True</property>
++                        <property name="width-chars">10</property>
+                         <property name="truncate-multiline">True</property>
+                         <property name="adjustment">adjustmentNUM</property>
+                       </object>
+@@ -196,6 +206,7 @@
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
+                         <property name="activates-default">True</property>
++                        <property name="width-chars">10</property>
+                         <property name="truncate-multiline">True</property>
+                         <property name="adjustment">adjustmentNUM1</property>
+                       </object>
+@@ -209,6 +220,7 @@
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
+                         <property name="activates-default">True</property>
++                        <property name="width-chars">10</property>
+                         <property name="truncate-multiline">True</property>
+                         <property name="adjustment">adjustmentDIST</property>
+                         <property name="digits">2</property>
+@@ -223,6 +235,7 @@
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
+                         <property name="activates-default">True</property>
++                        <property name="width-chars">10</property>
+                         <property name="truncate-multiline">True</property>
+                         <property name="adjustment">adjustmentDIST1</property>
+                         <property name="digits">2</property>
+@@ -237,6 +250,7 @@
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
+                         <property name="activates-default">True</property>
++                        <property name="width-chars">10</property>
+                         <property name="truncate-multiline">True</property>
+                         <property name="adjustment">adjustmentDIST2</property>
+                         <property name="digits">2</property>
+@@ -265,6 +279,8 @@
+                       <object class="GtkLabel" id="FT_LINESTYLE">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="halign">start</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="linestyletabpage|FT_LINESTYLE">Line _style:</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">LB_LINESTYLES</property>
+@@ -312,7 +328,7 @@
+                 </child>
+               </object>
+               <packing>
+-                <property name="expand">False</property>
++                <property name="expand">True</property>
+                 <property name="fill">True</property>
+                 <property name="position">0</property>
+               </packing>
+--- a/cui/uiconfig/ui/linetabpage.ui
++++ b/cui/uiconfig/ui/linetabpage.ui
+@@ -129,7 +129,7 @@
+     <property name="can-focus">False</property>
+     <property name="hexpand">True</property>
+     <property name="vexpand">True</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">12</property>
+     <child>
+@@ -137,6 +137,7 @@
+       <object class="GtkGrid" id="grid1">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
++        <property name="halign">start</property>
+         <property name="row-spacing">12</property>
+         <property name="column-spacing">24</property>
+         <child>
+@@ -157,11 +158,13 @@
+                   <object class="GtkBox" id="box5">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="spacing">6</property>
++                    <property name="spacing">12</property>
+                     <child>
+                       <object class="GtkLabel" id="FT_LINE_STYLE">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="halign">start</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="linetabpage|FT_LINE_STYLE">_Style:</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">LB_LINE_STYLE</property>
+@@ -207,11 +210,13 @@
+                   <object class="GtkBox" id="boxCOLOR">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="spacing">6</property>
++                    <property name="spacing">12</property>
+                     <child>
+                       <object class="GtkLabel" id="FT_COLOR">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="halign">start</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="linetabpage|FT_COLOR">Colo_r:</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">LB_COLOR</property>
+@@ -252,11 +257,13 @@
+                   <object class="GtkBox" id="boxWIDTH">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="spacing">6</property>
++                    <property name="spacing">12</property>
+                     <child>
+                       <object class="GtkLabel" id="FT_LINE_WIDTH">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="halign">start</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="linetabpage|FT_LINE_WIDTH">T_hickness:</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">MTR_FLD_LINE_WIDTH</property>
+@@ -273,6 +280,7 @@
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
+                         <property name="halign">start</property>
++                        <property name="width-chars">10</property>
+                         <property name="truncate-multiline">True</property>
+                         <property name="adjustment">adjustmentWIDTH</property>
+                         <property name="digits">2</property>
+@@ -294,11 +302,13 @@
+                   <object class="GtkBox" id="boxTRANSPARENCY">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="spacing">6</property>
++                    <property name="spacing">12</property>
+                     <child>
+                       <object class="GtkLabel" id="FT_TRANSPARENT">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="halign">start</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="linetabpage|FT_TRANSPARENT">_Transparency:</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">MTR_LINE_TRANSPARENT</property>
+@@ -315,6 +325,7 @@
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
+                         <property name="halign">start</property>
++                        <property name="width-chars">10</property>
+                         <property name="truncate-multiline">True</property>
+                         <property name="adjustment">adjustmentPERCENT</property>
+                       </object>
+@@ -368,18 +379,20 @@
+                   <object class="GtkBox">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="spacing">36</property>
++                    <property name="spacing">24</property>
+                     <child>
+                       <!-- n-columns=2 n-rows=2 -->
+                       <object class="GtkGrid" id="grid2">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
+                         <property name="row-spacing">6</property>
+-                        <property name="column-spacing">6</property>
++                        <property name="column-spacing">12</property>
+                         <child>
+                           <object class="GtkLabel" id="FT_LINE_ENDS_STYLE">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
++                            <property name="halign">start</property>
++                            <property name="valign">center</property>
+                             <property name="label" translatable="yes" context="linetabpage|FT_LINE_ENDS_STYLE">Start st_yle:</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">LB_START_STYLE</property>
+@@ -418,7 +431,7 @@
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="row-spacing">4</property>
+-                            <property name="column-spacing">6</property>
++                            <property name="column-spacing">12</property>
+                             <child>
+                               <object class="GtkCheckButton" id="TSB_CENTER_START">
+                                 <property name="label" translatable="yes" context="linetabpage|TSB_CENTER_START">Ce_nter</property>
+@@ -439,6 +452,8 @@
+                               <object class="GtkLabel" id="FT_LINE_START_WIDTH">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
++                                <property name="halign">start</property>
++                                <property name="valign">center</property>
+                                 <property name="label" translatable="yes" context="linetabpage|FT_LINE_START_WIDTH">Wi_dth:</property>
+                                 <property name="use-underline">True</property>
+                                 <property name="mnemonic-widget">MTR_FLD_START_WIDTH</property>
+@@ -454,6 +469,7 @@
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">True</property>
+                                 <property name="halign">start</property>
++                                <property name="width-chars">10</property>
+                                 <property name="truncate-multiline">True</property>
+                                 <property name="adjustment">adjustmentWIDTH1</property>
+                                 <property name="digits">2</property>
+@@ -474,8 +490,9 @@
+                                 <property name="draw-indicator">True</property>
+                               </object>
+                               <packing>
+-                                <property name="left-attach">1</property>
++                                <property name="left-attach">0</property>
+                                 <property name="top-attach">2</property>
++                                <property name="width">2</property>
+                               </packing>
+                             </child>
+                             <child>
+@@ -503,8 +520,9 @@
+                       <object class="GtkGrid" id="grid3">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="margin-start">12</property>
+                         <property name="row-spacing">6</property>
+-                        <property name="column-spacing">6</property>
++                        <property name="column-spacing">12</property>
+                         <child>
+                           <object class="GtkComboBox" id="LB_END_STYLE">
+                             <property name="visible">True</property>
+@@ -531,6 +549,8 @@
+                           <object class="GtkLabel" id="label5">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
++                            <property name="halign">start</property>
++                            <property name="valign">center</property>
+                             <property name="label" translatable="yes" context="linetabpage|label5">End sty_le:</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">LB_END_STYLE</property>
+@@ -547,11 +567,13 @@
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="row-spacing">4</property>
+-                            <property name="column-spacing">6</property>
++                            <property name="column-spacing">12</property>
+                             <child>
+                               <object class="GtkLabel" id="FT_LINE_END_WIDTH">
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">False</property>
++                                <property name="halign">start</property>
++                                <property name="valign">center</property>
+                                 <property name="label" translatable="yes" context="linetabpage|FT_LINE_END_WIDTH">W_idth:</property>
+                                 <property name="use-underline">True</property>
+                                 <property name="mnemonic-widget">MTR_FLD_END_WIDTH</property>
+@@ -567,6 +589,7 @@
+                                 <property name="visible">True</property>
+                                 <property name="can-focus">True</property>
+                                 <property name="halign">start</property>
++                                <property name="width-chars">10</property>
+                                 <property name="truncate-multiline">True</property>
+                                 <property name="adjustment">adjustmentWIDTH2</property>
+                                 <property name="digits">2</property>
+@@ -639,6 +662,7 @@
+           <object class="GtkFrame" id="FL_EDGE_STYLE">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
++            <property name="hexpand">True</property>
+             <property name="label-xalign">0</property>
+             <property name="shadow-type">none</property>
+             <child>
+@@ -646,14 +670,17 @@
+               <object class="GtkGrid" id="gridEDGE_CAPS">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="halign">start</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+                 <property name="row-spacing">6</property>
+-                <property name="column-spacing">6</property>
++                <property name="column-spacing">12</property>
+                 <child>
+                   <object class="GtkLabel" id="FT_EDGE_STYLE">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
++                    <property name="halign">start</property>
++                    <property name="valign">center</property>
+                     <property name="label" translatable="yes" context="linetabpage|FT_EDGE_STYLE">_Corner style:</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">LB_EDGE_STYLE</property>
+@@ -668,6 +695,8 @@
+                   <object class="GtkLabel" id="FT_CAP_STYLE">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
++                    <property name="halign">start</property>
++                    <property name="valign">center</property>
+                     <property name="label" translatable="yes" context="linetabpage|FT_CAP_STYLE">Ca_p style:</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">LB_CAP_STYLE</property>
+@@ -731,6 +760,7 @@
+           <object class="GtkFrame" id="FL_SYMBOL_FORMAT">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
++            <property name="hexpand">True</property>
+             <property name="label-xalign">0</property>
+             <property name="shadow-type">none</property>
+             <child>
+@@ -772,6 +802,8 @@
+                       <object class="GtkLabel" id="FT_SYMBOL_WIDTH">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="halign">start</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="linetabpage|FT_SYMBOL_WIDTH">Widt_h:</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">MF_SYMBOL_WIDTH</property>
+@@ -786,6 +818,7 @@
+                       <object class="GtkSpinButton" id="MF_SYMBOL_WIDTH">
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
++                        <property name="width-chars">10</property>
+                         <property name="truncate-multiline">True</property>
+                         <property name="adjustment">adjustmentWIDTH_SYMBOL</property>
+                         <property name="digits">2</property>
+@@ -815,6 +848,8 @@
+                       <object class="GtkLabel" id="FT_SYMBOL_HEIGHT">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="halign">start</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="linetabpage|FT_SYMBOL_HEIGHT">Hei_ght:</property>
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">MF_SYMBOL_HEIGHT</property>
+@@ -829,6 +864,7 @@
+                       <object class="GtkSpinButton" id="MF_SYMBOL_HEIGHT">
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
++                        <property name="width-chars">10</property>
+                         <property name="truncate-multiline">True</property>
+                         <property name="adjustment">adjustmentHEIGHT_SYMBOL</property>
+                         <property name="digits">2</property>
+@@ -874,8 +910,6 @@
+       <object class="GtkScrolledWindow">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+-        <property name="margin-start">12</property>
+-        <property name="margin-top">6</property>
+         <property name="hscrollbar-policy">never</property>
+         <property name="vscrollbar-policy">never</property>
+         <property name="shadow-type">in</property>
+--- a/cui/uiconfig/ui/newtabledialog.ui
++++ b/cui/uiconfig/ui/newtabledialog.ui
+@@ -18,7 +18,7 @@
+   </object>
+   <object class="GtkDialog" id="NewTableDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="newtabledialog|NewTableDialog">Insert Table</property>
+     <property name="modal">True</property>
+     <property name="default-width">0</property>
+@@ -91,14 +91,13 @@
+           <object class="GtkGrid" id="grid1">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+-            <property name="border-width">6</property>
+-            <property name="row-spacing">12</property>
++            <property name="row-spacing">6</property>
+             <property name="column-spacing">12</property>
+             <child>
+               <object class="GtkLabel" id="columns_label">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+-                <property name="hexpand">True</property>
++                <property name="valign">center</property>
+                 <property name="label" translatable="yes" context="newtabledialog|columns_label">_Number of columns:</property>
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">columns</property>
+@@ -113,7 +112,7 @@
+               <object class="GtkLabel" id="rows_label">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+-                <property name="hexpand">True</property>
++                <property name="valign">center</property>
+                 <property name="label" translatable="yes" context="newtabledialog|rows_label">_Number of rows:</property>
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">rows</property>
+@@ -129,6 +128,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">True</property>
+                 <property name="activates-default">True</property>
++                <property name="width-chars">8</property>
+                 <property name="truncate-multiline">True</property>
+                 <property name="adjustment">columns_value</property>
+                 <property name="snap-to-ticks">True</property>
+@@ -149,6 +149,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">True</property>
+                 <property name="activates-default">True</property>
++                <property name="width-chars">8</property>
+                 <property name="truncate-multiline">True</property>
+                 <property name="adjustment">rows_value</property>
+                 <property name="snap-to-ticks">True</property>
+--- a/cui/uiconfig/ui/possizetabpage.ui
++++ b/cui/uiconfig/ui/possizetabpage.ui
+@@ -27,7 +27,7 @@
+   <object class="GtkBox" id="PositionAndSize">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">12</property>
+     <child>
+@@ -42,13 +42,14 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="spacing">12</property>
++            <property name="spacing">24</property>
+             <property name="homogeneous">True</property>
+             <child>
+               <!-- n-columns=2 n-rows=2 -->
+               <object class="GtkGrid" id="grid1">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="valign">start</property>
+                 <property name="row-spacing">6</property>
+                 <property name="column-spacing">12</property>
+                 <child>
+@@ -59,6 +60,7 @@
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">MTR_FLD_POS_X</property>
+                     <property name="xalign">0</property>
++                    <property name="yalign">0.5</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -73,6 +75,7 @@
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">MTR_FLD_POS_Y</property>
+                     <property name="xalign">0</property>
++                    <property name="yalign">0.5</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -85,6 +88,7 @@
+                     <property name="can-focus">True</property>
+                     <property name="halign">start</property>
+                     <property name="activates-default">True</property>
++                    <property name="width-chars">12</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="adjustment">adjustmentPOS</property>
+                     <property name="digits">2</property>
+@@ -105,6 +109,7 @@
+                     <property name="can-focus">True</property>
+                     <property name="halign">start</property>
+                     <property name="activates-default">True</property>
++                    <property name="width-chars">12</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="adjustment">adjustmentPOS1</property>
+                     <property name="digits">2</property>
+@@ -137,7 +142,7 @@
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="halign">center</property>
+-                    <property name="valign">center</property>
++                    <property name="valign">start</property>
+                     <property name="hscrollbar-policy">never</property>
+                     <property name="vscrollbar-policy">never</property>
+                     <property name="shadow-type">in</property>
+@@ -211,13 +216,14 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="spacing">12</property>
++            <property name="spacing">24</property>
+             <property name="homogeneous">True</property>
+             <child>
+               <!-- n-columns=3 n-rows=2 -->
+               <object class="GtkGrid" id="grid2">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="valign">start</property>
+                 <property name="row-spacing">6</property>
+                 <property name="column-spacing">12</property>
+                 <child>
+@@ -228,6 +234,7 @@
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">MTR_FLD_WIDTH</property>
+                     <property name="xalign">0</property>
++                    <property name="yalign">0.5</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -316,6 +323,7 @@
+                     <property name="can-focus">True</property>
+                     <property name="halign">start</property>
+                     <property name="activates-default">True</property>
++                    <property name="width-chars">12</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="adjustment">adjustmentSIZE</property>
+                     <property name="digits">2</property>
+@@ -336,6 +344,7 @@
+                     <property name="can-focus">True</property>
+                     <property name="halign">start</property>
+                     <property name="activates-default">True</property>
++                    <property name="width-chars">12</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="adjustment">adjustmentSIZE1</property>
+                     <property name="digits">2</property>
+@@ -358,6 +367,7 @@
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">MTR_FLD_HEIGHT</property>
+                     <property name="xalign">0</property>
++                    <property name="yalign">0.5</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -382,7 +392,7 @@
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="halign">center</property>
+-                    <property name="valign">center</property>
++                    <property name="valign">start</property>
+                     <property name="hscrollbar-policy">never</property>
+                     <property name="vscrollbar-policy">never</property>
+                     <property name="shadow-type">in</property>
+@@ -448,7 +458,7 @@
+       <object class="GtkBox" id="box2">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+-        <property name="spacing">12</property>
++        <property name="spacing">24</property>
+         <property name="homogeneous">True</property>
+         <child>
+           <object class="GtkFrame" id="FL_PROTECT">
+--- a/cui/uiconfig/ui/rotationtabpage.ui
++++ b/cui/uiconfig/ui/rotationtabpage.ui
+@@ -22,15 +22,14 @@
+   <object class="GtkBox" id="Rotation">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="orientation">vertical</property>
+     <property name="spacing">12</property>
+-    <property name="homogeneous">True</property>
+     <child>
+       <object class="GtkBox" id="box_pivot">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+-        <property name="spacing">12</property>
++        <property name="spacing">24</property>
+         <property name="homogeneous">True</property>
+         <child>
+           <object class="GtkFrame" id="FL_POSITION">
+@@ -62,6 +61,7 @@
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">MTR_FLD_POS_X</property>
+                         <property name="xalign">0</property>
++                        <property name="yalign">0.5</property>
+                       </object>
+                       <packing>
+                         <property name="left-attach">0</property>
+@@ -76,6 +76,7 @@
+                         <property name="use-underline">True</property>
+                         <property name="mnemonic-widget">MTR_FLD_POS_Y</property>
+                         <property name="xalign">0</property>
++                        <property name="yalign">0.5</property>
+                       </object>
+                       <packing>
+                         <property name="left-attach">0</property>
+@@ -87,6 +88,7 @@
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
+                         <property name="activates-default">True</property>
++                        <property name="width-chars">12</property>
+                         <property name="truncate-multiline">True</property>
+                         <property name="adjustment">adjustmentPOS1</property>
+                         <property name="digits">2</property>
+@@ -106,6 +108,7 @@
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
+                         <property name="activates-default">True</property>
++                        <property name="width-chars">12</property>
+                         <property name="truncate-multiline">True</property>
+                         <property name="adjustment">adjustmentPOS2</property>
+                         <property name="digits">2</property>
+@@ -173,6 +176,7 @@
+                         <property name="can-focus">True</property>
+                         <property name="events">GDK_BUTTON_PRESS_MASK | GDK_BUTTON_RELEASE_MASK | GDK_KEY_PRESS_MASK | GDK_KEY_RELEASE_MASK | GDK_STRUCTURE_MASK</property>
+                         <property name="tooltip-text" translatable="yes" context="rotationtabpage|CTL_RECT|tooltip_text">Rotation point</property>
++                        <property name="valign">start</property>
+                         <accessibility>
+                           <relation type="labelled-by" target="pivot_location_label"/>
+                         </accessibility>
+@@ -201,6 +205,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="label" translatable="yes" context="rotationtabpage|pivot_location_label">Pivot Location</property>
++                <property name="xalign">0</property>
+                 <attributes>
+                   <attribute name="weight" value="bold"/>
+                 </attributes>
+@@ -227,7 +232,7 @@
+       <object class="GtkBox" id="box_angle">
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+-        <property name="spacing">12</property>
++        <property name="spacing">24</property>
+         <property name="homogeneous">True</property>
+         <child>
+           <object class="GtkFrame" id="FL_ANGLE">
+@@ -247,6 +252,8 @@
+                   <object class="GtkGrid" id="grid5">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
++                    <property name="row-spacing">6</property>
++                    <property name="column-spacing">12</property>
+                     <child>
+                       <object class="GtkLabel" id="FT_ANGLE">
+                         <property name="visible">True</property>
+@@ -254,6 +261,7 @@
+                         <property name="label" translatable="yes" context="rotationtabpage|FT_ANGLE">_Angle:</property>
+                         <property name="use-underline">True</property>
+                         <property name="xalign">0</property>
++                        <property name="yalign">0.5</property>
+                         <accessibility>
+                           <relation type="label-for" target="NF_ANGLE"/>
+                         </accessibility>
+@@ -268,6 +276,7 @@
+                         <property name="visible">True</property>
+                         <property name="can-focus">True</property>
+                         <property name="activates-default">True</property>
++                        <property name="width-chars">12</property>
+                         <property name="truncate-multiline">True</property>
+                         <property name="adjustment">adjustmentANGLE</property>
+                         <property name="digits">2</property>
+@@ -359,7 +368,6 @@
+                   <packing>
+                     <property name="expand">False</property>
+                     <property name="fill">True</property>
+-                    <property name="padding">12</property>
+                     <property name="position">0</property>
+                   </packing>
+                 </child>
+@@ -370,6 +378,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="label" translatable="yes" context="rotationtabpage|wheel_frame">Rotation Wheel</property>
++                <property name="xalign">0</property>
+                 <attributes>
+                   <attribute name="weight" value="bold"/>
+                 </attributes>
+--- a/cui/uiconfig/ui/shadowtabpage.ui
++++ b/cui/uiconfig/ui/shadowtabpage.ui
+@@ -20,7 +20,7 @@
+   <object class="GtkBox" id="ShadowTabPage">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="spacing">24</property>
+     <child>
+       <object class="GtkFrame" id="property">
+@@ -35,7 +35,7 @@
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+             <property name="orientation">vertical</property>
+-            <property name="spacing">4</property>
++            <property name="spacing">6</property>
+             <child>
+               <object class="GtkCheckButton" id="TSB_SHOW_SHADOW">
+                 <property name="label" translatable="yes" context="shadowtabpage|TSB_SHOW_SHADOW">_Use shadow</property>
+@@ -62,13 +62,13 @@
+               <object class="GtkGrid" id="gridSHADOW">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+-                <property name="margin-start">18</property>
+                 <property name="row-spacing">6</property>
+-                <property name="column-spacing">6</property>
++                <property name="column-spacing">12</property>
+                 <child>
+                   <object class="GtkScrolledWindow">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
++                    <property name="halign">start</property>
+                     <property name="hscrollbar-policy">never</property>
+                     <property name="vscrollbar-policy">never</property>
+                     <property name="shadow-type">in</property>
+@@ -100,6 +100,8 @@
+                   <object class="GtkLabel" id="FT_SHADOW_COLOR">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
++                    <property name="halign">start</property>
++                    <property name="valign">center</property>
+                     <property name="label" translatable="yes" context="shadowtabpage|FT_SHADOW_COLOR">_Color:</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">LB_SHADOW_COLOR</property>
+@@ -136,6 +138,8 @@
+                   <object class="GtkLabel" id="FT_DISTANCE">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
++                    <property name="halign">start</property>
++                    <property name="valign">center</property>
+                     <property name="label" translatable="yes" context="shadowtabpage|FT_DISTANCE">_Distance:</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">MTR_FLD_DISTANCE</property>
+@@ -152,6 +156,7 @@
+                     <property name="can-focus">True</property>
+                     <property name="halign">start</property>
+                     <property name="activates-default">True</property>
++                    <property name="width-chars">10</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="adjustment">adjustmentDistance</property>
+                     <property name="digits">2</property>
+@@ -172,6 +177,7 @@
+                     <property name="can-focus">True</property>
+                     <property name="halign">start</property>
+                     <property name="activates-default">True</property>
++                    <property name="width-chars">10</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="adjustment">adjustmentPoint</property>
+                     <property name="digits">1</property>
+@@ -185,6 +191,8 @@
+                   <object class="GtkLabel" id="FT_SHADOW_BLUR">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
++                    <property name="halign">start</property>
++                    <property name="valign">center</property>
+                     <property name="label" translatable="yes" context="shadowtabpage|FT_SHADOW_BLUR">_Blur:</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">LB_SHADOW_BLUR</property>
+@@ -199,6 +207,8 @@
+                   <object class="GtkLabel" id="FT_TRANSPARENT">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
++                    <property name="halign">start</property>
++                    <property name="valign">center</property>
+                     <property name="label" translatable="yes" context="shadowtabpage|FT_TRANSPARENT">_Transparency:</property>
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">MTR_SHADOW_TRANSPARENT</property>
+@@ -215,6 +225,7 @@
+                     <property name="can-focus">True</property>
+                     <property name="halign">start</property>
+                     <property name="activates-default">True</property>
++                    <property name="width-chars">10</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="adjustment">adjustmentPercent</property>
+                     <child internal-child="accessible">
+--- a/cui/uiconfig/ui/slantcornertabpage.ui
++++ b/cui/uiconfig/ui/slantcornertabpage.ui
+@@ -37,9 +37,9 @@
+   <object class="GtkGrid" id="SlantAndCornerRadius">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
+-    <property name="row-spacing">24</property>
+-    <property name="column-spacing">12</property>
++    <property name="border-width">12</property>
++    <property name="row-spacing">12</property>
++    <property name="column-spacing">24</property>
+     <child>
+       <object class="GtkFrame" id="controlgroups1">
+         <property name="visible">True</property>
+@@ -54,7 +54,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">12</property>
++            <property name="row-spacing">6</property>
+             <property name="column-spacing">6</property>
+             <child>
+               <object class="GtkBox" id="controlgroupx1">
+@@ -69,6 +69,7 @@
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">controlx1</property>
+                     <property name="xalign">0</property>
++                    <property name="yalign">0.5</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -80,7 +81,9 @@
+                   <object class="GtkSpinButton" id="controlx1">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
++                    <property name="halign">start</property>
+                     <property name="activates-default">True</property>
++                    <property name="width-chars">12</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="adjustment">adjustment1</property>
+                     <property name="digits">2</property>
+@@ -115,6 +118,7 @@
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">controly1</property>
+                     <property name="xalign">0</property>
++                    <property name="yalign">0.5</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -126,7 +130,9 @@
+                   <object class="GtkSpinButton" id="controly1">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
++                    <property name="halign">start</property>
+                     <property name="activates-default">True</property>
++                    <property name="width-chars">12</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="adjustment">adjustment3</property>
+                     <property name="digits">2</property>
+@@ -189,6 +195,7 @@
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">MTR_FLD_RADIUS</property>
+                 <property name="xalign">0</property>
++                <property name="yalign">0.5</property>
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+@@ -200,6 +207,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">True</property>
+                 <property name="activates-default">True</property>
++                <property name="width-chars">12</property>
+                 <property name="truncate-multiline">True</property>
+                 <property name="adjustment">adjustmentRADIUS</property>
+                 <property name="digits">2</property>
+@@ -255,6 +263,7 @@
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">MTR_FLD_ANGLE</property>
+                 <property name="xalign">0</property>
++                <property name="yalign">0.5</property>
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+@@ -266,6 +275,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">True</property>
+                 <property name="activates-default">True</property>
++                <property name="width-chars">12</property>
+                 <property name="truncate-multiline">True</property>
+                 <property name="adjustment">adjustmentSLANT</property>
+                 <property name="digits">2</property>
+@@ -313,7 +323,7 @@
+             <property name="can-focus">False</property>
+             <property name="margin-start">12</property>
+             <property name="margin-top">6</property>
+-            <property name="row-spacing">12</property>
++            <property name="row-spacing">6</property>
+             <property name="column-spacing">6</property>
+             <child>
+               <object class="GtkBox" id="controlgroupx2">
+@@ -328,6 +338,7 @@
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">controlx2</property>
+                     <property name="xalign">0</property>
++                    <property name="yalign">0.5</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -339,7 +350,9 @@
+                   <object class="GtkSpinButton" id="controlx2">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
++                    <property name="halign">start</property>
+                     <property name="activates-default">True</property>
++                    <property name="width-chars">12</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="adjustment">adjustment2</property>
+                     <property name="digits">2</property>
+@@ -374,6 +387,7 @@
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">controly2</property>
+                     <property name="xalign">0</property>
++                    <property name="yalign">0.5</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -385,7 +399,9 @@
+                   <object class="GtkSpinButton" id="controly2">
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
++                    <property name="halign">start</property>
+                     <property name="activates-default">True</property>
++                    <property name="width-chars">12</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="adjustment">adjustment4</property>
+                     <property name="digits">2</property>
+--- a/cui/uiconfig/ui/swpossizepage.ui
++++ b/cui/uiconfig/ui/swpossizepage.ui
+@@ -30,7 +30,7 @@
+   <object class="GtkGrid" id="SwPosSizePage">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="row-spacing">12</property>
+     <child>
+       <!-- n-columns=3 n-rows=2 -->
+@@ -38,7 +38,7 @@
+         <property name="visible">True</property>
+         <property name="can-focus">False</property>
+         <property name="halign">start</property>
+-        <property name="row-spacing">6</property>
++        <property name="row-spacing">12</property>
+         <property name="column-spacing">24</property>
+         <child>
+           <object class="GtkFrame" id="frame2">
+@@ -55,9 +55,8 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="hexpand">True</property>
+                 <property name="row-spacing">6</property>
+-                <property name="column-spacing">6</property>
++                <property name="column-spacing">12</property>
+                 <child>
+                   <object class="GtkLabel" id="widthft">
+                     <property name="visible">True</property>
+@@ -66,6 +65,7 @@
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">width</property>
+                     <property name="xalign">0</property>
++                    <property name="yalign">0.5</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -77,6 +77,7 @@
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="activates-default">True</property>
++                    <property name="width-chars">12</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="adjustment">adjustment1</property>
+                     <property name="digits">2</property>
+@@ -175,6 +176,7 @@
+                     <property name="use-underline">True</property>
+                     <property name="mnemonic-widget">height</property>
+                     <property name="xalign">0</property>
++                    <property name="yalign">0.5</property>
+                   </object>
+                   <packing>
+                     <property name="left-attach">0</property>
+@@ -186,6 +188,7 @@
+                     <property name="visible">True</property>
+                     <property name="can-focus">True</property>
+                     <property name="activates-default">True</property>
++                    <property name="width-chars">12</property>
+                     <property name="truncate-multiline">True</property>
+                     <property name="adjustment">adjustment4</property>
+                     <property name="digits">2</property>
+@@ -207,6 +210,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="label" translatable="yes" context="swpossizepage|label2">Size</property>
++                <property name="xalign">0</property>
+                 <attributes>
+                   <attribute name="weight" value="bold"/>
+                 </attributes>
+@@ -269,6 +273,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="label" translatable="yes" context="swpossizepage|label3">Protect</property>
++                <property name="xalign">0</property>
+                 <attributes>
+                   <attribute name="weight" value="bold"/>
+                 </attributes>
+@@ -294,7 +299,6 @@
+                 <property name="can-focus">False</property>
+                 <property name="margin-start">12</property>
+                 <property name="margin-top">6</property>
+-                <property name="hexpand">True</property>
+                 <property name="row-spacing">6</property>
+                 <child>
+                   <object class="GtkRadioButton" id="topage">
+@@ -398,6 +402,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="label" translatable="yes" context="swpossizepage|label1">Anchor</property>
++                <property name="xalign">0</property>
+                 <attributes>
+                   <attribute name="weight" value="bold"/>
+                 </attributes>
+@@ -421,13 +426,13 @@
+               <object class="GtkBox" id="bxPreview">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="margin-start">12</property>
++                <property name="margin-top">6</property>
+                 <property name="orientation">vertical</property>
+                 <child>
+                   <object class="GtkDrawingArea" id="preview">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+-                    <property name="margin-start">12</property>
+-                    <property name="margin-top">6</property>
+                     <child internal-child="accessible">
+                       <object class="AtkObject" id="preview-atkobject">
+                         <property name="AtkObject::accessible-name" translatable="yes" context="swpossizepage|preview-atkobject">Preview</property>
+@@ -447,6 +452,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="label" translatable="yes" context="swpossizepage|previewframe">Preview</property>
++                <property name="xalign">0</property>
+                 <attributes>
+                   <attribute name="weight" value="bold"/>
+                 </attributes>
+@@ -488,6 +494,7 @@
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">horipos</property>
+                 <property name="xalign">0</property>
++                <property name="yalign">0.5</property>
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+@@ -517,6 +524,7 @@
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">byhori</property>
+                 <property name="xalign">0</property>
++                <property name="yalign">0.5</property>
+               </object>
+               <packing>
+                 <property name="left-attach">2</property>
+@@ -528,6 +536,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">True</property>
+                 <property name="activates-default">True</property>
++                <property name="width-chars">12</property>
+                 <property name="truncate-multiline">True</property>
+                 <property name="adjustment">adjustment2</property>
+                 <property name="digits">2</property>
+@@ -550,6 +559,7 @@
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">horianchor</property>
+                 <property name="xalign">0</property>
++                <property name="yalign">0.5</property>
+               </object>
+               <packing>
+                 <property name="left-attach">4</property>
+@@ -600,6 +610,7 @@
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">vertpos</property>
+                 <property name="xalign">0</property>
++                <property name="yalign">0.5</property>
+               </object>
+               <packing>
+                 <property name="left-attach">0</property>
+@@ -629,6 +640,7 @@
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">byvert</property>
+                 <property name="xalign">0</property>
++                <property name="yalign">0.5</property>
+               </object>
+               <packing>
+                 <property name="left-attach">2</property>
+@@ -640,6 +652,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">True</property>
+                 <property name="activates-default">True</property>
++                <property name="width-chars">12</property>
+                 <property name="truncate-multiline">True</property>
+                 <property name="adjustment">adjustment3</property>
+                 <property name="digits">2</property>
+@@ -662,6 +675,7 @@
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">vertanchor</property>
+                 <property name="xalign">0</property>
++                <property name="yalign">0.5</property>
+               </object>
+               <packing>
+                 <property name="left-attach">4</property>
+@@ -711,6 +725,7 @@
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+             <property name="label" translatable="yes" context="swpossizepage|label11">Position</property>
++            <property name="xalign">0</property>
+             <attributes>
+               <attribute name="weight" value="bold"/>
+             </attributes>
+--- a/sd/uiconfig/sdraw/ui/copydlg.ui
++++ b/sd/uiconfig/sdraw/ui/copydlg.ui
+@@ -22,7 +22,7 @@
+   </object>
+   <object class="GtkDialog" id="DuplicateDialog">
+     <property name="can_focus">False</property>
+-    <property name="border_width">6</property>
++    <property name="border_width">12</property>
+     <property name="title" translatable="yes" context="copydlg|DuplicateDialog">Duplicate</property>
+     <property name="modal">True</property>
+     <property name="default_width">0</property>
+@@ -130,15 +130,18 @@
+               <object class="GtkBox" id="box2">
+                 <property name="visible">True</property>
+                 <property name="can_focus">False</property>
++                <property name="margin-start">12</property>
+                 <property name="hexpand">True</property>
+                 <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkLabel" id="label4">
+                     <property name="visible">True</property>
+                     <property name="can_focus">False</property>
++                    <property name="valign">center</property>
+                     <property name="label" translatable="yes" context="copydlg|label4">Number of _copies:</property>
+                     <property name="use_underline">True</property>
+                     <property name="mnemonic_widget">copies</property>
++                    <property name="xalign">0</property>
+                   </object>
+                   <packing>
+                     <property name="expand">False</property>
+@@ -150,10 +153,10 @@
+                   <object class="GtkSpinButton" id="copies">
+                     <property name="visible">True</property>
+                     <property name="can_focus">True</property>
+-                    <property name="margin-start">12</property>
+                     <property name="hexpand">True</property>
+                     <property name="activates_default">True</property>
+                     <property name="adjustment">adjustment1</property>
++                    <property name="width-chars">12</property>
+                     <property name="truncate-multiline">True</property>
+                     <child internal-child="accessible">
+                       <object class="AtkObject" id="copies-atkobject">
+@@ -202,7 +205,7 @@
+                 <property name="label_xalign">0</property>
+                 <property name="shadow_type">none</property>
+                 <child>
+-                  <!-- n-columns=1 n-rows=1 -->
++                  <!-- n-columns=2 n-rows=3 -->
+                   <object class="GtkGrid" id="grid1">
+                     <property name="visible">True</property>
+                     <property name="can_focus">False</property>
+@@ -215,6 +218,7 @@
+                       <object class="GtkLabel" id="label5">
+                         <property name="visible">True</property>
+                         <property name="can_focus">False</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="copydlg|label5">_X axis:</property>
+                         <property name="use_underline">True</property>
+                         <property name="mnemonic_widget">x</property>
+@@ -229,6 +233,7 @@
+                       <object class="GtkLabel" id="label6">
+                         <property name="visible">True</property>
+                         <property name="can_focus">False</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="copydlg|label6">_Y axis:</property>
+                         <property name="use_underline">True</property>
+                         <property name="mnemonic_widget">y</property>
+@@ -243,6 +248,7 @@
+                       <object class="GtkLabel" id="label7">
+                         <property name="visible">True</property>
+                         <property name="can_focus">False</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="copydlg|label7">_Angle:</property>
+                         <property name="use_underline">True</property>
+                         <property name="mnemonic_widget">angle</property>
+@@ -260,6 +266,7 @@
+                         <property name="hexpand">True</property>
+                         <property name="activates_default">True</property>
+                         <property name="digits">2</property>
++                        <property name="width-chars">12</property>
+                         <property name="truncate-multiline">True</property>
+                         <child internal-child="accessible">
+                           <object class="AtkObject" id="x-atkobject">
+@@ -279,6 +286,7 @@
+                         <property name="hexpand">True</property>
+                         <property name="activates_default">True</property>
+                         <property name="digits">2</property>
++                        <property name="width-chars">12</property>
+                         <property name="truncate-multiline">True</property>
+                         <child internal-child="accessible">
+                           <object class="AtkObject" id="y-atkobject">
+@@ -299,6 +307,7 @@
+                         <property name="activates_default">True</property>
+                         <property name="adjustment">adjustment2</property>
+                         <property name="digits">2</property>
++                        <property name="width-chars">12</property>
+                         <property name="truncate-multiline">True</property>
+                         <child internal-child="accessible">
+                           <object class="AtkObject" id="angle-atkobject">
+@@ -338,7 +347,7 @@
+                 <property name="label_xalign">0</property>
+                 <property name="shadow_type">none</property>
+                 <child>
+-                  <!-- n-columns=1 n-rows=1 -->
++                  <!-- n-columns=2 n-rows=2 -->
+                   <object class="GtkGrid" id="grid2">
+                     <property name="visible">True</property>
+                     <property name="can_focus">False</property>
+@@ -351,6 +360,7 @@
+                       <object class="GtkLabel" id="label8">
+                         <property name="visible">True</property>
+                         <property name="can_focus">False</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="copydlg|label8">_Width:</property>
+                         <property name="use_underline">True</property>
+                         <property name="mnemonic_widget">width</property>
+@@ -365,6 +375,7 @@
+                       <object class="GtkLabel" id="label9">
+                         <property name="visible">True</property>
+                         <property name="can_focus">False</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="copydlg|label9">_Height:</property>
+                         <property name="use_underline">True</property>
+                         <property name="mnemonic_widget">height</property>
+@@ -382,6 +393,7 @@
+                         <property name="hexpand">True</property>
+                         <property name="activates_default">True</property>
+                         <property name="digits">2</property>
++                        <property name="width-chars">12</property>
+                         <property name="truncate-multiline">True</property>
+                         <child internal-child="accessible">
+                           <object class="AtkObject" id="width-atkobject">
+@@ -401,6 +413,7 @@
+                         <property name="hexpand">True</property>
+                         <property name="activates_default">True</property>
+                         <property name="digits">2</property>
++                        <property name="width-chars">12</property>
+                         <property name="truncate-multiline">True</property>
+                         <child internal-child="accessible">
+                           <object class="AtkObject" id="height-atkobject">
+@@ -440,7 +453,7 @@
+                 <property name="label_xalign">0</property>
+                 <property name="shadow_type">none</property>
+                 <child>
+-                  <!-- n-columns=1 n-rows=1 -->
++                  <!-- n-columns=2 n-rows=2 -->
+                   <object class="GtkGrid" id="grid3">
+                     <property name="visible">True</property>
+                     <property name="can_focus">False</property>
+@@ -453,6 +466,7 @@
+                       <object class="GtkLabel" id="label10">
+                         <property name="visible">True</property>
+                         <property name="can_focus">False</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="copydlg|label10">_Start:</property>
+                         <property name="use_underline">True</property>
+                         <property name="mnemonic_widget">start</property>
+@@ -467,6 +481,7 @@
+                       <object class="GtkLabel" id="endlabel">
+                         <property name="visible">True</property>
+                         <property name="can_focus">False</property>
++                        <property name="valign">center</property>
+                         <property name="label" translatable="yes" context="copydlg|endlabel">_End:</property>
+                         <property name="use_underline">True</property>
+                         <property name="mnemonic_widget">end</property>
+--- a/sd/uiconfig/sdraw/ui/paranumberingtab.ui
++++ b/sd/uiconfig/sdraw/ui/paranumberingtab.ui
+@@ -10,7 +10,7 @@
+   <object class="GtkFrame" id="DrawParaNumbering">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="label-xalign">0</property>
+     <property name="shadow-type">none</property>
+     <child>
+@@ -27,6 +27,7 @@
+             <property name="label" translatable="yes" context="paranumberingtab|checkbuttonCB_NEW_START">R_estart at this paragraph</property>
+             <property name="visible">True</property>
+             <property name="can-focus">True</property>
++            <property name="halign">start</property>
+             <property name="receives-default">False</property>
+             <property name="use-underline">True</property>
+             <property name="inconsistent">True</property>
+@@ -42,9 +43,13 @@
+           <object class="GtkSpinButton" id="spinbuttonNF_NEW_START">
+             <property name="visible">True</property>
+             <property name="sensitive">False</property>
+-            <property name="can-focus">False</property>
++            <property name="can-focus">True</property>
++            <property name="width-chars">10</property>
+             <property name="truncate-multiline">True</property>
+             <property name="adjustment">adjustment1</property>
++            <accessibility>
++              <relation type="labelled-by" target="checkbuttonCB_NUMBER_NEW_START"/>
++            </accessibility>
+           </object>
+           <packing>
+             <property name="left-attach">1</property>
+@@ -59,10 +64,14 @@
+             <property name="can-focus">True</property>
+             <property name="receives-default">False</property>
+             <property name="halign">start</property>
++            <property name="valign">center</property>
+             <property name="margin-start">12</property>
+             <property name="use-underline">True</property>
+             <property name="inconsistent">True</property>
+             <property name="draw-indicator">True</property>
++            <accessibility>
++              <relation type="label-for" target="spinbuttonNF_NEW_START"/>
++            </accessibility>
+           </object>
+           <packing>
+             <property name="left-attach">0</property>
+--- a/sd/uiconfig/simpress/ui/interactiondialog.ui
++++ b/sd/uiconfig/simpress/ui/interactiondialog.ui
+@@ -4,7 +4,7 @@
+   <requires lib="gtk+" version="3.24"/>
+   <object class="GtkDialog" id="InteractionDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="interactiondialog|InteractionDialog">Interaction</property>
+     <property name="modal">True</property>
+     <property name="default-width">0</property>
+--- a/sd/uiconfig/simpress/ui/interactionpage.ui
++++ b/sd/uiconfig/simpress/ui/interactionpage.ui
+@@ -34,7 +34,7 @@
+   <object class="GtkGrid" id="InteractionPage">
+     <property name="visible">True</property>
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">0</property>
+     <property name="row-spacing">12</property>
+     <child>
+       <object class="GtkFrame" id="frame1">
+@@ -59,6 +59,7 @@
+               <object class="GtkLabel" id="label2">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="valign">center</property>
+                 <property name="label" translatable="yes" context="interactionpage|label2">Action at mouse click:</property>
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">listbox</property>
+@@ -88,6 +89,7 @@
+               <object class="GtkLabel" id="fttree">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
++                <property name="valign">start</property>
+                 <property name="label" translatable="yes" context="interactionpage|fttree">Target:</property>
+                 <property name="use-underline">True</property>
+                 <property name="mnemonic-widget">box3</property>
+@@ -299,6 +301,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="orientation">vertical</property>
++                <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkButton" id="browse">
+                     <property name="label" translatable="yes" context="interactionpage|browse">_Browse...</property>
+@@ -349,6 +352,7 @@
+                 <property name="can-focus">False</property>
+                 <property name="hexpand">True</property>
+                 <property name="orientation">vertical</property>
++                <property name="spacing">6</property>
+                 <child>
+                   <object class="GtkEntry" id="sound">
+                     <property name="visible">True</property>
+--- a/sd/uiconfig/simpress/ui/presentationdialog.ui
++++ b/sd/uiconfig/simpress/ui/presentationdialog.ui
+@@ -9,7 +9,7 @@
+   </object>
+   <object class="GtkDialog" id="PresentationDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="presentationdialog|PresentationDialog">Slide Show Settings</property>
+     <property name="modal">True</property>
+     <property name="default-width">0</property>
+@@ -80,23 +80,24 @@
+           </packing>
+         </child>
+         <child>
+-          <!-- n-columns=1 n-rows=4 -->
++          <!-- n-columns=2 n-rows=4 -->
+           <object class="GtkGrid" id="grid1">
+             <property name="visible">True</property>
+             <property name="can-focus">False</property>
+             <property name="hexpand">True</property>
+             <property name="vexpand">True</property>
+             <property name="row-spacing">12</property>
++            <property name="column-spacing">24</property>
+             <child>
+               <object class="GtkFrame" id="frame1">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="hexpand">True</property>
+-                <property name="vexpand">True</property>
++                <property name="valign">start</property>
+                 <property name="label-xalign">0</property>
+                 <property name="shadow-type">none</property>
+                 <child>
+-                  <!-- n-columns=1 n-rows=3 -->
++                  <!-- n-columns=1 n-rows=2 -->
+                   <object class="GtkGrid" id="grid5">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+@@ -124,16 +125,18 @@
+                       </packing>
+                     </child>
+                     <child>
+-                      <!-- n-columns=2 n-rows=1 -->
++                      <!-- n-columns=2 n-rows=2 -->
+                       <object class="GtkGrid" id="grid6">
+                         <property name="visible">True</property>
+                         <property name="can-focus">False</property>
++                        <property name="row-spacing">6</property>
+                         <property name="column-spacing">12</property>
+                         <child>
+                           <object class="GtkRadioButton" id="from">
+                             <property name="label" translatable="yes" context="presentationdialog|from">_From:</property>
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
++                            <property name="valign">center</property>
+                             <property name="receives-default">False</property>
+                             <property name="use-underline">True</property>
+                             <property name="draw-indicator">True</property>
+@@ -154,6 +157,7 @@
+                         </child>
+                         <child>
+                           <object class="GtkComboBoxText" id="from_cb">
++                            <property name="width-request">160</property>
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="hexpand">True</property>
+@@ -172,23 +176,12 @@
+                             <property name="top-attach">0</property>
+                           </packing>
+                         </child>
+-                      </object>
+-                      <packing>
+-                        <property name="left-attach">0</property>
+-                        <property name="top-attach">1</property>
+-                      </packing>
+-                    </child>
+-                    <child>
+-                      <!-- n-columns=2 n-rows=1 -->
+-                      <object class="GtkGrid" id="grid">
+-                        <property name="visible">True</property>
+-                        <property name="can-focus">False</property>
+-                        <property name="column-spacing">12</property>
+                         <child>
+                           <object class="GtkRadioButton" id="customslideshow">
+                             <property name="label" translatable="yes" context="presentationdialog|customslideshow">_Custom slide show:</property>
+                             <property name="visible">True</property>
+                             <property name="can-focus">True</property>
++                            <property name="valign">center</property>
+                             <property name="receives-default">False</property>
+                             <property name="use-underline">True</property>
+                             <property name="draw-indicator">True</property>
+@@ -204,11 +197,12 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+-                            <property name="top-attach">0</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                         <child>
+                           <object class="GtkComboBoxText" id="customslideshow_cb">
++                            <property name="width-request">160</property>
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="hexpand">True</property>
+@@ -223,13 +217,13 @@
+                           </object>
+                           <packing>
+                             <property name="left-attach">1</property>
+-                            <property name="top-attach">0</property>
++                            <property name="top-attach">1</property>
+                           </packing>
+                         </child>
+                       </object>
+                       <packing>
+                         <property name="left-attach">0</property>
+-                        <property name="top-attach">2</property>
++                        <property name="top-attach">1</property>
+                       </packing>
+                     </child>
+                   </object>
+@@ -251,17 +245,17 @@
+               </packing>
+             </child>
+             <child>
+-              <!-- n-columns=2 n-rows=1 -->
++              <!-- n-columns=1 n-rows=1 -->
+               <object class="GtkGrid" id="grid2">
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+-                <property name="column-spacing">12</property>
++                <property name="valign">start</property>
+                 <child>
+                   <object class="GtkFrame" id="frame2">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="hexpand">True</property>
+-                    <property name="vexpand">True</property>
++                    <property name="valign">start</property>
+                     <property name="label-xalign">0</property>
+                     <property name="shadow-type">none</property>
+                     <child>
+@@ -344,6 +338,7 @@
+                             <property name="tooltip-text" translatable="yes" context="presentationdialog|pauseduration|tooltip_text">Duration of pause</property>
+                             <property name="margin-start">12</property>
+                             <property name="activates-default">True</property>
++                            <property name="width-chars">12</property>
+                             <property name="truncate-multiline">True</property>
+                             <property name="adjustment">adjustment1</property>
+                             <accessibility>
+@@ -399,12 +394,24 @@
+                     <property name="top-attach">0</property>
+                   </packing>
+                 </child>
++              </object>
++              <packing>
++                <property name="left-attach">0</property>
++                <property name="top-attach">0</property>
++              </packing>
++            </child>
++            <child>
++              <!-- n-columns=1 n-rows=1 -->
++              <object class="GtkGrid" id="grid">
++                <property name="visible">True</property>
++                <property name="can-focus">False</property>
++                <property name="valign">start</property>
+                 <child>
+                   <object class="GtkFrame" id="frame4">
+                     <property name="visible">True</property>
+                     <property name="can-focus">False</property>
+                     <property name="hexpand">True</property>
+-                    <property name="vexpand">True</property>
++                    <property name="valign">start</property>
+                     <property name="label-xalign">0</property>
+                     <property name="shadow-type">none</property>
+                     <child>
+@@ -564,14 +571,15 @@
+                     </child>
+                   </object>
+                   <packing>
+-                    <property name="left-attach">1</property>
++                    <property name="left-attach">0</property>
+                     <property name="top-attach">0</property>
+                   </packing>
+                 </child>
+               </object>
+               <packing>
+-                <property name="left-attach">0</property>
++                <property name="left-attach">1</property>
+                 <property name="top-attach">0</property>
++                <property name="height">2</property>
+               </packing>
+             </child>
+             <child>
+@@ -579,7 +587,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="hexpand">True</property>
+-                <property name="vexpand">True</property>
++                <property name="valign">start</property>
+                 <property name="label-xalign">0</property>
+                 <property name="shadow-type">none</property>
+                 <child>
+@@ -620,6 +628,8 @@
+                           <object class="GtkLabel" id="presdisplay_label">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
++                            <property name="halign">start</property>
++                            <property name="valign">center</property>
+                             <property name="label" translatable="yes" context="presentationdialog|presdisplay_label">P_resentation display:</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">presdisplay_cb</property>
+@@ -651,6 +661,8 @@
+                           <object class="GtkLabel" id="console_label">
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
++                            <property name="halign">start</property>
++                            <property name="valign">center</property>
+                             <property name="label" translatable="yes" context="presentationdialog|console_label">Presenter console:</property>
+                             <property name="use-underline">True</property>
+                             <property name="mnemonic-widget">console_cb</property>
+@@ -682,8 +694,13 @@
+                             <property name="visible">True</property>
+                             <property name="can-focus">False</property>
+                             <property name="halign">start</property>
++                            <property name="valign">center</property>
+                             <property name="margin-start">24</property>
+                             <property name="label" translatable="yes" context="presentationdialog|navbar_btn_size_label">Buttons size:</property>
++                            <property name="xalign">0</property>
++                            <accessibility>
++                              <relation type="label-for" target="navigation_buttons_size_cb"/>
++                            </accessibility>
+                           </object>
+                           <packing>
+                             <property name="left-attach">0</property>
+@@ -701,6 +718,9 @@
+                               <item translatable="yes" context="presentationdialog|navigation_buttons_size_cb">Large</item>
+                               <item translatable="yes" context="presentationdialog|navigation_buttons_size_cb">Extra Large</item>
+                             </items>
++                            <accessibility>
++                              <relation type="labelled-by" target="navbar_btn_size_label"/>
++                            </accessibility>
+                             <child internal-child="accessible">
+                               <object class="AtkObject" id="navigation_buttons_size_cb-atkobject">
+                                 <property name="AtkObject::accessible-description" translatable="yes" context="extended_tip | iconsize">Specifies the display size of navigation bar icons.</property>
+@@ -784,6 +804,7 @@
+               <packing>
+                 <property name="left-attach">0</property>
+                 <property name="top-attach">2</property>
++                <property name="width">2</property>
+               </packing>
+             </child>
+             <child>
+@@ -791,7 +812,7 @@
+                 <property name="visible">True</property>
+                 <property name="can-focus">False</property>
+                 <property name="hexpand">True</property>
+-                <property name="vexpand">True</property>
++                <property name="valign">start</property>
+                 <property name="label-xalign">0</property>
+                 <property name="shadow-type">none</property>
+                 <child>
+@@ -804,6 +825,7 @@
+                     <property name="hexpand">True</property>
+                     <property name="vexpand">True</property>
+                     <property name="row-spacing">4</property>
++                    <property name="column-spacing">6</property>
+                     <child>
+                       <object class="GtkCheckButton" id="enableremote">
+                         <property name="label" translatable="yes" context="presentationdialog|enableremote">Enable remote control</property>
+@@ -869,6 +891,7 @@
+               <packing>
+                 <property name="left-attach">0</property>
+                 <property name="top-attach">3</property>
++                <property name="width">2</property>
+               </packing>
+             </child>
+           </object>
+--- a/svx/uiconfig/ui/fontworkgallerydialog.ui
++++ b/svx/uiconfig/ui/fontworkgallerydialog.ui
+@@ -14,7 +14,7 @@
+   </object>
+   <object class="GtkDialog" id="FontworkGalleryDialog">
+     <property name="can-focus">False</property>
+-    <property name="border-width">6</property>
++    <property name="border-width">12</property>
+     <property name="title" translatable="yes" context="fontworkgallerydialog|FontworkGalleryDialog">Fontwork Gallery</property>
+     <property name="resizable">False</property>
+     <property name="modal">True</property>
+--- a/solenv/sanitizers/ui/modules/sdraw.suppr
++++ b/solenv/sanitizers/ui/modules/sdraw.suppr
+@@ -5,7 +5,6 @@
+ sd/uiconfig/sdraw/ui/breakdialog.ui://GtkLabel[@id='metaobjects'] orphan-label
+ sd/uiconfig/sdraw/ui/breakdialog.ui://GtkLabel[@id='drawingobjects'] orphan-label
+ sd/uiconfig/sdraw/ui/namedesign.ui://GtkEntry[@id='entry'] no-labelled-by
+-sd/uiconfig/sdraw/ui/paranumberingtab.ui://GtkSpinButton[@id='spinbuttonNF_NEW_START'] no-labelled-by
+ sd/uiconfig/sdraw/ui/notebookbar.ui://GtkMenuItem[@id='Menu-Extension-PackageManagerDialog'] button-no-label
+ sd/uiconfig/sdraw/ui/notebookbar.ui://GtkMenuItem[@id='MenuTools-MacroRecorder'] button-no-label
+ sd/uiconfig/sdraw/ui/notebookbar.ui://GtkMenuItem[@id='MenuTools-RunMacro'] button-no-label

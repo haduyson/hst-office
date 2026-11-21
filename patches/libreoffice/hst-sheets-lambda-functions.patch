@@ -33917,7 +33917,7 @@ tests/runtime/check-sheets-excel-functions.py.
      void ScSumX2DY2();
 --- /dev/null
 +++ b/sc/source/core/tool/callable.cxx
-@@ -0,0 +1,283 @@
+@@ -0,0 +1,288 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * This file is part of the LibreOffice project.
@@ -33982,8 +33982,13 @@ tests/runtime/check-sheets-excel-functions.py.
 +        return;
 +    }
 +
-+    // The macro security prompt is not raised here. CallBasic checks it when
-+    // the macro actually runs.
++    // Keep the upstream security check before resolving a callable loads Basic.
++    if (!mpDocShell->AdjustMacroMode())
++    {
++        mbInvalid = true;
++        mnError = FormulaError::NoMacro;
++        return;
++    }
 +
 +    // Find the Basic method by name, then keep the library and macro name
 +    // strings that CallBasic needs to invoke it.
@@ -36334,7 +36339,7 @@ tests/runtime/check-sheets-excel-functions.py.
  void ScInterpreter::ScDBGet()
  {
      bool bMissingField = false;
-@@ -3189,478 +3343,16 @@ void ScInterpreter::ScMissing()
+@@ -3189,483 +3343,16 @@ void ScInterpreter::ScMissing()
          PushTempToken( new FormulaMissingToken );
  }
  
@@ -36446,7 +36451,12 @@ tests/runtime/check-sheets-excel-functions.py.
 -        return;
 -    }
 -
--    //  no security queue beforehand (just CheckMacroWarn), moved to  CallBasic
+-    // The macro mode is decided before the document's Basic is loaded.
+-    if (!pDocSh->AdjustMacroMode())
+-    {
+-        PushError( FormulaError::NoMacro );
+-        return;
+-    }
 -
 -    //  If the  Dok was loaded during a Basic-Calls,
 -    //  is the  Sbx-object created(?)

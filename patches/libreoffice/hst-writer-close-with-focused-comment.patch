@@ -1,0 +1,79 @@
+HST Office: closing a Writer document while a comment is being edited no longer crashes.
+
+SwView's destructor drops its comment manager first (m_pPostItMgr.reset(); the pointer is already null while the
+manager is destroyed). The manager disposes the comment windows; when the comment being edited had the keyboard focus,
+vcl gives the focus back to the document window, and SwEditWin::GetFocus called HasActiveSidebarWin() on the null
+manager: SIGSEGV in SwPostItMgr::HasActiveSidebarWin from SwView::~SwView (1.0.2, closing after a PDF export with
+the comments in the margin, or any close with a comment in edit mode and the focus in it). GetFocus now only takes
+the focus when the view has no comment manager.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: CppunitTest_sw_uibase_docvw testCloseWhileCommentHasFocus.
+---
+--- a/sw/qa/uibase/docvw/docvw.cxx
++++ b/sw/qa/uibase/docvw/docvw.cxx
+@@ -20,6 +20,11 @@
+ #include <vcl/event.hxx>
+ #include <vcl/scheduler.hxx>
+ 
++#include <AnnotationWin.hxx>
++#include <PostItMgr.hxx>
++#include <postithelper.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <formatcontentcontrol.hxx>
+ #include <docsh.hxx>
+ #include <edtwin.hxx>
+ #include <flyfrm.hxx>
+@@ -283,6 +288,36 @@
+     pWrtShell->GetSfxViewShell()->setLibreOfficeKitViewCallback(nullptr);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(Test, testCloseWhileCommentHasFocus)
++{
++    // Given a document with a content control and a comment being edited, exported to PDF with the
++    // comments in the margin (the steps of the crash report):
++    createSwDoc();
++    SwWrtShell* pWrtShell = getSwDocShell()->GetWrtShell();
++    pWrtShell->InsertContentControl(SwContentControlType::RICH_TEXT);
++    pWrtShell->SttEndDoc(/*bStt=*/false);
++    dispatchCommand(mxComponent, u".uno:InsertAnnotation"_ustr, {});
++    Scheduler::ProcessEventsToIdle();
++    SwPostItMgr* pPostItMgr = getSwDocShell()->GetView()->GetPostItMgr();
++    CPPUNIT_ASSERT_EQUAL(size_t(1), pPostItMgr->GetPostItFields().size());
++    sw::annotation::SwAnnotationWin* pComment = pPostItMgr->GetPostItFields()[0]->mpPostIt;
++    CPPUNIT_ASSERT(pComment);
++    pPostItMgr->SetActiveSidebarWin(pComment);
++    pComment->GrabFocus();
++    CPPUNIT_ASSERT(pComment->HasChildPathFocus());
++    uno::Sequence<beans::PropertyValue> aFilterData = {
++        comphelper::makePropertyValue(u"ExportFormFields"_ustr, true),
++        comphelper::makePropertyValue(u"ExportNotes"_ustr, false),
++        comphelper::makePropertyValue(u"ExportNotesInMargin"_ustr, true),
++    };
++    save(TestFilter::PDF_WRITER, { comphelper::makePropertyValue(u"FilterData"_ustr, aFilterData) });
++
++    // When closing the document, then make sure the office does not crash: the view drops its
++    // comment manager first, and disposing the focused comment window gives the focus back to the
++    // document window, which looked at the comment manager that was already gone.
++    dispose();
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/source/uibase/docvw/edtwin.cxx
++++ b/sw/source/uibase/docvw/edtwin.cxx
+@@ -5734,6 +5734,13 @@
+ 
+ void SwEditWin::GetFocus()
+ {
++    // The view has no comment manager while it is destroyed: a focused comment window that is
++    // disposed then gives the focus back to this window.
++    if (!m_rView.GetPostItMgr())
++    {
++        Window::GetFocus();
++        return;
++    }
+     if ( m_rView.GetPostItMgr()->HasActiveSidebarWin() )
+     {
+         m_rView.GetPostItMgr()->GrabFocusOnActiveSidebarWin();

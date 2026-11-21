@@ -85,7 +85,8 @@ def automatic_check(ctx, now=None):
             return
         ui.save(ctx, "LastCheck", now + int(time.monotonic() - started))  # when it succeeded, retries included
         if logic.should_notify(release, ui.settings(ctx)["SkippedVersion"]):
-            ui.notify(ctx, release, info["release"])
+            from . import update_popup  # imported on use: start-up stays light when there is nothing new
+            update_popup.notify(ctx, release, info["release"])
     proxy = ui.proxy(ctx)  # read on the main thread; the worker only does network and pure logic
     _automatic_thread = threading.Thread(target=_check_with_retries, args=(ctx, info, proxy, done),
                                          name="hst-update-check", daemon=True)

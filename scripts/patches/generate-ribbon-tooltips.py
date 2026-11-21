@@ -19,7 +19,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA = os.path.join(ROOT, "data", "ribbon", "tooltip-descriptions.json")
 PATCH = os.path.join(ROOT, "patches", "libreoffice", "hst-ribbon-tooltip-descriptions.patch")
-TARBALL = os.path.join(os.environ.get("HST_UPSTREAM_CACHE_ROOT", ROOT), "upstream", "cache", "libreoffice", "libreoffice-translations-26.8.1.1.tar.xz")
+TARBALL = os.path.join(os.environ.get("HST_UPSTREAM_CACHE_ROOT", ROOT), "upstream", "cache", "libreoffice", "libreoffice-translations-26.8.3.1.tar.xz")
 PO = "translations/source/vi/sfx2/messages.po"
 HRC = "sfx2/source/notebookbar/HstRibbonTooltipTable.hrc"
 # the entries go in before this upstream entry, in the middle of the file: no other patch edits it or its neighbours,
@@ -101,7 +101,7 @@ def pristine_po(path):
     if path:
         with open(path, encoding="utf-8") as handle:
             return handle.read().split("\n")
-    member = f"libreoffice-26.8.1.1/{PO}"
+    member = f"libreoffice-26.8.3.1/{PO}"
     text = subprocess.run(["tar", "-xJOf", TARBALL, member], check=True, capture_output=True).stdout.decode("utf-8")
     return text.split("\n")
 

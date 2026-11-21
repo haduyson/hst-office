@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-only
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -19,9 +20,12 @@ class DeadlineTests(unittest.TestCase):
         cls.directory = Path(cls.tmp.name)
         cls.httpd, cls.cert = server(cls.directory)
         cls.url = "https://localhost:" + str(cls.httpd.server_port)
+        # the one-time interpreter probe is not under test here (test_banner_helper_interpreter.py)
+        banner_fetch._command = ([sys.executable] + banner_fetch.ISOLATED, banner_fetch._environment({}))
 
     @classmethod
     def tearDownClass(cls):
+        banner_fetch._command = None
         cls.httpd.shutdown()
         cls.httpd.server_close()
         cls.tmp.cleanup()

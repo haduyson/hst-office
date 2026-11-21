@@ -43,6 +43,9 @@ UNO_PORT, HTTP_PORT = 0, 0  # set by main: --uno-port/--http-port, else free por
 DEB = b"!<arch>\ndummy hst office package for the update test\n" * 2000
 DEB_NAME = "HSTOffice_9.9.9_Linux_x86-64.deb"
 TITLE = "Cập nhật HST Office"
+# A check just ran: the start-up check would announce 9.9.9 in the new-version pop-up, whose title is TITLE too.
+# This check drives the manual flow only (check-update-popup.py covers the pop-up).
+NO_STARTUP_CHECK = [("/org.openoffice.Office.HSTUpdate", "LastCheck", str(int(time.time())))]
 
 
 def serve_manifest(srv, sha=None):
@@ -51,13 +54,14 @@ def serve_manifest(srv, sha=None):
     release = {"version": "9.9.9", "date": "2026-10-31", "notes": "https://office.hasontech.vn/#tai-ve", "critical": False,
                "downloads": {p: "https://office.hasontech.vn/tai/" + p for p in ("windows", "macos-arm", "macos-intel", "linux")},
                "installers": {"linux": entry}}
-    path = os.path.join(srv, "latest.json")
+    # not named latest*.json: the signing script ties those names to the schema the published clients read
+    path = os.path.join(srv, "test-manifest.json")
     with open(path, "w", encoding="utf-8") as handle:
         json.dump({"schema": 2, "channels": {"stable": release, "beta": None}}, handle, indent=1)
     subprocess.run([sys.executable, os.path.join(ROOT, "scripts", "release", "sign-update-manifest.py"), "--allow-test-urls", path], check=True, stdout=subprocess.DEVNULL)
-    for name in ("latest.json", "latest.json.sig"):
+    for name, served in (("test-manifest.json", "latest.json"), ("test-manifest.json.sig", "latest.json.sig")):
         with open(os.path.join(srv, name), "rb") as handle:
-            notify.SERVED["/" + name] = (200, handle.read())
+            notify.SERVED["/" + served] = (200, handle.read())
     notify.SERVED["/files/" + DEB_NAME] = (200, DEB)
 
 
@@ -90,7 +94,7 @@ def main():
     os.environ.update(env)
     # runuser resets HOME to the build user's real home; the per-user cache goes below the test directory instead
     office = hst_gui.Office(instdir, os.path.join(args.out, "gui"), UNO_PORT, display=args.display, nodefault=False,
-                            env=dict(env, XDG_CACHE_HOME=os.path.join(args.out, "gui", "cache")))
+                            env=dict(env, XDG_CACHE_HOME=os.path.join(args.out, "gui", "cache")), config=NO_STARTUP_CHECK)
     try:
         run_main(office, srv, args)
     finally:
@@ -145,7 +149,7 @@ def run_main(office, srv, args):
 def run_bad_hash(instdir, srv, args, env):
     serve_manifest(srv, sha="0" * 64)
     office = hst_gui.Office(instdir, os.path.join(args.out, "gui-bad"), UNO_PORT, display=args.display, nodefault=False,
-                            env=dict(env, XDG_CACHE_HOME=os.path.join(args.out, "gui-bad", "cache")))
+                            env=dict(env, XDG_CACHE_HOME=os.path.join(args.out, "gui-bad", "cache")), config=NO_STARTUP_CHECK)
     try:
         office.start()
         frame = office.load("private:factory/swriter").getCurrentController().getFrame()
@@ -166,7 +170,7 @@ def run_policy(instdir, srv, args, env):
     notify.install_policy(instdir, args.out, ["--no-install", "--keep-autocheck"])
     notify.REQUESTS.clear()
     office = hst_gui.Office(instdir, os.path.join(args.out, "gui-policy"), UNO_PORT, display=args.display, nodefault=False,
-                            env=dict(env, XDG_CACHE_HOME=os.path.join(args.out, "gui-policy", "cache")))
+                            env=dict(env, XDG_CACHE_HOME=os.path.join(args.out, "gui-policy", "cache")), config=NO_STARTUP_CHECK)
     try:
         office.start()
         frame = office.load("private:factory/swriter").getCurrentController().getFrame()

@@ -1,0 +1,799 @@
+HST Office: the "Tự động lưu" toggle at the start of the ribbon's tab row (owner decision 21/11/2026, place A of
+plans/261117-2258-hst-office-1-0-3/reports/autosave-toggle-proposal.md).
+
+- sfx2 HstAutoSaveToggle.{hxx,cxx} (new, HST): "Tự động lưu", a sliding switch and "Bật", "Tắt" or "Tạm dừng" for
+  the document of the frame (hst-user-autosave-filter.patch), its state from a status listener of
+  .uno:HstAutoSave. Dimmed (about 40 %) with the reason in its tooltip and accessible description when the
+  document cannot save itself; a click, Space, Enter or its KeyTip switches it. Ribbon palette in light and dark,
+  sizes in logical px times the DPI scale (28 px high, switch 34 x 16), system colours in high contrast. Toggle
+  button for assistive technology (checkable, checked while on). No icon or logo of any other suite.
+- vcl NotebookbarTabControlBase::ImplPlaceTabs: the child "hst-autosave-toggle" is a fixed cell at the start of
+  the tab row before the quick access toolbar, which shares what is left; in a row too short for its labels it
+  keeps only its switch. The banner's room (row and page reserve) is not touched.
+- NotebookbarTabControl creates it with the search box (the four Tabbed ribbons); the quick access ▾ menu has
+  "Hiện Tự động lưu" (HSTRibbon/ShowAutoSaveToggle, every window); the KeyTips give it the digit after the quick
+  access toolbar's.
+
+License: the new HST files are HST-owned (LicenseRef-HST-Proprietary); the upstream files remain under their
+original license (MPL-2.0).
+Test: tests/unit/test_user_autosave_patch.py; Linux and Windows shots (light/dark, 100/125 %).
+---
+--- a/officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs
++++ b/officecfg/registry/schema/org/openoffice/Office/HSTRibbon.xcs
+@@ -59,6 +59,13 @@
+       </info>
+       <value/>
+     </prop>
++    <prop oor:name="ShowAutoSaveToggle" oor:type="xs:boolean" oor:nillable="false">
++      <info>
++        <desc>The AutoSave toggle ("Tự động lưu") at the start of the ribbon's tab row, in every app. The quick
++          access toolbar's menu ("Hiện Tự động lưu") hides it; AutoSave itself keeps running.</desc>
++      </info>
++      <value>true</value>
++    </prop>
+     <prop oor:name="QatBelowApps" oor:type="oor:string-list" oor:nillable="false">
+       <info>
+         <desc>Apps (writer, calc, impress, draw) whose quick access toolbar stands on its own row below the
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -284,6 +284,7 @@
+     sfx2/source/notebookbar/SfxNotebookBar \
+     sfx2/source/notebookbar/HstRibbonCompact \
+     sfx2/source/notebookbar/HstRibbonCompactWidgets \
++    sfx2/source/notebookbar/HstAutoSaveToggle \
+     sfx2/source/notebookbar/HstQuickAccess \
+     sfx2/source/notebookbar/HstQuickAccessStore \
+     sfx2/source/notebookbar/HstUpdateDot \
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -23,6 +23,7 @@
+ class HstRibbonCompact;
+ class HstQuickAccess;
+ class HstTabSearchBox;
++class HstAutoSaveToggle;
+ namespace hst::notebookbar { class UpdateDot; }
+ class VclWindowEvent;
+ struct ImplSVEvent;
+@@ -65,6 +66,8 @@
+     VclPtr<HstRibbonBanner> m_pHstBanner;
+     // HST Office: feature search box in the tab row, after the last tab (placed by the vcl base)
+     VclPtr<HstTabSearchBox> m_pHstSearch;
++    // HST Office (1.0.3): the AutoSave toggle at the start of the tab row (placed by the vcl base)
++    VclPtr<HstAutoSaveToggle> m_pHstAutoSave;
+     bool m_bHstLayout = false;
+     // HST Office (1.0.2 ribbon): the compact ribbon (Ctrl+F1); see HstRibbonCompact.hxx
+     void HstSetCompact( bool bCompact );
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstAutoSaveToggle.cxx
+@@ -0,0 +1,457 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include "HstAutoSaveToggle.hxx"
++#include <hstuserautosave.hxx>
++
++#include <com/sun/star/accessibility/AccessibleRole.hpp>
++#include <com/sun/star/accessibility/AccessibleStateType.hpp>
++#include <com/sun/star/accessibility/XAccessibleAction.hpp>
++#include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
++#include <comphelper/configuration.hxx>
++#include <comphelper/dispatchcommand.hxx>
++#include <comphelper/diagnose_ex.hxx>
++#include <cppuhelper/implbase.hxx>
++#include <officecfg/Office/HSTRibbon.hxx>
++#include <sfx2/objsh.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <sfx2/sfxsids.hrc>
++#include <sfx2/sfxstatuslistener.hxx>
++#include <sfx2/strings.hrc>
++#include <vcl/accessibility/strings.hxx>
++#include <vcl/accessibility/vclxaccessiblecomponent.hxx>
++#include <vcl/event.hxx>
++#include <vcl/HstRibbonPaint.hxx>
++#include <vcl/hst/designtokens.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++
++#include <algorithm>
++#include <cmath>
++#include <vector>
++
++using namespace css;
++
++namespace hst::autosave
++{
++/// the state of .uno:HstAutoSave changed (a save, a toggle, read only...): the toggle reads its document again
++class ToggleStatus final : public SfxStatusListener
++{
++public:
++    ToggleStatus(const uno::Reference<frame::XDispatchProvider>& xProvider, HstAutoSaveToggle* pToggle)
++        : SfxStatusListener(xProvider, SID_HST_AUTOSAVE, u".uno:HstAutoSave"_ustr)
++        , m_xToggle(pToggle)
++    {
++    }
++
++    void StateChangedAtStatusListener(SfxItemState, const SfxPoolItem*) override
++    {
++        if (m_xToggle && !m_xToggle->isDisposed())
++            m_xToggle->Refresh();
++    }
++
++    void Forget() { m_xToggle.reset(); }
++
++private:
++    VclPtr<HstAutoSaveToggle> m_xToggle;
++};
++}
++
++using hst::autosave::State;
++
++namespace
++{
++std::vector<HstAutoSaveToggle*>& liveToggles()
++{
++    static std::vector<HstAutoSaveToggle*> aToggles;
++    return aToggles;
++}
++
++tools::Long px(const OutputDevice& rDev, double fLogical)
++{
++    return std::max<tools::Long>(1, std::lround(fLogical * rDev.GetDPIScaleFactor()));
++}
++
++// the HST accent (0,114,187) of the switch when it is on; amber when paused
++constexpr Color ACCENT(0x00, 0x72, 0xBB);
++constexpr Color PAUSED(0xC9, 0x7A, 0x00);
++constexpr double HEIGHT = 28, SWITCH_W = 34, SWITCH_H = 16, PAD = 6, GAP = 6;
++
++/** The toggle for assistive technology: a toggle button, checked when AutoSave saves the document, with the
++    tooltip (the reason when dimmed) as its description; its one action switches it as a click does. */
++class ToggleAccessible final
++    : public cppu::ImplInheritanceHelper<VCLXAccessibleComponent, accessibility::XAccessibleAction>
++{
++public:
++    explicit ToggleAccessible(HstAutoSaveToggle* pToggle)
++        : ImplInheritanceHelper(pToggle)
++    {
++    }
++
++    void FillAccessibleStateSet(sal_Int64& rStateSet) override
++    {
++        VCLXAccessibleComponent::FillAccessibleStateSet(rStateSet);
++        auto* pToggle = dynamic_cast<HstAutoSaveToggle*>(GetWindow());
++        if (!pToggle)
++            return;
++        rStateSet |= accessibility::AccessibleStateType::CHECKABLE;
++        if (pToggle->IsChecked())
++            rStateSet |= accessibility::AccessibleStateType::CHECKED;
++        if (!pToggle->IsSwitchable())
++            rStateSet &= ~(accessibility::AccessibleStateType::ENABLED | accessibility::AccessibleStateType::SENSITIVE);
++    }
++
++    sal_Int32 SAL_CALL getAccessibleActionCount() override { return 1; }
++
++    sal_Bool SAL_CALL doAccessibleAction(sal_Int32 nIndex) override
++    {
++        SolarMutexGuard aGuard;
++        if (nIndex != 0)
++            throw lang::IndexOutOfBoundsException();
++        auto* pToggle = dynamic_cast<HstAutoSaveToggle*>(GetWindow());
++        if (!pToggle || pToggle->isDisposed() || !pToggle->IsSwitchable())
++            return false;
++        pToggle->Activate();
++        return true;
++    }
++
++    OUString SAL_CALL getAccessibleActionDescription(sal_Int32 nIndex) override
++    {
++        if (nIndex != 0)
++            throw lang::IndexOutOfBoundsException();
++        return RID_STR_ACC_ACTION_CLICK;
++    }
++
++    uno::Reference<accessibility::XAccessibleKeyBinding> SAL_CALL getAccessibleActionKeyBinding(sal_Int32 nIndex) override
++    {
++        if (nIndex != 0)
++            throw lang::IndexOutOfBoundsException();
++        return {};
++    }
++};
++}
++
++HstAutoSaveToggle::HstAutoSaveToggle(vcl::Window* pParent)
++    : Control(pParent, WB_TABSTOP)
++    , m_eState(State::Unsupported)
++{
++    set_id(u"hst-autosave-toggle"_ustr);
++    SetPaintTransparent(true);
++    SetAccessibleRole(accessibility::AccessibleRole::TOGGLE_BUTTON);
++    SetAccessibleName(SfxResId(STR_HST_AUTOSAVE));
++    liveToggles().push_back(this);
++}
++
++HstAutoSaveToggle::~HstAutoSaveToggle() { disposeOnce(); }
++
++void HstAutoSaveToggle::dispose()
++{
++    std::erase(liveToggles(), this);
++    if (m_xStatus.is())
++    {
++        m_xStatus->Forget();
++        m_xStatus->UnBind();
++        m_xStatus->dispose();
++        m_xStatus.clear();
++    }
++    m_xFrame.clear();
++    Control::dispose();
++}
++
++void HstAutoSaveToggle::SetFrame(const uno::Reference<frame::XFrame>& xFrame)
++{
++    if (xFrame == m_xFrame && m_xStatus.is())
++        return;
++    if (m_xStatus.is())
++    {
++        m_xStatus->Forget();
++        m_xStatus->UnBind();
++        m_xStatus->dispose();
++        m_xStatus.clear();
++    }
++    m_xFrame = xFrame;
++    uno::Reference<frame::XDispatchProvider> xProvider(xFrame, uno::UNO_QUERY);
++    if (xProvider.is())
++    {
++        m_xStatus = new hst::autosave::ToggleStatus(xProvider, this);
++        m_xStatus->ReBind(); // the first state arrives at once
++    }
++    ApplyShown();
++    Refresh();
++}
++
++void HstAutoSaveToggle::Refresh()
++{
++    State eState = State::Unsupported;
++    try
++    {
++        uno::Reference<frame::XController> xController;
++        if (m_xFrame.is())
++            xController = m_xFrame->getController();
++        uno::Reference<frame::XModel> xModel;
++        if (xController.is())
++            xModel = xController->getModel();
++        if (SfxObjectShell* pShell = xModel.is() ? SfxObjectShell::GetShellFromComponent(xModel) : nullptr)
++            eState = hst::autosave::stateOf(*pShell);
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.notebookbar", "AutoSave toggle state");
++    }
++    if (eState == m_eState && !GetQuickHelpText().isEmpty())
++        return;
++    m_eState = eState;
++    const OUString aTip = hst::autosave::tooltipOf(eState);
++    SetQuickHelpText(aTip);
++    SetAccessibleDescription(aTip);
++    ApplyShown();
++    Invalidate();
++}
++
++bool HstAutoSaveToggle::IsSwitchable() const { return hst::autosave::isSwitchable(m_eState); }
++
++bool HstAutoSaveToggle::IsChecked() const { return hst::autosave::isActive(m_eState); }
++
++void HstAutoSaveToggle::Activate()
++{
++    if (!IsSwitchable() || !m_xFrame.is())
++        return;
++    comphelper::dispatchCommand(u".uno:HstAutoSave"_ustr, m_xFrame, {});
++    Refresh();
++}
++
++bool HstAutoSaveToggle::Shown()
++{
++    try
++    {
++        return officecfg::Office::HSTRibbon::ShowAutoSaveToggle::get();
++    }
++    catch (const uno::Exception&)
++    {
++        return true; // no configuration (unit tests): the shipped default
++    }
++}
++
++void HstAutoSaveToggle::SetShown(bool bShown)
++{
++    try
++    {
++        std::shared_ptr<comphelper::ConfigurationChanges> xChanges(comphelper::ConfigurationChanges::create());
++        officecfg::Office::HSTRibbon::ShowAutoSaveToggle::set(bShown, xChanges);
++        xChanges->commit();
++    }
++    catch (const uno::Exception&)
++    {
++        TOOLS_WARN_EXCEPTION("sfx.notebookbar", "HSTRibbon/ShowAutoSaveToggle");
++    }
++    for (HstAutoSaveToggle* pToggle : liveToggles())
++        pToggle->ApplyShown();
++}
++
++void HstAutoSaveToggle::ApplyShown()
++{
++    const bool bShow = Shown() && m_eState != State::Unsupported;
++    if (bShow == IsVisible())
++        return;
++    Show(bShow);
++    // the tab row is laid out again without (or with) the cell
++    if (vcl::Window* pRow = GetParent())
++    {
++        pRow->Resize();
++        pRow->Invalidate();
++    }
++}
++
++Size HstAutoSaveToggle::GetOptimalSize() const
++{
++    // measured in the font Paint draws with
++    OutputDevice& rDev = *const_cast<HstAutoSaveToggle*>(this)->GetOutDev();
++    rDev.Push(vcl::PushFlags::FONT);
++    rDev.SetFont(rDev.GetSettings().GetStyleSettings().GetAppFont());
++    tools::Long nValue = 0;
++    for (TranslateId aId : { STR_HST_AUTOSAVE_ON, STR_HST_AUTOSAVE_OFF, STR_HST_AUTOSAVE_PAUSED })
++        nValue = std::max(nValue, rDev.GetTextWidth(SfxResId(aId)));
++    const Size aSize(px(rDev, PAD) + rDev.GetTextWidth(SfxResId(STR_HST_AUTOSAVE)) + px(rDev, GAP)
++                         + px(rDev, SWITCH_W) + px(rDev, GAP) + nValue + px(rDev, PAD),
++                     std::max(px(rDev, HEIGHT), rDev.GetTextHeight() + px(rDev, 4)));
++    rDev.Pop();
++    return aSize;
++}
++
++void HstAutoSaveToggle::Paint(vcl::RenderContext& rDev, const tools::Rectangle&)
++{
++    const StyleSettings& rStyle = rDev.GetSettings().GetStyleSettings();
++    const bool bSystem = !hst::ribbon::ownerDrawAllowed(rStyle); // high contrast: the system colours
++    const hst::ribbon::Palette aPalette = hst::ribbon::paletteFor(rStyle);
++    const Size aOut = GetOutputSizePixel();
++    const bool bEnabled = IsSwitchable();
++    const bool bOn = IsChecked();
++    const bool bPaused = m_eState == State::Paused || m_eState == State::PausedConflict;
++    const bool bCompact = aOut.Width() < GetOptimalSize().Width();
++    // in the frame coat the row is the frame surface: text, accent and the dimmed colours follow its tokens
++    const bool bCoat = !bSystem && hst::ribbon::coatActive(rStyle);
++    const hst::design::Palette& rTokens = hst::design::GetPalette(rStyle);
++    const Color aSurface = bCoat ? rTokens.aFrameSurface : rStyle.GetDialogColor();
++    const Color aAccent = bCoat ? rTokens.aAccent : ACCENT;
++
++    rDev.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR | vcl::PushFlags::FONT | vcl::PushFlags::TEXTCOLOR);
++    vcl::Font aFont(rStyle.GetAppFont());
++    rDev.SetFont(aFont);
++
++    // a dimmed toggle keeps about 40 % of its strength, as the mockup
++    Color aText = bSystem ? rStyle.GetButtonTextColor() : bCoat ? rTokens.aText : rStyle.GetLabelTextColor();
++    if (!bEnabled)
++    {
++        if (bSystem)
++            aText = rStyle.GetDisableColor();
++        else
++            aText.Merge(aSurface, 102);
++    }
++
++    const tools::Long nRadius = px(rDev, 4);
++    const tools::Rectangle aCell(Point(), Size(aOut.Width() - 1, aOut.Height() - 1));
++    if (m_bHover && bEnabled)
++    {
++        if (bSystem) // high contrast: an outline in the text colour
++        {
++            rDev.SetFillColor();
++            rDev.SetLineColor(rStyle.GetButtonTextColor());
++        }
++        else
++        {
++            rDev.SetFillColor(aPalette.aHover);
++            rDev.SetLineColor(aPalette.aHover);
++        }
++        rDev.DrawRect(aCell, nRadius, nRadius);
++    }
++
++    const tools::Long nSwitchW = px(rDev, SWITCH_W), nSwitchH = px(rDev, SWITCH_H);
++    tools::Long nX = px(rDev, PAD);
++    if (bCompact)
++        nX = std::max<tools::Long>(0, (aOut.Width() - nSwitchW) / 2);
++    else
++    {
++        const OUString aLabel = SfxResId(STR_HST_AUTOSAVE);
++        rDev.SetTextColor(aText);
++        rDev.DrawText(Point(nX, (aOut.Height() - rDev.GetTextHeight()) / 2), aLabel);
++        nX += rDev.GetTextWidth(aLabel) + px(rDev, GAP);
++    }
++
++    // the switch: a rounded track and a round knob, right when on, left when off
++    const tools::Rectangle aTrack(Point(nX, (aOut.Height() - nSwitchH) / 2), Size(nSwitchW, nSwitchH));
++    const tools::Long nTrackRadius = nSwitchH / 2;
++    const tools::Long nInset = std::max<tools::Long>(2, px(rDev, 3));
++    const tools::Long nKnob = nSwitchH - 2 * nInset;
++    const bool bKnobRight = bOn || bPaused;
++    Color aFill, aBorder, aKnob;
++    if (bSystem)
++    {
++        aBorder = bEnabled ? rStyle.GetButtonTextColor() : rStyle.GetDisableColor();
++        aFill = bOn || bPaused ? (bEnabled ? rStyle.GetHighlightColor() : rStyle.GetDisableColor()) : COL_TRANSPARENT;
++        aKnob = bOn || bPaused ? rStyle.GetHighlightTextColor() : aBorder;
++    }
++    else
++    {
++        const bool bDark = aSurface.IsDark();
++        aBorder = bOn ? aAccent : bPaused ? PAUSED : (bDark ? Color(0xB0, 0xB8, 0xC4) : Color(0x60, 0x6B, 0x78));
++        aFill = bOn ? aAccent : bPaused ? PAUSED : COL_TRANSPARENT;
++        aKnob = bOn || bPaused ? COL_WHITE : aBorder;
++        if (!bEnabled)
++        {
++            aBorder.Merge(aSurface, 102);
++            aKnob.Merge(aSurface, 102);
++            if (aFill != COL_TRANSPARENT)
++                aFill.Merge(aSurface, 102);
++        }
++    }
++    rDev.SetLineColor(aBorder);
++    if (aFill == COL_TRANSPARENT)
++        rDev.SetFillColor();
++    else
++        rDev.SetFillColor(aFill);
++    rDev.DrawRect(aTrack, nTrackRadius, nTrackRadius);
++    const tools::Long nKnobX = bKnobRight ? aTrack.Right() - nInset - nKnob + 1 : aTrack.Left() + nInset;
++    rDev.SetLineColor(aKnob);
++    rDev.SetFillColor(aKnob);
++    rDev.DrawEllipse(tools::Rectangle(Point(nKnobX, aTrack.Top() + nInset), Size(nKnob, nKnob)));
++
++    if (!bCompact)
++    {
++        nX += nSwitchW + px(rDev, GAP);
++        rDev.SetTextColor(aText);
++        rDev.DrawText(Point(nX, (aOut.Height() - rDev.GetTextHeight()) / 2), hst::autosave::valueOf(m_eState));
++    }
++
++    if (HasFocus())
++    {
++        rDev.SetFillColor();
++        rDev.SetLineColor(bSystem ? rStyle.GetHighlightColor() : bCoat ? aAccent : aPalette.aTabAccent);
++        rDev.DrawRect(tools::Rectangle(Point(1, 1), Size(aOut.Width() - 3, aOut.Height() - 3)), nRadius, nRadius);
++    }
++    rDev.Pop();
++}
++
++void HstAutoSaveToggle::MouseMove(const MouseEvent& rEvt)
++{
++    const bool bHover = !rEvt.IsLeaveWindow();
++    if (bHover != m_bHover)
++    {
++        m_bHover = bHover;
++        Invalidate();
++    }
++    Control::MouseMove(rEvt);
++}
++
++void HstAutoSaveToggle::MouseButtonUp(const MouseEvent& rEvt)
++{
++    if (rEvt.IsLeft() && tools::Rectangle(Point(), GetOutputSizePixel()).Contains(rEvt.GetPosPixel()))
++    {
++        Activate();
++        return;
++    }
++    Control::MouseButtonUp(rEvt);
++}
++
++void HstAutoSaveToggle::KeyInput(const KeyEvent& rEvt)
++{
++    const vcl::KeyCode& rKey = rEvt.GetKeyCode();
++    if (!rKey.GetModifier() && (rKey.GetCode() == KEY_RETURN || rKey.GetCode() == KEY_SPACE))
++    {
++        Activate();
++        return;
++    }
++    Control::KeyInput(rEvt);
++}
++
++void HstAutoSaveToggle::GetFocus()
++{
++    Control::GetFocus();
++    Invalidate();
++}
++
++void HstAutoSaveToggle::LoseFocus()
++{
++    Control::LoseFocus();
++    Invalidate();
++}
++
++void HstAutoSaveToggle::DataChanged(const DataChangedEvent& rEvt)
++{
++    Control::DataChanged(rEvt);
++    if (rEvt.GetType() == DataChangedEventType::SETTINGS)
++    {
++        Invalidate(); // light/dark, high contrast and the UI font follow the system
++        if (vcl::Window* pRow = GetParent())
++            pRow->Resize();
++    }
++}
++
++rtl::Reference<comphelper::OAccessible> HstAutoSaveToggle::CreateAccessible()
++{
++    return new ToggleAccessible(this);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sfx2/source/notebookbar/HstAutoSaveToggle.hxx
+@@ -0,0 +1,65 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++#include <com/sun/star/frame/XFrame.hpp>
++#include <rtl/ref.hxx>
++#include <vcl/ctrl.hxx>
++
++class SfxStatusListener;
++namespace hst::autosave
++{
++enum class State : sal_uInt8;
++class ToggleStatus;
++}
++
++/** HST Office (1.0.3, owner decision 21/11/2026): the "Tự động lưu" toggle, a fixed cell at the start of the ribbon's
++    tab row before the quick access toolbar (child id "hst-autosave-toggle", placed by
++    NotebookbarTabControlBase::ImplPlaceTabs). It shows "Tự động lưu", a sliding switch and "Bật", "Tắt" or
++    "Tạm dừng" for the document of its frame (hstuserautosave.hxx), dimmed with the reason in its tooltip when the
++    document cannot save itself. A click, Space or Enter runs .uno:HstAutoSave. Drawn in the ribbon palette, light
++    and dark, scaled with the DPI; in high contrast mode in the system colours. No icon of any other suite.
++    In a row too short for the labels only the switch is drawn. "Hiện Tự động lưu" of the quick access ▾ menu
++    (HSTRibbon/ShowAutoSaveToggle) hides it in every window. */
++class HstAutoSaveToggle final : public Control
++{
++public:
++    explicit HstAutoSaveToggle(vcl::Window* pParent);
++    virtual ~HstAutoSaveToggle() override;
++    virtual void dispose() override;
++
++    void SetFrame(const css::uno::Reference<css::frame::XFrame>& xFrame);
++    /// read the document's state again (status listener, settings changes)
++    void Refresh();
++    /// what a click does: switch the document's AutoSave when it can be switched
++    void Activate();
++    bool IsSwitchable() const;
++    bool IsChecked() const;
++
++    /// HSTRibbon/ShowAutoSaveToggle; storing it shows or hides the toggle of every window
++    static bool Shown();
++    static void SetShown(bool bShown);
++
++    virtual Size GetOptimalSize() const override;
++    virtual void Paint(vcl::RenderContext& rDev, const tools::Rectangle& rRect) override;
++    virtual void MouseMove(const MouseEvent& rEvt) override;
++    virtual void MouseButtonUp(const MouseEvent& rEvt) override;
++    virtual void KeyInput(const KeyEvent& rEvt) override;
++    virtual void GetFocus() override;
++    virtual void LoseFocus() override;
++    virtual void DataChanged(const DataChangedEvent& rEvt) override;
++    virtual rtl::Reference<comphelper::OAccessible> CreateAccessible() override;
++
++private:
++    void ApplyShown();
++
++    css::uno::Reference<css::frame::XFrame> m_xFrame;
++    rtl::Reference<hst::autosave::ToggleStatus> m_xStatus;
++    hst::autosave::State m_eState;
++    bool m_bHover = false;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/notebookbar/HstQuickAccess.cxx
++++ b/sfx2/source/notebookbar/HstQuickAccess.cxx
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "HstQuickAccess.hxx"
++#include "HstAutoSaveToggle.hxx"
+ #include <ribbon-custom-hooks.hxx>
+ 
+ #include <comphelper/dispatchcommand.hxx>
+@@ -28,7 +29,7 @@
+ {
+ constexpr OUString QAT_URL = u"private:resource/toolbar/notebookbarshortcuts"_ustr;
+ // menu ids below the toolbox's own (TOOLBOX_MENUITEM_START): the checklist, then the two actions
+-constexpr sal_uInt16 ID_CHECK = 0x0e00, ID_CUSTOMIZE = 0x0e40, ID_PLACEMENT = 0x0e41;
++constexpr sal_uInt16 ID_CHECK = 0x0e00, ID_CUSTOMIZE = 0x0e40, ID_PLACEMENT = 0x0e41, ID_AUTOSAVE = 0x0e42;
+ 
+ }
+ 
+@@ -113,6 +114,9 @@
+         pMenu->SetItemCommand(ID_CHECK + i, aList[i]);
+         pMenu->CheckItem(ID_CHECK + i, IsShown(aList[i]));
+     }
++    // HST Office (1.0.3): the AutoSave toggle before the toolbar
++    pMenu->InsertItem(ID_AUTOSAVE, SfxResId(STR_HST_AUTOSAVE_SHOW), MenuItemBits::CHECKABLE);
++    pMenu->CheckItem(ID_AUTOSAVE, HstAutoSaveToggle::Shown());
+     pMenu->InsertSeparator();
+     pMenu->InsertItem(ID_CUSTOMIZE, SfxResId(STR_HST_QAT_CUSTOMIZE));
+     pMenu->InsertItem(ID_PLACEMENT, SfxResId(m_bBelow ? STR_HST_QAT_ABOVE : STR_HST_QAT_BELOW));
+@@ -124,6 +128,8 @@
+     const std::vector<OUString> aList = Checklist(m_aApp);
+     if (nId >= ID_CHECK && nId < ID_CHECK + aList.size())
+         hst::qat::SetCommand(m_xFrame, aList[nId - ID_CHECK], !IsShown(aList[nId - ID_CHECK]), false);
++    else if (nId == ID_AUTOSAVE)
++        HstAutoSaveToggle::SetShown(!HstAutoSaveToggle::Shown());
+     else if (nId == ID_CUSTOMIZE && !m_pCustomizeEvent)
+         m_pCustomizeEvent = Application::PostUserEvent(LINK(this, HstQuickAccess, CustomizeHdl));
+     else if (nId == ID_PLACEMENT)
+--- a/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
++++ b/sfx2/source/notebookbar/HstRibbonKeyTips.cxx
+@@ -281,9 +281,9 @@
+             aTargets.push_back(std::move(aTarget));
+         }
+         // quick access buttons of the title row: digits, as the Quick Access Toolbar in Office
++        int nDigit = 1;
+         if (m_xQuick && m_xQuick->IsReallyVisible())
+         {
+-            int nDigit = 1;
+             // HST Office: 1, 2, 3... without gaps; separators and buttons folded into the » menu get no digit
+             for (ToolBox::ImplToolItems::size_type i = 0; i < m_xQuick->GetItemCount() && nDigit < 10; ++i)
+                 if (AddToolBoxItem(*m_xQuick, m_xQuick->GetItemId(i), aTargets, aPreferred, std::to_string(nDigit),
+@@ -298,6 +298,25 @@
+                     };
+                     ++nDigit;
+                 }
++        }
++        // HST Office (1.0.3): the AutoSave toggle at the start of the row takes the next digit
++        for (vcl::Window* pChild = m_xTabs->GetWindow(GetWindowType::FirstChild); pChild && nDigit < 10;
++             pChild = pChild->GetWindow(GetWindowType::Next))
++        {
++            if (pChild->get_id() != u"hst-autosave-toggle" || !pChild->IsReallyVisible())
++                continue;
++            Target aTarget;
++            aTarget.pAnchor = pChild;
++            aTarget.aRect = tools::Rectangle(Point(), pChild->GetOutputSizePixel());
++            VclPtr<vcl::Window> xToggle(pChild);
++            aTarget.aRun = [this, xToggle] {
++                Close();
++                if (!xToggle->isDisposed()) // Space on the toggle switches it, as a click does
++                    xToggle->KeyInput(KeyEvent(' ', vcl::KeyCode(KEY_SPACE)));
++            };
++            aPreferred.emplace_back(std::to_string(nDigit++));
++            aTargets.push_back(std::move(aTarget));
++            break;
+         }
+         // the feature search box of the tab row: Q, as Office's Search box
+         for (vcl::Window* pChild = m_xTabs->GetWindow(GetWindowType::FirstChild); pChild;
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -28,6 +28,7 @@
+ #include "HstRibbonKeyTips.hxx"
+ #include "HstRibbonCompact.hxx"
+ #include "HstQuickAccess.hxx"
++#include "HstAutoSaveToggle.hxx"
+ #include <ribbon-custom-hooks.hxx>
+ #include <com/sun/star/accessibility/AccessibleRole.hpp>
+ #include <com/sun/star/accessibility/XAccessibleAction.hpp>
+@@ -519,6 +520,7 @@
+         RemoveChildEventListener(LINK(this, NotebookbarTabControl, HstChildEventHdl));
+         m_pHstBanner.disposeAndClear();
+         m_pHstSearch.disposeAndClear();
++        m_pHstAutoSave.disposeAndClear();
+     }
+     NotebookbarTabControlBase::dispose();
+ }
+@@ -556,6 +558,7 @@
+                 return;
+             m_pHstSearch = VclPtr<HstTabSearchBox>::Create(this);
+             m_pHstSearch->Show();
++            m_pHstAutoSave = VclPtr<HstAutoSaveToggle>::Create(this); // shown once it knows its document
+             m_pHstBanner = VclPtr<HstRibbonBanner>::Create(this);
+             pBar->HstSetOwnBanner(true); // the window shows no second banner beside the bar
+             hst::keytips::Attach(*this, *pBar, GetToolBox(), m_pHstBanner.get());
+@@ -1087,6 +1090,8 @@
+         FillShortcutsToolBox( xContext, m_xFrame, aModuleName, pToolBox );
+         if (m_pHstQat)
+             m_pHstQat->SetFrame(m_xFrame);
++        if (m_pHstAutoSave)
++            m_pHstAutoSave->SetFrame(m_xFrame);
+         if (!m_xHstUpdateDot.is())
+             m_xHstUpdateDot = new hst::notebookbar::UpdateDot(
+                 [this](bool bShow) { hst::ribbon::SetUpdateDot(*this, bShow); });
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -2659,12 +2659,45 @@
+     // the rest of the row up to the menu button; when the row is short the box shrinks, then it
+     // shows only its magnifier.
+     vcl::Window* pHstSearch = nullptr;
++    vcl::Window* pHstLead = nullptr; // HST Office: the AutoSave toggle (sfx2 HstAutoSaveToggle)
+     for (vcl::Window* pChild = GetWindow(GetWindowType::FirstChild); pChild;
+          pChild = pChild->GetWindow(GetWindowType::Next))
++    {
+         if (pChild->get_id() == u"hst-tab-search")
+             pHstSearch = pChild;
++        else if (pChild->get_id() == u"hst-autosave-toggle")
++            pHstLead = pChild;
++    }
+     const double fHstDpi = GetDPIScaleFactor();
+     const tools::Long nHstGap = pHstSearch ? std::lround(8 * fHstDpi) : 0;
++
++    // HST Office: the widths of the visible tabs, as they are placed below
++    tools::Long nHstTabs = 0;
++    for (auto & item : mpTabCtrlData->maItemList)
++    {
++        if (!item.m_bVisible)
++            continue;
++        nHstTabs += ImplGetItemSize(&item, nMaxWidth).getWidth();
++        if (item.maTabName == hst::ribbon::FILE_TAB_NAME && hst::ribbon::ownerDrawEnabled())
++            nHstTabs += hst::ribbon::FileTabExtraWidth(*GetOutDev());
++    }
++
++    // HST Office (1.0.3, owner decision 21/11/2026): the AutoSave toggle is a fixed cell at the start of the row,
++    // before the quick access toolbar, which shares what is left. In a row too short for its label it keeps only
++    // its switch; it never moves the banner (the row reserve and the page reserve are apart from it).
++    tools::Long nHstLead = 0;
++    if (pHstLead && pHstLead->IsVisible())
++    {
++        const Size aFull = pHstLead->get_preferred_size();
++        const tools::Long nSearchMin = pHstSearch ? 2 * nHstGap + std::lround(32 * fHstDpi) : 0;
++        const tools::Long nQatMin = m_pShortcuts && m_nHstQatRow <= 0 ? std::lround(24 * fHstDpi) : 0;
++        const tools::Long nLead = nMaxWidth - nHstTabs - nSearchMin - nQatMin - 4 >= aFull.Width()
++                                      ? aFull.Width()
++                                      : std::min<tools::Long>(aFull.Width(), std::lround(48 * fHstDpi));
++        pHstLead->SetPosSizePixel(Point(2, std::max<tools::Long>(0, (m_nHeaderHeight - aFull.Height()) / 2)),
++                                  Size(nLead, std::min<tools::Long>(aFull.Height(), m_nHeaderHeight)));
++        nHstLead = nLead + std::lround(4 * fHstDpi);
++    }
+ 
+     // HST Office: the quick access toolbar (the shortcuts toolbox) at the start of the row never pushes the
+     // tabs out of the row or shrinks the search box to its magnifier: it gets the room they leave, its other buttons go
+@@ -2672,15 +2705,7 @@
+     tools::Long nShortcutsWidth = 0;
+     if (m_pShortcuts && m_nHstQatRow <= 0)
+     {
+-        tools::Long nTabs = 0;
+-        for (auto & item : mpTabCtrlData->maItemList)
+-        {
+-            if (!item.m_bVisible)
+-                continue;
+-            nTabs += ImplGetItemSize(&item, nMaxWidth).getWidth();
+-            if (item.maTabName == hst::ribbon::FILE_TAB_NAME && hst::ribbon::ownerDrawEnabled())
+-                nTabs += hst::ribbon::FileTabExtraWidth(*GetOutDev()); // as the tabs are placed below
+-        }
++        const tools::Long nTabs = nHstTabs + nHstLead;
+         // the search box keeps the width at which it shows its text (below that it is only a magnifier), with
+         // its gaps before and after it; the row's start offset (2 px) and the toolbox's 1 px follow below.
+         // The compact ribbon (its banner beside the row, m_nHstRowReserve) keeps the quick access buttons
+@@ -2696,9 +2721,9 @@
+             m_pShortcuts->SetSizePixel(Size(nQat, aWant.Height()));
+         nShortcutsWidth = nQat + 1;
+     }
+-    tools::Long nFullWidth = nShortcutsWidth;
+-
+-    const tools::Long nOffsetX = 2 + nShortcutsWidth;
++    tools::Long nFullWidth = nHstLead + nShortcutsWidth;
++
++    const tools::Long nOffsetX = 2 + nHstLead + nShortcutsWidth;
+     // HST Office (1.0.2 ribbon mockup): the tab buttons fill the tab row from its top edge (they started 2 px
+     // below it); the row ends where it did, at 35 logical px or lower, so the body still starts 3 px below it
+     const tools::Long nOffsetY = 0;
+@@ -2782,13 +2807,13 @@
+     // we always have only one line of tabs
+     // tdf#127610 subtract width of shortcuts from width available for tab items
+     if (!pHstSearch) // with the search box the tabs stay left-aligned, the box fills the row
+-        lcl_AdjustSingleLineTabs(nMaxWidth - nShortcutsWidth, mpTabCtrlData.get());
++        lcl_AdjustSingleLineTabs(nMaxWidth - nHstLead - nShortcutsWidth, mpTabCtrlData.get());
+ 
+     // position the shortcutbox (below the ribbon, its owner places it)
+     if (m_pShortcuts && m_nHstQatRow <= 0)
+     {
+         tools::Long nPosY = (m_nHeaderHeight - m_pShortcuts->GetSizePixel().getHeight()) / 2;
+-        m_pShortcuts->SetPosPixel(Point(0, nPosY));
++        m_pShortcuts->SetPosPixel(Point(nHstLead, nPosY));
+     }
+ 
+     tools::Long nPosY = (m_nHeaderHeight - m_pOpenMenu->GetSizePixel().getHeight()) / 2;

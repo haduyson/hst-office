@@ -27,7 +27,8 @@ REQUIRED = {"quality.yml", "desktop-linux.yml", "desktop-windows.yml", "desktop-
 RELEASE_PERMISSIONS = {"contents": "write", "actions": "read"}
 # The only jobs that may read secrets: macOS and Linux signing behind a reviewable environment, in the build
 # workflows and in the signing probe. Each may be skipped only by its own job condition.
-SIGNING_JOBS = {("desktop-macos.yml", SIGNING_JOB): "${{ inputs.mode == 'full' && github.ref == 'refs/heads/main' }}",
+SIGNING_JOBS = {("desktop-macos.yml", SIGNING_JOB):
+                "${{ !cancelled() && inputs.mode == 'full' && github.ref == 'refs/heads/main' }}",
                 ("macos-signature-probe.yml", SIGNING_JOB): "${{ inputs.sign }}",
                 ("desktop-linux.yml", SIGNING_JOB): "${{ inputs.mode == 'full' }}"}
 SIGNING_ENVIRONMENTS = {"desktop-linux.yml": LINUX_SIGNING_ENVIRONMENT}
@@ -99,7 +100,7 @@ def check_workflow(path, root=ROOT):
         # the public release and the draft "test-builds" release for maintainers.
         writers = {("release.yml", "publish"), ("test-build-share.yml", "share")}
         # The tab and spell probes only read a run artifact (gh run download needs actions: read).
-        readers = {("macos-tab-probe.yml", "probe"), ("macos-bundle-seal-probe.yml", "probe"), ("macos-spell-probe.yml", "probe"), ("macos-app-launchers-probe.yml", "probe"), ("macos-save-replace-probe.yml", "probe"), ("windows-smoke.yml", "smoke"), ("r1-auto-windows.yml", "r1"), ("r1-auto-macos.yml", "r1"), ("r1-auto-macos.yml", "old-profile"), ("startup-timing.yml", "timing")}
+        readers = {("macos-tab-probe.yml", "probe"), ("macos-bundle-seal-probe.yml", "probe"), ("macos-spell-probe.yml", "probe"), ("macos-app-launchers-probe.yml", "probe"), ("macos-save-replace-probe.yml", "probe"), ("macos-update-e2e-probe.yml", "probe"), ("windows-smoke.yml", "smoke"), ("r1-auto-windows.yml", "r1"), ("r1-auto-macos.yml", "r1"), ("r1-auto-macos.yml", "old-profile"), ("startup-timing.yml", "timing")}
         allowed = RELEASE_PERMISSIONS if (path.name, name) in writers else \
             {"contents": "read", "actions": "read"} if (path.name, name) in readers else {"contents": "read"}
         require(job.get("permissions", {"contents": "read"}) == allowed, f"{name}: permissions escalation")

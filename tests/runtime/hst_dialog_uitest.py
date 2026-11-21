@@ -11,14 +11,17 @@ import hst_gui
 
 
 class DialogHarness:
-    def __init__(self, instdir, workdir, port, display):
+    def __init__(self, instdir, workdir, port, display, ui=None):
+        """`ui`: the profile's UI language (UILocale, e.g. "en-US"); default the installation's (Vietnamese)."""
         self.display = display
         os.environ["HST_VCLPLUGIN"] = "svp"
         hst_gui.setup_uno(instdir)
         # The automatic update check opens a modal dialog at any moment, blocking the checks.
-        no_update = [("/org.openoffice.Office.HSTUpdate", "AutoCheck", "false"),
-                     ("/org.hasontech.hstoffice.UpdateCheck", "AutoCheck", "false")]
-        self.office = hst_gui.Office(instdir, workdir, port, display=display, config=no_update)
+        config = [("/org.openoffice.Office.HSTUpdate", "AutoCheck", "false"),
+                  ("/org.hasontech.hstoffice.UpdateCheck", "AutoCheck", "false")]
+        if ui:
+            config.append(("/org.openoffice.Office.Linguistic/General", "UILocale", ui))
+        self.office = hst_gui.Office(instdir, workdir, port, display=display, config=config)
         self.office.start()
         # The seed in the profile can be read too early, and each new window then asks again; a modal
         # welcome inside a load never returns. Settle it for good before the first document.

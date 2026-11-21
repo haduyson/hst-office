@@ -1,0 +1,183 @@
+HST Office: a print job disposes the printer it made for itself; each print job no longer keeps ~20 MB (vcl).
+
+Each print job (vcl::PrinterController) without a printer makes its own: Printer::PreparePrintJob for the default
+printer, the printer box of the print dialog and of the Print page's panel for each printer chosen. Nothing
+disposed those printers, and vcl's list of printers (Printer::mpNext/mpPrev, ImplSVData::mpFirstPrinter) holds
+every printer until it is disposed, so every job's printer stayed alive with its own font list: the font files
+mapped again, about 20 MB per job. Opening the File panel's Print page makes a job each time, so the office grew by
+about 20 MB per opening (Writer, Sheets, Slides alike). vcl::hst::JobPrinter now holds the printer the job made
+(PrinterController::setPrinter, whose callers all make a new printer) and disposes it when the job chooses another
+printer or ends. A printer given to the job's constructor (the old print API's VCLXPrinter, the document's
+printer) stays its owner's.
+
+Test: CppunitTest_vcl_hst_print_panel testJobPrinterEndsWithTheJob and testGivenPrinterStaysWithItsOwner;
+tests/runtime/check-backstage-print-repeat.py checks the memory per opening after the warm-up.
+--- a/vcl/Library_vcl.mk
++++ b/vcl/Library_vcl.mk
+@@ -369,6 +369,7 @@
+     vcl/source/gdi/oldprintadaptor \
+     vcl/source/gdi/print2 \
+     vcl/source/gdi/print3 \
++    vcl/source/gdi/hstjobprinter \
+     vcl/source/gdi/print \
+     vcl/source/gdi/regband \
+     vcl/source/gdi/region \
+--- a/vcl/source/gdi/print3.cxx
++++ b/vcl/source/gdi/print3.cxx
+@@ -40,6 +40,7 @@
+ 
+ #include <printdlg.hxx>
+ #include <vcl/hstprintjobpanel.hxx>
++#include <hstjobprinter.hxx>
+ #include <salinst.hxx>
+ #include <salprn.hxx>
+ #include <strings.hrc>
+@@ -159,6 +160,8 @@
+     typedef std::unordered_map< OUString, css::uno::Sequence< sal_Bool > > ChoiceDisableMap;
+ 
+     VclPtr< Printer >                                           mxPrinter;
++    // the printer the job made for itself, disposed with the job
++    vcl::hst::JobPrinter                                        maJobPrinter;
+     weld::Window*                                               mpWindow;
+     css::uno::Sequence< css::beans::PropertyValue >             maUIOptions;
+     std::vector< css::beans::PropertyValue >                    maUIProperties;
+@@ -929,6 +932,8 @@
+     mpImplData->mbPapersizeFromUser = false;
+     mpImplData->mbOrientationFromUser = false;
+     mpImplData->mnFixedPaperBin = -1;
++    // all callers make the printer for this job (PreparePrintJob, the printer box)
++    mpImplData->maJobPrinter.Take(i_rPrinter);
+ }
+ 
+ void PrinterController::resetPrinterOptions( bool i_bFileOutput )
+--- a/vcl/qa/cppunit/hstprintjobpanel.cxx
++++ b/vcl/qa/cppunit/hstprintjobpanel.cxx
+@@ -9,6 +9,7 @@
+ 
+ // HST Office: a print job that waits in the panel form of the print dialog (vcl::PrintJobPanel).
+ 
++#include <hstjobprinter.hxx>
+ #include <salinst.hxx>
+ #include <svdata.hxx>
+ 
+@@ -170,6 +171,34 @@
+         CPPUNIT_ASSERT_EQUAL(1, xJob->mnFinished);
+     }
+ 
++    void testJobPrinterEndsWithTheJob()
++    {
++        VclPtr<Printer> xFirst = VclPtr<Printer>::Create();
++        VclPtr<Printer> xSecond = VclPtr<Printer>::Create();
++        {
++            vcl::hst::JobPrinter aJobPrinter;
++            aJobPrinter.Take(xFirst);
++            aJobPrinter.Take(xFirst); // the same printer again stays
++            CPPUNIT_ASSERT(!xFirst->isDisposed());
++            aJobPrinter.Take(xSecond); // another printer chosen: the one made before goes
++            CPPUNIT_ASSERT(xFirst->isDisposed());
++            CPPUNIT_ASSERT(!xSecond->isDisposed());
++        }
++        // the job ended: disposed, its printer leaves vcl's printer list (which kept it and its fonts alive)
++        CPPUNIT_ASSERT(xSecond->isDisposed());
++    }
++
++    void testGivenPrinterStaysWithItsOwner()
++    {
++        VclPtr<Printer> xGiven = VclPtr<Printer>::Create();
++        {
++            auto xJob = std::make_shared<TestController>(xGiven);
++            vcl::PrintJobPanel(xJob).Cancel();
++        }
++        CPPUNIT_ASSERT(!xGiven->isDisposed()); // the old print API prints again with it
++        xGiven.disposeAndClear();
++    }
++
+     DECL_STATIC_LINK(HstPrintJobPanelTest, MarginsHdl, vcl::PrintJobPanel&, void);
+ 
+     CPPUNIT_TEST_SUITE(HstPrintJobPanelTest);
+@@ -178,6 +207,8 @@
+     CPPUNIT_TEST(testHandOver);
+     CPPUNIT_TEST(testHostDeclinesOrFails);
+     CPPUNIT_TEST(testMargins);
++    CPPUNIT_TEST(testJobPrinterEndsWithTheJob);
++    CPPUNIT_TEST(testGivenPrinterStaysWithItsOwner);
+     CPPUNIT_TEST_SUITE_END();
+ 
+ private:
+--- /dev/null
++++ b/vcl/inc/hstjobprinter.hxx
+@@ -0,0 +1,41 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <vcl/dllapi.h>
++#include <vcl/print.hxx>
++#include <vcl/vclptr.hxx>
++
++namespace vcl::hst
++{
++/** The printer a print job made for itself, disposed when the job lets it go.
++
++    A print job (vcl::PrinterController) makes its own printer when none was given: Printer::PreparePrintJob for
++    the default printer, the printer box of the print dialog (and of the Print page's panel) for each printer
++    chosen. Nothing else owns that printer, but vcl's list of printers holds every printer until it is disposed,
++    so each one stayed alive with its own font list (the font files mapped again: about 20 MB per job). A printer
++    the job was given by its creator (the document's printer of the old print API) stays the creator's.
++
++    Take() hands the job's new printer over: the one it made before is disposed. Release() (and the destructor)
++    disposes the last one. */
++class VCL_DLLPUBLIC JobPrinter
++{
++public:
++    JobPrinter() = default;
++    JobPrinter(const JobPrinter&) = delete;
++    JobPrinter& operator=(const JobPrinter&) = delete;
++    ~JobPrinter();
++
++    void Take(const VclPtr<Printer>& rPrinter);
++    void Release();
++
++private:
++    VclPtr<Printer> m_xPrinter;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/vcl/source/gdi/hstjobprinter.cxx
+@@ -0,0 +1,30 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#include <hstjobprinter.hxx>
++
++namespace vcl::hst
++{
++JobPrinter::~JobPrinter() { Release(); }
++
++void JobPrinter::Take(const VclPtr<Printer>& rPrinter)
++{
++    if (rPrinter == m_xPrinter)
++        return;
++    Release();
++    m_xPrinter = rPrinter;
++}
++
++void JobPrinter::Release()
++{
++    // others may still hold it (a font cache, the document's render device): they keep an empty printer
++    if (m_xPrinter && !m_xPrinter->isDisposed())
++        m_xPrinter.disposeAndClear();
++    m_xPrinter.reset();
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

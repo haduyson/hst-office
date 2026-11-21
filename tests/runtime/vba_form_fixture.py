@@ -115,3 +115,21 @@ def controls_of(xml):
     root = ET.fromstring(xml)
     walk(root, 0, 0)
     return out, root.get(NS + "title")
+
+
+def save_with_macros_denied(office, url, project, label, check):
+    """Round-trip the form fixture without loading its Basic project before security permits it."""
+    from com.sun.star.beans import PropertyValue
+    mode = PropertyValue()
+    mode.Name, mode.Value = "MacroExecutionMode", 0
+    doc = office.desktop().loadComponentFromURL(url, "_blank", 0, (mode,))
+    libraries = doc.BasicLibraries
+    check(f"{label}: denied macros retain VBA mode and project name",
+          libraries.VBACompatibilityMode and libraries.ProjectName == project,
+          f"mode={libraries.VBACompatibilityMode} project={libraries.ProjectName}")
+    check(f"{label}: denied macros do not load the project library",
+          not libraries.isLibraryLoaded(project))
+    doc.store()
+    check(f"{label}: saving with macros denied does not load the project library",
+          not libraries.isLibraryLoaded(project))
+    doc.close(True)

@@ -37,14 +37,25 @@ SERVICES = (
     ("vba_save_check", "VbaSaveCheckJob", "org.hst.office.vi.VbaSaveCheckJob", JOB),
     ("version_job", "PreviousVersionsJob", "org.hst.office.vi.PreviousVersionsJob", JOB),
     ("citation_save_job", "CitationSaveJob", "org.hst.office.vi.CitationSaveJob", JOB),
+    ("mail_merge_word_job", "MailMergeWordJob", "org.hst.office.vi.MailMergeWordJob", JOB),
+    ("excel_addin_calls_job", "ExcelAddinCallsJob", "org.hst.office.vi.ExcelAddinCallsJob", JOB),
     ("version_options", "PreviousVersionsOptionsHandler", "org.hst.office.vi.OptionsPreviousVersions",
      ("org.hst.office.vi.OptionsPreviousVersions",)),
     ("number_words_options", "NumberWordsOptionsHandler", "org.hst.office.vi.OptionsNumberWords",
      ("org.hst.office.vi.OptionsNumberWords",)),
+    ("ribbon_options", "RibbonOptionsHandler", "org.hst.office.vi.OptionsRibbon", ("org.hst.office.vi.OptionsRibbon",)),
     # asked by the core before an Excel file is written (hst-save-format-check.patch)
+    ("formula_options", "FormulaOptionsHandler", "org.hst.office.vi.OptionsFormula", ("org.hst.office.vi.OptionsFormula",)),
+    ("formula_open_job", "FormulaOpenJob", "org.hst.office.vi.FormulaOpenJob", JOB),
     ("save_format_check", "SaveFormatCheck", "org.hst.office.vi.SaveFormatCheck", ("org.hst.office.vi.SaveFormatCheck",)),
     ("banner_uno", "BannerService", "org.hst.office.BannerFeed", ("org.hst.office.BannerFeed",) + JOB),
     ("banner_uno", "BannerStartup", "org.hst.office.BannerStartup", ("org.hst.office.BannerStartup",) + JOB),
+    # Trợ lý AI: org.hst.office.ai:* commands and its options page (off by default; core schema AI.xcs)
+    ("ai_handler", "AiHandler", "org.hst.office.vi.AiDispatchProvider", PROTOCOL_HANDLER),
+    ("ai_options", "AiOptionsHandler", "org.hst.office.vi.OptionsAI", ("org.hst.office.vi.OptionsAI",)),
+    # HST PDF started on its own (Windows shortcut, Linux launcher): "service:org.hst.office.vi.PdfOpen" on the
+    # command line opens the PDF file dialog
+    ("pdf_open", "PdfOpenJob", "org.hst.office.vi.PdfOpen", ("org.hst.office.vi.PdfOpen",)),
 )
 
 

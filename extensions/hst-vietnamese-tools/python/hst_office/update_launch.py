@@ -87,6 +87,23 @@ def cancel(proc):
     return True
 
 
+def end_own_dialogs():
+    """End (as Cancel) the extension's modal dialogs still in their modal loop, e.g. the welcome dialog of another
+    window; returns how many. A modal dialog keeps its frame from closing, so Desktop.terminate() would fail at once:
+    the update was then abandoned in silence (the helper stopped, some windows already closed). The dialogs leave their
+    loops only when the caller's stack unwinds, so quit after a later main-thread turn (update_install)."""
+    from . import dialog_registry, update_popup
+    update_popup.close_all()  # modeless: nothing to wait for, but it must not outlive the quit
+    ended = 0
+    for dialog in reversed(list(dialog_registry.OPEN)):
+        try:
+            dialog.endExecute()
+            ended += 1
+        except Exception:  # noqa: BLE001 - already disposed
+            pass
+    return ended
+
+
 def quit_office(ctx):
     """Close the office the way its own Quit command does; True when it is quitting.
 

@@ -1,0 +1,416 @@
+Calc: an .xlsx import keeps the plain entries of the shared string table as pooled strings, not RichString objects.
+
+The import read every shared string table entry into a RichString object with a vector of portions, also the plain
+ones, and kept them all until the sheets were read; every cell then put its entry's text into the document's string
+pool again. On a sheet of 5.3 million text cells over 1.2 million entries these objects took about 160 MB at the
+load peak, allocated between the long-lived entry texts, and after they were freed the allocator kept the pages:
+the open document held about 175 MB more RSS (171 MB free inside the glibc arenas) than the same sheet written
+with inline strings. An entry that is plain whatever the cell's font (one portion without a font, no phonetic
+text, not empty, no line break) is now pooled as soon as it is read and its RichString dropped before the next
+entry, so the temporaries reuse the same memory. The cells of the entry take the pooled string; a cell whose
+font needs rich text (superscript/subscript) gets a RichString made from the text, exactly as before. The
+environment variable HST_SC_XLSX_SST_PLAIN_OFF keeps every entry as a RichString.
+
+New logic in sc/source/filter/inc/hstsstplainstrings.hxx (HST). Hooks: sharedstringsbuffer.hxx/.cxx (compact the
+last entry before the next one and at the end, null check, fallback in getString), sheetdatabuffer.cxx (plain
+fast path), richstring.hxx (font id getter), documentimport.hxx/.cxx (setStringCell for an already pooled string).
+
+License: modified upstream files keep their license (MPL-2.0); the new header is HST-proprietary.
+Test: CppunitTest_sc_subsequent_filters_test5 testXlsxPlainSharedStringsPooledWhenRead loads the same file on both
+paths and compares every cell: type, text and pooled string identity (spaces, escapes, empty, rich, multi-line,
+duplicate text, missing index, superscript cell font).
+---
+--- a/sc/inc/documentimport.hxx
++++ b/sc/inc/documentimport.hxx
+@@ -29,6 +29,7 @@ struct ScSetStringParam;
+ struct ScTabOpParam;
+ struct ScDocumentImportImpl;
+ enum class SvtScriptType : sal_uInt8;
++namespace svl { class SharedString; }
+ 
+ /**
+  * Accessor class to ScDocument.  Its purpose is to allow import filter to
+@@ -99,6 +100,8 @@ public:
+             const ScSetStringParam* pStringParam = nullptr);
+     void setNumericCell(const ScAddress& rPos, double fVal);
+     void setStringCell(const ScAddress& rPos, const OUString& rStr);
++    /** HST Office: rStr is already a string of the document's pool. */
++    void setStringCell(const ScAddress& rPos, const svl::SharedString& rStr);
+     void setEditCell(const ScAddress& rPos, std::unique_ptr<EditTextObject> pEditText);
+ 
+     void setFormulaCell(
+--- a/sc/qa/unit/subsequent_filters_test5.cxx
++++ b/sc/qa/unit/subsequent_filters_test5.cxx
+@@ -23,6 +23,7 @@
+ #include <undomanager.hxx>
+ 
+ #include <formulacell.hxx>
++#include <cellvalue.hxx>
+ #include <rtl/crc.h>
+ #include <osl/process.h>
+ #include <rtl/strbuf.hxx>
+@@ -32,6 +33,7 @@
+ #include <tools/stream.hxx>
+ 
+ #include <array>
++#include <map>
+ #include <utility>
+ #include <vector>
+ 
+@@ -714,6 +716,141 @@ CPPUNIT_TEST_FIXTURE(ScFiltersTest5, testXlsxSharedFormulaGroupsAsTheyAreCreated
+     CPPUNIT_ASSERT(aOldLoaded.indexOf(u"D5 top=0 len=6 mode=") >= 0 && aOldLoaded.indexOf(u"value=500\n") >= 0);
+ }
+ 
++namespace
++{
++/// A one-sheet .xlsx with a shared string table and two cell formats (xf 1 is superscript); rSheetData is the
++/// sheetData, rStrings the <si> entries.
++void writeXlsxWithSharedStrings(const OUString& rURL, const OString& rSheetData, const OString& rStrings)
++{
++    static constexpr OString aRels = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"_ostr;
++    static constexpr OString aMain = "application/vnd.openxmlformats-officedocument.spreadsheetml"_ostr;
++    writeStoredZip(
++        rURL,
++        { { "[Content_Types].xml"_ostr,
++            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
++            "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">"
++            "<Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>"
++            "<Default Extension=\"xml\" ContentType=\"application/xml\"/>"
++            "<Override PartName=\"/xl/workbook.xml\" ContentType=\""
++                + aMain + ".sheet.main+xml\"/><Override PartName=\"/xl/worksheets/sheet1.xml\" ContentType=\""
++                + aMain + ".worksheet+xml\"/><Override PartName=\"/xl/sharedStrings.xml\" ContentType=\""
++                + aMain + ".sharedStrings+xml\"/><Override PartName=\"/xl/styles.xml\" ContentType=\""
++                + aMain + ".styles+xml\"/></Types>" },
++          { "_rels/.rels"_ostr,
++            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
++            "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
++            "<Relationship Id=\"rId1\" Type=\""
++                + aRels + "/officeDocument\" Target=\"xl/workbook.xml\"/></Relationships>" },
++          { "xl/workbook.xml"_ostr,
++            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
++            "<workbook xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" xmlns:r=\""
++                + aRels + "\"><sheets><sheet name=\"Sheet1\" sheetId=\"1\" r:id=\"rId1\"/></sheets></workbook>" },
++          { "xl/_rels/workbook.xml.rels"_ostr,
++            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
++            "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">"
++            "<Relationship Id=\"rId1\" Type=\""
++                + aRels + "/worksheet\" Target=\"worksheets/sheet1.xml\"/><Relationship Id=\"rId2\" Type=\""
++                + aRels + "/sharedStrings\" Target=\"sharedStrings.xml\"/><Relationship Id=\"rId3\" Type=\""
++                + aRels + "/styles\" Target=\"styles.xml\"/></Relationships>" },
++          { "xl/styles.xml"_ostr,
++            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
++            "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
++            "<fonts count=\"2\"><font><sz val=\"11\"/><name val=\"Calibri\"/></font>"
++            "<font><vertAlign val=\"superscript\"/><sz val=\"11\"/><name val=\"Calibri\"/></font></fonts>"
++            "<fills count=\"1\"><fill><patternFill patternType=\"none\"/></fill></fills>"
++            "<borders count=\"1\"><border/></borders>"
++            "<cellStyleXfs count=\"1\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\"/></cellStyleXfs>"
++            "<cellXfs count=\"2\"><xf numFmtId=\"0\" fontId=\"0\" fillId=\"0\" borderId=\"0\" xfId=\"0\"/>"
++            "<xf numFmtId=\"0\" fontId=\"1\" fillId=\"0\" borderId=\"0\" xfId=\"0\" applyFont=\"1\"/></cellXfs>"
++            "</styleSheet>"_ostr },
++          { "xl/sharedStrings.xml"_ostr,
++            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
++            "<sst xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\">"
++                + rStrings + "</sst>" },
++          { "xl/worksheets/sheet1.xml"_ostr,
++            "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n"
++            "<worksheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"><sheetData>"
++                + rSheetData + "</sheetData></worksheet>" } });
++}
++}
++
++CPPUNIT_TEST_FIXTURE(ScFiltersTest5, testXlsxPlainSharedStringsPooledWhenRead)
++{
++    // The import pools the text of a plain shared string table entry as it reads the table and gives that pooled
++    // string to every cell of the entry, without keeping a RichString for it. The cells must be exactly those of the
++    // RichString path (the environment variable selects it): plain texts with spaces and escaped characters, an
++    // empty text, rich text and multi-line text (edit cells), a single run without a font (plain), the same text in
++    // two entries, an index past the end of the table, and plain entries in cells with a superscript font (column
++    // E from row 11: a cell font that needs rich text makes an edit cell).
++    static constexpr OString aStrings
++        = "<si><t>H\xC3\xA0 N\xE1\xBB\x99i</t></si>"
++          "<si><t xml:space=\"preserve\">  a &lt; b &amp; &quot;c&quot;  </t></si>"
++          "<si><t/></si>"
++          "<si><r><rPr><b/></rPr><t>\xC4\x90\xE1\xBA\xADm</t></r><r><t xml:space=\"preserve\"> th\xC6\xB0\xE1\xBB\x9Dng</t></r></si>"
++          "<si><t>d\xC3\xB2ng 1\nd\xC3\xB2ng 2</t></si>"
++          "<si><t>H\xC3\xA0 N\xE1\xBB\x99i</t></si>"
++          "<si><r><t>m\xE1\xBB\x99t ph\xE1\xBA\xA7n</t></r></si>"_ostr;
++    OStringBuffer aRows;
++    for (int nRow = 1; nRow <= 30; ++nRow)
++    {
++        const OString r = OString::number(nRow);
++        aRows.append("<row r=\"" + r + "\">");
++        for (char cCol = 'A'; cCol <= 'E'; ++cCol)
++            aRows.append("<c r=\"" + OStringChar(cCol) + r + "\" t=\"s\""
++                         + OString(cCol == 'E' && nRow > 10 ? " s=\"1\"" : "") + "><v>"
++                         + OString::number((nRow * 3 + (cCol - 'A')) % 7) + "</v></c>");
++        if (nRow == 30)
++            aRows.append("<c r=\"F30\" t=\"s\"><v>99</v></c>");
++        aRows.append("</row>");
++    }
++    writeXlsxWithSharedStrings(maTempFile.GetURL(), aRows.makeStringAndClear(), aStrings);
++
++    const auto loadAndDump = [this]() {
++        loadFromURL(maTempFile.GetURL(),
++                    { comphelper::makePropertyValue(u"FilterName"_ustr, u"Calc Office Open XML"_ustr) });
++        ScDocument* pDoc = getScDoc();
++        // cell type, text, and for a text cell the first cell holding the same pooled string
++        std::map<const rtl_uString*, OUString> aFirst;
++        OUStringBuffer aDump;
++        for (SCROW nRow = 0; nRow < 30; ++nRow)
++            for (SCCOL nCol = 0; nCol < 6; ++nCol)
++            {
++                const ScAddress aPos(nCol, nRow, 0);
++                const ScRefCellValue aCell(*pDoc, aPos);
++                aDump.append(aPos.Format(ScRefFlags::VALID) + " "
++                             + OUString::number(static_cast<int>(aCell.getType())) + " ["
++                             + pDoc->GetString(aPos) + "]");
++                if (aCell.getType() == CELLTYPE_STRING)
++                    aDump.append(" same as "
++                                 + aFirst.emplace(aCell.getSharedString()->getData(),
++                                                  aPos.Format(ScRefFlags::VALID)).first->second);
++                aDump.append("\n");
++            }
++        return aDump.makeStringAndClear();
++    };
++
++    osl_setEnvironment(u"HST_SC_XLSX_SST_PLAIN_OFF"_ustr.pData, u"1"_ustr.pData);
++    const OUString aRichPath = loadAndDump();
++    osl_clearEnvironment(u"HST_SC_XLSX_SST_PLAIN_OFF"_ustr.pData);
++    dispose();
++
++    const OUString aPooled = loadAndDump();
++    CPPUNIT_ASSERT_EQUAL(aRichPath, aPooled);
++    // A1 is entry 3 (rich text: an edit cell), B1 entry 4 (two lines: an edit cell), E1 entry 0 and A2 entry 6,
++    // C1 entry 5 holds the same text as entry 0 and the same pooled string
++    CPPUNIT_ASSERT(aPooled.indexOf(OUString(u"A1 " + OUString::number(int(CELLTYPE_EDIT)))) >= 0);
++    CPPUNIT_ASSERT(aPooled.indexOf(OUString(u"C1 " + OUString::number(int(CELLTYPE_STRING))
++                                         + u" [H\u00E0 N\u1ED9i] same as C1")) >= 0);
++    CPPUNIT_ASSERT(aPooled.indexOf(OUString(u"E1 " + OUString::number(int(CELLTYPE_STRING))
++                                         + u" [H\u00E0 N\u1ED9i] same as C1")) >= 0);
++    CPPUNIT_ASSERT(aPooled.indexOf(OUString(u"A2 " + OUString::number(int(CELLTYPE_STRING))
++                                         + u" [m\u1ED9t ph\u1EA7n] same as")) >= 0);
++    CPPUNIT_ASSERT(aPooled.indexOf(OUString(u"F30 " + OUString::number(int(CELLTYPE_NONE)) + u" []")) >= 0);
++    // E12 is entry 5 in a superscript cell: an edit cell with the same text
++    CPPUNIT_ASSERT(aPooled.indexOf(OUString(u"E12 " + OUString::number(int(CELLTYPE_EDIT))
++                                                  + u" [H\u00E0 N\u1ED9i]\n")) >= 0);
++}
++
+ CPPUNIT_PLUGIN_IMPLEMENT();
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/core/data/documentimport.cxx
++++ b/sc/source/core/data/documentimport.cxx
+@@ -273,6 +273,21 @@ void ScDocumentImport::setNumericCell(const ScAddress& rPos, double fVal)
+     pBlockPos->miCellPos = rCells.set(pBlockPos->miCellPos, rPos.Row(), fVal);
+ }
+ 
++void ScDocumentImport::setStringCell(const ScAddress& rPos, const svl::SharedString& rStr)
++{
++    ScTable* pTab = mpImpl->mrDoc.FetchTable(rPos.Tab());
++    if (!pTab || !rStr.getData())
++        return;
++
++    sc::ColumnBlockPosition* pBlockPos = mpImpl->getBlockPosition(rPos.Tab(), rPos.Col());
++
++    if (!pBlockPos)
++        return;
++
++    sc::CellStoreType& rCells = pTab->aCol[rPos.Col()].maCells;
++    pBlockPos->miCellPos = rCells.set(pBlockPos->miCellPos, rPos.Row(), rStr);
++}
++
+ void ScDocumentImport::setStringCell(const ScAddress& rPos, const OUString& rStr)
+ {
+     ScTable* pTab = mpImpl->mrDoc.FetchTable(rPos.Tab());
+--- /dev/null
++++ b/sc/source/filter/inc/hstsstplainstrings.hxx
+@@ -0,0 +1,82 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HST Office.
++ */
++
++#pragma once
++
++#include <cstdlib>
++#include <memory>
++#include <vector>
++
++#include <svl/sharedstring.hxx>
++#include <svl/sharedstringpool.hxx>
++
++#include "richstring.hxx"
++
++namespace oox::xls
++{
++/** The plain entries of an .xlsx shared string table, kept as strings of the document's string pool.
++
++    The import read every entry of the shared string table into a RichString object with a vector of portions, also
++    the plain ones (one run of text without a font), and kept them all until the sheets were read. A table of
++    1.2 million entries held about 160 MB in these objects, allocated between the entries' texts; once freed, the
++    allocator could not give the pages back, and the open document kept about 175 MB more than the same sheet
++    written with inline strings. Every cell of the entry also put the same text into the string pool on its own.
++
++    Now an entry that is plain whatever the cell's font (one portion without a font, no phonetic text, not empty,
++    no line break) gives its text to the pool as soon as it is read, and its RichString is dropped before the next
++    entry is read, so the temporary objects reuse the same memory. The cells of the entry take the pooled string;
++    a cell whose font needs rich text (superscript or subscript) gets a RichString made from the text, as the import
++    made it before. The environment variable HST_SC_XLSX_SST_PLAIN_OFF keeps every entry as a RichString (used by
++    a test to compare both paths). */
++class HstSstPlainStrings
++{
++public:
++    HstSstPlainStrings()
++        : mbEnabled(!std::getenv("HST_SC_XLSX_SST_PLAIN_OFF"))
++    {
++    }
++
++    /** Pools entry nIndex (the last one read) if it is plain, and drops rxString then. */
++    void compact(sal_Int32 nIndex, RichStringRef& rxString, svl::SharedStringPool& rPool)
++    {
++        OUString aText;
++        if (!mbEnabled || !rxString || nIndex < 0 || !rxString->extractPlainString(aText, nullptr)
++            || aText.isEmpty() || rxString->getPortion(0).getFontId() >= 0)
++            return;
++        if (maStrings.size() <= static_cast<size_t>(nIndex))
++            maStrings.resize(nIndex + 1);
++        maStrings[nIndex] = rPool.intern(aText);
++        rxString.reset();
++    }
++
++    /** The pooled string of a plain entry, or null. */
++    const svl::SharedString* get(sal_Int32 nIndex) const
++    {
++        if (nIndex < 0 || static_cast<size_t>(nIndex) >= maStrings.size() || !maStrings[nIndex].getData())
++            return nullptr;
++        return &maStrings[nIndex];
++    }
++
++    /** A RichString of one portion holding the text of a plain entry, as the import read it. */
++    RichStringRef makeRichString(sal_Int32 nIndex) const
++    {
++        const svl::SharedString* pString = get(nIndex);
++        if (!pString)
++            return RichStringRef();
++        RichStringRef xString = std::make_shared<RichString>();
++        xString->getPortion(xString->importRun()).setText(pString->getString());
++        return xString;
++    }
++
++    void clear() { std::vector<svl::SharedString>().swap(maStrings); }
++
++private:
++    bool mbEnabled;
++    std::vector<svl::SharedString> maStrings;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/source/filter/inc/richstring.hxx
++++ b/sc/source/filter/inc/richstring.hxx
+@@ -54,6 +54,8 @@ public:
+     const OUString& getText() const { return maText; }
+     /** Returns true, if the portion contains font formatting. */
+     bool         hasFont() const { return bool(mxFont); }
++    /** HST Office: the font identifier from an .xlsb run, -1 if none. */
++    sal_Int32           getFontId() const { return mnFontId; }
+ 
+     /** Converts the portion and replaces or appends to the passed XText. */
+     void                convert(
+--- a/sc/source/filter/inc/sharedstringsbuffer.hxx
++++ b/sc/source/filter/inc/sharedstringsbuffer.hxx
+@@ -20,6 +20,7 @@
+ #pragma once
+ 
+ #include "richstring.hxx"
++#include "hstsstplainstrings.hxx"
+ 
+ namespace oox::xls {
+ 
+@@ -37,13 +38,18 @@ public:
+ 
+     /** Returns the specified string. */
+     RichStringRef       getString( sal_Int32 nStringId ) const;
++    /** HST Office: the pooled string of a plain entry, or null (then use getString()). */
++    const svl::SharedString* getPlainString( sal_Int32 nStringId ) const { return maHstPlain.get( nStringId ); }
+ 
+     /** HST Office: frees the strings once every sheet's cells are filled (they are not read afterwards). */
+-    void                releaseStrings() { StringVector().swap( maStrings ); }
++    void                releaseStrings() { StringVector().swap( maStrings ); maHstPlain.clear(); }
+ 
+ private:
++    void                hstCompactLast();
++
+     typedef RefVector< RichString > StringVector;
+     StringVector        maStrings;
++    HstSstPlainStrings  maHstPlain;     /// HST Office: plain entries as pooled strings
+ };
+ 
+ } // namespace oox::xls
+--- a/sc/source/filter/oox/sharedstringsbuffer.cxx
++++ b/sc/source/filter/oox/sharedstringsbuffer.cxx
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include <sharedstringsbuffer.hxx>
++#include <document.hxx>
+ 
+ namespace oox::xls {
+ 
+@@ -26,8 +27,15 @@ SharedStringsBuffer::SharedStringsBuffer( const WorkbookHelper& rHelper ) :
+ {
+ }
+ 
++void SharedStringsBuffer::hstCompactLast()
++{
++    if( !maStrings.empty() )
++        maHstPlain.compact( sal_Int32( maStrings.size() ) - 1, maStrings.back(), getScDocument().GetSharedStringPool() );
++}
++
+ RichStringRef SharedStringsBuffer::createRichString()
+ {
++    hstCompactLast(); // HST Office: the previous entry is complete
+     RichStringRef xString = std::make_shared<RichString>();
+     maStrings.push_back( xString );
+     return xString;
+@@ -35,13 +43,16 @@ RichStringRef SharedStringsBuffer::createRichString()
+ 
+ void SharedStringsBuffer::finalizeImport()
+ {
++    hstCompactLast(); // HST Office
+     for (auto & rString : maStrings)
+-        rString->finalizeImport(*this);
++        if (rString)
++            rString->finalizeImport(*this);
+ }
+ 
+ RichStringRef SharedStringsBuffer::getString( sal_Int32 nStringId ) const
+ {
+-    return maStrings.get( nStringId );
++    RichStringRef xString = maStrings.get( nStringId );
++    return xString ? xString : maHstPlain.makeRichString( nStringId ); // HST Office
+ }
+ 
+ } // namespace oox::xls
+--- a/sc/source/filter/oox/sheetdatabuffer.cxx
++++ b/sc/source/filter/oox/sheetdatabuffer.cxx
+@@ -137,6 +137,17 @@ void SheetDataBuffer::setStringCell( const CellModel& rModel, const RichStringRe
+ 
+ void SheetDataBuffer::setStringCell( const CellModel& rModel, sal_Int32 nStringId )
+ {
++    // HST Office: a plain entry is already pooled; a font that needs rich text takes the RichString path
++    if( const svl::SharedString* pHstPlain = getSharedStrings().getPlainString( nStringId ) )
++    {
++        const oox::xls::Font* pFont = getStyles().getFontFromCellXf( rModel.mnXfId ).get();
++        if( !pFont || !pFont->needsRichTextFormat() )
++        {
++            getDocImport().setStringCell( rModel.maCellAddr, *pHstPlain );
++            setCellFormat( rModel );
++            return;
++        }
++    }
+     RichStringRef xString = getSharedStrings().getString( nStringId );
+     if( xString )
+         setStringCell( rModel, xString );

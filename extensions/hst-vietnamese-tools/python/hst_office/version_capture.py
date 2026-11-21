@@ -21,6 +21,12 @@ unmodified document whose file still has that identity keeps nothing ("unchanged
 wrote and its content is the open document. If another program changed the file since, the identity differs and the
 file is kept as before. With no record (the first save after opening) the file is kept: it may hold content that was
 never stored, and a duplicate of it is at most one copy per opening.
+
+AutoSave ("Tự động lưu", owner decision 21/11/2026) saves the document into its file every few minutes; a copy for each
+of those saves would fill the KEEP_PER_FILE copies of the document within half an hour. An AutoSave keeps a copy only
+when it is the first AutoSave of this opening of the document (the file as it was before this session's changes) or
+when the newest copy of the document is older than AUTOSAVE_SPACING_SECONDS (autosave_keeps). A save by the user
+always keeps one, as before.
 """
 import os
 import threading
@@ -29,10 +35,12 @@ import time
 from .version_store import MAX_FILE_BYTES, Cancelled, Changed, StoreBusy, key_for
 
 WAIT_SECONDS = 3.0  # longest OnSave may wait for a copy (finishing a staged one, or a copy of its own)
+AUTOSAVE_SPACING_SECONDS = 30 * 60  # at most one copy per this time from AutoSave, plus the first of each opening
 _LOCK = threading.Lock()
 _PENDING = {}  # key_for(path) -> Pending
 _PRUNING = {}  # "thread": the background store-wide prune, if one runs
 _WRITTEN = {}  # key_for(path) -> identity of the file this office last wrote there (remember)
+_AUTOSAVED = set()  # key_for(path) of documents AutoSave already saved during this opening
 
 
 class Pending:
@@ -103,10 +111,40 @@ def prepare(store, path, max_bytes=MAX_FILE_BYTES):
     return "started"
 
 
+def autosave_keeps(store, path, clock=None):
+    """Whether the next AutoSave of `path` keeps a copy: the first AutoSave of this opening, or the newest copy is older
+    than AUTOSAVE_SPACING_SECONDS (or there is none). Errors of the store count as "keep" (the save decides then)."""
+    with _LOCK:
+        if key_for(path) not in _AUTOSAVED:
+            return True
+    try:
+        newest = store.newest_captured(path)
+    except Exception:  # noqa: BLE001 - a busy or damaged store: before_save reports it
+        return True
+    now = clock() if clock is not None else time.time()
+    return newest is None or now - newest >= AUTOSAVE_SPACING_SECONDS
+
+
+def autosaved(path):
+    """An AutoSave of `path` ran in this opening (OnSave of an AutoSave, kept or not)."""
+    with _LOCK:
+        _AUTOSAVED.add(key_for(path))
+
+
+def skip(path):
+    """An AutoSave keeps no copy: drop the staged copy, the next change stages the file AutoSave wrote."""
+    with _LOCK:
+        pending = _PENDING.pop(key_for(path), None)
+    if pending is not None:
+        pending.discard()
+    return "coalesced"
+
+
 def discard(path):
     """The document was closed (or the feature turned off): drop any staged copy of its file and its save record."""
     with _LOCK:
         _WRITTEN.pop(key_for(path), None)
+        _AUTOSAVED.discard(key_for(path))
         pending = _PENDING.pop(key_for(path), None)
     if pending is not None:
         pending.discard()

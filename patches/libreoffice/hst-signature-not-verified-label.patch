@@ -1,0 +1,256 @@
+HST Office: the digital signatures dialog says when a signature is not verified, and the certificate viewer no longer calls it valid.
+
+The signatures list showed the signer's name for every signature, with only a small icon telling a valid
+signature from one that does not verify (content changed after signing, an incomplete copy, a certificate that is
+not trusted or was not checked). The certificate viewer opened from that row checked the certificate on its own
+(fetching issuer and revocation data online) and could say "This certificate is validated." for a signature that
+is not valid. Now the row says "(not verified)" after the name unless the signature and its certificate are valid,
+and the viewer opened from such a row says that the signature is not valid and its details are about the
+certificate only, without the certificate check and without the certification path page. The logic and strings are
+in xmlsecurity/source/hst/signaturestatus.*; the upstream files only call it.
+
+License: the new files xmlsecurity/source/hst/signaturestatus.* are LicenseRef-HST-Proprietary; the upstream files
+remain under their original license (MPL-2.0).
+Test: tests/runtime/check-signature-not-verified.py with xmlsecurity/qa/unit/signing/data/bad.odt.
+---
+--- a/xmlsecurity/inc/strings.hrc
++++ b/xmlsecurity/inc/strings.hrc
+@@ -22,6 +22,8 @@
+ #define NC_(Context, String) TranslateId(Context, u8##String)
+ 
+ #define STR_CERTIFICATE_NOT_VALIDATED               NC_("STR_CERTIFICATE_NOT_VALIDATED", "The certificate could not be validated.")
++#define STR_HST_SIGNER_NOT_VERIFIED                 NC_("STR_HST_SIGNER_NOT_VERIFIED", "%1 (not verified)")
++#define STR_HST_SIGNATURE_NOT_VALID_CERTIFICATE     NC_("STR_HST_SIGNATURE_NOT_VALID_CERTIFICATE", "The signature is not valid or has not been verified. The details below are about the certificate only, not the signature.")
+ #define STR_VERSION                                 NC_("STR_VERSION", "Version")
+ #define STR_SERIALNUM                               NC_("STR_SERIALNUM", "Serial Number")
+ #define STR_ISSUER                                  NC_("STR_ISSUER", "Issuer")
+--- a/xmlsecurity/Library_xmlsecurity.mk
++++ b/xmlsecurity/Library_xmlsecurity.mk
+@@ -53,6 +53,7 @@
+ 	xmlsecurity/source/component/certificatecontainer \
+ 	xmlsecurity/source/dialogs/certificatechooser \
+ 	xmlsecurity/source/dialogs/certificateviewer \
++	xmlsecurity/source/hst/signaturestatus \
+ 	xmlsecurity/source/dialogs/digitalsignaturesdialog \
+ 	xmlsecurity/source/dialogs/macrosecurity \
+ 	xmlsecurity/source/framework/buffernode \
+--- a/xmlsecurity/inc/digitalsignaturesdialog.hxx
++++ b/xmlsecurity/inc/digitalsignaturesdialog.hxx
+@@ -29,6 +29,8 @@
+ #include "documentsignaturehelper.hxx"
+ #include "documentsignaturemanager.hxx"
+ 
++#include <vector>
++
+ namespace com::sun::star {
+     namespace io { class XStream; }
+     namespace embed { class XStorage; }
+@@ -74,6 +76,7 @@
+     std::unique_ptr<weld::Button>      m_xCloseBtn;
+ 
+     std::shared_ptr<CertificateViewer> m_xViewer;
++    std::vector<bool> m_aHstRowVerified; ///< per list row: shown as a valid signature
+     std::shared_ptr<weld::MessageDialog> m_xInfoBox;
+ 
+     DECL_LINK(ViewButtonHdl, weld::Button&, void);
+--- a/xmlsecurity/inc/certificateviewer.hxx
++++ b/xmlsecurity/inc/certificateviewer.hxx
+@@ -47,6 +47,7 @@
+     friend class CertificateViewerCertPathTP;
+ 
+     bool const          mbCheckForPrivateKey;
++    bool const          mbHstSignatureNotValid; ///< shown from a signature that is not valid
+ 
+     css::uno::Reference< css::xml::crypto::XSecurityEnvironment > mxSecurityEnvironment;
+     css::uno::Reference< css::security::XCertificate > mxCert;
+@@ -62,7 +63,7 @@
+     DECL_LINK(ActivatePageHdl, const OUString&, void);
+ 
+ public:
+-    CertificateViewer(weld::Window* pParent, const css::uno::Reference< css::xml::crypto::XSecurityEnvironment >& rxSecurityEnvironment, const css::uno::Reference< css::security::XCertificate >& rXCert, bool bCheckForPrivateKey, CertificateChooser* pParentChooser);
++    CertificateViewer(weld::Window* pParent, const css::uno::Reference< css::xml::crypto::XSecurityEnvironment >& rxSecurityEnvironment, const css::uno::Reference< css::security::XCertificate >& rXCert, bool bCheckForPrivateKey, CertificateChooser* pParentChooser, bool bSignatureNotValid = false);
+     CertificateChooser* GetParentChooser() { return mpParentChooser; }
+ };
+ 
+--- a/xmlsecurity/source/dialogs/digitalsignaturesdialog.cxx
++++ b/xmlsecurity/source/dialogs/digitalsignaturesdialog.cxx
+@@ -26,6 +26,7 @@
+ #include <certificatechooser.hxx>
+ #include <certificateviewer.hxx>
+ #include <biginteger.hxx>
++#include "../hst/signaturestatus.hxx"
+ #include <comphelper/diagnose_ex.hxx>
+ #include <comphelper/configuration.hxx>
+ #include <officecfg/Office/Common.hxx>
+@@ -653,6 +654,7 @@
+     m_xSignaturesLB->clear();
+ 
+     size_t nInfos = maSignatureManager.getCurrentSignatureInformations().size();
++    m_aHstRowVerified.assign(nInfos, false);
+     size_t nValidSigs = 0, nValidCerts = 0;
+     bool bAllNewSignatures = true;
+     bool bSomePartial = false;
+@@ -788,7 +790,8 @@
+ 
+             m_xSignaturesLB->insert(nullptr, n, nullptr, nullptr,
+                                     &sImage, nullptr, false, nullptr);
+-            m_xSignaturesLB->set_text(n, aSubject, 1);
++            m_aHstRowVerified[n] = bSigValid && bCertValid && sImage != BMP_SIG_NOT_VALIDATED;
++            m_xSignaturesLB->set_text(n, hst::xmlsec::SignerWithStatus(aSubject, m_aHstRowVerified[n]), 1);
+             m_xSignaturesLB->set_text(n, aIssuer, 2);
+             m_xSignaturesLB->set_text(n, aDateTimeStr, 3);
+             m_xSignaturesLB->set_text(n, aDescription, 4);
+@@ -892,7 +895,9 @@
+             m_xViewer->response(RET_OK);
+ 
+         uno::Reference<xml::crypto::XSecurityEnvironment> xSecEnv = getSecurityEnvironmentForCertificate(xCert);
+-        m_xViewer = std::make_shared<CertificateViewer>(m_xDialog.get(), xSecEnv, xCert, false, nullptr);
++        const bool bSignatureNotValid = nSelected >= m_aHstRowVerified.size() || !m_aHstRowVerified[nSelected];
++        m_xViewer = std::make_shared<CertificateViewer>(m_xDialog.get(), xSecEnv, xCert, false, nullptr,
++                                                        bSignatureNotValid);
+         weld::DialogController::runAsync(m_xViewer, [this] (sal_Int32) { m_xViewer = nullptr; });
+     }
+     else
+--- a/xmlsecurity/source/dialogs/certificateviewer.cxx
++++ b/xmlsecurity/source/dialogs/certificateviewer.cxx
+@@ -23,6 +23,7 @@
+ 
+ #include <certificatechooser.hxx>
+ #include <certificateviewer.hxx>
++#include "../hst/signaturestatus.hxx"
+ #include <com/sun/star/security/XCertificate.hpp>
+ 
+ #include <com/sun/star/security/CertificateCharacters.hpp>
+@@ -51,9 +52,10 @@
+ CertificateViewer::CertificateViewer(weld::Window* _pParent,
+         const css::uno::Reference< css::xml::crypto::XSecurityEnvironment >& _rxSecurityEnvironment,
+         const css::uno::Reference< css::security::XCertificate >& _rXCert, bool bCheckForPrivateKey,
+-        CertificateChooser* pParentChooser)
++        CertificateChooser* pParentChooser, bool bSignatureNotValid)
+     : GenericDialogController(_pParent, u"xmlsec/ui/viewcertdialog.ui"_ustr, u"ViewCertDialog"_ustr)
+     , mbCheckForPrivateKey(bCheckForPrivateKey)
++    , mbHstSignatureNotValid(bSignatureNotValid)
+     , mpParentChooser(pParentChooser)
+     , mxTabCtrl(m_xBuilder->weld_notebook(u"tabcontrol"_ustr))
+ {
+@@ -64,7 +66,8 @@
+ 
+     mxGeneralPage.reset(new CertificateViewerGeneralTP(mxTabCtrl->get_page(u"general"_ustr), this));
+     mxDetailsPage.reset(new CertificateViewerDetailsTP(mxTabCtrl->get_page(u"details"_ustr), this));
+-    if (!mxSecurityEnvironment->buildCertificatePath(mxCert).hasElements())
++    // from a signature that is not valid: no path tab, whose entries would each say "OK" or not
++    if (mbHstSignatureNotValid || !mxSecurityEnvironment->buildCertificatePath(mxCert).hasElements())
+         mxTabCtrl->remove_page(u"path"_ustr);
+     else
+         mxPathId.reset(new CertificateViewerCertPathTP(mxTabCtrl->get_page(u"path"_ustr), this));
+@@ -100,12 +103,10 @@
+     , m_xHintCorrespPrivKeyFT(mxBuilder->weld_label(u"privatekey"_ustr))
+ {
+     //Verify the certificate
+-    sal_Int32 certStatus = mpDlg->mxSecurityEnvironment->verifyCertificate(mpDlg->mxCert,
+-         Sequence<Reference<css::security::XCertificate> >());
+-
+-    bool bCertValid = certStatus == css::security::CertificateValidity::VALID;
+-
+-    if ( !bCertValid )
++    if (mpDlg->mbHstSignatureNotValid)
++        hst::xmlsec::ShowSignatureNotValid(*m_xCertImg, *m_xHintNotTrustedFT);
++    else if (mpDlg->mxSecurityEnvironment->verifyCertificate(mpDlg->mxCert,
++             Sequence<Reference<css::security::XCertificate> >()) != css::security::CertificateValidity::VALID)
+     {
+         m_xCertImg->set_from_icon_name(BMP_STATE_NOT_VALIDATED);
+         m_xHintNotTrustedFT->set_label(XsResId(STR_CERTIFICATE_NOT_VALIDATED));
+--- /dev/null
++++ b/xmlsecurity/source/hst/signaturestatus.hxx
+@@ -0,0 +1,35 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <xmlsecuritydllapi.h>
++
++namespace weld
++{
++class Image;
++class Label;
++}
++
++namespace hst::xmlsec
++{
++/* HST Office: how the signature dialogs tell a signature that is not verified apart from a valid one.
++
++   The signatures list shows only the signer's name next to a small icon; a signature that does not verify
++   (wrong hash, incomplete copy, untrusted or unchecked certificate) gets "(not verified)" after the name.
++   The certificate viewer opened from such a signature says that the signature itself is not valid instead
++   of judging the certificate alone ("This certificate is validated." would read as a valid signature), and
++   does not check the certificate (which may fetch issuer and revocation data online). */
++
++/// rSigner as the list shows it: unchanged when verified, else with "(not verified)".
++XMLSECURITY_DLLPUBLIC OUString SignerWithStatus(const OUString& rSigner, bool bVerified);
++
++/// The certificate viewer's status line for a certificate shown from a signature that is not valid.
++XMLSECURITY_DLLPUBLIC void ShowSignatureNotValid(weld::Image& rIcon, weld::Label& rHint);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/xmlsecurity/source/hst/signaturestatus.cxx
+@@ -0,0 +1,32 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * This file is part of HST Office.
++ */
++
++#include "signaturestatus.hxx"
++
++#include <bitmaps.hlst>
++#include <resourcemanager.hxx>
++#include <strings.hrc>
++
++#include <vcl/weld/Image.hxx>
++#include <vcl/weld/Label.hxx>
++
++namespace hst::xmlsec
++{
++OUString SignerWithStatus(const OUString& rSigner, bool bVerified)
++{
++    if (bVerified)
++        return rSigner;
++    return XsResId(STR_HST_SIGNER_NOT_VERIFIED).replaceFirst("%1", rSigner);
++}
++
++void ShowSignatureNotValid(weld::Image& rIcon, weld::Label& rHint)
++{
++    rIcon.set_from_icon_name(BMP_STATE_NOT_VALIDATED);
++    rHint.set_label(XsResId(STR_HST_SIGNATURE_NOT_VALID_CERTIFICATE));
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/translations/source/vi/xmlsecurity/messages.po
++++ b/translations/source/vi/xmlsecurity/messages.po
+@@ -674,6 +674,18 @@
+ msgid "The certificate could not be validated."
+ msgstr "Không thể thẩm tra chứng nhận."
+ 
++#. hstSG1
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HST_SIGNER_NOT_VERIFIED"
++msgid "%1 (not verified)"
++msgstr "%1 (chưa xác minh)"
++
++#. hstSG2
++#: xmlsecurity/inc/strings.hrc
++msgctxt "STR_HST_SIGNATURE_NOT_VALID_CERTIFICATE"
++msgid "The signature is not valid or has not been verified. The details below are about the certificate only, not the signature."
++msgstr "Chữ ký không hợp lệ hoặc chưa được xác minh. Thông tin bên dưới chỉ nói về chứng chỉ, không xác nhận chữ ký."
++
+ #. DEjos
+ #: xmlsecurity/inc/strings.hrc:25
+ msgctxt "STR_VERSION"

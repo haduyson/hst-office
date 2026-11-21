@@ -1,6 +1,6 @@
 # CI của HST Office
 
-Các workflow phục vụ bản HST Office độc lập dựa trên LibreOffice 26.8.1.1.
+Các workflow phục vụ bản HST Office độc lập dựa trên LibreOffice 26.8.3.1.
 Kiểm tra cấu trúc hoặc tài nguyên đạt không phải bằng chứng bộ cài chạy đúng.
 Có số đo thật cho build Windows thử nghiệm (xem dòng Windows và `plans/reports/opus-win-261029-1700-windows-trial.md`); chưa có bộ cài Windows/macOS được xác minh.
 

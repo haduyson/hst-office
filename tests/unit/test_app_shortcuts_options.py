@@ -7,6 +7,7 @@ from unittest import mock
 import xml.etree.ElementTree as ET
 
 import _paths
+import uno_stubs  # noqa: F401 - options_page imports unohelper and the awt interfaces
 from hst_office import app_shortcuts as sc
 from hst_office import app_shortcuts_ui as ui
 
@@ -26,7 +27,7 @@ class Control:
 
 class Window:
     def __init__(self):
-        self.controls = {name: Control() for name in ui.CONTROLS}
+        self.controls = {name: Control() for name in ui.CONTROLS + ui.MAC_CONTROLS}
 
     def getControl(self, name):
         return self.controls.get(name)
@@ -37,7 +38,9 @@ class OptionsSection(unittest.TestCase):
         for system, label in (("Darwin", "Thêm vào Dock"), ("Linux", "Tạo lối tắt trên màn hình nền")):
             window = Window()
             ui.configure_page(window, system)
-            self.assertTrue(all(c.visible for c in window.controls.values()))
+            self.assertTrue(all(window.controls[name].visible for name in ui.CONTROLS))
+            # the app icons in /Applications exist on macOS only
+            self.assertEqual({window.controls[name].visible for name in ui.MAC_CONTROLS}, {system == "Darwin"})
             self.assertEqual(window.controls["appShortcuts"].model.Label, label)
         window = Window()
         ui.configure_page(window, "Windows")
@@ -46,10 +49,20 @@ class OptionsSection(unittest.TestCase):
     def test_page_has_the_section_controls(self):
         root = ET.parse(os.path.join(_paths.ROOT, "extensions/hst-vietnamese-tools/dialogs/DefaultApps.xdl")).getroot()
         ids = {e.get("{http://openoffice.org/2000/dialog}id") for e in root.iter()}
-        self.assertTrue(set(ui.CONTROLS) <= ids)
+        self.assertTrue(set(ui.CONTROLS + ui.MAC_CONTROLS) <= ids)
         macro = [e.get("{http://openoffice.org/2000/script}macro-name") for e in root.iter()
                  if e.get("{http://openoffice.org/2000/script}macro-name")]
-        self.assertIn("vnd.sun.star.UNO:appShortcuts", macro)
+        from hst_office import options_page
+        for method in ("appShortcuts", "removeLaunchers", "addLaunchers"):
+            self.assertIn("vnd.sun.star.UNO:" + method, macro)
+            self.assertIn(method, options_page.METHODS)
+        labels = {e.get("{http://openoffice.org/2000/dialog}id"): e.get("{http://openoffice.org/2000/dialog}value")
+                  for e in root.iter()}
+        self.assertEqual((labels["removeLaunchers"], labels["addLaunchers"]),
+                         ("Gỡ biểu tượng ứng dụng", "Thêm lại biểu tượng ứng dụng"))
+        bottoms = [int(e.get("{http://openoffice.org/2000/dialog}top")) + int(e.get("{http://openoffice.org/2000/dialog}height"))
+                   for e in root.iter() if e.get("{http://openoffice.org/2000/dialog}top")]
+        self.assertLessEqual(max(bottoms), int(root.get("{http://openoffice.org/2000/dialog}height")))
 
     def test_nothing_changes_when_the_user_says_later(self):
         asked = []
@@ -77,6 +90,18 @@ class OptionsSection(unittest.TestCase):
             ui.run(None, None, "Darwin")
         add.assert_not_called()
         self.assertEqual(answers, [ui.MOVE_FIRST])
+
+    def test_icon_buttons_run_only_on_macos_and_show_failures(self):
+        from hst_office import mac_app_launchers as ml
+        shown = []
+        with mock.patch("hst_office.mac_app_launchers_ui.remove_from_options",
+                        side_effect=ml.LauncherError("hỏng")) as remove, \
+                mock.patch.object(ui, "_message", side_effect=lambda *a, **k: shown.append(a[2])), \
+                mock.patch.object(ui.diag_log, "exception"):
+            self.assertFalse(ui.launcher_icons(None, None, add=False, system="Linux"))
+            remove.assert_not_called()
+            ui.launcher_icons(None, None, add=False, system="Darwin")
+        self.assertEqual(shown, [ui.FAILED % "hỏng"])
 
     def test_failures_are_shown_never_raised(self):
         shown = []

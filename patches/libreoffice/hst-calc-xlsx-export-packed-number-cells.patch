@@ -1,0 +1,253 @@
+Calc: the .xlsx export keeps number cells as packed runs of their row (16 bytes per cell instead of a record).
+
+The export created one XclExpRkCell or XclExpNumberCell record per number cell and held them all until the sheet
+was written. An RK record only merges with an RK cell right next to it, so in rows of mixed cells nearly every
+number had its own record: 1.5 million number cells took about 150 MB at the peak of saving a 50 MB workbook of
+formulas, about 600 MB for 200 MB. For .xlsx a finished number cell needs only its value and its cell format
+identifier: that is all XclExpNumberCell::SaveXml and XclExpRkCell::WriteXmlContents write.
+
+Each number cell is still created as before, so the cell formats are registered in the same order; the finished
+record is then replaced by a run entry holding the value the record writes (for an RK cell the value decoded from
+its RK form), and adjacent entries of a row merge through the existing TryMerge hook. Not used for the binary
+formats, for Boolean cells or for the base cell of a merged range.
+New logic in sc/source/filter/inc/hstxlsxpackednumbers.hxx; hooks: 11 lines in xetable.cxx.
+The environment variable HST_SC_XLSX_PACKED_NUMBERS_OFF keeps one record per number cell (used by the test to
+compare both paths).
+
+License: modified upstream files keep their license (MPL-2.0); the new file is LicenseRef-HST-Proprietary.
+Test: CppunitTest_sc_subsequent_export_test6 testXlsxPackedNumberCellsWriteTheSameSheet saves one document on
+both paths (RK integers and hundredths, doubles, large values, runs interrupted by text, a formula and a blank
+cell, bold, percent and date formats, a Boolean, a merged base, a hidden row, a long row) and compares sheet1.xml,
+sharedStrings.xml, styles.xml and workbook.xml; the corpus and the large fixtures are saved on both paths.
+---
+--- a/sc/qa/unit/subsequent_export_test6.cxx
++++ b/sc/qa/unit/subsequent_export_test6.cxx
+@@ -21,6 +21,8 @@
+ #include <docsh.hxx>
+ #include <formulacell.hxx>
+ #include <markdata.hxx>
++#include <i18nlangtag/lang.h>
++#include <svl/zforlist.hxx>
+ #include "../../source/filter/inc/hstreleasefreedmemory.hxx"
+ #include <tablestyle.hxx>
+ 
+@@ -417,6 +419,73 @@ CPPUNIT_TEST_FIXTURE(ScExportTest6, testXlsxPackedFormulaCellsWriteTheSameSheet)
+     assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[3]/x:c[@r='F3']", "t", u"e");
+ }
+ 
++CPPUNIT_TEST_FIXTURE(ScExportTest6, testXlsxPackedNumberCellsWriteTheSameSheet)
++{
++    // The .xlsx export keeps number cells as packed runs of their row. The sheet, the shared strings and the styles
++    // must be the same as with one record per number cell (the environment variable selects that path).
++    createScDoc();
++    ScDocument* pDoc = getScDoc();
++    // RK integers, RK hundredths, plain doubles, negative and large values, next to each other and interrupted by
++    // text, a formula and a blank formatted cell
++    const double aValues[] = { 1, 42, -7, 0.25, 1.1, 3.14159265358979, 1e15, -0.07, 123456.78, 2.5e-9, 0, 536870912 };
++    for (SCCOL nCol = 0; nCol < SCCOL(std::size(aValues)); ++nCol)
++        pDoc->SetValue(ScAddress(nCol, 0, 0), aValues[nCol]);
++    pDoc->SetValue(ScAddress(0, 1, 0), 5);
++    pDoc->SetString(ScAddress(1, 1, 0), u"chữ"_ustr);
++    pDoc->SetValue(ScAddress(2, 1, 0), 6.5);
++    pDoc->SetString(ScAddress(3, 1, 0), u"=A2+C2"_ustr);
++    pDoc->SetValue(ScAddress(4, 1, 0), 7);
++    pDoc->SetValue(ScAddress(6, 1, 0), 8);
++    // formatted numbers (bold, a percent and a date format), a Boolean, a merged base, a hidden row
++    ScPatternAttr aBold(pDoc->getCellAttributeHelper());
++    aBold.ItemSetPut(SvxWeightItem(WEIGHT_BOLD, ATTR_FONT_WEIGHT));
++    pDoc->ApplyPatternAreaTab(0, 2, 2, 3, 0, aBold);
++    SvNumberFormatter* pFormatter = pDoc->GetFormatTable();
++    ScPatternAttr aPercent(pDoc->getCellAttributeHelper());
++    aPercent.ItemSetPut(SfxUInt32Item(ATTR_VALUE_FORMAT,
++                                      pFormatter->GetStandardFormat(SvNumFormatType::PERCENT, LANGUAGE_ENGLISH_US)));
++    pDoc->ApplyPatternAreaTab(1, 3, 1, 3, 0, aPercent);
++    ScPatternAttr aDate(pDoc->getCellAttributeHelper());
++    aDate.ItemSetPut(SfxUInt32Item(ATTR_VALUE_FORMAT,
++                                   pFormatter->GetStandardFormat(SvNumFormatType::DATE, LANGUAGE_ENGLISH_US)));
++    pDoc->ApplyPatternAreaTab(2, 3, 2, 3, 0, aDate);
++    ScPatternAttr aBool(pDoc->getCellAttributeHelper());
++    aBool.ItemSetPut(SfxUInt32Item(ATTR_VALUE_FORMAT,
++                                   pFormatter->GetStandardFormat(SvNumFormatType::LOGICAL, LANGUAGE_ENGLISH_US)));
++    pDoc->ApplyPatternAreaTab(3, 3, 3, 3, 0, aBool);
++    for (SCROW nRow = 2; nRow <= 3; ++nRow)
++        for (SCCOL nCol = 0; nCol < 4; ++nCol)
++            pDoc->SetValue(ScAddress(nCol, nRow, 0), nRow * 10 + nCol + (nCol == 3 ? -nRow * 10 - 2 : 0.5));
++    pDoc->SetValue(ScAddress(0, 5, 0), 99);
++    pDoc->DoMerge(0, 5, 1, 6, 0);
++    pDoc->SetValue(ScAddress(2, 5, 0), 100);
++    pDoc->SetValue(ScAddress(0, 8, 0), 1);
++    pDoc->SetValue(ScAddress(1, 8, 0), 2);
++    pDoc->SetRowHidden(8, 8, 0, true);
++    for (SCCOL nCol = 100; nCol < 140; ++nCol)
++        pDoc->SetValue(ScAddress(nCol, 10, 0), nCol / 3.0);
++
++    static constexpr std::array<OUString, 4> aParts{ u"xl/worksheets/sheet1.xml"_ustr,
++                                                     u"xl/sharedStrings.xml"_ustr, u"xl/styles.xml"_ustr,
++                                                     u"xl/workbook.xml"_ustr };
++    osl_setEnvironment(u"HST_SC_XLSX_PACKED_NUMBERS_OFF"_ustr.pData, u"1"_ustr.pData);
++    save(TestFilter::XLSX);
++    std::vector<OString> aOld;
++    for (const OUString& rPart : aParts)
++        aOld.push_back(dumpExportedPart(parseExport(rPart)));
++    osl_clearEnvironment(u"HST_SC_XLSX_PACKED_NUMBERS_OFF"_ustr.pData);
++
++    save(TestFilter::XLSX);
++    for (size_t i = 0; i < aParts.size(); ++i)
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aParts[i].toUtf8().getStr(), aOld[i],
++                                     dumpExportedPart(parseExport(aParts[i])));
++
++    // the packed runs are really written: one <c t="n"> per number of row 1, the long row in full
++    xmlDocUniquePtr pSheet = parseExport(u"xl/worksheets/sheet1.xml"_ustr);
++    assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[1]/x:c[@t='n']", 12);
++    assertXPath(pSheet, "/x:worksheet/x:sheetData/x:row[@r='11']/x:c[@t='n']", 40);
++}
++
+ CPPUNIT_TEST_FIXTURE(ScExportTest6, testXlsxImportAndExportReleaseFreedMemory)
+ {
+     // After an .xlsx import or export the freed temporaries are given back to the system (glibc only); the
+--- a/sc/source/filter/excel/xetable.cxx
++++ b/sc/source/filter/excel/xetable.cxx
+@@ -52,6 +52,7 @@
+ #include <oox/export/utils.hxx>
+ #include <hstxlsxpackedlabels.hxx>
+ #include <hstxlsxpackedformulas.hxx>
++#include <hstxlsxpackednumbers.hxx>
+ 
+ using namespace ::oox;
+ 
+@@ -2766,6 +2767,7 @@ XclExpCellTable::XclExpCellTable( const XclExpRoot& rRoot ) :
+ 
+     const bool bHstPackLabels = HstXlsxPackedLabels::IsEnabled( GetRoot() ); // HST Office
+     const bool bHstPackFormulas = HstXlsxPackedFormulas::IsEnabled( GetRoot() ); // HST Office
++    const bool bHstPackNumbers = HstXlsxPackedNumbers::IsEnabled( GetRoot() ); // HST Office
+ 
+     for( bool bIt = aIt.GetNext(); bIt; bIt = aIt.GetNext() )
+     {
+@@ -2907,6 +2909,16 @@ XclExpCellTable::XclExpCellTable( const XclExpRoot& rRoot ) :
+             if( pFmla && pFmla->HstIsPlainXml() )
+                 xCell = new HstXlsxPackedFormulas( *pFmla );
+         }
++        // HST Office: and a number cell as 16 bytes, with the value its record writes
++        else if( bHstPackNumbers && !bIsMergedBase && rScCell.getType() == CELLTYPE_VALUE )
++        {
++            sal_Int32 nRkValue;
++            if( dynamic_cast< const XclExpNumberCell* >( xCell.get() ) )
++                xCell = new HstXlsxPackedNumbers( *xCell, rScCell.getDouble() );
++            else if( dynamic_cast< const XclExpRkCell* >( xCell.get() )
++                     && XclTools::GetRKFromDouble( nRkValue, rScCell.getDouble() ) )
++                xCell = new HstXlsxPackedNumbers( *xCell, XclTools::GetDoubleFromRK( nRkValue ) );
++        }
+ 
+         // insert the cell into the current row
+         maRowBfr.AppendCell( xCell, bIsMergedBase );
+--- /dev/null
++++ b/sc/source/filter/inc/hstxlsxpackednumbers.hxx
+@@ -0,0 +1,108 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HST Office.
++ */
++
++#pragma once
++
++#include <cstdlib>
++#include <vector>
++
++#include <oox/token/tokens.hxx>
++#include <osl/diagnose.h>
++#include <sax/fshelper.hxx>
++
++#include "xestream.hxx"
++#include "xestyle.hxx"
++#include "xetable.hxx"
++#include "xltable.hxx"
++
++/** A run of number cells of one row, side by side, as the .xlsx export keeps them until it writes the sheet.
++
++    The export created one XclExpRkCell or XclExpNumberCell record per number cell (an RK record only merges with
++    an RK cell right next to it, so in a row of mixed cells nearly every number had its own record, about 100 bytes
++    with its slot in the row) and held all of them until the sheet was written: 1.5 million number cells took about
++    150 MB at the peak of saving a 50 MB workbook, about 600 MB for 200 MB. For .xlsx a finished number cell needs
++    only its value and its cell format identifier: XclExpNumberCell::SaveXml and XclExpRkCell::WriteXmlContents
++    write nothing else. So the cells of a run are kept as 16 bytes each, with the value those records write (for an
++    RK cell the value decoded from its RK form).
++
++    Each number cell is still created as before first, so the cell formats are registered exactly as before and in
++    the same order; only the finished record is replaced. Not used for the binary formats, for Boolean cells or for
++    the base cell of a merged range. The row's finalisation sees these runs as non-blank cells, as it saw the single
++    number cells.
++
++    The environment variable HST_SC_XLSX_PACKED_NUMBERS_OFF keeps one record per number cell (used by a test to
++    compare both paths). */
++class HstXlsxPackedNumbers final : public XclExpCellBase
++{
++public:
++    /** True when the number cells of an .xlsx export are packed into runs. */
++    static bool IsEnabled(const XclExpRoot& rRoot)
++    {
++        return rRoot.GetOutput() != EXC_OUTPUT_BINARY && !std::getenv("HST_SC_XLSX_PACKED_NUMBERS_OFF");
++    }
++
++    /** rCell is the XclExpNumberCell or XclExpRkCell just created for one cell; fValue the value it writes. */
++    HstXlsxPackedNumbers(const XclExpCellBase& rCell, double fValue)
++        : XclExpCellBase(EXC_ID3_NUMBER, 0, rCell.GetXclPos())
++    {
++        maEntries.push_back({ fValue, rCell.GetFirstXFId() });
++    }
++
++    virtual sal_uInt16 GetLastXclCol() const override
++    {
++        return static_cast<sal_uInt16>(GetXclCol() + maEntries.size() - 1);
++    }
++    virtual sal_uInt32 GetFirstXFId() const override { return maEntries.front().mnXFId; }
++    virtual bool IsEmpty() const override { return false; }
++
++    /** Takes over a run that starts right after this one in the same row. */
++    virtual bool TryMerge(const XclExpCellBase& rCell) override
++    {
++        const HstXlsxPackedNumbers* pRun = dynamic_cast<const HstXlsxPackedNumbers*>(&rCell);
++        if (!pRun || pRun->GetXclRow() != GetXclRow() || pRun->GetXclCol() != GetLastXclCol() + 1)
++            return false;
++        maEntries.insert(maEntries.end(), pRun->maEntries.begin(), pRun->maEntries.end());
++        return true;
++    }
++
++    /** Nothing to convert: SaveXml looks the cell format index up from the identifier, as the single cells do. */
++    virtual void ConvertXFIndexes(const XclExpRoot&) override {}
++
++    virtual void Save(XclExpStream&) override
++    {
++        OSL_FAIL("HstXlsxPackedNumbers::Save - number cells are packed for .xlsx only");
++    }
++
++    virtual void SaveXml(XclExpXmlStream& rStrm) override
++    {
++        sax_fastparser::FSHelperPtr& rWorksheet = rStrm.GetCurrentStream();
++        const XclExpXFBuffer& rXFBuffer = rStrm.GetRoot().GetXFBuffer();
++        XclAddress aPos(GetXclPos());
++        for (const Entry& rEntry : maEntries)
++        {
++            const sal_uInt16 nXFIndex = rXFBuffer.GetXFIndex(rEntry.mnXFId);
++            rWorksheet->startElement(::oox::XML_c,
++                ::oox::XML_r, XclXmlUtils::ToOString(rStrm.GetRoot().GetStringBuf(), aPos).getStr(),
++                ::oox::XML_s, OString::number(rXFBuffer.GetXmlCellIndex(nXFIndex)),
++                ::oox::XML_t, "n");
++            rWorksheet->startElement(::oox::XML_v);
++            rWorksheet->write(rEntry.mfValue);
++            rWorksheet->endElement(::oox::XML_v);
++            rWorksheet->endElement(::oox::XML_c);
++            ++aPos.mnCol;
++        }
++    }
++
++private:
++    struct Entry
++    {
++        double mfValue;
++        sal_uInt32 mnXFId;
++    };
++    std::vector<Entry> maEntries;
++};
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

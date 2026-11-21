@@ -66,8 +66,10 @@ class Generator(unittest.TestCase):
         self.assertEqual(new["installers"]["linux-appimage"]["url"],
                          "https://office.hasontech.vn/tai/1.0.2/HSTOffice_1.0.2_Linux_x86-64.AppImage")
         self.assertEqual(set(new["downloads"]), set(logic.ALL_PLATFORMS))
-        self.assertEqual(set(old["installers"]), {"windows", "linux"})
+        # Windows readers of latest-2.json (1.0.1 and older) cannot run their updater: download only.
+        self.assertEqual(set(old["installers"]), {"linux"})
         self.assertEqual(set(old["downloads"]), set(logic.PLATFORMS))
+        self.assertIn("windows", old["downloads"])
         self.assertNotIn("linux-rpm", json.dumps(out["latest.json"]))
         for name in out:
             logic.parse_manifest((self.site / name).read_bytes())

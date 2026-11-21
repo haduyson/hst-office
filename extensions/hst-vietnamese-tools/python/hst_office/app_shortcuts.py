@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Launchers of HST Writer, HST Sheets and HST Slides outside the office (no uno; tested in tests/unit).
+"""Launchers of HST Writer, HST Sheets and HST Slides (macOS: also HST Draw and HST PDF) outside the office (no uno;
+tested in tests/unit).
 
-macOS: the three launcher apps ship inside the bundle (HST Office.app/Contents/Helpers/<name>.app, built by
+macOS: the five launcher apps ship inside the bundle (HST Office.app/Contents/Helpers/<name>.app, built by
 scripts/macos/make-app-launchers.py). add_to_dock() pins the missing ones with `defaults write com.apple.dock
 persistent-apps -array-add` and restarts the Dock; the tiles name the launchers by path, so an in-place update of
 HST Office keeps them working. Linux: the menu launchers of the .deb (vn.hasontech.hstoffice-<module>.desktop) are
@@ -19,6 +20,8 @@ from xml.sax.saxutils import escape
 from .default_apps_linux import DESKTOP_IDS, _data_dirs
 
 APPS = (("writer", "HST Writer"), ("calc", "HST Sheets"), ("impress", "HST Slides"))
+# the Dock pins every macOS launcher (scripts/macos/make-app-launchers.py)
+MAC_APPS = APPS + (("draw", "HST Draw"), ("pdf", "HST PDF"))
 HELPERS = ("Contents", "Helpers")
 DOCK_DOMAIN = "com.apple.dock"
 TIMEOUT = 15
@@ -38,7 +41,7 @@ def _run(argv, stdin=None):
 # ---- macOS Dock --------------------------------------------------------------------------------------------------
 def mac_launchers(bundle):
     """[(name, launcher bundle path)] inside the HST Office bundle, in menu order (pure)."""
-    return [(name, os.path.join(bundle, *HELPERS, name + ".app")) for _module, name in APPS]
+    return [(name, os.path.join(bundle, *HELPERS, name + ".app")) for _module, name in MAC_APPS]
 
 
 def dock_url(path):

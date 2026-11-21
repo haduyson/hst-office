@@ -1,0 +1,434 @@
+Tests of AutoSave into the document's own file (hst-user-autosave-filter.patch).
+
+CppunitTest_sfx2_hst_autosave makes the two calls of the AutoRecovery timer (getArgs2 HstUserAutoSave, then
+storeSelf with HstUserAutoSave) and checks the file on disk, the state of .uno:HstAutoSave and the questions the
+document's own interaction handler receives: a .docx opens with AutoSave on and is saved in place; Undo still
+works after it; .doc, .txt and .rtf are dimmed and never written, without a "Keep current format" question; an
+unnamed document and a read-only one are dimmed; a .docx with Basic macros is dimmed; a file changed by another
+program is not overwritten and pauses AutoSave without a dialog, a click resumes it; a removed drive pauses it
+without a dialog and the document stays modified; the toggle is for the session only.
+
+License: the new test files are HST-owned (LicenseRef-HST-Proprietary); Module_sfx2.mk keeps MPL-2.0.
+Test: make CppunitTest_sfx2_hst_autosave.
+---
+--- /dev/null
++++ b/sfx2/CppunitTest_sfx2_hst_autosave.mk
+@@ -0,0 +1,42 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,sfx2_hst_autosave))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,sfx2_hst_autosave, \
++    sfx2/qa/cppunit/test_hstautosave \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,sfx2_hst_autosave))
++
++$(eval $(call gb_CppunitTest_use_custom_headers,sfx2_hst_autosave,\
++    officecfg/registry \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,sfx2_hst_autosave, \
++    comphelper \
++    cppu \
++    cppuhelper \
++    sal \
++    sfx \
++    subsequenttest \
++    test \
++    tl \
++    unotest \
++    utl \
++    vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,sfx2_hst_autosave, \
++    boost_headers \
++    libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_use_ure,sfx2_hst_autosave))
++$(eval $(call gb_CppunitTest_use_vcl,sfx2_hst_autosave))
++$(eval $(call gb_CppunitTest_use_rdb,sfx2_hst_autosave,services))
++$(eval $(call gb_CppunitTest_use_configuration,sfx2_hst_autosave))
++
++# vim: set noet sw=4 ts=4:
+--- a/sfx2/Module_sfx2.mk
++++ b/sfx2/Module_sfx2.mk
+@@ -42,6 +42,7 @@
+     CppunitTest_sfx2_hst_startcenter \
+     CppunitTest_sfx2_hst_backstagecoat \
+     CppunitTest_sfx2_hst_sidebar_coat \
++    CppunitTest_sfx2_hst_autosave \
+ ))
+ 
+ $(eval $(call gb_Module_add_subsequentcheck_targets,sfx2,\
+--- /dev/null
++++ b/sfx2/qa/cppunit/test_hstautosave.cxx
+@@ -0,0 +1,363 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++// HST Office: AutoSave into the document's own file ("Tự động lưu", sfx2/source/inc/hstuserautosave.hxx). The
++// AutoRecovery timer asks a document getArgs2({"HstUserAutoSave"}) and then calls storeSelf({HstUserAutoSave}); these
++// tests make the same two calls and look at the file, the toggle's state (.uno:HstAutoSave) and the questions asked.
++
++#include <test/unoapi_test.hxx>
++
++#include <com/sun/star/document/ChangedByOthersRequest.hpp>
++#include <com/sun/star/document/XEmbeddedScripts.hpp>
++#include <com/sun/star/document/XUndoManagerSupplier.hpp>
++#include <com/sun/star/frame/XDispatchProvider.hpp>
++#include <com/sun/star/frame/XModel3.hpp>
++#include <com/sun/star/frame/XStatusListener.hpp>
++#include <com/sun/star/frame/XStorable.hpp>
++#include <com/sun/star/frame/XStorable2.hpp>
++#include <com/sun/star/script/XLibraryContainer.hpp>
++#include <com/sun/star/task/XInteractionAbort.hpp>
++#include <com/sun/star/task/XInteractionHandler.hpp>
++#include <com/sun/star/text/XTextDocument.hpp>
++#include <com/sun/star/util/URLTransformer.hpp>
++#include <com/sun/star/util/XModifiable.hpp>
++#include <comphelper/configuration.hxx>
++#include <comphelper/dispatchcommand.hxx>
++#include <comphelper/processfactory.hxx>
++#include <comphelper/propertyvalue.hxx>
++#include <comphelper/sequenceashashmap.hxx>
++#include <cppuhelper/implbase.hxx>
++#include <officecfg/Office/Common.hxx>
++#include <officecfg/Office/Recovery.hxx>
++#include <osl/file.hxx>
++#include <unotools/tempfile.hxx>
++#include <vcl/scheduler.hxx>
++
++#include <chrono>
++#include <filesystem>
++#include <fstream>
++#include <iterator>
++#include <optional>
++#include <string>
++
++using namespace css;
++
++namespace
++{
++/// counts every question; answers with Abort (what a user cancelling would do)
++class RecordingHandler : public cppu::WeakImplHelper<task::XInteractionHandler>
++{
++public:
++    int m_nRequests = 0;
++    int m_nChangedByOthers = 0;
++
++    void SAL_CALL handle(const uno::Reference<task::XInteractionRequest>& xRequest) override
++    {
++        ++m_nRequests;
++        if (xRequest->getRequest().isExtractableTo(cppu::UnoType<document::ChangedByOthersRequest>::get()))
++            ++m_nChangedByOthers;
++        for (const auto& rContinuation : xRequest->getContinuations())
++            if (uno::Reference<task::XInteractionAbort> xAbort{ rContinuation, uno::UNO_QUERY })
++            {
++                xAbort->select();
++                return;
++            }
++    }
++};
++
++class StatusCatcher : public cppu::WeakImplHelper<frame::XStatusListener>
++{
++public:
++    std::optional<frame::FeatureStateEvent> m_oEvent;
++    void SAL_CALL statusChanged(const frame::FeatureStateEvent& rEvent) override { m_oEvent = rEvent; }
++    void SAL_CALL disposing(const lang::EventObject&) override {}
++};
++
++std::string fileBytes(const OUString& rURL)
++{
++    OUString aPath;
++    osl::FileBase::getSystemPathFromFileURL(rURL, aPath);
++    std::ifstream aStream(aPath.toUtf8().getStr(), std::ios::binary);
++    return std::string(std::istreambuf_iterator<char>(aStream), std::istreambuf_iterator<char>());
++}
++
++std::filesystem::path systemPath(const OUString& rURL)
++{
++    OUString aPath;
++    osl::FileBase::getSystemPathFromFileURL(rURL, aPath);
++    return std::filesystem::path(aPath.toUtf8().getStr());
++}
++
++class HstAutoSaveTest : public UnoApiTest
++{
++public:
++    HstAutoSaveTest()
++        : UnoApiTest(u"/sfx2/qa/cppunit/data/"_ustr)
++        , m_aDir(nullptr, true)
++    {
++        m_aDir.EnableKillingFile();
++    }
++
++    void setUp() override
++    {
++        UnoApiTest::setUp();
++        // the HST Office default (extensions/hst-vietnamese-tools/RecoveryDefaults.xcu)
++        auto xChanges = comphelper::ConfigurationChanges::create();
++        officecfg::Office::Recovery::AutoSave::Enabled::set(true, xChanges);
++        officecfg::Office::Recovery::AutoSave::UserAutoSaveEnabled::set(true, xChanges);
++        // the office default (the test profile turns it off): the lock file, and with it the file date taken at
++        // loading, which the store compares to see a change by another program
++        officecfg::Office::Common::Misc::UseLocking::set(true, xChanges);
++        xChanges->commit();
++    }
++
++protected:
++    utl::TempFileNamed m_aDir;
++    rtl::Reference<RecordingHandler> m_xHandler;
++
++    OUString url(std::u16string_view rName) const { return m_aDir.GetURL() + "/" + rName; }
++
++    /// a Writer document with one line of text stored as rName with rFilter
++    OUString makeWriterFile(std::u16string_view rName, const OUString& rFilter)
++    {
++        loadFromURL(u"private:factory/swriter"_ustr);
++        typeText(u"first line");
++        const OUString aURL = url(rName);
++        uno::Reference<frame::XStorable>(mxComponent, uno::UNO_QUERY_THROW)
++            ->storeAsURL(aURL, { comphelper::makePropertyValue(u"FilterName"_ustr, rFilter) });
++        closeDocument();
++        return aURL;
++    }
++
++    void closeDocument()
++    {
++        if (mxComponent.is())
++            mxComponent->dispose();
++        mxComponent.clear();
++    }
++
++    /// opens rURL with a handler that records any question
++    void open(const OUString& rURL, bool bReadOnly = false)
++    {
++        m_xHandler = new RecordingHandler;
++        uno::Sequence<beans::PropertyValue> aArgs{
++            comphelper::makePropertyValue(u"InteractionHandler"_ustr,
++                                          uno::Reference<task::XInteractionHandler>(m_xHandler)),
++            comphelper::makePropertyValue(u"ReadOnly"_ustr, bReadOnly)
++        };
++        loadFromURL(rURL, aArgs);
++    }
++
++    void typeText(std::u16string_view rText)
++    {
++        uno::Reference<text::XTextDocument> xDoc(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<text::XText> xText = xDoc->getText();
++        xText->insertString(xText->getEnd(), OUString(rText), false);
++    }
++
++    /// what AutoRecovery asks the document: "true", "false", or "absent" when the document does not answer
++    std::string wantsAutoSave()
++    {
++        uno::Reference<frame::XModel3> xModel(mxComponent, uno::UNO_QUERY_THROW);
++        comphelper::SequenceAsHashMap aArgs(xModel->getArgs2({ u"HstUserAutoSave"_ustr }));
++        auto it = aArgs.find(u"HstUserAutoSave"_ustr);
++        if (it == aArgs.end())
++            return "absent";
++        bool bValue = false;
++        it->second >>= bValue;
++        return bValue ? "true" : "false";
++    }
++
++    /// the store AutoRecovery runs; false when it failed or was refused
++    bool autoSave()
++    {
++        try
++        {
++            uno::Reference<frame::XStorable2>(mxComponent, uno::UNO_QUERY_THROW)
++                ->storeSelf({ comphelper::makePropertyValue(u"HstUserAutoSave"_ustr, true) });
++            return true;
++        }
++        catch (const uno::Exception&)
++        {
++            return false;
++        }
++    }
++
++    /// state of .uno:HstAutoSave in the document's frame: "on", "off" or "dimmed"
++    std::string toggleState()
++    {
++        uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
++        uno::Reference<frame::XDispatchProvider> xProvider(xModel->getCurrentController()->getFrame(),
++                                                           uno::UNO_QUERY_THROW);
++        util::URL aURL;
++        aURL.Complete = ".uno:HstAutoSave";
++        util::URLTransformer::create(comphelper::getProcessComponentContext())->parseStrict(aURL);
++        uno::Reference<frame::XDispatch> xDispatch = xProvider->queryDispatch(aURL, OUString(), 0);
++        CPPUNIT_ASSERT_MESSAGE("no dispatch for .uno:HstAutoSave", xDispatch.is());
++        rtl::Reference<StatusCatcher> xCatcher(new StatusCatcher);
++        xDispatch->addStatusListener(xCatcher, aURL);
++        Scheduler::ProcessEventsToIdle();
++        xDispatch->removeStatusListener(xCatcher, aURL);
++        CPPUNIT_ASSERT_MESSAGE("no state for .uno:HstAutoSave", xCatcher->m_oEvent.has_value());
++        bool bChecked = false;
++        xCatcher->m_oEvent->State >>= bChecked;
++        if (!xCatcher->m_oEvent->IsEnabled)
++            return "dimmed";
++        return bChecked ? "on" : "off";
++    }
++
++    void clickToggle()
++    {
++        uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
++        comphelper::dispatchCommand(u".uno:HstAutoSave"_ustr, xModel->getCurrentController()->getFrame(), {});
++        Scheduler::ProcessEventsToIdle();
++    }
++};
++
++CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testDocxOpensWithAutoSaveOnAndSavesInPlace)
++{
++    const OUString aURL = makeWriterFile(u"on.docx", u"MS Word 2007 XML"_ustr);
++    open(aURL);
++    CPPUNIT_ASSERT_EQUAL(std::string("true"), wantsAutoSave());
++    CPPUNIT_ASSERT_EQUAL(std::string("on"), toggleState());
++
++    const std::string aBefore = fileBytes(aURL);
++    typeText(u" changed");
++    CPPUNIT_ASSERT(autoSave());
++    CPPUNIT_ASSERT(aBefore != fileBytes(aURL));
++    CPPUNIT_ASSERT(!uno::Reference<util::XModifiable>(mxComponent, uno::UNO_QUERY_THROW)->isModified());
++    CPPUNIT_ASSERT_EQUAL(0, m_xHandler->m_nRequests);
++}
++
++CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testUndoStillWorksAfterAutoSave)
++{
++    open(makeWriterFile(u"undo.docx", u"MS Word 2007 XML"_ustr));
++    typeText(u" typed");
++    CPPUNIT_ASSERT(autoSave());
++    uno::Reference<document::XUndoManagerSupplier> xSupplier(mxComponent, uno::UNO_QUERY_THROW);
++    CPPUNIT_ASSERT(xSupplier->getUndoManager()->isUndoPossible());
++    xSupplier->getUndoManager()->undo();
++    uno::Reference<text::XTextDocument> xDoc(mxComponent, uno::UNO_QUERY_THROW);
++    CPPUNIT_ASSERT_EQUAL(u"first line"_ustr, xDoc->getText()->getString());
++}
++
++CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testLossyFormatsAreNeverSaved)
++{
++    for (const auto& [aName, aFilter] : { std::pair(u"old.doc"_ustr, u"MS Word 97"_ustr),
++                                          std::pair(u"plain.txt"_ustr, u"Text"_ustr),
++                                          std::pair(u"rich.rtf"_ustr, u"Rich Text Format"_ustr) })
++    {
++        const OUString aURL = makeWriterFile(aName, aFilter);
++        const std::string aBefore = fileBytes(aURL);
++        open(aURL);
++        typeText(u" changed");
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aName.toUtf8().getStr(), std::string("false"), wantsAutoSave());
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(aName.toUtf8().getStr(), std::string("dimmed"), toggleState());
++        CPPUNIT_ASSERT(!autoSave());
++        CPPUNIT_ASSERT_MESSAGE(aName.toUtf8().getStr(), aBefore == fileBytes(aURL));
++        CPPUNIT_ASSERT_EQUAL(0, m_xHandler->m_nRequests); // no "Keep current format" question
++        closeDocument();
++    }
++}
++
++CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testUnnamedDocumentIsNotSaved)
++{
++    loadFromURL(u"private:factory/swriter"_ustr);
++    typeText(u"never saved");
++    CPPUNIT_ASSERT_EQUAL(std::string("false"), wantsAutoSave());
++    CPPUNIT_ASSERT_EQUAL(std::string("dimmed"), toggleState());
++    CPPUNIT_ASSERT(!autoSave());
++    CPPUNIT_ASSERT(uno::Reference<frame::XStorable>(mxComponent, uno::UNO_QUERY_THROW)->getLocation().isEmpty());
++}
++
++CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testReadOnlyIsDimmed)
++{
++    open(makeWriterFile(u"ro.docx", u"MS Word 2007 XML"_ustr), /*bReadOnly=*/true);
++    CPPUNIT_ASSERT_EQUAL(std::string("false"), wantsAutoSave());
++    CPPUNIT_ASSERT_EQUAL(std::string("dimmed"), toggleState());
++}
++
++CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testMacrosTheFormatDropsAreNotSaved)
++{
++    loadFromURL(u"private:factory/swriter"_ustr);
++    typeText(u"with a macro");
++    uno::Reference<document::XEmbeddedScripts> xScripts(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<script::XLibraryContainer> xLibraries(xScripts->getBasicLibraries(), uno::UNO_QUERY_THROW);
++    uno::Reference<container::XNameAccess> xNames(xLibraries, uno::UNO_QUERY_THROW);
++    if (!xNames->hasByName(u"Standard"_ustr))
++        xLibraries->createLibrary(u"Standard"_ustr);
++    uno::Reference<container::XNameContainer> xModules(xNames->getByName(u"Standard"_ustr), uno::UNO_QUERY_THROW);
++    xModules->insertByName(u"Module1"_ustr, uno::Any(u"Sub Main\n    x = 1\nEnd Sub\n"_ustr));
++    const OUString aURL = url(u"macro.docx");
++    uno::Reference<frame::XStorable>(mxComponent, uno::UNO_QUERY_THROW)
++        ->storeAsURL(aURL, { comphelper::makePropertyValue(u"FilterName"_ustr, u"MS Word 2007 XML"_ustr) });
++    CPPUNIT_ASSERT_EQUAL(std::string("false"), wantsAutoSave());
++    CPPUNIT_ASSERT_EQUAL(std::string("dimmed"), toggleState());
++}
++
++CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testChangedByOtherProgramPausesWithoutDialog)
++{
++    const OUString aURL = makeWriterFile(u"conflict.docx", u"MS Word 2007 XML"_ustr);
++    open(aURL);
++    typeText(u" mine");
++    // another program writes the file
++    const std::filesystem::path aPath = systemPath(aURL);
++    std::filesystem::last_write_time(aPath, std::filesystem::last_write_time(aPath) + std::chrono::seconds(30));
++    const std::string aTheirs = fileBytes(aURL);
++
++    CPPUNIT_ASSERT(!autoSave());
++    CPPUNIT_ASSERT_EQUAL(0, m_xHandler->m_nRequests); // the document's own handler was never asked
++    CPPUNIT_ASSERT(aTheirs == fileBytes(aURL)); // not overwritten
++    CPPUNIT_ASSERT_EQUAL(std::string("false"), wantsAutoSave()); // paused
++    CPPUNIT_ASSERT_EQUAL(std::string("off"), toggleState()); // a click tries again
++    clickToggle();
++    CPPUNIT_ASSERT_EQUAL(std::string("on"), toggleState());
++}
++
++CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testWriteErrorPausesWithoutDialog)
++{
++    utl::TempFileNamed aDrive(nullptr, true); // a USB drive that is pulled out
++    aDrive.EnableKillingFile();
++    const OUString aURL = aDrive.GetURL() + "/usb.docx";
++    loadFromURL(u"private:factory/swriter"_ustr);
++    typeText(u"on the stick");
++    uno::Reference<frame::XStorable>(mxComponent, uno::UNO_QUERY_THROW)
++        ->storeAsURL(aURL, { comphelper::makePropertyValue(u"FilterName"_ustr, u"MS Word 2007 XML"_ustr) });
++    closeDocument();
++    open(aURL);
++    typeText(u" more");
++    std::error_code aError;
++    std::filesystem::remove_all(systemPath(aDrive.GetURL()), aError);
++    CPPUNIT_ASSERT_MESSAGE("the drive folder could not be removed", !aError);
++
++    CPPUNIT_ASSERT(!autoSave());
++    CPPUNIT_ASSERT_EQUAL(0, m_xHandler->m_nRequests);
++    CPPUNIT_ASSERT_EQUAL(std::string("false"), wantsAutoSave());
++    CPPUNIT_ASSERT_EQUAL(std::string("off"), toggleState());
++    CPPUNIT_ASSERT(uno::Reference<util::XModifiable>(mxComponent, uno::UNO_QUERY_THROW)->isModified());
++}
++
++CPPUNIT_TEST_FIXTURE(HstAutoSaveTest, testToggleIsPerSessionOnly)
++{
++    const OUString aURL = makeWriterFile(u"session.docx", u"MS Word 2007 XML"_ustr);
++    open(aURL);
++    clickToggle(); // the user turns it off for this document
++    CPPUNIT_ASSERT_EQUAL(std::string("off"), toggleState());
++    CPPUNIT_ASSERT_EQUAL(std::string("false"), wantsAutoSave());
++    const std::string aBefore = fileBytes(aURL);
++    typeText(u" changed");
++    CPPUNIT_ASSERT(!autoSave());
++    CPPUNIT_ASSERT(aBefore == fileBytes(aURL));
++    closeDocument();
++    CPPUNIT_ASSERT(officecfg::Office::Recovery::AutoSave::UserAutoSaveEnabled::get()); // no setting changed
++    open(aURL); // opened again: on, as every opened document
++    CPPUNIT_ASSERT_EQUAL(std::string("true"), wantsAutoSave());
++    CPPUNIT_ASSERT_EQUAL(std::string("on"), toggleState());
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

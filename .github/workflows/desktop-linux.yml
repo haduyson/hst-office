@@ -11,7 +11,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: desktop-linux
+  group: desktop-linux-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   linux-deb:
@@ -41,17 +41,23 @@ jobs:
           set -eu
           bash scripts/linux/free-runner-disk.sh
       - name: Install Pillow for branding staging
+        # network: a stalled mirror fails the step instead of holding the job
+        timeout-minutes: 10
         shell: bash
         run: |
           set -eu
-          sudo apt-get update -qq
-          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends python3-pil
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 update -qq
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y -qq --no-install-recommends python3-pil
       - name: Install build dependencies
+        # network (apt, apt.llvm.org): about 5 min when the mirrors answer
+        timeout-minutes: 15
         shell: bash
         run: |
           set -eu
           bash scripts/linux/ci-build.sh --deps
       - name: Fetch and verify pinned source tarballs
+        # network: about 3 min
+        timeout-minutes: 15
         shell: bash
         run: |
           set -eu
@@ -79,6 +85,8 @@ jobs:
           set -eu
           bash scripts/linux/ci-build.sh --configure
       - name: Fetch external sources
+        # network: about 3 min
+        timeout-minutes: 15
         shell: bash
         run: |
           set -eu
@@ -107,6 +115,8 @@ jobs:
           bash scripts/linux/ci-build.sh --rpm-appimage | tail -8 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Check coexistence with the distribution LibreOffice
         if: ${{ inputs.mode == 'full' && success() }}
+        # a stalled distribution mirror must not hold the job: the check itself takes about a minute
+        timeout-minutes: 15
         shell: bash
         run: |
           set -euo pipefail
@@ -169,6 +179,8 @@ jobs:
           name: hst-office-linux-deb-${{ github.run_id }}
           path: ${{ runner.temp }}/packages
       - name: Sign and verify
+        # network (apt) and signing
+        timeout-minutes: 15
         if: ${{ steps.gate.outputs.enabled == 'true' }}
         shell: bash
         env:
@@ -177,7 +189,7 @@ jobs:
           HST_LINUX_GPG_FINGERPRINT: ${{ vars.HST_LINUX_GPG_FINGERPRINT }}
         run: |
           set -euo pipefail
-          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends rpm gnupg
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 install -y -qq --no-install-recommends rpm gnupg
           (cd "$RUNNER_TEMP/packages" && sha256sum -c SHA256SUMS)
           bash scripts/linux/sign-linux-packages.sh "$RUNNER_TEMP/packages" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload signed packages

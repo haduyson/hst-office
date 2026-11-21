@@ -3,7 +3,7 @@
 Chủ dự án (2026-11-04): HST Office dùng phím tắt của Microsoft Office vì phần lớn người dùng
 Việt Nam đã quen; khi trùng thì phím của Microsoft Office được ưu tiên hơn phím của LibreOffice.
 Giữ nguyên các phím riêng của HST: `Shift+Esc` / macOS `Option+Cmd+K` (Tìm tính năng,
-`hst-feature-search.patch`), `Alt+F11` (Macro VBA; Slides và PDF từ 15/11 chỉ bằng phím này, menu HST ở đó không có mục Macro VBA), `Alt+F8` (hộp thoại Macro, cả HST PDF từ 15/11; macro của Slides và PDF chỉ giữ trong `.odp`/`.odg`, lưu `.pptm` không giữ mã viết mới), `Alt+Shift+I` (HST Writer: Chèn lại trích dẫn) —
+`hst-feature-search.patch`), `Alt+F11` (Macro VBA; Slides và PDF từ 15/11 chỉ bằng phím này, menu HST ở đó không có mục Macro VBA), `Alt+F8` (hộp thoại Macro, cả HST PDF từ 15/11; macro của Slides và PDF chỉ giữ trong `.odp`/`.odg`, lưu `.pptm` không giữ mã viết mới), `Alt+Shift+I` (HST Writer: Chèn lại trích dẫn), `Alt+\` (HST Writer: Chuyển TeX ⇄ công thức, như phím Toggle TeX của MathType; bảng phím tắt không có mã phím cho dấu `\` nên phím này do `tex_toggle_key.py` bắt trên từng cửa sổ Writer; macOS: Option+\ gõ «, chỉ dùng menu Chèn ▸ Đối tượng) —
 `extensions/hst-vietnamese-tools/Accelerators.xcu`; `Ctrl+Alt+.` / `Ctrl+Alt+,` (thẻ tài liệu), `Ctrl+Alt+Shift+N` (tách thẻ ra cửa sổ mới, `hst-module-window-groups.patch`). `Alt+F` mở Tệp tin (`hst-file-backstage.patch`, như thẻ File của Office) không bị patch này đụng tới.
 
 - Cài đặt: `patches/libreoffice/hst-msoffice-shortcuts.patch` (officecfg `Accelerators.xcu`,
@@ -101,6 +101,7 @@ Từ 1.0.2 (chủ dự án 14/11/2026: "Phím Alt của thẻ hiệu ứng nên 
 | Mở rộng vùng chọn | Ctrl+Shift+mũi tên | Cmd+Shift+mũi tên | như Excel | không đổi | khớp | |
 | Tính lại | F9 | F9 | Tính lại | không đổi | khớp | |
 | Lưu thành | F12 | Cmd+Shift+S | Nhóm (Group) | Lưu thành (Win/Linux) | đổi | **Nhóm** còn ở Dữ liệu ▸ Nhóm và Phác thảo; macOS F12 giữ Nhóm |
+| Tự điền nhanh (Flash Fill) | Ctrl+E | Cmd+E | Căn giữa | Tự điền nhanh (1.0.3) | đổi | **Căn giữa** còn trên ribbon và hộp thoại Định dạng ô; lệnh ở Dữ liệu ▸ Tự điền nhanh |
 
 ## HST Slides ↔ PowerPoint
 
@@ -151,17 +152,17 @@ này trên Windows/Linux; macOS giữ phím cũ. Ctrl+Alt+C vẫn sao chép đ�
 
 F1 khớp: phím do hệ điều hành chuyển tới trình trợ giúp, mở hướng dẫn ngoại tuyến (`hst-offline-help.patch`), không
 qua `Accelerators.xcu` (dòng có `"handler": "vcl"`). Ctrl+F1 / macOS Cmd+Option+R (thu gọn ribbon) đang làm trong 1.0.2
-(trạng thái `planned`). Ngoại lệ được chủ dự án duyệt (15/11): Ctrl+E của Excel (Flash Fill) chuyển sang 1.0.3, Ctrl+E
-của Sheets vẫn là Căn giữa.
+(trạng thái `planned`). Từ 1.0.3 Ctrl+E của Sheets là Tự điền nhanh (Flash Fill) như Excel (`hst-sheets-flash-fill.patch`);
+1.0.2 giữ Căn giữa theo ngoại lệ chủ dự án duyệt 15/11.
 
 ## Tổng hợp
 
 | | Khớp | Đổi | Một phần | Thiếu |
 |---|---|---|---|---|
 | Writer ↔ Word (31 dòng) | 9 | 20 | 2 | 0 |
-| Sheets ↔ Excel (25 dòng) | 15 | 9 | 1 | 0 |
+| Sheets ↔ Excel (26 dòng) | 15 | 10 | 1 | 0 |
 | Slides ↔ PowerPoint (8 dòng) | 3 | 4 | 1 | 0 |
-| **Tổng (64 dòng)** | **27** | **33** | **4** | **0** |
+| **Tổng (65 dòng)** | **27** | **34** | **4** | **0** |
 
 Dòng "khớp / đổi (macOS)" tính là khớp. Hiện không còn lệnh Microsoft nào trong các bảng trên mà HST
 chưa có; trong Sheets, F4 khi không sửa ô chưa lặp lại thao tác (ghi ở dòng F4).
@@ -194,6 +195,7 @@ Mọi lệnh dưới đây vẫn còn trên menu/ribbon; cột "Giờ ở" là p
 | Writer | Ctrl+Shift+M | Chế độ sửa | menu Sửa |
 | Writer | Cmd+T (macOS) | Kiểu dáng | F11 |
 | Sheets | Ctrl+R | Căn phải | ribbon |
+| Sheets | Ctrl+E (1.0.3) | Căn giữa | ribbon, Định dạng ô |
 | Sheets | Ctrl+Shift+2 | Định dạng Khoa học | Ctrl+Shift+6 (^) |
 | Sheets | Ctrl+Shift+6 | Định dạng Chuẩn | Ctrl+Shift+` (~) |
 | Sheets | Shift+F11 | Lưu thành mẫu | Tệp tin ▸ Mẫu |

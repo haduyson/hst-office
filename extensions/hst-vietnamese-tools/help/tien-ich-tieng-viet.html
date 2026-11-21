@@ -41,6 +41,10 @@
 <tr><td><code>BODAU(văn_bản)</code></td><td><code>=BODAU("Nguyễn Văn Đức")</code></td><td>Nguyen Van Duc</td></tr>
 <tr><td><code>TACHHO(họ_tên)</code></td><td><code>=TACHHO("Nguyễn Thị Minh Khai")</code></td><td>Nguyễn Thị Minh</td></tr>
 <tr><td><code>TACHTEN(họ_tên)</code></td><td><code>=TACHTEN("Nguyễn Thị Minh Khai")</code></td><td>Khai</td></tr>
+<tr><td><code>VND(số; [có_đơn_vị]; [bảng_mã]; [đơn_vị]; [đơn_vị_lẻ])</code></td><td><code>=VND(1234)</code></td><td>Một ngàn hai trăm ba mươi bốn</td></tr>
+<tr><td></td><td><code>=VND(15,79; TRUE)</code></td><td>Mười lăm đồng bảy mươi chín xu</td></tr>
+<tr><td></td><td><code>=VND(12,5; ; "đồng"; "hào"; 10)</code></td><td>Mười hai đồng năm hào</td></tr>
+<tr><td><code>USD(số; [có_đơn_vị])</code></td><td><code>=USD(123,45; TRUE)</code></td><td>One hundred and twenty-three dollars and forty-five cents</td></tr>
 </tbody></table>
 <ul>
   <li>Mặc định đọc “nghìn”, “lẻ” và “bốn”: 1.005 là “Một nghìn không trăm lẻ năm”, 24 là “Hai mươi bốn”. Đối số <code>cách_đọc</code> nhận một hoặc vài từ: <code>"ngàn"</code>, <code>"linh"</code>, <code>"tư"</code> (hai mươi tư) và <code>"en"</code> (đọc tiếng Anh), ví dụ <code>=DOCSO(1005; "ngàn linh")</code>.</li>
@@ -50,6 +54,9 @@
   <li>Bảng tính có <em>mặc định của tệp</em> (đặt bằng hộp thoại Đọc số thành chữ, xem bên dưới): đối số nào bỏ trống thì DOCSO, DOCTIEN dùng mặc định của tệp, ví dụ tệp đặt “đồng”, “xu” thì <code>=DOCTIEN(A1)</code> đọc cả phần “xu”. Đối số ghi trong hàm luôn được dùng. Mặc định riêng của bạn (trong Tùy chọn) không ảnh hưởng tới hàm, nên một tệp đọc giống nhau trên mọi máy. Đổi mặc định của tệp ngoài hộp thoại (Tệp tin → Thuộc tính) thì bấm <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>F9</kbd> để tính lại.</li>
   <li>Số có hơn 15 chữ số phần nguyên báo lỗi thay vì đọc sai: bảng tính không lưu chính xác số lớn như vậy.</li>
 </ul>
+<h3>Hàm VND và USD của các add-in Excel</h3>
+<p>VND và USD đọc số như hai hàm cùng tên mà người dùng Excel quen dùng qua add-in đọc số thành chữ (tệp <code>Ufunctions.xlam</code> và <code>AccHelper.xll</code>): đọc “ngàn”, “lẻ”, không thêm “chẵn” và dấu chấm cuối. <code>=VND(số)</code> chỉ đọc số, phần thập phân sau “phẩy” (9,5 là “Chín phẩy năm mươi”); <code>=VND(số; TRUE)</code> đọc kèm “đồng” và “xu”. Đối số thứ ba là chữ thì hàm theo cách viết của add-in AccHelper: <code>=VND(số; bảng_mã; đơn_vị; đơn_vị_lẻ; hệ_số; phân_nhóm)</code>, ví dụ <code>=VND(120,53; ; "giờ"; "phút"; 60)</code> là “Một trăm hai mươi giờ ba mươi hai phút”. Bảng mã (TCVN3, VNI) được bỏ qua: kết quả luôn là Unicode.</p>
+<p>Mở tệp .xlsx, .xls hoặc .ods có công thức gọi VND, USD qua các add-in này (Excel ghi dạng <code>'C:\…\Ufunctions.xlam'!VND(A1)</code> hoặc <code>_xll.VND(A1)</code>), HST Sheets tự đổi thành hàm có sẵn và tính ngay, không cần cài add-in, không báo <code>#NAME?</code>. Liên kết tới tệp add-in không được ghi lại khi lưu; các liên kết ngoài khác giữ nguyên.</p>
 <h2>Đọc số thành chữ</h2>
 <ol>
   <li>Chọn ô chứa số, hoặc cả một cột số (nhiều dòng), rồi mở <span class="menu">HST → Tiện ích tiếng Việt → Đọc số thành chữ</span>.</li>
@@ -71,7 +78,7 @@
 <h2>Định dạng ngày tháng</h2>
 <p><span class="menu">HST → Tiện ích tiếng Việt → Định dạng ngày tháng</span> có bốn kiểu: <code>dd/mm/yyyy</code> (05/02/2026), <code>ngày dd tháng mm năm yyyy</code> (ngày 05 tháng 02 năm 2026), <code>tháng mm năm yyyy</code> (tháng 02 năm 2026) và <code>dd-mm-yyyy</code> (05-02-2026). Đây là định dạng số: giá trị ngày không đổi, và tệp .xlsx mở bằng phần mềm bảng tính khác cũng hiển thị đúng như vậy.</p>
 <h2>Lưu tệp bảng tính (.xls, .xlsx) có hàm tiếng Việt</h2>
-<p>Các phần mềm bảng tính khác không có các hàm DOCSO, DOCTIEN, BODAU, TACHHO và TACHTEN: mở tệp .xlsx hoặc .xls bằng các phần mềm đó, các ô dùng hàm này báo lỗi <code>#NAME?</code>. Vì vậy khi lưu thành tệp .xlsx hoặc .xls một bảng tính có các hàm này, HST Office hỏi trước:</p>
+<p>Các phần mềm bảng tính khác không có các hàm DOCSO, DOCTIEN, BODAU, TACHHO, TACHTEN, VND và USD (VND, USD chỉ có khi máy đó cài add-in): mở tệp .xlsx hoặc .xls bằng các phần mềm đó, các ô dùng hàm này báo lỗi <code>#NAME?</code>. Vì vậy khi lưu thành tệp .xlsx hoặc .xls một bảng tính có các hàm này, HST Office hỏi trước:</p>
 <ul>
   <li><span class="menu">Đổi thành chữ rồi lưu</span>: tệp .xlsx/.xls chứa kết quả bằng chữ, mở ở đâu cũng đúng. Bảng tính đang mở vẫn giữ công thức; nếu đánh dấu ô <span class="menu">Đổi luôn thành chữ trong bảng tính đang mở</span>, công thức cũng được đổi thành chữ ở đây (hoàn tác được bằng <kbd>Ctrl</kbd>+<kbd>Z</kbd>).</li>
   <li><span class="menu">Vẫn lưu</span>: lưu cả công thức. HST Office mở lại tệp vẫn tính đúng; phần mềm bảng tính khác báo <code>#NAME?</code>.</li>

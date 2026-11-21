@@ -166,6 +166,7 @@ def computed_name(name, headers):
 
 
 def insertable(headers):
-    """The columns offered for insertion: everything but the word columns (a format of their number column) and the
-    file-name column."""
-    return [h for h in headers if h != FILE_COLUMN and fmt.split_word_column(h)[1] is None]
+    """The columns offered for insertion: everything but the word columns (a format of their number column), the
+    file-name column and the Word instructions of the document's own fields."""
+    from .mail_merge_word_fields import is_word_code
+    return [h for h in headers if h != FILE_COLUMN and fmt.split_word_column(h)[1] is None and not is_word_code(h)]

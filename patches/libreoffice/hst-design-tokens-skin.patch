@@ -1,0 +1,100 @@
+HST Office: the control tokens of the HST look (buttons, fields, disabled state, the default button, scroll bars,
+tabs, check marks) in the shared design tokens, light and dark, for the HST controls drawn in the same look as the
+Start Center. Only include/vcl/hst/designtokens.hxx and vcl/source/hst/designtokens.cxx change (LicenseRef-HST-Proprietary).
+---
+diff --git a/include/vcl/hst/designtokens.hxx b/include/vcl/hst/designtokens.hxx
+index 94ee667..09e81c8 100644
+--- a/include/vcl/hst/designtokens.hxx
++++ b/include/vcl/hst/designtokens.hxx
+@@ -47,6 +47,22 @@ struct Palette
+     Color aTint[3];
+     Color aTintBorder[3];
+     Color aTintHover[3];
++    // the controls of the HST look (push, combo and spin buttons, fields, check boxes, scroll bars, tabs)
++    Color aControlFill; ///< a resting button
++    Color aControlBorder;
++    Color aFieldFill; ///< entries and list or combo fields (focused: aAccent, FIELD_FOCUS_BORDER)
++    Color aFieldBorder;
++    Color aDisabledFill;
++    Color aDisabledText;
++    Color aDisabledBorder;
++    Color aAccentHover; ///< the default button under the mouse ...
++    Color aAccentPressed; ///< ... and pressed
++    Color aOnAccent; ///< text, check marks and radio dots on an accent fill
++    Color aScrollTrack;
++    Color aScrollThumb;
++    Color aScrollThumbHover;
++    Color aScrollThumbPressed;
++    Color aTabIndicator; ///< the underline of the selected tab
+ };
+ 
+ /** The tints, in the order of the tiles: documents, spreadsheets, presentations. */
+@@ -92,6 +108,20 @@ namespace radius
+ constexpr double Control = 8; ///< input fields, navigation pills, small cards
+ constexpr double Card = 10; ///< cards and tiles
+ constexpr double Row = 6; ///< the hover of a row inside a card
++constexpr double Check = 3; ///< check boxes
++}
++
++/** Line widths. */
++namespace stroke
++{
++constexpr double Border = 1; ///< control and field borders
++constexpr double CheckMark = 1.75;
++}
++
++/** Sizes of control parts. */
++namespace size
++{
++constexpr double TabIndicator = 2; ///< thickness of the selected tab's underline
+ }
+ 
+ /** The spacing scale. */
+diff --git a/vcl/source/hst/designtokens.cxx b/vcl/source/hst/designtokens.cxx
+index 2221e95..6b50802 100644
+--- a/vcl/source/hst/designtokens.cxx
++++ b/vcl/source/hst/designtokens.cxx
+@@ -38,6 +38,21 @@ Palette makeLight()
+     p.aSeparator = Color(0xE8, 0xEC, 0xF2);
+     p.aIcon = Color(0x37, 0x41, 0x51);
+     p.aShadow = Color(0x1E, 0x3A, 0x6E);
++    p.aControlFill = Color(0xF5, 0xF8, 0xFC);
++    p.aControlBorder = Color(0x6E, 0x7A, 0x8B);
++    p.aFieldFill = Color(0xFF, 0xFF, 0xFF);
++    p.aFieldBorder = Color(0x6E, 0x7A, 0x8B);
++    p.aDisabledFill = Color(0xF1, 0xF3, 0xF6);
++    p.aDisabledText = Color(0x9A, 0xA3, 0xAF);
++    p.aDisabledBorder = Color(0xE1, 0xE5, 0xEB);
++    p.aAccentHover = Color(0x15, 0x4A, 0xAF);
++    p.aAccentPressed = Color(0x12, 0x3F, 0x96);
++    p.aOnAccent = Color(0xFF, 0xFF, 0xFF);
++    p.aScrollTrack = Color(0xEE, 0xF2, 0xF7);
++    p.aScrollThumb = Color(0x7D, 0x88, 0x98);
++    p.aScrollThumbHover = Color(0x6E, 0x7A, 0x8B);
++    p.aScrollThumbPressed = Color(0x5F, 0x6B, 0x7C);
++    p.aTabIndicator = p.aAccent;
+     const Color aFill[3] = { Color(0xEB, 0xF3, 0xFE), Color(0xE9, 0xF7, 0xEE), Color(0xFE, 0xF2, 0xE7) };
+     const Color aBorder[3] = { Color(0xCF, 0xE0, 0xFA), Color(0xC9, 0xEA, 0xD4), Color(0xF9, 0xDC, 0xC3) };
+     const Color aHover[3] = { Color(0xDE, 0xEB, 0xFD), Color(0xDB, 0xF1, 0xE3), Color(0xFC, 0xE7, 0xD4) };
+@@ -72,6 +87,21 @@ Palette makeDark()
+     p.aSeparator = Color(0x2B, 0x34, 0x44);
+     p.aIcon = Color(0xC9, 0xCF, 0xD8);
+     p.aShadow = COL_BLACK;
++    p.aControlFill = Color(0x26, 0x30, 0x42);
++    p.aControlBorder = Color(0x86, 0x91, 0xA5);
++    p.aFieldFill = Color(0x1E, 0x25, 0x32);
++    p.aFieldBorder = Color(0x86, 0x91, 0xA5);
++    p.aDisabledFill = Color(0x22, 0x2A, 0x37);
++    p.aDisabledText = Color(0x6B, 0x72, 0x80);
++    p.aDisabledBorder = Color(0x2E, 0x37, 0x46);
++    p.aAccentHover = Color(0xA1, 0xC3, 0xFA);
++    p.aAccentPressed = Color(0xB8, 0xD2, 0xFB);
++    p.aOnAccent = Color(0x0F, 0x1A, 0x2E); // the dark accent is light: dark ink on it
++    p.aScrollTrack = Color(0x1B, 0x22, 0x2E);
++    p.aScrollThumb = Color(0x7F, 0x8B, 0xA0);
++    p.aScrollThumbHover = Color(0x93, 0x9E, 0xB0);
++    p.aScrollThumbPressed = Color(0xA7, 0xB1, 0xC1);
++    p.aTabIndicator = p.aAccent;
+     const Color aFill[3] = { Color(0x1E, 0x2D, 0x4A), Color(0x1B, 0x33, 0x2A), Color(0x3A, 0x2A, 0x1F) };
+     const Color aBorder[3] = { Color(0x2F, 0x4A, 0x7A), Color(0x2B, 0x5A, 0x42), Color(0x6A, 0x46, 0x2A) };
+     const Color aHover[3] = { Color(0x25, 0x38, 0x5C), Color(0x21, 0x40, 0x34), Color(0x47, 0x33, 0x25) };

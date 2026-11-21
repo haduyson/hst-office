@@ -1,0 +1,188 @@
+HST Office: the ribbon stays on a contextual tab while its object stays selected.
+
+After a command on a selected picture, table, shape or chart (Picture Format, Table Design, Shape Format...),
+the ribbon went back to the Home tab and the user had to click the contextual tab again; Office keeps it. A
+command on the object often rebuilds the selection's shells or unmarks and marks the object again, and every
+step is broadcast as a context change within the same dispatch: an SfxShell that leaves the dispatcher's stack
+broadcasts the Default context (sfx2 ContextChangeBroadcaster::Deactivate), Writer's SwView::SelectShell pops
+and pushes every shell when the selection type changes (a row or column selection in a table, for example),
+and SdrEditView::ReplaceObjectAtView (compress, replace or filter a picture in Slides, Draw and Sheets)
+unmarks the old object and marks the new one, each mark change sending a selection context. The ribbon saw
+for example Graphic, Default, Frame, Graphic: the contextual tab was hidden, the ribbon fell back to the
+default tab, and when the tab came back it was not selected again, because a selection context does not
+open its tab (only an insert command or a double-click does).
+
+NotebookbarTabControlBase::SetContext now remembers the contextual page that is current when a context change
+starts and, when a later change of the same burst shows that page again, selects it again, unless that
+change itself opened another contextual page (an insert command, a view mode). The remembered page is
+forgotten by an idle task, so the decision waits for the end of the command's burst of changes instead of
+a fixed delay: when the object really is deselected the default tab stays, and selecting an object later
+still leaves the ribbon on the current tab. The same step keeps the shape tab when the context moves between
+two contexts that both show it (Draw and DrawLine). The two decisions are plain functions in
+vcl/inc/HstContextualKeepTab.hxx. LibreOfficeKit does not take this path.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+--- a/include/vcl/tabctrl.hxx
++++ b/include/vcl/tabctrl.hxx
+@@ -24,6 +24,7 @@
+ #include <vcl/dllapi.h>
+ #include <vcl/ctrl.hxx>
+ #include <vcl/EnumContext.hxx>
++#include <vcl/idle.hxx>
+ #include <vcl/NotebookbarContextControl.hxx>
+ 
+ class ImplTabItem;
+@@ -237,7 +238,13 @@
+     virtual tools::Long ImplHstPageReserve() const override { return m_nHstPageReserve; }
+     virtual tools::Long ImplHstPageBottomReserve() const override { return m_nHstQatRow; }
+     VclPtr<vcl::Window> m_xHstDrop; // the popup of HstDropPage (vcl/source/control/HstRibbonDrop.cxx)
++    /// HST Office: the contextual page that was current at a context change, selected again when the context
++    /// that shows it comes back in the same burst of changes (see vcl/inc/HstContextualKeepTab.hxx); the idle
++    /// forgets it
++    sal_uInt16 m_nHstKeepPage = 0;
++    Idle m_aHstKeepIdle;
+     DECL_DLLPRIVATE_LINK(OpenMenu, Button*, void);
++    DECL_DLLPRIVATE_LINK(HstKeepTabExpired, Timer*, void);
+ };
+ 
+ #endif // INCLUDED_VCL_TABCTRL_HXX
+--- /dev/null
++++ b/vcl/inc/HstContextualKeepTab.hxx
+@@ -0,0 +1,39 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <cstdint>
++
++namespace hst::ribbon
++{
++/// HST Office: a command on a selected object often rebuilds the selection's shells (the dispatcher pops and
++/// pushes them, or the object is unmarked and marked again), so the ribbon sees the object's context leave and
++/// come back within one burst of context changes, for example Graphic, Default, Frame, Graphic. The contextual
++/// tab is hidden in between and the ribbon falls back to the default tab; these two steps select the contextual
++/// tab again when it comes back, as Office keeps it while the object stays selected. The page remembered by
++/// keepTabBefore() is forgotten once the application is idle, so a later selection of an object does not open
++/// its tab.
++
++/// Before a context change: the page to remember. nCurrent when it is a contextual page shown by the context that
++/// ends (not shown in every context, not a sub-context's page), else the page already remembered (0: none).
++constexpr std::uint16_t keepTabBefore(std::uint16_t nKept, std::uint16_t nCurrent, bool bCurrentContextual)
++{
++    return bCurrentContextual && nCurrent ? nCurrent : nKept;
++}
++
++/// After the context change: the page to select again, 0 for none. The remembered page comes back when the new
++/// context shows it, it is not the current page already, and the change did not itself open another contextual
++/// page (an insert command, a view mode).
++constexpr std::uint16_t keepTabAfter(std::uint16_t nKept, std::uint16_t nCurrent, bool bKeptShown,
++                                     bool bOpenedOther)
++{
++    return nKept && nKept != nCurrent && bKeptShown && !bOpenedOther ? nKept : 0;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -19,6 +19,7 @@
+ 
+ #include <sal/config.h>
+ 
++#include <comphelper/lok.hxx>
+ #include <tools/json_writer.hxx>
+ #include <tools/mapunit.hxx>
+ #include <vcl/HstRibbonContext.hxx>
+@@ -43,6 +44,7 @@
+ #include <vcl/uitest/uiobject.hxx>
+ 
+ #include <bitmaps.hlst>
++#include <HstContextualKeepTab.hxx>
+ #include <svdata.hxx>
+ #include <window.h>
+ 
+@@ -2252,7 +2254,11 @@
+     : TabControl(pParent, WB_STDTABCONTROL)
+     , bLastContextWasSupported(true)
+     , eLastContext(vcl::EnumContext::Context::Any)
++    , m_aHstKeepIdle("vcl NotebookbarTabControlBase m_aHstKeepIdle")
+ {
++    // after the burst of context changes of one command: the remembered contextual page is forgotten
++    m_aHstKeepIdle.SetPriority(TaskPriority::DEFAULT_IDLE);
++    m_aHstKeepIdle.SetInvokeHandler(LINK(this, NotebookbarTabControlBase, HstKeepTabExpired));
+     m_pOpenMenu = VclPtr<PushButton>::Create( this , WB_CENTER | WB_VCENTER );
+     m_pOpenMenu->SetClickHdl(LINK(this, NotebookbarTabControlBase, OpenMenu));
+     m_pOpenMenu->SetModeImage(Image(StockImage::Yes, SV_RESID_BITMAP_NOTEBOOKBAR));
+@@ -2314,11 +2320,33 @@
+     return pPage && eSub != vcl::EnumContext::Context::Unknown && pPage->HasContext(eSub);
+ }
+ 
++IMPL_LINK_NOARG(NotebookbarTabControlBase, HstKeepTabExpired, Timer*, void)
++{
++    m_nHstKeepPage = 0;
++}
++
+ void NotebookbarTabControlBase::SetContext( vcl::EnumContext::Context eContext )
+ {
+     if (eLastContext == eContext)
+         return;
+ 
++    // HST Office: a command on the selected object can hide its contextual tab for a moment (its shells are
++    // rebuilt, or it is unmarked and marked again); remember the contextual tab the user is on, to select it
++    // again below when the context comes back (see HstContextualKeepTab.hxx)
++    const bool bHstKeepTab = !comphelper::LibreOfficeKit::isActive();
++    if (bHstKeepTab)
++    {
++        const TabPage* pKeep = GetTabPage(mnCurPageId);
++        const bool bContextual = pKeep && eLastContext != vcl::EnumContext::Context::Any
++                                 && !pKeep->HasContext(vcl::EnumContext::Context::Any)
++                                 && !lcl_hstHasSubContext(pKeep, m_eHstSubContext)
++                                 && pKeep->HasContext(eLastContext);
++        m_nHstKeepPage = hst::ribbon::keepTabBefore(m_nHstKeepPage, mnCurPageId, bContextual);
++        if (m_nHstKeepPage)
++            m_aHstKeepIdle.Start();
++    }
++    bool bHstOpened = false; // this change opened a contextual page itself
++
+     bool bHandled = false;
+     // HST Office: a selection right after an insert command opens its contextual tab
+     const bool bSelection = lcl_hstIsSelectionContext(eContext) && !lcl_hstTakeInsertNote();
+@@ -2351,6 +2379,7 @@
+             SetCurPageId(nPageId);
+             bHandled = true;
+             bLastContextWasSupported = true;
++            bHstOpened = bHstOpened || !pPage->HasContext(vcl::EnumContext::Context::Any);
+         }
+ 
+         if (!bHandled && bLastContextWasSupported
+@@ -2381,6 +2410,16 @@
+         }
+     }
+ 
++    // HST Office: the contextual tab that was current is shown again: select it again
++    if (bHstKeepTab && m_nHstKeepPage)
++    {
++        const TabPage* pKept = GetTabPage(m_nHstKeepPage);
++        const sal_uInt16 nRestore = hst::ribbon::keepTabAfter(
++            m_nHstKeepPage, mnCurPageId, pKept && pKept->HasContext(eContext) && pKept->IsEnabled(), bHstOpened);
++        if (nRestore)
++            SetCurPageId(nRestore);
++    }
++
+     // tdf#152908 Tabbed compact toolbar does not repaint itself when tabs getting removed
+     // For unknown reason this is needed by the tabbed compact toolbar for other than gtk
+     // vcl backends.
+@@ -2496,6 +2535,7 @@
+ 
+ void NotebookbarTabControlBase::dispose()
+ {
++    m_aHstKeepIdle.Stop();
+     HstCloseDrop(); // the dropped page returns to this control before it goes
+     m_pShortcuts.disposeAndClear();
+     m_pOpenMenu.disposeAndClear();

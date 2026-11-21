@@ -3,7 +3,8 @@
 
 The page stores nothing (OK/Cancel have nothing to save). "defaultApps" runs the same action as the HST menu item;
 "appShortcuts" adds HST Writer, HST Sheets and HST Slides to the Dock (macOS) or the desktop (Linux), and the section
-is labelled for this OS, or hidden, when the page opens (app_shortcuts_ui).
+is labelled for this OS, or hidden, when the page opens (app_shortcuts_ui). "removeLaunchers" / "addLaunchers" (macOS)
+remove or restore the app icons in /Applications.
 """
 
 import unohelper
@@ -12,7 +13,7 @@ from com.sun.star.lang import XServiceInfo
 from . import diag_log
 
 HANDLER_NAME = "org.hst.office.vi.OptionsPage"
-METHODS = ("external_event", "defaultApps", "appShortcuts")
+METHODS = ("external_event", "defaultApps", "appShortcuts", "removeLaunchers", "addLaunchers")
 
 
 class OptionsPageHandler(unohelper.Base, XServiceInfo, XContainerWindowEventHandler):
@@ -43,6 +44,13 @@ class OptionsPageHandler(unohelper.Base, XServiceInfo, XContainerWindowEventHand
             try:
                 from .app_shortcuts_ui import run
                 run(self.ctx, window.getPeer() if window is not None else None)
+            except Exception:  # noqa: BLE001 - never raise into the options dialog
+                diag_log.exception("options_page")
+            return True
+        if method in ("removeLaunchers", "addLaunchers"):
+            try:
+                from .app_shortcuts_ui import launcher_icons
+                launcher_icons(self.ctx, window.getPeer() if window is not None else None, method == "addLaunchers")
             except Exception:  # noqa: BLE001 - never raise into the options dialog
                 diag_log.exception("options_page")
             return True

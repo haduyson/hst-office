@@ -4,13 +4,13 @@
 
 Usage (needs a running X display; never started or stopped here; runs the office as the build user):
     python3 tests/runtime/check-backstage.py [--instdir upstream/libreoffice/instdir]
-        [--out tests/output/backstage] [--display :93] [--port 2163] [--shots DIR]
+        [--out tests/output/backstage] [--display :93] [--port N] [--shots DIR]
 
 In HST Writer, HST Sheets and HST Slides, read through AT-SPI with a dispatch interceptor that records and swallows the
 commands of the left column (so no dialog or document close really happens):
   1. the File tab and Alt+F open the panel; Esc, a click outside and Alt+F close it;
-  2. guardrails while open: the ribbon shows, the panel starts at its bottom edge, the document shows beside it, and
-     the panel is a window of its own; 3. every item of the left column has its Vietnamese name and runs its command
+  2. guardrails while open: the ribbon shows, the panel starts at its bottom edge, the document shows beside it, the
+     panel is a part of the document's window and moves with it; the File tab closes the open panel; 3. every item of the left column has its Vietnamese name and runs its command
      (closing the panel) or shows its page; 4. arrows and Enter; 5. the recent list; 6. reopen under 150 ms.
 --shots DIR also keeps the approval screenshots. Exit status 1 on any FAIL. When started as root the script re-executes
 itself as the build user under dbus-run-session (AT-SPI needs a session bus).
@@ -27,9 +27,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
 from backstage_gui import (ALL_ITEMS, COMMAND, ROWS, close_document, dark_shot, expect_call, focused_name,  # noqa: E402
-                           is_open, make_interceptor, nd30, open_ms, press, record, seed_recent, showing, view_items,
-                           wait_state, walk, xdo)
-from backstage_guardrails import click_file_tab, extents, guardrails  # noqa: E402
+                           is_open, make_interceptor, nd30, open_ms, press, record, reopen, seed_recent, showing,
+                           view_items, wait_state, walk, xdo)
+from backstage_guardrails import click_file_tab, extents, follows_window_move, guardrails, outside_point  # noqa: E402
 
 OUT_DEFAULT = os.path.join(os.path.dirname(HERE), "output", "backstage")
 TARGET_MS = 150
@@ -44,7 +44,7 @@ COMMAND_ITEMS = {
 }
 # item name -> a label that only its page shows
 PAGE_ITEMS = {"Mới": "Quản lý mẫu", "Mở": "Duyệt", "Thông tin": "Thuộc tính", "Lưu thành": "Duyệt", "Trang chủ": "Tạo mới",
-              "In": "Xem trước khi in", "Xuất": "Xuất PDF ngay"}
+              "In": "Thêm tùy chọn", "Xuất": "Xuất PDF ngay"}
 APPS = (("swriter", "Writer", ".docx", "MS Word 2007 XML"),
         ("scalc", "Sheets", ".xlsx", "Calc MS Excel 2007 XML"),
         ("simpress", "Slides", ".pptx", "Impress MS PowerPoint 2007 XML"))
@@ -86,13 +86,23 @@ def check_app(office, args, factory, label, recent_name, shots):
         box = guardrails(label)
         if shots and box:
             hst_gui.screenshot(os.path.join(shots, "bang-tep-tin-%s.png" % label.lower()), display)
+        if window:
+            follows_window_move(label, display, window[0][0])
         xdo(display, "key", "Escape")
         record(label + ": Esc returns to the document", wait_state(False))
 
-        # a click outside the panel (on the document, right of it) closes it
+        # the File tab while the panel is open closes it (it does not open it again)
+        office.dispatch(frame, COMMAND)
+        if wait_state(True):
+            record(label + ": the File tab closes the open panel", click_file_tab(display) and wait_state(False))
+
+        # a click outside the panel (on the document tab strip above it, or on the document beside it) closes it;
+        # right of a full-width panel the click fell outside the window and left the panel open, so that Alt+F below
+        # started from the wrong state
         office.dispatch(frame, COMMAND)
         if wait_state(True) and box:
-            xdo(display, "mousemove", str(box[0] + box[2] + 120), str(box[1] + box[3] // 2), "click", "1")
+            x, y = outside_point(box)
+            xdo(display, "mousemove", str(x), str(y), "click", "1")
             record(label + ": a click outside closes the panel", wait_state(False))
 
         # Alt+F, arrows, Enter
@@ -120,6 +130,8 @@ def check_app(office, args, factory, label, recent_name, shots):
             press(view_items()[name])
             time.sleep(0.5)
             record("%s: %s shows its page" % (label, name), marker in view_items() or marker == "Tạo mới")
+        press(view_items()["Trang chủ"])  # the page loop ends on Xuất, which has no recent list
+        time.sleep(0.5)
         found = [n for _r, n, _node in showing(walk(nd30.office_app(), []))]
         record(label + ": the recent list shows the saved file", recent_name in found, recent_name)
         if shots:
@@ -128,16 +140,16 @@ def check_app(office, args, factory, label, recent_name, shots):
         wait_state(False)
 
         # commands
+        # reopen only when closed: the command toggles, and a closed panel would leave the ribbon's button of the same
+        # name ("Lưu") to be pressed, which really saves
         for name, command in COMMAND_ITEMS.items():
-            office.dispatch(frame, COMMAND)
-            wait_state(True)
+            reopen(office, frame)
             press(view_items()[name])
             record("%s: %s runs %s" % (label, name, command), expect_call(interceptor, command))
             record("%s: %s closed the panel" % (label, name), wait_state(False))
         for page, button, command in (("Mở", "Duyệt", ".uno:Open"), ("Lưu thành", "Duyệt", ".uno:SaveAs"),
                                       ("Thông tin", "Thuộc tính", ".uno:SetDocumentProperties")):
-            office.dispatch(frame, COMMAND)
-            wait_state(True)
+            reopen(office, frame)
             press(view_items()[page])
             time.sleep(0.5)
             if shots and label == "Writer" and page in ("Lưu thành", "Thông tin"):
@@ -159,7 +171,8 @@ def main():
     parser.add_argument("--instdir", default=os.path.join(hst_gui.ROOT, "upstream", "libreoffice", "instdir"))
     parser.add_argument("--out", default=OUT_DEFAULT)
     parser.add_argument("--display", default=":93")
-    parser.add_argument("--port", type=int, default=2163)
+    parser.add_argument("--port", type=int, default=int(os.environ.get("HST_UNO_PORT") or 0) or hst_gui.free_port(),
+                        help="UNO port (default: HST_UNO_PORT, else a free one)")
     parser.add_argument("--shots")
     args = parser.parse_args()
     if os.geteuid() == 0:

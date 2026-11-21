@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-only
-"""Build HST Writer.app, HST Sheets.app and HST Slides.app into "HST Office.app/Contents/Helpers/".
+"""Build HST Writer, HST Sheets, HST Slides, HST Draw and HST PDF.app into "HST Office.app/Contents/Helpers/".
 
 Usage (macOS, Xcode tools): python3 -I scripts/macos/make-app-launchers.py "<path>/HST Office.app" --arch arm64|x86_64
 
 Each launcher is a small native app (scripts/macos/hst-app-launcher.m, compiled once for the bundle's architecture)
 with the HST module icon (assets/brand/icons/hst-<family>-<px>.png) and an Info.plist that names its module and the
 host's bundle id. They live inside the host bundle, so the dmg, notarization, the move to /Applications and in-place
-updates carry them along. Run before the bundle is signed: adhoc-sign.sh signs them as nested apps, and
+updates carry them along; HST Office copies them to /Applications or ~/Applications at its first start
+(hst_office/mac_app_launchers.py). Run before the bundle is signed: adhoc-sign.sh signs them as nested apps, and
 sign-notarize.sh re-signs them without upstream's parent-process launch constraint (they are started by the Dock).
 """
 import argparse
@@ -24,9 +25,10 @@ SOURCE = Path(__file__).resolve().parent / "hst-app-launcher.m"
 ICONS = ROOT / "assets" / "brand" / "icons"
 HELPERS = ("Contents", "Helpers")
 EXECUTABLE = "hst-app-launcher"
-# module (soffice --<module>) -> (app name, icon family, bundle id suffix)
+# module (soffice --<module>; pdf: an open panel for PDF files) -> (app name, icon family, bundle id suffix)
 LAUNCHERS = (("writer", "HST Writer", "hst-writer", "writer"), ("calc", "HST Sheets", "hst-sheets", "sheets"),
-             ("impress", "HST Slides", "hst-slides", "slides"))
+             ("impress", "HST Slides", "hst-slides", "slides"), ("draw", "HST Draw", "hst-draw", "draw"),
+             ("pdf", "HST PDF", "hst-pdf", "pdf"))
 # iconset member -> pixel size (Apple iconset naming)
 MEMBERS = {
     "icon_16x16.png": 16, "icon_16x16@2x.png": 32, "icon_32x32.png": 32, "icon_32x32@2x.png": 64,
@@ -86,7 +88,7 @@ def run(argv):
 
 def compile_stub(out, arch, minimum):
     run(["xcrun", "clang", "-fobjc-arc", "-O2", "-Wall", "-Wextra", "-arch", arch, "-mmacosx-version-min=" + minimum,
-         "-framework", "AppKit", "-o", out, SOURCE])
+         "-framework", "AppKit", "-framework", "UniformTypeIdentifiers", "-o", out, SOURCE])
 
 
 def build(app, arch, icons=ICONS):

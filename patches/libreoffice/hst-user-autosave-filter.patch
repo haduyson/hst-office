@@ -1,0 +1,1071 @@
+HST Office: AutoSave into the document's own file, decided per document, never with a dialog (owner decision
+21/11/2026).
+
+Upstream UserAutoSave (Recovery/AutoSave/UserAutoSaveEnabled) calls XStorable::store() on every document of the
+process: it overwrites .doc, .txt, .csv or .rtf files silently in their lossy format, drops macros a .docx cannot
+hold and lets SfxMedium::CheckFileDate ask "the file was changed by another program" in the middle of typing.
+With this patch the AutoRecovery timer (3 minutes, 10 for large files, after 10 s without input) asks each
+document whether it stores itself now, and the document then stores itself without any question:
+
+- sfx2 hstuserautosave.{hxx,cxx} (new, HST): per-document state in SfxObjectShell_Impl, for the session only;
+  every opened document starts with UserAutoSaveEnabled. A document stores itself only when it has a file: URL
+  (local, network or USB drive), is in ODF or MS Word/Excel/PowerPoint 2007 XML (.docx/.xlsx/.pptx), is not read
+  only, hidden or embedded, has no digital signature and no macros the format drops (the test of
+  hst-macro-save-guard.patch, through hst::autosave::FormatKeepsMacros in guisaveas.cxx), and AutoRecovery is on.
+  An administrator lock of UserAutoSaveEnabled (or AutoSave/Enabled) is shown as it is set. A Calc cell edit in
+  progress (ScDocShell::HstIsInputActive) or a modal dialog skips the round.
+- slot .uno:HstAutoSave (SID_HST_AUTOSAVE, SfxObjectShell ExecFile_Impl/GetState_Impl): checked while the
+  document saves itself, disabled when it cannot; executing it switches the document (a paused one runs again).
+- SfxBaseModel::getArgs2 answers HstUserAutoSave (store now) and HstUserAutoSaving (inside such a store, for the
+  "Phiên bản trước" job) only when asked for by name; getArgs() is unchanged.
+- SfxBaseModel::storeSelf accepts HstUserAutoSave: the document is checked again and stored with a silent
+  interaction handler (warnings approved, every question aborted), so a file changed by another program is not
+  overwritten. A failed store pauses AutoSave of the document ("Tạm dừng": write error, or changed by another
+  program); a save by the user (storeSelf, storeAsURL) ends the pause.
+- framework autorecovery.cxx: the in-place store is the document's decision (getArgs2) and goes through
+  storeSelf({HstUserAutoSave}); session saves still need the global flag, so HST session restart and session end
+  never store originals. After an in-place store the empty file reserved for a recovery copy is removed and the
+  document's next change waits the whole interval (the 30 s first-copy rule is for documents without a copy).
+- strings (EN in sfx2 strings.hrc, VI in messages.po) of the toggle and its tooltips; the command label in
+  GenericCommands.xcu.
+
+License: the new HST files are HST-owned (LicenseRef-HST-Proprietary); the upstream files remain under their
+original license (MPL-2.0).
+Test: make CppunitTest_sfx2_hst_autosave (hst-user-autosave-test.patch); tests/unit/test_user_autosave_patch.py.
+---
+--- a/framework/source/services/autorecovery.cxx
++++ b/framework/source/services/autorecovery.cxx
+@@ -42,6 +42,7 @@
+ #include <com/sun/star/frame/XController.hpp>
+ #include <com/sun/star/frame/XModel.hpp>
+ #include <com/sun/star/frame/XStorable.hpp>
++#include <com/sun/star/frame/XStorable2.hpp>
+ #include <com/sun/star/util/XModifiable.hpp>
+ #include <com/sun/star/util/URLTransformer.hpp>
+ #include <com/sun/star/util/XURLTransformer.hpp>
+@@ -83,7 +84,9 @@
+ #include <unotools/mediadescriptor.hxx>
+ #include <comphelper/multiinterfacecontainer3.hxx>
+ #include <comphelper/namedvaluecollection.hxx>
++#include <comphelper/propertyvalue.hxx>
+ #include <comphelper/sequence.hxx>
++#include <comphelper/sequenceashashmap.hxx>
+ #include <algorithm>
+ #include <tuple>
+ #include <utility>
+@@ -400,6 +403,10 @@
+                 newest recovery backup (0 if unknown). Large documents use a longer
+                 AutoRecovery interval, see hst_docAutoSaveInterval(). */
+             sal_Int64 KnownSize = 0;
++
++            /** HST Office: the last AutoSave stored the document into its own file (no recovery copy
++                exists then); its next change waits the whole interval, not the 30 s of a first copy. */
++            bool HstSavedInPlace = false;
+     };
+ 
+     /** @short  used to know every currently open document. */
+@@ -2364,7 +2371,8 @@
+     const sal_Int64 nLargeMB = officecfg::Office::Recovery::AutoSave::HstLargeDocumentSize::get();
+     if (nLargeMB <= 0 || rInfo.KnownSize <= nLargeMB * sal_Int64(1024 * 1024))
+         // the first copy of a document that has none comes 30 s after its first change
+-        return rInfo.OldTempURL.isEmpty() ? std::min(nNormalMs, HST_FIRST_COPY_MS) : nNormalMs;
++        return rInfo.OldTempURL.isEmpty() && !rInfo.HstSavedInPlace ? std::min(nNormalMs, HST_FIRST_COPY_MS)
++                                                                     : nNormalMs;
+     const sal_Int64 nLargeMs
+         = officecfg::Office::Recovery::AutoSave::HstLargeDocumentTimeIntervall::get()
+           * sal_Int64(60000); // min -> ms
+@@ -3041,6 +3049,25 @@
+         So we ignore such documents only...
+         Hopefully next time they are not inserted in our cache.
+ */
++/* HST Office: AutoSave into the document's own file is the document's decision (sfx2 hstuserautosave.hxx: its
++   toggle, the format, read only, signatures, macros, an edit in progress); it then stores itself without asking
++   anything (storeSelf with HstUserAutoSave). */
++bool hst_wantsUserAutoSave(AutoRecovery::TDocumentInfo const & rInfo)
++{
++    try
++    {
++        css::uno::Reference< css::frame::XModel3 > xModel(rInfo.Document, css::uno::UNO_QUERY);
++        if (!xModel.is())
++            return false;
++        comphelper::SequenceAsHashMap lArgs(xModel->getArgs2({ u"HstUserAutoSave"_ustr }));
++        return lArgs.getUnpackedValueOrDefault(u"HstUserAutoSave"_ustr, false);
++    }
++    catch (const css::uno::Exception&)
++    {
++        return false;
++    }
++}
++
+ bool lc_checkIfSaveForbiddenByArguments(AutoRecovery::TDocumentInfo const & rInfo)
+ {
+     if (! rInfo.Document.is())
+@@ -3289,10 +3316,13 @@
+     {
+         // We must check here for an empty URL to avoid a "This operation is not supported on this operating system."
+         // message during autosave.
+-        if (!bEmergencySave && m_eJob & Job::UserAutoSave && !rInfo.OrgURL.isEmpty())
+-        {
+-            Reference< XStorable > xDocSave(rInfo.Document, css::uno::UNO_QUERY_THROW);
+-            xDocSave->store();
++        // HST Office: each document decides (its AutoSave toggle); a session save stores the originals only
++        // while the option is on (session restart and session end turn it off for their save)
++        if (!bEmergencySave && !rInfo.OrgURL.isEmpty()
++            && (!(m_eJob & Job::SessionSave) || (m_eJob & Job::UserAutoSave)) && hst_wantsUserAutoSave(rInfo))
++        {
++            Reference< css::frame::XStorable2 > xDocSave(rInfo.Document, css::uno::UNO_QUERY_THROW);
++            xDocSave->storeSelf({ comphelper::makePropertyValue(u"HstUserAutoSave"_ustr, true) });
+             bUserAutoSaved = true;
+         }
+     }
+@@ -3312,6 +3342,14 @@
+     // If it is no longer modified, it is the same as on disk, and can be removed from RecoveryList.
+     const bool bRemoveIt
+         = xModify.is() && !xModify->isModified() && bUserAutoSaved && !(m_eJob & Job::SessionSave);
++    // HST Office: no copy is written, so the empty file reserved for it goes (a document closed without saving
++    // would otherwise keep that empty file as its "unsaved" copy)
++    rInfo.HstSavedInPlace = bRemoveIt;
++    if (bRemoveIt)
++    {
++        osl::File::remove(rInfo.NewTempURL);
++        rInfo.NewTempURL.clear();
++    }
+ 
+     sal_Int32 nRetry = RETRY_STORE_ON_FULL_DISC_FOREVER;
+     bool  bError = false;
+--- a/include/sfx2/objsh.hxx
++++ b/include/sfx2/objsh.hxx
+@@ -156,6 +156,7 @@
+ 
+ namespace weld { class Window; }
+ namespace svl::crypto { class SigningContext; }
++namespace hst::autosave { struct DocState; }
+ 
+ enum class HiddenWarningFact
+ {
+@@ -337,6 +338,10 @@
+     virtual bool                DoSaveCompleted( SfxMedium* pNewStor=nullptr, bool bRegisterRecent=true );
+     /// Terminate any in-flight editing. Used before saving, primarily by Calc to commit cell changes.
+     virtual void                TerminateEditing() {}
++    /// HST Office: an edit in progress that a save would cut short (a Calc cell): AutoSave waits
++    virtual bool                HstIsInputActive() const { return false; }
++    /// HST Office: this document's AutoSave toggle, for the session (sfx2/source/doc/hstuserautosave.cxx)
++    SAL_DLLPRIVATE hst::autosave::DocState& HstAutoSaveState();
+ 
+     bool                        LoadOwnFormat( SfxMedium& pMedium );
+     virtual bool                SaveAsOwnFormat( SfxMedium& pMedium );
+--- a/include/sfx2/sfxsids.hrc
++++ b/include/sfx2/sfxsids.hrc
+@@ -252,6 +252,8 @@
+ #define SID_TERMINATE_INPLACEACTIVATION     (SID_SFX_START + 1702)
+ #define SID_APPLY_STYLE                     (SID_SFX_START + 1703)
+ #define SID_MACRO_SIGNATURE                 TypedWhichId<SfxUInt16Item>(SID_SFX_START + 1704)
++// HST Office: the AutoSave toggle of a document (.uno:HstAutoSave, sfx2/source/inc/hstuserautosave.hxx)
++#define SID_HST_AUTOSAVE                    TypedWhichId<SfxBoolItem>(SID_SFX_START + 1791)
+ #define SID_ATTR_WARNALIENFORMAT            TypedWhichId<SfxBoolItem>(SID_SFX_START + 1705)
+ #define SID_COPY_STREAM_IF_POSSIBLE         TypedWhichId<SfxBoolItem>(SID_SFX_START + 1706)
+ #define SID_MAIL_SENDDOCASFORMAT            (SID_SFX_START + 1707)
+--- a/include/sfx2/strings.hrc
++++ b/include/sfx2/strings.hrc
+@@ -207,6 +207,25 @@
+ #define STR_HST_QAT_CUSTOMIZE                   NC_("STR_HST_QAT_CUSTOMIZE", "Customize…")
+ #define STR_HST_QAT_BELOW                       NC_("STR_HST_QAT_BELOW", "Show Below the Ribbon")
+ #define STR_HST_QAT_ABOVE                       NC_("STR_HST_QAT_ABOVE", "Show Above the Ribbon")
++// HST Office: the AutoSave toggle of the tab row (sfx2/source/notebookbar/HstAutoSaveToggle.cxx); a tooltip is
++// a title line, then the reason
++#define STR_HST_AUTOSAVE                        NC_("STR_HST_AUTOSAVE", "AutoSave")
++#define STR_HST_AUTOSAVE_ON                     NC_("STR_HST_AUTOSAVE_ON", "On")
++#define STR_HST_AUTOSAVE_OFF                    NC_("STR_HST_AUTOSAVE_OFF", "Off")
++#define STR_HST_AUTOSAVE_PAUSED                 NC_("STR_HST_AUTOSAVE_PAUSED", "Paused")
++#define STR_HST_AUTOSAVE_SHOW                   NC_("STR_HST_AUTOSAVE_SHOW", "Show AutoSave")
++#define STR_HST_AUTOSAVE_TIP_ON                 NC_("STR_HST_AUTOSAVE_TIP_ON", "AutoSave is on\nChanges are saved into this file every few minutes. Click to turn it off for this document.")
++#define STR_HST_AUTOSAVE_TIP_OFF                NC_("STR_HST_AUTOSAVE_TIP_OFF", "AutoSave is off\nThis document is saved only when you save it. Click to turn AutoSave on.")
++#define STR_HST_AUTOSAVE_TIP_PAUSED             NC_("STR_HST_AUTOSAVE_TIP_PAUSED", "AutoSave is paused\nThe file could not be written (drive removed, network lost or file locked). Your changes are kept in the recovery copy. Save the file or click to try again.")
++#define STR_HST_AUTOSAVE_TIP_CONFLICT           NC_("STR_HST_AUTOSAVE_TIP_CONFLICT", "AutoSave is paused\nAnother program changed this file. It was not overwritten: use Save As to keep both versions.")
++#define STR_HST_AUTOSAVE_TIP_NOTSAVED           NC_("STR_HST_AUTOSAVE_TIP_NOTSAVED", "Save the file first\nAutoSave works only for documents that already have a file on this computer (.docx, .xlsx, .pptx or ODF).")
++#define STR_HST_AUTOSAVE_TIP_REMOTE             NC_("STR_HST_AUTOSAVE_TIP_REMOTE", "AutoSave is not available\nAutoSave works for files on this computer, a network drive or a USB drive.")
++#define STR_HST_AUTOSAVE_TIP_READONLY           NC_("STR_HST_AUTOSAVE_TIP_READONLY", "The file is read-only\nAutoSave cannot write to it.")
++#define STR_HST_AUTOSAVE_TIP_FORMAT             NC_("STR_HST_AUTOSAVE_TIP_FORMAT", "This format is not saved automatically\nIt may lose data. Save as .docx, .xlsx, .pptx or ODF to use AutoSave.")
++#define STR_HST_AUTOSAVE_TIP_MACRO              NC_("STR_HST_AUTOSAVE_TIP_MACRO", "This document has macros that this format does not keep\nSave it as ODF to use AutoSave.")
++#define STR_HST_AUTOSAVE_TIP_SIGNED             NC_("STR_HST_AUTOSAVE_TIP_SIGNED", "The document is digitally signed\nSaving would remove the signature, so it is not saved automatically.")
++#define STR_HST_AUTOSAVE_TIP_RECOVERYOFF        NC_("STR_HST_AUTOSAVE_TIP_RECOVERYOFF", "AutoSave is off\nTurn on \"Save AutoRecovery information\" in Tools ▸ Options ▸ Load/Save ▸ General.")
++#define STR_HST_AUTOSAVE_TIP_ADMIN              NC_("STR_HST_AUTOSAVE_TIP_ADMIN", "Set by your administrator\nThis setting cannot be changed.")
+ 
+ #define STR_FILTER_NOT_INSTALLED                NC_("STR_FILTER_NOT_INSTALLED", "The selected filter $(FILTER) has not been installed.\nWould you like to do this now?")
+ #define STR_FILTER_CONSULT_SERVICE              NC_("STR_FILTER_CONSULT_SERVICE", "The selected filter $(FILTER) is not included in your edition.\nYou can find information about orders on our homepage.")
+--- a/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
++++ b/officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu
+@@ -4274,6 +4274,14 @@
+           <value>1</value>
+         </prop>
+       </node>
++      <node oor:name=".uno:HstAutoSave" oor:op="replace">
++        <prop oor:name="Label" oor:type="xs:string">
++          <value xml:lang="en-US">AutoSave</value>
++        </prop>
++        <prop oor:name="TooltipLabel" oor:type="xs:string">
++          <value xml:lang="en-US">Save changes into this file automatically (this document, this session)</value>
++        </prop>
++      </node>
+       <node oor:name=".uno:HstPictureStyles" oor:op="replace">
+         <prop oor:name="Label" oor:type="xs:string">
+           <value xml:lang="en-US">Picture Styles</value>
+--- a/sc/source/ui/docshell/docsh.cxx
++++ b/sc/source/ui/docshell/docsh.cxx
+@@ -1890,6 +1890,13 @@
+ {
+     // Commit any cell changes before saving.
+     ScModule::get()->InputEnterHandler();
++}
++
++// HST Office: a cell of this document is being edited; AutoSave skips the round instead of ending the edit
++bool ScDocShell::HstIsInputActive() const
++{
++    ScTabViewShell* pViewSh = ScTabViewShell::GetActiveViewShell();
++    return pViewSh && pViewSh->GetViewData().GetDocShell() == this && ScModule::get()->IsInputMode();
+ }
+ 
+ bool ScDocShell::SaveAs( SfxMedium& rMedium )
+--- a/sc/source/ui/inc/docsh.hxx
++++ b/sc/source/ui/inc/docsh.hxx
+@@ -205,6 +205,7 @@
+     SC_DLLPUBLIC virtual void SetVisArea( const tools::Rectangle & rVisArea ) override;
+ 
+     virtual void    TerminateEditing() override;
++    virtual bool    HstIsInputActive() const override; // HST Office: AutoSave waits for the cell edit
+ 
+     using SfxObjectShell::GetVisArea;
+     virtual tools::Rectangle GetVisArea( sal_uInt16 nAspect ) const override;
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -256,6 +256,7 @@
+     sfx2/source/doc/frmdescr \
+     sfx2/source/doc/graphhelp \
+     sfx2/source/doc/guisaveas \
++    sfx2/source/doc/hstuserautosave \
+     sfx2/source/doc/iframe \
+     sfx2/source/doc/new \
+     sfx2/source/doc/objcont \
+--- a/sfx2/sdi/docslots.sdi
++++ b/sfx2/sdi/docslots.sdi
+@@ -94,6 +94,11 @@
+ 
+ interface OfficeDocument : Document
+ {
++    SID_HST_AUTOSAVE // HST Office: the AutoSave toggle
++    [
++        ExecMethod = ExecFile_Impl ;
++        StateMethod = GetState_Impl ;
++    ]
+     SID_DOCINFO_AUTHOR // ole(opt) api(todo)
+     [
+         ExecMethod = ExecProps_Impl ;
+--- a/sfx2/sdi/sfx.sdi
++++ b/sfx2/sdi/sfx.sdi
+@@ -4880,6 +4880,25 @@
+ ]
+ 
+ 
++// HST Office: AutoSave into the document's own file, per document and session (hstuserautosave.hxx)
++SfxBoolItem HstAutoSave SID_HST_AUTOSAVE
++(SfxBoolItem Enable FN_PARAM_1)
++[
++    AutoUpdate = TRUE,
++    FastCall = FALSE,
++    ReadOnlyDoc = TRUE,
++    Toggle = FALSE,
++    Container = FALSE,
++    RecordAbsolute = FALSE,
++    NoRecord;
++
++    AccelConfig = TRUE,
++    MenuConfig = TRUE,
++    ToolBoxConfig = TRUE,
++    GroupId = SfxGroupId::Document;
++]
++
++
+ SfxUInt16Item MacroSignature SID_MACRO_SIGNATURE
+ [
+     AutoUpdate = FALSE,
+--- a/sfx2/source/doc/guisaveas.cxx
++++ b/sfx2/source/doc/guisaveas.cxx
+@@ -65,6 +65,7 @@
+ #include <com/sun/star/util/XCloneable.hpp>
+ 
+ #include <guisaveas.hxx>
++#include <hstuserautosave.hxx>
+ 
+ #include <sal/log.hxx>
+ #include <svl/itemset.hxx>
+@@ -435,6 +436,13 @@
+ }
+ }
+ 
++// HST Office: AutoSave stores in place only when the format keeps the macros (hstuserautosave.hxx)
++bool hst::autosave::FormatKeepsMacros(const uno::Reference<frame::XModel>& xModel, std::u16string_view rFilter,
++                                      SfxFilterFlags nFlags)
++{
++    return lclFormatKeepsMacros(lclGetDocumentMacros(xModel), rFilter, nFlags);
++}
++
+ class ModelData_Impl
+ {
+     SfxStoringHelper* m_pOwner;
+--- /dev/null
++++ b/sfx2/source/doc/hstuserautosave.cxx
+@@ -0,0 +1,355 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#include <hstuserautosave.hxx>
++#include <objshimp.hxx>
++
++#include <com/sun/star/document/ChangedByOthersRequest.hpp>
++#include <com/sun/star/frame/XModel3.hpp>
++#include <com/sun/star/task/ErrorCodeRequest.hpp>
++#include <com/sun/star/task/XInteractionAbort.hpp>
++#include <com/sun/star/task/XInteractionApprove.hpp>
++#include <com/sun/star/task/XInteractionHandler.hpp>
++#include <comphelper/sequence.hxx>
++#include <comphelper/sequenceashashmap.hxx>
++#include <cppuhelper/implbase.hxx>
++#include <officecfg/Office/Recovery.hxx>
++#include <sfx2/bindings.hxx>
++#include <sfx2/docfile.hxx>
++#include <sfx2/objsh.hxx>
++#include <sfx2/request.hxx>
++#include <sfx2/sfxresid.hxx>
++#include <sfx2/sfxsids.hrc>
++#include <sfx2/strings.hrc>
++#include <sfx2/viewfrm.hxx>
++#include <svl/eitem.hxx>
++#include <svl/itemset.hxx>
++#include <comphelper/diagnose_ex.hxx>
++#include <tools/urlobj.hxx>
++#include <comphelper/errcode.hxx>
++#include <osl/file.hxx>
++#include <sfx2/signaturestate.hxx>
++#include <vcl/svapp.hxx>
++
++#include <vector>
++
++using namespace css;
++
++namespace hst::autosave
++{
++/** Declines every question of a store, as nobody is there to answer it: warnings are approved (the store goes on, as
++    the UI save does after showing them), everything else is aborted. A "changed by another program" question
++    (SfxMedium::CheckFileDate) is remembered: the store stops before it writes anything. */
++class SilentInteraction : public cppu::WeakImplHelper<task::XInteractionHandler>
++{
++public:
++    bool ChangedByOthers() const { return m_bChangedByOthers; }
++
++    void SAL_CALL handle(const uno::Reference<task::XInteractionRequest>& xRequest) override
++    {
++        const uno::Any aRequest = xRequest->getRequest();
++        uno::Reference<task::XInteractionAbort> xAbort;
++        uno::Reference<task::XInteractionApprove> xApprove;
++        for (const auto& rContinuation : xRequest->getContinuations())
++        {
++            if (!xAbort.is())
++                xAbort.set(rContinuation, uno::UNO_QUERY);
++            if (!xApprove.is())
++                xApprove.set(rContinuation, uno::UNO_QUERY);
++        }
++        task::ErrorCodeRequest aError;
++        if ((aRequest >>= aError) && ErrCode(aError.ErrCode).IsWarning() && xApprove.is())
++        {
++            xApprove->select();
++            return;
++        }
++        if (aRequest.isExtractableTo(cppu::UnoType<document::ChangedByOthersRequest>::get()))
++            m_bChangedByOthers = true;
++        if (xAbort.is())
++            xAbort->select();
++    }
++
++private:
++    bool m_bChangedByOthers = false;
++};
++
++namespace
++{
++DocState& docState(SfxObjectShell& rShell) { return rShell.HstAutoSaveState(); }
++
++bool isHiddenOrEmbedded(SfxObjectShell& rShell)
++{
++    if (rShell.GetCreateMode() != SfxObjectCreateMode::STANDARD)
++        return true;
++    const SfxMedium* pMedium = rShell.GetMedium();
++    const SfxBoolItem* pHidden = pMedium ? pMedium->GetItemSet().GetItem(SID_HIDDEN, false) : nullptr;
++    return pHidden && pHidden->GetValue();
++}
++
++bool macrosLost(SfxObjectShell& rShell, const std::shared_ptr<const SfxFilter>& pFilter, bool bRefresh)
++{
++    DocState& rState = docState(rShell);
++    if (pFilter->IsOwnFormat())
++        return false; // ODF keeps every macro
++    if (bRefresh || rState.nMacroLoss < 0)
++        rState.nMacroLoss
++            = FormatKeepsMacros(rShell.GetModel(), pFilter->GetFilterName(), pFilter->GetFilterFlags()) ? 0 : 1;
++    return rState.nMacroLoss == 1;
++}
++
++bool isSigned(SfxObjectShell& rShell, const std::shared_ptr<const SfxFilter>& pFilter)
++{
++    if (rShell.GetDocumentSignatureState() != SignatureState::NOSIGNATURES)
++        return true;
++    return pFilter->IsOwnFormat() && rShell.GetScriptingSignatureState() != SignatureState::NOSIGNATURES;
++}
++
++/// the toggle before the user's choice and the pause: whether the document may store itself at all
++State eligibility(SfxObjectShell& rShell, bool bRefresh)
++{
++    if (isHiddenOrEmbedded(rShell))
++        return State::Unsupported;
++    const SfxMedium* pMedium = rShell.GetMedium();
++    if (!pMedium || !rShell.HasName() || pMedium->GetName().isEmpty()
++        || pMedium->GetName().startsWithIgnoreAsciiCase("private:"))
++        return State::NotSaved;
++    if (INetURLObject(pMedium->GetName()).GetProtocol() != INetProtocol::File)
++        return State::Remote;
++    if (rShell.IsReadOnly() || rShell.IsReadOnlyMedium())
++        return State::ReadOnly;
++    const std::shared_ptr<const SfxFilter> pFilter = pMedium->GetFilter();
++    if (isLossyFilter(pFilter))
++        return State::Format;
++    if (isSigned(rShell, pFilter))
++        return State::Signed;
++    if (macrosLost(rShell, pFilter, bRefresh))
++        return State::Macro;
++    if (!officecfg::Office::Recovery::AutoSave::Enabled::get())
++        return officecfg::Office::Recovery::AutoSave::Enabled::isReadOnly() ? State::AdminOff : State::RecoveryOff;
++    if (officecfg::Office::Recovery::AutoSave::UserAutoSaveEnabled::isReadOnly())
++        return officecfg::Office::Recovery::AutoSave::UserAutoSaveEnabled::get() ? State::AdminOn
++                                                                                 : State::AdminOff;
++    return State::On;
++}
++}
++
++bool isLossyFilter(const std::shared_ptr<const SfxFilter>& pFilter)
++{
++    if (!pFilter || !pFilter->CanExport() || (pFilter->GetFilterFlags() & SfxFilterFlags::INTERNAL))
++        return true;
++    if (pFilter->IsOwnFormat() && !pFilter->IsAlienFormat())
++        return false; // ODF (and its templates)
++    // the default formats of HST Office (hst-msoffice-defaults.patch): Ctrl+S saves them without a question
++    const OUString& rName = pFilter->GetFilterName();
++    return rName != "MS Word 2007 XML" && rName != "Calc MS Excel 2007 XML"
++           && rName != "Impress MS PowerPoint 2007 XML";
++}
++
++State stateOf(SfxObjectShell& rShell, bool bRefresh)
++{
++    const State eBase = eligibility(rShell, bRefresh);
++    if (eBase != State::On && eBase != State::AdminOn)
++        return eBase;
++    DocState& rState = docState(rShell);
++    if (rState.ePause != State::On)
++        return rState.ePause;
++    if (eBase == State::AdminOn)
++        return eBase;
++    if (!rState.oOn)
++        rState.oOn = officecfg::Office::Recovery::AutoSave::UserAutoSaveEnabled::get();
++    return *rState.oOn ? State::On : State::Off;
++}
++
++bool isActive(State eState) { return eState == State::On || eState == State::AdminOn; }
++
++bool isSwitchable(State eState)
++{
++    return eState == State::On || eState == State::Off || eState == State::Paused
++           || eState == State::PausedConflict;
++}
++
++OUString valueOf(State eState)
++{
++    switch (eState)
++    {
++        case State::On:
++        case State::AdminOn:
++            return SfxResId(STR_HST_AUTOSAVE_ON);
++        case State::Paused:
++        case State::PausedConflict:
++            return SfxResId(STR_HST_AUTOSAVE_PAUSED);
++        default:
++            return SfxResId(STR_HST_AUTOSAVE_OFF);
++    }
++}
++
++OUString tooltipOf(State eState)
++{
++    TranslateId aId;
++    switch (eState)
++    {
++        case State::On: aId = STR_HST_AUTOSAVE_TIP_ON; break;
++        case State::Off: aId = STR_HST_AUTOSAVE_TIP_OFF; break;
++        case State::Paused: aId = STR_HST_AUTOSAVE_TIP_PAUSED; break;
++        case State::PausedConflict: aId = STR_HST_AUTOSAVE_TIP_CONFLICT; break;
++        case State::NotSaved: aId = STR_HST_AUTOSAVE_TIP_NOTSAVED; break;
++        case State::Remote: aId = STR_HST_AUTOSAVE_TIP_REMOTE; break;
++        case State::ReadOnly: aId = STR_HST_AUTOSAVE_TIP_READONLY; break;
++        case State::Format: aId = STR_HST_AUTOSAVE_TIP_FORMAT; break;
++        case State::Macro: aId = STR_HST_AUTOSAVE_TIP_MACRO; break;
++        case State::Signed: aId = STR_HST_AUTOSAVE_TIP_SIGNED; break;
++        case State::RecoveryOff: aId = STR_HST_AUTOSAVE_TIP_RECOVERYOFF; break;
++        case State::AdminOn:
++        case State::AdminOff: aId = STR_HST_AUTOSAVE_TIP_ADMIN; break;
++        case State::Unsupported: return OUString();
++    }
++    return SfxResId(aId);
++}
++
++void Invalidate(SfxObjectShell& rShell)
++{
++    for (SfxViewFrame* pFrame = SfxViewFrame::GetFirst(&rShell); pFrame;
++         pFrame = SfxViewFrame::GetNext(*pFrame, &rShell))
++        pFrame->GetBindings().Invalidate(SID_HST_AUTOSAVE);
++}
++
++void Exec(SfxObjectShell& rShell, SfxRequest& rReq)
++{
++    const State eState = stateOf(rShell, true);
++    if (!isSwitchable(eState))
++        return;
++    DocState& rState = docState(rShell);
++    const SfxBoolItem* pValue = rReq.GetArg<SfxBoolItem>(FN_PARAM_1); // "Enable": an explicit value
++    if (eState == State::Paused || eState == State::PausedConflict)
++    {
++        // a click on a paused toggle tries again at the next AutoSave; an explicit false turns it off instead
++        rState.ePause = State::On;
++        rState.oOn = pValue ? pValue->GetValue() : true;
++    }
++    else
++        rState.oOn = pValue ? pValue->GetValue() : eState != State::On;
++    Invalidate(rShell);
++    rReq.Done();
++}
++
++void GetState(SfxObjectShell& rShell, SfxItemSet& rSet, sal_uInt16 nWhich)
++{
++    const State eState = stateOf(rShell);
++    if (isSwitchable(eState))
++        rSet.Put(SfxBoolItem(nWhich, isActive(eState)));
++    else
++        rSet.DisableItem(nWhich);
++}
++
++void AddArgs(SfxObjectShell& rShell, const std::set<std::u16string_view>& rRequested,
++             comphelper::SequenceAsHashMap& rArgs)
++{
++    if (rRequested.count(u"HstUserAutoSave"))
++    {
++        bool bNow = false;
++        try
++        {
++            // an edit in progress (a Calc cell) or a modal dialog: skip this round, the next one stores
++            bNow = isActive(stateOf(rShell, true)) && !rShell.HstIsInputActive()
++                   && !Application::IsInModalMode();
++        }
++        catch (const uno::Exception&)
++        {
++            TOOLS_WARN_EXCEPTION("sfx.doc", "AutoSave state");
++        }
++        rArgs[u"HstUserAutoSave"_ustr] <<= bNow;
++    }
++    if (rRequested.count(u"HstUserAutoSaving"))
++        rArgs[u"HstUserAutoSaving"_ustr] <<= docState(rShell).bSaving;
++}
++
++namespace
++{
++/// whether the folder of the document's file still exists
++bool folderExists(SfxObjectShell& rShell)
++{
++    const SfxMedium* pMedium = rShell.GetMedium();
++    if (!pMedium)
++        return false;
++    INetURLObject aFolder(pMedium->GetURLObject());
++    if (!aFolder.removeSegment())
++        return false;
++    osl::DirectoryItem aItem;
++    if (osl::DirectoryItem::get(aFolder.GetMainURL(INetURLObject::DecodeMechanism::NONE), aItem)
++        != osl::FileBase::E_None)
++        return false;
++    osl::FileStatus aStatus(osl_FileStatus_Mask_Type);
++    return aItem.getFileStatus(aStatus) == osl::FileBase::E_None
++           && (aStatus.getFileType() == osl::FileStatus::Directory
++               || aStatus.getFileType() == osl::FileStatus::Volume);
++}
++}
++
++StoreScope::StoreScope(SfxObjectShell& rShell, uno::Sequence<beans::PropertyValue>& rArgs)
++    : m_rShell(rShell)
++    , m_xHandler(new SilentInteraction)
++{
++    std::vector<beans::PropertyValue> aArgs;
++    for (const beans::PropertyValue& rArg : rArgs)
++        if (rArg.Name != "HstUserAutoSave" && rArg.Name != "InteractionHandler")
++            aArgs.push_back(rArg);
++    beans::PropertyValue aHandler;
++    aHandler.Name = "InteractionHandler";
++    aHandler.Value <<= uno::Reference<task::XInteractionHandler>(m_xHandler);
++    aArgs.push_back(aHandler);
++    rArgs = comphelper::containerToSequence(aArgs);
++
++    m_bAllowed = isActive(stateOf(rShell, true));
++    if (m_bAllowed && !folderExists(rShell))
++    {
++        // a pulled USB drive or a lost share: the store would create the folder again (the UCB makes missing
++        // parents), on the local disk where the drive was mounted. Pause instead.
++        m_bAllowed = false;
++        docState(rShell).ePause = State::Paused;
++        Invalidate(rShell);
++    }
++    if (m_bAllowed)
++        docState(rShell).bSaving = true;
++    else
++        m_bDone = true; // nothing is stored, nothing pauses (beyond the missing folder above)
++}
++
++StoreScope::~StoreScope()
++{
++    if (!m_bDone)
++        Done(false);
++}
++
++void StoreScope::Done(bool bStored)
++{
++    if (m_bDone)
++        return;
++    m_bDone = true;
++    DocState& rState = docState(m_rShell);
++    rState.bSaving = false;
++    if (!bStored)
++        rState.ePause = m_xHandler->ChangedByOthers() ? State::PausedConflict : State::Paused;
++    Invalidate(m_rShell);
++}
++
++void ManualSaveDone(SfxObjectShell& rShell)
++{
++    DocState& rState = docState(rShell);
++    if (rState.bSaving)
++        return;
++    rState.ePause = State::On;
++    rState.nMacroLoss = -1;
++    Invalidate(rShell);
++}
++}
++
++hst::autosave::DocState& SfxObjectShell::HstAutoSaveState()
++{
++    if (!pImpl->m_pHstAutoSave)
++        pImpl->m_pHstAutoSave = std::make_shared<hst::autosave::DocState>();
++    return *pImpl->m_pHstAutoSave;
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/doc/objserv.cxx
++++ b/sfx2/source/doc/objserv.cxx
+@@ -121,6 +121,7 @@
+ #include <comphelper/base64.hxx>
+ 
+ #include <autoredactdialog.hxx>
++#include <hstuserautosave.hxx>
+ 
+ #include <boost/property_tree/json_parser.hpp>
+ 
+@@ -557,6 +558,12 @@
+ void SfxObjectShell::ExecFile_Impl(SfxRequest &rReq)
+ {
+     sal_uInt16 nId = rReq.GetSlot();
++
++    if (nId == SID_HST_AUTOSAVE) // HST Office: the AutoSave toggle
++    {
++        hst::autosave::Exec(*this, rReq);
++        return;
++    }
+ 
+     bool bHaveWeSigned = false;
+ 
+@@ -1446,6 +1453,9 @@
+     {
+         switch ( nWhich )
+         {
++            case SID_HST_AUTOSAVE: // HST Office: the AutoSave toggle
++                hst::autosave::GetState(*this, rSet, nWhich);
++                break;
+             case SID_CHECKOUT:
+                 {
+                     bool bShow = false;
+--- a/sfx2/source/doc/sfxbasemodel.cxx
++++ b/sfx2/source/doc/sfxbasemodel.cxx
+@@ -140,6 +140,7 @@
+ #include <sfx2/filedlghelper.hxx>
+ #include <comphelper/profilezone.hxx>
+ #include <vcl/threadex.hxx>
++#include <hstuserautosave.hxx>
+ 
+ #include <LibreOfficeKit/LibreOfficeKitEnums.h>
+ 
+@@ -1099,6 +1100,9 @@
+             m_pData->m_seqArguments = std::move(aFinalCache);
+         }
+ 
++        // HST Office: AutoSave asks by name only (hstuserautosave.hxx)
++        hst::autosave::AddArgs(*m_pData->m_pObjectShell, requestedArgs, seqArgsNew);
++
+         return seqArgsNew.getAsConstPropertyValueList();
+     }
+ 
+@@ -1652,10 +1656,13 @@
+ 
+     bool bCheckIn = false;
+     bool bOnMainThread = false;
++    bool bHstAutoSave = false; // HST Office: AutoSave stores the document in place
+     for ( const auto& rArg : aSeqArgs )
+     {
+         // check that only acceptable parameters are provided here
+-        if ( rArg.Name != "VersionComment" && rArg.Name != "Author"
++        if ( rArg.Name == "HstUserAutoSave" )
++            rArg.Value >>= bHstAutoSave;
++        else if ( rArg.Name != "VersionComment" && rArg.Name != "Author"
+           && rArg.Name != "DontTerminateEdit"
+           && rArg.Name != "InteractionHandler" && rArg.Name != "StatusIndicator"
+           && rArg.Name != "VersionMajor"
+@@ -1687,6 +1694,16 @@
+         aArgs = Sequence< beans::PropertyValue >( nLength - 1 );
+         std::copy_if(aSeqArgs.begin(), aSeqArgs.end(), aArgs.getArray(),
+             [](const beans::PropertyValue& rProp) { return rProp.Name != "CheckIn"; });
++    }
++
++    // HST Office: no question ever (silent interaction handler); a failure pauses the document's AutoSave
++    std::optional<hst::autosave::StoreScope> oHstAutoSave;
++    if (bHstAutoSave)
++    {
++        oHstAutoSave.emplace(*m_pData->m_pObjectShell, aArgs);
++        if (!oHstAutoSave->Allowed())
++            throw task::ErrorCodeIOException(u"SfxBaseModel::storeSelf: AutoSave not allowed"_ustr,
++                                             Reference<XInterface>(), sal_uInt32(ERRCODE_IO_ABORT));
+     }
+ 
+     std::optional<SfxAllItemSet> pParams(SfxGetpApp()->GetPool() );
+@@ -1731,6 +1748,11 @@
+     ErrCodeMsg nErrCode = m_pData->m_pObjectShell->GetErrorIgnoreWarning();
+     m_pData->m_pObjectShell->ResetError();
+ 
++    if (oHstAutoSave)
++        oHstAutoSave->Done(bRet);
++    else if (bRet)
++        hst::autosave::ManualSaveDone(*m_pData->m_pObjectShell);
++
+     if ( bRet )
+     {
+         m_pData->m_aPreusedFilterName = GetMediumFilterName_Impl();
+@@ -1788,6 +1810,7 @@
+ 
+     comphelper::SequenceAsHashMap aSequence = TransformItems(SID_OPENDOC, m_pData->m_pObjectShell->GetMedium()->GetItemSet());
+     attachResource(rURL, aSequence.getAsConstPropertyValueList());
++    hst::autosave::ManualSaveDone(*m_pData->m_pObjectShell); // HST Office: a new file, AutoSave runs again
+ 
+     loadCmisProperties( );
+ 
+--- /dev/null
++++ b/sfx2/source/inc/hstuserautosave.hxx
+@@ -0,0 +1,130 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ */
++
++#pragma once
++
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/beans/PropertyValue.hpp>
++#include <com/sun/star/uno/Sequence.hxx>
++#include <rtl/ref.hxx>
++#include <rtl/ustring.hxx>
++#include <sfx2/docfilt.hxx>
++
++#include <memory>
++#include <optional>
++#include <set>
++#include <string_view>
++
++class SfxItemSet;
++class SfxObjectShell;
++class SfxRequest;
++namespace comphelper
++{
++class SequenceAsHashMap;
++}
++
++/** HST Office: "Tự động lưu" (AutoSave into the document's own file, owner decision 21/11/2026).
++
++    The AutoRecovery timer (framework autorecovery.cxx, every 3 minutes, 10 for large files, after 10 s without
++    input) asks each document, through getArgs2({"HstUserAutoSave"}), whether it stores itself in place now; if so it
++    calls storeSelf({HstUserAutoSave=true}). The answer is per document and only for the open session: the AutoSave
++    toggle of the tab row (.uno:HstAutoSave) switches it, every opened document starts with
++    Recovery/AutoSave/UserAutoSaveEnabled (true in HST Office).
++
++    A document stores itself only when Ctrl+S would save it silently and without loss: a local, network or USB file
++    (file: URL), in ODF or in the default .docx/.xlsx/.pptx formats, not read only, without a digital signature and
++    without macros its format drops. The store never shows a dialog: a silent interaction handler declines every
++    question (the "file changed by another program" one included), so a conflict or a write error never overwrites
++    anything and pauses AutoSave for the document ("Tạm dừng") until the user saves or clicks the toggle. */
++namespace hst::autosave
++{
++/// what the toggle of one document shows
++enum class State : sal_uInt8
++{
++    On, ///< saves itself in place
++    Off, ///< the user turned it off for this document
++    Paused, ///< the last AutoSave could not write the file (drive removed, network lost, file locked)
++    PausedConflict, ///< another program changed the file since it was opened or saved
++    NotSaved, ///< no file yet ("Hãy lưu tệp trước")
++    Remote, ///< not a file: URL (WebDAV, CMIS...)
++    ReadOnly, ///< opened read only, or locked by someone else
++    Format, ///< a format that may lose data (.doc, .xls, .ppt, .rtf, .txt, .csv, .html...)
++    Macro, ///< macros that the format does not keep
++    Signed, ///< digitally signed: saving drops the signature
++    RecoveryOff, ///< AutoRecovery itself is off (Tools > Options > Load/Save > General)
++    AdminOn, ///< locked on by the administrator
++    AdminOff, ///< locked off by the administrator
++    Unsupported, ///< hidden or embedded documents: no toggle, never saved in place
++};
++
++/// per-document data, kept in SfxObjectShell_Impl for the session only
++struct DocState
++{
++    std::optional<bool> oOn; ///< the toggle; unset = UserAutoSaveEnabled when it is first needed
++    State ePause = State::On; ///< On, Paused or PausedConflict
++    bool bSaving = false; ///< inside an AutoSave store (HstUserAutoSaving)
++    sal_Int8 nMacroLoss = -1; ///< cached: 1 the format drops macros of the document, 0 not, -1 unknown
++};
++
++/// the toggle's state for rShell; bRefresh: check the macros again (the UI uses the cached answer)
++SAL_DLLPRIVATE State stateOf(SfxObjectShell& rShell, bool bRefresh = false);
++/// On or AdminOn: the document saves itself in place
++SAL_DLLPRIVATE bool isActive(State eState);
++/// the toggle can be switched (On, Off, Paused, PausedConflict)
++SAL_DLLPRIVATE bool isSwitchable(State eState);
++/// whether a store of rShell's filter could lose data: false for ODF and the default .docx, .xlsx, .pptx
++SAL_DLLPRIVATE bool isLossyFilter(const std::shared_ptr<const SfxFilter>& pFilter);
++
++/// tooltip text of the toggle: what it does now, and why it is dimmed
++SAL_DLLPRIVATE OUString tooltipOf(State eState);
++/// the word after the switch: "Bật", "Tắt" or "Tạm dừng"
++SAL_DLLPRIVATE OUString valueOf(State eState);
++
++/// the slot .uno:HstAutoSave (SfxObjectShell::ExecFile_Impl, GetState_Impl)
++SAL_DLLPRIVATE void Exec(SfxObjectShell& rShell, SfxRequest& rReq);
++SAL_DLLPRIVATE void GetState(SfxObjectShell& rShell, SfxItemSet& rSet, sal_uInt16 nWhich);
++/// the toggle of every view of rShell shows the new state
++SAL_DLLPRIVATE void Invalidate(SfxObjectShell& rShell);
++
++/// SfxBaseModel::getArgs2: HstUserAutoSave (store in place now) and HstUserAutoSaving (inside such a store), only
++/// when asked for by name, so getArgs() and every media descriptor built from it stay as they were
++SAL_DLLPRIVATE void AddArgs(SfxObjectShell& rShell, const std::set<std::u16string_view>& rRequested,
++                            comphelper::SequenceAsHashMap& rArgs);
++
++/** SfxBaseModel::storeSelf with HstUserAutoSave: checks the document again, replaces the argument by the silent
++    interaction handler and marks the store (HstUserAutoSaving, read by the "Phiên bản trước" job at OnSave). Its
++    destructor without Done() counts as a failed store. */
++class SilentInteraction;
++
++class SAL_DLLPRIVATE StoreScope
++{
++public:
++    /// rArgs: the storeSelf arguments; HstUserAutoSave is taken out, an InteractionHandler put in
++    StoreScope(SfxObjectShell& rShell, css::uno::Sequence<css::beans::PropertyValue>& rArgs);
++    ~StoreScope();
++    StoreScope(const StoreScope&) = delete;
++    StoreScope& operator=(const StoreScope&) = delete;
++
++    /// false: do not store (the document no longer qualifies); nothing is paused for it
++    bool Allowed() const { return m_bAllowed; }
++    /// the store ended; bStored false pauses AutoSave of the document
++    void Done(bool bStored);
++
++private:
++    SfxObjectShell& m_rShell;
++    rtl::Reference<SilentInteraction> m_xHandler;
++    bool m_bAllowed = false;
++    bool m_bDone = false;
++};
++
++/// a save by the user (Ctrl+S, Save As) succeeded: a paused AutoSave runs again
++SAL_DLLPRIVATE void ManualSaveDone(SfxObjectShell& rShell);
++
++/// guisaveas.cxx: the macro test of Save As (hst-macro-save-guard.patch): whether rFilter keeps the macros of xModel
++SAL_DLLPRIVATE bool FormatKeepsMacros(const css::uno::Reference<css::frame::XModel>& xModel,
++                                      std::u16string_view rFilter, SfxFilterFlags nFlags);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sfx2/source/inc/objshimp.hxx
++++ b/sfx2/source/inc/objshimp.hxx
+@@ -30,6 +30,8 @@
+ #include <sfx2/namedcolor.hxx>
+ #include <bitset.hxx>
+ #include <vcl/timer.hxx>
++
++#include <memory>
+ 
+ #include "appbaslib.hxx"
+ 
+@@ -137,6 +139,9 @@
+     mutable oslInterlockedCount m_nClosingLockLevel = 0;
+     mutable bool m_bCloseModelScheduled = false;
+ 
++    /// HST Office: the AutoSave toggle of this document (hstuserautosave.hxx)
++    std::shared_ptr<hst::autosave::DocState> m_pHstAutoSave;
++
+     SfxObjectShell_Impl( SfxObjectShell& _rDocShell );
+     ~SfxObjectShell_Impl();
+ 
+--- a/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
++++ b/translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po
+@@ -25024,6 +25024,26 @@
+ msgid "Auto~Format Styles..."
+ msgstr ""
+ 
++#. hstHstAutoSaveLabel
++#: GenericCommands.xcu
++msgctxt ""
++"GenericCommands.xcu\n"
++"..GenericCommands.UserInterface.Commands..uno:HstAutoSave\n"
++"Label\n"
++"value.text"
++msgid "AutoSave"
++msgstr "Tự động lưu"
++
++#. hstHstAutoSaveTooltipLabel
++#: GenericCommands.xcu
++msgctxt ""
++"GenericCommands.xcu\n"
++"..GenericCommands.UserInterface.Commands..uno:HstAutoSave\n"
++"TooltipLabel\n"
++"value.text"
++msgid "Save changes into this file automatically (this document, this session)"
++msgstr "Tự động lưu thay đổi vào tệp này (cho tài liệu này, trong phiên đang mở)"
++
+ #. hstHstPictureStylesLabel
+ #: GenericCommands.xcu
+ msgctxt ""
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -6934,6 +6934,108 @@
+ msgid "Show Below the Ribbon"
+ msgstr "Hiện bên dưới ribbon"
+ 
++#. hstAs00
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE"
++msgid "AutoSave"
++msgstr "Tự động lưu"
++
++#. hstAs01
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_ON"
++msgid "On"
++msgstr "Bật"
++
++#. hstAs02
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_OFF"
++msgid "Off"
++msgstr "Tắt"
++
++#. hstAs03
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_PAUSED"
++msgid "Paused"
++msgstr "Tạm dừng"
++
++#. hstAs04
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_SHOW"
++msgid "Show AutoSave"
++msgstr "Hiện Tự động lưu"
++
++#. hstAs05
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_TIP_ON"
++msgid "AutoSave is on\nChanges are saved into this file every few minutes. Click to turn it off for this document."
++msgstr "Tự động lưu đang bật\nThay đổi được lưu vào tệp này vài phút một lần. Bấm để tắt cho tài liệu này."
++
++#. hstAs06
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_TIP_OFF"
++msgid "AutoSave is off\nThis document is saved only when you save it. Click to turn AutoSave on."
++msgstr "Tự động lưu đang tắt\nTài liệu này chỉ được lưu khi bạn lưu. Bấm để bật Tự động lưu."
++
++#. hstAs07
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_TIP_PAUSED"
++msgid "AutoSave is paused\nThe file could not be written (drive removed, network lost or file locked). Your changes are kept in the recovery copy. Save the file or click to try again."
++msgstr "Tự động lưu tạm dừng\nKhông ghi được tệp (đã rút ổ, mất mạng hoặc tệp bị khóa). Thay đổi vẫn được giữ trong bản khôi phục. Hãy lưu tệp hoặc bấm để thử lại."
++
++#. hstAs08
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_TIP_CONFLICT"
++msgid "AutoSave is paused\nAnother program changed this file. It was not overwritten: use Save As to keep both versions."
++msgstr "Tự động lưu tạm dừng\nTệp đã bị chương trình khác thay đổi và không bị ghi đè. Hãy Lưu thành để giữ cả hai bản."
++
++#. hstAs09
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_TIP_NOTSAVED"
++msgid "Save the file first\nAutoSave works only for documents that already have a file on this computer (.docx, .xlsx, .pptx or ODF)."
++msgstr "Hãy lưu tệp trước\nTự động lưu chỉ chạy khi tài liệu đã có tệp trên máy (.docx, .xlsx, .pptx hoặc ODF)."
++
++#. hstAs10
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_TIP_REMOTE"
++msgid "AutoSave is not available\nAutoSave works for files on this computer, a network drive or a USB drive."
++msgstr "Không tự lưu được\nTự động lưu chạy với tệp trên máy, ổ mạng hoặc USB."
++
++#. hstAs11
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_TIP_READONLY"
++msgid "The file is read-only\nAutoSave cannot write to it."
++msgstr "Tệp chỉ đọc\nTự động lưu không ghi được vào tệp này."
++
++#. hstAs12
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_TIP_FORMAT"
++msgid "This format is not saved automatically\nIt may lose data. Save as .docx, .xlsx, .pptx or ODF to use AutoSave."
++msgstr "Định dạng này không tự lưu được\nĐịnh dạng này có thể làm mất dữ liệu. Hãy Lưu thành .docx/.xlsx/.pptx hoặc ODF để dùng Tự động lưu."
++
++#. hstAs13
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_TIP_MACRO"
++msgid "This document has macros that this format does not keep\nSave it as ODF to use AutoSave."
++msgstr "Tài liệu có macro mà định dạng này không giữ được\nHãy Lưu thành ODF để dùng Tự động lưu."
++
++#. hstAs14
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_TIP_SIGNED"
++msgid "The document is digitally signed\nSaving would remove the signature, so it is not saved automatically."
++msgstr "Tài liệu có chữ ký số\nLưu sẽ làm mất chữ ký nên tài liệu không được tự lưu."
++
++#. hstAs15
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_TIP_RECOVERYOFF"
++msgid "AutoSave is off\nTurn on \"Save AutoRecovery information\" in Tools ▸ Options ▸ Load/Save ▸ General."
++msgstr "Tự động lưu đang tắt\nHãy bật \"Lưu thông tin phục hồi tự động\" trong Công cụ ▸ Tùy chọn ▸ Tải/Lưu ▸ Chung."
++
++#. hstAs16
++#: include/sfx2/strings.hrc
++msgctxt "STR_HST_AUTOSAVE_TIP_ADMIN"
++msgid "Set by your administrator\nThis setting cannot be changed."
++msgstr "Do quản trị viên đặt\nKhông thay đổi được thiết lập này."
++
+ #. hstQat4
+ #: include/sfx2/strings.hrc
+ msgctxt "STR_HST_QAT_ABOVE"

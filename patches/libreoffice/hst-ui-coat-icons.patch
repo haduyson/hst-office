@@ -1,0 +1,490 @@
+HST Office: menu items show LibreOffice's own icons in every HST icon style.
+
+Reason: owner decision of 20/11/2026. Menu icons (context menus, menu bar, drop-down menus) reuse the
+LibreOffice (Colibre) icons at their right size, so they stay as sharp as upstream; the HST glyphs
+stay on the ribbon and the frame. Until now a menu took the command's icon from the current style:
+the Cổ điển style forced its Find and Replace glyphs into the menus (they replace Colibre's on the
+ribbon), and the Hiện đại style put an HST glyph on every command it draws.
+MenuBarManager::FillMenuImages now asks framework::GetMenuImageForCommand. Its order in the HST
+styles: an image the user (Tools > Customize, module image manager user layer) or the document
+assigned to the command; then "cmd/sc_<command>.png" from colibre_svg / colibre_dark_svg at the
+display's icon scale (vcl::CommandInfoProvider::GetLibreOfficeMenuImage; the 150 % rule of
+hst-icon-theme-fractional-scale.patch applies); then the style's own image (GetImageForCommand),
+which serves the commands Colibre does not draw. Commands with arguments and every non-HST theme keep
+upstream's lookup. framework::ImageManager::hasUserImage tells a user image from a theme default.
+
+Applies after hst-icon-theme-fractional-scale.patch.
+Test: make CppunitTest_vcl_app_test (test_HstIconTheme: MenusUseLibreOfficeIcons) and
+make CppunitTest_framework_menuimages.
+License: upstream files remain MPL-2.0.
+---
+--- a/include/vcl/commandinfoprovider.hxx
++++ b/include/vcl/commandinfoprovider.hxx
+@@ -95,6 +95,12 @@
+         vcl::ImageType eImageType = vcl::ImageType::Small,
+         vcl::ImageWritingDirection eImageDir = vcl::ImageWritingDirection::DontCare);
+ 
++    /** In the HST icon styles, LibreOffice's own (Colibre) small icon of a plain ".uno:" command at
++        the display's icon scale, for menus; empty for other themes, commands with arguments and
++        commands Colibre does not draw.
++    */
++    VCL_DLLPUBLIC Image GetLibreOfficeMenuImage(const OUString& rsCommandName);
++
+     VCL_DLLPUBLIC sal_Int32 GetPropertiesForCommand(
+         const OUString& rsCommandName,
+         const OUString& rsModuleName);
+--- a/vcl/inc/HstIconTheme.hxx
++++ b/vcl/inc/HstIconTheme.hxx
+@@ -106,6 +106,28 @@
+     return OUString::Concat(rPath.substr(0, nSlash + 1)) + "lc_" + aFile.substr(3);
+ }
+ 
++/// Menu items show LibreOffice's own icons in every HST style (owner decision of 20/11/2026): the HST
++/// glyphs stay on the ribbon and the frame, menus take the SVG Colibre of the same brightness. An icon
++/// the user or the document assigned to the command still comes first, and the HST style serves the
++/// commands Colibre does not draw (framework::GetMenuImageForCommand). Returns that Colibre theme for
++/// an HST style, or empty for any other theme (whose menus are left as they are).
++inline OUString menuIconTheme(std::u16string_view rTheme)
++{
++    if (!o3tl::starts_with(rTheme, u"hst"))
++        return OUString();
++    return o3tl::ends_with(rTheme, u"_dark") ? u"colibre_dark_svg"_ustr : u"colibre_svg"_ustr;
++}
++
++/// The small icon of a plain ".uno:" command, as the image managers name it ("cmd/sc_<name>.png",
++/// lower case); empty for commands with arguments or other protocols (left to the image managers).
++inline OUString menuIconName(std::u16string_view rCommand)
++{
++    if (!o3tl::starts_with(rCommand, u".uno:") || rCommand.size() <= 5
++        || rCommand.find_first_of(u"?/:", 5) != std::u16string_view::npos)
++        return OUString();
++    return "cmd/sc_" + OUString(rCommand.substr(5)).toAsciiLowerCase() + ".png";
++}
++
+ /// Name of the stamp file inside each "<UserInstallation>/cache/<theme>" directory.
+ inline constexpr OUString ICON_CACHE_STAMP_FILE = u"hst-icon-cache-version"_ustr;
+ 
+--- a/vcl/source/helper/commandinfoprovider.cxx
++++ b/vcl/source/helper/commandinfoprovider.cxx
+@@ -18,6 +18,11 @@
+  */
+ 
+ #include <vcl/commandinfoprovider.hxx>
++#include <vcl/ImageTree.hxx>
++#include <vcl/bitmap.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++#include <HstIconTheme.hxx>
+ #include <vcl/image.hxx>
+ #include <vcl/keycod.hxx>
+ #include <vcl/mnemonic.hxx>
+@@ -405,6 +410,20 @@
+     return Image(GetXGraphicForCommand(rsCommandName, rxFrame, eImageType, eImageDir));
+ }
+ 
++Image GetLibreOfficeMenuImage(const OUString& rsCommandName)
++{
++    // HST Office: menus show LibreOffice's icons, the HST glyphs stay on the ribbon and the frame
++    const OUString aTheme = vcl::hst::menuIconTheme(
++        Application::GetSettings().GetStyleSettings().DetermineIconTheme());
++    const OUString aName = vcl::hst::menuIconName(rsCommandName);
++    if (aTheme.isEmpty() || aName.isEmpty())
++        return Image();
++    Bitmap aBitmap;
++    if (!ImageTree::get().loadImage(aName, aTheme, aBitmap, true))
++        return Image();
++    return Image(aBitmap);
++}
++
+ sal_Int32 GetPropertiesForCommand (
+     const OUString& rsCommandName,
+     const OUString& rsModuleName)
+--- a/framework/Module_framework.mk
++++ b/framework/Module_framework.mk
+@@ -38,6 +38,7 @@
+     CppunitTest_framework_services \
+ ))
+ endif
++$(eval $(call gb_Module_add_slowcheck_targets,framework,CppunitTest_framework_menuimages))
+ 
+ $(eval $(call gb_Module_add_l10n_targets,framework,\
+     AllLangMoTarget_fwk \
+--- a/framework/inc/uiconfiguration/imagemanager.hxx
++++ b/framework/inc/uiconfiguration/imagemanager.hxx
+@@ -66,6 +66,8 @@
+             virtual void SAL_CALL reset() override;
+             virtual css::uno::Sequence< OUString > SAL_CALL getAllImageNames( ::sal_Int16 nImageType ) override;
+             virtual sal_Bool SAL_CALL hasImage( ::sal_Int16 nImageType, const OUString& aCommandURL ) override;
++            /// whether this layer holds an image of its own for the command (not a theme default)
++            bool hasUserImage( ::sal_Int16 nImageType, const OUString& aCommandURL );
+             virtual css::uno::Sequence< css::uno::Reference< css::graphic::XGraphic > > SAL_CALL getImages( ::sal_Int16 nImageType, const css::uno::Sequence< OUString >& aCommandURLSequence ) override;
+             virtual void SAL_CALL replaceImages( ::sal_Int16 nImageType, const css::uno::Sequence< OUString >& aCommandURLSequence, const css::uno::Sequence< css::uno::Reference< css::graphic::XGraphic > >& aGraphicsSequence ) override;
+             virtual void SAL_CALL removeImages( ::sal_Int16 nImageType, const css::uno::Sequence< OUString >& aResourceURLSequence ) override;
+--- a/framework/source/uiconfiguration/imagemanager.cxx
++++ b/framework/source/uiconfiguration/imagemanager.cxx
+@@ -95,6 +95,11 @@
+     return m_pImpl->hasImage(nImageType,aCommandURL);
+ }
+ 
++bool ImageManager::hasUserImage( ::sal_Int16 nImageType, const OUString& aCommandURL )
++{
++    return m_pImpl->hasUserImage(nImageType,aCommandURL);
++}
++
+ Sequence< uno::Reference< XGraphic > > SAL_CALL ImageManager::getImages(
+     ::sal_Int16 nImageType,
+     const Sequence< OUString >& aCommandURLSequence )
+--- a/framework/source/uiconfiguration/imagemanagerimpl.hxx
++++ b/framework/source/uiconfiguration/imagemanagerimpl.hxx
+@@ -104,6 +104,8 @@
+             /// @throws css::lang::IllegalArgumentException
+             /// @throws css::uno::RuntimeException
+             bool hasImage( ::sal_Int16 nImageType, const OUString& aCommandURL );
++            /// whether the user (module) or document layer holds an image of its own for the command
++            bool hasUserImage( ::sal_Int16 nImageType, const OUString& aCommandURL );
+             /// @throws css::lang::IllegalArgumentException
+             /// @throws css::uno::RuntimeException
+             css::uno::Sequence< css::uno::Reference< css::graphic::XGraphic > > getImages( ::sal_Int16 nImageType, const css::uno::Sequence< OUString >& aCommandURLSequence );
+--- a/framework/source/uiconfiguration/imagemanagerimpl.cxx
++++ b/framework/source/uiconfiguration/imagemanagerimpl.cxx
+@@ -728,6 +728,21 @@
+     return false;
+ }
+ 
++bool ImageManagerImpl::hasUserImage( ::sal_Int16 nImageType, const OUString& aCommandURL )
++{
++    SolarMutexGuard g;
++
++    if ( m_bDisposed )
++        throw DisposedException();
++
++    auto nIndex = implts_convertImageTypeToIndex(nImageType);
++    if (!nIndex.has_value())
++        throw IllegalArgumentException();
++
++    ImageList* pImageList = implts_getUserImageList(std::get<0>(*nIndex));
++    return pImageList && pImageList->GetImagePos( aCommandURL ) != IMAGELIST_IMAGE_NOTFOUND;
++}
++
+ namespace
+ {
+     css::uno::Reference< css::graphic::XGraphic > GetXGraphic(const Image &rImage)
+--- a/framework/source/uielement/menubarmanager.cxx
++++ b/framework/source/uielement/menubarmanager.cxx
+@@ -18,6 +18,10 @@
+  */
+ 
+ #include <uielement/menubarmanager.hxx>
++#include <uielement/menuimage.hxx>
++#include <uiconfiguration/imagemanager.hxx>
++#include <com/sun/star/ui/ImageType.hpp>
++#include <com/sun/star/ui/XImageManager.hpp>
+ #include <uielement/styletoolbarcontroller.hxx>
+ #include <menuconfiguration.hxx>
+ #include <addonmenu.hxx>
+@@ -42,6 +46,7 @@
+ #include <com/sun/star/util/URLTransformer.hpp>
+ 
+ #include <comphelper/lok.hxx>
++#include <comphelper/processfactory.hxx>
+ #include <comphelper/propertysequence.hxx>
+ #include <comphelper/propertyvalue.hxx>
+ #include <officecfg/Office/Common.hxx>
+@@ -1589,6 +1594,55 @@
+         m_xURLTransformer.set( URLTransformer::create( m_xContext) );
+ }
+ 
++namespace
++{
++/// Whether the user (module image manager, user layer) or the document assigned an image of its own
++/// to the command.
++bool lcl_hasCustomizedImage(const OUString& rCommand, const Reference<XFrame>& rxFrame)
++{
++    const sal_Int16 nType = css::ui::ImageType::COLOR_NORMAL | css::ui::ImageType::SIZE_DEFAULT;
++    try
++    {
++        // the document image manager has no theme layer: any image it has is the document's own
++        Reference<XController> xController(rxFrame->getController(), UNO_SET_THROW);
++        Reference<css::ui::XUIConfigurationManagerSupplier> xSupplier(xController->getModel(), UNO_QUERY);
++        if (xSupplier.is())
++        {
++            Reference<css::ui::XImageManager> xDocImages(
++                xSupplier->getUIConfigurationManager()->getImageManager(), UNO_QUERY);
++            if (xDocImages.is() && xDocImages->hasImage(nType, rCommand))
++                return true;
++        }
++    }
++    catch (const Exception&)
++    {
++    }
++    try
++    {
++        Reference<css::ui::XModuleUIConfigurationManagerSupplier> xModules
++            = css::ui::theModuleUIConfigurationManagerSupplier::get(comphelper::getProcessComponentContext());
++        Reference<css::ui::XUIConfigurationManager> xModule(xModules->getUIConfigurationManager(
++            vcl::CommandInfoProvider::GetModuleIdentifier(rxFrame)));
++        Reference<XInterface> xImages(xModule->getImageManager());
++        if (auto* pImages = dynamic_cast<ImageManager*>(xImages.get()))
++            return pImages->hasUserImage(nType, rCommand);
++    }
++    catch (const Exception&)
++    {
++    }
++    return false;
++}
++}
++
++Image GetMenuImageForCommand(const OUString& rCommand, const Reference<XFrame>& rxFrame)
++{
++    // HST Office: menus show LibreOffice's icons unless the user or the document chose one
++    Image aLibreOffice = vcl::CommandInfoProvider::GetLibreOfficeMenuImage(rCommand);
++    if (!!aLibreOffice && !lcl_hasCustomizedImage(rCommand, rxFrame))
++        return aLibreOffice;
++    return vcl::CommandInfoProvider::GetImageForCommand(rCommand, rxFrame);
++}
++
+ void MenuBarManager::FillMenuImages(Reference< XFrame > const & _xFrame, Menu* _pMenu,bool bShowMenuImages)
+ {
+     AddonsOptions aAddonOptions;
+@@ -1605,7 +1659,7 @@
+             if ( bTmpShowMenuImages )
+             {
+                 OUString aMenuItemCommand = _pMenu->GetItemCommand( nId );
+-                Image aImage = vcl::CommandInfoProvider::GetImageForCommand(aMenuItemCommand, _xFrame);
++                Image aImage = GetMenuImageForCommand(aMenuItemCommand, _xFrame);
+                 if ( !aImage )
+                     aImage = Image(aAddonOptions.GetImageFromURL(aMenuItemCommand, false));
+ 
+--- a/vcl/qa/cppunit/app/test_HstIconTheme.cxx
++++ b/vcl/qa/cppunit/app/test_HstIconTheme.cxx
+@@ -69,6 +69,7 @@
+     void CacheOfAnotherVersionIsPurged();
+     void FractionalScalesUsePixelSnappedVariants();
+     void SmallIconsAtOneAndAHalfUseTheNativeLargeIcon();
++    void MenusUseLibreOfficeIcons();
+ 
+     CPPUNIT_TEST_SUITE(HstIconThemeTest);
+     CPPUNIT_TEST(SvgOnlyThemesScaleAtTheSurface);
+@@ -76,6 +77,7 @@
+     CPPUNIT_TEST(CacheOfAnotherVersionIsPurged);
+     CPPUNIT_TEST(FractionalScalesUsePixelSnappedVariants);
+     CPPUNIT_TEST(SmallIconsAtOneAndAHalfUseTheNativeLargeIcon);
++    CPPUNIT_TEST(MenusUseLibreOfficeIcons);
+     CPPUNIT_TEST_SUITE_END();
+ };
+ 
+@@ -187,6 +189,23 @@
+     CPPUNIT_ASSERT(vcl::hst::largeIconAtFractionalScale(u"hst/cmd/sc_cut.svg", 150).isEmpty());
+ }
+ 
++void HstIconThemeTest::MenusUseLibreOfficeIcons()
++{
++    // every HST style takes the menu icons from the SVG Colibre of its brightness
++    CPPUNIT_ASSERT_EQUAL(u"colibre_svg"_ustr, vcl::hst::menuIconTheme(u"hst_classic"));
++    CPPUNIT_ASSERT_EQUAL(u"colibre_svg"_ustr, vcl::hst::menuIconTheme(u"hst_modern"));
++    CPPUNIT_ASSERT_EQUAL(u"colibre_svg"_ustr, vcl::hst::menuIconTheme(u"hst"));
++    CPPUNIT_ASSERT_EQUAL(u"colibre_dark_svg"_ustr, vcl::hst::menuIconTheme(u"hst_classic_dark"));
++    CPPUNIT_ASSERT_EQUAL(u"colibre_dark_svg"_ustr, vcl::hst::menuIconTheme(u"hst_modern_dark"));
++    // other themes keep their own menus
++    CPPUNIT_ASSERT(vcl::hst::menuIconTheme(u"colibre").isEmpty());
++    CPPUNIT_ASSERT(vcl::hst::menuIconTheme(u"breeze_dark").isEmpty());
++    CPPUNIT_ASSERT_EQUAL(u"cmd/sc_searchdialog.png"_ustr, vcl::hst::menuIconName(u".uno:SearchDialog"));
++    CPPUNIT_ASSERT(vcl::hst::menuIconName(u".uno:InsertField?Type:short=0").isEmpty());
++    CPPUNIT_ASSERT(vcl::hst::menuIconName(u"org.hst.office.vi:NumberToWords").isEmpty());
++    CPPUNIT_ASSERT(vcl::hst::menuIconName(u".uno:").isEmpty());
++}
++
+ CPPUNIT_TEST_SUITE_REGISTRATION(HstIconThemeTest);
+ 
+ /* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/framework/CppunitTest_framework_menuimages.mk
+@@ -0,0 +1,48 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# This Source Code Form is subject to the terms of the Mozilla Public
++# License, v. 2.0. If a copy of the MPL was not distributed with this
++# file, You can obtain one at http://mozilla.org/MPL/2.0/.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,framework_menuimages))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,framework_menuimages, \
++    framework/qa/cppunit/menuimages \
++))
++
++$(eval $(call gb_CppunitTest_set_include,framework_menuimages,\
++    -I$(SRCDIR)/framework/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,framework_menuimages, \
++	comphelper \
++	cppu \
++	cppuhelper \
++	fwk \
++	sal \
++	subsequenttest \
++	test \
++	tl \
++	unotest \
++	utl \
++	vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,framework_menuimages, \
++	boost_headers \
++	libxml2 \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,framework_menuimages))
++
++$(eval $(call gb_CppunitTest_use_ure,framework_menuimages))
++
++$(eval $(call gb_CppunitTest_use_vcl,framework_menuimages))
++
++$(eval $(call gb_CppunitTest_use_rdb,framework_menuimages,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,framework_menuimages))
++
++# vim: set noet sw=4 ts=4:
+--- /dev/null
++++ b/framework/inc/uielement/menuimage.hxx
+@@ -0,0 +1,26 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <framework/fwkdllapi.h>
++#include <com/sun/star/frame/XFrame.hpp>
++#include <rtl/ustring.hxx>
++#include <vcl/image.hxx>
++
++namespace framework
++{
++/** The image of a menu item for a command. Order: an image the user (module image manager, user
++    layer) or the document assigned to the command, then, in the HST icon styles, LibreOffice's own
++    icon of the command (vcl::CommandInfoProvider::GetLibreOfficeMenuImage), then the current icon
++    theme's (vcl::CommandInfoProvider::GetImageForCommand). Other themes keep upstream's order.
++*/
++FWK_DLLPUBLIC Image GetMenuImageForCommand(const OUString& rCommand,
++                                           const css::uno::Reference<css::frame::XFrame>& rxFrame);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/framework/qa/cppunit/menuimages.cxx
+@@ -0,0 +1,108 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#include <test/unoapi_test.hxx>
++
++#include <com/sun/star/frame/XModel.hpp>
++#include <com/sun/star/ui/ImageType.hpp>
++#include <com/sun/star/ui/XImageManager.hpp>
++#include <com/sun/star/ui/XUIConfigurationManagerSupplier.hpp>
++#include <com/sun/star/ui/theModuleUIConfigurationManagerSupplier.hpp>
++
++#include <uielement/menuimage.hxx>
++#include <vcl/bitmap.hxx>
++#include <vcl/commandinfoprovider.hxx>
++#include <vcl/graph.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++
++using namespace ::com::sun::star;
++
++namespace
++{
++/// Menu item images in the HST icon styles: an image the user or the document assigned to a command
++/// wins over LibreOffice's icon, which wins over the HST glyph.
++class MenuImagesTest : public UnoApiTest
++{
++public:
++    MenuImagesTest()
++        : UnoApiTest(u"/framework/qa/cppunit/data/"_ustr)
++    {
++    }
++};
++
++uno::Reference<graphic::XGraphic> solid(Color aColor)
++{
++    Bitmap aBitmap(Size(16, 16), vcl::PixelFormat::N24_BPP);
++    aBitmap.Erase(aColor);
++    return Graphic(aBitmap).GetXGraphic();
++}
++
++Color centre(const Image& rImage)
++{
++    const Bitmap aBitmap = rImage.GetBitmap();
++    const Size aSize = aBitmap.GetSizePixel();
++    return aBitmap.GetPixelColor(aSize.Width() / 2, aSize.Height() / 2);
++}
++
++void setIconTheme(const OUString& rTheme)
++{
++    AllSettings aSettings = Application::GetSettings();
++    StyleSettings aStyle = aSettings.GetStyleSettings();
++    aStyle.SetIconTheme(rTheme);
++    aSettings.SetStyleSettings(aStyle);
++    Application::SetSettings(aSettings);
++}
++
++CPPUNIT_TEST_FIXTURE(MenuImagesTest, testCustomizedImagesWinOverLibreOfficeIcons)
++{
++    setIconTheme(u"hst_classic"_ustr);
++    loadFromURL(u"private:factory/swriter"_ustr);
++    SolarMutexGuard aGuard;
++    uno::Reference<frame::XModel> xModel(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<frame::XFrame> xFrame = xModel->getCurrentController()->getFrame();
++    const sal_Int16 nType = ui::ImageType::COLOR_NORMAL | ui::ImageType::SIZE_DEFAULT;
++    const OUString aUser(u".uno:SearchDialog"_ustr), aDocument(u".uno:Cut"_ustr),
++        aPlain(u".uno:Copy"_ustr);
++
++    // precondition: the HST style is active and Colibre draws the three commands
++    CPPUNIT_ASSERT_EQUAL(u"hst_classic"_ustr,
++                         Application::GetSettings().GetStyleSettings().DetermineIconTheme());
++    for (const OUString& rCommand : { aUser, aDocument, aPlain })
++        CPPUNIT_ASSERT(!!vcl::CommandInfoProvider::GetLibreOfficeMenuImage(rCommand));
++
++    // an uncustomized command shows LibreOffice's icon
++    CPPUNIT_ASSERT_EQUAL(centre(vcl::CommandInfoProvider::GetLibreOfficeMenuImage(aPlain)),
++                         centre(framework::GetMenuImageForCommand(aPlain, xFrame)));
++
++    // the user's own icon (module image manager, user layer)
++    uno::Reference<ui::XModuleUIConfigurationManagerSupplier> xModules
++        = ui::theModuleUIConfigurationManagerSupplier::get(m_xContext);
++    uno::Reference<ui::XImageManager> xModuleImages(
++        xModules->getUIConfigurationManager(u"com.sun.star.text.TextDocument"_ustr)->getImageManager(),
++        uno::UNO_QUERY_THROW);
++    xModuleImages->replaceImages(nType, { aUser }, { solid(COL_LIGHTMAGENTA) });
++    // the document's own icon
++    uno::Reference<ui::XUIConfigurationManagerSupplier> xSupplier(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<ui::XImageManager> xDocumentImages(
++        xSupplier->getUIConfigurationManager()->getImageManager(), uno::UNO_QUERY_THROW);
++    xDocumentImages->replaceImages(nType, { aDocument }, { solid(COL_LIGHTCYAN) });
++
++    const Color aUserColour = centre(framework::GetMenuImageForCommand(aUser, xFrame));
++    const Color aDocumentColour = centre(framework::GetMenuImageForCommand(aDocument, xFrame));
++    xModuleImages->removeImages(nType, { aUser });
++    xDocumentImages->removeImages(nType, { aDocument });
++    setIconTheme(OUString());
++
++    CPPUNIT_ASSERT_EQUAL(COL_LIGHTMAGENTA, aUserColour);
++    CPPUNIT_ASSERT_EQUAL(COL_LIGHTCYAN, aDocumentColour);
++}
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */

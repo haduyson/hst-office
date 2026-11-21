@@ -8,7 +8,7 @@ import uno
 import unohelper
 from com.sun.star.awt import XActionListener, XItemListener, XTextListener
 
-from . import dialog_edit_heights, screen_work_area
+from . import dialog_edit_heights, dialog_on_screen, dialog_registry, screen_work_area
 
 OK, CANCEL = 1, 2
 # Accent text colours that stay readable (contrast >= 4.5:1) on the light and on the dark dialog background.
@@ -150,11 +150,14 @@ class Dialog:
     def execute(self, parent_peer=None):
         """Show modally; returns 1 only if end(1) was called (OK), else 0. Always disposes the dialog."""
         toolkit = self.smgr.createInstanceWithContext("com.sun.star.awt.Toolkit", self.ctx)
+        # a hidden parent (parked tab, frame not shown yet) would take the dialog off screen with it: macOS froze
+        parent, parent_kind = dialog_on_screen.parent(self.ctx, parent_peer)
         self.dialog.setVisible(False)
-        self.dialog.createPeer(toolkit, parent_peer)
+        self.dialog.createPeer(toolkit, parent)
         dialog_edit_heights.fit_edits(self)
         if self.on_oversize and self._exceeds_screen(toolkit):
             self.on_oversize()
+        dialog_on_screen.centre(self.dialog, parent)  # after the layout: its final size
         for name, listener in self._listeners:
             self.dialog.getControl(name).addActionListener(listener)
         for name, listener in self._watchers:
@@ -166,10 +169,15 @@ class Dialog:
                 control.addTextListener(listener)
         if self.on_ready:
             self.on_ready()
+        dialog_on_screen.log_open(self.model.Title, parent_kind)
+        in_front = lambda: dialog_on_screen.is_front_candidate(self.ctx, self.dialog)  # noqa: E731
+        dialog_on_screen.keep_in_front(self.ctx, self.dialog, in_front)
+        stop_watching = dialog_on_screen.watch_parent(self.ctx, parent, self.dialog, in_front)
         try:
-            self.dialog.execute()
+            dialog_registry.execute(self.dialog)  # registered: a modal dialog keeps the office from quitting
             return self.result
         finally:
+            stop_watching()
             if self.on_closed:
                 self.on_closed()
             self.dialog.dispose()

@@ -25,11 +25,13 @@ TABS = "sfx2/source/notebookbar/NotebookbarTabControl.cxx"
 
 
 class MockupFrame(unittest.TestCase):
-    def test_body_is_fixed_at_106_px(self):
+    def test_body_is_106_px_or_the_tallest_page(self):
         code = added(FRAME, TABS)
-        # exactly the tab row, the two 3 px insets and 106 logical px rounded once: content never makes it taller
-        self.assertIn("aSize.setHeight(HstHeaderHeight() + HST_PAGE_INSETS + "
-                      "hst::banner::scaled(hst::banner::RIBBON_BODY_HEIGHT, fDpi));", code)
+        # the tab row, the two 3 px insets and a body of 106 logical px rounded once, or the tallest page's content
+        # and captions when they ask for more: a fixed body cut the captions under a larger UI font
+        self.assertIn("tools::Long nBody = hst::banner::scaled(hst::banner::RIBBON_BODY_HEIGHT, fDpi);", code)
+        self.assertIn("nBody = std::max(nBody, VclContainer::getLayoutRequisition(*pPage).Height());", code)
+        self.assertIn("aSize.setHeight(HstHeaderHeight() + HST_PAGE_INSETS + nBody);", code)
         self.assertIn("constexpr tools::Long HST_PAGE_INSETS = 2 * 3;", code)
         # only the ribbon with the banner; other notebookbar files keep the old minimum
         self.assertIn("if (m_pHstBanner && HstHeaderHeight() > 0)", code)

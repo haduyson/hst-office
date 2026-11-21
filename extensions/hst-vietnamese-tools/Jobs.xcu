@@ -19,16 +19,37 @@
     <node oor:name="org.hst.office.vi.VbaSaveCheckJob" oor:op="replace">
       <prop oor:name="Service"><value>org.hst.office.vi.VbaSaveCheckJob</value></prop>
     </node>
+    <!-- Context: document windows only. Without it the job also runs for every embedded formula or chart, whose
+         modified state changes many times while HST Công thức converts hundreds of equations. -->
+    <!-- HST Công thức "tự chuyển khi mở" (off by default): MathType equations become formulas after opening
+         (hst_office/formula_open_job.py) -->
+    <node oor:name="org.hst.office.vi.FormulaOpenJob" oor:op="replace">
+      <prop oor:name="Service"><value>org.hst.office.vi.FormulaOpenJob</value></prop>
+      <prop oor:name="Context"><value>com.sun.star.text.TextDocument,com.sun.star.text.GlobalDocument,com.sun.star.text.WebDocument,com.sun.star.sheet.SpreadsheetDocument,com.sun.star.presentation.PresentationDocument,com.sun.star.drawing.DrawingDocument,com.sun.star.sdb.OfficeDatabaseDocument</value></prop>
+    </node>
     <!-- Phiên bản trước: copy a document's file in the background once it is modified, keep that copy at OnSave
          (before the office writes the file), record the file written at OnSaveDone/OnSaveAsDone (an unmodified re-save
          keeps nothing), drop it at OnUnload (hst_office/version_job.py, version_capture.py) -->
     <node oor:name="org.hst.office.vi.PreviousVersionsJob" oor:op="replace">
       <prop oor:name="Service"><value>org.hst.office.vi.PreviousVersionsJob</value></prop>
+      <prop oor:name="Context"><value>com.sun.star.text.TextDocument,com.sun.star.text.GlobalDocument,com.sun.star.text.WebDocument,com.sun.star.sheet.SpreadsheetDocument,com.sun.star.presentation.PresentationDocument,com.sun.star.drawing.DrawingDocument,com.sun.star.sdb.OfficeDatabaseDocument</value></prop>
     </node>
     <!-- Trích dẫn: before a save, renumber the HST citations and rebuild the bibliography; documents without the
          HSTCitationStyle property are left alone at once (hst_office/citation_save_job.py) -->
     <node oor:name="org.hst.office.vi.CitationSaveJob" oor:op="replace">
       <prop oor:name="Service"><value>org.hst.office.vi.CitationSaveJob</value></prop>
+    </node>
+    <!-- Trộn thư: a mail-merge document (Word .docx with w:mailMerge, or HST settings) is connected to its recipient
+         list again when it opens (hst_office/mail_merge_word_job.py, mail_merge_word_link.py) -->
+    <node oor:name="org.hst.office.vi.MailMergeWordJob" oor:op="replace">
+      <prop oor:name="Service"><value>org.hst.office.vi.MailMergeWordJob</value></prop>
+    </node>
+    <!-- Sheets: after a file is loaded, VND()/USD() called through a Vietnamese number-words add-in (an add-in
+         workbook's external name, an XLL's _xll. prefix) become the HST functions; at OnLoad the links bar of a file whose
+         only links were those add-in files is removed (hst_office/excel_addin_calls_job.py) -->
+    <node oor:name="org.hst.office.vi.ExcelAddinCallsJob" oor:op="replace">
+      <prop oor:name="Service"><value>org.hst.office.vi.ExcelAddinCallsJob</value></prop>
+      <prop oor:name="Context"><value>com.sun.star.sheet.SpreadsheetDocument</value></prop>
     </node>
   </node>
   <node oor:name="Events">
@@ -46,6 +67,23 @@
     <node oor:name="OnCloseApp" oor:op="fuse">
       <node oor:name="JobList">
         <node oor:name="org.hst.office.vi.CrashReportJob" oor:op="replace"/>
+      </node>
+    </node>
+    <node oor:name="OnLoad" oor:op="fuse">
+      <node oor:name="JobList">
+        <node oor:name="org.hst.office.vi.FormulaOpenJob" oor:op="replace"/>
+        <node oor:name="org.hst.office.vi.ExcelAddinCallsJob" oor:op="replace"/>
+        <node oor:name="org.hst.office.vi.MailMergeWordJob" oor:op="replace"/>
+      </node>
+    </node>
+    <node oor:name="OnViewCreated" oor:op="fuse">
+      <node oor:name="JobList">
+        <node oor:name="org.hst.office.vi.FormulaOpenJob" oor:op="replace"/>
+      </node>
+    </node>
+    <node oor:name="OnLoadFinished" oor:op="fuse">
+      <node oor:name="JobList">
+        <node oor:name="org.hst.office.vi.ExcelAddinCallsJob" oor:op="replace"/>
       </node>
     </node>
     <node oor:name="OnModifyChanged" oor:op="fuse">

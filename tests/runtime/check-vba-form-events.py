@@ -22,7 +22,7 @@ import unicodedata
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import hst_gui  # noqa: E402
-from vba_form_fixture import BODY, EXTRA, add_form  # noqa: E402
+from vba_form_fixture import BODY, EXTRA, add_form, save_with_macros_denied  # noqa: E402
 
 SPEC = importlib.util.spec_from_file_location("check_vba_editor", os.path.join(HERE, "check-vba-editor.py"))
 editor = importlib.util.module_from_spec(SPEC)
@@ -32,8 +32,7 @@ vba, vba_template = editor.vba, editor.vba_template
 FORM_TITLE = "Biểu mẫu HST"
 HINT_TITLE = "Macro VBA"
 EXPECTED = "đã bấm: nội dung"
-# CommandButton1 centre as a share of the 230 x 170 form (see BODY)
-BUTTON_X, BUTTON_Y = 40 / 230, 15 / 170
+BUTTON_X, BUTTON_Y = 40 / 230, 15 / 170  # CommandButton1 centre relative to BODY's form size.
 
 
 def check_userform(office, kind, app):
@@ -59,7 +58,6 @@ def check_userform(office, kind, app):
         got = repr(error)
     check(f"{app}: VBA code uses the new UserForm (UserForm1.Caption, Unload)", got == "Biểu mẫu HST", got)
     # UserForm1.Show is modal: the form window appears until it is closed
-    import threading
     vba.add_module(lib, "HstShow", vba_template.OPTION_LINE + '\nSub HienForm()\n  UserForm1.Caption = "Biểu mẫu HST"\n  UserForm1.Show\nEnd Sub\n')
     show = doc.getScriptProvider().getScript(f"vnd.sun.star.script:{project}.HstShow.HienForm?language=Basic&location=document")
     runner = threading.Thread(target=lambda: show.invoke((), (), ()), daemon=True)
@@ -147,6 +145,8 @@ def check_click(office, kind, app, ext, filter_name):
         keys(office, window(office, HINT_TITLE)[0], "Return")
     saver.join(30)
     doc.close(True)
+    if ext in ("ods", "odt"):
+        save_with_macros_denied(office, uno.systemPathToFileUrl(path), project, label, check)
     doc = office.desktop().loadComponentFromURL(uno.systemPathToFileUrl(path), "_blank", 0, (pv("MacroExecutionMode", 4),))
     click_button(office, doc, doc.BasicLibraries.ProjectName or project, app, f"{label} reopened")
     doc.close(True)

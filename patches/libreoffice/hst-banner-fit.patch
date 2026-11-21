@@ -1,0 +1,480 @@
+HST Office: the HASON TECH banner fits snugly: its slot is exactly its artwork, on the ribbon, in the Start Center
+and wherever else it is shown (owner, 19/11/2026: no letterbox, no filler band, no padding).
+
+- include/vcl/HstBannerGeometry.hxx: widthForHeight, heightForWidth; snugSlot (the part of a host's room that holds
+  the artwork exactly: the room's height, the artwork's ratio, at the room's left or right edge); artRect (the
+  artwork is painted over the whole allocation when it has the artwork's ratio, fitted only until a host has
+  resized the slot for a new artwork).
+- vcl HstBannerCore: the artwork is painted without the 3 px inset and without the 1.0.3 ribbon's filler (the
+  colour of the artwork's right edge over the rest of the slot); the core reports the shown artwork's size
+  (ArtSize) and tells its view when a new artwork has another ratio (BannerArtChanged); the standard size it asks
+  the feed for follows the room the host offers (BannerRoomWidth), not the narrower slot.
+- vcl HstRibbonBanner: Place(rRoom, bAnchorLeft) keeps the room and takes its snug slot in it, again when the
+  artwork's ratio changes; WidthForHeight for hosts. The rest of the room is the host's own background.
+- vcl HstBannerWidget: HeightForWidth (the contract of hosts that size the slot themselves, with SetArtChangedHdl);
+  the drawing area asks for the artwork's height at the width it was given, so the Start Center's slot is sized to
+  the image, not the image to the slot.
+- sfx2 NotebookbarTabControl: the Tabbed ribbon's banner room is unchanged (360 to 960 logical px, 96 high, from
+  8 px after the last group to 8 px before the window's right edge); the banner takes its artwork's width flush
+  with the room's right end (owner, 19/11/2026), so it stands at the same place on every tab and the free room
+  between the last group and the banner is the ribbon's own background. The groups' fit is unchanged. With gtk and
+  qt only the page paints the body, and the page stops before the room: the room is now painted as the page
+  paints the body (the native tab body), so the body is one surface behind the banner instead of a step after
+  the last group.
+- vcl TabControl::Paint: for the same reason the native tab header (behind the quick access toolbar, the tab titles,
+  the search box and the menu button) ran only to the page's right end with gtk, so the later tab titles stood on
+  the tab control's own background; the ribbon's header now runs to the control's right end, one surface across
+  the window like the body.
+
+License: these upstream files remain under their original license (MPL-2.0).
+Test: tests/unit/test_banner_fit_geometry.py; tests/runtime/check-banner-fit.py.
+---
+--- a/include/vcl/HstBanner.hxx
++++ b/include/vcl/HstBanner.hxx
+@@ -20,6 +20,7 @@
+ // It lives in vcl so that sfx2, framework and xmlsecurity can all host it.
+ 
+ #include <rtl/ref.hxx>
++#include <tools/link.hxx>
+ #include <vcl/ctrl.hxx>
+ #include <vcl/dllapi.h>
+ #include <vcl/weld/customweld.hxx>
+@@ -39,8 +40,13 @@ public:
+     virtual ~HstRibbonBanner() override;
+     virtual void dispose() override;
+ 
+-    /** Place the banner in the device-pixel rectangle rSlot of the parent (empty: hide). */
+-    void Place(const tools::Rectangle& rSlot);
++    /** Place the banner in the device-pixel room rRoom of the parent (empty: hide). The banner takes only the part
++        that holds its artwork exactly (hst::banner::snugSlot: the room's height, the artwork's ratio) at the room's
++        right edge, or its left edge with bAnchorLeft; the rest of the room stays the parent's background. A new
++        artwork of another ratio resizes the banner within the same room. */
++    void Place(const tools::Rectangle& rRoom, bool bAnchorLeft = false);
++    /** Width in px of the banner drawn nHeight px high, at the ratio of the artwork it shows. */
++    tools::Long WidthForHeight(tools::Long nHeight) const;
+     /** The width (px) the ribbon's wide slot had at the last layout, 0 before; it is kept while the
+         room changes by less than the hysteresis (hst::banner::wideSlotWidth). */
+     long WideSlotWidth() const { return mnWideSlotWidth; }
+@@ -61,8 +67,12 @@ private:
+     class ViewImpl;
+     friend class ViewImpl;
+ 
++    void PlaceSnug();
++
+     std::unique_ptr<ViewImpl> mpView;
+     rtl::Reference<hst::banner::Core> mxCore;
++    tools::Rectangle maRoom; // the room the host gave in Place, in the parent's pixels
++    bool mbAnchorLeft = false;
+     bool mbHover = false;
+     bool mbPressed = false;
+     long mnWideSlotWidth = 0; // hst::banner geometry is plain long
+@@ -78,6 +88,13 @@ public:
+ 
+     /** Smallest slot: 260 x 75 logical px, the size at which every artwork stays legible. */
+     static Size MinimumSize(double fDpi);
++    /** Height in px of the banner drawn nWidth px wide, at the ratio of the artwork it shows: a host gives the banner
++        this height for the width it has (the widget asks for it itself when its width changes), so the artwork
++        fills its slot edge to edge. */
++    tools::Long HeightForWidth(tools::Long nWidth) const;
++    /** Called when a new artwork has another ratio (after the widget asked for its new height): a host that sizes
++        the slot itself (not through the drawing area's size request) asks HeightForWidth again. */
++    void SetArtChangedHdl(const Link<HstBannerWidget&, void>& rLink) { maArtChangedHdl = rLink; }
+ 
+     virtual void SetDrawingArea(weld::DrawingArea* pDrawingArea) override;
+     virtual void Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect) override;
+@@ -94,7 +111,10 @@ private:
+     class ViewImpl;
+     friend class ViewImpl;
+ 
++    void RequestHeight();
++
+     VclPtr<vcl::Window> mpHost;
++    Link<HstBannerWidget&, void> maArtChangedHdl;
+     std::unique_ptr<ViewImpl> mpView;
+     rtl::Reference<hst::banner::Core> mxCore;
+     bool mbHover = false;
+--- a/include/vcl/HstBannerGeometry.hxx
++++ b/include/vcl/HstBannerGeometry.hxx
+@@ -198,6 +198,50 @@ inline Rect fit(const Rect& rBox, long nImageW, long nImageH)
+     return aResult;
+ }
+ 
++/** Width in px of artwork nArtW x nArtH drawn nHeight px high (0 for an empty artwork). */
++inline long widthForHeight(long nHeight, long nArtW, long nArtH)
++{
++    return nArtW > 0 && nArtH > 0 && nHeight > 0 ? std::lround(double(nHeight) * nArtW / nArtH) : 0;
++}
++
++/** Height in px of artwork nArtW x nArtH drawn nWidth px wide (0 for an empty artwork). */
++inline long heightForWidth(long nWidth, long nArtW, long nArtH)
++{
++    return nArtW > 0 && nArtH > 0 && nWidth > 0 ? std::lround(double(nWidth) * nArtH / nArtW) : 0;
++}
++
++/** HST Office: the banner's own slot inside the room a host gives it: exactly the artwork at the room's full height
++    (or at its full width when the artwork is too wide for it, then centred vertically), at the room's left or right
++    edge. The rest of the room is the host's own background: no letterbox, no filler band. */
++inline Rect snugSlot(const Rect& rRoom, long nArtW, long nArtH, bool bAnchorLeft)
++{
++    if (rRoom.w <= 0 || rRoom.h <= 0 || nArtW <= 0 || nArtH <= 0)
++        return Rect{ rRoom.x, rRoom.y, 0, 0 };
++    long nW = widthForHeight(rRoom.h, nArtW, nArtH);
++    long nH = rRoom.h;
++    if (nW > rRoom.w)
++    {
++        nW = rRoom.w;
++        nH = std::min(rRoom.h, heightForWidth(nW, nArtW, nArtH));
++    }
++    return Rect{ bAnchorLeft ? rRoom.x : rRoom.x + rRoom.w - nW, rRoom.y + (rRoom.h - nH) / 2, nW, nH };
++}
++
++/** Where artwork nArtW x nArtH is painted in an output of nOutW x nOutH px: the whole output, edge to edge, when the
++    output has the artwork's ratio (a slot sized by widthForHeight, heightForWidth or snugSlot, within a pixel of
++    rounding); otherwise aspect-fitted and centred (only until the host sized the slot for a new artwork). */
++inline Rect artRect(long nOutW, long nOutH, long nArtW, long nArtH)
++{
++    const Rect aAll{ 0, 0, nOutW, nOutH };
++    if (nOutW <= 0 || nOutH <= 0 || nArtW <= 0 || nArtH <= 0)
++        return Rect{ 0, 0, 0, 0 };
++    // the output was sized from one side (rounded): the other side is the artwork's within a pixel
++    if (std::abs(heightForWidth(nOutW, nArtW, nArtH) - nOutH) <= 1
++        || std::abs(widthForHeight(nOutH, nArtW, nArtH) - nOutW) <= 1)
++        return aAll;
++    return fit(aAll, nArtW, nArtH);
++}
++
+ /** Artwork variant (1, 2 or 3) for an image drawn nDeviceHeight device pixels high: the exact
+     variant when the size matches one, else the next larger one so that it is only ever
+     downscaled (high quality) and never upscaled. */
+--- a/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
++++ b/sfx2/inc/notebookbar/NotebookbarTabControl.hxx
+@@ -44,6 +44,8 @@ public:
+     virtual void dispose() override;
+     virtual void MouseButtonDown( const MouseEvent& rMEvt ) override;
+     virtual bool PreNotify( NotifyEvent& rNEvt ) override;
++    /// HST Office: the ribbon's body continues behind the banner (see HstPaintBodyBesidePage)
++    virtual void Paint( vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect ) override;
+     /// HST Office (1.0.3 ribbon): the banner is placed again once the current layout pass is over
+     void HstQueueLayout();
+ 
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -43,6 +43,7 @@
+ #include <sfx2/sfxresid.hxx>
+ #include <sfx2/strings.hrc>
+ #include <vcl/settings.hxx>
++#include <vcl/salnativewidgets.hxx>
+ #if __has_include(<notebookbar/HstFeatureSearch.hxx>)
+ #include <notebookbar/HstFeatureSearch.hxx>
+ #include <notebookbar/HstUpdateDot.hxx>
+@@ -649,7 +650,12 @@ void NotebookbarTabControl::HstLayoutBanner()
+             const tools::Long nSmallest = std::max<tools::Long>(0, nRight - nMin - nGap - aPage.x - nChevron);
+             nPageWidth = std::max<tools::Long>(0, aSlot.Left() - nGap - aPage.x);
+             hst::ribbon::SetPageSlack(*pPage, nSmallest - nPageWidth);
+-            m_pHstBanner->Place(aSlot);
++            // the room is the slot above; the banner takes only its artwork's width at the room's height, flush
++            // with the room's right end (8 px before the window's right edge, the same place on every tab): the free
++            // room between the last group and the banner is the ribbon's own background, no filler band (owner,
++            // 19/11/2026)
++            m_pHstBanner->Place(aSlot, false);
++            // the layout dump keeps the room (the v3 rules check where the groups leave it)
+             hst::ribbon::DumpPageLayout(*pPage, tools::Rectangle(Point(aSlot.Left() - aPage.x, aSlot.Top() - aPage.y),
+                                                                  aSlot.GetSize()));
+         }
+@@ -714,6 +720,37 @@ void NotebookbarTabControl::Resize()
+     HstLayoutBanner();
+ }
+ 
++// HST Office: the page stops before the banner's room (HstLayoutBanner), and with gtk and qt only the page paints the
++// ribbon's body (TabPage::Paint: the native tab body, white in the light themes, which is not the window colour of
++// the style settings), so the room beside it showed the tab control's own background: a step after the last group,
++// with the banner on another surface. The room is painted as the page paints the body. The other toolkits' tab
++// control paints the whole panel itself already (TabControl::Paint), in one colour.
++void NotebookbarTabControl::Paint(vcl::RenderContext& rRenderContext, const tools::Rectangle& rRect)
++{
++    NotebookbarTabControlBase::Paint(rRenderContext, rRect);
++    const OUString aToolkit = Application::GetToolkitName();
++    if (!aToolkit.startsWith("gtk") && !aToolkit.startsWith("qt") && !aToolkit.startsWith("kf"))
++        return;
++    TabPage* pPage = GetTabPage(GetCurPageId());
++    if (!m_pHstBanner || !pPage || !pPage->IsVisible() || pPage->GetSizePixel().Height() <= 0)
++        return;
++    const tools::Rectangle aPage(pPage->GetPosPixel(), pPage->GetSizePixel());
++    const tools::Rectangle aBeside(Point(aPage.Right() + 1, aPage.Top()),
++                                   Point(GetOutputSizePixel().Width() - 1, aPage.Bottom()));
++    if (aBeside.IsEmpty() || aBeside.Left() > aBeside.Right())
++        return;
++    if (rRenderContext.IsNativeControlSupported(ControlType::TabBody, ControlPart::Entire)
++        && rRenderContext.DrawNativeControl(ControlType::TabBody, ControlPart::Entire, aBeside,
++                                            IsEnabled() ? ControlState::ENABLED : ControlState::NONE,
++                                            ImplControlValue(), OUString()))
++        return;
++    rRenderContext.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
++    rRenderContext.SetLineColor();
++    rRenderContext.SetFillColor(rRenderContext.GetSettings().GetStyleSettings().GetWindowColor());
++    rRenderContext.DrawRect(aBeside);
++    rRenderContext.Pop();
++}
++
+ tools::Long NotebookbarTabControl::HstBannerRight() const
+ {
+     // the document window's right edge in this control's pixels (this control may stop before it: the margins of
+--- a/vcl/source/control/HstBanner.cxx
++++ b/vcl/source/control/HstBanner.cxx
+@@ -13,6 +13,8 @@
+ 
+ #include "HstBannerCore.hxx"
+ 
++#include <vcl/HstBannerGeometry.hxx>
++
+ #include <com/sun/star/accessibility/AccessibleRole.hpp>
+ #include <vcl/event.hxx>
+ #include <vcl/ptrstyle.hxx>
+@@ -43,7 +45,11 @@ public:
+         return !pWork || !pWork->IsMinimized();
+     }
+     bool BannerPaused() const override { return mrBanner.mbHover || mrBanner.HasFocus(); }
+-    bool BannerFillsWidth() const override { return true; }
++    tools::Long BannerRoomWidth() const override
++    {
++        return mrBanner.maRoom.IsEmpty() ? mrBanner.GetOutputSizePixel().Width() : mrBanner.maRoom.GetWidth();
++    }
++    void BannerArtChanged() override { mrBanner.PlaceSnug(); }
+     void BannerInvalidate() override { mrBanner.Invalidate(); }
+     void BannerSetName(const OUString& rName) override
+     {
+@@ -77,9 +83,23 @@ void HstRibbonBanner::dispose()
+     Control::dispose();
+ }
+ 
+-void HstRibbonBanner::Place(const tools::Rectangle& rSlot)
++void HstRibbonBanner::Place(const tools::Rectangle& rRoom, bool bAnchorLeft)
++{
++    maRoom = rRoom;
++    mbAnchorLeft = bAnchorLeft;
++    PlaceSnug();
++}
++
++tools::Long HstRibbonBanner::WidthForHeight(tools::Long nHeight) const
+ {
+-    if (rSlot.IsEmpty())
++    const Size aArt = mxCore.is() ? mxCore->ArtSize() : Size(hst::banner::ART_WIDTH, hst::banner::ART_HEIGHT);
++    return hst::banner::widthForHeight(static_cast<long>(nHeight), static_cast<long>(aArt.Width()),
++                                       static_cast<long>(aArt.Height()));
++}
++
++void HstRibbonBanner::PlaceSnug()
++{
++    if (maRoom.IsEmpty() || !mxCore.is())
+     {
+         if (IsVisible())
+             Hide(); // StateChanged tells the core
+@@ -87,11 +107,19 @@ void HstRibbonBanner::Place(const tools::Rectangle& rSlot)
+             mxCore->Hidden();
+         return;
+     }
+-    if (GetPosPixel() != rSlot.TopLeft() || GetSizePixel() != rSlot.GetSize())
+-        SetPosSizePixel(rSlot.TopLeft(), rSlot.GetSize()); // Resize tells the core
++    const Size aArt = mxCore->ArtSize();
++    // tools::Long is 64-bit on Windows, hst::banner geometry is plain long
++    const hst::banner::Rect aSlot = hst::banner::snugSlot(
++        hst::banner::Rect{ static_cast<long>(maRoom.Left()), static_cast<long>(maRoom.Top()),
++                           static_cast<long>(maRoom.GetWidth()), static_cast<long>(maRoom.GetHeight()) },
++        static_cast<long>(aArt.Width()), static_cast<long>(aArt.Height()), mbAnchorLeft);
++    const Point aPos(aSlot.x, aSlot.y);
++    const Size aSize(aSlot.w, aSlot.h);
++    if (GetPosPixel() != aPos || GetSizePixel() != aSize)
++        SetPosSizePixel(aPos, aSize); // Resize tells the core
+     if (!IsVisible())
+         Show();
+-    else if (mxCore.is())
++    else
+         mxCore->Shown(false);
+ }
+ 
+--- a/vcl/source/control/HstBannerCore.cxx
++++ b/vcl/source/control/HstBannerCore.cxx
+@@ -28,7 +28,6 @@
+ #include <osl/file.hxx>
+ #include <rtl/bootstrap.hxx>
+ #include <salhelper/thread.hxx>
+-#include <tools/poly.hxx>
+ #include <tools/stream.hxx>
+ #include <vcl/graph.hxx>
+ #include <vcl/graphicfilter.hxx>
+@@ -421,10 +420,15 @@ int Core::ScaleForSize() const
+ sal_Int32 Core::LogicalWidth() const
+ {
+     const double fDpi = mpView->BannerDpi();
+-    const tools::Long nWidth = mpView->BannerSize().Width();
++    const tools::Long nWidth = mpView->BannerRoomWidth();
+     return static_cast<sal_Int32>(fDpi > 0 ? std::lround(nWidth / fDpi) : nWidth);
+ }
+ 
++Size Core::ArtSize() const
++{
++    return maImage.IsEmpty() ? Size(ART_WIDTH, ART_HEIGHT) : maImage.GetSizePixel();
++}
++
+ sal_Int32 Core::StandardWidth(sal_Int32 nLogical)
+ {
+     // banner_sizes.fit_width: the largest standard width that fits, at least the narrowest
+@@ -504,6 +508,7 @@ IMPL_LINK(Core, DeliverHdl, void*, p, void)
+         mnFadeStep = 1;
+         maFadeTimer.Start();
+     }
++    const Size aOldArt = ArtSize();
+     maImage = aBitmap;
+     maImageScaled = Bitmap();
+     mnSourceScale = pData->nScale;
+@@ -513,6 +518,10 @@ IMPL_LINK(Core, DeliverHdl, void*, p, void)
+     if (maId != maShownId)
+         StartShown();
+     mpView->BannerSetName(pData->aName + u" — " + pData->aTagline);
++    const Size aNewArt = ArtSize();
++    // another ratio (a standard size after the bundled art, or the other way round): the host sizes the slot again
++    if (aOldArt.Width() * aNewArt.Height() != aNewArt.Width() * aOldArt.Height())
++        mpView->BannerArtChanged();
+     mpView->BannerInvalidate();
+     if (pData->bLast)
+     {
+@@ -646,42 +655,13 @@ const Bitmap& Core::Prepared(const Bitmap& rSource, Bitmap& rCache, const Size&
+ void Core::DrawArt(vcl::RenderContext& rRenderContext, const Bitmap& rSource, Bitmap& rCache, double fAlpha)
+ {
+     const Size aOut = mpView->BannerSize();
+-    const long nInset = scaled(3, mpView->BannerDpi());
+     const Size aSourceSize = rSource.GetSizePixel();
+-    // the image's own pixel size never changes the slot: aspect-fit, centred
+-    const Rect aBox{ nInset, nInset, static_cast<long>(aOut.Width()) - 2 * nInset,
+-                     static_cast<long>(aOut.Height()) - 2 * nInset };
+-    Rect aFit = fit(aBox, aSourceSize.Width(), aSourceSize.Height());
++    // the slot has the artwork's ratio (the hosts size it so): the artwork fills it edge to edge, no inset, no
++    // letterbox; the image's own pixel size never changes the slot
++    const Rect aFit = artRect(static_cast<long>(aOut.Width()), static_cast<long>(aOut.Height()),
++                              static_cast<long>(aSourceSize.Width()), static_cast<long>(aSourceSize.Height()));
+     if (aFit.w <= 0 || aFit.h <= 0)
+         return;
+-    if (mpView->BannerFillsWidth() && aSourceSize.Height() > 0)
+-    {
+-        // the 1.0.3 ribbon's elastic banner: artwork made for 360 x 104 takes the slot's height at its left (never
+-        // wider than the slot), and the colour just inside its right edge fills the slot behind it
+-        const long nHeight = static_cast<long>(aOut.Height());
+-        const long nWidth = std::lround(double(aSourceSize.Width()) * nHeight / aSourceSize.Height());
+-        if (nWidth > 0 && nWidth <= static_cast<long>(aOut.Width()))
+-        {
+-            aFit = Rect{ 0, 0, nWidth, nHeight };
+-            const ::Color aEdge = rSource.GetPixelColor(
+-                std::max<sal_Int32>(0, aSourceSize.Width() - 1 - std::max<sal_Int32>(2, aSourceSize.Width() / 60)),
+-                aSourceSize.Height() / 2);
+-            if (aEdge.GetAlpha() == 255)
+-            {
+-                const long nRadius = scaled(8, mpView->BannerDpi());
+-                const tools::Rectangle aAll(Point(), aOut);
+-                rRenderContext.Push(vcl::PushFlags::LINECOLOR | vcl::PushFlags::FILLCOLOR);
+-                rRenderContext.SetLineColor();
+-                rRenderContext.SetFillColor(::Color(aEdge.GetRed(), aEdge.GetGreen(), aEdge.GetBlue()));
+-                if (fAlpha >= 1.0)
+-                    rRenderContext.DrawRect(aAll, nRadius, nRadius);
+-                else
+-                    rRenderContext.DrawTransparent(tools::PolyPolygon(tools::Polygon(aAll, nRadius, nRadius)),
+-                                                   static_cast<sal_uInt16>(std::lround(100 * (1.0 - fAlpha))));
+-                rRenderContext.Pop();
+-            }
+-        }
+-    }
+     const double fScale = SurfaceScale(rRenderContext);
+     const Size aDevice(std::lround(aFit.w * fScale), std::lround(aFit.h * fScale));
+     const Bitmap& rDraw = Prepared(rSource, rCache, aDevice);
+--- a/vcl/source/control/HstBannerCore.hxx
++++ b/vcl/source/control/HstBannerCore.hxx
+@@ -58,10 +58,11 @@ public:
+     virtual void BannerInvalidate() = 0;
+     /** Accessible name and tooltip: "<name> — <tagline>". */
+     virtual void BannerSetName(const OUString& rName) = 0;
+-    /** The slot may be much wider than the artwork (the 1.0.3 ribbon's banner, 360 to 960 px wide and 96 high): the
+-        artwork takes the slot's height at its left and the colour of its right edge fills the rest. Otherwise it is
+-        fitted and centred. */
+-    virtual bool BannerFillsWidth() const { return false; }
++    /** Width in px of the room the host offers (it picks the standard size of an artwork); the slot itself is only
++        as wide as the artwork. */
++    virtual tools::Long BannerRoomWidth() const { return BannerSize().Width(); }
++    /** A new artwork has another ratio: the slot is sized for it again (no letterbox). */
++    virtual void BannerArtChanged() {}
+ };
+ 
+ class Core final : public salhelper::SimpleReferenceObject
+@@ -87,6 +88,9 @@ public:
+     /** Theme or scale changed: drop the cached downscales. */
+     void SettingsChanged();
+ 
++    /** Pixel size of the shown artwork (its ratio sizes the slot); the bundled 360 x 104 before the first one. */
++    Size ArtSize() const;
++
+     /** Backing scale of rDevice's surface (gtk HiDPI, macOS Retina), on top of the VCL DPI factor. */
+     static double SurfaceScale(const OutputDevice& rDevice);
+ 
+--- a/vcl/source/control/HstBannerWidget.cxx
++++ b/vcl/source/control/HstBannerWidget.cxx
+@@ -62,6 +62,11 @@ public:
+ 
+     void BannerInvalidate() override { mrWidget.Invalidate(); }
+ 
++    void BannerArtChanged() override
++    {
++        mrWidget.RequestHeight();
++        mrWidget.maArtChangedHdl.Call(mrWidget);
++    }
+     void BannerSetName(const OUString& rName) override
+     {
+         if (weld::DrawingArea* pArea = mrWidget.GetDrawingArea())
+@@ -94,6 +99,26 @@ Size HstBannerWidget::MinimumSize(double fDpi)
+     return Size(aSlot.w, aSlot.h);
+ }
+ 
++tools::Long HstBannerWidget::HeightForWidth(tools::Long nWidth) const
++{
++    const Size aArt = mxCore.is() ? mxCore->ArtSize() : Size(hst::banner::ART_WIDTH, hst::banner::ART_HEIGHT);
++    return hst::banner::heightForWidth(static_cast<long>(nWidth), static_cast<long>(aArt.Width()),
++                                       static_cast<long>(aArt.Height()));
++}
++
++void HstBannerWidget::RequestHeight()
++{
++    // the drawing area asks for the artwork's height at the width it was given, so the artwork fills it edge to
++    // edge; the width request stays the minimum, the host decides the width
++    weld::DrawingArea* pArea = GetDrawingArea();
++    const tools::Long nWidth = GetOutputSizePixel().Width();
++    if (!pArea || nWidth <= 0)
++        return;
++    const tools::Long nHeight = HeightForWidth(nWidth);
++    if (nHeight > 0 && nHeight != GetOutputSizePixel().Height())
++        pArea->set_size_request(MinimumSize(mpView->BannerDpi()).Width(), nHeight);
++}
++
+ void HstBannerWidget::SetDrawingArea(weld::DrawingArea* pDrawingArea)
+ {
+     weld::CustomWidgetController::SetDrawingArea(pDrawingArea);
+@@ -111,6 +136,7 @@ void HstBannerWidget::Paint(vcl::RenderContext& rRenderContext, const tools::Rec
+ void HstBannerWidget::Resize()
+ {
+     weld::CustomWidgetController::Resize();
++    RequestHeight();
+     if (!GetOutputSizePixel().IsEmpty())
+         mxCore->Shown(true);
+ }
+--- a/vcl/source/control/tabctrl.cxx
++++ b/vcl/source/control/tabctrl.cxx
+@@ -1223,6 +1223,13 @@ void TabControl::Paint( vcl::RenderContext& rRenderContext, const tools::Rectang
+                 aHeaderRect.SetRight(nRight);
+             }
+         }
++        // HST Office: the ribbon's page stops before the banner's room, so the header (behind the quick access
++        // toolbar, the tab titles, the search box and the menu button) ran only to the page's right end and the later
++        // tab titles stood on another surface. The ribbon's header runs to the control's right end, as its body does
++        // (only where the header is drawn natively below; the other backends' panes take their header's width).
++        if (!bPaneWithHeader && dynamic_cast<NotebookbarTabControlBase*>(this)
++            && rRenderContext.IsNativeControlSupported(ControlType::TabHeader, ControlPart::Entire))
++            aHeaderRect.SetRight(std::max<tools::Long>(aHeaderRect.Right(), GetOutputSizePixel().Width() - 1));
+ 
+         const TabPaneValue aTabPaneValue(aHeaderRect, pCurItem ? pCurItem->maRect : tools::Rectangle());
+ 

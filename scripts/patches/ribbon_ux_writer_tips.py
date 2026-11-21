@@ -48,7 +48,7 @@ DESCRIPTIONS = {
     ".uno:PageColumnType": ("Split the page into columns.", "Chia trang thành nhiều cột."),
     ".uno:InsertMultiIndex": ("Insert a table of contents.", "Chèn mục lục tự động từ các đề mục."),
     ".uno:UpdateCurIndex": ("Update the table of contents.", "Cập nhật mục lục theo nội dung mới."),
-    ".uno:InsertFootnote": ("Add a footnote at the bottom of the page.", "Thêm cước chú ở cuối trang."),
+    ".uno:InsertFootnote": ("Add a footnote at the bottom of the page.", "Thêm ghi chú ở cuối trang."),
     ".uno:InsertCaptionDialog": ("Add a caption to a picture or a table.", "Thêm chú thích cho hình hoặc bảng."),
     ".uno:SpellingAndGrammarDialog": ("Check spelling and grammar.", "Kiểm tra chính tả và ngữ pháp."),
     ".uno:WordCountDialog": ("Count the words and characters.", "Đếm số từ và số ký tự."),

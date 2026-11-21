@@ -14,8 +14,8 @@ import tempfile
 import ribbon_ux_lib as lib
 import ribbon_ux_writer_cxx_more as cxx_more
 
-TARBALL = "libreoffice-26.8.1.1.tar.xz"
-PREFIX = "libreoffice-26.8.1.1/"
+TARBALL = "libreoffice-26.8.3.1.tar.xz"
+PREFIX = "libreoffice-26.8.3.1/"
 ND30_PO = ("pagemargincontrol|hstnd30", "Administrative Document", "Văn bản hành chính")
 SET_END = "                FN_FORMAT_BACKGROUND_DLG, FN_FORMAT_BACKGROUND_DLG>(rSh.GetAttrPool()));\n"
 BACKGROUND = "                aSet.Put(SfxBoolItem(FN_FORMAT_BACKGROUND_DLG, true));\n"

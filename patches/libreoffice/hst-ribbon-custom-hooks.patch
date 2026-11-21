@@ -1,0 +1,397 @@
+HST Office: thin hooks of the ribbon customization and the recently used tab (code in hst/, hst-ribbon-custom.patch).
+
+- SfxNotebookBar::StateMethod: hst::ribbon::lo::Attach once the notebookbar is built and before it is shown, so the
+  customization is applied before the first layout (PriorityMergedHBox keeps the order of its first layout).
+- SfxDispatchController_Impl::dispatch: hst::ribbon::lo::RecordCommand (in memory, written in batches).
+- NotebookbarTabControl::PreNotify: "Tùy chỉnh ribbon…" on a right-click on the ribbon outside a command;
+  HstQuickAccess::ContextMenu: the same item under Add to/Remove from Quick Access Toolbar.
+- Build: module hst, sfx links hst_ribbon_core and the adapter objects, the dialog's .ui, the service in
+  sfx.component, the Vietnamese strings in translations/source/vi/sfx2/messages.po.
+
+--- a/RepositoryModule_host.mk
++++ b/RepositoryModule_host.mk
+@@ -89,6 +89,7 @@
+ 	framework \
+     $(call gb_Helper_optionals_or,HELPTOOLS XMLHELP,helpcompiler) \
+ 	$(call gb_Helper_optional,HELP,helpcontent2) \
++	hst \
+ 	hwpfilter \
+ 	i18nlangtag \
+ 	i18npool \
+--- a/sfx2/Library_sfx.mk
++++ b/sfx2/Library_sfx.mk
+@@ -39,11 +39,17 @@
+     -I$(SRCDIR)/sfx2/inc \
+     -I$(SRCDIR)/sfx2/source/inc \
+     -I$(WORKDIR)/SdiTarget/sfx2/sdi \
++    -I$(SRCDIR)/hst/ribbon/lo \
+     $$(INCLUDE) \
+ ))
+ 
+ $(eval $(call gb_Library_add_defs,sfx,-DSFX2_DLLIMPLEMENTATION))
+ 
++# HST Office: the ribbon's toolkit-neutral core (hst/ribbon/core)
++$(eval $(call gb_Library_use_static_libraries,sfx,\
++    hst_ribbon_core \
++))
++
+ $(eval $(call gb_Library_use_libraries,sfx,\
+     basegfx \
+     comphelper \
+@@ -270,6 +276,11 @@
+     sfx2/source/notebookbar/HstRibbonKeyTips \
+     sfx2/source/notebookbar/HstChartCommands \
+     sfx2/source/notebookbar/HstRibbonTooltip \
++    hst/ribbon/lo/ribbon-custom-controller \
++    hst/ribbon/lo/ribbon-custom-service \
++    hst/ribbon/lo/ribbon-customize-dialog \
++    hst/ribbon/lo/ribbon-profile-files \
++    hst/ribbon/lo/ribbon-usage-recorder \
+     sfx2/source/notify/eventsupplier \
+     sfx2/source/notify/globalevents \
+     sfx2/source/notify/hintpost \
+--- a/sfx2/UIConfig_sfx.mk
++++ b/sfx2/UIConfig_sfx.mk
+@@ -42,6 +42,7 @@
+ 	sfx2/uiconfig/ui/helpsearchpage \
+ 	sfx2/uiconfig/ui/helpwindow \
+ 	sfx2/uiconfig/ui/hstbackstage \
++	sfx2/uiconfig/ui/hstribboncustomizedialog \
+ 	sfx2/uiconfig/ui/hstdefaultscopedialog \
+ 	sfx2/uiconfig/ui/infobar \
+ 	sfx2/uiconfig/ui/inputdialog \
+--- a/sfx2/source/control/unoctitm.cxx
++++ b/sfx2/source/control/unoctitm.cxx
+@@ -74,6 +74,7 @@
+ #include <sal/log.hxx>
+ #include <LibreOfficeKit/LibreOfficeKitEnums.h>
+ #include <comphelper/lok.hxx>
++#include <ribbon-custom-hooks.hxx>
+ #include <comphelper/sequenceashashmap.hxx>
+ #include <comphelper/servicehelper.hxx>
+ 
+@@ -609,6 +610,8 @@
+ 
+     if ( !pDispatcher && pBindings )
+         pDispatcher = GetBindings().GetDispatcher_Impl();
++    if ( pDispatcher ) // HST Office: the recently used tab's history
++        hst::ribbon::lo::RecordCommand(pDispatcher->GetFrame(), aURL.Protocol, aURL.Path);
+ 
+     css::uno::Sequence< css::beans::PropertyValue > lNewArgs;
+     sal_Int32 nCount = aArgs.getLength();
+--- a/sfx2/source/notebookbar/HstQuickAccess.cxx
++++ b/sfx2/source/notebookbar/HstQuickAccess.cxx
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "HstQuickAccess.hxx"
++#include <ribbon-custom-hooks.hxx>
+ 
+ #include <comphelper/dispatchcommand.hxx>
+ #include <comphelper/propertyvalue.hxx>
+@@ -155,8 +156,10 @@
+         return false; // already there: nothing to offer
+     ScopedVclPtrInstance<PopupMenu> pMenu;
+     pMenu->InsertItem(1, SfxResId(bInQat ? STR_HST_QAT_REMOVE : STR_HST_QAT_ADD));
++    hst::ribbon::lo::AppendMenuItem(*pMenu, 2);
+     const tools::Rectangle aAt = bMouse ? tools::Rectangle(rPos, Size(1, 1)) : rBox.GetItemRect(nItem);
+-    if (pMenu->Execute(&rBox, aAt, PopupMenuFlags::ExecuteDown) != 1)
++    const sal_uInt16 nChosen = pMenu->Execute(&rBox, aAt, PopupMenuFlags::ExecuteDown);
++    if (hst::ribbon::lo::RunMenuItem(rBox, 2, nChosen) || nChosen != 1)
+         return true;
+     const std::vector<OUString> aList = Checklist(m_aApp);
+     const bool bListed = std::find(aList.begin(), aList.end(), aCommand) != aList.end();
+--- a/sfx2/source/notebookbar/NotebookbarTabControl.cxx
++++ b/sfx2/source/notebookbar/NotebookbarTabControl.cxx
+@@ -28,6 +28,7 @@
+ #include "HstRibbonKeyTips.hxx"
+ #include "HstRibbonCompact.hxx"
+ #include "HstQuickAccess.hxx"
++#include <ribbon-custom-hooks.hxx>
+ #include <com/sun/star/accessibility/AccessibleRole.hpp>
+ #include <com/sun/star/accessibility/XAccessibleAction.hpp>
+ #include <com/sun/star/lang/IndexOutOfBoundsException.hpp>
+@@ -797,6 +798,8 @@
+             && m_pHstQat->ContextMenu(*pBox, pCommand->GetMousePosPixel(), pCommand->IsMouseEvent()))
+             return true;
+     }
++    if (hst::ribbon::lo::ContextMenu(*this, rNEvt)) // HST Office: "Tùy chỉnh ribbon"
++        return true;
+     return NotebookbarTabControlBase::PreNotify(rNEvt);
+ }
+ 
+--- a/sfx2/source/notebookbar/SfxNotebookBar.cxx
++++ b/sfx2/source/notebookbar/SfxNotebookBar.cxx
+@@ -33,6 +33,7 @@
+ #include <vcl/notebookbar/NotebookBarAddonsItem.hxx>
+ #include <vector>
+ #include <unordered_map>
++#include <ribbon-custom-hooks.hxx>
+ 
+ using namespace sfx2;
+ using namespace css::uno;
+@@ -443,6 +444,7 @@
+             hst::chart::Install(xFrame); // before the controllers of the ribbon look for their dispatch
+             pSysWindow->SetNotebookBar(aBuf, xFrame, std::move(pNotebookBarAddonsItem), bReloadNotebookbar);
+             pNotebookBar = pSysWindow->GetNotebookBar();
++            hst::ribbon::lo::Attach(*pNotebookBar, xFrame); // HST Office: before the first layout
+             pNotebookBar->Show();
+ 
+             pNotebookBar->GetParent()->Resize();
+--- a/sfx2/util/sfx.component
++++ b/sfx2/util/sfx.component
+@@ -93,4 +93,8 @@
+       constructor="com_sun_star_comp_sfx2_InsertSymbolToolBoxControl_get_implementation">
+     <service name="com.sun.star.frame.ToolbarController"/>
+   </implementation>
++  <implementation name="vn.hasontech.hst.RibbonCustomization"
++      constructor="vn_hasontech_hst_RibbonCustomization_get_implementation">
++    <service name="vn.hasontech.hst.RibbonCustomization"/>
++  </implementation>
+ </component>
+--- a/translations/source/vi/sfx2/messages.po
++++ b/translations/source/vi/sfx2/messages.po
+@@ -10575,3 +10575,243 @@
+ msgctxt "STR_HST_BS_PRINT_MARGINS"
+ msgid "Change Page Margins"
+ msgstr "Đổi lề trang"
++
++#. hstRc00
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|HstRibbonCustomizeDialog"
++msgid "Customize the Ribbon"
++msgstr "Tùy chỉnh ribbon"
++
++#. hstRc01
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|sourcelabel"
++msgid "_Choose commands from:"
++msgstr "_Chọn lệnh từ:"
++
++#. hstRc02
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|ribbonlabel"
++msgid "Customize the _ribbon:"
++msgstr "Tùy chỉnh _ribbon:"
++
++#. hstRc03
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|search"
++msgid "Type a command's name; accents are optional"
++msgstr "Gõ tên lệnh, có dấu hay không đều được"
++
++#. hstRc04
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|search-atkobject"
++msgid "Search commands"
++msgstr "Tìm lệnh"
++
++#. hstRc05
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|commands-atkobject"
++msgid "Commands"
++msgstr "Lệnh"
++
++#. hstRc06
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|add"
++msgid "_Add »"
++msgstr "_Thêm »"
++
++#. hstRc07
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|add|tooltip_text"
++msgid "Adds the command to the selected group of your own"
++msgstr "Thêm lệnh vào nhóm bạn tạo đang được chọn"
++
++#. hstRc08
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|remove"
++msgid "« _Remove"
++msgstr "« _Bỏ ra"
++
++#. hstRc09
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|remove|tooltip_text"
++msgid "Removes your own tab, group or command"
++msgstr "Bỏ thẻ, nhóm hoặc lệnh do bạn tạo"
++
++#. hstRc10
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|up"
++msgid "Move _Up"
++msgstr "_Lên"
++
++#. hstRc11
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|down"
++msgid "Move _Down"
++msgstr "_Xuống"
++
++#. hstRc12
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|namelabel"
++msgid "_Name:"
++msgstr "Tê_n:"
++
++#. hstRc13
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|newtab"
++msgid "New _Tab"
++msgstr "Thẻ _mới"
++
++#. hstRc14
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|newgroup"
++msgid "New _Group"
++msgstr "Nhóm mớ_i"
++
++#. hstRc15
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|resettab"
++msgid "R_eset This Tab"
++msgstr "Đặt lại t_hẻ này"
++
++#. hstRc16
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|resettab|tooltip_text"
++msgid "Shows the selected tab as it is by default"
++msgstr "Đưa thẻ đang chọn về như mặc định"
++
++#. hstRc17
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|resetall"
++msgid "Reset A_ll"
++msgstr "_Đặt lại tất cả"
++
++#. hstRc18
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|resetall|tooltip_text"
++msgid "Removes every customization of this app's ribbon"
++msgstr "Xóa mọi tùy chỉnh ribbon của ứng dụng này"
++
++#. hstRc19
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|import"
++msgid "_Import…"
++msgstr "Nhậ_p…"
++
++#. hstRc20
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|import|tooltip_text"
++msgid "Reads a ribbon customization file, e.g. one shared by your school or office"
++msgstr "Đọc tệp tùy chỉnh ribbon, ví dụ tệp do trường hoặc cơ quan chia sẻ"
++
++#. hstRc21
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|export"
++msgid "E_xport…"
++msgstr "X_uất…"
++
++#. hstRc22
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|export|tooltip_text"
++msgid "Saves the ribbon customization of every app to one file"
++msgstr "Lưu tùy chỉnh ribbon của mọi ứng dụng vào một tệp"
++
++#. hstRc23
++#: sfx2/uiconfig/ui/hstribboncustomizedialog.ui
++msgctxt "hstribboncustomizedialog|message"
++msgid "Untick a group or command to hide it. Commands go into your own groups (New Group, New Tab); positions and sizes follow the ribbon's layout."
++msgstr "Bỏ đánh dấu một nhóm hoặc lệnh để ẩn nó. Lệnh được thêm vào nhóm do bạn tạo (Nhóm mới, Thẻ mới); vị trí và kích thước theo bố cục của ribbon."
++
++#. hstRc24
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_CUSTOMIZE"
++msgid "Customize the Ribbon…"
++msgstr "Tùy chỉnh ribbon…"
++
++#. hstRc25
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_RECENT_TAB"
++msgid "Recently Used"
++msgstr "Sử dụng gần đây"
++
++#. hstRc26
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_RECENT_EMPTY"
++msgid "The commands you use will appear here."
++msgstr "Các lệnh bạn dùng sẽ xuất hiện ở đây"
++
++#. hstRc27
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_RECENT_OTHER"
++msgid "Other"
++msgstr "Khác"
++
++#. hstRc28
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_NEW_TAB"
++msgid "My Tab"
++msgstr "Của tôi"
++
++#. hstRc29
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_NEW_GROUP"
++msgid "New Group"
++msgstr "Nhóm mới"
++
++#. hstRc30
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_CUSTOM"
++msgid "%1 (custom)"
++msgstr "%1 (tùy chỉnh)"
++
++#. hstRc31
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_NO_RIBBON"
++msgid "Open a document in Writer, Sheets, Slides or Draw with the ribbon to customize it."
++msgstr "Hãy mở một tài liệu văn bản, bảng tính, trình chiếu hoặc bản vẽ đang dùng ribbon để tùy chỉnh ribbon."
++
++#. hstRc32
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_IMPORT_FAILED"
++msgid "This file is not a ribbon customization of HST Office."
++msgstr "Tệp này không phải là tệp tùy chỉnh ribbon của HST Office."
++
++#. hstRc33
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_EXPORT_FAILED"
++msgid "The ribbon customization could not be saved to this file."
++msgstr "Không lưu được tùy chỉnh ribbon vào tệp này."
++
++#. hstRc34
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_SAVE_FAILED"
++msgid "The ribbon customization could not be saved."
++msgstr "Không lưu được tùy chỉnh ribbon."
++
++#. hstRc35
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_IMPORT_SKIPPED"
++msgid "Some entries of the file do not fit this version and were left out."
++msgstr "Một số mục trong tệp không hợp với phiên bản này nên đã được bỏ qua."
++
++#. hstRc36
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_RESET_ALL_ASK"
++msgid "Remove all ribbon customizations of this app, including your own tabs and groups?"
++msgstr "Xóa mọi tùy chỉnh ribbon của ứng dụng này, kể cả các thẻ và nhóm bạn đã tạo?"
++
++#. hstRc37
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_FILTER"
++msgid "Ribbon customization"
++msgstr "Tùy chỉnh ribbon"
++
++#. hstRc38
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_SOURCE_RIBBON"
++msgid "Commands on the ribbon"
++msgstr "Các lệnh trên ribbon"
++
++#. hstRc39
++#: hst/ribbon/lo/ribbon-custom-strings.hrc
++msgctxt "STR_HST_RIBBON_SOURCE_ALL"
++msgid "All commands"
++msgstr "Tất cả các lệnh"

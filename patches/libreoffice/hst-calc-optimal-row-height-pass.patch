@@ -1,0 +1,450 @@
+Sheets: the optimal row height pass measures each font once and keeps one height per row (large workbooks open faster).
+After loading a workbook, ScDocShell::UpdateAllRowHeights measures every cell whose height cannot be taken
+from its format alone, which is every cell in a range with a conditional format. Two costs grew with the size
+of the sheet:
+- Every cell set its font on the measuring device and asked for the text height. Neighbouring cells rarely
+  share a format in large exported workbooks, so the device looked the font up again for nearly every cell:
+  37 % of the row height pass on a synthetic 48 MB workbook (300 000 rows, 4000 formats, conditional formats).
+  A cell shown on one line (no wrap, no rotation, standard orientation, no edit text, one script, not a
+  running formula) is as high as its font's text height plus its margins, whatever the text says. That text
+  height is now kept per (format, conditional style, table format, script) for one pass
+  (sc/inc/hsttextheightcache.hxx); the cache holds a reference to each format it uses as a key.
+- The heights collected by the pass were a run-length array; rows of different heights made it one entry per
+  row, and each change in the middle moved the rest of the array (9 % of the pass, growing with the square of
+  the rows). The pass now keeps one slot per row (sc/inc/hstrowheights.hxx) behind the same reading interface;
+  its "runs" may end before the real stretch of equal heights, which the callers only step over.
+Every row gets the same height as before: CppunitTest_sc_ucalc_condformat
+testOptimalRowHeightsOnePassEqualsRowByRow compares one pass with row-by-row passes, and the row heights of
+the large-file fixtures are compared before/after (scripts/perf). The one-slot array was checked against the
+run-length array on 400 random passes: same heights, same merged ranges, same minimum-height start.
+License: the new files sc/inc/hstrowheights.hxx and sc/inc/hsttextheightcache.hxx are HST Office code
+(LicenseRef-HST-Proprietary); the modified upstream files keep their license (MPL-2.0).
+---
+--- a/sc/inc/column.hxx
++++ b/sc/inc/column.hxx
+@@ -60,6 +60,7 @@ class DocumentStreamAccess;
+ class CellValues;
+ class TableValues;
+ class RowHeightContext;
++class HstTextHeightCache;
+ class CompileFormulaContext;
+ struct SetFormulaDirtyContext;
+ class ColumnIterator;
+@@ -100,6 +101,7 @@ struct ScNeededSizeOptions
+     bool                bSkipMerged;
+     bool                bGetFont;
+     bool                bTotalSize;
++    sc::HstTextHeightCache* pHstTextHeights = nullptr; // HST Office: set by the optimal row height pass
+ 
+     ScNeededSizeOptions();
+ };
+--- /dev/null
++++ b/sc/inc/hstrowheights.hxx
+@@ -0,0 +1,124 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// HST Office: the row heights collected by one optimal row height pass, one value per row.
++//
++// The pass sets the height of single rows in every column. When neighbouring rows need different
++// heights (cells with different font sizes), a run-length array has one entry per row, and each
++// change in the middle of it moved the whole rest of the array: on a sheet of 300 000 rows that was
++// about a tenth of the time spent opening the file. Here every row has its own slot, so setting a
++// row costs the same anywhere in the sheet.
++//
++// The interface is the one the pass uses. A "run" reported by the readers is a stretch of rows with
++// the same height that ends at or before the real end of that stretch: the callers step from run to
++// run, so a shorter run only means one more step, never a different result. Runs are looked for at
++// most RUN_SCAN rows ahead or behind, so stepping over a long stretch of equal heights stays linear.
++// Rows after the last one ever set keep the initial height and are not stored. A row before the
++// first one reads as the first row, as in ScCompressedArray (the pass asks for row -2 when its range
++// is the first row alone).
++
++#pragma once
++
++#include <sal/types.h>
++#include "types.hxx"
++
++#include <algorithm>
++#include <vector>
++
++namespace sc
++{
++class HstRowHeights
++{
++public:
++    struct RangeData
++    {
++        SCROW mnRow1, mnRow2;
++        sal_uInt16 maValue;
++    };
++
++    HstRowHeights(SCROW nMaxRow, sal_uInt16 nInitial)
++        : mnMaxRow(nMaxRow)
++        , mnInitial(nInitial)
++    {
++    }
++
++    sal_uInt16 GetValue(SCROW nRow) const
++    {
++        nRow = std::max<SCROW>(nRow, 0);
++        return static_cast<size_t>(nRow) < maHeights.size() ? maHeights[nRow] : mnInitial;
++    }
++
++    /** The height of nRow, and the last row of a stretch from nRow on with that height. */
++    sal_uInt16 GetValue(SCROW nRow, size_t& rIndex, SCROW& rEnd) const
++    {
++        nRow = std::max<SCROW>(nRow, 0);
++        rIndex = static_cast<size_t>(nRow);
++        const sal_uInt16 nValue = GetValue(nRow);
++        const SCROW nStored = static_cast<SCROW>(maHeights.size());
++        if (nRow >= nStored)
++        {
++            rEnd = mnMaxRow;
++            return nValue;
++        }
++        const SCROW nLimit = std::min<SCROW>(nStored, nRow + RUN_SCAN);
++        SCROW nEnd = nRow;
++        while (nEnd + 1 < nLimit && maHeights[nEnd + 1] == nValue)
++            ++nEnd;
++        if (nEnd + 1 == nStored && nValue == mnInitial)
++            nEnd = mnMaxRow; // the stored rows end in the initial height: so does the rest
++        rEnd = nEnd;
++        return nValue;
++    }
++
++    /** The height of nRow, with a stretch of rows around it that have the same height. */
++    RangeData GetRangeData(SCROW nRow) const
++    {
++        nRow = std::max<SCROW>(nRow, 0);
++        RangeData aData;
++        size_t nIndex;
++        aData.maValue = GetValue(nRow, nIndex, aData.mnRow2);
++        const SCROW nStored = static_cast<SCROW>(maHeights.size());
++        SCROW nStart = std::min(nRow, nStored);
++        if (nRow >= nStored)
++        {
++            // rows after the stored ones all have the initial height; so may the last stored rows
++            while (nStart > 0 && nRow - nStart < RUN_SCAN && maHeights[nStart - 1] == mnInitial)
++                --nStart;
++        }
++        else
++        {
++            const SCROW nLimit = std::max<SCROW>(0, nRow - RUN_SCAN);
++            while (nStart > nLimit && maHeights[nStart - 1] == aData.maValue)
++                --nStart;
++        }
++        aData.mnRow1 = nStart;
++        return aData;
++    }
++
++    void SetValue(SCROW nStart, SCROW nEnd, sal_uInt16 nValue)
++    {
++        if (nStart < 0 || nEnd > mnMaxRow || nStart > nEnd)
++            return;
++        const size_t nNeeded = static_cast<size_t>(nEnd) + 1;
++        if (maHeights.size() < nNeeded)
++        {
++            if (nValue == mnInitial && static_cast<size_t>(nStart) >= maHeights.size())
++                return; // already the height of every row that is not stored
++            maHeights.resize(nNeeded, mnInitial);
++        }
++        std::fill(maHeights.begin() + nStart, maHeights.begin() + nNeeded, nValue);
++    }
++
++private:
++    static constexpr SCROW RUN_SCAN = 4096;
++
++    SCROW mnMaxRow;
++    sal_uInt16 mnInitial;
++    std::vector<sal_uInt16> maHeights;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/sc/inc/hsttextheightcache.hxx
+@@ -0,0 +1,87 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// HST Office: the text height of single-line cells, measured once per font in one optimal row height pass.
++//
++// A cell whose text is shown on one line (no wrap, no rotation, standard orientation, no edit text, one
++// script) is as high as the text height of its font plus its margins, whatever the text says. The font
++// follows from the cell's format, its conditional style, the sheet's table format and the script of the
++// text. Setting a font on the measuring device and asking for its text height made the device look the
++// font up again for every cell, because neighbouring cells rarely share their format: on a workbook with
++// thousands of formats that was over a third of the time spent opening it.
++//
++// The cache belongs to one pass (sc::RowHeightContext), so the device and zoom are those of the pass. It
++// keeps every format it has seen alive, so a format freed during the pass can never be mistaken for a new
++// one at the same address. Conditional styles and table formats live in the document for the whole pass.
++
++#pragma once
++
++#include "patattr.hxx"
++
++#include <svl/languageoptions.hxx>
++#include <svl/itemset.hxx>
++#include <tools/long.hxx>
++
++#include <functional>
++#include <unordered_map>
++
++namespace sc
++{
++class HstTextHeightCache
++{
++public:
++    /** The text height stored for this font source, or -1. */
++    tools::Long find(const ScPatternAttr* pPattern, const SfxItemSet* pCondSet,
++                     const SfxItemSet* pTableSet, SvtScriptType nScript) const
++    {
++        auto it = maHeights.find(Key{ pPattern, pCondSet, pTableSet, nScript });
++        return it == maHeights.end() ? -1 : it->second.mnHeight;
++    }
++
++    void insert(const ScPatternAttr* pPattern, const SfxItemSet* pCondSet,
++                const SfxItemSet* pTableSet, SvtScriptType nScript, tools::Long nHeight)
++    {
++        maHeights.try_emplace(Key{ pPattern, pCondSet, pTableSet, nScript },
++                              Entry{ CellAttributeHolder(pPattern), nHeight });
++    }
++
++private:
++    struct Key
++    {
++        const ScPatternAttr* mpPattern;
++        const SfxItemSet* mpCondSet;
++        const SfxItemSet* mpTableSet;
++        SvtScriptType mnScript;
++
++        bool operator==(const Key& r) const
++        {
++            return mpPattern == r.mpPattern && mpCondSet == r.mpCondSet
++                   && mpTableSet == r.mpTableSet && mnScript == r.mnScript;
++        }
++    };
++
++    struct KeyHash
++    {
++        size_t operator()(const Key& r) const
++        {
++            size_t nHash = std::hash<const void*>()(r.mpPattern);
++            nHash = nHash * 31 + std::hash<const void*>()(r.mpCondSet);
++            nHash = nHash * 31 + std::hash<const void*>()(r.mpTableSet);
++            return nHash * 31 + static_cast<size_t>(r.mnScript);
++        }
++    };
++
++    struct Entry
++    {
++        CellAttributeHolder maPattern; // keeps the format alive while it is a key
++        tools::Long mnHeight;
++    };
++
++    std::unordered_map<Key, Entry, KeyHash> maHeights;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sc/inc/rowheightcontext.hxx
++++ b/sc/inc/rowheightcontext.hxx
+@@ -17,14 +17,17 @@
+ 
+ #include "compressedarray.hxx"
+ #include "types.hxx"
++#include "hstrowheights.hxx"
++#include "hsttextheightcache.hxx"
+ 
+-using RowHeightsArray = ScCompressedArray<SCROW, sal_uInt16>;
++using RowHeightsArray = sc::HstRowHeights; // HST Office: one slot per row, see hstrowheights.hxx
+ 
+ namespace sc {
+ 
+ class SC_DLLPUBLIC RowHeightContext
+ {
+     RowHeightsArray maHeights;
++    HstTextHeightCache maHstTextHeights;
+ 
+     double mfPPTX;
+     double mfPPTY;
+@@ -56,6 +59,7 @@ public:
+     bool isForceAutoSize() const { return mbForceAutoSize;}
+ 
+     RowHeightsArray& getHeightArray() { return maHeights; }
++    HstTextHeightCache& getHstTextHeights() { return maHstTextHeights; }
+ };
+ 
+ }
+--- a/sc/qa/unit/ucalc_condformat.cxx
++++ b/sc/qa/unit/ucalc_condformat.cxx
+@@ -7,6 +7,8 @@
+  * file, You can obtain one at http://mozilla.org/MPL/2.0/.
+  */
+ 
++#include <algorithm>
++#include <functional>
+ #include <iterator>
+ #include "helper/qahelper.hxx"
+ 
+@@ -24,6 +26,12 @@
+ #include <undomanager.hxx>
+ 
+ #include <svl/sharedstringpool.hxx>
++#include <editeng/fhgtitem.hxx>
++#include <docsh.hxx>
++#include <patattr.hxx>
++#include <stlpool.hxx>
++#include <stlsheet.hxx>
++#include <hstrowheights.hxx>
+ 
+ namespace {
+ 
+@@ -1648,6 +1656,85 @@ CPPUNIT_TEST_FIXTURE(TestCondformat, testCondFormatRowResultsInRowHeightPass)
+     m_pDoc->DeleteTab(0);
+ }
+ 
++CPPUNIT_TEST_FIXTURE(TestCondformat, testOptimalRowHeightOfTheFirstRowAlone)
++{
++    // The pass asks for the stretch before its range, row -2 for the first row alone: that reads as
++    // row 0, also when no row has been stored yet (it read before the start of the array).
++    sc::HstRowHeights aHeights(m_pDoc->MaxRow(), 256);
++    sc::HstRowHeights::RangeData aData = aHeights.GetRangeData(-2);
++    CPPUNIT_ASSERT_EQUAL(SCROW(0), aData.mnRow1);
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(256), aData.maValue);
++    aHeights.SetValue(0, 2, 300);
++    aData = aHeights.GetRangeData(-2);
++    CPPUNIT_ASSERT_EQUAL(SCROW(0), aData.mnRow1);
++    CPPUNIT_ASSERT_EQUAL(SCROW(2), aData.mnRow2);
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(300), aData.maValue);
++    CPPUNIT_ASSERT_EQUAL(sal_uInt16(300), aHeights.GetValue(-1));
++
++    m_pDoc->InsertTab(0, u"Test"_ustr);
++    m_xDocShell->AdjustRowHeight(0, 0, 0); // an empty first row
++    m_pDoc->SetString(ScAddress(0, 0, 0), u"x"_ustr);
++    m_xDocShell->AdjustRowHeight(0, 1, 0);
++    const sal_uInt16 nHeight = m_pDoc->GetRowHeight(0, SCTAB(0), false);
++    m_pDoc->SetRowHeightOnly(0, 0, 0, 100);
++    m_xDocShell->AdjustRowHeight(0, 0, 0);
++    CPPUNIT_ASSERT_EQUAL(nHeight, m_pDoc->GetRowHeight(0, SCTAB(0), false));
++    m_pDoc->DeleteTab(0);
++}
++
++CPPUNIT_TEST_FIXTURE(TestCondformat, testOptimalRowHeightsOnePassEqualsRowByRow)
++{
++    // The optimal row height pass keeps one text height per font and one height per row: one pass over
++    // many rows gives every row the height it gets when it is measured on its own. Fonts differ per
++    // cell, by script (Latin, CJK) and by a conditional style with a taller font.
++    m_pDoc->InsertTab(0, u"Test"_ustr);
++    CellAttributeHelper& rHelper = m_pDoc->getCellAttributeHelper();
++    ScStyleSheetPool* pStylePool = m_pDoc->GetStyleSheetPool();
++    ScStyleSheet& rTall = static_cast<ScStyleSheet&>(
++        pStylePool->Make(u"HstTallResult"_ustr, SfxStyleFamily::Para, SfxStyleSearchBits::UserDefined));
++    rTall.GetItemSet().Put(SvxFontHeightItem(720, 100, ATTR_FONT_HEIGHT));
++
++    constexpr SCROW nRows = 300;
++    const sal_uInt32 aSizes[] = { 180, 240, 400 };
++    for (SCROW nRow = 0; nRow < nRows; ++nRow)
++    {
++        for (SCCOL nCol = 0; nCol < 3; ++nCol)
++        {
++            ScPatternAttr aPattern(rHelper);
++            aPattern.ItemSetPut(SvxFontHeightItem(aSizes[(nRow * 7 + nCol) % 3], 100, ATTR_FONT_HEIGHT));
++            aPattern.ItemSetPut(SvxFontHeightItem(aSizes[(nRow + nCol) % 3], 100, ATTR_CJK_FONT_HEIGHT));
++            m_pDoc->ApplyPattern(nCol, nRow, 0, aPattern);
++        }
++        m_pDoc->SetValue(ScAddress(0, nRow, 0), nRow % 10);
++        m_pDoc->SetString(ScAddress(1, nRow, 0), nRow % 4 == 0 ? u"\u6F22\u5B57"_ustr : u"Ti\u1EBFng Vi\u1EC7t"_ustr);
++        if (nRow % 5)
++            m_pDoc->SetString(ScAddress(2, nRow, 0), nRow % 3 ? u"x"_ustr : u"'"_ustr);
++    }
++    auto pFormat = std::make_unique<ScConditionalFormat>(1, *m_pDoc);
++    pFormat->SetRange(ScRange(0, 0, 0, 0, nRows - 1, 0));
++    auto pFormatTmp = pFormat.get();
++    sal_uInt32 nKey = m_pDoc->AddCondFormat(std::move(pFormat), 0);
++    pFormatTmp->AddEntry(new ScCondFormatEntry(ScConditionMode::Greater, u"6"_ustr, u""_ustr, *m_pDoc,
++                                               ScAddress(0, 0, 0), u"HstTallResult"_ustr));
++    m_pDoc->AddCondFormatData(pFormatTmp->GetRange(), 0, nKey);
++
++    m_xDocShell->AdjustRowHeight(0, nRows - 1, 0);
++    std::vector<sal_uInt16> aOnePass;
++    for (SCROW nRow = 0; nRow < nRows; ++nRow)
++        aOnePass.push_back(m_pDoc->GetRowHeight(nRow, SCTAB(0), false));
++    m_pDoc->SetRowHeightOnly(0, nRows - 1, 0, 100);
++    for (SCROW nRow = 0; nRow < nRows; ++nRow)
++        m_xDocShell->AdjustRowHeight(nRow, nRow, 0);
++    for (SCROW nRow = 0; nRow < nRows; ++nRow)
++        CPPUNIT_ASSERT_EQUAL_MESSAGE(OString::number(nRow).getStr(), aOnePass[nRow],
++                                     m_pDoc->GetRowHeight(nRow, SCTAB(0), false));
++    // the rows really differ: the conditional style and the fonts change their heights
++    CPPUNIT_ASSERT(std::adjacent_find(aOnePass.begin(), aOnePass.end(), std::not_equal_to<>())
++                   != aOnePass.end());
++
++    m_pDoc->DeleteTab(0);
++}
++
+ CPPUNIT_TEST_FIXTURE(TestCondformat, testCondFormatDuplicateTopCacheCells)
+ {
+     // The value counts of duplicate/unique/top rules (ScConditionEntry::FillCache) take every
+--- a/sc/source/core/data/column2.cxx
++++ b/sc/source/core/data/column2.cxx
+@@ -339,6 +339,14 @@ tools::Long ScColumn::GetNeededSize(
+     SvtScriptType nScript = rDocument.GetScriptType(nCol, nRow, nTab);
+     if (nScript == SvtScriptType::NONE) nScript = ScGlobal::GetDefaultScriptType();
+ 
++    // HST Office: a single-line cell takes its text height from the pass's cache (hsttextheightcache.hxx)
++    const bool bHstSingleLine = rOptions.pHstTextHeights && rOptions.bGetFont && !bWidth && !bBreak
++        && !nRotate && eOrient == SvxCellOrientation::Standard && aCell.getType() != CELLTYPE_EDIT
++        && !IsAmbiguousScript(nScript) && (aCell.getType() != CELLTYPE_FORMULA
++            || (!aCell.getFormula()->IsRunning() && !aCell.getFormula()->IsMultilineResult()));
++    tools::Long nHstTextHeight = -1;
++    const SfxItemSet* pHstTableSet = nullptr;
++
+     //  also call SetFont for edit cells, because bGetFont may be set only once
+     //  bGetFont is set also if script type changes
+     if (rOptions.bGetFont)
+@@ -348,8 +356,14 @@ tools::Long ScColumn::GetNeededSize(
+         aFont.SetKerning(FontKerning::NONE); // like ScDrawStringsVars::SetPattern
+         // font color doesn't matter here
+         const SfxItemSet* pTableSet = rDocument.GetTableFormatSet( nCol, nRow, nTab );
++        pHstTableSet = pTableSet;
++        if (bHstSingleLine)
++            nHstTextHeight = rOptions.pHstTextHeights->find(pPattern, pCondSet, pTableSet, nScript);
++        if (nHstTextHeight < 0)
++        {
+         pPattern->fillFontOnly(aFont, pDev, &fFontZoom, pCondSet, pTableSet, nScript);
+         pDev->SetFont(aFont);
++        }
+     }
+ 
+     bool bAddMargin = true;
+@@ -435,7 +449,12 @@ tools::Long ScColumn::GetNeededSize(
+             }
+             else
+                 // in the common case (height), avoid calling the expensive GetTextWidth
+-                nValue = bWidth ? pDev->GetTextWidth( aValStr ) : pDev->GetTextHeight();
++            {
++                nValue = nHstTextHeight >= 0 ? nHstTextHeight
++                         : bWidth ? pDev->GetTextWidth( aValStr ) : pDev->GetTextHeight();
++                if (bHstSingleLine && nHstTextHeight < 0)
++                    rOptions.pHstTextHeights->insert(pPattern, pCondSet, pHstTableSet, nScript, nValue);
++            }
+ 
+             if ( bAddMargin )
+             {
+@@ -1128,6 +1147,7 @@ void ScColumn::GetOptimalHeight(
+             if (!bStdOnly)                      // search covered cells
+             {
+                 ScNeededSizeOptions aOptions;
++                aOptions.pHstTextHeights = &rCxt.getHstTextHeights(); // HST Office
+                 CellAttributeHolder aOldPattern;
+ 
+                 for (const auto& rSpan : aSpans)

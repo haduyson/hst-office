@@ -3,14 +3,19 @@
 import struct
 import zlib
 
+from . import banner_sizes
 from .banner_schema import COMPACT_PREFIX, COMPACT_SIZE
 
 WIDE_SIZE = (360, 104)
-SIZES = {(w * n, h * n) for w, h in (WIDE_SIZE, COMPACT_SIZE) for n in (1, 2, 3)}
+SIZES = ({(w * n, h * n) for w, h in (WIDE_SIZE, COMPACT_SIZE) for n in (1, 2, 3)}
+         | {banner_sizes.pixel_size(banner_sizes.size_key(w, s)) for w in banner_sizes.WIDTHS for s in banner_sizes.SCALES})
 
 
 def expected_size(scale):
-    """Exact pixel size for an image key: 1x..3x wide art, c1x..c3x compact art."""
+    """Exact pixel size for an image key: 1x..3x wide art, c1x..c3x compact art, 360@1x..960@2x standard sizes."""
+    standard = banner_sizes.pixel_size(scale)
+    if standard:
+        return standard
     compact = scale.startswith(COMPACT_PREFIX)
     width, height = COMPACT_SIZE if compact else WIDE_SIZE
     factor = int(scale[len(COMPACT_PREFIX)] if compact else scale[0])

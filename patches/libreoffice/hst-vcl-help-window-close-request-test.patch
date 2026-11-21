@@ -1,0 +1,94 @@
+Regression test: a close request sent to a quick-help tooltip must not crash.
+
+A quick-help tooltip is shown over a work window, then its frame receives SalEvent::Close (what
+WM_DELETE_WINDOW on X11 or WM_CLOSE on Windows delivers). Closing ends every help window, so the
+tooltip is disposed while the Close handler still uses it; the test expects the tooltip disposed,
+the work window kept and no crash.
+
+License: the new test file is HST-owned (LicenseRef-HST-Proprietary); the makefile keeps MPL-2.0.
+Test: CppunitTest_vcl_lifecycle.
+---
+--- a/vcl/CppunitTest_vcl_lifecycle.mk
++++ b/vcl/CppunitTest_vcl_lifecycle.mk
+@@ -16,9 +16,10 @@
+ 
+ $(eval $(call gb_CppunitTest_add_exception_objects,vcl_lifecycle, \
+ 	vcl/qa/cppunit/lifecycle \
++	vcl/qa/cppunit/HstHelpWindowClose \
+ ))
+ 
+-$(eval $(call gb_CppunitTest_use_externals,vcl_lifecycle,boost_headers))
++$(eval $(call gb_CppunitTest_use_externals,vcl_lifecycle,boost_headers harfbuzz))
+ 
+ $(eval $(call gb_CppunitTest_use_libraries,vcl_lifecycle, \
+ 	comphelper \
+--- /dev/null
++++ b/vcl/qa/cppunit/HstHelpWindowClose.cxx
+@@ -0,0 +1,67 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4; fill-column: 100 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (C) HASON TECH. All rights reserved.
++ */
++
++// A close request (the window manager's WM_DELETE_WINDOW on X11, WM_CLOSE on Windows) can reach
++// the frame of a quick-help tooltip. Handling Close first ends every help window, which disposes
++// that very tooltip; the handler must then stop instead of using the disposed window. The office
++// used to crash in vcl::Window::ImplGetWindow when this happened over a dialog with tooltips
++// (Templates, Fontwork Gallery).
++
++#include <test/bootstrapfixture.hxx>
++
++#include <salframe.hxx>
++#include <vcl/help.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/wintypes.hxx>
++#include <vcl/wrkwin.hxx>
++
++namespace
++{
++class HstHelpWindowCloseTest : public test::BootstrapFixture
++{
++public:
++    HstHelpWindowCloseTest()
++        : BootstrapFixture(true, false)
++    {
++    }
++};
++
++// The tooltip's system frame belongs to its border window; the help text window is its client.
++VclPtr<vcl::Window> findQuickHelpFrame()
++{
++    for (vcl::Window* pWin = Application::GetFirstTopLevelWindow(); pWin;
++         pWin = Application::GetNextTopLevelWindow(pWin))
++    {
++        if (!pWin->isDisposed() && pWin->ImplGetWindow()->GetType() == WindowType::HELPTEXTWINDOW)
++            return pWin;
++    }
++    return nullptr;
++}
++}
++
++CPPUNIT_TEST_FIXTURE(HstHelpWindowCloseTest, testCloseRequestOnQuickHelpWindow)
++{
++    SolarMutexGuard aGuard;
++    ScopedVclPtrInstance<WorkWindow> xParent(nullptr, WB_STDWORK);
++    xParent->SetPosSizePixel(Point(0, 0), Size(400, 300));
++    xParent->Show();
++
++    Help::ShowQuickHelp(xParent.get(), tools::Rectangle(Point(20, 20), Size(80, 20)),
++                        u"Tooltip"_ustr, QuickHelpFlags::NoAutoPos);
++    VclPtr<vcl::Window> xTip = findQuickHelpFrame();
++    CPPUNIT_ASSERT_MESSAGE("quick help window was not created", xTip);
++    SalFrame* pFrame = xTip->ImplGetFrame();
++    CPPUNIT_ASSERT(pFrame);
++
++    // what the window system delivers when something asks the tooltip to close
++    pFrame->CallCallback(SalEvent::Close, nullptr);
++
++    CPPUNIT_ASSERT_MESSAGE("the tooltip is ended by the close request", xTip->isDisposed());
++    CPPUNIT_ASSERT_MESSAGE("the window under the tooltip stays", !xParent->isDisposed());
++    CPPUNIT_ASSERT(!findQuickHelpFrame());
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab cinoptions=b1,g0,N-s cinkeys+=0=break: */

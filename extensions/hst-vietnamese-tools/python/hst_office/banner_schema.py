@@ -4,6 +4,7 @@ import datetime
 import json
 import re
 
+from . import banner_sizes
 from .banner_urls import allowed_url, test_url
 from .update_logic import version_key
 
@@ -38,11 +39,11 @@ def _integer(value, low, high):
     return type(value) is int and low <= value <= high
 
 
-def _image(value, bundled, allow_test=False):
+def _image(value, bundled, allow_test=False, bundled_path=r"banners/[a-z0-9-]+@[123]x\.png"):
     _require(isinstance(value, dict))
     url, digest, size = value.get("url"), value.get("sha256"), value.get("size")
     if bundled:
-        _require(isinstance(url, str) and re.fullmatch(r"banners/[a-z0-9-]+@[123]x\.png", url))
+        _require(isinstance(url, str) and re.fullmatch(bundled_path, url))
     else:
         _require(allowed_url(url) or (allow_test and test_url(url)))
     _require(isinstance(digest, str) and re.fullmatch(r"[0-9a-f]{64}", digest))
@@ -65,6 +66,11 @@ def _item(item, bundled, allow_test=False):
         _require(isinstance(compact, dict) and set(compact) == set(SCALES))
         for value in compact.values():
             _image(value, bundled, allow_test)
+
+    def standard(value):
+        _image(value, bundled, allow_test, banner_sizes.BUNDLED_PATH)
+        _require(banner_sizes.url_allowed(value["url"], bundled))
+    banner_sizes.validate(item, standard)
     for field in ("startAt", "endAt"):
         if field in item:
             timestamp(item[field])
@@ -116,6 +122,12 @@ def image_specs(item):
     if has_compact(item):
         specs += [(COMPACT_PREFIX + scale, item[COMPACT_FIELD][scale]) for scale in SCALES]
     return specs
+
+
+def client_specs(item):
+    """(key, descriptor) of every image the 1.0.3 client shows: image_specs, then the standard sizes (360@1x ..
+    960@2x, banner_sizes.size_specs) the ribbon picks from by the banner's width."""
+    return image_specs(item) + banner_sizes.size_specs(item)
 
 
 def has_compact(item):
