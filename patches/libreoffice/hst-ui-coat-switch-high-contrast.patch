@@ -8,8 +8,9 @@ coat CSS goes away when LibreOffice's own high-contrast setting turns high contr
   and Window::ImplUpdateGlobalSettings applies Accessibility/HighContrast and SAL_FORCE_HC only afterwards,
   so the coat stayed on in LibreOffice's high contrast. vcl now passes the final global style settings to
   a listener (hst::coat::SetGlobalStyleListener / NotifyGlobalStyle, one call in settings.cxx); the gtk3
-  backend registers one and installs or removes its CSS from them. Other backends register none and
-  already read the final settings when they paint.
+  backend registers one and installs or removes its CSS from them, and keeps that final high-contrast mode
+  for the frame updates the menu bar and menus make directly (which take high contrast from the GTK theme
+  name only). Other backends register none and already read the final settings when they paint.
 - CppunitTest_vcl_hst_coat: an unreadable switch is not remembered; the listener hears the high-contrast
   setting on and off; no listener, no call.
 
@@ -291,19 +292,21 @@ index 9680b40..203782f 100644
  
      if ( bCallHdl )
 diff --git a/vcl/unx/gtk3/hst-coat-gtk.cxx b/vcl/unx/gtk3/hst-coat-gtk.cxx
-index 2614d26..4e17e6a 100644
 --- a/vcl/unx/gtk3/hst-coat-gtk.cxx
 +++ b/vcl/unx/gtk3/hst-coat-gtk.cxx
-@@ -27,6 +27,8 @@ enum class Installed
+@@ -27,6 +27,11 @@
  GtkCssProvider* g_pProvider = nullptr;
  GdkScreen* g_pScreen = nullptr;
  Installed g_eInstalled = Installed::None;
 +// the screen of the last settings update, for the final global settings (onGlobalStyle)
 +GdkScreen* g_pLastScreen = nullptr;
++// LibreOffice's final high-contrast mode (onGlobalStyle). The frame's settings update takes high contrast from
++// the GTK theme name only, and the menu bar and menus call it directly, outside the global settings update.
++bool g_bAppHighContrast = false;
  
  void removeProvider()
  {
-@@ -39,12 +41,23 @@ void removeProvider()
+@@ -39,13 +44,25 @@
      g_pScreen = nullptr;
      g_eInstalled = Installed::None;
  }
@@ -312,6 +315,7 @@ index 2614d26..4e17e6a 100644
 +   the frame read the GTK theme, so the CSS installed then may have to go again. */
 +void onGlobalStyle(const StyleSettings& rStyle)
 +{
++    g_bAppHighContrast = rStyle.GetHighContrastMode();
 +    if (g_pLastScreen)
 +        ApplyGtkCoat(g_pLastScreen, rStyle);
 +}
@@ -321,9 +325,11 @@ index 2614d26..4e17e6a 100644
  {
      if (!pScreen)
          return;
+-    const Installed eWanted = !IsActive(rStyle)                      ? Installed::None
 +    if (!g_pLastScreen)
 +        SetGlobalStyleListener(&onGlobalStyle);
 +    g_pLastScreen = pScreen;
-     const Installed eWanted = !IsActive(rStyle)                      ? Installed::None
++    const Installed eWanted = g_bAppHighContrast || !IsActive(rStyle) ? Installed::None
                                : hst::design::IsDark(rStyle) ? Installed::Dark
                                                                       : Installed::Light;
+     if (eWanted == g_eInstalled && (eWanted == Installed::None || pScreen == g_pScreen))
