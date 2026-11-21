@@ -119,6 +119,17 @@ class Probe:
                   layer0_onscreen=[w for w in cg if w["layer"] == 0 and w["onscreen"] and w["w"] > 150])
         return wizard
 
+    def cg_wizards(self):
+        rows = subprocess.run([self.lister, str(self.pid)], capture_output=True, text=True, check=False).stdout
+        return [w for w in (json.loads(r) for r in rows.splitlines() if r.strip()) if w["name"] == WIZARD]
+
+    def diag_path(self):
+        for root, _dirs, files in os.walk(self.profile):
+            for name in files:
+                if name.startswith("hst-diag") or name == "hst-office.log":
+                    return os.path.join(root, name)
+        raise FileNotFoundError("no diagnostics log")
+
     def trigger_menu(self):
         """The real menu path (MenuBarManager::Select -> AsyncMenuExecute): HST > Văn bản hành chính."""
         script = ('tell application "System Events" to tell (first process whose unix id is %d)\n'
@@ -174,15 +185,29 @@ def main():
     p.snapshot("sheets")
     rc, msg = p.trigger_menu()
     p.mark("menu-click", rc=rc, msg=msg)
-    time.sleep(3)
-    if not any("HST Writer" in f["title"] for f in p.frames()):
+    shown = []
+    for _ in range(40):  # the first Writer document takes a few seconds
+        time.sleep(0.5)
+        shown = [w for w in p.cg_wizards() if w["onscreen"]]
+        if shown:
+            break
+    if not p.cg_wizards():
         p.mark("menu-click-did-nothing: in-process trigger")
         p.trigger_in_process()
-    time.sleep(8)
-    wizard = p.snapshot("after-trigger")
-    subprocess.run(["sample", str(pid), "3", "-file", f"{out}/sample-{mode}.txt"], check=False,
-                   capture_output=True)
-    p.mark("wizard-on-screen", value=any(w["onscreen"] for w in wizard), count=len(wizard))
+        time.sleep(10)
+    p.snapshot("wizard-opened")
+    # Another tab of the same window while the wizard runs (what "+", File > New, Finder or a launcher do):
+    # the tab group parks the Writer tab that owns the modal wizard.
+    p.mark("new-tab:start")
+    try:
+        p.desktop.loadComponentFromURL("private:factory/swriter", "_blank", 0, ())
+        p.mark("new-tab:loaded")
+    except Exception as error:  # noqa: BLE001
+        p.mark("new-tab:failed", error=repr(error))
+    time.sleep(5)
+    wizard = p.snapshot("after-new-tab")
+    p.mark("wizard-on-screen-after-new-tab", value=any(w["onscreen"] for w in wizard), count=len(wizard))
+    subprocess.run(["sample", str(pid), "3", "-file", f"{out}/sample-{mode}.txt"], check=False, capture_output=True)
     # Rescue test: bring the VCL dialog to the front over UNO (XTopWindow.toFront = ToTop(RestoreWhenMin)).
     w = p.wizard_top_window()
     if w is not None:
@@ -203,7 +228,10 @@ def main():
         p.mark("no-wizard-top-window")
     time.sleep(3)
     p.snapshot("end")
-
+    try:
+        p.mark("diag-tail", lines=open(p.diag_path(), encoding="utf-8").read().splitlines()[-15:])
+    except Exception as error:  # noqa: BLE001
+        p.mark("diag-tail-failed", error=repr(error))
 
 if __name__ == "__main__":
     main()
