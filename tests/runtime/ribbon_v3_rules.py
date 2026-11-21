@@ -214,22 +214,25 @@ def _clip(dump):
 
 
 def _row_fitted_box(item, scale):
-    """A cut that is only the box's own height request, within BOX_HEIGHT_SLACK of its row: not a cut label."""
+    """A cut that is only the box's own height request: within BOX_HEIGHT_SLACK of its row, or of a box drawing its
+    native frame (native_cut: the toolbox fits it to the row, what shows is measured by box_clip). Not a cut label."""
     want, rect = item.get("want"), item["rect"]
     return (want is not None and want["w"] <= rect["w"]
-            and (want["h"] - rect["h"]) / scale <= BOX_HEIGHT_SLACK)
+            and (item.get("native_cut") or (want["h"] - rect["h"]) / scale <= BOX_HEIGHT_SLACK))
 
 
 def _label_cut(dump):
-    """A cut label, or a box of the item that draws a native frame in less height than it asks for (its frame loses
-    its bottom edge: native_cut, Windows at 125 % text)."""
+    """A cut label, or a box that a window above it shows only in part (box_clip: Windows at 125 % text, the toolbox
+    cut the fill box's bottom). A box drawing its native frame in less height than it asks for (native_cut) is only
+    information (dump_summary): the theme fits the frame to the box, and what shows is measured by box_clip."""
     scale, bad = dump["scale"], []
     for g in dump["groups"]:
         for i in _items(g):
             if i.get("label_cut") and not _row_fitted_box(i, scale):
                 bad.append(f"{g['id']} {i['id']} label cut" + (f", want {i['want']}" if i.get("want") else ""))
-            if i.get("native_cut"):
-                bad.append(f"{g['id']} {i['id']} native box frame cut")
+            clip = i.get("box_clip")
+            if clip and clip["shown"] < clip["h"]:
+                bad.append(f"{g['id']} {i['id']} box shown {clip['shown']} of {clip['h']} px (cut by {clip.get('by', '?')})")
     return _verdict("label_cut", bad)
 
 
@@ -282,7 +285,8 @@ def dump_width(dump):
 
 
 def dump_summary(dump):
-    """Information of one dump: folded groups, the overflow button, the banner width and the used share of the track."""
+    """Information of one dump: folded groups, the overflow button, the banner width, the used share of the track and
+    the boxes drawing their native frame in less height than they ask for (native_cut, not a failure)."""
     scale = dump["scale"]
     banner = dump.get("banner")
     used = sum(g["rect"]["w"] for g in dump["groups"])
@@ -290,7 +294,8 @@ def dump_summary(dump):
     return {"app": dump["app"], "tab": dump["tab"], "width": dump_width(dump),
             "folded": sum(g.get("state") == "C" for g in dump["groups"]), "more": bool(dump.get("more")),
             "banner_w": round(banner["w"] / scale) if banner else None,
-            "used_pct": round(100 * used / track, 1) if track else None}
+            "used_pct": round(100 * used / track, 1) if track else None,
+            "native_cut": [f"{g['id']} {i['id']}" for g in dump["groups"] for i in _items(g) if i.get("native_cut")]}
 
 
 def _stats(values):
@@ -302,7 +307,7 @@ def _stats(values):
 def summarize(dumps):
     """Totals over dumps: failures per rule, banner min/median/max, used-share median, folded and overflow tabs."""
     rules = {name: 0 for name in RULES}
-    banners, used, folded, more = [], [], [], []
+    banners, used, folded, more, native_cut = [], [], [], [], []
     for dump in dumps:
         rules_hit = [rule for rule, ok, _detail in dump_findings(dump) if ok is False]
         for rule in rules_hit:
@@ -317,6 +322,7 @@ def summarize(dumps):
             folded.append(label)
         if info["more"]:
             more.append(label)
+        native_cut += [f"{label}: {box}" for box in info["native_cut"]]
     return {"dumps": len(dumps), "rules": rules, "banner": _stats(banners),
             "used_pct": {"min": min(used), "median": statistics.median(used)} if used else None,
-            "folded": folded, "more": more}
+            "folded": folded, "more": more, "native_cut": native_cut}
