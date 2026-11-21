@@ -1,0 +1,344 @@
+HST Office: a document tab with a running modal dialog is never parked; a new document opened meanwhile gets a window of its own.
+
+On macOS a dialog is a child window of its parent. When another tab opened in the window (the "+"
+menu, File > New, a file from Finder or a launcher, or a menu command that opens a new document),
+the tab group parked (hid, orderOut) the tab that owned a running modal dialog and macOS hid the
+dialog with it, while it still blocked the office: frozen application, only Force Quit (user report
+on HST Office 1.0.2, HST > "Văn bản hành chính" from a Sheets tab; reproduced on a macOS runner,
+probe run 44843837715).
+
+- framework/inc/documenttabmodal.hxx (new): ownsModalDialog() reads vcl's modal count of a tab
+  window (Window::IsInModalMode, raised by Dialog::ImplSetModalInputMode on the dialog parent's frame).
+- DocumentTabGroup::chooseGroup: the window the user works in, or the module window used last, takes
+  no new tab while a modal dialog runs on one of its tabs; the document opens in a new window.
+- DocumentTabGroup::park: a tab with a running modal dialog stays shown (no focus change) and is
+  parked by a 500 ms retry timer once the dialog has ended and it is still not the shown tab.
+
+License: modified upstream files keep their license (MPL-2.0); new files MPL-2.0.
+Test: CppunitTest_framework_hstdocumenttabmodal; macOS runner probe (scripts/macos/modal-probe.sh).
+---
+diff -ruN a/framework/CppunitTest_framework_hstdocumenttabmodal.mk b/framework/CppunitTest_framework_hstdocumenttabmodal.mk
+--- a/framework/CppunitTest_framework_hstdocumenttabmodal.mk
++++ b/framework/CppunitTest_framework_hstdocumenttabmodal.mk
+@@ -0,0 +1,44 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# This Source Code Form is subject to the terms of the Mozilla Public
++# License, v. 2.0. If a copy of the MPL was not distributed with this
++# file, You can obtain one at http://mozilla.org/MPL/2.0/.
++#
++# HST Office: document tabs and running modal dialogs (framework/inc/documenttabmodal.hxx).
++
++$(eval $(call gb_CppunitTest_CppunitTest,framework_hstdocumenttabmodal))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,framework_hstdocumenttabmodal, \
++    framework/qa/cppunit/hstdocumenttabmodal \
++))
++
++$(eval $(call gb_CppunitTest_set_include,framework_hstdocumenttabmodal,\
++    -I$(SRCDIR)/framework/inc \
++    $$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,framework_hstdocumenttabmodal))
++
++$(eval $(call gb_CppunitTest_use_libraries,framework_hstdocumenttabmodal, \
++	comphelper \
++	cppu \
++	cppuhelper \
++	sal \
++	test \
++	unotest \
++	tl \
++	vcl \
++))
++
++$(eval $(call gb_CppunitTest_use_externals,framework_hstdocumenttabmodal, \
++	boost_headers \
++))
++
++$(eval $(call gb_CppunitTest_use_ure,framework_hstdocumenttabmodal))
++$(eval $(call gb_CppunitTest_use_vcl,framework_hstdocumenttabmodal))
++
++$(eval $(call gb_CppunitTest_use_rdb,framework_hstdocumenttabmodal,services))
++
++$(eval $(call gb_CppunitTest_use_configuration,framework_hstdocumenttabmodal))
++
++# vim: set noet sw=4 ts=4:
+diff -ruN a/framework/Module_framework.mk b/framework/Module_framework.mk
+--- a/framework/Module_framework.mk
++++ b/framework/Module_framework.mk
+@@ -30,6 +30,7 @@
+     CppunitTest_framework_loadenv \
+ 	CppunitTest_framework_CheckXTitle \
+     CppunitTest_framework_accelerators \
++    CppunitTest_framework_hstdocumenttabmodal \
+ ))
+ 
+ # Not sure why this is not stable on macOS.
+diff -ruN a/framework/inc/documenttabgroup.hxx b/framework/inc/documenttabgroup.hxx
+--- a/framework/inc/documenttabgroup.hxx
++++ b/framework/inc/documenttabgroup.hxx
+@@ -232,13 +232,15 @@
+     Group& newGroup(const OUString& rKind);
+     Group* contextGroup();
+     Group& chooseGroup(const OUString& rModule, bool bExternal);
++    /// A modal dialog runs on one of the group's tab windows (it takes no new tab meanwhile).
++    static bool ownsModalDialog(const Group& rGroup);
+     void setKind(Group& rGroup, const OUString& rKind);
+     Member& join(Group& rGroup, const css::uno::Reference<css::frame::XFrame>& xFrame);
+     Member takeOut(Group& rGroup, size_t nIndex);
+     void removeMember(const css::uno::Reference<css::frame::XFrame>& xFrame,
+                       bool bShowNeighbour);
+     void cleanUp();
+-    void park(Member& rMember);
++    bool park(Member& rMember); ///< false: not hidden (a modal dialog runs on it)
+     void focus(const css::uno::Reference<css::frame::XFrame>& xFrame);
+     void dissolve();
+     void update(Group& rGroup);
+@@ -299,6 +301,8 @@
+     Timer m_aSaveLayoutTimer{ "framework DocumentTabGroup save layout" };
+     /// Hides the previous tab once everything else is done (painting and the flush to the screen included).
+     Idle m_aParkIdle{ "framework DocumentTabGroup park previous tab" };
++    /// Parks a tab that could not be parked while a modal dialog ran on it, once the dialog has ended.
++    Timer m_aParkRetryTimer{ "framework DocumentTabGroup park after modal dialog" };
+     /// Windows: the tab window shown cloaked (not composed) until ParkIdleHdl has it painted and presented
+     VclPtr<vcl::Window> m_pCloaked;
+     Timer m_aFinishRestoreTimer{ "framework DocumentTabGroup finish restore" };
+diff -ruN a/framework/inc/documenttabmodal.hxx b/framework/inc/documenttabmodal.hxx
+--- a/framework/inc/documenttabmodal.hxx
++++ b/framework/inc/documenttabmodal.hxx
+@@ -0,0 +1,39 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++#pragma once
++
++#include <vcl/vclptr.hxx>
++#include <vcl/window.hxx>
++
++#include <vector>
++
++namespace framework::documenttabmodal
++{
++/** HST Office: the tab window (a document's top-level WorkWindow) has a modal dialog running on it.
++
++    vcl counts the dialogs executed on a frame window (Dialog::ImplSetModalInputMode increments the
++    modal count of the dialog parent's frame window). Such a window must stay on screen: on macOS a
++    dialog is a child window of its parent, so hiding (parking) the tab window took the running
++    dialog off screen with it while it still blocked the office (frozen application, user report on
++    HST Office 1.0.2). */
++inline bool ownsModalDialog(const vcl::Window* pWindow)
++{
++    return pWindow && !pWindow->isDisposed() && pWindow->IsInModalMode();
++}
++
++/// One of the windows (the tabs of one tab window) has a modal dialog running on it.
++inline bool anyOwnsModalDialog(const std::vector<VclPtr<vcl::Window>>& rWindows)
++{
++    for (const VclPtr<vcl::Window>& pWindow : rWindows)
++        if (ownsModalDialog(pWindow.get()))
++            return true;
++    return false;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff -ruN a/framework/qa/cppunit/hstdocumenttabmodal.cxx b/framework/qa/cppunit/hstdocumenttabmodal.cxx
+--- a/framework/qa/cppunit/hstdocumenttabmodal.cxx
++++ b/framework/qa/cppunit/hstdocumenttabmodal.cxx
+@@ -0,0 +1,92 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * This Source Code Form is subject to the terms of the Mozilla Public
++ * License, v. 2.0. If a copy of the MPL was not distributed with this
++ * file, You can obtain one at http://mozilla.org/MPL/2.0/.
++ */
++
++// HST Office: the document tab group never parks (hides) a tab window that has a modal dialog
++// running on it, and opens a new document in a window of its own meanwhile. The decision reads
++// vcl's modal bookkeeping through documenttabmodal.hxx; this test drives that bookkeeping the way
++// Dialog::ImplSetModalInputMode does (IncModalCount on the dialog parent's frame window).
++
++#include <cppunit/TestAssert.h>
++#include <cppunit/extensions/HelperMacros.h>
++#include <test/bootstrapfixture.hxx>
++#include <vcl/svapp.hxx>
++#include <vcl/wrkwin.hxx>
++
++#include <documenttabmodal.hxx>
++
++using framework::documenttabmodal::anyOwnsModalDialog;
++using framework::documenttabmodal::ownsModalDialog;
++
++namespace
++{
++class HstDocumentTabModalTest : public test::BootstrapFixture
++{
++public:
++    void testModalDialogOnTheTab();
++    void testModalDialogOfAWindowOwnedByTheTab();
++    void testNoWindowOrDisposed();
++
++    CPPUNIT_TEST_SUITE(HstDocumentTabModalTest);
++    CPPUNIT_TEST(testModalDialogOnTheTab);
++    CPPUNIT_TEST(testModalDialogOfAWindowOwnedByTheTab);
++    CPPUNIT_TEST(testNoWindowOrDisposed);
++    CPPUNIT_TEST_SUITE_END();
++};
++
++void HstDocumentTabModalTest::testModalDialogOnTheTab()
++{
++    SolarMutexGuard aGuard;
++    VclPtr<WorkWindow> pTab = VclPtr<WorkWindow>::Create(nullptr, WB_STDWORK);
++    VclPtr<WorkWindow> pOther = VclPtr<WorkWindow>::Create(nullptr, WB_STDWORK);
++    CPPUNIT_ASSERT(!ownsModalDialog(pTab));
++    CPPUNIT_ASSERT(!anyOwnsModalDialog({ pTab, pOther }));
++
++    pTab->IncModalCount(); // a dialog starts executing on the tab window
++    CPPUNIT_ASSERT(ownsModalDialog(pTab));
++    CPPUNIT_ASSERT(!ownsModalDialog(pOther)); // the other window may still take or park tabs
++    CPPUNIT_ASSERT(anyOwnsModalDialog({ pOther, pTab }));
++    CPPUNIT_ASSERT(!anyOwnsModalDialog({ pOther }));
++
++    pTab->DecModalCount(); // the dialog ended: the tab may be parked again
++    CPPUNIT_ASSERT(!ownsModalDialog(pTab));
++
++    pOther.disposeAndClear();
++    pTab.disposeAndClear();
++}
++
++void HstDocumentTabModalTest::testModalDialogOfAWindowOwnedByTheTab()
++{
++    SolarMutexGuard aGuard;
++    VclPtr<WorkWindow> pTab = VclPtr<WorkWindow>::Create(nullptr, WB_STDWORK);
++    // a dialog executed on a (modeless) window that belongs to the tab window
++    VclPtr<WorkWindow> pOwned = VclPtr<WorkWindow>::Create(pTab.get(), WB_STDWORK);
++    pOwned->IncModalCount();
++    CPPUNIT_ASSERT(ownsModalDialog(pTab));
++    pOwned->DecModalCount();
++    CPPUNIT_ASSERT(!ownsModalDialog(pTab));
++    pOwned.disposeAndClear();
++    pTab.disposeAndClear();
++}
++
++void HstDocumentTabModalTest::testNoWindowOrDisposed()
++{
++    SolarMutexGuard aGuard;
++    CPPUNIT_ASSERT(!ownsModalDialog(nullptr));
++    CPPUNIT_ASSERT(!anyOwnsModalDialog({}));
++    VclPtr<WorkWindow> pTab = VclPtr<WorkWindow>::Create(nullptr, WB_STDWORK);
++    VclPtr<vcl::Window> pKept(pTab);
++    pTab.disposeAndClear();
++    CPPUNIT_ASSERT(!ownsModalDialog(pKept)); // a closed tab window never blocks anything
++    CPPUNIT_ASSERT(!anyOwnsModalDialog({ pKept }));
++}
++
++CPPUNIT_TEST_SUITE_REGISTRATION(HstDocumentTabModalTest);
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff -ruN a/framework/source/services/documenttabgroup.cxx b/framework/source/services/documenttabgroup.cxx
+--- a/framework/source/services/documenttabgroup.cxx
++++ b/framework/source/services/documenttabgroup.cxx
+@@ -10,6 +10,7 @@
+ // HST Office: browser-like document tabs. Design notes in documenttabgroup.hxx.
+ 
+ #include <documenttabgroup.hxx>
++#include <documenttabmodal.hxx>
+ #include <framework/documenttabs.hxx>
+ #include <helper/titlebarupdate.hxx>
+ #include <uielement/documenttabbar.hxx>
+@@ -519,6 +520,8 @@
+     m_aSaveLayoutTimer.SetTimeout(1500);
+     m_aParkIdle.SetPriority(TaskPriority::LOWEST);
+     m_aParkIdle.SetInvokeHandler(LINK(this, DocumentTabGroup, ParkIdleHdl));
++    m_aParkRetryTimer.SetTimeout(500);
++    m_aParkRetryTimer.SetInvokeHandler(LINK(this, DocumentTabGroup, ParkIdleHdl));
+     m_aSaveLayoutTimer.SetInvokeHandler(LINK(this, DocumentTabGroup, SaveLayoutHdl));
+     m_aFinishRestoreTimer.SetInvokeHandler(LINK(this, DocumentTabGroup, FinishRestoreHdl));
+     m_aApplyWindowModesTimer.SetTimeout(200);
+@@ -797,7 +800,13 @@
+         // documents of applications set to separate windows).
+         Group* pContext = contextGroup();
+         if (pContext && takesNewTab(*pContext, rModule))
++        {
++            // A modal dialog runs on that window: its tab must stay on screen, so the new
++            // document gets a window of its own (documenttabmodal.hxx).
++            if (ownsModalDialog(*pContext))
++                return newGroup(rModule.isEmpty() ? pContext->aKind : rModule);
+             return *pContext;
++        }
+         // Application not known yet, opened from a window of an application set to separate
+         // windows: a window of that application (never a new HST Office window).
+         if (pContext && rModule.isEmpty() && isSeparateWindow(*pContext))
+@@ -807,11 +816,19 @@
+     // another module: a tab of the window of its module used last, else a window of its own. Never
+     // the HST Office window. An application set to separate windows: always a window of its own.
+     if (!rModule.isEmpty() && moduleUsesTabs(rModule))
+-        if (Group* pModule = recentGroupOfKind(rModule))
++        if (Group* pModule = recentGroupOfKind(rModule); pModule && !ownsModalDialog(*pModule))
+             return *pModule;
+     return newGroup(rModule);
+ }
+ 
++bool DocumentTabGroup::ownsModalDialog(const Group& rGroup)
++{
++    std::vector<VclPtr<vcl::Window>> aWindows;
++    for (const Member& rMember : rGroup.aMembers)
++        aWindows.push_back(rMember.pWindow);
++    return documenttabmodal::anyOwnsModalDialog(aWindows);
++}
++
+ void DocumentTabGroup::setKind(Group& rGroup, const OUString& rKind)
+ {
+     if (rKind.isEmpty() || rKind == START_MODULE || rGroup.aKind == rKind)
+@@ -878,13 +895,22 @@
+         static_cast<SystemWindow*>(pTo)->SetWindowState(aState);
+ }
+ 
+-void DocumentTabGroup::park(Member& rMember)
++bool DocumentTabGroup::park(Member& rMember)
+ {
+     if (!rMember.pWindow || rMember.pWindow->isDisposed())
+-        return;
++        return false;
++    if (documenttabmodal::ownsModalDialog(rMember.pWindow))
++    {
++        // Never hide a tab while a modal dialog runs on it (macOS hides the dialog with it and
++        // the office waits for a dialog nobody can see): park it once the dialog has ended.
++        m_aToPark.push_back(rMember.xFrame);
++        m_aParkRetryTimer.Start();
++        return false;
++    }
+     rMember.bParked = true; // before hiding: XFrameImpl::windowHidden asks isParked()
+     InternalShow aInternal(m_nInternal);
+     rMember.pWindow->Show(false);
++    return true;
+ }
+ 
+ void DocumentTabGroup::focus(const uno::Reference<frame::XFrame>& xFrame)
+@@ -1148,7 +1174,8 @@
+                 pMember = find(xToPark, &pGroup); // painting can run events
+                 if (!pMember || pMember->bParked || xToPark == lcl_get(pGroup->xActive))
+                     continue;
+-                park(*pMember);
++                if (!park(*pMember))
++                    continue; // a modal dialog runs on it: it stays shown, nothing moves the focus
+                 focus(lcl_get(pGroup->xActive));
+                 update(*pGroup);
+             }
+@@ -2244,6 +2271,7 @@
+     m_aFinishRestoreTimer.Stop();
+     m_aApplyWindowModesTimer.Stop();
+     m_aParkIdle.Stop();
++    m_aParkRetryTimer.Stop();
+     if (VclPtr<vcl::Window> pCloaked = std::move(m_pCloaked))
+         lcl_cloak(pCloaked, false);
+     m_aRestore.clear();
