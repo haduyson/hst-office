@@ -314,7 +314,7 @@ Test: make CppunitTest_sfx2_hst_autosave (hst-user-autosave-test.patch); tests/u
      SfxStoringHelper* m_pOwner;
 --- /dev/null
 +++ b/sfx2/source/doc/hstuserautosave.cxx
-@@ -0,0 +1,324 @@
+@@ -0,0 +1,355 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -346,6 +346,7 @@ Test: make CppunitTest_sfx2_hst_autosave (hst-user-autosave-test.patch); tests/u
 +#include <comphelper/diagnose_ex.hxx>
 +#include <tools/urlobj.hxx>
 +#include <comphelper/errcode.hxx>
++#include <osl/file.hxx>
 +#include <sfx2/signaturestate.hxx>
 +#include <vcl/svapp.hxx>
 +
@@ -581,6 +582,28 @@ Test: make CppunitTest_sfx2_hst_autosave (hst-user-autosave-test.patch); tests/u
 +        rArgs[u"HstUserAutoSaving"_ustr] <<= docState(rShell).bSaving;
 +}
 +
++namespace
++{
++/// whether the folder of the document's file still exists
++bool folderExists(SfxObjectShell& rShell)
++{
++    const SfxMedium* pMedium = rShell.GetMedium();
++    if (!pMedium)
++        return false;
++    INetURLObject aFolder(pMedium->GetURLObject());
++    if (!aFolder.removeSegment())
++        return false;
++    osl::DirectoryItem aItem;
++    if (osl::DirectoryItem::get(aFolder.GetMainURL(INetURLObject::DecodeMechanism::NONE), aItem)
++        != osl::FileBase::E_None)
++        return false;
++    osl::FileStatus aStatus(osl_FileStatus_Mask_Type);
++    return aItem.getFileStatus(aStatus) == osl::FileBase::E_None
++           && (aStatus.getFileType() == osl::FileStatus::Directory
++               || aStatus.getFileType() == osl::FileStatus::Volume);
++}
++}
++
 +StoreScope::StoreScope(SfxObjectShell& rShell, uno::Sequence<beans::PropertyValue>& rArgs)
 +    : m_rShell(rShell)
 +    , m_xHandler(new SilentInteraction)
@@ -596,10 +619,18 @@ Test: make CppunitTest_sfx2_hst_autosave (hst-user-autosave-test.patch); tests/u
 +    rArgs = comphelper::containerToSequence(aArgs);
 +
 +    m_bAllowed = isActive(stateOf(rShell, true));
++    if (m_bAllowed && !folderExists(rShell))
++    {
++        // a pulled USB drive or a lost share: the store would create the folder again (the UCB makes missing
++        // parents), on the local disk where the drive was mounted. Pause instead.
++        m_bAllowed = false;
++        docState(rShell).ePause = State::Paused;
++        Invalidate(rShell);
++    }
 +    if (m_bAllowed)
 +        docState(rShell).bSaving = true;
 +    else
-+        m_bDone = true; // nothing is stored, nothing pauses
++        m_bDone = true; // nothing is stored, nothing pauses (beyond the missing folder above)
 +}
 +
 +StoreScope::~StoreScope()
