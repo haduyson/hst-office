@@ -72,7 +72,7 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +# vim: set noet sw=4 ts=4:
 --- /dev/null
 +++ b/sw/qa/extras/hst/hstimageeditsroundtrip.cxx
-@@ -0,0 +1,629 @@
+@@ -0,0 +1,638 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -573,9 +573,10 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +
 +CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocRotatedPicturePosition) { checkRotatedPosition(TestFilter::DOC); }
 +
-+// DOCX: a picture with a shadow (as the HST picture styles give) became smaller by the shadow on the first save: Word's
-+// extent leaves the shadow out, a Writer picture's size includes it.
-+CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedPictureKeepsSize)
++// DOCX: a picture with a shadow (as the HST picture styles give) comes back as a picture shape, which keeps Word's
++// shadow effect. Its size is the picture without the shadow (a Writer picture's size includes it): the picture itself
++// keeps its size, over every save.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedPictureKeepsShownSize)
 +{
 +    for (text::TextContentAnchorType eAnchor :
 +         { text::TextContentAnchorType_AS_CHARACTER, text::TextContentAnchorType_AT_CHARACTER })
@@ -587,18 +588,26 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +        aShadow.Color = 0x000000;
 +        xPicture->setPropertyValue(u"ShadowFormat"_ustr, uno::Any(aShadow));
 +
-+        awt::Size aSaved[2];
-+        for (awt::Size& rSize : aSaved)
++        awt::Size aShown[2];
++        for (awt::Size& rSize : aShown)
 +        {
 +            saveAndReload(TestFilter::DOCX);
-+            xPicture = writerPicture();
-+            CPPUNIT_ASSERT(xPicture.is());
-+            xPicture->getPropertyValue(u"Size"_ustr) >>= rSize;
++            uno::Reference<beans::XPropertySet> xReloaded = writerPicture();
++            if (xReloaded.is())
++            {
++                xReloaded->getPropertyValue(u"Size"_ustr) >>= rSize;
++                const table::ShadowFormat aGot = xReloaded->getPropertyValue(u"ShadowFormat"_ustr).get<table::ShadowFormat>();
++                rSize.Width -= aGot.ShadowWidth;
++                rSize.Height -= aGot.ShadowWidth;
++            }
++            else
++                rSize = getShape(1)->getSize();
 +        }
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSaved[0].Width), 20.0);
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSaved[0].Height), 20.0);
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSaved[1].Width), 20.0);
-+        CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSaved[1].Height), 20.0);
++        for (const awt::Size& rSize : aShown)
++        {
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0 - 106, double(rSize.Width), 20.0);
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0 - 106, double(rSize.Height), 20.0);
++        }
 +    }
 +}
 +
