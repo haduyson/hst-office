@@ -1,0 +1,329 @@
+HST Office: the coat's switch is not stuck at its default when the setting is read too early, and the gtk3
+coat CSS goes away when LibreOffice's own high-contrast setting turns high contrast on.
+
+- hst::coat::IsSwitchedOn: an unreadable UiCoat/Enabled (no configuration very early in start-up) gives the
+  shipped default (on) without remembering it, so the real setting applies once it can be read (as the
+  frame parts' FrameCoat switches already do). Tests can replace the reader (SetSwitchReaderForTesting).
+- High contrast on gtk3: the frame's UpdateSettings installed the coat's screen CSS from the GTK theme alone,
+  and Window::ImplUpdateGlobalSettings applies Accessibility/HighContrast and SAL_FORCE_HC only afterwards,
+  so the coat stayed on in LibreOffice's high contrast. vcl now passes the final global style settings to
+  a listener (hst::coat::SetGlobalStyleListener / NotifyGlobalStyle, one call in settings.cxx); the gtk3
+  backend registers one and installs or removes its CSS from them. Other backends register none and
+  already read the final settings when they paint.
+- CppunitTest_vcl_hst_coat: an unreadable switch is not remembered; the listener hears the high-contrast
+  setting on and off; no listener, no call.
+
+License: these upstream files remain under their original license (MPL-2.0).
+---
+diff --git a/vcl/CppunitTest_vcl_hst_coat.mk b/vcl/CppunitTest_vcl_hst_coat.mk
+index 78d5aa3..74338ee 100644
+--- a/vcl/CppunitTest_vcl_hst_coat.mk
++++ b/vcl/CppunitTest_vcl_hst_coat.mk
+@@ -9,6 +9,7 @@ $(eval $(call gb_CppunitTest_CppunitTest,vcl_hst_coat))
+ 
+ $(eval $(call gb_CppunitTest_add_exception_objects,vcl_hst_coat, \
+     vcl/qa/cppunit/hst/coat-test \
++    vcl/qa/cppunit/hst/coat-switch-test \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_add_defs,vcl_hst_coat,\
+diff --git a/vcl/inc/hst/coat.hxx b/vcl/inc/hst/coat.hxx
+index 12edd62..e8cf3be 100644
+--- a/vcl/inc/hst/coat.hxx
++++ b/vcl/inc/hst/coat.hxx
+@@ -72,9 +72,23 @@ VCL_DLLPUBLIC bool DrawScrolledWindowBorder(OutputDevice& rDev, const tools::Rec
+ VCL_DLLPUBLIC bool DrawSeparatorLine(OutputDevice& rDev, const Point& rStart, const Point& rStop,
+                                      bool bVertical);
+ 
+-/** Whether the coat is switched on (setting and environment), not looking at high contrast. */
++/** Whether the coat is switched on (setting and environment), not looking at high contrast. While the
++    setting cannot be read yet (very early in start-up) the shipped default (on) applies and the
++    setting is read again on the next call. */
+ VCL_PLUGIN_PUBLIC bool IsSwitchedOn();
+ 
++/** Receives the final global style settings. */
++using GlobalStyleListener = void (*)(const StyleSettings& rStyle);
++
++/** A backend that styles its own native widgets (gtk3: the coat's screen CSS) registers here to hear the
++    final global style settings: the platform's, with LibreOffice's own high-contrast setting
++    (Accessibility/HighContrast) and SAL_FORCE_HC applied on top. The platform's settings alone, as the
++    backend reads them, can still say "no high contrast" when LibreOffice turns it on. nullptr: none. */
++VCL_PLUGIN_PUBLIC void SetGlobalStyleListener(GlobalStyleListener pListener);
++
++/** vcl (Window::ImplUpdateGlobalSettings): pass the final global style settings to the listener. */
++VCL_DLLPUBLIC void NotifyGlobalStyle(const StyleSettings& rStyle);
++
+ /** Whether the coat applies with these style settings: switched on and not in high-contrast mode. */
+ VCL_PLUGIN_PUBLIC bool IsActive(const StyleSettings& rStyle);
+ 
+@@ -125,6 +139,10 @@ VCL_DLLPUBLIC std::pair<double, double> ListRepaintTimingForTesting(vcl::Window*
+ /** Tests: read the switch (setting and environment) again on its next use. */
+ VCL_DLLPUBLIC void ResetSwitchForTesting();
+ 
++/** Tests: read the switch with pReader (2 on, 1 off, 0 not readable) instead of the setting and the
++    environment; nullptr restores them. Resets the switch. */
++VCL_DLLPUBLIC void SetSwitchReaderForTesting(int (*pReader)());
++
+ /** Tests: read the frame parts' switches (FrameCoat/<Part>) again on their next use. */
+ VCL_DLLPUBLIC void ResetFrameCoatForTesting();
+ }
+diff --git a/vcl/qa/cppunit/hst/coat-switch-test.cxx b/vcl/qa/cppunit/hst/coat-switch-test.cxx
+new file mode 100644
+index 0000000..9acdf1c
+--- /dev/null
++++ b/vcl/qa/cppunit/hst/coat-switch-test.cxx
+@@ -0,0 +1,118 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * This file is part of HST Office.
++ */
++
++#include <test/bootstrapfixture.hxx>
++
++#include <comphelper/configuration.hxx>
++#include <officecfg/Office/Common.hxx>
++#include <vcl/settings.hxx>
++#include <vcl/svapp.hxx>
++
++#include <hst/coat.hxx>
++
++#include <optional>
++
++namespace
++{
++int g_nReads = 0;
++int g_nReadResult = 0;
++int countingReader()
++{
++    ++g_nReads;
++    return g_nReadResult;
++}
++
++std::optional<bool> g_oHighContrast;
++int g_nNotified = 0;
++void recordingListener(const StyleSettings& rStyle)
++{
++    ++g_nNotified;
++    g_oHighContrast = rStyle.GetHighContrastMode();
++}
++
++void setHighContrastSetting(sal_Int32 nMode) // 0 automatic, 1 off, 2 on
++{
++    auto xChanges = comphelper::ConfigurationChanges::create();
++    officecfg::Office::Common::Accessibility::HighContrast::set(nMode, xChanges);
++    xChanges->commit();
++}
++
++/* The coat's switch and the final global style settings, which backends with their own native
++   widget styling (the gtk3 CSS) follow. */
++class CoatSwitchTest : public test::BootstrapFixture
++{
++public:
++    CoatSwitchTest()
++        : test::BootstrapFixture(true, false)
++    {
++    }
++
++    void tearDown() override
++    {
++        hst::coat::SetSwitchReaderForTesting(nullptr);
++        hst::coat::SetGlobalStyleListener(nullptr);
++        setHighContrastSetting(0);
++        test::BootstrapFixture::tearDown();
++    }
++};
++
++/* Very early in start-up the setting cannot be read: the shipped default (on) applies but is not
++   remembered, so the real setting wins once it can be read; a read value is remembered. */
++CPPUNIT_TEST_FIXTURE(CoatSwitchTest, testUnreadableSwitchIsNotRemembered)
++{
++    g_nReads = 0;
++    g_nReadResult = 0;
++    hst::coat::SetSwitchReaderForTesting(&countingReader);
++    CPPUNIT_ASSERT(hst::coat::IsSwitchedOn());
++    CPPUNIT_ASSERT(hst::coat::IsSwitchedOn());
++    CPPUNIT_ASSERT_EQUAL(2, g_nReads);
++
++    g_nReadResult = 1; // the setting is readable now and says off
++    CPPUNIT_ASSERT(!hst::coat::IsSwitchedOn());
++    CPPUNIT_ASSERT(!hst::coat::IsSwitchedOn());
++    CPPUNIT_ASSERT_EQUAL(3, g_nReads);
++}
++
++/* LibreOffice's own high-contrast setting is applied after the backend read its platform's settings:
++   the listener hears the final mode, on and off. */
++CPPUNIT_TEST_FIXTURE(CoatSwitchTest, testListenerHearsLibreOfficesHighContrast)
++{
++    hst::coat::SetGlobalStyleListener(&recordingListener);
++
++    g_nNotified = 0;
++    g_oHighContrast.reset();
++    setHighContrastSetting(2);
++    AllSettings aSettings(Application::GetSettings());
++    Application::MergeSystemSettings(aSettings);
++    CPPUNIT_ASSERT(g_nNotified > 0);
++    CPPUNIT_ASSERT(g_oHighContrast.has_value());
++    CPPUNIT_ASSERT(*g_oHighContrast);
++    CPPUNIT_ASSERT(aSettings.GetStyleSettings().GetHighContrastMode());
++    CPPUNIT_ASSERT(!hst::coat::IsActive(aSettings.GetStyleSettings()));
++
++    g_nNotified = 0;
++    setHighContrastSetting(1);
++    AllSettings aOff(Application::GetSettings());
++    Application::MergeSystemSettings(aOff);
++    CPPUNIT_ASSERT(g_nNotified > 0);
++    CPPUNIT_ASSERT(!*g_oHighContrast);
++}
++
++/* Without a listener nothing is called (the backends without their own CSS). */
++CPPUNIT_TEST_FIXTURE(CoatSwitchTest, testNoListener)
++{
++    g_nNotified = 0;
++    hst::coat::SetGlobalStyleListener(nullptr);
++    AllSettings aSettings(Application::GetSettings());
++    Application::MergeSystemSettings(aSettings);
++    CPPUNIT_ASSERT_EQUAL(0, g_nNotified);
++}
++}
++
++// the plugin entry is coat-test.cxx's (one CppunitTest library)
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/vcl/source/hst/coat/coat.cxx b/vcl/source/hst/coat/coat.cxx
+index 1ec1810..d7fc78d 100644
+--- a/vcl/source/hst/coat/coat.cxx
++++ b/vcl/source/hst/coat/coat.cxx
+@@ -28,22 +28,28 @@ namespace
+ std::atomic<int> g_nSwitch{ 0 };
+ std::atomic<bool> g_bForced{ false };
+ 
+-bool readSwitch()
++/** The switch: 2 on, 1 off, 0 not readable yet (no configuration very early in start-up: the
++    shipped default applies and the switch is read again next time). */
++int readSwitch()
+ {
+     if (const char* pEnv = std::getenv("HST_UI_COAT"))
+-        return std::string_view(pEnv) != "0";
++        return std::string_view(pEnv) != "0" ? 2 : 1;
+     try
+     {
+-        return officecfg::Office::HSTAppearance::UiCoat::Enabled::get();
++        return officecfg::Office::HSTAppearance::UiCoat::Enabled::get() ? 2 : 1;
+     }
+     catch (const css::uno::Exception&)
+     {
+-        // no configuration (e.g. very early in start-up): the coat's default
+-        SAL_WARN("vcl.hst", "coat: the UiCoat/Enabled setting could not be read, using on");
+-        return true;
++        SAL_WARN("vcl.hst", "coat: the UiCoat/Enabled setting could not be read yet, using on");
++        return 0;
+     }
+ }
+ 
++int (*g_pReadSwitch)() = readSwitch;
++
++// main thread only (global settings updates)
++GlobalStyleListener g_pGlobalStyleListener = nullptr;
++
+ /** Whether eType/ePart is one of the parts the coat draws. */
+ bool isCovered(ControlType eType, ControlPart ePart)
+ {
+@@ -229,12 +235,22 @@ bool IsSwitchedOn()
+     int nSwitch = g_nSwitch.load(std::memory_order_relaxed);
+     if (nSwitch == 0)
+     {
+-        nSwitch = readSwitch() ? 2 : 1;
++        nSwitch = g_pReadSwitch();
++        if (nSwitch == 0)
++            return true; // the shipped default, not remembered
+         g_nSwitch.store(nSwitch, std::memory_order_relaxed);
+     }
+     return nSwitch == 2;
+ }
+ 
++void SetGlobalStyleListener(GlobalStyleListener pListener) { g_pGlobalStyleListener = pListener; }
++
++void NotifyGlobalStyle(const StyleSettings& rStyle)
++{
++    if (g_pGlobalStyleListener)
++        g_pGlobalStyleListener(rStyle);
++}
++
+ bool IsActive(const StyleSettings& rStyle)
+ {
+     return !rStyle.GetHighContrastMode() && IsSwitchedOn();
+@@ -244,6 +260,12 @@ void ForceForTesting(bool bForce) { g_bForced.store(bForce, std::memory_order_re
+ 
+ void ResetSwitchForTesting() { g_nSwitch.store(0, std::memory_order_relaxed); }
+ 
++void SetSwitchReaderForTesting(int (*pReader)())
++{
++    g_pReadSwitch = pReader ? pReader : readSwitch;
++    ResetSwitchForTesting();
++}
++
+ bool DrawSliderForTesting(OutputDevice& rDev, ControlPart ePart, ControlState eState,
+                           const tools::Rectangle& rThumb, ControlState eThumbState)
+ {
+diff --git a/vcl/source/window/settings.cxx b/vcl/source/window/settings.cxx
+index 9680b40..203782f 100644
+--- a/vcl/source/window/settings.cxx
++++ b/vcl/source/window/settings.cxx
+@@ -38,6 +38,8 @@
+ 
+ #include <window.h>
+ 
++#include <hst/coat.hxx>
++
+ namespace vcl {
+ 
+ void WindowOutputDevice::SetSettings( const AllSettings& rSettings )
+@@ -247,6 +249,9 @@ void Window::ImplUpdateGlobalSettings( AllSettings& rSettings, bool bCallHdl ) c
+         }
+     }
+ 
++    // HST Office: the coat follows the final high-contrast mode (the backend's CSS was set up before)
++    hst::coat::NotifyGlobalStyle(aStyleSettings);
++
+     rSettings.SetStyleSettings( aStyleSettings );
+ 
+     if ( bCallHdl )
+diff --git a/vcl/unx/gtk3/hst-coat-gtk.cxx b/vcl/unx/gtk3/hst-coat-gtk.cxx
+index 2614d26..4e17e6a 100644
+--- a/vcl/unx/gtk3/hst-coat-gtk.cxx
++++ b/vcl/unx/gtk3/hst-coat-gtk.cxx
+@@ -27,6 +27,8 @@ enum class Installed
+ GtkCssProvider* g_pProvider = nullptr;
+ GdkScreen* g_pScreen = nullptr;
+ Installed g_eInstalled = Installed::None;
++// the screen of the last settings update, for the final global settings (onGlobalStyle)
++GdkScreen* g_pLastScreen = nullptr;
+ 
+ void removeProvider()
+ {
+@@ -39,12 +41,23 @@ void removeProvider()
+     g_pScreen = nullptr;
+     g_eInstalled = Installed::None;
+ }
++
++/* The final global settings: LibreOffice's own high-contrast setting (or SAL_FORCE_HC) is applied after
++   the frame read the GTK theme, so the CSS installed then may have to go again. */
++void onGlobalStyle(const StyleSettings& rStyle)
++{
++    if (g_pLastScreen)
++        ApplyGtkCoat(g_pLastScreen, rStyle);
++}
+ }
+ 
+ void ApplyGtkCoat(GdkScreen* pScreen, const StyleSettings& rStyle)
+ {
+     if (!pScreen)
+         return;
++    if (!g_pLastScreen)
++        SetGlobalStyleListener(&onGlobalStyle);
++    g_pLastScreen = pScreen;
+     const Installed eWanted = !IsActive(rStyle)                      ? Installed::None
+                               : hst::design::IsDark(rStyle) ? Installed::Dark
+                                                                      : Installed::Light;
