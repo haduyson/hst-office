@@ -1,0 +1,677 @@
+HST Office: formulas saved to .docx look in Word as they do in HST Writer.
+
+Word showed three differences in every formula saved from StarMath to OMML (.docx):
+- Function names (sin, cos, log, lim, "func det") were italic. An OMML run is italic unless its
+  m:rPr has m:sty m:val="p" (ECMA-376 Part 1, 22.1.2.112); a StarMath function name (text in
+  the function font, upright) now gets that property. Variables keep Word's italic.
+- The text of an arrow with text ("{t} xrightarrow {}", reaction conditions) sat on the
+  baseline with a small arrow hanging under it. The group (m:groupChr, text as the base, arrow
+  under it) was written with m:vertJc "top", which puts the top part on the baseline (22.1.2.117);
+  an arrow with text now writes "bot", so the arrow stays on the baseline like a relation and
+  its text sits above, as StarMath lays it out. Braces keep their values.
+- Matrix columns aligned with alignl/alignr (cases, aligned) were centred, and a .docx round
+  trip lost the alignment. The matrix now writes m:mPr/m:mcs with one m:mc (m:count 1, m:mcJc)
+  per column when a column is not centred, from the alignment the formula's layout gives its
+  cells; import reads m:mcJc (repeated m:count times) back as alignl/alignr cells.
+
+The logic is in starmath/source/hst/ommllayout.cxx; the export and import get one call each.
+MathType OLE objects that are not converted are not StarMath objects and are written unchanged.
+
+Test: CppunitTest_starmath_qa_cppunit (test_hst_omml_layout.cxx) checks the OMML written for
+each case and reads it back.
+
+diff --git a/starmath/CppunitTest_starmath_qa_cppunit.mk b/starmath/CppunitTest_starmath_qa_cppunit.mk
+--- a/starmath/CppunitTest_starmath_qa_cppunit.mk
++++ b/starmath/CppunitTest_starmath_qa_cppunit.mk
+@@ -17,6 +17,7 @@
+ $(eval $(call gb_CppunitTest_use_externals,starmath_qa_cppunit,\
+     boost_headers \
+     icuuc \
++    libxml2 \
+ ))
+ 
+ $(eval $(call gb_CppunitTest_use_sdk_api,starmath_qa_cppunit))
+@@ -67,6 +68,7 @@
+     starmath/qa/cppunit/test_hst_formula_constructs \
+     starmath/qa/cppunit/test_hst_mathtype_textarrow \
+     starmath/qa/cppunit/test_hst_mtef5 \
++    starmath/qa/cppunit/test_hst_omml_layout \
+     starmath/qa/cppunit/test_starmath \
+ ))
+ 
+@@ -77,6 +79,7 @@
+     configmgr/source/configmgr \
+     framework/util/fwk \
+     i18npool/util/i18npool \
++    oox/util/oox \
+     package/source/xstor/xstor \
+     package/util/package2 \
+     toolkit/util/tk \
+diff --git a/starmath/Library_sm.mk b/starmath/Library_sm.mk
+--- a/starmath/Library_sm.mk
++++ b/starmath/Library_sm.mk
+@@ -93,6 +93,7 @@
+         starmath/source/hst/mtef5symbols \
+         starmath/source/hst/mtef5templates \
+         starmath/source/hst/ommlfixes \
++        starmath/source/hst/ommllayout \
+         starmath/source/hst/printlayout \
+         starmath/source/hst/textarrow \
+         starmath/source/node \
+diff --git a/starmath/qa/cppunit/test_hst_omml_layout.cxx b/starmath/qa/cppunit/test_hst_omml_layout.cxx
+new file mode 100644
+--- /dev/null
++++ b/starmath/qa/cppunit/test_hst_omml_layout.cxx
+@@ -0,0 +1,288 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++// Formulas saved for Word (OMML): function names upright, an arrow with text on the baseline under
++// its text, and the column alignment of a matrix (cases, aligned), kept when the file is read back.
++
++#include <sal/config.h>
++#include <test/bootstrapfixture.hxx>
++#include <test/xmltesttools.hxx>
++
++#include <o3tl/cppunittraitshelper.hxx>
++#include <oox/core/filterbase.hxx>
++#include <oox/export/utils.hxx>
++#include <oox/mathml/importutils.hxx>
++#include <oox/mathml/imexport.hxx>
++#include <oox/token/namespaces.hxx>
++#include <oox/token/tokenmap.hxx>
++#include <oox/token/tokens.hxx>
++#include <sax/fshelper.hxx>
++#include <sfx2/sfxmodelfactory.hxx>
++#include <tools/stream.hxx>
++#include <unotools/streamwrap.hxx>
++
++#include <document.hxx>
++#include <node.hxx>
++#include <smdll.hxx>
++#include "../../source/hst/ommllayout.hxx"
++
++#include <memory>
++#include <string_view>
++
++using namespace css;
++using oox::formulaimport::XmlStream;
++using oox::formulaimport::XmlStreamBuilder;
++
++namespace
++{
++constexpr std::string_view MATH_NAMESPACE
++    = "http://schemas.openxmlformats.org/officeDocument/2006/math";
++constexpr std::string_view XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace";
++
++/// The token writerfilter gives an OMML element or attribute: namespace | local name
++sal_Int32 OmmlToken(const xmlNs* pNs, const xmlChar* pName)
++{
++    const sal_Int32 nLocal
++        = oox::TokenMap::getTokenFromUtf8(reinterpret_cast<const char*>(pName));
++    if (!pNs || !pNs->href)
++        return nLocal;
++    const std::string_view aHref(reinterpret_cast<const char*>(pNs->href));
++    if (aHref == MATH_NAMESPACE)
++        return oox::NMSP_officeMath | nLocal;
++    if (aHref == XML_NAMESPACE)
++        return oox::NMSP_xml | nLocal;
++    return nLocal;
++}
++
++/// Replays a parsed OMML element as the token stream that the formula import reads
++void AppendElement(XmlStreamBuilder& rStream, const xmlNode* pNode)
++{
++    const sal_Int32 nToken = OmmlToken(pNode->ns, pNode->name);
++    XmlStream::AttributeList aAttributes;
++    for (const xmlAttr* pAttr = pNode->properties; pAttr; pAttr = pAttr->next)
++    {
++        xmlChar* pValue = xmlNodeListGetString(pNode->doc, pAttr->children, 1);
++        aAttributes[OmmlToken(pAttr->ns, pAttr->name)]
++            = OUString::fromUtf8(pValue ? reinterpret_cast<const char*>(pValue) : "");
++        xmlFree(pValue);
++    }
++    rStream.appendOpeningTag(nToken, aAttributes);
++    for (const xmlNode* pChild = pNode->children; pChild; pChild = pChild->next)
++    {
++        if (pChild->type == XML_ELEMENT_NODE)
++            AppendElement(rStream, pChild);
++        else if (pChild->type == XML_TEXT_NODE && pChild->content)
++            rStream.appendCharacters(
++                OUString::fromUtf8(reinterpret_cast<const char*>(pChild->content)));
++    }
++    rStream.appendClosingTag(nToken);
++}
++
++const SmNode* FindNode(const SmNode* pNode, SmNodeType eType)
++{
++    if (!pNode)
++        return nullptr;
++    if (pNode->GetType() == eType)
++        return pNode;
++    for (size_t i = 0; i < pNode->GetNumSubNodes(); ++i)
++        if (const SmNode* pFound = FindNode(pNode->GetSubNode(i), eType))
++            return pFound;
++    return nullptr;
++}
++
++OUString WithoutSpaces(const OUString& rText) { return rText.replaceAll(" ", ""); }
++
++class HstOmmlLayoutTest : public test::BootstrapFixture, public XmlTestTools
++{
++    rtl::Reference<SmDocShell> mxDocShell;
++
++    static rtl::Reference<SmDocShell> NewDocShell()
++    {
++        return new SmDocShell(SfxModelFlags::EMBEDDED_OBJECT
++                              | SfxModelFlags::DISABLE_EMBEDDED_SCRIPTS
++                              | SfxModelFlags::DISABLE_DOCUMENT_RECOVERY);
++    }
++
++    /// The formula as Word reads it from a .docx (inline m:oMath)
++    xmlDocUniquePtr ExportOmml(const OUString& rFormula)
++    {
++        mxDocShell->SetText(rFormula);
++        SvMemoryStream aStream;
++        {
++            uno::Reference<io::XOutputStream> xOut(new utl::OOutputStreamWrapper(aStream));
++            auto pSerializer = std::make_shared<sax_fastparser::FastSerializerHelper>(xOut, true);
++            mxDocShell->writeFormulaOoxml(pSerializer, oox::core::ISOIEC_29500_2008,
++                                          oox::drawingml::DOCUMENT_DOCX,
++                                          oox::FormulaImExportBase::eFormulaAlign::INLINE);
++            pSerializer->endDocument();
++        }
++        aStream.Seek(STREAM_SEEK_TO_BEGIN);
++        xmlDocUniquePtr pXmlDoc = parseXmlStream(&aStream);
++        CPPUNIT_ASSERT(pXmlDoc);
++        return pXmlDoc;
++    }
++
++    /// Reads OMML back into a new formula, as opening the .docx does; returns its formula text
++    OUString ImportOmml(const xmlDocUniquePtr& pXmlDoc)
++    {
++        XmlStreamBuilder aStream;
++        AppendElement(aStream, xmlDocGetRootElement(pXmlDoc.get()));
++        mxDocShell->DoClose();
++        mxDocShell = NewDocShell();
++        mxDocShell->readFormulaOoxml(aStream);
++        return mxDocShell->GetText();
++    }
++
++    /// The m:mcJc values of the first matrix in the current formula, as its layout aligns it,
++    /// separated by commas
++    OUString MatrixColumns()
++    {
++        mxDocShell->GetSize(); // prepares and arranges the formula
++        const SmNode* pMatrix = FindNode(mxDocShell->GetFormulaTree(), SmNodeType::Matrix);
++        CPPUNIT_ASSERT(pMatrix);
++        OUString aColumns;
++        for (const char* pJc : starmath::hst::OmmlMatrixColumnJustification(
++                 *static_cast<const SmMatrixNode*>(pMatrix)))
++            aColumns += (aColumns.isEmpty() ? u""_ustr : u","_ustr) + OUString::createFromAscii(pJc);
++        return aColumns;
++    }
++
++public:
++    void setUp() override
++    {
++        BootstrapFixture::setUp();
++        SmGlobals::ensure();
++        mxDocShell = NewDocShell();
++    }
++
++    void tearDown() override
++    {
++        if (mxDocShell)
++            mxDocShell->DoClose();
++        mxDocShell.clear();
++        BootstrapFixture::tearDown();
++    }
++
++    void registerNamespaces(xmlXPathContextPtr& pXmlXpathCtx) override
++    {
++        XmlTestTools::registerOOXMLNamespaces(pXmlXpathCtx);
++    }
++
++    void testFunctionNamesUpright()
++    {
++        xmlDocUniquePtr pXmlDoc = ExportOmml(u"sin x + cos^2 x + log_2 8 + func det A + "
++                                             "lim from {x toward 0} x + \"khi \" y"_ustr);
++        // every function name is a run with m:sty "p": Word showed them italic
++        for (const char* pName : { "sin", "cos", "log", "det", "lim" })
++        {
++            const OString aRun = OString::Concat("//m:r[m:t='") + pName + "']";
++            assertXPath(pXmlDoc, aRun, 1);
++            assertXPath(pXmlDoc, aRun + "/m:rPr/m:sty", "val", u"p");
++        }
++        // variables keep Word's italic, quoted text stays normal text
++        assertXPath(pXmlDoc, "//m:r[m:t='x']/m:rPr", 0);
++        assertXPath(pXmlDoc, "//m:r[m:t='A']/m:rPr", 0);
++        assertXPath(pXmlDoc, "//m:r[m:t='khi ']/m:rPr/m:nor", 1);
++        assertXPath(pXmlDoc, "//m:r[m:t='khi ']/m:rPr/m:sty", 0);
++        // a function name in italic is left to Word's italic
++        xmlDocUniquePtr pItalic = ExportOmml(u"ital sin x"_ustr);
++        assertXPath(pItalic, "//m:r[m:t='sin']/m:rPr", 0);
++
++        // m:sty does not change what is read back
++        pXmlDoc = ExportOmml(u"sin x + func det A"_ustr);
++        CPPUNIT_ASSERT_EQUAL(u"sinx+detA"_ustr, WithoutSpaces(ImportOmml(pXmlDoc)));
++    }
++
++    void testTextArrowOnBaseline()
++    {
++        xmlDocUniquePtr pXmlDoc = ExportOmml(u"CaCO_3 {t} xrightarrow {x} CaO"_ustr);
++        // the text is the group's base and the arrow is drawn under it; the arrow, the bottom
++        // part, is on the baseline (vertJc "top" put the text there and hung the arrow below)
++        assertXPath(pXmlDoc, "//m:limLow/m:e/m:groupChr/m:groupChrPr/m:chr", "val", u"→");
++        assertXPath(pXmlDoc, "//m:groupChr/m:groupChrPr/m:pos", "val", u"bot");
++        assertXPath(pXmlDoc, "//m:groupChr/m:groupChrPr/m:vertJc", "val", u"bot");
++        assertXPathContent(pXmlDoc, "//m:groupChr/m:e/m:r/m:t", u"t");
++        assertXPathContent(pXmlDoc, "//m:limLow/m:lim/m:r/m:t", u"x");
++        CPPUNIT_ASSERT(WithoutSpaces(ImportOmml(pXmlDoc)).indexOf(u"{t}xrightarrow{x}") >= 0);
++
++        // braces keep the expression on the baseline
++        pXmlDoc = ExportOmml(u"{a} overbrace {b}"_ustr);
++        assertXPath(pXmlDoc, "//m:groupChr/m:groupChrPr/m:pos", "val", u"top");
++        assertXPath(pXmlDoc, "//m:groupChr/m:groupChrPr/m:vertJc", "val", u"bot");
++        pXmlDoc = ExportOmml(u"{a} underbrace {b}"_ustr);
++        assertXPath(pXmlDoc, "//m:groupChr/m:groupChrPr/m:pos", "val", u"bot");
++        assertXPath(pXmlDoc, "//m:groupChr/m:groupChrPr/m:vertJc", "val", u"top");
++    }
++
++    void testMatrixColumnAlignment()
++    {
++        // \begin{aligned} P &= (a+b)^2 \\ &= a^2 + 2ab + b^2 \end{aligned}
++        const OUString aAligned(u"matrix{alignr {P} # alignl {{} = (a + b)^2} ## "
++                                "alignr \"\" # alignl {{} = a^2 + 2 ab + b^2}}"_ustr);
++        xmlDocUniquePtr pXmlDoc = ExportOmml(aAligned);
++        assertXPath(pXmlDoc, "//m:m/m:mPr/m:mcs/m:mc", 2);
++        assertXPath(pXmlDoc, "//m:m/m:mPr/m:mcs/m:mc[1]/m:mcPr/m:count", "val", u"1");
++        assertXPath(pXmlDoc, "//m:m/m:mPr/m:mcs/m:mc[1]/m:mcPr/m:mcJc", "val", u"right");
++        assertXPath(pXmlDoc, "//m:m/m:mPr/m:mcs/m:mc[2]/m:mcPr/m:mcJc", "val", u"left");
++        assertXPath(pXmlDoc, "//m:m/m:mr", 2);
++        // the columns come back aligned as they were
++        ImportOmml(pXmlDoc);
++        CPPUNIT_ASSERT_EQUAL(u"right,left"_ustr, MatrixColumns());
++
++        // cases: both columns on the left; quoted text alone also sits on the left in StarMath
++        pXmlDoc = ExportOmml(u"left lbrace matrix{alignl {x^2} # alignl {\"khi \" x >= 0} ## "
++                             "alignl {-x} # alignl {\"khi \" x < 0}} right none"_ustr);
++        assertXPath(pXmlDoc, "//m:d/m:e/m:m/m:mPr/m:mcs/m:mc[1]/m:mcPr/m:mcJc", "val", u"left");
++        assertXPath(pXmlDoc, "//m:d/m:e/m:m/m:mPr/m:mcs/m:mc[2]/m:mcPr/m:mcJc", "val", u"left");
++        ImportOmml(pXmlDoc);
++        CPPUNIT_ASSERT_EQUAL(u"left,left"_ustr, MatrixColumns());
++
++        // centred columns, and a column whose cells disagree, write no m:mPr (Word's default)
++        pXmlDoc = ExportOmml(u"matrix{1 # 2 ## 3 # 4}"_ustr);
++        assertXPath(pXmlDoc, "//m:m/m:mPr", 0);
++        CPPUNIT_ASSERT_EQUAL(u"matrix{1#2##3#4}"_ustr, WithoutSpaces(ImportOmml(pXmlDoc)));
++        pXmlDoc = ExportOmml(u"matrix{alignl a # b ## alignr c # d}"_ustr);
++        assertXPath(pXmlDoc, "//m:m/m:mPr", 0);
++    }
++
++    void testMatrixColumnsFromWord()
++    {
++        // one m:mc for two columns (m:count), with other matrix properties before m:mcs, and an
++        // m:count that is out of range
++        static constexpr char aOmml[]
++            = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
++              "<m:oMath xmlns:m=\"http://schemas.openxmlformats.org/officeDocument/2006/math\">"
++              "<m:m><m:mPr><m:baseJc m:val=\"center\"/><m:mcs>"
++              "<m:mc><m:mcPr><m:count m:val=\"2\"/><m:mcJc m:val=\"left\"/></m:mcPr></m:mc>"
++              "<m:mc><m:mcPr><m:count m:val=\"0\"/><m:mcJc m:val=\"right\"/></m:mcPr></m:mc>"
++              "</m:mcs></m:mPr>"
++              "<m:mr><m:e><m:r><m:t>a</m:t></m:r></m:e><m:e><m:r><m:t>b</m:t></m:r></m:e>"
++              "<m:e><m:r><m:t>c</m:t></m:r></m:e><m:e/></m:mr>"
++              "</m:m></m:oMath>";
++        SvMemoryStream aStream(const_cast<char*>(aOmml), sizeof(aOmml) - 1, StreamMode::READ);
++        xmlDocUniquePtr pXmlDoc = parseXmlStream(&aStream);
++        CPPUNIT_ASSERT(pXmlDoc);
++        const OUString aText = WithoutSpaces(ImportOmml(pXmlDoc));
++        static constexpr std::u16string_view aAligned = u"matrix{alignl{a}#alignl{b}#alignr{c}#";
++        CPPUNIT_ASSERT_MESSAGE(aText.toUtf8().getStr(), aText.startsWith(aAligned));
++        // the fourth column has no m:mc and stays centred; an empty cell is not wrapped
++        CPPUNIT_ASSERT_EQUAL(sal_Int32(-1),
++                             aText.indexOf(u"align", static_cast<sal_Int32>(aAligned.size())));
++    }
++
++    CPPUNIT_TEST_SUITE(HstOmmlLayoutTest);
++    CPPUNIT_TEST(testFunctionNamesUpright);
++    CPPUNIT_TEST(testTextArrowOnBaseline);
++    CPPUNIT_TEST(testMatrixColumnAlignment);
++    CPPUNIT_TEST(testMatrixColumnsFromWord);
++    CPPUNIT_TEST_SUITE_END();
++};
++
++CPPUNIT_TEST_SUITE_REGISTRATION(HstOmmlLayoutTest);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/hst/ommllayout.cxx b/starmath/source/hst/ommllayout.cxx
+new file mode 100644
+--- /dev/null
++++ b/starmath/source/hst/ommllayout.cxx
+@@ -0,0 +1,176 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#include "ommllayout.hxx"
++#include "textarrow.hxx"
++
++#include <format.hxx>
++#include <node.hxx>
++#include <rect.hxx>
++
++#include <oox/mathml/importutils.hxx>
++#include <oox/token/namespaces.hxx>
++#include <oox/token/tokens.hxx>
++#include <tools/fontenum.hxx>
++
++#include <algorithm>
++#include <optional>
++
++using oox::formulaimport::XmlStream;
++
++namespace starmath::hst
++{
++namespace
++{
++/// A column count from a file is not trusted further than any matrix StarMath can hold
++constexpr size_t MAX_COLUMNS = 1024;
++
++const char* ColumnJustification(RectHorAlign eAlign)
++{
++    switch (eAlign)
++    {
++        case RectHorAlign::Left:
++            return "left";
++        case RectHorAlign::Right:
++            return "right";
++        default:
++            return "center";
++    }
++}
++}
++
++bool IsOmmlUprightName(const SmNode& rNode)
++{
++    if (rNode.GetType() != SmNodeType::Text)
++        return false;
++    const auto& rText = static_cast<const SmTextNode&>(rNode);
++    return rText.GetFontDesc() == FNT_FUNCTION && rText.GetFont().GetItalic() == ITALIC_NONE;
++}
++
++void WriteOmmlUprightName(const sax_fastparser::FSHelperPtr& pSerializer, const SmNode& rNode)
++{
++    if (!IsOmmlUprightName(rNode))
++        return;
++    using namespace oox;
++    pSerializer->startElementNS(XML_m, XML_rPr);
++    pSerializer->singleElementNS(XML_m, XML_sty, FSNS(XML_m, XML_val), "p");
++    pSerializer->endElementNS(XML_m, XML_rPr);
++}
++
++const char* OmmlGroupCharVerticalJustification(SmTokenType eType)
++{
++    return eType == TOVERBRACE || IsTextArrow(eType) ? "bot" : "top";
++}
++
++std::vector<const char*> OmmlMatrixColumnJustification(const SmMatrixNode& rMatrix)
++{
++    const size_t nRows = rMatrix.GetNumRows();
++    const size_t nColumns = rMatrix.GetNumCols();
++    std::vector<const char*> aColumns(nColumns, "center");
++    bool bAllCentred = true;
++    for (size_t nColumn = 0; nColumn < nColumns; ++nColumn)
++    {
++        std::optional<RectHorAlign> oColumn;
++        bool bCellsAgree = true;
++        for (size_t nRow = 0; nRow < nRows && bCellsAgree; ++nRow)
++        {
++            const size_t nIndex = nRow * nColumns + nColumn;
++            const SmNode* pCell = nIndex < rMatrix.GetNumSubNodes() ? rMatrix.GetSubNode(nIndex)
++                                                                    : nullptr;
++            // the cell's own alignment, as the matrix layout reads it
++            const SmNode* pLeftMost = pCell ? pCell->GetLeftMost() : nullptr;
++            const RectHorAlign eCell
++                = pLeftMost ? pLeftMost->GetRectHorAlign() : RectHorAlign::Center;
++            if (!oColumn)
++                oColumn = eCell;
++            else if (*oColumn != eCell)
++                bCellsAgree = false;
++        }
++        if (!bCellsAgree || !oColumn || *oColumn == RectHorAlign::Center)
++            continue;
++        aColumns[nColumn] = ColumnJustification(*oColumn);
++        bAllCentred = false;
++    }
++    if (bAllCentred)
++        aColumns.clear();
++    return aColumns;
++}
++
++void WriteOmmlMatrixColumns(const sax_fastparser::FSHelperPtr& pSerializer,
++                            const SmMatrixNode& rMatrix)
++{
++    const std::vector<const char*> aColumns = OmmlMatrixColumnJustification(rMatrix);
++    if (aColumns.empty())
++        return;
++    using namespace oox;
++    pSerializer->startElementNS(XML_m, XML_mPr);
++    pSerializer->startElementNS(XML_m, XML_mcs);
++    for (const char* pJustification : aColumns)
++    {
++        pSerializer->startElementNS(XML_m, XML_mc);
++        pSerializer->startElementNS(XML_m, XML_mcPr);
++        pSerializer->singleElementNS(XML_m, XML_count, FSNS(XML_m, XML_val), "1");
++        pSerializer->singleElementNS(XML_m, XML_mcJc, FSNS(XML_m, XML_val), pJustification);
++        pSerializer->endElementNS(XML_m, XML_mcPr);
++        pSerializer->endElementNS(XML_m, XML_mc);
++    }
++    pSerializer->endElementNS(XML_m, XML_mcs);
++    pSerializer->endElementNS(XML_m, XML_mPr);
++}
++
++std::vector<OUString> ReadOmmlMatrixColumnJustification(XmlStream& rStream)
++{
++    std::vector<OUString> aColumns;
++    if (!rStream.checkOpeningTag(M_TOKEN(mPr)))
++        return aColumns;
++    if (rStream.checkOpeningTag(M_TOKEN(mcs)))
++    {
++        while (rStream.checkOpeningTag(M_TOKEN(mc)))
++        {
++            sal_Int32 nCount = 1;
++            OUString aJustification(u"center"_ustr);
++            if (rStream.checkOpeningTag(M_TOKEN(mcPr)))
++            {
++                if (XmlStream::Tag aCount = rStream.checkOpeningTag(M_TOKEN(count)))
++                {
++                    nCount = aCount.attribute(M_TOKEN(val), u"1"_ustr).toInt32();
++                    rStream.ensureClosingTag(M_TOKEN(count));
++                }
++                if (XmlStream::Tag aJc = rStream.checkOpeningTag(M_TOKEN(mcJc)))
++                {
++                    aJustification = aJc.attribute(M_TOKEN(val), aJustification);
++                    rStream.ensureClosingTag(M_TOKEN(mcJc));
++                }
++                rStream.ensureClosingTag(M_TOKEN(mcPr));
++            }
++            rStream.ensureClosingTag(M_TOKEN(mc));
++            // m:count is at least 1 (ST_Integer255); a bad value counts as one column
++            const size_t nRepeat = static_cast<size_t>(std::clamp<sal_Int32>(nCount, 1, 255));
++            for (size_t i = 0; i < nRepeat && aColumns.size() < MAX_COLUMNS; ++i)
++                aColumns.push_back(aJustification);
++        }
++        rStream.ensureClosingTag(M_TOKEN(mcs));
++    }
++    rStream.ensureClosingTag(M_TOKEN(mPr));
++    return aColumns;
++}
++
++OUString OmmlAlignedMatrixCell(const std::vector<OUString>& rColumnJustification, size_t nColumn,
++                               const OUString& rCell)
++{
++    if (nColumn >= rColumnJustification.size() || rCell.trim().isEmpty())
++        return rCell;
++    const OUString& rJustification = rColumnJustification[nColumn];
++    if (rJustification == "left")
++        return "alignl {" + rCell + "}";
++    if (rJustification == "right")
++        return "alignr {" + rCell + "}";
++    return rCell;
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/hst/ommllayout.hxx b/starmath/source/hst/ommllayout.hxx
+new file mode 100644
+--- /dev/null
++++ b/starmath/source/hst/ommllayout.hxx
+@@ -0,0 +1,63 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ *
++ * Part of HST Office. This file is HST's own work and is not covered by the MPL.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <sax/fshelper.hxx>
++#include <token.hxx>
++
++#include <string_view>
++#include <vector>
++
++class SmMatrixNode;
++class SmNode;
++
++namespace oox::formulaimport
++{
++class XmlStream;
++}
++
++// How a formula looks in Word (OMML, ECMA-376 Part 1, 22.1): the layout properties that StarMath
++// expresses through fonts and alignment, written to and read back from the OMML elements that
++// carry them.
++namespace starmath::hst
++{
++/// Function names (sin, log, lim, "func det") are set upright. An OMML run is italic unless its
++/// m:rPr has m:sty m:val="p" (22.1.2.112), so a function name gets that run property.
++bool IsOmmlUprightName(const SmNode& rNode);
++
++/// Writes <m:rPr><m:sty m:val="p"/></m:rPr> for a function name, nothing for other text.
++void WriteOmmlUprightName(const sax_fastparser::FSHelperPtr& pSerializer, const SmNode& rNode);
++
++/// m:vertJc of the m:groupChr written for a brace or an arrow with text (22.1.2.117): which part
++/// of the group sits on the baseline. A brace leaves the expression on the baseline; an arrow
++/// with text stays on the baseline like a relation, with its text above it ("bot": the bottom
++/// part, the arrow under its text, is on the baseline).
++const char* OmmlGroupCharVerticalJustification(SmTokenType eType);
++
++/// m:mcJc (22.1.2.67) of each matrix column, "left", "center" or "right", from the alignment the
++/// formula's layout gives its cells (alignl, alignr, quoted text). A column whose cells disagree
++/// is centred, as m:mcJc is one value per column. Empty when every column is centred, the OMML
++/// default, so such a matrix keeps its m:m without m:mPr.
++std::vector<const char*> OmmlMatrixColumnJustification(const SmMatrixNode& rMatrix);
++
++/// Writes m:mPr with one m:mc per column (m:count 1, m:mcJc) when a column is not centred.
++void WriteOmmlMatrixColumns(const sax_fastparser::FSHelperPtr& pSerializer,
++                            const SmMatrixNode& rMatrix);
++
++/// Reads the optional m:mPr at the start of an m:m: the m:mcJc value of each column, repeated
++/// m:count times; empty without m:mPr. The stream is left at the first m:mr.
++std::vector<OUString> ReadOmmlMatrixColumnJustification(oox::formulaimport::XmlStream& rStream);
++
++/// A matrix cell read from OMML in the alignment of its column: "alignl {cell}" for "left",
++/// "alignr {cell}" for "right"; other columns and empty cells stay as they are.
++OUString OmmlAlignedMatrixCell(const std::vector<OUString>& rColumnJustification, size_t nColumn,
++                               const OUString& rCell);
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+diff --git a/starmath/source/ooxmlexport.cxx b/starmath/source/ooxmlexport.cxx
+--- a/starmath/source/ooxmlexport.cxx
++++ b/starmath/source/ooxmlexport.cxx
+@@ -8,6 +8,7 @@
+  */
+ 
+ #include "ooxmlexport.hxx"
++#include "hst/ommllayout.hxx"
+ 
+ #include <oox/token/tokens.hxx>
+ #include <rtl/ustring.hxx>
+@@ -105,6 +106,8 @@
+         m_pSerializer->singleElementNS(XML_m, XML_nor);
+         m_pSerializer->endElementNS( XML_m, XML_rPr );
+     }
++    else // HST Office: function names stay upright in Word
++        starmath::hst::WriteOmmlUprightName(m_pSerializer, *pNode);
+     if (drawingml::DOCUMENT_DOCX == m_DocumentType && ECMA_376_1ST_EDITION == version)
+     { // HACK: MSOffice2007 does not import characters properly unless this font is explicitly given
+         m_pSerializer->startElementNS(XML_w, XML_rPr);
+@@ -482,6 +485,7 @@
+ void SmOoxmlExport::HandleMatrix( const SmMatrixNode* pNode, int nLevel )
+ {
+     m_pSerializer->startElementNS(XML_m, XML_m);
++    starmath::hst::WriteOmmlMatrixColumns(m_pSerializer, *pNode); // HST Office: alignl/alignr columns
+     for (size_t row = 0; row < pNode->GetNumRows(); ++row)
+     {
+         m_pSerializer->startElementNS(XML_m, XML_mr);
+@@ -577,11 +581,11 @@
+             m_pSerializer->startElementNS(XML_m, XML_groupChrPr);
+             m_pSerializer->singleElementNS( XML_m, XML_chr,
+                 FSNS( XML_m, XML_val ), mathSymbolToString(pNode->Brace()) );
+-            // TODO not sure if pos and vertJc are correct
+             m_pSerializer->singleElementNS( XML_m, XML_pos,
+                 FSNS( XML_m, XML_val ), top ? "top" : "bot" );
++            // HST Office: an arrow with text keeps the arrow, not its text, on the baseline
+             m_pSerializer->singleElementNS(XML_m, XML_vertJc, FSNS(XML_m, XML_val),
+-                                           top ? "bot" : "top");
++                starmath::hst::OmmlGroupCharVerticalJustification(pNode->GetToken().eType));
+             m_pSerializer->endElementNS( XML_m, XML_groupChrPr );
+             m_pSerializer->startElementNS(XML_m, XML_e);
+             HandleNode( pNode->Body(), nLevel + 1 );
+diff --git a/starmath/source/ooxmlimport.cxx b/starmath/source/ooxmlimport.cxx
+--- a/starmath/source/ooxmlimport.cxx
++++ b/starmath/source/ooxmlimport.cxx
+@@ -13,6 +13,7 @@
+ 
+ #include "ooxmlimport.hxx"
+ #include "hst/ommlfixes.hxx"
++#include "hst/ommllayout.hxx"
+ #include <types.hxx>
+ 
+ #include <oox/mathml/importutils.hxx>
+@@ -501,16 +502,20 @@
+ OUString SmOoxmlImport::handleM()
+ {
+     m_rStream.ensureOpeningTag( M_TOKEN( m ));
++    // HST Office: the columns' m:mcJc come back as alignl/alignr cells
++    const std::vector<OUString> aColumnJc = starmath::hst::ReadOmmlMatrixColumnJustification( m_rStream );
+     OUStringBuffer allrows;
+     do // there must be at least one m:mr
+     {
+         m_rStream.ensureOpeningTag( M_TOKEN( mr ));
+         OUStringBuffer row;
++        size_t nColumn = 0;
+         do // there must be at least one m:e
+         {
+             if( !row.isEmpty())
+                 row.append(" # ");
+-            row.append(readOMathArgInElement( M_TOKEN( e )));
++            row.append(starmath::hst::OmmlAlignedMatrixCell( aColumnJc, nColumn++,
++                readOMathArgInElement( M_TOKEN( e ))));
+         } while( !m_rStream.atEnd() && m_rStream.findTag( OPENING( M_TOKEN( e ))));
+         if( !allrows.isEmpty())
+             allrows.append(" ## ");
