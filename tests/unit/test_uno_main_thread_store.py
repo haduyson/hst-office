@@ -21,6 +21,24 @@ class PropertyValue:
         self.Name, self.Value = None, None
 
 
+STUBBED = ("com", "com.sun", "com.sun.star", "com.sun.star.beans", "com.sun.star.awt", "unohelper", "uno_main_thread_load",
+           "headless_office")
+
+
+def keep_modules(test):
+    """Put back the modules the stub replaces (and the helper imported against it) after the test, so the other
+    test modules of the same run see their own UNO stubs."""
+    saved = {name: sys.modules.get(name) for name in STUBBED}
+
+    def restore():
+        for name, module in saved.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+    test.addCleanup(restore)
+
+
 def install_uno_stub():
     beans = types.ModuleType("com.sun.star.beans")
     beans.PropertyValue = PropertyValue
@@ -69,6 +87,7 @@ class FakeDoc:
 
 class MainThreadStoreTests(unittest.TestCase):
     def setUp(self):
+        keep_modules(self)
         install_uno_stub()
         import uno_main_thread_load
         self.module = uno_main_thread_load
