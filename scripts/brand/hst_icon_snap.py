@@ -108,7 +108,7 @@ def snap_element(tag, element, style, m, size, native=False, factor=1.0):
     return ("path", subpaths), pen
 
 
-def snap_svg(source, size, outline=True, native=False, heavy=False, factor=1.0):
+def snap_svg(source, size, outline=True, native=False, heavy=False, factor=1.0, box=None):
     """SVG text of `source` for a `size` px raster.
 
     A 24-unit master is snapped; a native (hand-tuned) master, drawn on a viewBox of the raster
@@ -116,12 +116,20 @@ def snap_svg(source, size, outline=True, native=False, heavy=False, factor=1.0):
     False keeps them as editable strokes (the starting point of a hand-tuned master).
     heavy=True widens 1 px pens to 2 px at 16 px where the glyph has room (hst_icon_weight).
     factor: display scale (1.25, 1.5...); the glyph is snapped natively at round(size x factor) px.
+    box: (width, height) of a native master that is not a square icon (a frame image VCL draws at its
+    own size, e.g. 25 x 16); its viewBox is "0 0 width height" and `size` is ignored.
     """
-    if size not in TARGET_PEN or (native and factor != 1.0):
+    if box is not None:
+        if not native or factor != 1.0:
+            raise SnapError("a box is only for native masters at 1x")
+        width, height = box
+    elif size not in TARGET_PEN or (native and factor != 1.0):
         raise SnapError(f"unsupported size: {size} at {factor:g}x")
-    pixels = round_half_up(size * factor)
+    else:
+        width = height = round_half_up(size * factor)
+    pixels = width
     root = ET.fromstring(source)
-    expected = f"0 0 {size} {size}" if native else "0 0 24 24"
+    expected = f"0 0 {width} {height}" if native else "0 0 24 24"
     if root.get("viewBox") != expected:
         raise SnapError(f"unexpected viewBox {root.get('viewBox')!r}, expected {expected!r}")
     scale = 1.0 if native else pixels / GRID
@@ -162,7 +170,7 @@ def snap_svg(source, size, outline=True, native=False, heavy=False, factor=1.0):
     if not native:
         desc = f"{desc} Pixel-snapped for {pixels} px."
     head = (f'<?xml version="1.0" encoding="UTF-8"?>\n{comment}'
-            f'<svg xmlns="{SVG_NS}" width="{pixels}" height="{pixels}" viewBox="0 0 {pixels} {pixels}">\n'
+            f'<svg xmlns="{SVG_NS}" width="{width}" height="{height}" viewBox="0 0 {width} {height}">\n'
             f"  <title>{escape(title)}</title>\n  <desc>{escape(desc)}</desc>\n")
     if outline:
         return head + "  " + "\n  ".join(shapes) + "\n</svg>\n"

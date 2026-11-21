@@ -34,7 +34,7 @@ import backstage_gui as gui  # noqa: E402
 from backstage_entry_steps import STUBBED, check_booklet_and_update, check_extension_answers  # noqa: E402
 from backstage_flow_steps import ND30, check_info_and_label, check_keyboard, check_new, found, menu_items, named  # noqa: E402,E501
 from backstage_guardrails import FILE_TAB_NAMES  # noqa: E402
-from backstage_visual import check_hover  # noqa: E402
+from backstage_visual import check_coat_pill, check_hover  # noqa: E402
 
 OUT_DEFAULT = os.path.join(os.path.dirname(HERE), "output", "backstage-flows")
 
@@ -142,6 +142,7 @@ def main():
         interceptor = gui.make_interceptor({ND30, ".uno:SaveAs", ".uno:NewDoc"} | STUBBED)
         frame.registerDispatchProviderInterceptor(interceptor)
         for step in (lambda: check_hover(office, frame, args.out),
+                     lambda: check_coat_pill(office, frame, args.out, args.dark),
                      lambda: check_new(office, frame, interceptor, args.out),
                      lambda: check_pin(office, frame, recent, args.out),
                      lambda: check_format(office, frame, args.out),
