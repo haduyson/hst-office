@@ -25,7 +25,7 @@ selects lines.
  $(eval $(call gb_CppunitTest_use_libraries,sw_uibase_docvw, \
 --- a/sw/qa/uibase/hst/imagealign.cxx
 +++ b/sw/qa/uibase/hst/imagealign.cxx
-@@ -0,0 +1,357 @@
+@@ -0,0 +1,369 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -48,6 +48,7 @@ selects lines.
 +#include <com/sun/star/text/ControlCharacter.hpp>
 +#include <com/sun/star/text/HoriOrientation.hpp>
 +#include <com/sun/star/text/TextContentAnchorType.hpp>
++#include <com/sun/star/text/XParagraphCursor.hpp>
 +#include <com/sun/star/text/XText.hpp>
 +#include <com/sun/star/text/XTextContent.hpp>
 +#include <com/sun/star/text/XTextCursor.hpp>
@@ -109,6 +110,13 @@ selects lines.
 +            uno::UNO_QUERY_THROW);
 +        xPicture->setPropertyValue(u"Graphic"_ustr, uno::Any(Graphic(aBitmap).GetXGraphic()));
 +        xPicture->setPropertyValue(u"AnchorType"_ustr, uno::Any(eAnchor));
++        if (eAnchor != text::TextContentAnchorType_AS_CHARACTER)
++        {
++            // Placed at a position, as Word writes a floating picture; the Graphics frame style
++            // alone would centre it already.
++            xPicture->setPropertyValue(u"HoriOrient"_ustr,
++                                       uno::Any(text::HoriOrientation::NONE));
++        }
 +        xPicture->setPropertyValue(u"Size"_ustr, uno::Any(awt::Size(2000, 2000)));
 +        uno::Reference<text::XTextContent> xContent(xPicture, uno::UNO_QUERY_THROW);
 +        xText->insertTextContent(xCursor, xContent, false);
@@ -132,7 +140,9 @@ selects lines.
 +        xText->insertControlCharacter(xCursor, text::ControlCharacter::PARAGRAPH_BREAK, false);
 +        xText->insertString(xCursor, u"After"_ustr, false);
 +        xCursor->gotoStart(false);
-+        xCursor->gotoNextParagraph(false); // the empty second paragraph holds the shape
++        // the empty second paragraph holds the shape
++        uno::Reference<text::XParagraphCursor> xParaCursor(xCursor, uno::UNO_QUERY_THROW);
++        xParaCursor->gotoNextParagraph(false);
 +
 +        uno::Reference<drawing::XShapes> xGroup
 +            = drawing::ShapeCollection::create(comphelper::getProcessComponentContext());
@@ -201,6 +211,8 @@ selects lines.
 +    size_t undoCount() { return getSwDoc()->GetIDocumentUndoRedo().GetUndoActionCount(); }
 +};
 +
++/// A new paragraph's own adjust (the default paragraph style starts at the paragraph start).
++constexpr sal_Int16 ADJUST_START = sal_Int16(style::ParagraphAdjust_START);
 +constexpr sal_Int16 ADJUST_LEFT = sal_Int16(style::ParagraphAdjust_LEFT);
 +constexpr sal_Int16 ADJUST_CENTER = sal_Int16(style::ParagraphAdjust_CENTER);
 +constexpr sal_Int16 ADJUST_RIGHT = sal_Int16(style::ParagraphAdjust_RIGHT);
@@ -220,9 +232,9 @@ selects lines.
 +    dispatchCommand(mxComponent, u".uno:CenterPara"_ustr, {});
 +
 +    // The picture's paragraph is centred, the others are not, and the picture stays selected:
-+    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(1));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_START, paraAdjust(1));
 +    CPPUNIT_ASSERT_EQUAL(ADJUST_CENTER, paraAdjust(2));
-+    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(3));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_START, paraAdjust(3));
 +    CPPUNIT_ASSERT(getSwDocShell()->GetWrtShell()->IsFrameSelected());
 +    queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked);
 +    CPPUNIT_ASSERT(bChecked);
@@ -230,7 +242,7 @@ selects lines.
 +    // One undo step brings it back:
 +    CPPUNIT_ASSERT_EQUAL(nUndo + 1, undoCount());
 +    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
-+    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(2));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_START, paraAdjust(2));
 +}
 +
 +CPPUNIT_TEST_FIXTURE(HstImageAlignTest, testInlinePictureRightAndContextMenuCommands)
@@ -267,7 +279,7 @@ selects lines.
 +    uno::Reference<beans::XPropertySet> xPicture(getShape(1), uno::UNO_QUERY_THROW);
 +    CPPUNIT_ASSERT_EQUAL(text::HoriOrientation::CENTER,
 +                         getProperty<sal_Int16>(xPicture, u"HoriOrient"_ustr));
-+    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(2));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_START, paraAdjust(2));
 +    queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked);
 +    CPPUNIT_ASSERT(bChecked);
 +
@@ -335,15 +347,15 @@ selects lines.
 +
 +    const size_t nUndo = undoCount();
 +    dispatchCommand(mxComponent, u".uno:CenterPara"_ustr, {});
-+    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(1));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_START, paraAdjust(1));
 +    CPPUNIT_ASSERT_EQUAL(ADJUST_CENTER, paraAdjust(2));
-+    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(3));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_START, paraAdjust(3));
 +    queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked);
 +    CPPUNIT_ASSERT(bChecked);
 +
 +    CPPUNIT_ASSERT_EQUAL(nUndo + 1, undoCount());
 +    dispatchCommand(mxComponent, u".uno:Undo"_ustr, {});
-+    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(2));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_START, paraAdjust(2));
 +}
 +
 +CPPUNIT_TEST_FIXTURE(HstImageAlignTest, testInlineGroupRightAlignsItsParagraph)
@@ -370,7 +382,7 @@ selects lines.
 +
 +    CPPUNIT_ASSERT_EQUAL(text::HoriOrientation::CENTER,
 +                         getProperty<sal_Int16>(getShape(1), u"HoriOrient"_ustr));
-+    CPPUNIT_ASSERT_EQUAL(ADJUST_LEFT, paraAdjust(2));
++    CPPUNIT_ASSERT_EQUAL(ADJUST_START, paraAdjust(2));
 +    queryState(SID_ATTR_PARA_ADJUST_CENTER, bChecked);
 +    CPPUNIT_ASSERT(bChecked);
 +    const auto [nBody, nShape] = bodyAndShapeCentres();
@@ -385,7 +397,7 @@ selects lines.
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- a/sw/qa/uibase/hst/marginlineselect.cxx
 +++ b/sw/qa/uibase/hst/marginlineselect.cxx
-@@ -0,0 +1,264 @@
+@@ -0,0 +1,265 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -613,7 +625,8 @@ selects lines.
 +
 +    CPPUNIT_ASSERT_EQUAL(sal_Int16(style::ParagraphAdjust_CENTER),
 +                         getProperty<sal_Int16>(getParagraph(2), u"ParaAdjust"_ustr));
-+    CPPUNIT_ASSERT_EQUAL(sal_Int16(style::ParagraphAdjust_LEFT),
++    // the line above keeps its own (default) adjust:
++    CPPUNIT_ASSERT_EQUAL(sal_Int16(style::ParagraphAdjust_START),
 +                         getProperty<sal_Int16>(getParagraph(1), u"ParaAdjust"_ustr));
 +}
 +
