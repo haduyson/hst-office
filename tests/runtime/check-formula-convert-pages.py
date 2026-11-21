@@ -29,7 +29,7 @@ _spec.loader.exec_module(base)
 
 
 def pdf(office, doc, path):
-    doc.storeToURL(office.url(path), headless_office.props(FilterName="writer_pdf_Export"))
+    office.store(doc, office.url(path), FilterName="writer_pdf_Export")
 
 
 def check(office, source, workdir):

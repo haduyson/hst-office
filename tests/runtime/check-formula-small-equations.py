@@ -74,7 +74,7 @@ def formulas(office, path, convert):
     base.set_option(office, not convert)
     doc = office.load(office.url(path))
     if convert:
-        doc.storeToURL(office.url(path + ".pdf"), headless_office.props(FilterName="writer_pdf_Export"))
+        office.store(doc, office.url(path + ".pdf"), FilterName="writer_pdf_Export")
         base.convert_all(office, doc)
     result = scales(doc)
     doc.close(True)
