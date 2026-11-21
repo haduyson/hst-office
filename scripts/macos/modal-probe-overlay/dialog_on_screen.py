@@ -24,7 +24,6 @@ import threading
 
 import unohelper
 from com.sun.star.awt import XCallback, XWindowListener
-from com.sun.star.document import XDocumentEventListener
 
 from . import diag_log
 
@@ -194,18 +193,18 @@ class _Move(unohelper.Base, XCallback):
             pass
 
 
-class _NewDocument(unohelper.Base, XDocumentEventListener):
-    """A document opened or got a view while a dialog runs."""
+def _new_document_listener(on_new):
+    """XDocumentEventListener for opened documents and new views (imported here: only macOS watches)."""
+    from com.sun.star.document import XDocumentEventListener
 
-    def __init__(self, on_new):
-        self.on_new = on_new
+    class _NewDocument(unohelper.Base, XDocumentEventListener):
+        def documentEventOccured(self, event):  # noqa: N802 - UNO method name (sic)
+            if getattr(event, "EventName", "") in NEW_DOCUMENT_EVENTS:
+                on_new(event)
 
-    def documentEventOccured(self, event):  # noqa: N802 - UNO method name (sic)
-        if getattr(event, "EventName", "") in NEW_DOCUMENT_EVENTS:
-            self.on_new(event)
-
-    def disposing(self, event):
-        pass
+        def disposing(self, event):
+            pass
+    return _NewDocument()
 
 
 def _document_window(event):
@@ -229,8 +228,8 @@ def watch_new_documents(ctx, parent_window, is_open, move, timer=None, platform=
             return
         start(MOVE_DELAY, lambda: _post(ctx, _Move(window, is_open, move)))
 
-    listener = _NewDocument(on_new)
     try:
+        listener = _new_document_listener(on_new)
         broadcaster = ctx.getValueByName("/singletons/com.sun.star.frame.theGlobalEventBroadcaster")
         broadcaster.addDocumentEventListener(listener)
     except Exception:  # noqa: BLE001 - no broadcaster: nothing to watch
