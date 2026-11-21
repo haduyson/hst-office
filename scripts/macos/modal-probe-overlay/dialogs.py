@@ -164,7 +164,7 @@ class Dialog:
         moves = []  # macOS full screen: the window of a document opened meanwhile, the dialog runs again there
 
         def move(window):
-            if not moves:
+            if not moves and window != parent:  # once per run; OnNew and OnViewCreated both report the document
                 moves.append(window)
                 self.dialog.endExecute()
         try:
