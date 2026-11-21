@@ -72,7 +72,7 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +# vim: set noet sw=4 ts=4:
 --- /dev/null
 +++ b/sw/qa/extras/hst/hstimageeditsroundtrip.cxx
-@@ -0,0 +1,638 @@
+@@ -0,0 +1,630 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -573,10 +573,9 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +
 +CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocRotatedPicturePosition) { checkRotatedPosition(TestFilter::DOC); }
 +
-+// DOCX: a picture with a shadow (as the HST picture styles give) comes back as a picture shape, which keeps Word's
-+// shadow effect. Its size is the picture without the shadow (a Writer picture's size includes it): the picture itself
-+// keeps its size, over every save.
-+CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedPictureKeepsShownSize)
++// DOCX: a picture with a shadow (as the HST picture styles give) came back as a picture shape (no Picture tab), smaller
++// by the shadow. A plain shadow is a picture's shadow in Word: it stays a picture with its shadow and its size.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedPictureStaysPicture)
 +{
 +    for (text::TextContentAnchorType eAnchor :
 +         { text::TextContentAnchorType_AS_CHARACTER, text::TextContentAnchorType_AT_CHARACTER })
@@ -588,25 +587,18 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +        aShadow.Color = 0x000000;
 +        xPicture->setPropertyValue(u"ShadowFormat"_ustr, uno::Any(aShadow));
 +
-+        awt::Size aShown[2];
-+        for (awt::Size& rSize : aShown)
++        for (int nSave = 0; nSave < 2; ++nSave)
 +        {
 +            saveAndReload(TestFilter::DOCX);
-+            uno::Reference<beans::XPropertySet> xReloaded = writerPicture();
-+            if (xReloaded.is())
-+            {
-+                xReloaded->getPropertyValue(u"Size"_ustr) >>= rSize;
-+                const table::ShadowFormat aGot = xReloaded->getPropertyValue(u"ShadowFormat"_ustr).get<table::ShadowFormat>();
-+                rSize.Width -= aGot.ShadowWidth;
-+                rSize.Height -= aGot.ShadowWidth;
-+            }
-+            else
-+                rSize = getShape(1)->getSize();
-+        }
-+        for (const awt::Size& rSize : aShown)
-+        {
-+            CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0 - 106, double(rSize.Width), 20.0);
-+            CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0 - 106, double(rSize.Height), 20.0);
++            xPicture = writerPicture();
++            CPPUNIT_ASSERT(xPicture.is());
++            const table::ShadowFormat aGot = xPicture->getPropertyValue(u"ShadowFormat"_ustr).get<table::ShadowFormat>();
++            CPPUNIT_ASSERT_EQUAL(table::ShadowLocation_BOTTOM_RIGHT, aGot.Location);
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(106.0, double(aGot.ShadowWidth), 5.0);
++            awt::Size aSize;
++            xPicture->getPropertyValue(u"Size"_ustr) >>= aSize;
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSize.Width), 20.0);
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSize.Height), 20.0);
 +        }
 +    }
 +}
@@ -711,3 +703,40 @@ Test: CppunitTest_sw_hst_image_edits_roundtrip (expected to fail before the fix)
 +CPPUNIT_PLUGIN_IMPLEMENT();
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/sw/qa/extras/ooxmlexport/ooxmlexport2.cxx
++++ b/sw/qa/extras/ooxmlexport/ooxmlexport2.cxx
+@@ -1166,10 +1166,11 @@
+ 
+ DECLARE_OOXMLEXPORT_TEST(testTransparentShadow, "transparent-shadow.docx")
+ {
++    // HST: a picture with a plain shadow stays a Writer picture, its shadow a Writer shadow
+     uno::Reference<drawing::XShape> xPicture = getShape(1);
+-    sal_Int16 nShadowTransparence = getProperty<sal_Int16>(xPicture, u"ShadowTransparence"_ustr);
+-    CPPUNIT_ASSERT_EQUAL(COL_GRAY, getProperty<Color>(xPicture, u"ShadowColor"_ustr));
+-    CPPUNIT_ASSERT_EQUAL(sal_Int16(50), nShadowTransparence);
++    table::ShadowFormat aShadow = getProperty<table::ShadowFormat>(xPicture, u"ShadowFormat"_ustr);
++    CPPUNIT_ASSERT_EQUAL(COL_GRAY, Color(ColorTransparency, aShadow.Color).GetRGBColor());
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(127.0, double(Color(ColorTransparency, aShadow.Color).GetAlpha() ^ 0xFF), 2.0);
+ }
+ 
+ CPPUNIT_TEST_FIXTURE(Test, NoFillAttrInImagedata)
+--- a/sw/qa/extras/ooxmlexport/ooxmlexport8.cxx
++++ b/sw/qa/extras/ooxmlexport/ooxmlexport8.cxx
+@@ -561,13 +561,12 @@
+      * The problem was that drop shadows on inline images were not being
+      * imported and applied.
+      */
++    // HST: a picture with a plain shadow stays a Writer picture, its shadow a Writer shadow
+     uno::Reference<beans::XPropertySet> xPropertySet(getShape(2), uno::UNO_QUERY);
+ 
+-    bool bShadow = getProperty<bool>(xPropertySet, u"Shadow"_ustr);
+-    CPPUNIT_ASSERT(bShadow);
+-
+-    sal_Int32 nShadowXDistance = getProperty<sal_Int32>(xPropertySet, u"ShadowXDistance"_ustr);
+-    CPPUNIT_ASSERT(nShadowXDistance != 0);
++    table::ShadowFormat aShadow = getProperty<table::ShadowFormat>(xPropertySet, u"ShadowFormat"_ustr);
++    CPPUNIT_ASSERT(aShadow.Location != table::ShadowLocation_NONE);
++    CPPUNIT_ASSERT(aShadow.ShadowWidth != 0);
+ }
+ 
+ DECLARE_OOXMLEXPORT_TEST(testN782345, "n782345.docx")
