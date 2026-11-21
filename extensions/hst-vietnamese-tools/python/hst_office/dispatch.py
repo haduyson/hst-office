@@ -7,7 +7,7 @@ import unohelper
 from com.sun.star.frame import XDispatch, XDispatchProvider
 from com.sun.star.lang import XInitialization, XServiceInfo
 
-from . import citation_command_names, diag_log, help_pages, ui_language
+from . import action_names, diag_log, help_pages, ui_language
 from .data_files import load_locale
 
 IMPLEMENTATION_NAME = "org.hst.office.vi.DispatchProvider"
@@ -25,15 +25,7 @@ HELP_PAGES = help_pages.COMMANDS  # Trợ giúp ▸ Lệnh quen thuộc ở đâ
 NO_DOCUMENT = frozenset((SHOW_SOLUTIONS, DEFAULT_APPS)) | frozenset(ON_USE) | HELP_PAGES
 TEST_RAISE_ENV = "HST_DIAG_TEST_RAISE"
 DUPLEX = "ToggleDuplex"  # HST ▸ In hai mặt: a check item showing the document's choice
-# The commands of actions.COMMANDS, by name. The Start Center creates this handler and asks it about every HST menu
-# item while the splash screen is still up; answering from names keeps the command code (actions: ND30, encodings,
-# CSV, VBA, ...) out of every start. actions is imported when a command runs (tests/unit/test_dispatch_no_document.py
-# checks that the names match).
-ACTION_COMMANDS = frozenset((
-    "Nd30Wizard", "ToggleDuplex", "ConvertEncoding", "FormatDate", "FormatDateLong", "FormatMonthYear", "FormatDateDash",
-    "FormatVnd", "FormatPercent", "ImportCsv", "EditVba", "NumberToWords", "RemoveDiacritics", "SplitName",
-    "SortByGivenName", "DeleteBlankRows", "PreviousVersions", "OpenInHstPdf", "ChemFormula", "ConvertFormulas",
-    "AskConvertFormula", "FormulaTemplates")) | citation_command_names.NAMES
+ACTION_COMMANDS = action_names.ACTION_COMMANDS  # names only: no command code at start (action_names)
 
 
 def _actions():
