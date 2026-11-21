@@ -322,7 +322,17 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
  
  using namespace css;
  
-@@ -838,7 +839,9 @@
+@@ -819,7 +820,8 @@
+                         // if the shape contains effects in the grab bag, we should not transform it
+                         // in a XTextContent so those effects can be preserved
+                         bool bContainsEffects = std::any_of(std::cbegin(aGrabBag), std::cend(aGrabBag), [](const auto& rProp) {
+-                            return rProp.Name == "EffectProperties"
++                            return (rProp.Name == "EffectProperties"
++                                    && !::hst::pictureimport::IsPictureShadowOnly(rProp.Value)) // HST
+                                 || rProp.Name == "3DEffectProperties"
+                                 || rProp.Name == "ArtisticEffectProperties";
+                         });
+@@ -838,7 +840,9 @@
                          xShapeProps->getPropertyValue(u"AdjustContrast"_ustr) >>= m_nContrast;
  
                          // fdo#70457: transform XShape into a SwXTextGraphicObject only if there's no rotation
@@ -333,7 +343,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
                              m_xGraphicObject = createGraphicObject( xGraphic, xShapeProps );
  
                          bUseShape = !m_xGraphicObject.is( );
-@@ -1998,6 +2001,8 @@
+@@ -1998,6 +2002,8 @@
                  xGraphicObject->setPropertyValue(u"HoriMirroredOnOddPages"_ustr,
                                                             uno::Any(true));
              }
@@ -342,6 +352,43 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
          }
      }
      catch( const uno::Exception& )
+--- a/sw/qa/extras/ooxmlexport/ooxmlexport2.cxx
++++ b/sw/qa/extras/ooxmlexport/ooxmlexport2.cxx
+@@ -1166,10 +1166,11 @@
+ 
+ DECLARE_OOXMLEXPORT_TEST(testTransparentShadow, "transparent-shadow.docx")
+ {
++    // HST: a picture with a plain shadow stays a Writer picture, its shadow a Writer shadow
+     uno::Reference<drawing::XShape> xPicture = getShape(1);
+-    sal_Int16 nShadowTransparence = getProperty<sal_Int16>(xPicture, u"ShadowTransparence"_ustr);
+-    CPPUNIT_ASSERT_EQUAL(COL_GRAY, getProperty<Color>(xPicture, u"ShadowColor"_ustr));
+-    CPPUNIT_ASSERT_EQUAL(sal_Int16(50), nShadowTransparence);
++    table::ShadowFormat aShadow = getProperty<table::ShadowFormat>(xPicture, u"ShadowFormat"_ustr);
++    CPPUNIT_ASSERT_EQUAL(COL_GRAY, Color(ColorTransparency, aShadow.Color).GetRGBColor());
++    CPPUNIT_ASSERT_DOUBLES_EQUAL(127.0, double(Color(ColorTransparency, aShadow.Color).GetAlpha() ^ 0xFF), 2.0);
+ }
+ 
+ CPPUNIT_TEST_FIXTURE(Test, NoFillAttrInImagedata)
+--- a/sw/qa/extras/ooxmlexport/ooxmlexport8.cxx
++++ b/sw/qa/extras/ooxmlexport/ooxmlexport8.cxx
+@@ -561,13 +561,12 @@
+      * The problem was that drop shadows on inline images were not being
+      * imported and applied.
+      */
++    // HST: a picture with a plain shadow stays a Writer picture, its shadow a Writer shadow
+     uno::Reference<beans::XPropertySet> xPropertySet(getShape(2), uno::UNO_QUERY);
+ 
+-    bool bShadow = getProperty<bool>(xPropertySet, u"Shadow"_ustr);
+-    CPPUNIT_ASSERT(bShadow);
+-
+-    sal_Int32 nShadowXDistance = getProperty<sal_Int32>(xPropertySet, u"ShadowXDistance"_ustr);
+-    CPPUNIT_ASSERT(nShadowXDistance != 0);
++    table::ShadowFormat aShadow = getProperty<table::ShadowFormat>(xPropertySet, u"ShadowFormat"_ustr);
++    CPPUNIT_ASSERT(aShadow.Location != table::ShadowLocation_NONE);
++    CPPUNIT_ASSERT(aShadow.ShadowWidth != 0);
+ }
+ 
+ DECLARE_OOXMLEXPORT_TEST(testN782345, "n782345.docx")
 --- /dev/null
 +++ b/sw/CppunitTest_sw_hst_image_edits_roundtrip.mk
 @@ -0,0 +1,55 @@
@@ -402,7 +449,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +# vim: set noet sw=4 ts=4:
 --- /dev/null
 +++ b/sw/qa/extras/hst/hstimageeditsroundtrip.cxx
-@@ -0,0 +1,638 @@
+@@ -0,0 +1,630 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -903,10 +950,9 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +
 +CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocRotatedPicturePosition) { checkRotatedPosition(TestFilter::DOC); }
 +
-+// DOCX: a picture with a shadow (as the HST picture styles give) comes back as a picture shape, which keeps Word's
-+// shadow effect. Its size is the picture without the shadow (a Writer picture's size includes it): the picture itself
-+// keeps its size, over every save.
-+CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedPictureKeepsShownSize)
++// DOCX: a picture with a shadow (as the HST picture styles give) came back as a picture shape (no Picture tab), smaller
++// by the shadow. A plain shadow is a picture's shadow in Word: it stays a picture with its shadow and its size.
++CPPUNIT_TEST_FIXTURE(HstImageEditsRoundtripTest, testDocxShadowedPictureStaysPicture)
 +{
 +    for (text::TextContentAnchorType eAnchor :
 +         { text::TextContentAnchorType_AS_CHARACTER, text::TextContentAnchorType_AT_CHARACTER })
@@ -918,25 +964,18 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +        aShadow.Color = 0x000000;
 +        xPicture->setPropertyValue(u"ShadowFormat"_ustr, uno::Any(aShadow));
 +
-+        awt::Size aShown[2];
-+        for (awt::Size& rSize : aShown)
++        for (int nSave = 0; nSave < 2; ++nSave)
 +        {
 +            saveAndReload(TestFilter::DOCX);
-+            uno::Reference<beans::XPropertySet> xReloaded = writerPicture();
-+            if (xReloaded.is())
-+            {
-+                xReloaded->getPropertyValue(u"Size"_ustr) >>= rSize;
-+                const table::ShadowFormat aGot = xReloaded->getPropertyValue(u"ShadowFormat"_ustr).get<table::ShadowFormat>();
-+                rSize.Width -= aGot.ShadowWidth;
-+                rSize.Height -= aGot.ShadowWidth;
-+            }
-+            else
-+                rSize = getShape(1)->getSize();
-+        }
-+        for (const awt::Size& rSize : aShown)
-+        {
-+            CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0 - 106, double(rSize.Width), 20.0);
-+            CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0 - 106, double(rSize.Height), 20.0);
++            xPicture = writerPicture();
++            CPPUNIT_ASSERT(xPicture.is());
++            const table::ShadowFormat aGot = xPicture->getPropertyValue(u"ShadowFormat"_ustr).get<table::ShadowFormat>();
++            CPPUNIT_ASSERT_EQUAL(table::ShadowLocation_BOTTOM_RIGHT, aGot.Location);
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(106.0, double(aGot.ShadowWidth), 5.0);
++            awt::Size aSize;
++            xPicture->getPropertyValue(u"Size"_ustr) >>= aSize;
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(6000.0, double(aSize.Width), 20.0);
++            CPPUNIT_ASSERT_DOUBLES_EQUAL(4500.0, double(aSize.Height), 20.0);
 +        }
 +    }
 +}
@@ -1450,7 +1489,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sw/source/writerfilter/hst/hstpictureimport.cxx
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,97 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1460,7 +1499,10 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +
 +#include "hstpictureimport.hxx"
 +
++#include <com/sun/star/awt/Size.hpp>
++#include <com/sun/star/beans/PropertyValue.hpp>
 +#include <com/sun/star/beans/XPropertySetInfo.hpp>
++#include <com/sun/star/table/ShadowFormat.hpp>
 +
 +using namespace css;
 +
@@ -1484,6 +1526,32 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +           && GetProperty<bool>(xShapeProps, u"IsMirrored"_ustr, false);
 +}
 +
++bool IsPictureShadowOnly(const uno::Any& rEffects)
++{
++    uno::Sequence<beans::PropertyValue> aEffects;
++    if (!(rEffects >>= aEffects) || aEffects.getLength() != 1 || aEffects[0].Name != "outerShdw")
++        return false;
++    uno::Sequence<beans::PropertyValue> aShadow;
++    aEffects[0].Value >>= aShadow;
++    for (const beans::PropertyValue& rProp : aShadow)
++    {
++        if (rProp.Name != "Attribs")
++            continue;
++        uno::Sequence<beans::PropertyValue> aAttribs;
++        rProp.Value >>= aAttribs;
++        for (const beans::PropertyValue& rAttrib : aAttribs)
++        {
++            sal_Int32 nValue = 0;
++            rAttrib.Value >>= nValue;
++            if ((rAttrib.Name == "blurRad" || rAttrib.Name == "kx" || rAttrib.Name == "ky") && nValue != 0)
++                return false;
++            if ((rAttrib.Name == "sx" || rAttrib.Name == "sy") && nValue != 100000)
++                return false;
++        }
++    }
++    return true;
++}
++
 +void ApplyShapeSettings(const uno::Reference<beans::XPropertySet>& xShapeProps,
 +                        const uno::Reference<beans::XPropertySet>& xGraphicObject)
 +{
@@ -1493,6 +1561,20 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +    const sal_Int16 nTransparency = GetProperty<sal_Int16>(xShapeProps, u"Transparency"_ustr, 0);
 +    if (nTransparency > 0 && nTransparency <= 100)
 +        xGraphicObject->setPropertyValue(u"Transparency"_ustr, uno::Any(nTransparency));
++
++    // A Writer picture's size includes its shadow, Word's extent does not (the export takes it off again).
++    const table::ShadowFormat aShadow
++        = GetProperty<table::ShadowFormat>(xGraphicObject, u"ShadowFormat"_ustr, table::ShadowFormat());
++    if (aShadow.Location != table::ShadowLocation_NONE && aShadow.ShadowWidth > 0)
++    {
++        awt::Size aSize = GetProperty<awt::Size>(xGraphicObject, u"Size"_ustr, awt::Size());
++        if (aSize.Width > 0 && aSize.Height > 0)
++        {
++            aSize.Width += aShadow.ShadowWidth;
++            aSize.Height += aShadow.ShadowWidth;
++            xGraphicObject->setPropertyValue(u"Size"_ustr, uno::Any(aSize));
++        }
++    }
 +
 +    if (IsVerticallyFlipped(xShapeProps))
 +    {
@@ -1507,7 +1589,7 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 --- /dev/null
 +++ b/sw/source/writerfilter/hst/hstpictureimport.hxx
-@@ -0,0 +1,23 @@
+@@ -0,0 +1,28 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1525,7 +1607,12 @@ applied pixels compared with HST Office's drawing, rotation and size of floating
 +/// Such a shape is no rotated picture: it can become a Writer picture, flipped vertically.
 +bool IsVerticallyFlipped(const css::uno::Reference<css::beans::XPropertySet>& xShapeProps);
 +
-+/// Gives the Writer picture the shape's transparency (a:alphaModFix) and its vertical flip.
++/// The shape's effects (its "EffectProperties" grab bag) are only a plain outer shadow (a:outerShdw without blur,
++/// scaling or skew): a shadow a Writer picture has too, so the shape can still become a picture, as in Word.
++bool IsPictureShadowOnly(const css::uno::Any& rEffects);
++
++/// Gives the Writer picture the shape's transparency (a:alphaModFix) and its vertical flip, and adds its shadow to
++/// its size (Word's extent leaves the shadow out).
 +void ApplyShapeSettings(const css::uno::Reference<css::beans::XPropertySet>& xShapeProps,
 +                        const css::uno::Reference<css::beans::XPropertySet>& xGraphicObject);
 +}
