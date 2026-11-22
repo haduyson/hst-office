@@ -115,10 +115,11 @@ class AdoptTests(unittest.TestCase):
         kit.windows[OLD]["mask"] = TITLED
         self.assertEqual(self.adopt(kit), 0)
 
-    def test_never_on_other_platforms_or_when_appkit_fails(self):
+    def test_never_on_other_platforms_and_appkit_errors_reach_the_caller(self):
         self.assertEqual(mnw.adopt_dialogs(Peer(VIEW), "win32"), 0)
         with mock.patch.object(mnw, "send", side_effect=OSError("no libobjc")):
-            self.assertEqual(mnw.adopt_dialogs(Peer(VIEW), "darwin"), 0)
+            with self.assertRaises(OSError):  # mac_full_screen_dialogs.adopt logs it
+                mnw.adopt_dialogs(Peer(VIEW), "darwin")
 
 
 if __name__ == "__main__":

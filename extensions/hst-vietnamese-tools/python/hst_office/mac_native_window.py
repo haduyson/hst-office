@@ -99,17 +99,15 @@ def stranded_dialogs(target, windows):
 def adopt_dialogs(peer, platform=None):
     """Move the dialogs stranded in another full screen Space (stranded_dialogs) onto the window of `peer`: a child
     window shows in its parent's Space. The office keeps its own parent for the dialog (the document it acts on);
-    when the dialog closes the office brings that document back. Returns how many moved; 0 off macOS or unknown."""
+    when the dialog closes the office brings that document back. Returns how many moved; 0 off macOS. Raises when
+    AppKit cannot be asked (the caller logs it)."""
     if (platform or sys.platform) != "darwin" or peer is None:
         return 0
-    try:
-        target = ns_window(peer)
-        moved = 0
-        for window, parent in stranded_dialogs(target, app_windows()):
-            send(parent, "removeChildWindow:", None, (ctypes.c_void_p,), window)
-            send(target, "addChildWindow:ordered:", None, (ctypes.c_void_p, ctypes.c_long), window, ABOVE)
-            send(window, "makeKeyAndOrderFront:", None, (ctypes.c_void_p,), None)
-            moved += 1
-        return moved
-    except Exception:  # noqa: BLE001 - no runtime or a window closed meanwhile: leave the windows alone
-        return 0
+    target = ns_window(peer)
+    moved = 0
+    for window, parent in stranded_dialogs(target, app_windows()):
+        send(parent, "removeChildWindow:", None, (ctypes.c_void_p,), window)
+        send(target, "addChildWindow:ordered:", None, (ctypes.c_void_p, ctypes.c_long), window, ABOVE)
+        send(window, "makeKeyAndOrderFront:", None, (ctypes.c_void_p,), None)
+        moved += 1
+    return moved

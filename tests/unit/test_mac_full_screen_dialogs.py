@@ -24,13 +24,19 @@ class WatchTests(unittest.TestCase):
         self.office.broadcaster.fire("OnTitleChanged", self.document)
         self.assertEqual(self.timers.pending, [])
         self.office.broadcaster.fire("OnViewCreated", self.document)
-        self.assertEqual([d for d, _ in self.timers.pending], [mfs.DELAY])
-        with mock.patch("hst_office.mac_native_window.adopt_dialogs", return_value=1) as adopt, \
+        self.assertEqual([d for d, _ in self.timers.pending], list(mfs.DELAYS))
+        with mock.patch("hst_office.mac_native_window.adopt_dialogs", side_effect=[0, 1, 0]) as adopt, \
                 mock.patch.object(mfs.diag_log, "info") as info:
             self.timers.fire()
             self.office.pump()
-        adopt.assert_called_once_with(self.document)
+        self.assertEqual(adopt.call_args_list, [mock.call(self.document)] * 3)  # until the Space has changed
         info.assert_called_once()
+
+    def test_an_appkit_error_is_logged_and_moves_nothing(self):
+        with mock.patch("hst_office.mac_native_window.adopt_dialogs", side_effect=OSError("no libobjc")), \
+                mock.patch.object(mfs.diag_log, "exception") as logged:
+            self.assertEqual(mfs.adopt(self.document), 0)
+        logged.assert_called_once_with("mac_full_screen_dialogs")
 
     def test_an_open_hst_dialog_moves_itself_and_a_hidden_window_takes_nothing(self):
         with mock.patch("hst_office.mac_native_window.adopt_dialogs") as adopt:

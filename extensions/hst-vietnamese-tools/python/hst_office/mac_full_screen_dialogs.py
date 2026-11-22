@@ -6,8 +6,8 @@ With the dialog's document in native full screen, a document opened while the di
 Dock) shows in a full screen Space of its own. The dialog stays behind with its document and still blocks it: the
 office looks frozen (probe: Format > Character, then a new document, dialog off screen). The extension's own dialogs
 move themselves (dialog_on_screen.watch_new_documents); for the others, once the new document's window is shown, the
-dialog's window is put over it (mac_native_window.adopt_dialogs), so the user can finish or cancel it there. Started
-once per office process (start); Windows and Linux watch nothing.
+dialog's window is put over it (mac_native_window.adopt_dialogs, looked for a few times while the Space changes), so
+the user can finish or cancel it there. Started once per office process (start); Windows and Linux watch nothing.
 """
 import sys
 import threading
@@ -18,7 +18,9 @@ from com.sun.star.awt import XCallback
 from . import diag_log
 
 EVENTS = ("OnNew", "OnLoad", "OnViewCreated")
-DELAY = 1.0  # seconds after a new document's event: its window is shown and in its own Space by then
+# seconds after a new document's event at which stranded dialogs are looked for: the Space animation that takes the
+# user to the new document's Space ends at an unknown time (once moved, later looks find nothing left)
+DELAYS = (1.0, 2.5, 5.0)
 _STATE = {"listener": None}
 
 
@@ -49,7 +51,8 @@ def adopt(window):
         if moved:
             diag_log.info("dialog", "%d office dialog(s) moved onto a new full screen document" % moved)
         return moved
-    except Exception:  # noqa: BLE001 - a window closed meanwhile: nothing to move
+    except Exception:  # noqa: BLE001 - AppKit not reachable or a window closed meanwhile: nothing moved
+        diag_log.exception("mac_full_screen_dialogs")
         return 0
 
 
@@ -69,7 +72,8 @@ def on_document(ctx, event, timer=None):
         return
     window = _document_window(event)
     if window is not None:
-        (timer or _daemon_timer)(DELAY, lambda: _post(ctx, _Adopt(window)))
+        for delay in DELAYS:
+            (timer or _daemon_timer)(delay, lambda: _post(ctx, _Adopt(window)))
 
 
 def start(ctx, platform=None, timer=None):
