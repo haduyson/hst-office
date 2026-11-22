@@ -39,8 +39,13 @@ class Watchdog(unittest.TestCase):
         self.body = code(added())
         self.patched = after_patch()
 
-    def test_last_in_series_and_only_app_cxx(self):
-        self.assertEqual(series()[-1], PATCH)
+    def test_last_app_cxx_patch_in_series_and_only_app_cxx(self):
+        # Its hunks are written against app.cxx as every earlier patch leaves it, so no later patch may touch
+        # app.cxx; patches of other files may follow it.
+        names = series()
+        later = [name for name in names[names.index(PATCH) + 1:]
+                 if "+++ b/desktop/source/app/app.cxx" in (PATCHES / name).read_text(encoding="utf-8")]
+        self.assertEqual(later, [])
         files = re.findall(r"^\+\+\+ b/(\S+)", (PATCHES / PATCH).read_text(encoding="utf-8"), re.M)
         self.assertEqual(files, ["desktop/source/app/app.cxx"])
 
