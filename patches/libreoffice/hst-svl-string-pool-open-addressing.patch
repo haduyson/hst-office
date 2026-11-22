@@ -1,0 +1,864 @@
+HST Office: the shared string pool keeps its strings in an open-addressing table, about half the memory.
+
+svl::SharedStringPool (every text cell of Sheets, and the case-insensitive partners that sorting, filtering and
+lookups compare) kept each string in a std::unordered_map node: one heap block of 48 bytes per string (next pointer,
+key string, cached key hash, upper-case string, cached node hash) plus an 8-byte bucket pointer. A large workbook
+(ketoan-50: 1.16 million distinct texts, 1.92 million pool entries with the upper-case strings) spends about
+100 MB on these nodes and buckets, before any string data.
+
+The pool now uses HstStringPoolTable (new hststringpooltable.cxx): linear probing over two flat arrays, the string and
+its upper-case string (16 bytes) and the 32-bit string hash (4 bytes), load at most 4/5, growth by half (any
+capacity: Fibonacci mixing, then multiply-shift onto the slot range). About 31 bytes per entry on average instead of
+about 59; arrays this large are mmap'ed by malloc, so a growth returns the old array to the system instead of
+leaving 48-byte holes between live strings. A lookup compares the string only when the hash matches.
+
+Unchanged: what intern() returns (the same rtl_uString for equal strings, the shared upper-case string), the
+references the pool holds (one on the string and one on its upper case per entry, so a string that is its own
+upper case is held twice), and purge(): first entries whose string differs from its upper case and that only the
+pool references, then upper-case entries that only their own entry references. After a purge the remaining entries
+are moved back along their probe runs in one pass that starts at a slot that was free before the purge.
+
+Hook: svl/source/misc/sharedstringpool.cxx (SharedStringPool::Impl holds the table; intern/purge/getCount call it),
+svl/Library_svl.mk; logic in svl/source/inc/hststringpooltable.hxx, svl/source/misc/hststringpooltable.cxx.
+Test: CppunitTest_svl_hst_string_pool (the pool's heap for 1,924,229 entries stays under 40 bytes per entry; 100,000
+strings in three spellings, 300 strings with one hash, purges that keep every third string or every other one of the
+same-hash run, then every string is found or comes back once; a model of the purge rules on a fixed random
+sequence), CppunitTest_svl_qa_cppunit (the upstream pool tests).
+
+License: modified upstream files keep their license (MPL-2.0); the new files are HST's (LicenseRef-HST-Proprietary).
+---
+--- /dev/null
++++ b/svl/CppunitTest_svl_hst_string_pool.mk
+@@ -0,0 +1,46 @@
++# -*- Mode: makefile-gmake; tab-width: 4; indent-tabs-mode: t -*-
++#
++# SPDX-License-Identifier: LicenseRef-HST-Proprietary
++# Copyright (c) HASON TECH. HST Office.
++#
++
++$(eval $(call gb_CppunitTest_CppunitTest,svl_hst_string_pool))
++
++$(eval $(call gb_CppunitTest_use_sdk_api,svl_hst_string_pool))
++
++$(eval $(call gb_CppunitTest_use_externals,svl_hst_string_pool, \
++	boost_headers \
++	icui18n \
++	icuuc \
++	icu_headers \
++))
++
++$(eval $(call gb_CppunitTest_add_exception_objects,svl_hst_string_pool, \
++	svl/qa/unit/hststringpool \
++))
++
++$(eval $(call gb_CppunitTest_use_libraries,svl_hst_string_pool, \
++	comphelper \
++	cppu \
++	cppuhelper \
++	i18nlangtag \
++	sal \
++	svl \
++	tl \
++	unotest \
++	utl \
++))
++
++$(eval $(call gb_CppunitTest_set_include,svl_hst_string_pool,\
++	$$(INCLUDE) \
++))
++
++$(eval $(call gb_CppunitTest_use_components,svl_hst_string_pool,\
++	i18npool/util/i18npool \
++	configmgr/source/configmgr \
++))
++
++$(eval $(call gb_CppunitTest_use_ure,svl_hst_string_pool))
++$(eval $(call gb_CppunitTest_use_configuration,svl_hst_string_pool))
++
++# vim: set noet sw=4:
+--- a/svl/Library_svl.mk
++++ b/svl/Library_svl.mk
+@@ -161,6 +161,7 @@
+     svl/source/misc/sharecontrolfile \
+     svl/source/misc/sharedstring \
+     svl/source/misc/sharedstringpool \
++    svl/source/misc/hststringpooltable \
+     svl/source/misc/strmadpt \
+     svl/source/misc/urihelper \
+     svl/source/notify/SfxBroadcaster \
+--- a/svl/Module_svl.mk
++++ b/svl/Module_svl.mk
+@@ -31,6 +31,7 @@
+ 
+ $(eval $(call gb_Module_add_check_targets,svl,\
+ 	CppunitTest_svl_adrparse \
++	CppunitTest_svl_hst_string_pool \
+ 	CppunitTest_svl_hst_excel1900 \
+ 	CppunitTest_svl_inetcontenttype \
+ 	CppunitTest_svl_items \
+--- /dev/null
++++ b/svl/qa/unit/hststringpool.cxx
+@@ -0,0 +1,301 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++
++// HST Office: svl::SharedStringPool on its open-addressing table. Many strings (the table grows
++// many times), strings with the same 32-bit hash (one long probe run), and purges that remove
++// part of the entries, after which every remaining string must still be found and every removed
++// string must come back as a new entry; the counts follow the pool's documented purge rules,
++// checked against a model on a fixed pseudo-random sequence.
++
++#include <cppunit/TestAssert.h>
++#include <cppunit/TestFixture.h>
++#include <cppunit/extensions/HelperMacros.h>
++#include <cppunit/plugin/TestPlugIn.h>
++
++#include <comphelper/processfactory.hxx>
++#include <cppuhelper/bootstrap.hxx>
++#include <com/sun/star/lang/XComponent.hpp>
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/uno/XComponentContext.hpp>
++#include <i18nlangtag/languagetag.hxx>
++#include <svl/sharedstring.hxx>
++#include <svl/sharedstringpool.hxx>
++#include <unotools/charclass.hxx>
++
++#if defined __GLIBC__
++#include <malloc.h>
++#endif
++
++#include <cstdio>
++#include <map>
++#include <optional>
++#include <random>
++#include <set>
++#include <vector>
++
++using namespace css;
++
++namespace
++{
++class HstStringPoolTest : public CppUnit::TestFixture
++{
++public:
++    HstStringPoolTest()
++        : m_xContext(cppu::defaultBootstrap_InitialComponentContext())
++    {
++        uno::Reference<lang::XMultiServiceFactory> xSM(m_xContext->getServiceManager(),
++                                                       uno::UNO_QUERY_THROW);
++        comphelper::setProcessServiceFactory(xSM);
++        m_oCharClass.emplace(m_xContext, LanguageTag(u"en-US"_ustr));
++    }
++    ~HstStringPoolTest() override
++    {
++        m_oCharClass.reset();
++        uno::Reference<lang::XComponent>(m_xContext, uno::UNO_QUERY_THROW)->dispose();
++    }
++
++    void testManyStrings();
++    void testSameHash();
++    void testPurgeKeepsLookups();
++    void testPurgeModel();
++    void testMemoryPerEntry();
++
++    CPPUNIT_TEST_SUITE(HstStringPoolTest);
++    CPPUNIT_TEST(testManyStrings);
++    CPPUNIT_TEST(testSameHash);
++    CPPUNIT_TEST(testPurgeKeepsLookups);
++    CPPUNIT_TEST(testPurgeModel);
++    CPPUNIT_TEST(testMemoryPerEntry);
++    CPPUNIT_TEST_SUITE_END();
++
++private:
++    uno::Reference<uno::XComponentContext> m_xContext;
++    std::optional<CharClass> m_oCharClass;
++};
++
++// A heap copy, so the test (not a string literal) controls the references.
++OUString heap(const OUString& rStr) { return OUString(rStr.getStr(), rStr.getLength()); }
++
++void HstStringPoolTest::testManyStrings()
++{
++    svl::SharedStringPool aPool(*m_oCharClass);
++    const size_t nExtra = aPool.getCount();
++    constexpr sal_Int32 N = 100000;
++    std::vector<svl::SharedString> aMixed, aLower;
++    aMixed.reserve(N);
++    aLower.reserve(N);
++    for (sal_Int32 i = 0; i < N; ++i)
++    {
++        aMixed.push_back(aPool.intern(heap("Item " + OUString::number(i))));
++        aLower.push_back(aPool.intern(heap("item " + OUString::number(i))));
++    }
++    // "Item n", "item n" and the shared "ITEM n"
++    CPPUNIT_ASSERT_EQUAL(nExtra + 3 * N, aPool.getCount());
++    for (sal_Int32 i = 0; i < N; i += 997)
++    {
++        const svl::SharedString aAgain = aPool.intern(heap("Item " + OUString::number(i)));
++        CPPUNIT_ASSERT_EQUAL(aMixed[i].getData(), aAgain.getData());
++        CPPUNIT_ASSERT(aMixed[i].getData() != aLower[i].getData());
++        CPPUNIT_ASSERT_EQUAL(aMixed[i].getDataIgnoreCase(), aLower[i].getDataIgnoreCase());
++        const svl::SharedString aUpper = aPool.intern(heap("ITEM " + OUString::number(i)));
++        CPPUNIT_ASSERT_EQUAL(aMixed[i].getDataIgnoreCase(), aUpper.getData());
++        CPPUNIT_ASSERT_EQUAL(aUpper.getData(), aUpper.getDataIgnoreCase());
++        CPPUNIT_ASSERT_EQUAL(u"ITEM "_ustr + OUString::number(i),
++                             OUString(aMixed[i].getDataIgnoreCase()));
++    }
++    CPPUNIT_ASSERT_EQUAL(nExtra + 3 * N, aPool.getCount());
++    // Nothing is purged while the strings are referenced.
++    aPool.purge();
++    CPPUNIT_ASSERT_EQUAL(nExtra + 3 * N, aPool.getCount());
++    aMixed.clear();
++    aLower.clear();
++    aPool.purge();
++    CPPUNIT_ASSERT_EQUAL(nExtra, aPool.getCount());
++    CPPUNIT_ASSERT_EQUAL(svl::SharedString::getEmptyString(), aPool.intern(OUString()));
++}
++
++void HstStringPoolTest::testSameHash()
++{
++    // h = h * 37 + c (rtl hashCode): two-character strings (c1, K - 37 * c1) share one hash.
++    constexpr sal_Int32 nBase = 0x5000;
++    constexpr sal_Int32 nCount = 300;
++    std::vector<OUString> aStrings;
++    for (sal_Int32 i = 0; i < nCount; ++i)
++    {
++        const sal_Unicode aChars[2] = { sal_Unicode(nBase + i), sal_Unicode(nBase - 37 * i) };
++        aStrings.emplace_back(aChars, 2);
++        CPPUNIT_ASSERT_EQUAL(aStrings[0].hashCode(), aStrings.back().hashCode());
++    }
++
++    svl::SharedStringPool aPool(*m_oCharClass);
++    const size_t nExtra = aPool.getCount();
++    std::vector<std::optional<svl::SharedString>> aHeld;
++    for (const OUString& rStr : aStrings)
++        aHeld.emplace_back(aPool.intern(heap(rStr)));
++    CPPUNIT_ASSERT_EQUAL(nExtra + nCount, aPool.getCount());
++    std::set<rtl_uString*> aDistinct;
++    for (sal_Int32 i = 0; i < nCount; ++i)
++    {
++        CPPUNIT_ASSERT_EQUAL(aStrings[i], OUString(aHeld[i]->getData()));
++        aDistinct.insert(aHeld[i]->getData());
++    }
++    CPPUNIT_ASSERT_EQUAL(size_t(nCount), aDistinct.size());
++
++    // Remove every other string from the middle of the run, then look all of them up again.
++    for (sal_Int32 i = 0; i < nCount; i += 2)
++        aHeld[i].reset();
++    aPool.purge();
++    CPPUNIT_ASSERT_EQUAL(nExtra + nCount / 2, aPool.getCount());
++    for (sal_Int32 i = 1; i < nCount; i += 2)
++        CPPUNIT_ASSERT_EQUAL(aHeld[i]->getData(), aPool.intern(heap(aStrings[i])).getData());
++    CPPUNIT_ASSERT_EQUAL(nExtra + nCount / 2, aPool.getCount());
++    for (sal_Int32 i = 0; i < nCount; i += 2)
++        aHeld[i] = aPool.intern(heap(aStrings[i]));
++    CPPUNIT_ASSERT_EQUAL(nExtra + nCount, aPool.getCount());
++    for (sal_Int32 i = 0; i < nCount; ++i)
++        CPPUNIT_ASSERT_EQUAL(aHeld[i]->getData(), aPool.intern(heap(aStrings[i])).getData());
++    CPPUNIT_ASSERT_EQUAL(nExtra + nCount, aPool.getCount());
++}
++
++void HstStringPoolTest::testPurgeKeepsLookups()
++{
++    svl::SharedStringPool aPool(*m_oCharClass);
++    const size_t nExtra = aPool.getCount();
++    constexpr sal_Int32 N = 30000;
++    std::vector<std::optional<svl::SharedString>> aHeld(N);
++    for (sal_Int32 i = 0; i < N; ++i)
++        aHeld[i] = aPool.intern(heap("v" + OUString::number(i))); // "v n" and "V n"
++    CPPUNIT_ASSERT_EQUAL(nExtra + 2 * N, aPool.getCount());
++
++    // Keep every third string: the others and their upper-case strings go.
++    for (sal_Int32 i = 0; i < N; ++i)
++        if (i % 3)
++            aHeld[i].reset();
++    aPool.purge();
++    const size_t nKept = (N + 2) / 3;
++    CPPUNIT_ASSERT_EQUAL(nExtra + 2 * nKept, aPool.getCount());
++    CPPUNIT_ASSERT_EQUAL(nExtra + nKept, aPool.getCountIgnoreCase());
++
++    // Every kept string is still found (the probe runs were repaired) ...
++    for (sal_Int32 i = 0; i < N; i += 3)
++    {
++        const svl::SharedString aAgain = aPool.intern(heap("v" + OUString::number(i)));
++        CPPUNIT_ASSERT_EQUAL(aHeld[i]->getData(), aAgain.getData());
++        CPPUNIT_ASSERT_EQUAL(aHeld[i]->getDataIgnoreCase(),
++                             aPool.intern(heap("V" + OUString::number(i))).getData());
++    }
++    CPPUNIT_ASSERT_EQUAL(nExtra + 2 * nKept, aPool.getCount());
++    // ... and every removed one comes back once.
++    for (sal_Int32 i = 0; i < N; ++i)
++        if (i % 3)
++            aHeld[i] = aPool.intern(heap("v" + OUString::number(i)));
++    CPPUNIT_ASSERT_EQUAL(nExtra + 2 * N, aPool.getCount());
++    for (sal_Int32 i = 1; i < N; i += 3)
++        CPPUNIT_ASSERT_EQUAL(aHeld[i]->getData(),
++                             aPool.intern(heap("v" + OUString::number(i))).getData());
++}
++
++void HstStringPoolTest::testPurgeModel()
++{
++    // Random interning of a small vocabulary in three spellings, random releases and purges.
++    // Model of the documented purge: an entry whose string differs from its upper case stays
++    // while the string is referenced outside the pool; an upper-case entry stays while it is
++    // referenced outside or a remaining entry maps to it.
++    svl::SharedStringPool aPool(*m_oCharClass);
++    const size_t nExtra = aPool.getCount();
++    std::mt19937 aRandom(20261122);
++    std::vector<OUString> aWords;
++    for (sal_Int32 i = 0; i < 400; ++i)
++    {
++        const OUString aWord = "w" + OUString::number(i) + "x";
++        aWords.push_back(aWord); // "w1x"
++        aWords.push_back(m_oCharClass->uppercase(aWord)); // "W1X"
++        aWords.push_back("W" + OUString::number(i) + "x"); // "W1x"
++    }
++    std::map<OUString, std::vector<svl::SharedString>> aHeld;
++    std::set<OUString> aPooled; // the model's pool content
++
++    auto check = [&]() {
++        CPPUNIT_ASSERT_EQUAL(nExtra + aPooled.size(), aPool.getCount());
++        std::set<OUString> aUpper;
++        for (const OUString& rStr : aPooled)
++            aUpper.insert(m_oCharClass->uppercase(rStr));
++        CPPUNIT_ASSERT_EQUAL(nExtra + aUpper.size(), aPool.getCountIgnoreCase());
++    };
++
++    for (int nRound = 0; nRound < 40; ++nRound)
++    {
++        for (int n = 0; n < 600; ++n)
++        {
++            const OUString& rWord = aWords[aRandom() % aWords.size()];
++            const svl::SharedString aStr = aPool.intern(heap(rWord));
++            CPPUNIT_ASSERT_EQUAL(rWord, OUString(aStr.getData()));
++            const OUString aUpper = m_oCharClass->uppercase(rWord);
++            CPPUNIT_ASSERT_EQUAL(aUpper, OUString(aStr.getDataIgnoreCase()));
++            auto it = aHeld.find(rWord);
++            if (it != aHeld.end() && !it->second.empty())
++                CPPUNIT_ASSERT_EQUAL(it->second.front().getData(), aStr.getData());
++            aHeld[rWord].push_back(aStr);
++            aPooled.insert(rWord);
++            aPooled.insert(aUpper);
++        }
++        check();
++        for (auto& rPair : aHeld)
++            if (aRandom() % 2)
++                rPair.second.clear();
++        aPool.purge();
++        std::set<OUString> aAfter;
++        for (const OUString& rStr : aPooled)
++        {
++            auto it = aHeld.find(rStr);
++            if (it != aHeld.end() && !it->second.empty())
++            {
++                aAfter.insert(rStr);
++                aAfter.insert(m_oCharClass->uppercase(rStr));
++            }
++        }
++        aPooled = std::move(aAfter);
++        check();
++    }
++}
++
++void HstStringPoolTest::testMemoryPerEntry()
++{
++#if defined __GLIBC__
++    // The pool's own memory for as many entries as the large spreadsheet ketoan-50 has
++    // (1,924,229 strings and upper-case strings). The strings are their own upper case and are
++    // made before the measure, so the heap grows by the pool's structures only. The table needs
++    // 20 bytes per slot at a load between 8/15 and 4/5; the std::unordered_map it replaced took
++    // a 48-byte node per entry plus its buckets (about 59 bytes).
++    constexpr sal_Int32 N = 1924229;
++    std::vector<OUString> aStrings;
++    aStrings.reserve(N);
++    for (sal_Int32 i = 0; i < N; ++i)
++        aStrings.push_back("K" + OUString::number(i) + "X");
++    svl::SharedStringPool aPool(*m_oCharClass);
++    const size_t nExtra = aPool.getCount();
++    auto heapBytes = []() {
++        const struct mallinfo2 aInfo = mallinfo2();
++        return aInfo.uordblks + aInfo.hblkhd;
++    };
++    const size_t nBefore = heapBytes();
++    for (const OUString& rStr : aStrings)
++        aPool.intern(rStr);
++    const size_t nAfter = heapBytes();
++    CPPUNIT_ASSERT_EQUAL(nExtra + N, aPool.getCount());
++    const double fPerEntry = double(nAfter - nBefore) / N;
++    std::fprintf(stderr, "HST string pool: %d entries, %.1f MB, %.1f bytes per entry\n", int(N),
++                 (nAfter - nBefore) / 1e6, fPerEntry);
++    CPPUNIT_ASSERT_LESS(40.0, fPerEntry);
++#endif
++}
++
++CPPUNIT_TEST_SUITE_REGISTRATION(HstStringPoolTest);
++}
++
++CPPUNIT_PLUGIN_IMPLEMENT();
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svl/source/inc/hststringpooltable.hxx
+@@ -0,0 +1,98 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++/*
++ * HST Office: the table behind svl::SharedStringPool.
++ *
++ * An open-addressing hash table with linear probing, kept in two flat arrays: the string and its
++ * upper-case partner (two pointers, 16 bytes) and the 32-bit hash of the string (4 bytes). The
++ * std::unordered_map it replaces used a separately allocated 48-byte node per string plus an
++ * 8-byte bucket pointer; for the 1.9 million strings of a large spreadsheet that is about
++ * 100 MB against about 60 MB here. The pool's rules do not change: every entry holds one
++ * reference on its string and one on its upper-case string (the same string twice when it is
++ * its own upper case), and purge removes exactly the entries the old map removed.
++ */
++
++#pragma once
++
++#include <rtl/ustring.hxx>
++#include <sal/types.h>
++
++#include <cstddef>
++#include <memory>
++
++namespace svl
++{
++class HstStringPoolTable
++{
++public:
++    /// A pooled string and its pooled upper-case string; both null when the string is not pooled.
++    struct Entry
++    {
++        rtl_uString* pStr;
++        rtl_uString* pUpper;
++    };
++
++    HstStringPoolTable() = default;
++    ~HstStringPoolTable();
++    HstStringPoolTable(const HstStringPoolTable&) = delete;
++    HstStringPoolTable& operator=(const HstStringPoolTable&) = delete;
++
++    /// The hash the table uses for a string (OUString::hashCode).
++    static sal_uInt32 hashOf(const OUString& rStr)
++    {
++        return static_cast<sal_uInt32>(rStr.hashCode());
++    }
++
++    /// The entry of a string equal to rStr, nHash being hashOf(rStr).
++    Entry find(const OUString& rStr, sal_uInt32 nHash) const;
++
++    /// Adds rStr (not in the table yet; nHash = hashOf(rStr)) with its upper-case string pUpper,
++    /// which is either rStr's own data or the string of another entry. Takes a reference on both.
++    void insert(const OUString& rStr, sal_uInt32 nHash, rtl_uString* pUpper);
++
++    /// Removes the entries nobody else references, as svl::SharedStringPool::purge documents:
++    /// first strings that differ from their upper case and are referenced by the table only,
++    /// then upper-case strings referenced only by their own entry.
++    void purgeUnused();
++
++    size_t size() const { return mnSize; }
++    size_t capacity() const { return mnCapacity; }
++
++    /// Calls rFunc(const Entry&) for every entry.
++    template <typename Func> void forEach(Func rFunc) const
++    {
++        for (size_t i = 0; i < mnCapacity; ++i)
++            if (mpEntries[i].pStr)
++                rFunc(mpEntries[i]);
++    }
++
++private:
++    /// Slot where the probe for nHash starts.
++    size_t home(sal_uInt32 nHash) const
++    {
++        // Fibonacci mixing of the string hash, then a multiply-shift onto [0, capacity): any
++        // capacity works, so the table grows by half instead of doubling.
++        const sal_uInt32 nMixed
++            = static_cast<sal_uInt32>((sal_uInt64(nHash) * 0x9E3779B97F4A7C15ULL) >> 32);
++        return static_cast<size_t>((sal_uInt64(nMixed) * mnCapacity) >> 32);
++    }
++    size_t next(size_t nSlot) const { return nSlot + 1 == mnCapacity ? 0 : nSlot + 1; }
++
++    /// Puts an entry into the first free slot of its probe sequence (no growth, no references).
++    void place(const Entry& rEntry, sal_uInt32 nHash);
++    /// Makes room for one more entry, keeping the load at or under 4/5.
++    void reserveOneMore();
++    /// Moves every entry back to the first free slot of its probe sequence after removals.
++    void repairChains(size_t nFreeBefore);
++
++    std::unique_ptr<Entry[]> mpEntries;
++    std::unique_ptr<sal_uInt32[]> mpHashes;
++    size_t mnCapacity = 0;
++    size_t mnSize = 0;
++};
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- /dev/null
++++ b/svl/source/misc/hststringpooltable.cxx
+@@ -0,0 +1,161 @@
++/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
++/*
++ * SPDX-License-Identifier: LicenseRef-HST-Proprietary
++ * Copyright (c) HASON TECH. HST Office.
++ */
++/*
++ * HST Office: open-addressing table of svl::SharedStringPool (see hststringpooltable.hxx).
++ */
++
++#include <hststringpooltable.hxx>
++
++#include <cassert>
++
++namespace svl
++{
++namespace
++{
++sal_Int32 refCount(const rtl_uString* p) { return p->refCount & 0x3FFFFFFF; }
++
++// Keep the load at or under 4/5: with the 32-bit hashes in their own array a probe reads 16
++// hashes per cache line, and the string is compared only when the hash matches.
++bool overLoaded(size_t nSize, size_t nCapacity) { return nSize * 5 > nCapacity * 4; }
++
++constexpr size_t MIN_CAPACITY = 16;
++}
++
++HstStringPoolTable::~HstStringPoolTable()
++{
++    for (size_t i = 0; i < mnCapacity; ++i)
++    {
++        if (mpEntries[i].pStr)
++        {
++            rtl_uString_release(mpEntries[i].pStr);
++            rtl_uString_release(mpEntries[i].pUpper);
++        }
++    }
++}
++
++HstStringPoolTable::Entry HstStringPoolTable::find(const OUString& rStr, sal_uInt32 nHash) const
++{
++    if (mnSize == 0)
++        return { nullptr, nullptr };
++    for (size_t i = home(nHash);; i = next(i))
++    {
++        const Entry& rEntry = mpEntries[i];
++        if (!rEntry.pStr)
++            return { nullptr, nullptr };
++        if (mpHashes[i] == nHash
++            && (rEntry.pStr == rStr.pData || OUString::unacquired(&rEntry.pStr) == rStr))
++            return rEntry;
++    }
++}
++
++void HstStringPoolTable::place(const Entry& rEntry, sal_uInt32 nHash)
++{
++    size_t i = home(nHash);
++    while (mpEntries[i].pStr)
++        i = next(i);
++    mpEntries[i] = rEntry;
++    mpHashes[i] = nHash;
++}
++
++void HstStringPoolTable::reserveOneMore()
++{
++    if (mnCapacity != 0 && !overLoaded(mnSize + 1, mnCapacity))
++        return;
++    size_t nNewCapacity = mnCapacity < MIN_CAPACITY ? MIN_CAPACITY : mnCapacity + mnCapacity / 2;
++    while (overLoaded(mnSize + 1, nNewCapacity))
++        nNewCapacity += nNewCapacity / 2;
++
++    std::unique_ptr<Entry[]> pOldEntries = std::move(mpEntries);
++    std::unique_ptr<sal_uInt32[]> pOldHashes = std::move(mpHashes);
++    const size_t nOldCapacity = mnCapacity;
++    mpEntries.reset(new Entry[nNewCapacity]()); // value-initialized: every slot free
++    mpHashes.reset(new sal_uInt32[nNewCapacity]);
++    mnCapacity = nNewCapacity;
++    for (size_t i = 0; i < nOldCapacity; ++i)
++        if (pOldEntries[i].pStr)
++            place(pOldEntries[i], pOldHashes[i]);
++}
++
++void HstStringPoolTable::insert(const OUString& rStr, sal_uInt32 nHash, rtl_uString* pUpper)
++{
++    assert(pUpper);
++    assert(!find(rStr, nHash).pStr);
++    reserveOneMore();
++    rtl_uString_acquire(rStr.pData);
++    rtl_uString_acquire(pUpper);
++    place({ rStr.pData, pUpper }, nHash);
++    ++mnSize;
++}
++
++void HstStringPoolTable::purgeUnused()
++{
++    if (mnSize == 0)
++        return;
++
++    // A slot that is free before anything is removed: no probe sequence runs across it, so the
++    // repair below can walk the table once starting there.
++    size_t nFree = 0;
++    while (mpEntries[nFree].pStr)
++        ++nFree; // the load stays under 4/5, so a free slot exists
++
++    bool bRemoved = false;
++    auto remove = [&](Entry& rEntry) {
++        rtl_uString_release(rEntry.pStr);
++        rtl_uString_release(rEntry.pUpper);
++        rEntry = { nullptr, nullptr };
++        --mnSize;
++        bRemoved = true;
++    };
++
++    // First the strings that differ from their upper case: the table holds the only reference
++    // to the string. Removing them releases their references on the upper-case strings.
++    for (size_t i = 0; i < mnCapacity; ++i)
++    {
++        Entry& rEntry = mpEntries[i];
++        if (rEntry.pStr && rEntry.pStr != rEntry.pUpper && refCount(rEntry.pStr) == 1)
++            remove(rEntry);
++    }
++    // Then the upper-case strings mapped to themselves that only their own entry references
++    // (one reference as the string, one as the upper case).
++    for (size_t i = 0; i < mnCapacity; ++i)
++    {
++        Entry& rEntry = mpEntries[i];
++        if (rEntry.pStr && rEntry.pStr == rEntry.pUpper && refCount(rEntry.pStr) == 2)
++            remove(rEntry);
++    }
++
++    if (bRemoved)
++        repairChains(nFree);
++}
++
++void HstStringPoolTable::repairChains(size_t nFreeBefore)
++{
++    // Removals leave holes inside probe sequences, and a lookup stops at the first free slot.
++    // Walk the table once, starting after a slot that was free before the removals, and move
++    // every entry to the first free slot from its home. That slot lies between the home and the
++    // entry's current slot, everything before it in the walk is settled, and slots only fill
++    // up behind the walk, so each entry is again reachable from its home without a free slot.
++    size_t i = nFreeBefore;
++    for (size_t nStep = 0; nStep < mnCapacity; ++nStep)
++    {
++        i = next(i);
++        if (!mpEntries[i].pStr)
++            continue;
++        const sal_uInt32 nHash = mpHashes[i];
++        size_t j = home(nHash);
++        while (j != i && mpEntries[j].pStr)
++            j = next(j);
++        if (j != i)
++        {
++            mpEntries[j] = mpEntries[i];
++            mpHashes[j] = nHash;
++            mpEntries[i] = { nullptr, nullptr };
++        }
++    }
++}
++}
++
++/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
+--- a/svl/source/misc/sharedstringpool.cxx
++++ b/svl/source/misc/sharedstringpool.cxx
+@@ -10,55 +10,20 @@
+ #include <svl/sharedstringpool.hxx>
+ #include <svl/sharedstring.hxx>
+ #include <unotools/charclass.hxx>
++#include <hststringpooltable.hxx>
+ 
+ #include <mutex>
+-#include <unordered_map>
+ #include <unordered_set>
+ 
+-/** create a key class that caches the hashcode */
+-namespace
+-{
+-struct StringWithHash
+-{
+-    OUString str;
+-    sal_Int32 hashCode;
+-    StringWithHash(OUString s)
+-        : str(std::move(s))
+-        , hashCode(str.hashCode())
+-    {
+-    }
+-
+-    bool operator==(StringWithHash const& rhs) const
+-    {
+-        if (hashCode != rhs.hashCode)
+-            return false;
+-        return str == rhs.str;
+-    }
+-};
+-}
+-
+-namespace std
+-{
+-template <> struct hash<StringWithHash>
+-{
+-    std::size_t operator()(const StringWithHash& k) const { return k.hashCode; }
+-};
+-}
+-
+ namespace svl
+ {
+-namespace
+-{
+-sal_Int32 getRefCount(const rtl_uString* p) { return (p->refCount & 0x3FFFFFFF); }
+-}
+-
+ struct SharedStringPool::Impl
+ {
+     mutable std::mutex maMutex;
+-    // We use this map for two purposes - to store lower->upper case mappings
+-    // and to retrieve a shared uppercase object, so the management logic
+-    // is quite complex.
+-    std::unordered_map<StringWithHash, OUString> maStrMap;
++    // HST Office: every pooled string with its upper-case partner, in an open-addressing table
++    // (about half the memory of the std::unordered_map used before). Upper-case strings are
++    // entries mapped to themselves, so the same lookup finds an existing upper-case string.
++    HstStringPoolTable maTable;
+     const CharClass& mrCharClass;
+ 
+     explicit Impl(const CharClass& rCharClass)
+@@ -79,104 +44,61 @@
+ 
+ SharedString SharedStringPool::intern(const OUString& rStr)
+ {
+-    StringWithHash aStrWithHash(rStr);
++    const sal_uInt32 nHash = HstStringPoolTable::hashOf(rStr);
+     std::scoped_lock<std::mutex> aGuard(mpImpl->maMutex);
++    HstStringPoolTable& rTable = mpImpl->maTable;
+ 
+-    auto[mapIt, bInserted] = mpImpl->maStrMap.emplace(aStrWithHash, rStr);
+-    if (!bInserted)
++    const HstStringPoolTable::Entry aFound = rTable.find(rStr, nHash);
++    if (aFound.pStr)
+         // there is already a mapping
+-        return SharedString(mapIt->first.str.pData, mapIt->second.pData);
++        return SharedString(aFound.pStr, aFound.pUpper);
+ 
+     // This is a new string insertion. Establish mapping to upper-case variant.
+     OUString aUpper = mpImpl->mrCharClass.uppercase(rStr);
+     if (aUpper == rStr)
+-        // no need to do anything more, because we inserted an upper->upper mapping
+-        return SharedString(mapIt->first.str.pData, mapIt->second.pData);
+-
+-    // We need to insert a lower->upper mapping, so also insert
+-    // an upper->upper mapping, which we can use both for when an upper string
+-    // is interned, and to look up a shared upper string.
+-    StringWithHash aUpperWithHash(aUpper);
+-    auto mapIt2 = mpImpl->maStrMap.find(aUpperWithHash);
+-    if (mapIt2 != mpImpl->maStrMap.end())
+     {
+-        // there is an already existing upper string
+-        mapIt->second = mapIt2->first.str;
+-        return SharedString(mapIt->first.str.pData, mapIt->second.pData);
++        // an upper->upper mapping
++        rTable.insert(rStr, nHash, rStr.pData);
++        return SharedString(rStr.pData, rStr.pData);
++    }
++
++    // We need a lower->upper mapping, and an upper->upper mapping, which we can use both for
++    // when an upper string is interned, and to look up a shared upper string.
++    const sal_uInt32 nUpperHash = HstStringPoolTable::hashOf(aUpper);
++    rtl_uString* pUpper = rTable.find(aUpper, nUpperHash).pStr;
++    if (!pUpper)
++    {
++        // There is no already existing upper string.
++        rTable.insert(aUpper, nUpperHash, aUpper.pData);
++        pUpper = aUpper.pData;
+     }
+-
+-    // There is no already existing upper string.
+-    // First, update using the iterator, can't do this later because
+-    // the iterator will be invalid.
+-    mapIt->second = aUpper;
+-    mpImpl->maStrMap.emplace_hint(mapIt2, aUpperWithHash, aUpper);
+-    return SharedString(rStr.pData, aUpper.pData);
++    rTable.insert(rStr, nHash, pUpper);
++    return SharedString(rStr.pData, pUpper);
+ }
+ 
+ void SharedStringPool::purge()
+ {
+     std::scoped_lock<std::mutex> aGuard(mpImpl->maMutex);
+ 
+-    // Because we can have an uppercase entry mapped to itself,
+-    // and then a bunch of lowercase entries mapped to that same
+-    // upper-case entry, we need to scan the map twice - the first
+-    // time to remove lowercase entries, and then only can we
+-    // check for unused uppercase entries.
+-
+-    auto it = mpImpl->maStrMap.begin();
+-    auto itEnd = mpImpl->maStrMap.end();
+-    while (it != itEnd)
+-    {
+-        rtl_uString* p1 = it->first.str.pData;
+-        rtl_uString* p2 = it->second.pData;
+-        if (p1 != p2)
+-        {
+-            // normal case - lowercase mapped to uppercase, which
+-            // means that the lowercase entry has one ref-counted
+-            // entry as the key in the map
+-            if (getRefCount(p1) == 1)
+-            {
+-                it = mpImpl->maStrMap.erase(it);
+-                continue;
+-            }
+-        }
+-        ++it;
+-    }
+-
+-    it = mpImpl->maStrMap.begin();
+-    itEnd = mpImpl->maStrMap.end();
+-    while (it != itEnd)
+-    {
+-        rtl_uString* p1 = it->first.str.pData;
+-        rtl_uString* p2 = it->second.pData;
+-        if (p1 == p2)
+-        {
+-            // uppercase which is mapped to itself, which means
+-            // one ref-counted entry as the key in the map, and
+-            // one ref-counted entry in the value in the map
+-            if (getRefCount(p1) == 2)
+-            {
+-                it = mpImpl->maStrMap.erase(it);
+-                continue;
+-            }
+-        }
+-        ++it;
+-    }
++    // Because we can have an uppercase entry mapped to itself, and then a bunch of lowercase
++    // entries mapped to that same upper-case entry, the table removes the unused lowercase
++    // entries first, and only then the uppercase entries that nothing uses any more.
++    mpImpl->maTable.purgeUnused();
+ }
+ 
+ size_t SharedStringPool::getCount() const
+ {
+     std::scoped_lock<std::mutex> aGuard(mpImpl->maMutex);
+-    return mpImpl->maStrMap.size();
++    return mpImpl->maTable.size();
+ }
+ 
+ size_t SharedStringPool::getCountIgnoreCase() const
+ {
+     std::scoped_lock<std::mutex> aGuard(mpImpl->maMutex);
+     // this is only called from unit tests, so no need to be efficient
+-    std::unordered_set<OUString> aUpperSet;
+-    for (auto const& pair : mpImpl->maStrMap)
+-        aUpperSet.insert(pair.second);
++    std::unordered_set<rtl_uString*> aUpperSet;
++    mpImpl->maTable.forEach(
++        [&aUpperSet](const HstStringPoolTable::Entry& rEntry) { aUpperSet.insert(rEntry.pUpper); });
+     return aUpperSet.size();
+ }
+ }
