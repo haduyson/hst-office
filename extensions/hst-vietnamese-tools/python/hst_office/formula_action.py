@@ -5,7 +5,7 @@
     double-clicked): "Chuyển thành công thức HST" / "Để nguyên", plus "Mở bằng MathType" on Windows when MathType is
     installed (formula_mathtype_server; owner decision 18/11/2026).
 The work is done by formula_convert; this module only talks to the user."""
-from . import formula_convert
+from . import diag_log, formula_convert
 from .dialogs import message_box
 from .formula_mathtype_server import CONVERT, LEAVE, OPEN, choices
 
@@ -121,8 +121,31 @@ def _insert_mathtype(host, helper):
         obj.dispose()
         return False
     host.controller.select(obj)
-    open_selected(host)
+    _open_when_selected(host)
     return True
+
+
+OPEN_DELAY = 0.4  # s: Writer takes a new selection into its view shell on a 120 ms timer; the verb needs it there
+
+
+def _open_when_selected(host):
+    """MathType opens the new object once the view has its selection: the view's verb command is off until then
+    (HST5 22/11/2026: run at once, the object went in and MathType stayed closed)."""
+    import threading
+    import unohelper
+    from com.sun.star.awt import XCallback
+
+    class _Open(unohelper.Base, XCallback):
+        def notify(self, _data):
+            try:
+                open_selected(host)
+            except Exception:  # noqa: BLE001 - the object is in; a double-click still opens it
+                diag_log.exception("formula_new_equation")
+
+    def post():
+        host.ctx.ServiceManager.createInstanceWithContext("com.sun.star.awt.AsyncCallback", host.ctx).addCallback(
+            _Open(), None)
+    threading.Timer(OPEN_DELAY, post).start()
 
 
 TEMPLATES_PATH = "/org.hasontech.hstoffice.Formula"
