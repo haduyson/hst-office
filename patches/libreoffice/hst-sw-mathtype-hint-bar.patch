@@ -531,7 +531,7 @@ saves (sw/qa/uibase/hst/mathtypekeptole.cxx).
      m_aBringToAttentionBlinkTimer.SetTimeout(350);
 --- a/sw/qa/uibase/hst/mathtypekeptole.cxx
 +++ b/sw/qa/uibase/hst/mathtypekeptole.cxx
-@@ -0,0 +1,121 @@
+@@ -0,0 +1,122 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -569,8 +569,8 @@ saves (sw/qa/uibase/hst/mathtypekeptole.cxx).
 +    {
 +    }
 +
-+    /// The number of embedded objects of the current document, and how many of them are MathType.
-+    std::pair<sal_Int32, sal_Int32> countObjects()
++    /// "<n> objects, <m> MathType": the current document's embedded objects and its MathType ones.
++    OUString countObjects()
 +    {
 +        uno::Reference<text::XTextEmbeddedObjectsSupplier> xSupplier(mxComponent,
 +                                                                     uno::UNO_QUERY_THROW);
@@ -584,7 +584,8 @@ saves (sw/qa/uibase/hst/mathtypekeptole.cxx).
 +            if (getProperty<OUString>(xObject, u"CLSID"_ustr).equalsIgnoreAsciiCase(MATHTYPE_CLSID))
 +                ++nMathType;
 +        }
-+        return { aNames.getLength(), nMathType };
++        return OUString::number(aNames.getLength()) + " objects, " + OUString::number(nMathType)
++               + " MathType";
 +    }
 +
 +    /// The saved .docx holds nEquations MathType OLE objects (w:object, o:OLEObject ProgID
@@ -611,17 +612,17 @@ saves (sw/qa/uibase/hst/mathtypekeptole.cxx).
 +    // Two MathType objects with their WMF result picture (payload of the LibreOffice fixture
 +    // fdo78906.docx), written by HST for this test.
 +    createSwDoc("hst-mathtype-ole-kept.rtf");
-+    CPPUNIT_ASSERT_EQUAL((std::pair<sal_Int32, sal_Int32>(2, 2)), countObjects());
++    CPPUNIT_ASSERT_EQUAL(u"2 objects, 2 MathType"_ustr, countObjects());
 +
 +    // Saved as .docx: still OLE objects, not pictures
 +    saveAndReload(TestFilter::DOCX);
 +    checkSavedDocx(2);
-+    CPPUNIT_ASSERT_EQUAL((std::pair<sal_Int32, sal_Int32>(2, 2)), countObjects());
++    CPPUNIT_ASSERT_EQUAL(u"2 objects, 2 MathType"_ustr, countObjects());
 +
 +    // .docx opened and saved again: unchanged
 +    saveAndReload(TestFilter::DOCX);
 +    checkSavedDocx(2);
-+    CPPUNIT_ASSERT_EQUAL((std::pair<sal_Int32, sal_Int32>(2, 2)), countObjects());
++    CPPUNIT_ASSERT_EQUAL(u"2 objects, 2 MathType"_ustr, countObjects());
 +}
 +
 +CPPUNIT_TEST_FIXTURE(HstMathTypeKeptOleTest, testClosedInfoBarKeepsMathTypeObjects)
@@ -645,11 +646,11 @@ saves (sw/qa/uibase/hst/mathtypekeptole.cxx).
 +#endif
 +    rFrame.RemoveInfoBar(u"hst-mathtype");
 +    Scheduler::ProcessEventsToIdle();
-+    CPPUNIT_ASSERT_EQUAL((std::pair<sal_Int32, sal_Int32>(2, 2)), countObjects());
++    CPPUNIT_ASSERT_EQUAL(u"2 objects, 2 MathType"_ustr, countObjects());
 +
 +    saveAndReload(TestFilter::DOCX);
 +    checkSavedDocx(2);
-+    CPPUNIT_ASSERT_EQUAL((std::pair<sal_Int32, sal_Int32>(2, 2)), countObjects());
++    CPPUNIT_ASSERT_EQUAL(u"2 objects, 2 MathType"_ustr, countObjects());
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
