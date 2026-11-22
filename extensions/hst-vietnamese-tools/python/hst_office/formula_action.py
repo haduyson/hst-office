@@ -90,6 +90,41 @@ def ask_convert_selected(host):
         message_box(host.ctx, host.peer, s["title"], s["kept"] % 1)
 
 
+MATHTYPE_CLSID = "0002CE03-0000-0000-C000-000000000046"  # Equation.DSMT4 (formula_ole.MATHTYPE)
+HST_FORMULA = ".uno:InsertObjectStarMath"  # the Insert tab's "Công thức mới" in Writer
+
+
+def new_equation(host, installed=None):
+    """Ctrl+Alt+Q in HST Writer, MathType's key in Word: where MathType is installed (formula_mathtype_server, both
+    registry views) a new MathType equation at the cursor, in the text as a character, opened in MathType; elsewhere
+    a new HST formula as in HST Office 1.0.3 (owner decision 22/11/2026)."""
+    if installed is None:
+        from .formula_mathtype_server import server_installed as installed
+    helper = host.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", host.ctx)
+    if not (host.is_writer() and installed(MATHTYPE_CLSID) and _insert_mathtype(host, helper)):
+        helper.executeDispatch(host.frame, HST_FORMULA, "", 0, ())
+
+
+def _insert_mathtype(host, helper):
+    """A new, empty MathType object at the view cursor, then its primary verb: MathType opens it. False when the
+    object cannot be made (the office makes a foreign OLE object only through Windows OLE)."""
+    from com.sun.star.text.TextContentAnchorType import AS_CHARACTER
+    cursor = host.controller.getViewCursor()
+    obj = host.doc.createInstance("com.sun.star.text.TextEmbeddedObject")
+    obj.CLSID = MATHTYPE_CLSID
+    obj.AnchorType = AS_CHARACTER
+    try:
+        cursor.getText().insertTextContent(cursor, obj, True)
+    except Exception:  # noqa: BLE001 - e.g. the cursor is in a place that takes no object
+        return False
+    if obj.getExtendedControlOverEmbeddedObject() is None:
+        obj.dispose()
+        return False
+    host.controller.select(obj)
+    open_selected(host)
+    return True
+
+
 TEMPLATES_PATH = "/org.hasontech.hstoffice.Formula"
 
 

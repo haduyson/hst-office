@@ -10,4 +10,4 @@ ACTION_COMMANDS = frozenset((
     "Nd30Wizard", "ToggleDuplex", "ConvertEncoding", "FormatDate", "FormatDateLong", "FormatMonthYear", "FormatDateDash",
     "FormatVnd", "FormatPercent", "ImportCsv", "EditVba", "NumberToWords", "RemoveDiacritics", "SplitName",
     "SortByGivenName", "DeleteBlankRows", "PreviousVersions", "OpenInHstPdf", "ChemFormula", "ConvertFormulas",
-    "AskConvertFormula", "FormulaTemplates", "TexToggle")) | citation_command_names.NAMES
+    "AskConvertFormula", "FormulaTemplates", "NewEquation", "TexToggle")) | citation_command_names.NAMES

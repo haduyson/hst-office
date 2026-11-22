@@ -74,7 +74,7 @@ class FormulaOleTest(unittest.TestCase):
         python = os.path.join(_paths.ROOT, "extensions", "hst-vietnamese-tools", "python", "hst_office")
         for name in ("action_names.py", "actions.py"):  # dispatch takes its command names from action_names
             text = open(os.path.join(python, name), encoding="utf-8").read()
-            for command in ("ConvertFormulas", "AskConvertFormula", "FormulaTemplates"):
+            for command in ("ConvertFormulas", "AskConvertFormula", "FormulaTemplates", "NewEquation"):
                 self.assertIn('"%s"' % command, text)
 
     def test_document_jobs_skip_embedded_formulas(self):
@@ -123,6 +123,46 @@ class MathTypeServerTest(unittest.TestCase):
     def test_program_path(self):
         self.assertEqual(r"C:\a b\m.exe", server.program_path(r'"C:\a b\m.exe" /x'))
         self.assertEqual(r"C:\a b\m.exe", server.program_path(r"C:\a b\m.exe /x"))
+
+
+class NewEquationTest(unittest.TestCase):
+    """Ctrl+Alt+Q: a new MathType equation in HST Writer where MathType is installed, else a new HST formula."""
+
+    def host(self, writer=True):
+        dispatched = []
+        helper = types.SimpleNamespace(executeDispatch=lambda frame, url, target, flags, args: dispatched.append(url))
+        manager = types.SimpleNamespace(createInstanceWithContext=lambda name, ctx: helper)
+        host = types.SimpleNamespace(ctx=types.SimpleNamespace(ServiceManager=manager), frame=object(),
+                                     is_writer=lambda: writer)
+        return host, dispatched
+
+    def test_hst_formula_without_mathtype(self):
+        from hst_office import formula_action
+        host, dispatched = self.host()
+        formula_action.new_equation(host, installed=lambda c: False)
+        self.assertEqual([".uno:InsertObjectStarMath"], dispatched)
+
+    def test_mathtype_where_installed(self):
+        from hst_office import formula_action
+        host, dispatched = self.host()
+        asked = []
+        with mock.patch.object(formula_action, "_insert_mathtype", lambda h, helper: True):
+            formula_action.new_equation(host, installed=lambda c: asked.append(c) or True)
+        self.assertEqual([formula_ole.MATHTYPE], asked)
+        self.assertEqual([], dispatched)  # MathType opened the new object
+
+    def test_falls_back_when_mathtype_object_cannot_be_made(self):
+        from hst_office import formula_action
+        host, dispatched = self.host()
+        with mock.patch.object(formula_action, "_insert_mathtype", lambda h, helper: False):
+            formula_action.new_equation(host, installed=lambda c: True)
+        self.assertEqual([".uno:InsertObjectStarMath"], dispatched)
+
+    def test_hst_formula_outside_writer(self):
+        from hst_office import formula_action
+        host, dispatched = self.host(writer=False)
+        formula_action.new_equation(host, installed=lambda c: True)
+        self.assertEqual([".uno:InsertObjectStarMath"], dispatched)
 
 
 class MathTypeRegistryViewTest(unittest.TestCase):
