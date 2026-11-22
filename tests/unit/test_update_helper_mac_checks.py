@@ -92,6 +92,19 @@ class AdministratorStep(MacHarness):
         self.assertFalse(self.target.exists())
         self.assertEqual(set(Path(tempfile.gettempdir()).glob("hst-swap.*")), self.before)
 
+    @unittest.skipUnless(Path("/proc/self/exe").exists(), "/proc required")
+    def test_root_refuses_to_swap_an_app_that_an_office_runs_from(self):
+        self.target.mkdir(parents=True)
+        (self.target / "version").write_text("old", encoding="utf-8")
+        self.start_office_from_app(self.target)
+        self.fast_sleep()
+        result = self.run_admin(hashlib.sha256(self.text.encode("utf-8")).hexdigest())
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("(75)", result.stderr)  # install_update reads it as a refused swap (FAIL=busy)
+        self.assertEqual((self.target / "version").read_text(), "old")
+        self.assertFalse(Path(str(self.target) + ".hst-new").exists())
+        self.assertEqual(set(Path(tempfile.gettempdir()).glob("hst-swap.*")), self.before)
+
     def test_digest_must_be_64_lowercase_hex(self):
         for bad in ("", "0" * 63, "0" * 65, "G" * 64, "0" * 63 + "'", "x; touch /tmp/PWNED"):
             with self.subTest(bad=bad):

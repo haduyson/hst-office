@@ -16,7 +16,7 @@ from .update_fetch import release_info
 
 STATE_NAME = "update-result.json"
 MAX_SIZE = 1024
-CODES = ("auth", "install", "verify", "tool", "wait", "readonly")
+CODES = ("auth", "install", "verify", "tool", "wait", "readonly", "busy")
 
 
 def take(cache, current_release):
