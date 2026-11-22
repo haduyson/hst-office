@@ -13,7 +13,7 @@ HST Office: the new Start Center (the window shown when no document is open), dr
   and description; hover, pressed and focus states) and the link to hasontech.vn. No shared files, no account.
   The column fits the 741 px below the menu bar of a 1366 x 768 screen and the 674 px a maximised Windows
   window keeps there without scrolling; in shorter windows the menu rows tighten first (never below 24 px
-  or the text + 4), then the column scrolls.
+  or the text + 4).
 - Centre: "Chào mừng bạn quay lại", a search field that filters the recent documents with or without Vietnamese
   accents, three tinted tiles with the HST application icons, and the "Gần đây" table (Tên, Đã mở, Vị trí,
   pin, "⋯" menu: Mở, Mở vị trí tệp, Ghim/Bỏ ghim, Xóa khỏi danh sách).
@@ -26,8 +26,15 @@ HST Office: the new Start Center (the window shown when no document is open), dr
   shared by every HST surface drawn in this look.
 - The layout scales with the UI factor or the display's DPI, whichever is larger, so the columns grow with the
   point-sized type (Windows at 125 % keeps the UI factor at 1).
-- Narrow windows: the Pinned card folds into the table, then the menu shows glyphs only; a short window scrolls
-  the left column. File times are read on a worker thread; no thumbnails are loaded.
+- Small windows: the Pinned card folds into the table (decided at the window's own scale). A window still
+  too small for the design's sizes (the left column taller than the window, the centre short of two rows of
+  the Recent table, a heading or tile label that would need an ellipsis, or narrower than the full left
+  column needs) shrinks the whole Start Center by the largest share that fits, down to 60 %: measures,
+  icons, the logo, spacing and type alike, the search entry's type too. Where a platform's type runs wider
+  than the design's, so that a menu label or a solution name would be cut, the type alone shrinks until
+  it fits. At the design's size nothing changes. Only a window too small even at 60 % scrolls the left
+  column (or, below the full column's width, shows the menu as glyphs). File times are read on a worker
+  thread; no thumbnails are loaded.
 - Start-up: the gradients are drawn natively (no step count, which Cairo and Skia refuse), only the logo of the
   theme shown is rendered, and the application icons are the brand's PNGs (assets/brand/icons), not SVGs.
 
@@ -539,10 +546,10 @@ index 0000000..3db49e3
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/inc/startcenter/hststartcenterwindow.hxx b/sfx2/inc/startcenter/hststartcenterwindow.hxx
 new file mode 100644
-index 0000000..518c121
+index 0000000..7073692
 --- /dev/null
 +++ b/sfx2/inc/startcenter/hststartcenterwindow.hxx
-@@ -0,0 +1,122 @@
+@@ -0,0 +1,127 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -558,10 +565,12 @@ index 0000000..518c121
 +#include <com/sun/star/frame/XDispatchProvider.hpp>
 +#include <com/sun/star/frame/XFrame.hpp>
 +#include <rtl/ustring.hxx>
++#include <vcl/font.hxx>
 +#include <vcl/vclptr.hxx>
 +#include <vcl/window.hxx>
 +
 +#include <memory>
++#include <optional>
 +#include <vector>
 +
 +struct ImplSVEvent;
@@ -662,15 +671,18 @@ index 0000000..518c121
 +    tools::Rectangle maPendingAt;
 +    ImplSVEvent* mpPendingEvent = nullptr;
 +    double mfScale = 1.0;
++    /// the search entry's own font, and the share of it shown (below 1 when the Start Center shrinks)
++    std::optional<vcl::Font> moSearchFont;
++    double mfSearchFont = 1.0;
 +};
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/qa/cppunit/hststartcenter.cxx b/sfx2/qa/cppunit/hststartcenter.cxx
 new file mode 100644
-index 0000000..947f92c
+index 0000000..f23b6c0
 --- /dev/null
 +++ b/sfx2/qa/cppunit/hststartcenter.cxx
-@@ -0,0 +1,786 @@
+@@ -0,0 +1,840 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -1301,6 +1313,60 @@ index 0000000..947f92c
 +    CPPUNIT_ASSERT_EQUAL(sal_Int64(7), xMenu->getAccessibleChildCount());
 +    for (sal_Int64 i = 0; i < xMenu->getAccessibleChildCount(); ++i)
 +        CPPUNIT_ASSERT_GREATEREQUAL(tools::Long(36), bounds(context(xMenu->getAccessibleChild(i))).GetHeight());
++}
++
++CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testSmallWindowShrinksToFit)
++{
++    // a window smaller than the design: the Start Center shrinks as a whole (measures, icons, spacing,
++    // type) instead of cutting its parts, scrolling the left column or folding the HASON TECH block
++    for (const Size& rContent : { Size(1000, 560), Size(760, 480) })
++    {
++        openStartCenter(rContent);
++        const Size aSize = canvas()->GetOutputSizePixel();
++        CPPUNIT_ASSERT_EQUAL(rContent, aSize);
++        const tools::Rectangle aAll(Point(0, 0), aSize);
++        const auto inside = [&aAll](const tools::Rectangle& rRect) {
++            return aAll.Contains(rRect.TopLeft()) && aAll.Contains(rRect.BottomRight());
++        };
++
++        // the column is not scrolled: the logo stays above the menu; the rows are smaller
++        uno::Reference<XAccessibleContext> xMenu = region(u"Menu");
++        const tools::Rectangle aMenu = bounds(xMenu);
++        CPPUNIT_ASSERT_GREATEREQUAL(tools::Long(24), aMenu.Top());
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(7), xMenu->getAccessibleChildCount());
++        for (sal_Int64 i = 0; i < xMenu->getAccessibleChildCount(); ++i)
++        {
++            tools::Rectangle aItem = bounds(context(xMenu->getAccessibleChild(i)));
++            CPPUNIT_ASSERT_LESS(tools::Long(40), aItem.GetHeight());
++            aItem.Move(aMenu.Left(), aMenu.Top());
++            CPPUNIT_ASSERT(inside(aItem));
++        }
++        // all six solution cards and the link, whole
++        uno::Reference<XAccessibleContext> xSolutions = region(u"HASON TECH - Digital solutions");
++        CPPUNIT_ASSERT_EQUAL(sal_Int64(7), xSolutions->getAccessibleChildCount());
++        const tools::Rectangle aSolutions = bounds(xSolutions);
++        for (sal_Int64 i = 0; i < 7; ++i)
++        {
++            tools::Rectangle aCard = bounds(context(xSolutions->getAccessibleChild(i)));
++            aCard.Move(aSolutions.Left(), aSolutions.Top());
++            CPPUNIT_ASSERT(inside(aCard));
++        }
++        // the tiles and the Recent table inside the window
++        uno::Reference<XAccessibleContext> xTiles = region(u"Quickly Create a New Document");
++        const tools::Rectangle aTiles = bounds(xTiles);
++        for (sal_Int64 i = 0; i < xTiles->getAccessibleChildCount(); ++i)
++        {
++            tools::Rectangle aTile = bounds(context(xTiles->getAccessibleChild(i)));
++            aTile.Move(aTiles.Left(), aTiles.Top());
++            CPPUNIT_ASSERT(inside(aTile));
++        }
++        CPPUNIT_ASSERT(inside(bounds(region(u"Recent documents"))));
++    }
++
++    // back at the design's size, the design's measures return
++    openStartCenter();
++    uno::Reference<XAccessibleContext> xMenu = region(u"Menu");
++    CPPUNIT_ASSERT_EQUAL(tools::Long(40), bounds(context(xMenu->getAccessibleChild(0))).GetHeight());
 +}
 +
 +CPPUNIT_TEST_FIXTURE(HstStartCenterTest, testCrispBorders)
@@ -2240,10 +2306,10 @@ index 0000000..03e8aba
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcentercanvas.cxx b/sfx2/source/startcenter/hststartcentercanvas.cxx
 new file mode 100644
-index 0000000..47c8b11
+index 0000000..c46e207
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvas.cxx
-@@ -0,0 +1,787 @@
+@@ -0,0 +1,913 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -2285,6 +2351,12 @@ index 0000000..47c8b11
 +        return { Part::Recent, rHit.nIndex };
 +    return rHit;
 +}
++
++/** The smallest share of its size the Start Center shrinks to so that a small window still shows all
++    of it; a window too small even then scrolls the left column. */
++constexpr double MIN_FIT = 0.6;
++/** Halving steps of the search for the largest fitting share (it ends within 0.4 % of it). */
++constexpr int FIT_STEPS = 7;
 +
 +bool isItem(Part ePart)
 +{
@@ -2338,9 +2410,19 @@ index 0000000..47c8b11
 +void HstStartCenterCanvas::SetLogoWidth(int nWidth)
 +{
 +    mnLogoWidth = nWidth;
++    UpdateLogoWidth();
++    Invalidate();
++}
++
++void HstStartCenterCanvas::UpdateLogoWidth()
++{
++    // the logo shrinks with the layout of a small window
++    const int nWidth = static_cast<int>(mnLogoWidth * mfFit + 0.5);
++    if (nWidth == mnLogoShownWidth)
++        return;
++    mnLogoShownWidth = nWidth;
 +    maLogo[0] = maLogo[1] = Bitmap();
 +    mbLogoLoaded[0] = mbLogoLoaded[1] = false;
-+    Invalidate();
 +}
 +
 +const Bitmap& HstStartCenterCanvas::Logo(bool bDark)
@@ -2352,7 +2434,7 @@ index 0000000..47c8b11
 +    {
 +        mbLogoLoaded[i] = true;
 +        if (!SfxApplication::loadBrandSvg(bDark ? u"shell/logo-sc_inverted" : u"shell/logo-sc", maLogo[i],
-+                                          mnLogoWidth))
++                                          mnLogoShownWidth))
 +        {
 +            if (bDark)
 +                maLogo[1] = Logo(false);
@@ -2391,8 +2473,12 @@ index 0000000..47c8b11
 +
 +void HstStartCenterCanvas::UseFont(vcl::RenderContext& rDev, const ::hst::design::TypeStyle& rType) const
 +{
-+    // the type scale is in points, converted to the device's pixels without rounding to whole points
-+    rDev.SetFont(::hst::design::MakePixelFont(GetSettings().GetStyleSettings(), rType, GetOutDev()->GetDPIY()));
++    // the type scale is in points, converted to the device's pixels without rounding to whole points;
++    // a window too small for the design's sizes takes the share of them the fit found
++    vcl::Font aFont = ::hst::design::MakePixelFont(GetSettings().GetStyleSettings(), rType, GetOutDev()->GetDPIY());
++    if (mfFont < 1.0)
++        aFont.SetFontSize(Size(0, std::max<tools::Long>(1, static_cast<tools::Long>(aFont.GetFontSize().Height() * mfFont + 0.5))));
++    rDev.SetFont(aFont);
 +}
 +
 +void HstStartCenterCanvas::UpdatePalette()
@@ -2420,13 +2506,13 @@ index 0000000..47c8b11
 +    return it->second;
 +}
 +
-+void HstStartCenterCanvas::Relayout()
++LayoutInput HstStartCenterCanvas::MeasureInput(double fScale)
 +{
 +    OutputDevice& rDev = *GetOutDev();
 +    auto aPop = rDev.ScopedPush(vcl::PushFlags::FONT);
 +    LayoutInput aIn;
 +    aIn.aSize = GetOutputSizePixel();
-+    aIn.fScale = UiScale(GetDPIScaleFactor(), GetOutDev()->GetDPIX());
++    aIn.fScale = fScale;
 +    UseFont(rDev, design::type::Body);
 +    aIn.nBody = rDev.GetTextHeight();
 +    UseFont(rDev, design::type::Nav);
@@ -2466,7 +2552,113 @@ index 0000000..47c8b11
 +    aIn.nLeftScroll = mnLeftScroll;
 +    aIn.nRecentFirst = mnRecentFirst;
 +    aIn.nPinnedFirst = mnPinnedFirst;
-+    maLayout = ComputeLayout(aIn);
++    return aIn;
++}
++
++double HstStartCenterCanvas::LeftTextRoom(const Layout& rLayout)
++{
++    // the one-line labels of the left column: the menu (in the selected item's bold, the widest) and
++    // the names of the solution cards. The column grows with the type, so only a platform's type
++    // that runs wider than the design's leaves them too little room; then the type alone shrinks.
++    if (rLayout.bCompact)
++        return 1.0;
++    OutputDevice& rDev = *GetOutDev();
++    auto aPop = rDev.ScopedPush(vcl::PushFlags::FONT);
++    double fRoom = 1.0;
++    const auto fit = [&fRoom](tools::Long nRoom, tools::Long nWidth) {
++        if (nWidth > nRoom && nWidth > 0)
++            fRoom = std::min(fRoom, std::max<double>(nRoom, 1) / nWidth);
++    };
++    UseFont(rDev, design::type::NavSelected);
++    for (int i = 0; i < NAV_COUNT; ++i)
++        fit(rLayout.NavText(i).GetWidth(), rDev.GetTextWidth(maTexts.aNav[i]));
++    UseFont(rDev, design::type::CardTitle);
++    for (const OUString& rName : maTexts.aSolutionName)
++        fit(SolutionTextWidth(rLayout.fScale), rDev.GetTextWidth(rName));
++    return fRoom;
++}
++
++bool HstStartCenterCanvas::Fits(const Layout& rLayout)
++{
++    // every part shows whole: the left column without scrolling, the centre down to two rows of the
++    // Recent table inside the window, and the one-line texts of the centre without an ellipsis
++    const Size aSize = GetOutputSizePixel();
++    if (rLayout.bCompact || rLayout.nLeftContent > aSize.Height() || rLayout.nCentreContent > aSize.Height()
++        || rLayout.aRecentCard.Right() >= aSize.Width())
++        return false;
++    OutputDevice& rDev = *GetOutDev();
++    auto aPop = rDev.ScopedPush(vcl::PushFlags::FONT);
++    UseFont(rDev, design::type::Display);
++    if (rDev.GetTextWidth(maTexts.aWelcome) > rLayout.aWelcome.GetWidth())
++        return false;
++    UseFont(rDev, design::type::Title);
++    const OUString& rRecentTitle = maModel.bPinnedOnly ? maTexts.aPinnedTitle : maTexts.aRecentTitle;
++    if (rDev.GetTextWidth(maTexts.aQuickTitle) > rLayout.aQuickTitle.GetWidth()
++        || rDev.GetTextWidth(rRecentTitle) > rLayout.aRecentTitle.GetWidth())
++        return false;
++    UseFont(rDev, design::type::Subtitle);
++    for (int i = 0; i < TILE_COUNT; ++i)
++        if (rDev.GetTextWidth(maTexts.aTiles[i]) > rLayout.TileText(i).GetWidth())
++            return false;
++    return true;
++}
++
++Layout HstStartCenterCanvas::LayoutAt(double fBaseScale, double fFit)
++{
++    // the layout at a share of the design's size: its measures and its type; the type shrinks
++    // further when the left column's labels need it (LeftTextRoom)
++    mfFit = fFit;
++    mfFont = fFit;
++    LayoutInput aIn = MeasureInput(fBaseScale * fFit);
++    aIn.fModeScale = fBaseScale;
++    Layout aLayout = ComputeLayout(aIn);
++    for (int nTry = 0; nTry < 3; ++nTry)
++    {
++        const double fRoom = LeftTextRoom(aLayout);
++        if (fRoom >= 1.0)
++            break;
++        // a little below the measured share: the type does not shrink exactly in proportion
++        mfFont = std::max(MIN_FIT * MIN_FIT, mfFont * fRoom * 0.98);
++        aIn = MeasureInput(fBaseScale * fFit);
++        aIn.fModeScale = fBaseScale;
++        aLayout = ComputeLayout(aIn);
++    }
++    return aLayout;
++}
++
++void HstStartCenterCanvas::Relayout()
++{
++    const double fBaseScale = UiScale(GetDPIScaleFactor(), GetOutDev()->GetDPIX());
++    const Size aSize = GetOutputSizePixel();
++    Layout aLayout = LayoutAt(fBaseScale, 1.0);
++    if (aSize.Width() > 0 && aSize.Height() > 0 && !Fits(aLayout))
++    {
++        // a window too small for the design's sizes: the largest share of them at which all of the
++        // Start Center shows, its measures, icons, spacing and type alike
++        double fLow = MIN_FIT, fHigh = 1.0;
++        Layout aSmall = LayoutAt(fBaseScale, MIN_FIT);
++        const double fSmallFont = mfFont;
++        double fFound = MIN_FIT, fFoundFont = fSmallFont;
++        for (int nStep = 0; nStep < FIT_STEPS; ++nStep)
++        {
++            const double fMid = (fLow + fHigh) / 2;
++            Layout aTry = LayoutAt(fBaseScale, fMid);
++            if (Fits(aTry))
++            {
++                fLow = fMid;
++                fFound = fMid;
++                fFoundFont = mfFont;
++                aSmall = std::move(aTry);
++            }
++            else
++                fHigh = fMid;
++        }
++        aLayout = std::move(aSmall);
++        mfFit = fFound;
++        mfFont = fFoundFont;
++    }
++    maLayout = std::move(aLayout);
++    UpdateLogoWidth();
 +    mnLeftScroll = maLayout.nLeftScroll;
 +    mnRecentFirst = maLayout.nRecentFirst;
 +    mnPinnedFirst = maLayout.nPinnedFirst;
@@ -3033,10 +3225,10 @@ index 0000000..47c8b11
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcentercanvas.hxx b/sfx2/source/startcenter/hststartcentercanvas.hxx
 new file mode 100644
-index 0000000..b136a02
+index 0000000..d4fbb38
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvas.hxx
-@@ -0,0 +1,204 @@
+@@ -0,0 +1,218 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -3146,6 +3338,8 @@ index 0000000..b136a02
 +    void SetSearchFocused(bool bFocused);
 +
 +    const Layout& GetLayout() const { return maLayout; }
++    /** The share of the design's type sizes the canvas shows (below 1 in a window too small for them). */
++    double GetFontShare() const { return mfFont; }
 +    const Palette& GetPalette() const { return maPalette; }
 +    const CanvasTexts& GetTexts() const { return maTexts; }
 +
@@ -3192,6 +3386,15 @@ index 0000000..b136a02
 +    /** Sets the font of a step of the HST type scale. */
 +    void UseFont(vcl::RenderContext& rDev, const ::hst::design::TypeStyle& rType) const;
 +    void Relayout();
++    /** The input of the layout at fScale, its type at mfFont of the design's size. */
++    LayoutInput MeasureInput(double fScale);
++    /** The layout at fFit of the design's size (fBaseScale: the window's own scale). */
++    Layout LayoutAt(double fBaseScale, double fFit);
++    /** The share of their size at which the left column's one-line labels fit (1: they do). */
++    double LeftTextRoom(const Layout& rLayout);
++    /** Whether every part of rLayout shows whole in the window. */
++    bool Fits(const Layout& rLayout);
++    void UpdateLogoWidth();
 +    void UpdatePalette();
 +    const Bitmap& Icon(int nKind, tools::Long nSize);
 +    const Bitmap& Logo(bool bDark);
@@ -3223,7 +3426,10 @@ index 0000000..b136a02
 +    Palette maPalette;
 +    Bitmap maLogo[2]; ///< light, dark
 +    bool mbLogoLoaded[2] = { false, false };
-+    int mnLogoWidth = 0;
++    int mnLogoWidth = 0; ///< at the design's size
++    int mnLogoShownWidth = 0; ///< at the fitted size (the width the artwork is rendered at)
++    double mfFit = 1.0; ///< the share of the design's measures the layout uses (below 1 in a small window)
++    double mfFont = 1.0; ///< the share of the design's type sizes
 +    std::map<std::pair<int, tools::Long>, Bitmap> maIcons; ///< rendered application icons and solution logos
 +
 +    Hit maHover;
@@ -3243,10 +3449,10 @@ index 0000000..b136a02
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcentercanvaspaint.cxx b/sfx2/source/startcenter/hststartcentercanvaspaint.cxx
 new file mode 100644
-index 0000000..4c0345a
+index 0000000..3f829a8
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcentercanvaspaint.cxx
-@@ -0,0 +1,421 @@
+@@ -0,0 +1,415 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -3340,7 +3546,6 @@ index 0000000..4c0345a
 +    }
 +
 +    // the menu: a rounded pill for the selected item, a lighter one under the mouse
-+    const tools::Long nGlyph = L.px(icon::Nav);
 +    for (int i = 0; i < NAV_COUNT; ++i)
 +    {
 +        const tools::Rectangle& rItem = L.aNav[i];
@@ -3351,13 +3556,12 @@ index 0000000..4c0345a
 +        if (ShowFocus(aHit))
 +            DrawFocusRing(rDev, rItem, L.px(radius::Control), maPalette, L.fScale);
 +        const Color aInk = bSelected ? maPalette.aAccent : maPalette.aIcon;
-+        const tools::Rectangle aGlyph = centred(rItem, nGlyph, L.bCompact ? -1 : rItem.Left() + L.px(space::M));
-+        DrawGlyph(rDev, aGlyph, NAV_GLYPHS[i], aInk);
++        DrawGlyph(rDev, L.NavGlyph(i), NAV_GLYPHS[i], aInk);
 +        if (L.bCompact)
 +            continue;
 +        UseFont(rDev, bSelected ? design::type::NavSelected : design::type::Nav);
-+        const tools::Long nTextX = aGlyph.Right() + L.px(space::M);
-+        drawLine(rDev, nTextX, rItem.Center().Y(), rItem.Right() - nTextX - L.px(space::S), maTexts.aNav[i],
++        const tools::Rectangle aText = L.NavText(i);
++        drawLine(rDev, aText.Left(), rItem.Center().Y(), aText.GetWidth(), maTexts.aNav[i],
 +                 bSelected ? maPalette.aAccent : maPalette.aText);
 +    }
 +    if (L.bCompact)
@@ -3477,17 +3681,13 @@ index 0000000..4c0345a
 +                      maPalette.aTintBorder[i]);
 +        if (ShowFocus(aHit))
 +            DrawFocusRing(rDev, rTile, L.px(radius::Card), maPalette, L.fScale);
-+        const tools::Long nIcon = std::min(L.px(icon::Tile), rTile.GetHeight() - L.px(space::L));
-+        const tools::Rectangle aIcon = centred(rTile, nIcon, rTile.Left() + L.px(space::L));
-+        const Bitmap& rIcon = Icon(static_cast<int>(TILE_ICONS[i]), nIcon);
++        const tools::Rectangle aIcon = L.TileIcon(i);
++        const Bitmap& rIcon = Icon(static_cast<int>(TILE_ICONS[i]), aIcon.GetWidth());
 +        DrawBadge(rDev, aIcon, rIcon);
-+        const tools::Long nChevron = L.px(icon::Chevron);
-+        const tools::Rectangle aChevron = centred(rTile, nChevron, rTile.Right() - L.px(space::L) - nChevron);
-+        DrawGlyph(rDev, aChevron, Glyph::Chevron, maPalette.aIcon);
++        DrawGlyph(rDev, L.TileChevron(i), Glyph::Chevron, maPalette.aIcon);
 +        UseFont(rDev, design::type::Subtitle);
-+        const tools::Long nTextX = aIcon.Right() + L.px(space::M);
-+        drawLine(rDev, nTextX, rTile.Center().Y(), aChevron.Left() - nTextX - L.px(space::S), maTexts.aTiles[i],
-+                 maPalette.aText);
++        const tools::Rectangle aText = L.TileText(i);
++        drawLine(rDev, aText.Left(), rTile.Center().Y(), aText.GetWidth(), maTexts.aTiles[i], maPalette.aText);
 +    }
 +
 +    UseFont(rDev, design::type::Title);
@@ -4163,10 +4363,10 @@ index 0000000..35f8221
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterlayout.cxx b/sfx2/source/startcenter/hststartcenterlayout.cxx
 new file mode 100644
-index 0000000..8e76b7f
+index 0000000..2af8c24
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterlayout.cxx
-@@ -0,0 +1,355 @@
+@@ -0,0 +1,400 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -4175,6 +4375,8 @@ index 0000000..8e76b7f
 + */
 +
 +#include "hststartcenterlayout.hxx"
++
++#include <vcl/hst/designtokens.hxx>
 +
 +#include <algorithm>
 +
@@ -4218,6 +4420,13 @@ index 0000000..8e76b7f
 +    aRect.Move(0, nDY);
 +    return aRect;
 +}
++
++/** A square of nSize centred vertically in rIn, at nLeft (or centred horizontally too). */
++tools::Rectangle centred(const tools::Rectangle& rIn, tools::Long nSize, tools::Long nLeft = -1)
++{
++    const tools::Long nX = nLeft >= 0 ? nLeft : rIn.Left() + (rIn.GetWidth() - nSize) / 2;
++    return tools::Rectangle(Point(nX, rIn.Top() + (rIn.GetHeight() - nSize) / 2), Size(nSize, nSize));
++}
 +}
 +
 +double UiScale(double fDpiScaleFactor, double fDpiX)
@@ -4240,7 +4449,7 @@ index 0000000..8e76b7f
 +    L.fScale = rIn.fScale > 0 ? rIn.fScale : 1.0;
 +    const double fLogicalWidth = rIn.aSize.Width() / L.fScale;
 +    L.bCompact = fLogicalWidth < COMPACT_BELOW;
-+    L.bShowRight = fLogicalWidth >= SHOW_RIGHT_MIN;
++    L.bShowRight = rIn.aSize.Width() / (rIn.fModeScale > 0 ? rIn.fModeScale : L.fScale) >= SHOW_RIGHT_MIN;
 +    const tools::Long W = rIn.aSize.Width();
 +    const tools::Long H = rIn.aSize.Height();
 +
@@ -4350,6 +4559,7 @@ index 0000000..8e76b7f
 +
 +    L.nRowHeight = std::max(L.px(ROW_HEIGHT), rIn.nBody + L.px(24));
 +    const tools::Long nHeader = std::max(L.px(HEADER_HEIGHT), rIn.nBody + L.px(20));
++    L.nCentreContent = y + nHeader + 2 * L.nRowHeight + L.px(OUTER);
 +    const tools::Long nCardBottom = std::max(H - L.px(OUTER), y + nHeader + 2 * L.nRowHeight);
 +    L.aRecentCard = rect(nCentreX, y, nCentreW, nCardBottom - y);
 +    L.aRecentHeader = rect(nCentreX, y, nCentreW, nHeader);
@@ -4445,6 +4655,41 @@ index 0000000..8e76b7f
 +                aLeft.GetHeight() - px(8));
 +}
 +
++tools::Rectangle Layout::NavGlyph(int nItem) const
++{
++    const tools::Rectangle& rItem = aNav[nItem];
++    return centred(rItem, px(::hst::design::icon::Nav), bCompact ? -1 : rItem.Left() + px(::hst::design::space::M));
++}
++
++tools::Rectangle Layout::NavText(int nItem) const
++{
++    const tools::Rectangle& rItem = aNav[nItem];
++    const tools::Long nX = NavGlyph(nItem).Right() + px(::hst::design::space::M);
++    return rect(nX, rItem.Top(), rItem.Right() - nX - px(::hst::design::space::S), rItem.GetHeight());
++}
++
++tools::Rectangle Layout::TileIcon(int nTile) const
++{
++    const tools::Rectangle& rTile = aTiles[nTile];
++    const tools::Long nIcon
++        = std::min(px(::hst::design::icon::Tile), rTile.GetHeight() - px(::hst::design::space::L));
++    return centred(rTile, nIcon, rTile.Left() + px(::hst::design::space::L));
++}
++
++tools::Rectangle Layout::TileChevron(int nTile) const
++{
++    const tools::Rectangle& rTile = aTiles[nTile];
++    const tools::Long nChevron = px(::hst::design::icon::Chevron);
++    return centred(rTile, nChevron, rTile.Right() - px(::hst::design::space::L) - nChevron);
++}
++
++tools::Rectangle Layout::TileText(int nTile) const
++{
++    const tools::Rectangle& rTile = aTiles[nTile];
++    const tools::Long nX = TileIcon(nTile).Right() + px(::hst::design::space::M);
++    return rect(nX, rTile.Top(), TileChevron(nTile).Left() - nX - px(::hst::design::space::S), rTile.GetHeight());
++}
++
 +Hit Layout::HitTest(const Point& rPos) const
 +{
 +    if (aLeft.Contains(rPos))
@@ -4524,10 +4769,10 @@ index 0000000..8e76b7f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterlayout.hxx b/sfx2/source/startcenter/hststartcenterlayout.hxx
 new file mode 100644
-index 0000000..ed504d8
+index 0000000..546696d
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterlayout.hxx
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,161 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -4584,6 +4829,9 @@ index 0000000..ed504d8
 +{
 +    Size aSize; ///< the canvas
 +    double fScale = 1.0; ///< device pixels per layout pixel
++    /** The scale the Pinned card's fold is decided at (0: fScale): the window's own scale, so that
++        fitting a short window by a smaller fScale does not bring the card back. */
++    double fModeScale = 0;
 +    // heights of the text lines, in device pixels
 +    tools::Long nBody = 16; ///< table rows, search text, pinned names
 +    tools::Long nNav = 18; ///< the menu items
@@ -4629,6 +4877,8 @@ index 0000000..ed504d8
 +    tools::Rectangle aRecentCard;
 +    tools::Rectangle aRecentHeader;
 +    tools::Rectangle aRecentBody;
++    /** The height the centre needs: down to the Recent table with its header and two rows. */
++    tools::Long nCentreContent = 0;
 +    tools::Long nRowHeight = 0;
 +    int nRecent = 0;
 +    int nRecentFirst = 0;
@@ -4653,6 +4903,12 @@ index 0000000..ed504d8
 +    tools::Rectangle RecentScrollTrack() const;
 +    tools::Rectangle PinnedScrollTrack() const;
 +    tools::Rectangle LeftScrollTrack() const;
++    /** The parts of a menu item and of a tile, as painted: the glyph or icon, the room of the label. */
++    tools::Rectangle NavGlyph(int nItem) const;
++    tools::Rectangle NavText(int nItem) const;
++    tools::Rectangle TileIcon(int nTile) const;
++    tools::Rectangle TileChevron(int nTile) const;
++    tools::Rectangle TileText(int nTile) const;
 +
 +    Hit HitTest(const Point& rPos) const;
 +    /** The rectangle of an item (Nav, Tile, Recent, Pinned, Solution, MoreSolutions). */
@@ -12156,10 +12412,10 @@ index 0000000..dcb957f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
 new file mode 100644
-index 0000000..9eba384
+index 0000000..94ca14c
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
-@@ -0,0 +1,740 @@
+@@ -0,0 +1,754 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -12582,6 +12838,20 @@ index 0000000..9eba384
 +    if (!mxCanvas || !mxSearchHost)
 +        return;
 +    const Layout& L = mxCanvas->GetLayout();
++    // the entry's type shrinks with the canvas's (its own font, untouched while the canvas has the
++    // design's size)
++    const double fFont = mxCanvas->GetFontShare();
++    if (mxSearch && fFont != mfSearchFont)
++    {
++        if (!moSearchFont)
++            moSearchFont = mxSearch->get_font();
++        vcl::Font aFont(*moSearchFont);
++        if (fFont < 1.0)
++            aFont.SetFontSize(Size(0, std::max<tools::Long>(
++                                          1, static_cast<tools::Long>(aFont.GetFontSize().Height() * fFont + 0.5))));
++        mxSearch->set_font(aFont);
++        mfSearchFont = fFont;
++    }
 +    mxSearchHost->SetPosSizePixel(L.aSearchText.TopLeft(), L.aSearchText.GetSize());
 +    // the pinned files have their own card again once the window is wide enough
 +    if (L.bShowRight && mxCanvas->GetModel().bPinnedOnly)
