@@ -1,0 +1,85 @@
+# SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
+name: macOS verify 1.0.4 signature (probe branch)
+# Evidence only: checks the signed dmg of a Desktop macOS run for the 1.0.4 release gate. Not published.
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Desktop macOS run id whose signed dmg artifacts are checked'
+        type: string
+        required: true
+permissions:
+  contents: read
+concurrency:
+  group: macos-verify-1-0-4-signature
+  cancel-in-progress: false
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+          - arch: x86_64
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - name: Download the signed dmg
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -eu
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "bad run id" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/dmg" "$RUNNER_TEMP/out"
+          gh run download "$RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name "hst-office-macos-$ARCH-dmg-signed-$RUN_ID" --dir "$RUNNER_TEMP/dmg"
+          find "$RUNNER_TEMP/dmg" -name '*.dmg' -exec shasum -a 256 {} \; | tee "$RUNNER_TEMP/out/sha256.txt"
+      - name: Check signature, notarization and Gatekeeper
+        shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -u
+          out="$RUNNER_TEMP/out/verify-$ARCH.txt"
+          : > "$out"
+          dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' -print -quit)
+          log() { echo "$*" | tee -a "$out"; }
+          log "== dmg: $(basename "$dmg")"
+          log "== dmg signature"
+          codesign --verify --verbose=2 "$dmg" >>"$out" 2>&1; log "codesign dmg exit $?"
+          codesign -dv --verbose=4 "$dmg" 2>>"$out"
+          log "== stapler dmg"
+          xcrun stapler validate "$dmg" >>"$out" 2>&1; log "stapler dmg exit $?"
+          log "== spctl dmg (open, primary signature)"
+          spctl --assess --type open --context context:primary-signature -vvv "$dmg" >>"$out" 2>&1; log "spctl dmg exit $?"
+          mnt="$RUNNER_TEMP/mnt"; mkdir -p "$mnt"
+          hdiutil attach -readonly -nobrowse -noautoopen -mountpoint "$mnt" "$dmg" >/dev/null
+          app="$mnt/HST Office.app"
+          log "== app bundle"
+          ls -d "$app" >>"$out" 2>&1; log "app present exit $?"
+          plist="$app/Contents/Info.plist"
+          log "CFBundleIdentifier: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$plist" 2>&1)"
+          log "CFBundleShortVersionString: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" 2>&1)"
+          log "CFBundleVersion: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist" 2>&1)"
+          log "== codesign app (deep, strict)"
+          codesign --verify --deep --strict --verbose=2 "$app" >>"$out" 2>&1; log "codesign app exit $?"
+          codesign -dv --verbose=4 "$app" 2>>"$out"
+          log "== spctl app (execute)"
+          spctl --assess --type execute -vvv "$app" >>"$out" 2>&1; log "spctl app exit $?"
+          log "== stapler app"
+          xcrun stapler validate "$app" >>"$out" 2>&1; log "stapler app exit $?"
+          hdiutil detach "$mnt" >/dev/null 2>&1 || true
+      - name: Upload evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: macos-verify-1-0-4-signature-${{ matrix.arch }}-${{ github.run_id }}
+          path: ${{ runner.temp }}/out/
+          if-no-files-found: error
+          retention-days: 14
