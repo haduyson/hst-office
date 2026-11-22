@@ -9,7 +9,9 @@ it moves; it returns False off macOS and once the app is in /Applications. The f
 ends the modal chain for this start; every later step waits for a later start, because each one keeps its own state
 until it is shown (welcome: Shown; default apps: Asked/LastAsked; update outcome: its state file). A crash question
 skipped behind the move question is not carried over: the recovery state is read once per start. The update check
-itself is not modal (a pop-up that does not block, or an infobar) and always runs last. Before the chain, an installed
+itself is not modal (a pop-up that does not block, or an infobar) and starts before the chain, on its own worker
+thread: a question left unanswered (e.g. "Mở tài liệu văn phòng bằng HST Office?") no longer holds it back. Its
+pop-up waits while the chain runs (prompting(), read by update_popup), so it never lands on a question. Before the chain, an installed
 macOS copy puts its app launchers in /Applications or refreshes them (mac_app_launchers_ui.sync_at_startup, no dialog),
 then the documents that "Cập nhật ngay" closed are reopened (update_resume), whatever question this start shows; the
 one-time notice about the launchers ("mac_launchers") comes after the welcome dialog, so a first start still opens with
@@ -33,6 +35,12 @@ JOB_NAME = "org.hst.office.vi.StartupPromptsJob"
 ORDER = ("mac_move", "profile_repaired", "crash", "welcome", "mac_launchers", "default_apps", "update_outcome")
 # skipped when other software started the office (automation_start)
 FOR_PERSON = ("welcome", "mac_launchers", "default_apps")
+_CHAIN = {"running": False}  # True while run_chain shows (or may show) a start-up question
+
+
+def prompting():
+    """True while the start-up questions run: the update pop-up waits (update_popup) instead of covering one."""
+    return _CHAIN["running"]
 
 
 def run_chain(steps):
@@ -149,8 +157,8 @@ def _safe_automated():
 
 
 def run(ctx, steps=None, after=None, before=None, prepare=None):
-    """The whole start: the macOS launchers, the modal chain, then the non-modal update check. Returns the name of the
-    modal shown.
+    """The whole start: the macOS launchers, the non-modal update check (started, not awaited), then the modal chain.
+    Returns the name of the modal shown.
 
     before: startup_activity.snapshot() taken when the questions were scheduled; when the user has started working
     since, only the crash question may still open a modal."""
@@ -162,12 +170,15 @@ def run(ctx, steps=None, after=None, before=None, prepare=None):
     steps = steps if steps is not None else steps_for(ctx)
     if before is not None and _started_working(ctx, before):
         steps = only_after_work(steps)
-    shown = run_chain(steps)
+    _CHAIN["running"] = True  # before the check starts: its result is posted to the main loop a modal question runs
     try:
-        (after or _update_check)(ctx)
-    except Exception:  # noqa: BLE001 - never break start-up
-        diag_log.exception("startup_prompts")
-    return shown
+        try:
+            (after or _update_check)(ctx)  # a worker thread fetches; nothing here waits for an answer
+        except Exception:  # noqa: BLE001 - never break start-up
+            diag_log.exception("startup_prompts")
+        return run_chain(steps)
+    finally:
+        _CHAIN["running"] = False
 
 
 def _safe_snapshot(ctx):
