@@ -54,6 +54,26 @@ def mac_swap():
     return mac_scripts.MAC_SWAP.replace("@TEAM_ID@", TEAM_ID).replace("@PATH_CONTROLS@", controls)
 
 
+# The macOS helper's notifications (update_texts: "helper_*" keys). update_install passes them in the language of the
+# office; the Vietnamese texts are the default.
+MAC_NOTICES = ("installing", "busy", "busy_failed", "old_running", "failed")
+
+
+def mac_notices(notices=None):
+    """{name: text} for MAC_NOTICES; each text goes into an AppleScript string literal, so it must be one line
+    without double quotes or backslashes."""
+    if notices is None:
+        from .update_texts import TEXTS
+        notices = {name: TEXTS["vi"]["helper_" + name] for name in MAC_NOTICES}
+    if not isinstance(notices, dict) or set(notices) != set(MAC_NOTICES):
+        raise ValueError("notices must name exactly the macOS helper notices")
+    for text in notices.values():
+        if not isinstance(text, str) or not text or '"' in text or "\\" in text \
+                or any(unicodedata.category(c) in ("Cc", "Zl", "Zp") for c in text):
+            raise ValueError("a notice must be one line of text without double quotes or backslashes")
+    return notices
+
+
 def mac_path(value):
     """A macOS helper path: absolute, no control characters, and safe inside the AppleScript administrator command."""
     return _path(value, applescript=True)
@@ -67,13 +87,14 @@ def mac_bundle(value):
 
 
 def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False, app_dest=None, release_from="", release_to="",
-                 app_origin=None, linux_kind="deb"):
+                 app_origin=None, linux_kind="deb", notices=None):
     """Build a script and argv template without inspecting or changing the filesystem.
 
     release_from / release_to go into the failure record, so that update_outcome can name the version and ignore a
     record made stale by an update installed some other way. macOS: app_dest is the bundle to replace or create;
     app_origin, when it differs (the running copy on a .dmg, say), is reopened if the install fails. Linux: linux_kind picks
-    the install step (LINUX_KINDS); for "appimage", soffice is the AppImage file the verified installer replaces."""
+    the install step (LINUX_KINDS); for "appimage", soffice is the AppImage file the verified installer replaces.
+    notices: the macOS notification texts (mac_notices)."""
     if system not in ("Windows", "Darwin", "Linux"):
         raise ValueError("unsupported system")
     if type(pid) is not int or pid <= 0 or pid > 2147483647:
@@ -93,6 +114,7 @@ def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False,
     if system == "Darwin":
         target = mac_bundle(app_dest)
         origin = "" if app_origin is None else mac_bundle(app_origin)
+        notices = mac_notices(notices)
     else:
         target = _path(soffice, system == "Windows")
     if system == "Windows":
@@ -116,6 +138,7 @@ def build_helper(system, *, pid, installer, soffice, log, sha256, dry_run=False,
     if system == "Linux" and linux_kind == "rpm":
         text += "PKCON_COMMAND=" + shlex.quote("pkcon install-local " + shlex.quote(installer)) + "\n"
     if system == "Darwin":
+        text += "".join("NOTE_%s=%s\n" % (name.upper(), shlex.quote(notices[name])) for name in MAC_NOTICES)
         text += mac_scripts.MAC_INSTALL
     else:
         text += scripts.LINUX + {"deb": scripts.LINUX_DEB, "rpm": linux_scripts.LINUX_RPM,

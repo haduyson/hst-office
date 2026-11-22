@@ -39,6 +39,8 @@ record_failure() {
 SETUP = r'''
 PID=$1; INSTALLER=$2; SOFFICE=$3; LOG=$4; SHA256=$5; DRY_RUN=${6-}
 STATE=${LOG%/*}/update-result.json
+# Written by the office before it started this helper (update_guard): a copy of the office started meanwhile quits.
+LOCK=${LOG%/*}/updating.lock
 exec >>"$LOG" 2>&1 || exit 1
 '''
 
@@ -46,6 +48,9 @@ LINUX = r'''
 # Called indirectly by finish's exit trap.
 # shellcheck disable=SC2317
 cleanup() { :; }
+# The package is checked and installed after the office has quit (install_update).
+prepare_update() { :; }
+watch_exit() { :; }
 if command -v setsid >/dev/null 2>&1; then RELAUNCH="setsid $RELAUNCH"; fi
 # shellcheck disable=SC2317
 relaunch() {
@@ -94,6 +99,8 @@ finish() {
     status=$?
     trap - EXIT
     cleanup
+    # Before the relaunch: the office started next must not take itself for a second copy started during the update.
+    rm -f "$LOCK"
     # Stopped while the office was still open (Cancel at its save prompt): nothing to report, nothing to reopen.
     if [ -n "$STOPPED" ]; then log_step 'Stopped before installing; the office stays open'; exit "$status"; fi
     if [ "$status" -ne 0 ] && [ "$FAIL" != cancel ]; then record_failure "$FAIL" "$status"; fi
@@ -107,9 +114,16 @@ finish() {
     fi
     exit "$status"
 }
-STOPPED=; FAIL='wait'
+STOPPED=; FAIL='wait'; VERIFIED=
 trap finish EXIT
 trap 'STOPPED=1; exit 1' HUP INT TERM
+rm -f "$STATE"
+watch_exit
+# Work that needs no closed office runs first (macOS: checks and staging), so little is left once it has quit.
+prepare_update
+prepared=$?
+PREPARE_FAIL=$FAIL
+FAIL='wait'
 log_step "Waiting for process $PID"
 seconds=0
 while kill -0 "$PID" 2>/dev/null; do
@@ -119,9 +133,15 @@ while kill -0 "$PID" 2>/dev/null; do
 done
 log_step 'Process exited'
 trap 'exit 1' HUP INT TERM
-rm -f "$STATE"
-FAIL=verify
-verify_installer || exit 1
+if [ "$prepared" -ne 0 ]; then
+    FAIL=$PREPARE_FAIL
+    log_step "Preparation failed with code $prepared; installation skipped"
+    exit "$prepared"
+fi
+if [ -z "$VERIFIED" ]; then
+    FAIL=verify
+    verify_installer || exit 1
+fi
 FAIL=install
 install_update
 code=$?

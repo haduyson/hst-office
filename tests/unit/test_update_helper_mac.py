@@ -85,13 +85,16 @@ class MacExecution(MacHarness):
         self.execute("Darwin", expected=1)
         self.assert_old_reopened()
 
-    def test_dry_run_quotes_exact_swap_without_changes(self):
+    def test_dry_run_quotes_exact_stage_and_commit_without_changes(self):
         log = self.execute("Darwin", dry_run=True)
-        command = next(line.split("DRYRUN install: ", 1)[1] for line in log.splitlines() if "DRYRUN install:" in line)
-        args = shlex.split(command)
-        self.assertEqual(args[:3], ["/bin/sh", str(self.root / "helper's directory" / "hst-update.sh"), "--swap"])
-        self.assertEqual(Path(args[3]).name, self.process_vars["APP_NAME"])
-        self.assertEqual(args[4], str(self.destination))
+        script = str(self.root / "helper's directory" / "hst-update.sh")
+        stage = shlex.split(next(line.split("DRYRUN stage: ", 1)[1] for line in log.splitlines() if "DRYRUN stage:" in line))
+        self.assertEqual(stage[:3], ["/bin/sh", script, "--stage"])
+        self.assertEqual(Path(stage[3]).name, self.process_vars["APP_NAME"])
+        self.assertEqual(stage[4], str(self.destination))
+        install = shlex.split(next(line.split("DRYRUN install: ", 1)[1] for line in log.splitlines() if "DRYRUN install:" in line))
+        self.assertEqual(install, ["/bin/sh", script, "--commit", str(self.destination)])
+        self.assertLess(log.index("DRYRUN stage:"), log.index("Waiting for process"))
         self.assertIn("DRYRUN relaunch: open " + shlex.quote(str(self.destination)), log)
         self.assertEqual((self.destination / "version").read_text(), "old")
         self.assertTrue(self.installer.exists())

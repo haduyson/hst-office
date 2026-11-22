@@ -17,7 +17,7 @@ import _paths  # noqa: F401
 from hst_office import update_helper_cmd as cmd
 from hst_office import update_launch as launch
 
-SHELL_TOOLS = ("sh", "date", "sleep", "nohup", "env", "mktemp", "mkdir", "rmdir", "rm", "mv", "cp", "grep", "sed")
+SHELL_TOOLS = ("sh", "date", "sleep", "nohup", "env", "mktemp", "mkdir", "rmdir", "rm", "mv", "cp", "grep", "sed", "cat")
 HASH_TOOLS = ("sha256sum", "shasum", "openssl")
 SHA256 = hashlib.sha256(b"installer").hexdigest()
 HAS_SHELL = os.name == "posix" and Path("/bin/sh").exists() and all(shutil.which(t) for t in SHELL_TOOLS)
@@ -149,6 +149,42 @@ esac
         self.stub("open", 'printf "%s\\n" "$@" > "$RECORDS/open-args"\n')
         self.stub("mv", 'case "$1" in *.hst-new) [ "${FAIL_SWAP:-0}" = 0 ] || exit 1 ;; esac\n'
                   'exec ' + shlex.quote(shutil.which("mv")) + ' "$@"\n')
+        # macOS `ps -axww -o comm=` prints each process's executable path; Linux has it in /proc/<pid>/exe.
+        self.stub("ps", 'exec ' + shlex.quote(shutil.which("readlink")) + ' /proc/[0-9]*/exe 2>/dev/null\n')
+
+    def start_office_from_app(self, app=None):
+        """A real process whose executable lies inside the app (a copy of sleep as Contents/MacOS/soffice), like a
+        copy of HST Office started from the Dock while the helper works; ended at cleanup."""
+        executable = Path(app or self.destination) / "Contents" / "MacOS" / "soffice"
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(shutil.which("sleep"), executable)
+        office = subprocess.Popen([str(executable), "60"])
+        self.addCleanup(lambda: (office.kill(), office.wait()))
+        return office
+
+    def fast_sleep(self, end_office_after=None):
+        """Replace sleep with a stub that returns at once (the helper's 60-second wait passes in no time); with
+        end_office_after=(n, process), the process is killed at the n-th call."""
+        body = 'n=$(($(cat "$RECORDS/sleep-calls" 2>/dev/null || echo 0) + 1)); echo "$n" > "$RECORDS/sleep-calls"\n'
+        if end_office_after:
+            count, process = end_office_after
+            body += '[ "$n" -eq %d ] && kill %d\n' % (count, process.pid)
+        self.stub("sleep", body + "exit 0\n")
+
+    def start(self, system="Darwin", **kwargs):
+        """Run the helper in the background, in its own session like update_launch.spawn."""
+        process = subprocess.Popen(self.prepare(system, **kwargs), env=self.process_vars, stdout=subprocess.DEVNULL,
+                                   stderr=subprocess.DEVNULL, start_new_session=True)
+        self.addCleanup(lambda: process.poll() is not None or (process.kill(), process.wait()))
+        return process
+
+    def wait_for_log(self, text, timeout=10):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.log.exists() and text in self.log.read_text(encoding="utf-8"):
+                return self.log.read_text(encoding="utf-8")
+            time.sleep(0.05)
+        self.fail("%r not logged:\n%s" % (text, self.log.read_text(encoding="utf-8") if self.log.exists() else ""))
 
     def assert_old_reopened(self):
         self.assertEqual((self.destination / "version").read_text(), "old")
