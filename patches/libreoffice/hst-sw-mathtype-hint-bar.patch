@@ -531,7 +531,7 @@ saves (sw/qa/uibase/hst/mathtypekeptole.cxx).
      m_aBringToAttentionBlinkTimer.SetTimeout(350);
 --- a/sw/qa/uibase/hst/mathtypekeptole.cxx
 +++ b/sw/qa/uibase/hst/mathtypekeptole.cxx
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,166 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -542,7 +542,10 @@ saves (sw/qa/uibase/hst/mathtypekeptole.cxx).
 +#include <swmodeltestbase.hxx>
 +
 +#include <com/sun/star/container/XNameAccess.hpp>
-+#include <com/sun/star/document/XEmbeddedObjectSupplier.hpp>
++#include <com/sun/star/document/XEmbeddedObjectSupplier2.hpp>
++#include <com/sun/star/document/XStorageBasedDocument.hpp>
++#include <com/sun/star/embed/XEmbedPersist.hpp>
++#include <com/sun/star/embed/XStorage.hpp>
 +#include <com/sun/star/text/XTextEmbeddedObjectsSupplier.hpp>
 +#include <comphelper/propertyvalue.hxx>
 +#include <sfx2/viewfrm.hxx>
@@ -553,10 +556,46 @@ saves (sw/qa/uibase/hst/mathtypekeptole.cxx).
 +#include <viewopt.hxx>
 +#include <wrtsh.hxx>
 +
++#include <algorithm>
++#include <iterator>
++#include <vector>
++
 +namespace
 +{
-+/// MathType 3-7 (Equation.DSMT4), as the CLSID property of a Writer embedded object names it
-+constexpr std::u16string_view MATHTYPE_CLSID = u"0002CE03-0000-0000-C000-000000000046";
++/// MathType 3-7 (Equation.DSMT4): the class ID of the equation's compound file, as stored
++constexpr sal_uInt8 MATHTYPE_CLASS_ID[16] = { 0x03, 0xce, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00,
++                                              0xc0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46 };
++
++/// The stored data of rObject is an OLE compound file whose root entry has MathType's class ID.
++bool StoredAsMathType(const uno::Reference<embed::XStorage>& xStorage,
++                      const uno::Reference<beans::XPropertySet>& xObject)
++{
++    uno::Reference<document::XEmbeddedObjectSupplier2> xSupplier(xObject, uno::UNO_QUERY_THROW);
++    uno::Reference<embed::XEmbedPersist> xPersist(xSupplier->getExtendedControlOverEmbeddedObject(),
++                                                  uno::UNO_QUERY_THROW);
++    const OUString aEntry = xPersist->getEntryName();
++    if (!xStorage->hasByName(aEntry) || xStorage->isStorageElement(aEntry))
++        return false; // an own (ODF) object, not an OLE compound file
++    uno::Reference<io::XInputStream> xIn
++        = xStorage->cloneStreamElement(aEntry)->getInputStream();
++    std::vector<sal_Int8> aData;
++    uno::Sequence<sal_Int8> aChunk;
++    while (xIn->readBytes(aChunk, 65536) > 0)
++        aData.insert(aData.end(), aChunk.begin(), aChunk.end());
++    const auto byte = [&aData](size_t n) { return static_cast<sal_uInt8>(aData[n]); };
++    // compound file header: sector size shift at 0x1E, first directory sector at 0x30; the root
++    // directory entry carries the class ID at offset 0x50
++    if (aData.size() < 512 || byte(0) != 0xd0 || byte(1) != 0xcf)
++        return false;
++    const size_t nShift = byte(0x1e) | (byte(0x1f) << 8);
++    const size_t nSector = byte(0x30) | (byte(0x31) << 8) | (byte(0x32) << 16);
++    const size_t nRoot = ((nSector + 1) << nShift) + 0x50;
++    if (nShift < 7 || nShift > 16 || nRoot + 16 > aData.size())
++        return false;
++    return std::equal(std::begin(MATHTYPE_CLASS_ID), std::end(MATHTYPE_CLASS_ID),
++                      aData.begin() + nRoot,
++                      [](sal_uInt8 a, sal_Int8 b) { return a == static_cast<sal_uInt8>(b); });
++}
 +
 +/// A document's MathType equations stay MathType OLE objects through open and save: Word and
 +/// MathType must still open and edit them. Converting them to HST formulas is a separate command;
@@ -569,19 +608,23 @@ saves (sw/qa/uibase/hst/mathtypekeptole.cxx).
 +    {
 +    }
 +
-+    /// "<n> objects, <m> MathType": the current document's embedded objects and its MathType ones.
++    /// "<n> objects, <m> MathType": the current document's embedded objects and those stored as
++    /// MathType compound files (the CLSID property names the class only where Windows OLE runs).
 +    OUString countObjects()
 +    {
 +        uno::Reference<text::XTextEmbeddedObjectsSupplier> xSupplier(mxComponent,
 +                                                                     uno::UNO_QUERY_THROW);
 +        uno::Reference<container::XNameAccess> xObjects = xSupplier->getEmbeddedObjects();
++        uno::Reference<document::XStorageBasedDocument> xDocument(mxComponent,
++                                                                  uno::UNO_QUERY_THROW);
++        const uno::Reference<embed::XStorage> xStorage = xDocument->getDocumentStorage();
 +        const uno::Sequence<OUString> aNames = xObjects->getElementNames();
 +        sal_Int32 nMathType = 0;
 +        for (const OUString& rName : aNames)
 +        {
 +            uno::Reference<beans::XPropertySet> xObject(xObjects->getByName(rName),
 +                                                        uno::UNO_QUERY_THROW);
-+            if (getProperty<OUString>(xObject, u"CLSID"_ustr).equalsIgnoreAsciiCase(MATHTYPE_CLSID))
++            if (StoredAsMathType(xStorage, xObject))
 +                ++nMathType;
 +        }
 +        return OUString::number(aNames.getLength()) + " objects, " + OUString::number(nMathType)
