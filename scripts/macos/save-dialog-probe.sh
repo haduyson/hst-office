@@ -21,7 +21,10 @@ timeout_osa() { perl -e 'alarm 20; exec @ARGV' osascript "$@"; }
 screen_w="$(timeout_osa -e 'tell application "Finder" to get item 3 of (get bounds of window of desktop)')"
 : > "$out/summary.md"
 for look in light dark; do
-  if [ "$look" = dark ]; then defaults write -g AppleInterfaceStyle Dark; else defaults delete -g AppleInterfaceStyle 2>/dev/null || true; fi
+  dark=false; [ "$look" = dark ] && dark=true
+  timeout_osa -e "tell application \"System Events\" to tell appearance preferences to set dark mode to $dark" \
+    >"$out/appearance-$look.log" 2>&1 || echo "appearance exit $?" >>"$out/appearance-$look.log"
+  sleep 2
   profile="$work/profile-$look"; mkdir -p "$profile/user"
   cat >"$profile/user/registrymodifications.xcu" <<'XCU'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -80,5 +83,5 @@ XCU
   kill "$pid" 2>/dev/null || true; sleep 2; kill -9 "$pid" 2>/dev/null || true
   { echo "## $look"; echo; echo "dialog: $bounds"; echo; echo '```'; grep -F "$look-" "$out/measure.jsonl" || true; echo '```'; echo; } >>"$out/summary.md"
 done
-defaults delete -g AppleInterfaceStyle 2>/dev/null || true
+timeout_osa -e "tell application \"System Events\" to tell appearance preferences to set dark mode to false" || true
 cat "$out/summary.md"
