@@ -1,0 +1,179 @@
+HST Office: the crash handler ends even when the recovery UI cannot run.
+
+Owner report (macOS 1.0.2 -> 1.0.3): the office was opened again while the updater replaced the app
+bundle. The running 1.0.2 process then loaded a second libmergedlo.dylib from the new bundle, failed
+on the 1.0.3 filter configuration and aborted. Inside the signal handler, Desktop::Exception created
+the RecoveryUI service from that second copy, whose VCL was never initialised: SalInstance::
+GetYieldMutex() read through a null instance and faulted on its first instruction. sal's handler
+blocks every signal while it runs, so macOS re-executed the faulting instruction forever (sample:
+1918/1918 at GetYieldMutex() + 0, 100 % CPU); only Force Quit ended it.
+
+- Before the recovery UI, SIGSEGV, SIGBUS, SIGILL and SIGFPE get their default action back and are
+  unblocked (POSIX only): a fault inside the recovery UI ends the process at once.
+- A watchdog thread ends the process (_exit, EXITHELPER_FATAL_ERROR) when the recovery UI hangs:
+  after 60 s in a row of a busy core, or after 10 minutes in any case. The emergency save dialog that
+  waits for the user is idle, so it is not cut short; the autosaved recovery copies stay on disk.
+- macOS: no recovery UI when the Info.plist of the bundle this process started from names another
+  HST version (or is gone): the code loaded from then on and the recovery data cannot be trusted.
+  Windows cannot replace the files of a running office (the installer closes it or asks for a
+  restart); Linux has no single version file next to the program to compare, and the updater keeps
+  a second office from starting while it installs.
+--- a/desktop/source/app/app.cxx
++++ b/desktop/source/app/app.cxx
+@@ -144,6 +144,17 @@
+ #if defined MACOSX
+ #include <errno.h>
+ #include <sys/wait.h>
++#include <fcntl.h>
++#include <climits>
++#include <mach-o/dyld.h>
++#endif
++
++#include <cstring>
++#include <ctime>
++#include <string>
++#if !defined _WIN32 && !defined EMSCRIPTEN
++#include <pthread.h>
++#include <signal.h>
+ #endif
+ 
+ #ifdef _WIN32
+@@ -1237,6 +1248,115 @@ bool lcl_flushConfigurationWithin(std::chrono::seconds aLimit)
+     std::unique_lock aGuard(pState->aMutex);
+     return pState->aDone.wait_for(aGuard, aLimit, [&pState] { return pState->bDone; });
+ }
++
++// HST Office: the crash handler must end even when the recovery UI cannot run. On macOS an update
++// had replaced the app bundle under a running office; the second copy of libmergedlo it then loaded
++// created the RecoveryUI service, whose never-initialised VCL faulted on its first instruction. The
++// fault came inside the signal handler, where sal blocks every signal, so macOS restarted the
++// faulting instruction forever (100 % CPU, no window, Force Quit only).
++
++#if !ENABLE_WASM_STRIP_RECOVERYUI
++#if !defined _WIN32 && !defined EMSCRIPTEN
++// A fault inside the recovery UI ends the process at once (default action) instead of being blocked
++// and re-executed forever, or re-entering the handler that has nothing left to try.
++void lcl_makeNestedFaultsFatal()
++{
++    struct sigaction aDefault = {};
++    aDefault.sa_handler = SIG_DFL;
++    sigemptyset(&aDefault.sa_mask);
++    sigset_t aFaults;
++    sigemptyset(&aFaults);
++    for (int nSignal : { SIGSEGV, SIGBUS, SIGILL, SIGFPE })
++    {
++        sigaction(nSignal, &aDefault, nullptr);
++        sigaddset(&aFaults, nSignal);
++    }
++    pthread_sigmask(SIG_UNBLOCK, &aFaults, nullptr);
++}
++#endif
++
++// CPU seconds used by the whole process so far, or a negative value when unknown.
++double lcl_processCpuSeconds()
++{
++#ifdef _WIN32
++    FILETIME aCreation, aExit, aKernel, aUser;
++    if (!GetProcessTimes(GetCurrentProcess(), &aCreation, &aExit, &aKernel, &aUser))
++        return -1;
++    auto seconds = [](const FILETIME& rTime) {
++        return ((static_cast<unsigned long long>(rTime.dwHighDateTime) << 32) | rTime.dwLowDateTime)
++               / 1e7;
++    };
++    return seconds(aKernel) + seconds(aUser);
++#else
++    timespec aTime;
++    if (clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &aTime) != 0)
++        return -1;
++    return aTime.tv_sec + aTime.tv_nsec / 1e9;
++#endif
++}
++
++// Ends the process from a second thread when the recovery UI hangs: after 60 s in a row of a busy
++// core (a loop: the emergency save dialog waiting for the user is idle), or after 10 minutes in any
++// case. The autosaved recovery copies stay on disk and are offered at the next start.
++void lcl_startRecoveryWatchdog()
++{
++    try
++    {
++        std::thread([] {
++            const auto aStart = std::chrono::steady_clock::now();
++            int nBusySeconds = 0;
++            double fLast = lcl_processCpuSeconds();
++            for (;;)
++            {
++                std::this_thread::sleep_for(std::chrono::seconds(1));
++                const double fNow = lcl_processCpuSeconds();
++                nBusySeconds = (fLast >= 0 && fNow - fLast >= 0.9) ? nBusySeconds + 1 : 0;
++                fLast = fNow;
++                if (nBusySeconds >= 60
++                    || std::chrono::steady_clock::now() - aStart >= std::chrono::minutes(10))
++                    _exit(EXITHELPER_FATAL_ERROR);
++            }
++        }).detach();
++    }
++    catch (const std::system_error&)
++    {
++    }
++}
++#endif // !ENABLE_WASM_STRIP_RECOVERYUI
++
++#if defined MACOSX
++// True when the app bundle this process was started from now holds another HST version (an update
++// replaced it while this process ran) or is gone: code loaded from now on comes from another build,
++// and neither the recovery UI nor its data can be trusted.
++bool lcl_bundleReplaced()
++{
++    char aPath[PATH_MAX];
++    uint32_t nSize = sizeof aPath;
++    if (_NSGetExecutablePath(aPath, &nSize) != 0)
++        return false;
++    std::string sPlist(aPath);
++    const auto nMacOS = sPlist.rfind("/MacOS/");
++    if (nMacOS == std::string::npos)
++        return false;
++    sPlist.replace(nMacOS, std::string::npos, "/Info.plist");
++    const int nFile = ::open(sPlist.c_str(), O_RDONLY | O_CLOEXEC);
++    if (nFile < 0)
++        return errno == ENOENT;
++    std::string sText;
++    char aBuffer[16384];
++    ssize_t nRead;
++    while (sText.size() < 1024 * 1024 && (nRead = ::read(nFile, aBuffer, sizeof aBuffer)) > 0)
++        sText.append(aBuffer, nRead);
++    ::close(nFile);
++    const auto nKey = sText.find("<key>CFBundleShortVersionString</key>");
++    const auto nOpen = nKey == std::string::npos ? nKey : sText.find("<string>", nKey);
++    const auto nClose = nOpen == std::string::npos ? nOpen : sText.find("</string>", nOpen);
++    if (nClose == std::string::npos)
++        return false; // not the XML property list the build writes: unknown, keep the recovery
++    const auto nValue = nOpen + std::strlen("<string>");
++    return sText.compare(nValue, nClose - nValue, HST_VERSION) != 0;
++}
++#endif
+ }
+ 
+ void Desktop::Exception(ExceptionCategory nCategory)
+@@ -1269,6 +1389,10 @@ void Desktop::Exception(ExceptionCategory nCategory)
+                                                     // ending) every document is closed already, and Dialog::Execute() returns at once
+                                                     // without running its loop: the dialog would only show an empty, dead window.
+                                                     ( !Application::IsQuit()                   )
++#if defined MACOSX
++                                                    // HST Office: not inside a bundle replaced under this process
++                                                    && !lcl_bundleReplaced()
++#endif
+                                                   );
+     if ( bAllowRecoveryAndSessionManagement )
+     {
+@@ -1276,6 +1400,11 @@ void Desktop::Exception(ExceptionCategory nCategory)
+         // the next time the application is started
+         // returns true if at least one document could be saved...
+ #if !ENABLE_WASM_STRIP_RECOVERYUI
++        // HST Office: a hang or a new fault in the recovery UI must still end the process.
++#if !defined _WIN32 && !defined EMSCRIPTEN
++        lcl_makeNestedFaultsFatal();
++#endif
++        lcl_startRecoveryWatchdog();
+         bRestart = impl_callRecoveryUI(
+                         true , // force emergency save
+                         false);
