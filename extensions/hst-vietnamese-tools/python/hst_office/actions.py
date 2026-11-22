@@ -183,6 +183,7 @@ COMMANDS = {
     "DeleteBlankRows": sheet_utility(blank_rows_calc.delete_blank_rows),
     "PreviousVersions": previous_versions, "ConvertFormulas": formula_action.convert_all,
     "AskConvertFormula": formula_action.ask_convert_selected, "FormulaTemplates": formula_action.insert_templates,
+    "NewEquation": formula_action.new_equation,  # Ctrl+Alt+Q in HST Writer
     "TexToggle": tex_toggle_action.run,  # Chuyển TeX ⇄ công thức (HST Writer)
     **{name: citation_command(name) for name in citation_command_names.NAMES},
 }

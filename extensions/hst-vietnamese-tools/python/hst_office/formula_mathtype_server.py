@@ -13,15 +13,22 @@ SERVER_KEYS = ("LocalServer32", "InprocServer32")
 
 
 def _windows_reader():
-    """read(path) -> default value of HKEY_CLASSES_ROOT\\path, or None."""
+    """read(path) -> default value of HKEY_CLASSES_ROOT\\path in the 64-bit or else the 32-bit registry view, or None.
+
+    The office is a 64-bit process, so a plain OpenKey only sees the 64-bit view of HKCR\\CLSID. A 32-bit OLE server
+    (MathType in "C:\\Program Files (x86)\\MathType") registers its class in the 32-bit view (WOW6432Node), which COM
+    still starts for a 64-bit client: without the second view MathType counted as not installed."""
     import winreg
+    views = (winreg.KEY_WOW64_64KEY, winreg.KEY_WOW64_32KEY)
 
     def read(path):
-        try:
-            with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, path) as key:
-                return winreg.QueryValue(key, None)
-        except OSError:
-            return None
+        for view in views:
+            try:
+                with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, path, 0, winreg.KEY_READ | view) as key:
+                    return winreg.QueryValue(key, None)
+            except OSError:
+                continue
+        return None
     return read
 
 
