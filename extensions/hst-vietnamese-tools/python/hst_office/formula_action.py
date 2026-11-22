@@ -57,6 +57,16 @@ def _choose(host, text, answers):
     return answers[code - 1] if 1 <= code <= len(answers) else LEAVE
 
 
+def open_selected(host):
+    """The selected object's primary verb through the view, as a double-click runs it: the view's in-place client
+    takes MathType's changes back into the document and its picture."""
+    from com.sun.star.beans import PropertyValue
+    verb = PropertyValue()
+    verb.Name, verb.Value = "VerbID", 0  # com.sun.star.embed.EmbedVerbs.MS_OLEVERB_PRIMARY
+    helper = host.ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.DispatchHelper", host.ctx)
+    helper.executeDispatch(host.frame, ".uno:ObjectMenue", "", 0, (verb,))
+
+
 def ask_convert_selected(host):
     found = _selected_equation(host)
     if found is None:
@@ -70,7 +80,7 @@ def ask_convert_selected(host):
     answers = choices(formula_ole.root_class_id(data))
     answer = _choose(host, s["askOneMathType"] if OPEN in answers else s["askOne"], answers)
     if answer == OPEN:  # as before HST Công thức: the equation's own program opens it
-        return obj.EmbeddedObject.doVerb(0)  # com.sun.star.embed.EmbedVerbs.MS_OLEVERB_PRIMARY
+        return open_selected(host)
     if answer != CONVERT:
         return
     from .undo import undo_step

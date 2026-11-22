@@ -3,7 +3,10 @@
 document with formulas as .doc/.xls/.ppt asks first (other formats and documents without formulas never ask)."""
 import os
 import struct
+import sys
+import types
 import unittest
+from unittest import mock
 
 import _paths  # noqa: F401
 
@@ -120,6 +123,93 @@ class MathTypeServerTest(unittest.TestCase):
     def test_program_path(self):
         self.assertEqual(r"C:\a b\m.exe", server.program_path(r'"C:\a b\m.exe" /x'))
         self.assertEqual(r"C:\a b\m.exe", server.program_path(r"C:\a b\m.exe /x"))
+
+
+class MathTypeRegistryViewTest(unittest.TestCase):
+    """The 64-bit office also finds a 32-bit OLE server, registered in the 32-bit view of HKCR\\CLSID (WOW6432Node)."""
+
+    def fake_winreg(self, views):
+        """A winreg whose OpenKey finds `views[flag]` = {path: value} only for the view flag it is asked for."""
+        module = types.ModuleType("winreg")
+        module.HKEY_CLASSES_ROOT, module.KEY_READ, module.KEY_WOW64_64KEY, module.KEY_WOW64_32KEY = 1, 0x20019, 0x100, 0x200
+
+        class Key:
+            def __init__(self, value):
+                self.value = value
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def open_key(root, path, reserved=0, access=0):
+            for flag, entries in views.items():
+                if access & flag and path in entries:
+                    return Key(entries[path])
+            raise OSError(2, "not found")
+        module.OpenKey = open_key
+        module.QueryValue = lambda key, sub: key.value
+        return module
+
+    def test_32_bit_server_found(self):
+        path = r"CLSID\{%s}\LocalServer32" % formula_ole.MATHTYPE
+        winreg = self.fake_winreg({0x200: {path: r"C:\Program Files (x86)\MathType\MathType.exe /Embedding"}})
+        with mock.patch.dict(sys.modules, {"winreg": winreg}):
+            read = server._windows_reader()
+            self.assertEqual(r"C:\Program Files (x86)\MathType\MathType.exe /Embedding", read(path))
+            self.assertTrue(server.server_installed(formula_ole.MATHTYPE, read, lambda p: True, "win32"))
+
+    def test_64_bit_view_first_and_missing_key(self):
+        path = r"CLSID\{%s}\LocalServer32" % formula_ole.MATHTYPE
+        winreg = self.fake_winreg({0x100: {path: "a.exe"}, 0x200: {path: "b.exe"}})
+        with mock.patch.dict(sys.modules, {"winreg": winreg}):
+            read = server._windows_reader()
+            self.assertEqual("a.exe", read(path))
+            self.assertIsNone(read(r"CLSID\{00000000-0000-0000-0000-000000000000}\LocalServer32"))
+
+
+class MathTypeDoubleClickTest(unittest.TestCase):
+    """Where MathType is installed, double-clicking its equation is left to the office: MathType opens it (1.0.2)."""
+
+    def setUp(self):
+        stubs = {name: types.ModuleType(name) for name in ("unohelper", "com", "com.sun", "com.sun.star",
+                                                            "com.sun.star.awt")}
+        stubs["unohelper"].Base = type("Base", (), {})
+        stubs["com.sun.star.awt"].XCallback = type("XCallback", (), {})
+        stubs["com.sun.star.awt"].XMouseClickHandler = type("XMouseClickHandler", (), {})
+        patcher = mock.patch.dict(sys.modules, stubs)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        sys.modules.pop("hst_office.formula_click", None)
+        self.addCleanup(sys.modules.pop, "hst_office.formula_click", None)
+        from hst_office import formula_click
+        self.click = formula_click
+
+    @staticmethod
+    def controller(selection):
+        return types.SimpleNamespace(getSelection=lambda: selection)
+
+    @staticmethod
+    def text_object(clsid):
+        return types.SimpleNamespace(CLSID=clsid, supportsService=lambda n: n == "com.sun.star.text.TextEmbeddedObject")
+
+    def test_writer_object(self):
+        mathtype = self.controller(self.text_object(formula_ole.MATHTYPE.lower()))
+        self.assertTrue(self.click.opens_in_mathtype(mathtype, lambda c: c == formula_ole.MATHTYPE))
+        self.assertFalse(self.click.opens_in_mathtype(mathtype, lambda c: False))  # not installed: the question
+        equation3 = self.controller(self.text_object(formula_ole.EQUATION3))
+        self.assertTrue(self.click.opens_in_mathtype(equation3, lambda c: True))
+        formula = self.controller(self.text_object(formula_ole.MATH))
+        self.assertFalse(self.click.opens_in_mathtype(formula, lambda c: True))
+        self.assertFalse(self.click.opens_in_mathtype(self.controller(None), lambda c: True))
+
+    def test_single_ole_shape(self):
+        shape = types.SimpleNamespace(CLSID=formula_ole.MATHTYPE, getShapeType=lambda: "com.sun.star.drawing.OLE2Shape")
+        shapes = types.SimpleNamespace(supportsService=lambda n: False, getCount=lambda: 1, getByIndex=lambda i: shape)
+        self.assertTrue(self.click.opens_in_mathtype(self.controller(shapes), lambda c: True))
+        two = types.SimpleNamespace(supportsService=lambda n: False, getCount=lambda: 2, getByIndex=lambda i: shape)
+        self.assertFalse(self.click.opens_in_mathtype(self.controller(two), lambda c: True))
 
 
 class FormulaSaveCheckTest(unittest.TestCase):
