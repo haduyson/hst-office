@@ -13,6 +13,10 @@ on:
         description: 'Desktop macOS run id whose dmg artifact is probed (overrides tag)'
         type: string
         default: ''
+      overlay:
+        description: 'hst_office modules of this checkout overlaid for a second run (space-separated file names)'
+        type: string
+        default: ''
 permissions:
   contents: read
 concurrency:
@@ -51,15 +55,29 @@ jobs:
             gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern 'HSTOffice_*_macOS_arm64.dmg' --dir "$RUNNER_TEMP/dmg"
           fi
           find "$RUNNER_TEMP/dmg" -name '*.dmg'
-      - name: Probe the tab actions
+      - name: Probe dialogs in full screen when another document opens
         shell: bash
+        env:
+          OVERLAY: ${{ inputs.overlay }}
         run: |
           set -eu
           count=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' | wc -l)
           [ "$count" -eq 1 ] || { echo "expected one dmg, found $count" >&2; exit 1; }
           dmg=$(find "$RUNNER_TEMP/dmg" -name '*.dmg')
           echo "probing: $(basename "$dmg")"
-          bash scripts/macos/tab-probe.sh "$dmg" "$RUNNER_TEMP/tabprobe"
+          bash scripts/macos/fsdialog-probe.sh "$dmg" "$RUNNER_TEMP/tabprobe/stock" || true
+          if [ -n "$OVERLAY" ]; then
+            mkdir -p "$RUNNER_TEMP/overlay"
+            for name in $OVERLAY; do
+              [[ "$name" =~ ^[a-z0-9_]+\.py$ ]] || { echo "bad module name" >&2; exit 1; }
+              cp "extensions/hst-vietnamese-tools/python/hst_office/$name" "$RUNNER_TEMP/overlay/"
+            done
+            bash scripts/macos/fsdialog-probe.sh "$dmg" "$RUNNER_TEMP/tabprobe/overlay" "$RUNNER_TEMP/overlay" || true
+          fi
+          for v in stock overlay; do
+            [ -f "$RUNNER_TEMP/tabprobe/$v/summary.md" ] && { echo "## $v"; cat "$RUNNER_TEMP/tabprobe/$v/summary.md"; }
+          done > "$RUNNER_TEMP/tabprobe/summary.md" || true
+          touch "$RUNNER_TEMP/tabprobe/none.mov"
       - name: Summarize
         if: ${{ always() }}
         shell: bash
