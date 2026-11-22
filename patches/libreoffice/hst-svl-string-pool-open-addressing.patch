@@ -98,7 +98,7 @@ License: modified upstream files keep their license (MPL-2.0); the new files are
  	CppunitTest_svl_items \
 --- /dev/null
 +++ b/svl/qa/unit/hststringpool.cxx
-@@ -0,0 +1,305 @@
+@@ -0,0 +1,306 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -224,13 +224,14 @@ License: modified upstream files keep their license (MPL-2.0); the new files are
 +
 +void HstStringPoolTest::testSameHash()
 +{
-+    // h = h * 37 + c (rtl hashCode): two-character strings (c1, K - 37 * c1) share one hash.
-+    constexpr sal_Int32 nBase = 0x5000;
++    // h = h * 37 + c (rtl hashCode): two-character strings (c1 + i, c2 - 37 * i) share one hash.
++    // Both characters stay in the CJK ideographs (U+4E00..U+9FFF), which have no case, so every
++    // string is its own upper case and makes one entry.
 +    constexpr sal_Int32 nCount = 300;
 +    std::vector<OUString> aStrings;
 +    for (sal_Int32 i = 0; i < nCount; ++i)
 +    {
-+        const sal_Unicode aChars[2] = { sal_Unicode(nBase + i), sal_Unicode(nBase - 37 * i) };
++        const sal_Unicode aChars[2] = { sal_Unicode(0x4E00 + i), sal_Unicode(0x9000 - 37 * i) };
 +        aStrings.emplace_back(aChars, 2);
 +        CPPUNIT_ASSERT_EQUAL(aStrings[0].hashCode(), aStrings.back().hashCode());
 +    }
