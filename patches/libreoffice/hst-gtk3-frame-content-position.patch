@@ -1,0 +1,161 @@
+HST Office: gtk3 windows with a native menu bar report the screen position of their content, so accessible objects are no longer 27 px too high.
+
+On Linux (gtk3) every VCL accessible object of a window that shows the native GTK menu bar was reported one menu bar
+height (27 px) above where it is drawn: AT-SPI gave the Start Center's root pane y 25 while the GTK container that
+holds it starts at y 52 (LibreOffice 26.8.3.1 and HST 1.0.2/1.0.3 alike; documents under the Tabbed UI have no menu
+bar and were right). Orca's flat review, magnifiers following focus and AT-SPI test drivers point above the object.
+
+Cause: the frame geometry (SalFrameGeometry) is that of the VCL content, the event box below the menu bar: its size
+is the drawing area's, and UpdateGeometryFromEvent takes the position from mouse events relative to the event box.
+signalConfigure, however, stored the toplevel's position from the configure event, which is above the content by
+the menu bar. vcl::Window::OutputToAbsoluteScreenPixel adds that position, so accessible extents
+(VCLXAccessibleComponent::getLocationOnScreen), VCL popups positioned in absolute coordinates and SetPointerPos
+were off by the menu bar until the next mouse event over the window corrected the position; a keyboard-only user
+never sends one. The menu bar is also built on an idle after the window shows (hst-gtk-menubar-lazy-build), and shown
+or hidden later (.uno:Menubar, full screen), which moves the content without a configure event.
+
+GtkSalFrame now adds the content's offset inside the toplevel (gtk_widget_translate_coordinates of the event box to
+the GtkWindow; 0 without a menu bar) to the configure position, counts the menu bar into the top decoration (so
+position minus top decoration is still the window frame's top: GetWindowExtentsAbsolute, embedded frames), and
+updates position and decoration when the drawing area is allocated with a new offset. SetScreen subtracts the
+offset again before gtk_window_move, which places the toplevel. Window state still uses gtk_window_get_position, so
+saved and restored window positions do not change. Wayland: the configure position is 0 and the same offset is what
+mouse events already gave.
+
+Hook: vcl/unx/gtk3/gtkframe.cxx (signalConfigure, DrawingAreaResized, SetScreen, two helpers),
+vcl/inc/unx/gtk/gtkframe.hxx (two members, two declarations).
+Test: tests/runtime/check-gtk3-a11y-offset.py (AT-SPI: root pane y equals its GTK container's y and starts below a
+showing menu bar, on the Start Center and on a Writer document whose menu bar is switched on and off).
+
+License: modified upstream files keep their license (MPL-2.0).
+---
+--- a/vcl/inc/unx/gtk/gtkframe.hxx
++++ b/vcl/inc/unx/gtk/gtkframe.hxx
+@@ -231,6 +231,10 @@
+     GtkInstDragSource*              m_pDragSource;
+     bool                            m_bGeometryIsProvisional;
+     bool                            m_bIconSetWhileUnmapped;
++    // gtk3: where the VCL content (the event box, below a native menu bar) starts inside the
++    // toplevel; maGeometry's position is the screen position of the content, not of the toplevel
++    int                             m_nContentOffsetX;
++    int                             m_nContentOffsetY;
+ 
+     GtkSalMenu*                     m_pSalMenu;
+ 
+@@ -431,6 +435,8 @@
+     void ListenSessionManager();
+ 
+     void UpdateGeometryFromEvent(int x_root, int y_root, int nEventX, int nEventY);
++    void GetContentOffset(int& rX, int& rY) const;
++    void UpdateContentOffset();
+ 
+ public:
+     cairo_surface_t*                m_pSurface;
+--- a/vcl/unx/gtk3/gtkframe.cxx
++++ b/vcl/unx/gtk3/gtkframe.cxx
+@@ -1219,6 +1219,8 @@
+     m_pDragSource       = nullptr;
+     m_bGeometryIsProvisional = false;
+     m_bIconSetWhileUnmapped = false;
++    m_nContentOffsetX = 0;
++    m_nContentOffsetY = 0;
+     m_bTooltipBlocked   = false;
+     m_ePointerStyle     = static_cast<PointerStyle>(0xffff);
+     m_pSalMenu          = nullptr;
+@@ -2472,7 +2474,8 @@
+         return;
+ 
+ #if !GTK_CHECK_VERSION(4, 0, 0)
+-    int nX = maGeometry.x(), nY = maGeometry.y(),
++    // gtk_window_move places the toplevel, which starts above the content by the menu bar
++    int nX = maGeometry.x() - m_nContentOffsetX, nY = maGeometry.y() - m_nContentOffsetY,
+         nWidth = maGeometry.width(), nHeight = maGeometry.height();
+     GdkScreen *pScreen = nullptr;
+     GdkRectangle aNewMonitor;
+@@ -3476,6 +3479,45 @@
+ 
+ #if !GTK_CHECK_VERSION(4, 0, 0)
+ 
++// The frame geometry is that of the VCL content: its size is the size of the drawing area, and
++// UpdateGeometryFromEvent takes its position from the event box that mouse events report
++// against. A native menu bar sits above the event box inside the toplevel, so the toplevel's
++// position from a configure event is that far above the content. This offset (0 without a menu
++// bar) turns one into the other.
++void GtkSalFrame::GetContentOffset(int& rX, int& rY) const
++{
++    rX = rY = 0;
++    if (!GTK_IS_WINDOW(m_pWindow) || (m_nStyle & SalFrameStyleFlags::SYSTEMCHILD))
++        return;
++    gint nX(0), nY(0);
++    if (gtk_widget_translate_coordinates(getMouseEventWidget(), m_pWindow, 0, 0, &nX, &nY))
++    {
++        rX = nX;
++        rY = nY;
++    }
++}
++
++// The content moved inside the toplevel without the toplevel moving (the native menu bar was
++// added, shown or hidden): move the content position and the decoration hints with it.
++void GtkSalFrame::UpdateContentOffset()
++{
++    int nX, nY;
++    GetContentOffset(nX, nY);
++    const int nDeltaX = nX - m_nContentOffsetX, nDeltaY = nY - m_nContentOffsetY;
++    if (!nDeltaX && !nDeltaY)
++        return;
++    m_nContentOffsetX = nX;
++    m_nContentOffsetY = nY;
++    if (m_bGeometryIsProvisional) // the next configure event sets the position
++        return;
++    maGeometry.setPos({ maGeometry.x() + nDeltaX, maGeometry.y() + nDeltaY });
++    maGeometry.setLeftDecoration(std::max(0, static_cast<int>(maGeometry.leftDecoration()) + nDeltaX));
++    maGeometry.setTopDecoration(std::max(0, static_cast<int>(maGeometry.topDecoration()) + nDeltaY));
++    ImplSVData* pSVData = ImplGetSVData();
++    if (pSVData->maNWFData.mbCanDetermineWindowPosition)
++        CallCallbackExc(SalEvent::Move, nullptr);
++}
++
+ void GtkSalFrame::UpdateGeometryFromEvent(int x_root, int y_root, int nEventX, int nEventY)
+ {
+     //tdf#151509 don't overwrite geometry for system children
+@@ -3980,6 +4022,9 @@
+     // ignore size-allocations that occur during configuring an embedded SalObject
+     if (m_bSalObjectSetPosSize)
+         return;
++#if !GTK_CHECK_VERSION(4, 0, 0)
++    UpdateContentOffset();
++#endif
+     maGeometry.setSize({ nWidth, nHeight });
+     bool bRealized = gtk_widget_get_realized(pWidget);
+     bool bTriggerPaintEvent = bRealized && AllocateFrame();
+@@ -4097,7 +4142,11 @@
+     GtkSalFrame* pThis = static_cast<GtkSalFrame*>(frame);
+ 
+     bool bMoved = false;
+-    int x = pEvent->x, y = pEvent->y;
++    // The event gives the toplevel; the frame geometry is that of the content below a native
++    // menu bar (as UpdateGeometryFromEvent computes it), so that accessible objects, popups
++    // and pointer warps get screen positions that match what is shown.
++    pThis->GetContentOffset(pThis->m_nContentOffsetX, pThis->m_nContentOffsetY);
++    int x = pEvent->x + pThis->m_nContentOffsetX, y = pEvent->y + pThis->m_nContentOffsetY;
+ 
+     /* #i31785# claims we cannot trust the x,y members of the event;
+      * they are e.g. not set correctly on maximize/demaximize;
+@@ -4111,13 +4160,14 @@
+         pThis->maGeometry.setPos({ x, y });
+     }
+ 
+-    // update decoration hints
++    // update decoration hints: everything between the window frame and the content, the menu
++    // bar included
+     GdkRectangle aRect;
+     gdk_window_get_frame_extents( widget_get_surface(GTK_WIDGET(pThis->m_pWindow)), &aRect );
+     pThis->maGeometry.setTopDecoration(y - aRect.y);
+-    pThis->maGeometry.setBottomDecoration(aRect.y + aRect.height - y - pEvent->height);
++    pThis->maGeometry.setBottomDecoration(aRect.y + aRect.height - pEvent->y - pEvent->height);
+     pThis->maGeometry.setLeftDecoration(x - aRect.x);
+-    pThis->maGeometry.setRightDecoration(aRect.x + aRect.width - x - pEvent->width);
++    pThis->maGeometry.setRightDecoration(aRect.x + aRect.width - pEvent->x - pEvent->width);
+     pThis->updateScreenNumber();
+ 
+     if (bMoved)
