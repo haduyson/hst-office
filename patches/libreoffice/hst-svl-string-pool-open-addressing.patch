@@ -98,7 +98,7 @@ License: modified upstream files keep their license (MPL-2.0); the new files are
  	CppunitTest_svl_items \
 --- /dev/null
 +++ b/svl/qa/unit/hststringpool.cxx
-@@ -0,0 +1,301 @@
+@@ -0,0 +1,305 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -177,6 +177,10 @@ License: modified upstream files keep their license (MPL-2.0); the new files are
 +    std::optional<CharClass> m_oCharClass;
 +};
 +
++const rtl_uString* strData(const svl::SharedString& rStr) { return rStr.getData(); }
++const rtl_uString* strUpper(const svl::SharedString& rStr) { return rStr.getDataIgnoreCase(); }
++OUString strText(const rtl_uString* p) { return OUString(const_cast<rtl_uString*>(p)); }
++
 +// A heap copy, so the test (not a string literal) controls the references.
 +OUString heap(const OUString& rStr) { return OUString(rStr.getStr(), rStr.getLength()); }
 +
@@ -198,14 +202,14 @@ License: modified upstream files keep their license (MPL-2.0); the new files are
 +    for (sal_Int32 i = 0; i < N; i += 997)
 +    {
 +        const svl::SharedString aAgain = aPool.intern(heap("Item " + OUString::number(i)));
-+        CPPUNIT_ASSERT_EQUAL(aMixed[i].getData(), aAgain.getData());
-+        CPPUNIT_ASSERT(aMixed[i].getData() != aLower[i].getData());
-+        CPPUNIT_ASSERT_EQUAL(aMixed[i].getDataIgnoreCase(), aLower[i].getDataIgnoreCase());
++        CPPUNIT_ASSERT_EQUAL(strData(aMixed[i]), strData(aAgain));
++        CPPUNIT_ASSERT(strData(aMixed[i]) != strData(aLower[i]));
++        CPPUNIT_ASSERT_EQUAL(strUpper(aMixed[i]), strUpper(aLower[i]));
 +        const svl::SharedString aUpper = aPool.intern(heap("ITEM " + OUString::number(i)));
-+        CPPUNIT_ASSERT_EQUAL(aMixed[i].getDataIgnoreCase(), aUpper.getData());
-+        CPPUNIT_ASSERT_EQUAL(aUpper.getData(), aUpper.getDataIgnoreCase());
++        CPPUNIT_ASSERT_EQUAL(strUpper(aMixed[i]), strData(aUpper));
++        CPPUNIT_ASSERT_EQUAL(strData(aUpper), strUpper(aUpper));
 +        CPPUNIT_ASSERT_EQUAL(u"ITEM "_ustr + OUString::number(i),
-+                             OUString(aMixed[i].getDataIgnoreCase()));
++                             strText(strUpper(aMixed[i])));
 +    }
 +    CPPUNIT_ASSERT_EQUAL(nExtra + 3 * N, aPool.getCount());
 +    // Nothing is purged while the strings are referenced.
@@ -215,7 +219,7 @@ License: modified upstream files keep their license (MPL-2.0); the new files are
 +    aLower.clear();
 +    aPool.purge();
 +    CPPUNIT_ASSERT_EQUAL(nExtra, aPool.getCount());
-+    CPPUNIT_ASSERT_EQUAL(svl::SharedString::getEmptyString(), aPool.intern(OUString()));
++    CPPUNIT_ASSERT(svl::SharedString::getEmptyString() == aPool.intern(OUString()));
 +}
 +
 +void HstStringPoolTest::testSameHash()
@@ -237,11 +241,11 @@ License: modified upstream files keep their license (MPL-2.0); the new files are
 +    for (const OUString& rStr : aStrings)
 +        aHeld.emplace_back(aPool.intern(heap(rStr)));
 +    CPPUNIT_ASSERT_EQUAL(nExtra + nCount, aPool.getCount());
-+    std::set<rtl_uString*> aDistinct;
++    std::set<const rtl_uString*> aDistinct;
 +    for (sal_Int32 i = 0; i < nCount; ++i)
 +    {
-+        CPPUNIT_ASSERT_EQUAL(aStrings[i], OUString(aHeld[i]->getData()));
-+        aDistinct.insert(aHeld[i]->getData());
++        CPPUNIT_ASSERT_EQUAL(aStrings[i], strText(strData(*aHeld[i])));
++        aDistinct.insert(strData(*aHeld[i]));
 +    }
 +    CPPUNIT_ASSERT_EQUAL(size_t(nCount), aDistinct.size());
 +
@@ -251,13 +255,13 @@ License: modified upstream files keep their license (MPL-2.0); the new files are
 +    aPool.purge();
 +    CPPUNIT_ASSERT_EQUAL(nExtra + nCount / 2, aPool.getCount());
 +    for (sal_Int32 i = 1; i < nCount; i += 2)
-+        CPPUNIT_ASSERT_EQUAL(aHeld[i]->getData(), aPool.intern(heap(aStrings[i])).getData());
++        CPPUNIT_ASSERT_EQUAL(strData(*aHeld[i]), strData(aPool.intern(heap(aStrings[i]))));
 +    CPPUNIT_ASSERT_EQUAL(nExtra + nCount / 2, aPool.getCount());
 +    for (sal_Int32 i = 0; i < nCount; i += 2)
 +        aHeld[i] = aPool.intern(heap(aStrings[i]));
 +    CPPUNIT_ASSERT_EQUAL(nExtra + nCount, aPool.getCount());
 +    for (sal_Int32 i = 0; i < nCount; ++i)
-+        CPPUNIT_ASSERT_EQUAL(aHeld[i]->getData(), aPool.intern(heap(aStrings[i])).getData());
++        CPPUNIT_ASSERT_EQUAL(strData(*aHeld[i]), strData(aPool.intern(heap(aStrings[i]))));
 +    CPPUNIT_ASSERT_EQUAL(nExtra + nCount, aPool.getCount());
 +}
 +
@@ -284,9 +288,9 @@ License: modified upstream files keep their license (MPL-2.0); the new files are
 +    for (sal_Int32 i = 0; i < N; i += 3)
 +    {
 +        const svl::SharedString aAgain = aPool.intern(heap("v" + OUString::number(i)));
-+        CPPUNIT_ASSERT_EQUAL(aHeld[i]->getData(), aAgain.getData());
-+        CPPUNIT_ASSERT_EQUAL(aHeld[i]->getDataIgnoreCase(),
-+                             aPool.intern(heap("V" + OUString::number(i))).getData());
++        CPPUNIT_ASSERT_EQUAL(strData(*aHeld[i]), strData(aAgain));
++        CPPUNIT_ASSERT_EQUAL(strUpper(*aHeld[i]),
++                             strData(aPool.intern(heap("V" + OUString::number(i)))));
 +    }
 +    CPPUNIT_ASSERT_EQUAL(nExtra + 2 * nKept, aPool.getCount());
 +    // ... and every removed one comes back once.
@@ -295,8 +299,8 @@ License: modified upstream files keep their license (MPL-2.0); the new files are
 +            aHeld[i] = aPool.intern(heap("v" + OUString::number(i)));
 +    CPPUNIT_ASSERT_EQUAL(nExtra + 2 * N, aPool.getCount());
 +    for (sal_Int32 i = 1; i < N; i += 3)
-+        CPPUNIT_ASSERT_EQUAL(aHeld[i]->getData(),
-+                             aPool.intern(heap("v" + OUString::number(i))).getData());
++        CPPUNIT_ASSERT_EQUAL(strData(*aHeld[i]),
++                             strData(aPool.intern(heap("v" + OUString::number(i)))));
 +}
 +
 +void HstStringPoolTest::testPurgeModel()
@@ -333,12 +337,12 @@ License: modified upstream files keep their license (MPL-2.0); the new files are
 +        {
 +            const OUString& rWord = aWords[aRandom() % aWords.size()];
 +            const svl::SharedString aStr = aPool.intern(heap(rWord));
-+            CPPUNIT_ASSERT_EQUAL(rWord, OUString(aStr.getData()));
++            CPPUNIT_ASSERT_EQUAL(rWord, strText(strData(aStr)));
 +            const OUString aUpper = m_oCharClass->uppercase(rWord);
-+            CPPUNIT_ASSERT_EQUAL(aUpper, OUString(aStr.getDataIgnoreCase()));
++            CPPUNIT_ASSERT_EQUAL(aUpper, strText(strUpper(aStr)));
 +            auto it = aHeld.find(rWord);
 +            if (it != aHeld.end() && !it->second.empty())
-+                CPPUNIT_ASSERT_EQUAL(it->second.front().getData(), aStr.getData());
++                CPPUNIT_ASSERT_EQUAL(strData(it->second.front()), strData(aStr));
 +            aHeld[rWord].push_back(aStr);
 +            aPooled.insert(rWord);
 +            aPooled.insert(aUpper);
