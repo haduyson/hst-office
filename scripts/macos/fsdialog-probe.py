@@ -150,6 +150,7 @@ def citation(p):
 
 def lo_dialog(p, rescue):
     p.writer_full_screen()
+    p.mark("watcher", **(p.result("watcher") or {}))
     p.call("trigger", ".uno:FontDialog")
     time.sleep(5)
     p.mark("lo-dialog-on-screen-at-open", value=p.state("lo-open"))

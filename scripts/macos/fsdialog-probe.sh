@@ -45,12 +45,12 @@ XCU
     PYTHONPATH="$app/Contents/Resources:$pyhome" perl -e 'alarm 240; exec @ARGV' "$py" "$here/fsdialog-probe.py" \
     "$pid" "$out/$label" "$scenario" "$work/windows" "$profile" "$here/fsdialog-probe-inproc.py" $extra \
     >"$out/$label/driver.log" 2>&1 || echo "driver exit $?" >>"$out/$label/driver.log"
-  find "$profile" -name 'hst-diagnostics*.log' -exec cp {} "$out/$label/" \; 2>/dev/null || true
+  cp "$profile/user/hst-office/hst-office.log" "$out/$label/" 2>/dev/null || true
   kill "$pid" 2>/dev/null || true; sleep 2; kill -9 "$pid" 2>/dev/null || true
   pkill -9 -x soffice 2>/dev/null || true; sleep 2
   {
     echo "### $label"
-    grep -E '"event": "(citation-kept-typing|field-(before|after)-new-document|lo-dialog-on-screen[a-z-]*|typed-after-close|reparent|new-document:(loaded|failed)|open-after-esc)"' "$out/$label/driver.log" \
+    grep -E '"event": "(citation-kept-typing|field-(before|after)-new-document|lo-dialog-on-screen[a-z-]*|typed-after-close|reparent|new-document:(loaded|failed)|open-after-esc|watcher)"' "$out/$label/driver.log" \
       | sed -E 's/"windows": \[[^]]*\]/"windows": "…"/g' | cut -c1-600 || true
     grep -E 'driver exit|Traceback|Error' "$out/$label/driver.log" | head -5 || true
   } >>"$out/summary.md"

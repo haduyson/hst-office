@@ -180,3 +180,10 @@ def reparent(path):
             moved.append({"window": row, "from": _number(parent), "to": _number(key)})
         return {"key": _number(key), "moved": moved, "windows": dump()}
     _post(run, path)
+
+
+def watcher(path):
+    def run():
+        from hst_office import mac_full_screen_dialogs
+        return {"watching": mac_full_screen_dialogs._STATE.get("listener") is not None}
+    _post(run, path)
