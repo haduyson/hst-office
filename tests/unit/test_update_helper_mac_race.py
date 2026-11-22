@@ -39,6 +39,8 @@ class OfficeOpenedDuringTheUpdate(MacHarness):
         helper = self.start(pid=office.pid)
         log = self.wait_for_log("Waiting for process")
         self.assertIn("Staged app is ready", log)
+        # The office quits only now (update_helper_ready): the mark names this helper and a successful preparation.
+        self.assertEqual((self.root / "update-ready").read_text().split()[:2], [str(helper.pid), "0"])
         self.assertEqual((self.staged / "version").read_text(), "new")
         self.assertEqual((self.destination / "version").read_text(), "old")
         self.assertFalse((self.root / "open-args").exists())
@@ -54,7 +56,21 @@ class OfficeOpenedDuringTheUpdate(MacHarness):
         self.assertEqual((self.root / "open-args").read_text().splitlines(), [str(self.destination)])
         self.assertFalse((self.root / "open-lock").exists())
         self.assertFalse(self.lock.exists())
+        self.assertFalse((self.root / "update-ready").exists())
         self.assertIn(TEXTS["vi"]["helper_installing"], self.notifications())
+
+    def test_failed_check_is_marked_before_the_office_quits(self):
+        office = subprocess.Popen(["sleep", "30"], env=self.process_vars)
+        self.addCleanup(lambda: (office.kill(), office.wait()))
+        self.process_vars["VERIFY_FAIL"] = "1"
+        helper = self.start(pid=office.pid)
+        self.wait_for_log("Waiting for process")
+        self.assertEqual((self.root / "update-ready").read_text().split(), [str(helper.pid), "1", "verify"])
+        self.assertFalse(self.staged.exists())
+        os.killpg(helper.pid, signal.SIGTERM)  # the office stays open and stops the helper (update_helper_ready)
+        helper.wait(timeout=15)
+        self.assertIsNone(outcome.take(str(self.root), ""))
+        self.assertFalse((self.root / "update-ready").exists())
 
     def test_cancel_at_the_save_prompt_removes_the_staged_copy(self):
         office = subprocess.Popen(["sleep", "30"], env=self.process_vars)

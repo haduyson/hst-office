@@ -10,6 +10,7 @@ from hst_office import update_install as install  # noqa: E402
 from test_update_install import INFO, RESULT
 
 TEXT = {"install_title": "t", "err_quit": "q", "retry": "r", "later": "l"}
+TEXTS_VI = __import__("hst_office.update_texts", fromlist=["TEXTS"]).TEXTS["vi"]
 
 
 class QuitRefused(unittest.TestCase):
@@ -42,6 +43,29 @@ class QuitRefused(unittest.TestCase):
             ask.assert_not_called()
 
 
+class PreparedBeforeQuit(unittest.TestCase):
+    """macOS: the helper checks and copies the app before the office quits; a failure there is told at once."""
+
+    def run_install(self, error):
+        peer = mock.Mock()
+        peer.isVisible.return_value = True
+        with mock.patch.object(install, "launch_and_quit", side_effect=error), \
+                mock.patch.object(install.launch, "end_own_dialogs", return_value=0), \
+                mock.patch.object(install, "fail") as fail:
+            install.install(mock.Mock(), peer, RESULT, INFO)
+        return fail
+
+    def test_failed_check_is_reported_while_the_office_stays_open(self):
+        for code, key in (("verify", "err_verify"), ("readonly", "err_readonly"), ("install", "err_prepare")):
+            with self.subTest(code=code):
+                fail = self.run_install(install.ready.HelperFailed(code))
+                fail.assert_called_once_with(mock.ANY, mock.ANY, key)
+                self.assertIn(key, TEXTS_VI)
+
+    def test_cancel_while_preparing_shows_nothing(self):
+        self.run_install(install.ready.PrepareCancelled()).assert_not_called()
+
+
 class OwnDialogsFirst(unittest.TestCase):
     def test_open_extension_dialogs_are_ended_and_the_quit_waits_a_turn(self):
         posted = []
@@ -54,7 +78,7 @@ class OwnDialogsFirst(unittest.TestCase):
             self.assertEqual(len(posted), 1)
             posted[0]()
         self.assertEqual(end.call_count, 2)
-        launch.assert_called_once_with(ctx, RESULT, INFO)
+        launch.assert_called_once_with(ctx, RESULT, INFO, None)
 
     def test_the_wait_is_bounded(self):
         posted = []

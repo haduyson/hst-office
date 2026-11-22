@@ -6,7 +6,8 @@ Never silent: the download starts on the user's click, the install only after th
 The office is closed through Desktop.terminate(), so modified documents get the standard save prompts and Cancel
 there aborts the update (the helper, started before terminate, is stopped then, without relaunching anything).
 A failed install is reported at the next start (update_outcome). On macOS a bundle that cannot be replaced (the .dmg,
-an App Translocation path) is updated into /Applications instead, and that copy is opened (mac_app_location).
+an App Translocation path) is updated into /Applications instead, and that copy is opened (mac_app_location); the
+office quits only once the helper has checked and copied the new app (update_helper_ready).
 """
 import os
 import platform
@@ -15,6 +16,7 @@ import time
 
 from . import update_config
 from . import update_guard as guard
+from . import update_helper_ready as ready
 from . import update_helper_cmd as cmd
 from . import update_installer as installer
 from . import update_launch as launch
@@ -94,7 +96,7 @@ def _download_dialog(ctx, peer, info, proxy):
     return outcome
 
 
-def launch_and_quit(ctx, result, info):
+def launch_and_quit(ctx, result, info, peer=None):
     """Start the helper (it waits for this process to exit), then close the office the normal way.
 
     True when the office is quitting; False when it stays open (Cancel at a save prompt, or a window that refused to
@@ -136,6 +138,10 @@ def launch_and_quit(ctx, result, info):
             guard.write_lock(cache, helper=pid)
         if system == "Windows" and not dry:  # elevated now, while the office is still the window the user looks at
             closing = launch.elevate_and_quit(ctx, argv, cache, on_started=started)
+        elif system == "Darwin":  # quits once the helper has checked and copied the new app (update_helper_ready)
+            ready.discard(cache)
+            closing = launch.spawn_and_quit(ctx, argv, system, on_started=started,
+                                            before_quit=lambda proc: ready.wait_with_dialog(ctx, peer, proc, cache))
         else:
             closing = launch.spawn_and_quit(ctx, argv, system, on_started=started)
     finally:
@@ -166,10 +172,16 @@ def _install(ctx, peer, result, info, turns):
         ui.on_main_thread(ctx, lambda: install(ctx, peer, result, info, turns + 1))
         return
     try:
-        closing = launch_and_quit(ctx, result, info)
+        closing = launch_and_quit(ctx, result, info, peer)
     except launch.ElevationDeclined:  # No at the administrator question: the office stays open
         diag_log.info("update_install", "administrator rights declined")
         return fail(ctx, _live_peer(ctx, peer), "err_elevation")
+    except ready.PrepareCancelled:  # Cancel while the helper prepared the update: the office stays open
+        diag_log.info("update_install", "update cancelled while it was prepared")
+        return None
+    except ready.HelperFailed as exc:  # macOS: a check or the copy failed before the quit
+        diag_log.info("update_install", "the helper failed before the quit: %s" % exc.code)
+        return fail(ctx, _live_peer(ctx, peer), ready.message_key(exc.code))
     except Exception:  # noqa: BLE001 - helper could not be written or started
         diag_log.exception("update_install")
         return fail(ctx, _live_peer(ctx, peer), "err_launch")

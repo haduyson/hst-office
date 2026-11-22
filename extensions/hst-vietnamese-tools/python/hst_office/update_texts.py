@@ -51,6 +51,9 @@ TEXTS = {
         "helper_old_running": "HST Office bản cũ vẫn đang chạy. Hãy thoát HST Office rồi mở lại để dùng bản mới.",
         "helper_failed": "Chưa cài được bản cập nhật HST Office. Hãy tải bản cài đặt tại office.hasontech.vn và cài thủ công.",
         "guard_updating": "HST Office đang cài bản cập nhật. Ứng dụng sẽ tự mở lại khi cài xong, vui lòng chờ.",
+        "preparing": "Đang chuẩn bị bản cập nhật… HST Office sẽ đóng rồi tự mở lại ngay khi chuẩn bị xong.",
+        "err_readonly": "Chưa cập nhật được: HST Office đang chạy thẳng từ tệp .dmg hoặc từ vị trí tạm của macOS, nơi không ghi được. Hãy kéo HST Office vào thư mục Ứng dụng (Applications), mở lại từ đó rồi cập nhật.",
+        "err_prepare": "Chưa chuẩn bị được bản cập nhật (không gắn được tệp .dmg hoặc không chép được ứng dụng) nên chưa cài gì. Hãy tải về và cài thủ công.",
         "guard_replaced": "HST Office vừa được cập nhật lên %s trong khi bản %s đang chạy. HST Office sẽ đóng và tự mở lại bản mới.",
     },
     "en": {
@@ -102,6 +105,9 @@ TEXTS = {
         "helper_old_running": "An older HST Office is still running. Quit HST Office and open it again to use the new version.",
         "helper_failed": "The HST Office update could not be installed. Download the installer from office.hasontech.vn and install it manually.",
         "guard_updating": "HST Office is installing an update. The app will open again by itself when it is done, please wait.",
+        "preparing": "Preparing the update… HST Office will close and open again by itself as soon as it is ready.",
+        "err_readonly": "Not updated: HST Office runs straight from the .dmg or from a temporary macOS location, which cannot be written. Drag HST Office to the Applications folder, open it from there and update again.",
+        "err_prepare": "The update could not be prepared (the .dmg could not be attached or the app could not be copied), so nothing was installed. Download and install manually.",
         "guard_replaced": "HST Office was updated to %s while version %s was running. HST Office will close and open the new version by itself.",
     },
 }

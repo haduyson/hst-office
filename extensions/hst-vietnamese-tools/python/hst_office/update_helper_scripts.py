@@ -41,6 +41,8 @@ PID=$1; INSTALLER=$2; SOFFICE=$3; LOG=$4; SHA256=$5; DRY_RUN=${6-}
 STATE=${LOG%/*}/update-result.json
 # Written by the office before it started this helper (update_guard): a copy of the office started meanwhile quits.
 LOCK=${LOG%/*}/updating.lock
+# "<helper pid> <code> <failure>" once the work before the quit is done; the macOS office quits only then.
+READY=${LOG%/*}/update-ready
 exec >>"$LOG" 2>&1 || exit 1
 '''
 
@@ -100,7 +102,7 @@ finish() {
     trap - EXIT
     cleanup
     # Before the relaunch: the office started next must not take itself for a second copy started during the update.
-    rm -f "$LOCK"
+    rm -f "$LOCK" "$READY"
     # Stopped while the office was still open (Cancel at its save prompt): nothing to report, nothing to reopen.
     if [ -n "$STOPPED" ]; then log_step 'Stopped before installing; the office stays open'; exit "$status"; fi
     if [ "$status" -ne 0 ] && [ "$FAIL" != cancel ]; then record_failure "$FAIL" "$status"; fi
@@ -123,6 +125,8 @@ watch_exit
 prepare_update
 prepared=$?
 PREPARE_FAIL=$FAIL
+{ printf '%s %s %s\n' "$$" "$prepared" "$PREPARE_FAIL" >"$READY.$$" && mv -f "$READY.$$" "$READY"; } \
+    || log_step 'Ready mark not written'
 FAIL='wait'
 log_step "Waiting for process $PID"
 seconds=0

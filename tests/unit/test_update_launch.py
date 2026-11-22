@@ -163,6 +163,20 @@ class SpawnAndQuit(unittest.TestCase):
                                                   on_started=lambda pid: calls.append(("started", pid))))
         self.assertEqual(calls, [("spawn",), ("started", 4321), ("set", "SuspendQuickstartVeto", True), ("terminate",)])
 
+    def test_failing_wait_before_the_quit_stops_the_helper_and_keeps_the_office(self):
+        calls = []
+        desktop = FakeDesktop(calls)
+        proc = mock.Mock(pid=4321)
+
+        def before_quit(started):
+            calls.append(("before_quit", started.pid))
+            raise ValueError("not ready")
+        with mock.patch.object(launch, "spawn", return_value=proc), \
+                mock.patch.object(launch, "cancel", side_effect=lambda p: calls.append(("cancel", p.pid))):
+            with self.assertRaises(ValueError):
+                launch.spawn_and_quit(office(desktop), ["/bin/sh", "helper"], "Darwin", before_quit=before_quit)
+        self.assertEqual(calls, [("before_quit", 4321), ("cancel", 4321)])
+
     def test_helper_is_stopped_when_the_quit_is_cancelled_or_fails(self):
         for options, expected in (({"saved": False}, False), ({"error": RuntimeError("disposed")}, "raised")):
             with self.subTest(options=options):

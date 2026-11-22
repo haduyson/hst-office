@@ -123,14 +123,17 @@ def quit_office(ctx):
     return closing
 
 
-def spawn_and_quit(ctx, argv, system, on_started=None):
+def spawn_and_quit(ctx, argv, system, on_started=None, before_quit=None):
     """Start the helper that waits for this office to exit, then quit the office (quit_office). When the quit is
     cancelled at a save prompt, or fails, the helper is stopped and the office keeps running. True when quitting.
-    on_started(pid) runs between the two (update_guard's lock records the helper)."""
+    Between the two, on_started(pid) runs (update_guard's lock records the helper), then before_quit(proc), which
+    may wait for the helper and raise to keep the office open (update_helper_ready)."""
     proc, closing = spawn(argv, system), False
     try:
         if on_started is not None:
             on_started(proc.pid)
+        if before_quit is not None:
+            before_quit(proc)
         closing = quit_office(ctx)
     finally:
         if not closing:
