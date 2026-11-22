@@ -5,7 +5,7 @@ office that keeps running inside an app bundle replaced under it.
 Before update_install starts the external helper, it writes updating.lock beside update.log: the helper's process ID
 (0 until the helper has started), the office's own and the time. The helper removes the file when it ends, before it
 opens HST Office again (update_helper_scripts RUN). An office started while the file names a helper that still runs
-says "đang cập nhật" and quits: on macOS such a copy, started from the Dock while the helper copied the new app,
+says "đang cập nhật" (macOS: a notification, so that the quit does not wait for a click) and quits: on macOS such a copy, started from the Dock while the helper copied the new app,
 went on running inside a bundle that was then replaced, loaded the libraries of both versions and hung.
 
 macOS also checks that the bundle on disk still holds the version this office runs (Info.plist against
@@ -198,11 +198,24 @@ def _quit(ctx):
         diag_log.info("update_guard", "the office did not quit")
 
 
-def _updating(ctx):
+def _notify_mac(message):
+    """A macOS notification that outlives this office (the helper's notify); message has no double quotes."""
+    from . import update_launch as launch
+    launch.spawn(["/usr/bin/osascript", "-e", 'display notification "%s" with title "HST Office"' % message.replace('"', "'")],
+                 "Darwin")
+
+
+def _updating(ctx, system):
+    """Says that the update is installing, then quits. macOS: a notification and the quit at once, since the helper
+    waits only 60 s for this copy before it gives the update up; elsewhere a message, then the quit."""
     from .update_texts import texts
     diag_log.info("update_guard", "an update is being installed; this copy quits")
+    message = texts(ctx)["guard_updating"]
     try:
-        _tell(ctx, texts(ctx)["guard_updating"])
+        if system == "Darwin":
+            _notify_mac(message)
+        else:
+            _tell(ctx, message)
     finally:
         _quit(ctx)
 
@@ -227,7 +240,7 @@ def check(ctx, system=None):
     system = system or platform.system()
     cache = installer.cache_dir(system)
     if update_in_progress(cache):
-        ui.on_main_thread(ctx, lambda: _updating(ctx))
+        ui.on_main_thread(ctx, lambda: _updating(ctx, system))
         return "updating"
     if system != "Darwin":
         return None

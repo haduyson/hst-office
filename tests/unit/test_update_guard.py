@@ -130,6 +130,18 @@ class StartUpCheck(unittest.TestCase):
         tell.assert_called_once_with(mock.ANY, "busy")
         quit_.assert_called_once()
 
+    def test_macos_copy_started_during_an_update_notifies_and_quits_without_a_dialog(self):
+        guard.write_lock(self.cache, helper=os.getpid(), office=1)
+        with mock.patch.object(guard, "pid_alive", return_value=True):
+            self.assertEqual(guard.check(mock.Mock(), "Darwin"), "updating")
+        with mock.patch.object(guard, "_tell") as tell, mock.patch("hst_office.update_launch.spawn") as spawn, \
+                mock.patch("hst_office.update_launch.quit_office", return_value=True) as quit_, \
+                mock.patch("hst_office.update_texts.texts", return_value={"guard_updating": "busy"}):
+            self.later[0]()
+        tell.assert_not_called()
+        self.assertEqual(spawn.call_args.args[0], ["/usr/bin/osascript", "-e", 'display notification "busy" with title "HST Office"'])
+        quit_.assert_called_once()
+
     def test_nothing_pending_does_nothing_off_macos(self):
         self.assertIsNone(guard.check(mock.Mock(), "Windows"))
         self.assertEqual(self.later, [])

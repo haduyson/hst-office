@@ -5,6 +5,11 @@ name: macOS update e2e probe
 # /Applications and the new office open again?
 on:
   workflow_dispatch:
+    inputs:
+      branch_run:
+        description: 'Desktop macOS run whose arm64 dmg is the "branch" installed app'
+        type: string
+        default: '44212432755'
 permissions:
   contents: read
 concurrency:
@@ -25,6 +30,9 @@ jobs:
           # Same, with the app opened again from the Dock as soon as the office has quit: the swap must wait for that
           # copy and refuse after 60 s, never replace the bundle under it.
           - {name: branch-code-race, installed: "1.0.2", scenario: branch, pretend: "1.0.1", close_welcome: "", keep_welcome: "", race: "1"}
+          # This branch's own dmg (branch_run) with the app opened again as soon as the office has quit: its start-up
+          # guard sees the update lock, says so and quits, and the update goes on.
+          - {name: branch-dmg-race, installed: "branch", scenario: shipped, pretend: "1.0.1", close_welcome: "", keep_welcome: "", race: "1"}
     name: probe ${{ matrix.name }}
     runs-on: macos-15
     timeout-minutes: 45
@@ -53,10 +61,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           INSTALLED: ${{ matrix.installed }}
+          BRANCH_RUN: ${{ inputs.branch_run }}
         run: |
           set -euo pipefail
           if [ "$INSTALLED" = branch ]; then
-            gh run download 44212432755 --repo "$GITHUB_REPOSITORY" --name hst-office-macos-arm64-dmg-44212432755 --dir "$RUNNER_TEMP/branch"
+            gh run download "$BRANCH_RUN" --repo "$GITHUB_REPOSITORY" --name "hst-office-macos-arm64-dmg-$BRANCH_RUN" --dir "$RUNNER_TEMP/branch"
             mkdir -p "$RUNNER_TEMP/dmg/branch"
             mv "$(find "$RUNNER_TEMP/branch" -name '*.dmg' -print -quit)" "$RUNNER_TEMP/dmg/branch/HSTOffice_branch_macOS_arm64.dmg"
           fi
