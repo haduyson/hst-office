@@ -34,6 +34,9 @@ class ReadOnlyTogglePatch(unittest.TestCase):
         self.assertIn("*oForEdit && !pSh->IsOriginallyReadOnlyMedium()", code)
         self.assertIn("pNewSet->ClearItem( SID_DOC_READONLY );", code)
         self.assertIn("HstAutoSaveState().oOn = xOldObj->HstAutoSaveState().oOn", code)
+        # a failed or cancelled switch (the locked-file question) leaves the document read only
+        failed = code.index("if ( rReq.GetSlot() == SID_EDITDOC && *oForEdit )")
+        self.assertIn("xOldObj->SetReadOnlyUI( true );", code[failed:failed + 120])
 
     def test_title_mark_follows_the_ui(self):
         self.assertIn("pMedium->IsReadOnly()", removed(PATCH, "sfx2/source/doc/sfxbasemodel.cxx"))

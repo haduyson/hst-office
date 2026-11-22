@@ -4,6 +4,8 @@ HST Office: read-only mode both ways, and the texts around it.
   reloaded it read only again and only unlocked the UI, so the title kept "(chỉ đọc)", Ctrl+S asked for a new name
   and AutoSave stayed off. A switch to editing now opens a file that can be written for writing; a switch to reading
   opens it read only (its lock is released). The reloaded document keeps the session's AutoSave choice.
+  When the switch to editing fails or is cancelled ("Hủy" for a file locked by another user), the document stays
+  read only instead of an unlocked view of a file it cannot write.
 - sfx2 sfxbasemodel.cxx (SfxBaseModel::getTitle): "(read-only)" means the document cannot be edited now; a file with
   the read-only attribute that the user switched to editing (Save asks for another name) no longer carries it.
 - sfx2 Tệp tin > Thông tin (hstbackstage.ui, hstbackstagewindow.cxx): "Chuyển sang chỉ đọc" / "Chỉnh sửa tài liệu"
@@ -344,7 +346,18 @@ Test: make CppunitTest_sfx2_hst_autosave; tests/unit/test_read_only_toggle_patch
                           || pSh->IsOriginallyLoadedReadOnlyMedium() )
                          // edit mode is switched or reload of readonly document
                          pNewSet->Put( SfxBoolItem( SID_DOC_READONLY, true ) );
-@@ -844,6 +856,8 @@ void SfxViewFrame::ExecReload_Impl( SfxRequest& rReq )
+@@ -833,6 +845,10 @@ void SfxViewFrame::ExecReload_Impl( SfxRequest& rReq )
+ 
+                         xOldObj->DoSaveCompleted( pMedium );
+                     }
++                    // HST Office: the switch to edit mode failed or was cancelled (e.g. in the question about a
++                    // file locked by another user): the document stays read-only instead of an unlocked view
++                    if ( rReq.GetSlot() == SID_EDITDOC && *oForEdit )
++                        xOldObj->SetReadOnlyUI( true );
+                 }
+                 else
+                 {
+@@ -844,6 +860,8 @@ void SfxViewFrame::ExecReload_Impl( SfxRequest& rReq )
                      else if ( rReq.GetSlot() == SID_EDITDOC || rReq.GetSlot() == SID_READONLYDOC )
                      {
                          xNewObj->SetReadOnlyUI(!*oForEdit);
