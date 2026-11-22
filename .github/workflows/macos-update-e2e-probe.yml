@@ -19,12 +19,12 @@ jobs:
           # This branch's own (unsigned) arm64 dmg as the installed app, its welcome dialog left open, updated to
           # the published signed 1.0.2: the update must close the dialog, install, reopen the office and the document.
           - {name: branch-dmg-welcome-open, installed: "branch", scenario: shipped, pretend: "1.0.1", close_welcome: "", keep_welcome: "1"}
-          # The published 1.0.1 with this checkout's updater code: the checks and the copy run before the office quits,
+          # The published 1.0.2 (reported as 1.0.1, so that the cached 1.0.2 is offered) with this checkout's updater code: the checks and the copy run before the office quits,
           # and the new app is opened again right after the swap.
-          - {name: branch-code-update, installed: "1.0.1", scenario: branch, pretend: "", close_welcome: "", keep_welcome: "", race: ""}
+          - {name: branch-code-update, installed: "1.0.2", scenario: branch, pretend: "1.0.1", close_welcome: "", keep_welcome: "", race: ""}
           # Same, with the app opened again from the Dock as soon as the office has quit: the swap must wait for that
           # copy and refuse after 60 s, never replace the bundle under it.
-          - {name: branch-code-race, installed: "1.0.1", scenario: branch, pretend: "", close_welcome: "", keep_welcome: "", race: "1"}
+          - {name: branch-code-race, installed: "1.0.2", scenario: branch, pretend: "1.0.1", close_welcome: "", keep_welcome: "", race: "1"}
     name: probe ${{ matrix.name }}
     runs-on: macos-15
     timeout-minutes: 45
