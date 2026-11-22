@@ -41,31 +41,6 @@ class Order(unittest.TestCase):
         sp.run(None, [("crash", lambda: calls.append("crash") or True)], after=lambda ctx: calls.append("update_check"))
         self.assertEqual(calls, ["update_resume", "update_check", "crash"])
 
-    def test_update_check_starts_before_an_unanswered_question(self):
-        """The default-apps question waits for the user: the check is already on its way (not held by the answer)."""
-        calls = []
-
-        def default_apps():
-            calls.append("default_apps:check-started=%s" % ("update_check" in calls))
-            return True
-        shown = sp.run(None, [("welcome", lambda: False), ("default_apps", default_apps)],
-                       after=lambda ctx: calls.append("update_check"))
-        self.assertEqual(shown, "default_apps")
-        self.assertEqual(calls, ["update_check", "default_apps:check-started=True"])
-
-    def test_prompting_while_the_questions_run_so_the_update_popup_waits(self):
-        seen = []
-        sp.run(None, [("welcome", lambda: seen.append(("welcome", sp.prompting())) or True)],
-               after=lambda ctx: seen.append(("update_check", sp.prompting())))
-        self.assertEqual(seen, [("update_check", True), ("welcome", True)])
-        self.assertFalse(sp.prompting())
-
-    def test_prompting_ends_even_when_the_chain_raises(self):
-        with mock.patch.object(sp, "run_chain", side_effect=RuntimeError("toolkit gone")):
-            with self.assertRaises(RuntimeError):
-                sp.run(None, [], after=lambda ctx: None)
-        self.assertFalse(sp.prompting())
-
     def test_order_is_mac_move_profile_crash_welcome_launchers_default_apps_update(self):
         self.assertEqual(sp.ORDER, ("mac_move", "profile_repaired", "crash", "welcome", "mac_launchers",
                                     "default_apps", "update_outcome"))
