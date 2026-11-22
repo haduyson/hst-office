@@ -9,6 +9,7 @@ import subprocess
 import sys
 
 from .dispatch_paths import BUILD_SLOTS, LOCAL_BUILD, log
+from .slot_control import SlotControl
 
 # ---------------------------------------------------------------- linux
 class LinuxRunner:
@@ -23,11 +24,13 @@ class LinuxRunner:
         return os.path.join(self.store.work_dir, job["id"] + ".rc")
 
     def busy_slots(self, jobs):
-        return [str(j["slot"]) for j in jobs if j["platform"] == "linux" and j["state"] == "running"]
+        return [str(j["slot"]) for j in jobs if j["platform"] == "linux" and j["state"] == "running"
+                and j.get("host", "local") in ("local", None)]
 
-    def free_slot(self, jobs, want):
+    def free_slot(self, jobs, want, job=None):
+        locked = [s for s in SlotControl(self.store).locked_slots() if s.isdigit()]   # `build-queue.sh slot lock`
         cmd = [sys.executable, "-I", BUILD_SLOTS, "free-slot", "--want", str(want),
-               "--exclude", ",".join(self.busy_slots(jobs))]
+               "--exclude", ",".join(self.busy_slots(jobs) + locked), *(["--complete"] if job and job.get("modules") else [])]
         done = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if done.returncode == 0 and done.stdout.strip().isdigit():
             return int(done.stdout.strip())
@@ -46,6 +49,12 @@ class LinuxRunner:
             cmd.append("--no-package")
         if job.get("tests"):
             cmd += ["--test", " ".join(job["tests"])]
+            if job["package"] and not job["modules"]:
+                cmd.append("--package")   # a train's Linux build: tests, then the packages
+            if job.get("test_name"):
+                cmd += ["--test-name", job["test_name"]]
+            if job.get("gdb"):
+                cmd.append("--gdb")
         cmd.append(job["sha"])
         rc = self.rc_path(job)
         if os.path.exists(rc):
@@ -88,6 +97,17 @@ class LinuxRunner:
             os.killpg(job["pid"], signal.SIGTERM)   # local-build.sh stops make and unmounts in its EXIT trap
         except (ProcessLookupError, PermissionError):
             pass
+
+    def kill_tree(self, job):
+        """A cancelled job still running after cancel_kill_after_seconds: make runs in its own systemd scope and
+        session (setsid), out of reach of the runner's process group, so its scopes are killed. Only while the
+        runner lives: it holds the slot lock, so every make scope of that slot is this job's. local-build.sh then
+        finishes its EXIT trap (unmount, admission release)."""
+        if not _pid_alive(job.get("pid")):
+            return False
+        subprocess.run(["systemctl", "kill", "--signal=KILL", f"hst-local-build-s{job['slot']}-*.scope"],
+                       capture_output=True, check=False, timeout=60)
+        return True
 
 
 def _pid_alive(pid):

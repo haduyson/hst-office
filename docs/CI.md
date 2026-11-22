@@ -203,7 +203,10 @@ chung dưới `-ToolsRoot` (`D:\hst-build`). Với mỗi job, dispatcher:
 2. chạy [hst-queue-remote.ps1](../scripts/windows/hst-queue-remote.ps1) qua `tests/realwin/remote.py <máy> ps`:
    `Probe` (slot bận nếu `build.lock` đang bị giữ, kể cả bởi một lượt chạy tay), `Start` (task
    `hst-build-q-<job>` qua `hst4-detach.ps1`, `hst4-build.ps1 -Ref <sha> -OutName q-<job>`), `Status` mỗi phút,
-   `Cancel` (dừng task và đúng cây tiến trình của nó);
+   `Cancel` (dừng task và cả cây tiến trình của nó: con cháu của task cộng mọi tiến trình có dòng lệnh chứa đường
+   dẫn của slot, kể cả trình biên dịch mồ côi, quét nhiều lượt; không bao giờ dừng `mspdbsrv` dùng chung của máy;
+   sau đó xoá các tệp `.o` hỏng mà trình biên dịch bị giết để lại trong `lo\workdir` từ lúc task bắt đầu, nếu không
+   lần link sau báo `LNK1136: invalid or corrupt file`, như slot `hst5:D:\hst-build-s2` ngày 20/11/2026);
 3. kéo `out\q-<job>\` (MSI + `SHA256SUMS` + `build-info.json`, kiểm `sha256sum -c`) về
    `/data/hst-build-queue/out/<job>/`, ghi máy đã build vào job, rồi xoá bản trên máy Windows.
 
@@ -225,12 +228,17 @@ chỉ đặt `SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE` tới bộ CA đó trong lúc 
 thuộc người build, không cấp quyền cho Administrators) bên trong task S4U nâng quyền; bước `TmpAcl` của
 `hst4-setup.ps1` cấp toàn quyền kế thừa cho Administrators và SYSTEM trên `D:\cygwin64\tmp` (đã áp trên HST5).
 
-Số slot (đo 13/11/2026, giữ ổ còn trống ≥ 15 GB và RAM không quá tải):
+Số slot (đo 13–15/11/2026, giữ ổ còn trống ≥ 15 GB và RAM không quá tải):
 
 | Máy | Slot (`-Root`) | Lý do |
 |---|---|---|
 | HST4 (28 luồng, 32 GB) | 1: `D:\hst-build` | Mỗi cây ~40 GB (`lo` 33 + `stage` 3,5 + `pristine` 3,5); D: chỉ còn ~37 GB trống, C: dao động 10–56 GB vì việc khác nên không đặt cây thứ hai ở C:; các ứng dụng sẵn có trên máy đã chiếm ~15 GB RAM. |
 | HST5 (Xeon E5-2680 v4, 28 luồng, 32 GB) | 2: `D:\hst-build`, `D:\hst-build-s2` | D: 130 GB: hai cây (~80 GB) vẫn để ~37 GB trống, cây thứ ba thì không. Một build `-j28` lên đỉnh ~21 GB commit (gồm ~8 GB nền); build thứ hai trên cùng máy chạy `-j14`. |
+| HST3 (U2U-SEO3, 28 luồng, 32 GB; từ 15/11/2026) | 1: `D:\hst-build` | Dựng bằng `hst4-setup.ps1` (bước Prereqs, VisualStudio, Cygwin, TmpAcl, Tools, Python; 11 phút): bộ công cụ trùng HST4 (VS BT 17.14.37906.3, MSVC 14.44.35207, clang-cl 19.1.5, SDK 10.0.26100, .NET 4.8.1, Cygwin 3.6.12, NASM 3.02, Python 3.12.10). Chỉ một ngoại lệ Defender: `D:\hst-build` (configure của LibreOffice ghi chuỗi EICAR vào cây nguồn/build và dừng khi Defender xoá nó); thư mục Cygwin không cần nên không thêm. Build đủ đầu tiên `-j24`: 9114 s (tải tarball 1119, cây 1549, configure 105, fetch 535, make + MSI 5777); đỉnh commit 21,1 GB, RAM trống ≥ 13,4 GB; D: còn 50 GB trống sau build (cây ~45 GB + VS 9 GB + Cygwin 1 GB). MSI cùng commit với HST4 (9a3e6e8687): cùng 5743 tệp; khác biệt chỉ là siêu dữ liệu build (dấu thời gian PE/zip, tên kiểu namespace ẩn danh của MSVC, thứ tự mục trong gallery). |
+| HST1 (U2U-SEO1, 28 luồng, 32 GB; máy kế toán dùng hằng ngày; từ 15/11/2026) | 1: `D:\hst-build`, **chỉ trong khung giờ** T2–T7 18:00–07:30, Chủ nhật cả ngày (`window` trong `config.json`, xem [BUILD_MATRIX.md](BUILD_MATRIX.md)); job còn chạy lúc 07:30 bị dừng và đưa lại hàng đợi, máy rảnh trước 08:00 | Sau khi chủ máy dọn D: (124 GB trống), dựng bằng `hst4-setup.ps1` như HST3 (20 phút); toolchain chỉ ở D: (`D:\VS2022BT`, `D:\cygwin64`, Python của build trong `D:\hst-build\tools`), Git, Windows SDK và .NET SDK buộc nằm ở C:. Bản VS Build Tools cũ 17.14.36705 ở C: đã gỡ (chủ máy duyệt): configure của LibreOffice lấy instance đầu tiên `vswhere` trả về, và bản cũ thiếu clang-cl, ATL Spectre, merge modules. Một ngoại lệ Defender: `D:\hst-build`. Build chạy bằng task S4U, không đụng phiên console của kiemtra (HST1 cũng là máy test GUI, khoá `C:\hst-test\console-lock.txt` riêng). Build đủ đầu tiên `-j24`: 6918 s (cây 1357, configure 135, fetch 482, make + MSI 4806); D: còn 71 GB trống sau build. MSI cùng commit với HST4 (9a3e6e8687): cùng 5743 tệp (5756 dòng bảng File); khác biệt chỉ là siêu dữ liệu build như HST3. |
+
+Mọi slot Windows chạy tối đa `jobs` = số luồng − 4 (24 trên máy 28 luồng) để máy test vẫn phản hồi; hai build trên
+cùng máy chia đôi.
 
 Bản dịch tiếng Việt trong build tăng dần: `make` của LibreOffice không dựng lại `.mo`, `registry_vi.xcd` hay
 `XcuResTarget/*/vi` khi `.po` đổi ([SHARED_BUILD_SLOTS.md](SHARED_BUILD_SLOTS.md#incremental-build-gaps)), nên trước
@@ -243,6 +251,26 @@ cùng cách trước khi đóng gói.
 Khi máy có hai slot, lưu ý: `trial-build.sh --build` (script của CI, giữ nguyên) khi chạm hạn 3 ngày
 (`HST_BUILD_DEADLINE`) chạy `taskkill /IM make.exe|cl.exe|link.exe` cho **cả máy**, nên sẽ dừng luôn build của slot
 kia; chỉ xảy ra khi một build chạy quá 3 ngày. Đổi công cụ trên một máy luôn bận: `scripts/build-queue.sh drain <máy>`.
+
+Một slot (không phải cả máy) được khoá và dọn bằng `scripts/build-queue.sh slot ...`
+([slot_control.py](../scripts/build_infra/slot_control.py)); mã slot giống cột slot của `list`
+(`hst5:D:\hst-build-s2`, `vm103:3`):
+- `slot lock <slot> --reason ...` / `slot unlock <slot>`: dispatcher không giao job mới cho slot đó; job đang chạy
+  vẫn chạy xong. `list` in các slot đang khoá.
+- `slot clean <slot> --reason ... [--full] [--keep-locked]`: khoá slot, chờ slot rảnh, rồi dispatcher dọn ở tiến
+  trình nền (không chặn việc giao job cho slot khác) và mở khoá khi xong (trừ khi slot đã khoá từ trước hoặc có
+  `--keep-locked`). Windows: xoá các tệp `.o` hỏng (bị cắt cụt hoặc không phải object) trong `lo\workdir`; `--full`
+  xoá `lo\workdir` và `lo\instdir` (build sau ở slot đó là build đủ). Linux chỉ nhận `--full`, chạy dưới chính
+  khoá `.lock` của slot nên không bao giờ đụng cây đang build. Nhật ký: `/data/hst-build-queue/logs/slot-clean-*.log`.
+
+Job Linux đã cancel mà sau `cancel_kill_after_seconds` (120 s) vẫn chạy: dispatcher giết các scope make của slot đó
+(`hst-local-build-s<N>-*.scope`, nằm ngoài nhóm tiến trình và unit của job nên tín hiệu TERM không tới), chỉ khi
+tiến trình chạy job còn sống, tức là còn giữ khoá slot. `local-build.sh` sau đó tự dọn (unmount, trả suất admission).
+
+Khi `/data` của máy dev (ổ của hàng đợi) còn dưới `data_warn_free_gib` (25 GiB), dispatcher ghi cảnh báo vào journal
+và `/data/hst-build-queue/alerts.log` (tối đa mỗi giờ một lần, kèm các thư mục lớn nhất do `du` đo ở luồng nền), và
+`build-queue.sh list` in cảnh báo cho mọi agent. Mức này cao hơn ngưỡng retention dọn gấp (22 GiB) và ngưỡng chặn build
+(15–17 GiB).
 
 `-Jobs` của job mới = luồng của slot chia cho (số build đang chạy trên máy đó + 1): một mình 28, cạnh một build khác
 14. Tarball ghim nằm chung ở `D:\hst-build\dl` (`-ToolsRoot`). Slot mới build đủ lần đầu khi được dùng lần đầu; trước đó thư mục gốc của nó phải có ngoại lệ Defender

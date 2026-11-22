@@ -23,7 +23,9 @@ Rules (environment overrides in brackets):
   build-slots.py poll --slot N --jobs CUR                                       prints "ok ALLOC" or "freeze REASON"
   build-slots.py update --slot N [--jobs J] [--want J] [--scope UNIT] [--frozen 0|1]
   build-slots.py release --slot N
-  build-slots.py free-slot [--want J] [--exclude 1,2]  prints a free, admissible slot number (exit 1 if none)
+  build-slots.py free-slot [--want J] [--exclude 1,2] [--complete]
+                                                     prints a free, admissible slot number (exit 1 if none);
+                                                     --complete: only a slot with a complete build (--modules)
   build-slots.py budget --jobs J            prints the scope MemoryMax in MiB
   build-slots.py status [--json]
 
@@ -60,6 +62,7 @@ def main(argv=None):
     f = sub.add_parser("free-slot")
     f.add_argument("--want", type=int, default=None)
     f.add_argument("--exclude", default="", help="comma-separated slots to skip (just started, not locked yet)")
+    f.add_argument("--complete", action="store_true", help="only a slot with a complete build (--modules jobs)")
     b = sub.add_parser("budget")
     b.add_argument("--jobs", type=int, required=True)
     s = sub.add_parser("status")
@@ -101,7 +104,7 @@ def main(argv=None):
         return 0
     if args.cmd == "free-slot":
         exclude = [int(x) for x in args.exclude.split(",") if x.strip().isdigit()]
-        slot, reason = ctl.free_slot(want, exclude)
+        slot, reason = ctl.free_slot(want, exclude, args.complete)
         if slot is None:
             print(explain(ctl.root, reason), file=sys.stderr)
             return 1

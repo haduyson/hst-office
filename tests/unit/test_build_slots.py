@@ -158,6 +158,20 @@ class ControllerTest(unittest.TestCase):
             fcntl.flock(lock, fcntl.LOCK_EX)
             self.assertEqual(self.ctl.free_slot(20, exclude=[2]), (4, None))
 
+    def test_modules_builds_get_only_slots_with_a_complete_build_and_full_builds_seed_the_others(self):
+        self.p.mem = 60.0
+        for n in (1, 2, 3):   # slot 4 never had a full build
+            program = os.path.join(self.root, "slots", str(n), "src", "lo", "instdir", "program")
+            os.makedirs(program)
+            with open(os.path.join(program, "soffice"), "w") as f:
+                f.write("#!/bin/sh\n")
+            os.chmod(os.path.join(program, "soffice"), 0o755)
+        self.assertEqual(self.ctl.free_slot(20, complete=True), (1, None))
+        self.assertEqual(self.ctl.free_slot(20), (4, None))            # a full build goes where it seeds a slot
+        self.assertEqual(self.ctl.free_slot(20, exclude=[1, 2, 3], complete=True),
+                         (None, "no idle slot with a complete build"))
+        self.assertEqual(self.ctl.free_slot(20, exclude=[4]), (1, None))
+
     def test_duplicate_registration_is_refused(self):
         self.acquire(1, 101)
         self.assertIn("already", self.acquire(1, 102)[1])

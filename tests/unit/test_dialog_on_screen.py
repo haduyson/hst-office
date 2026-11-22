@@ -60,6 +60,18 @@ import com.sun.star.document  # noqa: E402,F401 - imported on use (macOS watcher
 
 sys.meta_path.remove(_FINDER)
 
+# watch_new_documents imports com.sun.star.document only when it runs (the stubs above are gone by then). Whether that
+# module is already in sys.modules, and what it holds, depends on which test files ran before in the same process, so
+# the tests that watch for new documents provide their own for their duration.
+_DOCUMENT_MODULE = types.ModuleType("com.sun.star.document")
+_DOCUMENT_MODULE.XDocumentEventListener = type("XDocumentEventListener", (), {})
+
+
+def _provide_document_module(test):
+    patcher = mock.patch.dict(sys.modules, {"com.sun.star.document": _DOCUMENT_MODULE})
+    patcher.start()
+    test.addCleanup(patcher.stop)
+
 
 class Rect:
     def __init__(self, x, y, w, h):
@@ -289,6 +301,9 @@ FULL_SCREEN, PLAIN = (0, 0, 1024, 768), (130, 121, 1024, 656)
 
 
 class NewDocumentWhileOpenTests(unittest.TestCase):
+    def setUp(self):
+        _provide_document_module(self)
+
     def watch(self, parent_rect, platform="darwin", is_open=lambda: True):
         self.office, self.timers, self.moved = DisplayOffice(), Timers(), []
         self.parent, self.document = Window(True, parent_rect), Window(True, (0, 28, 1024, 740))
@@ -351,6 +366,9 @@ class NewDocumentWhileOpenTests(unittest.TestCase):
 
 class DialogExecuteTests(unittest.TestCase):
     """dialogs.Dialog.execute with a parked (hidden) parent: shown parent, centred, logged, watched while it runs."""
+
+    def setUp(self):
+        _provide_document_module(self)
 
     def test_hidden_parent_replaced_logged_and_unwatched_after_execute(self):
         shown, hidden = Window(True), Window(False)

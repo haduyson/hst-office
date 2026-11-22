@@ -192,8 +192,11 @@ function Export-Overlay([datetime]$Since) {
     # TEST ONLY patch overlay: instdir files this module build rewrote (not sdk\), laid out like the install root.
     $inst = Join-Path $Lo 'instdir'
     $name = "HSTOffice-overlay-$($script:Info.sha.Substring(0, 10))-$($Modules -replace ',', '+')"
-    $stage = Join-Path $Root "tmp\$name"
-    Remove-Tree $stage
+    # A staging directory of its own per run (a failed earlier run of the same commit + modules may have left one).
+    # The file list is FILES.txt: NTFS is case-insensitive, so a file FILES would collide with the files\ directory.
+    $stageRoot = Join-Path $Root "tmp\overlay-$PID"
+    $stage = Join-Path $stageRoot $name
+    Remove-Tree $stageRoot
     $files = @(Get-ChildItem -LiteralPath $inst -Recurse -File | Where-Object {
             $_.LastWriteTime -ge $Since -and -not $_.FullName.StartsWith((Join-Path $inst 'sdk\'), 'OrdinalIgnoreCase') })
     $rels = foreach ($f in $files) {
@@ -204,7 +207,7 @@ function Export-Overlay([datetime]$Since) {
         $rel
     }
     New-Item -ItemType Directory -Force -Path $stage | Out-Null
-    [IO.File]::WriteAllText((Join-Path $stage 'FILES'), ((@($rels) -join "`n") + "`n"))
+    [IO.File]::WriteAllText((Join-Path $stage 'FILES.txt'), ((@($rels) -join "`n") + "`n"))
     $sums = foreach ($rel in $rels) { "$((Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $stage "files\$rel")).Hash.ToLower())  $rel" }
     [IO.File]::WriteAllText((Join-Path $stage 'SHA256SUMS'), ((@($sums) -join "`n") + "`n"))
     Copy-Item -LiteralPath (Join-Path (Split-Path -Parent $PSScriptRoot) 'overlay\apply-build-overlay.ps1') -Destination $stage
@@ -213,13 +216,13 @@ function Export-Overlay([datetime]$Since) {
         'Apply onto an administrative install image of a reference MSI of the same base:',
         '  msiexec /a HSTOffice_<release>_Win_x86-64_en-US_vi.msi /qn TARGETDIR=C:\hst-test\ref',
         '  powershell -File apply-build-overlay.ps1 -Image C:\hst-test\ref',
-        "$(@($rels).Count) files: list in FILES, checksums in SHA256SUMS.") | Set-Content -LiteralPath (Join-Path $stage 'README.txt')
+        "$(@($rels).Count) files: list in FILES.txt, checksums in SHA256SUMS.") | Set-Content -LiteralPath (Join-Path $stage 'README.txt')
     $out = Get-OutDir
     Remove-Tree $out
     New-Item -ItemType Directory -Force -Path $out | Out-Null
     $zip = Join-Path $out "$name.zip"
     Compress-Archive -Path $stage -DestinationPath $zip
-    Remove-Tree $stage
+    Remove-Tree $stageRoot
     $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $zip).Hash.ToLower()
     [IO.File]::WriteAllText((Join-Path $out 'SHA256SUMS'), "$hash  $name.zip`n")
     $script:Info.msi += [ordered]@{ name = "$name.zip"; bytes = (Get-Item $zip).Length; sha256 = $hash; files = @($rels).Count }
@@ -248,6 +251,9 @@ function Export-Msi([datetime]$Since) {
     $script:Info.release = $release
     $script:Info.out = $out
 }
+
+# Reset-StaleWinRes, Test-FileVersions (deployed next to this script; the checkout may predate them).
+. (Join-Path $PSScriptRoot 'hst4-winres.ps1')
 
 if ($Status) { Show-Status; exit 0 }
 
@@ -280,6 +286,7 @@ try {
     Invoke-Step 'tree' { Sync-Tree }
     Invoke-Step 'configure' { Invoke-Trial 'configure' $Root }
     Invoke-Step 'fetch' { Invoke-Trial 'fetch' $Root }
+    Invoke-Step 'winres' { Reset-StaleWinRes $Lo }
     if ($Modules -and -not (Test-Path -LiteralPath (Join-Path $Lo 'instdir\program\soffice.exe'))) {
         throw "no complete build in $Root yet; -Modules needs one full build in this slot first"
     }
@@ -290,6 +297,7 @@ try {
     } else {
         Invoke-Step 'build' { Invoke-Build }
         Invoke-Step 'translations' { Test-Translations }
+        Invoke-Step 'versions' { Test-FileVersions $Lo $Repo $Python $MsiDir $buildStart }
         Invoke-Step 'collect' { Export-Msi $buildStart }
     }
     $script:Info.seconds['total'] = [int]((Get-Date) - $t0).TotalSeconds

@@ -58,10 +58,15 @@ class BuildQueueCliTest(unittest.TestCase):
         self.assertEqual(self.job(job_id)["state"], "cancelled")
 
         base = self.run_cli("submit", "--platform", "linux", "--ref", HEAD, "--test", "CppunitTest_a").stdout.strip()
-        branch = self.run_cli("submit", "--platform", "linux", "--ref", HEAD, "--test",
-                              "CppunitTest_a CppunitTest_b").stdout.strip()
+        joined = self.run_cli("submit", "--platform", "linux", "--ref", HEAD, "--test", "CppunitTest_c")
+        self.assertEqual(joined.stdout.strip(), base)   # same commit, base still queued: one build, both tests
+        self.assertIn(f"joined queued job {base}", joined.stderr)
+        self.assertEqual(self.job(base)["tests"], ["CppunitTest_a", "CppunitTest_c"])
         result = {"result": "pass", "exit": 0, "seconds": 1, "log": "test-logs/x.log"}
-        self.finish(base, test_results={"CppunitTest_a": result})
+        self.finish(base, test_results={"CppunitTest_a": result, "CppunitTest_c": result})
+        branch = self.run_cli("submit", "--platform", "linux", "--ref", HEAD, "--test",
+                              "CppunitTest_a CppunitTest_b").stdout.strip()   # base done: a job of its own
+        self.assertNotEqual(branch, base)
         self.finish(branch, test_results={"CppunitTest_a": dict(result, result="fail"), "CppunitTest_b": result})
         self.assertIn("PASS CppunitTest_a", self.run_cli("wait", base).stdout)
         self.assertIn("FAIL CppunitTest_a", self.run_cli("wait", branch, ok=(3,)).stdout)

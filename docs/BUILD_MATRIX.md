@@ -25,7 +25,7 @@ scripts/build-linux.sh --package          # .deb (EPM)
 
 ## Hàng đợi build cục bộ (agent tự dùng)
 
-Agent tự build `.deb` (máy dev) hoặc `.msi` (HST4/HST5) qua hàng đợi
+Agent tự build `.deb` (trên **VM103**, xem mục dưới) hoặc `.msi` (HST1/HST3/HST4/HST5) qua hàng đợi
 [`scripts/build-queue.sh`](../scripts/build-queue.sh), không cần qua S0. Bản phát hành chính thức vẫn lấy từ CI.
 
 ```bash
@@ -55,8 +55,28 @@ các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u
 - Dữ liệu dưới `/data/hst-build-queue/`: `jobs/<id>.json`, `logs/<id>.log`, `out/<id>/` (`.deb`/`.msi`/overlay +
   `SHA256SUMS`; với nhánh có `ci-build.sh --rpm-appimage`, tức từ 1.0.2, job Linux có thêm `.rpm` và `.AppImage`
   đóng lại từ chính `.deb`, nhánh cũ chỉ có `.deb`), `config.json` (ghi đè mặc định trong `build-queue.py`: số đầu ra giữ lại, danh sách slot Windows).
-  Giữ `retention_per_branch` (3) đầu ra mới nhất cho mỗi nền tảng + nhánh + loại job (gói, overlay, test); đầu ra cũ hơn bị xoá (job vẫn còn,
-  đánh dấu `output_deleted`). Job Windows ghi máy đã build (`host`, `slot`).
+  Giữ/xoá đầu ra (dispatcher chạy sau mỗi job xong và mỗi 10 phút; `build-queue.sh retention [--dry-run]` chạy
+  ngay và in dung lượng giải phóng): giữ `retention_per_branch` (2) đầu ra mới nhất cho mỗi nền tảng + nhánh + loại
+  job (gói, overlay, test), `retention_trains` (3) cho mọi build train gộp chung; xoá đầu ra của job `failed`,
+  `cancelled` hoặc bị invalidate sau `retention_failed_hours` (6 giờ); xoá build của nhánh mà commit đã nằm trong
+  `integration_branch` (`rc/1.0.2-batch5`) sau `retention_merged_hours` (12 giờ; build `rc/*` và train chỉ theo luật
+  số lượng). Khi `/data` còn dưới `retention_pressure_free_gib` (22 GiB; ngưỡng nhận build Linux là 17 GiB):
+  chỉ giữ 1 đầu ra mới nhất mỗi nhóm và bỏ thời gian ân hạn. Thư mục `out/<id>` không có job tương ứng bị xoá sau
+  6 giờ. Không bao giờ xoá: job đã `pin` (`build-queue.sh pin <id> --reason …`, bỏ bằng `unpin <id>`), job một
+  train đang dùng, job đang chờ/chạy. Job vẫn còn, đánh dấu `output_deleted` + `output_deleted_reason`. Job Windows
+  ghi máy đã build (`host`, `slot`).
+- **Luật submit cho agent:**
+  - `--priority` tối đa 50; cao hơn bị hạ về 50 (có thông báo). Chỉ integrator (ref khớp `integrator_refs`, tức
+    `rc/1.0.2-batch*`, hoặc thêm `--integrator`) được dùng tới 100.
+  - Commit mà so với build gần nhất còn đầu ra của nhánh (cùng nền tảng + loại job), hoặc, khi chưa có build nào,
+    so với merge-base với `rc/1.0.2-batch5`, chỉ đổi `tests/`, `docs/`, `plans/` hay `*.md` thì bị từ chối (thoát 2,
+    thông báo chỉ build nên dùng). Integrator ép bằng `--force --integrator`.
+  - Patch mới/đổi trong `patches/libreoffice/` (so với merge-base với `integration_branch`) phải có header
+    `diff --git a/… b/…` và `--- a/…`/`+++ b/…` (hoặc `/dev/null`), và đường dẫn sau `-p1` phải nằm trong một thư mục
+    cấp cao của cây LibreOffice (`lo_reference_tree`) hoặc là tệp sẵn có ở gốc; sai thì `submit` và `train add` từ
+    chối (thoát 2, nêu `<patch>:<dòng>`). Integrator ép bằng `--force --integrator`.
+  - Submit commit mới của một nhánh tự huỷ job **đang chờ** (không bao giờ job đang chạy) của commit cũ cùng nhánh +
+    nền tảng + loại job; job cũ ghi `superseded_by`. Submit bằng sha trần (nhãn `commit`) không huỷ gì.
 - Dispatcher là dịch vụ systemd `hst-build-queue` ([unit](../scripts/linux/hst-build-queue.service), `Restart=on-failure`,
   `Nice=10`, I/O idle; `journalctl -u hst-build-queue`), chạy từ bản triển khai `/data/hst-build/infra-current`
   (symlink tới `infra-<sha>`, không bao giờ từ worktree đang sửa). Cập nhật bằng
@@ -66,10 +86,160 @@ các thư mục lớn nhất dưới `/data/hst-agents` (log job, `journalctl -u
   `build-queue.sh drain <máy>` để ép (chờ máy rảnh, chép, rồi nhận job lại).
   Job hỏng vì hạ tầng (script đổi giữa chừng, slot bận, mount, mạng/SSH/SSL, task Windows biến mất…) được tự đưa lại
   vào hàng đợi, tối đa 2 lần (`infra_retries` trong job); lỗi build thật (lỗi make) thì không. Job Linux chạy `local-build.sh --slot N` trên slot rảnh mà bộ
-  điều phối cho vào; job Windows chạy trên các slot trong `windows_slots` (HST4, HST5): dispatcher tự chép công cụ
+  điều phối cho vào; job Windows chạy trên các slot trong `windows_slots` (HST1 chỉ trong khung giờ, HST3, HST4, HST5; mỗi slot tối đa 24 job make, xem [CI.md](CI.md)): dispatcher tự chép công cụ
   (`D:\hst-build\tools\scripts`) khi chúng đổi, chạy build thành scheduled task qua
   [`hst-queue-remote.ps1`](../scripts/windows/hst-queue-remote.ps1), kéo MSI về `out/<id>/` rồi xoá bản trên máy
   Windows. Slot có `build.lock` do người khác giữ (ví dụ một lượt `hst4-build.ps1` chạy tay) bị bỏ qua tới khi rảnh.
+
+### Build train: gộp nhánh sẵn sàng vào một build
+
+```bash
+scripts/build-queue.sh train add fix/x [--platform linux|windows|both] [--test 'CppunitTest_sw_x ...']
+                                                         # nhánh đã push, sẵn sàng (mặc định both); --test: test chứng minh bản vá
+scripts/build-queue.sh train status [fix/x | train/1.0.3-007 | 7] [--json]   # tổng quan / một nhánh / một train
+scripts/build-queue.sh train wait fix/x [--timeout S]   # thoát 0: đạt, in đường dẫn .deb/.msi; 1: bị loại; 2: hết giờ
+scripts/build-queue.sh train remove fix/x                # rút nhánh (train đang build vẫn chạy xong)
+scripts/build-queue.sh train start --integrator          # integrator: dựng train ở tick sau, không chờ ngưỡng
+```
+
+- **Khi nào:** dispatcher dựng một train khi đủ `train_min_branches` (4) nhánh sẵn sàng, khi nhánh sẵn sàng lâu nhất
+  đã chờ `train_interval_minutes` (20 phút), hoặc ngay khi có nhánh được chuyển tiếp từ train hỏng. Tối đa
+  `train_max_concurrent` (2) train chạy song song (các nửa bisect tính vào train cha), mỗi train merge lên ảnh chụp
+  `integration_branch` riêng của nó; train mới chỉ nhận nhánh không đụng tệp LibreOffice nào của các train đang chạy, nhánh đụng
+  thì chờ (ghi chú "still building"). Giới hạn slot và bộ nhớ của từng máy build giữ nguyên.
+- **Dựng:** `<train_prefix>NNN` = `origin/<integration_branch>` + đầu nhánh của từng nhánh sẵn sàng (1.0.3:
+  `train/1.0.3-NNN` trên `feat/lo-26.8.3.1`; 1.0.2: `train/1.0.2-NNN` trên `rc/1.0.2-batch5`), merge lần lượt (theo
+  thứ tự: nhánh chuyển tiếp trước, rồi nhánh chờ lâu nhất), tối đa `train_max_branches` (8). `patches/libreoffice/series`
+  và `l10n/vi-overrides.jsonl` merge kiểu union như integrator làm: series nối theo thứ tự merge, dòng trùng bị bỏ;
+  vi-overrides giữ dòng của nhánh merge sau cho mỗi khoá (file, msgctxt, msgid). Nhánh có patch đụng cùng tệp
+  LibreOffice với một nhánh đã chọn thì chờ train sau. Merge xung đột với nền → nhánh bị loại (rebase rồi
+  `train add` lại), không tốn build; xung đột với nhánh khác trong train → sang train sau. Merge có định danh, ngày
+  giờ và thông điệp cố định, nên dựng lại sau khi khởi động lại cho đúng commit cũ.
+- **Push và build:** hàng đợi push nhánh `train/*` lên origin (chỉ tạo mới, không bao giờ force, không đụng nhánh
+  khác; workflow GitHub không chạy khi push nhánh này) rồi gửi 1 job Linux + 1 job Windows (priority 70, nền tảng
+  theo yêu cầu của các nhánh). Số NNN đếm riêng theo `train_prefix` (prefix mới bắt đầu từ 001); bản ghi
+  `trains/<tên>.json` (`train_1.0.3-001.json`), bản ghi cũ `trains/NNN.json` của 1.0.2 vẫn đọc được. Nhánh
+  `train/*` cũ hơn `train_keep_days` (2 ngày) mà không còn build nào chạy bị xoá khỏi origin. Chỉ xoá nhánh do hàng
+  đợi tạo.
+- **Test của train:** job Linux build, chạy bộ test rồi mới đóng gói: `train_tests` (mặc định sw/sc/sd/starmath:
+  `CppunitTest_sw_core_layout`, `_sw_ooxmlexport`, `_sc_ucalc_formula`, `_sc_cond_format`, `_sd_import_tests`,
+  `_starmath_qa_cppunit`) cộng các test thành viên khai báo bằng `train add --test`. Train có bộ test luôn có job
+  Linux (kể cả khi mọi nhánh chỉ xin Windows). gla11y chạy sẵn trong `make` của build (lỗi `FATAL` làm build hỏng).
+  **Nhánh chỉ "passed" khi mọi build đạt và mọi test đạt.** Test hỏng thì hàng đợi chạy song song đúng các target
+  đó hai lần nữa: trên commit nền (1 job Linux, dùng chung giữa các train; hỏng cả trên nền → `base_test_failures`,
+  không quy cho ai) và một lần nữa trên commit của train (lần hai đạt → `flaky_tests`, không quy lỗi, không bisect).
+  Chỉ target đạt trên nền và hỏng cả hai lần trên train mới làm train hỏng.
+- **Khi train hỏng**, quy lỗi theo thứ tự:
+  1. log có `does not apply: <patch>` → nhánh có commit thêm/sửa patch đó;
+  2. lỗi biên dịch, gla11y `FATAL` hoặc `make ***` nêu tệp LibreOffice → nhánh có patch đụng tệp đó; với test
+     hỏng (build đạt): dòng `<tệp>:<dòng>:Assertion` trong log test nêu tệp một nhánh đụng → nhánh đó (method `test`;
+     dòng SAL_WARN không tính);
+  3. train một nhánh → nhánh đó;
+  4. còn lại: chia đôi, build lại từng nửa (chỉ nền tảng hỏng), tối đa `train_bisect_rounds` (2) vòng; sau vòng cuối
+     còn nhiều nhánh thì loại cả nhóm.
+  Nhánh bị loại có một **build riêng để xác nhận** (priority 40, cùng commit, chạy lại các test hỏng nếu lỗi là
+  test; job id trong `train status`; submit
+  sau của agent không huỷ build này). Các nhánh còn lại sang train kế tiếp ngay. Nửa bisect đạt thì nhánh trong nửa
+  đó đạt (bản Windows lấy từ train gốc nếu bản đó đạt). Hai nửa cùng đạt mà train gốc hỏng: các nhánh bị đánh dấu
+  `ejected` với lý do "tương tác giữa các nhánh" (không nhánh nào báo đạt), báo integrator. Job bị huỷ hoặc lỗi hạ
+  tầng: nhánh được thử lại, không bị quy lỗi; sau `train_max_attempts` (3) lần như vậy thì nhánh chuyển `failed`.
+  Nền tự build hỏng ở cùng commit: không quy lỗi ai, và không train nào chạy tới khi nền có commit mới. Lượt test
+  trên nền bị huỷ/lỗi hạ tầng: không quy lỗi, nhánh được thử lại (tính một lần thử).
+- **Kết quả:** `train status <nhánh>` cho biết train chứa nhánh, job và đầu ra từng nền tảng, đạt/bị loại kèm lý
+  do; `train status <train>` cho thành viên, sha, job, xung đột, nhánh chờ, quy lỗi và nhật ký sự kiện. Trạng thái nằm
+  ở `/data/hst-build-queue/train/` (`branches.json`, `trains/NNN.json`, clone riêng `repo/`). Đầu ra của kết quả train và
+  của build xác nhận không bị retention xoá khi nhánh còn trong danh sách. `train add|remove` có thể phải chờ vài chục
+  giây khi dispatcher đang merge/push một train. Log dispatcher có dòng
+  `train train/1.0.3-NNN: …`. `train status <train>` có thêm dòng `tests`, `failing` (target hỏng thật) và `on base`
+  (target hỏng cả trên nền). Integrator có thể fast-forward batch tiếp theo tới đúng commit của một train xanh: cùng
+  sha nên hàng đợi dùng lại build đó.
+- **Tắt train:** `"train_enabled": false` trong `config.json` (agent quay lại submit theo nhánh). Base là
+  `integration_branch`, tên là `train_prefix`, bộ test cố định là `train_tests` trong `config.json`; đổi khi
+  integrator chuyển sang batch/phiên bản mới (build của chính `integration_branch` không bị retention coi là "đã merge").
+
+### Khung giờ build của slot Windows (HST1)
+
+Một slot trong `windows_slots` có thể mang `"window"` ([slot_window.py](../scripts/build_infra/slot_window.py)):
+ngoài khung giờ, slot không nhận job mới; job còn chạy lúc khung giờ đóng bị dừng ngay (remote `Cancel` dừng
+cả cây tiến trình) rồi đưa lại hàng đợi, sau đó build trên slot khác hoặc trong khung giờ sau. Chọn dừng thay vì
+để chạy xong vì một build mất 0,5–2,5 giờ, không thể bảo đảm máy rảnh trước `idle_by`. Nếu đến `idle_by` mà vẫn
+không dừng được (mất SSH…), dispatcher ghi cảnh báo vào journal và `/data/hst-build-queue/alerts.log`. Khung giờ
+sai cú pháp thì slot coi như đóng (ghi log mỗi giờ). Kết quả build xong ngay trước lúc dừng vẫn được giữ.
+
+HST1 (máy kế toán dùng hằng ngày): `{"open": "18:00", "close": "07:30", "all_day": ["sun"], "idle_by": "08:00",
+"utc_offset_minutes": 420}`, tức thứ Hai–thứ Bảy 18:00–07:30 sáng hôm sau, Chủ nhật cả ngày (liền từ thứ Bảy 18:00
+đến thứ Hai 07:30), giờ Asia/Saigon (UTC+7, không đổi giờ mùa hè, nên không cần cơ sở dữ liệu múi giờ).
+Job còn chạy lúc 07:30 bị dừng và đưa lại hàng đợi; máy phải rảnh trước 08:00.
+
+### Phiên bản trong exe/dll của build Windows
+
+Tệp phụ thuộc `workdir/Dep/WinResTarget/*.d` (makedepend tạo) trên slot Windows luôn rỗng, nên `make` không dựng lại
+`.res` khi header mà `.rc` include thay đổi. Tài nguyên phiên bản của mọi exe/dll HST là `include/default.rc`, include
+`hst_version.h` (sinh từ `/VERSION`) và `version.hrc` → `config_host/config_version.h`. Vì vậy slot build tăng dần từng
+đóng gói 1.0.2 với FileVersion 1.0.1 (bản MSI 1.0.2 đầu tiên, q261115-214050-71b7). Bước `winres` của
+[hst4-build.ps1](../scripts/windows/hst4-build.ps1) ([hst4-winres.ps1](../scripts/windows/hst4-winres.ps1)) băm mọi
+header mà các `.rc` của cây include (lần theo include lồng nhau), và khi khác lần build trước thì xoá mọi `.res` để
+`make` dựng lại và link lại. Bước `versions` (trước khi lấy MSI) dừng build nếu một exe/dll mà MSI mới đóng gói (bảng
+File) mang tài nguyên "HST Office" có FileVersion khác `VERSION.build` hoặc ProductVersion khác mã phát hành
+(`write-hst-version.py`), hoặc nếu có ít hơn 100 tệp như vậy. Tệp MSI không đóng gói thì bỏ qua: instdir tăng dần còn
+giữ tệp của module không còn build (`cli_uno.dll` 1.0.1 từ khi tắt CLI-UNO). Lỗi này tính là lỗi hạ tầng: job được
+đưa lại hàng đợi và build train không quy lỗi cho nhánh nào.
+
+### Đĩa của máy Windows
+
+Thiếu đĩa (`D: has … GiB free, below … GiB`, `disk-stop` trên Linux) là lỗi hạ tầng: job được đưa lại hàng đợi và
+build train không quy lỗi cho nhánh nào. Slot Windows mà ổ còn dưới `windows_min_free_gib` (15 GiB) không nhận job;
+dưới `windows_warn_free_gib` (25 GiB) dispatcher ghi cảnh báo (journal, `/data/hst-build-queue/alerts.log`, dòng
+`WARNING` phía trên `build-queue.sh list`) kèm các thư mục lớn nhất dưới `D:\hst-test`.
+`build-queue.sh disk-report [--host hst5] [--refresh]` in dung lượng trống và các thư mục đó (kích thước, tệp mới
+nhất, chủ). Hàng đợi **không bao giờ xoá** thư mục test của agent. Agent ghi tên mình/nhánh vào
+`D:\hst-test\<thư mục>\.hst-owner` (dòng đầu) để báo cáo biết ai sở hữu.
+
+### Máy build Linux: VM103
+
+**Từ 14/11/2026 mọi build Linux chạy trên VM103** (quyết định của chủ dự án): job gói, chân Linux của build train,
+overlay `--modules` và `--test`. Máy dev không nhận job Linux mới (`"linux_local_enabled": false` trong
+`config.json`; job đang chạy trên máy dev vẫn chạy xong). Job Linux đang chờ hiện `waiting for vm103 (vm103 N/2 slots
+busy)` hoặc `(vm103 OFFLINE)` trong `build-queue.sh list`; khi VM103 offline, job chờ nó trả lời lại. Windows vẫn ở
+HST3/HST4/HST5.
+
+Khi `linux_local_enabled` bật, dispatcher dùng slot của máy dev trước, hết chỗ thì dùng các máy trong `linux_remote_hosts` của `config.json`
+(mỗi máy: `name`, `address` (một giá trị duy nhất; đổi IP chỉ cần sửa ở đây), `key`, `known_hosts`, `slots`,
+`total_jobs`, `max_jobs`, `min_free_gib`, `ccache_max`, `enabled`). Máy từ xa chạy đúng `local-build.sh` và
+`build-slots.py` của bản triển khai, với bản sao chroot (cùng digest image và cùng dấu deps), external tarballs và
+tarball đã ghim của máy dev, nên đầu ra giống hệt. Dựng máy: `ssh root@<ip> bash -s < scripts/linux/remote-build-host-setup.sh`
+([script](../scripts/linux/remote-build-host-setup.sh)), rồi
+[`remote-build-host-seed.sh --host <name>`](../scripts/linux/remote-build-host-seed.sh) (chép chroot, tarball và cây
+ấm của một slot đang rảnh, slot đó bị khoá trong lúc chép; slot 2 nhân bản từ slot 1 ngay trên máy đó).
+
+- **Chống treo máy:** mọi job và scope make của nó nằm trong `hst-build.slice` (MemoryMax 24 GiB cho tất cả, không
+  swap, CPUQuota 12 lõi, IOWeight thấp), mỗi job là unit `hstq-<id>.service` (nice 10, I/O idle, OOM score cao);
+  tổng `-j` ≤ 12 (`HST_TOTAL_JOBS`); earlyoom giết trình biên dịch/linker trước, không bao giờ giết sshd; sshd và
+  journald có OOMScoreAdjust -1000; ngưỡng đĩa 15 GiB dừng job. Mọi lệnh SSH có giới hạn thời gian (kết nối 10 s,
+  keep-alive, timeout cứng).
+- **Mất liên lạc:** không trả lời trong `remote_offline_seconds` (300 s) thì máy bị đánh dấu offline
+  (`/data/hst-build-queue/hosts.json`), job đang chạy trên đó quay lại hàng đợi với `avoid_hosts` và build trên máy
+  dev. Khi máy trả lời lại, các unit `hstq-*` còn sót được dừng. Job chạy quá `remote_job_timeout_hours` (6 giờ) bị
+  dừng và đưa lại hàng đợi theo cùng cách.
+- **Đầu ra:** chép về `out/<id>/` (kiểm `SHA256SUMS`), rồi xoá trên máy từ xa; log đổ dần về `logs/<id>.log`.
+  Sau mỗi job, log chạy của slot cũ hơn 2 ngày và tệp hàng đợi sót lại quá 1 ngày bị xoá, để đĩa (96 GB) luôn đủ cho
+  2 slot (~13–21 GB mỗi slot), chroot, tarball và ccache 10 GB, cộng ngưỡng trống 15 GB.
+  `status` cho biết `host`/`slot` (ví dụ `vm103:1`). Tắt máy: `"enabled": false`.
+
+### Ký gói Linux của bản phát hành (dev server)
+
+Job Linux của integrator (không phải build train hay build xác nhận) có `.rpm` được ký trên dev server sau khi đầu ra
+chép về, trước khi job được đánh dấu xong ([queue_sign.py](../scripts/build_infra/queue_sign.py)). Dispatcher lấy
+`scripts/linux/sign-linux-packages.sh` và khóa công khai `data/hst/RPM-GPG-KEY-hasontech` từ chính commit được build;
+khóa riêng được xuất từ bản sao tạm của `/root/.config/hst-office/linux-signing-gnupg` (`linux_signing_gnupg`) và chỉ
+nằm trong môi trường của tiến trình con: không ghi ra đĩa, không vào log, không rời dev server (VM103 không bao giờ giữ
+khóa). Sau khi ký, `rpm -K` với khóa đã commit (CSDL rpm tạm) phải báo `digests signatures OK` cho mọi `.rpm`, nếu
+không job thất bại. Đầu ra có thêm `.asc` của AppImage, `HSTOffice_<release>_Linux_x86-64.SHA256SUMS(.asc)` và
+`RPM-GPG-KEY-hasontech`. Tắt: `"linux_signing": false` trong `config.json`.
+
+Gói cài trên dev server cho việc này (16/11/2026, chủ dự án duyệt; bỏ việc ký thì gỡ bằng `apt-get remove rpm`):
+`rpm`, `rpm-common`, `rpm2cpio`, `librpm9t64`, `librpmio9t64`, `librpmbuild9t64`, `librpmsign9t64`, `libfsverity0`,
+`liblua5.3-0` (Ubuntu 24.04, rpm 4.18.2).
 
 ### `--test`: chạy test LibreOffice trong slot (không cần cây riêng)
 
@@ -80,20 +250,28 @@ scripts/build-queue.sh wait <id>            # PASS/FAIL từng target + đuôi l
 scripts/build-queue.sh compare <id-nền> <id-nhánh>   # so sánh từng target; "REGRESSION" (thoát 3) khi nền đạt mà nhánh hỏng
 ```
 
+Chẩn đoán một test bị abort/crash: `--test CppunitTest_sw_layoutwriter --test-name TestTdf150606 --gdb` chạy đúng test
+đó (`CPPUNIT_TEST_NAME`) dưới `gdb -batch`; khi crash, `thread apply all bt full` nằm trong `test-logs/<target>.log` (thư
+viện trong slot giữ bảng symbol: có tên hàm, không có số dòng). Job loại này không bao giờ bị nhập với job test khác.
+
 Chỉ Linux. Job build tăng dần nhánh đó trong một slot (`make` đầy đủ, không đóng gói), rồi chạy lần lượt `make <target>`
 trong chroot của slot với cùng môi trường như build (`HST_VERSION_*`, `HST_REPO_ROOT`, scope systemd, bộ điều phối,
 cùng các bảo vệ RAM/đĩa). Target hợp lệ: `CppunitTest_*`, `PythonTest_*`, `<module>.check|unitcheck|slowcheck|
 subsequentcheck` (UITest cần màn hình nên không nhận). Kết quả nằm trong job (`status --json`: `test_results`) và
 `out/<id>/test-results.json`, log từng target ở `out/<id>/test-logs/<target>.log`. Test hỏng không làm job hỏng (job
 `done`, `wait` thoát 3); build hỏng thì job `failed` như thường. Muốn so với nền thì gửi cùng danh sách `--test` cho nhánh
-nền (ví dụ `rc/1.0.2-batch4`) rồi `compare`. Job giống hệt (cùng commit + cùng danh sách test) được dùng lại.
+nền (ví dụ `rc/1.0.2-batch4`) rồi `compare`. Job giống hệt (cùng commit + cùng danh sách test) được dùng lại. Submit
+`--test` cùng commit + nền tảng + `--modules` với một job test **đang chờ, chưa từng chạy** thì nhập vào job đó (một
+build, hợp các danh sách test, priority cao hơn); `submit` in `joined queued job <id>` và trả id đó. Job đã chạy, job
+train và build xác nhận không bao giờ bị nhập. `wait` trên job đã bị gộp (`merged_into`) đi theo job giữ lại.
 
 ### `--modules`: bản vá nhanh để thử (không dùng cho batch)
 
 `--modules sc,sw` chỉ chạy `make udkapi.build offapi.build oovbaapi.build` rồi `make sc.build sw.build` (tên có `.`
 hoặc `_` được dùng nguyên là target make, ví dụ `Library_merged` khi sửa vcl/sfx2/svx) trên một slot đã từng build
 đủ, và cho ra **overlay**: các tệp trong `instdir` mà lượt make đó ghi lại (thư viện, `uiconfig`, registry…), cùng
-`FILES`, `SHA256SUMS`, `README.txt` và script áp:
+`FILES` (Windows: `FILES.txt`, vì NTFS không phân biệt hoa thường nên `FILES` trùng thư mục `files\`), `SHA256SUMS`,
+`README.txt` và script áp:
 
 - Linux: `HSTOffice-overlay-<nhánh>-<sha>-<module>.tar.gz`;
   `dpkg-deb -x HSTOffice_<release>_Linux_x86-64.deb ref/ && ./apply-build-overlay.sh ref/`
