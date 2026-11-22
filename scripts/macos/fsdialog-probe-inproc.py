@@ -187,3 +187,38 @@ def watcher(path):
         from hst_office import mac_full_screen_dialogs
         return {"watching": mac_full_screen_dialogs._STATE.get("listener") is not None}
     _post(run, path)
+
+
+_SEEN = []
+
+
+def record_events(path):
+    """Record the global document events from now on (what the dialog watcher is told)."""
+    def run():
+        from com.sun.star.document import XDocumentEventListener
+
+        class _L(unohelper.Base, XDocumentEventListener):
+            def documentEventOccured(self, event):  # noqa: N802
+                _SEEN.append(event.EventName)
+
+            def disposing(self, event):
+                pass
+        _ctx().getValueByName("/singletons/com.sun.star.frame.theGlobalEventBroadcaster").addDocumentEventListener(_L())
+        return {"recording": True}
+    _post(run, path)
+
+
+def adopt_now(path):
+    """The watcher's work, by hand, on the current frame's window, with what it sees."""
+    def run():
+        from hst_office import mac_full_screen_dialogs, mac_native_window as mnw
+        ctx = _ctx()
+        window = ctx.ServiceManager.createInstanceWithContext("com.sun.star.frame.Desktop", ctx) \
+            .getCurrentFrame().getContainerWindow()
+        handle = window.getWindowHandle(uno.ByteSequence(bytes(16)), mnw.SYSTEM_MAC)
+        target = mnw.ns_window(window)
+        stranded = mnw.stranded_dialogs(target, mnw.app_windows())
+        return {"events": list(_SEEN), "handle": repr(handle), "target": _number(target) if target else None,
+                "stranded": [[_number(w), _number(p)] for w, p in stranded],
+                "moved": mac_full_screen_dialogs.adopt(window)}
+    _post(run, path)

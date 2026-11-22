@@ -151,11 +151,16 @@ def citation(p):
 def lo_dialog(p, rescue):
     p.writer_full_screen()
     p.mark("watcher", **(p.result("watcher") or {}))
+    p.mark("record-events", **(p.result("record_events") or {}))
     p.call("trigger", ".uno:FontDialog")
     time.sleep(5)
     p.mark("lo-dialog-on-screen-at-open", value=p.state("lo-open"))
     p.new_document()
     p.mark("lo-dialog-on-screen-after-new-document", value=p.state("lo-after-new-document"))
+    if not rescue:
+        p.mark("adopt-now", **(p.result("adopt_now") or {}))
+        time.sleep(2)
+        p.mark("lo-dialog-on-screen-after-adopt-now", value=p.state("lo-after-adopt-now"))
     if rescue:
         p.mark("reparent", **(p.result("reparent") or {}))
         time.sleep(3)

@@ -50,7 +50,7 @@ XCU
   pkill -9 -x soffice 2>/dev/null || true; sleep 2
   {
     echo "### $label"
-    grep -E '"event": "(citation-kept-typing|field-(before|after)-new-document|lo-dialog-on-screen[a-z-]*|typed-after-close|reparent|new-document:(loaded|failed)|open-after-esc|watcher)"' "$out/$label/driver.log" \
+    grep -E '"event": "(citation-kept-typing|field-(before|after)-new-document|lo-dialog-on-screen[a-z-]*|typed-after-close|reparent|new-document:(loaded|failed)|open-after-esc|watcher|adopt-now)"' "$out/$label/driver.log" \
       | sed -E 's/"windows": \[[^]]*\]/"windows": "…"/g' | cut -c1-600 || true
     grep -E 'driver exit|Traceback|Error' "$out/$label/driver.log" | head -5 || true
   } >>"$out/summary.md"
