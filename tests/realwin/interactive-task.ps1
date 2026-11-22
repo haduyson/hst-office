@@ -5,6 +5,11 @@
 # in the session itself with GetLastInputInfo (`query user` reports "none" for console sessions). Enforces a
 # timeout, returns the command's exit code and always deletes the task. Output must be written by the command
 # itself under C:\hst-test.
+# COMMANDLINE runs with `call`, so a .cmd/.bat returns to the wrapper: without `call`, cmd.exe hands control to the
+# batch file for good and nothing after it runs (that lost every exit code of `remote.py ui run.cmd` as 93). The exit
+# code is written by the wscript wrapper from the exit status of the whole cmd.exe, so it is recorded even when the
+# command ends cmd.exe itself (`exit N` in a batch file). Codes of this script besides the command's own: 90 no
+# console user, 91 console not idle, 93 the task ended or timed out without an exit code (stopped, or never ran).
 param(
     [Parameter(Mandatory = $true)][string]$CommandLine,
     [int]$TimeoutSec = 900,
@@ -24,17 +29,25 @@ function Get-ConsoleUser {
 
 $hidden = Join-Path $dir 'run-hidden.vbs'
 Set-Content -Path $hidden -Encoding ASCII -Value @'
-' Runs a .cmd file without a window and returns its exit code.
+' Runs a .cmd file without a window, writes its exit code to the file named by argument 2 (written to a
+' temporary name, then renamed: the reader never sees a half-written file) and returns it.
 Set shell = CreateObject("WScript.Shell")
-WScript.Quit shell.Run("cmd.exe /c """ & WScript.Arguments(0) & """", 0, True)
+rc = shell.Run("cmd.exe /c """ & WScript.Arguments(0) & """", 0, True)
+Set fso = CreateObject("Scripting.FileSystemObject")
+Set f = fso.CreateTextFile(WScript.Arguments(1) & ".tmp", True)
+f.WriteLine rc
+f.Close
+If fso.FileExists(WScript.Arguments(1)) Then fso.DeleteFile WScript.Arguments(1), True
+fso.MoveFile WScript.Arguments(1) & ".tmp", WScript.Arguments(1)
+WScript.Quit rc
 '@
 
 function Invoke-InSession([string]$user, [string]$commandLine, [int]$timeout) {
     $name = 'hst-test-ui-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
     $wrapper = Join-Path $dir "$name.cmd"
     $exitFile = Join-Path $dir "$name.exit"
-    Set-Content -Path $wrapper -Encoding ASCII -Value "@echo off`r`ncd /d C:\hst-test`r`n$commandLine`r`n> `"$exitFile`" echo %ERRORLEVEL%`r`n"  # redirect first: `echo 0> f` would redirect stdin
-    $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B //NoLogo `"$hidden`" `"$wrapper`""
+    Set-Content -Path $wrapper -Encoding ASCII -Value "@echo off`r`ncd /d C:\hst-test`r`ncall $commandLine`r`nexit /b %ERRORLEVEL%`r`n"
+    $action = New-ScheduledTaskAction -Execute 'wscript.exe' -Argument "//B //NoLogo `"$hidden`" `"$wrapper`" `"$exitFile`""
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
     $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
         -ExecutionTimeLimit (New-TimeSpan -Seconds ($timeout + 120)) -MultipleInstances IgnoreNew
@@ -57,7 +70,7 @@ function Invoke-InSession([string]$user, [string]$commandLine, [int]$timeout) {
         return 93
     } finally {
         Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
-        Remove-Item $wrapper, $exitFile -ErrorAction SilentlyContinue
+        Remove-Item $wrapper, $exitFile, "$exitFile.tmp" -ErrorAction SilentlyContinue
     }
 }
 
