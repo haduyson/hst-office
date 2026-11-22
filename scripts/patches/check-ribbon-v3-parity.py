@@ -33,9 +33,11 @@ WRITER_TEX = {"org.hst.office.vi:TexToggle": 1}
 AI = {"org.hst.office.ai:Writing": 1, "org.hst.office.ai:Help": 1, "org.hst.office.ai:Options": 1}
 SHEETS_FEATURES = {"org.hst.office.ai:FormulaWrite": 1, "org.hst.office.ai:FormulaExplain": 1, ".uno:FlashFill": 1,
                    ".uno:HstTableAutoExpand": 1, ".uno:HstTableCalculatedColumns": 1, ".uno:HstTableUndoAutoExpand": 1}
-ADDED = {"writer": {"org.hst.office.vi:ChemFormula": 1, **FORMULAS, **AI, **WRITER_TEX},
-         "sheets": {**FORMULAS, **AI, **SHEETS_FEATURES},
-         "slides": {"org.hst.office.vi:ChemFormula": 1, **FORMULAS, **AI},
+# the edit mode switch (read-only mode on or off) first in the View tab's view group of Writer, Sheets and Slides
+VIEW_EDIT_MODE = {".uno:EditDoc": 1}
+ADDED = {"writer": {"org.hst.office.vi:ChemFormula": 1, **FORMULAS, **AI, **WRITER_TEX, **VIEW_EDIT_MODE},
+         "sheets": {**FORMULAS, **AI, **SHEETS_FEATURES, **VIEW_EDIT_MODE},
+         "slides": {"org.hst.office.vi:ChemFormula": 1, **FORMULAS, **AI, **VIEW_EDIT_MODE},
          "draw": {"org.hst.office.vi:ChemFormula": 1, **FORMULAS, **AI}}
 MENU_ITEMS = ("GtkMenuItem", "GtkCheckMenuItem", "GtkRadioMenuItem")
 
