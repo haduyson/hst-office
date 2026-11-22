@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: LicenseRef-HST-Proprietary
+# Copyright (C) 2026 HASON TECH
 """Read-only mode both ways (hst-read-only-toggle.patch) and the ribbon data behind it.
 
 Offline checks of the patch text and the ribbon data: the edit mode switch reopens the file for writing, the title
