@@ -88,14 +88,17 @@ class ReadOnlyTogglePatch(unittest.TestCase):
         self.assertTrue(tips[".uno:ReadOnlyDoc"]["vi"].endswith("."))
 
     def test_view_tab_label_is_read_only(self):
-        # lit while the document is read only: .uno:ReadOnlyDoc with the short label "Read-Only" / "Chỉ đọc"
-        xcu = added(PATCH, "officecfg/registry/data/org/openoffice/Office/UI/GenericCommands.xcu")
-        self.assertIn('<prop oor:name="ContextLabel" oor:type="xs:string">', xcu)
-        self.assertIn('<value xml:lang="en-US">Read-Only</value>', xcu)
-        po = added(PATCH, "translations/source/vi/officecfg/registry/data/org/openoffice/Office/UI.po")
-        self.assertIn("..uno:ReadOnlyDoc", po)
-        self.assertIn('msgid "Read-Only"\nmsgstr "Chỉ đọc"', po)
-
+        # lit while the document is read only: .uno:ReadOnlyDoc, named "Read-Only" / "Chỉ đọc" on the ribbon only
+        v3 = read("patches", "libreoffice", "hst-ribbon-v3-ui.patch")
+        tip = json.loads(read("data", "ribbon", "tooltip-descriptions.json"))["app_titles"]
+        for ui, module, app in (("TabbedWriter", "sw", "writer"), ("TabbedCalc", "sc", "calc"),
+                                ("TabbedImpress", "sd", "impress")):
+            context = ui + "|btnViewHstReadOnlyDoc"
+            self.assertIn('<property name="hst-ribbon-label" translatable="yes" context="%s">Read-Only</property>'
+                          % context, v3)
+            vi = po_entries(added(PATCH, "translations/source/vi/%s/messages.po" % module))
+            self.assertEqual(vi[context], ("Read-Only", "Chỉ đọc"))
+            self.assertEqual(tip[app][".uno:ReadOnlyDoc"], {"en": "Read-Only", "vi": "Chỉ đọc"})
     def test_sheets_protection_is_not_read_only(self):
         patch = read("patches", "libreoffice", "hst-ribbon-ux-calc.patch")
         for button in ("btnReviewProtect", "btnReviewToolProtectionDocument"):
