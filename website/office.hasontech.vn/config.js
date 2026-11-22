@@ -3,9 +3,9 @@
  * HTML là bản dự phòng không JS của bản phát hành hiện tại.
  */
 window.HST_OFFICE_CONFIG = {
-  version: "1.0.2",
+  version: "1.0.3",
   releaseLabel: "Bản chính thức",
-  tag: "v1.0.2",
+  tag: "v1.0.3",
   platforms: {
     windows: { available: true, path: "/tai/windows", label: "Windows" },
     "macos-arm": { available: true, path: "/tai/macos-arm", label: "macOS Apple Silicon" },
@@ -15,7 +15,7 @@ window.HST_OFFICE_CONFIG = {
     "linux-appimage": { available: true, path: "/tai/linux-appimage", label: "Linux (AppImage)" }
   },
   checksum: { available: true, path: "/tai/sha256" },
-  linuxArchive: "HSTOffice_1.0.2_Linux_x86-64.deb"
+  linuxArchive: "HSTOffice_1.0.3_Linux_x86-64.deb"
 };
 
 /* Khi ra bản mới:
