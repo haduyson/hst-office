@@ -12414,10 +12414,10 @@ index 0000000..dcb957f
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
 diff --git a/sfx2/source/startcenter/hststartcenterwindow.cxx b/sfx2/source/startcenter/hststartcenterwindow.cxx
 new file mode 100644
-index 0000000..94ca14c
+index 0000000..229f9b3
 --- /dev/null
 +++ b/sfx2/source/startcenter/hststartcenterwindow.cxx
-@@ -0,0 +1,754 @@
+@@ -0,0 +1,755 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -12464,6 +12464,7 @@ index 0000000..94ca14c
 +#include <vcl/weld/Entry.hxx>
 +
 +#include <algorithm>
++#include <cmath>
 +#include <functional>
 +
 +using namespace css;
@@ -12843,7 +12844,7 @@ index 0000000..94ca14c
 +    // the entry's type shrinks with the canvas's (its own font, untouched while the canvas has the
 +    // design's size)
 +    const double fFont = mxCanvas->GetFontShare();
-+    if (mxSearch && fFont != mfSearchFont)
++    if (mxSearch && std::abs(fFont - mfSearchFont) > 0.001)
 +    {
 +        if (!moSearchFont)
 +            moSearchFont = mxSearch->get_font();
