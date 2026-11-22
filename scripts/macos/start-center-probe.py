@@ -73,6 +73,12 @@ def seed(ctx, out):
         order.insertByName(str(index), entry)
     access.commitChanges()
     print("seeded", len(urls), "recent documents", flush=True)
+    # a clean exit writes the history to the profile (a killed office keeps none of it and asks to
+    # report the crash at the next start)
+    try:
+        desktop.terminate()
+    except Exception:  # noqa: BLE001 - the bridge goes away with the office
+        pass
 
 
 def start_center_frame(desktop):

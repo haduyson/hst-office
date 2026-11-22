@@ -33,7 +33,11 @@ drive() { # drive <step> [args...]: the UNO driver with the bundled Python, at m
   URE_BOOTSTRAP="vnd.sun.star.pathname:$app/Contents/Resources/fundamentalrc" \
     PYTHONPATH="$app/Contents/Resources:$pyhome" perl -e 'alarm 300; exec @ARGV' "$py" "$here/start-center-probe.py" "$@"
 }
-stop() { kill "$1" 2>/dev/null || true; sleep 3; kill -9 "$1" 2>/dev/null || true; pkill -f "UserInstallation=file://$profile" 2>/dev/null || true; sleep 2; }
+stop() { # stop <pid>: wait up to 30 s for the office to end by itself, then terminate it
+  for _ in $(seq 30); do kill -0 "$1" 2>/dev/null || break; sleep 1; done
+  kill "$1" 2>/dev/null || true; sleep 3; kill -9 "$1" 2>/dev/null || true
+  pkill -f "UserInstallation=file://$profile" 2>/dev/null || true; sleep 2
+}
 
 accept='--accept=socket,host=localhost,port=2002;urp;'
 "$app/Contents/MacOS/soffice" --headless --norestore --nologo "$accept" "-env:UserInstallation=file://$profile" \
@@ -47,6 +51,7 @@ stop "$pid"
 pid=$!
 sleep 12
 drive shoot "$out" "$sizes" >"$out/driver-shoot.log" 2>&1 || echo "shoot exit $?" >>"$out/driver-shoot.log"
+kill "$pid" 2>/dev/null || true
 stop "$pid"
 cat "$out/driver-seed.log" "$out/driver-shoot.log"
 ls -l "$out"
