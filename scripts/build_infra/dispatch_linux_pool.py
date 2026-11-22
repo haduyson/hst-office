@@ -77,6 +77,9 @@ class LinuxPool:
     def cancel(self, job):
         return self.runner_for(job).cancel(job)
 
+    def kill_tree(self, job):
+        return self.runner_for(job).kill_tree(job)
+
     def health(self, jobs):
         for r in self.remotes:
             r.health(jobs)

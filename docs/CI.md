@@ -203,7 +203,10 @@ chung dưới `-ToolsRoot` (`D:\hst-build`). Với mỗi job, dispatcher:
 2. chạy [hst-queue-remote.ps1](../scripts/windows/hst-queue-remote.ps1) qua `tests/realwin/remote.py <máy> ps`:
    `Probe` (slot bận nếu `build.lock` đang bị giữ, kể cả bởi một lượt chạy tay), `Start` (task
    `hst-build-q-<job>` qua `hst4-detach.ps1`, `hst4-build.ps1 -Ref <sha> -OutName q-<job>`), `Status` mỗi phút,
-   `Cancel` (dừng task và đúng cây tiến trình của nó);
+   `Cancel` (dừng task và cả cây tiến trình của nó: con cháu của task cộng mọi tiến trình có dòng lệnh chứa đường
+   dẫn của slot, kể cả trình biên dịch mồ côi, quét nhiều lượt; không bao giờ dừng `mspdbsrv` dùng chung của máy;
+   sau đó xoá các tệp `.o` hỏng mà trình biên dịch bị giết để lại trong `lo\workdir` từ lúc task bắt đầu, nếu không
+   lần link sau báo `LNK1136: invalid or corrupt file`, như slot `hst5:D:\hst-build-s2` ngày 20/11/2026);
 3. kéo `out\q-<job>\` (MSI + `SHA256SUMS` + `build-info.json`, kiểm `sha256sum -c`) về
    `/data/hst-build-queue/out/<job>/`, ghi máy đã build vào job, rồi xoá bản trên máy Windows.
 
@@ -248,6 +251,26 @@ cùng cách trước khi đóng gói.
 Khi máy có hai slot, lưu ý: `trial-build.sh --build` (script của CI, giữ nguyên) khi chạm hạn 3 ngày
 (`HST_BUILD_DEADLINE`) chạy `taskkill /IM make.exe|cl.exe|link.exe` cho **cả máy**, nên sẽ dừng luôn build của slot
 kia; chỉ xảy ra khi một build chạy quá 3 ngày. Đổi công cụ trên một máy luôn bận: `scripts/build-queue.sh drain <máy>`.
+
+Một slot (không phải cả máy) được khoá và dọn bằng `scripts/build-queue.sh slot ...`
+([slot_control.py](../scripts/build_infra/slot_control.py)); mã slot giống cột slot của `list`
+(`hst5:D:\hst-build-s2`, `vm103:3`):
+- `slot lock <slot> --reason ...` / `slot unlock <slot>`: dispatcher không giao job mới cho slot đó; job đang chạy
+  vẫn chạy xong. `list` in các slot đang khoá.
+- `slot clean <slot> --reason ... [--full] [--keep-locked]`: khoá slot, chờ slot rảnh, rồi dispatcher dọn ở tiến
+  trình nền (không chặn việc giao job cho slot khác) và mở khoá khi xong (trừ khi slot đã khoá từ trước hoặc có
+  `--keep-locked`). Windows: xoá các tệp `.o` hỏng (bị cắt cụt hoặc không phải object) trong `lo\workdir`; `--full`
+  xoá `lo\workdir` và `lo\instdir` (build sau ở slot đó là build đủ). Linux chỉ nhận `--full`, chạy dưới chính
+  khoá `.lock` của slot nên không bao giờ đụng cây đang build. Nhật ký: `/data/hst-build-queue/logs/slot-clean-*.log`.
+
+Job Linux đã cancel mà sau `cancel_kill_after_seconds` (120 s) vẫn chạy: dispatcher giết các scope make của slot đó
+(`hst-local-build-s<N>-*.scope`, nằm ngoài nhóm tiến trình và unit của job nên tín hiệu TERM không tới), chỉ khi
+tiến trình chạy job còn sống, tức là còn giữ khoá slot. `local-build.sh` sau đó tự dọn (unmount, trả suất admission).
+
+Khi `/data` của máy dev (ổ của hàng đợi) còn dưới `data_warn_free_gib` (25 GiB), dispatcher ghi cảnh báo vào journal
+và `/data/hst-build-queue/alerts.log` (tối đa mỗi giờ một lần, kèm các thư mục lớn nhất do `du` đo ở luồng nền), và
+`build-queue.sh list` in cảnh báo cho mọi agent. Mức này cao hơn ngưỡng retention dọn gấp (22 GiB) và ngưỡng chặn build
+(15–17 GiB).
 
 `-Jobs` của job mới = luồng của slot chia cho (số build đang chạy trên máy đó + 1): một mình 28, cạnh một build khác
 14. Tarball ghim nằm chung ở `D:\hst-build\dl` (`-ToolsRoot`). Slot mới build đủ lần đầu khi được dùng lần đầu; trước đó thư mục gốc của nó phải có ngoại lệ Defender

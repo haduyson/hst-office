@@ -84,6 +84,12 @@ DEFAULT_CONFIG = {
     # below windows_warn_free_gib the dispatcher warns (journal + alerts.log) with the largest D:\hst-test folders.
     "windows_min_free_gib": 15,
     "windows_warn_free_gib": 25,
+    # Below data_warn_free_gib on the queue's own disk (/data of the dev server) the dispatcher warns (journal +
+    # alerts.log, hourly, with the largest /data consumers) and `list` shows it, well before retention pressure
+    # (retention_pressure_free_gib) and the 15-17 GiB floors where builds stop.
+    "data_warn_free_gib": 25,
+    # A cancelled Linux job still running this long after the TERM gets its make scopes killed (dispatch_loop).
+    "cancel_kill_after_seconds": 120,
 }
 
 

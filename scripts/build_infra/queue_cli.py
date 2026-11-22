@@ -23,6 +23,14 @@
   build-queue.sh cancel <id>                      queued: dropped at once; running: stopped by the dispatcher
   build-queue.sh drain <host> [--no-wait|--hold|--cancel] Windows host: no new jobs there, wait until it is idle, deploy the
                                                   current tools to it, resume (prints when done)
+  build-queue.sh slot list                        locked slots and slot cleans (slot_control.py)
+  build-queue.sh slot lock <slot> --reason TEXT   no new job on that one slot (a running job finishes); slot ids as
+                                                  in `list`: hst5:D:\\hst-build-s2, vm103:3, or a dev server number
+  build-queue.sh slot unlock <slot>
+  build-queue.sh slot clean <slot> --reason TEXT [--full] [--keep-locked] [--no-wait] [--timeout S]
+                                                  lock, wait until the slot is idle, clean it, unlock (unless it was
+                                                  locked before or --keep-locked). Windows: delete damaged object
+                                                  files (LNK1136); --full (Linux: required) deletes workdir+instdir
   build-queue.sh dispatch [--once]                the dispatcher (systemd unit hst-build-queue.service)
 
 State lives under HST_QUEUE_ROOT (default /data/hst-build-queue): jobs/<id>.json, logs/<id>.log, out/<id>/,
@@ -41,7 +49,7 @@ import sys
 from .queue_ops import cancel, drain, invalidate, submit
 from .queue_report import compare, describe, failure_errors, print_tests, wait
 from .queue_retention import apply_retention, pin
-from . import queue_train_cli
+from . import data_disk, queue_train_cli, slot_control
 from .queue_rules import order_key, parse_modules, parse_tests
 from .queue_store import ACTIVE, PLATFORMS, TERMINAL, QueueError, Store
 
@@ -95,6 +103,21 @@ def main(argv=None):
     dr.add_argument("--timeout", type=int)
     dr.add_argument("--cancel", action="store_true", help="stop draining (or end a hold) and resume scheduling")
     dr.add_argument("--hold", action="store_true", help="stay idle after deploying (maintenance, reboot)")
+    sl = sub.add_parser("slot")
+    slsub = sl.add_subparsers(dest="slot_cmd", required=True)
+    slsub.add_parser("list")
+    sk = slsub.add_parser("lock")
+    sk.add_argument("slot")
+    sk.add_argument("--reason", required=True)
+    su = slsub.add_parser("unlock")
+    su.add_argument("slot")
+    sc = slsub.add_parser("clean")
+    sc.add_argument("slot")
+    sc.add_argument("--reason", required=True)
+    sc.add_argument("--full", action="store_true", help="delete workdir and instdir (the next build is a full one)")
+    sc.add_argument("--keep-locked", action="store_true", help="leave the slot locked after the clean")
+    sc.add_argument("--no-wait", action="store_true")
+    sc.add_argument("--timeout", type=int)
     d = sub.add_parser("dispatch")
     d.add_argument("--once", action="store_true")
     args = parser.parse_args(argv)
@@ -138,6 +161,12 @@ def main(argv=None):
             else:
                 for line in disk_warnings(store):
                     print(line, file=sys.stderr)
+                data_line = data_disk.warning(store, store.config())
+                if data_line:
+                    print(data_line, file=sys.stderr)
+                for slot, entry in sorted(slot_control.SlotControl(store).all().items()):
+                    if entry.get("locked"):
+                        print(f"slot {slot_control.describe(slot, entry)}", file=sys.stderr)
                 notes = linux_waits(store, jobs)
                 for job in jobs:
                     print(describe(job) + notes.get(job["id"], ""))
@@ -169,6 +198,8 @@ def main(argv=None):
             return compare(store, args.base, args.id)
         if args.cmd == "drain":
             return drain(store, args.host, not args.no_wait, timeout=args.timeout, cancel=args.cancel, hold=args.hold)
+        if args.cmd == "slot":
+            return slot_cmd(store, args)
         if args.cmd == "dispatch":
             from .dispatch_loop import run
             return run(store, once=args.once)
@@ -176,6 +207,31 @@ def main(argv=None):
         print(f"build-queue: {exc}", file=sys.stderr)
         return 2
     return 0
+
+
+def slot_cmd(store, args, out=sys.stdout):
+    if args.slot_cmd == "list":
+        entries = slot_control.SlotControl(store).all()
+        for slot, entry in sorted(entries.items()):
+            print(slot_control.describe(slot, entry), file=out)
+        if not entries:
+            print("no slot locked or cleaned", file=out)
+        return 0
+    if args.slot_cmd == "lock":
+        slot, entry = slot_control.lock(store, args.slot, args.reason)
+        print(f"{slot}: locked (no new job; a running one finishes)", file=out)
+        return 0
+    if args.slot_cmd == "unlock":
+        slot, _entry = slot_control.unlock(store, args.slot)
+        print(f"{slot}: unlocked", file=out)
+        return 0
+    slot, entry = slot_control.request_clean(store, args.slot, args.reason, full=args.full,
+                                             keep_locked=args.keep_locked)
+    print(f"{slot}: locked; the dispatcher cleans it{' (--full)' if args.full else ''} once no job runs there"
+          f"{', then unlocks it' if entry['clean']['unlock_after'] else '; it stays locked'}", file=out)
+    if args.no_wait:
+        return 0
+    return slot_control.wait_clean(store, slot, timeout=args.timeout, out=out)
 
 
 def disk_warnings(store, max_age=7200):

@@ -19,6 +19,7 @@ import os
 import sys
 import time
 
+from . import data_disk, slot_control
 from .dispatch_linux_pool import LinuxPool
 from .dispatch_paths import log
 from .dispatch_windows import WindowsRunner
@@ -87,6 +88,22 @@ def sign_output(store, job, fields, cfg):
     return "done", dict(fields, output=output, signed=True)
 
 
+def kill_tree(store, runner, job):
+    """A cancelled Linux job that still runs cancel_kill_after_seconds after the TERM: its make scopes (which the
+    TERM to the runner does not reach) are killed; the runner then ends through its own cleanup."""
+    try:
+        killed = runner.kill_tree(job)
+    except Exception as exc:  # noqa: BLE001 - retried next tick
+        log(f"{job['id']}: killing the build's process tree failed: {exc}")
+        return
+    store.update(job["id"], cancel_killed=True)
+    if killed:
+        with open(job["log"], "a", encoding="utf-8") as f:
+            f.write(f"\n[{time.strftime('%F %T')}] dispatcher: still running after the cancel; make scopes of slot "
+                    f"{job.get('slot')} killed\n")
+        log(f"{job['id']}: still running after the cancel, make scopes of {job.get('slot')} killed")
+
+
 def tick(store, runners, core):
     cfg = store.config()
     jobs = store.all()
@@ -96,10 +113,13 @@ def tick(store, runners, core):
         if job.get("cancel_requested") and not job.get("cancel_sent"):
             try:
                 runner.cancel(job)
-                store.update(job["id"], cancel_sent=True)
+                store.update(job["id"], cancel_sent=True, cancel_sent_at=time.time())
                 log(f"{job['id']}: cancel sent")
             except Exception as exc:  # noqa: BLE001 - a failed cancel is retried next tick, never fatal
                 log(f"{job['id']}: cancel failed: {exc}")
+        elif job.get("cancel_sent") and not job.get("cancel_killed") and hasattr(runner, "kill_tree") \
+                and time.time() - job.get("cancel_sent_at", time.time()) >= cfg["cancel_kill_after_seconds"]:
+            kill_tree(store, runner, job)
         try:
             result = runner.check(job)
         except Exception as exc:  # noqa: BLE001 - keep dispatching other jobs; this one is marked failed
@@ -119,7 +139,15 @@ def tick(store, runners, core):
         train_tick(store, core, cfg, log=log)
     except Exception as exc:  # noqa: BLE001 - the train must never stop the dispatching of other jobs
         log(f"train step failed: {exc!r}")
+    try:
+        data_disk.check(store, cfg, log)
+    except Exception as exc:  # noqa: BLE001 - a disk check problem never stops the dispatching
+        log(f"/data check failed: {exc!r}")
     jobs = store.all()
+    try:
+        slot_control.process(store, cfg, jobs, log)   # `build-queue.sh slot clean`: before slots are handed out
+    except Exception as exc:  # noqa: BLE001 - slot maintenance problems are logged, dispatching goes on
+        log(f"slot maintenance failed: {exc!r}")
     if hasattr(runners["linux"], "health"):
         runners["linux"].health(jobs)   # remote Linux hosts that stopped answering: offline, their jobs requeued
         jobs = store.all()

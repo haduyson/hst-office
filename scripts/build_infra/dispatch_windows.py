@@ -10,6 +10,7 @@ import sys
 import time
 
 from . import slot_window
+from .slot_control import SlotControl
 from .dispatch_paths import HERE, WIN_HELPER, WIN_TOOLS, log, win_task_name
 
 # ---------------------------------------------------------------- windows
@@ -99,9 +100,10 @@ class WindowsRunner:
 
     def free_slot(self, jobs):
         used = {j.get("slot") for j in jobs if j["platform"] == "windows" and j["state"] == "running"}
+        locked = SlotControl(self.store).locked_slots()   # `build-queue.sh slot lock|clean`
         for slot in self.cfg["windows_slots"]:
             sid = f"{slot['host']}:{slot['root']}"
-            if sid in used or self.draining(slot["host"]) or not self.window_open(slot):
+            if sid in used or sid in locked or self.draining(slot["host"]) or not self.window_open(slot):
                 continue
             cached = self.probes.get(sid)
             if cached and time.time() - cached[0] < self.cfg["windows_poll_seconds"]:

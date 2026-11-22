@@ -23,6 +23,7 @@ from .dispatch_paths import HERE, log
 from .queue_git import git_env
 from .queue_store import REPO
 from .remote_host import HostStates, RemoteError, RemoteHost
+from .slot_control import SlotControl
 
 LOG_CHUNK = 4_000_000
 # The job unit's command. A host package upgrade can restart the unit (needrestart restarts services whose libraries
@@ -195,6 +196,8 @@ class RemoteLinuxRunner:
             return None
         busy = [str(j["slot"]).split(":")[1] for j in jobs if j["platform"] == "linux" and j["state"] == "running"
                 and j.get("host") == self.name]
+        busy += [s.split(":", 1)[1] for s in SlotControl(self.store).locked_slots()   # `build-queue.sh slot lock`
+                 if s.startswith(self.name + ":")]
         try:
             d = self.ensure_deployed()
             argv = ["env", *(f"{k}={v}" for k, v in self.env().items()), "python3", "-I",
@@ -326,3 +329,12 @@ class RemoteLinuxRunner:
 
     def cancel(self, job):
         self.host.run(["systemctl", "kill", "--signal=TERM", f"{self.unit(job['id'])}.service"], check=False)
+
+    def kill_tree(self, job):
+        """A cancelled job whose unit still runs after cancel_kill_after_seconds: its make scopes live outside the
+        job's unit (systemd-run --scope), so the TERM to the unit does not reach them if local-build.sh cannot stop
+        them itself. While the unit is active it holds the slot lock, so the slot's scopes are this job's."""
+        n = str(job["slot"]).split(":", 1)[1]
+        script = (f"systemctl is-active -q {self.unit(job['id'])}.service || exit 3; "
+                  f"systemctl kill --signal=KILL 'hst-local-build-s{n}-*.scope'; exit 0")
+        return self.host.run(["sh", "-c", script], check=False).returncode == 0

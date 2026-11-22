@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -61,6 +62,11 @@ class QueueTestCase(unittest.TestCase):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         self.store = bq.Store(tmp.name)
+        # The dispatcher's /data check measures the real disk (du in a thread): tests of the dispatch loop skip it;
+        # test_build_queue_slot_control.py tests it directly.
+        patcher = mock.patch("build_infra.data_disk.check", lambda *a, **kw: None)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.shas = {"rc/1.0.2-batch4": SHA_A, "feat/x": SHA_B}
         self.git = FakeGit()
 
