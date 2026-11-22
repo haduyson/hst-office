@@ -12,7 +12,7 @@ cannot tell (another platform, no handle, no Objective-C runtime): callers keep 
 import ctypes
 import sys
 
-SYSTEM_MAC = 3  # com.sun.star.lang.SystemDependent.SYSTEM_MAC
+SYSTEM_MAC = 5  # com.sun.star.lang.SystemDependent.SYSTEM_MAC
 FULL_SCREEN_MASK = 1 << 14  # NSWindowStyleMaskFullScreen
 TITLED_MASK = 1  # NSWindowStyleMaskTitled: dialogs; menus, tooltips and the document tab strip have no title bar
 ABOVE = 1  # NSWindowAbove
