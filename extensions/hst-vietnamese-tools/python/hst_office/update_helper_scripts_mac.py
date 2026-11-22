@@ -156,9 +156,9 @@ relaunch() {
         log_step 'Relaunching the app that was running'
         open "$ORIGIN" >/dev/null 2>&1 || log_step 'Relaunch failed'
     elif [ -d "$SOFFICE" ] && bundle_busy "$SOFFICE"; then
-        # `open` would only bring that office to the front: it is not the version installed now.
-        log_step 'Relaunch skipped: an HST Office started before the update still runs'
-        if [ "$FAIL" != busy ]; then notify "$NOTE_OLD_RUNNING"; fi
+        # `open` would only bring that office to the front, and it may have started before the swap.
+        log_step 'Relaunch skipped: an HST Office opened during the update runs'
+        if [ "$status" -eq 0 ]; then notify "$NOTE_OLD_RUNNING"; fi
     elif [ -d "$SOFFICE" ]; then
         log_step 'Relaunching HST Office'
         open "$SOFFICE" >/dev/null 2>&1 || log_step 'Relaunch failed'

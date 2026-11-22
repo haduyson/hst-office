@@ -4,6 +4,8 @@ the office is still open, the swap waits for (or refuses) an office running from
 the relaunch, and an old office still running is reported instead of being brought to the front."""
 import os
 from pathlib import Path
+import shlex
+import shutil
 import signal
 import subprocess
 import unittest
@@ -123,6 +125,23 @@ class OfficeOpenedDuringTheUpdate(MacHarness):
         self.process_vars["VERIFY_FAIL"] = "1"
         log = self.execute("Darwin", expected=1)
         self.assertIn("Relaunch skipped", log)
+        self.assertFalse((self.root / "open-args").exists())
+        self.assertNotIn(TEXTS["vi"]["helper_old_running"], self.notifications())  # nothing new was installed
+
+    def test_office_opened_right_after_the_swap_is_told_to_reopen(self):
+        # The copy is opened between the last check and the relaunch: the swap is done, `open` is skipped.
+        self.stub("rm", 'case "$*" in *.hst-old*) "$RECORDS/start-office" ;; esac\nexec %s "$@"\n' % shutil.which("rm"))
+        script = self.root / "start-office"
+        script.write_text("#!/bin/sh\nmkdir -p %s && cp %s %s && %s 60 >/dev/null 2>&1 &\necho $! > %s\n" % (
+            shlex.quote(str(self.destination / "Contents" / "MacOS")), shlex.quote(shutil.which("sleep")),
+            shlex.quote(str(self.destination / "Contents" / "MacOS" / "soffice")),
+            shlex.quote(str(self.destination / "Contents" / "MacOS" / "soffice")), shlex.quote(str(self.root / "office-pid"))),
+            encoding="utf-8")
+        script.chmod(0o700)
+        self.addCleanup(lambda: (self.root / "office-pid").exists() and os.kill(int((self.root / "office-pid").read_text()), 9))
+        log = self.execute("Darwin")
+        self.assertIn("Relaunch skipped", log)
+        self.assertEqual((self.destination / "version").read_text(), "new")
         self.assertFalse((self.root / "open-args").exists())
         self.assertIn(TEXTS["vi"]["helper_old_running"], self.notifications())
 
