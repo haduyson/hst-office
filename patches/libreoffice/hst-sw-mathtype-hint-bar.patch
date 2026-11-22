@@ -531,7 +531,7 @@ saves (sw/qa/uibase/hst/mathtypekeptole.cxx).
      m_aBringToAttentionBlinkTimer.SetTimeout(350);
 --- a/sw/qa/uibase/hst/mathtypekeptole.cxx
 +++ b/sw/qa/uibase/hst/mathtypekeptole.cxx
-@@ -0,0 +1,190 @@
+@@ -0,0 +1,234 @@
 +/* -*- Mode: C++; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 +/*
 + * SPDX-License-Identifier: LicenseRef-HST-Proprietary
@@ -547,12 +547,22 @@ saves (sw/qa/uibase/hst/mathtypekeptole.cxx).
 +#include <com/sun/star/embed/XEmbedPersist.hpp>
 +#include <com/sun/star/embed/XStorage.hpp>
 +#include <com/sun/star/lang/XComponent.hpp>
++#include <com/sun/star/lang/XMultiServiceFactory.hpp>
++#include <com/sun/star/text/XTextContent.hpp>
++#include <com/sun/star/text/XTextDocument.hpp>
 +#include <com/sun/star/text/XTextEmbeddedObjectsSupplier.hpp>
 +#include <comphelper/propertyvalue.hxx>
 +#include <sfx2/viewfrm.hxx>
 +#include <vcl/scheduler.hxx>
 +
++#include <sot/exchange.hxx>
++#include <tools/globname.hxx>
++
++#include <doc.hxx>
 +#include <docsh.hxx>
++#include <ndarr.hxx>
++#include <ndole.hxx>
++#include <node.hxx>
 +#include <view.hxx>
 +#include <viewopt.hxx>
 +#include <wrtsh.hxx>
@@ -719,6 +729,40 @@ saves (sw/qa/uibase/hst/mathtypekeptole.cxx).
 +    saveAndReload(TestFilter::DOCX);
 +    checkSavedDocx(2);
 +    CPPUNIT_ASSERT_EQUAL(u"2 objects, 2 MathType"_ustr, countObjects());
++}
++
++CPPUNIT_TEST_FIXTURE(HstMathTypeKeptOleTest, testOleCacheKeepsMathTypeObjects)
++{
++    // Writer's OLE cache unloads the least recently used objects when another one starts (a formula
++    // being inserted or opened). On Windows, unloading a MathType equation makes MathType load it;
++    // with dozens of them MathType ended in its endless "Too many windows are open" box
++    // (tdf#45892). The cache now leaves another program's objects alone and still unloads its own.
++    createSwDoc("hst-mathtype-ole-kept.rtf");
++    uno::Reference<lang::XMultiServiceFactory> xFactory(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XTextContent> xFormula(
++        xFactory->createInstance(u"com.sun.star.text.TextEmbeddedObject"_ustr), uno::UNO_QUERY_THROW);
++    uno::Reference<beans::XPropertySet>(xFormula, uno::UNO_QUERY_THROW)
++        ->setPropertyValue(u"CLSID"_ustr, uno::Any(u"078B7ABA-54FC-457F-8551-6147E776A997"_ustr));
++    uno::Reference<text::XTextDocument> xTextDocument(mxComponent, uno::UNO_QUERY_THROW);
++    uno::Reference<text::XText> xText = xTextDocument->getText();
++    xText->insertTextContent(xText->getEnd(), xFormula, false);
++
++    sal_Int32 nForeign = 0, nOwn = 0;
++    SwNodes& rNodes = getSwDoc()->GetNodes();
++    for (SwNodeOffset n(0); n < rNodes.Count(); ++n)
++    {
++        SwOLENode* pOLENode = rNodes[n]->GetOLENode();
++        if (!pOLENode)
++            continue;
++        SwOLEObj& rObject = pOLENode->GetOLEObj();
++        const bool bOwn = SotExchange::IsInternal(SvGlobalName(rObject.GetOleRef()->getClassID()));
++        // the cache's call; false: the object is left as it is
++        CPPUNIT_ASSERT_EQUAL(bOwn, rObject.UnloadObject());
++        ++(bOwn ? nOwn : nForeign);
++    }
++    CPPUNIT_ASSERT_EQUAL(u"2 MathType objects, 1 formula"_ustr,
++                         OUString::number(nForeign) + " MathType objects, " + OUString::number(nOwn)
++                             + " formula");
 +}
 +
 +/* vim:set shiftwidth=4 softtabstop=4 expandtab: */
