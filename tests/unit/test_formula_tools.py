@@ -10,6 +10,7 @@ import unittest
 from unittest import mock
 
 import _paths  # noqa: F401
+import uno_stubs  # noqa: F401 - formula_action imports dialogs (uno) outside the office
 
 from hst_office import formula_mathtype_server as server
 from hst_office import formula_ole, formula_save_check
