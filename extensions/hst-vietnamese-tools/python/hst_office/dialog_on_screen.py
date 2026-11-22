@@ -18,6 +18,7 @@ while the tab group was still switching tabs). Here:
   (the "+" menu, File > New, Finder, a launcher) shows in a full screen Space of its own; the parent and its child
   dialog stay in the Space the user left, where no toFront reaches them (probe run 44924218348). The dialog is moved
   onto the new document's window (dialogs.Dialog.execute runs it again there, its model keeps what was entered).
+  Full screen is read from AppKit (in_full_screen), so a parent in full screen on a second display counts too.
 - log_open(): one local diagnostics line per modal dialog (title, command that opened it, parent kind).
 """
 import sys
@@ -180,6 +181,14 @@ def covers_display(ctx, window):
         return False
 
 
+def in_full_screen(ctx, window, platform=None):
+    """The window is in native full screen on any display (AppKit, mac_native_window); covers_display() when AppKit
+    cannot be asked. A full screen window on a second display of another size than the built-in one counts too."""
+    from . import mac_native_window
+    native = mac_native_window.is_full_screen(window, platform)
+    return covers_display(ctx, window) if native is None else native
+
+
 class _Move(unohelper.Base, XCallback):
     """Main thread: move the running dialog onto `window` if it still runs and the window is shown."""
 
@@ -225,7 +234,7 @@ def watch_new_documents(ctx, parent_window, is_open, move, timer=None, platform=
 
     def on_new(event):
         window = _document_window(event)
-        if window is None or window == parent_window or not covers_display(ctx, parent_window):
+        if window is None or window == parent_window or not in_full_screen(ctx, parent_window, platform):
             return
         start(MOVE_DELAY, lambda: _post(ctx, _Move(window, is_open, move)))
 

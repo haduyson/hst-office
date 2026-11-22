@@ -56,6 +56,7 @@ for _name, _module in list(sys.modules.items()):
 from hst_office import dialog_on_screen, dialog_registry, dialogs, dispatch  # noqa: E402
 from hst_office import actions  # noqa: E402,F401 - dispatch imports it on first use; it needs the stubs too
 from hst_office import wizard_nd30  # noqa: E402
+import com.sun.star.document  # noqa: E402,F401 - imported on use (macOS watcher), after the finder is gone
 
 sys.meta_path.remove(_FINDER)
 
@@ -323,6 +324,21 @@ class NewDocumentWhileOpenTests(unittest.TestCase):
         self.document.visible = False
         self.office.broadcaster.fire("OnLoad", self.document)
         self.office.broadcaster.fire("OnViewCreated", self.parent)
+        self.run_pending()
+        self.assertEqual(self.moved, [])
+
+    def test_mac_full_screen_on_a_second_display_of_another_size_moves_the_dialog(self):
+        """AppKit says full screen: the parent is smaller than the built-in display (a second, smaller display)."""
+        self.watch((1024, 0, 800, 600))
+        with mock.patch("hst_office.mac_native_window.is_full_screen", return_value=True):
+            self.office.broadcaster.fire("OnNew", self.document)
+        self.run_pending()
+        self.assertEqual(self.moved, [self.document])
+
+    def test_mac_a_display_sized_window_that_appkit_says_is_not_full_screen_keeps_the_dialog(self):
+        self.watch(FULL_SCREEN)
+        with mock.patch("hst_office.mac_native_window.is_full_screen", return_value=False):
+            self.office.broadcaster.fire("OnNew", self.document)
         self.run_pending()
         self.assertEqual(self.moved, [])
 

@@ -40,7 +40,7 @@ class Order(unittest.TestCase):
         calls = []
         self.resume.side_effect = lambda ctx: calls.append("update_resume")
         sp.run(None, [("crash", lambda: calls.append("crash") or True)], after=lambda ctx: calls.append("update_check"))
-        self.assertEqual(calls, ["update_resume", "crash", "update_check"])
+        self.assertEqual(calls, ["update_resume", "update_check", "crash"])
 
     def test_order_is_mac_move_profile_crash_welcome_launchers_default_apps_update(self):
         self.assertEqual(sp.ORDER, ("mac_move", "profile_repaired", "crash", "welcome", "mac_launchers",
@@ -71,12 +71,12 @@ class Order(unittest.TestCase):
             shown, calls = self.chain(due)
             first = next(n for n in sp.ORDER if n in due)
             self.assertEqual(shown, first)
-            self.assertEqual(calls, list(sp.ORDER[:sp.ORDER.index(first) + 1]) + ["update_check"], due)
+            self.assertEqual(calls, ["update_check"] + list(sp.ORDER[:sp.ORDER.index(first) + 1]), due)
 
     def test_nothing_due_runs_every_check_and_the_infobar_check(self):
         shown, calls = self.chain(set())
         self.assertIsNone(shown)
-        self.assertEqual(calls, list(sp.ORDER) + ["update_check"])
+        self.assertEqual(calls, ["update_check"] + list(sp.ORDER))
 
     def test_failing_step_does_not_block_later_ones(self):
         def boom():
